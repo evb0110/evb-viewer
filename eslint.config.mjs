@@ -52,7 +52,9 @@ export default withNuxt(
             '@typescript-eslint/explicit-module-boundary-types': 'off',
             '@typescript-eslint/no-inferrable-types': 'error',
             'no-return-await': 'error',
+            'import/no-relative-parent-imports': 'error',
             'custom/brace-return-after-if': 'error',
+            'custom/import-specifier-newline': 'error',
             ...stylisticRules,
         },
     },
@@ -100,6 +102,16 @@ export default withNuxt(
                 },
             ],
         },
+    },
+    {
+        files: ['electron/**/*.ts'],
+        rules: {'no-restricted-imports': [
+            'error',
+            {patterns: [{
+                group: ['./*'],
+                message: 'Use absolute imports with @electron/ prefix instead of relative imports',
+            }]},
+        ]},
     },
     {
         files: ['**/*.vue'],

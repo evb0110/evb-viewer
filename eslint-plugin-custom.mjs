@@ -1,4 +1,102 @@
 export default {rules: {
+    'import-specifier-newline': {
+        meta: {
+            type: 'layout',
+            docs: {
+                description: 'Enforce import specifiers to be either all on one line or each on its own line',
+                recommended: true,
+            },
+            fixable: 'code',
+            schema: [],
+        },
+        create(context) {
+            const sourceCode = context.sourceCode;
+
+            return {ImportDeclaration(node) {
+                const specifiers = node.specifiers.filter(
+                    (s) => s.type === 'ImportSpecifier',
+                );
+
+                if (specifiers.length < 2) {
+                    return;
+                }
+
+                const firstSpecifier = specifiers[0];
+                const lastSpecifier = specifiers[specifiers.length - 1];
+                const openBrace = sourceCode.getTokenBefore(firstSpecifier);
+                const closeBrace = sourceCode.getTokenAfter(lastSpecifier);
+
+                const braceOnDifferentLine = openBrace.loc.end.line !== firstSpecifier.loc.start.line ||
+                    closeBrace.loc.start.line !== lastSpecifier.loc.end.line;
+                const specifiersOnSameLine = firstSpecifier.loc.start.line === lastSpecifier.loc.end.line;
+
+                if (braceOnDifferentLine && specifiersOnSameLine) {
+                    context.report({
+                        node: firstSpecifier,
+                        message: 'Each import specifier should be on its own line when imports span multiple lines',
+                        fix(fixer) {
+                            const indent = '    ';
+                            const specifierTexts = specifiers.map((s) => sourceCode.getText(s));
+                            const source = node.source;
+
+                            const formatted =
+                                '{\n' +
+                                    specifierTexts.map((t) => `${indent}${t},`).join('\n') +
+                                    '\n} from ' +
+                                    sourceCode.getText(source);
+
+                            return fixer.replaceTextRange(
+                                [
+                                    openBrace.range[0],
+                                    source.range[1],
+                                ],
+                                formatted,
+                            );
+                        },
+                    });
+                    return;
+                }
+
+                const isMultiline = firstSpecifier.loc.start.line !== lastSpecifier.loc.end.line;
+
+                if (!isMultiline) {
+                    return;
+                }
+
+                for (let i = 0; i < specifiers.length - 1; i++) {
+                    const current = specifiers[i];
+                    const next = specifiers[i + 1];
+
+                    if (current.loc.end.line === next.loc.start.line) {
+                        context.report({
+                            node: next,
+                            message: 'Each import specifier should be on its own line when imports span multiple lines',
+                            fix(fixer) {
+                                const indent = '    ';
+                                const specifierTexts = specifiers.map((s) => sourceCode.getText(s));
+                                const source = node.source;
+
+                                const formatted =
+                                    '{\n' +
+                                        specifierTexts.map((t) => `${indent}${t},`).join('\n') +
+                                        '\n} from ' +
+                                        sourceCode.getText(source);
+
+                                return fixer.replaceTextRange(
+                                    [
+                                        openBrace.range[0],
+                                        source.range[1],
+                                    ],
+                                    formatted,
+                                );
+                            },
+                        });
+                        break;
+                    }
+                }
+            }};
+        },
+    },
     'vue-boolean-prop-shorthand': {
         meta: {
             type: 'suggestion',

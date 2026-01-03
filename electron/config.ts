@@ -1,6 +1,7 @@
 import { app } from 'electron';
 import {
-    dirname, join, 
+    dirname,
+    join,
 } from 'path';
 import { fileURLToPath } from 'url';
 

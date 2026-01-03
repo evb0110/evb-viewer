@@ -1,8 +1,9 @@
 import { BrowserWindow } from 'electron';
-import { config } from './config';
+import { config } from '@electron/config';
 import {
-    startServer, waitForServer, 
-} from './server';
+    startServer,
+    waitForServer,
+} from '@electron/server';
 
 let mainWindow: BrowserWindow | null = null;
 

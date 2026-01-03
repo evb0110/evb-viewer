@@ -1,7 +1,8 @@
 import {
-    spawn, type ChildProcess, 
+    spawn,
+    type ChildProcess,
 } from 'child_process';
-import { config } from './config';
+import { config } from '@electron/config';
 
 let nuxtProcess: ChildProcess | null = null;
 let serverReady: Promise<void> | null = null;

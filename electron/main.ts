@@ -1,13 +1,14 @@
 import { app } from 'electron';
-import { config } from './config';
-import { stopServer } from './server';
+import { config } from '@electron/config';
+import { stopServer } from '@electron/server';
 import {
-    createWindow, hasWindows, 
-} from './window';
+    createWindow,
+    hasWindows,
+} from '@electron/window';
 
 async function init() {
     await app.whenReady();
-    createWindow();
+    void createWindow();
 
     app.on('window-all-closed', () => {
         stopServer();
