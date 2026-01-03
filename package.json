@@ -5,9 +5,8 @@
   "type": "module",
   "main": "dist-electron/main.js",
   "scripts": {
-    "dev": "concurrently \"pnpm run dev:nuxt\" \"pnpm run dev:electron\"",
+    "dev": "electron .",
     "dev:nuxt": "nuxt dev --port 3235",
-    "dev:electron": "wait-on http://localhost:3235 && electron .",
     "build": "nuxt build && pnpm run build:electron",
     "build:electron": "esbuild electron/main.ts --bundle --platform=node --format=esm --outfile=dist-electron/main.js --external:electron",
     "preview": "nuxt preview",
@@ -17,22 +16,20 @@
     "validate": "pnpm run typecheck && pnpm run lint && pnpm run build"
   },
   "dependencies": {
+    "es-toolkit": "^1.43.0",
     "nuxt": "^4.0.0",
     "vue": "^3.5.0"
   },
   "devDependencies": {
     "@nuxt/eslint": "^1.12.1",
-    "concurrently": "^9.0.0",
+    "@stylistic/eslint-plugin": "^5.6.1",
     "electron": "^39.2.7",
     "esbuild": "^0.27.0",
     "eslint": "^9.39.2",
-    "eslint-plugin-format": "^1.1.0",
-    "prettier": "^3.7.4",
     "stylelint": "^16.26.1",
     "stylelint-config-recommended-vue": "^1.6.1",
     "stylelint-config-standard-scss": "^16.0.0",
-    "typescript": "^5.7.0",
-    "wait-on": "^8.0.0"
+    "typescript": "^5.7.0"
   },
   "packageManager": "pnpm@9.15.0"
 }

@@ -1,43 +1,66 @@
 import withNuxt from './.nuxt/eslint.config.mjs';
-import format from 'eslint-plugin-format';
+import stylistic from '@stylistic/eslint-plugin';
 import customPlugin from './eslint-plugin-custom.mjs';
 
+const stylisticRules = {
+    '@stylistic/indent': [
+        'error',
+        4,
+    ],
+    '@stylistic/quotes': [
+        'error',
+        'single',
+    ],
+    '@stylistic/semi': [
+        'error',
+        'always',
+    ],
+    '@stylistic/comma-dangle': [
+        'error',
+        'always-multiline',
+    ],
+    '@stylistic/array-bracket-newline': [
+        'error',
+        { minItems: 2 },
+    ],
+    '@stylistic/array-element-newline': [
+        'error',
+        { minItems: 2 },
+    ],
+    '@stylistic/object-curly-newline': [
+        'error',
+        { minProperties: 2 },
+    ],
+    '@stylistic/object-property-newline': [
+        'error',
+        { allowAllPropertiesOnSameLine: false },
+    ],
+};
+
 export default withNuxt(
-    {
-        ignores: ['**/.devkit/**'],
-    },
+    {ignores: ['**/.devkit/**']},
     {
         plugins: {
+            '@stylistic': stylistic,
             custom: customPlugin,
         },
         rules: {
             'vue/no-multiple-template-root': 'off',
             'vue/html-self-closing': 'off',
             '@typescript-eslint/unified-signatures': 'off',
+            '@typescript-eslint/explicit-function-return-type': 'off',
+            '@typescript-eslint/explicit-module-boundary-types': 'off',
+            '@typescript-eslint/no-inferrable-types': 'error',
             'no-return-await': 'error',
             'custom/brace-return-after-if': 'error',
+            ...stylisticRules,
         },
     },
     {
-        files: ['**/*.ts', '**/*.tsx', '**/*.mjs'],
-        ignores: ['**/*.d.ts'],
-        plugins: {
-            format,
-        },
-        rules: {
-            'format/prettier': [
-                'error',
-                {
-                    tabWidth: 4,
-                    useTabs: false,
-                    parser: 'typescript',
-                    singleQuote: true,
-                },
-            ],
-        },
-    },
-    {
-        files: ['**/*.ts', '**/*.tsx'],
+        files: [
+            '**/*.ts',
+            '**/*.tsx',
+        ],
         ignores: [
             '*.config.ts',
             '*.config.mts',
@@ -47,11 +70,7 @@ export default withNuxt(
             'electron/**',
             '**/*.d.ts',
         ],
-        languageOptions: {
-            parserOptions: {
-                projectService: true,
-            },
-        },
+        languageOptions: {parserOptions: {projectService: true}},
         rules: {
             '@typescript-eslint/require-await': 'error',
             '@typescript-eslint/array-type': [
@@ -83,36 +102,9 @@ export default withNuxt(
         },
     },
     {
-        files: ['**/*.css', '**/*.scss'],
-        plugins: {
-            format,
-        },
-        languageOptions: {
-            parser: format.parserPlain,
-        },
-        rules: {
-            'format/prettier': [
-                'error',
-                {
-                    tabWidth: 4,
-                    useTabs: false,
-                    parser: 'scss',
-                    singleQuote: true,
-                },
-            ],
-        },
-    },
-    {
         files: ['**/*.vue'],
-        plugins: {
-            format,
-            custom: customPlugin,
-        },
-        languageOptions: {
-            parserOptions: {
-                projectService: true,
-            },
-        },
+        plugins: {custom: customPlugin},
+        languageOptions: {parserOptions: {projectService: true}},
         rules: {
             '@typescript-eslint/require-await': 'error',
             '@typescript-eslint/array-type': [
@@ -165,15 +157,6 @@ export default withNuxt(
             ],
             'custom/vue-boolean-prop-shorthand': 'error',
             'custom/brace-return-after-if': 'error',
-            'format/prettier': [
-                'error',
-                {
-                    tabWidth: 4,
-                    useTabs: false,
-                    parser: 'vue',
-                    singleQuote: true,
-                },
-            ],
         },
     },
 );

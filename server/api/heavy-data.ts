@@ -6,10 +6,30 @@ export default defineEventHandler(async () => {
     await new Promise((resolve) => setTimeout(resolve, 500));
 
     return [
-        { id: 1, name: 'Item Alpha', value: Math.random().toFixed(4) },
-        { id: 2, name: 'Item Beta', value: Math.random().toFixed(4) },
-        { id: 3, name: 'Item Gamma', value: Math.random().toFixed(4) },
-        { id: 4, name: 'Item Delta', value: Math.random().toFixed(4) },
-        { id: 5, name: 'Item Epsilon', value: Math.random().toFixed(4) },
+        {
+            id: 1,
+            name: 'Item Alpha',
+            value: Math.random().toFixed(4),
+        },
+        {
+            id: 2,
+            name: 'Item Beta',
+            value: Math.random().toFixed(4),
+        },
+        {
+            id: 3,
+            name: 'Item Gamma',
+            value: Math.random().toFixed(4),
+        },
+        {
+            id: 4,
+            name: 'Item Delta',
+            value: Math.random().toFixed(4),
+        },
+        {
+            id: 5,
+            name: 'Item Epsilon',
+            value: Math.random().toFixed(4),
+        },
     ];
 });

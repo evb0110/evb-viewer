@@ -1,168 +1,162 @@
-export default {
-    rules: {
-        'vue-boolean-prop-shorthand': {
-            meta: {
-                type: 'suggestion',
-                docs: {
-                    description:
+export default {rules: {
+    'vue-boolean-prop-shorthand': {
+        meta: {
+            type: 'suggestion',
+            docs: {
+                description:
                         'Enforce boolean prop shorthand in Vue templates (e.g., is-draggable instead of :is-draggable="true")',
-                    recommended: true,
-                },
-                fixable: 'code',
-                schema: [],
+                recommended: true,
             },
-            create(context) {
-                const parserServices =
-                    context.parserServices ||
+            fixable: 'code',
+            schema: [],
+        },
+        create(context) {
+            const parserServices =
+                context.parserServices ||
                     context.sourceCode?.parserServices;
 
-                if (
-                    !parserServices ||
+            if (
+                !parserServices ||
                     !parserServices.defineTemplateBodyVisitor
-                ) {
-                    return {};
+            ) {
+                return {};
+            }
+
+            function getAttributeName(node) {
+                if (!node.directive) {
+                    return node.key.rawName;
                 }
 
-                function getAttributeName(node) {
-                    if (!node.directive) {
-                        return node.key.rawName;
-                    }
-
-                    if (
-                        (node.key.name.name === 'bind' ||
+                if (
+                    (node.key.name.name === 'bind' ||
                             node.key.name.name === 'model') &&
                         node.key.argument &&
                         node.key.argument.type === 'VIdentifier'
-                    ) {
-                        return node.key.argument.rawName;
-                    }
-
-                    return null;
+                ) {
+                    return node.key.argument.rawName;
                 }
 
-                function shouldConvertToShortForm(node) {
-                    const isLiteralTrue =
-                        node.directive &&
+                return null;
+            }
+
+            function shouldConvertToShortForm(node) {
+                const isLiteralTrue =
+                    node.directive &&
                         node.value?.expression?.type === 'Literal' &&
                         node.value.expression.value === true &&
                         Boolean(node.key.argument);
 
-                    return isLiteralTrue;
+                return isLiteralTrue;
+            }
+
+            return parserServices.defineTemplateBodyVisitor({VAttribute(node) {
+                const name = getAttributeName(node);
+                if (name === null) {
+                    return;
                 }
 
-                return parserServices.defineTemplateBodyVisitor({
-                    VAttribute(node) {
-                        const name = getAttributeName(node);
-                        if (name === null) {
-                            return;
-                        }
-
-                        if (shouldConvertToShortForm(node)) {
-                            const directiveKey = node.key;
-                            if (
-                                directiveKey.argument &&
+                if (shouldConvertToShortForm(node)) {
+                    const directiveKey = node.key;
+                    if (
+                        directiveKey.argument &&
                                 directiveKey.argument.type === 'VIdentifier'
-                            ) {
-                                context.report({
+                    ) {
+                        context.report({
+                            node,
+                            message: `Use shorthand '${directiveKey.argument.rawName}' instead of ':${directiveKey.argument.rawName}="true"'`,
+                            fix(fixer) {
+                                return fixer.replaceText(
                                     node,
-                                    message: `Use shorthand '${directiveKey.argument.rawName}' instead of ':${directiveKey.argument.rawName}="true"'`,
-                                    fix(fixer) {
-                                        return fixer.replaceText(
-                                            node,
-                                            directiveKey.argument.rawName,
-                                        );
-                                    },
-                                });
-                            }
-                        }
-                    },
-                });
-            },
+                                    directiveKey.argument.rawName,
+                                );
+                            },
+                        });
+                    }
+                }
+            }});
         },
-        'brace-return-after-if': {
-            meta: {
-                type: 'layout',
-                docs: {
-                    description:
+    },
+    'brace-return-after-if': {
+        meta: {
+            type: 'layout',
+            docs: {
+                description:
                         'Require braces around return statements after if conditions',
-                    recommended: true,
-                },
-                fixable: 'code',
-                schema: [],
+                recommended: true,
             },
-            create(context) {
-                const sourceCode = context.sourceCode;
+            fixable: 'code',
+            schema: [],
+        },
+        create(context) {
+            const sourceCode = context.sourceCode;
 
-                return {
-                    IfStatement(node) {
-                        if (
-                            node.consequent.type === 'ReturnStatement' ||
+            return {IfStatement(node) {
+                if (
+                    node.consequent.type === 'ReturnStatement' ||
                             (node.consequent.type === 'BlockStatement' &&
                                 node.consequent.body.length === 1 &&
                                 node.consequent.body[0].type ===
                                     'ReturnStatement' &&
                                 sourceCode.getText(node.consequent).split('\n')
                                     .length < 3)
-                        ) {
-                            if (node.consequent.type === 'ReturnStatement') {
-                                context.report({
-                                    node: node.consequent,
-                                    message:
+                ) {
+                    if (node.consequent.type === 'ReturnStatement') {
+                        context.report({
+                            node: node.consequent,
+                            message:
                                         'Return statement after if condition must be wrapped in braces on 3 lines',
-                                    fix(fixer) {
-                                        const returnStmt = sourceCode.getText(
-                                            node.consequent,
-                                        );
-                                        const indent = ' '.repeat(
-                                            node.consequent.loc.start.column,
-                                        );
-                                        const innerIndent = indent + '    ';
-                                        const replacement = `{\n${innerIndent}${returnStmt}\n${indent}}`;
-                                        return fixer.replaceText(
-                                            node.consequent,
-                                            replacement,
-                                        );
-                                    },
-                                });
-                            } else if (
-                                node.consequent.type === 'BlockStatement' &&
+                            fix(fixer) {
+                                const returnStmt = sourceCode.getText(
+                                    node.consequent,
+                                );
+                                const indent = ' '.repeat(
+                                    node.consequent.loc.start.column,
+                                );
+                                const innerIndent = indent + '    ';
+                                const replacement = `{\n${innerIndent}${returnStmt}\n${indent}}`;
+                                return fixer.replaceText(
+                                    node.consequent,
+                                    replacement,
+                                );
+                            },
+                        });
+                    } else if (
+                        node.consequent.type === 'BlockStatement' &&
                                 node.consequent.body.length === 1 &&
                                 node.consequent.body[0].type ===
                                     'ReturnStatement'
-                            ) {
-                                const blockText = sourceCode.getText(
-                                    node.consequent,
-                                );
-                                const lines = blockText.split('\n');
+                    ) {
+                        const blockText = sourceCode.getText(
+                            node.consequent,
+                        );
+                        const lines = blockText.split('\n');
 
-                                if (lines.length < 3) {
-                                    context.report({
-                                        node: node.consequent,
-                                        message:
+                        if (lines.length < 3) {
+                            context.report({
+                                node: node.consequent,
+                                message:
                                             'Return statement in braces after if condition must occupy exactly 3 lines',
-                                        fix(fixer) {
-                                            const returnStmt =
-                                                sourceCode.getText(
-                                                    node.consequent.body[0],
-                                                );
-                                            const indent = ' '.repeat(
-                                                node.consequent.loc.start
-                                                    .column,
-                                            );
-                                            const innerIndent = indent + '    ';
-                                            const replacement = `{\n${innerIndent}${returnStmt}\n${indent}}`;
-                                            return fixer.replaceText(
-                                                node.consequent,
-                                                replacement,
-                                            );
-                                        },
-                                    });
-                                }
-                            }
+                                fix(fixer) {
+                                    const returnStmt =
+                                        sourceCode.getText(
+                                            node.consequent.body[0],
+                                        );
+                                    const indent = ' '.repeat(
+                                        node.consequent.loc.start
+                                            .column,
+                                    );
+                                    const innerIndent = indent + '    ';
+                                    const replacement = `{\n${innerIndent}${returnStmt}\n${indent}}`;
+                                    return fixer.replaceText(
+                                        node.consequent,
+                                        replacement,
+                                    );
+                                },
+                            });
                         }
-                    },
-                };
-            },
+                    }
+                }
+            }};
         },
     },
-};
+}};
