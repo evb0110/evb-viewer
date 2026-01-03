@@ -67,10 +67,19 @@ import {
     useResizeObserver,
 } from '@vueuse/core';
 import PdfPageSkeleton from './PdfPageSkeleton.vue';
+import type {
+    IPdfPageMatches,
+    IPdfSearchMatch,
+} from '../../types/pdf';
 
 import 'pdfjs-dist/web/pdf_viewer.css';
 
 const { setupTextLayer } = useTextLayerSelection();
+const {
+    clearHighlights,
+    highlightPage,
+    scrollToHighlight,
+} = usePdfSearchHighlight();
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf/pdf.worker.min.mjs';
 
@@ -83,6 +92,8 @@ interface IPdfViewerProps {
     isResizing?: boolean;
     invertColors?: boolean;
     showAnnotations?: boolean;
+    searchPageMatches?: Map<number, IPdfPageMatches>;
+    currentSearchMatch?: IPdfSearchMatch | null;
 }
 
 const emit = defineEmits<{
@@ -101,6 +112,8 @@ const {
     isResizing = false,
     invertColors = false,
     showAnnotations = true,
+    searchPageMatches = undefined,
+    currentSearchMatch = null,
 } = defineProps<IPdfViewerProps>();
 
 const numPages = ref<number>(0);
@@ -862,6 +875,12 @@ async function renderVisiblePages() {
                     });
                     await textLayer.render();
                     setupTextLayer(textLayerDiv);
+
+                    if (searchPageMatches && searchPageMatches.size > 0) {
+                        const pageIndex = pageNumber - 1;
+                        const pageMatchData = searchPageMatches.get(pageIndex) ?? null;
+                        highlightPage(textLayerDiv, pageMatchData, currentSearchMatch ?? null);
+                    }
                 }
 
                 const annotationLayerDiv =
@@ -1090,10 +1109,78 @@ async function saveDocument(): Promise<Uint8Array | null> {
     return doc.saveDocument();
 }
 
+function applySearchHighlights() {
+    if (!viewerContainer.value) {
+        return;
+    }
+
+    const pageContainers = viewerContainer.value.querySelectorAll<HTMLElement>('.page_container');
+
+    pageContainers.forEach((container, index) => {
+        const pageIndex = index;
+        const textLayerDiv = container.querySelector<HTMLElement>('.text-layer');
+
+        if (!textLayerDiv) {
+            return;
+        }
+
+        if (!searchPageMatches || searchPageMatches.size === 0) {
+            clearHighlights(textLayerDiv);
+            return;
+        }
+
+        const pageMatches = searchPageMatches.get(pageIndex) ?? null;
+        highlightPage(textLayerDiv, pageMatches, currentSearchMatch ?? null);
+    });
+}
+
+function scrollToCurrentMatch() {
+    if (!viewerContainer.value || !currentSearchMatch) {
+        return;
+    }
+
+    const pageIndex = currentSearchMatch.pageIndex;
+    const pageContainers = viewerContainer.value.querySelectorAll<HTMLElement>('.page_container');
+    const targetContainer = pageContainers[pageIndex];
+
+    if (!targetContainer) {
+        return;
+    }
+
+    const textLayerDiv = targetContainer.querySelector<HTMLElement>('.text-layer');
+    if (!textLayerDiv) {
+        return;
+    }
+
+    const currentHighlight = textLayerDiv.querySelector<HTMLElement>('.pdf-search-highlight--current');
+    if (currentHighlight) {
+        scrollToHighlight(currentHighlight, viewerContainer.value);
+    }
+}
+
+watch(
+    () => [
+        searchPageMatches,
+        currentSearchMatch,
+    ] as const,
+    () => {
+        if (isLoading.value) {
+            return;
+        }
+        applySearchHighlights();
+        nextTick(() => {
+            scrollToCurrentMatch();
+        });
+    },
+    { deep: true },
+);
+
 defineExpose({
     scrollToPage,
     getPdfDocument,
     saveDocument,
+    applySearchHighlights,
+    scrollToCurrentMatch,
 });
 </script>
 
@@ -1249,6 +1336,20 @@ defineExpose({
     background: transparent;
 }
 
+.text-layer :deep(.pdf-search-highlight) {
+    background-color: rgb(255 230 0 / 0.5);
+    color: transparent;
+    border-radius: 2px;
+    padding: 0;
+    margin: 0;
+}
+
+.text-layer :deep(.pdf-search-highlight--current) {
+    background-color: rgb(255 150 0 / 0.7);
+    outline: 2px solid rgb(255 100 0 / 0.8);
+    outline-offset: 0;
+}
+
 .text-layer :deep(.end-of-content) {
     display: block;
     position: absolute;
@@ -1294,6 +1395,15 @@ defineExpose({
 
 .pdf-viewer-container--dark .text-layer :deep(::selection) {
     background: rgb(255 200 0 / 0.35);
+}
+
+.pdf-viewer-container--dark .text-layer :deep(.pdf-search-highlight) {
+    background-color: rgb(255 230 0 / 0.6);
+}
+
+.pdf-viewer-container--dark .text-layer :deep(.pdf-search-highlight--current) {
+    background-color: rgb(255 150 0 / 0.8);
+    outline: 2px solid rgb(255 100 0 / 0.9);
 }
 
 .pdf-viewer-container--dark .page_container,

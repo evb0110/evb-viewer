@@ -138,7 +138,12 @@ export const usePdfSkeletonInsets = (
             return null;
         }
 
-        return { top, right, bottom, left };
+        return {
+            top,
+            right,
+            bottom,
+            left, 
+        };
     }
 
     async function computeSkeletonInsets(

@@ -33,4 +33,23 @@ export interface IPdfLinkServiceOptions {
     goToPage: (page: number) => void;
 }
 
-export type { PDFDocumentProxy, PDFPageProxy };
+export interface IPdfSearchMatch {
+    pageIndex: number;
+    matchIndex: number;
+    startOffset: number;
+    endOffset: number;
+}
+
+export interface IPdfPageMatches {
+    pageIndex: number;
+    matches: Array<{
+        start: number;
+        end: number;
+    }>;
+}
+
+export type TSearchDirection = 'next' | 'previous';
+
+export type {
+    PDFDocumentProxy, PDFPageProxy,
+};

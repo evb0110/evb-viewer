@@ -3,14 +3,23 @@ import type { TScrollSnapshot } from '../../types/pdf';
 
 export const usePdfScroll = () => {
     const currentPage = ref(1);
-    const visibleRange = ref({ start: 1, end: 1 });
+    const visibleRange = ref({
+        start: 1,
+        end: 1, 
+    });
 
     function getVisiblePageRange(
         container: HTMLElement | null,
         totalPages: number,
-    ): { start: number; end: number } {
+    ): {
+        start: number;
+        end: number 
+    } {
         if (!container || totalPages === 0) {
-            return { start: 1, end: 1 };
+            return {
+                start: 1,
+                end: 1, 
+            };
         }
 
         const containerRect = container.getBoundingClientRect();
@@ -41,7 +50,10 @@ export const usePdfScroll = () => {
             }
         }
 
-        return { start: firstVisible, end: lastVisible };
+        return {
+            start: firstVisible,
+            end: lastVisible, 
+        };
     }
 
     function getMostVisiblePage(
@@ -108,7 +120,9 @@ export const usePdfScroll = () => {
             return null;
         }
 
-        const { scrollWidth, scrollHeight } = container;
+        const {
+            scrollWidth, scrollHeight, 
+        } = container;
 
         if (!scrollWidth || !scrollHeight) {
             return null;

@@ -3,6 +3,7 @@
         <!-- Toolbar -->
         <header class="flex items-center gap-2 p-2 border-b border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 whitespace-nowrap overflow-x-auto">
             <UButton
+                v-if="!pdfSrc"
                 icon="i-lucide-folder-open"
                 variant="soft"
                 @click="openFile(); closeAllDropdowns()"
@@ -98,6 +99,8 @@
                 :zoom="zoom"
                 :fit-mode="fitMode"
                 :drag-mode="dragMode"
+                :search-page-matches="pageMatches"
+                :current-search-match="currentResult"
                 @update:current-page="currentPage = $event"
                 @update:total-pages="totalPages = $event"
                 @loading="isLoading = $event"
@@ -133,6 +136,8 @@ interface IPdfViewerExpose {
     scrollToPage: (page: number) => void;
     getPdfDocument: () => PDFDocumentProxy | null;
     saveDocument: () => Promise<Uint8Array | null>;
+    applySearchHighlights: () => void;
+    scrollToCurrentMatch: () => void;
 }
 
 const {
@@ -159,7 +164,9 @@ watch(pdfError, (err) => {
 const {
     searchQuery,
     results,
+    pageMatches,
     currentResultIndex,
+    currentResult,
     isSearching,
     totalMatches,
     currentMatch,
@@ -228,6 +235,9 @@ function scrollToCurrentResult() {
         const result = results.value[currentResultIndex.value];
         if (result) {
             pdfViewerRef.value?.scrollToPage(result.pageIndex + 1);
+            nextTick(() => {
+                pdfViewerRef.value?.scrollToCurrentMatch();
+            });
         }
     }
 }

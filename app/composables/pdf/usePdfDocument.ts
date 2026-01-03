@@ -55,7 +55,10 @@ export const usePdfDocument = () => {
             basePageWidth.value = viewport.width;
             basePageHeight.value = viewport.height;
 
-            return { version, document: pdfDoc };
+            return {
+                version,
+                document: pdfDoc, 
+            };
         } catch (error) {
             console.error('Failed to load PDF:', error);
             return null;
@@ -79,7 +82,9 @@ export const usePdfDocument = () => {
     }
 
     function cleanupPageCache() {
-        for (const [, page] of pdfPageCache) {
+        for (const [
+            , page,
+        ] of pdfPageCache) {
             page.cleanup();
         }
         pdfPageCache.clear();
