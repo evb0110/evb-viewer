@@ -1,22 +1,17 @@
 export default defineNuxtConfig({
-  modules: ['nuxt-electron'],
+    modules: ['@nuxt/eslint'],
 
-  ssr: true,
+    ssr: true,
 
-  devtools: { enabled: false },
+    devtools: { enabled: false },
 
-  electron: {
-    build: [
-      {
-        entry: 'electron/main.ts',
-      },
-    ],
-  },
+    devServer: {
+        port: 3235,
+    },
 
-  nitro: {
-    preset: 'node-server',
-    serveStatic: true,
-  },
+    nitro: {
+        preset: 'node-server',
+    },
 
-  compatibilityDate: '2025-01-01',
-})
+    compatibilityDate: '2025-01-01',
+});

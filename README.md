@@ -9,7 +9,7 @@ Barebones example of running Nuxt with SSR inside Electron.
 │                    ELECTRON MAIN PROCESS                    │
 │                                                             │
 │   In dev:  Just loads http://localhost:3000                 │
-│   In prod: Spawns Nuxt server, then loads from it          │
+│   In prod: Spawns Nuxt server, then loads from it           │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
                               │
@@ -18,7 +18,7 @@ Barebones example of running Nuxt with SSR inside Electron.
 │                    NUXT SSR SERVER                          │
 │                                                             │
 │   1. Receives request                                       │
-│   2. Fetches data (server/api/heavy-data.ts)               │
+│   2. Fetches data (server/api/heavy-data.ts)                │
 │   3. Renders Vue components to HTML                         │
 │   4. Returns fully rendered HTML                            │
 │                                                             │
