@@ -124,6 +124,12 @@ export const usePdfSearch = () => {
         }
     }
 
+    function setResultIndex(index: number) {
+        if (index >= 0 && index < results.value.length) {
+            currentResultIndex.value = index;
+        }
+    }
+
     function clearSearch() {
         searchQuery.value = '';
         results.value = [];
@@ -146,6 +152,7 @@ export const usePdfSearch = () => {
         currentMatch,
         search,
         goToResult,
+        setResultIndex,
         clearSearch,
         getMatchesForPage,
     };

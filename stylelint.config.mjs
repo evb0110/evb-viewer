@@ -4,11 +4,11 @@ export default {
         'stylelint-config-recommended-vue/scss',
     ],
     rules: {
-        // Disallow nested BEM modifiers (&--modifier)
-        // Forces flat declarations: .block--modifier instead of .block { &--modifier }
-        'selector-nested-pattern': '^(?!&--)',
+        // Disallow SCSS parent selector concatenation (&- and &_)
+        // Vue scoped styles eliminate the need for BEM - use flat class names
+        'selector-nested-pattern': '^(?!&[-_])',
 
-        // Allow BEM naming: block__element--modifier
+        // Allow any class naming pattern
         'selector-class-pattern': null,
 
         // Allow SCSS partials with leading underscore

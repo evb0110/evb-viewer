@@ -22,6 +22,13 @@
                     Save
                 </UButton>
 
+                <UButton
+                    icon="i-lucide-panel-left"
+                    variant="ghost"
+                    :color="showSidebar ? 'primary' : 'neutral'"
+                    @click="showSidebar = !showSidebar; closeAllDropdowns()"
+                />
+
                 <div class="flex-1" />
 
                 <UButton
@@ -91,31 +98,45 @@
         </div>
 
         <!-- Main -->
-        <main class="flex-1 overflow-hidden">
-            <PdfViewer
+        <main class="flex-1 overflow-hidden flex">
+            <PdfSidebar
                 v-if="pdfSrc"
-                ref="pdfViewerRef"
-                :src="pdfSrc"
-                :zoom="zoom"
-                :fit-mode="fitMode"
-                :drag-mode="dragMode"
-                :search-page-matches="pageMatches"
-                :current-search-match="currentResult"
-                @update:current-page="currentPage = $event"
-                @update:total-pages="totalPages = $event"
-                @loading="isLoading = $event"
+                :is-open="showSidebar"
+                :pdf-document="pdfViewerRef?.getPdfDocument() ?? null"
+                :current-page="currentPage"
+                :total-pages="totalPages"
+                :search-results="results"
+                :current-result-index="currentResultIndex"
+                :search-query="searchQuery"
+                @go-to-page="handleGoToPage"
+                @go-to-result="handleGoToResult"
             />
-            <div
-                v-else
-                class="h-full flex flex-col items-center justify-center gap-4 text-neutral-400 dark:text-neutral-600"
-            >
-                <UIcon
-                    name="i-lucide-file-text"
-                    class="size-16"
+            <div class="flex-1 overflow-hidden">
+                <PdfViewer
+                    v-if="pdfSrc"
+                    ref="pdfViewerRef"
+                    :src="pdfSrc"
+                    :zoom="zoom"
+                    :fit-mode="fitMode"
+                    :drag-mode="dragMode"
+                    :search-page-matches="pageMatches"
+                    :current-search-match="currentResult"
+                    @update:current-page="currentPage = $event"
+                    @update:total-pages="totalPages = $event"
+                    @loading="isLoading = $event"
                 />
-                <span class="text-lg">
-                    Open a PDF file
-                </span>
+                <div
+                    v-else
+                    class="h-full flex flex-col items-center justify-center gap-4 text-neutral-400 dark:text-neutral-600"
+                >
+                    <UIcon
+                        name="i-lucide-file-text"
+                        class="size-16"
+                    />
+                    <span class="text-lg">
+                        Open a PDF file
+                    </span>
+                </div>
             </div>
         </main>
     </div>
@@ -125,6 +146,7 @@
 import {
     nextTick,
     onMounted,
+    onUnmounted,
     ref,
     watch,
 } from 'vue';
@@ -151,8 +173,26 @@ const {
     saveFile,
 } = usePdfFile();
 
+const menuCleanups: Array<() => void> = [];
+
 onMounted(() => {
     console.log('Electron API available:', isElectron.value);
+
+    if (window.electronAPI) {
+        menuCleanups.push(
+            window.electronAPI.onMenuOpenPdf(() => openFile()),
+            window.electronAPI.onMenuSave(() => handleSave()),
+            window.electronAPI.onMenuZoomIn(() => { zoom.value = Math.min(zoom.value + 0.25, 5); }),
+            window.electronAPI.onMenuZoomOut(() => { zoom.value = Math.max(zoom.value - 0.25, 0.25); }),
+            window.electronAPI.onMenuActualSize(() => { zoom.value = 1; }),
+            window.electronAPI.onMenuFitWidth(() => { fitMode.value = 'width'; }),
+            window.electronAPI.onMenuFitHeight(() => { fitMode.value = 'height'; }),
+        );
+    }
+});
+
+onUnmounted(() => {
+    menuCleanups.forEach((cleanup) => cleanup());
 });
 
 watch(pdfError, (err) => {
@@ -172,6 +212,7 @@ const {
     currentMatch,
     search,
     goToResult,
+    setResultIndex,
     clearSearch,
 } = usePdfSearch();
 
@@ -191,6 +232,7 @@ const totalPages = ref(0);
 const isLoading = ref(false);
 const dragMode = ref(true);
 const showSearchBar = ref(false);
+const showSidebar = ref(false);
 const isSaving = ref(false);
 const searchBarRef = ref<{ focus: () => void } | null>(null);
 
@@ -245,6 +287,11 @@ function scrollToCurrentResult() {
             });
         }
     }
+}
+
+function handleGoToResult(index: number) {
+    setResultIndex(index);
+    scrollToCurrentResult();
 }
 
 async function handleSave() {

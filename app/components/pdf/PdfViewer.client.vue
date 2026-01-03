@@ -157,6 +157,7 @@ let renderVersion = 0;
 let isLoadingPdf = false;
 
 const renderedPages = new Set<number>();
+const renderingPages = new Set<number>();
 const pageCanvases = new Map<number, HTMLCanvasElement>();
 const pdfPageCache = new Map<number, PDFPageProxy>();
 
@@ -427,6 +428,10 @@ async function loadPdf() {
     const loadingTask = pdfjsLib.getDocument({
         url: URL.createObjectURL(src),
         standardFontDataUrl: '/pdf/standard_fonts/',
+        cMapUrl: '/pdf/cmaps/',
+        cMapPacked: true,
+        wasmUrl: '/pdf/wasm/',
+        iccUrl: '/pdf/iccs/',
         useSystemFonts: false,
     });
 
@@ -562,6 +567,7 @@ function cleanupAllPages() {
     }
     pageCanvases.clear();
     renderedPages.clear();
+    renderingPages.clear();
 
     for (const [
         , pdfPage,
@@ -757,7 +763,7 @@ async function renderVisiblePages() {
     }
 
     const {
-        start, end, 
+        start, end,
     } = getVisiblePageRange();
     const buffer = bufferPages;
 
@@ -769,11 +775,13 @@ async function renderVisiblePages() {
         pagesToKeep.add(i);
     }
 
+    const pagesToCleanup: number[] = [];
     for (const pageNum of renderedPages) {
         if (!pagesToKeep.has(pageNum)) {
-            cleanupPage(pageNum);
+            pagesToCleanup.push(pageNum);
         }
     }
+    pagesToCleanup.forEach((pageNum) => cleanupPage(pageNum));
 
     const pagesToRenderNow: number[] = [];
     for (let i = renderStart; i <= renderEnd; i++) {
@@ -798,153 +806,162 @@ async function renderVisiblePages() {
 
         await Promise.all(
             batch.map(async (pageNumber) => {
-                if (renderedPages.has(pageNumber)) {
+                if (renderedPages.has(pageNumber) || renderingPages.has(pageNumber)) {
                     return;
                 }
 
-                const containerIndex = pageNumber - 1;
-                const container = containers[containerIndex];
-                if (!container) {
-                    return;
-                }
+                renderingPages.add(pageNumber);
 
-                const canvasHost =
-                    container.querySelector<HTMLDivElement>('.page_canvas');
-                if (!canvasHost) {
-                    return;
-                }
+                try {
+                    const containerIndex = pageNumber - 1;
+                    const container = containers[containerIndex];
+                    if (!container) {
+                        return;
+                    }
 
-                let pdfPage = pdfPageCache.get(pageNumber);
-                if (!pdfPage) {
-                    pdfPage = await getInstance().getPage(pageNumber);
-                    pdfPageCache.set(pageNumber, pdfPage);
-                }
+                    const canvasHost =
+                        container.querySelector<HTMLDivElement>('.page_canvas');
+                    if (!canvasHost) {
+                        return;
+                    }
 
-                const viewport = pdfPage.getViewport({ scale });
-                const canvas = document.createElement('canvas');
-                const context = canvas.getContext('2d');
-                if (!context) {
-                    return;
-                }
+                    let pdfPage = pdfPageCache.get(pageNumber);
+                    if (!pdfPage) {
+                        pdfPage = await getInstance().getPage(pageNumber);
+                        pdfPageCache.set(pageNumber, pdfPage);
+                    }
 
-                canvas.width = Math.floor(viewport.width * outputScale);
-                canvas.height = Math.floor(viewport.height * outputScale);
-                canvas.style.width = `${viewport.width}px`;
-                canvas.style.height = `${viewport.height}px`;
-                canvas.style.display = 'block';
-                canvas.style.margin = '0';
+                    const viewport = pdfPage.getViewport({ scale });
+                    const canvas = document.createElement('canvas');
+                    const context = canvas.getContext('2d');
+                    if (!context) {
+                        return;
+                    }
 
-                const transform =
-                    outputScale !== 1
-                        ? [
-                            outputScale,
-                            0,
-                            0,
-                            outputScale,
-                            0,
-                            0,
-                        ]
-                        : undefined;
+                    canvas.width = Math.floor(viewport.width * outputScale);
+                    canvas.height = Math.floor(viewport.height * outputScale);
+                    canvas.style.width = `${viewport.width}px`;
+                    canvas.style.height = `${viewport.height}px`;
+                    canvas.style.display = 'block';
+                    canvas.style.margin = '0';
 
-                const renderContext = {
-                    canvasContext: context,
-                    canvas,
-                    transform,
-                    viewport,
-                };
+                    const transform =
+                        outputScale !== 1
+                            ? [
+                                outputScale,
+                                0,
+                                0,
+                                outputScale,
+                                0,
+                                0,
+                            ]
+                            : undefined;
 
-                canvasHost.innerHTML = '';
-                canvasHost.appendChild(canvas);
-
-                await pdfPage.render(renderContext).promise;
-
-                const textLayerDiv =
-                    container.querySelector<HTMLElement>('.text-layer');
-                if (textLayerDiv) {
-                    textLayerDiv.innerHTML = '';
-                    textLayerDiv.style.setProperty('--scale-factor', String(scale));
-                    textLayerDiv.style.setProperty('--total-scale-factor', String(scale));
-                    const textContent = await pdfPage.getTextContent({
-                        includeMarkedContent: true,
-                        disableNormalization: true,
-                    });
-                    const textLayer = new TextLayer({
-                        textContentSource: textContent,
-                        container: textLayerDiv,
+                    const renderContext = {
+                        canvasContext: context,
+                        canvas,
+                        transform,
                         viewport,
-                    });
-                    await textLayer.render();
-                    setupTextLayer(textLayerDiv);
+                    };
 
-                    if (searchPageMatches && searchPageMatches.size > 0) {
-                        const pageIndex = pageNumber - 1;
-                        const pageMatchData = searchPageMatches.get(pageIndex) ?? null;
-                        highlightPage(textLayerDiv, pageMatchData, currentSearchMatch ?? null);
+                    // Render to off-screen canvas first
+                    await pdfPage.render(renderContext).promise;
+
+                    // Only append after render is complete - prevents flash
+                    canvasHost.innerHTML = '';
+                    canvasHost.appendChild(canvas);
+
+                    // Hide skeleton immediately after canvas is ready
+                    const skeleton =
+                        container.querySelector<HTMLElement>('.pdf-page-skeleton');
+                    if (skeleton) {
+                        skeleton.style.display = 'none';
                     }
-                }
 
-                const annotationLayerDiv =
-                    container.querySelector<HTMLElement>('.annotation-layer');
-                if (annotationLayerDiv && showAnnotations) {
-                    annotationLayerDiv.innerHTML = '';
-                    const annotations = await pdfPage.getAnnotations();
-                    if (annotations.length > 0) {
-                        const simpleLinkService = {
-                            pagesCount: numPages.value,
-                            page: currentPage.value,
-                            rotation: 0,
-                            isInPresentationMode: false,
-                            externalLinkEnabled: true,
-                            goToDestination: async () => {},
-                            goToPage: (page: number) => scrollToPage(page),
-                            goToXY: () => {},
-                            addLinkAttributes: (
-                                link: HTMLAnchorElement,
-                                url: string,
-                                newWindow?: boolean,
-                            ) => {
-                                link.href = url;
-                                if (newWindow) {
-                                    link.target = '_blank';
-                                    link.rel = 'noopener noreferrer';
-                                }
-                            },
-                            getDestinationHash: () => '#',
-                            getAnchorUrl: () => '#',
-                            setHash: () => {},
-                            executeNamedAction: () => {},
-                            executeSetOCGState: () => {},
-                        } as unknown as IPDFLinkService;
-                        const annotationLayer = new AnnotationLayer({
-                            div: annotationLayerDiv as HTMLDivElement,
-                            page: pdfPage,
-                            viewport,
-                            accessibilityManager: null,
-                            annotationCanvasMap: null,
-                            annotationEditorUIManager: null,
-                            structTreeLayer: null,
-                            commentManager: null,
-                            linkService: simpleLinkService,
-                            annotationStorage: null,
+                    const textLayerDiv =
+                        container.querySelector<HTMLElement>('.text-layer');
+                    if (textLayerDiv) {
+                        textLayerDiv.innerHTML = '';
+                        textLayerDiv.style.setProperty('--scale-factor', String(scale));
+                        textLayerDiv.style.setProperty('--total-scale-factor', String(scale));
+                        const textContent = await pdfPage.getTextContent({
+                            includeMarkedContent: true,
+                            disableNormalization: true,
                         });
-                        await annotationLayer.render({
-                            annotations,
+                        const textLayer = new TextLayer({
+                            textContentSource: textContent,
+                            container: textLayerDiv,
                             viewport,
-                            div: annotationLayerDiv as HTMLDivElement,
-                            page: pdfPage,
-                            linkService: simpleLinkService,
-                            renderForms: false,
                         });
+                        await textLayer.render();
+                        setupTextLayer(textLayerDiv);
+
+                        if (searchPageMatches && searchPageMatches.size > 0) {
+                            const pageIndex = pageNumber - 1;
+                            const pageMatchData = searchPageMatches.get(pageIndex) ?? null;
+                            highlightPage(textLayerDiv, pageMatchData, currentSearchMatch ?? null);
+                        }
                     }
-                }
 
-                renderedPages.add(pageNumber);
-                pageCanvases.set(pageNumber, canvas);
+                    const annotationLayerDiv =
+                        container.querySelector<HTMLElement>('.annotation-layer');
+                    if (annotationLayerDiv && showAnnotations) {
+                        annotationLayerDiv.innerHTML = '';
+                        const annotations = await pdfPage.getAnnotations();
+                        if (annotations.length > 0) {
+                            const simpleLinkService = {
+                                pagesCount: numPages.value,
+                                page: currentPage.value,
+                                rotation: 0,
+                                isInPresentationMode: false,
+                                externalLinkEnabled: true,
+                                goToDestination: async () => {},
+                                goToPage: (page: number) => scrollToPage(page),
+                                goToXY: () => {},
+                                addLinkAttributes: (
+                                    link: HTMLAnchorElement,
+                                    url: string,
+                                    newWindow?: boolean,
+                                ) => {
+                                    link.href = url;
+                                    if (newWindow) {
+                                        link.target = '_blank';
+                                        link.rel = 'noopener noreferrer';
+                                    }
+                                },
+                                getDestinationHash: () => '#',
+                                getAnchorUrl: () => '#',
+                                setHash: () => {},
+                                executeNamedAction: () => {},
+                                executeSetOCGState: () => {},
+                            } as unknown as IPDFLinkService;
+                            const annotationLayer = new AnnotationLayer({
+                                div: annotationLayerDiv as HTMLDivElement,
+                                page: pdfPage,
+                                viewport,
+                                accessibilityManager: null,
+                                annotationCanvasMap: null,
+                                annotationEditorUIManager: null,
+                                structTreeLayer: null,
+                                commentManager: null,
+                                linkService: simpleLinkService,
+                                annotationStorage: null,
+                            });
+                            await annotationLayer.render({
+                                annotations,
+                                viewport,
+                                div: annotationLayerDiv as HTMLDivElement,
+                                page: pdfPage,
+                                linkService: simpleLinkService,
+                                renderForms: false,
+                            });
+                        }
+                    }
 
-                const skeleton =
-                    container.querySelector<HTMLElement>('.pdf-page-skeleton');
-                if (skeleton) {
-                    skeleton.style.display = 'none';
+                    renderedPages.add(pageNumber);
+                    pageCanvases.set(pageNumber, canvas);
+                } finally {
+                    renderingPages.delete(pageNumber);
                 }
             }),
         );
