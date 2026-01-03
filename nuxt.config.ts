@@ -35,7 +35,7 @@ export default defineNuxtConfig({
             'lucide:hand',
             'lucide:loader-circle',
             'lucide:moon',
-            'lucide:mouse-pointer',
+            'lucide:text-cursor',
             'lucide:move-horizontal',
             'lucide:move-vertical',
             'lucide:save',

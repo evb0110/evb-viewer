@@ -47,20 +47,20 @@
 
                 <div class="flex items-center border border-neutral-200 dark:border-neutral-700 rounded-md">
                     <UButton
-                        icon="i-lucide-mouse-pointer"
-                        :variant="!dragMode ? 'soft' : 'ghost'"
-                        size="sm"
-                        :color="!dragMode ? 'primary' : 'neutral'"
-                        class="rounded-r-none"
-                        @click="dragMode = false; closeAllDropdowns()"
-                    />
-                    <UButton
                         icon="i-lucide-hand"
                         :variant="dragMode ? 'soft' : 'ghost'"
                         size="sm"
                         :color="dragMode ? 'primary' : 'neutral'"
+                        class="rounded-r-none"
+                        @click="enableDragMode(); closeAllDropdowns()"
+                    />
+                    <UButton
+                        icon="i-lucide-text-cursor"
+                        :variant="!dragMode ? 'soft' : 'ghost'"
+                        size="sm"
+                        :color="!dragMode ? 'primary' : 'neutral'"
                         class="rounded-l-none"
-                        @click="dragMode = true; closeAllDropdowns()"
+                        @click="dragMode = false; closeAllDropdowns()"
                     />
                 </div>
 
@@ -189,13 +189,18 @@ const fitMode = ref<TFitMode>('width');
 const currentPage = ref(1);
 const totalPages = ref(0);
 const isLoading = ref(false);
-const dragMode = ref(false);
+const dragMode = ref(true);
 const showSearchBar = ref(false);
 const isSaving = ref(false);
 const searchBarRef = ref<{ focus: () => void } | null>(null);
 
 function handleGoToPage(page: number) {
     pdfViewerRef.value?.scrollToPage(page);
+}
+
+function enableDragMode() {
+    dragMode.value = true;
+    window.getSelection()?.removeAllRanges();
 }
 
 function toggleSearch() {
