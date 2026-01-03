@@ -6,8 +6,26 @@ import { config } from '@electron/config';
 
 let nuxtProcess: ChildProcess | null = null;
 let serverReady: Promise<void> | null = null;
+let usingExternalServer = false;
 
-export function startServer() {
+async function isServerRunning() {
+    try {
+        const response = await fetch(config.server.url, {method: 'HEAD'});
+        return response.ok;
+    } catch {
+        return false;
+    }
+}
+
+export async function startServer() {
+    if (await isServerRunning()) {
+        console.log('[Electron] Nuxt server already running, connecting...');
+        usingExternalServer = true;
+        serverReady = Promise.resolve();
+        return;
+    }
+
+    console.log('[Electron] Starting Nuxt server...');
     let resolveReady: () => void;
     serverReady = new Promise((resolve) => {
         resolveReady = resolve;
@@ -58,6 +76,9 @@ export function waitForServer() {
 }
 
 export function stopServer() {
+    if (usingExternalServer) {
+        return;
+    }
     if (nuxtProcess) {
         nuxtProcess.kill();
         nuxtProcess = null;
