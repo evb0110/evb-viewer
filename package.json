@@ -41,6 +41,7 @@
     "eslint-import-resolver-typescript": "^4.4.4",
     "eslint-plugin-import": "^2.32.0",
     "playwright": "^1.57.0",
+    "puppeteer-core": "^24.34.0",
     "sass-embedded": "^1.97.1",
     "stylelint": "^16.26.1",
     "stylelint-config-recommended-vue": "^1.6.1",

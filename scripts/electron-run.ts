@@ -1,19 +1,19 @@
 /**
- * Electron Playwright Control Script - Persistent Session
+ * Electron Puppeteer Control - Persistent Session Server
+ *
+ * Uses Puppeteer CDP connection (Playwright has compatibility issues with Electron 39)
  *
  * Usage:
- *   pnpm electron:run <command> [args...]
- *
- * Commands:
- *   start               - Start Electron app session (keeps running)
- *   stop                - Stop the running session
- *   status              - Check if session is running
- *   screenshot [name]   - Take screenshot of running app
- *   run <code>          - Run Playwright code against running app
+ *   pnpm electron:run start    - Start session (foreground, Ctrl+C to stop)
+ *   pnpm electron:run stop     - Stop running session
+ *   pnpm electron:run status   - Check session status
+ *   pnpm electron:run run <code>       - Execute Puppeteer code
+ *   pnpm electron:run screenshot [name] - Take screenshot
  */
 
-import { _electron as electron, type ElectronApplication, type Page } from 'playwright';
-import { createServer, type Server } from 'node:http';
+import puppeteer, { type Browser, type Page } from 'puppeteer-core';
+import { createServer } from 'node:http';
+import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdirSync, existsSync, writeFileSync, readFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -22,76 +22,173 @@ const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const projectRoot = join(__dirname, '..');
 const screenshotDir = join(projectRoot, '.devkit', 'screenshots');
 const sessionFile = join(projectRoot, '.devkit', 'electron-session.json');
-const DEFAULT_PORT = 9847;
+const SERVER_PORT = 9847;
+const CDP_PORT = 9222;
 const NUXT_PORT = 3235;
 
-async function isNuxtServerRunning(): Promise<boolean> {
+// ============ Session State ============
+
+interface ISessionState {
+    browser: Browser;
+    page: Page;
+    electronProcess: ChildProcess;
+    nuxtProcess: ChildProcess | null;
+    consoleMessages: Array<{ type: string; text: string; timestamp: number }>;
+}
+
+let sessionState: ISessionState | null = null;
+
+// ============ Nuxt Server Management ============
+
+async function isNuxtRunning(): Promise<boolean> {
     try {
-        const response = await fetch(`http://localhost:${NUXT_PORT}`, { method: 'HEAD' });
-        return response.ok;
+        const res = await fetch(`http://localhost:${NUXT_PORT}`, { method: 'HEAD' });
+        return res.ok;
     } catch {
         return false;
     }
 }
 
-async function waitForNuxtServer(timeoutMs = 120_000): Promise<void> {
-    const start = Date.now();
-    while (Date.now() - start < timeoutMs) {
-        if (await isNuxtServerRunning()) {
-            return;
-        }
-        await new Promise(resolve => setTimeout(resolve, 1000));
-    }
-    throw new Error(`Nuxt server not ready after ${timeoutMs / 1000}s`);
-}
-
-interface ISessionInfo {
-    port: number;
-    pid: number;
-}
-
-// ============ Server Mode (runs the Electron app) ============
-
-async function startServer() {
-    const mainJs = join(projectRoot, 'dist-electron', 'main.js');
-    if (!existsSync(mainJs)) {
-        console.error('Error: dist-electron/main.js not found. Run `pnpm run build:electron` first.');
-        process.exit(1);
+async function startNuxtServer(): Promise<ChildProcess | null> {
+    if (await isNuxtRunning()) {
+        console.log('[Nuxt] Server already running on port', NUXT_PORT);
+        return null;
     }
 
-    console.log('Starting Electron app...');
-
-    const app = await electron.launch({
-        args: [mainJs],
+    console.log('[Nuxt] Starting dev server...');
+    const nuxt = spawn('pnpm', ['run', 'dev:nuxt'], {
         cwd: projectRoot,
-        timeout: 60_000,
+        shell: true,
+        stdio: ['ignore', 'pipe', 'pipe'],
     });
 
-    // Wait for main window (not DevTools)
-    let window: Page | null = null;
-    for (let i = 0; i < 30; i++) {
-        const windows = app.windows();
-        for (const w of windows) {
-            const title = await w.title();
-            if (!title.includes('DevTools')) {
-                window = w;
-                break;
-            }
+    nuxt.stdout?.on('data', (data: Buffer) => {
+        const text = data.toString();
+        if (text.includes('Local:') || text.includes('Listening')) {
+            console.log('[Nuxt] Server ready');
         }
-        if (window) break;
-        await new Promise(resolve => setTimeout(resolve, 500));
+    });
+
+    // Wait for server
+    const timeout = 120_000;
+    const start = Date.now();
+    while (Date.now() - start < timeout) {
+        if (await isNuxtRunning()) {
+            console.log('[Nuxt] Server ready at http://localhost:' + NUXT_PORT);
+            return nuxt;
+        }
+        await sleep(1000);
     }
 
-    if (!window) {
-        window = await app.firstWindow();
+    nuxt.kill();
+    throw new Error('Nuxt server failed to start');
+}
+
+// ============ Electron Management ============
+
+async function startElectron(): Promise<ChildProcess> {
+    const mainJs = join(projectRoot, 'dist-electron', 'main.js');
+    if (!existsSync(mainJs)) {
+        throw new Error('dist-electron/main.js not found. Run `pnpm run build:electron` first.');
     }
 
-    await window.waitForLoadState('domcontentloaded');
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    console.log('[Electron] Starting with CDP on port', CDP_PORT);
 
-    console.log('Electron app ready.');
+    const electronPath = join(projectRoot, 'node_modules/.bin/electron');
+    const electron = spawn(electronPath, [
+        `--remote-debugging-port=${CDP_PORT}`,
+        mainJs,
+    ], {
+        cwd: projectRoot,
+        stdio: ['ignore', 'pipe', 'pipe'],
+    });
 
-    // Create HTTP server to handle commands
+    electron.stderr?.on('data', (data: Buffer) => {
+        const text = data.toString();
+        if (text.includes('DevTools listening')) {
+            console.log('[Electron] CDP ready');
+        }
+    });
+
+    // Wait for CDP to be available
+    const timeout = 30_000;
+    const start = Date.now();
+    while (Date.now() - start < timeout) {
+        try {
+            const res = await fetch(`http://localhost:${CDP_PORT}/json/version`);
+            if (res.ok) {
+                console.log('[Electron] App started');
+                return electron;
+            }
+        } catch {}
+        await sleep(500);
+    }
+
+    electron.kill();
+    throw new Error('Electron failed to start CDP');
+}
+
+async function connectToBrowser(): Promise<{ browser: Browser; page: Page }> {
+    console.log('[Puppeteer] Connecting via CDP...');
+
+    const browser = await puppeteer.connect({
+        browserURL: `http://localhost:${CDP_PORT}`,
+    });
+
+    // Wait for the app page
+    let page: Page | null = null;
+    for (let i = 0; i < 30; i++) {
+        const pages = await browser.pages();
+        page = pages.find(p => p.url().includes(`localhost:${NUXT_PORT}`)) ?? null;
+        if (page) break;
+        await sleep(500);
+    }
+
+    if (!page) {
+        throw new Error('Could not find app page');
+    }
+
+    // Wait for page to fully load
+    await page.waitForSelector('body', { timeout: 30000 });
+    await sleep(2000); // Let Vue hydrate
+
+    console.log('[Puppeteer] Connected to app');
+    return { browser, page };
+}
+
+// ============ Session Server ============
+
+async function startSession() {
+    if (await isSessionRunning()) {
+        console.log('Session already running. Use `pnpm electron:run stop` to stop it.');
+        process.exit(0);
+    }
+
+    console.log('Starting Electron Puppeteer session...\n');
+
+    // Ensure Nuxt is running
+    const nuxtProcess = await startNuxtServer();
+
+    // Start Electron with CDP
+    const electronProcess = await startElectron();
+
+    // Connect via Puppeteer
+    const { browser, page } = await connectToBrowser();
+
+    // Setup console capture
+    const consoleMessages: ISessionState['consoleMessages'] = [];
+    page.on('console', (msg) => {
+        consoleMessages.push({
+            type: msg.type(),
+            text: msg.text(),
+            timestamp: Date.now(),
+        });
+        if (consoleMessages.length > 100) consoleMessages.shift();
+    });
+
+    sessionState = { browser, page, electronProcess, nuxtProcess, consoleMessages };
+
+    // HTTP server for commands
     const server = createServer(async (req, res) => {
         if (req.method !== 'POST') {
             res.writeHead(405);
@@ -100,11 +197,11 @@ async function startServer() {
         }
 
         let body = '';
-        req.on('data', chunk => body += chunk);
+        req.on('data', (chunk) => (body += chunk));
         req.on('end', async () => {
             try {
                 const { command, args } = JSON.parse(body);
-                const result = await handleCommand(app, window!, command, args);
+                const result = await handleCommand(command, args);
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ success: true, result }));
             } catch (error) {
@@ -117,80 +214,118 @@ async function startServer() {
         });
     });
 
-    server.listen(DEFAULT_PORT, () => {
-        console.log(`Server listening on port ${DEFAULT_PORT}`);
-
-        // Save session info
+    server.listen(SERVER_PORT, () => {
         mkdirSync(join(projectRoot, '.devkit'), { recursive: true });
-        writeFileSync(sessionFile, JSON.stringify({
-            port: DEFAULT_PORT,
-            pid: process.pid,
-        }));
+        writeFileSync(sessionFile, JSON.stringify({ port: SERVER_PORT, pid: process.pid }));
+
+        console.log(`\n✓ Session ready on port ${SERVER_PORT}`);
+        console.log('  Press Ctrl+C to stop\n');
     });
 
-    // Handle shutdown
+    // Graceful shutdown
     const shutdown = async () => {
         console.log('\nShutting down...');
         try { unlinkSync(sessionFile); } catch {}
         server.close();
-        await app.close().catch(() => {});
+        await sessionState?.browser.disconnect().catch(() => {});
+        sessionState?.electronProcess.kill();
+        sessionState?.nuxtProcess?.kill();
         process.exit(0);
     };
 
     process.on('SIGINT', shutdown);
     process.on('SIGTERM', shutdown);
 
-    // Keep process running
     await new Promise(() => {});
 }
 
-async function handleCommand(
-    app: ElectronApplication,
-    window: Page,
-    command: string,
-    args: unknown[],
-): Promise<unknown> {
+// ============ Command Handlers ============
+
+async function handleCommand(command: string, args: unknown[]): Promise<unknown> {
+    if (!sessionState) throw new Error('Session not initialized');
+
+    const { page, consoleMessages } = sessionState;
+
     switch (command) {
+        case 'ping':
+            return { status: 'ok', uptime: process.uptime() };
+
         case 'screenshot': {
             const name = (args[0] as string) ?? `screenshot-${Date.now()}`;
             mkdirSync(screenshotDir, { recursive: true });
             const filepath = join(screenshotDir, `${name}.png`);
-            await window.screenshot({ path: filepath, fullPage: false });
+            await page.screenshot({ path: filepath });
             return { screenshot: filepath };
+        }
+
+        case 'console': {
+            const level = (args[0] as string) ?? 'all';
+            const filtered = level === 'all'
+                ? consoleMessages
+                : consoleMessages.filter((m) => m.type === level);
+            return { messages: filtered.slice(-50) };
         }
 
         case 'run': {
             const code = args[0] as string;
             if (!code) throw new Error('No code provided');
 
-            const asyncFn = new Function(
-                'window',
-                'app',
-                'screenshot',
-                `return (async () => { ${code} })()`,
-            );
-
             const screenshotFn = async (name: string) => {
                 mkdirSync(screenshotDir, { recursive: true });
                 const filepath = join(screenshotDir, `${name}.png`);
-                await window.screenshot({ path: filepath, fullPage: false });
+                await page.screenshot({ path: filepath });
                 return filepath;
             };
 
-            return await asyncFn(window, app, screenshotFn);
+            const asyncFn = new Function(
+                'page', 'screenshot',
+                `return (async () => { ${code} })()`,
+            );
+
+            return await asyncFn(page, screenshotFn);
         }
 
-        case 'ping':
-            return 'pong';
+        case 'eval': {
+            const code = args[0] as string;
+            if (!code) throw new Error('No code provided');
+            return await page.evaluate(code);
+        }
+
+        case 'click': {
+            const selector = args[0] as string;
+            if (!selector) throw new Error('No selector provided');
+            await page.click(selector);
+            return { clicked: selector };
+        }
+
+        case 'type': {
+            const [selector, text] = args as [string, string];
+            if (!selector || !text) throw new Error('Selector and text required');
+            await page.type(selector, text);
+            return { typed: text, into: selector };
+        }
+
+        case 'content': {
+            const selector = args[0] as string;
+            if (!selector) throw new Error('No selector provided');
+            const el = await page.$(selector);
+            if (!el) return null;
+            return await el.evaluate((e) => e.textContent);
+        }
 
         default:
             throw new Error(`Unknown command: ${command}`);
     }
 }
 
-// ============ Client Mode (sends commands to server) ============
+// ============ Client Commands ============
 
-function getSession(): ISessionInfo | null {
+interface ISessionInfo {
+    port: number;
+    pid: number;
+}
+
+function getSessionInfo(): ISessionInfo | null {
     try {
         return JSON.parse(readFileSync(sessionFile, 'utf8'));
     } catch {
@@ -198,56 +333,60 @@ function getSession(): ISessionInfo | null {
     }
 }
 
-async function sendCommand(command: string, args: unknown[] = []): Promise<unknown> {
-    const session = getSession();
-    if (!session) {
-        throw new Error('No session running. Start one with: pnpm electron:run start');
-    }
-
-    const response = await fetch(`http://localhost:${session.port}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command, args }),
-    });
-
-    const data = await response.json() as { success: boolean; result?: unknown; error?: string };
-
-    if (!data.success) {
-        throw new Error(data.error ?? 'Unknown error');
-    }
-
-    return data.result;
-}
-
-async function checkStatus(): Promise<boolean> {
-    const session = getSession();
-    if (!session) return false;
+async function isSessionRunning(): Promise<boolean> {
+    const info = getSessionInfo();
+    if (!info) return false;
 
     try {
-        await sendCommand('ping');
-        return true;
+        const res = await fetch(`http://localhost:${info.port}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ command: 'ping', args: [] }),
+        });
+        return res.ok;
     } catch {
-        // Clean up stale session file
         try { unlinkSync(sessionFile); } catch {}
         return false;
     }
 }
 
+async function sendCommand(command: string, args: unknown[] = []): Promise<unknown> {
+    const info = getSessionInfo();
+    if (!info) {
+        throw new Error('No session running. Start with: pnpm electron:run start');
+    }
+
+    const res = await fetch(`http://localhost:${info.port}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command, args }),
+    });
+
+    const data = (await res.json()) as { success: boolean; result?: unknown; error?: string };
+    if (!data.success) throw new Error(data.error ?? 'Unknown error');
+    return data.result;
+}
+
 async function stopSession() {
-    const session = getSession();
-    if (!session) {
+    const info = getSessionInfo();
+    if (!info) {
         console.log('No session running.');
         return;
     }
 
     try {
-        process.kill(session.pid, 'SIGTERM');
+        process.kill(info.pid, 'SIGTERM');
         console.log('Session stopped.');
     } catch {
         console.log('Session was not running.');
     }
-
     try { unlinkSync(sessionFile); } catch {}
+}
+
+// ============ Utilities ============
+
+function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // ============ CLI ============
@@ -257,53 +396,54 @@ async function main() {
 
     if (!command) {
         console.log(`
-Electron Playwright Control - Persistent Session
+Electron Puppeteer Control - Persistent Session
 
 Usage:
   pnpm electron:run <command> [args...]
 
-Session Commands:
-  start               Start Electron app session (keeps running)
-  stop                Stop the running session
+Session:
+  start               Start session (foreground, Ctrl+C to stop)
+  stop                Stop running session
   status              Check if session is running
 
-Interaction Commands (require running session):
-  screenshot [name]   Take screenshot
-  run <code>          Run Playwright code (access: window, app, screenshot)
+Commands (require running session):
+  screenshot [name]   Take screenshot → .devkit/screenshots/<name>.png
+  console [level]     Get console messages (all|log|warn|error)
+  run <code>          Run Puppeteer code (access: page, screenshot)
+  eval <code>         Evaluate JS in page
+  click <selector>    Click element
+  type <sel> <text>   Type into element
+  content <selector>  Get text content
 
 Examples:
   pnpm electron:run start
-  pnpm electron:run screenshot "initial"
-  pnpm electron:run run "await window.click('text=Open PDF')"
-  pnpm electron:run run "return await window.locator('button').allTextContents()"
+  pnpm electron:run screenshot "home"
+  pnpm electron:run click "text=Open PDF"
+  pnpm electron:run run "await page.click('button'); return await page.title()"
+  pnpm electron:run console error
   pnpm electron:run stop
-
-The 'run' command has access to:
-  - window     : Playwright Page object
-  - app        : ElectronApplication for main process
-  - screenshot : async (name) => filepath - take named screenshot
 `);
         process.exit(0);
     }
 
     try {
         switch (command) {
-            case 'start': {
-                if (await checkStatus()) {
-                    console.log('Session already running.');
-                    process.exit(0);
-                }
-                await startServer();
+            case 'start':
+                await startSession();
                 break;
-            }
 
             case 'stop':
                 await stopSession();
                 break;
 
             case 'status': {
-                const running = await checkStatus();
-                console.log(running ? 'Session is running.' : 'No session running.');
+                const running = await isSessionRunning();
+                if (running) {
+                    const result = await sendCommand('ping') as { uptime: number };
+                    console.log(`Session running (uptime: ${Math.round(result.uptime)}s)`);
+                } else {
+                    console.log('No session running.');
+                }
                 break;
             }
 
@@ -313,16 +453,51 @@ The 'run' command has access to:
                 break;
             }
 
+            case 'console': {
+                const result = await sendCommand('console', args);
+                console.log(JSON.stringify(result, null, 2));
+                break;
+            }
+
+            case 'click': {
+                const result = await sendCommand('click', args);
+                console.log(JSON.stringify(result, null, 2));
+                break;
+            }
+
+            case 'type': {
+                const result = await sendCommand('type', args);
+                console.log(JSON.stringify(result, null, 2));
+                break;
+            }
+
+            case 'content': {
+                const result = await sendCommand('content', args);
+                console.log(result);
+                break;
+            }
+
             case 'run': {
                 const code = args.join(' ');
                 if (!code) {
-                    console.error('Error: No code provided');
+                    console.error('No code provided');
                     process.exit(1);
                 }
                 const result = await sendCommand('run', [code]);
                 if (result !== undefined) {
                     console.log(JSON.stringify(result, null, 2));
                 }
+                break;
+            }
+
+            case 'eval': {
+                const code = args.join(' ');
+                if (!code) {
+                    console.error('No code provided');
+                    process.exit(1);
+                }
+                const result = await sendCommand('eval', [code]);
+                console.log(JSON.stringify(result, null, 2));
                 break;
             }
 

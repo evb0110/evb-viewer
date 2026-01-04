@@ -155,7 +155,7 @@ const {
     effectiveScale,
     bufferPages: () => bufferPages,
     showAnnotations: () => showAnnotations,
-    onGoToPage: (pageNumber: number) => scrollToPage(pageNumber),
+    scrollToPage,
     searchPageMatches: () => searchPageMatches,
     currentSearchMatch: () => currentSearchMatch,
 });

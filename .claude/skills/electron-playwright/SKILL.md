@@ -1,29 +1,31 @@
 ---
 name: electron-playwright
-description: Launch and interact with the Electron app using Playwright. Use when you need to see the app UI, take screenshots, click buttons, fill forms, or debug the app behavior. Supports persistent sessions for multi-step debugging.
+description: Launch and interact with the Electron app using Puppeteer CDP. Use when you need to see the app UI, take screenshots, click buttons, fill forms, read console, or debug the app. Supports persistent sessions for multi-step debugging workflows.
 allowed-tools: Bash, Read
 ---
 
-# Electron Playwright Control
+# Electron Puppeteer Control
 
-Control the Electron app via Playwright with persistent sessions for debugging.
+Control the Electron app via Puppeteer CDP with persistent sessions - like Playwright MCP but for Electron.
 
-## Session Workflow
+> **Note**: Uses Puppeteer instead of Playwright due to compatibility issues with Electron 39.
 
-**Start a session (runs in background):**
+## Quick Start
+
+**1. Start session (in background):**
 ```bash
 pnpm electron:run start &
 ```
+Wait for "Session ready" message, then interact.
 
-**Interact with the running app:**
+**2. Interact with the app:**
 ```bash
-pnpm electron:run screenshot "step1"
-pnpm electron:run run "await window.click('text=Open PDF')"
-pnpm electron:run screenshot "step2"
-pnpm electron:run run "return await window.locator('button').allTextContents()"
+pnpm electron:run screenshot "initial"
+pnpm electron:run run "await page.click('button')"
+pnpm electron:run run "return await page.evaluate(() => document.title)"
 ```
 
-**Stop the session:**
+**3. Stop when done:**
 ```bash
 pnpm electron:run stop
 ```
@@ -32,76 +34,96 @@ pnpm electron:run stop
 
 | Command | Description |
 |---------|-------------|
-| `start` | Start Electron app session (keeps running) |
-| `stop` | Stop the running session |
-| `status` | Check if session is running |
-| `screenshot [name]` | Take screenshot of running app |
-| `run <code>` | Run Playwright code against running app |
+| `start` | Start session (foreground, Ctrl+C to stop) |
+| `stop` | Stop running session |
+| `status` | Check session status and uptime |
+| `screenshot [name]` | Take screenshot → `.devkit/screenshots/<name>.png` |
+| `console [level]` | Get console messages (all\|log\|warn\|error) |
+| `run <code>` | Run Puppeteer code |
+| `eval <code>` | Evaluate JS in renderer process |
+| `click <selector>` | Click element |
+| `type <sel> <text>` | Type into element |
+| `content <selector>` | Get text content |
 
 ## The `run` Command
 
-Execute any Playwright code with access to:
-- `window` - Playwright Page object for the main window
-- `app` - ElectronApplication for main process access
-- `screenshot(name)` - Helper to save screenshots
+Execute any Puppeteer code with access to:
+- `page` - Puppeteer Page object (the app window)
+- `screenshot(name)` - Take named screenshot, returns filepath
 
 ### Examples
 
-**Click a button:**
+**Click elements:**
 ```bash
-pnpm electron:run run "await window.click('text=Open PDF')"
+pnpm electron:run run "await page.click('button')"
+pnpm electron:run run "await page.click('[data-testid=\"open-pdf\"]')"
 ```
 
-**Get text content:**
+**Get content:**
 ```bash
-pnpm electron:run run "return await window.textContent('h1')"
+pnpm electron:run run "return await page.evaluate(() => document.querySelector('h1')?.textContent)"
+pnpm electron:run run "return await page.evaluate(() => [...document.querySelectorAll('button')].map(b => b.textContent))"
 ```
 
-**Get all buttons:**
+**Fill inputs:**
 ```bash
-pnpm electron:run run "return await window.locator('button').allTextContents()"
+pnpm electron:run run "await page.type('input[name=search]', 'hello')"
+pnpm electron:run run "await page.type('#email', 'test@example.com')"
 ```
 
-**Fill an input:**
+**Keyboard:**
 ```bash
-pnpm electron:run run "await window.fill('input[name=search]', 'hello')"
+pnpm electron:run run "await page.keyboard.press('Control+o')"
+pnpm electron:run run "await page.keyboard.type('Hello world')"
 ```
 
-**Wait for element:**
+**Wait for elements:**
 ```bash
-pnpm electron:run run "await window.waitForSelector('.loaded')"
+pnpm electron:run run "await page.waitForSelector('.loaded')"
+pnpm electron:run run "await new Promise(r => setTimeout(r, 1000))"
 ```
 
-**Keyboard shortcut:**
+**Screenshots in code:**
 ```bash
-pnpm electron:run run "await window.press('body', 'Control+o')"
+pnpm electron:run run "await screenshot('before'); await page.click('button'); await screenshot('after')"
 ```
 
-**Take screenshot in code:**
+**Evaluate in page context:**
 ```bash
-pnpm electron:run run "await screenshot('before'); await window.click('button'); await screenshot('after')"
+pnpm electron:run eval "document.querySelector('button').click()"
+pnpm electron:run eval "window.electronAPI"
 ```
 
-**Main process evaluation:**
+## Console Messages
+
+Read browser console output:
 ```bash
-pnpm electron:run run "return await app.evaluate(({app}) => app.getVersion())"
+pnpm electron:run console          # All messages
+pnpm electron:run console error    # Only errors
+pnpm electron:run console warn     # Only warnings
 ```
 
 ## Screenshots
 
-Screenshots are saved to `.devkit/screenshots/<name>.png`.
+Screenshots saved to `.devkit/screenshots/<name>.png` (gitignored).
 
-To view a screenshot, use the Read tool on the PNG file path.
+View with the Read tool:
+```bash
+# After taking screenshot
+Read .devkit/screenshots/initial.png
+```
 
 ## Debugging Workflow
 
 1. Start session: `pnpm electron:run start &`
-2. Take initial screenshot: `pnpm electron:run screenshot "initial"`
-3. View screenshot with Read tool
-4. Run interactions: `pnpm electron:run run "..."`
-5. Take more screenshots to verify
-6. Repeat steps 3-5 as needed
-7. Stop when done: `pnpm electron:run stop`
+2. Wait for "Session ready" message
+3. Take screenshot: `pnpm electron:run screenshot "step1"`
+4. View screenshot with Read tool
+5. Interact: `pnpm electron:run run "await page.click('...')"`
+6. Take more screenshots to verify
+7. Check console: `pnpm electron:run console error`
+8. Repeat as needed
+9. Stop: `pnpm electron:run stop`
 
 ## Prerequisites
 
@@ -109,3 +131,5 @@ Build Electron code first:
 ```bash
 pnpm run build:electron
 ```
+
+The session will auto-start Nuxt dev server if not running.

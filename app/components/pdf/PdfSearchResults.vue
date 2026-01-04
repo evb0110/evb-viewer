@@ -1,6 +1,18 @@
 <template>
     <div class="pdf-search-results">
         <div
+            v-if="isSearching"
+            class="pdf-search-results-status"
+        >
+            <UIcon name="i-lucide-loader-2" class="pdf-search-results-spinner size-4" />
+            <span>
+                Searching…
+                <template v-if="progressText">
+                    ({{ progressText }} pages)
+                </template>
+            </span>
+        </div>
+        <div
             v-if="!searchQuery"
             class="pdf-search-results-empty"
         >
@@ -8,14 +20,14 @@
             <span>Enter a search term</span>
         </div>
         <div
-            v-else-if="results.length === 0"
+            v-else-if="!isSearching && results.length === 0"
             class="pdf-search-results-empty"
         >
             <UIcon name="i-lucide-search-x" />
             <span>No results found</span>
         </div>
         <div
-            v-else
+            v-else-if="results.length > 0"
             class="pdf-search-results-list"
         >
             <div class="pdf-search-results-header">
@@ -45,17 +57,33 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue';
 import type { IPdfSearchMatch } from 'app/types/pdf';
 
 interface IProps {
     results: IPdfSearchMatch[];
     currentResultIndex: number;
     searchQuery: string;
+    isSearching?: boolean;
+    searchProgress?: {
+        processed: number;
+        total: number;
+    };
 }
 
-defineProps<IProps>();
+const props = defineProps<IProps>();
 
 defineEmits<{(e: 'goToResult', index: number): void;}>();
+
+const progressText = computed(() => {
+    if (!props.searchProgress || props.searchProgress.total === 0) {
+        return '';
+    }
+
+    const total = props.searchProgress.total;
+    const processed = Math.min(props.searchProgress.processed, total);
+    return `${processed}/${total}`;
+});
 </script>
 
 <style scoped>
@@ -75,6 +103,19 @@ defineEmits<{(e: 'goToResult', index: number): void;}>();
     font-size: 12px;
     color: var(--ui-text-muted);
     border-bottom: 1px solid var(--ui-border);
+}
+
+.pdf-search-results-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    color: var(--ui-text-muted);
+    border-bottom: 1px solid var(--ui-border);
+}
+
+.pdf-search-results-spinner {
+    animation: pdf-search-spin 1s linear infinite;
 }
 
 .pdf-search-results-list {
@@ -136,5 +177,14 @@ defineEmits<{(e: 'goToResult', index: number): void;}>();
 
 .pdf-search-result-ellipsis {
     color: var(--ui-text-dimmed);
+}
+
+@keyframes pdf-search-spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
 }
 </style>

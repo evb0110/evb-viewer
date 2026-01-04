@@ -21,6 +21,11 @@ export const usePdfSearch = () => {
     const pageMatches = ref<Map<number, IPdfPageMatches>>(new Map());
     const currentResultIndex = ref(-1);
     const isSearching = ref(false);
+    const processedPages = ref(0);
+    const totalPagesToSearch = ref(0);
+    const pageTextCache = new Map<number, string>();
+    const pageTextPromises = new Map<number, Promise<string>>();
+    let cachedDocumentId: string | null = null;
     let searchRunId = 0;
     let scheduledTimeout: ReturnType<typeof setTimeout> | null = null;
     let scheduledResolve: ((applied: boolean) => void) | null = null;
@@ -38,6 +43,72 @@ export const usePdfSearch = () => {
         }
         return null;
     });
+    const searchProgress = computed(() => ({
+        processed: processedPages.value,
+        total: totalPagesToSearch.value,
+    }));
+
+    function resetProgress(total: number) {
+        processedPages.value = 0;
+        totalPagesToSearch.value = total;
+    }
+
+    function getDocumentId(pdfDocument: PDFDocumentProxy) {
+        const [fingerprint] = pdfDocument.fingerprints ?? [];
+        return fingerprint ?? null;
+    }
+
+    function resetCacheForDocument(pdfDocument: PDFDocumentProxy) {
+        const documentId = getDocumentId(pdfDocument);
+        if (documentId !== cachedDocumentId) {
+            cachedDocumentId = documentId;
+            pageTextCache.clear();
+            pageTextPromises.clear();
+        }
+    }
+
+    function resetCache() {
+        cachedDocumentId = null;
+        pageTextCache.clear();
+        pageTextPromises.clear();
+    }
+
+    async function getPageText(pageIndex: number, pdfDocument: PDFDocumentProxy) {
+        const cached = pageTextCache.get(pageIndex);
+        if (cached) {
+            return cached;
+        }
+
+        const pending = pageTextPromises.get(pageIndex);
+        if (pending) {
+            return pending;
+        }
+
+        const promise = (async () => {
+            const page = await pdfDocument.getPage(pageIndex + 1);
+            const textContent = await page.getTextContent({
+                includeMarkedContent: true,
+                disableNormalization: true,
+            });
+
+            let pageText = '';
+            for (const item of textContent.items) {
+                if ('str' in item) {
+                    pageText += item.str;
+                }
+            }
+
+            pageTextCache.set(pageIndex, pageText);
+            return pageText;
+        })();
+
+        pageTextPromises.set(pageIndex, promise);
+        try {
+            return await promise;
+        } finally {
+            pageTextPromises.delete(pageIndex);
+        }
+    }
 
     function buildExcerpt(
         source: string,
@@ -92,8 +163,48 @@ export const usePdfSearch = () => {
         }
     }
 
+    function applySearchState(
+        runId: number,
+        pageResults: IPdfSearchMatch[][],
+        pageMatchesByPage: Array<IPdfPageMatches | null>,
+    ) {
+        if (runId !== searchRunId) {
+            return;
+        }
+
+        const mergedResults: IPdfSearchMatch[] = [];
+        const matchesMap = new Map<number, IPdfPageMatches>();
+
+        pageResults.forEach((pageResult) => {
+            if (pageResult && pageResult.length > 0) {
+                mergedResults.push(...pageResult);
+            }
+        });
+
+        pageMatchesByPage.forEach((pageMatch) => {
+            if (pageMatch && pageMatch.matches.length > 0) {
+                matchesMap.set(pageMatch.pageIndex, pageMatch);
+            }
+        });
+
+        results.value = mergedResults;
+        pageMatches.value = matchesMap;
+
+        if (mergedResults.length === 0) {
+            currentResultIndex.value = -1;
+            return;
+        }
+
+        if (currentResultIndex.value < 0) {
+            currentResultIndex.value = 0;
+        } else if (currentResultIndex.value >= mergedResults.length) {
+            currentResultIndex.value = mergedResults.length - 1;
+        }
+    }
+
     async function performSearch(runId: number, query: string, pdfDocument: PDFDocumentProxy) {
-        if (!query.trim()) {
+        const normalizedQuery = query.trim();
+        if (!normalizedQuery) {
             return;
         }
 
@@ -101,44 +212,36 @@ export const usePdfSearch = () => {
             return;
         }
 
-        const searchResults: IPdfSearchMatch[] = [];
-        const newPageMatches = new Map<number, IPdfPageMatches>();
-        const lowerQuery = query.toLowerCase();
+        resetCacheForDocument(pdfDocument);
+        const lowerQuery = normalizedQuery.toLowerCase();
+        const numPages = pdfDocument.numPages;
+        const pageResults: IPdfSearchMatch[][] = Array.from({ length: numPages }, () => []);
+        const pageMatchesByPage: Array<IPdfPageMatches | null> = Array.from({ length: numPages }, () => null);
+
+        resetProgress(numPages);
 
         try {
-            const numPages = pdfDocument.numPages;
-
             for (let pageIndex = 0; pageIndex < numPages; pageIndex++) {
                 if (runId !== searchRunId) {
                     return;
                 }
 
-                const page = await pdfDocument.getPage(pageIndex + 1);
-                const textContent = await page.getTextContent({
-                    includeMarkedContent: true,
-                    disableNormalization: true,
-                });
-
-                let pageText = '';
-                for (const item of textContent.items) {
-                    if ('str' in item) {
-                        pageText += item.str;
-                    }
+                const pageText = await getPageText(pageIndex, pdfDocument);
+                if (runId !== searchRunId) {
+                    return;
                 }
 
                 const lowerPageText = pageText.toLowerCase();
                 let matchIndex = 0;
                 let position = 0;
-                const matchesOnPage: Array<{
-                    start: number;
-                    end: number 
-                }> = [];
+                const matchesOnPage: IPdfPageMatches['matches'] = [];
+                const resultsForPage: IPdfSearchMatch[] = [];
 
                 while ((position = lowerPageText.indexOf(lowerQuery, position)) !== -1) {
                     const startOffset = position;
-                    const endOffset = position + query.length;
+                    const endOffset = position + normalizedQuery.length;
 
-                    searchResults.push({
+                    resultsForPage.push({
                         pageIndex,
                         matchIndex,
                         startOffset,
@@ -152,24 +255,21 @@ export const usePdfSearch = () => {
                     });
 
                     matchIndex++;
-                    position += lowerQuery.length;
+                    position += normalizedQuery.length;
                 }
 
-                if (matchesOnPage.length > 0) {
-                    newPageMatches.set(pageIndex, {
+                pageResults[pageIndex] = resultsForPage;
+                pageMatchesByPage[pageIndex] = matchesOnPage.length > 0
+                    ? {
                         pageIndex,
                         matches: matchesOnPage,
-                    });
-                }
-            }
+                    }
+                    : null;
 
-            if (runId !== searchRunId) {
-                return;
-            }
+                processedPages.value = pageIndex + 1;
 
-            results.value = searchResults;
-            pageMatches.value = newPageMatches;
-            currentResultIndex.value = searchResults.length > 0 ? 0 : -1;
+                applySearchState(runId, pageResults, pageMatchesByPage);
+            }
         } finally {
             if (runId === searchRunId) {
                 isSearching.value = false;
@@ -187,6 +287,10 @@ export const usePdfSearch = () => {
         cancelScheduledSearch();
         const runId = ++searchRunId;
         isSearching.value = true;
+        resetProgress(pdfDocument.numPages);
+        results.value = [];
+        pageMatches.value = new Map();
+        currentResultIndex.value = -1;
 
         return new Promise<boolean>((resolve) => {
             scheduledResolve = resolve;
@@ -230,6 +334,7 @@ export const usePdfSearch = () => {
         results.value = [];
         pageMatches.value = new Map();
         currentResultIndex.value = -1;
+        resetProgress(0);
     }
 
     function getMatchesForPage(pageIndex: number) {
@@ -245,10 +350,12 @@ export const usePdfSearch = () => {
         isSearching,
         totalMatches,
         currentMatch,
+        searchProgress,
         search,
         goToResult,
         setResultIndex,
         clearSearch,
         getMatchesForPage,
+        resetSearchCache: resetCache,
     };
 };

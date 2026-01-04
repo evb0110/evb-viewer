@@ -83,6 +83,7 @@
         <main class="flex-1 overflow-hidden flex">
             <PdfSidebar
                 v-if="pdfSrc"
+                ref="sidebarRef"
                 v-model:active-tab="sidebarTab"
                 v-model:search-query="searchQuery"
                 :is-open="showSidebar"
@@ -94,6 +95,7 @@
                 :current-match="currentMatch"
                 :total-matches="totalMatches"
                 :is-searching="isSearching"
+                :search-progress="searchProgress"
                 @search="handleSearch"
                 @next="handleSearchNext"
                 @previous="handleSearchPrevious"
@@ -137,6 +139,7 @@
 import {
     onMounted,
     onUnmounted,
+    nextTick,
     ref,
     shallowRef,
     watch,
@@ -164,6 +167,18 @@ const {
 
 const menuCleanups: Array<() => void> = [];
 
+function handleFindShortcut(event: KeyboardEvent) {
+    if (!pdfSrc.value) {
+        return;
+    }
+
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'f') {
+        event.preventDefault();
+        openSearch();
+        nextTick(() => sidebarRef.value?.focusSearch());
+    }
+}
+
 onMounted(() => {
     console.log('Electron API available:', isElectron.value);
 
@@ -178,10 +193,13 @@ onMounted(() => {
             window.electronAPI.onMenuFitHeight(() => { fitMode.value = 'height'; }),
         );
     }
+
+    window.addEventListener('keydown', handleFindShortcut);
 });
 
 onUnmounted(() => {
     menuCleanups.forEach((cleanup) => cleanup());
+    window.removeEventListener('keydown', handleFindShortcut);
 });
 
 watch(pdfError, (err) => {
@@ -203,11 +221,14 @@ const {
     goToResult,
     setResultIndex,
     clearSearch,
+    searchProgress,
+    resetSearchCache,
 } = usePdfSearch();
 
 const pdfViewerRef = ref<IPdfViewerExpose | null>(null);
 const zoomDropdownRef = ref<{ close: () => void } | null>(null);
 const pageDropdownRef = ref<{ close: () => void } | null>(null);
+const sidebarRef = ref<{ focusSearch: () => void | Promise<void> } | null>(null);
 
 function closeAllDropdowns() {
     zoomDropdownRef.value?.close();
@@ -296,6 +317,7 @@ async function handleSave() {
 
 watch(pdfSrc, () => {
     if (!pdfSrc.value) {
+        resetSearchCache();
         closeSearch();
     }
 });

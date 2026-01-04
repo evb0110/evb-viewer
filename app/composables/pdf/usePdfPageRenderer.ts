@@ -34,7 +34,7 @@ interface IUsePdfPageRendererOptions {
 
     bufferPages?: MaybeRefOrGetter<number>;
     showAnnotations?: MaybeRefOrGetter<boolean>;
-    onGoToPage?: (pageNumber: number) => void;
+    scrollToPage?: (pageNumber: number) => void;
     outputScale?: number;
 
     searchPageMatches?: MaybeRefOrGetter<Map<number, IPdfPageMatches>>;
@@ -410,7 +410,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                                     isInPresentationMode: false,
                                     externalLinkEnabled: true,
                                     goToDestination: async () => {},
-                                    goToPage: (page: number) => options.onGoToPage?.(page),
+                                    goToPage: (page: number) => options.scrollToPage?.(page),
                                     goToXY: () => {},
                                     addLinkAttributes: (
                                         link: HTMLAnchorElement,

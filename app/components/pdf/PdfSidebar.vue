@@ -56,6 +56,8 @@
                         :results="searchResults"
                         :current-result-index="currentResultIndex"
                         :search-query="searchQuery"
+                        :is-searching="isSearching"
+                        :search-progress="props.searchProgress"
                         @go-to-result="$emit('goToResult', $event)"
                     />
                 </div>
@@ -85,6 +87,10 @@ interface IProps {
     currentMatch: number;
     totalMatches: number;
     isSearching: boolean;
+    searchProgress?: {
+        processed: number;
+        total: number;
+    };
     activeTab?: TPdfSidebarTab;
 }
 
@@ -127,6 +133,8 @@ async function focusSearch() {
     await nextTick();
     searchBarRef.value?.focus();
 }
+
+defineExpose({ focusSearch });
 
 function handleSearchClose() {
     emit('close');

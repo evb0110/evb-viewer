@@ -13,6 +13,18 @@
             <template #leading>
                 <UIcon name="i-lucide-search" class="size-4" />
             </template>
+            <template #trailing>
+                <UButton
+                    v-if="searchQuery"
+                    icon="i-lucide-x"
+                    variant="ghost"
+                    color="neutral"
+                    size="xs"
+                    class="pdf-search-bar__clear"
+                    aria-label="Clear search"
+                    @click="clearQuery"
+                />
+            </template>
         </UInput>
 
         <div class="pdf-search-bar__results">
@@ -60,7 +72,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
+import {
+    computed,
+    ref,
+} from 'vue';
 
 interface IProps {
     modelValue: string;
@@ -93,6 +108,14 @@ function focus() {
     inputRef.value?.$el?.querySelector('input')?.focus();
 }
 
+function clearQuery() {
+    if (!searchQuery.value) {
+        return;
+    }
+    searchQuery.value = '';
+    focus();
+}
+
 defineExpose({ focus });
 </script>
 
@@ -119,6 +142,11 @@ defineExpose({ focus });
 .pdf-search-bar__skeleton {
     width: 3rem;
     height: 1rem;
+}
+
+.pdf-search-bar__clear {
+    min-width: auto;
+    padding-inline: 0.25rem;
 }
 
 .pdf-search-bar__count {
