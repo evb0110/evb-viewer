@@ -117,8 +117,14 @@ function clearRenderedState() {
 // When totalPages and pdfDocument change together (they're linked via computed),
 // separate watchers can miss the update due to timing
 watch(
-    [() => props.pdfDocument, () => props.totalPages],
-    ([doc, total], [oldDoc]) => {
+    [
+        () => props.pdfDocument,
+        () => props.totalPages,
+    ],
+    ([
+        doc,
+        total,
+    ], [oldDoc]) => {
         if (doc && total > 0) {
             // Only clear if document changed (not just page count)
             if (doc !== oldDoc) {

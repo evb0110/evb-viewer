@@ -138,7 +138,10 @@ watch(
         props.isOpen,
         activeTab.value,
     ] as const,
-    async ([isOpen, tab]) => {
+    async ([
+        isOpen,
+        tab,
+    ]) => {
         if (isOpen && tab === 'search') {
             await focusSearch();
         }

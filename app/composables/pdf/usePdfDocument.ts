@@ -111,6 +111,13 @@ export const usePdfDocument = () => {
         pdfPageCache.clear();
     }
 
+    async function saveDocument(): Promise<Uint8Array | null> {
+        if (!pdfDocument.value) {
+            return null;
+        }
+        return pdfDocument.value.saveDocument();
+    }
+
     function cleanup() {
         cleanupPageCache();
 
@@ -155,6 +162,7 @@ export const usePdfDocument = () => {
         getPage,
         evictPage,
         cleanupPageCache,
+        saveDocument,
         cleanup,
     };
 };

@@ -42,7 +42,6 @@ import {
     onMounted,
     onUnmounted,
     ref,
-    toRef,
     watch,
 } from 'vue';
 import {
@@ -59,19 +58,13 @@ import { usePdfSkeletonInsets } from '../../composables/pdf/usePdfSkeletonInsets
 import type {
     IPdfPageMatches,
     IPdfSearchMatch,
+    PDFDocumentProxy,
     TFitMode,
 } from '../../types/pdf';
 
 import 'pdfjs-dist/web/pdf_viewer.css';
 
-const { setupTextLayer } = useTextLayerSelection();
-const {
-    clearHighlights,
-    highlightPage,
-    scrollToHighlight,
-} = usePdfSearchHighlight();
-
-interface IPdfViewerProps {
+interface IProps {
     src: Blob | null;
     bufferPages?: number;
     zoom?: number;
@@ -84,38 +77,31 @@ interface IPdfViewerProps {
     currentSearchMatch?: IPdfSearchMatch | null;
 }
 
-const props = withDefaults(defineProps<IPdfViewerProps>(), {
-    bufferPages: 2,
-    zoom: 1,
-    dragMode: false,
-    fitMode: 'width',
-    isResizing: false,
-    invertColors: false,
-    showAnnotations: true,
-    currentSearchMatch: null,
-});
+const {
+    src,
+    bufferPages = 2,
+    zoom = 1,
+    dragMode = false,
+    fitMode = 'width',
+    isResizing = false,
+    invertColors = false,
+    showAnnotations = true,
+    searchPageMatches = new Map<number, IPdfPageMatches>(),
+    currentSearchMatch = null,
+} = defineProps<IProps>();
 
 const emit = defineEmits<{
     (e: 'update:zoom', value: number): void;
     (e: 'update:currentPage', page: number): void;
     (e: 'update:totalPages', total: number): void;
     (e: 'update:loading', loading: boolean): void;
+    (e: 'update:document', document: PDFDocumentProxy | null): void;
     (e: 'loading', loading: boolean): void;
 }>();
 
 const viewerContainer = ref<HTMLElement | null>(null);
 
-const src = toRef(props, 'src');
-const bufferPages = toRef(props, 'bufferPages');
-const zoom = toRef(props, 'zoom');
-const dragMode = toRef(props, 'dragMode');
-const fitMode = toRef(props, 'fitMode');
-const isResizing = toRef(props, 'isResizing');
-const invertColors = toRef(props, 'invertColors');
-const showAnnotations = toRef(props, 'showAnnotations');
-const searchPageMatches = toRef(props, 'searchPageMatches');
-const currentSearchMatch = toRef(props, 'currentSearchMatch');
-
+const pdfDocumentResult = usePdfDocument();
 const {
     pdfDocument,
     numPages,
@@ -125,10 +111,9 @@ const {
     getRenderVersion,
     loadPdf,
     getPage,
-    evictPage,
-    cleanupPageCache,
+    saveDocument,
     cleanup: cleanupDocument,
-} = usePdfDocument();
+} = pdfDocumentResult;
 
 const {
     currentPage,
@@ -144,7 +129,7 @@ const {
     startDrag,
     onDrag,
     stopDrag,
-} = usePdfDrag(() => dragMode.value);
+} = usePdfDrag(() => dragMode);
 
 const {
     containerStyle,
@@ -152,7 +137,7 @@ const {
     computeFitWidthScale,
     effectiveScale,
     resetScale,
-} = usePdfScale(zoom, fitMode, basePageWidth, basePageHeight);
+} = usePdfScale(() => zoom, () => fitMode, basePageWidth, basePageHeight);
 
 const {
     scaledSkeletonPadding,
@@ -167,27 +152,16 @@ const {
     reRenderAllVisiblePages,
     cleanupAllPages: cleanupRenderedPages,
     applySearchHighlights,
-    scrollToCurrentMatch,
 } = usePdfPageRenderer({
     container: viewerContainer,
-    numPages,
+    document: pdfDocumentResult,
     currentPage,
-    bufferPages,
     effectiveScale,
-    basePageWidth,
-    basePageHeight,
-    showAnnotations,
-    isLoading,
-    getPage,
-    evictPage,
-    cleanupPageCache,
-    onGoToPage: (pageNumber) => scrollToPage(pageNumber),
-    setupTextLayer,
-    searchPageMatches,
-    currentSearchMatch,
-    clearHighlights,
-    highlightPage,
-    scrollToHighlight,
+    bufferPages: () => bufferPages,
+    showAnnotations: () => showAnnotations,
+    onGoToPage: (pageNumber: number) => scrollToPage(pageNumber),
+    searchPageMatches: () => searchPageMatches,
+    currentSearchMatch: () => currentSearchMatch,
 });
 
 const pagesToRender = computed(() =>
@@ -216,7 +190,7 @@ function getVisibleRange() {
 }
 
 async function loadFromSource() {
-    if (!src.value) {
+    if (!src) {
         return;
     }
 
@@ -230,10 +204,12 @@ async function loadFromSource() {
         end: 1,
     };
 
-    const loaded = await loadPdf(src.value);
+    const loaded = await loadPdf(src);
     if (!loaded) {
         return;
     }
+
+    emit('update:document', pdfDocument.value);
 
     currentPage.value = 1;
     emit('update:totalPages', numPages.value);
@@ -310,7 +286,7 @@ const debouncedRenderOnResize = useDebounceFn(() => {
 }, 200);
 
 function handleResize() {
-    if (isLoading.value || isResizing.value) {
+    if (isLoading.value || isResizing) {
         return;
     }
 
@@ -332,7 +308,7 @@ onUnmounted(() => {
 });
 
 watch(
-    () => fitMode.value,
+    () => fitMode,
     async (mode) => {
         const pageToSnapTo = mode === 'height'
             ? getMostVisiblePage(viewerContainer.value, numPages.value)
@@ -350,14 +326,19 @@ watch(
 );
 
 watch(
-    () => src.value,
-    () => {
-        loadFromSource();
+    () => src,
+    (newSrc, oldSrc) => {
+        if (newSrc !== oldSrc) {
+            if (!newSrc) {
+                emit('update:document', null);
+            }
+            loadFromSource();
+        }
     },
 );
 
 watch(
-    () => zoom.value,
+    () => zoom,
     () => {
         if (pdfDocument.value) {
             void reRenderAllVisiblePages(getVisibleRange);
@@ -366,7 +347,7 @@ watch(
 );
 
 watch(
-    () => isResizing.value,
+    () => isResizing,
     async (value) => {
         if (!value && pdfDocument.value && !isLoading.value) {
             await nextTick();
@@ -377,7 +358,7 @@ watch(
     },
 );
 
-const isEffectivelyLoading = computed(() => !!src.value && isLoading.value);
+const isEffectivelyLoading = computed(() => !!src && isLoading.value);
 
 watch(
     isEffectivelyLoading,
@@ -391,23 +372,9 @@ watch(
     { immediate: true },
 );
 
-function getPdfDocument() {
-    return pdfDocument.value;
-}
-
-async function saveDocument(): Promise<Uint8Array | null> {
-    if (!pdfDocument.value) {
-        return null;
-    }
-    return pdfDocument.value.saveDocument();
-}
-
 defineExpose({
     scrollToPage,
-    getPdfDocument,
     saveDocument,
-    applySearchHighlights,
-    scrollToCurrentMatch,
 });
 </script>
 

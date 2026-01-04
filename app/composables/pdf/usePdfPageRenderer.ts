@@ -3,12 +3,13 @@ import {
     AnnotationLayer,
     TextLayer,
 } from 'pdfjs-dist';
-import type { PDFPageProxy } from 'pdfjs-dist';
 import type { IPDFLinkService } from 'pdfjs-dist/types/web/interfaces';
 import {
     nextTick,
     ref,
+    toValue,
     watch,
+    type MaybeRefOrGetter,
     type Ref,
 } from 'vue';
 import type {
@@ -16,6 +17,9 @@ import type {
     IPdfSearchMatch,
     TScrollSnapshot,
 } from '../../types/pdf';
+import { usePdfSearchHighlight } from '../usePdfSearchHighlight';
+import { useTextLayerSelection } from '../useTextLayerSelection';
+import type { usePdfDocument } from './usePdfDocument';
 
 type TPageRange = {
     start: number;
@@ -24,37 +28,44 @@ type TPageRange = {
 
 type TUsePdfPageRendererOptions = {
     container: Ref<HTMLElement | null>;
-    numPages: Ref<number>;
+    document: ReturnType<typeof usePdfDocument>;
     currentPage: Ref<number>;
-    bufferPages: Ref<number>;
-    effectiveScale: Ref<number>;
-    basePageWidth: Ref<number | null>;
-    basePageHeight: Ref<number | null>;
-    showAnnotations: Ref<boolean>;
-    isLoading: Ref<boolean>;
+    effectiveScale: MaybeRefOrGetter<number>;
+
+    bufferPages?: MaybeRefOrGetter<number>;
+    showAnnotations?: MaybeRefOrGetter<boolean>;
+    onGoToPage?: (pageNumber: number) => void;
     outputScale?: number;
 
-    getPage: (pageNumber: number) => Promise<PDFPageProxy>;
-    evictPage: (pageNumber: number) => void;
-    cleanupPageCache: () => void;
-
-    onGoToPage: (pageNumber: number) => void;
-    setupTextLayer: (textLayerDiv: HTMLElement) => void | (() => void);
-
-    searchPageMatches: Ref<Map<number, IPdfPageMatches> | undefined>;
-    currentSearchMatch: Ref<IPdfSearchMatch | null>;
-    clearHighlights: (container: HTMLElement) => void;
-    highlightPage: (
-        textLayerDiv: HTMLElement,
-        pageMatches: IPdfPageMatches | null,
-        currentMatch: IPdfSearchMatch | null,
-    ) => void;
-    scrollToHighlight: (element: HTMLElement, container: HTMLElement) => void;
+    searchPageMatches?: MaybeRefOrGetter<Map<number, IPdfPageMatches>>;
+    currentSearchMatch?: MaybeRefOrGetter<IPdfSearchMatch | null>;
 };
 
 const CONCURRENT_RENDERS = 3;
 
 export const usePdfPageRenderer = (options: TUsePdfPageRendererOptions) => {
+    const { setupTextLayer } = useTextLayerSelection();
+    const {
+        clearHighlights,
+        highlightPage,
+        scrollToHighlight,
+    } = usePdfSearchHighlight();
+
+    const {
+        numPages,
+        basePageWidth,
+        basePageHeight,
+        isLoading,
+        getPage,
+        evictPage,
+        cleanupPageCache,
+    } = options.document;
+
+    const bufferPages = options.bufferPages ?? 2;
+    const showAnnotations = options.showAnnotations ?? true;
+    const searchPageMatches = options.searchPageMatches ?? new Map<number, IPdfPageMatches>();
+    const currentSearchMatch = options.currentSearchMatch ?? null;
+
     const renderMutex = new Mutex();
     let renderVersion = 0;
 
@@ -175,7 +186,7 @@ export const usePdfPageRenderer = (options: TUsePdfPageRendererOptions) => {
         }
 
         try {
-            options.evictPage(pageNumber);
+            evictPage(pageNumber);
         } catch (error) {
             console.error('Failed to evict cached PDF page:', error);
         }
@@ -183,17 +194,15 @@ export const usePdfPageRenderer = (options: TUsePdfPageRendererOptions) => {
 
     function setupPagePlaceholders() {
         const containerRoot = options.container.value;
-        if (
-            !containerRoot
-            || !options.basePageWidth.value
-            || !options.basePageHeight.value
-        ) {
+        const baseWidth = toValue(basePageWidth);
+        const baseHeight = toValue(basePageHeight);
+        if (!containerRoot || !baseWidth || !baseHeight) {
             return;
         }
 
-        const scale = options.effectiveScale.value;
-        const width = Math.floor(options.basePageWidth.value * scale);
-        const height = Math.floor(options.basePageHeight.value * scale);
+        const scale = toValue(options.effectiveScale);
+        const width = Math.floor(baseWidth * scale);
+        const height = Math.floor(baseHeight * scale);
 
         const containers = containerRoot.querySelectorAll<HTMLDivElement>('.page_container');
         containers.forEach((container) => {
@@ -203,18 +212,17 @@ export const usePdfPageRenderer = (options: TUsePdfPageRendererOptions) => {
     }
 
     async function renderVisiblePages(visibleRange: TPageRange) {
-        const getPage = options.getPage;
         const containerRoot = options.container.value;
 
-        if (!containerRoot || !getPage || options.numPages.value === 0) {
+        if (!containerRoot || numPages.value === 0) {
             return;
         }
 
         const version = renderVersion;
-        const buffer = options.bufferPages.value;
+        const buffer = toValue(bufferPages);
 
         const renderStart = Math.max(1, visibleRange.start - buffer);
-        const renderEnd = Math.min(options.numPages.value, visibleRange.end + buffer);
+        const renderEnd = Math.min(numPages.value, visibleRange.end + buffer);
 
         const pagesToKeep = new Set<number>();
         for (let i = renderStart; i <= renderEnd; i++) {
@@ -238,7 +246,7 @@ export const usePdfPageRenderer = (options: TUsePdfPageRendererOptions) => {
             return;
         }
 
-        const scale = options.effectiveScale.value;
+        const scale = toValue(options.effectiveScale);
         const containers = containerRoot.querySelectorAll<HTMLDivElement>('.page_container');
 
         for (let i = 0; i < pagesToRenderNow.length; i += CONCURRENT_RENDERS) {
@@ -359,19 +367,20 @@ export const usePdfPageRenderer = (options: TUsePdfPageRendererOptions) => {
                                 return;
                             }
 
-                            const cleanup = options.setupTextLayer(textLayerDiv);
+                            const cleanup = setupTextLayer(textLayerDiv);
                             if (typeof cleanup === 'function') {
                                 textLayerCleanupFns.set(pageNumber, cleanup);
                             }
 
                             const pageIndex = pageNumber - 1;
 
-                            if (options.searchPageMatches.value && options.searchPageMatches.value.size > 0) {
-                                const pageMatchData = options.searchPageMatches.value.get(pageIndex) ?? null;
-                                options.highlightPage(
+                            const searchMatches = toValue(searchPageMatches);
+                            if (searchMatches && searchMatches.size > 0) {
+                                const pageMatchData = searchMatches.get(pageIndex) ?? null;
+                                highlightPage(
                                     textLayerDiv,
                                     pageMatchData,
-                                    options.currentSearchMatch.value ?? null,
+                                    toValue(currentSearchMatch) ?? null,
                                 );
                             }
 
@@ -381,7 +390,7 @@ export const usePdfPageRenderer = (options: TUsePdfPageRendererOptions) => {
                         }
 
                         const annotationLayerDiv = container.querySelector<HTMLElement>('.annotation-layer');
-                        if (annotationLayerDiv && options.showAnnotations.value) {
+                        if (annotationLayerDiv && toValue(showAnnotations)) {
                             annotationLayerDiv.innerHTML = '';
 
                             const annotations = await pdfPage.getAnnotations();
@@ -395,13 +404,13 @@ export const usePdfPageRenderer = (options: TUsePdfPageRendererOptions) => {
 
                             if (annotations.length > 0) {
                                 const simpleLinkService = {
-                                    pagesCount: options.numPages.value,
+                                    pagesCount: numPages.value,
                                     page: options.currentPage.value,
                                     rotation: 0,
                                     isInPresentationMode: false,
                                     externalLinkEnabled: true,
                                     goToDestination: async () => {},
-                                    goToPage: (page: number) => options.onGoToPage(page),
+                                    goToPage: (page: number) => options.onGoToPage?.(page),
                                     goToXY: () => {},
                                     addLinkAttributes: (
                                         link: HTMLAnchorElement,
@@ -524,7 +533,7 @@ export const usePdfPageRenderer = (options: TUsePdfPageRendererOptions) => {
         pendingScrollToMatchPageIndex.value = null;
 
         try {
-            options.cleanupPageCache();
+            cleanupPageCache();
         } catch (error) {
             console.error('Failed to clean up PDF page cache:', error);
         }
@@ -538,6 +547,9 @@ export const usePdfPageRenderer = (options: TUsePdfPageRendererOptions) => {
 
         const pageContainers = containerRoot.querySelectorAll<HTMLElement>('.page_container');
 
+        const searchMatchesValue = toValue(searchPageMatches);
+        const currentMatchValue = toValue(currentSearchMatch);
+
         pageContainers.forEach((container, index) => {
             const pageIndex = index;
             const textLayerDiv = container.querySelector<HTMLElement>('.text-layer');
@@ -546,23 +558,24 @@ export const usePdfPageRenderer = (options: TUsePdfPageRendererOptions) => {
                 return;
             }
 
-            if (!options.searchPageMatches.value || options.searchPageMatches.value.size === 0) {
-                options.clearHighlights(textLayerDiv);
+            if (!searchMatchesValue || searchMatchesValue.size === 0) {
+                clearHighlights(textLayerDiv);
                 return;
             }
 
-            const pageMatches = options.searchPageMatches.value.get(pageIndex) ?? null;
-            options.highlightPage(textLayerDiv, pageMatches, options.currentSearchMatch.value ?? null);
+            const pageMatches = searchMatchesValue.get(pageIndex) ?? null;
+            highlightPage(textLayerDiv, pageMatches, currentMatchValue ?? null);
         });
     }
 
     function scrollToCurrentMatch() {
         const containerRoot = options.container.value;
-        if (!containerRoot || !options.currentSearchMatch.value) {
+        const currentMatchValue = toValue(currentSearchMatch);
+        if (!containerRoot || !currentMatchValue) {
             return false;
         }
 
-        const pageIndex = options.currentSearchMatch.value.pageIndex;
+        const pageIndex = currentMatchValue.pageIndex;
         const pageContainers = containerRoot.querySelectorAll<HTMLElement>('.page_container');
         const targetContainer = pageContainers[pageIndex];
 
@@ -581,22 +594,23 @@ export const usePdfPageRenderer = (options: TUsePdfPageRendererOptions) => {
         }
 
         pendingScrollToMatchPageIndex.value = null;
-        options.scrollToHighlight(currentHighlight, containerRoot);
+        scrollToHighlight(currentHighlight, containerRoot);
         return true;
     }
 
     watch(
         () => [
-            options.searchPageMatches.value,
-            options.currentSearchMatch.value,
+            toValue(searchPageMatches),
+            toValue(currentSearchMatch),
         ] as const,
         () => {
-            if (options.isLoading.value) {
+            if (isLoading.value) {
                 return;
             }
 
-            pendingScrollToMatchPageIndex.value = options.currentSearchMatch.value
-                ? options.currentSearchMatch.value.pageIndex
+            const currentMatchValue = toValue(currentSearchMatch);
+            pendingScrollToMatchPageIndex.value = currentMatchValue
+                ? currentMatchValue.pageIndex
                 : null;
 
             applySearchHighlights();
@@ -614,7 +628,5 @@ export const usePdfPageRenderer = (options: TUsePdfPageRendererOptions) => {
         reRenderAllVisiblePages,
         cleanupAllPages,
         applySearchHighlights,
-        scrollToCurrentMatch,
-        bumpRenderVersion,
     };
 };

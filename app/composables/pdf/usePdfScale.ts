@@ -1,22 +1,23 @@
 import {
     ref,
     computed,
-    type Ref,
+    toValue,
+    type MaybeRefOrGetter,
 } from 'vue';
 import type { TFitMode } from '../../types/pdf';
 
 const BASE_MARGIN = 20;
 
 export const usePdfScale = (
-    zoom: Ref<number>,
-    fitMode: Ref<TFitMode>,
-    basePageWidth: Ref<number | null>,
-    basePageHeight: Ref<number | null>,
+    zoom: MaybeRefOrGetter<number>,
+    fitMode: MaybeRefOrGetter<TFitMode>,
+    basePageWidth: MaybeRefOrGetter<number | null>,
+    basePageHeight: MaybeRefOrGetter<number | null>,
 ) => {
     const fitWidthScale = ref(1);
     const lastContainerSize = ref<number | null>(null);
 
-    const effectiveScale = computed(() => zoom.value * fitWidthScale.value);
+    const effectiveScale = computed(() => toValue(zoom) * fitWidthScale.value);
 
     const containerStyle = computed(() => {
         const scale = effectiveScale.value;
@@ -30,11 +31,13 @@ export const usePdfScale = (
     const scaledMargin = computed(() => Math.floor(BASE_MARGIN * effectiveScale.value));
 
     function computeFitWidthScale(container: HTMLElement | null): boolean {
-        if (!container || !basePageWidth.value || !basePageHeight.value) {
+        const width = toValue(basePageWidth);
+        const height = toValue(basePageHeight);
+        if (!container || !width || !height) {
             return false;
         }
 
-        const mode = fitMode.value;
+        const mode = toValue(fitMode);
         const rawSize = mode === 'height'
             ? container.clientHeight
             : container.clientWidth;
@@ -50,8 +53,8 @@ export const usePdfScale = (
         lastContainerSize.value = rawSize;
 
         const baseDimension = mode === 'height'
-            ? basePageHeight.value + BASE_MARGIN * 2
-            : basePageWidth.value + BASE_MARGIN * 2;
+            ? height + BASE_MARGIN * 2
+            : width + BASE_MARGIN * 2;
 
         const newScale = rawSize / baseDimension;
 

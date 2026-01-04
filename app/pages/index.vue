@@ -83,9 +83,9 @@
         <main class="flex-1 overflow-hidden flex">
             <PdfSidebar
                 v-if="pdfSrc"
+                v-model:active-tab="sidebarTab"
+                v-model:search-query="searchQuery"
                 :is-open="showSidebar"
-                v-model:activeTab="sidebarTab"
-                v-model:searchQuery="searchQuery"
                 :pdf-document="pdfDocument"
                 :current-page="currentPage"
                 :total-pages="totalPages"
@@ -113,6 +113,7 @@
                     :current-search-match="currentResult"
                     @update:current-page="currentPage = $event"
                     @update:total-pages="totalPages = $event"
+                    @update:document="pdfDocument = $event"
                     @loading="isLoading = $event"
                 />
                 <div
@@ -134,11 +135,10 @@
 
 <script setup lang="ts">
 import {
-    computed,
-    nextTick,
     onMounted,
     onUnmounted,
     ref,
+    shallowRef,
     watch,
 } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
@@ -148,10 +148,7 @@ type TPdfSidebarTab = 'thumbnails' | 'outline' | 'search';
 
 interface IPdfViewerExpose {
     scrollToPage: (page: number) => void;
-    getPdfDocument: () => PDFDocumentProxy | null;
     saveDocument: () => Promise<Uint8Array | null>;
-    applySearchHighlights: () => void;
-    scrollToCurrentMatch: () => void;
 }
 
 const {
@@ -223,15 +220,7 @@ const currentPage = ref(1);
 const totalPages = ref(0);
 const isLoading = ref(false);
 const dragMode = ref(true);
-
-// Computed to make PDF document reactive (re-evaluates when totalPages changes)
-const pdfDocument = computed(() => {
-    // This dependency on totalPages makes the computed reactive
-    if (totalPages.value > 0 && pdfViewerRef.value) {
-        return pdfViewerRef.value.getPdfDocument();
-    }
-    return null;
-});
+const pdfDocument = shallowRef<PDFDocumentProxy | null>(null);
 const showSidebar = ref(false);
 const sidebarTab = ref<TPdfSidebarTab>('thumbnails');
 const isSaving = ref(false);
@@ -281,9 +270,6 @@ function scrollToCurrentResult() {
         const result = results.value[currentResultIndex.value];
         if (result) {
             pdfViewerRef.value?.scrollToPage(result.pageIndex + 1);
-            nextTick(() => {
-                pdfViewerRef.value?.scrollToCurrentMatch();
-            });
         }
     }
 }

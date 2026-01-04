@@ -1,7 +1,8 @@
 import {
     ref,
     computed,
-    type Ref,
+    toValue,
+    type MaybeRefOrGetter,
 } from 'vue';
 import type {
     TContentInsets,
@@ -11,20 +12,21 @@ import type {
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
 
 export const usePdfSkeletonInsets = (
-    basePageWidth: Ref<number | null>,
-    basePageHeight: Ref<number | null>,
-    effectiveScale: Ref<number>,
+    basePageWidth: MaybeRefOrGetter<number | null>,
+    basePageHeight: MaybeRefOrGetter<number | null>,
+    effectiveScale: MaybeRefOrGetter<number>,
 ) => {
     const skeletonContentInsets = ref<TContentInsets | null>(null);
 
     const scaledSkeletonPadding = computed<TContentInsets | null>(() => {
-        if (!basePageWidth.value || !basePageHeight.value) {
+        const width = toValue(basePageWidth);
+        const height = toValue(basePageHeight);
+        if (!width || !height) {
             return null;
         }
 
-        const insets = skeletonContentInsets.value
-            ?? buildFallbackInsets(basePageWidth.value, basePageHeight.value);
-        const scale = effectiveScale.value;
+        const insets = skeletonContentInsets.value ?? buildFallbackInsets(width, height);
+        const scale = toValue(effectiveScale);
 
         return {
             top: insets.top * scale,
@@ -35,10 +37,11 @@ export const usePdfSkeletonInsets = (
     });
 
     const scaledPageHeight = computed(() => {
-        if (!basePageHeight.value) {
+        const height = toValue(basePageHeight);
+        if (!height) {
             return null;
         }
-        return Math.floor(basePageHeight.value * effectiveScale.value);
+        return Math.floor(height * toValue(effectiveScale));
     });
 
     function buildFallbackInsets(width: number, height: number): TContentInsets {
@@ -151,12 +154,14 @@ export const usePdfSkeletonInsets = (
         renderVersion: number,
         getCurrentVersion: () => number,
     ) {
-        if (!basePageWidth.value || !basePageHeight.value) {
+        const width = toValue(basePageWidth);
+        const height = toValue(basePageHeight);
+        if (!width || !height) {
             skeletonContentInsets.value = null;
             return;
         }
 
-        const fallback = buildFallbackInsets(basePageWidth.value, basePageHeight.value);
+        const fallback = buildFallbackInsets(width, height);
 
         try {
             const viewport = pdfPage.getViewport({ scale: 1 });
