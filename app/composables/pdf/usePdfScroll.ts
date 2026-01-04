@@ -121,7 +121,8 @@ export const usePdfScroll = () => {
         }
 
         const {
-            scrollWidth, scrollHeight, 
+            scrollWidth,
+            scrollHeight,
         } = container;
 
         if (!scrollWidth || !scrollHeight) {

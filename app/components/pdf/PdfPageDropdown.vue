@@ -103,7 +103,9 @@ interface IProps {
 }
 
 const {
-    modelValue: currentPage, totalPages, disabled = false,
+    modelValue: currentPage,
+    totalPages,
+    disabled = false,
 } = defineProps<IProps>();
 
 const emit = defineEmits<{

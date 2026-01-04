@@ -58,6 +58,7 @@ export default withNuxt(
             'import/no-relative-parent-imports': 'error',
             'custom/brace-return-after-if': 'error',
             'custom/import-specifier-newline': 'error',
+            'custom/destructuring-property-newline': 'error',
             ...stylisticRules,
         },
     },

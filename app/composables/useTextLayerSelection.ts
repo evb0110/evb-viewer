@@ -16,7 +16,8 @@ let isPointerDown = false;
 
 function reset(entry: ITextLayerEntry) {
     const {
-        textLayer, endOfContent, 
+        textLayer,
+        endOfContent,
     } = entry;
     textLayer.appendChild(endOfContent);
     endOfContent.style.width = '';

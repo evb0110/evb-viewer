@@ -55,7 +55,8 @@ interface IProps {
 }
 
 const {
-    padding, contentHeight, 
+    padding,
+    contentHeight,
 } = defineProps<IProps>();
 
 const resolvedPadding = computed<IPadding>(() => ({

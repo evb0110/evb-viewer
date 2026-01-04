@@ -3,63 +3,64 @@ export default {rules: {
         meta: {
             type: 'layout',
             docs: {
-                description: 'Enforce import specifiers to be either all on one line or each on its own line',
+                description: 'Enforce import specifiers to be on separate lines when there are 2 or more',
                 recommended: true,
             },
             fixable: 'code',
-            schema: [],
+            schema: [{
+                type: 'object',
+                properties: {minSpecifiers: {
+                    type: 'integer',
+                    minimum: 1,
+                }},
+                additionalProperties: false,
+            }],
         },
         create(context) {
             const sourceCode = context.sourceCode;
+            const options = context.options[0] || {};
+            const minSpecifiers = options.minSpecifiers ?? 2;
+
+            function formatImport(specifiers, openBrace, source) {
+                const indent = '    ';
+                const specifierTexts = specifiers.map((s) => sourceCode.getText(s));
+
+                return '{\n' +
+                    specifierTexts.map((t) => `${indent}${t},`).join('\n') +
+                    '\n} from ' +
+                    sourceCode.getText(source);
+            }
 
             return {ImportDeclaration(node) {
                 const specifiers = node.specifiers.filter(
                     (s) => s.type === 'ImportSpecifier',
                 );
 
-                if (specifiers.length < 2) {
+                if (specifiers.length < minSpecifiers) {
                     return;
                 }
 
                 const firstSpecifier = specifiers[0];
-                const lastSpecifier = specifiers[specifiers.length - 1];
                 const openBrace = sourceCode.getTokenBefore(firstSpecifier);
-                const closeBrace = sourceCode.getTokenAfter(lastSpecifier);
 
-                const braceOnDifferentLine = openBrace.loc.end.line !== firstSpecifier.loc.start.line ||
-                    closeBrace.loc.start.line !== lastSpecifier.loc.end.line;
-                const specifiersOnSameLine = firstSpecifier.loc.start.line === lastSpecifier.loc.end.line;
+                const allOnSameLine = specifiers.every(
+                    (s) => s.loc.start.line === firstSpecifier.loc.start.line,
+                );
 
-                if (braceOnDifferentLine && specifiersOnSameLine) {
+                if (allOnSameLine) {
                     context.report({
                         node: firstSpecifier,
-                        message: 'Each import specifier should be on its own line when imports span multiple lines',
+                        message: `Import specifiers should be on separate lines when there are ${minSpecifiers} or more`,
                         fix(fixer) {
-                            const indent = '    ';
-                            const specifierTexts = specifiers.map((s) => sourceCode.getText(s));
-                            const source = node.source;
-
-                            const formatted =
-                                '{\n' +
-                                    specifierTexts.map((t) => `${indent}${t},`).join('\n') +
-                                    '\n} from ' +
-                                    sourceCode.getText(source);
-
                             return fixer.replaceTextRange(
                                 [
                                     openBrace.range[0],
-                                    source.range[1],
+                                    node.source.range[1],
                                 ],
-                                formatted,
+                                formatImport(specifiers, openBrace, node.source),
                             );
                         },
                     });
-                    return;
-                }
-
-                const isMultiline = firstSpecifier.loc.start.line !== lastSpecifier.loc.end.line;
-
-                if (!isMultiline) {
                     return;
                 }
 
@@ -70,24 +71,109 @@ export default {rules: {
                     if (current.loc.end.line === next.loc.start.line) {
                         context.report({
                             node: next,
-                            message: 'Each import specifier should be on its own line when imports span multiple lines',
+                            message: 'Each import specifier should be on its own line',
                             fix(fixer) {
-                                const indent = '    ';
-                                const specifierTexts = specifiers.map((s) => sourceCode.getText(s));
-                                const source = node.source;
-
-                                const formatted =
-                                    '{\n' +
-                                        specifierTexts.map((t) => `${indent}${t},`).join('\n') +
-                                        '\n} from ' +
-                                        sourceCode.getText(source);
-
                                 return fixer.replaceTextRange(
                                     [
                                         openBrace.range[0],
-                                        source.range[1],
+                                        node.source.range[1],
                                     ],
-                                    formatted,
+                                    formatImport(specifiers, openBrace, node.source),
+                                );
+                            },
+                        });
+                        break;
+                    }
+                }
+            }};
+        },
+    },
+    'destructuring-property-newline': {
+        meta: {
+            type: 'layout',
+            docs: {
+                description: 'Enforce destructuring properties to be on separate lines when there are 2 or more',
+                recommended: true,
+            },
+            fixable: 'code',
+            schema: [{
+                type: 'object',
+                properties: {minProperties: {
+                    type: 'integer',
+                    minimum: 1,
+                }},
+                additionalProperties: false,
+            }],
+        },
+        create(context) {
+            const sourceCode = context.sourceCode;
+            const options = context.options[0] || {};
+            const minProperties = options.minProperties ?? 2;
+
+            function getBaseIndent(node) {
+                const line = sourceCode.lines[node.loc.start.line - 1];
+                const match = line.match(/^(\s*)/);
+                return match ? match[1] : '';
+            }
+
+            function formatDestructuring(properties, openBrace, closeBrace, baseIndent) {
+                const indent = baseIndent + '    ';
+                const propertyTexts = properties.map((p) => sourceCode.getText(p));
+
+                return '{\n' +
+                    propertyTexts.map((t) => `${indent}${t},`).join('\n') +
+                    `\n${baseIndent}}`;
+            }
+
+            return {ObjectPattern(node) {
+                const properties = node.properties;
+
+                if (properties.length < minProperties) {
+                    return;
+                }
+
+                const firstProperty = properties[0];
+                const openBrace = sourceCode.getFirstToken(node);
+                const closeBrace = sourceCode.getLastToken(node);
+
+                const allOnSameLine = properties.every(
+                    (p) => p.loc.start.line === firstProperty.loc.start.line,
+                );
+
+                const baseIndent = getBaseIndent(node);
+
+                if (allOnSameLine) {
+                    context.report({
+                        node: firstProperty,
+                        message: `Destructuring properties should be on separate lines when there are ${minProperties} or more`,
+                        fix(fixer) {
+                            return fixer.replaceTextRange(
+                                [
+                                    openBrace.range[0],
+                                    closeBrace.range[1],
+                                ],
+                                formatDestructuring(properties, openBrace, closeBrace, baseIndent),
+                            );
+                        },
+                    });
+                    return;
+                }
+
+                for (let i = 0; i < properties.length - 1; i++) {
+                    const current = properties[i];
+                    const next = properties[i + 1];
+
+                    if (current.loc.end.line === next.loc.start.line) {
+                        context.report({
+                            node: next,
+                            message: 'Each destructuring property should be on its own line',
+                            fix(fixer) {
+                                return fixer.replaceTextRange(
+                                    [
+                                        openBrace.range[0],
+                                        closeBrace.range[1],
+                                    ],
+                                    formatDestructuring(properties, openBrace, closeBrace, baseIndent),
                                 );
                             },
                         });

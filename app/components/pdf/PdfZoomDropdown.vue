@@ -124,7 +124,9 @@ interface IProps {
 }
 
 const {
-    zoom, fitMode, disabled = false,
+    zoom,
+    fitMode,
+    disabled = false,
 } = defineProps<IProps>();
 
 const emit = defineEmits<{

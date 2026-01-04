@@ -26,6 +26,7 @@ interface IProps {
 defineProps<IProps>();
 
 const {
-    scaledSkeletonPadding, scaledPageHeight,
+    scaledSkeletonPadding,
+    scaledPageHeight,
 } = usePdfSkeletonContext();
 </script>
