@@ -142,7 +142,7 @@ export async function runOcrWithBoundingBoxes(
         await writeFile(inputPath, imageBuffer);
         debugLog(`Temp file written to ${inputPath}`);
 
-        // Add both txt and tsv output formats for precise bounding boxes
+        // Generate both txt (default) and tsv (config option) for precise bounding boxes
         // TSV gives exact word positions (±2% error) vs estimation (±15% error)
         const args = [
             inputPath,
@@ -151,8 +151,8 @@ export async function runOcrWithBoundingBoxes(
             languages.join('+'),
             '--tessdata-dir',
             tessdata,
-            'txt',
-            'tsv',  // Generate TSV for precise word coordinates
+            '-c',
+            'tessedit_create_tsv=1',  // Generate TSV for precise word coordinates
         ];
 
         debugLog(`Spawning tesseract: ${binary} ${args.join(' ')}`);
