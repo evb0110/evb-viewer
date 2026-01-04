@@ -1,4 +1,7 @@
-import { ref } from 'vue';
+import {
+    ref,
+    shallowRef,
+} from 'vue';
 import * as pdfjsLib from 'pdfjs-dist';
 import type {
     PDFDocumentProxy,
@@ -8,7 +11,7 @@ import type {
 pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf/pdf.worker.min.mjs';
 
 export const usePdfDocument = () => {
-    const pdfDocument = ref<PDFDocumentProxy | null>(null);
+    const pdfDocument = shallowRef<PDFDocumentProxy | null>(null);
     const numPages = ref(0);
     const isLoading = ref(false);
     const basePageWidth = ref<number | null>(null);
@@ -17,6 +20,8 @@ export const usePdfDocument = () => {
     let renderVersion = 0;
     let isLoadingPdf = false;
     const pdfPageCache = new Map<number, PDFPageProxy>();
+    let objectUrl: string | null = null;
+    let loadingTask: ReturnType<typeof pdfjsLib.getDocument> | null = null;
 
     function getRenderVersion() {
         return renderVersion;
@@ -39,9 +44,15 @@ export const usePdfDocument = () => {
 
         cleanup();
 
-        const loadingTask = pdfjsLib.getDocument({
-            url: URL.createObjectURL(src),
+        objectUrl = URL.createObjectURL(src);
+        loadingTask = pdfjsLib.getDocument({
+            url: objectUrl,
+            verbosity: pdfjsLib.VerbosityLevel.ERRORS,
             standardFontDataUrl: '/pdf/standard_fonts/',
+            cMapUrl: '/pdf/cmaps/',
+            cMapPacked: true,
+            wasmUrl: '/pdf/wasm/',
+            iccUrl: '/pdf/iccs/',
             useSystemFonts: false,
         });
 
@@ -81,6 +92,16 @@ export const usePdfDocument = () => {
         return page;
     }
 
+    function evictPage(pageNumber: number) {
+        const page = pdfPageCache.get(pageNumber);
+        if (!page) {
+            return;
+        }
+
+        page.cleanup();
+        pdfPageCache.delete(pageNumber);
+    }
+
     function cleanupPageCache() {
         for (const [
             , page,
@@ -93,6 +114,16 @@ export const usePdfDocument = () => {
     function cleanup() {
         cleanupPageCache();
 
+        if (loadingTask) {
+            try {
+                void loadingTask.destroy();
+            } catch (error) {
+                console.error('Failed to destroy PDF loading task:', error);
+            } finally {
+                loadingTask = null;
+            }
+        }
+
         if (pdfDocument.value) {
             try {
                 pdfDocument.value.destroy();
@@ -100,6 +131,11 @@ export const usePdfDocument = () => {
                 console.error('Failed to destroy PDF document:', error);
             }
             pdfDocument.value = null;
+        }
+
+        if (objectUrl) {
+            URL.revokeObjectURL(objectUrl);
+            objectUrl = null;
         }
 
         numPages.value = 0;
@@ -117,6 +153,7 @@ export const usePdfDocument = () => {
         incrementRenderVersion,
         loadPdf,
         getPage,
+        evictPage,
         cleanupPageCache,
         cleanup,
     };

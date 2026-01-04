@@ -9,6 +9,7 @@ type TTextLayerEntry = {
 };
 
 const textLayers = new Map<HTMLElement, TTextLayerEntry>();
+const mouseDownListenerAttached = new WeakSet<HTMLElement>();
 let selectionAbortController: AbortController | null = null;
 let prevRange: Range | null = null;
 let isPointerDown = false;
@@ -167,9 +168,12 @@ export function useTextLayerSelection() {
         endOfContent.className = 'end-of-content';
         textLayerDiv.appendChild(endOfContent);
 
-        textLayerDiv.addEventListener('mousedown', () => {
-            textLayerDiv.classList.add('selecting');
-        });
+        if (!mouseDownListenerAttached.has(textLayerDiv)) {
+            mouseDownListenerAttached.add(textLayerDiv);
+            textLayerDiv.addEventListener('mousedown', () => {
+                textLayerDiv.classList.add('selecting');
+            });
+        }
 
         textLayers.set(textLayerDiv, {
             textLayer: textLayerDiv,
