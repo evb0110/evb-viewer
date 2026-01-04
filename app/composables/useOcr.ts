@@ -16,6 +16,7 @@ interface IOcrSettings {
     pageRange: TOcrPageRange;
     customRange: string;
     selectedLanguages: string[];
+    renderDpi: number; // 144, 300, 432, or custom
 }
 
 interface IOcrProgress {
@@ -45,6 +46,7 @@ export const useOcr = () => {
         pageRange: 'current',
         customRange: '',
         selectedLanguages: ['eng'],
+        renderDpi: 300, // Industry standard (288 DPI ≈ 300 DPI)
     });
     const progress = ref<IOcrProgress>({
         isRunning: false,
@@ -177,12 +179,12 @@ export const useOcr = () => {
         }
     }
 
-    // OCR render scale: 4x = 288 DPI (industry standard 300 DPI)
-    // Research shows 50% accuracy improvement vs 2x scale (144 DPI)
-    // Can be made configurable in UI future (Low/Medium/High/Custom)
-    // TODO: Add OCR_RENDER_DPI setting to IOcrSettings for UI configurability
-    const OCR_RENDER_SCALE = 4;
-    const OCR_DPI = 72 * OCR_RENDER_SCALE; // 288 DPI
+    // OCR render scale: computed from DPI setting
+    // Default 300 DPI (industry standard) = ~4.17x scale
+    // Configurable via UI settings (Low/Standard/High/Custom)
+    function getOcrRenderScale() {
+        return Math.max(1, settings.value.renderDpi / 72);
+    }
 
     async function runOcr(
         pdfDocument: PDFDocumentProxy,
@@ -236,18 +238,20 @@ export const useOcr = () => {
 
             // Render pages to images and build requests
             const languages = [...settings.value.selectedLanguages];
+            const renderScale = getOcrRenderScale();
+            const renderDpi = settings.value.renderDpi;
             const pageRequests = [];
             for (const pageNum of pages) {
-                console.log('[useOcr] Rendering page', pageNum);
+                console.log('[useOcr] Rendering page', pageNum, `scale=${renderScale.toFixed(2)}x DPI=${renderDpi}`);
                 const page = await pdfDocument.getPage(pageNum);
-                const viewport = page.getViewport({ scale: OCR_RENDER_SCALE });
-                const imageData = await renderPageToImage(pdfDocument, pageNum, OCR_RENDER_SCALE);
+                const viewport = page.getViewport({ scale: renderScale });
+                const imageData = await renderPageToImage(pdfDocument, pageNum, renderScale);
                 console.log('[useOcr] Page rendered, imageData length:', imageData.length);
                 pageRequests.push({
                     pageNumber: pageNum,
                     imageData,
                     languages,
-                    dpi: OCR_DPI,
+                    dpi: renderDpi,
                     imageWidth: viewport.width,
                     imageHeight: viewport.height,
                 });
