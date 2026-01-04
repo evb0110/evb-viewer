@@ -1,5 +1,15 @@
 import { PDFDocument, rgb } from 'pdf-lib';
 import { generateSearchablePdf } from './tesseract';
+import { appendFileSync } from 'fs';
+import { join } from 'path';
+import { app } from 'electron';
+
+const LOG_FILE = join(app.getPath('temp'), 'ocr-debug.log');
+
+function debugLog(msg: string) {
+    const ts = new Date().toISOString();
+    appendFileSync(LOG_FILE, `[${ts}] [pdf-merger] ${msg}\n`);
+}
 
 interface IOcrWord {
     text: string;
@@ -33,28 +43,46 @@ export async function embedOcrLayers(
         } catch (loadErr) {
             const errMsg = loadErr instanceof Error ? loadErr.message : String(loadErr);
 
+            debugLog(`PDF load failed: ${errMsg}`);
+
             // pdf-lib failed - try Tesseract PDF generation as fallback
             if (errMsg.includes('traverse') || errMsg.includes('catalog') || errMsg.includes('Pages')) {
+                debugLog(`Detected pdf-lib incompatibility, attempting Tesseract PDF fallback`);
+
                 // pdf-lib cannot parse this complex PDF structure
                 // Try to generate a searchable PDF from the first page using Tesseract
                 const firstPageWithBuffer = ocrPages.find(p => p.imageBuffer);
 
+                debugLog(`First page with buffer: ${firstPageWithBuffer ? 'found' : 'not found'}`);
+                if (firstPageWithBuffer) {
+                    debugLog(`  - pageNumber: ${firstPageWithBuffer.pageNumber}`);
+                    debugLog(`  - imageBuffer size: ${firstPageWithBuffer.imageBuffer?.length ?? 'undefined'}`);
+                    debugLog(`  - languages: ${firstPageWithBuffer.languages?.join(',') ?? 'undefined'}`);
+                }
+
                 if (firstPageWithBuffer && firstPageWithBuffer.imageBuffer && firstPageWithBuffer.languages) {
                     try {
+                        debugLog(`Calling generateSearchablePdf...`);
                         const fallbackPdf = await generateSearchablePdf(
                             firstPageWithBuffer.imageBuffer,
                             firstPageWithBuffer.languages,
                         );
 
+                        debugLog(`generateSearchablePdf returned: ${fallbackPdf ? `PDF ${fallbackPdf.length} bytes` : 'null'}`);
+
                         if (fallbackPdf) {
+                            debugLog(`Fallback successful! Returning searchable PDF`);
                             return {
                                 pdf: fallbackPdf,
                                 embedded: true,
                                 error: undefined,
                             };
+                        } else {
+                            debugLog(`Fallback returned null`);
                         }
                     } catch (fallbackErr) {
                         const fallbackMsg = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
+                        debugLog(`Fallback error: ${fallbackMsg}`);
                         const totalWords = ocrPages.reduce((sum, p) => sum + p.words.length, 0);
                         return {
                             pdf: originalPdfBytes,
@@ -62,10 +90,13 @@ export async function embedOcrLayers(
                             error: `PDF structure incompatible. Text extracted (${totalWords} words) but fallback PDF generation failed: ${fallbackMsg}`,
                         };
                     }
+                } else {
+                    debugLog(`Fallback unavailable - missing imageBuffer or languages`);
                 }
 
                 // Fallback unavailable, return original with error
                 const totalWords = ocrPages.reduce((sum, p) => sum + p.words.length, 0);
+                debugLog(`Returning original PDF with error (${totalWords} words extracted)`);
                 return {
                     pdf: originalPdfBytes,
                     embedded: false,
