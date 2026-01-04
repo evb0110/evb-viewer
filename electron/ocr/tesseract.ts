@@ -10,6 +10,8 @@ import { appendFileSync as appendSync } from 'fs';
 import { join } from 'path';
 import { getOcrPaths } from './paths';
 
+const MAX_PDF_GENERATION_TIMEOUT = 120000; // 2 minutes
+
 const LOG_FILE = join(app.getPath('temp'), 'ocr-debug.log');
 
 function debugLog(msg: string) {
@@ -47,22 +49,25 @@ export async function runOcr(
     imageBuffer: Buffer,
     languages: string[],
 ): Promise<IOcrResult> {
-    const { binary, tessdata } = getOcrPaths();
+    const {
+        binary,
+        tessdata,
+    } = getOcrPaths();
 
     const args = [
         'stdin',
         'stdout',
-        '-l', languages.join('+'),
-        '--tessdata-dir', tessdata,
+        '-l',
+        languages.join('+'),
+        '--tessdata-dir',
+        tessdata,
     ];
 
     return new Promise((resolve) => {
-        const proc = spawn(binary, args, {
-            env: {
-                ...process.env,
-                TESSDATA_PREFIX: tessdata,
-            },
-        });
+        const proc = spawn(binary, args, {env: {
+            ...process.env,
+            TESSDATA_PREFIX: tessdata,
+        }});
 
         let stdout = '';
         let stderr = '';
@@ -110,10 +115,17 @@ export async function runOcrWithBoundingBoxes(
     imageDpi: number,
     imageWidth: number,
     imageHeight: number,
-): Promise<{ success: boolean; pageData: IOcrPageData | null; error?: string }> {
+): Promise<{
+    success: boolean;
+    pageData: IOcrPageData | null;
+    error?: string 
+}> {
     debugLog(`runOcrWithBoundingBoxes started: langs=${languages.join(',')}, dpi=${imageDpi}`);
 
-    const { binary, tessdata } = getOcrPaths();
+    const {
+        binary,
+        tessdata,
+    } = getOcrPaths();
     const tempDir = app.getPath('temp');
     const sessionId = `ocr-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const inputPath = join(tempDir, `${sessionId}-input.png`);
@@ -138,8 +150,10 @@ export async function runOcrWithBoundingBoxes(
         const args = [
             inputPath,
             outputBase,
-            '-l', languages.join('+'),
-            '--tessdata-dir', tessdata,
+            '-l',
+            languages.join('+'),
+            '--tessdata-dir',
+            tessdata,
             'txt',
             'tsv',  // Generate TSV for precise word coordinates
         ];
@@ -147,12 +161,10 @@ export async function runOcrWithBoundingBoxes(
         debugLog(`Spawning tesseract: ${binary} ${args.join(' ')}`);
 
         return new Promise((resolve) => {
-            const proc = spawn(binary, args, {
-                env: {
-                    ...process.env,
-                    TESSDATA_PREFIX: tessdata,
-                },
-            });
+            const proc = spawn(binary, args, {env: {
+                ...process.env,
+                TESSDATA_PREFIX: tessdata,
+            }});
 
             debugLog('Process spawned, setting up listeners');
 
@@ -186,7 +198,7 @@ export async function runOcrWithBoundingBoxes(
                                 words = parseTxtOutput(txtContent, imageWidth, imageHeight);
                                 debugLog(`Parsed ${words.length} words from TXT (estimated coordinates)`);
                             } catch (txtErr) {
-                                debugLog(`Both TSV and TXT parsing failed`);
+                                debugLog('Both TSV and TXT parsing failed');
                                 throw txtErr;
                             }
                         }
@@ -246,7 +258,9 @@ export async function runOcrWithBoundingBoxes(
  */
 function parseTsvOutput(tsvContent: string): IOcrWord[] {
     const lines = tsvContent.trim().split('\n');
-    if (lines.length < 2) return [];  // Header only, no words
+    if (lines.length < 2) {
+        return [];
+    }  // Header only, no words
 
     const words: IOcrWord[] = [];
 
@@ -294,7 +308,9 @@ function parseTsvOutput(tsvContent: string): IOcrWord[] {
  */
 function parseTxtOutput(txtContent: string, imageWidth: number, imageHeight: number): IOcrWord[] {
     const text = txtContent.trim();
-    if (!text) return [];
+    if (!text) {
+        return [];
+    }
 
     // Split text into words
     const wordTexts = text.split(/\s+/).filter(w => w.length > 0);
@@ -331,4 +347,114 @@ function parseTxtOutput(txtContent: string, imageWidth: number, imageHeight: num
     }
 
     return words;
+}
+
+/**
+ * Generate a searchable PDF using Tesseract's native PDF generation
+ * This is a universal fallback that works when pdf-lib fails
+ *
+ * Tesseract creates PDFs with text layers, making them searchable
+ * while preserving the original image quality
+ *
+ * @param imageBuffer The image to convert to PDF
+ * @param languages Languages for OCR
+ * @returns PDF buffer, or null if generation failed
+ */
+export async function generateSearchablePdf(
+    imageBuffer: Buffer,
+    languages: string[],
+): Promise<Buffer | null> {
+    const {
+        binary,
+        tessdata,
+    } = getOcrPaths();
+    const tempDir = app.getPath('temp');
+    const sessionId = `pdf-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const inputPath = join(tempDir, `${sessionId}-input.png`);
+    const outputBase = join(tempDir, `${sessionId}-output`);
+    const pdfPath = `${outputBase}.pdf`;
+
+    async function cleanup() {
+        await unlink(inputPath).catch(() => {});
+        await unlink(pdfPath).catch(() => {});
+    }
+
+    try {
+        debugLog('generateSearchablePdf: Creating searchable PDF from image');
+
+        // Write image to temp file
+        await writeFile(inputPath, imageBuffer);
+
+        // Run Tesseract with PDF output format
+        // This generates a PDF with embedded searchable text
+        const args = [
+            inputPath,
+            outputBase,
+            '-l',
+            languages.join('+'),
+            '--tessdata-dir',
+            tessdata,
+            'pdf',  // Output format: PDF with text layer
+        ];
+
+        debugLog(`Tesseract PDF generation: ${binary} ${args.join(' ')}`);
+
+        return new Promise((resolve) => {
+            const proc = spawn(binary, args);
+
+            let stderr = '';
+            let timedOut = false;
+
+            const timeoutHandle = setTimeout(() => {
+                timedOut = true;
+                debugLog('PDF generation timed out');
+                proc.kill();
+            }, MAX_PDF_GENERATION_TIMEOUT);
+
+            proc.stderr.on('data', (data: Buffer) => {
+                stderr += data.toString();
+            });
+
+            proc.on('close', async (code) => {
+                clearTimeout(timeoutHandle);
+
+                try {
+                    if (timedOut) {
+                        debugLog('PDF generation timeout - process killed');
+                        resolve(null);
+                        return;
+                    }
+
+                    if (code !== 0) {
+                        debugLog(`Tesseract PDF generation failed: code ${code}, stderr: ${stderr}`);
+                        resolve(null);
+                        return;
+                    }
+
+                    // Read generated PDF
+                    const pdfBuffer = await readFile(pdfPath);
+                    debugLog(`PDF generation successful: ${pdfBuffer.length} bytes`);
+                    resolve(pdfBuffer);
+                } catch (err) {
+                    const errMsg = err instanceof Error ? err.message : String(err);
+                    debugLog(`PDF read failed: ${errMsg}`);
+                    resolve(null);
+                } finally {
+                    await cleanup();
+                }
+            });
+
+            proc.on('error', async (err) => {
+                clearTimeout(timeoutHandle);
+                debugLog(`PDF generation process error: ${err.message}`);
+                await cleanup();
+                resolve(null);
+            });
+        });
+    } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        debugLog(`Exception in generateSearchablePdf: ${errMsg}`);
+        await cleanup();
+        return null;
+    }
 }
