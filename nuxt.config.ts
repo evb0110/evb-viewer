@@ -75,6 +75,10 @@ export default defineNuxtConfig({
             'lucide:upload',
             'lucide:x',
             'lucide:zoom-in',
+            'lucide:scan-text',
+            'lucide:play',
+            'lucide:alert-circle',
+            'lucide:check-circle',
         ]},
     },
 

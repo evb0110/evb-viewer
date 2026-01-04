@@ -9,12 +9,38 @@ import {
     writeFile,
 } from 'fs/promises';
 import { extname } from 'path';
+import { registerOcrHandlers } from './ocr/ipc';
 
 export function registerIpcHandlers() {
     ipcMain.handle('dialog:openPdf', handleOpenPdfDialog);
+    ipcMain.handle('dialog:openPdfDirect', handleOpenPdfDirect);
     ipcMain.handle('file:read', handleFileRead);
     ipcMain.handle('file:write', handleFileWrite);
     ipcMain.handle('window:setTitle', handleSetWindowTitle);
+
+    registerOcrHandlers();
+}
+
+async function handleOpenPdfDirect(
+    _event: Electron.IpcMainInvokeEvent,
+    filePath: string,
+): Promise<string | null> {
+    if (typeof filePath !== 'string' || filePath.trim() === '') {
+        return null;
+    }
+
+    const normalizedPath = filePath.trim();
+    const extension = extname(normalizedPath).toLowerCase();
+
+    if (extension !== '.pdf') {
+        return null;
+    }
+
+    if (!existsSync(normalizedPath)) {
+        return null;
+    }
+
+    return normalizedPath;
 }
 
 function handleSetWindowTitle(event: Electron.IpcMainInvokeEvent, title: string) {

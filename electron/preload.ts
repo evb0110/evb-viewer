@@ -10,6 +10,7 @@ import type {
 
 contextBridge.exposeInMainWorld('electronAPI', {
     openPdfDialog: () => ipcRenderer.invoke('dialog:openPdf'),
+    openPdfDirect: (path: string) => ipcRenderer.invoke('dialog:openPdfDirect', path),
     readFile: (path: string) => ipcRenderer.invoke('file:read', path),
     writeFile: (path: string, data: Uint8Array) => ipcRenderer.invoke('file:write', path, data),
     setWindowTitle: (title: string) => ipcRenderer.invoke('window:setTitle', title),
@@ -53,5 +54,41 @@ contextBridge.exposeInMainWorld('electronAPI', {
         const handler = (_event: IpcRendererEvent) => callback();
         ipcRenderer.on('menu:about', handler);
         return () => ipcRenderer.removeListener('menu:about', handler);
+    },
+
+    // OCR API
+    ocrRecognize: (request: {
+        pageNumber: number;
+        imageData: number[];
+        languages: string[];
+    }) => ipcRenderer.invoke('ocr:recognize', request),
+
+    ocrRecognizeBatch: (
+        pages: Array<{ pageNumber: number; imageData: number[]; languages: string[] }>,
+        requestId: string,
+    ) => ipcRenderer.invoke('ocr:recognizeBatch', pages, requestId),
+
+    ocrGetLanguages: () => ipcRenderer.invoke('ocr:getLanguages'),
+
+    ocrCreateSearchablePdf: (
+        originalPdfData: number[],
+        pages: Array<{ pageNumber: number; imageData: number[]; languages: string[]; dpi: number }>,
+        requestId: string,
+    ) => ipcRenderer.invoke('ocr:createSearchablePdf', originalPdfData, pages, requestId),
+
+    onOcrProgress: (callback: (progress: {
+        requestId: string;
+        currentPage: number;
+        processedCount: number;
+        totalPages: number;
+    }) => void): (() => void) => {
+        const handler = (_event: IpcRendererEvent, progress: {
+            requestId: string;
+            currentPage: number;
+            processedCount: number;
+            totalPages: number;
+        }) => callback(progress);
+        ipcRenderer.on('ocr:progress', handler);
+        return () => ipcRenderer.removeListener('ocr:progress', handler);
     },
 });

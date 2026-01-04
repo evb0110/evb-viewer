@@ -12,6 +12,7 @@ function getElectronAPI() {
 
 export const usePdfFile = () => {
     const pdfSrc = ref<Blob | null>(null);
+    const pdfData = ref<Uint8Array | null>(null);
     const filePath = ref<string | null>(null);
     const error = ref<string | null>(null);
     const isDirty = ref(false);
@@ -27,14 +28,42 @@ export const usePdfFile = () => {
             if (!path) {
                 return;
             }
-            filePath.value = path;
-            const buffer = await api.readFile(path);
-            pdfSrc.value = new Blob([new Uint8Array(buffer)], { type: 'application/pdf' });
-            isDirty.value = false;
-            await api.setWindowTitle(fileName.value || 'PDF Viewer');
+            await loadPdfFromPath(path);
         } catch (e) {
             error.value = e instanceof Error ? e.message : 'Failed to open file';
         }
+    }
+
+    async function openFileDirect(path: string) {
+        error.value = null;
+        try {
+            const api = getElectronAPI();
+            const validPath = await api.openPdfDirect(path);
+            if (!validPath) {
+                error.value = 'Invalid or non-existent PDF file';
+                return;
+            }
+            await loadPdfFromPath(validPath);
+        } catch (e) {
+            error.value = e instanceof Error ? e.message : 'Failed to open file';
+        }
+    }
+
+    async function loadPdfFromPath(path: string) {
+        const api = getElectronAPI();
+        filePath.value = path;
+        const buffer = await api.readFile(path);
+        const data = new Uint8Array(buffer);
+        pdfData.value = data;
+        pdfSrc.value = new Blob([data], { type: 'application/pdf' });
+        isDirty.value = false;
+        await api.setWindowTitle(fileName.value || 'PDF Viewer');
+    }
+
+    function loadPdfFromData(data: Uint8Array) {
+        pdfData.value = data;
+        pdfSrc.value = new Blob([data], { type: 'application/pdf' });
+        isDirty.value = true;
     }
 
     async function saveFile(data: Uint8Array) {
@@ -53,6 +82,7 @@ export const usePdfFile = () => {
 
     async function closeFile() {
         pdfSrc.value = null;
+        pdfData.value = null;
         filePath.value = null;
         error.value = null;
         isDirty.value = false;
@@ -69,12 +99,15 @@ export const usePdfFile = () => {
 
     return {
         pdfSrc,
+        pdfData,
         filePath,
         fileName,
         error,
         isDirty,
         isElectron,
         openFile,
+        openFileDirect,
+        loadPdfFromData,
         saveFile,
         closeFile,
         markDirty,

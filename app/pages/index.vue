@@ -38,6 +38,16 @@
                     @click="openSearch(); closeAllDropdowns()"
                 />
 
+                <OcrPopup
+                    ref="ocrPopupRef"
+                    :pdf-document="pdfDocument"
+                    :pdf-data="pdfData"
+                    :current-page="currentPage"
+                    :total-pages="totalPages"
+                    @open="closeOtherDropdowns('ocr')"
+                    @ocr-complete="handleOcrComplete"
+                />
+
                 <PdfZoomDropdown
                     ref="zoomDropdownRef"
                     v-model:zoom="zoom"
@@ -169,14 +179,22 @@ interface IPdfViewerExpose {
 
 const {
     pdfSrc,
+    pdfData,
     fileName: _fileName,
     isDirty,
     error: pdfError,
     isElectron,
     openFile,
+    openFileDirect,
+    loadPdfFromData,
     closeFile,
     saveFile,
 } = usePdfFile();
+
+// Expose for testing
+if (typeof window !== 'undefined') {
+    (window as unknown as { __openFileDirect: typeof openFileDirect }).__openFileDirect = openFileDirect;
+}
 
 const menuCleanups: Array<() => void> = [];
 
@@ -241,11 +259,19 @@ const {
 const pdfViewerRef = ref<IPdfViewerExpose | null>(null);
 const zoomDropdownRef = ref<{ close: () => void } | null>(null);
 const pageDropdownRef = ref<{ close: () => void } | null>(null);
+const ocrPopupRef = ref<{ close: () => void } | null>(null);
 const sidebarRef = ref<{ focusSearch: () => void | Promise<void> } | null>(null);
 
 function closeAllDropdowns() {
     zoomDropdownRef.value?.close();
     pageDropdownRef.value?.close();
+    ocrPopupRef.value?.close();
+}
+
+function closeOtherDropdowns(except: 'zoom' | 'page' | 'ocr') {
+    if (except !== 'zoom') zoomDropdownRef.value?.close();
+    if (except !== 'page') pageDropdownRef.value?.close();
+    if (except !== 'ocr') ocrPopupRef.value?.close();
 }
 
 const zoom = ref(1);
@@ -293,6 +319,11 @@ watch(showSidebar, (isOpen) => {
 
 function handleGoToPage(page: number) {
     pdfViewerRef.value?.scrollToPage(page);
+}
+
+function handleOcrComplete(ocrPdfData: Uint8Array) {
+    // Reload the PDF with the OCR'd data
+    loadPdfFromData(ocrPdfData);
 }
 
 function enableDragMode() {
