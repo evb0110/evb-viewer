@@ -1,7 +1,7 @@
 import type {
     IPdfPageMatches,
     IPdfSearchMatch,
-} from '../types/pdf';
+} from 'app/types/pdf';
 
 const HIGHLIGHT_CLASS = 'pdf-search-highlight';
 const HIGHLIGHT_CURRENT_CLASS = 'pdf-search-highlight--current';
@@ -11,7 +11,7 @@ export interface IHighlightResult {
     currentMatchElements: HTMLElement[];
 }
 
-export function usePdfSearchHighlight() {
+export const usePdfSearchHighlight = () => {
     function clearHighlights(container: HTMLElement) {
         const highlights = container.querySelectorAll(`.${HIGHLIGHT_CLASS}`);
         highlights.forEach((el) => {
@@ -175,4 +175,4 @@ export function usePdfSearchHighlight() {
         HIGHLIGHT_CLASS,
         HIGHLIGHT_CURRENT_CLASS,
     };
-}
+};

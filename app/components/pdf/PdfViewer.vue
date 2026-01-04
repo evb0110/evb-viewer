@@ -28,8 +28,6 @@
                 :key="page"
                 :page="page"
                 :show-skeleton="isPageNearVisible(page)"
-                :skeleton-padding="scaledSkeletonPadding"
-                :content-height="scaledPageHeight"
             />
         </div>
     </div>
@@ -48,19 +46,19 @@ import {
     useDebounceFn,
     useResizeObserver,
 } from '@vueuse/core';
-import PdfViewerPage from './PdfViewerPage.vue';
-import { usePdfDocument } from '../../composables/pdf/usePdfDocument';
-import { usePdfDrag } from '../../composables/pdf/usePdfDrag';
-import { usePdfPageRenderer } from '../../composables/pdf/usePdfPageRenderer';
-import { usePdfScale } from '../../composables/pdf/usePdfScale';
-import { usePdfScroll } from '../../composables/pdf/usePdfScroll';
-import { usePdfSkeletonInsets } from '../../composables/pdf/usePdfSkeletonInsets';
+import PdfViewerPage from 'app/components/pdf/PdfViewerPage.vue';
+import { usePdfDocument } from 'app/composables/pdf/usePdfDocument';
+import { usePdfDrag } from 'app/composables/pdf/usePdfDrag';
+import { usePdfPageRenderer } from 'app/composables/pdf/usePdfPageRenderer';
+import { usePdfScale } from 'app/composables/pdf/usePdfScale';
+import { usePdfScroll } from 'app/composables/pdf/usePdfScroll';
+import { usePdfSkeletonInsets } from 'app/composables/pdf/usePdfSkeletonInsets';
 import type {
     IPdfPageMatches,
     IPdfSearchMatch,
     PDFDocumentProxy,
     TFitMode,
-} from '../../types/pdf';
+} from 'app/types/pdf';
 
 import 'pdfjs-dist/web/pdf_viewer.css';
 
@@ -140,8 +138,6 @@ const {
 } = usePdfScale(() => zoom, () => fitMode, basePageWidth, basePageHeight);
 
 const {
-    scaledSkeletonPadding,
-    scaledPageHeight,
     computeSkeletonInsets,
     resetInsets,
 } = usePdfSkeletonInsets(basePageWidth, basePageHeight, effectiveScale);
@@ -479,8 +475,6 @@ defineExpose({
     overflow: clip;
     opacity: 1;
     line-height: 1;
-    -webkit-text-size-adjust: none;
-    -moz-text-size-adjust: none;
     text-size-adjust: none;
     forced-color-adjust: none;
     transform-origin: 0 0;
@@ -567,14 +561,11 @@ defineExpose({
 
 .annotation-layer :deep(a) {
     pointer-events: auto;
-}
-
-.annotation-layer :deep(section) {
+    display: block;
     position: absolute;
 }
 
-.annotation-layer :deep(a) {
-    display: block;
+.annotation-layer :deep(section) {
     position: absolute;
 }
 

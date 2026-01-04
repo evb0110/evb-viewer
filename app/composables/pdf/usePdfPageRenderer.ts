@@ -15,18 +15,18 @@ import {
 import type {
     IPdfPageMatches,
     IPdfSearchMatch,
-    TScrollSnapshot,
-} from '../../types/pdf';
-import { usePdfSearchHighlight } from '../usePdfSearchHighlight';
-import { useTextLayerSelection } from '../useTextLayerSelection';
-import type { usePdfDocument } from './usePdfDocument';
+    IScrollSnapshot,
+} from 'app/types/pdf';
+import { usePdfSearchHighlight } from 'app/composables/usePdfSearchHighlight';
+import { useTextLayerSelection } from 'app/composables/useTextLayerSelection';
+import type { usePdfDocument } from 'app/composables/pdf/usePdfDocument';
 
-type TPageRange = {
+interface IPageRange {
     start: number;
     end: number;
-};
+}
 
-type TUsePdfPageRendererOptions = {
+interface IUsePdfPageRendererOptions {
     container: Ref<HTMLElement | null>;
     document: ReturnType<typeof usePdfDocument>;
     currentPage: Ref<number>;
@@ -39,11 +39,11 @@ type TUsePdfPageRendererOptions = {
 
     searchPageMatches?: MaybeRefOrGetter<Map<number, IPdfPageMatches>>;
     currentSearchMatch?: MaybeRefOrGetter<IPdfSearchMatch | null>;
-};
+}
 
 const CONCURRENT_RENDERS = 3;
 
-export const usePdfPageRenderer = (options: TUsePdfPageRendererOptions) => {
+export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     const { setupTextLayer } = useTextLayerSelection();
     const {
         clearHighlights,
@@ -84,7 +84,7 @@ export const usePdfPageRenderer = (options: TUsePdfPageRendererOptions) => {
         return renderVersion;
     }
 
-    function captureScrollSnapshot(): TScrollSnapshot | null {
+    function captureScrollSnapshot(): IScrollSnapshot | null {
         const container = options.container.value;
         if (!container) {
             return null;
@@ -107,7 +107,7 @@ export const usePdfPageRenderer = (options: TUsePdfPageRendererOptions) => {
         };
     }
 
-    function restoreScrollFromSnapshot(snapshot: TScrollSnapshot | null) {
+    function restoreScrollFromSnapshot(snapshot: IScrollSnapshot | null) {
         if (!snapshot) {
             return;
         }
@@ -211,7 +211,7 @@ export const usePdfPageRenderer = (options: TUsePdfPageRendererOptions) => {
         });
     }
 
-    async function renderVisiblePages(visibleRange: TPageRange) {
+    async function renderVisiblePages(visibleRange: IPageRange) {
         const containerRoot = options.container.value;
 
         if (!containerRoot || numPages.value === 0) {
@@ -472,7 +472,7 @@ export const usePdfPageRenderer = (options: TUsePdfPageRendererOptions) => {
         }
     }
 
-    async function reRenderAllVisiblePages(getVisibleRange: () => TPageRange) {
+    async function reRenderAllVisiblePages(getVisibleRange: () => IPageRange) {
         const version = bumpRenderVersion();
         const snapshot = captureScrollSnapshot();
 

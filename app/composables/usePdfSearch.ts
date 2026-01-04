@@ -7,7 +7,7 @@ import type {
     IPdfPageMatches,
     IPdfSearchMatch,
     TSearchDirection,
-} from '../types/pdf';
+} from 'app/types/pdf';
 
 export type {
     IPdfPageMatches,

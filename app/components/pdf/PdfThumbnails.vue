@@ -25,13 +25,13 @@ import {
 } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 
-interface IPdfThumbnailsProps {
+interface IProps {
     pdfDocument: PDFDocumentProxy | null;
     currentPage: number;
     totalPages: number;
 }
 
-const props = defineProps<IPdfThumbnailsProps>();
+const props = defineProps<IProps>();
 
 defineEmits<{(e: 'goToPage', page: number): void;}>();
 

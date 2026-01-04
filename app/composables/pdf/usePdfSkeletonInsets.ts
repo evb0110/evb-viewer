@@ -2,12 +2,31 @@ import {
     ref,
     computed,
     toValue,
+    provide,
+    inject,
     type MaybeRefOrGetter,
+    type InjectionKey,
+    type ComputedRef,
 } from 'vue';
 import type {
-    TContentInsets,
+    IContentInsets,
     PDFPageProxy,
-} from '../../types/pdf';
+} from 'app/types/pdf';
+
+interface IPdfSkeletonContext {
+    scaledSkeletonPadding: ComputedRef<IContentInsets | null>;
+    scaledPageHeight: ComputedRef<number | null>;
+}
+
+const PDF_SKELETON_CONTEXT_KEY: InjectionKey<IPdfSkeletonContext> = Symbol('PdfSkeletonContext');
+
+export const usePdfSkeletonContext = () => {
+    const context = inject<IPdfSkeletonContext>(PDF_SKELETON_CONTEXT_KEY);
+    if (!context) {
+        throw new Error('usePdfSkeletonContext must be used within a component that calls usePdfSkeletonInsets');
+    }
+    return context;
+};
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
 
@@ -16,9 +35,9 @@ export const usePdfSkeletonInsets = (
     basePageHeight: MaybeRefOrGetter<number | null>,
     effectiveScale: MaybeRefOrGetter<number>,
 ) => {
-    const skeletonContentInsets = ref<TContentInsets | null>(null);
+    const skeletonContentInsets = ref<IContentInsets | null>(null);
 
-    const scaledSkeletonPadding = computed<TContentInsets | null>(() => {
+    const scaledSkeletonPadding = computed<IContentInsets | null>(() => {
         const width = toValue(basePageWidth);
         const height = toValue(basePageHeight);
         if (!width || !height) {
@@ -44,7 +63,12 @@ export const usePdfSkeletonInsets = (
         return Math.floor(height * toValue(effectiveScale));
     });
 
-    function buildFallbackInsets(width: number, height: number): TContentInsets {
+    provide(PDF_SKELETON_CONTEXT_KEY, {
+        scaledSkeletonPadding,
+        scaledPageHeight,
+    });
+
+    function buildFallbackInsets(width: number, height: number): IContentInsets {
         const horizontal = clamp(width * 0.08, 24, width / 3);
         const vertical = clamp(height * 0.1, 32, height / 3);
 
@@ -63,7 +87,7 @@ export const usePdfSkeletonInsets = (
             convertToViewportPoint: (x: number, y: number) => number[];
         },
         textContent: { items: Array<Record<string, unknown>> },
-    ): TContentInsets | null {
+    ): IContentInsets | null {
         if (!textContent?.items?.length) {
             return null;
         }

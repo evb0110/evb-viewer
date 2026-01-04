@@ -1,5 +1,5 @@
 import { ref } from 'vue';
-import type { TScrollSnapshot } from '../../types/pdf';
+import type { IScrollSnapshot } from 'app/types/pdf';
 
 export const usePdfScroll = () => {
     const currentPage = ref(1);
@@ -115,7 +115,7 @@ export const usePdfScroll = () => {
         }
     }
 
-    function captureScrollSnapshot(container: HTMLElement | null): TScrollSnapshot | null {
+    function captureScrollSnapshot(container: HTMLElement | null): IScrollSnapshot | null {
         if (!container) {
             return null;
         }
@@ -138,7 +138,7 @@ export const usePdfScroll = () => {
 
     function restoreScrollFromSnapshot(
         container: HTMLElement | null,
-        snapshot: TScrollSnapshot | null,
+        snapshot: IScrollSnapshot | null,
     ) {
         if (!snapshot || !container) {
             return;

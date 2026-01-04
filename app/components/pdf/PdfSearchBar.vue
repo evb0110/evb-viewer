@@ -62,14 +62,14 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 
-interface IPdfSearchBarProps {
+interface IProps {
     modelValue: string;
     currentMatch: number;
     totalMatches: number;
     isSearching: boolean;
 }
 
-const props = defineProps<IPdfSearchBarProps>();
+const props = defineProps<IProps>();
 
 const emit = defineEmits<{
     (e: 'update:modelValue', value: string): void;

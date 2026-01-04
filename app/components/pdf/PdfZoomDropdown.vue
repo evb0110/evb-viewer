@@ -117,7 +117,7 @@
 <script setup lang="ts">
 type TFitMode = 'width' | 'height';
 
-interface IPdfZoomDropdownProps {
+interface IProps {
     zoom: number;
     fitMode: TFitMode;
     disabled?: boolean;
@@ -125,7 +125,7 @@ interface IPdfZoomDropdownProps {
 
 const {
     zoom, fitMode, disabled = false,
-} = defineProps<IPdfZoomDropdownProps>();
+} = defineProps<IProps>();
 
 const emit = defineEmits<{
     (e: 'update:zoom', level: number): void;

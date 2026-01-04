@@ -45,15 +45,15 @@
 </template>
 
 <script setup lang="ts">
-import type { IPdfSearchMatch } from '../../types/pdf';
+import type { IPdfSearchMatch } from 'app/types/pdf';
 
-interface IPdfSearchResultsProps {
+interface IProps {
     results: IPdfSearchMatch[];
     currentResultIndex: number;
     searchQuery: string;
 }
 
-defineProps<IPdfSearchResultsProps>();
+defineProps<IProps>();
 
 defineEmits<{(e: 'goToResult', index: number): void;}>();
 </script>

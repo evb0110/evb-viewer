@@ -38,7 +38,10 @@ const stylisticRules = {
 };
 
 export default withNuxt(
-    {ignores: ['**/.devkit/**']},
+    {ignores: [
+        '**/.devkit/**',
+        'scripts/**',
+    ]},
     {
         plugins: {
             '@stylistic': stylistic,

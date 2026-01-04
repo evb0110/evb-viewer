@@ -42,23 +42,23 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 
-type TPadding = {
+interface IPadding {
     top: number;
     right: number;
     bottom: number;
     left: number;
-};
+}
 
-interface IPdfPageSkeletonProps {
-    padding: TPadding | null;
+interface IProps {
+    padding: IPadding | null;
     contentHeight: number | null;
 }
 
 const {
     padding, contentHeight, 
-} = defineProps<IPdfPageSkeletonProps>();
+} = defineProps<IProps>();
 
-const resolvedPadding = computed<TPadding>(() => ({
+const resolvedPadding = computed<IPadding>(() => ({
     top: padding?.top ?? 0,
     right: padding?.right ?? 0,
     bottom: padding?.bottom ?? 0,

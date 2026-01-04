@@ -59,12 +59,12 @@ interface IOutlineItem extends Omit<IOutlineItemRaw, 'items'> {
     items?: IOutlineItem[];
 }
 
-interface IPdfOutlineProps {
+interface IProps {
     pdfDocument: PDFDocumentProxy | null;
     currentPage: number;
 }
 
-const props = defineProps<IPdfOutlineProps>();
+const props = defineProps<IProps>();
 
 defineEmits<{(e: 'goToPage', page: number): void;}>();
 

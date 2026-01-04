@@ -96,7 +96,7 @@
 </template>
 
 <script setup lang="ts">
-interface IPdfPageDropdownProps {
+interface IProps {
     modelValue: number;
     totalPages: number;
     disabled?: boolean;
@@ -104,7 +104,7 @@ interface IPdfPageDropdownProps {
 
 const {
     modelValue: currentPage, totalPages, disabled = false,
-} = defineProps<IPdfPageDropdownProps>();
+} = defineProps<IProps>();
 
 const emit = defineEmits<{
     (e: 'update:modelValue', page: number): void;

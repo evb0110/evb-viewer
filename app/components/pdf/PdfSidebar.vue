@@ -72,9 +72,9 @@ import {
     watch,
 } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
-import type { IPdfSearchMatch } from '../../types/pdf';
+import type { IPdfSearchMatch } from 'app/types/pdf';
 
-interface IPdfSidebarProps {
+interface IProps {
     isOpen: boolean;
     pdfDocument: PDFDocumentProxy | null;
     currentPage: number;
@@ -88,7 +88,7 @@ interface IPdfSidebarProps {
     activeTab?: TPdfSidebarTab;
 }
 
-const props = defineProps<IPdfSidebarProps>();
+const props = defineProps<IProps>();
 
 const emit = defineEmits<{
     (e: 'goToPage', page: number): void;
@@ -149,12 +149,12 @@ watch(
     { flush: 'post' },
 );
 
-type TPdfSidebarTabItem = {
+interface IPdfSidebarTabItem {
     value: TPdfSidebarTab;
     label: '';
     tooltip: string;
     icon: string;
-};
+}
 
 const tabs = [
     {
@@ -175,7 +175,7 @@ const tabs = [
         tooltip: 'Search',
         icon: 'i-lucide-search',
     },
-] satisfies TPdfSidebarTabItem[];
+] satisfies IPdfSidebarTabItem[];
 </script>
 
 <style scoped>

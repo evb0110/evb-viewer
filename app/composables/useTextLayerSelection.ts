@@ -3,18 +3,18 @@
  * Fixes selection "wandering" by dynamically repositioning an endOfContent sentinel div
  */
 
-type TTextLayerEntry = {
+interface ITextLayerEntry {
     textLayer: HTMLElement;
     endOfContent: HTMLElement;
-};
+}
 
-const textLayers = new Map<HTMLElement, TTextLayerEntry>();
+const textLayers = new Map<HTMLElement, ITextLayerEntry>();
 const mouseDownListenerAttached = new WeakSet<HTMLElement>();
 let selectionAbortController: AbortController | null = null;
 let prevRange: Range | null = null;
 let isPointerDown = false;
 
-function reset(entry: TTextLayerEntry) {
+function reset(entry: ITextLayerEntry) {
     const {
         textLayer, endOfContent, 
     } = entry;
@@ -162,7 +162,7 @@ function removeGlobalSelectionListener(textLayerDiv: HTMLElement) {
     }
 }
 
-export function useTextLayerSelection() {
+export const useTextLayerSelection = () => {
     function setupTextLayer(textLayerDiv: HTMLElement) {
         const endOfContent = document.createElement('div');
         endOfContent.className = 'end-of-content';
@@ -188,4 +188,4 @@ export function useTextLayerSelection() {
     }
 
     return { setupTextLayer };
-}
+};

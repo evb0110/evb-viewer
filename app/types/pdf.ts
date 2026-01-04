@@ -5,19 +5,19 @@ import type {
 
 export type TFitMode = 'width' | 'height';
 
-export type TContentInsets = {
+export interface IContentInsets {
     top: number;
     right: number;
     bottom: number;
     left: number;
-};
+}
 
-export type TScrollSnapshot = {
+export interface IScrollSnapshot {
     width: number;
     height: number;
     centerX: number;
     centerY: number;
-};
+}
 
 export interface IPdfDocumentState {
     pdfDocument: PDFDocumentProxy | null;

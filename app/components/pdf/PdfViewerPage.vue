@@ -8,22 +8,24 @@
         <div class="annotation-layer"></div>
         <PdfPageSkeleton
             v-if="showSkeleton"
-            :padding="skeletonPadding"
-            :content-height="contentHeight"
+            :padding="scaledSkeletonPadding"
+            :content-height="scaledPageHeight"
         />
     </div>
 </template>
 
 <script setup lang="ts">
-import PdfPageSkeleton from './PdfPageSkeleton.vue';
-import type { TContentInsets } from '../../types/pdf';
+import PdfPageSkeleton from 'app/components/pdf/PdfPageSkeleton.vue';
+import { usePdfSkeletonContext } from 'app/composables/pdf/usePdfSkeletonInsets';
 
-interface IPdfViewerPageProps {
+interface IProps {
     page: number;
     showSkeleton: boolean;
-    skeletonPadding: TContentInsets | null;
-    contentHeight: number | null;
 }
 
-defineProps<IPdfViewerPageProps>();
+defineProps<IProps>();
+
+const {
+    scaledSkeletonPadding, scaledPageHeight,
+} = usePdfSkeletonContext();
 </script>

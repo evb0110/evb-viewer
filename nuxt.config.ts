@@ -1,3 +1,5 @@
+import {fileURLToPath} from 'node:url';
+
 export default defineNuxtConfig({
     modules: [
         '@nuxt/eslint',
@@ -50,6 +52,7 @@ export default defineNuxtConfig({
     },
 
     vite: {
+        resolve: {alias: {app: fileURLToPath(new URL('./app', import.meta.url))}},
         build: {rollupOptions: {output: {manualChunks: {'vendor-pdfjs': ['pdfjs-dist']}}}},
         optimizeDeps: {
             include: [

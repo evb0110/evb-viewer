@@ -59,13 +59,13 @@ interface IOutlineItem {
     items?: IOutlineItem[];
 }
 
-interface IPdfOutlineItemProps {
+interface IProps {
     item: IOutlineItem;
     pdfDocument: PDFDocumentProxy | null;
     activeItemId: string | null;
 }
 
-const props = defineProps<IPdfOutlineItemProps>();
+const props = defineProps<IProps>();
 
 const emit = defineEmits<{
     (e: 'goToPage', page: number): void;
