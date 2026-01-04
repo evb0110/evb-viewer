@@ -395,7 +395,9 @@ function parseTsvOutput(tsvContent: string): IOcrWord[] {
         const text = parts[11] || '';
 
         // Skip very low confidence words (OCR errors)
-        if (confidence < 30) continue;
+        // Using threshold of 20 to capture important words with 20-30% confidence
+        // while still filtering genuine OCR errors (0%)
+        if (confidence < 20) continue;
 
         // Skip if coordinates are invalid
         if (left >= right || top >= bottom) continue;
