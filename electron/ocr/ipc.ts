@@ -180,11 +180,15 @@ async function handleOcrCreateSearchablePdf(
         // Embed OCR text into original PDF
         const originalPdfBytes = new Uint8Array(originalPdfData);
         debugLog(`Calling embedOcrLayers with ${ocrPageData.length} pages`);
-        const searchablePdf = await embedOcrLayers(originalPdfBytes, ocrPageData);
-        debugLog(`embedOcrLayers completed, PDF size: ${searchablePdf.length} bytes`);
+        const { pdf: searchablePdf, embedded, error: embedError } = await embedOcrLayers(originalPdfBytes, ocrPageData);
+        debugLog(`embedOcrLayers completed, PDF size: ${searchablePdf.length} bytes, embedded=${embedded}`);
+
+        if (embedError) {
+            errors.push(embedError);
+        }
 
         return {
-            success: true,
+            success: embedded,  // Only true if text was actually embedded
             pdfData: Array.from(searchablePdf),
             errors,
         };

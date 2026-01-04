@@ -25,3 +25,13 @@ Vue scoped styles eliminate the need for BEM methodology. Use flat, descriptive 
 For state variations, use separate state classes (`.is-active`, `.is-loading`) that combine with the base class.
 
 This rule is enforced by stylelint via `selector-nested-pattern`.
+
+## OCR Architecture & Design
+
+**Principle**: Optimize for robustness and quality without constraints on tool choice, language, or bundle size.
+
+For the OCR system (PDF processing, text extraction, searchable PDF generation):
+- Choose best tools regardless of language (Python, Node.js, native binaries, etc.)
+- Bundle anything needed - size is not a constraint
+- Prioritize quality of output and reliability over minimalism
+- This applies to the entire architecture: PDF rendering, image preprocessing, OCR execution, text embedding, and PDF assembly
