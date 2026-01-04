@@ -8,6 +8,15 @@
             v-model="activeTab"
             :items="tabs"
             :content="false"
+            variant="link"
+            color="primary"
+            size="sm"
+            :ui="{
+                root: 'gap-0',
+                list: 'p-0 rounded-none bg-transparent',
+                indicator: 'bg-primary/40 rounded-none',
+                trigger: 'flex-1 justify-center rounded-none data-[state=active]:text-default data-[state=inactive]:hover:bg-muted/30',
+            }"
             class="pdf-sidebar-tabs"
         >
             <template #leading="{ item }">
@@ -190,7 +199,6 @@ const sidebarStyle = computed(() => {
 <style scoped>
 .pdf-sidebar {
     height: 100%;
-    border-right: 1px solid var(--ui-border);
     background: var(--ui-bg);
     display: flex;
     flex-direction: column;

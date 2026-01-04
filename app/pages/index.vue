@@ -434,24 +434,12 @@ watch(pdfSrc, () => {
     flex-shrink: 0;
     user-select: none;
     touch-action: none;
+    background: color-mix(in oklab, var(--ui-bg) 80%, var(--ui-border) 20%);
+    transition: background-color 0.15s ease;
 }
 
-.sidebar-resizer::after {
-    content: '';
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    left: 50%;
-    width: 1px;
-    background: var(--ui-border);
-    transform: translateX(-50%);
-    transition: background-color 0.15s ease, opacity 0.15s ease;
-    opacity: 0.6;
-}
-
-.sidebar-resizer:hover::after,
-.sidebar-resizer.is-active::after {
-    opacity: 1;
-    background: var(--ui-border-strong, var(--ui-border));
+.sidebar-resizer:hover,
+.sidebar-resizer.is-active {
+    background: color-mix(in oklab, var(--ui-bg) 50%, var(--ui-primary) 50%);
 }
 </style>
