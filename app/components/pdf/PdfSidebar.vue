@@ -43,13 +43,10 @@
                     <PdfSearchBar
                         ref="searchBarRef"
                         v-model="searchQueryProxy"
-                        :current-match="currentMatch"
                         :total-matches="totalMatches"
-                        :is-searching="isSearching"
                         @search="emit('search')"
                         @next="emit('next')"
                         @previous="emit('previous')"
-                        @close="handleSearchClose"
                     />
                 </div>
                 <div class="pdf-sidebar-search-results">
@@ -85,7 +82,6 @@ interface IProps {
     searchResults: IPdfSearchMatch[];
     currentResultIndex: number;
     searchQuery: string;
-    currentMatch: number;
     totalMatches: number;
     isSearching: boolean;
     searchProgress?: {
@@ -106,7 +102,6 @@ const emit = defineEmits<{
     (e: 'search'): void;
     (e: 'next'): void;
     (e: 'previous'): void;
-    (e: 'close'): void;
 }>();
 
 type TPdfSidebarTab = 'thumbnails' | 'outline' | 'search';
@@ -137,11 +132,6 @@ async function focusSearch() {
 }
 
 defineExpose({ focusSearch });
-
-function handleSearchClose() {
-    emit('close');
-    activeTab.value = 'thumbnails';
-}
 
 watch(
     () => [
@@ -239,7 +229,8 @@ const sidebarStyle = computed(() => {
 .pdf-sidebar-content {
     flex: 1;
     min-height: 0;
-    overflow: auto;
+    overflow-x: hidden;
+    overflow-y: auto;
     position: relative;
 }
 

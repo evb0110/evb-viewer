@@ -8,7 +8,6 @@
             autofocus
             @keydown.enter.exact="emit('next')"
             @keydown.shift.enter="emit('previous')"
-            @keydown.escape="emit('close')"
         >
             <template #leading>
                 <UIcon name="i-lucide-search" class="size-4" />
@@ -27,22 +26,6 @@
             </template>
         </UInput>
 
-        <div class="pdf-search-bar__results">
-            <USkeleton v-if="isSearching" class="pdf-search-bar__skeleton" />
-            <span
-                v-else-if="searchQuery && totalMatches > 0"
-                class="pdf-search-bar__count"
-            >
-                {{ currentMatch }} of {{ totalMatches }}
-            </span>
-            <span
-                v-else-if="searchQuery && totalMatches === 0"
-                class="pdf-search-bar__count pdf-search-bar__count--empty"
-            >
-                No results
-            </span>
-        </div>
-
         <div class="pdf-search-bar__actions">
             <UButton
                 icon="i-lucide-chevron-up"
@@ -60,13 +43,6 @@
                 :disabled="totalMatches === 0"
                 @click="emit('next')"
             />
-            <UButton
-                icon="i-lucide-x"
-                variant="ghost"
-                color="neutral"
-                size="xs"
-                @click="emit('close')"
-            />
         </div>
     </div>
 </template>
@@ -79,9 +55,7 @@ import {
 
 interface IProps {
     modelValue: string;
-    currentMatch: number;
     totalMatches: number;
-    isSearching: boolean;
 }
 
 const props = defineProps<IProps>();
@@ -91,7 +65,6 @@ const emit = defineEmits<{
     (e: 'search'): void;
     (e: 'next'): void;
     (e: 'previous'): void;
-    (e: 'close'): void;
 }>();
 
 const inputRef = ref<{ $el: HTMLElement } | null>(null);
@@ -129,19 +102,7 @@ defineExpose({ focus });
 
 .pdf-search-bar__input {
     flex: 1;
-    min-width: 12rem;
-}
-
-.pdf-search-bar__results {
-    display: flex;
-    align-items: center;
-    min-width: 5rem;
-    justify-content: center;
-}
-
-.pdf-search-bar__skeleton {
-    width: 3rem;
-    height: 1rem;
+    min-width: 0;
 }
 
 .pdf-search-bar__clear {
@@ -149,20 +110,10 @@ defineExpose({ focus });
     padding-inline: 0.25rem;
 }
 
-.pdf-search-bar__count {
-    font-size: 0.75rem;
-    font-variant-numeric: tabular-nums;
-    color: var(--ui-text-muted);
-    white-space: nowrap;
-}
-
-.pdf-search-bar__count--empty {
-    color: var(--ui-text-dimmed);
-}
-
 .pdf-search-bar__actions {
     display: flex;
     align-items: center;
     gap: 0.125rem;
+    flex-shrink: 0;
 }
 </style>

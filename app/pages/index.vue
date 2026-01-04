@@ -24,7 +24,7 @@
 
                 <UButton
                     icon="i-lucide-panel-left"
-                    variant="ghost"
+                    :variant="showSidebar ? 'soft' : 'ghost'"
                     :color="showSidebar ? 'primary' : 'neutral'"
                     @click="showSidebar = !showSidebar; closeAllDropdowns()"
                 />
@@ -96,7 +96,6 @@
                     :total-pages="totalPages"
                     :search-results="results"
                     :current-result-index="currentResultIndex"
-                    :current-match="currentMatch"
                     :total-matches="totalMatches"
                     :is-searching="isSearching"
                     :search-progress="searchProgress"
@@ -104,7 +103,6 @@
                     @search="handleSearch"
                     @next="handleSearchNext"
                     @previous="handleSearchPrevious"
-                    @close="closeSearch"
                     @go-to-page="handleGoToPage"
                     @go-to-result="handleGoToResult"
                 />
@@ -232,7 +230,6 @@ const {
     currentResult,
     isSearching,
     totalMatches,
-    currentMatch,
     search,
     goToResult,
     setResultIndex,
@@ -263,8 +260,8 @@ const sidebarTab = ref<TPdfSidebarTab>('thumbnails');
 const isSaving = ref(false);
 
 const SIDEBAR_DEFAULT_WIDTH = 240;
-const SIDEBAR_MIN_WIDTH = 200;
-const SIDEBAR_COLLAPSE_WIDTH = 140;
+const SIDEBAR_MIN_WIDTH = 180;
+const SIDEBAR_COLLAPSE_WIDTH = 160;
 const SIDEBAR_MAX_WIDTH = 520;
 const SIDEBAR_RESIZER_WIDTH = 8;
 
@@ -283,7 +280,7 @@ const sidebarWrapperStyle = computed(() => ({
 watch(showSidebar, (isOpen) => {
     if (isOpen) {
         const width = Math.min(
-            Math.max(lastOpenSidebarWidth.value, SIDEBAR_MIN_WIDTH),
+            Math.max(lastOpenSidebarWidth.value, SIDEBAR_DEFAULT_WIDTH),
             SIDEBAR_MAX_WIDTH,
         );
         sidebarWidth.value = width;
@@ -292,7 +289,6 @@ watch(showSidebar, (isOpen) => {
     }
 
     stopSidebarResize();
-    lastOpenSidebarWidth.value = sidebarWidth.value;
 });
 
 function handleGoToPage(page: number) {
