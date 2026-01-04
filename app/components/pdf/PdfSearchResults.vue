@@ -33,25 +33,13 @@
             <div class="pdf-search-results-header">
                 {{ results.length }} result{{ results.length === 1 ? '' : 's' }} for "{{ searchQuery }}"
             </div>
-            <div
+            <PdfSearchResultItem
                 v-for="(result, index) in results"
                 :key="index"
-                class="pdf-search-result"
-                :class="{ 'is-active': index === currentResultIndex }"
+                :result="result"
+                :is-active="index === currentResultIndex"
                 @click="$emit('goToResult', index)"
-            >
-                <div class="pdf-search-result-meta">
-                    <span class="pdf-search-result-page">Page {{ result.pageIndex + 1 }}</span>
-                    <span class="pdf-search-result-match">Match {{ result.matchIndex + 1 }}</span>
-                </div>
-                <div class="pdf-search-result-snippet">
-                    <span v-if="result.excerpt.prefix" class="pdf-search-result-ellipsis">…</span>
-                    <span>{{ result.excerpt.before }}</span>
-                    <mark class="pdf-search-result-highlight">{{ result.excerpt.match }}</mark>
-                    <span>{{ result.excerpt.after }}</span>
-                    <span v-if="result.excerpt.suffix" class="pdf-search-result-ellipsis">…</span>
-                </div>
-            </div>
+            />
         </div>
     </div>
 </template>
@@ -59,6 +47,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import type { IPdfSearchMatch } from 'app/types/pdf';
+import PdfSearchResultItem from './PdfSearchResultItem.vue';
 
 interface IProps {
     results: IPdfSearchMatch[];
@@ -121,62 +110,6 @@ const progressText = computed(() => {
 .pdf-search-results-list {
     display: flex;
     flex-direction: column;
-}
-
-.pdf-search-result {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    padding: 8px 12px;
-    cursor: pointer;
-    transition: background-color 0.15s;
-}
-
-.pdf-search-result:hover {
-    background: var(--ui-bg-muted);
-}
-
-.pdf-search-result.is-active {
-    background: var(--ui-bg-accented);
-}
-
-.pdf-search-result-meta {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-}
-
-.pdf-search-result-page {
-    font-size: 13px;
-    font-weight: 500;
-}
-
-.pdf-search-result-match {
-    font-size: 11px;
-    color: var(--ui-text-muted);
-}
-
-.pdf-search-result-snippet {
-    font-size: 12px;
-    line-height: 1.4;
-    color: var(--ui-text-muted);
-    overflow: hidden;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-}
-
-.pdf-search-result-highlight {
-    background: var(--ui-bg-accented);
-    color: inherit;
-    padding: 0 2px;
-    border-radius: 2px;
-    font-weight: 600;
-}
-
-.pdf-search-result-ellipsis {
-    color: var(--ui-text-dimmed);
 }
 
 @keyframes pdf-search-spin {

@@ -2,6 +2,7 @@
     <aside
         v-if="isOpen"
         class="pdf-sidebar"
+        :style="sidebarStyle"
     >
         <UTabs
             v-model="activeTab"
@@ -92,6 +93,7 @@ interface IProps {
         total: number;
     };
     activeTab?: TPdfSidebarTab;
+    width?: number;
 }
 
 const props = defineProps<IProps>();
@@ -184,12 +186,19 @@ const tabs = [
         icon: 'i-lucide-search',
     },
 ] satisfies IPdfSidebarTabItem[];
+
+const sidebarStyle = computed(() => {
+    const width = props.width ?? 240;
+
+    return {
+        width: `${width}px`,
+        minWidth: `${width}px`,
+    };
+});
 </script>
 
 <style scoped>
 .pdf-sidebar {
-    width: 240px;
-    min-width: 240px;
     height: 100%;
     border-right: 1px solid var(--ui-border);
     background: var(--ui-bg);

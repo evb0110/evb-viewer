@@ -468,7 +468,7 @@ defineExpose({
     z-index: 0;
 }
 
-.text-layer {
+.pdfViewer :deep(.text-layer) {
     position: absolute;
     text-align: initial;
     inset: 0;
@@ -492,8 +492,8 @@ defineExpose({
     --min-font-size-inv: calc(1 / var(--min-font-size));
 }
 
-.text-layer :deep(span),
-.text-layer :deep(br) {
+.pdfViewer :deep(.text-layer span),
+.pdfViewer :deep(.text-layer br) {
     color: transparent;
     position: absolute;
     white-space: pre;
@@ -501,30 +501,30 @@ defineExpose({
     transform-origin: 0% 0%;
 }
 
-.text-layer :deep(> span),
-.text-layer :deep(.markedContent span) {
+.pdfViewer :deep(.text-layer > span),
+.pdfViewer :deep(.text-layer .markedContent span) {
     z-index: 1;
     font-size: calc(var(--text-scale-factor) * var(--font-height, 10px));
     transform: rotate(var(--rotate, 0deg)) scaleX(var(--scale-x, 1)) scale(var(--min-font-size-inv));
 }
 
-.text-layer :deep(.markedContent) {
+.pdfViewer :deep(.text-layer .markedContent) {
     display: contents;
 }
 
-.text-layer :deep(br) {
+.pdfViewer :deep(.text-layer br) {
     user-select: none;
 }
 
-.text-layer :deep(::selection) {
+.pdfViewer :deep(.text-layer ::selection) {
     background: rgb(0 0 255 / 0.25);
 }
 
-.text-layer :deep(br::selection) {
+.pdfViewer :deep(.text-layer br::selection) {
     background: transparent;
 }
 
-.text-layer :deep(.pdf-search-highlight) {
+.pdfViewer :deep(.pdf-search-highlight) {
     background-color: rgb(255 230 0 / 0.5);
     color: transparent;
     border-radius: 2px;
@@ -532,13 +532,13 @@ defineExpose({
     margin: 0;
 }
 
-.text-layer :deep(.pdf-search-highlight--current) {
+.pdfViewer :deep(.pdf-search-highlight--current) {
     background-color: rgb(255 150 0 / 0.7);
     outline: 2px solid rgb(255 100 0 / 0.8);
     outline-offset: 0;
 }
 
-.text-layer :deep(.end-of-content) {
+.pdfViewer :deep(.text-layer .end-of-content) {
     display: block;
     position: absolute;
     inset: 100% 0 0;
@@ -547,11 +547,11 @@ defineExpose({
     user-select: none;
 }
 
-.text-layer.selecting :deep(.end-of-content) {
+.pdfViewer :deep(.text-layer.selecting .end-of-content) {
     top: 0;
 }
 
-.annotation-layer {
+.pdfViewer :deep(.annotation-layer) {
     position: absolute;
     inset: 0;
     overflow: hidden;
@@ -559,34 +559,34 @@ defineExpose({
     pointer-events: none;
 }
 
-.annotation-layer :deep(a) {
+.pdfViewer :deep(.annotation-layer a) {
     pointer-events: auto;
     display: block;
     position: absolute;
 }
 
-.annotation-layer :deep(section) {
+.pdfViewer :deep(.annotation-layer section) {
     position: absolute;
 }
 
-.annotation-layer :deep(.linkAnnotation > a) {
+.pdfViewer :deep(.annotation-layer .linkAnnotation > a) {
     background: rgb(255 255 0 / 0);
     transition: background 150ms ease;
 }
 
-.annotation-layer :deep(.linkAnnotation > a:hover) {
+.pdfViewer :deep(.annotation-layer .linkAnnotation > a:hover) {
     background: rgb(255 255 0 / 0.2);
 }
 
-.pdf-viewer-container--dark .text-layer :deep(::selection) {
+.pdf-viewer-container--dark :deep(.text-layer ::selection) {
     background: rgb(255 200 0 / 0.35);
 }
 
-.pdf-viewer-container--dark .text-layer :deep(.pdf-search-highlight) {
+.pdf-viewer-container--dark :deep(.pdf-search-highlight) {
     background-color: rgb(255 230 0 / 0.6);
 }
 
-.pdf-viewer-container--dark .text-layer :deep(.pdf-search-highlight--current) {
+.pdf-viewer-container--dark :deep(.pdf-search-highlight--current) {
     background-color: rgb(255 150 0 / 0.8);
     outline: 2px solid rgb(255 100 0 / 0.9);
 }

@@ -138,9 +138,9 @@ export const usePdfSearch = () => {
             };
         }
 
-        const before = normalized.slice(0, startIndex).trimEnd();
+        const before = normalized.slice(0, startIndex);
         const match = normalized.slice(startIndex + 1, endIndex);
-        const after = normalized.slice(endIndex + 1).trimStart();
+        const after = normalized.slice(endIndex + 1);
 
         return {
             prefix: excerptStart > 0,

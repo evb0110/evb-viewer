@@ -81,28 +81,42 @@
 
         <!-- Main -->
         <main class="flex-1 overflow-hidden flex">
-            <PdfSidebar
-                v-if="pdfSrc"
-                ref="sidebarRef"
-                v-model:active-tab="sidebarTab"
-                v-model:search-query="searchQuery"
-                :is-open="showSidebar"
-                :pdf-document="pdfDocument"
-                :current-page="currentPage"
-                :total-pages="totalPages"
-                :search-results="results"
-                :current-result-index="currentResultIndex"
-                :current-match="currentMatch"
-                :total-matches="totalMatches"
-                :is-searching="isSearching"
-                :search-progress="searchProgress"
-                @search="handleSearch"
-                @next="handleSearchNext"
-                @previous="handleSearchPrevious"
-                @close="closeSearch"
-                @go-to-page="handleGoToPage"
-                @go-to-result="handleGoToResult"
-            />
+            <div
+                v-if="pdfSrc && showSidebar"
+                class="sidebar-wrapper"
+                :style="sidebarWrapperStyle"
+            >
+                <PdfSidebar
+                    ref="sidebarRef"
+                    v-model:active-tab="sidebarTab"
+                    v-model:search-query="searchQuery"
+                    :is-open="showSidebar"
+                    :pdf-document="pdfDocument"
+                    :current-page="currentPage"
+                    :total-pages="totalPages"
+                    :search-results="results"
+                    :current-result-index="currentResultIndex"
+                    :current-match="currentMatch"
+                    :total-matches="totalMatches"
+                    :is-searching="isSearching"
+                    :search-progress="searchProgress"
+                    :width="sidebarWidth"
+                    @search="handleSearch"
+                    @next="handleSearchNext"
+                    @previous="handleSearchPrevious"
+                    @close="closeSearch"
+                    @go-to-page="handleGoToPage"
+                    @go-to-result="handleGoToResult"
+                />
+                <div
+                    class="sidebar-resizer"
+                    :class="{ 'is-active': isResizingSidebar }"
+                    role="separator"
+                    aria-orientation="vertical"
+                    aria-label="Resize sidebar"
+                    @pointerdown.prevent="startSidebarResize"
+                />
+            </div>
             <div class="flex-1 overflow-hidden">
                 <PdfViewer
                     v-if="pdfSrc"
@@ -142,6 +156,7 @@ import {
     nextTick,
     ref,
     shallowRef,
+    computed,
     watch,
 } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
@@ -199,6 +214,7 @@ onMounted(() => {
 
 onUnmounted(() => {
     menuCleanups.forEach((cleanup) => cleanup());
+    cleanupSidebarResizeListeners();
     window.removeEventListener('keydown', handleFindShortcut);
 });
 
@@ -246,6 +262,39 @@ const showSidebar = ref(false);
 const sidebarTab = ref<TPdfSidebarTab>('thumbnails');
 const isSaving = ref(false);
 
+const SIDEBAR_DEFAULT_WIDTH = 240;
+const SIDEBAR_MIN_WIDTH = 200;
+const SIDEBAR_COLLAPSE_WIDTH = 140;
+const SIDEBAR_MAX_WIDTH = 520;
+const SIDEBAR_RESIZER_WIDTH = 8;
+
+const sidebarWidth = ref(SIDEBAR_DEFAULT_WIDTH);
+const lastOpenSidebarWidth = ref(SIDEBAR_DEFAULT_WIDTH);
+const isResizingSidebar = ref(false);
+
+let resizeStartX = 0;
+let resizeStartWidth = 0;
+
+const sidebarWrapperStyle = computed(() => ({
+    width: `${sidebarWidth.value + SIDEBAR_RESIZER_WIDTH}px`,
+    minWidth: `${sidebarWidth.value + SIDEBAR_RESIZER_WIDTH}px`,
+}));
+
+watch(showSidebar, (isOpen) => {
+    if (isOpen) {
+        const width = Math.min(
+            Math.max(lastOpenSidebarWidth.value, SIDEBAR_MIN_WIDTH),
+            SIDEBAR_MAX_WIDTH,
+        );
+        sidebarWidth.value = width;
+        lastOpenSidebarWidth.value = width;
+        return;
+    }
+
+    stopSidebarResize();
+    lastOpenSidebarWidth.value = sidebarWidth.value;
+});
+
 function handleGoToPage(page: number) {
     pdfViewerRef.value?.scrollToPage(page);
 }
@@ -253,6 +302,59 @@ function handleGoToPage(page: number) {
 function enableDragMode() {
     dragMode.value = true;
     window.getSelection()?.removeAllRanges();
+}
+
+function cleanupSidebarResizeListeners() {
+    window.removeEventListener('pointermove', handleSidebarResize);
+    window.removeEventListener('pointerup', stopSidebarResize);
+    window.removeEventListener('pointercancel', stopSidebarResize);
+}
+
+function startSidebarResize(event: PointerEvent) {
+    if (!showSidebar.value) {
+        return;
+    }
+
+    event.preventDefault();
+
+    isResizingSidebar.value = true;
+    resizeStartX = event.clientX;
+    resizeStartWidth = sidebarWidth.value;
+
+    window.addEventListener('pointermove', handleSidebarResize);
+    window.addEventListener('pointerup', stopSidebarResize);
+    window.addEventListener('pointercancel', stopSidebarResize);
+}
+
+function handleSidebarResize(event: PointerEvent) {
+    const deltaX = event.clientX - resizeStartX;
+    const nextWidth = resizeStartWidth + deltaX;
+
+    if (nextWidth < SIDEBAR_COLLAPSE_WIDTH) {
+        isResizingSidebar.value = false;
+        cleanupSidebarResizeListeners();
+        lastOpenSidebarWidth.value = SIDEBAR_MIN_WIDTH;
+        sidebarWidth.value = SIDEBAR_MIN_WIDTH;
+        showSidebar.value = false;
+        return;
+    }
+
+    const clampedWidth = Math.min(
+        Math.max(nextWidth, SIDEBAR_MIN_WIDTH),
+        SIDEBAR_MAX_WIDTH,
+    );
+
+    sidebarWidth.value = clampedWidth;
+    lastOpenSidebarWidth.value = clampedWidth;
+}
+
+function stopSidebarResize() {
+    if (!isResizingSidebar.value) {
+        return;
+    }
+
+    isResizingSidebar.value = false;
+    cleanupSidebarResizeListeners();
 }
 
 function openSearch() {
@@ -322,3 +424,38 @@ watch(pdfSrc, () => {
     }
 });
 </script>
+
+<style scoped>
+.sidebar-wrapper {
+    display: flex;
+    height: 100%;
+}
+
+.sidebar-resizer {
+    width: 8px;
+    cursor: col-resize;
+    position: relative;
+    flex-shrink: 0;
+    user-select: none;
+    touch-action: none;
+}
+
+.sidebar-resizer::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 50%;
+    width: 1px;
+    background: var(--ui-border);
+    transform: translateX(-50%);
+    transition: background-color 0.15s ease, opacity 0.15s ease;
+    opacity: 0.6;
+}
+
+.sidebar-resizer:hover::after,
+.sidebar-resizer.is-active::after {
+    opacity: 1;
+    background: var(--ui-border-strong, var(--ui-border));
+}
+</style>
