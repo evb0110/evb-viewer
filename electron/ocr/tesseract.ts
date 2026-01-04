@@ -188,14 +188,20 @@ export async function runOcrWithBoundingBoxes(
                             debugLog(`Parsed ${words.length} words from TSV (precise coordinates)`);
                         } catch (tsvErr) {
                             // TSV parsing failed, fall back to TXT estimation
-                            debugLog(`TSV parsing failed: ${tsvErr instanceof Error ? tsvErr.message : String(tsvErr)}, falling back to TXT`);
+                            const tsvMsg = tsvErr instanceof Error ? tsvErr.message : String(tsvErr);
+                            const tsvStack = tsvErr instanceof Error ? tsvErr.stack : '';
+                            debugLog(`TSV parsing failed: ${tsvMsg}, falling back to TXT`);
+                            if (tsvStack) debugLog(`TSV error stack: ${tsvStack}`);
                             try {
                                 const txtContent = await readFile(txtPath, 'utf-8');
                                 debugLog(`TXT file read, size: ${txtContent.length} bytes`);
                                 words = parseTxtOutput(txtContent, imageWidth, imageHeight);
                                 debugLog(`Parsed ${words.length} words from TXT (estimated coordinates)`);
                             } catch (txtErr) {
-                                debugLog('Both TSV and TXT parsing failed');
+                                const txtMsg = txtErr instanceof Error ? txtErr.message : String(txtErr);
+                                const txtStack = txtErr instanceof Error ? txtErr.stack : '';
+                                debugLog(`Both TSV and TXT parsing failed: ${txtMsg}`);
+                                if (txtStack) debugLog(`TXT error stack: ${txtStack}`);
                                 throw txtErr;
                             }
                         }
@@ -263,20 +269,20 @@ function parseTsvOutput(tsvContent: string): IOcrWord[] {
 
     // Skip header line
     for (let i = 1; i < lines.length; i++) {
-        const line = lines[i].trim();
+        const line = lines[i]?.trim();
         if (!line) continue;
 
         const parts = line.split('\t');
         if (parts.length < 12) continue;
 
-        const level = parseInt(parts[0], 10);
+        const level = parseInt(parts[0]!, 10);
         if (level !== 5) continue;  // Only process word-level (5)
 
-        const left = parseInt(parts[6], 10);
-        const top = parseInt(parts[7], 10);
-        const right = parseInt(parts[8], 10);
-        const bottom = parseInt(parts[9], 10);
-        const confidence = parseInt(parts[10], 10);
+        const left = parseInt(parts[6]!, 10);
+        const top = parseInt(parts[7]!, 10);
+        const right = parseInt(parts[8]!, 10);
+        const bottom = parseInt(parts[9]!, 10);
+        const confidence = parseInt(parts[10]!, 10);
         const text = parts[11] || '';
 
         // Skip very low confidence words (OCR errors)
@@ -314,9 +320,7 @@ function parseTxtOutput(txtContent: string, imageWidth: number, imageHeight: num
     const words: IOcrWord[] = [];
 
     // Distribute words across the page with estimated positions
-    // Calculate approximate word width based on average word length
-    const avgCharsPerWord = 5;
-    const estimatedWordWidth = (imageWidth / 50);  // Rough estimate
+    const estimatedWordWidth = imageWidth / 50;  // Rough estimate
     const lineHeight = Math.max(20, imageHeight / 20);  // Estimate line height
 
     let x = 50;

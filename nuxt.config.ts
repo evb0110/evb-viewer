@@ -15,8 +15,6 @@ export default defineNuxtConfig({
 
     devServer: {port: 3235},
 
-    nitro: {preset: 'node-server'},
-
     colorMode: {preference: 'light'},
 
     icon: {

@@ -72,7 +72,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
     ocrCreateSearchablePdf: (
         originalPdfData: number[],
-        pages: Array<{ pageNumber: number; imageData: number[]; languages: string[]; dpi: number }>,
+        pages: Array<{
+            pageNumber: number;
+            imageData: number[];
+            languages: string[];
+            dpi: number;
+            imageWidth: number;
+            imageHeight: number;
+        }>,
         requestId: string,
     ) => ipcRenderer.invoke('ocr:createSearchablePdf', originalPdfData, pages, requestId),
 

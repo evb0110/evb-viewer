@@ -6,7 +6,7 @@ import {
 } from 'electron';
 import { appendFileSync, writeFileSync, readFileSync } from 'fs';
 import { join } from 'path';
-import { embedOcrLayers } from './pdf-merger';
+import { embedOcrLayers, type IOcrPageWithWords } from './pdf-merger';
 import {
     runOcr,
     runOcrWithBoundingBoxes,
@@ -124,7 +124,7 @@ async function handleOcrCreateSearchablePdf(
         const window = BrowserWindow.fromWebContents(event.sender);
         const errors: string[] = [];
 
-        const ocrPageData: Array<{ pageNumber: number; words: any[]; imageWidth: number; imageHeight: number }> = [];
+        const ocrPageData: IOcrPageWithWords[] = [];
 
         for (let i = 0; i < pages.length; i++) {
             const page = pages[i];
