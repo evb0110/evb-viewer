@@ -1,22 +1,19 @@
 import { spawn } from 'child_process';
 import { app } from 'electron';
 import {
-    appendFileSync,
     readFile,
     unlink,
     writeFile,
 } from 'fs/promises';
-import { appendFileSync as appendSync } from 'fs';
+import { appendFileSync } from 'fs';
 import { join } from 'path';
 import { getOcrPaths } from './paths';
-
-const MAX_PDF_GENERATION_TIMEOUT = 120000; // 2 minutes
 
 const LOG_FILE = join(app.getPath('temp'), 'ocr-debug.log');
 
 function debugLog(msg: string) {
     const ts = new Date().toISOString();
-    appendSync(LOG_FILE, `[${ts}] [tesseract] ${msg}\n`);
+    appendFileSync(LOG_FILE, `[${ts}] [tesseract] ${msg}\n`);
 }
 
 interface IOcrResult {
@@ -350,111 +347,115 @@ function parseTxtOutput(txtContent: string, imageWidth: number, imageHeight: num
 }
 
 /**
- * Generate a searchable PDF using Tesseract's native PDF generation
- * This is a universal fallback that works when pdf-lib fails
+ * Generate a searchable PDF from an image using pdf-lib fallback
+ * This works when embedding into existing PDFs fails
  *
- * Tesseract creates PDFs with text layers, making them searchable
- * while preserving the original image quality
+ * Creates a new PDF with the image as background and OCR text as invisible overlay
+ * for searchability.
  *
  * @param imageBuffer The image to convert to PDF
- * @param languages Languages for OCR
+ * @param languages Languages for OCR (used to run OCR and extract text)
  * @returns PDF buffer, or null if generation failed
  */
 export async function generateSearchablePdf(
     imageBuffer: Buffer,
     languages: string[],
 ): Promise<Buffer | null> {
-    const {
-        binary,
-        tessdata,
-    } = getOcrPaths();
-    const tempDir = app.getPath('temp');
-    const sessionId = `pdf-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const inputPath = join(tempDir, `${sessionId}-input.png`);
-    const outputBase = join(tempDir, `${sessionId}-output`);
-    const pdfPath = `${outputBase}.pdf`;
-
-    async function cleanup() {
-        await unlink(inputPath).catch(() => {});
-        await unlink(pdfPath).catch(() => {});
-    }
-
     try {
-        debugLog('generateSearchablePdf: Creating searchable PDF from image');
+        debugLog('generateSearchablePdf: Creating searchable PDF using pdf-lib fallback');
 
-        // Write image to temp file
-        await writeFile(inputPath, imageBuffer);
+        // Import pdf-lib functions
+        const { PDFDocument, rgb } = await import('pdf-lib');
 
-        // Run Tesseract with PDF output format
-        // This generates a PDF with embedded searchable text
-        const args = [
-            inputPath,
-            outputBase,
-            '-l',
-            languages.join('+'),
-            '--tessdata-dir',
-            tessdata,
-            'pdf',  // Output format: PDF with text layer
-        ];
+        // Standard image size assumption: A4 at 300 DPI = 2550x3300 pixels
+        // For simplicity, we'll use standard letter/A4 proportions
+        // and scale the image to fit while maintaining aspect ratio
+        const estimatedWidth = 2550;
+        const estimatedHeight = 3300;
 
-        debugLog(`Tesseract PDF generation: ${binary} ${args.join(' ')}`);
+        // Create new PDF with A4 dimensions
+        // A4 = 210mm x 297mm = 595pt x 842pt
+        const pdfDoc = await PDFDocument.create();
+        const pdfWidth = 595;
+        const pdfHeight = 842;
+        const page = pdfDoc.addPage([pdfWidth, pdfHeight]);
 
-        return new Promise((resolve) => {
-            const proc = spawn(binary, args);
+        // Try to embed and draw the image
+        let embeddedImage = null;
+        try {
+            embeddedImage = await pdfDoc.embedPng(imageBuffer);
+        } catch {
+            try {
+                embeddedImage = await pdfDoc.embedJpg(imageBuffer);
+            } catch {
+                debugLog('Could not embed image (not PNG or JPG), continuing with text-only');
+            }
+        }
 
-            let stderr = '';
-            let timedOut = false;
-
-            const timeoutHandle = setTimeout(() => {
-                timedOut = true;
-                debugLog('PDF generation timed out');
-                proc.kill();
-            }, MAX_PDF_GENERATION_TIMEOUT);
-
-            proc.stderr.on('data', (data: Buffer) => {
-                stderr += data.toString();
+        if (embeddedImage) {
+            // Draw image to fill the page
+            page.drawImage(embeddedImage, {
+                x: 0,
+                y: 0,
+                width: pdfWidth,
+                height: pdfHeight,
             });
+            debugLog('Image embedded successfully');
+        }
 
-            proc.on('close', async (code) => {
-                clearTimeout(timeoutHandle);
+        // Run OCR on the image to get text with coordinates
+        const ocrResult = await runOcrWithBoundingBoxes(
+            imageBuffer,
+            languages,
+            300, // DPI
+            estimatedWidth,
+            estimatedHeight,
+        );
 
-                try {
-                    if (timedOut) {
-                        debugLog('PDF generation timeout - process killed');
-                        resolve(null);
-                        return;
-                    }
+        if (!ocrResult.success || !ocrResult.pageData) {
+            debugLog(`OCR failed during fallback: ${ocrResult.error}`);
+            // Even without OCR text, we have the image
+            const pdfBytes = await pdfDoc.save();
+            return Buffer.from(pdfBytes);
+        }
 
-                    if (code !== 0) {
-                        debugLog(`Tesseract PDF generation failed: code ${code}, stderr: ${stderr}`);
-                        resolve(null);
-                        return;
-                    }
+        // Add invisible text layer for searchability
+        const { words } = ocrResult.pageData;
+        const scaleX = pdfWidth / estimatedWidth;
+        const scaleY = pdfHeight / estimatedHeight;
+        let textAdded = 0;
 
-                    // Read generated PDF
-                    const pdfBuffer = await readFile(pdfPath);
-                    debugLog(`PDF generation successful: ${pdfBuffer.length} bytes`);
-                    resolve(pdfBuffer);
-                } catch (err) {
-                    const errMsg = err instanceof Error ? err.message : String(err);
-                    debugLog(`PDF read failed: ${errMsg}`);
-                    resolve(null);
-                } finally {
-                    await cleanup();
-                }
-            });
+        for (const word of words) {
+            try {
+                // Scale coordinates from image space to PDF space
+                const pdfX = word.x * scaleX;
+                const pdfY = pdfHeight - (word.y * scaleY); // Flip Y axis for PDF
+                const pdfFontSize = Math.max(1, word.height * scaleY * 0.8);
 
-            proc.on('error', async (err) => {
-                clearTimeout(timeoutHandle);
-                debugLog(`PDF generation process error: ${err.message}`);
-                await cleanup();
-                resolve(null);
-            });
-        });
+                page.drawText(word.text, {
+                    x: pdfX,
+                    y: pdfY - pdfFontSize,
+                    size: pdfFontSize,
+                    color: rgb(1, 1, 1),
+                    opacity: 0.001, // Invisible but searchable
+                });
+                textAdded++;
+            } catch {
+                // Skip individual words that fail
+            }
+        }
+
+        debugLog(`Added ${textAdded}/${words.length} words to PDF text layer`);
+
+        const pdfBytes = await pdfDoc.save();
+        const result = Buffer.from(pdfBytes);
+
+        debugLog(`Fallback PDF generation successful: ${result.length} bytes`);
+        return result;
+
     } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
         debugLog(`Exception in generateSearchablePdf: ${errMsg}`);
-        await cleanup();
         return null;
     }
 }
