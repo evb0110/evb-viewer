@@ -21,7 +21,7 @@
                 </UTooltip>
             </template>
         </UTabs>
-        <div class="pdf-sidebar-content">
+        <div class="pdf-sidebar-content app-scrollbar">
             <PdfThumbnails
                 v-show="activeTab === 'thumbnails'"
                 :pdf-document="pdfDocument"

@@ -134,6 +134,7 @@ async function connectToBrowser(): Promise<{ browser: Browser; page: Page }> {
 
     const browser = await puppeteer.connect({
         browserURL: `http://localhost:${CDP_PORT}`,
+        defaultViewport: null, // Don't override Electron window's natural viewport
     });
 
     // Wait for the app page
@@ -312,6 +313,18 @@ async function handleCommand(command: string, args: unknown[]): Promise<unknown>
             const el = await page.$(selector);
             if (!el) return null;
             return await el.evaluate((e) => e.textContent);
+        }
+
+        case 'resize': {
+            const [width, height] = args as [number, number];
+            if (!width || !height) throw new Error('Width and height required');
+            await page.setViewport({ width, height });
+            return { resized: { width, height } };
+        }
+
+        case 'viewport': {
+            const viewport = page.viewport();
+            return { viewport };
         }
 
         default:

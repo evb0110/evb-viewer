@@ -9,7 +9,7 @@
         <div
             id="pdf-viewer"
             ref="viewerContainer"
-            class="pdfViewer"
+            class="pdfViewer app-scrollbar"
             :class="{
                 'is-dragging': isDragging,
                 'drag-mode': dragMode,
@@ -404,29 +404,6 @@ defineExpose({
     background: var(--color-surface-muted);
     display: flex;
     flex-direction: column;
-    scrollbar-width: thin;
-    scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
-
-    &::-webkit-scrollbar {
-        width: 0.5rem;
-        height: 0.5rem;
-    }
-
-    &::-webkit-scrollbar-track {
-        background: var(--scrollbar-track);
-        border-radius: 0.4rem;
-        border: none;
-    }
-
-    &::-webkit-scrollbar-thumb {
-        background: var(--scrollbar-thumb);
-        border-radius: 0.4rem;
-        border: none;
-    }
-
-    &::-webkit-scrollbar-thumb:hover {
-        background: var(--scrollbar-thumb-hover);
-    }
 }
 
 .pdfViewer--fit-height {
