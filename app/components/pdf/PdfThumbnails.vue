@@ -86,6 +86,9 @@ async function renderThumbnail(pageNum: number) {
 
         renderedPages.add(pageNum);
     } catch (error) {
+        if (error instanceof Error && error.name === 'RenderingCancelledException') {
+            return;
+        }
         console.error(`Failed to render thumbnail for page ${pageNum}:`, error);
     } finally {
         renderingPages.delete(pageNum);
