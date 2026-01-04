@@ -106,6 +106,115 @@ export async function runOcr(
     });
 }
 
+/**
+ * Generate a searchable PDF directly from image using Tesseract native PDF output
+ * This is used when pdf-lib fails to parse the original PDF
+ * Tesseract handles all text embedding automatically
+ */
+export async function generateSearchablePdfDirect(
+    imageBuffer: Buffer,
+    languages: string[],
+): Promise<IOcrPdfResult> {
+    debugLog(`generateSearchablePdfDirect: Creating PDF with languages=${languages.join(',')}`);
+
+    const {
+        binary,
+        tessdata,
+    } = getOcrPaths();
+
+    const tempDir = app.getPath('temp');
+    const sessionId = `pdf-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const inputPath = join(tempDir, `${sessionId}-input.png`);
+    const outputBase = join(tempDir, `${sessionId}-output`);
+    const pdfPath = `${outputBase}.pdf`;
+
+    async function cleanup() {
+        await unlink(inputPath).catch(() => {});
+        await unlink(pdfPath).catch(() => {});
+    }
+
+    try {
+        // Write image to temp file
+        debugLog('Writing temp image file...');
+        await writeFile(inputPath, imageBuffer);
+        debugLog(`Temp file written: ${inputPath}`);
+
+        // Run Tesseract with PDF output format
+        // Uses -c tessedit_create_pdf=1 to generate searchable PDF with embedded text
+        const args = [
+            inputPath,
+            outputBase,
+            '-l',
+            languages.join('+'),
+            '--tessdata-dir',
+            tessdata,
+            '-c',
+            'tessedit_create_pdf=1',  // Generate PDF with text layer
+        ];
+
+        debugLog(`Spawning tesseract for PDF generation: ${binary} ${args.join(' ')}`);
+
+        return new Promise((resolve) => {
+            const proc = spawn(binary, args, {env: {
+                ...process.env,
+                TESSDATA_PREFIX: tessdata,
+            }});
+
+            let stderr = '';
+
+            proc.stderr.on('data', (data: Buffer) => {
+                const msg = data.toString();
+                stderr += msg;
+                debugLog(`stderr: ${msg.trim()}`);
+            });
+
+            proc.on('close', async (code) => {
+                debugLog(`Tesseract PDF generation exited with code ${code}`);
+                try {
+                    if (code === 0) {
+                        // Check if PDF was created
+                        const pdfBuffer = await readFile(pdfPath);
+                        debugLog(`PDF generated successfully: ${pdfBuffer.length} bytes`);
+
+                        resolve({
+                            success: true,
+                            pdfBuffer,
+                        });
+                    } else {
+                        debugLog(`Tesseract failed with code ${code}: ${stderr}`);
+                        resolve({
+                            success: false,
+                            pdfBuffer: null,
+                            error: stderr || `Tesseract exited with code ${code}`,
+                        });
+                    }
+                } finally {
+                    await cleanup();
+                }
+            });
+
+            proc.on('error', async (err) => {
+                debugLog(`Process error: ${err.message}`);
+                await cleanup();
+                resolve({
+                    success: false,
+                    pdfBuffer: null,
+                    error: err.message,
+                });
+            });
+        });
+    } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        debugLog(`Exception: ${errMsg}`);
+        await cleanup();
+        return {
+            success: false,
+            pdfBuffer: null,
+            error: errMsg,
+        };
+    }
+}
+
 export async function runOcrWithBoundingBoxes(
     imageBuffer: Buffer,
     languages: string[],

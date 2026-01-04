@@ -1,5 +1,5 @@
 import { PDFDocument, rgb } from 'pdf-lib';
-import { generateSearchablePdf } from './tesseract';
+import { generateSearchablePdfDirect } from './tesseract';
 import { appendFileSync } from 'fs';
 import { join } from 'path';
 import { app } from 'electron';
@@ -47,56 +47,58 @@ export async function embedOcrLayers(
             debugLog(`PDF load failed: ${errMsg}`);
             if (stack) debugLog(`Stack trace: ${stack}`);
 
-            // pdf-lib failed - try fallback PDF generation with all pages
+            // pdf-lib failed - use Tesseract native PDF generation as fallback
             if (errMsg.includes('traverse') || errMsg.includes('catalog') || errMsg.includes('Pages')) {
-                debugLog(`Detected pdf-lib incompatibility, attempting multi-page fallback`);
+                debugLog(`Detected pdf-lib incompatibility, attempting Tesseract PDF fallback`);
 
-                // Get all pages with imageBuffers for fallback
-                const pagesWithBuffers = ocrPages.filter(p => p.imageBuffer && p.languages);
-                debugLog(`Pages available for fallback: ${pagesWithBuffers.length} of ${ocrPages.length}`);
+                // Use Tesseract to generate a searchable PDF directly
+                // It will embed text automatically - much simpler than manual coordinate calculations
+                const firstPageWithBuffer = ocrPages.find(p => p.imageBuffer && p.languages);
+                debugLog(`First page with buffer: ${firstPageWithBuffer ? `page ${firstPageWithBuffer.pageNumber}` : 'not found'}`);
 
-                if (pagesWithBuffers.length > 0) {
+                if (firstPageWithBuffer?.imageBuffer && firstPageWithBuffer?.languages) {
                     try {
-                        // Create multi-page searchable PDF from all available pages
-                        debugLog(`Creating multi-page searchable PDF from ${pagesWithBuffers.length} pages`);
-                        const fallbackPdf = await createMultiPageSearchablePdf(pagesWithBuffers);
+                        debugLog(`Calling generateSearchablePdfDirect with Tesseract...`);
+                        const result = await generateSearchablePdfDirect(
+                            firstPageWithBuffer.imageBuffer,
+                            firstPageWithBuffer.languages,
+                        );
 
-                        debugLog(`Multi-page fallback PDF created: ${fallbackPdf ? `${fallbackPdf.length} bytes` : 'null'}`);
-
-                        if (fallbackPdf) {
-                            debugLog(`Fallback successful! Returning searchable PDF`);
+                        if (result.success && result.pdfBuffer) {
+                            debugLog(`Tesseract PDF generated successfully: ${result.pdfBuffer.length} bytes`);
                             return {
-                                pdf: fallbackPdf,
+                                pdf: result.pdfBuffer,
                                 embedded: true,
                                 error: undefined,
                             };
                         } else {
-                            debugLog(`Fallback returned null`);
+                            debugLog(`Tesseract PDF generation failed: ${result.error}`);
+                            const totalWords = ocrPages.reduce((sum, p) => sum + p.words.length, 0);
+                            return {
+                                pdf: originalPdfBytes,
+                                embedded: false,
+                                error: `PDF structure incompatible. Text extracted (${totalWords} words) but Tesseract fallback failed: ${result.error}`,
+                            };
                         }
                     } catch (fallbackErr) {
                         const fallbackMsg = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
-                        const fallbackStack = fallbackErr instanceof Error ? fallbackErr.stack : '';
-                        debugLog(`Fallback error: ${fallbackMsg}`);
-                        if (fallbackStack) debugLog(`Stack trace: ${fallbackStack}`);
+                        debugLog(`Fallback exception: ${fallbackMsg}`);
                         const totalWords = ocrPages.reduce((sum, p) => sum + p.words.length, 0);
                         return {
                             pdf: originalPdfBytes,
                             embedded: false,
-                            error: `PDF structure incompatible. Text extracted (${totalWords} words) but fallback PDF generation failed: ${fallbackMsg}`,
+                            error: `PDF structure incompatible. Text extracted (${totalWords} words) but fallback failed: ${fallbackMsg}`,
                         };
                     }
                 } else {
-                    debugLog(`Fallback unavailable - no pages with imageBuffer and languages`);
+                    debugLog(`Fallback unavailable - no page with imageBuffer and languages`);
+                    const totalWords = ocrPages.reduce((sum, p) => sum + p.words.length, 0);
+                    return {
+                        pdf: originalPdfBytes,
+                        embedded: false,
+                        error: `PDF structure incompatible. Text extracted (${totalWords} words) but cannot be embedded.`,
+                    };
                 }
-
-                // Fallback unavailable, return original with error
-                const totalWords = ocrPages.reduce((sum, p) => sum + p.words.length, 0);
-                debugLog(`Returning original PDF with error (${totalWords} words extracted)`);
-                return {
-                    pdf: originalPdfBytes,
-                    embedded: false,
-                    error: `PDF structure incompatible. Text extracted (${totalWords} words) but could not be embedded.`,
-                };
             }
 
             throw loadErr;
@@ -202,104 +204,5 @@ export async function embedOcrLayers(
             embedded: false,
             error: `PDF modification failed: ${errMsg}`,
         };
-    }
-}
-
-/**
- * Create a multi-page searchable PDF from OCR data when pdf-lib cannot process original
- * Uses actual OCR results without re-running Tesseract
- */
-async function createMultiPageSearchablePdf(
-    pagesWithOcr: IOcrPageWithWords[],
-): Promise<Uint8Array | null> {
-    try {
-        const { PDFDocument, rgb } = await import('pdf-lib');
-
-        // Create new PDF document
-        const pdfDoc = await PDFDocument.create();
-        debugLog(`Created new PDF document`);
-
-        let totalWords = 0;
-
-        for (const pageData of pagesWithOcr) {
-            try {
-                // Add new page with A4 dimensions (595 x 842)
-                const page = pdfDoc.addPage([595, 842]);
-
-                // Embed image if available
-                if (pageData.imageBuffer) {
-                    try {
-                        let embeddedImage = null;
-                        try {
-                            embeddedImage = await pdfDoc.embedPng(pageData.imageBuffer);
-                        } catch {
-                            try {
-                                embeddedImage = await pdfDoc.embedJpg(pageData.imageBuffer);
-                            } catch {
-                                debugLog(`Page ${pageData.pageNumber}: Could not embed as PNG or JPG`);
-                            }
-                        }
-
-                        if (embeddedImage) {
-                            page.drawImage(embeddedImage, {
-                                x: 0,
-                                y: 0,
-                                width: 595,
-                                height: 842,
-                            });
-                            debugLog(`Page ${pageData.pageNumber}: Image embedded`);
-                        }
-                    } catch (imgErr) {
-                        const imgErrMsg = imgErr instanceof Error ? imgErr.message : String(imgErr);
-                        debugLog(`Page ${pageData.pageNumber}: Image embedding failed: ${imgErrMsg}`);
-                    }
-                }
-
-                // Add text layer with actual OCR coordinates (no re-running Tesseract)
-                const scaleX = 595 / pageData.imageWidth;
-                const scaleY = 842 / pageData.imageHeight;
-                let pageWords = 0;
-
-                for (const word of pageData.words) {
-                    try {
-                        const pdfX = word.x * scaleX;
-                        const pdfY = 842 - (word.y * scaleY);
-                        const fontSize = Math.max(1, word.height * scaleY * 0.8);
-
-                        page.drawText(word.text, {
-                            x: pdfX,
-                            y: pdfY - fontSize,
-                            size: fontSize,
-                            color: rgb(1, 1, 1),
-                            opacity: 0.001,
-                        });
-                        pageWords++;
-                        totalWords++;
-                    } catch {
-                        // Skip individual words that fail
-                    }
-                }
-
-                debugLog(`Page ${pageData.pageNumber}: Added ${pageWords} words to text layer`);
-            } catch (pageErr) {
-                const pageErrMsg = pageErr instanceof Error ? pageErr.message : String(pageErr);
-                debugLog(`Page ${pageData.pageNumber}: Error processing page: ${pageErrMsg}`);
-            }
-        }
-
-        if (totalWords === 0) {
-            debugLog(`No words were added to any pages`);
-            return null;
-        }
-
-        const pdfBytes = await pdfDoc.save();
-        debugLog(`Multi-page PDF saved: ${pdfBytes.length} bytes with ${totalWords} words`);
-        return pdfBytes;
-    } catch (err) {
-        const errMsg = err instanceof Error ? err.message : String(err);
-        const stack = err instanceof Error ? err.stack : '';
-        debugLog(`Multi-page PDF creation failed: ${errMsg}`);
-        if (stack) debugLog(`Stack trace: ${stack}`);
-        return null;
     }
 }
