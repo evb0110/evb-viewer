@@ -3,7 +3,6 @@ import {
     ref,
 } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
-import { useDebounceFn } from '@vueuse/core';
 import type {
     IPdfPageMatches,
     IPdfSearchMatch,
@@ -23,6 +22,13 @@ export const usePdfSearch = () => {
     const currentResultIndex = ref(-1);
     const isSearching = ref(false);
     let searchRunId = 0;
+    let scheduledTimeout: ReturnType<typeof setTimeout> | null = null;
+    let scheduledResolve: ((applied: boolean) => void) | null = null;
+
+    const EXCERPT_CONTEXT_CHARS = 40;
+    const EXCERPT_MATCH_START = '\u0000';
+    const EXCERPT_MATCH_END = '\u0001';
+    const SEARCH_DEBOUNCE_MS = 300;
 
     const totalMatches = computed(() => results.value.length);
     const currentMatch = computed(() => results.value.length > 0 ? currentResultIndex.value + 1 : 0);
@@ -33,20 +39,68 @@ export const usePdfSearch = () => {
         return null;
     });
 
-    async function performSearch(query: string, pdfDocument: PDFDocumentProxy) {
-        const runId = ++searchRunId;
+    function buildExcerpt(
+        source: string,
+        startOffset: number,
+        endOffset: number,
+    ): IPdfSearchMatch['excerpt'] {
+        const excerptStart = Math.max(0, startOffset - EXCERPT_CONTEXT_CHARS);
+        const excerptEnd = Math.min(source.length, endOffset + EXCERPT_CONTEXT_CHARS);
 
+        const raw = source.slice(excerptStart, startOffset)
+            + EXCERPT_MATCH_START
+            + source.slice(startOffset, endOffset)
+            + EXCERPT_MATCH_END
+            + source.slice(endOffset, excerptEnd);
+
+        const normalized = raw.replace(/\s+/g, ' ').trim();
+        const startIndex = normalized.indexOf(EXCERPT_MATCH_START);
+        const endIndex = normalized.indexOf(EXCERPT_MATCH_END);
+
+        if (startIndex === -1 || endIndex === -1 || endIndex < startIndex) {
+            return {
+                prefix: excerptStart > 0,
+                suffix: excerptEnd < source.length,
+                before: normalized,
+                match: '',
+                after: '',
+            };
+        }
+
+        const before = normalized.slice(0, startIndex).trimEnd();
+        const match = normalized.slice(startIndex + 1, endIndex);
+        const after = normalized.slice(endIndex + 1).trimStart();
+
+        return {
+            prefix: excerptStart > 0,
+            suffix: excerptEnd < source.length,
+            before,
+            match,
+            after,
+        };
+    }
+
+    function cancelScheduledSearch() {
+        if (scheduledTimeout) {
+            clearTimeout(scheduledTimeout);
+            scheduledTimeout = null;
+        }
+
+        if (scheduledResolve) {
+            scheduledResolve(false);
+            scheduledResolve = null;
+        }
+    }
+
+    async function performSearch(runId: number, query: string, pdfDocument: PDFDocumentProxy) {
         if (!query.trim()) {
-            if (runId === searchRunId) {
-                isSearching.value = false;
-            }
-            results.value = [];
-            pageMatches.value = new Map();
-            currentResultIndex.value = -1;
             return;
         }
 
-        isSearching.value = true;
+        if (runId !== searchRunId) {
+            return;
+        }
+
         const searchResults: IPdfSearchMatch[] = [];
         const newPageMatches = new Map<number, IPdfPageMatches>();
         const lowerQuery = query.toLowerCase();
@@ -89,6 +143,7 @@ export const usePdfSearch = () => {
                         matchIndex,
                         startOffset,
                         endOffset,
+                        excerpt: buildExcerpt(pageText, startOffset, endOffset),
                     });
 
                     matchesOnPage.push({
@@ -122,15 +177,29 @@ export const usePdfSearch = () => {
         }
     }
 
-    const debouncedSearch = useDebounceFn(performSearch, 300);
-
-    async function search(query: string, pdfDocument: PDFDocumentProxy) {
+    async function search(query: string, pdfDocument: PDFDocumentProxy): Promise<boolean> {
         searchQuery.value = query;
         if (!query.trim()) {
             clearSearch();
-            return;
+            return false;
         }
-        await debouncedSearch(query, pdfDocument);
+
+        cancelScheduledSearch();
+        const runId = ++searchRunId;
+        isSearching.value = true;
+
+        return new Promise<boolean>((resolve) => {
+            scheduledResolve = resolve;
+            scheduledTimeout = setTimeout(async () => {
+                scheduledTimeout = null;
+                scheduledResolve = null;
+                try {
+                    await performSearch(runId, query, pdfDocument);
+                } finally {
+                    resolve(runId === searchRunId);
+                }
+            }, SEARCH_DEBOUNCE_MS);
+        });
     }
 
     function goToResult(direction: TSearchDirection) {
@@ -155,7 +224,7 @@ export const usePdfSearch = () => {
 
     function clearSearch() {
         searchRunId++;
-        debouncedSearch.cancel();
+        cancelScheduledSearch();
         isSearching.value = false;
         searchQuery.value = '';
         results.value = [];

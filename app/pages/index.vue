@@ -34,8 +34,8 @@
                 <UButton
                     icon="i-lucide-search"
                     variant="ghost"
-                    :color="showSearchBar ? 'primary' : 'neutral'"
-                    @click="toggleSearch(); closeAllDropdowns()"
+                    :color="showSidebar && sidebarTab === 'search' ? 'primary' : 'neutral'"
+                    @click="openSearch(); closeAllDropdowns()"
                 />
 
                 <PdfZoomDropdown
@@ -79,14 +79,18 @@
             </template>
         </header>
 
-        <!-- Search Bar -->
-        <div
-            v-if="showSearchBar && pdfSrc"
-            class="border-b border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950"
-        >
-            <PdfSearchBar
-                ref="searchBarRef"
-                v-model="searchQuery"
+        <!-- Main -->
+        <main class="flex-1 overflow-hidden flex">
+            <PdfSidebar
+                v-if="pdfSrc"
+                :is-open="showSidebar"
+                v-model:activeTab="sidebarTab"
+                v-model:searchQuery="searchQuery"
+                :pdf-document="pdfDocument"
+                :current-page="currentPage"
+                :total-pages="totalPages"
+                :search-results="results"
+                :current-result-index="currentResultIndex"
                 :current-match="currentMatch"
                 :total-matches="totalMatches"
                 :is-searching="isSearching"
@@ -94,20 +98,6 @@
                 @next="handleSearchNext"
                 @previous="handleSearchPrevious"
                 @close="closeSearch"
-            />
-        </div>
-
-        <!-- Main -->
-        <main class="flex-1 overflow-hidden flex">
-            <PdfSidebar
-                v-if="pdfSrc"
-                :is-open="showSidebar"
-                :pdf-document="pdfDocument"
-                :current-page="currentPage"
-                :total-pages="totalPages"
-                :search-results="results"
-                :current-result-index="currentResultIndex"
-                :search-query="searchQuery"
                 @go-to-page="handleGoToPage"
                 @go-to-result="handleGoToResult"
             />
@@ -154,6 +144,7 @@ import {
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 
 type TFitMode = 'width' | 'height';
+type TPdfSidebarTab = 'thumbnails' | 'outline' | 'search';
 
 interface IPdfViewerExpose {
     scrollToPage: (page: number) => void;
@@ -232,7 +223,6 @@ const currentPage = ref(1);
 const totalPages = ref(0);
 const isLoading = ref(false);
 const dragMode = ref(true);
-const showSearchBar = ref(false);
 
 // Computed to make PDF document reactive (re-evaluates when totalPages changes)
 const pdfDocument = computed(() => {
@@ -243,8 +233,8 @@ const pdfDocument = computed(() => {
     return null;
 });
 const showSidebar = ref(false);
+const sidebarTab = ref<TPdfSidebarTab>('thumbnails');
 const isSaving = ref(false);
-const searchBarRef = ref<{ focus: () => void } | null>(null);
 
 function handleGoToPage(page: number) {
     pdfViewerRef.value?.scrollToPage(page);
@@ -255,24 +245,24 @@ function enableDragMode() {
     window.getSelection()?.removeAllRanges();
 }
 
-function toggleSearch() {
-    showSearchBar.value = !showSearchBar.value;
-    if (showSearchBar.value) {
-        nextTick(() => searchBarRef.value?.focus());
-    } else {
-        clearSearch();
-    }
+function openSearch() {
+    showSidebar.value = true;
+    sidebarTab.value = 'search';
 }
 
 function closeSearch() {
-    showSearchBar.value = false;
     clearSearch();
+    sidebarTab.value = 'thumbnails';
 }
 
 async function handleSearch() {
     if (pdfDocument.value) {
-        await search(searchQuery.value, pdfDocument.value);
-        scrollToCurrentResult();
+        showSidebar.value = true;
+        sidebarTab.value = 'search';
+        const applied = await search(searchQuery.value, pdfDocument.value);
+        if (applied) {
+            scrollToCurrentResult();
+        }
     }
 }
 

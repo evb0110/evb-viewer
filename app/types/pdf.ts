@@ -38,6 +38,13 @@ export interface IPdfSearchMatch {
     matchIndex: number;
     startOffset: number;
     endOffset: number;
+    excerpt: {
+        prefix: boolean;
+        suffix: boolean;
+        before: string;
+        match: string;
+        after: string;
+    };
 }
 
 export interface IPdfPageMatches {

@@ -34,19 +34,43 @@
                 :current-page="currentPage"
                 @go-to-page="$emit('goToPage', $event)"
             />
-            <PdfSearchResults
+            <div
                 v-show="activeTab === 'search'"
-                :results="searchResults"
-                :current-result-index="currentResultIndex"
-                :search-query="searchQuery"
-                @go-to-result="$emit('goToResult', $event)"
-            />
+                class="pdf-sidebar-search"
+            >
+                <div class="pdf-sidebar-search-bar">
+                    <PdfSearchBar
+                        ref="searchBarRef"
+                        v-model="searchQueryProxy"
+                        :current-match="currentMatch"
+                        :total-matches="totalMatches"
+                        :is-searching="isSearching"
+                        @search="emit('search')"
+                        @next="emit('next')"
+                        @previous="emit('previous')"
+                        @close="handleSearchClose"
+                    />
+                </div>
+                <div class="pdf-sidebar-search-results">
+                    <PdfSearchResults
+                        :results="searchResults"
+                        :current-result-index="currentResultIndex"
+                        :search-query="searchQuery"
+                        @go-to-result="$emit('goToResult', $event)"
+                    />
+                </div>
+            </div>
         </div>
     </aside>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
+import {
+    computed,
+    nextTick,
+    ref,
+    watch,
+} from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { IPdfSearchMatch } from '../../types/pdf';
 
@@ -58,18 +82,69 @@ interface IPdfSidebarProps {
     searchResults: IPdfSearchMatch[];
     currentResultIndex: number;
     searchQuery: string;
+    currentMatch: number;
+    totalMatches: number;
+    isSearching: boolean;
+    activeTab?: TPdfSidebarTab;
 }
 
-defineProps<IPdfSidebarProps>();
+const props = defineProps<IPdfSidebarProps>();
 
-defineEmits<{
+const emit = defineEmits<{
     (e: 'goToPage', page: number): void;
     (e: 'goToResult', index: number): void;
+    (e: 'update:activeTab', value: TPdfSidebarTab): void;
+    (e: 'update:searchQuery', value: string): void;
+    (e: 'search'): void;
+    (e: 'next'): void;
+    (e: 'previous'): void;
+    (e: 'close'): void;
 }>();
 
 type TPdfSidebarTab = 'thumbnails' | 'outline' | 'search';
 
-const activeTab = ref<TPdfSidebarTab>('thumbnails');
+const activeTabLocal = ref<TPdfSidebarTab>('thumbnails');
+
+const activeTab = computed<TPdfSidebarTab>({
+    get: () => props.activeTab ?? activeTabLocal.value,
+    set: (value) => {
+        if (props.activeTab !== undefined) {
+            emit('update:activeTab', value);
+            return;
+        }
+        activeTabLocal.value = value;
+    },
+});
+
+const searchQueryProxy = computed({
+    get: () => props.searchQuery,
+    set: (value: string) => emit('update:searchQuery', value),
+});
+
+const searchBarRef = ref<{ focus: () => void } | null>(null);
+
+async function focusSearch() {
+    await nextTick();
+    searchBarRef.value?.focus();
+}
+
+function handleSearchClose() {
+    emit('close');
+    activeTab.value = 'thumbnails';
+}
+
+watch(
+    () => [
+        props.isOpen,
+        activeTab.value,
+    ] as const,
+    async ([isOpen, tab]) => {
+        if (isOpen && tab === 'search') {
+            await focusSearch();
+        }
+    },
+    { flush: 'post' },
+);
 
 type TPdfSidebarTabItem = {
     value: TPdfSidebarTab;
@@ -120,6 +195,25 @@ const tabs = [
     display: flex;
     align-items: center;
     justify-content: center;
+}
+
+.pdf-sidebar-search {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.pdf-sidebar-search-bar {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--ui-bg);
+    border-bottom: 1px solid var(--ui-border);
+}
+
+.pdf-sidebar-search-results {
+    display: flex;
+    flex-direction: column;
 }
 
 .pdf-sidebar-content {

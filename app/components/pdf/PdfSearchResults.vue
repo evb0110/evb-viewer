@@ -28,8 +28,17 @@
                 :class="{ 'is-active': index === currentResultIndex }"
                 @click="$emit('goToResult', index)"
             >
-                <span class="pdf-search-result-page">Page {{ result.pageIndex + 1 }}</span>
-                <span class="pdf-search-result-match">Match {{ result.matchIndex + 1 }}</span>
+                <div class="pdf-search-result-meta">
+                    <span class="pdf-search-result-page">Page {{ result.pageIndex + 1 }}</span>
+                    <span class="pdf-search-result-match">Match {{ result.matchIndex + 1 }}</span>
+                </div>
+                <div class="pdf-search-result-snippet">
+                    <span v-if="result.excerpt.prefix" class="pdf-search-result-ellipsis">…</span>
+                    <span>{{ result.excerpt.before }}</span>
+                    <mark class="pdf-search-result-highlight">{{ result.excerpt.match }}</mark>
+                    <span>{{ result.excerpt.after }}</span>
+                    <span v-if="result.excerpt.suffix" class="pdf-search-result-ellipsis">…</span>
+                </div>
             </div>
         </div>
     </div>
@@ -75,8 +84,8 @@ defineEmits<{(e: 'goToResult', index: number): void;}>();
 
 .pdf-search-result {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
+    flex-direction: column;
+    gap: 4px;
     padding: 8px 12px;
     cursor: pointer;
     transition: background-color 0.15s;
@@ -90,6 +99,13 @@ defineEmits<{(e: 'goToResult', index: number): void;}>();
     background: var(--ui-bg-accented);
 }
 
+.pdf-search-result-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
 .pdf-search-result-page {
     font-size: 13px;
     font-weight: 500;
@@ -98,5 +114,27 @@ defineEmits<{(e: 'goToResult', index: number): void;}>();
 .pdf-search-result-match {
     font-size: 11px;
     color: var(--ui-text-muted);
+}
+
+.pdf-search-result-snippet {
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--ui-text-muted);
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+}
+
+.pdf-search-result-highlight {
+    background: var(--ui-bg-accented);
+    color: inherit;
+    padding: 0 2px;
+    border-radius: 2px;
+    font-weight: 600;
+}
+
+.pdf-search-result-ellipsis {
+    color: var(--ui-text-dimmed);
 }
 </style>

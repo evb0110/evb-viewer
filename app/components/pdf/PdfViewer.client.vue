@@ -428,6 +428,7 @@ async function loadPdf() {
 
     const loadingTask = pdfjsLib.getDocument({
         url: URL.createObjectURL(src),
+        verbosity: pdfjsLib.VerbosityLevel.ERRORS,
         standardFontDataUrl: '/pdf/standard_fonts/',
         cMapUrl: '/pdf/cmaps/',
         cMapPacked: true,
