@@ -26,11 +26,25 @@ interface IOcrProgress {
     processedCount: number;
 }
 
+interface IOcrQualityMetrics {
+    totalWords: number;
+    avgConfidence: number;
+    lowConfidenceWords: number;
+    successRate: number; // percentage 0-100
+    pagesProcessed: number;
+    dpiUsed: number;
+    estimatedQuality: 'excellent' | 'good' | 'fair' | 'poor';
+    recommendedDpi?: number;
+    embedSuccess: boolean;
+    embedError?: string;
+}
+
 interface IOcrResults {
     pages: Map<number, string>;
     languages: string[];
     completedAt: number | null;
     searchablePdfData: Uint8Array | null;
+    metrics?: IOcrQualityMetrics;
 }
 
 function getElectronAPI() {

@@ -156,6 +156,8 @@ async function handleOcrCreateSearchablePdf(
                         words: result.pageData.words,
                         imageWidth: result.pageData.pageWidth,
                         imageHeight: result.pageData.pageHeight,
+                        imageBuffer,
+                        languages: page.languages,
                     });
                 } else {
                     errors.push(`Page ${page.pageNumber}: ${result.error}`);

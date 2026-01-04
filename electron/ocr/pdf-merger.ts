@@ -14,6 +14,8 @@ interface IOcrPageWithWords {
     words: IOcrWord[];
     imageWidth: number;
     imageHeight: number;
+    imageBuffer?: Buffer;
+    languages?: string[];
 }
 
 export async function embedOcrLayers(
@@ -31,20 +33,44 @@ export async function embedOcrLayers(
         } catch (loadErr) {
             const errMsg = loadErr instanceof Error ? loadErr.message : String(loadErr);
 
-            // pdf-lib failed - use Tesseract PDF generation as fallback
-            // This is universal and works for any image
+            // pdf-lib failed - try Tesseract PDF generation as fallback
             if (errMsg.includes('traverse') || errMsg.includes('catalog') || errMsg.includes('Pages')) {
-                // Get first page's image data to regenerate PDF
-                const firstPage = ocrPages[0];
-                if (firstPage) {
-                    // Note: We don't have the original image buffer here, so we return original PDF
-                    // with a note that text extraction succeeded
-                    return {
-                        pdf: originalPdfBytes,
-                        embedded: false,
-                        error: `PDF structure incompatible with library. Text was extracted successfully (${ocrPages.reduce((sum, p) => sum + p.words.length, 0)} words). For full searchability, try the simpler export options.`,
-                    };
+                // pdf-lib cannot parse this complex PDF structure
+                // Try to generate a searchable PDF from the first page using Tesseract
+                const firstPageWithBuffer = ocrPages.find(p => p.imageBuffer);
+
+                if (firstPageWithBuffer && firstPageWithBuffer.imageBuffer && firstPageWithBuffer.languages) {
+                    try {
+                        const fallbackPdf = await generateSearchablePdf(
+                            firstPageWithBuffer.imageBuffer,
+                            firstPageWithBuffer.languages,
+                        );
+
+                        if (fallbackPdf) {
+                            return {
+                                pdf: fallbackPdf,
+                                embedded: true,
+                                error: undefined,
+                            };
+                        }
+                    } catch (fallbackErr) {
+                        const fallbackMsg = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
+                        const totalWords = ocrPages.reduce((sum, p) => sum + p.words.length, 0);
+                        return {
+                            pdf: originalPdfBytes,
+                            embedded: false,
+                            error: `PDF structure incompatible. Text extracted (${totalWords} words) but fallback PDF generation failed: ${fallbackMsg}`,
+                        };
+                    }
                 }
+
+                // Fallback unavailable, return original with error
+                const totalWords = ocrPages.reduce((sum, p) => sum + p.words.length, 0);
+                return {
+                    pdf: originalPdfBytes,
+                    embedded: false,
+                    error: `PDF structure incompatible. Text extracted (${totalWords} words) but could not be embedded.`,
+                };
             }
 
             throw loadErr;
