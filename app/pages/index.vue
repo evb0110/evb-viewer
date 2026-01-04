@@ -102,7 +102,7 @@
             <PdfSidebar
                 v-if="pdfSrc"
                 :is-open="showSidebar"
-                :pdf-document="pdfViewerRef?.getPdfDocument() ?? null"
+                :pdf-document="pdfDocument"
                 :current-page="currentPage"
                 :total-pages="totalPages"
                 :search-results="results"
@@ -144,6 +144,7 @@
 
 <script setup lang="ts">
 import {
+    computed,
     nextTick,
     onMounted,
     onUnmounted,
@@ -232,6 +233,15 @@ const totalPages = ref(0);
 const isLoading = ref(false);
 const dragMode = ref(true);
 const showSearchBar = ref(false);
+
+// Computed to make PDF document reactive (re-evaluates when totalPages changes)
+const pdfDocument = computed(() => {
+    // This dependency on totalPages makes the computed reactive
+    if (totalPages.value > 0 && pdfViewerRef.value) {
+        return pdfViewerRef.value.getPdfDocument();
+    }
+    return null;
+});
 const showSidebar = ref(false);
 const isSaving = ref(false);
 const searchBarRef = ref<{ focus: () => void } | null>(null);
@@ -260,9 +270,8 @@ function closeSearch() {
 }
 
 async function handleSearch() {
-    const pdfDoc = pdfViewerRef.value?.getPdfDocument();
-    if (pdfDoc && searchQuery.value) {
-        await search(searchQuery.value, pdfDoc);
+    if (pdfDocument.value) {
+        await search(searchQuery.value, pdfDocument.value);
         scrollToCurrentResult();
     }
 }

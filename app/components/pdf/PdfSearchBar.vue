@@ -37,7 +37,7 @@
                 variant="ghost"
                 color="neutral"
                 size="xs"
-                :disabled="currentMatch <= 1"
+                :disabled="totalMatches === 0"
                 @click="emit('previous')"
             />
             <UButton
@@ -45,7 +45,7 @@
                 variant="ghost"
                 color="neutral"
                 size="xs"
-                :disabled="currentMatch >= totalMatches"
+                :disabled="totalMatches === 0"
                 @click="emit('next')"
             />
             <UButton

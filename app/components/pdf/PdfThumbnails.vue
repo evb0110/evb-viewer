@@ -1,16 +1,17 @@
 <template>
-    <div class="pdf-thumbnails">
+    <div
+        ref="containerRef"
+        class="pdf-thumbnails"
+    >
         <div
             v-for="page in totalPages"
             :key="page"
             class="pdf-thumbnail"
             :class="{ 'is-active': page === currentPage }"
+            :data-page="page"
             @click="$emit('goToPage', page)"
         >
-            <canvas
-                ref="canvasRefs"
-                class="pdf-thumbnail-canvas"
-            />
+            <canvas class="pdf-thumbnail-canvas" />
             <span class="pdf-thumbnail-number">{{ page }}</span>
         </div>
     </div>
@@ -20,7 +21,6 @@
 import {
     ref,
     watch,
-    onMounted,
     nextTick,
 } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
@@ -35,19 +35,34 @@ const props = defineProps<IPdfThumbnailsProps>();
 
 defineEmits<{(e: 'goToPage', page: number): void;}>();
 
-const canvasRefs = ref<HTMLCanvasElement[]>([]);
-const renderedPages = ref(new Set<number>());
+const containerRef = ref<HTMLElement | null>(null);
+const renderedPages = new Set<number>();
+const renderingPages = new Set<number>();
 const THUMBNAIL_WIDTH = 150;
 
+function getCanvas(pageNum: number): HTMLCanvasElement | null {
+    if (!containerRef.value) {
+        return null;
+    }
+    const thumbnail = containerRef.value.querySelector(`[data-page="${pageNum}"]`);
+    return thumbnail?.querySelector('canvas') ?? null;
+}
+
 async function renderThumbnail(pageNum: number) {
-    if (!props.pdfDocument || renderedPages.value.has(pageNum)) {
+    if (!props.pdfDocument) {
         return;
     }
 
-    const canvas = canvasRefs.value[pageNum - 1];
+    if (renderedPages.has(pageNum) || renderingPages.has(pageNum)) {
+        return;
+    }
+
+    const canvas = getCanvas(pageNum);
     if (!canvas) {
         return;
     }
+
+    renderingPages.add(pageNum);
 
     try {
         const page = await props.pdfDocument.getPage(pageNum);
@@ -69,14 +84,19 @@ async function renderThumbnail(pageNum: number) {
             canvas,
         }).promise;
 
-        renderedPages.value.add(pageNum);
+        renderedPages.add(pageNum);
     } catch (error) {
         console.error(`Failed to render thumbnail for page ${pageNum}:`, error);
+    } finally {
+        renderingPages.delete(pageNum);
     }
 }
 
-async function renderVisibleThumbnails() {
-    if (!props.pdfDocument) {
+async function renderAllThumbnails() {
+    // Wait for DOM to be fully ready FIRST (v-for needs to render)
+    await nextTick();
+
+    if (!props.pdfDocument || !containerRef.value || props.totalPages === 0) {
         return;
     }
 
@@ -85,23 +105,27 @@ async function renderVisibleThumbnails() {
     }
 }
 
+function clearRenderedState() {
+    renderedPages.clear();
+    renderingPages.clear();
+}
+
+// Single watcher for both props to avoid race conditions
+// When totalPages and pdfDocument change together (they're linked via computed),
+// separate watchers can miss the update due to timing
 watch(
-    () => props.pdfDocument,
-    async (doc) => {
-        if (doc) {
-            renderedPages.value.clear();
-            await nextTick();
-            renderVisibleThumbnails();
+    [() => props.pdfDocument, () => props.totalPages],
+    ([doc, total], [oldDoc]) => {
+        if (doc && total > 0) {
+            // Only clear if document changed (not just page count)
+            if (doc !== oldDoc) {
+                clearRenderedState();
+            }
+            void renderAllThumbnails();
         }
     },
-    { immediate: true },
+    { immediate: true }, // Run on mount with current values
 );
-
-onMounted(() => {
-    if (props.pdfDocument) {
-        renderVisibleThumbnails();
-    }
-});
 </script>
 
 <style scoped>

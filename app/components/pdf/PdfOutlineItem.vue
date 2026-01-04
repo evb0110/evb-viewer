@@ -2,6 +2,7 @@
     <div class="pdf-outline-item">
         <div
             class="pdf-outline-item-row"
+            :class="{ 'is-active': isActive }"
             @click="handleClick"
         >
             <button
@@ -26,10 +27,12 @@
         >
             <PdfOutlineItem
                 v-for="(child, index) in item.items"
-                :key="index"
+                :key="child.id || index"
                 :item="child"
                 :pdf-document="pdfDocument"
+                :active-item-id="activeItemId"
                 @go-to-page="$emit('goToPage', $event)"
+                @activate="$emit('activate', $event)"
             />
         </div>
     </div>
@@ -39,6 +42,7 @@
 import {
     ref,
     computed,
+    watch,
 } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 
@@ -50,23 +54,64 @@ interface IRefProxy {
 interface IOutlineItem {
     title: string;
     dest: string | unknown[] | null;
+    id: string;
+    pageIndex: number | null;
     items?: IOutlineItem[];
 }
 
 interface IPdfOutlineItemProps {
     item: IOutlineItem;
     pdfDocument: PDFDocumentProxy | null;
+    activeItemId: string | null;
 }
 
 const props = defineProps<IPdfOutlineItemProps>();
 
-const emit = defineEmits<{(e: 'goToPage', page: number): void;}>();
+const emit = defineEmits<{
+    (e: 'goToPage', page: number): void;
+    (e: 'activate', id: string): void;
+}>();
 
 const isExpanded = ref(false);
 
 const hasChildren = computed(() => {
     return props.item.items && props.item.items.length > 0;
 });
+
+const isActive = computed(() => props.item.id === props.activeItemId);
+
+const hasActiveChild = computed(() => {
+    if (!hasChildren.value || !props.activeItemId) {
+        return false;
+    }
+
+    const visit = (items?: IOutlineItem[]): boolean => {
+        if (!items?.length) {
+            return false;
+        }
+        for (const child of items) {
+            if (child.id === props.activeItemId) {
+                return true;
+            }
+            if (visit(child.items)) {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    return visit(props.item.items);
+});
+
+watch(
+    hasActiveChild,
+    (value) => {
+        if (value) {
+            isExpanded.value = true;
+        }
+    },
+    { immediate: true },
+);
 
 function isRefProxy(value: unknown): value is IRefProxy {
     return (
@@ -80,6 +125,13 @@ function isRefProxy(value: unknown): value is IRefProxy {
 }
 
 async function handleClick() {
+    emit('activate', props.item.id);
+
+    if (typeof props.item.pageIndex === 'number') {
+        emit('goToPage', props.item.pageIndex + 1);
+        return;
+    }
+
     if (!props.pdfDocument || !props.item.dest) {
         return;
     }
@@ -98,6 +150,19 @@ async function handleClick() {
         }
 
         const pageRef = dest[0];
+        if (typeof pageRef === 'number' && Number.isFinite(pageRef)) {
+            const maybeIndex = Math.trunc(pageRef);
+            if (maybeIndex >= 0 && maybeIndex < props.pdfDocument.numPages) {
+                emit('goToPage', maybeIndex + 1);
+                return;
+            }
+            if (maybeIndex > 0 && maybeIndex <= props.pdfDocument.numPages) {
+                emit('goToPage', maybeIndex);
+                return;
+            }
+            return;
+        }
+
         if (!isRefProxy(pageRef)) {
             return;
         }
@@ -119,10 +184,17 @@ async function handleClick() {
     border-radius: 4px;
     cursor: pointer;
     transition: background-color 0.15s;
+    user-select: none;
 }
 
 .pdf-outline-item-row:hover {
     background: var(--ui-bg-muted);
+}
+
+.pdf-outline-item-row.is-active {
+    background: var(--ui-bg-accented);
+    color: var(--ui-primary);
+    font-weight: 600;
 }
 
 .pdf-outline-item-toggle {

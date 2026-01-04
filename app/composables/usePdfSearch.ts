@@ -22,6 +22,7 @@ export const usePdfSearch = () => {
     const pageMatches = ref<Map<number, IPdfPageMatches>>(new Map());
     const currentResultIndex = ref(-1);
     const isSearching = ref(false);
+    let searchRunId = 0;
 
     const totalMatches = computed(() => results.value.length);
     const currentMatch = computed(() => results.value.length > 0 ? currentResultIndex.value + 1 : 0);
@@ -33,7 +34,12 @@ export const usePdfSearch = () => {
     });
 
     async function performSearch(query: string, pdfDocument: PDFDocumentProxy) {
+        const runId = ++searchRunId;
+
         if (!query.trim()) {
+            if (runId === searchRunId) {
+                isSearching.value = false;
+            }
             results.value = [];
             pageMatches.value = new Map();
             currentResultIndex.value = -1;
@@ -49,8 +55,15 @@ export const usePdfSearch = () => {
             const numPages = pdfDocument.numPages;
 
             for (let pageIndex = 0; pageIndex < numPages; pageIndex++) {
+                if (runId !== searchRunId) {
+                    return;
+                }
+
                 const page = await pdfDocument.getPage(pageIndex + 1);
-                const textContent = await page.getTextContent();
+                const textContent = await page.getTextContent({
+                    includeMarkedContent: true,
+                    disableNormalization: true,
+                });
 
                 let pageText = '';
                 for (const item of textContent.items) {
@@ -95,11 +108,17 @@ export const usePdfSearch = () => {
                 }
             }
 
+            if (runId !== searchRunId) {
+                return;
+            }
+
             results.value = searchResults;
             pageMatches.value = newPageMatches;
             currentResultIndex.value = searchResults.length > 0 ? 0 : -1;
         } finally {
-            isSearching.value = false;
+            if (runId === searchRunId) {
+                isSearching.value = false;
+            }
         }
     }
 
@@ -107,6 +126,10 @@ export const usePdfSearch = () => {
 
     async function search(query: string, pdfDocument: PDFDocumentProxy) {
         searchQuery.value = query;
+        if (!query.trim()) {
+            clearSearch();
+            return;
+        }
         await debouncedSearch(query, pdfDocument);
     }
 
@@ -131,6 +154,9 @@ export const usePdfSearch = () => {
     }
 
     function clearSearch() {
+        searchRunId++;
+        debouncedSearch.cancel();
+        isSearching.value = false;
         searchQuery.value = '';
         results.value = [];
         pageMatches.value = new Map();

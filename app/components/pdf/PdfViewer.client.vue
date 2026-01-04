@@ -155,6 +155,7 @@ type TScrollSnapshot = {
 const renderMutex = new Mutex();
 let renderVersion = 0;
 let isLoadingPdf = false;
+let pendingScrollToMatchPageIndex: number | null = null;
 
 const renderedPages = new Set<number>();
 const renderingPages = new Set<number>();
@@ -752,6 +753,14 @@ function scrollToPage(pageNumber: number) {
         container.scrollTop = targetEl.offsetTop - margin;
         currentPage.value = targetPage;
         emit('update:currentPage', targetPage);
+
+        queueMicrotask(() => {
+            if (!viewerContainer.value || isLoading.value) {
+                return;
+            }
+            updateVisibleRange();
+            void renderVisiblePages();
+        });
     }
 }
 
@@ -896,10 +905,15 @@ async function renderVisiblePages() {
                         await textLayer.render();
                         setupTextLayer(textLayerDiv);
 
+                        const pageIndex = pageNumber - 1;
+
                         if (searchPageMatches && searchPageMatches.size > 0) {
-                            const pageIndex = pageNumber - 1;
                             const pageMatchData = searchPageMatches.get(pageIndex) ?? null;
                             highlightPage(textLayerDiv, pageMatchData, currentSearchMatch ?? null);
+                        }
+
+                        if (pendingScrollToMatchPageIndex === pageIndex) {
+                            scrollToCurrentMatch();
                         }
                     }
 
@@ -1153,7 +1167,7 @@ function applySearchHighlights() {
 
 function scrollToCurrentMatch() {
     if (!viewerContainer.value || !currentSearchMatch) {
-        return;
+        return false;
     }
 
     const pageIndex = currentSearchMatch.pageIndex;
@@ -1161,18 +1175,22 @@ function scrollToCurrentMatch() {
     const targetContainer = pageContainers[pageIndex];
 
     if (!targetContainer) {
-        return;
+        return false;
     }
 
     const textLayerDiv = targetContainer.querySelector<HTMLElement>('.text-layer');
     if (!textLayerDiv) {
-        return;
+        return false;
     }
 
     const currentHighlight = textLayerDiv.querySelector<HTMLElement>('.pdf-search-highlight--current');
     if (currentHighlight) {
+        pendingScrollToMatchPageIndex = null;
         scrollToHighlight(currentHighlight, viewerContainer.value);
+        return true;
     }
+
+    return false;
 }
 
 watch(
@@ -1184,6 +1202,9 @@ watch(
         if (isLoading.value) {
             return;
         }
+        pendingScrollToMatchPageIndex = currentSearchMatch
+            ? currentSearchMatch.pageIndex
+            : null;
         applySearchHighlights();
         nextTick(() => {
             scrollToCurrentMatch();
