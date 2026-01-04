@@ -21,10 +21,27 @@ export async function embedOcrLayers(
 ): Promise<{ pdf: Uint8Array; embedded: boolean; error?: string }> {
     try {
         // Try to load the PDF first to detect incompatibilities early
-        const pdf = await PDFDocument.load(originalPdfBytes, {
-            ignoreEncryption: true,
-            updateMetadata: false,
-        });
+        let pdf: PDFDocument;
+        try {
+            pdf = await PDFDocument.load(originalPdfBytes, {
+                ignoreEncryption: true,
+                updateMetadata: false,
+            });
+        } catch (loadErr) {
+            const errMsg = loadErr instanceof Error ? loadErr.message : String(loadErr);
+
+            // Detect specific pdf-lib incompatibilities
+            if (errMsg.includes('traverse') || errMsg.includes('catalog') || errMsg.includes('Pages')) {
+                return {
+                    pdf: originalPdfBytes,
+                    embedded: false,
+                    error: `PDF structure incompatible with current library (complex PDF). Text was successfully extracted with Tesseract but could not be embedded. You can view the PDF and text separately.`,
+                };
+            }
+
+            throw loadErr;
+        }
+
         const pageCount = pdf.getPageCount();
         let totalWordsAttempted = 0;
         let totalWordsSuccess = 0;
@@ -77,7 +94,7 @@ export async function embedOcrLayers(
             return {
                 pdf: originalPdfBytes,
                 embedded: false,
-                error: `No text could be embedded (PDF may have incompatible structure)`,
+                error: `Text extraction successful but could not be embedded in PDF (PDF structure may be incompatible). Text was extracted successfully.`,
             };
         }
 
@@ -91,14 +108,33 @@ export async function embedOcrLayers(
         } catch (saveErr) {
             // If save fails, return original PDF
             const errMsg = saveErr instanceof Error ? saveErr.message : String(saveErr);
+
+            // Detect specific pdf-lib incompatibilities
+            if (errMsg.includes('traverse') || errMsg.includes('catalog')) {
+                return {
+                    pdf: originalPdfBytes,
+                    embedded: false,
+                    error: `PDF structure incompatible with current library. Text was successfully extracted but could not be embedded. This is a complex PDF format limitation.`,
+                };
+            }
+
             return {
                 pdf: originalPdfBytes,
                 embedded: false,
-                error: `PDF modification failed during save: ${errMsg}`,
+                error: `PDF modification failed: ${errMsg}`,
             };
         }
     } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
+
+        // Provide helpful error message
+        if (errMsg.includes('traverse') || errMsg.includes('catalog')) {
+            return {
+                pdf: originalPdfBytes,
+                embedded: false,
+                error: `PDF structure is not compatible with the current PDF library. This is often the case with complex or specially formatted PDFs. Text was extracted successfully, but cannot be embedded in this particular PDF.`,
+            };
+        }
 
         // Return original PDF with detailed error message
         return {
