@@ -91,4 +91,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
         ipcRenderer.on('ocr:progress', handler);
         return () => ipcRenderer.removeListener('ocr:progress', handler);
     },
+
+    // Preprocessing API
+    preprocessing: {
+        validate: () => ipcRenderer.invoke('preprocessing:validate'),
+        preprocessPage: (imageData: number[], usePreprocessing: boolean) =>
+            ipcRenderer.invoke('preprocessing:preprocessPage', imageData, usePreprocessing),
+    },
 });

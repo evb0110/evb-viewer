@@ -1,0 +1,336 @@
+import { spawn } from 'child_process';
+import { existsSync } from 'fs';
+import { dirname, join } from 'path';
+import { fileURLToPath } from 'url';
+import { app } from 'electron';
+import { appendFileSync } from 'fs';
+
+const LOG_FILE = join(app.getPath('temp'), 'ocr-preprocessing.log');
+
+function debugLog(msg: string) {
+    const ts = new Date().toISOString();
+    appendFileSync(LOG_FILE, `[${ts}] [preprocessing] ${msg}\n`);
+}
+
+interface IPreprocessingOptions {
+    binary: string;
+    args: string[];
+    timeout?: number;
+}
+
+interface IPreprocessingResult {
+    success: boolean;
+    stdout?: string;
+    stderr?: string;
+    error?: string;
+}
+
+/**
+ * Get paths to preprocessing binaries
+ * Falls back gracefully if binaries don't exist
+ */
+export interface IPreprocessingBinaries {
+    leptonica: string | null;
+    unpaper: string | null;
+}
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+export function getPreprocessingBinaries(): IPreprocessingBinaries {
+    let resourcesBase: string;
+
+    if (app.isPackaged) {
+        resourcesBase = process.resourcesPath;
+    } else {
+        // Development: in bundled code, __dirname is dist-electron, so go up one level
+        // In source code from dist-electron/ocr, we'd go ../.. but esbuild bundles to dist-electron/main.js
+        // So __dirname will be dist-electron, and we need to go up once: ../resources
+        resourcesBase = join(__dirname, '..', 'resources');
+    }
+
+    const tesseractDir = join(resourcesBase, 'tesseract');
+    const arch = process.platform === 'win32'
+        ? 'win32-x64'
+        : process.platform === 'darwin'
+            ? process.arch === 'arm64' ? 'darwin-arm64' : 'darwin-x64'
+            : 'linux-x64';
+
+    const binDir = join(tesseractDir, arch, 'bin');
+    const ext = process.platform === 'win32' ? '.exe' : '';
+
+    const leptonica = join(binDir, `leptonica${ext}`);
+    const unpaper = join(binDir, `unpaper${ext}`);
+
+    // Debug logging
+    debugLog(`getPreprocessingBinaries: __dirname=${__dirname}, resourcesBase=${resourcesBase}, arch=${arch}, binDir=${binDir}`);
+    debugLog(`  leptonica path: ${leptonica}, exists: ${existsSync(leptonica)}`);
+    debugLog(`  unpaper path: ${unpaper}, exists: ${existsSync(unpaper)}`);
+
+    return {
+        leptonica: existsSync(leptonica) ? leptonica : null,
+        unpaper: existsSync(unpaper) ? unpaper : null,
+    };
+}
+
+/**
+ * Generic preprocessing tool runner
+ * Executes preprocessing binaries with given arguments
+ */
+export async function runPreprocessing(
+    options: IPreprocessingOptions
+): Promise<IPreprocessingResult> {
+    debugLog(`Running: ${options.binary} ${options.args.join(' ')}`);
+
+    if (!existsSync(options.binary)) {
+        const error = `Binary not found: ${options.binary}`;
+        debugLog(`Error: ${error}`);
+        return { success: false, error };
+    }
+
+    return new Promise((resolve) => {
+        const proc = spawn(options.binary, options.args);
+
+        let stdout = '';
+        let stderr = '';
+        let timedOut = false;
+
+        const timeout = options.timeout || 60000; // 60 seconds default
+        const timeoutHandle = setTimeout(() => {
+            timedOut = true;
+            debugLog('Process timeout');
+            proc.kill();
+        }, timeout);
+
+        proc.stdout.on('data', (data: Buffer) => {
+            stdout += data.toString();
+        });
+
+        proc.stderr.on('data', (data: Buffer) => {
+            const msg = data.toString();
+            stderr += msg;
+            debugLog(`stderr: ${msg.trim()}`);
+        });
+
+        proc.on('close', (code) => {
+            clearTimeout(timeoutHandle);
+
+            if (timedOut) {
+                debugLog(`Process timed out after ${timeout}ms`);
+                resolve({
+                    success: false,
+                    error: `Process timed out after ${timeout}ms`,
+                    stderr,
+                });
+            } else if (code === 0) {
+                debugLog('Process completed successfully');
+                resolve({
+                    success: true,
+                    stdout,
+                    stderr,
+                });
+            } else {
+                debugLog(`Process exited with code ${code}`);
+                resolve({
+                    success: false,
+                    error: stderr || `Process exited with code ${code}`,
+                    stderr,
+                });
+            }
+        });
+
+        proc.on('error', (err) => {
+            clearTimeout(timeoutHandle);
+            debugLog(`Process error: ${err.message}`);
+            resolve({
+                success: false,
+                error: err.message,
+                stderr,
+            });
+        });
+    });
+}
+
+/**
+ * Deskew an image using Unpaper
+ * Unpaper is the best tool for deskewing scanned documents
+ *
+ * @param inputPath Path to input image
+ * @param outputPath Path to write output image
+ * @param additionalArgs Optional additional Unpaper arguments
+ */
+export async function deskewWithUnpaper(
+    inputPath: string,
+    outputPath: string,
+    additionalArgs: string[] = []
+): Promise<IPreprocessingResult> {
+    const bins = getPreprocessingBinaries();
+
+    if (!bins.unpaper) {
+        return {
+            success: false,
+            error: 'Unpaper binary not found. Build with: ./scripts/bundle-leptonica-unpaper-macos.sh',
+        };
+    }
+
+    const args = [
+        '--deskew',  // Automatic deskew detection and rotation
+        '--cleanup', // General cleanup (remove marks, dust)
+        ...additionalArgs,
+        inputPath,
+        outputPath,
+    ];
+
+    return runPreprocessing({
+        binary: bins.unpaper,
+        args,
+        timeout: 30000, // Images are fast
+    });
+}
+
+/**
+ * Clean a scanned document with Unpaper
+ * Removes noise, marks, and artifacts from scanned pages
+ *
+ * @param inputPath Path to input image
+ * @param outputPath Path to write output image
+ * @param aggressive If true, applies stronger cleaning filters
+ */
+export async function cleanScannedPageWithUnpaper(
+    inputPath: string,
+    outputPath: string,
+    aggressive = false
+): Promise<IPreprocessingResult> {
+    const bins = getPreprocessingBinaries();
+
+    if (!bins.unpaper) {
+        return {
+            success: false,
+            error: 'Unpaper binary not found. Build with: ./scripts/bundle-leptonica-unpaper-macos.sh',
+        };
+    }
+
+    const args = [
+        '--layout', 'single',         // Single-page layout
+        '--deskew',                   // Deskew
+        '--cleanup',                  // Remove artifacts
+        '--no-mask-center',          // Don't mask center (preserve document)
+        '--despeckle',               // Remove small speckles
+    ];
+
+    if (aggressive) {
+        args.push(
+            '--noise-filter',        // Aggressive noise reduction
+            '--blur-filter'          // Slightly blur before OCR (helps with binarization)
+        );
+    }
+
+    args.push(inputPath, outputPath);
+
+    return runPreprocessing({
+        binary: bins.unpaper,
+        args,
+        timeout: 30000,
+    });
+}
+
+/**
+ * Apply full preprocessing pipeline
+ * Combines deskew + cleanup for best OCR results
+ *
+ * @param inputPath Path to input image
+ * @param outputPath Path to write output image
+ */
+export async function preprocessPageForOcr(
+    inputPath: string,
+    outputPath: string
+): Promise<IPreprocessingResult> {
+    debugLog(`Preprocessing page for OCR: ${inputPath}`);
+
+    return cleanScannedPageWithUnpaper(inputPath, outputPath, false);
+}
+
+/**
+ * Get preprocessing capabilities
+ * Returns what tools are available
+ */
+export function getPreprocessingCapabilities() {
+    const bins = getPreprocessingBinaries();
+
+    return {
+        deskew: !!bins.unpaper,
+        cleanup: !!bins.unpaper,
+        fullPipeline: !!bins.unpaper,
+        availableBinaries: Object.fromEntries(
+            Object.entries(bins).filter(([, path]) => path !== null)
+        ),
+    };
+}
+
+/**
+ * Validate preprocessing setup
+ * Check if required binaries are available
+ */
+export function validatePreprocessingSetup(): {
+    valid: boolean;
+    available: string[];
+    missing: string[];
+} {
+    const bins = getPreprocessingBinaries();
+    const available: string[] = [];
+    const missing: string[] = [];
+
+    if (bins.unpaper) {
+        available.push('unpaper');
+    } else {
+        missing.push('unpaper');
+    }
+
+    if (bins.leptonica) {
+        available.push('leptonica');
+    } else {
+        missing.push('leptonica');
+    }
+
+    return {
+        valid: available.length > 0,
+        available,
+        missing,
+    };
+}
+
+/**
+ * Get detailed information about a preprocessing tool
+ */
+export async function getToolInfo(tool: 'unpaper' | 'leptonica'): Promise<{
+    available: boolean;
+    version?: string;
+    help?: string;
+}> {
+    const bins = getPreprocessingBinaries();
+    const binary = bins[tool];
+
+    if (!binary) {
+        return { available: false };
+    }
+
+    const helpResult = await runPreprocessing({
+        binary,
+        args: ['--help'],
+        timeout: 5000,
+    });
+
+    if (helpResult.success) {
+        // Try to extract version from help output
+        const versionMatch = (helpResult.stdout || '').match(/(?:version|Version)\s*[:\s]+([0-9.]+)/i);
+        return {
+            available: true,
+            version: versionMatch ? versionMatch[1] : undefined,
+            help: (helpResult.stdout || '').split('\n').slice(0, 20).join('\n'),
+        };
+    }
+
+    return {
+        available: true,
+        help: (helpResult.stdout || '').split('\n').slice(0, 10).join('\n'),
+    };
+}

@@ -4,13 +4,17 @@ import {
     ipcMain,
     app,
 } from 'electron';
-import { appendFileSync } from 'fs';
+import { appendFileSync, writeFileSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { embedOcrLayers } from './pdf-merger';
 import {
     runOcr,
     runOcrWithBoundingBoxes,
 } from './tesseract';
+import {
+    preprocessPageForOcr,
+    validatePreprocessingSetup,
+} from './preprocessing';
 
 const LOG_FILE = join(app.getPath('temp'), 'ocr-debug.log');
 
@@ -209,9 +213,93 @@ function handleOcrGetLanguages() {
     return AVAILABLE_LANGUAGES;
 }
 
+function handlePreprocessingValidate() {
+    const validation = validatePreprocessingSetup();
+    return {
+        valid: validation.valid,
+        available: validation.available,
+        missing: validation.missing,
+    };
+}
+
+async function handlePreprocessPage(
+    _event: IpcMainInvokeEvent,
+    imageData: number[],
+    usePreprocessing: boolean,
+) {
+    try {
+        if (!usePreprocessing) {
+            return {
+                success: true,
+                imageData,
+                message: 'Preprocessing disabled',
+            };
+        }
+
+        const validation = validatePreprocessingSetup();
+        if (!validation.valid) {
+            return {
+                success: false,
+                imageData,
+                error: `Preprocessing tools not available: ${validation.missing.join(', ')}`,
+            };
+        }
+
+        // Write image to temp file
+        const tempDir = app.getPath('temp');
+        const inputPath = join(tempDir, `preprocess-input-${Date.now()}.png`);
+        const outputPath = join(tempDir, `preprocess-output-${Date.now()}.png`);
+
+        const imageBuffer = Buffer.from(imageData);
+        writeFileSync(inputPath, imageBuffer);
+
+        debugLog(`Preprocessing image: ${inputPath}`);
+        const result = await preprocessPageForOcr(inputPath, outputPath);
+
+        if (!result.success) {
+            debugLog(`Preprocessing failed: ${result.error}`);
+            return {
+                success: false,
+                imageData,
+                error: result.error || 'Preprocessing failed',
+            };
+        }
+
+        // Read preprocessed image
+        const preprocessedBuffer = readFileSync(outputPath);
+        const preprocessedData = Array.from(preprocessedBuffer);
+
+        debugLog(`Preprocessing successful: ${inputPath} -> ${outputPath}`);
+
+        // Cleanup temp files
+        try {
+            require('fs').unlinkSync(inputPath);
+            require('fs').unlinkSync(outputPath);
+        } catch (e) {
+            // Ignore cleanup errors
+        }
+
+        return {
+            success: true,
+            imageData: preprocessedData,
+            message: 'Preprocessing complete',
+        };
+    } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        debugLog(`Preprocessing error: ${errMsg}`);
+        return {
+            success: false,
+            imageData,
+            error: errMsg,
+        };
+    }
+}
+
 export function registerOcrHandlers() {
     ipcMain.handle('ocr:recognize', handleOcrRecognize);
     ipcMain.handle('ocr:recognizeBatch', handleOcrRecognizeBatch);
     ipcMain.handle('ocr:createSearchablePdf', handleOcrCreateSearchablePdf);
     ipcMain.handle('ocr:getLanguages', handleOcrGetLanguages);
+    ipcMain.handle('preprocessing:validate', handlePreprocessingValidate);
+    ipcMain.handle('preprocessing:preprocessPage', handlePreprocessPage);
 }
