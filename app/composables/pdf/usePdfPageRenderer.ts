@@ -17,6 +17,8 @@ import type {
     IPdfSearchMatch,
     IScrollSnapshot,
 } from 'app/types/pdf';
+import { chunk } from 'es-toolkit/array';
+import { range } from 'es-toolkit/math';
 import { usePdfSearchHighlight } from 'app/composables/usePdfSearchHighlight';
 import { useTextLayerSelection } from 'app/composables/useTextLayerSelection';
 import type { usePdfDocument } from 'app/composables/pdf/usePdfDocument';
@@ -224,10 +226,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         const renderStart = Math.max(1, visibleRange.start - buffer);
         const renderEnd = Math.min(numPages.value, visibleRange.end + buffer);
 
-        const pagesToKeep = new Set<number>();
-        for (let i = renderStart; i <= renderEnd; i++) {
-            pagesToKeep.add(i);
-        }
+        const pagesToKeep = new Set(range(renderStart, renderEnd + 1));
 
         for (const pageNum of renderedPages) {
             if (!pagesToKeep.has(pageNum)) {
@@ -235,12 +234,9 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             }
         }
 
-        const pagesToRenderNow: number[] = [];
-        for (let i = renderStart; i <= renderEnd; i++) {
-            if (!renderedPages.has(i)) {
-                pagesToRenderNow.push(i);
-            }
-        }
+        const pagesToRenderNow = range(renderStart, renderEnd + 1).filter(
+            i => !renderedPages.has(i),
+        );
 
         if (pagesToRenderNow.length === 0) {
             return;
@@ -249,9 +245,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         const scale = toValue(options.effectiveScale);
         const containers = containerRoot.querySelectorAll<HTMLDivElement>('.page_container');
 
-        for (let i = 0; i < pagesToRenderNow.length; i += CONCURRENT_RENDERS) {
-            const batch = pagesToRenderNow.slice(i, i + CONCURRENT_RENDERS);
-
+        for (const batch of chunk(pagesToRenderNow, CONCURRENT_RENDERS)) {
             await Promise.all(
                 batch.map(async (pageNumber) => {
                     if (renderVersion !== version) {

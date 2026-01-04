@@ -17,6 +17,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdirSync, existsSync, writeFileSync, readFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { delay } from 'es-toolkit/promise';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const projectRoot = join(__dirname, '..');
@@ -77,7 +78,7 @@ async function startNuxtServer(): Promise<ChildProcess | null> {
             console.log('[Nuxt] Server ready at http://localhost:' + NUXT_PORT);
             return nuxt;
         }
-        await sleep(1000);
+        await delay(1000);
     }
 
     nuxt.kill();
@@ -121,7 +122,7 @@ async function startElectron(): Promise<ChildProcess> {
                 return electron;
             }
         } catch {}
-        await sleep(500);
+        await delay(500);
     }
 
     electron.kill();
@@ -141,7 +142,7 @@ async function connectToBrowser(): Promise<{ browser: Browser; page: Page }> {
         const pages = await browser.pages();
         page = pages.find(p => p.url().includes(`localhost:${NUXT_PORT}`)) ?? null;
         if (page) break;
-        await sleep(500);
+        await delay(500);
     }
 
     if (!page) {
@@ -150,7 +151,7 @@ async function connectToBrowser(): Promise<{ browser: Browser; page: Page }> {
 
     // Wait for page to fully load
     await page.waitForSelector('body', { timeout: 30000 });
-    await sleep(2000); // Let Vue hydrate
+    await delay(2000); // Let Vue hydrate
 
     console.log('[Puppeteer] Connected to app');
     return { browser, page };
@@ -384,10 +385,6 @@ async function stopSession() {
 }
 
 // ============ Utilities ============
-
-function sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 // ============ CLI ============
 

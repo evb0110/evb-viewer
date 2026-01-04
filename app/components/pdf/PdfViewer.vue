@@ -53,6 +53,8 @@ import { usePdfPageRenderer } from 'app/composables/pdf/usePdfPageRenderer';
 import { usePdfScale } from 'app/composables/pdf/usePdfScale';
 import { usePdfScroll } from 'app/composables/pdf/usePdfScroll';
 import { usePdfSkeletonInsets } from 'app/composables/pdf/usePdfSkeletonInsets';
+import { delay } from 'es-toolkit/promise';
+import { range } from 'es-toolkit/math';
 import type {
     IPdfPageMatches,
     IPdfSearchMatch,
@@ -160,9 +162,7 @@ const {
     currentSearchMatch: () => currentSearchMatch,
 });
 
-const pagesToRender = computed(() =>
-    Array.from({ length: numPages.value }, (_, i) => i + 1),
-);
+const pagesToRender = computed(() => range(1, numPages.value + 1));
 
 const SKELETON_BUFFER = 3;
 
@@ -347,7 +347,7 @@ watch(
     async (value) => {
         if (!value && pdfDocument.value && !isLoading.value) {
             await nextTick();
-            await new Promise((r) => setTimeout(r, 20));
+            await delay(20);
             computeFitWidthScale(viewerContainer.value);
             void reRenderAllVisiblePages(getVisibleRange);
         }

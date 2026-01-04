@@ -1,9 +1,11 @@
+import { delay } from 'es-toolkit/promise';
+
 // Simulates a slow API call - in SSR this happens before HTML is sent
 // User never sees a loading state for this data
 
 export default defineEventHandler(async () => {
     // Simulate slow database query
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await delay(500);
 
     return [
         {

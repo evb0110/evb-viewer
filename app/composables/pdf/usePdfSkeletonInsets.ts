@@ -12,6 +12,7 @@ import type {
     IContentInsets,
     PDFPageProxy,
 } from 'app/types/pdf';
+import { clamp } from 'es-toolkit/math';
 
 interface IPdfSkeletonContext {
     scaledSkeletonPadding: ComputedRef<IContentInsets | null>;
@@ -27,8 +28,6 @@ export const usePdfSkeletonContext = () => {
     }
     return context;
 };
-
-const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
 
 export const usePdfSkeletonInsets = (
     basePageWidth: MaybeRefOrGetter<number | null>,

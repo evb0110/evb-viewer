@@ -1,5 +1,6 @@
 import { ref } from 'vue';
 import type { IScrollSnapshot } from 'app/types/pdf';
+import { clamp } from 'es-toolkit/math';
 
 export const usePdfScroll = () => {
     const currentPage = ref(1);
@@ -105,7 +106,7 @@ export const usePdfScroll = () => {
             return;
         }
 
-        const targetPage = Math.max(1, Math.min(pageNumber, totalPages));
+        const targetPage = clamp(pageNumber, 1, totalPages);
         const pageContainers = container.querySelectorAll('.page_container');
         const targetEl = pageContainers[targetPage - 1] as HTMLElement | undefined;
 
