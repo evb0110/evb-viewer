@@ -231,57 +231,56 @@ async function handleOcrCreateSearchablePdf(
             debugLog(`Wrote original PDF to ${originalPdfPath}`);
 
             try {
-                // Extract all pages from original PDF
-                debugLog(`Extracting all pages from original PDF`);
-                execSync(`pdfseparate ${originalPdfPath} ${tempDir}/${sessionId}-orig-page-%d.pdf 2>/dev/null`, {
-                    encoding: 'utf-8',
-                    stdio: 'pipe',
-                });
+                // Use qpdf for efficient page substitution (no need to extract all pages)
+                const ocrPageNumbers = Array.from(ocrPdfMap.keys()).sort((a, b) => a - b);
+                const minOcrPage = ocrPageNumbers[0] ?? 1;
+                const maxOcrPage = ocrPageNumbers[ocrPageNumbers.length - 1] ?? 1;
 
-                // Get all original pages
-                const originalPages = execSync(`ls -1 ${tempDir}/${sessionId}-orig-page-*.pdf 2>/dev/null | sort -V`, {
-                    encoding: 'utf-8',
-                    shell: '/bin/bash',
-                }).trim().split('\n').filter(Boolean);
+                debugLog(`OCR'd pages: ${minOcrPage} to ${maxOcrPage}`);
 
-                debugLog(`Extracted ${originalPages.length} pages from original PDF`);
+                // Merge using qpdf for efficient page substitution
+                const mergedPdfPath = join(tempDir, `${sessionId}-merged.pdf`);
 
-                // Build final page list: use OCR'd pages where available, original pages otherwise
-                const finalPageFiles: string[] = [];
-                const pageNumbers = new Set([...ocrPdfMap.keys()]);
-
-                for (let i = 0; i < originalPages.length; i++) {
-                    const pageNum = i + 1;
-                    if (pageNumbers.has(pageNum)) {
-                        // Use OCR'd version
-                        const ocrPath = ocrPdfMap.get(pageNum);
-                        if (ocrPath) {
-                            finalPageFiles.push(ocrPath);
-                            debugLog(`Page ${pageNum}: using OCR'd version`);
-                        }
-                    } else {
-                        // Use original version
-                        finalPageFiles.push(originalPages[i]!);
-                        debugLog(`Page ${pageNum}: using original version`);
-                    }
+                if (ocrPageNumbers.length === 0) {
+                    return { success: false, pdfData: null, errors: ['No OCR pages to process'] };
                 }
 
-                debugLog(`Final merge will combine ${finalPageFiles.length} pages`);
+                try {
+                    // Build qpdf command for intelligent substitution
+                    // Strategy: Use OCR'd pages where available, original pages otherwise
+                    // Note: qpdf --pages syntax is: file1 page-spec file2 page-spec ...
 
-                // Merge all pages using pdfunite
-                const mergedPdfPath = join(tempDir, `${sessionId}-merged.pdf`);
-                if (finalPageFiles.length > 1) {
-                    const cmd = `pdfunite ${finalPageFiles.join(' ')} ${mergedPdfPath}`;
-                    debugLog(`Running merge command with ${finalPageFiles.length} files`);
-                    execSync(cmd, { encoding: 'utf-8' });
-                    debugLog(`Merged pages successfully`);
-                } else if (finalPageFiles.length === 1) {
-                    // Single page, just copy it
-                    const content = readFileSync(finalPageFiles[0]!);
-                    writeFileSync(mergedPdfPath, content);
-                    debugLog(`Single page, copied directly`);
-                } else {
-                    return { success: false, pdfData: null, errors: ['No pages to merge'] };
+                    const pageSpecs: string[] = [];
+                    let lastPage = 0;
+
+                    for (const pageNum of ocrPageNumbers) {
+                        // Add original pages before this OCR page (if any gap)
+                        if (lastPage + 1 < pageNum) {
+                            pageSpecs.push(`${originalPdfPath} ${lastPage + 1}-${pageNum - 1}`);
+                        }
+                        // Add OCR page
+                        const ocrPath = ocrPdfMap.get(pageNum)!;
+                        pageSpecs.push(`${ocrPath} 1`);
+                        lastPage = pageNum;
+                    }
+
+                    // Add any remaining pages from the original after the last OCR page
+                    pageSpecs.push(`${originalPdfPath} ${lastPage + 1}-end`);
+
+                    // Build the full qpdf command
+                    const qpdfCmd = `qpdf ${originalPdfPath} --pages ${pageSpecs.join(' ')} -- ${mergedPdfPath}`;
+
+                    debugLog(`Using qpdf for efficient page substitution`);
+                    debugLog(`qpdf command: ${qpdfCmd}`);
+
+                    execSync(qpdfCmd, { encoding: 'utf-8', stdio: 'pipe' });
+                    debugLog(`qpdf substitution completed successfully`);
+                } catch (qpdfErr) {
+                    // qpdf is required for efficient page substitution
+                    const errMsg = qpdfErr instanceof Error ? qpdfErr.message : String(qpdfErr);
+                    debugLog(`qpdf page substitution failed: ${errMsg}`);
+                    errors.push(`Failed to merge OCR'd pages with original PDF: ${errMsg}`);
+                    return { success: false, pdfData: null, errors };
                 }
 
                 // Read merged PDF
