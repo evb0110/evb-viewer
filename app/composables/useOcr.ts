@@ -191,10 +191,10 @@ export const useOcr = () => {
         }
     }
 
-    // OCR render scale: fixed to maintain original page dimensions
-    // 2x scale provides good OCR quality while keeping reasonable file sizes
+    // OCR render scale: 1x to render at actual page dimensions
+    // This ensures Tesseract PDFs have identical page size to original pages
     function getOcrRenderScale() {
-        return 2.0;
+        return 1.0;
     }
 
     async function runOcr(
