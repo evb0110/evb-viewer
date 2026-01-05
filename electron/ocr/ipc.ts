@@ -142,12 +142,53 @@ async function handleOcrCreateSearchablePdf(
 
             const imageBuffer = Buffer.from(page.imageData);
             debugLog(`Calling runOcrWithBoundingBoxes, bufferSize=${imageBuffer.length}`);
+
+            // If image was rendered at a different scale, resize it to match target page dimensions
+            let finalImageBuffer = imageBuffer;
+            let finalImageWidth = page.imageWidth;
+            let finalImageHeight = page.imageHeight;
+
+            if (page.originalPageWidth && page.originalPageHeight &&
+                (page.imageWidth !== page.originalPageWidth || page.imageHeight !== page.originalPageHeight)) {
+                try {
+                    const scaleX = page.originalPageWidth / page.imageWidth;
+                    const scaleY = page.originalPageHeight / page.imageHeight;
+                    const newWidth = Math.round(page.originalPageWidth);
+                    const newHeight = Math.round(page.originalPageHeight);
+
+                    debugLog(`Resizing image from ${page.imageWidth}x${page.imageHeight} to ${newWidth}x${newHeight} (scale: ${scaleX.toFixed(3)} x ${scaleY.toFixed(3)})`);
+
+                    // Use ImageMagick to resize the PNG
+                    const tempImagePath = join(tempDir, `${sessionId}-resize-${i}.png`);
+                    const resizedImagePath = join(tempDir, `${sessionId}-resized-${i}.png`);
+
+                    writeFileSync(tempImagePath, imageBuffer);
+                    execSync(`convert "${tempImagePath}" -resize ${newWidth}x${newHeight}! "${resizedImagePath}"`, {
+                        encoding: 'utf-8',
+                        stdio: 'pipe',
+                    });
+
+                    finalImageBuffer = readFileSync(resizedImagePath);
+                    finalImageWidth = newWidth;
+                    finalImageHeight = newHeight;
+
+                    debugLog(`Image resized successfully: ${finalImageBuffer.length} bytes`);
+
+                    // Cleanup temp files
+                    try { unlinkSync(tempImagePath); } catch {}
+                    try { unlinkSync(resizedImagePath); } catch {}
+                } catch (resizeErr) {
+                    debugLog(`Warning: Failed to resize image, using original: ${resizeErr}`);
+                    // Fall through to use original image
+                }
+            }
+
             try {
                 const result = await runOcrWithBoundingBoxes(
-                    imageBuffer,
+                    finalImageBuffer,
                     page.languages,
-                    page.imageWidth,
-                    page.imageHeight,
+                    finalImageWidth,
+                    finalImageHeight,
                 );
                 debugLog(`runOcrWithBoundingBoxes result: success=${result.success}, words=${result.pageData?.words.length}, error=${result.error}`);
 
@@ -204,41 +245,10 @@ async function handleOcrCreateSearchablePdf(
                     );
 
                     if (result.success && result.pdfBuffer) {
-                        const tempPdfPath = join(tempDir, `${sessionId}-ocr-page-${pageData.pageNumber}-temp.pdf`);
                         const ocrPdfPath = join(tempDir, `${sessionId}-ocr-page-${pageData.pageNumber}.pdf`);
-
-                        writeFileSync(tempPdfPath, result.pdfBuffer);
-
-                        // Scale Tesseract PDF to match original page dimensions if available
-                        if (pageData.originalPageWidth && pageData.originalPageHeight) {
-                            try {
-                                // Use qpdf to scale the PDF page to the original dimensions
-                                // Calculate scale factor based on original image dimensions
-                                const imageWidth = pageData.imageWidth || 1;
-                                const imageHeight = pageData.imageHeight || 1;
-                                const scaleX = pageData.originalPageWidth / imageWidth;
-                                const scaleY = pageData.originalPageHeight / imageHeight;
-
-                                debugLog(`Scaling OCR PDF page ${pageData.pageNumber}: image ${imageWidth}x${imageHeight} -> original ${pageData.originalPageWidth}x${pageData.originalPageHeight} (scale: ${scaleX.toFixed(4)} x ${scaleY.toFixed(4)})`);
-
-                                // Use qpdf to scale the page via transformation
-                                // Since qpdf doesn't have native scaling, we'll use pdftk if available
-                                // For now, just use the unscaled PDF - the important thing is the content is there
-                                // The page size will be determined by the rendered image size
-                                writeFileSync(ocrPdfPath, result.pdfBuffer);
-                                unlinkSync(tempPdfPath);
-                            } catch (scaleErr) {
-                                debugLog(`Warning: Failed to scale OCR PDF to original dimensions, using unscaled: ${scaleErr}`);
-                                writeFileSync(ocrPdfPath, result.pdfBuffer);
-                                try { unlinkSync(tempPdfPath); } catch {}
-                            }
-                        } else {
-                            writeFileSync(ocrPdfPath, result.pdfBuffer);
-                            try { unlinkSync(tempPdfPath); } catch {}
-                        }
-
+                        writeFileSync(ocrPdfPath, result.pdfBuffer);
                         ocrPdfMap.set(pageData.pageNumber, ocrPdfPath);
-                        debugLog(`Saved OCR PDF for page ${pageData.pageNumber}: ${readFileSync(ocrPdfPath).length} bytes`);
+                        debugLog(`Saved OCR PDF for page ${pageData.pageNumber}: ${result.pdfBuffer.length} bytes`);
                     } else {
                         errors.push(`Failed to generate PDF for page ${pageData.pageNumber}: ${result.error}`);
                         debugLog(`Tesseract PDF generation failed for page ${pageData.pageNumber}: ${result.error}`);

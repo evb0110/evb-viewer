@@ -191,10 +191,10 @@ export const useOcr = () => {
         }
     }
 
-    // OCR render scale: 1x to render at actual page dimensions
-    // This ensures Tesseract PDFs have identical page size to original pages
+    // OCR render scale: 2x for good quality
+    // Rendered PDF will be scaled back to original page dimensions by backend
     function getOcrRenderScale() {
-        return 1.0;
+        return 2.0;
     }
 
     async function runOcr(
@@ -255,19 +255,22 @@ export const useOcr = () => {
                 console.log('[useOcr] Rendering page', pageNum, `scale=${renderScale.toFixed(2)}x`);
                 const page = await pdfDocument.getPage(pageNum);
 
-                // Get original page dimensions (at scale 1.0)
+                // Get original page dimensions (at scale 1.0) - this is our target PDF page size
                 const originalViewport = page.getViewport({ scale: 1.0 });
 
-                // Get rendered dimensions (at our rendering scale)
-                const viewport = page.getViewport({ scale: renderScale });
+                // Render at higher scale for better quality
                 const imageData = await renderPageToImage(pdfDocument, pageNum, renderScale);
                 console.log('[useOcr] Page rendered, imageData length:', imageData.length);
+
+                // Send to backend - it will handle both high-quality image and proper page sizing
                 pageRequests.push({
                     pageNumber: pageNum,
                     imageData,
                     languages,
-                    imageWidth: viewport.width,
-                    imageHeight: viewport.height,
+                    // Send the rendered image dimensions
+                    imageWidth: (originalViewport.width * renderScale),
+                    imageHeight: (originalViewport.height * renderScale),
+                    // Send the target page dimensions (1x scale)
                     originalPageWidth: originalViewport.width,
                     originalPageHeight: originalViewport.height,
                 });
