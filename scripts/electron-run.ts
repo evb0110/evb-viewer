@@ -192,6 +192,30 @@ async function startSession() {
         if (consoleMessages.length > 100) consoleMessages.shift();
     });
 
+    // Capture page errors (uncaught exceptions, failed modules, etc)
+    page.on('error', (err) => {
+        const entry = {
+            type: 'error',
+            text: `[PAGE ERROR] ${err.message}`,
+            timestamp: Date.now(),
+        };
+        consoleMessages.push(entry);
+        console.log(`[ERROR] ${err.message}`);
+        if (consoleMessages.length > 100) consoleMessages.shift();
+    });
+
+    // Capture page crashes
+    page.on('pageerror', (err) => {
+        const entry = {
+            type: 'error',
+            text: `[PAGE CRASH] ${err.message}`,
+            timestamp: Date.now(),
+        };
+        consoleMessages.push(entry);
+        console.log(`[ERROR] ${err.message}`);
+        if (consoleMessages.length > 100) consoleMessages.shift();
+    });
+
     sessionState = { browser, page, electronProcess, nuxtProcess, consoleMessages };
 
     // HTTP server for commands
