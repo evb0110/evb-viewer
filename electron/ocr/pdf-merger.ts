@@ -153,6 +153,46 @@ export async function embedOcrLayers(
 
         // Only try to save if we successfully embedded at least some text
         if (totalWordsSuccess === 0) {
+            // PDF structure is incompatible with pdf-lib - try Tesseract native PDF generation
+            debugLog(`Embedding failed (0 words succeeded), attempting Tesseract PDF fallback`);
+
+            const firstPageWithBuffer = ocrPages.find(p => p.imageBuffer && p.languages);
+            if (firstPageWithBuffer?.imageBuffer && firstPageWithBuffer?.languages) {
+                try {
+                    debugLog(`Calling generateSearchablePdfDirect as fallback...`);
+                    const result = await generateSearchablePdfDirect(
+                        firstPageWithBuffer.imageBuffer,
+                        firstPageWithBuffer.languages,
+                    );
+
+                    if (result.success && result.pdfBuffer) {
+                        debugLog(`Tesseract PDF generated successfully: ${result.pdfBuffer.length} bytes`);
+                        return {
+                            pdf: result.pdfBuffer,
+                            embedded: true,
+                            error: undefined,
+                        };
+                    } else {
+                        debugLog(`Tesseract fallback failed: ${result.error}`);
+                        const totalWords = ocrPages.reduce((sum, p) => sum + p.words.length, 0);
+                        return {
+                            pdf: originalPdfBytes,
+                            embedded: false,
+                            error: `Text extracted (${totalWords} words) but Tesseract fallback failed: ${result.error}`,
+                        };
+                    }
+                } catch (fallbackErr) {
+                    const fallbackMsg = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
+                    debugLog(`Tesseract fallback exception: ${fallbackMsg}`);
+                    const totalWords = ocrPages.reduce((sum, p) => sum + p.words.length, 0);
+                    return {
+                        pdf: originalPdfBytes,
+                        embedded: false,
+                        error: `Text extracted (${totalWords} words) but Tesseract fallback failed: ${fallbackMsg}`,
+                    };
+                }
+            }
+
             return {
                 pdf: originalPdfBytes,
                 embedded: false,
