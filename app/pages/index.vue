@@ -158,6 +158,8 @@
 </template>
 
 <script setup lang="ts">
+console.log('[PAGE] pages/index.vue script setup executing');
+
 import {
     onMounted,
     onUnmounted,
