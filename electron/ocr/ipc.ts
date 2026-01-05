@@ -291,7 +291,7 @@ async function handleOcrCreateSearchablePdf(
                 return {
                     success: true,
                     pdfData: Array.from(mergedPdfBuffer),
-                    errors: errors.length > 0 ? errors : undefined,
+                    errors,
                 };
 
             } catch (mergeErr) {
