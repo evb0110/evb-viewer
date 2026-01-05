@@ -249,6 +249,18 @@ async function handleOcrCreateSearchablePdf(
                     // Build qpdf command for intelligent substitution
                     // Strategy: Use OCR'd pages where available, original pages otherwise
                     // Note: qpdf --pages syntax is: file1 page-spec file2 page-spec ...
+                    // Get page count from original PDF using qpdf --show-npages
+                    let pageCount = 0;
+                    try {
+                        const pageCountOutput = execSync(`qpdf --show-npages ${originalPdfPath}`, {
+                            encoding: 'utf-8',
+                        }).trim();
+                        pageCount = parseInt(pageCountOutput, 10);
+                        debugLog(`Original PDF has ${pageCount} pages`);
+                    } catch (err) {
+                        debugLog(`Failed to get page count, using fallback: ${err}`);
+                        pageCount = 9999; // Fallback: use large number
+                    }
 
                     const pageSpecs: string[] = [];
                     let lastPage = 0;
@@ -265,7 +277,9 @@ async function handleOcrCreateSearchablePdf(
                     }
 
                     // Add any remaining pages from the original after the last OCR page
-                    pageSpecs.push(`${originalPdfPath} ${lastPage + 1}-end`);
+                    if (lastPage < pageCount) {
+                        pageSpecs.push(`${originalPdfPath} ${lastPage + 1}-${pageCount}`);
+                    }
 
                     // Build the full qpdf command
                     const qpdfCmd = `qpdf ${originalPdfPath} --pages ${pageSpecs.join(' ')} -- ${mergedPdfPath}`;
