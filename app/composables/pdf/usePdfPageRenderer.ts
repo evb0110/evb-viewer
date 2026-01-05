@@ -12,6 +12,7 @@ import {
     type MaybeRefOrGetter,
     type Ref,
 } from 'vue';
+import { extractPageTextWithCoordinates, findMatchingWords } from './usePdfTextCoordinates';
 import type {
     IPdfPageMatches,
     IPdfSearchMatch,
@@ -385,9 +386,30 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                                 // Render word boxes if we have word data
                                 if (pageMatchData && pageMatchData.matches.length > 0) {
                                     const firstMatch = pageMatchData.matches[0];
-                                    if (firstMatch.words && firstMatch.words.length > 0) {
+                                    let wordsToRender = firstMatch.words ?? [];
+
+                                    // If no stored words (non-OCR PDF), extract coordinates from PDF.js
+                                    if (!wordsToRender || wordsToRender.length === 0) {
+                                        try {
+                                            const pdfPageWidth = pdfPage.view[2] - pdfPage.view[0];
+                                            const pdfPageHeight = pdfPage.view[3] - pdfPage.view[1];
+                                            const textItems = await extractPageTextWithCoordinates(pdfPage);
+
+                                            // Find words that match the search query
+                                            const searchQuery = toValue(searchQuery as any) ?? '';
+                                            if (searchQuery && textItems.length > 0) {
+                                                wordsToRender = findMatchingWords(textItems, searchQuery);
+                                                console.log(`[usePdfPageRenderer] Extracted ${textItems.length} text items, found ${wordsToRender.length} matches for "${searchQuery}"`);
+                                            }
+                                        } catch (err) {
+                                            const errMsg = err instanceof Error ? err.message : String(err);
+                                            console.error(`[usePdfPageRenderer] Failed to extract text coordinates: ${errMsg}`);
+                                        }
+                                    }
+
+                                    if (wordsToRender && wordsToRender.length > 0) {
                                         // Collect all unique words from all matches on this page
-                                        const allWords: { [key: string]: typeof firstMatch.words[0] } = {};
+                                        const allWords: { [key: string]: typeof wordsToRender[0] } = {};
                                         pageMatchData.matches.forEach(match => {
                                             if (match.words) {
                                                 match.words.forEach(word => {
@@ -395,6 +417,13 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                                                 });
                                             }
                                         });
+
+                                        // Also add extracted words if we extracted them
+                                        if (!firstMatch.words || firstMatch.words.length === 0) {
+                                            wordsToRender.forEach(word => {
+                                                allWords[word.text] = word;
+                                            });
+                                        }
 
                                         // Determine which words are in the current match
                                         const currentMatch = toValue(currentSearchMatch);
