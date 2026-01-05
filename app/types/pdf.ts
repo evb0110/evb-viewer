@@ -33,6 +33,14 @@ export interface IPdfLinkServiceOptions {
     goToPage: (page: number) => void;
 }
 
+export interface IOcrWord {
+    text: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}
+
 export interface IPdfSearchMatch {
     pageIndex: number;
     matchIndex: number;
@@ -45,6 +53,9 @@ export interface IPdfSearchMatch {
         match: string;
         after: string;
     };
+    words?: IOcrWord[];
+    pageWidth?: number;
+    pageHeight?: number;
 }
 
 export interface IPdfPageMatches {
@@ -52,6 +63,9 @@ export interface IPdfPageMatches {
     matches: Array<{
         start: number;
         end: number;
+        words?: IOcrWord[];
+        pageWidth?: number;
+        pageHeight?: number;
     }>;
 }
 

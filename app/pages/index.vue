@@ -44,6 +44,7 @@
                     :pdf-data="pdfData"
                     :current-page="currentPage"
                     :total-pages="totalPages"
+                    :working-copy-path="workingCopyPath"
                     @open="closeOtherDropdowns('ocr')"
                     @ocr-complete="handleOcrComplete"
                 />
@@ -182,6 +183,7 @@ interface IPdfViewerExpose {
 const {
     pdfSrc,
     pdfData,
+    workingCopyPath,
     fileName: _fileName,
     isDirty,
     error: pdfError,
@@ -397,10 +399,10 @@ function closeSearch() {
 }
 
 async function handleSearch() {
-    if (pdfDocument.value) {
+    if (workingCopyPath.value) {
         showSidebar.value = true;
         sidebarTab.value = 'search';
-        const applied = await search(searchQuery.value, pdfDocument.value);
+        const applied = await search(searchQuery.value, workingCopyPath.value);
         if (applied) {
             scrollToCurrentResult();
         }

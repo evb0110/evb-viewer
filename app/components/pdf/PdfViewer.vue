@@ -583,5 +583,25 @@ defineExpose({
     box-shadow: var(--pdf-page-shadow);
     box-sizing: content-box;
     user-select: none;
+    position: relative;
+}
+
+.pdfViewer :deep(.pdf-word-boxes-layer) {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+}
+
+.pdfViewer :deep(.pdf-word-box) {
+    position: absolute;
+    border: 1px solid rgba(0, 100, 255, 0.4);
+    background: rgba(0, 100, 255, 0.1);
+    pointer-events: none;
+    box-sizing: border-box;
+}
+
+.pdfViewer :deep(.pdf-word-box--current) {
+    background: rgba(0, 150, 255, 0.25);
+    border-color: rgba(0, 150, 255, 0.8);
 }
 </style>

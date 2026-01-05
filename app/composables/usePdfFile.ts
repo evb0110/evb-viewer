@@ -13,11 +13,11 @@ function getElectronAPI() {
 export const usePdfFile = () => {
     const pdfSrc = ref<Blob | null>(null);
     const pdfData = ref<Uint8Array | null>(null);
-    const filePath = ref<string | null>(null);
+    const workingCopyPath = ref<string | null>(null);
     const error = ref<string | null>(null);
     const isDirty = ref(false);
 
-    const fileName = computed(() => filePath.value?.split('/').pop() ?? null);
+    const fileName = computed(() => workingCopyPath.value?.split('/').pop() ?? null);
     const isElectron = computed(() => typeof window !== 'undefined' && !!window.electronAPI);
 
     async function openFile() {
@@ -51,7 +51,7 @@ export const usePdfFile = () => {
 
     async function loadPdfFromPath(path: string) {
         const api = getElectronAPI();
-        filePath.value = path;
+        workingCopyPath.value = path;  // Path from backend is already the working copy path
         const buffer = await api.readFile(path);
         const data = new Uint8Array(buffer);
         pdfData.value = data;
@@ -67,11 +67,15 @@ export const usePdfFile = () => {
     }
 
     async function saveFile(data: Uint8Array) {
-        if (!filePath.value) {
+        if (!workingCopyPath.value) {
             return false;
         }
         try {
-            await getElectronAPI().writeFile(filePath.value, data);
+            const api = getElectronAPI();
+            // First update the working copy with latest data
+            await api.writeFile(workingCopyPath.value, data);
+            // Then save working copy back to original location
+            await api.saveFile(workingCopyPath.value);
             isDirty.value = false;
             return true;
         } catch (e) {
@@ -83,7 +87,7 @@ export const usePdfFile = () => {
     async function closeFile() {
         pdfSrc.value = null;
         pdfData.value = null;
-        filePath.value = null;
+        workingCopyPath.value = null;
         error.value = null;
         isDirty.value = false;
         try {
@@ -100,7 +104,7 @@ export const usePdfFile = () => {
     return {
         pdfSrc,
         pdfData,
-        filePath,
+        workingCopyPath,
         fileName,
         error,
         isDirty,

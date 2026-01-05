@@ -21,6 +21,7 @@ import { chunk } from 'es-toolkit/array';
 import { range } from 'es-toolkit/math';
 import { usePdfSearchHighlight } from 'app/composables/usePdfSearchHighlight';
 import { useTextLayerSelection } from 'app/composables/useTextLayerSelection';
+import { usePdfWordBoxes } from 'app/composables/usePdfWordBoxes';
 import type { usePdfDocument } from 'app/composables/pdf/usePdfDocument';
 
 interface IPageRange {
@@ -52,6 +53,10 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         highlightPage,
         scrollToHighlight,
     } = usePdfSearchHighlight();
+    const {
+        renderPageWordBoxes,
+        clearWordBoxes,
+    } = usePdfWordBoxes();
 
     const {
         numPages,
@@ -376,6 +381,39 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                                     pageMatchData,
                                     toValue(currentSearchMatch) ?? null,
                                 );
+
+                                // Render word boxes if we have word data
+                                if (pageMatchData && pageMatchData.matches.length > 0) {
+                                    const firstMatch = pageMatchData.matches[0];
+                                    if (firstMatch.words && firstMatch.words.length > 0) {
+                                        // Collect all unique words from all matches on this page
+                                        const allWords: { [key: string]: typeof firstMatch.words[0] } = {};
+                                        pageMatchData.matches.forEach(match => {
+                                            if (match.words) {
+                                                match.words.forEach(word => {
+                                                    allWords[word.text] = word;
+                                                });
+                                            }
+                                        });
+
+                                        // Determine which words are in the current match
+                                        const currentMatch = toValue(currentSearchMatch);
+                                        const currentMatchWords = new Set<string>();
+                                        if (currentMatch && currentMatch.pageIndex === pageIndex && currentMatch.words) {
+                                            currentMatch.words.forEach(word => {
+                                                currentMatchWords.add(word.text);
+                                            });
+                                        }
+
+                                        renderPageWordBoxes(
+                                            container,
+                                            Object.values(allWords),
+                                            firstMatch.pageWidth,
+                                            firstMatch.pageHeight,
+                                            currentMatchWords.size > 0 ? currentMatchWords : undefined,
+                                        );
+                                    }
+                                }
                             }
 
                             if (pendingScrollToMatchPageIndex.value === pageIndex) {
@@ -554,11 +592,46 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
 
             if (!searchMatchesValue || searchMatchesValue.size === 0) {
                 clearHighlights(textLayerDiv);
+                clearWordBoxes(container);
                 return;
             }
 
             const pageMatches = searchMatchesValue.get(pageIndex) ?? null;
             highlightPage(textLayerDiv, pageMatches, currentMatchValue ?? null);
+
+            // Also render word boxes if available
+            if (pageMatches && pageMatches.matches.length > 0) {
+                const firstMatch = pageMatches.matches[0];
+                if (firstMatch.words && firstMatch.words.length > 0) {
+                    // Collect all unique words from all matches on this page
+                    const allWords: { [key: string]: typeof firstMatch.words[0] } = {};
+                    pageMatches.matches.forEach(match => {
+                        if (match.words) {
+                            match.words.forEach(word => {
+                                allWords[word.text] = word;
+                            });
+                        }
+                    });
+
+                    // Determine which words are in the current match
+                    const currentMatchWords = new Set<string>();
+                    if (currentMatchValue && currentMatchValue.pageIndex === pageIndex && currentMatchValue.words) {
+                        currentMatchValue.words.forEach(word => {
+                            currentMatchWords.add(word.text);
+                        });
+                    }
+
+                    renderPageWordBoxes(
+                        container,
+                        Object.values(allWords),
+                        firstMatch.pageWidth,
+                        firstMatch.pageHeight,
+                        currentMatchWords.size > 0 ? currentMatchWords : undefined,
+                    );
+                }
+            } else {
+                clearWordBoxes(container);
+            }
         });
     }
 

@@ -262,6 +262,7 @@ interface IProps {
     pdfData: Uint8Array | null;
     currentPage: number;
     totalPages: number;
+    workingCopyPath: string | null;
     disabled?: boolean;
 }
 
@@ -313,7 +314,7 @@ watch(isOpen, (value) => {
 
 function handleRunOcr() {
     if (!props.pdfDocument || !props.pdfData) return;
-    runOcr(props.pdfDocument, props.pdfData, props.currentPage, props.totalPages);
+    runOcr(props.pdfDocument, props.pdfData, props.currentPage, props.totalPages, props.workingCopyPath);
 }
 
 function handleCancel() {

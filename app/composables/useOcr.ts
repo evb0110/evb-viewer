@@ -128,80 +128,13 @@ export const useOcr = () => {
         return Array.from(pages).sort((a, b) => a - b);
     }
 
-    async function renderPageToImage(
-        pdfDocument: PDFDocumentProxy,
-        pageNumber: number,
-        scale = 2,
-    ): Promise<number[]> {
-        try {
-            console.log(`[renderPageToImage] Starting render for page ${pageNumber}, scale=${scale}`);
-            const page = await pdfDocument.getPage(pageNumber);
-            const viewport = page.getViewport({ scale });
-
-            const canvas = document.createElement('canvas');
-            canvas.width = viewport.width;
-            canvas.height = viewport.height;
-
-            const context = canvas.getContext('2d');
-            if (!context) {
-                throw new Error('Failed to get 2D canvas context');
-            }
-
-            console.log(`[renderPageToImage] Canvas created: ${canvas.width}x${canvas.height}`);
-
-            const renderTask = page.render({
-                canvasContext: context,
-                viewport,
-                canvas,
-            });
-
-            console.log(`[renderPageToImage] Render task started, waiting for promise...`);
-            await renderTask.promise;
-            console.log(`[renderPageToImage] Render promise completed`);
-
-            // Convert to PNG blob, then array
-            const blob = await new Promise<Blob>((resolve, reject) => {
-                const timeout = setTimeout(() => {
-                    reject(new Error('canvas.toBlob timeout'));
-                }, 5000);
-
-                canvas.toBlob(
-                    (b) => {
-                        clearTimeout(timeout);
-                        if (!b) {
-                            reject(new Error('canvas.toBlob returned null'));
-                        } else {
-                            resolve(b);
-                        }
-                    },
-                    'image/png'
-                );
-            });
-
-            console.log(`[renderPageToImage] PNG blob created: ${blob.size} bytes`);
-
-            const arrayBuffer = await blob.arrayBuffer();
-            const result = Array.from(new Uint8Array(arrayBuffer));
-            console.log(`[renderPageToImage] Converted to array: ${result.length} bytes`);
-            return result;
-        } catch (err) {
-            const errMsg = err instanceof Error ? err.message : String(err);
-            console.error(`[renderPageToImage] Error for page ${pageNumber}: ${errMsg}`);
-            throw err;
-        }
-    }
-
-    // OCR render scale: 2x for good quality
-    // Rendered PDF will be scaled back to original page dimensions by backend
-    function getOcrRenderScale() {
-        return 2.0;
-    }
 
     async function runOcr(
         pdfDocument: PDFDocumentProxy,
         originalPdfData: Uint8Array,
         currentPage: number,
         totalPages: number,
+        workingCopyPath: string | null = null,
     ) {
         console.log('[useOcr] runOcr called', { currentPage, totalPages, pdfDataLength: originalPdfData?.length });
 
@@ -247,41 +180,21 @@ export const useOcr = () => {
                 }
             });
 
-            // Render pages to images and build requests
+            // Build OCR request with page numbers and languages
+            // Backend will extract pages directly from the source PDF file
             const languages = [...settings.value.selectedLanguages];
-            const renderScale = getOcrRenderScale();
-            const pageRequests = [];
-            for (const pageNum of pages) {
-                console.log('[useOcr] Rendering page', pageNum, `scale=${renderScale.toFixed(2)}x`);
-                const page = await pdfDocument.getPage(pageNum);
+            const pageRequests = pages.map(pageNum => ({
+                pageNumber: pageNum,
+                languages,
+            }));
 
-                // Get original page dimensions (at scale 1.0) - this is our target PDF page size
-                const originalViewport = page.getViewport({ scale: 1.0 });
-
-                // Render at higher scale for better quality
-                const imageData = await renderPageToImage(pdfDocument, pageNum, renderScale);
-                console.log('[useOcr] Page rendered, imageData length:', imageData.length);
-
-                // Send to backend - it will handle both high-quality image and proper page sizing
-                pageRequests.push({
-                    pageNumber: pageNum,
-                    imageData,
-                    languages,
-                    // Send the rendered image dimensions
-                    imageWidth: (originalViewport.width * renderScale),
-                    imageHeight: (originalViewport.height * renderScale),
-                    // Send the target page dimensions (1x scale)
-                    originalPageWidth: originalViewport.width,
-                    originalPageHeight: originalViewport.height,
-                });
-            }
-
-            console.log('[useOcr] Sending to backend, originalPdfData length:', originalPdfData.length);
+            console.log('[useOcr] Sending to backend, pages:', pages, ', originalPdfData length:', originalPdfData.length);
             // Create searchable PDF with OCR text embedded
             const response = await api.ocrCreateSearchablePdf(
                 Array.from(originalPdfData),
                 pageRequests,
                 requestId,
+                workingCopyPath,
             );
             console.log('[useOcr] Backend response:', { success: response.success, errors: response.errors });
 

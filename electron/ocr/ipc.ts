@@ -16,6 +16,7 @@ import {
     preprocessPageForOcr,
     validatePreprocessingSetup,
 } from './preprocessing';
+import { saveOcrIndex } from '../search/ipc';
 
 const LOG_FILE = join(app.getPath('temp'), 'ocr-debug.log');
 
@@ -32,12 +33,7 @@ interface IOcrPageRequest {
 
 interface IOcrPdfPageRequest {
     pageNumber: number;
-    imageData: number[];
     languages: string[];
-    imageWidth: number;
-    imageHeight: number;
-    originalPageWidth?: number;
-    originalPageHeight?: number;
 }
 
 interface IOcrLanguage {
@@ -119,18 +115,34 @@ async function handleOcrCreateSearchablePdf(
     originalPdfData: number[],
     pages: IOcrPdfPageRequest[],
     requestId: string,
+    workingCopyPath?: string,
 ) {
     try {
         debugLog(`handleOcrCreateSearchablePdf called: pdfLen=${originalPdfData.length}, pages=${pages.length}, reqId=${requestId}`);
 
         const window = BrowserWindow.fromWebContents(event.sender);
         const errors: string[] = [];
+        const tempDir = app.getPath('temp');
+        const sessionId = `ocr-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+        // Write original PDF to temp file first
+        const originalPdfBytes = new Uint8Array(originalPdfData);
+        const originalPdfPath = join(tempDir, `${sessionId}-original.pdf`);
+        writeFileSync(originalPdfPath, originalPdfBytes);
+        const writtenFileSize = readFileSync(originalPdfPath).length;
+        debugLog(`Wrote original PDF to ${originalPdfPath}, size: ${writtenFileSize} bytes (expected: ${originalPdfData.length})`);
+        if (writtenFileSize !== originalPdfData.length) {
+            const errMsg = `PDF file size mismatch: wrote ${writtenFileSize} bytes but expected ${originalPdfData.length}`;
+            debugLog(`ERROR: ${errMsg}`);
+            errors.push(errMsg);
+            return { success: false, pdfData: null, errors };
+        }
 
         const ocrPageData: IOcrPageWithWords[] = [];
 
         for (let i = 0; i < pages.length; i++) {
             const page = pages[i];
-            debugLog(`Processing page ${page.pageNumber}, imageLen=${page.imageData.length}`);
+            debugLog(`Processing page ${page.pageNumber}`);
 
             // Send progress update
             window?.webContents.send('ocr:progress', {
@@ -140,76 +152,65 @@ async function handleOcrCreateSearchablePdf(
                 totalPages: pages.length,
             });
 
-            const imageBuffer = Buffer.from(page.imageData);
-            debugLog(`Calling runOcrWithBoundingBoxes, bufferSize=${imageBuffer.length}`);
-
-            // If image was rendered at a different scale, resize it to match target page dimensions
-            let finalImageBuffer = imageBuffer;
-            let finalImageWidth = page.imageWidth;
-            let finalImageHeight = page.imageHeight;
-
-            if (page.originalPageWidth && page.originalPageHeight &&
-                (page.imageWidth !== page.originalPageWidth || page.imageHeight !== page.originalPageHeight)) {
-                try {
-                    const scaleX = page.originalPageWidth / page.imageWidth;
-                    const scaleY = page.originalPageHeight / page.imageHeight;
-                    const newWidth = Math.round(page.originalPageWidth);
-                    const newHeight = Math.round(page.originalPageHeight);
-
-                    debugLog(`Resizing image from ${page.imageWidth}x${page.imageHeight} to ${newWidth}x${newHeight} (scale: ${scaleX.toFixed(3)} x ${scaleY.toFixed(3)})`);
-
-                    // Use ImageMagick to resize the PNG
-                    const tempImagePath = join(tempDir, `${sessionId}-resize-${i}.png`);
-                    const resizedImagePath = join(tempDir, `${sessionId}-resized-${i}.png`);
-
-                    writeFileSync(tempImagePath, imageBuffer);
-                    execSync(`convert "${tempImagePath}" -resize ${newWidth}x${newHeight}! "${resizedImagePath}"`, {
-                        encoding: 'utf-8',
-                        stdio: 'pipe',
-                    });
-
-                    finalImageBuffer = readFileSync(resizedImagePath);
-                    finalImageWidth = newWidth;
-                    finalImageHeight = newHeight;
-
-                    debugLog(`Image resized successfully: ${finalImageBuffer.length} bytes`);
-
-                    // Cleanup temp files
-                    try { unlinkSync(tempImagePath); } catch {}
-                    try { unlinkSync(resizedImagePath); } catch {}
-                } catch (resizeErr) {
-                    debugLog(`Warning: Failed to resize image, using original: ${resizeErr}`);
-                    // Fall through to use original image
-                }
-            }
-
             try {
-                const result = await runOcrWithBoundingBoxes(
-                    finalImageBuffer,
-                    page.languages,
-                    finalImageWidth,
-                    finalImageHeight,
-                );
-                debugLog(`runOcrWithBoundingBoxes result: success=${result.success}, words=${result.pageData?.words.length}, error=${result.error}`);
+                // Extract page image from source PDF using pdftoppm at 150 DPI for good quality
+                // 150 DPI gives us ~2.1x scale on standard letter-size pages
+                const pageImagePath = join(tempDir, `${sessionId}-page-${page.pageNumber}.png`);
+                debugLog(`Extracting page ${page.pageNumber} from PDF to ${pageImagePath}`);
 
-                if (result.success && result.pageData) {
-                    ocrPageData.push({
-                        pageNumber: page.pageNumber,
-                        words: result.pageData.words,
-                        imageWidth: result.pageData.pageWidth,
-                        imageHeight: result.pageData.pageHeight,
+                // pdftoppm: -png output as PNG, -singlefile output single file (not -001, -002, etc), -f/-l first/last page
+                execSync(`pdftoppm -png -r 150 -f ${page.pageNumber} -l ${page.pageNumber} -singlefile "${originalPdfPath}" "${pageImagePath.replace(/\.png$/, '')}"`, {
+                    encoding: 'utf-8',
+                    stdio: 'pipe',
+                });
+
+                const imageBuffer = readFileSync(pageImagePath);
+                debugLog(`Extracted page image: ${imageBuffer.length} bytes`);
+
+                // Measure the extracted image dimensions to pass to Tesseract
+                // pdftoppm creates images at the exact page size, but we need to tell Tesseract the dimensions
+                // We'll use imagemagick to get the dimensions
+                const identifyOutput = execSync(`identify -format "%wx%h" "${pageImagePath}"`, {
+                    encoding: 'utf-8',
+                }).trim();
+                const [widthStr, heightStr] = identifyOutput.split('x');
+                const imageWidth = parseInt(widthStr, 10);
+                const imageHeight = parseInt(heightStr, 10);
+                debugLog(`Page image dimensions: ${imageWidth}x${imageHeight}`);
+
+                try {
+                    const result = await runOcrWithBoundingBoxes(
                         imageBuffer,
-                        languages: page.languages,
-                        originalPageWidth: page.originalPageWidth,
-                        originalPageHeight: page.originalPageHeight,
-                    });
-                } else {
-                    errors.push(`Page ${page.pageNumber}: ${result.error}`);
+                        page.languages,
+                        imageWidth,
+                        imageHeight,
+                    );
+                    debugLog(`runOcrWithBoundingBoxes result: success=${result.success}, words=${result.pageData?.words.length}, error=${result.error}`);
+
+                    if (result.success && result.pageData) {
+                        ocrPageData.push({
+                            pageNumber: page.pageNumber,
+                            words: result.pageData.words,
+                            imageWidth: result.pageData.pageWidth,
+                            imageHeight: result.pageData.pageHeight,
+                            imageBuffer,
+                            languages: page.languages,
+                        });
+                    } else {
+                        errors.push(`Page ${page.pageNumber}: ${result.error}`);
+                    }
+                } catch (err) {
+                    const errMsg = err instanceof Error ? err.message : String(err);
+                    debugLog(`runOcrWithBoundingBoxes threw: ${errMsg}`);
+                    errors.push(`Page ${page.pageNumber}: ${errMsg}`);
+                } finally {
+                    // Cleanup extracted page image
+                    try { unlinkSync(pageImagePath); } catch {}
                 }
             } catch (err) {
                 const errMsg = err instanceof Error ? err.message : String(err);
-                debugLog(`runOcrWithBoundingBoxes threw: ${errMsg}`);
-                errors.push(`Page ${page.pageNumber}: ${errMsg}`);
+                debugLog(`Failed to extract page ${page.pageNumber}: ${errMsg}`);
+                errors.push(`Failed to extract page ${page.pageNumber}: ${errMsg}`);
             }
         }
 
@@ -228,8 +229,6 @@ async function handleOcrCreateSearchablePdf(
         }
 
         // Generate searchable Tesseract PDF for EACH OCR'd page
-        const tempDir = app.getPath('temp');
-        const sessionId = `merge-${Date.now()}-${Math.random().toString(36).slice(2)}`;
         const ocrPdfMap: Map<number, string> = new Map(); // pageNumber -> path to OCR PDF
 
         try {
@@ -266,19 +265,6 @@ async function handleOcrCreateSearchablePdf(
             }
 
             debugLog(`Successfully generated ${ocrPdfMap.size} OCR PDF(s)`);
-
-            // Write original PDF to temp file and extract all pages
-            const originalPdfBytes = new Uint8Array(originalPdfData);
-            const originalPdfPath = join(tempDir, `${sessionId}-original.pdf`);
-            writeFileSync(originalPdfPath, originalPdfBytes);
-            const writtenFileSize = readFileSync(originalPdfPath).length;
-            debugLog(`Wrote original PDF to ${originalPdfPath}, size: ${writtenFileSize} bytes (expected: ${originalPdfData.length})`);
-            if (writtenFileSize !== originalPdfData.length) {
-                const errMsg = `PDF file size mismatch: wrote ${writtenFileSize} bytes but expected ${originalPdfData.length}`;
-                debugLog(`ERROR: ${errMsg}`);
-                errors.push(errMsg);
-                return { success: false, pdfData: null, errors };
-            }
 
             try {
                 // Use qpdf for efficient page substitution (no need to extract all pages)
@@ -364,10 +350,30 @@ async function handleOcrCreateSearchablePdf(
                 const mergedPdfBuffer = readFileSync(mergedPdfPath);
                 debugLog(`Merged PDF size: ${mergedPdfBuffer.length} bytes`);
 
+                // Save search index for OCR'd pages
+                try {
+                    const indexPageData = ocrPageData.map(pd => ({
+                        pageNumber: pd.pageNumber,
+                        words: pd.words,
+                        pageWidth: pd.imageWidth,
+                        pageHeight: pd.imageHeight,
+                    }));
+
+                    // Save index to working copy path if provided, otherwise to original path
+                    // The index file will be: /working/copy/path/file.pdf.index.json or /original/path/file.pdf.index.json
+                    const indexPath = workingCopyPath || originalPdfPath;
+                    await saveOcrIndex(indexPath, indexPageData);
+                    debugLog(`Search index saved for OCR'd PDF at ${indexPath}.index.json`);
+                } catch (indexErr) {
+                    const indexErrMsg = indexErr instanceof Error ? indexErr.message : String(indexErr);
+                    debugLog(`Warning: Failed to save search index: ${indexErrMsg}`);
+                    // Non-blocking - don't fail OCR if index save fails
+                }
+
                 // For large PDFs (>50MB), save to temp file and return path instead of trying to serialize huge array
                 if (mergedPdfBuffer.length > 50 * 1024 * 1024) {
                     const resultPath = join(tempDir, `ocr-result-${sessionId}.pdf`);
-                    writeFileSync(resultPath, mergedPdfBuffer);
+                    // File already written above
                     debugLog(`Large PDF saved to temp file: ${resultPath}`);
                     return {
                         success: true,

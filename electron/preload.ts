@@ -8,11 +8,17 @@ import type {
     IMenuEventUnsubscribe,
 } from 'electron/ipc-types';
 
+// Set up debug log forwarding from main process to console
+ipcRenderer.on('debug:log', (_event: IpcRendererEvent, data: { source: string; message: string; timestamp: string }) => {
+    console.log(`[${data.timestamp}] [${data.source}] ${data.message}`);
+});
+
 contextBridge.exposeInMainWorld('electronAPI', {
     openPdfDialog: () => ipcRenderer.invoke('dialog:openPdf'),
     openPdfDirect: (path: string) => ipcRenderer.invoke('dialog:openPdfDirect', path),
     readFile: (path: string) => ipcRenderer.invoke('file:read', path),
     writeFile: (path: string, data: Uint8Array) => ipcRenderer.invoke('file:write', path, data),
+    saveFile: (path: string) => ipcRenderer.invoke('file:save', path),
     setWindowTitle: (title: string) => ipcRenderer.invoke('window:setTitle', title),
 
     onMenuOpenPdf: (callback: IMenuEventCallback): IMenuEventUnsubscribe => {
@@ -74,14 +80,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
         originalPdfData: number[],
         pages: Array<{
             pageNumber: number;
-            imageData: number[];
             languages: string[];
-            dpi: number;
-            imageWidth: number;
-            imageHeight: number;
         }>,
         requestId: string,
-    ) => ipcRenderer.invoke('ocr:createSearchablePdf', originalPdfData, pages, requestId),
+        workingCopyPath?: string,
+    ) => ipcRenderer.invoke('ocr:createSearchablePdf', originalPdfData, pages, requestId, workingCopyPath),
 
     onOcrProgress: (callback: (progress: {
         requestId: string;
@@ -98,6 +101,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
         ipcRenderer.on('ocr:progress', handler);
         return () => ipcRenderer.removeListener('ocr:progress', handler);
     },
+
+    // Search API
+    pdfSearch: (pdfPath: string, query: string) => ipcRenderer.invoke('pdf:search', { pdfPath, query }),
 
     // Preprocessing API
     preprocessing: {
