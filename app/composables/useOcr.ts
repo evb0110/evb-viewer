@@ -284,13 +284,26 @@ export const useOcr = () => {
                 error.value = response.errors.join('; ');
             }
 
-            if (response.success && response.pdfData) {
-                console.log('[useOcr] OCR successful, PDF size:', response.pdfData.length);
+            if (response.success && (response.pdfData || response.pdfPath)) {
+                let pdfBytes: Uint8Array;
+
+                if (response.pdfPath) {
+                    // Large PDF saved to temp file - read it back
+                    console.log('[useOcr] OCR successful, reading from temp file:', response.pdfPath);
+                    const fileData = await api.readFile(response.pdfPath);
+                    pdfBytes = new Uint8Array(fileData);
+                    console.log('[useOcr] PDF size:', pdfBytes.length);
+                } else {
+                    // Small PDF returned directly as array
+                    console.log('[useOcr] OCR successful, PDF size:', response.pdfData.length);
+                    pdfBytes = new Uint8Array(response.pdfData);
+                }
+
                 results.value = {
                     pages: new Map(), // Text stored in PDF, not separately
                     languages: [...settings.value.selectedLanguages],
                     completedAt: Date.now(),
-                    searchablePdfData: new Uint8Array(response.pdfData),
+                    searchablePdfData: pdfBytes,
                 };
             } else if (!response.success) {
                 error.value = error.value || 'Failed to create searchable PDF';

@@ -37,6 +37,7 @@ pnpm electron:run stop
 | `start` | Start session (foreground, Ctrl+C to stop) |
 | `stop` | Stop running session |
 | `status` | Check session status and uptime |
+| `health` | Check app health (loaded, API availability, console logs) |
 | `screenshot [name]` | Take screenshot → `.devkit/screenshots/<name>.png` |
 | `console [level]` | Get console messages (all\|log\|warn\|error) |
 | `run <code>` | Run Puppeteer code |
@@ -130,12 +131,27 @@ pnpm electron:run stop
 
 ## Console Messages
 
-Read browser console output:
+Console logs are captured automatically and printed in real-time when the session starts. Health check messages (prefixed with `[HEALTH CHECK]`) appear immediately after app hydration.
+
+Read stored browser console output:
 ```bash
 pnpm electron:run console          # All messages
 pnpm electron:run console error    # Only errors
 pnpm electron:run console warn     # Only warnings
 ```
+
+Check app health and console status:
+```bash
+pnpm electron:run health           # Returns app state and console message count
+```
+
+This returns:
+- `bodyExists` - Document body loaded
+- `openFileDirect` - PDF opening function availability
+- `electronAPI` - Electron bridge availability
+- `title` - Page title
+- `url` - Current page URL
+- `consoleCount` - Total messages captured
 
 ## Screenshots
 

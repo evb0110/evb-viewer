@@ -284,9 +284,22 @@ async function handleOcrCreateSearchablePdf(
                     return { success: false, pdfData: null, errors: ['No pages to merge'] };
                 }
 
-                // Read and return merged PDF
+                // Read merged PDF
                 const mergedPdfBuffer = readFileSync(mergedPdfPath);
                 debugLog(`Merged PDF size: ${mergedPdfBuffer.length} bytes`);
+
+                // For large PDFs (>50MB), save to temp file and return path instead of trying to serialize huge array
+                if (mergedPdfBuffer.length > 50 * 1024 * 1024) {
+                    const resultPath = join(tempDir, `ocr-result-${sessionId}.pdf`);
+                    writeFileSync(resultPath, mergedPdfBuffer);
+                    debugLog(`Large PDF saved to temp file: ${resultPath}`);
+                    return {
+                        success: true,
+                        pdfData: null,
+                        pdfPath: resultPath,
+                        errors,
+                    };
+                }
 
                 return {
                     success: true,

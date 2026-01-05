@@ -180,11 +180,15 @@ async function startSession() {
     // Setup console capture
     const consoleMessages: ISessionState['consoleMessages'] = [];
     page.on('console', (msg) => {
-        consoleMessages.push({
+        const entry = {
             type: msg.type(),
             text: msg.text(),
             timestamp: Date.now(),
-        });
+        };
+        consoleMessages.push(entry);
+        // Log immediately to console for visibility
+        const timestamp = new Date(entry.timestamp).toISOString().split('T')[1];
+        console.log(`[${entry.type.toUpperCase()}] ${entry.text}`);
         if (consoleMessages.length > 100) consoleMessages.shift();
     });
 
@@ -340,6 +344,19 @@ async function handleCommand(command: string, args: unknown[]): Promise<unknown>
             return { opened: pdfPath };
         }
 
+        case 'health': {
+            const health = await page.evaluate(() => {
+                return {
+                    bodyExists: document.body !== null,
+                    openFileDirect: typeof (window as any).__openFileDirect,
+                    electronAPI: typeof (window as any).electronAPI,
+                    title: document.title,
+                    url: window.location.href,
+                };
+            });
+            return { health, consoleCount: consoleMessages.length };
+        }
+
         default:
             throw new Error(`Unknown command: ${command}`);
     }
@@ -430,6 +447,7 @@ Session:
   status              Check if session is running
 
 Commands (require running session):
+  health              Check app health status (loaded, API availability)
   screenshot [name]   Take screenshot → .devkit/screenshots/<name>.png
   console [level]     Get console messages (all|log|warn|error)
   run <code>          Run Puppeteer code (access: page, screenshot)
@@ -533,6 +551,12 @@ Examples:
                     process.exit(1);
                 }
                 const result = await sendCommand('openPdf', [pdfPath]);
+                console.log(JSON.stringify(result, null, 2));
+                break;
+            }
+
+            case 'health': {
+                const result = await sendCommand('health');
                 console.log(JSON.stringify(result, null, 2));
                 break;
             }
