@@ -6,10 +6,10 @@ import {
 } from 'electron';
 import { appendFileSync, writeFileSync, readFileSync } from 'fs';
 import { join } from 'path';
-import { embedOcrLayers, type IOcrPageWithWords } from './pdf-merger';
 import {
     runOcr,
     runOcrWithBoundingBoxes,
+    generateSearchablePdfDirect,
 } from './tesseract';
 import {
     preprocessPageForOcr,
@@ -183,21 +183,36 @@ async function handleOcrCreateSearchablePdf(
             return { success: false, pdfData: null, errors };
         }
 
-        // Embed OCR text into original PDF
-        const originalPdfBytes = new Uint8Array(originalPdfData);
-        debugLog(`Calling embedOcrLayers with ${ocrPageData.length} pages`);
-        const { pdf: searchablePdf, embedded, error: embedError } = await embedOcrLayers(originalPdfBytes, ocrPageData);
-        debugLog(`embedOcrLayers completed, PDF size: ${searchablePdf.length} bytes, embedded=${embedded}`);
+        // Use Tesseract to generate searchable PDF directly
+        // This is more robust than trying to embed text into the original PDF
+        const firstPage = ocrPageData[0];
+        debugLog(`Using Tesseract native PDF generation for page ${firstPage.pageNumber}`);
 
-        if (embedError) {
-            errors.push(embedError);
+        try {
+            const result = await generateSearchablePdfDirect(
+                firstPage.imageBuffer!,
+                firstPage.languages!,
+            );
+
+            if (result.success && result.pdfBuffer) {
+                debugLog(`Tesseract PDF generated successfully: ${result.pdfBuffer.length} bytes`);
+                return {
+                    success: true,
+                    pdfData: Array.from(result.pdfBuffer),
+                    errors,
+                };
+            } else {
+                const msg = `Tesseract PDF generation failed: ${result.error}`;
+                debugLog(msg);
+                errors.push(msg);
+                return { success: false, pdfData: null, errors };
+            }
+        } catch (err) {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            debugLog(`Tesseract PDF generation threw: ${errMsg}`);
+            errors.push(`PDF generation failed: ${errMsg}`);
+            return { success: false, pdfData: null, errors };
         }
-
-        return {
-            success: embedded,  // Only true if text was actually embedded
-            pdfData: Array.from(searchablePdf),
-            errors,
-        };
     } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
         const errStack = err instanceof Error ? err.stack : '';
