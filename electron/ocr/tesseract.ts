@@ -218,7 +218,6 @@ export async function generateSearchablePdfDirect(
 export async function runOcrWithBoundingBoxes(
     imageBuffer: Buffer,
     languages: string[],
-    imageDpi: number,
     imageWidth: number,
     imageHeight: number,
 ): Promise<{
@@ -226,7 +225,7 @@ export async function runOcrWithBoundingBoxes(
     pageData: IOcrPageData | null;
     error?: string 
 }> {
-    debugLog(`runOcrWithBoundingBoxes started: langs=${languages.join(',')}, dpi=${imageDpi}`);
+    debugLog(`runOcrWithBoundingBoxes started: langs=${languages.join(',')}`);
 
     const {
         binary,

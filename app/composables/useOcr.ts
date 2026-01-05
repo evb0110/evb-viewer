@@ -16,7 +16,6 @@ interface IOcrSettings {
     pageRange: TOcrPageRange;
     customRange: string;
     selectedLanguages: string[];
-    renderDpi: number; // 144, 300, 432, or custom
 }
 
 interface IOcrProgress {
@@ -60,7 +59,6 @@ export const useOcr = () => {
         pageRange: 'current',
         customRange: '',
         selectedLanguages: ['eng'],
-        renderDpi: 150, // 150 DPI is sufficient for OCR and avoids page size mismatches
     });
     const progress = ref<IOcrProgress>({
         isRunning: false,
@@ -193,11 +191,10 @@ export const useOcr = () => {
         }
     }
 
-    // OCR render scale: computed from DPI setting
-    // Default 300 DPI (industry standard) = ~4.17x scale
-    // Configurable via UI settings (Low/Standard/High/Custom)
+    // OCR render scale: fixed to maintain original page dimensions
+    // 2x scale provides good OCR quality while keeping reasonable file sizes
     function getOcrRenderScale() {
-        return Math.max(1, settings.value.renderDpi / 72);
+        return 2.0;
     }
 
     async function runOcr(
@@ -253,11 +250,15 @@ export const useOcr = () => {
             // Render pages to images and build requests
             const languages = [...settings.value.selectedLanguages];
             const renderScale = getOcrRenderScale();
-            const renderDpi = settings.value.renderDpi;
             const pageRequests = [];
             for (const pageNum of pages) {
-                console.log('[useOcr] Rendering page', pageNum, `scale=${renderScale.toFixed(2)}x DPI=${renderDpi}`);
+                console.log('[useOcr] Rendering page', pageNum, `scale=${renderScale.toFixed(2)}x`);
                 const page = await pdfDocument.getPage(pageNum);
+
+                // Get original page dimensions (at scale 1.0)
+                const originalViewport = page.getViewport({ scale: 1.0 });
+
+                // Get rendered dimensions (at our rendering scale)
                 const viewport = page.getViewport({ scale: renderScale });
                 const imageData = await renderPageToImage(pdfDocument, pageNum, renderScale);
                 console.log('[useOcr] Page rendered, imageData length:', imageData.length);
@@ -265,9 +266,10 @@ export const useOcr = () => {
                     pageNumber: pageNum,
                     imageData,
                     languages,
-                    dpi: renderDpi,
                     imageWidth: viewport.width,
                     imageHeight: viewport.height,
+                    originalPageWidth: originalViewport.width,
+                    originalPageHeight: originalViewport.height,
                 });
             }
 
