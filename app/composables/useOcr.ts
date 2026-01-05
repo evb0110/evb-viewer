@@ -60,7 +60,7 @@ export const useOcr = () => {
         pageRange: 'current',
         customRange: '',
         selectedLanguages: ['eng'],
-        renderDpi: 300, // Industry standard (288 DPI ≈ 300 DPI)
+        renderDpi: 150, // 150 DPI is sufficient for OCR and avoids page size mismatches
     });
     const progress = ref<IOcrProgress>({
         isRunning: false,
