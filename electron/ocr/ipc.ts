@@ -4,8 +4,9 @@ import {
     ipcMain,
     app,
 } from 'electron';
-import { appendFileSync, writeFileSync, readFileSync } from 'fs';
+import { appendFileSync, writeFileSync, readFileSync, unlinkSync } from 'fs';
 import { join } from 'path';
+import { execSync } from 'child_process';
 import {
     runOcr,
     runOcrWithBoundingBoxes,
@@ -183,34 +184,132 @@ async function handleOcrCreateSearchablePdf(
             return { success: false, pdfData: null, errors };
         }
 
-        // Use Tesseract to generate searchable PDF directly
-        // This is more robust than trying to embed text into the original PDF
-        const firstPage = ocrPageData[0];
-        debugLog(`Using Tesseract native PDF generation for page ${firstPage.pageNumber}`);
+        // Generate searchable Tesseract PDF for EACH OCR'd page
+        const tempDir = app.getPath('temp');
+        const sessionId = `merge-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const ocrPdfMap: Map<number, string> = new Map(); // pageNumber -> path to OCR PDF
 
         try {
-            const result = await generateSearchablePdfDirect(
-                firstPage.imageBuffer!,
-                firstPage.languages!,
-            );
+            debugLog(`Generating Tesseract PDF for ${ocrPageData.length} OCR'd page(s)`);
 
-            if (result.success && result.pdfBuffer) {
-                debugLog(`Tesseract PDF generated successfully: ${result.pdfBuffer.length} bytes`);
+            for (const pageData of ocrPageData) {
+                debugLog(`Generating Tesseract PDF for page ${pageData.pageNumber}`);
+
+                try {
+                    const result = await generateSearchablePdfDirect(
+                        pageData.imageBuffer!,
+                        pageData.languages!,
+                    );
+
+                    if (result.success && result.pdfBuffer) {
+                        const ocrPdfPath = join(tempDir, `${sessionId}-ocr-page-${pageData.pageNumber}.pdf`);
+                        writeFileSync(ocrPdfPath, result.pdfBuffer);
+                        ocrPdfMap.set(pageData.pageNumber, ocrPdfPath);
+                        debugLog(`Saved OCR PDF for page ${pageData.pageNumber}: ${result.pdfBuffer.length} bytes`);
+                    } else {
+                        errors.push(`Failed to generate PDF for page ${pageData.pageNumber}: ${result.error}`);
+                        debugLog(`Tesseract PDF generation failed for page ${pageData.pageNumber}: ${result.error}`);
+                    }
+                } catch (err) {
+                    const errMsg = err instanceof Error ? err.message : String(err);
+                    errors.push(`Error generating PDF for page ${pageData.pageNumber}: ${errMsg}`);
+                    debugLog(`Exception generating PDF for page ${pageData.pageNumber}: ${errMsg}`);
+                }
+            }
+
+            if (ocrPdfMap.size === 0) {
+                debugLog(`No OCR PDFs generated successfully`);
+                return { success: false, pdfData: null, errors };
+            }
+
+            debugLog(`Successfully generated ${ocrPdfMap.size} OCR PDF(s)`);
+
+            // Write original PDF to temp file and extract all pages
+            const originalPdfBytes = new Uint8Array(originalPdfData);
+            const originalPdfPath = join(tempDir, `${sessionId}-original.pdf`);
+            writeFileSync(originalPdfPath, originalPdfBytes);
+            debugLog(`Wrote original PDF to ${originalPdfPath}`);
+
+            try {
+                // Extract all pages from original PDF
+                debugLog(`Extracting all pages from original PDF`);
+                execSync(`pdfseparate ${originalPdfPath} ${tempDir}/${sessionId}-orig-page-%d.pdf 2>/dev/null`, {
+                    encoding: 'utf-8',
+                    stdio: 'pipe',
+                });
+
+                // Get all original pages
+                const originalPages = execSync(`ls -1 ${tempDir}/${sessionId}-orig-page-*.pdf 2>/dev/null | sort -V`, {
+                    encoding: 'utf-8',
+                    shell: '/bin/bash',
+                }).trim().split('\n').filter(Boolean);
+
+                debugLog(`Extracted ${originalPages.length} pages from original PDF`);
+
+                // Build final page list: use OCR'd pages where available, original pages otherwise
+                const finalPageFiles: string[] = [];
+                const pageNumbers = new Set([...ocrPdfMap.keys()]);
+
+                for (let i = 0; i < originalPages.length; i++) {
+                    const pageNum = i + 1;
+                    if (pageNumbers.has(pageNum)) {
+                        // Use OCR'd version
+                        const ocrPath = ocrPdfMap.get(pageNum);
+                        if (ocrPath) {
+                            finalPageFiles.push(ocrPath);
+                            debugLog(`Page ${pageNum}: using OCR'd version`);
+                        }
+                    } else {
+                        // Use original version
+                        finalPageFiles.push(originalPages[i]!);
+                        debugLog(`Page ${pageNum}: using original version`);
+                    }
+                }
+
+                debugLog(`Final merge will combine ${finalPageFiles.length} pages`);
+
+                // Merge all pages using pdfunite
+                const mergedPdfPath = join(tempDir, `${sessionId}-merged.pdf`);
+                if (finalPageFiles.length > 1) {
+                    const cmd = `pdfunite ${finalPageFiles.join(' ')} ${mergedPdfPath}`;
+                    debugLog(`Running merge command with ${finalPageFiles.length} files`);
+                    execSync(cmd, { encoding: 'utf-8' });
+                    debugLog(`Merged pages successfully`);
+                } else if (finalPageFiles.length === 1) {
+                    // Single page, just copy it
+                    const content = readFileSync(finalPageFiles[0]!);
+                    writeFileSync(mergedPdfPath, content);
+                    debugLog(`Single page, copied directly`);
+                } else {
+                    return { success: false, pdfData: null, errors: ['No pages to merge'] };
+                }
+
+                // Read and return merged PDF
+                const mergedPdfBuffer = readFileSync(mergedPdfPath);
+                debugLog(`Merged PDF size: ${mergedPdfBuffer.length} bytes`);
+
                 return {
                     success: true,
-                    pdfData: Array.from(result.pdfBuffer),
-                    errors,
+                    pdfData: Array.from(mergedPdfBuffer),
+                    errors: errors.length > 0 ? errors : undefined,
                 };
-            } else {
-                const msg = `Tesseract PDF generation failed: ${result.error}`;
-                debugLog(msg);
-                errors.push(msg);
+
+            } catch (mergeErr) {
+                const mergeMsg = mergeErr instanceof Error ? mergeErr.message : String(mergeErr);
+                debugLog(`PDF merge failed: ${mergeMsg}`);
+                errors.push(`PDF merge failed: ${mergeMsg}`);
                 return { success: false, pdfData: null, errors };
+            } finally {
+                // Cleanup temp files
+                try {
+                    execSync(`rm -f ${tempDir}/${sessionId}-*.pdf 2>/dev/null`);
+                    debugLog(`Cleaned up temp files`);
+                } catch {}
             }
         } catch (err) {
             const errMsg = err instanceof Error ? err.message : String(err);
-            debugLog(`Tesseract PDF generation threw: ${errMsg}`);
-            errors.push(`PDF generation failed: ${errMsg}`);
+            debugLog(`Error in page substitution: ${errMsg}`);
+            errors.push(`Page substitution failed: ${errMsg}`);
             return { success: false, pdfData: null, errors };
         }
     } catch (err) {

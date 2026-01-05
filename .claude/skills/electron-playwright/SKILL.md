@@ -44,6 +44,7 @@ pnpm electron:run stop
 | `click <selector>` | Click element |
 | `type <sel> <text>` | Type into element |
 | `content <selector>` | Get text content |
+| `openPdf <path>` | Open PDF by absolute path (waits for load) |
 
 ## The `run` Command
 
@@ -92,6 +93,39 @@ pnpm electron:run run "await screenshot('before'); await page.click('button'); a
 ```bash
 pnpm electron:run eval "document.querySelector('button').click()"
 pnpm electron:run eval "window.electronAPI"
+```
+
+## Opening PDFs Programmatically
+
+Use the `openPdf` command to load a PDF file by absolute path:
+
+```bash
+pnpm electron:run openPdf "/absolute/path/to/document.pdf"
+```
+
+The command:
+1. Validates the file exists and is a PDF
+2. Calls `window.__openFileDirect()` to load it
+3. Waits for the PDF viewer to render (30s timeout)
+4. Returns when the PDF is fully loaded
+
+**Complete example workflow:**
+```bash
+# Start session
+pnpm electron:run start &
+sleep 2
+
+# Open a PDF
+pnpm electron:run openPdf "/Users/evb/WebstormProjects/electron-nuxt/.devkit/test-pdfs/dictionary.pdf"
+
+# Take screenshot to verify
+pnpm electron:run screenshot "pdf-loaded"
+
+# You can now interact with the loaded PDF
+pnpm electron:run run "return await page.evaluate(() => document.querySelector('[id=\"pdf-viewer\"]') ? 'PDF loaded' : 'PDF not found')"
+
+# Stop when done
+pnpm electron:run stop
 ```
 
 ## Console Messages

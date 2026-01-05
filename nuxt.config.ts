@@ -97,6 +97,7 @@ export default defineNuxtConfig({
                 'destr',
                 'scule',
                 '@vue/devtools-api',
+                '@iconify/vue',
             ],
             exclude: ['pdfjs-dist'],
         },

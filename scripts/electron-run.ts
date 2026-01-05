@@ -327,6 +327,19 @@ async function handleCommand(command: string, args: unknown[]): Promise<unknown>
             return { viewport };
         }
 
+        case 'openPdf': {
+            const pdfPath = args[0] as string;
+            if (!pdfPath) throw new Error('PDF path required');
+            await page.evaluate((path: string) => {
+                return (window as any).__openFileDirect(path);
+            }, pdfPath);
+            // Wait for PDF to load (check for pdf-viewer element and no loading state)
+            await page.waitForSelector('[id="pdf-viewer"]', { timeout: 30000 });
+            // Give it a moment to finish rendering
+            await new Promise(r => setTimeout(r, 500));
+            return { opened: pdfPath };
+        }
+
         default:
             throw new Error(`Unknown command: ${command}`);
     }
@@ -424,10 +437,12 @@ Commands (require running session):
   click <selector>    Click element
   type <sel> <text>   Type into element
   content <selector>  Get text content
+  openPdf <path>      Open PDF file by absolute path
 
 Examples:
   pnpm electron:run start
   pnpm electron:run screenshot "home"
+  pnpm electron:run openPdf "/path/to/document.pdf"
   pnpm electron:run click "text=Open PDF"
   pnpm electron:run run "await page.click('button'); return await page.title()"
   pnpm electron:run console error
@@ -507,6 +522,17 @@ Examples:
                     process.exit(1);
                 }
                 const result = await sendCommand('eval', [code]);
+                console.log(JSON.stringify(result, null, 2));
+                break;
+            }
+
+            case 'openPdf': {
+                const pdfPath = args[0];
+                if (!pdfPath) {
+                    console.error('PDF path required');
+                    process.exit(1);
+                }
+                const result = await sendCommand('openPdf', [pdfPath]);
                 console.log(JSON.stringify(result, null, 2));
                 break;
             }
