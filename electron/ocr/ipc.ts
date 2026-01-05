@@ -228,7 +228,14 @@ async function handleOcrCreateSearchablePdf(
             const originalPdfBytes = new Uint8Array(originalPdfData);
             const originalPdfPath = join(tempDir, `${sessionId}-original.pdf`);
             writeFileSync(originalPdfPath, originalPdfBytes);
-            debugLog(`Wrote original PDF to ${originalPdfPath}`);
+            const writtenFileSize = readFileSync(originalPdfPath).length;
+            debugLog(`Wrote original PDF to ${originalPdfPath}, size: ${writtenFileSize} bytes (expected: ${originalPdfData.length})`);
+            if (writtenFileSize !== originalPdfData.length) {
+                const errMsg = `PDF file size mismatch: wrote ${writtenFileSize} bytes but expected ${originalPdfData.length}`;
+                debugLog(`ERROR: ${errMsg}`);
+                errors.push(errMsg);
+                return { success: false, pdfData: null, errors };
+            }
 
             try {
                 // Use qpdf for efficient page substitution (no need to extract all pages)
@@ -287,8 +294,21 @@ async function handleOcrCreateSearchablePdf(
                     debugLog(`Using qpdf for efficient page substitution`);
                     debugLog(`qpdf command: ${qpdfCmd}`);
 
-                    execSync(qpdfCmd, { encoding: 'utf-8', stdio: 'pipe' });
-                    debugLog(`qpdf substitution completed successfully`);
+                    try {
+                        execSync(qpdfCmd, { encoding: 'utf-8', stdio: 'pipe' });
+                        debugLog(`qpdf substitution completed successfully`);
+                    } catch (execErr) {
+                        // qpdf returns exit code 3 for "operation succeeded with warnings"
+                        // The file is still created successfully in this case
+                        const execErrMsg = execErr instanceof Error ? execErr.message : String(execErr);
+                        if (execErr instanceof Error && 'status' in execErr && execErr.status === 3) {
+                            debugLog(`qpdf completed with exit code 3 (warnings, but file created successfully)`);
+                        } else if (execErrMsg.includes('succeeded with warnings')) {
+                            debugLog(`qpdf completed with warnings (normal for some PDFs)`);
+                        } else {
+                            throw execErr;
+                        }
+                    }
                 } catch (qpdfErr) {
                     // qpdf is required for efficient page substitution
                     const errMsg = qpdfErr instanceof Error ? qpdfErr.message : String(qpdfErr);
