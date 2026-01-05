@@ -389,8 +389,8 @@ function parseTsvOutput(tsvContent: string): IOcrWord[] {
 
         const left = parseInt(parts[6]!, 10);
         const top = parseInt(parts[7]!, 10);
-        const right = parseInt(parts[8]!, 10);
-        const bottom = parseInt(parts[9]!, 10);
+        const width = parseInt(parts[8]!, 10);
+        const height = parseInt(parts[9]!, 10);
         const confidence = parseInt(parts[10]!, 10);
         const text = parts[11] || '';
 
@@ -400,15 +400,15 @@ function parseTsvOutput(tsvContent: string): IOcrWord[] {
         if (confidence < 20) continue;
 
         // Skip if coordinates are invalid
-        if (left >= right || top >= bottom) continue;
+        if (width <= 0 || height <= 0) continue;
 
         // Create word object with exact coordinates
         words.push({
             text: text.trim(),
             x: left,
             y: top,
-            width: right - left,
-            height: bottom - top,
+            width,
+            height,
         });
     }
 
