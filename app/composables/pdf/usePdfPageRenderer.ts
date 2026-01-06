@@ -417,7 +417,15 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                                                 let matchCount = 0;
                                                 textItems.forEach((item, idx) => {
                                                     const itemLower = item.text.toLowerCase();
-                                                    const matches = itemLower.includes(searchQueryLower);
+
+                                                    // Try direct match first
+                                                    let matches = itemLower.includes(searchQueryLower);
+
+                                                    // If no match, try with spaces removed (for spaced-out letters like "r a b i c")
+                                                    if (!matches) {
+                                                        const itemWithoutSpaces = itemLower.replace(/\s+/g, '');
+                                                        matches = itemWithoutSpaces.includes(searchQueryLower);
+                                                    }
 
                                                     if (matches) {
                                                         matchCount++;
@@ -428,7 +436,9 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                                                             BrowserLogger.debug('PAGE-RENDERER', `Page ${pageIndex + 1}: Match ${matchCount}:`, {
                                                                 itemText: item.text,
                                                                 itemLower,
-                                                                includes: searchQueryLower,
+                                                                itemWithoutSpaces: itemLower.replace(/\s+/g, ''),
+                                                                searchQuery: searchQueryLower,
+                                                                matchType: itemLower.includes(searchQueryLower) ? 'direct' : 'spaceNormalized',
                                                                 itemCoords: { x: item.x, y: item.y, w: item.width, h: item.height },
                                                             });
                                                         }
