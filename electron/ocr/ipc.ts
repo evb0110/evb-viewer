@@ -139,6 +139,7 @@ async function handleOcrRecognizeBatch(
 
     for (let i = 0; i < pages.length; i++) {
         const page = pages[i];
+        if (!page) continue;
 
         // Send progress update
         window?.webContents.send('ocr:progress', {
@@ -208,6 +209,7 @@ async function handleOcrCreateSearchablePdf(
 
         for (let i = 0; i < pages.length; i++) {
             const page = pages[i];
+            if (!page) continue;
             debugLog(`Processing page ${page.pageNumber}`);
 
             // Send progress update
@@ -241,8 +243,8 @@ async function handleOcrCreateSearchablePdf(
                     widthStr,
                     heightStr,
                 ] = identifyOutput.split('x');
-                const imageWidth = parseInt(widthStr, 10);
-                const imageHeight = parseInt(heightStr, 10);
+                const imageWidth = parseInt(widthStr ?? '0', 10);
+                const imageHeight = parseInt(heightStr ?? '0', 10);
                 debugLog(`Page image dimensions: ${imageWidth}x${imageHeight}`);
 
                 try {
@@ -357,24 +359,26 @@ async function handleOcrCreateSearchablePdf(
                     return {
                         success: false,
                         pdfData: null,
-                        errors: ['No OCR pages to process'], 
+                        errors: ['No OCR pages to process'],
                     };
+                }
+
+                // Get page count from original PDF using qpdf --show-npages
+                // Declared outside try block so it's accessible for saveOcrIndex later
+                let pageCount = 0;
+                try {
+                    const pageCountOutput = execSync(`qpdf --show-npages ${originalPdfPath}`, {encoding: 'utf-8'}).trim();
+                    pageCount = parseInt(pageCountOutput, 10);
+                    debugLog(`Original PDF has ${pageCount} pages`);
+                } catch (err) {
+                    debugLog(`Failed to get page count, using fallback: ${err}`);
+                    pageCount = 9999; // Fallback: use large number
                 }
 
                 try {
                     // Build qpdf command for intelligent substitution
                     // Strategy: Use OCR'd pages where available, original pages otherwise
                     // Note: qpdf --pages syntax is: file1 page-spec file2 page-spec ...
-                    // Get page count from original PDF using qpdf --show-npages
-                    let pageCount = 0;
-                    try {
-                        const pageCountOutput = execSync(`qpdf --show-npages ${originalPdfPath}`, {encoding: 'utf-8'}).trim();
-                        pageCount = parseInt(pageCountOutput, 10);
-                        debugLog(`Original PDF has ${pageCount} pages`);
-                    } catch (err) {
-                        debugLog(`Failed to get page count, using fallback: ${err}`);
-                        pageCount = 9999; // Fallback: use large number
-                    }
 
                     const pageSpecs: string[] = [];
                     let lastPage = 0;

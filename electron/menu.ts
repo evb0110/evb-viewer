@@ -1,4 +1,7 @@
-import type {MenuItemConstructorOptions} from 'electron';
+import type {
+    BaseWindow,
+    MenuItemConstructorOptions,
+} from 'electron';
 import {
     app,
     BrowserWindow,
@@ -6,6 +9,12 @@ import {
     shell,
 } from 'electron';
 import { config } from '@electron/config';
+
+function sendToWindow(window: BaseWindow | undefined, channel: string) {
+    if (window instanceof BrowserWindow) {
+        window.webContents.send(channel);
+    }
+}
 
 function getFileMenu(): MenuItemConstructorOptions {
     return {
@@ -15,14 +24,14 @@ function getFileMenu(): MenuItemConstructorOptions {
                 label: 'Open PDF...',
                 accelerator: 'CmdOrCtrl+O',
                 click: (_, window) => {
-                    window?.webContents.send('menu:openPdf');
+                    sendToWindow(window, 'menu:openPdf');
                 },
             },
             {
                 label: 'Save',
                 accelerator: 'CmdOrCtrl+S',
                 click: (_, window) => {
-                    window?.webContents.send('menu:save');
+                    sendToWindow(window, 'menu:save');
                 },
             },
             { type: 'separator' },
@@ -66,21 +75,21 @@ function getViewMenu(): MenuItemConstructorOptions {
                 label: 'Zoom In',
                 accelerator: 'CmdOrCtrl+Plus',
                 click: (_, window) => {
-                    window?.webContents.send('menu:zoomIn');
+                    sendToWindow(window, 'menu:zoomIn');
                 },
             },
             {
                 label: 'Zoom Out',
                 accelerator: 'CmdOrCtrl+-',
                 click: (_, window) => {
-                    window?.webContents.send('menu:zoomOut');
+                    sendToWindow(window, 'menu:zoomOut');
                 },
             },
             {
                 label: 'Actual Size',
                 accelerator: 'CmdOrCtrl+0',
                 click: (_, window) => {
-                    window?.webContents.send('menu:actualSize');
+                    sendToWindow(window, 'menu:actualSize');
                 },
             },
             { type: 'separator' },
@@ -88,14 +97,14 @@ function getViewMenu(): MenuItemConstructorOptions {
                 label: 'Fit Width',
                 accelerator: 'CmdOrCtrl+1',
                 click: (_, window) => {
-                    window?.webContents.send('menu:fitWidth');
+                    sendToWindow(window, 'menu:fitWidth');
                 },
             },
             {
                 label: 'Fit Height',
                 accelerator: 'CmdOrCtrl+2',
                 click: (_, window) => {
-                    window?.webContents.send('menu:fitHeight');
+                    sendToWindow(window, 'menu:fitHeight');
                 },
             },
             { type: 'separator' },
@@ -125,7 +134,7 @@ function getHelpMenu(): MenuItemConstructorOptions {
             {
                 label: 'About',
                 click: (_, window) => {
-                    window?.webContents.send('menu:about');
+                    sendToWindow(window, 'menu:about');
                 },
             },
             { type: 'separator' },

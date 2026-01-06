@@ -110,6 +110,9 @@ async function handleOpenPdfDialog(): Promise<string | null> {
     }
 
     const originalPath = result.filePaths[0];
+    if (!originalPath) {
+        return null;
+    }
 
     // Create working copy and return working path (not original)
     try {
