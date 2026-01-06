@@ -393,13 +393,13 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                                         try {
                                             const textItems = await extractPageTextWithCoordinates(pdfPage);
 
-                                            if (textItems.length > 0) {
+                                            if (textItems.length > 0 && pageMatchData.pageText) {
                                                 // Find text items that match the searched text in any match on this page
                                                 const matchedItemsByText: { [key: string]: typeof textItems[0] } = {};
 
                                                 pageMatchData.matches.forEach(match => {
-                                                    // Extract the matched substring from the page text
-                                                    const matchedText = match.text.substring(match.startOffset, match.endOffset);
+                                                    // Extract the matched substring from the page text using start/end offsets
+                                                    const matchedText = pageMatchData.pageText.substring(match.start, match.end);
 
                                                     // Find text items whose text appears in the matched text
                                                     textItems.forEach(item => {

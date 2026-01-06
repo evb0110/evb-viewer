@@ -60,6 +60,7 @@ export interface IPdfSearchMatch {
 
 export interface IPdfPageMatches {
     pageIndex: number;
+    pageText: string; // Full page text for reference
     matches: Array<{
         start: number;
         end: number;
