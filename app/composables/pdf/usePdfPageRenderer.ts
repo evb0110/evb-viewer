@@ -12,7 +12,7 @@ import {
     type MaybeRefOrGetter,
     type Ref,
 } from 'vue';
-import { extractPageTextWithCoordinates, findMatchingWords } from './usePdfTextCoordinates';
+import { extractPageTextWithCoordinates } from './usePdfTextCoordinates';
 import type {
     IPdfPageMatches,
     IPdfSearchMatch,
@@ -391,15 +391,26 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                                     // If no stored words (non-OCR PDF), extract coordinates from PDF.js
                                     if (!wordsToRender || wordsToRender.length === 0) {
                                         try {
-                                            const pdfPageWidth = pdfPage.view[2] - pdfPage.view[0];
-                                            const pdfPageHeight = pdfPage.view[3] - pdfPage.view[1];
                                             const textItems = await extractPageTextWithCoordinates(pdfPage);
 
-                                            // Find words that match the search query
-                                            const searchQuery = toValue(searchQuery as any) ?? '';
-                                            if (searchQuery && textItems.length > 0) {
-                                                wordsToRender = findMatchingWords(textItems, searchQuery);
-                                                console.log(`[usePdfPageRenderer] Extracted ${textItems.length} text items, found ${wordsToRender.length} matches for "${searchQuery}"`);
+                                            if (textItems.length > 0) {
+                                                // Find text items that match the searched text in any match on this page
+                                                const matchedItemsByText: { [key: string]: typeof textItems[0] } = {};
+
+                                                pageMatchData.matches.forEach(match => {
+                                                    // Extract the matched substring from the page text
+                                                    const matchedText = match.text.substring(match.startOffset, match.endOffset);
+
+                                                    // Find text items whose text appears in the matched text
+                                                    textItems.forEach(item => {
+                                                        if (matchedText.toLowerCase().includes(item.text.toLowerCase())) {
+                                                            matchedItemsByText[item.text] = item;
+                                                        }
+                                                    });
+                                                });
+
+                                                wordsToRender = Object.values(matchedItemsByText);
+                                                console.log(`[usePdfPageRenderer] Extracted ${textItems.length} text items, found ${wordsToRender.length} matching items from search results`);
                                             }
                                         } catch (err) {
                                             const errMsg = err instanceof Error ? err.message : String(err);
