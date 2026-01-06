@@ -72,11 +72,31 @@ function transformWordBox(
     if (y > renderedPageHeight || width > renderedPageWidth || height > renderedPageHeight) {
         console.error('[transformWordBox] BOX OUT OF BOUNDS:', {
             word: word.text,
-            wordCoords: { x: word.x, y: word.y, w: word.width, h: word.height },
-            imageDim: { w: imageDimensionWidth, h: imageDimensionHeight },
-            renderedDim: { w: renderedPageWidth, h: renderedPageHeight },
-            scales: { scaleX, scaleY, uniformScale: scale },
-            transformed: { x, y, width, height },
+            wordCoords: {
+                x: word.x,
+                y: word.y,
+                w: word.width,
+                h: word.height, 
+            },
+            imageDim: {
+                w: imageDimensionWidth,
+                h: imageDimensionHeight, 
+            },
+            renderedDim: {
+                w: renderedPageWidth,
+                h: renderedPageHeight, 
+            },
+            scales: {
+                scaleX,
+                scaleY,
+                uniformScale: scale, 
+            },
+            transformed: {
+                x,
+                y,
+                width,
+                height, 
+            },
             isOffScreen: y > renderedPageHeight,
             relativePos: {
                 yPercent: ((y / renderedPageHeight) * 100).toFixed(1),
@@ -189,11 +209,24 @@ export const usePdfWordBoxes = () => {
             const diff = Math.abs(scaleX - scaleY);
             if (diff >= 0.01) {
                 console.warn('[WordBoxes] COORDINATE SPACE MISMATCH', {
-                    pdfPageDimensions: { width: pdfPageWidth, height: pdfPageHeight },
-                    canvasDimensions: { offsetWidth: renderedPageWidth, offsetHeight: renderedPageHeight },
-                    calculatedScaleFactors: { scaleX: scaleX.toFixed(3), scaleY: scaleY.toFixed(3) },
+                    pdfPageDimensions: {
+                        width: pdfPageWidth,
+                        height: pdfPageHeight, 
+                    },
+                    canvasDimensions: {
+                        offsetWidth: renderedPageWidth,
+                        offsetHeight: renderedPageHeight, 
+                    },
+                    calculatedScaleFactors: {
+                        scaleX: scaleX.toFixed(3),
+                        scaleY: scaleY.toFixed(3), 
+                    },
                     diff: diff.toFixed(3),
-                    firstWord: { text: words[0]?.text, originalY: words[0]?.y, scaledY: words[0] ? words[0].y * scaleY : 0 },
+                    firstWord: {
+                        text: words[0]?.text,
+                        originalY: words[0]?.y,
+                        scaledY: words[0] ? words[0].y * scaleY : 0, 
+                    },
                 });
             }
         }

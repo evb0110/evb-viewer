@@ -1,8 +1,13 @@
-import { appendFileSync, writeFileSync, readFileSync } from 'fs';
+import {
+    appendFileSync,
+    readFileSync,
+    writeFileSync,
+} from 'fs';
 import { join } from 'path';
 import { app } from 'electron';
+import { extractTextFromPdf } from '@electron/search/pdf-text-extractor';
 
-interface IOcrWord {
+export interface IOcrWord {
     text: string;
     x: number;
     y: number;
@@ -10,18 +15,19 @@ interface IOcrWord {
     height: number;
 }
 
-interface IPageIndex {
+export interface IPageIndex {
     pageNumber: number;
     text: string;
-    words: IOcrWord[];
+    words?: IOcrWord[];
     pageWidth?: number;
     pageHeight?: number;
 }
 
-interface IPdfSearchIndex {
+export interface IPdfSearchIndex {
     pdfPath: string;
     createdAt: number;
     pages: IPageIndex[];
+    pageCount?: number;
 }
 
 const LOG_FILE = join(app.getPath('temp'), 'search-debug.log');
@@ -29,6 +35,12 @@ const LOG_FILE = join(app.getPath('temp'), 'search-debug.log');
 function debugLog(msg: string) {
     const ts = new Date().toISOString();
     appendFileSync(LOG_FILE, `[${ts}] [index-builder] ${msg}\n`);
+}
+
+const STORE_WORD_BOXES = false;
+
+function getIndexPath(pdfPath: string) {
+    return `${pdfPath}.index.json`;
 }
 
 /**
@@ -40,39 +52,107 @@ export async function buildSearchIndex(
     pageData: Array<{
         pageNumber: number;
         words: IOcrWord[];
+        text?: string;
         pageWidth?: number;
         pageHeight?: number;
     }>,
-): Promise<string> {
+    options: {pageCount?: number;} = {},
+): Promise<IPdfSearchIndex> {
     debugLog(`Building search index for ${pdfPath}`);
 
-    if (!pageData || pageData.length === 0) {
-        throw new Error('No page data provided for index building');
+    const expectedCount = options.pageCount;
+
+    const pagesByNumber = new Map<number, IPageIndex>();
+    const existing = await loadSearchIndex(pdfPath);
+
+    if (existing?.pages?.length) {
+        existing.pages.forEach((page) => {
+            pagesByNumber.set(page.pageNumber, {
+                pageNumber: page.pageNumber,
+                text: page.text ?? '',
+                pageWidth: page.pageWidth,
+                pageHeight: page.pageHeight,
+                words: STORE_WORD_BOXES ? page.words : undefined,
+            });
+        });
     }
 
-    // Build index structure
-    const pages: IPageIndex[] = pageData.map(page => ({
-        pageNumber: page.pageNumber,
-        text: page.words.map(w => w.text).join(' '),
-        words: page.words,
-        pageWidth: page.pageWidth,
-        pageHeight: page.pageHeight,
-    }));
+    const needsPdfText = !existing
+        || (typeof expectedCount === 'number' && expectedCount > 0 && pagesByNumber.size < expectedCount);
+
+    if (needsPdfText) {
+        try {
+            debugLog(`Seeding index with pdftotext output (pageCount=${expectedCount ?? 'unknown'})`);
+            const pageTexts = await extractTextFromPdf(pdfPath, { pageCount: expectedCount });
+            pageTexts.forEach((pt) => {
+                const entry = pagesByNumber.get(pt.pageNumber);
+                if (!entry) {
+                    pagesByNumber.set(pt.pageNumber, {
+                        pageNumber: pt.pageNumber,
+                        text: pt.text,
+                        words: undefined,
+                    });
+                    return;
+                }
+
+                if (!entry.text && pt.text) {
+                    entry.text = pt.text;
+                }
+            });
+        } catch (pdfTextErr) {
+            const errMsg = pdfTextErr instanceof Error ? pdfTextErr.message : String(pdfTextErr);
+            debugLog(`Warning: Failed to seed index with pdftotext: ${errMsg}`);
+        }
+    }
+
+    if (typeof expectedCount === 'number' && expectedCount > 0) {
+        for (let pageNumber = 1; pageNumber <= expectedCount; pageNumber += 1) {
+            if (!pagesByNumber.has(pageNumber)) {
+                pagesByNumber.set(pageNumber, {
+                    pageNumber,
+                    text: '',
+                    words: undefined,
+                });
+            }
+        }
+    }
+
+    if (pageData?.length) {
+        pageData.forEach((page) => {
+            const textFromOcr = page.text?.trim() ?? '';
+            const textFromWords = page.words.map(w => w.text).join(' ').trim();
+            const text = textFromOcr || textFromWords;
+            const previous = pagesByNumber.get(page.pageNumber);
+            pagesByNumber.set(page.pageNumber, {
+                pageNumber: page.pageNumber,
+                text: text || previous?.text || '',
+                pageWidth: page.pageWidth,
+                pageHeight: page.pageHeight,
+                words: STORE_WORD_BOXES ? page.words : undefined,
+            });
+        });
+    }
+
+    if (pagesByNumber.size === 0) {
+        throw new Error('No pages available to build search index');
+    }
+
+    const pages: IPageIndex[] = Array.from(pagesByNumber.values()).sort((a, b) => a.pageNumber - b.pageNumber);
 
     const index: IPdfSearchIndex = {
         pdfPath,
         createdAt: Date.now(),
         pages,
+        pageCount: typeof expectedCount === 'number' && expectedCount > 0 ? expectedCount : existing?.pageCount,
     };
 
-    // Save index file alongside PDF
-    const indexPath = `${pdfPath}.index.json`;
+    const indexPath = getIndexPath(pdfPath);
     debugLog(`Saving index to ${indexPath}`);
 
     try {
-        writeFileSync(indexPath, JSON.stringify(index, null, 2));
+        writeFileSync(indexPath, JSON.stringify(index));
         debugLog(`Index saved successfully: ${indexPath}`);
-        return indexPath;
+        return index;
     } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
         debugLog(`Failed to save index: ${errMsg}`);
@@ -84,14 +164,14 @@ export async function buildSearchIndex(
  * Load a cached search index from disk
  */
 export async function loadSearchIndex(pdfPath: string): Promise<IPdfSearchIndex | null> {
-    const indexPath = `${pdfPath}.index.json`;
+    const indexPath = getIndexPath(pdfPath);
 
     try {
         const content = readFileSync(indexPath, 'utf-8');
         const index = JSON.parse(content) as IPdfSearchIndex;
         debugLog(`Loaded index from ${indexPath}`);
         return index;
-    } catch (err) {
+    } catch {
         debugLog(`Index not found or invalid: ${indexPath}`);
         return null;
     }

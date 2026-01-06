@@ -16,6 +16,7 @@ interface IOcrSettings {
     pageRange: TOcrPageRange;
     customRange: string;
     selectedLanguages: string[];
+    renderDpi: number;
 }
 
 interface IOcrProgress {
@@ -59,6 +60,7 @@ export const useOcr = () => {
         pageRange: 'current',
         customRange: '',
         selectedLanguages: ['eng'],
+        renderDpi: 300,
     });
     const progress = ref<IOcrProgress>({
         isRunning: false,
@@ -136,7 +138,11 @@ export const useOcr = () => {
         totalPages: number,
         workingCopyPath: string | null = null,
     ) {
-        console.log('[useOcr] runOcr called', { currentPage, totalPages, pdfDataLength: originalPdfData?.length });
+        console.log('[useOcr] runOcr called', {
+            currentPage,
+            totalPages,
+            pdfDataLength: originalPdfData?.length, 
+        });
 
         if (progress.value.isRunning) {
             console.log('[useOcr] Already running, returning');
@@ -196,7 +202,10 @@ export const useOcr = () => {
                 requestId,
                 workingCopyPath,
             );
-            console.log('[useOcr] Backend response:', { success: response.success, errors: response.errors });
+            console.log('[useOcr] Backend response:', {
+                success: response.success,
+                errors: response.errors, 
+            });
 
             if (response.errors.length > 0) {
                 error.value = response.errors.join('; ');
@@ -211,10 +220,12 @@ export const useOcr = () => {
                     const fileData = await api.readFile(response.pdfPath);
                     pdfBytes = new Uint8Array(fileData);
                     console.log('[useOcr] PDF size:', pdfBytes.length);
-                } else {
+                } else if (response.pdfData) {
                     // Small PDF returned directly as array
                     console.log('[useOcr] OCR successful, PDF size:', response.pdfData.length);
                     pdfBytes = new Uint8Array(response.pdfData);
+                } else {
+                    throw new Error('No PDF data or path in response');
                 }
 
                 results.value = {
@@ -270,7 +281,9 @@ export const useOcr = () => {
     const hasResults = computed(() => results.value.searchablePdfData !== null);
 
     const progressPercent = computed(() => {
-        if (progress.value.totalPages === 0) return 0;
+        if (progress.value.totalPages === 0) {
+            return 0;
+        }
         return Math.round(
             (progress.value.processedCount / progress.value.totalPages) * 100,
         );

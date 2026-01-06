@@ -13,11 +13,18 @@
             </span>
         </div>
         <div
-            v-if="!searchQuery"
+            v-if="!trimmedQuery"
             class="pdf-search-results-empty"
         >
             <UIcon name="i-lucide-search" />
             <span>Enter a search term</span>
+        </div>
+        <div
+            v-else-if="isQueryTooShort"
+            class="pdf-search-results-empty"
+        >
+            <UIcon name="i-lucide-type" />
+            <span>Type at least {{ minQueryLength }} characters</span>
         </div>
         <div
             v-else-if="!isSearching && results.length === 0"
@@ -31,7 +38,13 @@
             class="pdf-search-results-list"
         >
             <div class="pdf-search-results-header">
-                {{ results.length }} result{{ results.length === 1 ? '' : 's' }} for "{{ searchQuery }}"
+                {{ results.length }} result{{ results.length === 1 ? '' : 's' }} for "{{ trimmedQuery }}"
+                <div
+                    v-if="isTruncated"
+                    class="pdf-search-results-truncated"
+                >
+                    Showing first {{ results.length }} results — keep typing to narrow
+                </div>
             </div>
             <PdfSearchResultItem
                 v-for="(result, index) in results"
@@ -58,11 +71,27 @@ interface IProps {
         processed: number;
         total: number;
     };
+    isTruncated?: boolean;
+    minQueryLength?: number;
 }
 
 const props = defineProps<IProps>();
 
 defineEmits<{(e: 'goToResult', index: number): void;}>();
+
+const trimmedQuery = computed(() => props.searchQuery.trim());
+
+const minQueryLength = computed(() => props.minQueryLength ?? 0);
+
+const isQueryTooShort = computed(() => {
+    const min = minQueryLength.value;
+    if (!min || !trimmedQuery.value) {
+        return false;
+    }
+    return trimmedQuery.value.length < min;
+});
+
+const isTruncated = computed(() => props.isTruncated ?? false);
 
 const progressText = computed(() => {
     if (!props.searchProgress || props.searchProgress.total === 0) {
@@ -94,6 +123,12 @@ const progressText = computed(() => {
     border-bottom: 1px solid var(--ui-border);
 }
 
+.pdf-search-results-truncated {
+    margin-top: 4px;
+    font-size: 11px;
+    color: var(--ui-text-dimmed);
+}
+
 .pdf-search-results-status {
     display: flex;
     align-items: center;
@@ -116,6 +151,7 @@ const progressText = computed(() => {
     from {
         transform: rotate(0deg);
     }
+
     to {
         transform: rotate(360deg);
     }

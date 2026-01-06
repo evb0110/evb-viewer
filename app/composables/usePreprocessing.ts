@@ -1,4 +1,7 @@
-import { ref, computed } from 'vue';
+import {
+    ref,
+    computed,
+} from 'vue';
 
 interface IPreprocessingCapabilities {
     valid: boolean;
@@ -50,8 +53,8 @@ export const usePreprocessing = () => {
 
             state.value.capabilities = {
                 valid: result.valid,
-                available: result.available || [],
-                missing: result.missing || [],
+                available: result.available ?? [],
+                missing: result.missing ?? [],
             };
 
             return result.valid;
@@ -61,7 +64,10 @@ export const usePreprocessing = () => {
             state.value.capabilities = {
                 valid: false,
                 available: [],
-                missing: ['unpaper', 'leptonica'],
+                missing: [
+                    'unpaper',
+                    'leptonica',
+                ],
             };
             return false;
         } finally {
@@ -92,11 +98,11 @@ export const usePreprocessing = () => {
             const electronAPI = getElectronAPI();
             const result = await electronAPI.preprocessing.preprocessPage(
                 imageData,
-                true
+                true,
             );
 
             if (!result.success) {
-                state.value.error = result.error;
+                state.value.error = result.error ?? null;
             }
 
             return result;

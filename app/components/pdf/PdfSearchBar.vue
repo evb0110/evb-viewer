@@ -4,7 +4,7 @@
             ref="inputRef"
             v-model="searchQuery"
             class="pdf-search-bar__input"
-            placeholder="Search in document..."
+            placeholder="Search..."
             autofocus
             @keydown.enter.exact="emit('next')"
             @keydown.shift.enter="emit('previous')"

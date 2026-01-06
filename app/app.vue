@@ -16,7 +16,7 @@ onMounted(() => {
 
 // Expose for testing
 if (typeof window !== 'undefined') {
-    (window as any).__appReady = true;
+    (window as Window & { __appReady?: boolean }).__appReady = true;
     console.log('[SETUP] App setup complete, __appReady set');
 }
 </script>

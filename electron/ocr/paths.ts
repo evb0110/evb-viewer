@@ -65,10 +65,16 @@ export function getOcrPaths(): IOcrPaths {
 
     const tessdata = join(tesseractDir, 'tessdata');
 
-    return { binary, tessdata };
+    return {
+        binary,
+        tessdata, 
+    };
 }
 
-export function validateOcrPaths(): { valid: boolean; error?: string } {
+export function validateOcrPaths(): {
+    valid: boolean;
+    error?: string 
+} {
     try {
         const paths = getOcrPaths();
 

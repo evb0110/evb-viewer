@@ -4,15 +4,22 @@ import {
     ipcMain,
     app,
 } from 'electron';
-import { existsSync, mkdirSync, rmSync } from 'fs';
+import {
+    existsSync,
+    mkdirSync,
+} from 'fs';
 import {
     readFile,
     writeFile,
     copyFile,
 } from 'fs/promises';
-import { extname, join, basename } from 'path';
-import { registerOcrHandlers } from './ocr/ipc';
-import { registerSearchHandlers } from './search/ipc';
+import {
+    extname,
+    join,
+    basename,
+} from 'path';
+import { registerOcrHandlers } from '@electron/ocr/ipc';
+import { registerSearchHandlers } from '@electron/search/ipc';
 
 // Map to track original path → working copy path
 const workingCopyMap = new Map<string, string>();

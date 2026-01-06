@@ -1,9 +1,14 @@
 import { spawn } from 'child_process';
-import { existsSync } from 'fs';
-import { dirname, join } from 'path';
+import {
+    existsSync,
+    appendFileSync,
+} from 'fs';
+import {
+    dirname,
+    join,
+} from 'path';
 import { fileURLToPath } from 'url';
 import { app } from 'electron';
-import { appendFileSync } from 'fs';
 
 const LOG_FILE = join(app.getPath('temp'), 'ocr-preprocessing.log');
 
@@ -77,14 +82,17 @@ export function getPreprocessingBinaries(): IPreprocessingBinaries {
  * Executes preprocessing binaries with given arguments
  */
 export async function runPreprocessing(
-    options: IPreprocessingOptions
+    options: IPreprocessingOptions,
 ): Promise<IPreprocessingResult> {
     debugLog(`Running: ${options.binary} ${options.args.join(' ')}`);
 
     if (!existsSync(options.binary)) {
         const error = `Binary not found: ${options.binary}`;
         debugLog(`Error: ${error}`);
-        return { success: false, error };
+        return {
+            success: false,
+            error, 
+        };
     }
 
     return new Promise((resolve) => {
@@ -161,7 +169,7 @@ export async function runPreprocessing(
 export async function deskewWithUnpaper(
     inputPath: string,
     outputPath: string,
-    additionalArgs: string[] = []
+    additionalArgs: string[] = [],
 ): Promise<IPreprocessingResult> {
     const bins = getPreprocessingBinaries();
 
@@ -198,7 +206,7 @@ export async function deskewWithUnpaper(
 export async function cleanScannedPageWithUnpaper(
     inputPath: string,
     outputPath: string,
-    aggressive = false
+    aggressive = false,
 ): Promise<IPreprocessingResult> {
     const bins = getPreprocessingBinaries();
 
@@ -210,7 +218,8 @@ export async function cleanScannedPageWithUnpaper(
     }
 
     const args = [
-        '--layout', 'single',         // Single-page layout
+        '--layout',
+        'single',         // Single-page layout
         '--deskew',                   // Deskew
         '--cleanup',                  // Remove artifacts
         '--no-mask-center',          // Don't mask center (preserve document)
@@ -220,7 +229,7 @@ export async function cleanScannedPageWithUnpaper(
     if (aggressive) {
         args.push(
             '--noise-filter',        // Aggressive noise reduction
-            '--blur-filter'          // Slightly blur before OCR (helps with binarization)
+            '--blur-filter',          // Slightly blur before OCR (helps with binarization)
         );
     }
 
@@ -242,7 +251,7 @@ export async function cleanScannedPageWithUnpaper(
  */
 export async function preprocessPageForOcr(
     inputPath: string,
-    outputPath: string
+    outputPath: string,
 ): Promise<IPreprocessingResult> {
     debugLog(`Preprocessing page for OCR: ${inputPath}`);
 
@@ -261,7 +270,9 @@ export function getPreprocessingCapabilities() {
         cleanup: !!bins.unpaper,
         fullPipeline: !!bins.unpaper,
         availableBinaries: Object.fromEntries(
-            Object.entries(bins).filter(([, path]) => path !== null)
+            Object.entries(bins).filter(([
+                , path,
+            ]) => path !== null),
         ),
     };
 }

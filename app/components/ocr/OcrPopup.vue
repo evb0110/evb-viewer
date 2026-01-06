@@ -108,8 +108,8 @@
                             <div class="ocr-popup__custom-dpi">
                                 <label class="ocr-popup__label" style="margin-bottom: 0.25rem">Custom DPI</label>
                                 <input
-                                    type="number"
                                     v-model.number="customDpi"
+                                    type="number"
                                     placeholder="300"
                                     min="72"
                                     max="600"
@@ -313,7 +313,9 @@ watch(isOpen, (value) => {
 });
 
 function handleRunOcr() {
-    if (!props.pdfDocument || !props.pdfData) return;
+    if (!props.pdfDocument || !props.pdfData) {
+        return;
+    }
     runOcr(props.pdfDocument, props.pdfData, props.currentPage, props.totalPages, props.workingCopyPath);
 }
 

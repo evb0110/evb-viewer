@@ -9,7 +9,11 @@ import type {
 } from 'electron/ipc-types';
 
 // Set up debug log forwarding from main process to console
-ipcRenderer.on('debug:log', (_event: IpcRendererEvent, data: { source: string; message: string; timestamp: string }) => {
+ipcRenderer.on('debug:log', (_event: IpcRendererEvent, data: {
+    source: string;
+    message: string;
+    timestamp: string 
+}) => {
     console.log(`[${data.timestamp}] [${data.source}] ${data.message}`);
 });
 
@@ -70,7 +74,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     }) => ipcRenderer.invoke('ocr:recognize', request),
 
     ocrRecognizeBatch: (
-        pages: Array<{ pageNumber: number; imageData: number[]; languages: string[] }>,
+        pages: Array<{
+            pageNumber: number;
+            imageData: number[];
+            languages: string[] 
+        }>,
         requestId: string,
     ) => ipcRenderer.invoke('ocr:recognizeBatch', pages, requestId),
 
@@ -103,7 +111,34 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
 
     // Search API
-    pdfSearch: (pdfPath: string, query: string) => ipcRenderer.invoke('pdf:search', { pdfPath, query }),
+    pdfSearch: (
+        pdfPath: string,
+        query: string,
+        options?: {
+            requestId?: string;
+            pageCount?: number;
+        },
+    ) => ipcRenderer.invoke('pdf:search', {
+        pdfPath,
+        query,
+        ...options, 
+    }),
+
+    onPdfSearchProgress: (callback: (progress: {
+        requestId: string;
+        processed: number;
+        total: number;
+    }) => void): (() => void) => {
+        const handler = (_event: IpcRendererEvent, progress: {
+            requestId: string;
+            processed: number;
+            total: number;
+        }) => callback(progress);
+        ipcRenderer.on('pdf:search:progress', handler);
+        return () => ipcRenderer.removeListener('pdf:search:progress', handler);
+    },
+
+    pdfSearchResetCache: () => ipcRenderer.invoke('pdf:search:resetCache'),
 
     // Preprocessing API
     preprocessing: {

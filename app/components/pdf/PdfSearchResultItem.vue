@@ -80,7 +80,10 @@ onBeforeUnmount(() => {
 });
 
 watch(
-    () => [props.result, fullText.value],
+    () => [
+        props.result,
+        fullText.value,
+    ],
     () => {
         clearHighlight();
         nextTick(() => applyHighlight());

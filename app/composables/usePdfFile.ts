@@ -62,7 +62,7 @@ export const usePdfFile = () => {
 
     function loadPdfFromData(data: Uint8Array) {
         pdfData.value = data;
-        pdfSrc.value = new Blob([data], { type: 'application/pdf' });
+        pdfSrc.value = new Blob([data.slice().buffer], { type: 'application/pdf' });
         isDirty.value = true;
     }
 

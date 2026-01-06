@@ -13,8 +13,8 @@
             size="sm"
             :ui="{
                 root: 'gap-0',
-                list: 'p-0 rounded-none bg-transparent',
-                indicator: 'bg-primary/40 rounded-none',
+                list: 'p-0 mb-0 rounded-none bg-transparent',
+                indicator: 'bg-primary/40 rounded-none bottom-0',
                 trigger: 'flex-1 justify-center rounded-none data-[state=active]:text-default data-[state=inactive]:hover:bg-muted/30',
             }"
             class="pdf-sidebar-tabs"
@@ -65,6 +65,8 @@
                         :search-query="searchQuery"
                         :is-searching="isSearching"
                         :search-progress="props.searchProgress"
+                        :is-truncated="props.isTruncated"
+                        :min-query-length="props.minQueryLength"
                         @go-to-result="$emit('goToResult', $event)"
                     />
                 </div>
@@ -97,6 +99,8 @@ interface IProps {
         processed: number;
         total: number;
     };
+    isTruncated?: boolean;
+    minQueryLength?: number;
     activeTab?: TPdfSidebarTab;
     width?: number;
 }
@@ -218,7 +222,7 @@ const sidebarStyle = computed(() => {
 .pdf-sidebar-search {
     display: flex;
     flex-direction: column;
-    height: 100%;
+    min-height: 100%;
 }
 
 .pdf-sidebar-search-bar {
@@ -237,8 +241,7 @@ const sidebarStyle = computed(() => {
 .pdf-sidebar-content {
     flex: 1;
     min-height: 0;
-    overflow-x: hidden;
-    overflow-y: auto;
+    overflow: hidden auto;
     position: relative;
 }
 

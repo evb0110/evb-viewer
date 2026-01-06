@@ -18,18 +18,20 @@ export type {
 interface IBackendSearchResult {
     pageNumber: number;
     matchIndex: number;
-    text: string;
     startOffset: number;
     endOffset: number;
-    words: Array<{
-        text: string;
-        x: number;
-        y: number;
-        width: number;
-        height: number;
-    }>;
-    pageWidth?: number;
-    pageHeight?: number;
+    excerpt: IPdfSearchMatch['excerpt'];
+}
+
+interface IBackendSearchResponse {
+    results: IBackendSearchResult[];
+    truncated: boolean;
+}
+
+interface IBackendSearchProgress {
+    requestId: string;
+    processed: number;
+    total: number;
 }
 
 function getElectronAPI() {
@@ -45,12 +47,18 @@ export const usePdfSearch = () => {
     const pageMatches = ref<Map<number, IPdfPageMatches>>(new Map());
     const currentResultIndex = ref(-1);
     const isSearching = ref(false);
+    const searchProgress = ref<{
+        processed: number;
+        total: number 
+    } | undefined>(undefined);
+    const isTruncated = ref(false);
     let searchRunId = 0;
     let scheduledTimeout: ReturnType<typeof setTimeout> | null = null;
     let scheduledResolve: ((applied: boolean) => void) | null = null;
+    let progressCleanup: (() => void) | null = null;
 
-    const EXCERPT_CONTEXT_CHARS = 40;
     const SEARCH_DEBOUNCE_MS = 300;
+    const MIN_QUERY_LENGTH = 2;
 
     const totalMatches = computed(() => results.value.length);
     const currentMatch = computed(() => results.value.length > 0 ? currentResultIndex.value + 1 : 0);
@@ -61,66 +69,12 @@ export const usePdfSearch = () => {
         return null;
     });
 
-    function buildExcerpt(
-        text: string,
-        startOffset: number,
-        endOffset: number,
-    ): IPdfSearchMatch['excerpt'] {
-        const excerptStart = Math.max(0, startOffset - EXCERPT_CONTEXT_CHARS);
-        const excerptEnd = Math.min(text.length, endOffset + EXCERPT_CONTEXT_CHARS);
-
-        const beforeRaw = text.slice(excerptStart, startOffset);
-        const match = text.slice(startOffset, endOffset);
-        const afterRaw = text.slice(endOffset, excerptEnd);
-
-        // Normalize whitespace for display, but preserve spaces around the match so the
-        // sidebar snippet reads naturally and the Custom Highlight API can highlight the
-        // match without collapsing context.
-        const beforeNormalized = beforeRaw.replace(/\s+/g, ' ').trimStart();
-        const afterNormalized = afterRaw.replace(/\s+/g, ' ').trimEnd();
-
-        // `pdftotext -layout` occasionally concatenates adjacent words (e.g. "KoranicArabic").
-        // If it looks like the match is glued to surrounding word characters, insert a space
-        // to avoid "wordword" snippets in the sidebar. Keep this conservative for short queries.
-        const isWordChar = (ch: string) => /[0-9A-Za-z]/.test(ch);
-        const matchLen = match.length;
-
-        let before = beforeNormalized;
-        let after = afterNormalized;
-
-        if (matchLen >= 4 && matchLen > 0) {
-            const beforeHasBoundaryWhitespace = /\s$/.test(beforeRaw);
-            const afterHasBoundaryWhitespace = /^\s/.test(afterRaw);
-
-            const beforeLast = beforeNormalized.at(-1) ?? '';
-            const matchFirst = match.at(0) ?? '';
-            const matchLast = match.at(-1) ?? '';
-            const afterFirst = afterNormalized.at(0) ?? '';
-
-            if (!beforeHasBoundaryWhitespace && beforeLast && matchFirst && isWordChar(beforeLast) && isWordChar(matchFirst)) {
-                before = `${beforeNormalized} `;
-            }
-
-            const looksLikePluralSuffix = afterNormalized === 's' || afterNormalized.startsWith('s ');
-            if (
-                !afterHasBoundaryWhitespace
-                && !looksLikePluralSuffix
-                && matchLast
-                && afterFirst
-                && isWordChar(matchLast)
-                && isWordChar(afterFirst)
-            ) {
-                after = ` ${afterNormalized}`;
-            }
+    function cleanupProgressListener() {
+        if (progressCleanup) {
+            progressCleanup();
+            progressCleanup = null;
         }
-
-        return {
-            prefix: excerptStart > 0,
-            suffix: excerptEnd < text.length,
-            before,
-            match,
-            after,
-        };
+        searchProgress.value = undefined;
     }
 
     function cancelScheduledSearch() {
@@ -135,7 +89,12 @@ export const usePdfSearch = () => {
         }
     }
 
-    async function performSearch(runId: number, query: string, pdfPath: string) {
+    async function performSearch(
+        runId: number,
+        query: string,
+        pdfPath: string,
+        pageCount?: number,
+    ) {
         if (!query.trim()) {
             return;
         }
@@ -145,9 +104,34 @@ export const usePdfSearch = () => {
         }
 
         try {
+            isSearching.value = true;
+            isTruncated.value = false;
+            results.value = [];
+            pageMatches.value = new Map();
+            currentResultIndex.value = -1;
+            cleanupProgressListener();
+
             // Call backend search API
             const api = getElectronAPI();
-            const backendResults = await api.pdfSearch(pdfPath, query) as IBackendSearchResult[];
+            const requestId = `${runId}`;
+
+            progressCleanup = api.onPdfSearchProgress((progress: IBackendSearchProgress) => {
+                if (runId !== searchRunId) {
+                    return;
+                }
+                if (progress.requestId !== requestId) {
+                    return;
+                }
+                searchProgress.value = {
+                    processed: progress.processed,
+                    total: progress.total,
+                };
+            });
+
+            const response = await api.pdfSearch(pdfPath, query, {
+                requestId,
+                pageCount,
+            }) as IBackendSearchResponse;
 
             if (runId !== searchRunId) {
                 return;
@@ -157,18 +141,15 @@ export const usePdfSearch = () => {
             const mergedResults: IPdfSearchMatch[] = [];
             const matchesMap = new Map<number, IPdfPageMatches>();
 
-            BrowserLogger.info('PDF-SEARCH', `Processing ${backendResults.length} backend search results, query="${query}"`);
+            BrowserLogger.info('PDF-SEARCH', `Processing ${response.results.length} backend search results, query="${query}"`);
 
-            backendResults.forEach((result, idx) => {
+            response.results.forEach((result, idx) => {
                 mergedResults.push({
                     pageIndex: result.pageNumber - 1,
                     matchIndex: result.matchIndex,
                     startOffset: result.startOffset,
                     endOffset: result.endOffset,
-                    excerpt: buildExcerpt(result.text, result.startOffset, result.endOffset),
-                    words: result.words,
-                    pageWidth: result.pageWidth,
-                    pageHeight: result.pageHeight,
+                    excerpt: result.excerpt,
                 });
 
                 // Build page matches for highlighting
@@ -176,18 +157,14 @@ export const usePdfSearch = () => {
                 if (!matchesMap.has(pageIndex)) {
                     const pageMatches = {
                         pageIndex,
-                        pageText: result.text, // Store full page text for reference
+                        pageText: '', // Not required for highlighting (PDF.js text layer is the source of truth)
                         searchQuery: query, // Store the search query for text item matching
                         matches: [],
                     };
 
                     matchesMap.set(pageIndex, pageMatches);
 
-                    BrowserLogger.debug('PDF-SEARCH', `Created pageMatches for page ${result.pageNumber}:`, {
-                        query,
-                        pageTextLength: result.text.length,
-                        pageTextSample: result.text.substring(0, 100),
-                    });
+                    BrowserLogger.debug('PDF-SEARCH', `Created pageMatches for page ${result.pageNumber}`);
                 }
 
                 const pageMatch = matchesMap.get(pageIndex)!;
@@ -195,9 +172,6 @@ export const usePdfSearch = () => {
                     matchIndex: result.matchIndex,
                     start: result.startOffset,
                     end: result.endOffset,
-                    words: result.words,
-                    pageWidth: result.pageWidth,
-                    pageHeight: result.pageHeight,
                 });
 
                 if (idx < 3) {
@@ -205,8 +179,6 @@ export const usePdfSearch = () => {
                         page: result.pageNumber,
                         startOffset: result.startOffset,
                         endOffset: result.endOffset,
-                        matchedText: result.text.substring(result.startOffset, result.endOffset),
-                        hasWords: result.words?.length > 0,
                     });
                 }
             });
@@ -226,7 +198,6 @@ export const usePdfSearch = () => {
                             `page-${pageIdx + 1}`,
                             {
                                 searchQuery: data.searchQuery,
-                                pageTextLength: data.pageText.length,
                                 matchesCount: data.matches.length,
                             },
                         ];
@@ -236,6 +207,7 @@ export const usePdfSearch = () => {
 
             results.value = mergedResults;
             pageMatches.value = matchesMap;
+            isTruncated.value = response.truncated;
 
             if (mergedResults.length === 0) {
                 currentResultIndex.value = -1;
@@ -250,23 +222,37 @@ export const usePdfSearch = () => {
         } finally {
             if (runId === searchRunId) {
                 isSearching.value = false;
+                cleanupProgressListener();
             }
         }
     }
 
-    async function search(query: string, pdfPath: string): Promise<boolean> {
+    async function search(query: string, pdfPath: string, pageCount?: number): Promise<boolean> {
         searchQuery.value = query;
-        if (!query.trim()) {
+        const trimmedQuery = query.trim();
+
+        if (!trimmedQuery) {
             clearSearch();
             return false;
         }
 
         cancelScheduledSearch();
         const runId = ++searchRunId;
+
+        if (trimmedQuery.length < MIN_QUERY_LENGTH) {
+            isSearching.value = false;
+            isTruncated.value = false;
+            cleanupProgressListener();
+            results.value = [];
+            pageMatches.value = new Map();
+            currentResultIndex.value = -1;
+            return false;
+        }
+
+        // Mark as searching immediately so the UI doesn't show "No results found" while we're
+        // waiting for the debounce window / backend response.
         isSearching.value = true;
-        results.value = [];
-        pageMatches.value = new Map();
-        currentResultIndex.value = -1;
+        isTruncated.value = false;
 
         return new Promise<boolean>((resolve) => {
             scheduledResolve = resolve;
@@ -274,7 +260,7 @@ export const usePdfSearch = () => {
                 scheduledTimeout = null;
                 scheduledResolve = null;
                 try {
-                    await performSearch(runId, query, pdfPath);
+                    await performSearch(runId, trimmedQuery, pdfPath, pageCount);
                 } finally {
                     resolve(runId === searchRunId);
                 }
@@ -305,15 +291,27 @@ export const usePdfSearch = () => {
     function clearSearch() {
         searchRunId++;
         cancelScheduledSearch();
+        cleanupProgressListener();
         isSearching.value = false;
         searchQuery.value = '';
         results.value = [];
         pageMatches.value = new Map();
         currentResultIndex.value = -1;
+        isTruncated.value = false;
     }
 
     function getMatchesForPage(pageIndex: number) {
         return pageMatches.value.get(pageIndex) ?? null;
+    }
+
+    function resetSearchCache() {
+        clearSearch();
+        try {
+            const api = getElectronAPI();
+            void api.pdfSearchResetCache();
+        } catch {
+            // Ignore when not in Electron
+        }
     }
 
     return {
@@ -323,12 +321,16 @@ export const usePdfSearch = () => {
         currentResultIndex,
         currentResult,
         isSearching,
+        searchProgress,
         totalMatches,
         currentMatch,
+        isTruncated,
+        minQueryLength: MIN_QUERY_LENGTH,
         search,
         goToResult,
         setResultIndex,
         clearSearch,
+        resetSearchCache,
         getMatchesForPage,
     };
 };

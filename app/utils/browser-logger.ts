@@ -4,7 +4,7 @@
  */
 
 export const BrowserLogger = {
-    debug: (section: string, message: string, data?: any) => {
+    debug: (section: string, message: string, data?: unknown) => {
         const timestamp = new Date().toISOString();
         const prefix = `[${timestamp}] [${section}]`;
 
@@ -15,7 +15,7 @@ export const BrowserLogger = {
         }
     },
 
-    info: (section: string, message: string, data?: any) => {
+    info: (section: string, message: string, data?: unknown) => {
         const timestamp = new Date().toISOString();
         const prefix = `[${timestamp}] [${section}]`;
 
@@ -26,7 +26,7 @@ export const BrowserLogger = {
         }
     },
 
-    warn: (section: string, message: string, data?: any) => {
+    warn: (section: string, message: string, data?: unknown) => {
         const timestamp = new Date().toISOString();
         const prefix = `[${timestamp}] [${section}]`;
 
@@ -37,7 +37,7 @@ export const BrowserLogger = {
         }
     },
 
-    error: (section: string, message: string, error?: any) => {
+    error: (section: string, message: string, error?: unknown) => {
         const timestamp = new Date().toISOString();
         const prefix = `[${timestamp}] [${section}]`;
 

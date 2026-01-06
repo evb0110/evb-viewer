@@ -25,7 +25,10 @@ export async function extractPageTextWithCoordinates(
             includeMarkedContent: true,
             disableNormalization: true,
         });
-        const [viewX0, viewY0, , viewY1] = pdfPage.view as [number, number, number, number]; // view is [x0, y0, x1, y1]
+        const [
+            viewX0,
+            viewY0, , viewY1,
+        ] = pdfPage.view as [number, number, number, number]; // view is [x0, y0, x1, y1]
         const pageHeight = viewY1 - viewY0;
 
         BrowserLogger.debug('PDF-TEXT-COORDS', `Page view: ${pdfPage.view.join(', ')}, pageHeight=${pageHeight}`);
@@ -54,7 +57,14 @@ export async function extractPageTextWithCoordinates(
 
             // Transform matrix is [a, b, c, d, tx, ty]
             // tx, ty are the X, Y position in PDF coordinates
-            const [a, b, c, d, tx, ty] = item.transform;
+            const [
+                a,
+                b,
+                c,
+                d,
+                tx,
+                ty,
+            ] = item.transform;
 
             // IMPORTANT:
             // In PDF.js, `item.width`/`item.height` are already in PDF user-space units.
@@ -80,7 +90,14 @@ export async function extractPageTextWithCoordinates(
             if (idx < 5) {
                 BrowserLogger.debug('PDF-TEXT-COORDS', `Item ${idx}:`, {
                     text,
-                    transform: [a, b, c, d, tx, ty],
+                    transform: [
+                        a,
+                        b,
+                        c,
+                        d,
+                        tx,
+                        ty,
+                    ],
                     width: item.width,
                     height: item.height,
                     computed: textItem,
@@ -102,19 +119,24 @@ export async function extractPageTextWithCoordinates(
             const yMin = Math.min(...yValues);
             const yMax = Math.max(...yValues);
 
-            BrowserLogger.warn('PDF-TEXT-COORDS', `Coordinate RANGES (this tells us the space):`, {
+            BrowserLogger.warn('PDF-TEXT-COORDS', 'Coordinate RANGES (this tells us the space):', {
                 xRange: `${xMin.toFixed(1)} to ${xMax.toFixed(1)}`,
                 yRange: `${yMin.toFixed(1)} to ${yMax.toFixed(1)}`,
                 widthRange: `${Math.min(...widthValues).toFixed(1)} to ${Math.max(...widthValues).toFixed(1)}`,
                 heightRange: `${Math.min(...heightValues).toFixed(1)} to ${Math.max(...heightValues).toFixed(1)}`,
                 pageHeight,
-                firstThreeItems: items.slice(0, 3).map(i => ({ text: i.text, x: i.x.toFixed(1), y: i.y.toFixed(1), w: i.width.toFixed(1), h: i.height.toFixed(1) })),
+                firstThreeItems: items.slice(0, 3).map(i => ({
+                    text: i.text,
+                    x: i.x.toFixed(1),
+                    y: i.y.toFixed(1),
+                    w: i.width.toFixed(1),
+                    h: i.height.toFixed(1), 
+                })),
             });
         }
 
         return items;
     } catch (err) {
-        const errMsg = err instanceof Error ? err.message : String(err);
         BrowserLogger.error('PDF-TEXT-COORDS', 'Failed to extract text', err);
         return [];
     }

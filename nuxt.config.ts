@@ -69,6 +69,7 @@ export default defineNuxtConfig({
             'lucide:search-x',
             'lucide:sun',
             'lucide:text-cursor',
+            'lucide:type',
             'lucide:triangle-alert',
             'lucide:upload',
             'lucide:x',

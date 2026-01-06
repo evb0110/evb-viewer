@@ -110,6 +110,8 @@
                     :total-matches="totalMatches"
                     :is-searching="isSearching"
                     :search-progress="searchProgress"
+                    :is-truncated="isTruncated"
+                    :min-query-length="minQueryLength"
                     :width="sidebarWidth"
                     @search="handleSearch"
                     @next="handleSearchNext"
@@ -159,8 +161,6 @@
 </template>
 
 <script setup lang="ts">
-console.log('[PAGE] pages/index.vue script setup executing');
-
 import {
     onMounted,
     onUnmounted,
@@ -171,6 +171,8 @@ import {
     watch,
 } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
+
+console.log('[PAGE] pages/index.vue script setup executing');
 
 type TFitMode = 'width' | 'height';
 type TPdfSidebarTab = 'thumbnails' | 'outline' | 'search';
@@ -258,6 +260,8 @@ const {
     clearSearch,
     searchProgress,
     resetSearchCache,
+    isTruncated,
+    minQueryLength,
 } = usePdfSearch();
 
 const pdfViewerRef = ref<IPdfViewerExpose | null>(null);
@@ -402,7 +406,11 @@ async function handleSearch() {
     if (workingCopyPath.value) {
         showSidebar.value = true;
         sidebarTab.value = 'search';
-        const applied = await search(searchQuery.value, workingCopyPath.value);
+        const applied = await search(
+            searchQuery.value,
+            workingCopyPath.value,
+            totalPages.value > 0 ? totalPages.value : undefined,
+        );
         if (applied) {
             scrollToCurrentResult();
         }

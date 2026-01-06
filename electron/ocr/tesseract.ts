@@ -7,7 +7,7 @@ import {
 } from 'fs/promises';
 import { appendFileSync } from 'fs';
 import { join } from 'path';
-import { getOcrPaths } from './paths';
+import { getOcrPaths } from '@electron/ocr/paths';
 
 const LOG_FILE = join(app.getPath('temp'), 'ocr-debug.log');
 
@@ -38,6 +38,7 @@ interface IOcrWord {
 
 interface IOcrPageData {
     words: IOcrWord[];
+    text: string;
     pageWidth: number;
     pageHeight: number;
 }
@@ -285,6 +286,14 @@ export async function runOcrWithBoundingBoxes(
                 debugLog(`Process closed with code ${code}`);
                 try {
                     if (code === 0) {
+                        let pageText = '';
+                        try {
+                            pageText = (await readFile(txtPath, 'utf-8')).trim();
+                        } catch (txtReadErr) {
+                            const txtMsg = txtReadErr instanceof Error ? txtReadErr.message : String(txtReadErr);
+                            debugLog(`Failed to read TXT output: ${txtMsg}`);
+                        }
+
                         // Try TSV first (precise coordinates), fall back to TXT (estimation)
                         let words: IOcrWord[] = [];
 
@@ -301,7 +310,7 @@ export async function runOcrWithBoundingBoxes(
                             debugLog(`TSV parsing failed: ${tsvMsg}, falling back to TXT`);
                             if (tsvStack) debugLog(`TSV error stack: ${tsvStack}`);
                             try {
-                                const txtContent = await readFile(txtPath, 'utf-8');
+                                const txtContent = pageText || await readFile(txtPath, 'utf-8');
                                 debugLog(`TXT file read, size: ${txtContent.length} bytes`);
                                 words = parseTxtOutput(txtContent, imageWidth, imageHeight);
                                 debugLog(`Parsed ${words.length} words from TXT (estimated coordinates)`);
@@ -318,6 +327,7 @@ export async function runOcrWithBoundingBoxes(
                             success: true,
                             pageData: {
                                 words,
+                                text: pageText,
                                 pageWidth: imageWidth,
                                 pageHeight: imageHeight,
                             },
