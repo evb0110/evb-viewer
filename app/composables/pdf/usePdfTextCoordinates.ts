@@ -21,8 +21,12 @@ export async function extractPageTextWithCoordinates(
     try {
         BrowserLogger.debug('PDF-TEXT-COORDS', 'Starting text extraction from PDF page');
 
-        const textContent = await pdfPage.getTextContent();
-        const pageHeight = pdfPage.view[3]; // view is [x0, y0, x1, y1]
+        const textContent = await pdfPage.getTextContent({
+            includeMarkedContent: true,
+            disableNormalization: true,
+        });
+        const [viewX0, viewY0, , viewY1] = pdfPage.view as [number, number, number, number]; // view is [x0, y0, x1, y1]
+        const pageHeight = viewY1 - viewY0;
 
         BrowserLogger.debug('PDF-TEXT-COORDS', `Page view: ${pdfPage.view.join(', ')}, pageHeight=${pageHeight}`);
         BrowserLogger.debug('PDF-TEXT-COORDS', `Text content items count: ${textContent.items.length}`);
@@ -30,8 +34,10 @@ export async function extractPageTextWithCoordinates(
         const items: IPdfTextItem[] = [];
         let skippedCount = 0;
 
-        for (let idx = 0; idx < textContent.items.length; idx++) {
-            const item = textContent.items[idx];
+        for (const [
+            idx,
+            item,
+        ] of textContent.items.entries()) {
 
             // Skip items without text or width/height
             if (!('str' in item) || !item.str) {
@@ -50,17 +56,19 @@ export async function extractPageTextWithCoordinates(
             // tx, ty are the X, Y position in PDF coordinates
             const [a, b, c, d, tx, ty] = item.transform;
 
-            // Calculate width/height from the item properties
-            const width = item.width * a; // width scaled by x-scale
-            const height = item.height * d; // height scaled by y-scale
+            // IMPORTANT:
+            // In PDF.js, `item.width`/`item.height` are already in PDF user-space units.
+            // Multiplying by `a`/`d` over-scales by the font size, creating huge/out-of-bounds boxes.
+            const width = Math.abs(item.width);
+            const height = Math.abs(item.height);
 
             // Convert from PDF coordinates (bottom-left origin) to screen coordinates (top-left origin)
-            const x = tx;
-            const y = pageHeight - ty - height; // Flip Y coordinate
+            const x = tx - viewX0;
+            const y = (viewY1 - ty) - height; // Flip Y coordinate
 
             const textItem = {
                 text,
-                x,
+                x: Math.max(0, x), // Clamp negative X to 0
                 y: Math.max(0, y), // Clamp negative Y to 0
                 width: Math.max(0, width),
                 height: Math.max(0, height),
@@ -103,8 +111,6 @@ export async function extractPageTextWithCoordinates(
                 firstThreeItems: items.slice(0, 3).map(i => ({ text: i.text, x: i.x.toFixed(1), y: i.y.toFixed(1), w: i.width.toFixed(1), h: i.height.toFixed(1) })),
             });
         }
-
-        BrowserLogger.debug('PDF-TEXT-COORDS', 'All extracted items:', items);
 
         return items;
     } catch (err) {

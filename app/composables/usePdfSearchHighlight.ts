@@ -12,6 +12,55 @@ export interface IHighlightResult {
 }
 
 export const usePdfSearchHighlight = () => {
+    type TTextLayerRun =
+        | { kind: 'span'; span: HTMLSpanElement; startOffset: number }
+        | { kind: 'br'; startOffset: number };
+
+    function buildTextLayerIndex(textLayerDiv: HTMLElement): { text: string; runs: TTextLayerRun[] } {
+        const runs: TTextLayerRun[] = [];
+        const textParts: string[] = [];
+        let offset = 0;
+
+        function visit(node: Node) {
+            if (node.nodeType !== Node.ELEMENT_NODE) {
+                return;
+            }
+
+            const element = node as HTMLElement;
+
+            if (element.tagName === 'BR') {
+                runs.push({ kind: 'br', startOffset: offset });
+                textParts.push('\n');
+                offset += 1;
+                return;
+            }
+
+            // Leaf spans represent actual text runs in the PDF.js text layer.
+            // Container spans (e.g. `.markedContent`) are traversed.
+            if (element.tagName === 'SPAN' && element.children.length === 0) {
+                const span = element as HTMLSpanElement;
+                const text = span.textContent ?? '';
+                runs.push({ kind: 'span', span, startOffset: offset });
+                textParts.push(text);
+                offset += text.length;
+                return;
+            }
+
+            for (const child of Array.from(element.childNodes)) {
+                visit(child);
+            }
+        }
+
+        for (const child of Array.from(textLayerDiv.childNodes)) {
+            visit(child);
+        }
+
+        return {
+            text: textParts.join(''),
+            runs,
+        };
+    }
+
     function clearHighlights(container: HTMLElement) {
         const highlights = container.querySelectorAll(`.${HIGHLIGHT_CLASS}`);
         highlights.forEach((el) => {
@@ -116,28 +165,67 @@ export const usePdfSearchHighlight = () => {
             };
         }
 
-        const matchesWithCurrent = pageMatches.matches.map((m, index) => ({
+        const query = pageMatches.searchQuery?.trim() ?? '';
+        if (!query) {
+            return {
+                elements: [],
+                currentMatchElements: [],
+            };
+        }
+
+        // Build a linear view of the text layer (including line breaks) and find matches in that space.
+        // Backend offsets come from `pdftotext -layout` and often diverge from PDF.js span concatenation
+        // due to whitespace/newline differences. Searching within the rendered text layer keeps highlights
+        // anchored to what the user actually sees.
+        const { text: layerText, runs } = buildTextLayerIndex(textLayerDiv);
+        const lowerText = layerText.toLowerCase();
+        const lowerQuery = query.toLowerCase();
+
+        const matchRanges: Array<{ start: number; end: number }> = [];
+        let pos = 0;
+        while ((pos = lowerText.indexOf(lowerQuery, pos)) !== -1) {
+            matchRanges.push({ start: pos, end: pos + lowerQuery.length });
+            pos += lowerQuery.length;
+        }
+
+        if (matchRanges.length === 0) {
+            return {
+                elements: [],
+                currentMatchElements: [],
+            };
+        }
+
+        let currentIndexOnPage = -1;
+        if (currentMatch !== null && currentMatch.pageIndex === pageMatches.pageIndex) {
+            currentIndexOnPage = pageMatches.matches.findIndex(
+                (m, index) => currentMatch.matchIndex === (m.matchIndex ?? index),
+            );
+        }
+
+        const matchesWithCurrent = matchRanges.map((m, index) => ({
             ...m,
-            isCurrent:
-                currentMatch !== null &&
-                currentMatch.pageIndex === pageMatches.pageIndex &&
-                currentMatch.matchIndex === index,
+            isCurrent: index === currentIndexOnPage,
         }));
 
-        const spans = textLayerDiv.querySelectorAll<HTMLSpanElement>(':scope > span, .markedContent span');
+        if (matchRanges.length !== pageMatches.matches.length && currentIndexOnPage !== -1) {
+            console.warn('[PDF-HIGHLIGHT] Text-layer match count differs from backend results', {
+                pageIndex: pageMatches.pageIndex,
+                query,
+                backendCount: pageMatches.matches.length,
+                textLayerCount: matchRanges.length,
+                currentIndexOnPage,
+            });
+        }
+
         const allHighlightElements: HTMLElement[] = [];
         const currentMatchElements: HTMLElement[] = [];
 
-        let textOffset = 0;
-        spans.forEach((span) => {
-            if (span.querySelector('span')) {
-                return;
+        for (const run of runs) {
+            if (run.kind !== 'span') {
+                continue;
             }
 
-            const text = span.textContent ?? '';
-            const spanLength = text.length;
-
-            const elements = highlightTextInSpan(span, textOffset, matchesWithCurrent);
+            const elements = highlightTextInSpan(run.span, run.startOffset, matchesWithCurrent);
             allHighlightElements.push(...elements);
 
             elements.forEach((el) => {
@@ -145,9 +233,7 @@ export const usePdfSearchHighlight = () => {
                     currentMatchElements.push(el);
                 }
             });
-
-            textOffset += spanLength;
-        });
+        }
 
         return {
             elements: allHighlightElements,

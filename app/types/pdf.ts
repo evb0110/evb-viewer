@@ -63,6 +63,7 @@ export interface IPdfPageMatches {
     pageText: string; // Full page text for reference
     searchQuery: string; // The query that generated these matches
     matches: Array<{
+        matchIndex: number;
         start: number;
         end: number;
         words?: IOcrWord[];

@@ -182,17 +182,20 @@ export const usePdfWordBoxes = () => {
         const renderedPageWidth = canvas.offsetWidth;
         const renderedPageHeight = canvas.offsetHeight;
 
-        // DEBUG: Log coordinate transformation details
-        if (words && words.length > 0) {
-            const scaleX = pdfPageWidth ? renderedPageWidth / pdfPageWidth : 0;
-            const scaleY = pdfPageHeight ? renderedPageHeight / pdfPageHeight : 0;
-            console.warn('[WordBoxes] CRITICAL COORDINATE SPACE MISMATCH CHECK', {
-                pdfPageDimensions: { width: pdfPageWidth, height: pdfPageHeight },
-                canvasDimensions: { offsetWidth: renderedPageWidth, offsetHeight: renderedPageHeight },
-                calculatedScaleFactors: { scaleX: scaleX.toFixed(3), scaleY: scaleY.toFixed(3) },
-                scalesMatch: (Math.abs(scaleX - scaleY) < 0.01) ? 'YES' : `NO - ASYMMETRIC! Diff: ${(scaleX - scaleY).toFixed(3)}`,
-                firstWord: { text: words[0]?.text, originalY: words[0]?.y, scaledY: words[0] ? words[0].y * scaleY : 0 },
-            });
+        // DEBUG: Log coordinate transformation details only when we detect a mismatch
+        if (words && words.length > 0 && pdfPageWidth && pdfPageHeight) {
+            const scaleX = renderedPageWidth / pdfPageWidth;
+            const scaleY = renderedPageHeight / pdfPageHeight;
+            const diff = Math.abs(scaleX - scaleY);
+            if (diff >= 0.01) {
+                console.warn('[WordBoxes] COORDINATE SPACE MISMATCH', {
+                    pdfPageDimensions: { width: pdfPageWidth, height: pdfPageHeight },
+                    canvasDimensions: { offsetWidth: renderedPageWidth, offsetHeight: renderedPageHeight },
+                    calculatedScaleFactors: { scaleX: scaleX.toFixed(3), scaleY: scaleY.toFixed(3) },
+                    diff: diff.toFixed(3),
+                    firstWord: { text: words[0]?.text, originalY: words[0]?.y, scaledY: words[0] ? words[0].y * scaleY : 0 },
+                });
+            }
         }
 
         // Clear existing boxes

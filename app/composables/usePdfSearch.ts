@@ -151,6 +151,7 @@ export const usePdfSearch = () => {
 
                 const pageMatch = matchesMap.get(pageIndex)!;
                 pageMatch.matches.push({
+                    matchIndex: result.matchIndex,
                     start: result.startOffset,
                     end: result.endOffset,
                     words: result.words,

@@ -456,7 +456,7 @@ defineExpose({
     forced-color-adjust: none;
     transform-origin: 0 0;
     caret-color: CanvasText;
-    z-index: 0;
+    z-index: 1;
     pointer-events: auto;
     user-select: text;
 
@@ -590,6 +590,7 @@ defineExpose({
     position: absolute;
     inset: 0;
     pointer-events: none;
+    z-index: 0;
 }
 
 .pdfViewer :deep(.pdf-word-box) {

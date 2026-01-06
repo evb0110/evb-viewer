@@ -10,10 +10,9 @@ import {
     toValue,
     watch,
     type MaybeRefOrGetter,
-    type Ref,
-} from 'vue';
-import { extractPageTextWithCoordinates } from './usePdfTextCoordinates';
-import { BrowserLogger } from 'app/utils/browser-logger';
+	    type Ref,
+	} from 'vue';
+	import { BrowserLogger } from 'app/utils/browser-logger';
 import type {
     IPdfPageMatches,
     IPdfSearchMatch,
@@ -384,150 +383,40 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                                     toValue(currentSearchMatch) ?? null,
                                 );
 
-                                // Render word boxes if we have word data
+                                // Render word boxes only for OCR-indexed PDFs (no reliable text layer).
+                                // For PDFs with a normal text layer, rely on in-text highlights instead.
                                 if (pageMatchData && pageMatchData.matches.length > 0) {
-                                    const firstMatch = pageMatchData.matches[0];
-                                    let wordsToRender = firstMatch.words ?? [];
+                                    const firstMatch = pageMatchData.matches.at(0);
+                                    const firstMatchWords = firstMatch?.words ?? [];
 
-                                    // If no stored words (non-OCR PDF), extract coordinates from PDF.js
-                                    if (!wordsToRender || wordsToRender.length === 0) {
-                                        BrowserLogger.debug('PAGE-RENDERER', `Page ${pageIndex + 1}: No stored words, extracting from PDF.js`);
-                                        BrowserLogger.debug('PAGE-RENDERER', 'pageMatchData structure:', {
-                                            pageIndex: pageMatchData.pageIndex,
-                                            searchQuery: pageMatchData.searchQuery,
-                                            pageText: pageMatchData.pageText ? `${pageMatchData.pageText.substring(0, 100)}...` : 'UNDEFINED',
-                                            matchesCount: pageMatchData.matches.length,
-                                            firstMatch: pageMatchData.matches[0],
-                                        });
-
-                                        try {
-                                            BrowserLogger.debug('PAGE-RENDERER', `Page ${pageIndex + 1}: Calling extractPageTextWithCoordinates`);
-                                            const textItems = await extractPageTextWithCoordinates(pdfPage);
-
-                                            BrowserLogger.info('PAGE-RENDERER', `Page ${pageIndex + 1}: Extracted ${textItems.length} text items`);
-                                            BrowserLogger.debug('PAGE-RENDERER', `Page ${pageIndex + 1}: First 10 extracted items:`, textItems.slice(0, 10));
-
-                                            if (textItems.length > 0 && pageMatchData.searchQuery) {
-                                                // Find text items that contain the search query (case-insensitive)
-                                                const searchQueryLower = pageMatchData.searchQuery.toLowerCase();
-                                                const matchedItemsByText: { [key: string]: typeof textItems[0] } = {};
-
-                                                BrowserLogger.debug('PAGE-RENDERER', `Page ${pageIndex + 1}: Searching for query="${pageMatchData.searchQuery}" (lowercase="${searchQueryLower}")`);
-
-                                                let matchCount = 0;
-                                                textItems.forEach((item, idx) => {
-                                                    const itemLower = item.text.toLowerCase();
-
-                                                    // Try direct match first
-                                                    let matches = itemLower.includes(searchQueryLower);
-
-                                                    // If no match, try with spaces removed (for spaced-out letters like "r a b i c")
-                                                    if (!matches) {
-                                                        const itemWithoutSpaces = itemLower.replace(/\s+/g, '');
-                                                        matches = itemWithoutSpaces.includes(searchQueryLower);
-                                                    }
-
-                                                    if (matches) {
-                                                        matchCount++;
-                                                        matchedItemsByText[item.text] = item;
-
-                                                        // Log first few matches
-                                                        if (matchCount <= 5) {
-                                                            BrowserLogger.debug('PAGE-RENDERER', `Page ${pageIndex + 1}: Match ${matchCount}:`, {
-                                                                itemText: item.text,
-                                                                itemLower,
-                                                                itemWithoutSpaces: itemLower.replace(/\s+/g, ''),
-                                                                searchQuery: searchQueryLower,
-                                                                matchType: itemLower.includes(searchQueryLower) ? 'direct' : 'spaceNormalized',
-                                                                itemCoords: { x: item.x, y: item.y, w: item.width, h: item.height },
-                                                            });
-                                                        }
-                                                    }
-                                                });
-
-                                                wordsToRender = Object.values(matchedItemsByText);
-                                                BrowserLogger.info('PAGE-RENDERER', `Page ${pageIndex + 1}: Query="${pageMatchData.searchQuery}" - Found ${wordsToRender.length}/${textItems.length} matching items`);
-                                                BrowserLogger.debug('PAGE-RENDERER', `Page ${pageIndex + 1}: Matched items:`, wordsToRender);
-                                            } else {
-                                                BrowserLogger.warn('PAGE-RENDERER', `Page ${pageIndex + 1}: textItems empty or no searchQuery`, {
-                                                    textItemsLength: textItems.length,
-                                                    searchQuery: pageMatchData.searchQuery,
-                                                });
-                                            }
-                                        } catch (err) {
-                                            const errMsg = err instanceof Error ? err.message : String(err);
-                                            BrowserLogger.error('PAGE-RENDERER', `Page ${pageIndex + 1}: Failed to extract text coordinates`, err);
-                                        }
-                                    } else {
-                                        BrowserLogger.debug('PAGE-RENDERER', `Page ${pageIndex + 1}: Using stored words (OCR), count=${wordsToRender.length}`);
-                                    }
-
-                                    if (wordsToRender && wordsToRender.length > 0) {
-                                        // Collect all unique words from all matches on this page
-                                        const allWords: { [key: string]: typeof wordsToRender[0] } = {};
-                                        pageMatchData.matches.forEach(match => {
-                                            if (match.words) {
-                                                match.words.forEach(word => {
-                                                    allWords[word.text] = word;
-                                                });
-                                            }
-                                        });
-
-                                        // Check if we extracted PDF.js words or using stored OCR words
-                                        const usedPdfJsExtraction = !firstMatch.words || firstMatch.words.length === 0;
-
-                                        // Also add extracted words if we extracted them
-                                        if (usedPdfJsExtraction) {
-                                            wordsToRender.forEach(word => {
+                                    if (firstMatch && firstMatchWords.length > 0) {
+                                        const allWords: { [key: string]: typeof firstMatchWords[0] } = {};
+                                        pageMatchData.matches.forEach((match) => {
+                                            match.words?.forEach((word) => {
                                                 allWords[word.text] = word;
                                             });
-                                        }
+                                        });
 
-                                        // Determine which words are in the current match
                                         const currentMatch = toValue(currentSearchMatch);
                                         const currentMatchWords = new Set<string>();
                                         if (currentMatch && currentMatch.pageIndex === pageIndex && currentMatch.words) {
-                                            currentMatch.words.forEach(word => {
+                                            currentMatch.words.forEach((word) => {
                                                 currentMatchWords.add(word.text);
                                             });
                                         }
 
-                                        // Use correct dimensions based on word source
-                                        let pageWidth = firstMatch.pageWidth;
-                                        let pageHeight = firstMatch.pageHeight;
-
-                                        if (usedPdfJsExtraction) {
-                                            // For PDF.js extracted items, use actual PDF page dimensions
-                                            // pdfPage.view is [x0, y0, x1, y1], so width = x1 - x0, height = y1 - y0
-                                            pageWidth = pdfPage.view[2] - pdfPage.view[0];
-                                            pageHeight = pdfPage.view[3] - pdfPage.view[1];
-                                            BrowserLogger.debug('PAGE-RENDERER', `Page ${pageIndex + 1}: Using PDF.js extraction - dimensions from pdfPage.view: ${pageWidth}x${pageHeight}`);
-                                        } else {
-                                            BrowserLogger.debug('PAGE-RENDERER', `Page ${pageIndex + 1}: Using OCR words - dimensions from search result: ${pageWidth}x${pageHeight}`);
-                                        }
-
-                                        BrowserLogger.warn('PAGE-RENDERER', `Page ${pageIndex + 1}: CALLING renderPageWordBoxes with:`, {
-                                            wordCount: Object.values(allWords).length,
-                                            pageWidth,
-                                            pageHeight,
-                                            usedPdfJsExtraction,
-                                            firstThreeWords: Object.values(allWords).slice(0, 3).map(w => ({
-                                                text: w.text,
-                                                x: w.x,
-                                                y: w.y,
-                                                width: w.width,
-                                                height: w.height,
-                                            })),
-                                        });
-
                                         renderPageWordBoxes(
                                             container,
                                             Object.values(allWords),
-                                            pageWidth,
-                                            pageHeight,
+                                            firstMatch.pageWidth,
+                                            firstMatch.pageHeight,
                                             currentMatchWords.size > 0 ? currentMatchWords : undefined,
                                         );
+                                    } else {
+                                        clearWordBoxes(container);
                                     }
+                                } else {
+                                    clearWordBoxes(container);
                                 }
                             }
 
@@ -716,22 +605,21 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
 
             // Also render word boxes if available
             if (pageMatches && pageMatches.matches.length > 0) {
-                const firstMatch = pageMatches.matches[0];
-                if (firstMatch.words && firstMatch.words.length > 0) {
+                const firstMatch = pageMatches.matches.at(0);
+                const firstMatchWords = firstMatch?.words ?? [];
+                if (firstMatch && firstMatchWords.length > 0) {
                     // Collect all unique words from all matches on this page
-                    const allWords: { [key: string]: typeof firstMatch.words[0] } = {};
-                    pageMatches.matches.forEach(match => {
-                        if (match.words) {
-                            match.words.forEach(word => {
-                                allWords[word.text] = word;
-                            });
-                        }
+                    const allWords: { [key: string]: typeof firstMatchWords[0] } = {};
+                    pageMatches.matches.forEach((match) => {
+                        match.words?.forEach((word) => {
+                            allWords[word.text] = word;
+                        });
                     });
 
                     // Determine which words are in the current match
                     const currentMatchWords = new Set<string>();
                     if (currentMatchValue && currentMatchValue.pageIndex === pageIndex && currentMatchValue.words) {
-                        currentMatchValue.words.forEach(word => {
+                        currentMatchValue.words.forEach((word) => {
                             currentMatchWords.add(word.text);
                         });
                     }
@@ -743,6 +631,8 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                         firstMatch.pageHeight,
                         currentMatchWords.size > 0 ? currentMatchWords : undefined,
                     );
+                } else {
+                    clearWordBoxes(container);
                 }
             } else {
                 clearWordBoxes(container);
