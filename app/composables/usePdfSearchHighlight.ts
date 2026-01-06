@@ -6,15 +6,59 @@ import type {
 const HIGHLIGHT_CLASS = 'pdf-search-highlight';
 const HIGHLIGHT_CURRENT_CLASS = 'pdf-search-highlight--current';
 
+const HIGHLIGHT_API_NAME = 'pdf-search-match';
+const HIGHLIGHT_API_CURRENT_NAME = 'pdf-search-current-match';
+
 export interface IHighlightResult {
     elements: HTMLElement[];
     currentMatchElements: HTMLElement[];
+    currentMatchRanges: Range[];
 }
 
 export const usePdfSearchHighlight = () => {
     type TTextLayerRun =
-        | { kind: 'span'; span: HTMLSpanElement; startOffset: number }
+        | {
+            kind: 'span';
+            span: HTMLSpanElement;
+            textNode: Text | null;
+            startOffset: number;
+        }
         | { kind: 'br'; startOffset: number };
+
+    type THighlightRange = {
+        range: Range;
+        isCurrent: boolean;
+    };
+
+    const highlightRanges = new Map<string, Range>();
+    const currentHighlightRanges = new Map<string, Range>();
+
+    const layerRangeIds = new WeakMap<HTMLElement, { normal: Set<string>; current: Set<string> }>();
+    const layerCurrentRanges = new WeakMap<HTMLElement, Range[]>();
+
+    function canUseHighlightAPI() {
+        return typeof CSS !== 'undefined'
+            && 'highlights' in CSS
+            && typeof Highlight !== 'undefined';
+    }
+
+    function updateHighlightAPI() {
+        if (!canUseHighlightAPI()) {
+            return;
+        }
+
+        if (highlightRanges.size === 0) {
+            CSS.highlights.delete(HIGHLIGHT_API_NAME);
+        } else {
+            CSS.highlights.set(HIGHLIGHT_API_NAME, new Highlight(...highlightRanges.values()));
+        }
+
+        if (currentHighlightRanges.size === 0) {
+            CSS.highlights.delete(HIGHLIGHT_API_CURRENT_NAME);
+        } else {
+            CSS.highlights.set(HIGHLIGHT_API_CURRENT_NAME, new Highlight(...currentHighlightRanges.values()));
+        }
+    }
 
     function buildTextLayerIndex(textLayerDiv: HTMLElement): { text: string; runs: TTextLayerRun[] } {
         const runs: TTextLayerRun[] = [];
@@ -40,7 +84,15 @@ export const usePdfSearchHighlight = () => {
             if (element.tagName === 'SPAN' && element.children.length === 0) {
                 const span = element as HTMLSpanElement;
                 const text = span.textContent ?? '';
-                runs.push({ kind: 'span', span, startOffset: offset });
+                const textNode = span.firstChild && span.firstChild.nodeType === Node.TEXT_NODE
+                    ? span.firstChild as Text
+                    : null;
+                runs.push({
+                    kind: 'span',
+                    span,
+                    textNode,
+                    startOffset: offset,
+                });
                 textParts.push(text);
                 offset += text.length;
                 return;
@@ -61,7 +113,31 @@ export const usePdfSearchHighlight = () => {
         };
     }
 
+    function clearHighlightAPIForLayer(container: HTMLElement) {
+        if (!canUseHighlightAPI()) {
+            return;
+        }
+
+        const ids = layerRangeIds.get(container);
+        if (!ids) {
+            return;
+        }
+
+        for (const id of ids.normal) {
+            highlightRanges.delete(id);
+        }
+        for (const id of ids.current) {
+            currentHighlightRanges.delete(id);
+        }
+
+        layerRangeIds.delete(container);
+        layerCurrentRanges.delete(container);
+        updateHighlightAPI();
+    }
+
     function clearHighlights(container: HTMLElement) {
+        clearHighlightAPIForLayer(container);
+
         const highlights = container.querySelectorAll(`.${HIGHLIGHT_CLASS}`);
         highlights.forEach((el) => {
             const parent = el.parentNode;
@@ -75,13 +151,75 @@ export const usePdfSearchHighlight = () => {
         });
     }
 
+    function registerHighlightRange(
+        container: HTMLElement,
+        range: Range,
+        isCurrent: boolean,
+        id: string,
+    ) {
+        let ids = layerRangeIds.get(container);
+        if (!ids) {
+            ids = {
+                normal: new Set<string>(),
+                current: new Set<string>(),
+            };
+            layerRangeIds.set(container, ids);
+        }
+
+        if (isCurrent) {
+            ids.current.add(id);
+            currentHighlightRanges.set(id, range);
+        } else {
+            ids.normal.add(id);
+            highlightRanges.set(id, range);
+        }
+    }
+
+    function createHighlightRangesInSpan(
+        textNode: Text,
+        spanStartOffset: number,
+        matches: Array<{
+            start: number;
+            end: number;
+            isCurrent: boolean;
+        }>,
+    ): THighlightRange[] {
+        const text = textNode.nodeValue ?? '';
+        const spanEndOffset = spanStartOffset + text.length;
+
+        const relevantMatches = matches.filter(
+            (m) => m.start < spanEndOffset && m.end > spanStartOffset,
+        );
+
+        if (relevantMatches.length === 0) {
+            return [];
+        }
+
+        const ranges: THighlightRange[] = [];
+        for (const match of relevantMatches) {
+            const matchStartInSpan = Math.max(0, match.start - spanStartOffset);
+            const matchEndInSpan = Math.min(text.length, match.end - spanStartOffset);
+
+            if (matchStartInSpan >= matchEndInSpan) {
+                continue;
+            }
+
+            const range = document.createRange();
+            range.setStart(textNode, matchStartInSpan);
+            range.setEnd(textNode, matchEndInSpan);
+            ranges.push({ range, isCurrent: match.isCurrent });
+        }
+
+        return ranges;
+    }
+
     function highlightTextInSpan(
         span: HTMLSpanElement,
         spanStartOffset: number,
         matches: Array<{
             start: number;
             end: number;
-            isCurrent: boolean 
+            isCurrent: boolean;
         }>,
     ): HTMLElement[] {
         const text = span.textContent ?? '';
@@ -99,7 +237,7 @@ export const usePdfSearchHighlight = () => {
         const fragments: Array<{
             text: string;
             isHighlight: boolean;
-            isCurrent: boolean 
+            isCurrent: boolean;
         }> = [];
 
         let currentPos = 0;
@@ -162,6 +300,7 @@ export const usePdfSearchHighlight = () => {
             return {
                 elements: [],
                 currentMatchElements: [],
+                currentMatchRanges: [],
             };
         }
 
@@ -170,6 +309,7 @@ export const usePdfSearchHighlight = () => {
             return {
                 elements: [],
                 currentMatchElements: [],
+                currentMatchRanges: [],
             };
         }
 
@@ -192,6 +332,7 @@ export const usePdfSearchHighlight = () => {
             return {
                 elements: [],
                 currentMatchElements: [],
+                currentMatchRanges: [],
             };
         }
 
@@ -217,6 +358,38 @@ export const usePdfSearchHighlight = () => {
             });
         }
 
+        if (canUseHighlightAPI()) {
+            const currentRanges: Range[] = [];
+
+            for (const run of runs) {
+                if (run.kind !== 'span') {
+                    continue;
+                }
+
+                if (!run.textNode) {
+                    continue;
+                }
+
+                const ranges = createHighlightRangesInSpan(run.textNode, run.startOffset, matchesWithCurrent);
+                ranges.forEach(({ range, isCurrent }, idx) => {
+                    const id = `pdf-${pageMatches.pageIndex}-${run.startOffset}-${idx}-${isCurrent ? 'c' : 'n'}`;
+                    registerHighlightRange(textLayerDiv, range, isCurrent, id);
+                    if (isCurrent) {
+                        currentRanges.push(range);
+                    }
+                });
+            }
+
+            layerCurrentRanges.set(textLayerDiv, currentRanges);
+            updateHighlightAPI();
+
+            return {
+                elements: [],
+                currentMatchElements: [],
+                currentMatchRanges: currentRanges,
+            };
+        }
+
         const allHighlightElements: HTMLElement[] = [];
         const currentMatchElements: HTMLElement[] = [];
 
@@ -238,6 +411,7 @@ export const usePdfSearchHighlight = () => {
         return {
             elements: allHighlightElements,
             currentMatchElements,
+            currentMatchRanges: [],
         };
     }
 
@@ -254,10 +428,15 @@ export const usePdfSearchHighlight = () => {
         });
     }
 
+    function getCurrentMatchRanges(textLayerDiv: HTMLElement): Range[] {
+        return layerCurrentRanges.get(textLayerDiv) ?? [];
+    }
+
     return {
         clearHighlights,
         highlightPage,
         scrollToHighlight,
+        getCurrentMatchRanges,
         HIGHLIGHT_CLASS,
         HIGHLIGHT_CURRENT_CLASS,
     };

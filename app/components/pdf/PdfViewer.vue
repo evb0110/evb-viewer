@@ -478,8 +478,8 @@ defineExpose({
     transform-origin: 0% 0%;
 }
 
-.pdfViewer :deep(.text-layer > span),
-.pdfViewer :deep(.text-layer .markedContent span) {
+.pdfViewer :deep(.text-layer > :not(.markedContent)),
+.pdfViewer :deep(.text-layer .markedContent span:not(.markedContent)) {
     z-index: 1;
     font-size: calc(var(--text-scale-factor) * var(--font-height, 10px));
     transform: rotate(var(--rotate, 0deg)) scaleX(var(--scale-x, 1)) scale(var(--min-font-size-inv));
@@ -604,5 +604,24 @@ defineExpose({
 .pdfViewer :deep(.pdf-word-box--current) {
     background: rgba(0, 150, 255, 0.25);
     border-color: rgba(0, 150, 255, 0.8);
+}
+</style>
+
+<style>
+/* CSS Custom Highlight API (global; works with Electron/Chromium). */
+::highlight(pdf-search-match) {
+    background-color: rgb(255 230 0 / 0.5);
+}
+
+::highlight(pdf-search-current-match) {
+    background-color: rgb(255 150 0 / 0.7);
+}
+
+.pdf-viewer-container--dark ::highlight(pdf-search-match) {
+    background-color: rgb(255 230 0 / 0.6);
+}
+
+.pdf-viewer-container--dark ::highlight(pdf-search-current-match) {
+    background-color: rgb(255 150 0 / 0.8);
 }
 </style>

@@ -10,9 +10,9 @@ import {
     toValue,
     watch,
     type MaybeRefOrGetter,
-	    type Ref,
-	} from 'vue';
-	import { BrowserLogger } from 'app/utils/browser-logger';
+    type Ref,
+} from 'vue';
+import { BrowserLogger } from 'app/utils/browser-logger';
 import type {
     IPdfPageMatches,
     IPdfSearchMatch,
@@ -53,6 +53,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         clearHighlights,
         highlightPage,
         scrollToHighlight,
+        getCurrentMatchRanges,
     } = usePdfSearchHighlight();
     const {
         renderPageWordBoxes,
@@ -86,6 +87,71 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
 
     const outputScale = options.outputScale
         ?? (typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1);
+
+    let lastHighlightDebugKey: string | null = null;
+
+    function isHighlightDebugEnabled() {
+        if (typeof window === 'undefined') {
+            return false;
+        }
+
+        try {
+            return window.localStorage?.getItem('pdfHighlightDebug') === '1';
+        } catch {
+            return false;
+        }
+    }
+
+    function maybeLogHighlightDebug(
+        pageNumber: number,
+        pageMatchData: IPdfPageMatches | null,
+        canvas: HTMLCanvasElement,
+        textLayerDiv: HTMLElement,
+    ) {
+        if (!isHighlightDebugEnabled()) {
+            return;
+        }
+
+        const current = toValue(currentSearchMatch);
+        if (!current || current.pageIndex !== pageNumber - 1) {
+            return;
+        }
+
+        const query = pageMatchData?.searchQuery ?? '';
+        const key = `${current.pageIndex}:${current.matchIndex}:${query}:${toValue(options.effectiveScale)}`;
+        if (key === lastHighlightDebugKey) {
+            return;
+        }
+        lastHighlightDebugKey = key;
+
+        const canvasRect = canvas.getBoundingClientRect();
+        const textRect = textLayerDiv.getBoundingClientRect();
+
+        const currentRange = getCurrentMatchRanges(textLayerDiv).at(0) ?? null;
+        const rangeRect = currentRange?.getBoundingClientRect() ?? null;
+
+        const scale = toValue(options.effectiveScale);
+        const dx = textRect.left - canvasRect.left;
+        const dy = textRect.top - canvasRect.top;
+        const dw = textRect.width - canvasRect.width;
+        const dh = textRect.height - canvasRect.height;
+
+        const fmtRect = (rect: DOMRect) =>
+            `${rect.left.toFixed(2)},${rect.top.toFixed(2)} ${rect.width.toFixed(2)}x${rect.height.toFixed(2)}`;
+
+        const msg = [
+            `page=${pageNumber}`,
+            `matchIndex=${current.matchIndex}`,
+            `scale=${scale}`,
+            `query=${JSON.stringify(query)}`,
+            `canvas=${fmtRect(canvasRect)}`,
+            `textLayer=${fmtRect(textRect)}`,
+            `delta=${dx.toFixed(2)},${dy.toFixed(2)} ${dw.toFixed(2)}x${dh.toFixed(2)}`,
+            rangeRect ? `currentRange=${fmtRect(rangeRect)}` : 'currentRange=null',
+        ].join(' ');
+
+        BrowserLogger.debug('PDF-HIGHLIGHT', msg);
+    }
 
     function bumpRenderVersion() {
         renderVersion += 1;
@@ -185,6 +251,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             }
 
             if (textLayerDiv) {
+                clearHighlights(textLayerDiv);
                 textLayerDiv.innerHTML = '';
             }
 
@@ -209,8 +276,8 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         }
 
         const scale = toValue(options.effectiveScale);
-        const width = Math.floor(baseWidth * scale);
-        const height = Math.floor(baseHeight * scale);
+        const width = baseWidth * scale;
+        const height = baseHeight * scale;
 
         const containers = containerRoot.querySelectorAll<HTMLDivElement>('.page_container');
         containers.forEach((container) => {
@@ -287,6 +354,13 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                         }
 
                         const viewport = pdfPage.getViewport({ scale });
+
+                        // Keep the page container sized to the exact viewport dimensions (avoids
+                        // sub-pixel drift between canvas and text layer when `scale` produces
+                        // fractional page sizes).
+                        container.style.width = `${viewport.width}px`;
+                        container.style.height = `${viewport.height}px`;
+
                         const canvas = document.createElement('canvas');
                         const context = canvas.getContext('2d');
                         if (!context) {
@@ -295,8 +369,8 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
 
                         canvas.width = Math.floor(viewport.width * outputScale);
                         canvas.height = Math.floor(viewport.height * outputScale);
-                        canvas.style.width = `${viewport.width}px`;
-                        canvas.style.height = `${viewport.height}px`;
+                        canvas.style.width = '100%';
+                        canvas.style.height = '100%';
                         canvas.style.display = 'block';
                         canvas.style.margin = '0';
 
@@ -382,6 +456,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                                     pageMatchData,
                                     toValue(currentSearchMatch) ?? null,
                                 );
+                                maybeLogHighlightDebug(pageNumber, pageMatchData, canvas, textLayerDiv);
 
                                 // Render word boxes only for OCR-indexed PDFs (no reliable text layer).
                                 // For PDFs with a normal text layer, rely on in-text highlights instead.
@@ -662,7 +737,28 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
 
         const currentHighlight = textLayerDiv.querySelector<HTMLElement>('.pdf-search-highlight--current');
         if (!currentHighlight) {
-            return false;
+            const currentRanges = getCurrentMatchRanges(textLayerDiv);
+            const range = currentRanges.at(0) ?? null;
+            if (!range) {
+                return false;
+            }
+
+            const rect = range.getBoundingClientRect();
+            if (rect.width === 0 && rect.height === 0) {
+                return false;
+            }
+
+            const containerRect = containerRoot.getBoundingClientRect();
+            const elementTop = rect.top - containerRect.top + containerRoot.scrollTop;
+            const elementCenter = elementTop - containerRoot.clientHeight / 2 + rect.height / 2;
+
+            pendingScrollToMatchPageIndex.value = null;
+            containerRoot.scrollTo({
+                top: Math.max(0, elementCenter),
+                behavior: 'smooth',
+            });
+
+            return true;
         }
 
         pendingScrollToMatchPageIndex.value = null;

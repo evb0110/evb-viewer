@@ -69,9 +69,14 @@ export const usePdfSearch = () => {
         const excerptStart = Math.max(0, startOffset - EXCERPT_CONTEXT_CHARS);
         const excerptEnd = Math.min(text.length, endOffset + EXCERPT_CONTEXT_CHARS);
 
-        const before = text.slice(excerptStart, startOffset).replace(/\s+/g, ' ').trim();
+        const beforeRaw = text.slice(excerptStart, startOffset);
         const match = text.slice(startOffset, endOffset);
-        const after = text.slice(endOffset, excerptEnd).replace(/\s+/g, ' ').trim();
+        const afterRaw = text.slice(endOffset, excerptEnd);
+
+        // Normalize whitespace for display, but preserve spaces around the match so the
+        // CSS Custom Highlight API can highlight the match without collapsing context.
+        const before = beforeRaw.replace(/\s+/g, ' ').trimStart();
+        const after = afterRaw.replace(/\s+/g, ' ').trimEnd();
 
         return {
             prefix: excerptStart > 0,
