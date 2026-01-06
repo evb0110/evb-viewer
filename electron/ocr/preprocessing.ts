@@ -1,21 +1,14 @@
 import { spawn } from 'child_process';
-import {
-    existsSync,
-    appendFileSync,
-} from 'fs';
+import { existsSync } from 'fs';
 import {
     dirname,
     join,
 } from 'path';
 import { fileURLToPath } from 'url';
 import { app } from 'electron';
+import { createLogger } from '@electron/utils/logger';
 
-const LOG_FILE = join(app.getPath('temp'), 'ocr-preprocessing.log');
-
-function debugLog(msg: string) {
-    const ts = new Date().toISOString();
-    appendFileSync(LOG_FILE, `[${ts}] [preprocessing] ${msg}\n`);
-}
+const log = createLogger('preprocessing');
 
 interface IPreprocessingOptions {
     binary: string;
@@ -67,9 +60,9 @@ export function getPreprocessingBinaries(): IPreprocessingBinaries {
     const unpaper = join(binDir, `unpaper${ext}`);
 
     // Debug logging
-    debugLog(`getPreprocessingBinaries: __dirname=${__dirname}, resourcesBase=${resourcesBase}, arch=${arch}, binDir=${binDir}`);
-    debugLog(`  leptonica path: ${leptonica}, exists: ${existsSync(leptonica)}`);
-    debugLog(`  unpaper path: ${unpaper}, exists: ${existsSync(unpaper)}`);
+    log.debug(`getPreprocessingBinaries: __dirname=${__dirname}, resourcesBase=${resourcesBase}, arch=${arch}, binDir=${binDir}`);
+    log.debug(`  leptonica path: ${leptonica}, exists: ${existsSync(leptonica)}`);
+    log.debug(`  unpaper path: ${unpaper}, exists: ${existsSync(unpaper)}`);
 
     return {
         leptonica: existsSync(leptonica) ? leptonica : null,
@@ -84,11 +77,11 @@ export function getPreprocessingBinaries(): IPreprocessingBinaries {
 export async function runPreprocessing(
     options: IPreprocessingOptions,
 ): Promise<IPreprocessingResult> {
-    debugLog(`Running: ${options.binary} ${options.args.join(' ')}`);
+    log.debug(`Running: ${options.binary} ${options.args.join(' ')}`);
 
     if (!existsSync(options.binary)) {
         const error = `Binary not found: ${options.binary}`;
-        debugLog(`Error: ${error}`);
+        log.debug(`Error: ${error}`);
         return {
             success: false,
             error, 
@@ -105,7 +98,7 @@ export async function runPreprocessing(
         const timeout = options.timeout || 60000; // 60 seconds default
         const timeoutHandle = setTimeout(() => {
             timedOut = true;
-            debugLog('Process timeout');
+            log.debug('Process timeout');
             proc.kill();
         }, timeout);
 
@@ -116,28 +109,28 @@ export async function runPreprocessing(
         proc.stderr.on('data', (data: Buffer) => {
             const msg = data.toString();
             stderr += msg;
-            debugLog(`stderr: ${msg.trim()}`);
+            log.debug(`stderr: ${msg.trim()}`);
         });
 
         proc.on('close', (code) => {
             clearTimeout(timeoutHandle);
 
             if (timedOut) {
-                debugLog(`Process timed out after ${timeout}ms`);
+                log.debug(`Process timed out after ${timeout}ms`);
                 resolve({
                     success: false,
                     error: `Process timed out after ${timeout}ms`,
                     stderr,
                 });
             } else if (code === 0) {
-                debugLog('Process completed successfully');
+                log.debug('Process completed successfully');
                 resolve({
                     success: true,
                     stdout,
                     stderr,
                 });
             } else {
-                debugLog(`Process exited with code ${code}`);
+                log.debug(`Process exited with code ${code}`);
                 resolve({
                     success: false,
                     error: stderr || `Process exited with code ${code}`,
@@ -148,7 +141,7 @@ export async function runPreprocessing(
 
         proc.on('error', (err) => {
             clearTimeout(timeoutHandle);
-            debugLog(`Process error: ${err.message}`);
+            log.debug(`Process error: ${err.message}`);
             resolve({
                 success: false,
                 error: err.message,
@@ -253,7 +246,7 @@ export async function preprocessPageForOcr(
     inputPath: string,
     outputPath: string,
 ): Promise<IPreprocessingResult> {
-    debugLog(`Preprocessing page for OCR: ${inputPath}`);
+    log.debug(`Preprocessing page for OCR: ${inputPath}`);
 
     return cleanScannedPageWithUnpaper(inputPath, outputPath, false);
 }

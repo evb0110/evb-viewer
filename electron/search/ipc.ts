@@ -1,40 +1,17 @@
 import type { IpcMainInvokeEvent } from 'electron';
+import {ipcMain} from 'electron';
 import {
-    ipcMain,
-    app,
-    BrowserWindow,
-} from 'electron';
-import {
-    appendFileSync,
     existsSync,
     statSync,
 } from 'fs';
-import { join } from 'path';
 import type { IPdfSearchIndex } from '@electron/search/index-builder';
 import {
     buildSearchIndex,
     loadSearchIndex,
 } from '@electron/search/index-builder';
+import { createLogger } from '@electron/utils/logger';
 
-const LOG_FILE = join(app.getPath('temp'), 'search-debug.log');
-
-function debugLog(msg: string, event?: IpcMainInvokeEvent) {
-    const ts = new Date().toISOString();
-    const logMsg = `[${ts}] [search-ipc] ${msg}`;
-    appendFileSync(LOG_FILE, `${logMsg}\n`);
-
-    // Forward to renderer console if event is available
-    if (event) {
-        const window = BrowserWindow.fromWebContents(event.sender);
-        if (window) {
-            window.webContents.send('debug:log', {
-                source: 'search-ipc',
-                message: msg,
-                timestamp: ts, 
-            });
-        }
-    }
-}
+const log = createLogger('search-ipc');
 
 interface ISearchExcerpt {
     prefix: boolean;
@@ -190,13 +167,12 @@ function cacheBuiltIndex(pdfPath: string, index: IPdfSearchIndex): TCachedIndex 
 async function ensureSearchIndex(
     pdfPath: string,
     options: {pageCount?: number;},
-    event: IpcMainInvokeEvent,
 ): Promise<TCachedIndex> {
     const expectedCount = options.pageCount;
 
     let entry = await loadCachedIndex(pdfPath);
     if (!entry) {
-        debugLog(`No index found for ${pdfPath}, building base index`, event);
+        log.debug(`No index found for ${pdfPath}, building base index`);
         entry = cacheBuiltIndex(
             pdfPath,
             await buildSearchIndex(pdfPath, [], { pageCount: expectedCount }),
@@ -205,7 +181,7 @@ async function ensureSearchIndex(
     }
 
     if (typeof expectedCount === 'number' && expectedCount > 0 && entry.index.pages.length < expectedCount) {
-        debugLog(`Index incomplete (have=${entry.index.pages.length}, expected=${expectedCount}), rebuilding`, event);
+        log.debug(`Index incomplete (have=${entry.index.pages.length}, expected=${expectedCount}), rebuilding`);
         entry = cacheBuiltIndex(
             pdfPath,
             await buildSearchIndex(pdfPath, [], { pageCount: expectedCount }),
@@ -216,7 +192,7 @@ async function ensureSearchIndex(
         ), 0);
 
         if (inRangeCount < expectedCount) {
-            debugLog(`Index missing pages (have=${inRangeCount}, expected=${expectedCount}), rebuilding`, event);
+            log.debug(`Index missing pages (have=${inRangeCount}, expected=${expectedCount}), rebuilding`);
             entry = cacheBuiltIndex(
                 pdfPath,
                 await buildSearchIndex(pdfPath, [], { pageCount: expectedCount }),
@@ -244,7 +220,7 @@ async function handlePdfSearch(
     const requestId = requestIdRaw || `search-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     latestSearchBySender.set(event.sender.id, requestId);
 
-    debugLog(`Search requested: pdfPath=${pdfPath}, query="${query}", requestId=${requestId}`, event);
+    log.debug(`Search requested: pdfPath=${pdfPath}, query="${query}", requestId=${requestId}`);
 
     if (!pdfPath || !existsSync(pdfPath)) {
         throw new Error(`PDF not found: ${pdfPath}`);
@@ -266,14 +242,13 @@ async function handlePdfSearch(
         const indexEntry = await ensureSearchIndex(
             pdfPath,
             { pageCount },
-            event,
         );
 
         const totalPages = typeof pageCount === 'number' && pageCount > 0
             ? pageCount
             : (indexEntry.index.pageCount ?? indexEntry.index.pages.length);
 
-        debugLog(`Searching ${totalPages} pages for "${query}"`, event);
+        log.debug(`Searching ${totalPages} pages for "${query}"`);
 
         sendProgress(event, {
             requestId,
@@ -288,7 +263,7 @@ async function handlePdfSearch(
 
         for (let pageIdx = 0; pageIdx < indexEntry.index.pages.length; pageIdx += 1) {
             if (shouldCancel()) {
-                debugLog(`Search canceled: requestId=${requestId}`, event);
+                log.debug(`Search canceled: requestId=${requestId}`);
                 return {
                     results: [],
                     truncated: false,
@@ -351,14 +326,14 @@ async function handlePdfSearch(
             });
         }
 
-        debugLog(`Total matches found: ${results.length}${truncated ? ' (truncated)' : ''}`, event);
+        log.debug(`Total matches found: ${results.length}${truncated ? ' (truncated)' : ''}`);
         return {
             results,
             truncated,
         };
     } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
-        debugLog(`Search error: ${errMsg}`, event);
+        log.debug(`Search error: ${errMsg}`);
         throw new Error(`Search failed: ${errMsg}`);
     }
 }
@@ -396,7 +371,7 @@ export async function saveOcrIndex(
         indexCache.delete(pdfPath);
     } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
-        debugLog(`Failed to save OCR index: ${errMsg}`);
+        log.debug(`Failed to save OCR index: ${errMsg}`);
         // Non-blocking - don't fail OCR if index save fails
     }
 }

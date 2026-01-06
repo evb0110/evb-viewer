@@ -1,11 +1,9 @@
 import {
-    appendFileSync,
     readFileSync,
     writeFileSync,
 } from 'fs';
-import { join } from 'path';
-import { app } from 'electron';
 import { extractTextFromPdf } from '@electron/search/pdf-text-extractor';
+import { createLogger } from '@electron/utils/logger';
 
 export interface IOcrWord {
     text: string;
@@ -30,12 +28,7 @@ export interface IPdfSearchIndex {
     pageCount?: number;
 }
 
-const LOG_FILE = join(app.getPath('temp'), 'search-debug.log');
-
-function debugLog(msg: string) {
-    const ts = new Date().toISOString();
-    appendFileSync(LOG_FILE, `[${ts}] [index-builder] ${msg}\n`);
-}
+const log = createLogger('index-builder');
 
 const STORE_WORD_BOXES = false;
 
@@ -58,7 +51,7 @@ export async function buildSearchIndex(
     }>,
     options: {pageCount?: number;} = {},
 ): Promise<IPdfSearchIndex> {
-    debugLog(`Building search index for ${pdfPath}`);
+    log.debug(`Building search index for ${pdfPath}`);
 
     const expectedCount = options.pageCount;
 
@@ -82,7 +75,7 @@ export async function buildSearchIndex(
 
     if (needsPdfText) {
         try {
-            debugLog(`Seeding index with pdftotext output (pageCount=${expectedCount ?? 'unknown'})`);
+            log.debug(`Seeding index with pdftotext output (pageCount=${expectedCount ?? 'unknown'})`);
             const pageTexts = await extractTextFromPdf(pdfPath, { pageCount: expectedCount });
             pageTexts.forEach((pt) => {
                 const entry = pagesByNumber.get(pt.pageNumber);
@@ -101,7 +94,7 @@ export async function buildSearchIndex(
             });
         } catch (pdfTextErr) {
             const errMsg = pdfTextErr instanceof Error ? pdfTextErr.message : String(pdfTextErr);
-            debugLog(`Warning: Failed to seed index with pdftotext: ${errMsg}`);
+            log.debug(`Warning: Failed to seed index with pdftotext: ${errMsg}`);
         }
     }
 
@@ -147,15 +140,15 @@ export async function buildSearchIndex(
     };
 
     const indexPath = getIndexPath(pdfPath);
-    debugLog(`Saving index to ${indexPath}`);
+    log.debug(`Saving index to ${indexPath}`);
 
     try {
         writeFileSync(indexPath, JSON.stringify(index));
-        debugLog(`Index saved successfully: ${indexPath}`);
+        log.debug(`Index saved successfully: ${indexPath}`);
         return index;
     } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
-        debugLog(`Failed to save index: ${errMsg}`);
+        log.debug(`Failed to save index: ${errMsg}`);
         throw err;
     }
 }
@@ -169,10 +162,10 @@ export async function loadSearchIndex(pdfPath: string): Promise<IPdfSearchIndex 
     try {
         const content = readFileSync(indexPath, 'utf-8');
         const index = JSON.parse(content) as IPdfSearchIndex;
-        debugLog(`Loaded index from ${indexPath}`);
+        log.debug(`Loaded index from ${indexPath}`);
         return index;
     } catch {
-        debugLog(`Index not found or invalid: ${indexPath}`);
+        log.debug(`Index not found or invalid: ${indexPath}`);
         return null;
     }
 }

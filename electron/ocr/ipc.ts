@@ -5,13 +5,13 @@ import {
     app,
 } from 'electron';
 import {
-    appendFileSync,
     writeFileSync,
     readFileSync,
     unlinkSync,
+    readdirSync,
 } from 'fs';
 import { join } from 'path';
-import { execSync } from 'child_process';
+import { spawnSync } from 'child_process';
 import {
     runOcr,
     runOcrWithBoundingBoxes,
@@ -22,13 +22,9 @@ import {
     validatePreprocessingSetup,
 } from '@electron/ocr/preprocessing';
 import { saveOcrIndex } from '@electron/search/ipc';
+import { createLogger } from '@electron/utils/logger';
 
-const LOG_FILE = join(app.getPath('temp'), 'ocr-debug.log');
-
-function debugLog(msg: string) {
-    const ts = new Date().toISOString();
-    appendFileSync(LOG_FILE, `[${ts}] ${msg}\n`);
-}
+const log = createLogger('ocr-ipc');
 
 interface IOcrPageRequest {
     pageNumber: number;
@@ -181,7 +177,7 @@ async function handleOcrCreateSearchablePdf(
     workingCopyPath?: string,
 ) {
     try {
-        debugLog(`handleOcrCreateSearchablePdf called: pdfLen=${originalPdfData.length}, pages=${pages.length}, reqId=${requestId}`);
+        log.debug(`handleOcrCreateSearchablePdf called: pdfLen=${originalPdfData.length}, pages=${pages.length}, reqId=${requestId}`);
 
         const window = BrowserWindow.fromWebContents(event.sender);
         const errors: string[] = [];
@@ -193,10 +189,10 @@ async function handleOcrCreateSearchablePdf(
         const originalPdfPath = join(tempDir, `${sessionId}-original.pdf`);
         writeFileSync(originalPdfPath, originalPdfBytes);
         const writtenFileSize = readFileSync(originalPdfPath).length;
-        debugLog(`Wrote original PDF to ${originalPdfPath}, size: ${writtenFileSize} bytes (expected: ${originalPdfData.length})`);
+        log.debug(`Wrote original PDF to ${originalPdfPath}, size: ${writtenFileSize} bytes (expected: ${originalPdfData.length})`);
         if (writtenFileSize !== originalPdfData.length) {
             const errMsg = `PDF file size mismatch: wrote ${writtenFileSize} bytes but expected ${originalPdfData.length}`;
-            debugLog(`ERROR: ${errMsg}`);
+            log.debug(`ERROR: ${errMsg}`);
             errors.push(errMsg);
             return {
                 success: false,
@@ -210,7 +206,7 @@ async function handleOcrCreateSearchablePdf(
         for (let i = 0; i < pages.length; i++) {
             const page = pages[i];
             if (!page) continue;
-            debugLog(`Processing page ${page.pageNumber}`);
+            log.debug(`Processing page ${page.pageNumber}`);
 
             // Send progress update
             window?.webContents.send('ocr:progress', {
@@ -224,28 +220,49 @@ async function handleOcrCreateSearchablePdf(
                 // Extract page image from source PDF using pdftoppm at 150 DPI for good quality
                 // 150 DPI gives us ~2.1x scale on standard letter-size pages
                 const pageImagePath = join(tempDir, `${sessionId}-page-${page.pageNumber}.png`);
-                debugLog(`Extracting page ${page.pageNumber} from PDF to ${pageImagePath}`);
+                log.debug(`Extracting page ${page.pageNumber} from PDF to ${pageImagePath}`);
 
                 // pdftoppm: -png output as PNG, -singlefile output single file (not -001, -002, etc), -f/-l first/last page
-                execSync(`pdftoppm -png -r 150 -f ${page.pageNumber} -l ${page.pageNumber} -singlefile "${originalPdfPath}" "${pageImagePath.replace(/\.png$/, '')}"`, {
-                    encoding: 'utf-8',
-                    stdio: 'pipe',
-                });
+                // Using spawnSync with args array to prevent shell injection
+                const pdftoppmResult = spawnSync('pdftoppm', [
+                    '-png',
+                    '-r',
+                    '150',
+                    '-f',
+                    String(page.pageNumber),
+                    '-l',
+                    String(page.pageNumber),
+                    '-singlefile',
+                    originalPdfPath,
+                    pageImagePath.replace(/\.png$/, ''),
+                ], { encoding: 'utf-8' });
+
+                if (pdftoppmResult.status !== 0) {
+                    throw new Error(`pdftoppm failed: ${pdftoppmResult.stderr || pdftoppmResult.error?.message}`);
+                }
 
                 const imageBuffer = readFileSync(pageImagePath);
-                debugLog(`Extracted page image: ${imageBuffer.length} bytes`);
+                log.debug(`Extracted page image: ${imageBuffer.length} bytes`);
 
                 // Measure the extracted image dimensions to pass to Tesseract
                 // pdftoppm creates images at the exact page size, but we need to tell Tesseract the dimensions
-                // We'll use imagemagick to get the dimensions
-                const identifyOutput = execSync(`identify -format "%wx%h" "${pageImagePath}"`, {encoding: 'utf-8'}).trim();
+                // Using spawnSync with args array to prevent shell injection
+                const identifyResult = spawnSync('identify', [
+                    '-format',
+                    '%wx%h',
+                    pageImagePath,
+                ], { encoding: 'utf-8' });
+                if (identifyResult.status !== 0) {
+                    throw new Error(`identify failed: ${identifyResult.stderr || identifyResult.error?.message}`);
+                }
+                const identifyOutput = (identifyResult.stdout ?? '').trim();
                 const [
                     widthStr,
                     heightStr,
                 ] = identifyOutput.split('x');
                 const imageWidth = parseInt(widthStr ?? '0', 10);
                 const imageHeight = parseInt(heightStr ?? '0', 10);
-                debugLog(`Page image dimensions: ${imageWidth}x${imageHeight}`);
+                log.debug(`Page image dimensions: ${imageWidth}x${imageHeight}`);
 
                 try {
                     const result = await runOcrWithBoundingBoxes(
@@ -254,7 +271,7 @@ async function handleOcrCreateSearchablePdf(
                         imageWidth,
                         imageHeight,
                     );
-                    debugLog(`runOcrWithBoundingBoxes result: success=${result.success}, words=${result.pageData?.words.length}, error=${result.error}`);
+                    log.debug(`runOcrWithBoundingBoxes result: success=${result.success}, words=${result.pageData?.words.length}, error=${result.error}`);
 
                     if (result.success && result.pageData) {
                         ocrPageData.push({
@@ -271,20 +288,24 @@ async function handleOcrCreateSearchablePdf(
                     }
                 } catch (err) {
                     const errMsg = err instanceof Error ? err.message : String(err);
-                    debugLog(`runOcrWithBoundingBoxes threw: ${errMsg}`);
+                    log.debug(`runOcrWithBoundingBoxes threw: ${errMsg}`);
                     errors.push(`Page ${page.pageNumber}: ${errMsg}`);
                 } finally {
                     // Cleanup extracted page image
-                    try { unlinkSync(pageImagePath); } catch { /* ignore cleanup errors */ }
+                    try {
+                        unlinkSync(pageImagePath);
+                    } catch (cleanupErr) {
+                        log.warn(`Cleanup warning (pageImagePath): ${cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)}`);
+                    }
                 }
             } catch (err) {
                 const errMsg = err instanceof Error ? err.message : String(err);
-                debugLog(`Failed to extract page ${page.pageNumber}: ${errMsg}`);
+                log.debug(`Failed to extract page ${page.pageNumber}: ${errMsg}`);
                 errors.push(`Failed to extract page ${page.pageNumber}: ${errMsg}`);
             }
         }
 
-        debugLog(`OCR loop done. ocrPageData=${ocrPageData.length}, errors=${errors.length}`);
+        log.debug(`OCR loop done. ocrPageData=${ocrPageData.length}, errors=${errors.length}`);
 
         // Send final progress
         window?.webContents.send('ocr:progress', {
@@ -306,10 +327,10 @@ async function handleOcrCreateSearchablePdf(
         const ocrPdfMap: Map<number, string> = new Map(); // pageNumber -> path to OCR PDF
 
         try {
-            debugLog(`Generating Tesseract PDF for ${ocrPageData.length} OCR'd page(s)`);
+            log.debug(`Generating Tesseract PDF for ${ocrPageData.length} OCR'd page(s)`);
 
             for (const pageData of ocrPageData) {
-                debugLog(`Generating Tesseract PDF for page ${pageData.pageNumber}`);
+                log.debug(`Generating Tesseract PDF for page ${pageData.pageNumber}`);
 
                 try {
                     const result = await generateSearchablePdfDirect(
@@ -321,20 +342,20 @@ async function handleOcrCreateSearchablePdf(
                         const ocrPdfPath = join(tempDir, `${sessionId}-ocr-page-${pageData.pageNumber}.pdf`);
                         writeFileSync(ocrPdfPath, result.pdfBuffer);
                         ocrPdfMap.set(pageData.pageNumber, ocrPdfPath);
-                        debugLog(`Saved OCR PDF for page ${pageData.pageNumber}: ${result.pdfBuffer.length} bytes`);
+                        log.debug(`Saved OCR PDF for page ${pageData.pageNumber}: ${result.pdfBuffer.length} bytes`);
                     } else {
                         errors.push(`Failed to generate PDF for page ${pageData.pageNumber}: ${result.error}`);
-                        debugLog(`Tesseract PDF generation failed for page ${pageData.pageNumber}: ${result.error}`);
+                        log.debug(`Tesseract PDF generation failed for page ${pageData.pageNumber}: ${result.error}`);
                     }
                 } catch (err) {
                     const errMsg = err instanceof Error ? err.message : String(err);
                     errors.push(`Error generating PDF for page ${pageData.pageNumber}: ${errMsg}`);
-                    debugLog(`Exception generating PDF for page ${pageData.pageNumber}: ${errMsg}`);
+                    log.debug(`Exception generating PDF for page ${pageData.pageNumber}: ${errMsg}`);
                 }
             }
 
             if (ocrPdfMap.size === 0) {
-                debugLog('No OCR PDFs generated successfully');
+                log.debug('No OCR PDFs generated successfully');
                 return {
                     success: false,
                     pdfData: null,
@@ -342,7 +363,7 @@ async function handleOcrCreateSearchablePdf(
                 };
             }
 
-            debugLog(`Successfully generated ${ocrPdfMap.size} OCR PDF(s)`);
+            log.debug(`Successfully generated ${ocrPdfMap.size} OCR PDF(s)`);
 
             try {
                 // Use qpdf for efficient page substitution (no need to extract all pages)
@@ -350,7 +371,7 @@ async function handleOcrCreateSearchablePdf(
                 const minOcrPage = ocrPageNumbers[0] ?? 1;
                 const maxOcrPage = ocrPageNumbers[ocrPageNumbers.length - 1] ?? 1;
 
-                debugLog(`OCR'd pages: ${minOcrPage} to ${maxOcrPage}`);
+                log.debug(`OCR'd pages: ${minOcrPage} to ${maxOcrPage}`);
 
                 // Merge using qpdf for efficient page substitution
                 const mergedPdfPath = join(tempDir, `${sessionId}-merged.pdf`);
@@ -365,68 +386,73 @@ async function handleOcrCreateSearchablePdf(
 
                 // Get page count from original PDF using qpdf --show-npages
                 // Declared outside try block so it's accessible for saveOcrIndex later
+                // Using spawnSync with args array to prevent shell injection
                 let pageCount = 0;
                 try {
-                    const pageCountOutput = execSync(`qpdf --show-npages ${originalPdfPath}`, {encoding: 'utf-8'}).trim();
-                    pageCount = parseInt(pageCountOutput, 10);
-                    debugLog(`Original PDF has ${pageCount} pages`);
+                    const pageCountResult = spawnSync('qpdf', [
+                        '--show-npages',
+                        originalPdfPath,
+                    ], { encoding: 'utf-8' });
+                    if (pageCountResult.status === 0) {
+                        pageCount = parseInt((pageCountResult.stdout ?? '').trim(), 10);
+                        log.debug(`Original PDF has ${pageCount} pages`);
+                    } else {
+                        throw new Error(pageCountResult.stderr || 'qpdf failed');
+                    }
                 } catch (err) {
-                    debugLog(`Failed to get page count, using fallback: ${err}`);
+                    log.debug(`Failed to get page count, using fallback: ${err}`);
                     pageCount = 9999; // Fallback: use large number
                 }
 
                 try {
-                    // Build qpdf command for intelligent substitution
+                    // Build qpdf args array for intelligent substitution
+                    // Using spawnSync with args array to prevent shell injection
                     // Strategy: Use OCR'd pages where available, original pages otherwise
-                    // Note: qpdf --pages syntax is: file1 page-spec file2 page-spec ...
+                    // qpdf --pages syntax is: file1 page-spec file2 page-spec ...
 
-                    const pageSpecs: string[] = [];
+                    const qpdfArgs: string[] = [
+                        originalPdfPath,
+                        '--pages',
+                    ];
                     let lastPage = 0;
 
                     for (const pageNum of ocrPageNumbers) {
                         // Add original pages before this OCR page (if any gap)
                         if (lastPage + 1 < pageNum) {
-                            pageSpecs.push(`${originalPdfPath} ${lastPage + 1}-${pageNum - 1}`);
+                            qpdfArgs.push(originalPdfPath, `${lastPage + 1}-${pageNum - 1}`);
                         }
                         // Add OCR page
                         const ocrPath = ocrPdfMap.get(pageNum)!;
-                        pageSpecs.push(`${ocrPath} 1`);
+                        qpdfArgs.push(ocrPath, '1');
                         lastPage = pageNum;
                     }
 
                     // Add any remaining pages from the original after the last OCR page
                     if (lastPage < pageCount) {
-                        pageSpecs.push(`${originalPdfPath} ${lastPage + 1}-${pageCount}`);
+                        qpdfArgs.push(originalPdfPath, `${lastPage + 1}-${pageCount}`);
                     }
 
-                    // Build the full qpdf command
-                    const qpdfCmd = `qpdf ${originalPdfPath} --pages ${pageSpecs.join(' ')} -- ${mergedPdfPath}`;
+                    // Add output path
+                    qpdfArgs.push('--', mergedPdfPath);
 
-                    debugLog('Using qpdf for efficient page substitution');
-                    debugLog(`qpdf command: ${qpdfCmd}`);
+                    log.debug('Using qpdf for efficient page substitution');
+                    log.debug(`qpdf args: ${qpdfArgs.join(' ')}`);
 
-                    try {
-                        execSync(qpdfCmd, {
-                            encoding: 'utf-8',
-                            stdio: 'pipe', 
-                        });
-                        debugLog('qpdf substitution completed successfully');
-                    } catch (execErr) {
-                        // qpdf returns exit code 3 for "operation succeeded with warnings"
-                        // The file is still created successfully in this case
-                        const execErrMsg = execErr instanceof Error ? execErr.message : String(execErr);
-                        if (execErr instanceof Error && 'status' in execErr && execErr.status === 3) {
-                            debugLog('qpdf completed with exit code 3 (warnings, but file created successfully)');
-                        } else if (execErrMsg.includes('succeeded with warnings')) {
-                            debugLog('qpdf completed with warnings (normal for some PDFs)');
-                        } else {
-                            throw execErr;
-                        }
+                    const qpdfResult = spawnSync('qpdf', qpdfArgs, { encoding: 'utf-8' });
+
+                    // qpdf returns exit code 3 for "operation succeeded with warnings"
+                    // The file is still created successfully in this case
+                    if (qpdfResult.status === 0) {
+                        log.debug('qpdf substitution completed successfully');
+                    } else if (qpdfResult.status === 3) {
+                        log.debug('qpdf completed with exit code 3 (warnings, but file created successfully)');
+                    } else {
+                        throw new Error(qpdfResult.stderr || `qpdf failed with status ${qpdfResult.status}`);
                     }
                 } catch (qpdfErr) {
                     // qpdf is required for efficient page substitution
                     const errMsg = qpdfErr instanceof Error ? qpdfErr.message : String(qpdfErr);
-                    debugLog(`qpdf page substitution failed: ${errMsg}`);
+                    log.debug(`qpdf page substitution failed: ${errMsg}`);
                     errors.push(`Failed to merge OCR'd pages with original PDF: ${errMsg}`);
                     return {
                         success: false,
@@ -437,7 +463,7 @@ async function handleOcrCreateSearchablePdf(
 
                 // Read merged PDF
                 const mergedPdfBuffer = readFileSync(mergedPdfPath);
-                debugLog(`Merged PDF size: ${mergedPdfBuffer.length} bytes`);
+                log.debug(`Merged PDF size: ${mergedPdfBuffer.length} bytes`);
 
                 // Save search index for OCR'd pages
                 try {
@@ -453,10 +479,10 @@ async function handleOcrCreateSearchablePdf(
                     // The index file will be: /working/copy/path/file.pdf.index.json or /original/path/file.pdf.index.json
                     const indexPath = workingCopyPath || originalPdfPath;
                     await saveOcrIndex(indexPath, indexPageData, pageCount);
-                    debugLog(`Search index saved for OCR'd PDF at ${indexPath}.index.json`);
+                    log.debug(`Search index saved for OCR'd PDF at ${indexPath}.index.json`);
                 } catch (indexErr) {
                     const indexErrMsg = indexErr instanceof Error ? indexErr.message : String(indexErr);
-                    debugLog(`Warning: Failed to save search index: ${indexErrMsg}`);
+                    log.debug(`Warning: Failed to save search index: ${indexErrMsg}`);
                     // Non-blocking - don't fail OCR if index save fails
                 }
 
@@ -464,7 +490,7 @@ async function handleOcrCreateSearchablePdf(
                 if (mergedPdfBuffer.length > 50 * 1024 * 1024) {
                     const resultPath = join(tempDir, `ocr-result-${sessionId}.pdf`);
                     // File already written above
-                    debugLog(`Large PDF saved to temp file: ${resultPath}`);
+                    log.debug(`Large PDF saved to temp file: ${resultPath}`);
                     return {
                         success: true,
                         pdfData: null,
@@ -481,7 +507,7 @@ async function handleOcrCreateSearchablePdf(
 
             } catch (mergeErr) {
                 const mergeMsg = mergeErr instanceof Error ? mergeErr.message : String(mergeErr);
-                debugLog(`PDF merge failed: ${mergeMsg}`);
+                log.debug(`PDF merge failed: ${mergeMsg}`);
                 errors.push(`PDF merge failed: ${mergeMsg}`);
                 return {
                     success: false,
@@ -489,15 +515,27 @@ async function handleOcrCreateSearchablePdf(
                     errors, 
                 };
             } finally {
-                // Cleanup temp files
+                // Cleanup temp files safely without shell
                 try {
-                    execSync(`rm -f ${tempDir}/${sessionId}-*.pdf 2>/dev/null`);
-                    debugLog('Cleaned up temp files');
-                } catch { /* ignore cleanup errors */ }
+                    const tempFiles = readdirSync(tempDir);
+                    const sessionPrefix = `${sessionId}-`;
+                    for (const file of tempFiles) {
+                        if (file.startsWith(sessionPrefix) && file.endsWith('.pdf')) {
+                            try {
+                                unlinkSync(join(tempDir, file));
+                            } catch {
+                                // Ignore individual file cleanup errors
+                            }
+                        }
+                    }
+                    log.debug('Cleaned up temp files');
+                } catch (cleanupErr) {
+                    log.warn(`Cleanup warning: ${cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)}`);
+                }
             }
         } catch (err) {
             const errMsg = err instanceof Error ? err.message : String(err);
-            debugLog(`Error in page substitution: ${errMsg}`);
+            log.debug(`Error in page substitution: ${errMsg}`);
             errors.push(`Page substitution failed: ${errMsg}`);
             return {
                 success: false,
@@ -508,8 +546,8 @@ async function handleOcrCreateSearchablePdf(
     } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
         const errStack = err instanceof Error ? err.stack : '';
-        debugLog(`CRITICAL ERROR in handleOcrCreateSearchablePdf: ${errMsg}`);
-        debugLog(`Stack: ${errStack}`);
+        log.debug(`CRITICAL ERROR in handleOcrCreateSearchablePdf: ${errMsg}`);
+        log.debug(`Stack: ${errStack}`);
         return {
             success: false,
             pdfData: null,
@@ -562,11 +600,11 @@ async function handlePreprocessPage(
         const imageBuffer = Buffer.from(imageData);
         writeFileSync(inputPath, imageBuffer);
 
-        debugLog(`Preprocessing image: ${inputPath}`);
+        log.debug(`Preprocessing image: ${inputPath}`);
         const result = await preprocessPageForOcr(inputPath, outputPath);
 
         if (!result.success) {
-            debugLog(`Preprocessing failed: ${result.error}`);
+            log.debug(`Preprocessing failed: ${result.error}`);
             return {
                 success: false,
                 imageData,
@@ -578,14 +616,18 @@ async function handlePreprocessPage(
         const preprocessedBuffer = readFileSync(outputPath);
         const preprocessedData = Array.from(preprocessedBuffer);
 
-        debugLog(`Preprocessing successful: ${inputPath} -> ${outputPath}`);
+        log.debug(`Preprocessing successful: ${inputPath} -> ${outputPath}`);
 
         // Cleanup temp files
         try {
             unlinkSync(inputPath);
+        } catch (cleanupErr) {
+            log.warn(`Cleanup warning (inputPath): ${cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)}`);
+        }
+        try {
             unlinkSync(outputPath);
-        } catch {
-            // Ignore cleanup errors
+        } catch (cleanupErr) {
+            log.warn(`Cleanup warning (outputPath): ${cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)}`);
         }
 
         return {
@@ -595,7 +637,7 @@ async function handlePreprocessPage(
         };
     } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
-        debugLog(`Preprocessing error: ${errMsg}`);
+        log.debug(`Preprocessing error: ${errMsg}`);
         return {
             success: false,
             imageData,

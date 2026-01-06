@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     readFile: (path: string) => ipcRenderer.invoke('file:read', path),
     writeFile: (path: string, data: Uint8Array) => ipcRenderer.invoke('file:write', path, data),
     saveFile: (path: string) => ipcRenderer.invoke('file:save', path),
+    cleanupFile: (path: string) => ipcRenderer.invoke('file:cleanup', path),
     setWindowTitle: (title: string) => ipcRenderer.invoke('window:setTitle', title),
 
     onMenuOpenPdf: (callback: IMenuEventCallback): IMenuEventUnsubscribe => {

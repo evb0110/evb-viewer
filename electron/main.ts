@@ -1,6 +1,9 @@
 import { app } from 'electron';
 import { config } from '@electron/config';
-import { registerIpcHandlers } from '@electron/ipc';
+import {
+    registerIpcHandlers,
+    clearAllWorkingCopies,
+} from '@electron/ipc';
 import { setupMenu } from '@electron/menu';
 import { stopServer } from '@electron/server';
 import {
@@ -16,6 +19,7 @@ async function init() {
 
     app.on('window-all-closed', () => {
         stopServer();
+        clearAllWorkingCopies();
         if (!config.isMac) {
             app.quit();
         }

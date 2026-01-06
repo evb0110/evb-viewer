@@ -53,6 +53,10 @@ export function registerIpcHandlers() {
     ipcMain.handle('file:read', handleFileRead);
     ipcMain.handle('file:write', handleFileWrite);
     ipcMain.handle('file:save', handleFileSave);
+    ipcMain.handle('file:cleanup', (_event, workingPath: string) => {
+        cleanupWorkingCopy(workingPath);
+        return true;
+    });
     ipcMain.handle('window:setTitle', handleSetWindowTitle);
 
     registerOcrHandlers();
@@ -185,8 +189,28 @@ async function handleFileSave(
         // Copy working version back to original location
         const workingData = await readFile(normalizedWorkingPath);
         await writeFile(originalPath, workingData);
+
+        // Clean up the map entry to prevent memory leak
+        workingCopyMap.delete(normalizedWorkingPath);
+
         return true;
     } catch (err) {
         throw new Error(`Failed to save: ${err instanceof Error ? err.message : String(err)}`);
     }
+}
+
+/**
+ * Clean up a working copy entry from the map
+ * Called when user closes a PDF without saving
+ */
+function cleanupWorkingCopy(workingPath: string) {
+    workingCopyMap.delete(workingPath);
+}
+
+/**
+ * Clear all working copy entries
+ * Called on app shutdown
+ */
+export function clearAllWorkingCopies() {
+    workingCopyMap.clear();
 }

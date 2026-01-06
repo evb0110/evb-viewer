@@ -26,7 +26,9 @@ export async function startServer() {
     }
 
     console.log('[Electron] Starting Nuxt server...');
-    let resolveReady: () => void;
+    // Use definite assignment assertion - resolveReady is guaranteed to be assigned
+    // by the Promise constructor before any code that uses it can execute
+    let resolveReady!: () => void;
     serverReady = new Promise((resolve) => {
         resolveReady = resolve;
     });

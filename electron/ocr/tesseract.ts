@@ -5,16 +5,11 @@ import {
     unlink,
     writeFile,
 } from 'fs/promises';
-import { appendFileSync } from 'fs';
 import { join } from 'path';
 import { getOcrPaths } from '@electron/ocr/paths';
+import { createLogger } from '@electron/utils/logger';
 
-const LOG_FILE = join(app.getPath('temp'), 'ocr-debug.log');
-
-function debugLog(msg: string) {
-    const ts = new Date().toISOString();
-    appendFileSync(LOG_FILE, `[${ts}] [tesseract] ${msg}\n`);
-}
+const log = createLogger('tesseract');
 
 interface IOcrResult {
     success: boolean;
@@ -116,7 +111,7 @@ export async function generateSearchablePdfDirect(
     imageBuffer: Buffer,
     languages: string[],
 ): Promise<IOcrPdfResult> {
-    debugLog(`generateSearchablePdfDirect: Creating PDF with languages=${languages.join(',')}`);
+    log.debug(`generateSearchablePdfDirect: Creating PDF with languages=${languages.join(',')}`);
 
     const {
         binary,
@@ -130,15 +125,15 @@ export async function generateSearchablePdfDirect(
     const pdfPath = `${outputBase}.pdf`;
 
     async function cleanup() {
-        await unlink(inputPath).catch(() => {});
-        await unlink(pdfPath).catch(() => {});
+        await unlink(inputPath).catch(err => log.warn(`Cleanup warning (inputPath): ${err.message}`));
+        await unlink(pdfPath).catch(err => log.warn(`Cleanup warning (pdfPath): ${err.message}`));
     }
 
     try {
         // Write image to temp file
-        debugLog('Writing temp image file...');
+        log.debug('Writing temp image file...');
         await writeFile(inputPath, imageBuffer);
-        debugLog(`Temp file written: ${inputPath}`);
+        log.debug(`Temp file written: ${inputPath}`);
 
         // Run Tesseract with PDF output format
         // Uses -c tessedit_create_pdf=1 to generate searchable PDF with embedded text
@@ -153,7 +148,7 @@ export async function generateSearchablePdfDirect(
             'tessedit_create_pdf=1',  // Generate PDF with text layer
         ];
 
-        debugLog(`Spawning tesseract for PDF generation: ${binary} ${args.join(' ')}`);
+        log.debug(`Spawning tesseract for PDF generation: ${binary} ${args.join(' ')}`);
 
         return new Promise((resolve) => {
             const proc = spawn(binary, args, {env: {
@@ -166,23 +161,23 @@ export async function generateSearchablePdfDirect(
             proc.stderr.on('data', (data: Buffer) => {
                 const msg = data.toString();
                 stderr += msg;
-                debugLog(`stderr: ${msg.trim()}`);
+                log.debug(`stderr: ${msg.trim()}`);
             });
 
             proc.on('close', async (code) => {
-                debugLog(`Tesseract PDF generation exited with code ${code}`);
+                log.debug(`Tesseract PDF generation exited with code ${code}`);
                 try {
                     if (code === 0) {
                         // Check if PDF was created
                         const pdfBuffer = await readFile(pdfPath);
-                        debugLog(`PDF generated successfully: ${pdfBuffer.length} bytes`);
+                        log.debug(`PDF generated successfully: ${pdfBuffer.length} bytes`);
 
                         resolve({
                             success: true,
                             pdfBuffer,
                         });
                     } else {
-                        debugLog(`Tesseract failed with code ${code}: ${stderr}`);
+                        log.debug(`Tesseract failed with code ${code}: ${stderr}`);
                         resolve({
                             success: false,
                             pdfBuffer: null,
@@ -195,7 +190,7 @@ export async function generateSearchablePdfDirect(
             });
 
             proc.on('error', async (err) => {
-                debugLog(`Process error: ${err.message}`);
+                log.debug(`Process error: ${err.message}`);
                 await cleanup();
                 resolve({
                     success: false,
@@ -206,7 +201,7 @@ export async function generateSearchablePdfDirect(
         });
     } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
-        debugLog(`Exception: ${errMsg}`);
+        log.debug(`Exception: ${errMsg}`);
         await cleanup();
         return {
             success: false,
@@ -226,7 +221,7 @@ export async function runOcrWithBoundingBoxes(
     pageData: IOcrPageData | null;
     error?: string 
 }> {
-    debugLog(`runOcrWithBoundingBoxes started: langs=${languages.join(',')}`);
+    log.debug(`runOcrWithBoundingBoxes started: langs=${languages.join(',')}`);
 
     const {
         binary,
@@ -240,16 +235,16 @@ export async function runOcrWithBoundingBoxes(
     const tsvPath = `${outputBase}.tsv`;
 
     async function cleanup() {
-        await unlink(inputPath).catch(() => {});
-        await unlink(txtPath).catch(() => {});
-        await unlink(tsvPath).catch(() => {});
+        await unlink(inputPath).catch(err => log.warn(`Cleanup warning (inputPath): ${err.message}`));
+        await unlink(txtPath).catch(err => log.warn(`Cleanup warning (txtPath): ${err.message}`));
+        await unlink(tsvPath).catch(err => log.warn(`Cleanup warning (tsvPath): ${err.message}`));
     }
 
     try {
         // Write image to temp file
-        debugLog('Writing temp image file...');
+        log.debug('Writing temp image file...');
         await writeFile(inputPath, imageBuffer);
-        debugLog(`Temp file written to ${inputPath}`);
+        log.debug(`Temp file written to ${inputPath}`);
 
         // Generate both txt (default) and tsv (config option) for precise bounding boxes
         // TSV gives exact word positions (±2% error) vs estimation (±15% error)
@@ -264,7 +259,7 @@ export async function runOcrWithBoundingBoxes(
             'tessedit_create_tsv=1',  // Generate TSV for precise word coordinates
         ];
 
-        debugLog(`Spawning tesseract: ${binary} ${args.join(' ')}`);
+        log.debug(`Spawning tesseract: ${binary} ${args.join(' ')}`);
 
         return new Promise((resolve) => {
             const proc = spawn(binary, args, {env: {
@@ -272,18 +267,18 @@ export async function runOcrWithBoundingBoxes(
                 TESSDATA_PREFIX: tessdata,
             }});
 
-            debugLog('Process spawned, setting up listeners');
+            log.debug('Process spawned, setting up listeners');
 
             let stderr = '';
 
             proc.stderr.on('data', (data: Buffer) => {
                 const msg = data.toString();
                 stderr += msg;
-                debugLog(`stderr: ${msg.trim()}`);
+                log.debug(`stderr: ${msg.trim()}`);
             });
 
             proc.on('close', async (code) => {
-                debugLog(`Process closed with code ${code}`);
+                log.debug(`Process closed with code ${code}`);
                 try {
                     if (code === 0) {
                         let pageText = '';
@@ -291,34 +286,34 @@ export async function runOcrWithBoundingBoxes(
                             pageText = (await readFile(txtPath, 'utf-8')).trim();
                         } catch (txtReadErr) {
                             const txtMsg = txtReadErr instanceof Error ? txtReadErr.message : String(txtReadErr);
-                            debugLog(`Failed to read TXT output: ${txtMsg}`);
+                            log.debug(`Failed to read TXT output: ${txtMsg}`);
                         }
 
                         // Try TSV first (precise coordinates), fall back to TXT (estimation)
                         let words: IOcrWord[] = [];
 
                         try {
-                            debugLog(`Reading TSV file from ${tsvPath}`);
+                            log.debug(`Reading TSV file from ${tsvPath}`);
                             const tsvContent = await readFile(tsvPath, 'utf-8');
-                            debugLog(`TSV file read, size: ${tsvContent.length} bytes`);
+                            log.debug(`TSV file read, size: ${tsvContent.length} bytes`);
                             words = parseTsvOutput(tsvContent);
-                            debugLog(`Parsed ${words.length} words from TSV (precise coordinates)`);
+                            log.debug(`Parsed ${words.length} words from TSV (precise coordinates)`);
                         } catch (tsvErr) {
                             // TSV parsing failed, fall back to TXT estimation
                             const tsvMsg = tsvErr instanceof Error ? tsvErr.message : String(tsvErr);
                             const tsvStack = tsvErr instanceof Error ? tsvErr.stack : '';
-                            debugLog(`TSV parsing failed: ${tsvMsg}, falling back to TXT`);
-                            if (tsvStack) debugLog(`TSV error stack: ${tsvStack}`);
+                            log.debug(`TSV parsing failed: ${tsvMsg}, falling back to TXT`);
+                            if (tsvStack) log.debug(`TSV error stack: ${tsvStack}`);
                             try {
                                 const txtContent = pageText || await readFile(txtPath, 'utf-8');
-                                debugLog(`TXT file read, size: ${txtContent.length} bytes`);
+                                log.debug(`TXT file read, size: ${txtContent.length} bytes`);
                                 words = parseTxtOutput(txtContent, imageWidth, imageHeight);
-                                debugLog(`Parsed ${words.length} words from TXT (estimated coordinates)`);
+                                log.debug(`Parsed ${words.length} words from TXT (estimated coordinates)`);
                             } catch (txtErr) {
                                 const txtMsg = txtErr instanceof Error ? txtErr.message : String(txtErr);
                                 const txtStack = txtErr instanceof Error ? txtErr.stack : '';
-                                debugLog(`Both TSV and TXT parsing failed: ${txtMsg}`);
-                                if (txtStack) debugLog(`TXT error stack: ${txtStack}`);
+                                log.debug(`Both TSV and TXT parsing failed: ${txtMsg}`);
+                                if (txtStack) log.debug(`TXT error stack: ${txtStack}`);
                                 throw txtErr;
                             }
                         }
@@ -333,7 +328,7 @@ export async function runOcrWithBoundingBoxes(
                             },
                         });
                     } else {
-                        debugLog(`Tesseract failed with code ${code}, stderr: ${stderr}`);
+                        log.debug(`Tesseract failed with code ${code}, stderr: ${stderr}`);
                         resolve({
                             success: false,
                             pageData: null,
@@ -346,7 +341,7 @@ export async function runOcrWithBoundingBoxes(
             });
 
             proc.on('error', async (err) => {
-                debugLog(`Process error: ${err.message}`);
+                log.debug(`Process error: ${err.message}`);
                 await cleanup();
                 resolve({
                     success: false,
@@ -357,7 +352,7 @@ export async function runOcrWithBoundingBoxes(
         });
     } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
-        debugLog(`Exception: ${errMsg}`);
+        log.debug(`Exception: ${errMsg}`);
         await cleanup();
         return {
             success: false,
