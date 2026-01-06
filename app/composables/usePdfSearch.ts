@@ -7,6 +7,7 @@ import type {
     IPdfSearchMatch,
     TSearchDirection,
 } from 'app/types/pdf';
+import { BrowserLogger } from 'app/utils/browser-logger';
 
 export type {
     IPdfPageMatches,
@@ -115,7 +116,9 @@ export const usePdfSearch = () => {
             const mergedResults: IPdfSearchMatch[] = [];
             const matchesMap = new Map<number, IPdfPageMatches>();
 
-            backendResults.forEach(result => {
+            BrowserLogger.info('PDF-SEARCH', `Processing ${backendResults.length} backend search results, query="${query}"`);
+
+            backendResults.forEach((result, idx) => {
                 mergedResults.push({
                     pageIndex: result.pageNumber - 1,
                     matchIndex: result.matchIndex,
@@ -130,22 +133,53 @@ export const usePdfSearch = () => {
                 // Build page matches for highlighting
                 const pageIndex = result.pageNumber - 1;
                 if (!matchesMap.has(pageIndex)) {
-                    matchesMap.set(pageIndex, {
+                    const pageMatches = {
                         pageIndex,
                         pageText: result.text, // Store full page text for reference
                         searchQuery: query, // Store the search query for text item matching
                         matches: [],
+                    };
+
+                    matchesMap.set(pageIndex, pageMatches);
+
+                    BrowserLogger.debug('PDF-SEARCH', `Created pageMatches for page ${result.pageNumber}:`, {
+                        query,
+                        pageTextLength: result.text.length,
+                        pageTextSample: result.text.substring(0, 100),
                     });
                 }
 
-                matchesMap.get(pageIndex)?.matches.push({
+                const pageMatch = matchesMap.get(pageIndex)!;
+                pageMatch.matches.push({
                     start: result.startOffset,
                     end: result.endOffset,
                     words: result.words,
                     pageWidth: result.pageWidth,
                     pageHeight: result.pageHeight,
                 });
+
+                if (idx < 3) {
+                    BrowserLogger.debug('PDF-SEARCH', `Result ${idx}:`, {
+                        page: result.pageNumber,
+                        startOffset: result.startOffset,
+                        endOffset: result.endOffset,
+                        matchedText: result.text.substring(result.startOffset, result.endOffset),
+                        hasWords: result.words?.length > 0,
+                    });
+                }
             });
+
+            BrowserLogger.info('PDF-SEARCH', `Created ${matchesMap.size} pageMatches entries`);
+            BrowserLogger.debug('PDF-SEARCH', 'pageMatches map:', Object.fromEntries(
+                Array.from(matchesMap.entries()).map(([pageIdx, data]) => [
+                    `page-${pageIdx + 1}`,
+                    {
+                        searchQuery: data.searchQuery,
+                        pageTextLength: data.pageText.length,
+                        matchesCount: data.matches.length,
+                    },
+                ])
+            ));
 
             results.value = mergedResults;
             pageMatches.value = matchesMap;

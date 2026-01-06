@@ -13,6 +13,7 @@ import {
     type Ref,
 } from 'vue';
 import { extractPageTextWithCoordinates } from './usePdfTextCoordinates';
+import { BrowserLogger } from 'app/utils/browser-logger';
 import type {
     IPdfPageMatches,
     IPdfSearchMatch,
@@ -390,28 +391,65 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
 
                                     // If no stored words (non-OCR PDF), extract coordinates from PDF.js
                                     if (!wordsToRender || wordsToRender.length === 0) {
+                                        BrowserLogger.debug('PAGE-RENDERER', `Page ${pageIndex + 1}: No stored words, extracting from PDF.js`);
+                                        BrowserLogger.debug('PAGE-RENDERER', 'pageMatchData structure:', {
+                                            pageIndex: pageMatchData.pageIndex,
+                                            searchQuery: pageMatchData.searchQuery,
+                                            pageText: pageMatchData.pageText ? `${pageMatchData.pageText.substring(0, 100)}...` : 'UNDEFINED',
+                                            matchesCount: pageMatchData.matches.length,
+                                            firstMatch: pageMatchData.matches[0],
+                                        });
+
                                         try {
+                                            BrowserLogger.debug('PAGE-RENDERER', `Page ${pageIndex + 1}: Calling extractPageTextWithCoordinates`);
                                             const textItems = await extractPageTextWithCoordinates(pdfPage);
+
+                                            BrowserLogger.info('PAGE-RENDERER', `Page ${pageIndex + 1}: Extracted ${textItems.length} text items`);
+                                            BrowserLogger.debug('PAGE-RENDERER', `Page ${pageIndex + 1}: First 10 extracted items:`, textItems.slice(0, 10));
 
                                             if (textItems.length > 0 && pageMatchData.searchQuery) {
                                                 // Find text items that contain the search query (case-insensitive)
                                                 const searchQueryLower = pageMatchData.searchQuery.toLowerCase();
                                                 const matchedItemsByText: { [key: string]: typeof textItems[0] } = {};
 
-                                                textItems.forEach(item => {
-                                                    // Check if text item contains or matches the search query
-                                                    if (item.text.toLowerCase().includes(searchQueryLower)) {
+                                                BrowserLogger.debug('PAGE-RENDERER', `Page ${pageIndex + 1}: Searching for query="${pageMatchData.searchQuery}" (lowercase="${searchQueryLower}")`);
+
+                                                let matchCount = 0;
+                                                textItems.forEach((item, idx) => {
+                                                    const itemLower = item.text.toLowerCase();
+                                                    const matches = itemLower.includes(searchQueryLower);
+
+                                                    if (matches) {
+                                                        matchCount++;
                                                         matchedItemsByText[item.text] = item;
+
+                                                        // Log first few matches
+                                                        if (matchCount <= 5) {
+                                                            BrowserLogger.debug('PAGE-RENDERER', `Page ${pageIndex + 1}: Match ${matchCount}:`, {
+                                                                itemText: item.text,
+                                                                itemLower,
+                                                                includes: searchQueryLower,
+                                                                itemCoords: { x: item.x, y: item.y, w: item.width, h: item.height },
+                                                            });
+                                                        }
                                                     }
                                                 });
 
                                                 wordsToRender = Object.values(matchedItemsByText);
-                                                console.log(`[usePdfPageRenderer] Query="${pageMatchData.searchQuery}" - Extracted ${textItems.length} items, found ${wordsToRender.length} matches`);
+                                                BrowserLogger.info('PAGE-RENDERER', `Page ${pageIndex + 1}: Query="${pageMatchData.searchQuery}" - Found ${wordsToRender.length}/${textItems.length} matching items`);
+                                                BrowserLogger.debug('PAGE-RENDERER', `Page ${pageIndex + 1}: Matched items:`, wordsToRender);
+                                            } else {
+                                                BrowserLogger.warn('PAGE-RENDERER', `Page ${pageIndex + 1}: textItems empty or no searchQuery`, {
+                                                    textItemsLength: textItems.length,
+                                                    searchQuery: pageMatchData.searchQuery,
+                                                });
                                             }
                                         } catch (err) {
                                             const errMsg = err instanceof Error ? err.message : String(err);
-                                            console.error(`[usePdfPageRenderer] Failed to extract text coordinates: ${errMsg}`);
+                                            BrowserLogger.error('PAGE-RENDERER', `Page ${pageIndex + 1}: Failed to extract text coordinates`, err);
                                         }
+                                    } else {
+                                        BrowserLogger.debug('PAGE-RENDERER', `Page ${pageIndex + 1}: Using stored words (OCR), count=${wordsToRender.length}`);
                                     }
 
                                     if (wordsToRender && wordsToRender.length > 0) {

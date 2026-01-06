@@ -1,4 +1,5 @@
 import type { PDFPageProxy } from 'pdfjs-dist';
+import { BrowserLogger } from 'app/utils/browser-logger';
 
 export interface IPdfTextItem {
     text: string;
@@ -18,20 +19,32 @@ export async function extractPageTextWithCoordinates(
     pdfPage: PDFPageProxy,
 ): Promise<IPdfTextItem[]> {
     try {
+        BrowserLogger.debug('PDF-TEXT-COORDS', 'Starting text extraction from PDF page');
+
         const textContent = await pdfPage.getTextContent();
         const pageHeight = pdfPage.view[3]; // view is [x0, y0, x1, y1]
 
-        const items: IPdfTextItem[] = [];
+        BrowserLogger.debug('PDF-TEXT-COORDS', `Page view: ${pdfPage.view.join(', ')}, pageHeight=${pageHeight}`);
+        BrowserLogger.debug('PDF-TEXT-COORDS', `Text content items count: ${textContent.items.length}`);
 
-        for (const item of textContent.items) {
+        const items: IPdfTextItem[] = [];
+        let skippedCount = 0;
+
+        for (let idx = 0; idx < textContent.items.length; idx++) {
+            const item = textContent.items[idx];
+
             // Skip items without text or width/height
             if (!('str' in item) || !item.str) {
+                skippedCount++;
                 continue;
             }
 
             // Extract text and transformation matrix
             const text = item.str.trim();
-            if (!text) continue;
+            if (!text) {
+                skippedCount++;
+                continue;
+            }
 
             // Transform matrix is [a, b, c, d, tx, ty]
             // tx, ty are the X, Y position in PDF coordinates
@@ -45,19 +58,35 @@ export async function extractPageTextWithCoordinates(
             const x = tx;
             const y = pageHeight - ty - height; // Flip Y coordinate
 
-            items.push({
+            const textItem = {
                 text,
                 x,
                 y: Math.max(0, y), // Clamp negative Y to 0
                 width: Math.max(0, width),
                 height: Math.max(0, height),
-            });
+            };
+
+            items.push(textItem);
+
+            // Log first 5 items in detail
+            if (idx < 5) {
+                BrowserLogger.debug('PDF-TEXT-COORDS', `Item ${idx}:`, {
+                    text,
+                    transform: [a, b, c, d, tx, ty],
+                    width: item.width,
+                    height: item.height,
+                    computed: textItem,
+                });
+            }
         }
+
+        BrowserLogger.info('PDF-TEXT-COORDS', `Extraction complete - extracted ${items.length} items, skipped ${skippedCount}`);
+        BrowserLogger.debug('PDF-TEXT-COORDS', 'All extracted items:', items);
 
         return items;
     } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
-        console.error('[usePdfTextCoordinates] Failed to extract text:', errMsg);
+        BrowserLogger.error('PDF-TEXT-COORDS', 'Failed to extract text', err);
         return [];
     }
 }
