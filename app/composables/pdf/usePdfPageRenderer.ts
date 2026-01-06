@@ -102,11 +102,35 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         }
     }
 
+    function isHighlightDebugVerboseEnabled() {
+        if (typeof window === 'undefined') {
+            return false;
+        }
+
+        try {
+            return window.localStorage?.getItem('pdfHighlightDebugVerbose') === '1';
+        } catch {
+            return false;
+        }
+    }
+
     function maybeLogHighlightDebug(
         pageNumber: number,
         pageMatchData: IPdfPageMatches | null,
         canvas: HTMLCanvasElement,
         textLayerDiv: HTMLElement,
+        debugInfo?: {
+            userUnit: number;
+            totalScaleFactor: number;
+            viewportWidth: number;
+            viewportHeight: number;
+            rawPageWidth: number;
+            rawPageHeight: number;
+            canvasPixelWidth: number;
+            canvasPixelHeight: number;
+            renderScaleX: number;
+            renderScaleY: number;
+        },
     ) {
         if (!isHighlightDebugEnabled()) {
             return;
@@ -126,9 +150,39 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
 
         const canvasRect = canvas.getBoundingClientRect();
         const textRect = textLayerDiv.getBoundingClientRect();
+        const pageContainer = textLayerDiv.closest<HTMLElement>('.page_container');
+        const containerRect = pageContainer?.getBoundingClientRect() ?? null;
+        const canvasHostRect = pageContainer?.querySelector<HTMLElement>('.page_canvas')?.getBoundingClientRect() ?? null;
+        const computedTotalScaleFactor = typeof window !== 'undefined'
+            ? window.getComputedStyle(textLayerDiv).getPropertyValue('--total-scale-factor').trim()
+            : '';
 
         const currentRange = getCurrentMatchRanges(textLayerDiv).at(0) ?? null;
-        const rangeRect = currentRange?.getBoundingClientRect() ?? null;
+        const currentRangeRect = currentRange?.getBoundingClientRect() ?? null;
+        const currentMark = textLayerDiv.querySelector<HTMLElement>('.pdf-search-highlight--current');
+        const currentMarkRect = currentMark?.getBoundingClientRect() ?? null;
+        const highlightRect = currentRangeRect ?? currentMarkRect;
+
+        const verbose = isHighlightDebugVerboseEnabled();
+        let currentSpanInfo = '';
+        if (verbose && typeof window !== 'undefined') {
+            const span = currentMark?.closest('span');
+            if (span) {
+                const spanStyle = window.getComputedStyle(span);
+                const scaleX = spanStyle.getPropertyValue('--scale-x').trim();
+                const fontHeight = spanStyle.getPropertyValue('--font-height').trim();
+                currentSpanInfo = [
+                    `spanFont=${JSON.stringify(spanStyle.font)}`,
+                    `spanFamily=${JSON.stringify(spanStyle.fontFamily)}`,
+                    `spanWeight=${spanStyle.fontWeight}`,
+                    `spanSize=${spanStyle.fontSize}`,
+                    `spanTransform=${JSON.stringify(spanStyle.transform)}`,
+                    `spanScaleX=${JSON.stringify(scaleX)}`,
+                    `spanFontHeightVar=${JSON.stringify(fontHeight)}`,
+                    `spanText=${JSON.stringify(span.textContent?.slice(0, 60) ?? '')}`,
+                ].join(' ');
+            }
+        }
 
         const scale = toValue(options.effectiveScale);
         const dx = textRect.left - canvasRect.left;
@@ -144,10 +198,25 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             `matchIndex=${current.matchIndex}`,
             `scale=${scale}`,
             `query=${JSON.stringify(query)}`,
+            debugInfo
+                ? `viewport=${debugInfo.viewportWidth.toFixed(2)}x${debugInfo.viewportHeight.toFixed(2)}`
+                : '',
+            debugInfo
+                ? `raw=${debugInfo.rawPageWidth.toFixed(2)}x${debugInfo.rawPageHeight.toFixed(2)} userUnit=${debugInfo.userUnit}`
+                : '',
+            debugInfo
+                ? `totalScale=${debugInfo.totalScaleFactor.toFixed(10)} cssVarTotal=${JSON.stringify(computedTotalScaleFactor)}`
+                : '',
+            debugInfo
+                ? `canvasPx=${debugInfo.canvasPixelWidth}x${debugInfo.canvasPixelHeight} renderScale=${debugInfo.renderScaleX.toFixed(6)}x${debugInfo.renderScaleY.toFixed(6)}`
+                : '',
+            containerRect ? `container=${fmtRect(containerRect)}` : '',
+            canvasHostRect ? `canvasHost=${fmtRect(canvasHostRect)}` : '',
             `canvas=${fmtRect(canvasRect)}`,
             `textLayer=${fmtRect(textRect)}`,
             `delta=${dx.toFixed(2)},${dy.toFixed(2)} ${dw.toFixed(2)}x${dh.toFixed(2)}`,
-            rangeRect ? `currentRange=${fmtRect(rangeRect)}` : 'currentRange=null',
+            highlightRect ? `currentHighlight=${fmtRect(highlightRect)}` : 'currentHighlight=null',
+            currentSpanInfo,
         ].join(' ');
 
         BrowserLogger.debug('PDF-HIGHLIGHT', msg);
@@ -354,12 +423,21 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                         }
 
                         const viewport = pdfPage.getViewport({ scale });
+                        const userUnit = (viewport as unknown as { userUnit?: number }).userUnit ?? 1;
+                        const totalScaleFactor = scale * userUnit;
+                        const rawDims = viewport.rawDims as unknown as {
+                            pageWidth: number;
+                            pageHeight: number;
+                        };
 
                         // Keep the page container sized to the exact viewport dimensions (avoids
                         // sub-pixel drift between canvas and text layer when `scale` produces
                         // fractional page sizes).
                         container.style.width = `${viewport.width}px`;
                         container.style.height = `${viewport.height}px`;
+                        container.style.setProperty('--scale-factor', String(scale));
+                        container.style.setProperty('--user-unit', String(userUnit));
+                        container.style.setProperty('--total-scale-factor', String(totalScaleFactor));
 
                         const canvas = document.createElement('canvas');
                         const context = canvas.getContext('2d');
@@ -367,19 +445,27 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                             return;
                         }
 
-                        canvas.width = Math.floor(viewport.width * outputScale);
-                        canvas.height = Math.floor(viewport.height * outputScale);
-                        canvas.style.width = '100%';
-                        canvas.style.height = '100%';
+                        const cssWidth = viewport.width;
+                        const cssHeight = viewport.height;
+                        const pixelWidth = Math.max(1, Math.round(cssWidth * outputScale));
+                        const pixelHeight = Math.max(1, Math.round(cssHeight * outputScale));
+
+                        canvas.width = pixelWidth;
+                        canvas.height = pixelHeight;
+                        canvas.style.width = `${cssWidth}px`;
+                        canvas.style.height = `${cssHeight}px`;
                         canvas.style.display = 'block';
                         canvas.style.margin = '0';
 
-                        const transform = outputScale !== 1
+                        const sx = pixelWidth / cssWidth;
+                        const sy = pixelHeight / cssHeight;
+
+                        const transform = sx !== 1 || sy !== 1
                             ? [
-                                outputScale,
+                                sx,
                                 0,
                                 0,
-                                outputScale,
+                                sy,
                                 0,
                                 0,
                             ]
@@ -413,7 +499,8 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                             cleanupTextLayer(pageNumber);
                             textLayerDiv.innerHTML = '';
                             textLayerDiv.style.setProperty('--scale-factor', String(scale));
-                            textLayerDiv.style.setProperty('--total-scale-factor', String(scale));
+                            textLayerDiv.style.setProperty('--user-unit', String(userUnit));
+                            textLayerDiv.style.setProperty('--total-scale-factor', String(totalScaleFactor));
 
                             const textContent = await pdfPage.getTextContent({
                                 includeMarkedContent: true,
@@ -433,6 +520,11 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                                 viewport,
                             });
                             await textLayer.render();
+                            // PDF.js sizes the text layer via `setLayerDimensions` using CSS variables that
+                            // aren't always wired up in custom viewers. Rely on our absolute `inset: 0`
+                            // layout instead, so the text layer always matches the canvas container.
+                            textLayerDiv.style.width = '';
+                            textLayerDiv.style.height = '';
 
                             if (renderVersion !== version) {
                                 if (renderingPages.get(pageNumber) === version) {
@@ -451,16 +543,34 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                             const searchMatches = toValue(searchPageMatches);
                             if (searchMatches && searchMatches.size > 0) {
                                 const pageMatchData = searchMatches.get(pageIndex) ?? null;
-                                highlightPage(
+                                const highlightResult = highlightPage(
                                     textLayerDiv,
                                     pageMatchData,
                                     toValue(currentSearchMatch) ?? null,
                                 );
-                                maybeLogHighlightDebug(pageNumber, pageMatchData, canvas, textLayerDiv);
+                                maybeLogHighlightDebug(pageNumber, pageMatchData, canvas, textLayerDiv, {
+                                    userUnit,
+                                    totalScaleFactor,
+                                    viewportWidth: viewport.width,
+                                    viewportHeight: viewport.height,
+                                    rawPageWidth: rawDims.pageWidth,
+                                    rawPageHeight: rawDims.pageHeight,
+                                    canvasPixelWidth: canvas.width,
+                                    canvasPixelHeight: canvas.height,
+                                    renderScaleX: sx,
+                                    renderScaleY: sy,
+                                });
 
-                                // Render word boxes only for OCR-indexed PDFs (no reliable text layer).
-                                // For PDFs with a normal text layer, rely on in-text highlights instead.
-                                if (pageMatchData && pageMatchData.matches.length > 0) {
+                                const isCssHighlightMode = typeof window !== 'undefined'
+                                    ? window.localStorage?.getItem('pdfHighlightMode') === 'css'
+                                    : false;
+                                const hasInTextHighlights = isCssHighlightMode
+                                    || highlightResult.elements.length > 0
+                                    || highlightResult.currentMatchRanges.length > 0;
+
+                                // Render word boxes only when we cannot highlight directly in the text layer
+                                // (e.g. OCR-indexed PDFs where the PDF has no meaningful text layer).
+                                if (!hasInTextHighlights && pageMatchData && pageMatchData.matches.length > 0) {
                                     const firstMatch = pageMatchData.matches.at(0);
                                     const firstMatchWords = firstMatch?.words ?? [];
 

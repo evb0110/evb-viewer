@@ -74,9 +74,45 @@ export const usePdfSearch = () => {
         const afterRaw = text.slice(endOffset, excerptEnd);
 
         // Normalize whitespace for display, but preserve spaces around the match so the
-        // CSS Custom Highlight API can highlight the match without collapsing context.
-        const before = beforeRaw.replace(/\s+/g, ' ').trimStart();
-        const after = afterRaw.replace(/\s+/g, ' ').trimEnd();
+        // sidebar snippet reads naturally and the Custom Highlight API can highlight the
+        // match without collapsing context.
+        const beforeNormalized = beforeRaw.replace(/\s+/g, ' ').trimStart();
+        const afterNormalized = afterRaw.replace(/\s+/g, ' ').trimEnd();
+
+        // `pdftotext -layout` occasionally concatenates adjacent words (e.g. "KoranicArabic").
+        // If it looks like the match is glued to surrounding word characters, insert a space
+        // to avoid "wordword" snippets in the sidebar. Keep this conservative for short queries.
+        const isWordChar = (ch: string) => /[0-9A-Za-z]/.test(ch);
+        const matchLen = match.length;
+
+        let before = beforeNormalized;
+        let after = afterNormalized;
+
+        if (matchLen >= 4 && matchLen > 0) {
+            const beforeHasBoundaryWhitespace = /\s$/.test(beforeRaw);
+            const afterHasBoundaryWhitespace = /^\s/.test(afterRaw);
+
+            const beforeLast = beforeNormalized.at(-1) ?? '';
+            const matchFirst = match.at(0) ?? '';
+            const matchLast = match.at(-1) ?? '';
+            const afterFirst = afterNormalized.at(0) ?? '';
+
+            if (!beforeHasBoundaryWhitespace && beforeLast && matchFirst && isWordChar(beforeLast) && isWordChar(matchFirst)) {
+                before = `${beforeNormalized} `;
+            }
+
+            const looksLikePluralSuffix = afterNormalized === 's' || afterNormalized.startsWith('s ');
+            if (
+                !afterHasBoundaryWhitespace
+                && !looksLikePluralSuffix
+                && matchLast
+                && afterFirst
+                && isWordChar(matchLast)
+                && isWordChar(afterFirst)
+            ) {
+                after = ` ${afterNormalized}`;
+            }
+        }
 
         return {
             prefix: excerptStart > 0,
@@ -176,16 +212,27 @@ export const usePdfSearch = () => {
             });
 
             BrowserLogger.info('PDF-SEARCH', `Created ${matchesMap.size} pageMatches entries`);
-            BrowserLogger.debug('PDF-SEARCH', 'pageMatches map:', Object.fromEntries(
-                Array.from(matchesMap.entries()).map(([pageIdx, data]) => [
-                    `page-${pageIdx + 1}`,
-                    {
-                        searchQuery: data.searchQuery,
-                        pageTextLength: data.pageText.length,
-                        matchesCount: data.matches.length,
-                    },
-                ])
-            ));
+            BrowserLogger.debug(
+                'PDF-SEARCH',
+                'pageMatches map:',
+                Object.fromEntries(
+                    Array.from(matchesMap.entries()).map((entry) => {
+                        const [
+                            pageIdx,
+                            data,
+                        ] = entry;
+
+                        return [
+                            `page-${pageIdx + 1}`,
+                            {
+                                searchQuery: data.searchQuery,
+                                pageTextLength: data.pageText.length,
+                                matchesCount: data.matches.length,
+                            },
+                        ];
+                    }),
+                ),
+            );
 
             results.value = mergedResults;
             pageMatches.value = matchesMap;

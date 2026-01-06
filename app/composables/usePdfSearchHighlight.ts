@@ -8,6 +8,9 @@ const HIGHLIGHT_CURRENT_CLASS = 'pdf-search-highlight--current';
 
 const HIGHLIGHT_API_NAME = 'pdf-search-match';
 const HIGHLIGHT_API_CURRENT_NAME = 'pdf-search-current-match';
+const HIGHLIGHT_MODE_STORAGE_KEY = 'pdfHighlightMode';
+
+type TPdfHighlightMode = 'dom' | 'css';
 
 export interface IHighlightResult {
     elements: HTMLElement[];
@@ -23,7 +26,10 @@ export const usePdfSearchHighlight = () => {
             textNode: Text | null;
             startOffset: number;
         }
-        | { kind: 'br'; startOffset: number };
+        | {
+            kind: 'br';
+            startOffset: number;
+        };
 
     type THighlightRange = {
         range: Range;
@@ -33,13 +39,33 @@ export const usePdfSearchHighlight = () => {
     const highlightRanges = new Map<string, Range>();
     const currentHighlightRanges = new Map<string, Range>();
 
-    const layerRangeIds = new WeakMap<HTMLElement, { normal: Set<string>; current: Set<string> }>();
+    const layerRangeIds = new WeakMap<HTMLElement, {
+        normal: Set<string>;
+        current: Set<string>;
+    }>();
     const layerCurrentRanges = new WeakMap<HTMLElement, Range[]>();
 
     function canUseHighlightAPI() {
         return typeof CSS !== 'undefined'
             && 'highlights' in CSS
             && typeof Highlight !== 'undefined';
+    }
+
+    function getHighlightMode(): TPdfHighlightMode {
+        if (!canUseHighlightAPI()) {
+            return 'dom';
+        }
+
+        if (typeof window === 'undefined') {
+            return 'dom';
+        }
+
+        try {
+            const stored = window.localStorage?.getItem(HIGHLIGHT_MODE_STORAGE_KEY);
+            return stored === 'css' ? 'css' : 'dom';
+        } catch {
+            return 'dom';
+        }
     }
 
     function updateHighlightAPI() {
@@ -60,7 +86,10 @@ export const usePdfSearchHighlight = () => {
         }
     }
 
-    function buildTextLayerIndex(textLayerDiv: HTMLElement): { text: string; runs: TTextLayerRun[] } {
+    function buildTextLayerIndex(textLayerDiv: HTMLElement): {
+        text: string;
+        runs: TTextLayerRun[];
+    } {
         const runs: TTextLayerRun[] = [];
         const textParts: string[] = [];
         let offset = 0;
@@ -73,7 +102,10 @@ export const usePdfSearchHighlight = () => {
             const element = node as HTMLElement;
 
             if (element.tagName === 'BR') {
-                runs.push({ kind: 'br', startOffset: offset });
+                runs.push({
+                    kind: 'br',
+                    startOffset: offset,
+                });
                 textParts.push('\n');
                 offset += 1;
                 return;
@@ -207,7 +239,10 @@ export const usePdfSearchHighlight = () => {
             const range = document.createRange();
             range.setStart(textNode, matchStartInSpan);
             range.setEnd(textNode, matchEndInSpan);
-            ranges.push({ range, isCurrent: match.isCurrent });
+            ranges.push({
+                range,
+                isCurrent: match.isCurrent,
+            });
         }
 
         return ranges;
@@ -317,14 +352,23 @@ export const usePdfSearchHighlight = () => {
         // Backend offsets come from `pdftotext -layout` and often diverge from PDF.js span concatenation
         // due to whitespace/newline differences. Searching within the rendered text layer keeps highlights
         // anchored to what the user actually sees.
-        const { text: layerText, runs } = buildTextLayerIndex(textLayerDiv);
+        const {
+            text: layerText,
+            runs,
+        } = buildTextLayerIndex(textLayerDiv);
         const lowerText = layerText.toLowerCase();
         const lowerQuery = query.toLowerCase();
 
-        const matchRanges: Array<{ start: number; end: number }> = [];
+        const matchRanges: Array<{
+            start: number;
+            end: number;
+        }> = [];
         let pos = 0;
         while ((pos = lowerText.indexOf(lowerQuery, pos)) !== -1) {
-            matchRanges.push({ start: pos, end: pos + lowerQuery.length });
+            matchRanges.push({
+                start: pos,
+                end: pos + lowerQuery.length,
+            });
             pos += lowerQuery.length;
         }
 
@@ -358,7 +402,7 @@ export const usePdfSearchHighlight = () => {
             });
         }
 
-        if (canUseHighlightAPI()) {
+        if (canUseHighlightAPI() && getHighlightMode() === 'css') {
             const currentRanges: Range[] = [];
 
             for (const run of runs) {
@@ -371,7 +415,11 @@ export const usePdfSearchHighlight = () => {
                 }
 
                 const ranges = createHighlightRangesInSpan(run.textNode, run.startOffset, matchesWithCurrent);
-                ranges.forEach(({ range, isCurrent }, idx) => {
+                ranges.forEach((rangeEntry, idx) => {
+                    const {
+                        range,
+                        isCurrent,
+                    } = rangeEntry;
                     const id = `pdf-${pageMatches.pageIndex}-${run.startOffset}-${idx}-${isCurrent ? 'c' : 'n'}`;
                     registerHighlightRange(textLayerDiv, range, isCurrent, id);
                     if (isCurrent) {
