@@ -473,8 +473,11 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                                             }
                                         });
 
+                                        // Check if we extracted PDF.js words or using stored OCR words
+                                        const usedPdfJsExtraction = !firstMatch.words || firstMatch.words.length === 0;
+
                                         // Also add extracted words if we extracted them
-                                        if (!firstMatch.words || firstMatch.words.length === 0) {
+                                        if (usedPdfJsExtraction) {
                                             wordsToRender.forEach(word => {
                                                 allWords[word.text] = word;
                                             });
@@ -489,11 +492,25 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                                             });
                                         }
 
+                                        // Use correct dimensions based on word source
+                                        let pageWidth = firstMatch.pageWidth;
+                                        let pageHeight = firstMatch.pageHeight;
+
+                                        if (usedPdfJsExtraction) {
+                                            // For PDF.js extracted items, use actual PDF page dimensions
+                                            // pdfPage.view is [x0, y0, x1, y1], so width = x1 - x0, height = y1 - y0
+                                            pageWidth = pdfPage.view[2] - pdfPage.view[0];
+                                            pageHeight = pdfPage.view[3] - pdfPage.view[1];
+                                            BrowserLogger.debug('PAGE-RENDERER', `Page ${pageIndex + 1}: Using PDF.js extraction - dimensions from pdfPage.view: ${pageWidth}x${pageHeight}`);
+                                        } else {
+                                            BrowserLogger.debug('PAGE-RENDERER', `Page ${pageIndex + 1}: Using OCR words - dimensions from search result: ${pageWidth}x${pageHeight}`);
+                                        }
+
                                         renderPageWordBoxes(
                                             container,
                                             Object.values(allWords),
-                                            firstMatch.pageWidth,
-                                            firstMatch.pageHeight,
+                                            pageWidth,
+                                            pageHeight,
                                             currentMatchWords.size > 0 ? currentMatchWords : undefined,
                                         );
                                     }
