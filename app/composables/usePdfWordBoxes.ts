@@ -28,6 +28,13 @@ function transformWordBox(
     // If we don't have image dimensions, we can't transform properly
     // Return zero-sized box as fallback
     if (!imageDimensionWidth || !imageDimensionHeight) {
+        console.warn('[transformWordBox] Missing dimensions:', {
+            imageDimensionWidth,
+            imageDimensionHeight,
+            renderedPageWidth,
+            renderedPageHeight,
+            word: word.text,
+        });
         return {
             x: 0,
             y: 0,
@@ -41,11 +48,43 @@ function transformWordBox(
     const scaleX = renderedPageWidth / imageDimensionWidth;
     const scaleY = renderedPageHeight / imageDimensionHeight;
 
+    // CRITICAL FIX: Use UNIFORM scaling to prevent distortion
+    // If scales are asymmetric (e.g., scaleX=1.606, scaleY=1.021), the canvas is likely
+    // rendered at a different aspect ratio than the PDF. Use the smaller scale (Y) for both
+    // to keep text proportions correct and avoid overflow.
+    // This maintains text aspect ratio even if the canvas has unusual proportions.
+    const scale = Math.min(scaleX, scaleY);
+    if (Math.abs(scaleX - scaleY) > 0.05) {
+        console.warn('[transformWordBox] ASYMMETRIC SCALES DETECTED - using uniform scaling', {
+            scaleX: scaleX.toFixed(3),
+            scaleY: scaleY.toFixed(3),
+            usingUniformScale: scale.toFixed(3),
+        });
+    }
+
     // Transform coordinates (no flipping needed - both are top-left origin)
-    const x = word.x * scaleX;
-    const y = word.y * scaleY;
-    const width = word.width * scaleX;
-    const height = word.height * scaleY;
+    const x = word.x * scale;
+    const y = word.y * scale;
+    const width = word.width * scale;
+    const height = word.height * scale;
+
+    // Log problematic boxes (very large or off-screen)
+    if (y > renderedPageHeight || width > renderedPageWidth || height > renderedPageHeight) {
+        console.error('[transformWordBox] BOX OUT OF BOUNDS:', {
+            word: word.text,
+            wordCoords: { x: word.x, y: word.y, w: word.width, h: word.height },
+            imageDim: { w: imageDimensionWidth, h: imageDimensionHeight },
+            renderedDim: { w: renderedPageWidth, h: renderedPageHeight },
+            scales: { scaleX, scaleY, uniformScale: scale },
+            transformed: { x, y, width, height },
+            isOffScreen: y > renderedPageHeight,
+            relativePos: {
+                yPercent: ((y / renderedPageHeight) * 100).toFixed(1),
+                widthPercent: ((width / renderedPageWidth) * 100).toFixed(1),
+                heightPercent: ((height / renderedPageHeight) * 100).toFixed(1),
+            },
+        });
+    }
 
     return {
         x,
@@ -145,17 +184,14 @@ export const usePdfWordBoxes = () => {
 
         // DEBUG: Log coordinate transformation details
         if (words && words.length > 0) {
-            const scaleFactor = pdfPageHeight ? renderedPageHeight / pdfPageHeight : 0;
-            console.log('[WordBoxes]', {
-                storedImageHeight: pdfPageHeight,
-                renderedHeight: renderedPageHeight,
-                scaleFactor: scaleFactor.toFixed(3),
-                firstWordY: words[0]?.y,
-                transformedY: words[0] ? words[0].y * scaleFactor : 0,
-                canvasWidth: canvas.width,
-                canvasHeight: canvas.height,
-                canvasOffsetWidth: canvas.offsetWidth,
-                canvasOffsetHeight: canvas.offsetHeight,
+            const scaleX = pdfPageWidth ? renderedPageWidth / pdfPageWidth : 0;
+            const scaleY = pdfPageHeight ? renderedPageHeight / pdfPageHeight : 0;
+            console.warn('[WordBoxes] CRITICAL COORDINATE SPACE MISMATCH CHECK', {
+                pdfPageDimensions: { width: pdfPageWidth, height: pdfPageHeight },
+                canvasDimensions: { offsetWidth: renderedPageWidth, offsetHeight: renderedPageHeight },
+                calculatedScaleFactors: { scaleX: scaleX.toFixed(3), scaleY: scaleY.toFixed(3) },
+                scalesMatch: (Math.abs(scaleX - scaleY) < 0.01) ? 'YES' : `NO - ASYMMETRIC! Diff: ${(scaleX - scaleY).toFixed(3)}`,
+                firstWord: { text: words[0]?.text, originalY: words[0]?.y, scaledY: words[0] ? words[0].y * scaleY : 0 },
             });
         }
 

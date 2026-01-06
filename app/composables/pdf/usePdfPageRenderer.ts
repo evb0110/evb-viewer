@@ -506,6 +506,20 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                                             BrowserLogger.debug('PAGE-RENDERER', `Page ${pageIndex + 1}: Using OCR words - dimensions from search result: ${pageWidth}x${pageHeight}`);
                                         }
 
+                                        BrowserLogger.warn('PAGE-RENDERER', `Page ${pageIndex + 1}: CALLING renderPageWordBoxes with:`, {
+                                            wordCount: Object.values(allWords).length,
+                                            pageWidth,
+                                            pageHeight,
+                                            usedPdfJsExtraction,
+                                            firstThreeWords: Object.values(allWords).slice(0, 3).map(w => ({
+                                                text: w.text,
+                                                x: w.x,
+                                                y: w.y,
+                                                width: w.width,
+                                                height: w.height,
+                                            })),
+                                        });
+
                                         renderPageWordBoxes(
                                             container,
                                             Object.values(allWords),

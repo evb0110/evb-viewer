@@ -81,6 +81,29 @@ export async function extractPageTextWithCoordinates(
         }
 
         BrowserLogger.info('PDF-TEXT-COORDS', `Extraction complete - extracted ${items.length} items, skipped ${skippedCount}`);
+
+        // Log coordinate ranges to understand the space
+        if (items.length > 0) {
+            const xValues = items.map(i => i.x);
+            const yValues = items.map(i => i.y);
+            const widthValues = items.map(i => i.width);
+            const heightValues = items.map(i => i.height);
+
+            const xMin = Math.min(...xValues);
+            const xMax = Math.max(...xValues);
+            const yMin = Math.min(...yValues);
+            const yMax = Math.max(...yValues);
+
+            BrowserLogger.warn('PDF-TEXT-COORDS', `Coordinate RANGES (this tells us the space):`, {
+                xRange: `${xMin.toFixed(1)} to ${xMax.toFixed(1)}`,
+                yRange: `${yMin.toFixed(1)} to ${yMax.toFixed(1)}`,
+                widthRange: `${Math.min(...widthValues).toFixed(1)} to ${Math.max(...widthValues).toFixed(1)}`,
+                heightRange: `${Math.min(...heightValues).toFixed(1)} to ${Math.max(...heightValues).toFixed(1)}`,
+                pageHeight,
+                firstThreeItems: items.slice(0, 3).map(i => ({ text: i.text, x: i.x.toFixed(1), y: i.y.toFixed(1), w: i.width.toFixed(1), h: i.height.toFixed(1) })),
+            });
+        }
+
         BrowserLogger.debug('PDF-TEXT-COORDS', 'All extracted items:', items);
 
         return items;
