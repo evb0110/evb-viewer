@@ -393,24 +393,20 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                                         try {
                                             const textItems = await extractPageTextWithCoordinates(pdfPage);
 
-                                            if (textItems.length > 0 && pageMatchData.pageText) {
-                                                // Find text items that match the searched text in any match on this page
+                                            if (textItems.length > 0 && pageMatchData.searchQuery) {
+                                                // Find text items that contain the search query (case-insensitive)
+                                                const searchQueryLower = pageMatchData.searchQuery.toLowerCase();
                                                 const matchedItemsByText: { [key: string]: typeof textItems[0] } = {};
 
-                                                pageMatchData.matches.forEach(match => {
-                                                    // Extract the matched substring from the page text using start/end offsets
-                                                    const matchedText = pageMatchData.pageText.substring(match.start, match.end);
-
-                                                    // Find text items whose text appears in the matched text
-                                                    textItems.forEach(item => {
-                                                        if (matchedText.toLowerCase().includes(item.text.toLowerCase())) {
-                                                            matchedItemsByText[item.text] = item;
-                                                        }
-                                                    });
+                                                textItems.forEach(item => {
+                                                    // Check if text item contains or matches the search query
+                                                    if (item.text.toLowerCase().includes(searchQueryLower)) {
+                                                        matchedItemsByText[item.text] = item;
+                                                    }
                                                 });
 
                                                 wordsToRender = Object.values(matchedItemsByText);
-                                                console.log(`[usePdfPageRenderer] Extracted ${textItems.length} text items, found ${wordsToRender.length} matching items from search results`);
+                                                console.log(`[usePdfPageRenderer] Query="${pageMatchData.searchQuery}" - Extracted ${textItems.length} items, found ${wordsToRender.length} matches`);
                                             }
                                         } catch (err) {
                                             const errMsg = err instanceof Error ? err.message : String(err);

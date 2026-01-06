@@ -132,7 +132,8 @@ export const usePdfSearch = () => {
                 if (!matchesMap.has(pageIndex)) {
                     matchesMap.set(pageIndex, {
                         pageIndex,
-                        pageText: result.text, // Store full page text for coordinate extraction
+                        pageText: result.text, // Store full page text for reference
+                        searchQuery: query, // Store the search query for text item matching
                         matches: [],
                     });
                 }

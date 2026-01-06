@@ -61,6 +61,7 @@ export interface IPdfSearchMatch {
 export interface IPdfPageMatches {
     pageIndex: number;
     pageText: string; // Full page text for reference
+    searchQuery: string; // The query that generated these matches
     matches: Array<{
         start: number;
         end: number;
