@@ -510,8 +510,7 @@ defineExpose({
 }
 
 .pdfViewer :deep(.pdf-search-highlight--current) {
-    background-color: rgb(255 150 0 / 0.7);
-    outline: 2px solid rgb(255 100 0 / 0.8);
+    background-color: rgb(255 150 0 / 0.6);
     outline-offset: 0;
 }
 
