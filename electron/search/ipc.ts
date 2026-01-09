@@ -71,44 +71,15 @@ function buildExcerpt(
     const excerptStart = Math.max(0, startOffset - EXCERPT_CONTEXT_CHARS);
     const excerptEnd = Math.min(text.length, endOffset + EXCERPT_CONTEXT_CHARS);
 
+    // Extract exact text slices - no modification to preserve source accuracy
     const beforeRaw = text.slice(excerptStart, startOffset);
     const match = text.slice(startOffset, endOffset);
     const afterRaw = text.slice(endOffset, excerptEnd);
 
-    const beforeNormalized = beforeRaw.replace(/\s+/g, ' ').trimStart();
-    const afterNormalized = afterRaw.replace(/\s+/g, ' ').trimEnd();
-
-    const isWordChar = (ch: string) => /[0-9A-Za-z]/.test(ch);
-    const matchLen = match.length;
-
-    let before = beforeNormalized;
-    let after = afterNormalized;
-
-    if (matchLen >= 4 && matchLen > 0) {
-        const beforeHasBoundaryWhitespace = /\s$/.test(beforeRaw);
-        const afterHasBoundaryWhitespace = /^\s/.test(afterRaw);
-
-        const beforeLast = beforeNormalized.at(-1) ?? '';
-        const matchFirst = match.at(0) ?? '';
-        const matchLast = match.at(-1) ?? '';
-        const afterFirst = afterNormalized.at(0) ?? '';
-
-        if (!beforeHasBoundaryWhitespace && beforeLast && matchFirst && isWordChar(beforeLast) && isWordChar(matchFirst)) {
-            before = `${beforeNormalized} `;
-        }
-
-        const looksLikePluralSuffix = afterNormalized === 's' || afterNormalized.startsWith('s ');
-        if (
-            !afterHasBoundaryWhitespace
-            && !looksLikePluralSuffix
-            && matchLast
-            && afterFirst
-            && isWordChar(matchLast)
-            && isWordChar(afterFirst)
-        ) {
-            after = ` ${afterNormalized}`;
-        }
-    }
+    // Normalize whitespace for display but preserve exact boundaries
+    // Only collapse internal whitespace runs, trim outer edges of the excerpt
+    const before = beforeRaw.replace(/\s+/g, ' ').trimStart();
+    const after = afterRaw.replace(/\s+/g, ' ').trimEnd();
 
     return {
         prefix: excerptStart > 0,

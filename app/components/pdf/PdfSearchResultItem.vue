@@ -8,9 +8,13 @@
             <span class="pdf-search-result-match">Match {{ result.matchIndex + 1 }}</span>
         </div>
         <div class="pdf-search-result-snippet">
-            <template v-if="result.excerpt.prefix">…</template><span
+            <template v-if="result.excerpt.prefix">…</template>
+            <span
                 ref="textRef"
-            >{{ fullText }}</span><template v-if="result.excerpt.suffix">…</template>
+            >
+                {{ fullText }}
+            </span>
+            <template v-if="result.excerpt.suffix">…</template>
         </div>
     </div>
 </template>
