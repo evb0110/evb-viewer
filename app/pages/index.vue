@@ -406,39 +406,24 @@ async function handleSearch() {
     if (workingCopyPath.value) {
         showSidebar.value = true;
         sidebarTab.value = 'search';
-        const applied = await search(
+        await search(
             searchQuery.value,
             workingCopyPath.value,
             totalPages.value > 0 ? totalPages.value : undefined,
         );
-        if (applied) {
-            scrollToCurrentResult();
-        }
     }
 }
 
 function handleSearchNext() {
     goToResult('next');
-    scrollToCurrentResult();
 }
 
 function handleSearchPrevious() {
     goToResult('previous');
-    scrollToCurrentResult();
-}
-
-function scrollToCurrentResult() {
-    if (results.value.length > 0 && currentResultIndex.value >= 0) {
-        const result = results.value[currentResultIndex.value];
-        if (result) {
-            pdfViewerRef.value?.scrollToPage(result.pageIndex + 1);
-        }
-    }
 }
 
 function handleGoToResult(index: number) {
     setResultIndex(index);
-    scrollToCurrentResult();
 }
 
 async function handleSave() {

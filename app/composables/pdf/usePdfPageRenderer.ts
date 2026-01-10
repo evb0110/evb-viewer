@@ -84,6 +84,10 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     const textLayerCleanupFns = new Map<number, () => void>();
 
     const pendingScrollToMatchPageIndex = ref<number | null>(null);
+    const RENDERED_CONTAINER_CLASS = 'page_container--rendered';
+    const SCROLL_TARGET_CONTAINER_CLASS = 'page_container--scroll-target';
+    let activeScrollTargetPageIndex: number | null = null;
+    let scrollToMatchRequestId = 0;
 
     const outputScale = options.outputScale
         ?? (typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1);
@@ -306,6 +310,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             const container = containerRoot.querySelector<HTMLElement>(
                 `.page_container[data-page="${pageNumber}"]`,
             );
+            container?.classList.remove(RENDERED_CONTAINER_CLASS);
             const skeleton = container?.querySelector<HTMLElement>('.pdf-page-skeleton');
             const canvasHost = container?.querySelector<HTMLDivElement>('.page_canvas');
             const textLayerDiv = container?.querySelector<HTMLElement>('.text-layer');
@@ -336,6 +341,34 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         }
     }
 
+    function getPageContainer(containerRoot: HTMLElement, pageIndex: number) {
+        const pageNumber = pageIndex + 1;
+        return containerRoot.querySelector<HTMLElement>(`.page_container[data-page="${pageNumber}"]`)
+            ?? containerRoot.querySelectorAll<HTMLElement>('.page_container')[pageIndex]
+            ?? null;
+    }
+
+    function setScrollTargetPage(pageIndex: number | null) {
+        const containerRoot = options.container.value;
+        if (!containerRoot) {
+            activeScrollTargetPageIndex = pageIndex;
+            return;
+        }
+
+        const previous = activeScrollTargetPageIndex;
+        if (previous !== null && previous !== pageIndex) {
+            getPageContainer(containerRoot, previous)?.classList.remove(SCROLL_TARGET_CONTAINER_CLASS);
+        }
+
+        if (pageIndex !== null) {
+            getPageContainer(containerRoot, pageIndex)?.classList.add(SCROLL_TARGET_CONTAINER_CLASS);
+        } else if (previous !== null) {
+            getPageContainer(containerRoot, previous)?.classList.remove(SCROLL_TARGET_CONTAINER_CLASS);
+        }
+
+        activeScrollTargetPageIndex = pageIndex;
+    }
+
     function setupPagePlaceholders() {
         const containerRoot = options.container.value;
         const baseWidth = toValue(basePageWidth);
@@ -355,7 +388,13 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         });
     }
 
-    async function renderVisiblePages(visibleRange: IPageRange) {
+    async function renderVisiblePages(
+        visibleRange: IPageRange,
+        renderOptions?: {
+            preserveRenderedPages?: boolean;
+            bufferOverride?: number;
+        },
+    ) {
         const containerRoot = options.container.value;
 
         if (!containerRoot || numPages.value === 0) {
@@ -363,16 +402,18 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         }
 
         const version = renderVersion;
-        const buffer = toValue(bufferPages);
+        const buffer = renderOptions?.bufferOverride ?? toValue(bufferPages);
 
         const renderStart = Math.max(1, visibleRange.start - buffer);
         const renderEnd = Math.min(numPages.value, visibleRange.end + buffer);
 
         const pagesToKeep = new Set(range(renderStart, renderEnd + 1));
 
-        for (const pageNum of renderedPages) {
-            if (!pagesToKeep.has(pageNum)) {
-                cleanupPage(pageNum);
+        if (!renderOptions?.preserveRenderedPages) {
+            for (const pageNum of renderedPages) {
+                if (!pagesToKeep.has(pageNum)) {
+                    cleanupPage(pageNum);
+                }
             }
         }
 
@@ -488,6 +529,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                         canvasHost.innerHTML = '';
                         canvasHost.appendChild(canvas);
                         pageCanvases.set(pageNumber, canvas);
+                        container.classList.add(RENDERED_CONTAINER_CLASS);
 
                         const skeleton = container.querySelector<HTMLElement>('.pdf-page-skeleton');
                         if (skeleton) {
@@ -752,6 +794,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         textLayerCleanupFns.clear();
 
         pendingScrollToMatchPageIndex.value = null;
+        setScrollTargetPage(null);
 
         try {
             cleanupPageCache();
@@ -825,7 +868,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         });
     }
 
-    function scrollToCurrentMatch() {
+    function scrollToCurrentMatch(behavior: ScrollBehavior = 'auto') {
         const containerRoot = options.container.value;
         const currentMatchValue = toValue(currentSearchMatch);
         if (!containerRoot || !currentMatchValue) {
@@ -833,8 +876,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         }
 
         const pageIndex = currentMatchValue.pageIndex;
-        const pageContainers = containerRoot.querySelectorAll<HTMLElement>('.page_container');
-        const targetContainer = pageContainers[pageIndex];
+        const targetContainer = getPageContainer(containerRoot, pageIndex);
 
         if (!targetContainer) {
             return false;
@@ -865,19 +907,142 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             pendingScrollToMatchPageIndex.value = null;
             containerRoot.scrollTo({
                 top: Math.max(0, elementCenter),
-                behavior: 'smooth',
+                behavior,
             });
 
             return true;
         }
 
+        const highlightRect = currentHighlight.getBoundingClientRect();
+        if (highlightRect.width === 0 && highlightRect.height === 0) {
+            return false;
+        }
+
         pendingScrollToMatchPageIndex.value = null;
-        scrollToHighlight(currentHighlight, containerRoot);
+        scrollToHighlight(currentHighlight, containerRoot, behavior);
         return true;
+    }
+
+    function scheduleScrollCorrection(requestId: number) {
+        if (typeof window === 'undefined') {
+            return;
+        }
+
+        const correctIfNeeded = () => {
+            if (requestId !== scrollToMatchRequestId) {
+                return;
+            }
+
+            const containerRoot = options.container.value;
+            const currentMatchValue = toValue(currentSearchMatch);
+            if (!containerRoot || !currentMatchValue) {
+                return;
+            }
+
+            const targetContainer = getPageContainer(containerRoot, currentMatchValue.pageIndex);
+            if (!targetContainer) {
+                return;
+            }
+
+            const textLayerDiv = targetContainer.querySelector<HTMLElement>('.text-layer');
+            if (!textLayerDiv) {
+                return;
+            }
+
+            const currentHighlight = textLayerDiv.querySelector<HTMLElement>('.pdf-search-highlight--current');
+            const rect = currentHighlight?.getBoundingClientRect()
+                ?? getCurrentMatchRanges(textLayerDiv).at(0)?.getBoundingClientRect()
+                ?? null;
+
+            if (!rect || (rect.width === 0 && rect.height === 0)) {
+                return;
+            }
+
+            const containerRect = containerRoot.getBoundingClientRect();
+            const centerDelta = (rect.top + rect.height / 2) - (containerRect.top + containerRect.height / 2);
+            const isVisible = rect.bottom > containerRect.top + 16 && rect.top < containerRect.bottom - 16;
+            const isCentered = Math.abs(centerDelta) < 8;
+            if (isVisible && isCentered) {
+                return;
+            }
+
+            void scrollToCurrentMatch();
+        };
+
+        requestAnimationFrame(() => {
+            correctIfNeeded();
+            requestAnimationFrame(() => {
+                correctIfNeeded();
+            });
+        });
+        setTimeout(correctIfNeeded, 120);
+        setTimeout(correctIfNeeded, 350);
+        setTimeout(correctIfNeeded, 800);
+    }
+
+    function requestScrollToMatch(matchPageIndex: number | null) {
+        const requestId = ++scrollToMatchRequestId;
+
+        if (matchPageIndex === null) {
+            return;
+        }
+
+        if (typeof window === 'undefined') {
+            return;
+        }
+
+        const maxAttempts = 8;
+        let attempts = 0;
+
+        const tryScroll = () => {
+            if (requestId !== scrollToMatchRequestId) {
+                return;
+            }
+
+            const didScroll = scrollToCurrentMatch();
+            if (didScroll) {
+                scheduleScrollCorrection(requestId);
+                return;
+            }
+
+            attempts += 1;
+
+            void renderVisiblePages(
+                {
+                    start: matchPageIndex + 1,
+                    end: matchPageIndex + 1,
+                },
+                {
+                    preserveRenderedPages: true,
+                    bufferOverride: 0,
+                },
+            );
+
+            if (attempts >= maxAttempts) {
+                // Fallback: bring the page into view to ensure layout is measurable, then try again.
+                options.scrollToPage?.(matchPageIndex + 1);
+                requestAnimationFrame(() => {
+                    if (requestId !== scrollToMatchRequestId) {
+                        return;
+                    }
+                    void nextTick(() => {
+                        void scrollToCurrentMatch();
+                    });
+                });
+                return;
+            }
+
+            requestAnimationFrame(tryScroll);
+        };
+
+        nextTick(() => {
+            tryScroll();
+        });
     }
 
     watch(
         () => [
+            isLoading.value,
             toValue(searchPageMatches),
             toValue(currentSearchMatch),
         ] as const,
@@ -887,14 +1052,21 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             }
 
             const currentMatchValue = toValue(currentSearchMatch);
-            pendingScrollToMatchPageIndex.value = currentMatchValue
+            const matchPageIndex = currentMatchValue
                 ? currentMatchValue.pageIndex
                 : null;
+
+            pendingScrollToMatchPageIndex.value = matchPageIndex;
+            setScrollTargetPage(matchPageIndex);
 
             applySearchHighlights();
 
             nextTick(() => {
-                scrollToCurrentMatch();
+                if (matchPageIndex === null) {
+                    return;
+                }
+
+                requestScrollToMatch(matchPageIndex);
             });
         },
         { deep: true },

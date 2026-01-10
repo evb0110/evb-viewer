@@ -432,10 +432,18 @@ defineExpose({
     contain-intrinsic-size: auto 800px;
 }
 
+.page_container--scroll-target {
+    content-visibility: visible;
+}
+
 .page_container canvas {
     background: var(--pdf-page-bg);
     box-shadow: var(--pdf-page-shadow);
     border-radius: 2px;
+}
+
+.pdfViewer :deep(.page_container--rendered .pdf-page-skeleton) {
+    display: none;
 }
 
 .page_canvas {

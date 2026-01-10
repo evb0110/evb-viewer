@@ -591,7 +591,11 @@ export const usePdfSearchHighlight = () => {
         };
     }
 
-    function scrollToHighlight(element: HTMLElement, container: HTMLElement) {
+    function scrollToHighlight(
+        element: HTMLElement,
+        container: HTMLElement,
+        behavior: ScrollBehavior = 'auto',
+    ) {
         const containerRect = container.getBoundingClientRect();
         const elementRect = element.getBoundingClientRect();
 
@@ -600,7 +604,7 @@ export const usePdfSearchHighlight = () => {
 
         container.scrollTo({
             top: Math.max(0, elementCenter),
-            behavior: 'smooth',
+            behavior,
         });
     }
 
