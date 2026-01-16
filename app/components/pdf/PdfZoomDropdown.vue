@@ -6,7 +6,7 @@
             color="neutral"
             size="sm"
             :disabled="disabled || zoom <= 0.25"
-            class="zoom-controls-btn"
+            class="h-8 rounded-l-md rounded-r-none"
             @click="handleZoomOut"
         />
 
@@ -122,7 +122,7 @@
             color="neutral"
             size="sm"
             :disabled="disabled || zoom >= 5"
-            class="zoom-controls-btn"
+            class="h-8 rounded-r-md rounded-l-none"
             @click="handleZoomIn"
         />
     </div>
@@ -261,17 +261,6 @@ function applyCustomZoom() {
     border-radius: 0.375rem;
 }
 
-.zoom-controls-btn {
-    border-radius: 0;
-}
-
-.zoom-controls-btn:first-child {
-    border-radius: 0.375rem 0 0 0.375rem;
-}
-
-.zoom-controls-btn:last-child {
-    border-radius: 0 0.375rem 0.375rem 0;
-}
 
 .zoom-controls-display {
     display: flex;

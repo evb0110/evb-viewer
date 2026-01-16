@@ -62,7 +62,7 @@
                         :variant="dragMode ? 'soft' : 'ghost'"
                         size="sm"
                         :color="dragMode ? 'primary' : 'neutral'"
-                        class="rounded-r-none"
+                        class="rounded-r-none h-8"
                         @click="enableDragMode(); closeAllDropdowns()"
                     />
                     <UButton
@@ -70,7 +70,7 @@
                         :variant="!dragMode ? 'soft' : 'ghost'"
                         size="sm"
                         :color="!dragMode ? 'primary' : 'neutral'"
-                        class="rounded-l-none"
+                        class="rounded-l-none h-8"
                         @click="dragMode = false; closeAllDropdowns()"
                     />
                 </div>
@@ -138,24 +138,15 @@
                 />
                 <div
                     v-else
-                    class="h-full flex flex-col items-center justify-center gap-6 text-neutral-400 dark:text-neutral-600"
+                    class="empty-state"
                 >
-                    <div class="flex flex-col items-center gap-4">
-                        <UIcon
-                            name="i-lucide-file-text"
-                            class="size-16"
-                        />
-                        <span class="text-lg">
-                            Open a PDF file to get started
-                        </span>
-                    </div>
-
+                    <!-- Recent Files (primary focus for returning users) -->
                     <div
                         v-if="recentFiles.length > 0"
                         class="recent-files"
                     >
                         <div class="recent-files-header">
-                            <h3 class="text-sm font-medium text-neutral-500 dark:text-neutral-400">
+                            <h3 class="text-sm font-medium text-neutral-600 dark:text-neutral-400">
                                 Recent Files
                             </h3>
                             <UButton
@@ -177,7 +168,7 @@
                             >
                                 <UIcon
                                     name="i-lucide-file-text"
-                                    class="size-4 text-neutral-400 flex-shrink-0"
+                                    class="size-5 text-neutral-400 flex-shrink-0"
                                 />
                                 <div class="recent-file-info">
                                     <span class="recent-file-name">{{ file.fileName }}</span>
@@ -194,6 +185,20 @@
                             </li>
                         </ul>
                     </div>
+
+                    <!-- Open file action (clickable) -->
+                    <button
+                        class="open-file-action"
+                        @click="openFile"
+                    >
+                        <UIcon
+                            name="i-lucide-folder-open"
+                            class="size-8 text-neutral-400 group-hover:text-primary-500 transition-colors"
+                        />
+                        <span class="text-sm text-neutral-500 dark:text-neutral-400">
+                            {{ recentFiles.length > 0 ? 'Or open another file...' : 'Open a PDF file' }}
+                        </span>
+                    </button>
                 </div>
             </div>
         </main>
@@ -549,10 +554,48 @@ watch(pdfSrc, () => {
     background: color-mix(in oklab, var(--ui-bg) 50%, var(--ui-primary) 50%);
 }
 
+/* Empty state layout */
+.empty-state {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1.5rem;
+    padding: 2rem;
+}
+
+/* Open file action button */
+.open-file-action {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 1rem 1.5rem;
+    border-radius: 0.5rem;
+    border: 1px dashed var(--ui-border);
+    background: transparent;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.open-file-action:hover {
+    border-color: var(--ui-primary);
+    background: color-mix(in oklab, var(--ui-bg) 95%, var(--ui-primary) 5%);
+}
+
+.open-file-action:hover :deep(.iconify) {
+    color: var(--ui-primary);
+}
+
+.open-file-action:active {
+    transform: scale(0.98);
+}
+
+/* Recent files */
 .recent-files {
     width: 100%;
     max-width: 400px;
-    padding: 0 1rem;
 }
 
 .recent-files-header {
@@ -576,7 +619,7 @@ watch(pdfSrc, () => {
     display: flex;
     align-items: center;
     gap: 0.75rem;
-    padding: 0.5rem 0.75rem;
+    padding: 0.625rem 0.75rem;
     border-radius: 0.375rem;
     cursor: pointer;
     transition: background-color 0.15s ease;

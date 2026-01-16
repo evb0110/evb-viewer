@@ -6,7 +6,7 @@
             color="neutral"
             size="sm"
             :disabled="disabled || totalPages === 0 || currentPage <= 1"
-            class="page-controls-btn"
+            class="h-8 rounded-l-md rounded-r-none"
             @click="goToPrevious"
         />
 
@@ -81,7 +81,7 @@
             color="neutral"
             size="sm"
             :disabled="disabled || totalPages === 0 || currentPage >= totalPages"
-            class="page-controls-btn"
+            class="h-8 rounded-r-md rounded-l-none"
             @click="goToNext"
         />
     </div>
@@ -187,17 +187,6 @@ function commitPageInput() {
     border-radius: 0.375rem;
 }
 
-.page-controls-btn {
-    border-radius: 0;
-}
-
-.page-controls-btn:first-child {
-    border-radius: 0.375rem 0 0 0.375rem;
-}
-
-.page-controls-btn:last-child {
-    border-radius: 0 0.375rem 0.375rem 0;
-}
 
 .page-controls-display {
     display: flex;
