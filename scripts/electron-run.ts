@@ -50,8 +50,19 @@ async function isNuxtRunning(): Promise<boolean> {
     }
 }
 
-async function startNuxtServer(): Promise<ChildProcess | null> {
-    if (await isNuxtRunning()) {
+async function killExistingNuxt(): Promise<void> {
+    try {
+        const { execSync } = await import('node:child_process');
+        execSync(`lsof -ti :${NUXT_PORT} | xargs kill -9 2>/dev/null || true`, { stdio: 'ignore' });
+        await delay(500);
+    } catch {}
+}
+
+async function startNuxtServer(forceClean = false): Promise<ChildProcess | null> {
+    if (forceClean) {
+        console.log('[Nuxt] Force clean start - killing existing server...');
+        await killExistingNuxt();
+    } else if (await isNuxtRunning()) {
         console.log('[Nuxt] Server already running on port', NUXT_PORT);
         return null;
     }
@@ -160,7 +171,7 @@ async function connectToBrowser(): Promise<{ browser: Browser; page: Page }> {
 
 // ============ Session Server ============
 
-async function startSession() {
+async function startSession(forceClean = false) {
     if (await isSessionRunning()) {
         console.log('Session already running. Use `pnpm electron:run stop` to stop it.');
         process.exit(0);
@@ -168,8 +179,8 @@ async function startSession() {
 
     console.log('Starting Electron Puppeteer session...\n');
 
-    // Ensure Nuxt is running
-    const nuxtProcess = await startNuxtServer();
+    // Ensure Nuxt is running (force clean if requested)
+    const nuxtProcess = await startNuxtServer(forceClean);
 
     // Start Electron with CDP
     const electronProcess = await startElectron();
@@ -218,6 +229,43 @@ async function startSession() {
 
     sessionState = { browser, page, electronProcess, nuxtProcess, consoleMessages };
 
+    // Shutdown state
+    let isShuttingDown = false;
+    let httpServer: ReturnType<typeof createServer> | null = null;
+
+    // Cleanup function - must be defined before event handlers
+    const cleanupAndExit = async (exitCode: number) => {
+        if (isShuttingDown) return;
+        isShuttingDown = true;
+
+        console.log('\nShutting down...');
+        try { unlinkSync(sessionFile); } catch {}
+        httpServer?.close();
+
+        // Disconnect Puppeteer (suppress errors since browser may already be gone)
+        await sessionState?.browser.disconnect().catch(() => {});
+
+        // Kill processes (they may already be dead)
+        try { sessionState?.electronProcess.kill(); } catch {}
+        try { sessionState?.nuxtProcess?.kill(); } catch {}
+
+        process.exit(exitCode);
+    };
+
+    // Monitor Electron process exit
+    electronProcess.on('exit', (code, signal) => {
+        console.log(`\n[Electron] Process exited (code: ${code}, signal: ${signal})`);
+        console.log('[Session] Electron died - shutting down session...');
+        cleanupAndExit(1);
+    });
+
+    // Monitor Puppeteer disconnection
+    browser.on('disconnected', () => {
+        console.log('\n[Puppeteer] Browser disconnected');
+        console.log('[Session] Lost connection to Electron - shutting down session...');
+        cleanupAndExit(1);
+    });
+
     // HTTP server for commands
     const server = createServer(async (req, res) => {
         if (req.method !== 'POST') {
@@ -244,6 +292,8 @@ async function startSession() {
         });
     });
 
+    httpServer = server;
+
     server.listen(SERVER_PORT, () => {
         mkdirSync(join(projectRoot, '.devkit'), { recursive: true });
         writeFileSync(sessionFile, JSON.stringify({ port: SERVER_PORT, pid: process.pid }));
@@ -252,19 +302,8 @@ async function startSession() {
         console.log('  Press Ctrl+C to stop\n');
     });
 
-    // Graceful shutdown
-    const shutdown = async () => {
-        console.log('\nShutting down...');
-        try { unlinkSync(sessionFile); } catch {}
-        server.close();
-        await sessionState?.browser.disconnect().catch(() => {});
-        sessionState?.electronProcess.kill();
-        sessionState?.nuxtProcess?.kill();
-        process.exit(0);
-    };
-
-    process.on('SIGINT', shutdown);
-    process.on('SIGTERM', shutdown);
+    process.on('SIGINT', () => cleanupAndExit(0));
+    process.on('SIGTERM', () => cleanupAndExit(0));
 
     await new Promise(() => {});
 }
@@ -467,8 +506,10 @@ Usage:
 
 Session:
   start               Start session (foreground, Ctrl+C to stop)
+  cleanstart          Start with fresh Nuxt server (clears stale cache)
   stop                Stop running session
-  status              Check if session is running
+  status              Check session status and Electron connection health
+  restart             Stop and restart the session (useful for recovery)
 
 Commands (require running session):
   health              Check app health status (loaded, API availability)
@@ -499,18 +540,45 @@ Examples:
                 await startSession();
                 break;
 
+            case 'cleanstart':
+                console.log('Starting fresh session (killing existing Nuxt)...');
+                await startSession(true);
+                break;
+
             case 'stop':
                 await stopSession();
                 break;
 
             case 'status': {
-                const running = await isSessionRunning();
-                if (running) {
-                    const result = await sendCommand('ping') as { uptime: number };
-                    console.log(`Session running (uptime: ${Math.round(result.uptime)}s)`);
-                } else {
+                const info = getSessionInfo();
+                if (!info) {
                     console.log('No session running.');
+                    break;
                 }
+                try {
+                    // Try ping first to see if server is up
+                    const pingResult = await sendCommand('ping') as { uptime: number };
+                    // Then verify Electron connection is alive with health check
+                    try {
+                        const healthResult = await sendCommand('health') as { health: { bodyExists: boolean } };
+                        console.log(`Session running (uptime: ${Math.round(pingResult.uptime)}s) - Electron connected ✓`);
+                    } catch {
+                        console.log(`Session running (uptime: ${Math.round(pingResult.uptime)}s) - ⚠️  Electron DISCONNECTED`);
+                        console.log('  Use `pnpm electron:run restart` to recover.');
+                    }
+                } catch {
+                    console.log('Session file exists but server not responding.');
+                    console.log('  Cleaning up stale session file...');
+                    try { unlinkSync(sessionFile); } catch {}
+                }
+                break;
+            }
+
+            case 'restart': {
+                console.log('Restarting session (with fresh Nuxt)...');
+                await stopSession();
+                await delay(1000);
+                await startSession(true);  // Force clean to avoid stale cache
                 break;
             }
 
