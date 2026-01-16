@@ -1,3 +1,10 @@
+export interface IRecentFile {
+    originalPath: string;
+    fileName: string;
+    timestamp: number;
+    fileSize?: number;
+}
+
 export interface IIpcChannels {
     'dialog:openPdf': {
         args: [];
@@ -13,6 +20,22 @@ export interface IIpcChannels {
     };
     'window:setTitle': {
         args: [title: string];
+        result: undefined;
+    };
+    'recent-files:get': {
+        args: [];
+        result: IRecentFile[];
+    };
+    'recent-files:add': {
+        args: [originalPath: string];
+        result: undefined;
+    };
+    'recent-files:remove': {
+        args: [originalPath: string];
+        result: undefined;
+    };
+    'recent-files:clear': {
+        args: [];
         result: undefined;
     };
 }

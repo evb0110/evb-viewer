@@ -8,12 +8,43 @@ import {
     Menu,
     shell,
 } from 'electron';
+import { basename } from 'path';
 import { config } from '@electron/config';
+import { getRecentFilesSync } from '@electron/recent-files';
 
-function sendToWindow(window: BaseWindow | undefined, channel: string) {
+function sendToWindow(window: BaseWindow | undefined, channel: string, ...args: unknown[]) {
     if (window instanceof BrowserWindow) {
-        window.webContents.send(channel);
+        window.webContents.send(channel, ...args);
     }
+}
+
+function buildRecentFilesSubmenu(): MenuItemConstructorOptions[] {
+    const recentFiles = getRecentFilesSync();
+
+    if (recentFiles.length === 0) {
+        return [{
+            label: 'No Recent Files',
+            enabled: false, 
+        }];
+    }
+
+    const fileItems: MenuItemConstructorOptions[] = recentFiles.map((filePath) => ({
+        label: basename(filePath),
+        click: (_, window) => {
+            sendToWindow(window, 'menu:openRecentFile', filePath);
+        },
+    }));
+
+    return [
+        ...fileItems,
+        { type: 'separator' },
+        {
+            label: 'Clear Recent Files',
+            click: (_, window) => {
+                sendToWindow(window, 'menu:clearRecentFiles');
+            },
+        },
+    ];
 }
 
 function getFileMenu(): MenuItemConstructorOptions {
@@ -26,6 +57,10 @@ function getFileMenu(): MenuItemConstructorOptions {
                 click: (_, window) => {
                     sendToWindow(window, 'menu:openPdf');
                 },
+            },
+            {
+                label: 'Open Recent',
+                submenu: buildRecentFilesSubmenu(),
             },
             {
                 label: 'Save',
@@ -194,4 +229,10 @@ export function sendMenuCommand(channel: string) {
     if (focusedWindow) {
         focusedWindow.webContents.send(channel);
     }
+}
+
+export function updateRecentFilesMenu() {
+    const template = buildMenuTemplate();
+    const menu = Menu.buildFromTemplate(template);
+    Menu.setApplicationMenu(menu);
 }

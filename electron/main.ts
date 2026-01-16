@@ -5,6 +5,7 @@ import {
     clearAllWorkingCopies,
 } from '@electron/ipc';
 import { setupMenu } from '@electron/menu';
+import { initRecentFilesCache } from '@electron/recent-files';
 import { stopServer } from '@electron/server';
 import {
     createWindow,
@@ -14,6 +15,7 @@ import {
 async function init() {
     await app.whenReady();
     registerIpcHandlers();
+    await initRecentFilesCache();
     setupMenu();
     void createWindow();
 

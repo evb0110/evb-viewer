@@ -76,6 +76,13 @@ interface IPreprocessPageResult {
     error?: string;
 }
 
+interface IRecentFile {
+    originalPath: string;
+    fileName: string;
+    timestamp: number;
+    fileSize?: number;
+}
+
 interface IElectronAPI {
     openPdfDialog: () => Promise<string | null>;
     openPdfDirect: (path: string) => Promise<string | null>;
@@ -127,6 +134,15 @@ interface IElectronAPI {
         validate: () => Promise<IPreprocessingValidationResult>;
         preprocessPage: (imageData: number[], usePreprocessing: boolean) => Promise<IPreprocessPageResult>;
     };
+
+    // Recent Files API
+    recentFiles: {
+        get: () => Promise<IRecentFile[]>;
+        remove: (path: string) => Promise<void>;
+        clear: () => Promise<void>;
+    };
+    onMenuOpenRecentFile: (callback: (path: string) => void) => IMenuEventUnsubscribe;
+    onMenuClearRecentFiles: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
 }
 
 declare global {

@@ -58,10 +58,26 @@ async function killExistingNuxt(): Promise<void> {
     } catch {}
 }
 
+async function clearViteCache(): Promise<void> {
+    const { rmSync } = await import('node:fs');
+    const cachePaths = [
+        join(projectRoot, 'node_modules', '.vite'),
+        join(projectRoot, '.nuxt'),
+    ];
+
+    for (const cachePath of cachePaths) {
+        try {
+            rmSync(cachePath, { recursive: true, force: true });
+            console.log(`[Cache] Cleared ${cachePath.replace(projectRoot + '/', '')}`);
+        } catch {}
+    }
+}
+
 async function startNuxtServer(forceClean = false): Promise<ChildProcess | null> {
     if (forceClean) {
-        console.log('[Nuxt] Force clean start - killing existing server...');
+        console.log('[Nuxt] Force clean start...');
         await killExistingNuxt();
+        await clearViteCache();  // Critical: clear stale dependency cache
     } else if (await isNuxtRunning()) {
         console.log('[Nuxt] Server already running on port', NUXT_PORT);
         return null;
@@ -163,7 +179,45 @@ async function connectToBrowser(): Promise<{ browser: Browser; page: Page }> {
 
     // Wait for page to fully load
     await page.waitForSelector('body', { timeout: 30000 });
-    await delay(2000); // Let Vue hydrate
+
+    // Wait for Vue to hydrate (check for __appReady or #__nuxt children)
+    console.log('[Puppeteer] Waiting for Vue to hydrate...');
+    let hydrated = false;
+    for (let attempt = 0; attempt < 30; attempt++) {
+        const isReady = await page.evaluate(() => {
+            const nuxtEl = document.querySelector('#__nuxt');
+            return !!(
+                (window as any).__appReady ||
+                (nuxtEl && nuxtEl.children.length > 0)
+            );
+        });
+
+        if (isReady) {
+            hydrated = true;
+            break;
+        }
+        await delay(500);
+    }
+
+    // If not hydrated after 15s, try a page reload (helps with fresh Nuxt starts)
+    if (!hydrated) {
+        console.log('[Puppeteer] Vue not ready, reloading page...');
+        await page.reload({ waitUntil: 'networkidle2' });
+        await delay(3000);
+
+        // Check again
+        const isReadyAfterReload = await page.evaluate(() => {
+            const nuxtEl = document.querySelector('#__nuxt');
+            return !!(
+                (window as any).__appReady ||
+                (nuxtEl && nuxtEl.children.length > 0)
+            );
+        });
+
+        if (!isReadyAfterReload) {
+            console.log('[Puppeteer] Warning: Vue may not be fully hydrated');
+        }
+    }
 
     console.log('[Puppeteer] Connected to app');
     return { browser, page };
@@ -538,11 +592,14 @@ Examples:
     try {
         switch (command) {
             case 'start':
-                await startSession();
+                // ALWAYS use clean start for reliability - no more broken sessions
+                console.log('Starting session (with fresh Nuxt and cleared cache)...');
+                await startSession(true);
                 break;
 
             case 'cleanstart':
-                console.log('Starting fresh session (killing existing Nuxt)...');
+                // Alias for start - both do the same thing now
+                console.log('Starting fresh session...');
                 await startSession(true);
                 break;
 

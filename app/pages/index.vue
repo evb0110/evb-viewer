@@ -31,13 +31,6 @@
 
                 <div class="flex-1" />
 
-                <UButton
-                    icon="i-lucide-search"
-                    variant="ghost"
-                    :color="showSidebar && sidebarTab === 'search' ? 'primary' : 'neutral'"
-                    @click="openSearch(); closeAllDropdowns()"
-                />
-
                 <OcrPopup
                     ref="ocrPopupRef"
                     :pdf-document="pdfDocument"
@@ -145,15 +138,62 @@
                 />
                 <div
                     v-else
-                    class="h-full flex flex-col items-center justify-center gap-4 text-neutral-400 dark:text-neutral-600"
+                    class="h-full flex flex-col items-center justify-center gap-6 text-neutral-400 dark:text-neutral-600"
                 >
-                    <UIcon
-                        name="i-lucide-file-text"
-                        class="size-16"
-                    />
-                    <span class="text-lg">
-                        Open a PDF file
-                    </span>
+                    <div class="flex flex-col items-center gap-4">
+                        <UIcon
+                            name="i-lucide-file-text"
+                            class="size-16"
+                        />
+                        <span class="text-lg">
+                            Open a PDF file to get started
+                        </span>
+                    </div>
+
+                    <div
+                        v-if="recentFiles.length > 0"
+                        class="recent-files"
+                    >
+                        <div class="recent-files-header">
+                            <h3 class="text-sm font-medium text-neutral-500 dark:text-neutral-400">
+                                Recent Files
+                            </h3>
+                            <UButton
+                                variant="link"
+                                size="xs"
+                                color="neutral"
+                                class="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"
+                                @click="clearRecentFiles"
+                            >
+                                Clear all
+                            </UButton>
+                        </div>
+                        <ul class="recent-files-list">
+                            <li
+                                v-for="file in recentFiles"
+                                :key="file.originalPath"
+                                class="recent-file-item"
+                                @click="openRecentFile(file)"
+                            >
+                                <UIcon
+                                    name="i-lucide-file-text"
+                                    class="size-4 text-neutral-400 flex-shrink-0"
+                                />
+                                <div class="recent-file-info">
+                                    <span class="recent-file-name">{{ file.fileName }}</span>
+                                    <span class="recent-file-time">{{ formatRelativeTime(file.timestamp) }}</span>
+                                </div>
+                                <UButton
+                                    icon="i-lucide-x"
+                                    size="xs"
+                                    variant="ghost"
+                                    color="neutral"
+                                    class="recent-file-remove"
+                                    @click.stop="removeRecentFile(file)"
+                                />
+                            </li>
+                        </ul>
+                    </div>
                 </div>
             </div>
         </main>
@@ -197,6 +237,37 @@ const {
     saveFile,
 } = usePdfFile();
 
+const {
+    recentFiles,
+    loadRecentFiles,
+    removeRecentFile,
+    clearRecentFiles,
+} = useRecentFiles();
+
+async function openRecentFile(file: { originalPath: string }) {
+    await openFileDirect(file.originalPath);
+}
+
+function formatRelativeTime(timestamp: number) {
+    const now = Date.now();
+    const diff = now - timestamp;
+    const seconds = Math.floor(diff / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+    const days = Math.floor(hours / 24);
+
+    if (days > 0) {
+        return days === 1 ? 'Yesterday' : `${days} days ago`;
+    }
+    if (hours > 0) {
+        return hours === 1 ? '1 hour ago' : `${hours} hours ago`;
+    }
+    if (minutes > 0) {
+        return minutes === 1 ? '1 minute ago' : `${minutes} minutes ago`;
+    }
+    return 'Just now';
+}
+
 // Expose for testing
 if (typeof window !== 'undefined') {
     (window as unknown as { __openFileDirect: typeof openFileDirect }).__openFileDirect = openFileDirect;
@@ -228,7 +299,14 @@ onMounted(() => {
             window.electronAPI.onMenuActualSize(() => { zoom.value = 1; }),
             window.electronAPI.onMenuFitWidth(() => { fitMode.value = 'width'; }),
             window.electronAPI.onMenuFitHeight(() => { fitMode.value = 'height'; }),
+            window.electronAPI.onMenuOpenRecentFile((path: string) => openFileDirect(path)),
+            window.electronAPI.onMenuClearRecentFiles(() => {
+                clearRecentFiles();
+                loadRecentFiles();
+            }),
         );
+
+        loadRecentFiles();
     }
 
     window.addEventListener('keydown', handleFindShortcut);
@@ -469,5 +547,72 @@ watch(pdfSrc, () => {
 .sidebar-resizer:hover,
 .sidebar-resizer.is-active {
     background: color-mix(in oklab, var(--ui-bg) 50%, var(--ui-primary) 50%);
+}
+
+.recent-files {
+    width: 100%;
+    max-width: 400px;
+    padding: 0 1rem;
+}
+
+.recent-files-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.5rem;
+    padding: 0 0.5rem;
+}
+
+.recent-files-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.recent-file-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.375rem;
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+}
+
+.recent-file-item:hover {
+    background: var(--ui-bg-elevated);
+}
+
+.recent-file-info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.recent-file-name {
+    color: var(--ui-text);
+    font-size: 0.875rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.recent-file-time {
+    font-size: 0.75rem;
+    color: var(--ui-text-muted);
+}
+
+.recent-file-remove {
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
+
+.recent-file-item:hover .recent-file-remove {
+    opacity: 1;
 }
 </style>

@@ -20,6 +20,13 @@ import {
 } from 'path';
 import { registerOcrHandlers } from '@electron/ocr/ipc';
 import { registerSearchHandlers } from '@electron/search/ipc';
+import { updateRecentFilesMenu } from '@electron/menu';
+import {
+    addRecentFile,
+    getRecentFiles,
+    removeRecentFile,
+    clearRecentFiles,
+} from '@electron/recent-files';
 
 // Map to track original path → working copy path
 const workingCopyMap = new Map<string, string>();
@@ -59,6 +66,21 @@ export function registerIpcHandlers() {
     });
     ipcMain.handle('window:setTitle', handleSetWindowTitle);
 
+    // Recent files handlers
+    ipcMain.handle('recent-files:get', () => getRecentFiles());
+    ipcMain.handle('recent-files:add', async (_event, originalPath: string) => {
+        await addRecentFile(originalPath);
+        updateRecentFilesMenu();
+    });
+    ipcMain.handle('recent-files:remove', async (_event, originalPath: string) => {
+        await removeRecentFile(originalPath);
+        updateRecentFilesMenu();
+    });
+    ipcMain.handle('recent-files:clear', async () => {
+        await clearRecentFiles();
+        updateRecentFilesMenu();
+    });
+
     registerOcrHandlers();
     registerSearchHandlers();
 }
@@ -85,6 +107,8 @@ async function handleOpenPdfDirect(
     // Create working copy and return working path (not original)
     try {
         const workingPath = await createWorkingCopy(normalizedPath);
+        await addRecentFile(normalizedPath);
+        updateRecentFilesMenu();
         return workingPath;
     } catch (err) {
         console.error('Failed to create working copy:', err);
@@ -121,6 +145,8 @@ async function handleOpenPdfDialog(): Promise<string | null> {
     // Create working copy and return working path (not original)
     try {
         const workingPath = await createWorkingCopy(originalPath);
+        await addRecentFile(originalPath);
+        updateRecentFilesMenu();
         return workingPath;
     } catch (err) {
         console.error('Failed to create working copy:', err);

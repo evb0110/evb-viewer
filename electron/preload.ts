@@ -147,4 +147,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
         preprocessPage: (imageData: number[], usePreprocessing: boolean) =>
             ipcRenderer.invoke('preprocessing:preprocessPage', imageData, usePreprocessing),
     },
+
+    recentFiles: {
+        get: () => ipcRenderer.invoke('recent-files:get'),
+        add: (path: string) => ipcRenderer.invoke('recent-files:add', path),
+        remove: (path: string) => ipcRenderer.invoke('recent-files:remove', path),
+        clear: () => ipcRenderer.invoke('recent-files:clear'),
+    },
+
+    onMenuClearRecentFiles: (callback: IMenuEventCallback): IMenuEventUnsubscribe => {
+        const handler = (_event: IpcRendererEvent) => callback();
+        ipcRenderer.on('menu:clearRecentFiles', handler);
+        return () => ipcRenderer.removeListener('menu:clearRecentFiles', handler);
+    },
+
+    onMenuOpenRecentFile: (callback: (filePath: string) => void): IMenuEventUnsubscribe => {
+        const handler = (_event: IpcRendererEvent, filePath: string) => callback(filePath);
+        ipcRenderer.on('menu:openRecentFile', handler);
+        return () => ipcRenderer.removeListener('menu:openRecentFile', handler);
+    },
 });

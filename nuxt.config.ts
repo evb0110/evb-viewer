@@ -78,6 +78,8 @@ export default defineNuxtConfig({
             'lucide:play',
             'lucide:alert-circle',
             'lucide:check-circle',
+            'lucide:scaling',
+            'lucide:clock',
         ]},
     },
 

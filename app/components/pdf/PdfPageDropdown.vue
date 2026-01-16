@@ -1,98 +1,90 @@
 <template>
-    <UPopover v-model:open="isOpen" mode="click" :disabled="disabled || totalPages === 0">
+    <div class="page-controls">
         <UButton
-            icon="i-lucide-book-open"
+            icon="i-lucide-chevron-left"
             variant="ghost"
             color="neutral"
-            :disabled="disabled || totalPages === 0"
-            class="page-dropdown-trigger"
-        >
-            <span class="page-dropdown-trigger__label">{{ pageLabel }}</span>
-        </UButton>
+            size="sm"
+            :disabled="disabled || totalPages === 0 || currentPage <= 1"
+            class="page-controls-btn"
+            @click="goToPrevious"
+        />
 
-        <template #content>
-            <div class="page-dropdown">
-                <div class="page-dropdown__section">
-                    <button
-                        class="page-dropdown__item"
-                        :disabled="currentPage <= 1"
-                        @click="goToPrevious"
-                    >
-                        <UIcon
-                            name="i-lucide-chevron-left"
-                            class="page-dropdown__icon size-5"
-                        />
-                        <span class="page-dropdown__label">Previous</span>
-                    </button>
-                    <button
-                        class="page-dropdown__item"
-                        :disabled="currentPage >= totalPages"
-                        @click="goToNext"
-                    >
-                        <UIcon
-                            name="i-lucide-chevron-right"
-                            class="page-dropdown__icon size-5"
-                        />
-                        <span class="page-dropdown__label">Next</span>
-                    </button>
-                </div>
+        <UPopover v-model:open="isOpen" mode="click" :disabled="disabled || totalPages === 0">
+            <button
+                class="page-controls-display"
+                :disabled="disabled || totalPages === 0"
+            >
+                <span class="page-controls-display-value">{{ pageLabel }}</span>
+            </button>
 
-                <div class="page-dropdown__divider" />
-
-                <div class="page-dropdown__section">
-                    <button
-                        class="page-dropdown__item"
-                        :disabled="currentPage <= 1"
-                        @click="goToFirst"
-                    >
-                        <UIcon
-                            name="i-lucide-chevrons-left"
-                            class="page-dropdown__icon size-5"
-                        />
-                        <span class="page-dropdown__label">First</span>
-                    </button>
-                    <button
-                        class="page-dropdown__item"
-                        :disabled="currentPage >= totalPages"
-                        @click="goToLast"
-                    >
-                        <UIcon
-                            name="i-lucide-chevrons-right"
-                            class="page-dropdown__icon size-5"
-                        />
-                        <span class="page-dropdown__label">Last</span>
-                    </button>
-                </div>
-
-                <div class="page-dropdown__divider" />
-
-                <div class="page-dropdown__section">
-                    <div class="page-dropdown__goto">
-                        <span class="page-dropdown__goto-label">Go to page</span>
-                        <div class="page-dropdown__goto-controls">
-                            <UInput
-                                v-model="pageInputValue"
-                                class="page-dropdown__input"
-                                type="number"
-                                inputmode="numeric"
-                                size="xs"
-                                min="1"
-                                :max="totalPages"
-                                @keydown.enter.prevent="commitPageInput"
+            <template #content>
+                <div class="page-dropdown">
+                    <div class="page-dropdown-section">
+                        <button
+                            class="page-dropdown-item"
+                            :disabled="currentPage <= 1"
+                            @click="goToFirst"
+                        >
+                            <UIcon
+                                name="i-lucide-chevrons-left"
+                                class="page-dropdown-icon size-5"
                             />
-                            <UButton
-                                size="xs"
-                                variant="soft"
-                                @click="commitPageInput"
-                            >
-                                Go
-                            </UButton>
+                            <span class="page-dropdown-label">First page</span>
+                        </button>
+                        <button
+                            class="page-dropdown-item"
+                            :disabled="currentPage >= totalPages"
+                            @click="goToLast"
+                        >
+                            <UIcon
+                                name="i-lucide-chevrons-right"
+                                class="page-dropdown-icon size-5"
+                            />
+                            <span class="page-dropdown-label">Last page</span>
+                        </button>
+                    </div>
+
+                    <div class="page-dropdown-divider" />
+
+                    <div class="page-dropdown-section">
+                        <div class="page-dropdown-goto">
+                            <span class="page-dropdown-goto-label">Go to page</span>
+                            <div class="page-dropdown-goto-controls">
+                                <UInput
+                                    v-model="pageInputValue"
+                                    class="page-dropdown-input"
+                                    type="number"
+                                    inputmode="numeric"
+                                    size="xs"
+                                    min="1"
+                                    :max="totalPages"
+                                    @keydown.enter.prevent="commitPageInput"
+                                />
+                                <UButton
+                                    size="xs"
+                                    variant="soft"
+                                    @click="commitPageInput"
+                                >
+                                    Go
+                                </UButton>
+                            </div>
                         </div>
                     </div>
                 </div>
-            </div>
-        </template>
-    </UPopover>
+            </template>
+        </UPopover>
+
+        <UButton
+            icon="i-lucide-chevron-right"
+            variant="ghost"
+            color="neutral"
+            size="sm"
+            :disabled="disabled || totalPages === 0 || currentPage >= totalPages"
+            class="page-controls-btn"
+            @click="goToNext"
+        />
+    </div>
 </template>
 
 <script setup lang="ts">
@@ -187,11 +179,54 @@ function commitPageInput() {
 </script>
 
 <style scoped>
-.page-dropdown-trigger__label {
+.page-controls {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    border: 1px solid var(--ui-border);
+    border-radius: 0.375rem;
+}
+
+.page-controls-btn {
+    border-radius: 0;
+}
+
+.page-controls-btn:first-child {
+    border-radius: 0.375rem 0 0 0.375rem;
+}
+
+.page-controls-btn:last-child {
+    border-radius: 0 0.375rem 0.375rem 0;
+}
+
+.page-controls-display {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 0.5rem;
+    min-width: 5.5rem;
+    height: 2rem;
+    background: transparent;
+    border: none;
+    border-left: 1px solid var(--ui-border);
+    border-right: 1px solid var(--ui-border);
+    cursor: pointer;
+    transition: background-color 150ms ease;
+}
+
+.page-controls-display:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.page-controls-display:hover:not(:disabled) {
+    background-color: var(--ui-bg-elevated);
+}
+
+.page-controls-display-value {
+    font-size: 0.875rem;
     font-variant-numeric: tabular-nums;
-    min-width: 7ch;
-    display: inline-block;
-    text-align: center;
+    color: var(--ui-text);
 }
 
 .page-dropdown {
@@ -199,18 +234,18 @@ function commitPageInput() {
     min-width: 12rem;
 }
 
-.page-dropdown__section {
+.page-dropdown-section {
     display: flex;
     flex-direction: column;
 }
 
-.page-dropdown__divider {
+.page-dropdown-divider {
     height: 1px;
     background-color: var(--ui-border);
     margin: 0.25rem 0;
 }
 
-.page-dropdown__item {
+.page-dropdown-item {
     display: flex;
     align-items: center;
     gap: 0.75rem;
@@ -226,46 +261,46 @@ function commitPageInput() {
     transition: background-color 150ms ease;
 }
 
-.page-dropdown__item:disabled {
+.page-dropdown-item:disabled {
     opacity: 0.5;
     cursor: not-allowed;
 }
 
-.page-dropdown__item:hover:not(:disabled) {
+.page-dropdown-item:hover:not(:disabled) {
     background-color: var(--ui-bg-elevated);
 }
 
-.page-dropdown__label {
+.page-dropdown-label {
     flex: 1;
 }
 
-.page-dropdown__icon {
+.page-dropdown-icon {
     color: var(--ui-text-muted);
 }
 
-.page-dropdown__goto {
+.page-dropdown-goto {
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
     padding: 0.25rem 0.5rem;
 }
 
-.page-dropdown__goto-label {
+.page-dropdown-goto-label {
     font-size: 0.75rem;
     color: var(--ui-text-muted);
 }
 
-.page-dropdown__goto-controls {
+.page-dropdown-goto-controls {
     display: flex;
     align-items: center;
     gap: 0.5rem;
 }
 
-.page-dropdown__input {
+.page-dropdown-input {
     flex: 1;
 }
 
-.page-dropdown__input :deep(input) {
+.page-dropdown-input :deep(input) {
     text-align: center;
 }
 </style>
