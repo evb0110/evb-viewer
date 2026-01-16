@@ -217,13 +217,14 @@ async function startSession(forceClean = false) {
 
     // Capture page crashes
     page.on('pageerror', (err) => {
+        const message = err instanceof Error ? err.message : String(err);
         const entry = {
             type: 'error',
-            text: `[PAGE CRASH] ${err.message}`,
+            text: `[PAGE CRASH] ${message}`,
             timestamp: Date.now(),
         };
         consoleMessages.push(entry);
-        console.log(`[ERROR] ${err.message}`);
+        console.log(`[ERROR] ${message}`);
         if (consoleMessages.length > 100) consoleMessages.shift();
     });
 
@@ -560,7 +561,7 @@ Examples:
                     const pingResult = await sendCommand('ping') as { uptime: number };
                     // Then verify Electron connection is alive with health check
                     try {
-                        const healthResult = await sendCommand('health') as { health: { bodyExists: boolean } };
+                        await sendCommand('health');
                         console.log(`Session running (uptime: ${Math.round(pingResult.uptime)}s) - Electron connected ✓`);
                     } catch {
                         console.log(`Session running (uptime: ${Math.round(pingResult.uptime)}s) - ⚠️  Electron DISCONNECTED`);
