@@ -10,6 +10,7 @@ import {
     dirname,
     join,
 } from 'path';
+import { config } from '@electron/config';
 
 export interface ILogMessage {
     source: string;
@@ -23,6 +24,36 @@ export interface ILogger {
     warn(msg: string): void;
     error(msg: string): void;
 }
+
+type TLogLevel = 'DEBUG' | 'INFO' | 'WARN' | 'ERROR';
+
+const LOG_LEVELS: Record<TLogLevel, number> = {
+    DEBUG: 10,
+    INFO: 20,
+    WARN: 30,
+    ERROR: 40,
+};
+
+function normalizeLogLevel(value: unknown): TLogLevel | null {
+    if (typeof value !== 'string') {
+        return null;
+    }
+
+    const normalized = value.trim().toUpperCase();
+    if (normalized === 'DEBUG' || normalized === 'INFO' || normalized === 'WARN' || normalized === 'ERROR') {
+        return normalized;
+    }
+
+    return null;
+}
+
+function shouldLog(level: TLogLevel, minLevel: TLogLevel) {
+    return LOG_LEVELS[level] >= LOG_LEVELS[minLevel];
+}
+
+const FILE_LOG_LEVEL = normalizeLogLevel(process.env.ELECTRON_FILE_LOG_LEVEL) ?? 'DEBUG';
+const RENDER_LOG_LEVEL = normalizeLogLevel(process.env.ELECTRON_RENDER_LOG_LEVEL)
+    ?? (config.isDev ? 'INFO' : 'WARN');
 
 const LOG_DIR = join(app.getPath('temp'), 'electron-logs');
 
@@ -65,23 +96,27 @@ export function createLogger(source: string): ILogger {
         // Ignore
     }
 
-    function log(level: string, msg: string) {
+    function log(level: TLogLevel, msg: string) {
         const ts = new Date().toISOString();
         const formattedMsg = `[${ts}] [${source}] [${level}] ${msg}`;
 
         // Write to file
-        try {
-            appendFileSync(logFile, `${formattedMsg}\n`);
-        } catch {
-            // Silently fail if file write fails - don't break the app
+        if (shouldLog(level, FILE_LOG_LEVEL)) {
+            try {
+                appendFileSync(logFile, `${formattedMsg}\n`);
+            } catch {
+                // Silently fail if file write fails - don't break the app
+            }
         }
 
         // Forward to all renderer consoles
-        broadcastToRenderers({
-            source,
-            message: `[${level}] ${msg}`,
-            timestamp: ts,
-        });
+        if (shouldLog(level, RENDER_LOG_LEVEL)) {
+            broadcastToRenderers({
+                source,
+                message: `[${level}] ${msg}`,
+                timestamp: ts,
+            });
+        }
     }
 
     return {

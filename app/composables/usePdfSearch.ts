@@ -181,7 +181,7 @@ export const usePdfSearch = () => {
             BrowserLogger.debug(
                 'PDF-SEARCH',
                 'pageMatches map:',
-                Object.fromEntries(
+                () => Object.fromEntries(
                     Array.from(matchesMap.entries()).map((entry) => {
                         const [
                             pageIdx,
