@@ -3,6 +3,7 @@
     "compilerOptions": {
         "baseUrl": ".",
         "paths": {
+            "@app/*": ["app/*"],
             "@electron/*": ["electron/*"]
         }
     }

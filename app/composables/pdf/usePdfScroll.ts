@@ -1,5 +1,5 @@
 import { ref } from 'vue';
-import type { IScrollSnapshot } from 'app/types/pdf';
+import type { IScrollSnapshot } from '@app/types/pdf';
 import { clamp } from 'es-toolkit/math';
 
 export const usePdfScroll = () => {

@@ -4,7 +4,7 @@ import {
     toValue,
     type MaybeRefOrGetter,
 } from 'vue';
-import type { TFitMode } from 'app/types/pdf';
+import type { TFitMode } from '@app/types/pdf';
 
 const BASE_MARGIN = 20;
 

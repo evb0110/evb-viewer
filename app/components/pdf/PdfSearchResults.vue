@@ -59,8 +59,8 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
-import type { IPdfSearchMatch } from 'app/types/pdf';
-import PdfSearchResultItem from 'app/components/pdf/PdfSearchResultItem.vue';
+import type { IPdfSearchMatch } from '@app/types/pdf';
+import PdfSearchResultItem from '@app/components/pdf/PdfSearchResultItem.vue';
 
 interface IProps {
     results: IPdfSearchMatch[];

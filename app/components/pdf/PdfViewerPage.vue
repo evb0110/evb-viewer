@@ -15,8 +15,8 @@
 </template>
 
 <script setup lang="ts">
-import PdfPageSkeleton from 'app/components/pdf/PdfPageSkeleton.vue';
-import { usePdfSkeletonContext } from 'app/composables/pdf/usePdfSkeletonInsets';
+import PdfPageSkeleton from '@app/components/pdf/PdfPageSkeleton.vue';
+import { usePdfSkeletonContext } from '@app/composables/pdf/usePdfSkeletonInsets';
 
 interface IProps {
     page: number;

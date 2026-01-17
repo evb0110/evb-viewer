@@ -129,7 +129,7 @@
 </template>
 
 <script setup lang="ts">
-import type { TFitMode } from 'app/types/shared';
+import type { TFitMode } from '@app/types/shared';
 
 interface IProps {
     zoom: number;

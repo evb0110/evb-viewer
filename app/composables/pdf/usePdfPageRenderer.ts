@@ -12,18 +12,18 @@ import {
     type MaybeRefOrGetter,
     type Ref,
 } from 'vue';
-import { BrowserLogger } from 'app/utils/browser-logger';
+import { BrowserLogger } from '@app/utils/browser-logger';
 import type {
     IPdfPageMatches,
     IPdfSearchMatch,
     IScrollSnapshot,
-} from 'app/types/pdf';
+} from '@app/types/pdf';
 import { chunk } from 'es-toolkit/array';
 import { range } from 'es-toolkit/math';
-import { usePdfSearchHighlight } from 'app/composables/usePdfSearchHighlight';
-import { useTextLayerSelection } from 'app/composables/useTextLayerSelection';
-import { usePdfWordBoxes } from 'app/composables/usePdfWordBoxes';
-import type { usePdfDocument } from 'app/composables/pdf/usePdfDocument';
+import { usePdfSearchHighlight } from '@app/composables/usePdfSearchHighlight';
+import { useTextLayerSelection } from '@app/composables/useTextLayerSelection';
+import { usePdfWordBoxes } from '@app/composables/usePdfWordBoxes';
+import type { usePdfDocument } from '@app/composables/pdf/usePdfDocument';
 
 interface IPageRange {
     start: number;

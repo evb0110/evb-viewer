@@ -61,7 +61,7 @@ export default withNuxt(
                 'error',
                 {patterns: [{
                     group: ['./*'],
-                    message: 'Use absolute imports with app/ or @electron/ prefix instead of relative imports',
+                    message: 'Use absolute imports with @app/ or @electron/ prefix instead of relative imports',
                 }]},
             ],
             'custom/brace-return-after-if': 'error',

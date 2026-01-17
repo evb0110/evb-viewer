@@ -2,7 +2,7 @@ import {
     ref,
     computed,
 } from 'vue';
-import { getElectronAPI } from 'app/utils/electron';
+import { getElectronAPI } from '@app/utils/electron';
 
 interface IPreprocessingCapabilities {
     valid: boolean;

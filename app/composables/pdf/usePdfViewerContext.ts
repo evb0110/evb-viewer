@@ -4,7 +4,7 @@ import {
     type InjectionKey,
     type ComputedRef,
 } from 'vue';
-import type { IContentInsets } from 'app/types/pdf';
+import type { IContentInsets } from '@app/types/pdf';
 
 interface IPdfViewerContext {
     scaledSkeletonPadding: ComputedRef<IContentInsets | null>;

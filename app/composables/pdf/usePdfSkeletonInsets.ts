@@ -11,7 +11,7 @@ import {
 import type {
     IContentInsets,
     PDFPageProxy,
-} from 'app/types/pdf';
+} from '@app/types/pdf';
 import { clamp } from 'es-toolkit/math';
 
 interface IPdfSkeletonContext {

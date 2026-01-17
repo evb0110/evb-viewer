@@ -1,4 +1,4 @@
-import type { IOcrWord } from 'app/types/pdf';
+import type { IOcrWord } from '@app/types/pdf';
 
 export interface IWordBoxOverlay {
     x: number;

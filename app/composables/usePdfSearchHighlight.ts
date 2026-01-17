@@ -1,7 +1,7 @@
 import type {
     IPdfPageMatches,
     IPdfSearchMatch,
-} from 'app/types/pdf';
+} from '@app/types/pdf';
 
 const HIGHLIGHT_CLASS = 'pdf-search-highlight';
 const HIGHLIGHT_CURRENT_CLASS = 'pdf-search-highlight--current';

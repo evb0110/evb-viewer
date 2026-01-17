@@ -6,9 +6,9 @@ import type {
     IPdfPageMatches,
     IPdfSearchMatch,
     TSearchDirection,
-} from 'app/types/pdf';
-import { BrowserLogger } from 'app/utils/browser-logger';
-import { getElectronAPI } from 'app/utils/electron';
+} from '@app/types/pdf';
+import { BrowserLogger } from '@app/utils/browser-logger';
+import { getElectronAPI } from '@app/utils/electron';
 
 export type {
     IPdfPageMatches,

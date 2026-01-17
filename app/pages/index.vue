@@ -230,7 +230,7 @@ import {
     watch,
 } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
-import type { TFitMode } from 'app/types/shared';
+import type { TFitMode } from '@app/types/shared';
 
 console.log('[PAGE] pages/index.vue script setup executing');
 

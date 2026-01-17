@@ -2,7 +2,7 @@ import {
     computed,
     ref,
 } from 'vue';
-import { getElectronAPI } from 'app/utils/electron';
+import { getElectronAPI } from '@app/utils/electron';
 
 export const usePdfFile = () => {
     const pdfSrc = ref<Blob | null>(null);

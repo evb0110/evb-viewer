@@ -22,6 +22,7 @@ import {
     ref,
     watch,
     nextTick,
+    onBeforeUnmount,
 } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 
@@ -38,7 +39,36 @@ defineEmits<{(e: 'goToPage', page: number): void;}>();
 const containerRef = ref<HTMLElement | null>(null);
 const renderedPages = new Set<number>();
 const renderingPages = new Set<number>();
+const renderTasks = new Map<number, { cancel: () => void }>();
 const THUMBNAIL_WIDTH = 150;
+let renderRunId = 0;
+
+function isPdfDocumentUsable(pdfDocument: PDFDocumentProxy) {
+    const internal = pdfDocument as unknown as {
+        destroyed?: boolean;
+        _transport?: unknown | null;
+    };
+
+    if (internal.destroyed === true) {
+        return false;
+    }
+
+    // pdf.js sets _transport to null during destroy() which causes getPage/render to crash.
+    if ('_transport' in internal && internal._transport === null) {
+        return false;
+    }
+
+    if (
+        internal._transport
+        && typeof internal._transport === 'object'
+        && 'messageHandler' in internal._transport
+        && (internal._transport as { messageHandler?: unknown }).messageHandler == null
+    ) {
+        return false;
+    }
+
+    return true;
+}
 
 function getCanvas(pageNum: number): HTMLCanvasElement | null {
     if (!containerRef.value) {
@@ -48,8 +78,28 @@ function getCanvas(pageNum: number): HTMLCanvasElement | null {
     return thumbnail?.querySelector('canvas') ?? null;
 }
 
-async function renderThumbnail(pageNum: number) {
-    if (!props.pdfDocument) {
+function cancelAllRenders() {
+    for (const task of renderTasks.values()) {
+        try {
+            task.cancel();
+        } catch {
+            // Ignore cancellation errors
+        }
+    }
+    renderTasks.clear();
+    renderingPages.clear();
+}
+
+async function renderThumbnail(
+    pdfDocument: PDFDocumentProxy,
+    pageNum: number,
+    runId: number,
+) {
+    if (runId !== renderRunId) {
+        return;
+    }
+
+    if (!isPdfDocumentUsable(pdfDocument)) {
         return;
     }
 
@@ -65,7 +115,10 @@ async function renderThumbnail(pageNum: number) {
     renderingPages.add(pageNum);
 
     try {
-        const page = await props.pdfDocument.getPage(pageNum);
+        const page = await pdfDocument.getPage(pageNum);
+        if (runId !== renderRunId || !isPdfDocumentUsable(pdfDocument)) {
+            return;
+        }
         const viewport = page.getViewport({ scale: 1 });
         const scale = THUMBNAIL_WIDTH / viewport.width;
         const scaledViewport = page.getViewport({ scale });
@@ -78,15 +131,22 @@ async function renderThumbnail(pageNum: number) {
             return;
         }
 
-        await page.render({
+        const task = page.render({
             canvasContext: context,
             viewport: scaledViewport,
             canvas,
-        }).promise;
+        });
+        renderTasks.set(pageNum, task as unknown as { cancel: () => void });
+        await task.promise;
+        renderTasks.delete(pageNum);
 
         renderedPages.add(pageNum);
     } catch (error) {
+        renderTasks.delete(pageNum);
         if (error instanceof Error && error.name === 'RenderingCancelledException') {
+            return;
+        }
+        if (runId !== renderRunId || !isPdfDocumentUsable(pdfDocument)) {
             return;
         }
         console.error(`Failed to render thumbnail for page ${pageNum}:`, error);
@@ -95,22 +155,34 @@ async function renderThumbnail(pageNum: number) {
     }
 }
 
-async function renderAllThumbnails() {
+async function renderAllThumbnails(
+    pdfDocument: PDFDocumentProxy,
+    totalPages: number,
+    runId: number,
+) {
     // Wait for DOM to be fully ready FIRST (v-for needs to render)
     await nextTick();
 
-    if (!props.pdfDocument || !containerRef.value || props.totalPages === 0) {
+    if (runId !== renderRunId) {
         return;
     }
 
-    for (let i = 1; i <= props.totalPages; i++) {
-        await renderThumbnail(i);
+    if (!containerRef.value || totalPages === 0) {
+        return;
+    }
+
+    for (let i = 1; i <= totalPages; i++) {
+        if (runId !== renderRunId || !isPdfDocumentUsable(pdfDocument)) {
+            return;
+        }
+        await renderThumbnail(pdfDocument, i, runId);
     }
 }
 
 function clearRenderedState() {
     renderedPages.clear();
     renderingPages.clear();
+    renderTasks.clear();
 }
 
 // Single watcher for both props to avoid race conditions
@@ -125,16 +197,30 @@ watch(
         doc,
         total,
     ], [oldDoc]) => {
-        if (doc && total > 0) {
-            // Only clear if document changed (not just page count)
-            if (doc !== oldDoc) {
-                clearRenderedState();
-            }
-            void renderAllThumbnails();
+        cancelAllRenders();
+        renderRunId += 1;
+        const runId = renderRunId;
+
+        if (!doc || total <= 0) {
+            clearRenderedState();
+            return;
         }
+
+        // Only clear if document changed (not just page count)
+        if (doc !== oldDoc) {
+            clearRenderedState();
+        }
+
+        void renderAllThumbnails(doc, total, runId);
     },
     { immediate: true }, // Run on mount with current values
 );
+
+onBeforeUnmount(() => {
+    cancelAllRenders();
+    renderRunId += 1;
+    clearRenderedState();
+});
 </script>
 
 <style scoped>

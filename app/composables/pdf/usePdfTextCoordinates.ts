@@ -1,5 +1,5 @@
 import type { PDFPageProxy } from 'pdfjs-dist';
-import { BrowserLogger } from 'app/utils/browser-logger';
+import { BrowserLogger } from '@app/utils/browser-logger';
 
 export interface IPdfTextItem {
     text: string;

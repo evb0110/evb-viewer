@@ -28,11 +28,11 @@ import {
     ref,
     watch,
 } from 'vue';
-import type { IPdfSearchMatch } from 'app/types/pdf';
+import type { IPdfSearchMatch } from '@app/types/pdf';
 import {
     registerSearchHighlight,
     unregisterSearchHighlight,
-} from 'app/composables/useSearchHighlight';
+} from '@app/composables/useSearchHighlight';
 
 interface IProps {
     result: IPdfSearchMatch;

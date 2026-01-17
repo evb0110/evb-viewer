@@ -46,13 +46,13 @@ import {
     useDebounceFn,
     useResizeObserver,
 } from '@vueuse/core';
-import PdfViewerPage from 'app/components/pdf/PdfViewerPage.vue';
-import { usePdfDocument } from 'app/composables/pdf/usePdfDocument';
-import { usePdfDrag } from 'app/composables/pdf/usePdfDrag';
-import { usePdfPageRenderer } from 'app/composables/pdf/usePdfPageRenderer';
-import { usePdfScale } from 'app/composables/pdf/usePdfScale';
-import { usePdfScroll } from 'app/composables/pdf/usePdfScroll';
-import { usePdfSkeletonInsets } from 'app/composables/pdf/usePdfSkeletonInsets';
+import PdfViewerPage from '@app/components/pdf/PdfViewerPage.vue';
+import { usePdfDocument } from '@app/composables/pdf/usePdfDocument';
+import { usePdfDrag } from '@app/composables/pdf/usePdfDrag';
+import { usePdfPageRenderer } from '@app/composables/pdf/usePdfPageRenderer';
+import { usePdfScale } from '@app/composables/pdf/usePdfScale';
+import { usePdfScroll } from '@app/composables/pdf/usePdfScroll';
+import { usePdfSkeletonInsets } from '@app/composables/pdf/usePdfSkeletonInsets';
 import { delay } from 'es-toolkit/promise';
 import { range } from 'es-toolkit/math';
 import type {
@@ -60,7 +60,7 @@ import type {
     IPdfSearchMatch,
     PDFDocumentProxy,
     TFitMode,
-} from 'app/types/pdf';
+} from '@app/types/pdf';
 
 import 'pdfjs-dist/web/pdf_viewer.css';
 
@@ -189,6 +189,12 @@ async function loadFromSource() {
     if (!src) {
         return;
     }
+
+    // Notify listeners before tearing down the previous PDF instance.
+    // This prevents consumers (e.g. sidebar thumbnails) from calling into a document that is being destroyed.
+    emit('update:document', null);
+    emit('update:totalPages', 0);
+    emit('update:currentPage', 1);
 
     cleanupRenderedPages();
     resetScale();

@@ -2,12 +2,12 @@ import type {
     PDFDocumentProxy,
     PDFPageProxy,
 } from 'pdfjs-dist';
-import type { IOcrWord } from 'app/types/shared';
+import type { IOcrWord } from '@app/types/shared';
 
 export type {
     IOcrWord,
     TFitMode,
-} from 'app/types/shared';
+} from '@app/types/shared';
 
 export interface IContentInsets {
     top: number;

@@ -1,5 +1,5 @@
 import { ref } from 'vue';
-import type { IRecentFile } from 'app/types/shared';
+import type { IRecentFile } from '@app/types/shared';
 
 // Shared state across all composable instances
 const recentFiles = ref<IRecentFile[]>([]);

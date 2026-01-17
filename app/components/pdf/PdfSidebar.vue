@@ -83,7 +83,7 @@ import {
     watch,
 } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
-import type { IPdfSearchMatch } from 'app/types/pdf';
+import type { IPdfSearchMatch } from '@app/types/pdf';
 
 interface IProps {
     isOpen: boolean;

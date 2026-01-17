@@ -5,7 +5,7 @@ import type {
 import type {
     IOcrLanguage,
     IRecentFile,
-} from 'app/types/shared';
+} from '@app/types/shared';
 
 interface IOcrRecognizeRequest {
     pageNumber: number;

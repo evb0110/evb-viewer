@@ -11,9 +11,9 @@ import {
     basename,
 } from 'path';
 import { app } from 'electron';
-import type { IRecentFile } from 'app/types/shared';
+import type { IRecentFile } from '@app/types/shared';
 
-export type { IRecentFile } from 'app/types/shared';
+export type { IRecentFile } from '@app/types/shared';
 
 const MAX_RECENT_FILES = 10;
 

@@ -3,8 +3,8 @@ import {
     ref,
 } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
-import type { IOcrLanguage } from 'app/types/shared';
-import { getElectronAPI } from 'app/utils/electron';
+import type { IOcrLanguage } from '@app/types/shared';
+import { getElectronAPI } from '@app/utils/electron';
 
 type TOcrPageRange = 'all' | 'current' | 'custom';
 
