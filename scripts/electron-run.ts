@@ -90,22 +90,67 @@ async function startNuxtServer(forceClean = false): Promise<ChildProcess | null>
         stdio: ['ignore', 'pipe', 'pipe'],
     });
 
-    nuxt.stdout?.on('data', (data: Buffer) => {
-        const text = data.toString();
-        if (text.includes('Local:') || text.includes('Listening')) {
-            console.log('[Nuxt] Server ready');
-        }
-    });
+    // Track build completion signals from Nuxt
+    let viteClientBuilt = false;
+    let viteServerBuilt = false;
+    let nitroBuilt = false;
 
-    // Wait for server
+    const checkOutput = (text: string) => {
+        // Nuxt outputs these messages (in order) when builds complete:
+        // "✔ Vite client built in 36ms"
+        // "✔ Vite server built in 3ms"
+        // "[nitro] ✔ Nuxt Nitro server built in 369ms"
+        if (text.includes('Vite client built')) {
+            console.log('[Nuxt] Vite client built');
+            viteClientBuilt = true;
+        }
+        if (text.includes('Vite server built')) {
+            console.log('[Nuxt] Vite server built');
+            viteServerBuilt = true;
+        }
+        if (text.includes('Nitro server built') || text.includes('Nitro') && text.includes('built')) {
+            console.log('[Nuxt] Nitro server built');
+            nitroBuilt = true;
+        }
+    };
+
+    nuxt.stdout?.on('data', (data: Buffer) => checkOutput(data.toString()));
+    nuxt.stderr?.on('data', (data: Buffer) => checkOutput(data.toString()));
+
+    // Wait for all builds to complete
     const timeout = 120_000;
     const start = Date.now();
+    let lastLog = 0;
+
     while (Date.now() - start < timeout) {
-        if (await isNuxtRunning()) {
+        const serverUp = await isNuxtRunning();
+        const buildsComplete = viteClientBuilt && viteServerBuilt && nitroBuilt;
+
+        if (serverUp && buildsComplete) {
             console.log('[Nuxt] Server ready at http://localhost:' + NUXT_PORT);
+
+            // Warmup request to trigger any on-demand dependency optimization
+            console.log('[Nuxt] Warming up dependencies...');
+            try {
+                await fetch(`http://localhost:${NUXT_PORT}/`, { method: 'GET' });
+                await delay(2000);  // Give Vite time to finish any on-demand optimization
+            } catch {}
+
             return nuxt;
         }
-        await delay(1000);
+
+        // Log progress every 5 seconds
+        const now = Date.now();
+        if (serverUp && !buildsComplete && now - lastLog > 5000) {
+            const missing = [];
+            if (!viteClientBuilt) missing.push('Vite client');
+            if (!viteServerBuilt) missing.push('Vite server');
+            if (!nitroBuilt) missing.push('Nitro');
+            console.log(`[Nuxt] Waiting for builds: ${missing.join(', ')}`);
+            lastLog = now;
+        }
+
+        await delay(500);
     }
 
     nuxt.kill();

@@ -14,8 +14,8 @@ import { join } from 'path';
 import {
     runOcr,
     runOcrWithBoundingBoxes,
-    generateSearchablePdfDirect,
 } from '@electron/ocr/tesseract';
+import { createSearchablePdfWithSpaces } from '@electron/ocr/pdf-text-layer';
 import type {
     IOcrLanguage,
     IOcrWord,
@@ -327,15 +327,20 @@ async function handleOcrCreateSearchablePdf(
         const ocrPdfMap: Map<number, string> = new Map(); // pageNumber -> path to OCR PDF
 
         try {
-            log.debug(`Generating Tesseract PDF for ${ocrPageData.length} OCR'd page(s)`);
+            log.debug(`Generating searchable PDF for ${ocrPageData.length} OCR'd page(s)`);
 
             for (const pageData of ocrPageData) {
-                log.debug(`Generating Tesseract PDF for page ${pageData.pageNumber}`);
+                log.debug(`Generating searchable PDF for page ${pageData.pageNumber}`);
 
                 try {
-                    const result = await generateSearchablePdfDirect(
+                    // Use custom PDF generator with explicit spaces for better copy/paste
+                    // Pass extraction DPI (150) so coordinates are properly scaled to PDF points (72 DPI)
+                    const result = await createSearchablePdfWithSpaces(
                         pageData.imageBuffer!,
-                        pageData.languages!,
+                        pageData.words,
+                        pageData.imageWidth,
+                        pageData.imageHeight,
+                        150, // Extraction DPI - must match pdftoppm -r parameter above
                     );
 
                     if (result.success && result.pdfBuffer) {
@@ -345,7 +350,7 @@ async function handleOcrCreateSearchablePdf(
                         log.debug(`Saved OCR PDF for page ${pageData.pageNumber}: ${result.pdfBuffer.length} bytes`);
                     } else {
                         errors.push(`Failed to generate PDF for page ${pageData.pageNumber}: ${result.error}`);
-                        log.debug(`Tesseract PDF generation failed for page ${pageData.pageNumber}: ${result.error}`);
+                        log.debug(`PDF generation failed for page ${pageData.pageNumber}: ${result.error}`);
                     }
                 } catch (err) {
                     const errMsg = err instanceof Error ? err.message : String(err);

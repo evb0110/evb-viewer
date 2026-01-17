@@ -47,8 +47,7 @@ export async function runOcr(
         languages.join('+'),
         '--tessdata-dir',
         tessdata,
-        '--psm',
-        '6',  // Single uniform text block - better for book pages
+        // PSM 3 (default/auto) detects multi-column layouts and two-page spreads
         '-c',
         'preserve_interword_spaces=1',  // Maintain word boundaries
         // Lower minimum space thresholds (more aggressive space detection)
@@ -161,8 +160,7 @@ export async function generateSearchablePdfDirect(
             languages.join('+'),
             '--tessdata-dir',
             tessdata,
-            '--psm',
-            '6',  // Single uniform text block - better for book pages
+            // PSM 3 (default/auto) detects multi-column layouts and two-page spreads
             '-c',
             'preserve_interword_spaces=1',  // Maintain word boundaries
             // Lower minimum space thresholds (more aggressive space detection)
@@ -296,8 +294,7 @@ export async function runOcrWithBoundingBoxes(
             languages.join('+'),
             '--tessdata-dir',
             tessdata,
-            '--psm',
-            '6',  // Single uniform text block - better for book pages
+            // PSM 3 (default/auto) detects multi-column layouts and two-page spreads
             '-c',
             'preserve_interword_spaces=1',  // Maintain word boundaries
             // Lower minimum space thresholds (more aggressive space detection)
