@@ -1,6 +1,6 @@
-import type { IRecentFile } from '../app/types/shared';
+import type { IRecentFile } from 'app/types/shared';
 
-export type { IRecentFile } from '../app/types/shared';
+export type { IRecentFile } from 'app/types/shared';
 
 export interface IIpcChannels {
     'dialog:openPdf': {

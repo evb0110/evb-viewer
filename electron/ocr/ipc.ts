@@ -19,7 +19,7 @@ import {
 import type {
     IOcrLanguage,
     IOcrWord,
-} from '../../app/types/shared';
+} from 'app/types/shared';
 import {
     preprocessPageForOcr,
     validatePreprocessingSetup,

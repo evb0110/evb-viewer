@@ -8,7 +8,7 @@ import {
 import { join } from 'path';
 import { getOcrPaths } from '@electron/ocr/paths';
 import { createLogger } from '@electron/utils/logger';
-import type { IOcrWord } from '../../app/types/shared';
+import type { IOcrWord } from 'app/types/shared';
 
 const log = createLogger('tesseract');
 
