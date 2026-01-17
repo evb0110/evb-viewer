@@ -37,6 +37,7 @@
 <script setup lang="ts">
 import {
     computed,
+    onBeforeUnmount,
     ref,
     watch,
 } from 'vue';
@@ -71,6 +72,33 @@ defineEmits<{(e: 'goToPage', page: number): void;}>();
 const outline = ref<IOutlineItem[] | null>(null);
 const isLoading = ref(false);
 const activeItemId = ref<string | null>(null);
+let outlineRunId = 0;
+
+function isPdfDocumentUsable(pdfDocument: PDFDocumentProxy) {
+    const internal = pdfDocument as unknown as {
+        destroyed?: boolean;
+        _transport?: unknown | null;
+    };
+
+    if (internal.destroyed === true) {
+        return false;
+    }
+
+    if ('_transport' in internal && internal._transport === null) {
+        return false;
+    }
+
+    if (
+        internal._transport
+        && typeof internal._transport === 'object'
+        && 'messageHandler' in internal._transport
+        && (internal._transport as { messageHandler?: unknown }).messageHandler == null
+    ) {
+        return false;
+    }
+
+    return true;
+}
 
 function isRefProxy(value: unknown): value is IRefProxy {
     return (
@@ -214,31 +242,66 @@ function updateActiveItemFromCurrentPage() {
 }
 
 async function loadOutline() {
-    if (!props.pdfDocument) {
+    const pdfDocument = props.pdfDocument;
+    outlineRunId += 1;
+    const runId = outlineRunId;
+
+    if (!pdfDocument) {
+        outline.value = null;
+        return;
+    }
+
+    if (!isPdfDocumentUsable(pdfDocument)) {
         outline.value = null;
         return;
     }
 
     isLoading.value = true;
     try {
-        const result = await props.pdfDocument.getOutline();
+        const result = await pdfDocument.getOutline();
+        if (
+            runId !== outlineRunId
+            || props.pdfDocument !== pdfDocument
+            || !isPdfDocumentUsable(pdfDocument)
+        ) {
+            return;
+        }
+
         const rawOutline = (result ?? []) as IOutlineItemRaw[];
         const destinationCache = new Map<string, unknown[] | null>();
         const refIndexCache = new Map<string, number | null>();
 
-        outline.value = await buildResolvedOutline(
+        const resolved = await buildResolvedOutline(
             rawOutline,
-            props.pdfDocument,
+            pdfDocument,
             '',
             destinationCache,
             refIndexCache,
         );
+        if (
+            runId !== outlineRunId
+            || props.pdfDocument !== pdfDocument
+            || !isPdfDocumentUsable(pdfDocument)
+        ) {
+            return;
+        }
+
+        outline.value = resolved;
         updateActiveItemFromCurrentPage();
     } catch (error) {
+        if (
+            runId !== outlineRunId
+            || props.pdfDocument !== pdfDocument
+            || !isPdfDocumentUsable(pdfDocument)
+        ) {
+            return;
+        }
         console.error('Failed to load outline:', error);
         outline.value = null;
     } finally {
-        isLoading.value = false;
+        if (runId === outlineRunId) {
+            isLoading.value = false;
+        }
     }
 }
 
@@ -256,6 +319,10 @@ watch(
     () => updateActiveItemFromCurrentPage(),
     { deep: true },
 );
+
+onBeforeUnmount(() => {
+    outlineRunId += 1;
+});
 </script>
 
 <style scoped>
