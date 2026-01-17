@@ -102,7 +102,7 @@ interface IElectronAPI {
     }>;
     ocrGetLanguages: () => Promise<IOcrLanguage[]>;
     ocrCreateSearchablePdf: (
-        originalPdfData: number[],
+        originalPdfData: Uint8Array,  // Electron IPC transfers Uint8Array efficiently
         pages: Array<{
             pageNumber: number;
             languages: string[];

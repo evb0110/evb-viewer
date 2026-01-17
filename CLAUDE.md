@@ -36,6 +36,23 @@ For the OCR system (PDF processing, text extraction, searchable PDF generation):
 - Prioritize quality of output and reliability over minimalism
 - This applies to the entire architecture: PDF rendering, image preprocessing, OCR execution, text embedding, and PDF assembly
 
+## Tesseract Language Models
+
+**Rule**: Always use `tessdata-best` models for maximum OCR accuracy.
+
+When adding new language support to the OCR system:
+1. Download from the official repository: `https://github.com/tesseract-ocr/tessdata_best`
+2. Use the direct raw URL: `https://github.com/tesseract-ocr/tessdata_best/raw/main/{lang}.traineddata`
+3. Place the model in `resources/tesseract/tessdata/`
+4. Add the language to `AVAILABLE_LANGUAGES` in `electron/ocr/ipc.ts`
+
+**Model quality tiers** (always choose "best"):
+- `tessdata_best` (~10-15MB per language) - highest accuracy, required for this project
+- `tessdata` (~1-4MB) - standard accuracy, not recommended
+- `tessdata_fast` (~1-2MB) - fastest but lowest accuracy, never use
+
+The "best" models use float LSTM weights and provide significantly better accuracy for complex scripts (Arabic, Hebrew, CJK) with contextual letter forms.
+
 ## Icon Bundling
 
 **Rule**: When adding or changing icons, always verify they are included in the client bundle.

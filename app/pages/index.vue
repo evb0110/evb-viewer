@@ -427,8 +427,23 @@ function handleGoToPage(page: number) {
 }
 
 function handleOcrComplete(ocrPdfData: Uint8Array) {
+    // Remember current page before reload
+    const pageToRestore = currentPage.value;
+
     // Reload the PDF with the OCR'd data
     loadPdfFromData(ocrPdfData);
+
+    // Restore scroll position after PDF reloads
+    // Watch for document to be set (happens after loadFromSource completes)
+    const unwatch = watch(pdfDocument, (doc) => {
+        if (doc) {
+            unwatch();
+            // Use nextTick to ensure DOM is updated
+            void nextTick(() => {
+                pdfViewerRef.value?.scrollToPage(pageToRestore);
+            });
+        }
+    });
 }
 
 function enableDragMode() {

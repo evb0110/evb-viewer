@@ -161,7 +161,7 @@ async function handleOcrRecognizeBatch(
 
 async function handleOcrCreateSearchablePdf(
     event: IpcMainInvokeEvent,
-    originalPdfData: number[],
+    originalPdfData: Uint8Array,  // Electron IPC transfers Uint8Array efficiently
     pages: IOcrPdfPageRequest[],
     requestId: string,
     workingCopyPath?: string,
@@ -182,8 +182,8 @@ async function handleOcrCreateSearchablePdf(
         const tempDir = app.getPath('temp');
         const sessionId = `ocr-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
-        // Write original PDF to temp file first
-        const originalPdfBytes = new Uint8Array(originalPdfData);
+        // Write original PDF to temp file first (Uint8Array received directly from IPC)
+        const originalPdfBytes = originalPdfData;
         const originalPdfPath = trackTempFile(join(tempDir, `${sessionId}-original.pdf`));
         await writeFile(originalPdfPath, originalPdfBytes);
         const writtenFileSize = (await stat(originalPdfPath)).size;
@@ -200,6 +200,15 @@ async function handleOcrCreateSearchablePdf(
         }
 
         const ocrPageData: IOcrPageWithWords[] = [];
+
+        // Send immediate progress update so UI shows feedback right away
+        // (before any page extraction which can take several seconds)
+        window?.webContents.send('ocr:progress', {
+            requestId,
+            currentPage: pages[0]?.pageNumber ?? 1,
+            processedCount: 0,
+            totalPages: pages.length,
+        });
 
         for (let i = 0; i < pages.length; i++) {
             const page = pages[i];

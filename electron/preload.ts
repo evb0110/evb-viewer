@@ -86,7 +86,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ocrGetLanguages: () => ipcRenderer.invoke('ocr:getLanguages'),
 
     ocrCreateSearchablePdf: (
-        originalPdfData: number[],
+        originalPdfData: Uint8Array,  // Electron IPC supports Uint8Array directly - no conversion needed
         pages: Array<{
             pageNumber: number;
             languages: string[];

@@ -47,6 +47,30 @@ export async function runOcr(
         languages.join('+'),
         '--tessdata-dir',
         tessdata,
+        '--psm',
+        '6',  // Single uniform text block - better for book pages
+        '-c',
+        'preserve_interword_spaces=1',  // Maintain word boundaries
+        // Lower minimum space thresholds (more aggressive space detection)
+        '-c',
+        'textord_words_default_minspace=0.3',  // Default 0.6
+        '-c',
+        'textord_words_min_minspace=0.2',  // Default 0.3
+        // Fuzzy space parameters - more sensitive detection
+        '-c',
+        'tosp_fuzzy_space_factor=0.5',  // Default 0.6
+        '-c',
+        'tosp_min_sane_kn_sp=1.2',  // Default 1.5
+        // Kern gap factors - more likely to insert spaces
+        '-c',
+        'tosp_kern_gap_factor1=1.5',  // Default 2
+        '-c',
+        'tosp_kern_gap_factor2=1.0',  // Default 1.3
+        // Disable dictionary influence (prevents word merging)
+        '-c',
+        'load_system_dawg=0',
+        '-c',
+        'load_freq_dawg=0',
     ];
 
     return new Promise((resolve) => {
@@ -137,6 +161,30 @@ export async function generateSearchablePdfDirect(
             languages.join('+'),
             '--tessdata-dir',
             tessdata,
+            '--psm',
+            '6',  // Single uniform text block - better for book pages
+            '-c',
+            'preserve_interword_spaces=1',  // Maintain word boundaries
+            // Lower minimum space thresholds (more aggressive space detection)
+            '-c',
+            'textord_words_default_minspace=0.3',  // Default 0.6
+            '-c',
+            'textord_words_min_minspace=0.2',  // Default 0.3
+            // Fuzzy space parameters - more sensitive detection
+            '-c',
+            'tosp_fuzzy_space_factor=0.5',  // Default 0.6
+            '-c',
+            'tosp_min_sane_kn_sp=1.2',  // Default 1.5
+            // Kern gap factors - more likely to insert spaces
+            '-c',
+            'tosp_kern_gap_factor1=1.5',  // Default 2
+            '-c',
+            'tosp_kern_gap_factor2=1.0',  // Default 1.3
+            // Disable dictionary influence (prevents word merging)
+            '-c',
+            'load_system_dawg=0',
+            '-c',
+            'load_freq_dawg=0',
             '-c',
             'tessedit_create_pdf=1',  // Generate PDF with text layer
         ];
@@ -248,6 +296,30 @@ export async function runOcrWithBoundingBoxes(
             languages.join('+'),
             '--tessdata-dir',
             tessdata,
+            '--psm',
+            '6',  // Single uniform text block - better for book pages
+            '-c',
+            'preserve_interword_spaces=1',  // Maintain word boundaries
+            // Lower minimum space thresholds (more aggressive space detection)
+            '-c',
+            'textord_words_default_minspace=0.3',  // Default 0.6
+            '-c',
+            'textord_words_min_minspace=0.2',  // Default 0.3
+            // Fuzzy space parameters - more sensitive detection
+            '-c',
+            'tosp_fuzzy_space_factor=0.5',  // Default 0.6
+            '-c',
+            'tosp_min_sane_kn_sp=1.2',  // Default 1.5
+            // Kern gap factors - more likely to insert spaces
+            '-c',
+            'tosp_kern_gap_factor1=1.5',  // Default 2
+            '-c',
+            'tosp_kern_gap_factor2=1.0',  // Default 1.3
+            // Disable dictionary influence (prevents word merging)
+            '-c',
+            'load_system_dawg=0',
+            '-c',
+            'load_freq_dawg=0',
             '-c',
             'tessedit_create_tsv=1',  // Generate TSV for precise word coordinates
         ];

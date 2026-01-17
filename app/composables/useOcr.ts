@@ -1,5 +1,6 @@
 import {
     computed,
+    nextTick,
     ref,
 } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
@@ -17,6 +18,7 @@ interface IOcrSettings {
 
 interface IOcrProgress {
     isRunning: boolean;
+    phase: 'preparing' | 'processing';
     currentPage: number;
     totalPages: number;
     processedCount: number;
@@ -53,6 +55,7 @@ export const useOcr = () => {
     });
     const progress = ref<IOcrProgress>({
         isRunning: false,
+        phase: 'preparing',
         currentPage: 0,
         totalPages: 0,
         processedCount: 0,
@@ -155,10 +158,22 @@ export const useOcr = () => {
 
         progress.value = {
             isRunning: true,
+            phase: 'preparing',
             currentPage: pages[0] ?? 1,
             totalPages: pages.length,
             processedCount: 0,
         };
+
+        // Force Vue to flush the UI update immediately so user sees feedback
+        await nextTick();
+
+        // Double requestAnimationFrame ensures the browser has actually painted
+        // Single rAF only schedules, double rAF waits for paint to complete
+        await new Promise<void>(resolve => {
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => resolve());
+            });
+        });
 
         const requestId = `ocr-${Date.now()}`;
         console.log('[useOcr] Request ID:', requestId);
@@ -170,6 +185,7 @@ export const useOcr = () => {
             progressCleanup = api.onOcrProgress((p) => {
                 console.log('[useOcr] Progress update:', p);
                 if (p.requestId === requestId) {
+                    progress.value.phase = 'processing';
                     progress.value.currentPage = p.currentPage;
                     progress.value.processedCount = p.processedCount;
                 }
@@ -184,9 +200,11 @@ export const useOcr = () => {
             }));
 
             console.log('[useOcr] Sending to backend, pages:', pages, ', originalPdfData length:', originalPdfData.length);
+
             // Create searchable PDF with OCR text embedded
+            // Electron IPC transfers Uint8Array efficiently - no conversion needed
             const response = await api.ocrCreateSearchablePdf(
-                Array.from(originalPdfData),
+                originalPdfData,
                 pageRequests,
                 requestId,
                 workingCopyPath,
@@ -270,6 +288,10 @@ export const useOcr = () => {
     const hasResults = computed(() => results.value.searchablePdfData !== null);
 
     const progressPercent = computed(() => {
+        // Return null during preparing phase to trigger indeterminate progress bar
+        if (progress.value.phase === 'preparing') {
+            return null;
+        }
         if (progress.value.totalPages === 0) {
             return 0;
         }

@@ -200,9 +200,14 @@
                     <div class="ocr-popup__progress">
                         <UProgress :value="progressPercent" />
                         <span class="ocr-popup__progress-text">
-                            Processing page {{ progress.currentPage }} ({{
-                                progress.processedCount
-                            }}/{{ progress.totalPages }})
+                            <template v-if="progress.phase === 'preparing'">
+                                Preparing OCR...
+                            </template>
+                            <template v-else>
+                                Processing page {{ progress.currentPage }} ({{
+                                    progress.processedCount
+                                }}/{{ progress.totalPages }})
+                            </template>
                         </span>
                     </div>
                 </template>
