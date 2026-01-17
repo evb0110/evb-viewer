@@ -1,17 +1,12 @@
 import {
-    readFileSync,
-    writeFileSync,
-} from 'fs';
+    readFile,
+    writeFile,
+} from 'fs/promises';
+import type { IOcrWord } from '../../app/types/shared';
 import { extractTextFromPdf } from '@electron/search/pdf-text-extractor';
 import { createLogger } from '@electron/utils/logger';
 
-export interface IOcrWord {
-    text: string;
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-}
+export type { IOcrWord } from '../../app/types/shared';
 
 export interface IPageIndex {
     pageNumber: number;
@@ -143,7 +138,7 @@ export async function buildSearchIndex(
     log.debug(`Saving index to ${indexPath}`);
 
     try {
-        writeFileSync(indexPath, JSON.stringify(index));
+        await writeFile(indexPath, JSON.stringify(index), 'utf-8');
         log.debug(`Index saved successfully: ${indexPath}`);
         return index;
     } catch (err) {
@@ -160,7 +155,7 @@ export async function loadSearchIndex(pdfPath: string): Promise<IPdfSearchIndex 
     const indexPath = getIndexPath(pdfPath);
 
     try {
-        const content = readFileSync(indexPath, 'utf-8');
+        const content = await readFile(indexPath, 'utf-8');
         const index = JSON.parse(content) as IPdfSearchIndex;
         log.debug(`Loaded index from ${indexPath}`);
         return index;

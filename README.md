@@ -1,6 +1,6 @@
-# Electron + Nuxt SSR Stub
+# Electron + Nuxt PDF Viewer
 
-Barebones example of running Nuxt with SSR inside Electron.
+PDF viewer built with Nuxt (SPA) running inside Electron.
 
 ## Architecture
 
@@ -8,19 +8,16 @@ Barebones example of running Nuxt with SSR inside Electron.
 ┌─────────────────────────────────────────────────────────────┐
 │                    ELECTRON MAIN PROCESS                    │
 │                                                             │
-│   In dev:  Just loads http://localhost:3000                 │
+│   In dev:  Loads http://localhost:3235                      │
 │   In prod: Spawns Nuxt server, then loads from it           │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                    NUXT SSR SERVER                          │
+│                    NUXT SPA SERVER                          │
 │                                                             │
-│   1. Receives request                                       │
-│   2. Fetches data (server/api/heavy-data.ts)                │
-│   3. Renders Vue components to HTML                         │
-│   4. Returns fully rendered HTML                            │
+│   Serves the Nuxt app (ssr: false)                          │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
                               │
@@ -28,9 +25,7 @@ Barebones example of running Nuxt with SSR inside Electron.
 ┌─────────────────────────────────────────────────────────────┐
 │                    BROWSER WINDOW                           │
 │                                                             │
-│   Receives complete HTML with data already rendered         │
-│   User sees content immediately (no loading spinner)        │
-│   Then Vue hydrates for interactivity                       │
+│   Loads the Nuxt SPA and runs the UI                        │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -53,18 +48,6 @@ npm start
 
 ## Key Files
 
-- `nuxt.config.ts` - SSR is enabled with `ssr: true`
+- `nuxt.config.ts` - SPA mode (`ssr: false`) and dev port `3235`
 - `electron/main.ts` - Electron main process
-- `pages/index.vue` - Demo page with SSR data fetching
-- `server/api/heavy-data.ts` - API route (runs during SSR)
-
-## SSR Demo
-
-The `/api/heavy-data` endpoint has a 500ms delay. With SSR:
-- User sees data immediately (no loading state)
-- The delay happens server-side before HTML is sent
-
-Without SSR (SPA mode), user would see:
-1. Blank page
-2. Loading spinner
-3. Data appears after 500ms
+- `app/pages/index.vue` - Main viewer UI

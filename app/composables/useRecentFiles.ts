@@ -1,11 +1,5 @@
 import { ref } from 'vue';
-
-interface IRecentFile {
-    originalPath: string;
-    fileName: string;
-    timestamp: number;
-    fileSize?: number;
-}
+import type { IRecentFile } from 'app/types/shared';
 
 // Shared state across all composable instances
 const recentFiles = ref<IRecentFile[]>([]);

@@ -11,18 +11,14 @@ import {
     basename,
 } from 'path';
 import { app } from 'electron';
+import type { IRecentFile } from '../app/types/shared';
+
+export type { IRecentFile } from '../app/types/shared';
 
 const MAX_RECENT_FILES = 10;
 
 // In-memory cache for synchronous access (needed for menu building)
 let recentFilesCache: IRecentFile[] = [];
-
-export interface IRecentFile {
-    originalPath: string;
-    fileName: string;
-    timestamp: number;
-    fileSize?: number;
-}
 
 interface IRecentFilesData {
     version: number;

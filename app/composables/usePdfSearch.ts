@@ -8,6 +8,7 @@ import type {
     TSearchDirection,
 } from 'app/types/pdf';
 import { BrowserLogger } from 'app/utils/browser-logger';
+import { getElectronAPI } from 'app/utils/electron';
 
 export type {
     IPdfPageMatches,
@@ -32,13 +33,6 @@ interface IBackendSearchProgress {
     requestId: string;
     processed: number;
     total: number;
-}
-
-function getElectronAPI() {
-    if (typeof window === 'undefined' || !window.electronAPI) {
-        throw new Error('Electron API not available');
-    }
-    return window.electronAPI;
 }
 
 export const usePdfSearch = () => {

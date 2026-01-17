@@ -2,13 +2,7 @@ import {
     computed,
     ref,
 } from 'vue';
-
-function getElectronAPI() {
-    if (typeof window === 'undefined' || !window.electronAPI) {
-        throw new Error('Electron API not available');
-    }
-    return window.electronAPI;
-}
+import { getElectronAPI } from 'app/utils/electron';
 
 export const usePdfFile = () => {
     const pdfSrc = ref<Blob | null>(null);
@@ -85,13 +79,19 @@ export const usePdfFile = () => {
     }
 
     async function closeFile() {
+        const pathToCleanup = workingCopyPath.value;
+
         pdfSrc.value = null;
         pdfData.value = null;
         workingCopyPath.value = null;
         error.value = null;
         isDirty.value = false;
         try {
-            await getElectronAPI().setWindowTitle('PDF Viewer');
+            const api = getElectronAPI();
+            if (pathToCleanup) {
+                await api.cleanupFile(pathToCleanup);
+            }
+            await api.setWindowTitle('PDF Viewer');
         } catch {
             // Ignore errors when not in Electron
         }

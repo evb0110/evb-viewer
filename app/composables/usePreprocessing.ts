@@ -2,6 +2,7 @@ import {
     ref,
     computed,
 } from 'vue';
+import { getElectronAPI } from 'app/utils/electron';
 
 interface IPreprocessingCapabilities {
     valid: boolean;
@@ -14,13 +15,6 @@ interface IPreprocessingState {
     capabilities: IPreprocessingCapabilities | null;
     loading: boolean;
     error: string | null;
-}
-
-function getElectronAPI() {
-    if (typeof window === 'undefined' || !window.electronAPI) {
-        throw new Error('Electron API not available');
-    }
-    return window.electronAPI;
 }
 
 export const usePreprocessing = () => {

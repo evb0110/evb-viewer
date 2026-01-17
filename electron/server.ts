@@ -74,7 +74,64 @@ export async function startServer() {
 }
 
 export function waitForServer() {
-    return serverReady;
+    const TIMEOUT_MS = 30000;
+
+    if (!serverReady) {
+        throw new Error('Server was not started');
+    }
+
+    let timeoutId: NodeJS.Timeout | null = null;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => {
+            reject(new Error(`Server failed to start within ${TIMEOUT_MS / 1000}s`));
+        }, TIMEOUT_MS);
+    });
+
+    const verifyHealth = async () => {
+        const maxAttempts = 10;
+        for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+            try {
+                const response = await fetch(config.server.url, { method: 'HEAD' });
+                if (response.ok) {
+                    console.log('[Electron] Server verified ready');
+                    return;
+                }
+            } catch {
+                // Retry
+            }
+
+            if (attempt < maxAttempts) {
+                await new Promise(resolve => setTimeout(resolve, 300));
+            }
+        }
+        throw new Error('Server stdout detected but HTTP health check failed');
+    };
+
+    return (async () => {
+        try {
+            await Promise.race([
+                serverReady,
+                timeoutPromise,
+            ]);
+            if (timeoutId) {
+                clearTimeout(timeoutId);
+                timeoutId = null;
+            }
+            await verifyHealth();
+        } catch (err) {
+            if (timeoutId) {
+                clearTimeout(timeoutId);
+                timeoutId = null;
+            }
+
+            if (nuxtProcess && !usingExternalServer) {
+                nuxtProcess.kill();
+                nuxtProcess = null;
+            }
+
+            throw err;
+        }
+    })();
 }
 
 export function stopServer() {

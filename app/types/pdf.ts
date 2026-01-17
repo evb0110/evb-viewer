@@ -2,8 +2,12 @@ import type {
     PDFDocumentProxy,
     PDFPageProxy,
 } from 'pdfjs-dist';
+import type { IOcrWord } from 'app/types/shared';
 
-export type TFitMode = 'width' | 'height';
+export type {
+    IOcrWord,
+    TFitMode,
+} from 'app/types/shared';
 
 export interface IContentInsets {
     top: number;
@@ -31,14 +35,6 @@ export interface IPdfLinkServiceOptions {
     pagesCount: number;
     currentPage: number;
     goToPage: (page: number) => void;
-}
-
-export interface IOcrWord {
-    text: string;
-    x: number;
-    y: number;
-    width: number;
-    height: number;
 }
 
 export interface IPdfSearchMatch {

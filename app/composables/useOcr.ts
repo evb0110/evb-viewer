@@ -3,14 +3,10 @@ import {
     ref,
 } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
+import type { IOcrLanguage } from 'app/types/shared';
+import { getElectronAPI } from 'app/utils/electron';
 
 type TOcrPageRange = 'all' | 'current' | 'custom';
-
-interface IOcrLanguage {
-    code: string;
-    name: string;
-    script: 'latin' | 'cyrillic' | 'rtl';
-}
 
 interface IOcrSettings {
     pageRange: TOcrPageRange;
@@ -45,13 +41,6 @@ interface IOcrResults {
     completedAt: number | null;
     searchablePdfData: Uint8Array | null;
     metrics?: IOcrQualityMetrics;
-}
-
-function getElectronAPI() {
-    if (typeof window === 'undefined' || !window.electronAPI) {
-        throw new Error('Electron API not available');
-    }
-    return window.electronAPI;
 }
 
 export const useOcr = () => {

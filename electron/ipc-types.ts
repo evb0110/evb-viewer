@@ -1,9 +1,6 @@
-export interface IRecentFile {
-    originalPath: string;
-    fileName: string;
-    timestamp: number;
-    fileSize?: number;
-}
+import type { IRecentFile } from '../app/types/shared';
+
+export type { IRecentFile } from '../app/types/shared';
 
 export interface IIpcChannels {
     'dialog:openPdf': {

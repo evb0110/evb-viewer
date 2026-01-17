@@ -1,5 +1,5 @@
-import { spawnSync } from 'child_process';
 import { createLogger } from '@electron/utils/logger';
+import { runCommand } from '@electron/utils/exec';
 
 const log = createLogger('pdf-text-extractor');
 
@@ -23,16 +23,11 @@ export async function extractTextFromPdf(
     try {
         // Use pdftotext -layout to preserve some structure
         // Each page is separated by form feed character (0x0C)
-        // Using spawnSync with args array to prevent shell injection
-        const result = spawnSync('pdftotext', [
+        const result = await runCommand('pdftotext', [
             '-layout',
             pdfPath,
             '-',
-        ], { encoding: 'utf-8' });
-
-        if (result.status !== 0) {
-            throw new Error(result.stderr || `pdftotext failed with status ${result.status}`);
-        }
+        ]);
 
         const output = result.stdout ?? '';
 

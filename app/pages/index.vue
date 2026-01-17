@@ -1,7 +1,7 @@
 <template>
     <div class="h-screen flex flex-col bg-neutral-100 dark:bg-neutral-900">
         <!-- Toolbar -->
-        <header class="flex items-center gap-2 p-2 border-b border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 whitespace-nowrap overflow-x-auto">
+        <header class="toolbar">
             <UButton
                 v-if="!pdfSrc"
                 icon="i-lucide-folder-open"
@@ -12,74 +12,88 @@
             </UButton>
 
             <template v-if="pdfSrc">
-                <UButton
-                    icon="i-lucide-save"
-                    variant="ghost"
-                    :disabled="!isDirty && !isSaving"
-                    :loading="isSaving"
-                    @click="handleSave(); closeAllDropdowns()"
-                >
-                    Save
-                </UButton>
-
-                <UButton
-                    icon="i-lucide-panel-left"
-                    :variant="showSidebar ? 'soft' : 'ghost'"
-                    :color="showSidebar ? 'primary' : 'neutral'"
-                    @click="showSidebar = !showSidebar; closeAllDropdowns()"
-                />
-
-                <div class="flex-1" />
-
-                <OcrPopup
-                    ref="ocrPopupRef"
-                    :pdf-document="pdfDocument"
-                    :pdf-data="pdfData"
-                    :current-page="currentPage"
-                    :total-pages="totalPages"
-                    :working-copy-path="workingCopyPath"
-                    @open="closeOtherDropdowns('ocr')"
-                    @ocr-complete="handleOcrComplete"
-                />
-
-                <PdfZoomDropdown
-                    ref="zoomDropdownRef"
-                    v-model:zoom="zoom"
-                    v-model:fit-mode="fitMode"
-                    @open="pageDropdownRef?.close()"
-                />
-                <PdfPageDropdown
-                    ref="pageDropdownRef"
-                    v-model="currentPage"
-                    :total-pages="totalPages"
-                    @go-to-page="handleGoToPage"
-                    @open="zoomDropdownRef?.close()"
-                />
-
-                <div class="flex items-center border border-neutral-200 dark:border-neutral-700 rounded-md">
+                <!-- Left section: File & view controls -->
+                <div class="toolbar-section">
                     <UButton
-                        icon="i-lucide-hand"
-                        :variant="dragMode ? 'soft' : 'ghost'"
-                        size="sm"
-                        :color="dragMode ? 'primary' : 'neutral'"
-                        class="rounded-r-none h-8"
-                        @click="enableDragMode(); closeAllDropdowns()"
-                    />
+                        icon="i-lucide-save"
+                        variant="ghost"
+                        :disabled="!isDirty && !isSaving"
+                        :loading="isSaving"
+                        @click="handleSave(); closeAllDropdowns()"
+                    >
+                        Save
+                    </UButton>
+
                     <UButton
-                        icon="i-lucide-text-cursor"
-                        :variant="!dragMode ? 'soft' : 'ghost'"
-                        size="sm"
-                        :color="!dragMode ? 'primary' : 'neutral'"
-                        class="rounded-l-none h-8"
-                        @click="dragMode = false; closeAllDropdowns()"
+                        icon="i-lucide-panel-left"
+                        :variant="showSidebar ? 'soft' : 'ghost'"
+                        :color="showSidebar ? 'primary' : 'neutral'"
+                        @click="showSidebar = !showSidebar; closeAllDropdowns()"
                     />
                 </div>
 
-                <UButton
-                    icon="i-lucide-x"
-                    variant="ghost"
-                    @click="closeFile(); closeAllDropdowns()"
-                />
+                <!-- Spacer to push center -->
+                <div class="flex-1" />
+
+                <!-- Center section: Document controls -->
+                <div class="toolbar-section toolbar-center">
+                    <OcrPopup
+                        ref="ocrPopupRef"
+                        :pdf-document="pdfDocument"
+                        :pdf-data="pdfData"
+                        :current-page="currentPage"
+                        :total-pages="totalPages"
+                        :working-copy-path="workingCopyPath"
+                        @open="closeOtherDropdowns('ocr')"
+                        @ocr-complete="handleOcrComplete"
+                    />
+
+                    <PdfZoomDropdown
+                        ref="zoomDropdownRef"
+                        v-model:zoom="zoom"
+                        v-model:fit-mode="fitMode"
+                        @open="pageDropdownRef?.close()"
+                    />
+
+                    <PdfPageDropdown
+                        ref="pageDropdownRef"
+                        v-model="currentPage"
+                        :total-pages="totalPages"
+                        @go-to-page="handleGoToPage"
+                        @open="zoomDropdownRef?.close()"
+                    />
+
+                    <div class="toolbar-mode-toggle">
+                        <UButton
+                            icon="i-lucide-hand"
+                            :variant="dragMode ? 'soft' : 'ghost'"
+                            size="sm"
+                            :color="dragMode ? 'primary' : 'neutral'"
+                            class="rounded-r-none h-8"
+                            @click="enableDragMode(); closeAllDropdowns()"
+                        />
+                        <UButton
+                            icon="i-lucide-text-cursor"
+                            :variant="!dragMode ? 'soft' : 'ghost'"
+                            size="sm"
+                            :color="!dragMode ? 'primary' : 'neutral'"
+                            class="rounded-l-none h-8"
+                            @click="dragMode = false; closeAllDropdowns()"
+                        />
+                    </div>
+                </div>
+
+                <!-- Spacer to push right section -->
+                <div class="flex-1" />
+
+                <!-- Right section: Window control -->
+                <div class="toolbar-section">
+                    <UButton
+                        icon="i-lucide-x"
+                        variant="ghost"
+                        @click="closeFile(); closeAllDropdowns()"
+                    />
+                </div>
             </template>
         </header>
 
@@ -216,10 +230,10 @@ import {
     watch,
 } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
+import type { TFitMode } from 'app/types/shared';
 
 console.log('[PAGE] pages/index.vue script setup executing');
 
-type TFitMode = 'width' | 'height';
 type TPdfSidebarTab = 'thumbnails' | 'outline' | 'search';
 
 interface IPdfViewerExpose {
@@ -533,6 +547,36 @@ watch(pdfSrc, () => {
 </script>
 
 <style scoped>
+/* Toolbar layout */
+.toolbar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem;
+    border-bottom: 1px solid var(--ui-border);
+    background: var(--ui-bg);
+    white-space: nowrap;
+    overflow-x: auto;
+}
+
+.toolbar-section {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-shrink: 0;
+}
+
+.toolbar-center {
+    gap: clamp(0.5rem, 1.5vw, 1.25rem);
+}
+
+.toolbar-mode-toggle {
+    display: flex;
+    align-items: center;
+    border: 1px solid var(--ui-border);
+    border-radius: 0.375rem;
+}
+
 .sidebar-wrapper {
     display: flex;
     height: 100%;
@@ -556,6 +600,7 @@ watch(pdfSrc, () => {
 
 /* Empty state layout */
 .empty-state {
+    width: 100%;
     height: 100%;
     display: flex;
     flex-direction: column;

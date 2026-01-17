@@ -8,6 +8,7 @@ import {
 import { join } from 'path';
 import { getOcrPaths } from '@electron/ocr/paths';
 import { createLogger } from '@electron/utils/logger';
+import type { IOcrWord } from '../../app/types/shared';
 
 const log = createLogger('tesseract');
 
@@ -21,14 +22,6 @@ interface IOcrPdfResult {
     success: boolean;
     pdfBuffer: Buffer | null;
     error?: string;
-}
-
-interface IOcrWord {
-    text: string;
-    x: number;
-    y: number;
-    width: number;
-    height: number;
 }
 
 interface IOcrPageData {

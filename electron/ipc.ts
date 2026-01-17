@@ -7,6 +7,7 @@ import {
 import {
     existsSync,
     mkdirSync,
+    rmSync,
 } from 'fs';
 import {
     readFile,
@@ -17,10 +18,16 @@ import {
     extname,
     join,
     basename,
+    dirname,
+    isAbsolute,
+    resolve,
+    relative,
+    sep,
 } from 'path';
 import { registerOcrHandlers } from '@electron/ocr/ipc';
 import { registerSearchHandlers } from '@electron/search/ipc';
 import { updateRecentFilesMenu } from '@electron/menu';
+import { isAllowedWritePath } from '@electron/utils/path-validator';
 import {
     addRecentFile,
     getRecentFiles,
@@ -62,7 +69,7 @@ export function registerIpcHandlers() {
     ipcMain.handle('file:save', handleFileSave);
     ipcMain.handle('file:cleanup', (_event, workingPath: string) => {
         cleanupWorkingCopy(workingPath);
-        return true;
+        return;
     });
     ipcMain.handle('window:setTitle', handleSetWindowTitle);
 
@@ -188,6 +195,11 @@ async function handleFileWrite(
     }
 
     const normalizedPath = filePath.trim();
+
+    if (!isAllowedWritePath(normalizedPath)) {
+        throw new Error('Invalid file path: writes only allowed within temp directory');
+    }
+
     await writeFile(normalizedPath, data);
     return true;
 }
@@ -216,9 +228,6 @@ async function handleFileSave(
         const workingData = await readFile(normalizedWorkingPath);
         await writeFile(originalPath, workingData);
 
-        // Clean up the map entry to prevent memory leak
-        workingCopyMap.delete(normalizedWorkingPath);
-
         return true;
     } catch (err) {
         throw new Error(`Failed to save: ${err instanceof Error ? err.message : String(err)}`);
@@ -230,7 +239,35 @@ async function handleFileSave(
  * Called when user closes a PDF without saving
  */
 function cleanupWorkingCopy(workingPath: string) {
-    workingCopyMap.delete(workingPath);
+    const normalizedPath = typeof workingPath === 'string' ? workingPath.trim() : '';
+    if (!normalizedPath) {
+        return;
+    }
+
+    workingCopyMap.delete(normalizedPath);
+
+    try {
+        const tempDir = resolve(app.getPath('temp'));
+        const workDir = resolve(dirname(normalizedPath));
+        const relativePath = relative(tempDir, workDir);
+        const workDirName = basename(workDir);
+
+        const isWithinTemp = (
+            relativePath !== '..'
+            && !relativePath.startsWith(`..${sep}`)
+            && !isAbsolute(relativePath)
+        );
+        const isWorkingCopyDir = workDirName.startsWith('pdf-work-');
+
+        if (isWithinTemp && isWorkingCopyDir && existsSync(workDir)) {
+            rmSync(workDir, {
+                recursive: true,
+                force: true,
+            });
+        }
+    } catch (err) {
+        console.warn('[cleanup] Failed to delete working directory:', err);
+    }
 }
 
 /**

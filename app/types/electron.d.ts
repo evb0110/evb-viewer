@@ -2,6 +2,10 @@ import type {
     IMenuEventCallback,
     IMenuEventUnsubscribe,
 } from 'electron/ipc-types';
+import type {
+    IOcrLanguage,
+    IRecentFile,
+} from 'app/types/shared';
 
 interface IOcrRecognizeRequest {
     pageNumber: number;
@@ -14,12 +18,6 @@ interface IOcrRecognizeResult {
     success: boolean;
     text: string;
     error?: string;
-}
-
-interface IOcrLanguage {
-    code: string;
-    name: string;
-    script: 'latin' | 'cyrillic' | 'rtl';
 }
 
 interface IOcrProgress {
@@ -76,19 +74,13 @@ interface IPreprocessPageResult {
     error?: string;
 }
 
-interface IRecentFile {
-    originalPath: string;
-    fileName: string;
-    timestamp: number;
-    fileSize?: number;
-}
-
 interface IElectronAPI {
     openPdfDialog: () => Promise<string | null>;
     openPdfDirect: (path: string) => Promise<string | null>;
     readFile: (path: string) => Promise<Uint8Array>;
     writeFile: (path: string, data: Uint8Array) => Promise<boolean>;
     saveFile: (path: string) => Promise<boolean>;
+    cleanupFile: (path: string) => Promise<void>;
     setWindowTitle: (title: string) => Promise<void>;
     onMenuOpenPdf: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuSave: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
@@ -104,7 +96,10 @@ interface IElectronAPI {
     ocrRecognizeBatch: (
         pages: IOcrRecognizeRequest[],
         requestId: string,
-    ) => Promise<Record<number, string>>;
+    ) => Promise<{
+        results: Record<number, string>;
+        errors: string[];
+    }>;
     ocrGetLanguages: () => Promise<IOcrLanguage[]>;
     ocrCreateSearchablePdf: (
         originalPdfData: number[],
@@ -138,6 +133,7 @@ interface IElectronAPI {
     // Recent Files API
     recentFiles: {
         get: () => Promise<IRecentFile[]>;
+        add: (path: string) => Promise<void>;
         remove: (path: string) => Promise<void>;
         clear: () => Promise<void>;
     };
@@ -148,7 +144,7 @@ interface IElectronAPI {
 declare global {
     interface Window {
         electronAPI: IElectronAPI;
-        __openFileDirect?: string;
+        __openFileDirect?: (path: string) => Promise<void>;
         __appReady?: boolean;
     }
 }
