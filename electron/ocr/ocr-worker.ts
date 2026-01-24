@@ -419,14 +419,16 @@ function loadUnicodeFontSync(): Uint8Array | null {
     return null;
 }
 
-async function createSearchablePdfWithSpaces(
-    imageBuffer: Buffer,
+/**
+ * Creates a text-layer-only PDF (no image) for overlay onto original pages.
+ * This preserves original PDF structure including bookmarks.
+ */
+async function createTextLayerOnlyPdf(
     words: IOcrWord[],
     imageWidth: number,
     imageHeight: number,
     extractionDpi: number,
 ): Promise<{ success: boolean; pdfBuffer: Buffer | null; error?: string }> {
-    // Dynamic import of pdf-lib to avoid bundling issues
     const { PDFDocument, rgb, StandardFonts } = await import('pdf-lib');
 
     try {
@@ -437,14 +439,7 @@ async function createSearchablePdfWithSpaces(
         const pdfDoc = await PDFDocument.create();
         const page = pdfDoc.addPage([pdfWidth, pdfHeight]);
 
-        // Embed image as background
-        const image = await pdfDoc.embedPng(imageBuffer);
-        page.drawImage(image, {
-            x: 0,
-            y: 0,
-            width: pdfWidth,
-            height: pdfHeight,
-        });
+        // No image - this is a text-only overlay
 
         // Load font for text layer
         const fontData = loadUnicodeFontSync();
@@ -465,10 +460,7 @@ async function createSearchablePdfWithSpaces(
 
             const x = word.x * scale;
             const y = pdfHeight - (word.y + word.height) * scale;
-            const targetWidth = word.width * scale;
             const targetHeight = word.height * scale;
-
-            // Calculate font size to fit the bounding box
             const fontSize = Math.max(1, Math.min(targetHeight * 0.9, 72));
 
             try {
@@ -630,8 +622,7 @@ async function processOcrJob(
                         imageHeight: ocrResult.pageData.imageHeight,
                     });
 
-                    const pdfResult = await createSearchablePdfWithSpaces(
-                        imageBuffer,
+                    const pdfResult = await createTextLayerOnlyPdf(
                         ocrResult.pageData.words,
                         imageWidth,
                         imageHeight,
@@ -713,25 +704,39 @@ async function processOcrJob(
         }
 
         try {
-            const qpdfArgs: string[] = [originalPdfPath, '--pages'];
-            let lastPage = 0;
+            // Use overlay approach instead of page replacement to preserve bookmarks
+            // Original page objects remain intact, so bookmark references stay valid
+            log('debug', `Overlaying ${ocrPageNumbers.length} text layers onto original PDF`);
 
-            for (const pageNum of ocrPageNumbers) {
-                if (lastPage + 1 < pageNum) {
-                    qpdfArgs.push(originalPdfPath, `${lastPage + 1}-${pageNum - 1}`);
+            // Build a single multi-page overlay PDF to minimize qpdf calls
+            const { PDFDocument } = await import('pdf-lib');
+            const overlayDoc = await PDFDocument.create();
+
+            // For each page position (1 to pageCount), add either OCR text layer or blank page
+            for (let pageNum = 1; pageNum <= pageCount; pageNum++) {
+                const ocrPath = ocrPdfMap.get(pageNum);
+                if (ocrPath) {
+                    // Load and copy the text layer page
+                    const ocrPdfBytes = await readFile(ocrPath);
+                    const ocrPdf = await PDFDocument.load(ocrPdfBytes);
+                    const [copiedPage] = await overlayDoc.copyPages(ocrPdf, [0]);
+                    overlayDoc.addPage(copiedPage);
+                } else {
+                    // Add a minimal blank page (will be transparent overlay)
+                    overlayDoc.addPage([1, 1]); // Minimal size - qpdf scales overlay to match
                 }
-                const ocrPath = ocrPdfMap.get(pageNum)!;
-                qpdfArgs.push(ocrPath, '1');
-                lastPage = pageNum;
             }
 
-            if (lastPage < pageCount) {
-                qpdfArgs.push(originalPdfPath, `${lastPage + 1}-${pageCount}`);
-            }
+            const overlayPdfPath = trackTempFile(join(tempDir, `${sessionId}-overlay.pdf`));
+            const overlayBytes = await overlayDoc.save();
+            await writeFile(overlayPdfPath, overlayBytes);
 
-            qpdfArgs.push('--', mergedPdfPath);
-
-            await runCommand('qpdf', qpdfArgs, { allowedExitCodes: [0, 3] });
+            // Single qpdf overlay command - preserves original structure including bookmarks
+            await runCommand('qpdf', [
+                originalPdfPath,
+                '--overlay', overlayPdfPath, '--',
+                '--', mergedPdfPath,
+            ], { allowedExitCodes: [0, 3] });
         } catch (qpdfErr) {
             const errMsg = qpdfErr instanceof Error ? qpdfErr.message : String(qpdfErr);
             errors.push(`Failed to merge OCR'd pages with original PDF: ${errMsg}`);

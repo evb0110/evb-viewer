@@ -170,7 +170,16 @@ async function handleClick() {
         const pageIndex = await props.pdfDocument.getPageIndex(pageRef);
         emit('goToPage', pageIndex + 1);
     } catch (error) {
-        console.error('Failed to navigate to outline destination:', error);
+        // Silently ignore known PDF issues (malformed destinations, missing pages)
+        // These are PDF authoring problems, not application errors
+        const message = error instanceof Error ? error.message : String(error);
+        const isKnownPdfIssue =
+            message.includes('does not point to a /Page dictionary') ||
+            message.includes('page must be a reference');
+
+        if (!isKnownPdfIssue) {
+            console.error('Failed to navigate to outline destination:', error);
+        }
     }
 }
 </script>

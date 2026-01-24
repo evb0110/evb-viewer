@@ -56,6 +56,89 @@ function requiresUnicodeFont(text: string): boolean {
 }
 
 /**
+ * Creates a text-layer-only PDF page (no image) for use as an overlay.
+ * This preserves the original PDF structure (including bookmarks) when merged.
+ *
+ * @param words - OCR words with coordinates in IMAGE PIXELS (at extractionDpi)
+ * @param imageWidthPixels - Image width in pixels at extractionDpi
+ * @param imageHeightPixels - Image height in pixels at extractionDpi
+ * @param extractionDpi - DPI used when extracting the image (default 150)
+ */
+export async function createTextLayerOnlyPdf(
+    words: IOcrWord[],
+    imageWidthPixels: number,
+    imageHeightPixels: number,
+    extractionDpi = 150,
+): Promise<{
+    success: boolean;
+    pdfBuffer: Buffer | null;
+    error?: string;
+}> {
+    try {
+        // Convert pixel dimensions to PDF points (72 points per inch)
+        const scaleFactor = 72 / extractionDpi;
+        const pageWidthPts = imageWidthPixels * scaleFactor;
+        const pageHeightPts = imageHeightPixels * scaleFactor;
+
+        log.debug(`Creating text-layer overlay: ${pageWidthPts.toFixed(1)}x${pageHeightPts.toFixed(1)}pts, ${words.length} words`);
+
+        // Check if we need Unicode font
+        const allText = words.map(w => w.text).join(' ');
+        const needsUnicode = requiresUnicodeFont(allText);
+
+        // Create PDF document
+        const pdfDoc = await PDFDocument.create();
+
+        // Embed font
+        let font;
+        if (needsUnicode) {
+            const fontData = await loadUnicodeFont();
+            if (fontData) {
+                pdfDoc.registerFontkit(fontkit);
+                font = await pdfDoc.embedFont(fontData, { subset: true });
+            } else {
+                font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+            }
+        } else {
+            font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+        }
+
+        // Add page at correct size (no image - just text layer)
+        const page = pdfDoc.addPage([pageWidthPts, pageHeightPts]);
+
+        // Draw invisible text layer
+        for (const word of words) {
+            if (!word.text.trim()) continue;
+
+            const pdfX = word.x * scaleFactor;
+            const wordHeightPts = word.height * scaleFactor;
+            const pdfY = pageHeightPts - (word.y * scaleFactor) - wordHeightPts;
+            const fontSize = Math.max(6, wordHeightPts * 0.85);
+            const textWithSpace = word.text + ' ';
+
+            try {
+                page.drawText(textWithSpace, {
+                    x: pdfX,
+                    y: pdfY,
+                    size: fontSize,
+                    font,
+                    color: rgb(0, 0, 0),
+                    opacity: 0,
+                });
+            } catch {
+                // Skip words that can't be encoded
+            }
+        }
+
+        const pdfBytes = await pdfDoc.save();
+        return { success: true, pdfBuffer: Buffer.from(pdfBytes) };
+    } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        return { success: false, pdfBuffer: null, error: errMsg };
+    }
+}
+
+/**
  * Creates a searchable PDF page with explicit spaces between words.
  *
  * CRITICAL: This function handles DPI conversion properly:
