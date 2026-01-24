@@ -17,6 +17,56 @@ ipcRenderer.on('debug:log', (_event: IpcRendererEvent, data: {
     console.log(`[${data.timestamp}] [${data.source}] ${data.message}`);
 });
 
+function installViteOutdatedOptimizeDepRecovery() {
+    // Only applies in development (running via `electron .`).
+    if (!process.defaultApp) {
+        return;
+    }
+    if (typeof window === 'undefined') {
+        return;
+    }
+
+    const RELOAD_KEY = 'electron-nuxt:dev:optimize-dep-reload';
+    const RELOAD_COOLDOWN_MS = 10_000;
+
+    function shouldReloadNow() {
+        try {
+            const last = Number(window.sessionStorage.getItem(RELOAD_KEY) ?? '0');
+            if (Number.isFinite(last) && last > 0 && Date.now() - last < RELOAD_COOLDOWN_MS) {
+                return false;
+            }
+            window.sessionStorage.setItem(RELOAD_KEY, String(Date.now()));
+            return true;
+        } catch {
+            // If sessionStorage is unavailable, allow one reload attempt.
+            return true;
+        }
+    }
+
+    function scheduleReload(reason: string) {
+        if (!window.location?.href?.includes('localhost:')) {
+            return;
+        }
+        if (!shouldReloadNow()) {
+            return;
+        }
+        console.warn(`[Dev] Recovering from Vite optimize-deps error (${reason}); reloading...`);
+        setTimeout(() => window.location.reload(), 250);
+    }
+
+    window.addEventListener('unhandledrejection', (event: PromiseRejectionEvent) => {
+        const message = event?.reason instanceof Error ? event.reason.message : String(event?.reason ?? '');
+        if (
+            message.includes('Failed to fetch dynamically imported module')
+            || message.includes('Outdated Optimize Dep')
+        ) {
+            scheduleReload(message);
+        }
+    });
+}
+
+installViteOutdatedOptimizeDepRecovery();
+
 contextBridge.exposeInMainWorld('electronAPI', {
     openPdfDialog: () => ipcRenderer.invoke('dialog:openPdf'),
     openPdfDirect: (path: string) => ipcRenderer.invoke('dialog:openPdfDirect', path),
@@ -109,6 +159,24 @@ contextBridge.exposeInMainWorld('electronAPI', {
         }) => callback(progress);
         ipcRenderer.on('ocr:progress', handler);
         return () => ipcRenderer.removeListener('ocr:progress', handler);
+    },
+
+    onOcrComplete: (callback: (result: {
+        requestId: string;
+        success: boolean;
+        pdfData: number[] | null;
+        pdfPath?: string;
+        errors: string[];
+    }) => void): (() => void) => {
+        const handler = (_event: IpcRendererEvent, result: {
+            requestId: string;
+            success: boolean;
+            pdfData: number[] | null;
+            pdfPath?: string;
+            errors: string[];
+        }) => callback(result);
+        ipcRenderer.on('ocr:complete', handler);
+        return () => ipcRenderer.removeListener('ocr:complete', handler);
     },
 
     // Search API

@@ -69,6 +69,7 @@ export const useOcr = () => {
     const error = ref<string | null>(null);
 
     let progressCleanup: (() => void) | null = null;
+    let completeCleanup: (() => void) | null = null;
 
     async function loadLanguages() {
         try {
@@ -201,17 +202,50 @@ export const useOcr = () => {
 
             console.log('[useOcr] Sending to backend, pages:', pages, ', originalPdfData length:', originalPdfData.length);
 
-            // Create searchable PDF with OCR text embedded
-            // Electron IPC transfers Uint8Array efficiently - no conversion needed
-            const response = await api.ocrCreateSearchablePdf(
+            // Create a promise that resolves when OCR completes
+            // The OCR worker runs in a separate thread and sends results via 'ocr:complete' event
+            const ocrPromise = new Promise<{
+                success: boolean;
+                pdfData: number[] | null;
+                pdfPath?: string;
+                errors: string[];
+            }>((resolve, reject) => {
+                completeCleanup = api.onOcrComplete((result) => {
+                    console.log('[useOcr] OCR complete event:', {
+                        requestId: result.requestId,
+                        success: result.success,
+                    });
+                    if (result.requestId === requestId) {
+                        resolve(result);
+                    }
+                });
+
+                // Timeout after 30 minutes (very long OCR jobs)
+                setTimeout(() => {
+                    reject(new Error('OCR operation timed out after 30 minutes'));
+                }, 30 * 60 * 1000);
+            });
+
+            // Start the OCR job (returns immediately, doesn't block)
+            const startResult = await api.ocrCreateSearchablePdf(
                 originalPdfData,
                 pageRequests,
                 requestId,
                 workingCopyPath,
             );
+
+            console.log('[useOcr] OCR job started:', startResult);
+
+            if (!startResult.started) {
+                throw new Error(startResult.error || 'Failed to start OCR job');
+            }
+
+            // Wait for the OCR worker to complete
+            const response = await ocrPromise;
+
             console.log('[useOcr] Backend response:', {
                 success: response.success,
-                errors: response.errors, 
+                errors: response.errors,
             });
 
             if (response.errors.length > 0) {
@@ -254,6 +288,8 @@ export const useOcr = () => {
             progress.value.isRunning = false;
             progressCleanup?.();
             progressCleanup = null;
+            completeCleanup?.();
+            completeCleanup = null;
         }
     }
 
@@ -261,6 +297,8 @@ export const useOcr = () => {
         progress.value.isRunning = false;
         progressCleanup?.();
         progressCleanup = null;
+        completeCleanup?.();
+        completeCleanup = null;
     }
 
     function clearResults() {

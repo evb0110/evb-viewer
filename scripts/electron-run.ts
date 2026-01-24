@@ -14,7 +14,7 @@
 import puppeteer, { type Browser, type Page } from 'puppeteer-core';
 import { createServer } from 'node:http';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { mkdirSync, existsSync, writeFileSync, readFileSync, unlinkSync } from 'node:fs';
+import { mkdirSync, existsSync, writeFileSync, readFileSync, unlinkSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { delay } from 'es-toolkit/promise';
@@ -23,9 +23,11 @@ const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const projectRoot = join(__dirname, '..');
 const screenshotDir = join(projectRoot, '.devkit', 'screenshots');
 const sessionFile = join(projectRoot, '.devkit', 'electron-session.json');
+const electronUserDataDir = join(projectRoot, '.devkit', 'electron-user-data');
 const SERVER_PORT = 9847;
 const CDP_PORT = 9222;
 const NUXT_PORT = 3235;
+const SESSION_WAIT_TIMEOUT_MS = 60_000;
 
 // ============ Session State ============
 
@@ -62,6 +64,7 @@ async function clearViteCache(): Promise<void> {
     const { rmSync } = await import('node:fs');
     const cachePaths = [
         join(projectRoot, 'node_modules', '.vite'),
+        join(projectRoot, 'node_modules', '.cache', 'vite'),
         join(projectRoot, '.nuxt'),
     ];
 
@@ -94,6 +97,7 @@ async function startNuxtServer(forceClean = false): Promise<ChildProcess | null>
     let viteClientBuilt = false;
     let viteServerBuilt = false;
     let nitroBuilt = false;
+    let viteClientWarmed = false;
 
     const checkOutput = (text: string) => {
         // Nuxt outputs these messages (in order) when builds complete:
@@ -112,6 +116,10 @@ async function startNuxtServer(forceClean = false): Promise<ChildProcess | null>
             console.log('[Nuxt] Nitro server built');
             nitroBuilt = true;
         }
+        if (text.includes('Vite client warmed up')) {
+            console.log('[Nuxt] Vite client warmed up');
+            viteClientWarmed = true;
+        }
     };
 
     nuxt.stdout?.on('data', (data: Buffer) => checkOutput(data.toString()));
@@ -121,12 +129,14 @@ async function startNuxtServer(forceClean = false): Promise<ChildProcess | null>
     const timeout = 120_000;
     const start = Date.now();
     let lastLog = 0;
+    const WARMUP_GRACE_MS = 5_000;
 
     while (Date.now() - start < timeout) {
         const serverUp = await isNuxtRunning();
         const buildsComplete = viteClientBuilt && viteServerBuilt && nitroBuilt;
+        const warmupComplete = viteClientWarmed || (Date.now() - start > WARMUP_GRACE_MS);
 
-        if (serverUp && buildsComplete) {
+        if (serverUp && buildsComplete && warmupComplete) {
             console.log('[Nuxt] Server ready at http://localhost:' + NUXT_PORT);
 
             // Warmup request to trigger any on-demand dependency optimization
@@ -146,6 +156,7 @@ async function startNuxtServer(forceClean = false): Promise<ChildProcess | null>
             if (!viteClientBuilt) missing.push('Vite client');
             if (!viteServerBuilt) missing.push('Vite server');
             if (!nitroBuilt) missing.push('Nitro');
+            if (!viteClientWarmed) missing.push('Vite warmup');
             console.log(`[Nuxt] Waiting for builds: ${missing.join(', ')}`);
             lastLog = now;
         }
@@ -166,10 +177,13 @@ async function startElectron(): Promise<ChildProcess> {
     }
 
     console.log('[Electron] Starting with CDP on port', CDP_PORT);
+    mkdirSync(join(projectRoot, '.devkit'), { recursive: true });
 
     const electronPath = join(projectRoot, 'node_modules/.bin/electron');
     const electron = spawn(electronPath, [
         `--remote-debugging-port=${CDP_PORT}`,
+        `--user-data-dir=${electronUserDataDir}`,
+        '--disable-http-cache',
         mainJs,
     ], {
         cwd: projectRoot,
@@ -222,6 +236,13 @@ async function connectToBrowser(): Promise<{ browser: Browser; page: Page }> {
         throw new Error('Could not find app page');
     }
 
+    let sawOutdatedOptimizeDep = false;
+    page.on('response', (res) => {
+        if (res.status() === 504 && res.url().includes(`localhost:${NUXT_PORT}`)) {
+            sawOutdatedOptimizeDep = true;
+        }
+    });
+
     // Wait for page to fully load
     await page.waitForSelector('body', { timeout: 30000 });
 
@@ -229,6 +250,11 @@ async function connectToBrowser(): Promise<{ browser: Browser; page: Page }> {
     console.log('[Puppeteer] Waiting for Vue to hydrate...');
     let hydrated = false;
     for (let attempt = 0; attempt < 30; attempt++) {
+        if (sawOutdatedOptimizeDep) {
+            console.log('[Puppeteer] Detected Vite 504 (Outdated Optimize Dep), reloading...');
+            break;
+        }
+
         const isReady = await page.evaluate(() => {
             const nuxtEl = document.querySelector('#__nuxt');
             return !!(
@@ -247,6 +273,7 @@ async function connectToBrowser(): Promise<{ browser: Browser; page: Page }> {
     // If not hydrated after 15s, try a page reload (helps with fresh Nuxt starts)
     if (!hydrated) {
         console.log('[Puppeteer] Vue not ready, reloading page...');
+        sawOutdatedOptimizeDep = false;
         await page.reload({ waitUntil: 'networkidle2' });
         await delay(3000);
 
@@ -280,6 +307,14 @@ async function startSession(forceClean = false) {
 
     // Ensure Nuxt is running (force clean if requested)
     const nuxtProcess = await startNuxtServer(forceClean);
+
+    // Clear Electron profile in clean starts to avoid stale cache issues (Vite 504 "Outdated Optimize Dep").
+    if (forceClean) {
+        try {
+            rmSync(electronUserDataDir, { recursive: true, force: true });
+            console.log('[Cache] Cleared .devkit/electron-user-data');
+        } catch {}
+    }
 
     // Start Electron with CDP
     const electronProcess = await startElectron();
@@ -354,6 +389,9 @@ async function startSession(forceClean = false) {
 
     // Monitor Electron process exit
     electronProcess.on('exit', (code, signal) => {
+        if (isShuttingDown) {
+            return;
+        }
         console.log(`\n[Electron] Process exited (code: ${code}, signal: ${signal})`);
         console.log('[Session] Electron died - shutting down session...');
         cleanupAndExit(1);
@@ -361,6 +399,9 @@ async function startSession(forceClean = false) {
 
     // Monitor Puppeteer disconnection
     browser.on('disconnected', () => {
+        if (isShuttingDown) {
+            return;
+        }
         console.log('\n[Puppeteer] Browser disconnected');
         console.log('[Session] Lost connection to Electron - shutting down session...');
         cleanupAndExit(1);
@@ -558,20 +599,48 @@ async function isSessionRunning(): Promise<boolean> {
 }
 
 async function sendCommand(command: string, args: unknown[] = []): Promise<unknown> {
-    const info = getSessionInfo();
-    if (!info) {
-        throw new Error('No session running. Start with: pnpm electron:run start');
+    const start = Date.now();
+    let didPrintWaitMessage = false;
+
+    while (Date.now() - start < SESSION_WAIT_TIMEOUT_MS) {
+        const info = getSessionInfo();
+
+        if (!info) {
+            if (!didPrintWaitMessage && Date.now() - start > 2000) {
+                didPrintWaitMessage = true;
+                console.log('[Session] Waiting for session to start...');
+            }
+            await delay(250);
+            continue;
+        }
+
+        let data: { success: boolean; result?: unknown; error?: string } | null = null;
+        try {
+            const res = await fetch(`http://localhost:${info.port}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ command, args }),
+            });
+            data = (await res.json()) as { success: boolean; result?: unknown; error?: string };
+        } catch {
+            // Session file exists but the server isn't responding yet (or it's stale).
+            // Wait briefly and retry until timeout.
+            if (!didPrintWaitMessage) {
+                didPrintWaitMessage = true;
+                console.log('[Session] Waiting for session to become ready...');
+            }
+            try { unlinkSync(sessionFile); } catch {}
+            await delay(250);
+            continue;
+        }
+
+        if (!data.success) {
+            throw new Error(data.error ?? 'Unknown error');
+        }
+        return data.result;
     }
 
-    const res = await fetch(`http://localhost:${info.port}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command, args }),
-    });
-
-    const data = (await res.json()) as { success: boolean; result?: unknown; error?: string };
-    if (!data.success) throw new Error(data.error ?? 'Unknown error');
-    return data.result;
+    throw new Error(`Session not ready after ${Math.round(SESSION_WAIT_TIMEOUT_MS / 1000)}s. Start with: pnpm electron:run start`);
 }
 
 async function stopSession() {
@@ -656,7 +725,7 @@ Examples:
                 const info = getSessionInfo();
                 if (!info) {
                     console.log('No session running.');
-                    break;
+                    process.exit(1);
                 }
                 try {
                     // Try ping first to see if server is up
@@ -673,6 +742,7 @@ Examples:
                     console.log('Session file exists but server not responding.');
                     console.log('  Cleaning up stale session file...');
                     try { unlinkSync(sessionFile); } catch {}
+                    process.exit(1);
                 }
                 break;
             }

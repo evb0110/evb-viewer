@@ -1,5 +1,5 @@
 ---
-name: electron-playwright
+name: electron-puppeteer
 description: Launch and interact with the Electron app using Puppeteer CDP. Use when you need to see the app UI, take screenshots, click buttons, fill forms, read console, or debug the app. Supports persistent sessions for multi-step debugging workflows.
 allowed-tools: Bash, Read
 ---
@@ -9,6 +9,8 @@ allowed-tools: Bash, Read
 Control the Electron app via Puppeteer CDP with persistent sessions.
 
 > **Note**: Uses Puppeteer instead of Playwright due to compatibility issues with Electron 39.
+>
+> Client commands like `health` and `screenshot` will wait briefly for the session to become ready (instead of immediately erroring) when `start` is still spinning up.
 
 ## Quick Start
 
@@ -26,7 +28,8 @@ pnpm electron:run stop
 
 The `start` command automatically:
 - Kills any existing Nuxt server
-- Clears Vite cache (fixes 504 errors)
+- Clears Vite cache (fixes 504 Outdated Optimize Dep errors)
+- Uses a fresh Electron profile (disables HTTP cache)
 - Waits for Vue to hydrate (auto-reloads if needed)
 
 ## Commands
@@ -52,9 +55,11 @@ The `start` command automatically:
 
 1. **Kills existing Nuxt** - Prevents stale server reuse
 2. **Clears Vite cache** - Removes `node_modules/.vite` and `.nuxt`
+   - Also clears `node_modules/.cache/vite` (Vite 7+ default)
 3. **Starts fresh Nuxt** - Rebuilds all dependencies
-4. **Waits for Vue hydration** - Checks for `#__nuxt` children
-5. **Auto-reloads if needed** - Fixes timing issues on cold starts
+4. **Starts Electron with a clean profile** - Clears `.devkit/electron-user-data`
+5. **Waits for Vue hydration** - Checks for `#__nuxt` children
+6. **Auto-reloads if needed** - Fixes timing issues on cold starts
 
 ## Reliability Features
 

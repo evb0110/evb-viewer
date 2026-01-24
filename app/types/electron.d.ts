@@ -34,6 +34,20 @@ interface IOcrSearchablePdfResult {
     errors: string[];
 }
 
+interface IOcrJobStartResult {
+    started: boolean;
+    jobId: string;
+    error?: string;
+}
+
+interface IOcrCompleteResult {
+    requestId: string;
+    success: boolean;
+    pdfData: number[] | null;
+    pdfPath?: string;
+    errors: string[];
+}
+
 interface IPdfSearchExcerpt {
     prefix: boolean;
     suffix: boolean;
@@ -109,8 +123,9 @@ interface IElectronAPI {
         }>,
         requestId: string,
         workingCopyPath?: string | null,
-    ) => Promise<IOcrSearchablePdfResult>;
+    ) => Promise<IOcrJobStartResult>;
     onOcrProgress: (callback: (progress: IOcrProgress) => void) => () => void;
+    onOcrComplete: (callback: (result: IOcrCompleteResult) => void) => () => void;
 
     // Search API
     pdfSearch: (

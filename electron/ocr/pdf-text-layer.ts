@@ -22,7 +22,9 @@ const UNICODE_FONT_PATHS = [
 let cachedFontData: Uint8Array | null = null;
 
 async function loadUnicodeFont(): Promise<Uint8Array | null> {
-    if (cachedFontData) return cachedFontData;
+    if (cachedFontData) {
+        return cachedFontData;
+    }
 
     for (const fontPath of UNICODE_FONT_PATHS) {
         if (existsSync(fontPath)) {
@@ -72,7 +74,11 @@ export async function createSearchablePdfWithSpaces(
     imageWidthPixels: number,
     imageHeightPixels: number,
     extractionDpi = 150,
-): Promise<{ success: boolean; pdfBuffer: Buffer | null; error?: string }> {
+): Promise<{
+    success: boolean;
+    pdfBuffer: Buffer | null;
+    error?: string 
+}> {
     try {
         // CRITICAL FIX: Convert pixel dimensions to PDF points (72 points per inch)
         // This prevents the 2x upscaling issue
@@ -107,7 +113,10 @@ export async function createSearchablePdfWithSpaces(
         }
 
         // Add page at CORRECT size (PDF points, not image pixels)
-        const page = pdfDoc.addPage([pageWidthPts, pageHeightPts]);
+        const page = pdfDoc.addPage([
+            pageWidthPts,
+            pageHeightPts,
+        ]);
 
         // Embed the image
         let image;

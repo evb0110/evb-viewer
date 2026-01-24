@@ -18,6 +18,19 @@ async function isServerRunning() {
 }
 
 export async function startServer() {
+    if (nuxtProcess && nuxtProcess.exitCode !== null) {
+        nuxtProcess = null;
+    }
+
+    // If we previously spawned the server, treat it as internal even though it answers on localhost.
+    if (nuxtProcess && nuxtProcess.exitCode === null) {
+        usingExternalServer = false;
+        if (!serverReady) {
+            serverReady = Promise.resolve();
+        }
+        return;
+    }
+
     if (await isServerRunning()) {
         console.log('[Electron] Nuxt server already running, connecting...');
         usingExternalServer = true;
@@ -26,11 +39,27 @@ export async function startServer() {
     }
 
     console.log('[Electron] Starting Nuxt server...');
+    usingExternalServer = false;
     // Use definite assignment assertion - resolveReady is guaranteed to be assigned
     // by the Promise constructor before any code that uses it can execute
     let resolveReady!: () => void;
-    serverReady = new Promise((resolve) => {
-        resolveReady = resolve;
+    let rejectReady!: (err: Error) => void;
+    let readySettled = false;
+    serverReady = new Promise<void>((resolve, reject) => {
+        resolveReady = () => {
+            if (readySettled) {
+                return;
+            }
+            readySettled = true;
+            resolve();
+        };
+        rejectReady = (err) => {
+            if (readySettled) {
+                return;
+            }
+            readySettled = true;
+            reject(err);
+        };
     });
 
     if (config.isDev) {
@@ -68,8 +97,29 @@ export async function startServer() {
         }
     });
 
+    // Fallback: don't rely solely on log output for readiness (Nuxt output format may change).
+    void (async () => {
+        const POLL_INTERVAL_MS = 250;
+        while (!readySettled && nuxtProcess && nuxtProcess.exitCode === null) {
+            if (await isServerRunning()) {
+                resolveReady();
+                return;
+            }
+            await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+        }
+    })();
+
     nuxtProcess.on('error', (err) => {
         console.error('Failed to start Nuxt server:', err);
+        rejectReady(err instanceof Error ? err : new Error(String(err)));
+    });
+
+    nuxtProcess.on('exit', (code, signal) => {
+        if (readySettled || usingExternalServer) {
+            return;
+        }
+
+        rejectReady(new Error(`[Electron] Nuxt process exited before ready (code: ${code ?? 'null'}, signal: ${signal ?? 'null'})`));
     });
 }
 

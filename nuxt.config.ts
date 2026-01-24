@@ -11,6 +11,9 @@ export default defineNuxtConfig({
 
     ssr: false,
 
+    // Disable SPA loading template - causes jerky size changes due to scrollbar appearance
+    spaLoadingTemplate: false,
+
     devtools: {enabled: false},
 
     devServer: {port: 3235},

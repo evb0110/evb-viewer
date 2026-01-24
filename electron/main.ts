@@ -17,7 +17,6 @@ async function init() {
     registerIpcHandlers();
     await initRecentFilesCache();
     setupMenu();
-    void createWindow();
 
     app.on('window-all-closed', () => {
         stopServer();
@@ -29,9 +28,11 @@ async function init() {
 
     app.on('activate', () => {
         if (!hasWindows()) {
-            createWindow();
+            void createWindow();
         }
     });
+
+    await createWindow();
 }
 
 void init();

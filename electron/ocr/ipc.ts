@@ -10,12 +10,22 @@ import {
     unlink,
     writeFile,
 } from 'fs/promises';
-import { join } from 'path';
+import {
+    availableParallelism,
+    cpus,
+} from 'os';
+import {
+    dirname,
+    join,
+} from 'path';
+import { fileURLToPath } from 'url';
+import { Worker } from 'worker_threads';
 import {
     runOcr,
     runOcrWithBoundingBoxes,
 } from '@electron/ocr/tesseract';
 import { createSearchablePdfWithSpaces } from '@electron/ocr/pdf-text-layer';
+import { getOcrPaths } from '@electron/ocr/paths';
 import type {
     IOcrLanguage,
     IOcrWord,
@@ -28,7 +38,215 @@ import { saveOcrIndex } from '@electron/search/ipc';
 import { runCommand } from '@electron/utils/exec';
 import { createLogger } from '@electron/utils/logger';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
 const log = createLogger('ocr-ipc');
+
+// Worker thread management for non-blocking OCR
+interface IOcrJob {
+    jobId: string;
+    worker: Worker;
+    webContentsId: number;
+}
+
+const activeJobs = new Map<string, IOcrJob>();
+
+function getWorkerPath(): string {
+    // Worker is compiled to dist-electron alongside main.js
+    // __dirname resolves to dist-electron (where main.js is)
+    return join(__dirname, 'ocr-worker.js');
+}
+
+function createOcrWorker(): Worker {
+    const { binary, tessdata } = getOcrPaths();
+    const workerPath = getWorkerPath();
+
+    log.debug(`Creating OCR worker: ${workerPath}`);
+    log.debug(`Tesseract binary: ${binary}, tessdata: ${tessdata}`);
+
+    return new Worker(workerPath, {
+        workerData: {
+            tesseractBinary: binary,
+            tessdataPath: tessdata,
+            tempDir: app.getPath('temp'),
+        },
+    });
+}
+
+function handleWorkerMessage(
+    jobId: string,
+    webContentsId: number,
+    message: {
+        type: 'progress' | 'complete' | 'log';
+        jobId?: string;
+        progress?: {
+            requestId: string;
+            currentPage: number;
+            processedCount: number;
+            totalPages: number;
+        };
+        result?: {
+            success: boolean;
+            pdfData: number[] | null;
+            pdfPath?: string;
+            errors: string[];
+        };
+        level?: string;
+        message?: string;
+    },
+) {
+    const window = BrowserWindow.getAllWindows().find(w => w.webContents.id === webContentsId);
+
+    if (message.type === 'log') {
+        // Forward worker logs to main logger
+        const logLevel = message.level || 'debug';
+        if (logLevel === 'warn') {
+            log.warn(message.message || '');
+        } else if (logLevel === 'error') {
+            log.debug(`[worker-error] ${message.message || ''}`);
+        } else {
+            log.debug(`[worker] ${message.message || ''}`);
+        }
+        return;
+    }
+
+    if (message.type === 'progress' && message.progress) {
+        // Forward progress to renderer
+        window?.webContents.send('ocr:progress', message.progress);
+        return;
+    }
+
+    if (message.type === 'complete' && message.result) {
+        // Forward completion to renderer
+        window?.webContents.send('ocr:complete', {
+            requestId: jobId,
+            ...message.result,
+        });
+
+        // Clean up the job
+        const job = activeJobs.get(jobId);
+        if (job) {
+            job.worker.terminate();
+            activeJobs.delete(jobId);
+        }
+        return;
+    }
+}
+
+const PNG_SIGNATURE = Buffer.from([
+    0x89,
+    0x50,
+    0x4E,
+    0x47,
+    0x0D,
+    0x0A,
+    0x1A,
+    0x0A,
+]);
+
+function parsePositiveInt(value: string | undefined): number | null {
+    if (!value) {
+        return null;
+    }
+
+    const parsed = parseInt(value, 10);
+    if (Number.isNaN(parsed) || parsed <= 0) {
+        return null;
+    }
+
+    return parsed;
+}
+
+function getCpuCount(): number {
+    const count = typeof availableParallelism === 'function'
+        ? availableParallelism()
+        : cpus().length;
+    return Math.max(1, count);
+}
+
+function getOcrConcurrency(targetCount: number): number {
+    const configured = parsePositiveInt(process.env.OCR_CONCURRENCY);
+    if (configured) {
+        return Math.max(1, Math.min(configured, targetCount));
+    }
+
+    const cpuCount = getCpuCount();
+    // Bound concurrency to avoid spawning too many heavy OCR processes (tessdata_best is memory-hungry).
+    const defaultConcurrency = Math.min(cpuCount, 8);
+    return Math.max(1, Math.min(defaultConcurrency, targetCount));
+}
+
+function getTesseractThreadLimit(concurrency: number): number {
+    const configured = parsePositiveInt(process.env.OCR_TESSERACT_THREADS);
+    if (configured) {
+        return configured;
+    }
+
+    const cpuCount = getCpuCount();
+    return Math.max(1, Math.floor(cpuCount / Math.max(1, concurrency)));
+}
+
+async function forEachConcurrent<T>(
+    items: T[],
+    concurrency: number,
+    fn: (item: T, index: number) => Promise<void>,
+): Promise<void> {
+    const workerCount = Math.max(1, Math.min(concurrency, items.length));
+    let nextIndex = 0;
+
+    const workers = Array.from({ length: workerCount }, async () => {
+        while (true) {
+            const index = nextIndex++;
+            if (index >= items.length) {
+                return;
+            }
+
+            await fn(items[index]!, index);
+        }
+    });
+
+    await Promise.all(workers);
+}
+
+function getPngDimensions(imageBuffer: Buffer): {
+    width: number;
+    height: number;
+} | null {
+    // PNG header is always 8 bytes, followed by IHDR (length+type+data...).
+    // IHDR width/height are big-endian uint32 at byte offsets 16 and 20.
+    if (imageBuffer.length < 24) {
+        return null;
+    }
+
+    if (!imageBuffer.subarray(0, 8).equals(PNG_SIGNATURE)) {
+        return null;
+    }
+
+    const width = imageBuffer.readUInt32BE(16);
+    const height = imageBuffer.readUInt32BE(20);
+    if (width <= 0 || height <= 0) {
+        return null;
+    }
+
+    return {
+        width,
+        height,
+    };
+}
+
+function getSequentialProgressPage(
+    pages: Array<{ pageNumber: number }>,
+    processedCount: number,
+): number {
+    if (pages.length === 0) {
+        return 0;
+    }
+
+    // Keep UI page numbers monotonic even when work is done in parallel.
+    const index = Math.min(Math.max(processedCount, 0), pages.length - 1);
+    return pages[index]?.pageNumber ?? 0;
+}
 
 interface IOcrPageRequest {
     pageNumber: number;
@@ -123,34 +341,45 @@ async function handleOcrRecognizeBatch(
     const results: Record<number, string> = {};
     const errors: string[] = [];
 
-    for (let i = 0; i < pages.length; i++) {
-        const page = pages[i];
-        if (!page) continue;
+    const targetPages = pages.filter((p): p is IOcrPageRequest => !!p);
+    const concurrency = getOcrConcurrency(targetPages.length);
+    const tesseractThreads = getTesseractThreadLimit(concurrency);
 
-        // Send progress update
-        window?.webContents.send('ocr:progress', {
-            requestId,
-            currentPage: page.pageNumber,
-            processedCount: i,
-            totalPages: pages.length,
-        });
+    log.debug(`OCR batch: pages=${targetPages.length}, concurrency=${concurrency}, threads=${tesseractThreads}`);
 
-        const imageBuffer = Buffer.from(page.imageData);
-        const result = await runOcr(imageBuffer, page.languages);
+    let processedCount = 0;
 
-        if (result.success) {
-            results[page.pageNumber] = result.text;
-        } else {
-            errors.push(`Page ${page.pageNumber}: ${result.error}`);
-        }
-    }
-
-    // Send final progress
+    // Send immediate progress update so UI shows feedback right away
     window?.webContents.send('ocr:progress', {
         requestId,
-        currentPage: pages[pages.length - 1]?.pageNumber ?? 0,
-        processedCount: pages.length,
-        totalPages: pages.length,
+        currentPage: targetPages[0]?.pageNumber ?? 0,
+        processedCount,
+        totalPages: targetPages.length,
+    });
+
+    await forEachConcurrent(targetPages, concurrency, async (page) => {
+        const imageBuffer = Buffer.from(page.imageData);
+
+        try {
+            const result = await runOcr(imageBuffer, page.languages, {threads: tesseractThreads});
+
+            if (result.success) {
+                results[page.pageNumber] = result.text;
+            } else {
+                errors.push(`Page ${page.pageNumber}: ${result.error}`);
+            }
+        } catch (err) {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            errors.push(`Page ${page.pageNumber}: ${errMsg}`);
+        } finally {
+            processedCount += 1;
+            window?.webContents.send('ocr:progress', {
+                requestId,
+                currentPage: getSequentialProgressPage(targetPages, processedCount),
+                processedCount,
+                totalPages: targetPages.length,
+            });
+        }
     });
 
     return {
@@ -159,407 +388,92 @@ async function handleOcrRecognizeBatch(
     };
 }
 
-async function handleOcrCreateSearchablePdf(
+/**
+ * Non-blocking OCR handler using Worker Threads.
+ *
+ * This function returns immediately with the job ID. The actual OCR processing
+ * happens in a separate worker thread, and results are sent via 'ocr:complete'
+ * IPC message when done.
+ */
+function handleOcrCreateSearchablePdfAsync(
     event: IpcMainInvokeEvent,
-    originalPdfData: Uint8Array,  // Electron IPC transfers Uint8Array efficiently
+    originalPdfData: Uint8Array,
     pages: IOcrPdfPageRequest[],
     requestId: string,
     workingCopyPath?: string,
-) {
-    const tempFiles = new Set<string>();
-    const keepFiles = new Set<string>();
-
-    const trackTempFile = (filePath: string) => {
-        tempFiles.add(filePath);
-        return filePath;
-    };
+): { started: boolean; jobId: string; error?: string } {
+    log.debug(`handleOcrCreateSearchablePdfAsync called: pdfLen=${originalPdfData.length}, pages=${pages.length}, reqId=${requestId}`);
 
     try {
-        log.debug(`handleOcrCreateSearchablePdf called: pdfLen=${originalPdfData.length}, pages=${pages.length}, reqId=${requestId}`);
+        const worker = createOcrWorker();
+        const webContentsId = event.sender.id;
 
-        const window = BrowserWindow.fromWebContents(event.sender);
-        const errors: string[] = [];
-        const tempDir = app.getPath('temp');
-        const sessionId = `ocr-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-
-        // Write original PDF to temp file first (Uint8Array received directly from IPC)
-        const originalPdfBytes = originalPdfData;
-        const originalPdfPath = trackTempFile(join(tempDir, `${sessionId}-original.pdf`));
-        await writeFile(originalPdfPath, originalPdfBytes);
-        const writtenFileSize = (await stat(originalPdfPath)).size;
-        log.debug(`Wrote original PDF to ${originalPdfPath}, size: ${writtenFileSize} bytes (expected: ${originalPdfData.length})`);
-        if (writtenFileSize !== originalPdfData.length) {
-            const errMsg = `PDF file size mismatch: wrote ${writtenFileSize} bytes but expected ${originalPdfData.length}`;
-            log.debug(`ERROR: ${errMsg}`);
-            errors.push(errMsg);
-            return {
-                success: false,
-                pdfData: null,
-                errors, 
-            };
-        }
-
-        const ocrPageData: IOcrPageWithWords[] = [];
-
-        // Send immediate progress update so UI shows feedback right away
-        // (before any page extraction which can take several seconds)
-        window?.webContents.send('ocr:progress', {
-            requestId,
-            currentPage: pages[0]?.pageNumber ?? 1,
-            processedCount: 0,
-            totalPages: pages.length,
+        // Track the job
+        activeJobs.set(requestId, {
+            jobId: requestId,
+            worker,
+            webContentsId,
         });
 
-        for (let i = 0; i < pages.length; i++) {
-            const page = pages[i];
-            if (!page) continue;
-            log.debug(`Processing page ${page.pageNumber}`);
+        // Handle messages from worker
+        worker.on('message', (message) => {
+            handleWorkerMessage(requestId, webContentsId, message);
+        });
 
-            // Send progress update
-            window?.webContents.send('ocr:progress', {
+        // Handle worker errors
+        worker.on('error', (err: Error) => {
+            log.debug(`Worker error for job ${requestId}: ${err.message}`);
+            const window = BrowserWindow.getAllWindows().find(w => w.webContents.id === webContentsId);
+            window?.webContents.send('ocr:complete', {
                 requestId,
-                currentPage: page.pageNumber,
-                processedCount: i,
-                totalPages: pages.length,
+                success: false,
+                pdfData: null,
+                errors: [`Worker error: ${err.message}`],
             });
-
-            try {
-                // Extract page image from source PDF using pdftoppm at 150 DPI for good quality
-                // 150 DPI gives us ~2.1x scale on standard letter-size pages
-                const pageImagePath = trackTempFile(join(tempDir, `${sessionId}-page-${page.pageNumber}.png`));
-                log.debug(`Extracting page ${page.pageNumber} from PDF to ${pageImagePath}`);
-
-                // pdftoppm: -png output as PNG, -singlefile output single file (not -001, -002, etc), -f/-l first/last page
-                // Using spawnSync with args array to prevent shell injection
-                await runCommand('pdftoppm', [
-                    '-png',
-                    '-r',
-                    '150',
-                    '-f',
-                    String(page.pageNumber),
-                    '-l',
-                    String(page.pageNumber),
-                    '-singlefile',
-                    originalPdfPath,
-                    pageImagePath.replace(/\.png$/, ''),
-                ]);
-
-                const imageBuffer = await readFile(pageImagePath);
-                log.debug(`Extracted page image: ${imageBuffer.length} bytes`);
-
-                // Measure the extracted image dimensions to pass to Tesseract
-                // pdftoppm creates images at the exact page size, but we need to tell Tesseract the dimensions
-                // Using spawnSync with args array to prevent shell injection
-                const identifyResult = await runCommand('identify', [
-                    '-format',
-                    '%wx%h',
-                    pageImagePath,
-                ]);
-                const identifyOutput = (identifyResult.stdout ?? '').trim();
-                const [
-                    widthStr,
-                    heightStr,
-                ] = identifyOutput.split('x');
-                const imageWidth = parseInt(widthStr ?? '0', 10);
-                const imageHeight = parseInt(heightStr ?? '0', 10);
-                log.debug(`Page image dimensions: ${imageWidth}x${imageHeight}`);
-
-                try {
-                    const result = await runOcrWithBoundingBoxes(
-                        imageBuffer,
-                        page.languages,
-                        imageWidth,
-                        imageHeight,
-                    );
-                    log.debug(`runOcrWithBoundingBoxes result: success=${result.success}, words=${result.pageData?.words.length}, error=${result.error}`);
-
-                    if (result.success && result.pageData) {
-                        ocrPageData.push({
-                            pageNumber: page.pageNumber,
-                            words: result.pageData.words,
-                            text: result.pageData.text,
-                            imageWidth: result.pageData.pageWidth,
-                            imageHeight: result.pageData.pageHeight,
-                            imageBuffer,
-                            languages: page.languages,
-                        });
-                    } else {
-                        errors.push(`Page ${page.pageNumber}: ${result.error}`);
-                    }
-                } catch (err) {
-                    const errMsg = err instanceof Error ? err.message : String(err);
-                    log.debug(`runOcrWithBoundingBoxes threw: ${errMsg}`);
-                    errors.push(`Page ${page.pageNumber}: ${errMsg}`);
-                } finally {
-                    // Cleanup extracted page image
-                    try {
-                        await unlink(pageImagePath);
-                    } catch (cleanupErr) {
-                        log.warn(`Cleanup warning (pageImagePath): ${cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)}`);
-                    }
-                }
-            } catch (err) {
-                const errMsg = err instanceof Error ? err.message : String(err);
-                log.debug(`Failed to extract page ${page.pageNumber}: ${errMsg}`);
-                errors.push(`Failed to extract page ${page.pageNumber}: ${errMsg}`);
-            }
-        }
-
-        log.debug(`OCR loop done. ocrPageData=${ocrPageData.length}, errors=${errors.length}`);
-
-        // Send final progress
-        window?.webContents.send('ocr:progress', {
-            requestId,
-            currentPage: pages[pages.length - 1]?.pageNumber ?? 0,
-            processedCount: pages.length,
-            totalPages: pages.length,
+            activeJobs.delete(requestId);
         });
 
-        if (ocrPageData.length === 0) {
-            return {
-                success: false,
-                pdfData: null,
-                errors, 
-            };
-        }
-
-        // Generate searchable Tesseract PDF for EACH OCR'd page
-        const ocrPdfMap: Map<number, string> = new Map(); // pageNumber -> path to OCR PDF
-
-        try {
-            log.debug(`Generating searchable PDF for ${ocrPageData.length} OCR'd page(s)`);
-
-            for (const pageData of ocrPageData) {
-                log.debug(`Generating searchable PDF for page ${pageData.pageNumber}`);
-
-                try {
-                    // Use custom PDF generator with explicit spaces for better copy/paste
-                    // Pass extraction DPI (150) so coordinates are properly scaled to PDF points (72 DPI)
-                    const result = await createSearchablePdfWithSpaces(
-                        pageData.imageBuffer!,
-                        pageData.words,
-                        pageData.imageWidth,
-                        pageData.imageHeight,
-                        150, // Extraction DPI - must match pdftoppm -r parameter above
-                    );
-
-                    if (result.success && result.pdfBuffer) {
-                        const ocrPdfPath = trackTempFile(join(tempDir, `${sessionId}-ocr-page-${pageData.pageNumber}.pdf`));
-                        await writeFile(ocrPdfPath, result.pdfBuffer);
-                        ocrPdfMap.set(pageData.pageNumber, ocrPdfPath);
-                        log.debug(`Saved OCR PDF for page ${pageData.pageNumber}: ${result.pdfBuffer.length} bytes`);
-                    } else {
-                        errors.push(`Failed to generate PDF for page ${pageData.pageNumber}: ${result.error}`);
-                        log.debug(`PDF generation failed for page ${pageData.pageNumber}: ${result.error}`);
-                    }
-                } catch (err) {
-                    const errMsg = err instanceof Error ? err.message : String(err);
-                    errors.push(`Error generating PDF for page ${pageData.pageNumber}: ${errMsg}`);
-                    log.debug(`Exception generating PDF for page ${pageData.pageNumber}: ${errMsg}`);
-                }
-            }
-
-            if (ocrPdfMap.size === 0) {
-                log.debug('No OCR PDFs generated successfully');
-                return {
+        // Handle worker exit
+        worker.on('exit', (code) => {
+            if (code !== 0) {
+                log.debug(`Worker exited with code ${code} for job ${requestId}`);
+                const window = BrowserWindow.getAllWindows().find(w => w.webContents.id === webContentsId);
+                window?.webContents.send('ocr:complete', {
+                    requestId,
                     success: false,
                     pdfData: null,
-                    errors, 
-                };
+                    errors: [`Worker exited unexpectedly with code ${code}`],
+                });
             }
+            activeJobs.delete(requestId);
+        });
 
-            log.debug(`Successfully generated ${ocrPdfMap.size} OCR PDF(s)`);
+        // Start the OCR job in the worker
+        worker.postMessage({
+            type: 'start',
+            jobId: requestId,
+            data: {
+                originalPdfData,
+                pages,
+                workingCopyPath,
+            },
+        });
 
-            let mergedPdfPath = '';
+        log.debug(`OCR job ${requestId} started in worker thread`);
 
-            try {
-                // Use qpdf for efficient page substitution (no need to extract all pages)
-                const ocrPageNumbers = Array.from(ocrPdfMap.keys()).sort((a, b) => a - b);
-                const minOcrPage = ocrPageNumbers[0] ?? 1;
-                const maxOcrPage = ocrPageNumbers[ocrPageNumbers.length - 1] ?? 1;
-
-                log.debug(`OCR'd pages: ${minOcrPage} to ${maxOcrPage}`);
-
-                // Merge using qpdf for efficient page substitution
-                mergedPdfPath = trackTempFile(join(tempDir, `${sessionId}-merged.pdf`));
-
-                if (ocrPageNumbers.length === 0) {
-                    return {
-                        success: false,
-                        pdfData: null,
-                        errors: ['No OCR pages to process'],
-                    };
-                }
-
-                // Get page count from original PDF using qpdf --show-npages
-                // Declared outside try block so it's accessible for saveOcrIndex later
-                let pageCount = maxOcrPage;
-                try {
-                    const pageCountResult = await runCommand('qpdf', [
-                        '--show-npages',
-                        originalPdfPath,
-                    ]);
-                    const parsed = parseInt((pageCountResult.stdout ?? '').trim(), 10);
-                    if (Number.isFinite(parsed) && parsed > 0) {
-                        pageCount = parsed;
-                    }
-                    log.debug(`Original PDF has ${pageCount} pages`);
-                } catch (err) {
-                    const errMsg = err instanceof Error ? err.message : String(err);
-                    log.debug(`Failed to get page count, using fallback (${pageCount}): ${errMsg}`);
-                }
-
-                try {
-                    // Build qpdf args array for intelligent substitution
-                    // Strategy: Use OCR'd pages where available, original pages otherwise
-                    // qpdf --pages syntax is: file1 page-spec file2 page-spec ...
-
-                    const qpdfArgs: string[] = [
-                        originalPdfPath,
-                        '--pages',
-                    ];
-                    let lastPage = 0;
-
-                    for (const pageNum of ocrPageNumbers) {
-                        // Add original pages before this OCR page (if any gap)
-                        if (lastPage + 1 < pageNum) {
-                            qpdfArgs.push(originalPdfPath, `${lastPage + 1}-${pageNum - 1}`);
-                        }
-                        // Add OCR page
-                        const ocrPath = ocrPdfMap.get(pageNum)!;
-                        qpdfArgs.push(ocrPath, '1');
-                        lastPage = pageNum;
-                    }
-
-                    // Add any remaining pages from the original after the last OCR page
-                    if (lastPage < pageCount) {
-                        qpdfArgs.push(originalPdfPath, `${lastPage + 1}-${pageCount}`);
-                    }
-
-                    // Add output path
-                    qpdfArgs.push('--', mergedPdfPath);
-
-                    log.debug('Using qpdf for efficient page substitution');
-                    log.debug(`qpdf args: ${qpdfArgs.join(' ')}`);
-
-                    const allowedExitCodes = [
-                        0,
-                        3,
-                    ];
-                    const qpdfResult = await runCommand('qpdf', qpdfArgs, { allowedExitCodes });
-
-                    if (qpdfResult.exitCode === 3) {
-                        log.debug('qpdf completed with exit code 3 (warnings, but file created successfully)');
-                    } else {
-                        log.debug('qpdf substitution completed successfully');
-                    }
-                } catch (qpdfErr) {
-                    // qpdf is required for efficient page substitution
-                    const errMsg = qpdfErr instanceof Error ? qpdfErr.message : String(qpdfErr);
-                    log.debug(`qpdf page substitution failed: ${errMsg}`);
-                    errors.push(`Failed to merge OCR'd pages with original PDF: ${errMsg}`);
-                    return {
-                        success: false,
-                        pdfData: null,
-                        errors, 
-                    };
-                }
-
-                // Read merged PDF
-                const mergedPdfBuffer = await readFile(mergedPdfPath);
-                log.debug(`Merged PDF size: ${mergedPdfBuffer.length} bytes`);
-
-                // Save search index for OCR'd pages
-                try {
-                    const indexPageData = ocrPageData.map(pd => ({
-                        pageNumber: pd.pageNumber,
-                        words: pd.words,
-                        text: pd.text,
-                        pageWidth: pd.imageWidth,
-                        pageHeight: pd.imageHeight,
-                    }));
-
-                    // Save index to working copy path if provided, otherwise to original path
-                    // The index file will be: /working/copy/path/file.pdf.index.json or /original/path/file.pdf.index.json
-                    const indexPath = workingCopyPath || originalPdfPath;
-                    await saveOcrIndex(indexPath, indexPageData, pageCount);
-                    log.debug(`Search index saved for OCR'd PDF at ${indexPath}.index.json`);
-                    if (!workingCopyPath) {
-                        trackTempFile(`${indexPath}.index.json`);
-                    }
-                } catch (indexErr) {
-                    const indexErrMsg = indexErr instanceof Error ? indexErr.message : String(indexErr);
-                    log.debug(`Warning: Failed to save search index: ${indexErrMsg}`);
-                    // Non-blocking - don't fail OCR if index save fails
-                }
-
-                // For large PDFs (>50MB), save to temp file and return path instead of trying to serialize huge array
-                if (mergedPdfBuffer.length > 50 * 1024 * 1024) {
-                    keepFiles.add(mergedPdfPath);
-                    log.debug(`Large PDF saved to temp file: ${mergedPdfPath}`);
-                    return {
-                        success: true,
-                        pdfData: null,
-                        pdfPath: mergedPdfPath,
-                        errors,
-                    };
-                }
-
-                return {
-                    success: true,
-                    pdfData: Array.from(mergedPdfBuffer),
-                    errors,
-                };
-
-            } catch (mergeErr) {
-                const mergeMsg = mergeErr instanceof Error ? mergeErr.message : String(mergeErr);
-                log.debug(`PDF merge failed: ${mergeMsg}`);
-                errors.push(`PDF merge failed: ${mergeMsg}`);
-                return {
-                    success: false,
-                    pdfData: null,
-                    errors, 
-                };
-            }
-        } catch (err) {
-            const errMsg = err instanceof Error ? err.message : String(err);
-            log.debug(`Error in page substitution: ${errMsg}`);
-            errors.push(`Page substitution failed: ${errMsg}`);
-            return {
-                success: false,
-                pdfData: null,
-                errors, 
-            };
-        }
+        // Return immediately - results will be sent via 'ocr:complete' event
+        return {
+            started: true,
+            jobId: requestId,
+        };
     } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
-        const errStack = err instanceof Error ? err.stack : '';
-        log.debug(`CRITICAL ERROR in handleOcrCreateSearchablePdf: ${errMsg}`);
-        log.debug(`Stack: ${errStack}`);
+        log.debug(`Failed to start OCR worker: ${errMsg}`);
         return {
-            success: false,
-            pdfData: null,
-            errors: [`Critical error: ${errMsg}`],
+            started: false,
+            jobId: requestId,
+            error: errMsg,
         };
-    } finally {
-        for (const filePath of tempFiles) {
-            if (keepFiles.has(filePath)) {
-                continue;
-            }
-
-            try {
-                await unlink(filePath);
-            } catch (cleanupErr) {
-                const isNotFound = typeof cleanupErr === 'object'
-                    && cleanupErr !== null
-                    && 'code' in cleanupErr
-                    && (cleanupErr as { code?: unknown }).code === 'ENOENT';
-                if (isNotFound) {
-                    continue;
-                }
-                log.warn(`Cleanup warning (${filePath}): ${cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)}`);
-            }
-        }
     }
 }
 
@@ -657,7 +571,8 @@ async function handlePreprocessPage(
 export function registerOcrHandlers() {
     ipcMain.handle('ocr:recognize', handleOcrRecognize);
     ipcMain.handle('ocr:recognizeBatch', handleOcrRecognizeBatch);
-    ipcMain.handle('ocr:createSearchablePdf', handleOcrCreateSearchablePdf);
+    // Use async worker-based handler that returns immediately
+    ipcMain.handle('ocr:createSearchablePdf', handleOcrCreateSearchablePdfAsync);
     ipcMain.handle('ocr:getLanguages', handleOcrGetLanguages);
     ipcMain.handle('preprocessing:validate', handlePreprocessingValidate);
     ipcMain.handle('preprocessing:preprocessPage', handlePreprocessPage);

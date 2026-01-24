@@ -51,3 +51,10 @@ npm start
 - `nuxt.config.ts` - SPA mode (`ssr: false`) and dev port `3235`
 - `electron/main.ts` - Electron main process
 - `app/pages/index.vue` - Main viewer UI
+
+## OCR Performance (optional)
+
+The OCR pipeline runs native Tesseract processes. You can tune parallelism via env vars:
+
+- `OCR_CONCURRENCY` - Max pages processed in parallel (default: `min(cpuCount, 8)`)
+- `OCR_TESSERACT_THREADS` - Thread limit passed to Tesseract via `OMP_*` env vars (default: `floor(cpuCount / OCR_CONCURRENCY)`)
