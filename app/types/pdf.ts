@@ -37,18 +37,21 @@ export interface IPdfLinkServiceOptions {
     goToPage: (page: number) => void;
 }
 
+export interface ISearchExcerpt {
+    prefix: boolean;
+    suffix: boolean;
+    before: string;
+    match: string;
+    after: string;
+}
+
 export interface IPdfSearchMatch {
     pageIndex: number;
+    pageMatchIndex?: number; // Ordinal on page (0, 1, 2...) - used for direct match mapping from backend
     matchIndex: number;
     startOffset: number;
     endOffset: number;
-    excerpt: {
-        prefix: boolean;
-        suffix: boolean;
-        before: string;
-        match: string;
-        after: string;
-    };
+    excerpt?: ISearchExcerpt;
     words?: IOcrWord[];
     pageWidth?: number;
     pageHeight?: number;

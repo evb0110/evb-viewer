@@ -1,6 +1,7 @@
 import type {
     IPdfPageMatches,
     IPdfSearchMatch,
+    ISearchExcerpt,
 } from '@app/types/pdf';
 
 const HIGHLIGHT_CLASS = 'pdf-search-highlight';
@@ -416,7 +417,7 @@ export const usePdfSearchHighlight = () => {
             return count;
         };
 
-        const buildExcerpt = (text: string, startOffset: number, endOffset: number): IPdfSearchMatch['excerpt'] => {
+        const buildExcerpt = (text: string, startOffset: number, endOffset: number): ISearchExcerpt => {
             const excerptStart = Math.max(0, startOffset - EXCERPT_CONTEXT_CHARS);
             const excerptEnd = Math.min(text.length, endOffset + EXCERPT_CONTEXT_CHARS);
 
@@ -475,8 +476,16 @@ export const usePdfSearchHighlight = () => {
             );
         }
 
-        let currentIndexOnPage = backendIndexOnPage;
-        if (backendIndexOnPage !== -1 && currentMatch?.excerpt) {
+        let currentIndexOnPage = -1;
+
+        // If pageMatchIndex is available, use it directly (OCR pages provide this)
+        if (currentMatch && currentMatch.pageMatchIndex !== undefined && currentMatch.pageIndex === pageMatches.pageIndex) {
+            currentIndexOnPage = currentMatch.pageMatchIndex;
+            if (isHighlightDebugEnabled()) {
+                console.log('[PDF-HIGHLIGHT] Using pageMatchIndex:', currentMatch.pageMatchIndex);
+            }
+        } else if (backendIndexOnPage !== -1 && currentMatch?.excerpt) {
+            // Fallback to fuzzy matching for non-OCR pages
             const expectedIndex = backendIndexOnPage;
             const targetBefore = normalizeContext(currentMatch.excerpt.before);
             const targetAfter = normalizeContext(currentMatch.excerpt.after);
@@ -512,6 +521,9 @@ export const usePdfSearchHighlight = () => {
             if (bestIndex !== -1) {
                 currentIndexOnPage = bestIndex;
             }
+        } else if (backendIndexOnPage !== -1) {
+            // Fallback when no excerpt is available
+            currentIndexOnPage = backendIndexOnPage;
         }
 
         const matchesWithCurrent = matchRanges.map((m, index) => ({

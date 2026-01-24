@@ -23,7 +23,8 @@ interface ISearchExcerpt {
 
 interface ISearchMatch {
     pageNumber: number;
-    matchIndex: number;
+    pageMatchIndex: number;  // Ordinal position of this match on the page (0, 1, 2...)
+    matchIndex: number;      // Global index across all pages
     startOffset: number;
     endOffset: number;
     excerpt: ISearchExcerpt;
@@ -254,6 +255,7 @@ async function handlePdfSearch(
             if (pageText) {
                 const lowerPageText = indexEntry.lowerTexts[pageIdx] ?? pageText.toLowerCase();
                 let position = 0;
+                let pageMatchIndex = 0;  // Track ordinal position within this page
 
                 while ((position = lowerPageText.indexOf(lowerQuery, position)) !== -1) {
                     const startOffset = position;
@@ -261,12 +263,14 @@ async function handlePdfSearch(
 
                     results.push({
                         pageNumber: page.pageNumber,
+                        pageMatchIndex,
                         matchIndex: globalMatchIndex,
                         startOffset,
                         endOffset,
                         excerpt: buildExcerpt(pageText, startOffset, endOffset),
                     });
 
+                    pageMatchIndex += 1;
                     globalMatchIndex += 1;
                     position += normalizedQuery.length;
 

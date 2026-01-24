@@ -232,6 +232,7 @@ export const useOcr = () => {
                 pageRequests,
                 requestId,
                 workingCopyPath,
+                settings.value.renderDpi,
             );
 
             console.log('[useOcr] OCR job started:', startResult);

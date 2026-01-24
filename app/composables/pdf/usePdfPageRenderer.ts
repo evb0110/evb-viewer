@@ -23,6 +23,7 @@ import { range } from 'es-toolkit/math';
 import { usePdfSearchHighlight } from '@app/composables/usePdfSearchHighlight';
 import { useTextLayerSelection } from '@app/composables/useTextLayerSelection';
 import { usePdfWordBoxes } from '@app/composables/usePdfWordBoxes';
+import { useOcrTextContent } from '@app/composables/pdf/useOcrTextContent';
 import type { usePdfDocument } from '@app/composables/pdf/usePdfDocument';
 
 interface IPageRange {
@@ -43,6 +44,12 @@ interface IUsePdfPageRendererOptions {
 
     searchPageMatches?: MaybeRefOrGetter<Map<number, IPdfPageMatches>>;
     currentSearchMatch?: MaybeRefOrGetter<IPdfSearchMatch | null>;
+
+    /**
+     * Path to the working copy of the PDF file.
+     * Used to look up OCR index data for OCR-derived text layers.
+     */
+    workingCopyPath?: MaybeRefOrGetter<string | null>;
 }
 
 const CONCURRENT_RENDERS = 3;
@@ -58,7 +65,11 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     const {
         renderPageWordBoxes,
         clearWordBoxes,
+        isOcrDebugEnabled,
+        clearOcrDebugBoxes,
+        renderOcrDebugBoxes,
     } = usePdfWordBoxes();
+    const { getOcrTextContent } = useOcrTextContent();
 
     const {
         numPages,
@@ -74,6 +85,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     const showAnnotations = options.showAnnotations ?? true;
     const searchPageMatches = options.searchPageMatches ?? new Map<number, IPdfPageMatches>();
     const currentSearchMatch = options.currentSearchMatch ?? null;
+    const workingCopyPath = options.workingCopyPath ?? null;
 
     const renderMutex = new Mutex();
     let renderVersion = 0;
@@ -332,6 +344,11 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             if (annotationLayerDiv) {
                 annotationLayerDiv.innerHTML = '';
             }
+
+            // Clear OCR debug boxes if they exist
+            if (container) {
+                clearOcrDebugBoxes(container);
+            }
         }
 
         try {
@@ -544,10 +561,33 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                             textLayerDiv.style.setProperty('--user-unit', String(userUnit));
                             textLayerDiv.style.setProperty('--total-scale-factor', String(totalScaleFactor));
 
-                            const textContent = await pdfPage.getTextContent({
-                                includeMarkedContent: true,
-                                disableNormalization: true,
-                            });
+                            // Try OCR-derived text content first (if OCR index exists)
+                            const currentWorkingCopyPath = toValue(workingCopyPath);
+                            let textContent = null;
+
+                            if (currentWorkingCopyPath) {
+                                try {
+                                    const ocrTextContent = await getOcrTextContent(
+                                        currentWorkingCopyPath,
+                                        pageNumber,
+                                        viewport,
+                                    );
+                                    if (ocrTextContent) {
+                                        textContent = ocrTextContent;
+                                    }
+                                } catch (ocrError) {
+                                    // OCR text content failed, will fall back to PDF.js extraction
+                                    console.warn('[usePdfPageRenderer] OCR text content failed:', ocrError);
+                                }
+                            }
+
+                            // Fallback to PDF.js extraction if no OCR content
+                            if (!textContent) {
+                                textContent = await pdfPage.getTextContent({
+                                    includeMarkedContent: true,
+                                    disableNormalization: true,
+                                });
+                            }
 
                             if (renderVersion !== version) {
                                 if (renderingPages.get(pageNumber) === version) {
@@ -714,6 +754,21 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                                     linkService: simpleLinkService,
                                     renderForms: false,
                                 });
+                            }
+                        }
+
+                        // Render OCR debug boxes if debug mode is enabled
+                        if (isOcrDebugEnabled()) {
+                            const wcPath = toValue(workingCopyPath);
+                            if (wcPath) {
+                                void renderOcrDebugBoxes(
+                                    container,
+                                    pageNumber,
+                                    wcPath,
+                                    viewport,
+                                    rawDims.pageWidth,
+                                    rawDims.pageHeight,
+                                );
                             }
                         }
 

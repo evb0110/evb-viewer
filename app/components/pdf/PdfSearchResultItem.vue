@@ -7,7 +7,10 @@
             <span class="pdf-search-result-page">Page {{ result.pageIndex + 1 }}</span>
             <span class="pdf-search-result-match">Match {{ result.matchIndex + 1 }}</span>
         </div>
-        <div class="pdf-search-result-snippet">
+        <div
+            v-if="result.excerpt"
+            class="pdf-search-result-snippet"
+        >
             <template v-if="result.excerpt.prefix">…</template>
             <span
                 ref="textRef"
@@ -44,12 +47,15 @@ const props = defineProps<IProps>();
 const textRef = ref<HTMLSpanElement | null>(null);
 const highlightId = `search-${Math.random().toString(36).slice(2)}`;
 
-const fullText = computed(() =>
-    props.result.excerpt.before + props.result.excerpt.match + props.result.excerpt.after,
-);
+const fullText = computed(() => {
+    if (!props.result.excerpt) {
+        return '';
+    }
+    return props.result.excerpt.before + props.result.excerpt.match + props.result.excerpt.after;
+});
 
-const matchStart = computed(() => props.result.excerpt.before.length);
-const matchEnd = computed(() => matchStart.value + props.result.excerpt.match.length);
+const matchStart = computed(() => props.result.excerpt?.before.length ?? 0);
+const matchEnd = computed(() => matchStart.value + (props.result.excerpt?.match.length ?? 0));
 
 function applyHighlight() {
     if (!textRef.value || typeof CSS === 'undefined' || !CSS.highlights) {

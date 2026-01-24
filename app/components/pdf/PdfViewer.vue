@@ -75,6 +75,8 @@ interface IProps {
     showAnnotations?: boolean;
     searchPageMatches?: Map<number, IPdfPageMatches>;
     currentSearchMatch?: IPdfSearchMatch | null;
+    /** Path to the working copy of the PDF for OCR text layer lookup */
+    workingCopyPath?: string | null;
 }
 
 const {
@@ -88,6 +90,7 @@ const {
     showAnnotations = true,
     searchPageMatches = new Map<number, IPdfPageMatches>(),
     currentSearchMatch = null,
+    workingCopyPath = null,
 } = defineProps<IProps>();
 
 const emit = defineEmits<{
@@ -160,6 +163,7 @@ const {
     scrollToPage,
     searchPageMatches: () => searchPageMatches,
     currentSearchMatch: () => currentSearchMatch,
+    workingCopyPath: () => workingCopyPath,
 });
 
 const pagesToRender = computed(() => range(1, numPages.value + 1));
@@ -617,6 +621,22 @@ defineExpose({
 .pdfViewer :deep(.pdf-word-box--current) {
     background: rgba(0, 150, 255, 0.25);
     border-color: rgba(0, 150, 255, 0.8);
+}
+
+/* OCR Debug boxes - orange to distinguish from regular word boxes (blue) */
+.pdfViewer :deep(.pdf-ocr-debug-layer) {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 10;
+}
+
+.pdfViewer :deep(.pdf-ocr-debug-box) {
+    position: absolute;
+    border: 1px solid rgba(255, 140, 0, 0.7);
+    background: rgba(255, 140, 0, 0.15);
+    pointer-events: none;
+    box-sizing: border-box;
 }
 </style>
 

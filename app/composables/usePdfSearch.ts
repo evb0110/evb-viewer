@@ -19,6 +19,7 @@ export type {
 interface IBackendSearchResult {
     pageNumber: number;
     matchIndex: number;
+    pageMatchIndex?: number; // Ordinal on page (0, 1, 2...) - returned by backend for OCR pages
     startOffset: number;
     endOffset: number;
     excerpt: IPdfSearchMatch['excerpt'];
@@ -140,6 +141,7 @@ export const usePdfSearch = () => {
             response.results.forEach((result, idx) => {
                 mergedResults.push({
                     pageIndex: result.pageNumber - 1,
+                    pageMatchIndex: result.pageMatchIndex,
                     matchIndex: result.matchIndex,
                     startOffset: result.startOffset,
                     endOffset: result.endOffset,

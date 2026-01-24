@@ -6,7 +6,6 @@ import {
 } from 'electron';
 import {
     readFile,
-    stat,
     unlink,
     writeFile,
 } from 'fs/promises';
@@ -20,22 +19,16 @@ import {
 } from 'path';
 import { fileURLToPath } from 'url';
 import { Worker } from 'worker_threads';
+import { runOcr } from '@electron/ocr/tesseract';
 import {
-    runOcr,
-    runOcrWithBoundingBoxes,
-} from '@electron/ocr/tesseract';
-import { createSearchablePdfWithSpaces } from '@electron/ocr/pdf-text-layer';
-import { getOcrPaths } from '@electron/ocr/paths';
-import type {
-    IOcrLanguage,
-    IOcrWord,
-} from '@app/types/shared';
+    getOcrToolPaths,
+    validateOcrTools,
+} from '@electron/ocr/paths';
+import type { IOcrLanguage } from '@app/types/shared';
 import {
     preprocessPageForOcr,
     validatePreprocessingSetup,
 } from '@electron/ocr/preprocessing';
-import { saveOcrIndex } from '@electron/search/ipc';
-import { runCommand } from '@electron/utils/exec';
 import { createLogger } from '@electron/utils/logger';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -59,19 +52,21 @@ function getWorkerPath(): string {
 }
 
 function createOcrWorker(): Worker {
-    const { binary, tessdata } = getOcrPaths();
+    const paths = getOcrToolPaths();
     const workerPath = getWorkerPath();
 
     log.debug(`Creating OCR worker: ${workerPath}`);
-    log.debug(`Tesseract binary: ${binary}, tessdata: ${tessdata}`);
+    log.debug(`Tool paths: tesseract=${paths.tesseract}, pdftoppm=${paths.pdftoppm}, qpdf=${paths.qpdf}`);
 
-    return new Worker(workerPath, {
-        workerData: {
-            tesseractBinary: binary,
-            tessdataPath: tessdata,
-            tempDir: app.getPath('temp'),
-        },
-    });
+    return new Worker(workerPath, {workerData: {
+        tesseractBinary: paths.tesseract,
+        tessdataPath: paths.tessdata,
+        pdftoppmBinary: paths.pdftoppm,
+        pdftotextBinary: paths.pdftotext,
+        qpdfBinary: paths.qpdf,
+        unpaperBinary: paths.unpaper,
+        tempDir: app.getPath('temp'),
+    }});
 }
 
 function handleWorkerMessage(
@@ -133,17 +128,6 @@ function handleWorkerMessage(
         return;
     }
 }
-
-const PNG_SIGNATURE = Buffer.from([
-    0x89,
-    0x50,
-    0x4E,
-    0x47,
-    0x0D,
-    0x0A,
-    0x1A,
-    0x0A,
-]);
 
 function parsePositiveInt(value: string | undefined): number | null {
     if (!value) {
@@ -209,32 +193,6 @@ async function forEachConcurrent<T>(
     await Promise.all(workers);
 }
 
-function getPngDimensions(imageBuffer: Buffer): {
-    width: number;
-    height: number;
-} | null {
-    // PNG header is always 8 bytes, followed by IHDR (length+type+data...).
-    // IHDR width/height are big-endian uint32 at byte offsets 16 and 20.
-    if (imageBuffer.length < 24) {
-        return null;
-    }
-
-    if (!imageBuffer.subarray(0, 8).equals(PNG_SIGNATURE)) {
-        return null;
-    }
-
-    const width = imageBuffer.readUInt32BE(16);
-    const height = imageBuffer.readUInt32BE(20);
-    if (width <= 0 || height <= 0) {
-        return null;
-    }
-
-    return {
-        width,
-        height,
-    };
-}
-
 function getSequentialProgressPage(
     pages: Array<{ pageNumber: number }>,
     processedCount: number,
@@ -257,16 +215,6 @@ interface IOcrPageRequest {
 interface IOcrPdfPageRequest {
     pageNumber: number;
     languages: string[];
-}
-
-interface IOcrPageWithWords {
-    pageNumber: number;
-    words: IOcrWord[];
-    text: string;
-    imageWidth: number;
-    imageHeight: number;
-    imageBuffer?: Buffer;
-    languages?: string[];
 }
 
 const AVAILABLE_LANGUAGES: IOcrLanguage[] = [
@@ -401,8 +349,13 @@ function handleOcrCreateSearchablePdfAsync(
     pages: IOcrPdfPageRequest[],
     requestId: string,
     workingCopyPath?: string,
-): { started: boolean; jobId: string; error?: string } {
-    log.debug(`handleOcrCreateSearchablePdfAsync called: pdfLen=${originalPdfData.length}, pages=${pages.length}, reqId=${requestId}`);
+    renderDpi?: number,
+): {
+    started: boolean;
+    jobId: string;
+    error?: string 
+} {
+    log.debug(`handleOcrCreateSearchablePdfAsync called: pdfLen=${originalPdfData.length}, pages=${pages.length}, reqId=${requestId}, dpi=${renderDpi}`);
 
     try {
         const worker = createOcrWorker();
@@ -456,6 +409,7 @@ function handleOcrCreateSearchablePdfAsync(
                 originalPdfData,
                 pages,
                 workingCopyPath,
+                renderDpi,
             },
         });
 
@@ -479,6 +433,10 @@ function handleOcrCreateSearchablePdfAsync(
 
 function handleOcrGetLanguages() {
     return AVAILABLE_LANGUAGES;
+}
+
+async function handleOcrValidateTools() {
+    return validateOcrTools();
 }
 
 function handlePreprocessingValidate() {
@@ -574,6 +532,7 @@ export function registerOcrHandlers() {
     // Use async worker-based handler that returns immediately
     ipcMain.handle('ocr:createSearchablePdf', handleOcrCreateSearchablePdfAsync);
     ipcMain.handle('ocr:getLanguages', handleOcrGetLanguages);
+    ipcMain.handle('ocr:validateTools', handleOcrValidateTools);
     ipcMain.handle('preprocessing:validate', handlePreprocessingValidate);
     ipcMain.handle('preprocessing:preprocessPage', handlePreprocessPage);
 }

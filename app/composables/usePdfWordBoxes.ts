@@ -1,4 +1,6 @@
+import type { PageViewport } from 'pdfjs-dist';
 import type { IOcrWord } from '@app/types/pdf';
+import { getElectronAPI } from '@app/utils/electron';
 
 export interface IWordBoxOverlay {
     x: number;
@@ -6,6 +8,34 @@ export interface IWordBoxOverlay {
     width: number;
     height: number;
     isCurrent: boolean;
+}
+
+/**
+ * OCR Index v2 page data schema (matches electron/ocr/ocr-worker.ts)
+ */
+interface IOcrIndexV2Page {
+    pageNumber: number;
+    rotation: 0 | 90 | 180 | 270;
+    render: {
+        dpi: number;
+        imagePx: {
+            w: number;
+            h: number 
+        };
+    };
+    text: string;
+    words: IOcrWord[];
+}
+
+/**
+ * Check if OCR debug mode is enabled via localStorage flag.
+ * When enabled, renders OCR word boxes from the OCR index for alignment validation.
+ */
+function isOcrDebugEnabled(): boolean {
+    if (typeof localStorage === 'undefined') {
+        return false;
+    }
+    return localStorage.getItem('pdfOcrDebugBoxes') === '1';
 }
 
 /**
@@ -260,10 +290,236 @@ export const usePdfWordBoxes = () => {
         boxes.forEach(box => boxContainer!.appendChild(box));
     }
 
+    /**
+     * Clear OCR debug boxes from a container
+     */
+    function clearOcrDebugBoxes(container: HTMLElement) {
+        const boxes = container.querySelectorAll('.pdf-ocr-debug-box');
+        boxes.forEach(box => box.remove());
+    }
+
+    /**
+     * Load OCR page data from the OCR index v2 directory.
+     * Returns null if no OCR index exists or page is not OCR'd.
+     */
+    async function loadOcrPageData(
+        workingCopyPath: string,
+        pageNumber: number,
+    ): Promise<IOcrIndexV2Page | null> {
+        try {
+            const api = getElectronAPI();
+            const pageFile = `page-${String(pageNumber).padStart(4, '0')}.json`;
+            const pagePath = `${workingCopyPath}.ocr/${pageFile}`;
+
+            // Check if OCR index exists
+            const exists = await api.fileExists(pagePath);
+            if (!exists) {
+                return null;
+            }
+
+            const content = await api.readTextFile(pagePath);
+            return JSON.parse(content) as IOcrIndexV2Page;
+        } catch (error) {
+            console.warn('[OcrDebug] Failed to load OCR page data:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Transform OCR word coordinates from pixel space to viewport screen coordinates.
+     *
+     * The OCR index stores word boxes in pixel coordinates (from the rasterized image).
+     * We need to convert these to screen coordinates matching the current viewport.
+     *
+     * Transformation steps:
+     * 1. Scale from OCR image pixels to PDF user space
+     * 2. Use viewport.convertToViewportRectangle to get screen coordinates
+     */
+    function transformOcrWordToViewport(
+        word: IOcrWord,
+        ocrPageData: IOcrIndexV2Page,
+        pageWidth: number,
+        pageHeight: number,
+        viewport: PageViewport,
+    ): {
+        x: number;
+        y: number;
+        width: number;
+        height: number 
+    } | null {
+        const imagePx = ocrPageData.render.imagePx;
+
+        // Scale from OCR pixels to PDF user space
+        // OCR coordinates are in raster pixel space; PDF user space is typically 72 DPI
+        const sx = pageWidth / imagePx.w;
+        const sy = pageHeight / imagePx.h;
+
+        // Convert word pixel coords to PDF user space
+        // Note: OCR y is top-down (image space), PDF y is bottom-up
+        const pdfX = word.x * sx;
+        const pdfY = pageHeight - (word.y + word.height) * sy; // Flip Y
+        const pdfX2 = (word.x + word.width) * sx;
+        const pdfY2 = pageHeight - word.y * sy;
+
+        // Use PDF.js viewport to convert to screen coordinates
+        // convertToViewportRectangle takes [x1, y1, x2, y2] in PDF user space
+        // and returns [screenX1, screenY1, screenX2, screenY2]
+        const rect = viewport.convertToViewportRectangle([
+            pdfX,
+            pdfY,
+            pdfX2,
+            pdfY2,
+        ]);
+
+        // The returned rect may have coordinates in any order depending on rotation
+        // Normalize to [left, top, right, bottom]
+        const [
+            x1,
+            y1,
+            x2,
+            y2,
+        ] = rect;
+        const left = Math.min(x1, x2);
+        const right = Math.max(x1, x2);
+        const top = Math.min(y1, y2);
+        const bottom = Math.max(y1, y2);
+
+        return {
+            x: left,
+            y: top,
+            width: right - left,
+            height: bottom - top,
+        };
+    }
+
+    /**
+     * Render OCR debug boxes from the OCR index for alignment validation.
+     *
+     * This function:
+     * 1. Loads OCR page data from the index
+     * 2. Transforms word pixel coords to viewport screen coords
+     * 3. Renders colored boxes (orange) to distinguish from regular word boxes (blue)
+     *
+     * Enable with: localStorage.setItem('pdfOcrDebugBoxes', '1')
+     */
+    async function renderOcrDebugBoxes(
+        pageContainer: HTMLElement,
+        pageNumber: number,
+        workingCopyPath: string | null,
+        viewport: PageViewport,
+        pageWidth: number,
+        pageHeight: number,
+    ): Promise<void> {
+        // Check if debug mode is enabled
+        if (!isOcrDebugEnabled()) {
+            return;
+        }
+
+        if (!workingCopyPath) {
+            console.log('[OcrDebug] No working copy path, skipping debug boxes');
+            return;
+        }
+
+        // Clear existing debug boxes first
+        clearOcrDebugBoxes(pageContainer);
+
+        // Load OCR page data from index
+        const ocrPageData = await loadOcrPageData(workingCopyPath, pageNumber);
+
+        if (!ocrPageData) {
+            console.log(`[OcrDebug] No OCR index found for page ${pageNumber}`);
+            return;
+        }
+
+        const words = ocrPageData.words;
+        if (!words || words.length === 0) {
+            console.log(`[OcrDebug] OCR index found but no words for page ${pageNumber}`);
+            return;
+        }
+
+        console.log(`[OcrDebug] Rendering ${words.length} OCR debug boxes for page ${pageNumber}`, {
+            imagePx: ocrPageData.render.imagePx,
+            dpi: ocrPageData.render.dpi,
+            rotation: ocrPageData.rotation,
+            pageWidth,
+            pageHeight,
+            viewportWidth: viewport.width,
+            viewportHeight: viewport.height,
+        });
+
+        // Get or create the debug layer
+        let debugLayer = pageContainer.querySelector<HTMLElement>('.pdf-ocr-debug-layer');
+        if (!debugLayer) {
+            debugLayer = document.createElement('div');
+            debugLayer.className = 'pdf-ocr-debug-layer';
+            debugLayer.style.cssText = `
+                position: absolute;
+                inset: 0;
+                pointer-events: none;
+                z-index: 10;
+            `;
+            pageContainer.appendChild(debugLayer);
+        }
+
+        // Track transformation issues for debugging
+        let transformErrors = 0;
+
+        // Render each word box
+        for (const word of words) {
+            const transformed = transformOcrWordToViewport(
+                word,
+                ocrPageData,
+                pageWidth,
+                pageHeight,
+                viewport,
+            );
+
+            if (!transformed || transformed.width <= 0 || transformed.height <= 0) {
+                transformErrors++;
+                continue;
+            }
+
+            const boxDiv = document.createElement('div');
+            boxDiv.className = 'pdf-ocr-debug-box';
+            boxDiv.setAttribute('data-word', word.text);
+            boxDiv.style.cssText = `
+                position: absolute;
+                left: ${transformed.x}px;
+                top: ${transformed.y}px;
+                width: ${transformed.width}px;
+                height: ${transformed.height}px;
+                border: 1px solid rgba(255, 140, 0, 0.7);
+                background: rgba(255, 140, 0, 0.15);
+                pointer-events: none;
+                box-sizing: border-box;
+            `;
+
+            debugLayer.appendChild(boxDiv);
+        }
+
+        // Log summary
+        const renderedCount = words.length - transformErrors;
+        console.log(`[OcrDebug] Page ${pageNumber}: rendered ${renderedCount}/${words.length} boxes`, {
+            transformErrors,
+            sampleWord: words[0] ? {
+                text: words[0].text,
+                originalCoords: {
+                    x: words[0].x,
+                    y: words[0].y,
+                    w: words[0].width,
+                    h: words[0].height, 
+                },
+            } : null,
+        });
+    }
+
     return {
         transformWordBox,
         createWordBoxOverlays,
         clearWordBoxes,
         renderPageWordBoxes,
+        isOcrDebugEnabled,
+        clearOcrDebugBoxes,
+        renderOcrDebugBoxes,
     };
 };

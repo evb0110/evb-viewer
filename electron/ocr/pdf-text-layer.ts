@@ -1,3 +1,8 @@
+// TODO: This file may be dead code. The OCR worker (ocr-worker.ts) has its own
+// inlined version of createTextLayerOnlyPdf. Neither createSearchablePdfWithSpaces
+// nor createTextLayerOnlyPdf from this file are imported anywhere.
+// Consider removing this file after verifying the worker's implementation is sufficient.
+
 import { readFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import {
@@ -104,7 +109,10 @@ export async function createTextLayerOnlyPdf(
         }
 
         // Add page at correct size (no image - just text layer)
-        const page = pdfDoc.addPage([pageWidthPts, pageHeightPts]);
+        const page = pdfDoc.addPage([
+            pageWidthPts,
+            pageHeightPts,
+        ]);
 
         // Draw invisible text layer
         for (const word of words) {
@@ -131,10 +139,17 @@ export async function createTextLayerOnlyPdf(
         }
 
         const pdfBytes = await pdfDoc.save();
-        return { success: true, pdfBuffer: Buffer.from(pdfBytes) };
+        return {
+            success: true,
+            pdfBuffer: Buffer.from(pdfBytes), 
+        };
     } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
-        return { success: false, pdfBuffer: null, error: errMsg };
+        return {
+            success: false,
+            pdfBuffer: null,
+            error: errMsg, 
+        };
     }
 }
 

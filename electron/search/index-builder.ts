@@ -1,7 +1,9 @@
+import { existsSync } from 'fs';
 import {
     readFile,
     writeFile,
 } from 'fs/promises';
+import { join } from 'path';
 import type { IOcrWord } from '@app/types/shared';
 import { extractTextFromPdf } from '@electron/search/pdf-text-extractor';
 import { createLogger } from '@electron/utils/logger';
@@ -27,6 +29,71 @@ const log = createLogger('index-builder');
 
 const STORE_WORD_BOXES = false;
 
+interface IOcrIndexV2Manifest {
+    version: number;
+    createdAt: number;
+    source: { pdfPath: string };
+    pageCount: number;
+    pageBox: string;
+    ocr: {
+        engine: string;
+        languages: string[];
+        renderDpi: number;
+    };
+    pages: Record<number, { path: string }>;
+}
+
+interface IOcrIndexV2Page {
+    pageNumber: number;
+    text: string;
+}
+
+/**
+ * Load OCR v2 index text for all pages.
+ * Returns a Map of pageNumber -> text, or null if no v2 index exists.
+ */
+async function loadOcrIndexText(pdfPath: string): Promise<Map<number, string> | null> {
+    const ocrDir = `${pdfPath}.ocr`;
+    const manifestPath = join(ocrDir, 'manifest.json');
+
+    if (!existsSync(manifestPath)) {
+        return null;
+    }
+
+    try {
+        const manifestJson = await readFile(manifestPath, 'utf-8');
+        const manifest = JSON.parse(manifestJson) as IOcrIndexV2Manifest;
+
+        if (manifest.version < 2) {
+            log.debug(`OCR index version ${manifest.version} < 2, skipping`);
+            return null;
+        }
+
+        const pageTexts = new Map<number, string>();
+
+        for (const [
+            pageNumStr,
+            pageInfo,
+        ] of Object.entries(manifest.pages)) {
+            const pageNum = parseInt(pageNumStr, 10);
+            const pagePath = join(ocrDir, pageInfo.path);
+
+            if (existsSync(pagePath)) {
+                const pageJson = await readFile(pagePath, 'utf-8');
+                const pageData = JSON.parse(pageJson) as IOcrIndexV2Page;
+                pageTexts.set(pageNum, pageData.text || '');
+            }
+        }
+
+        log.debug(`Loaded OCR v2 index with ${pageTexts.size} pages from ${ocrDir}`);
+        return pageTexts;
+    } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        log.debug(`Failed to load OCR v2 index: ${errMsg}`);
+        return null;
+    }
+}
+
 function getIndexPath(pdfPath: string) {
     return `${pdfPath}.index.json`;
 }
@@ -50,6 +117,46 @@ export async function buildSearchIndex(
 
     const expectedCount = options.pageCount;
 
+    // Try OCR v2 index first - this is the preferred source for OCR'd PDFs
+    // as it matches the text layer that PDF.js will display
+    const ocrTexts = await loadOcrIndexText(pdfPath);
+    if (ocrTexts && ocrTexts.size > 0) {
+        log.debug(`Using OCR v2 index with ${ocrTexts.size} pages`);
+        const pages: IPageIndex[] = [];
+        for (const [
+            pageNum,
+            text,
+        ] of ocrTexts) {
+            pages.push({
+                pageNumber: pageNum,
+                text,
+            });
+        }
+        pages.sort((a, b) => a.pageNumber - b.pageNumber);
+
+        const index: IPdfSearchIndex = {
+            pdfPath,
+            createdAt: Date.now(),
+            pages,
+            pageCount: typeof expectedCount === 'number' && expectedCount > 0
+                ? expectedCount
+                : pages.length,
+        };
+
+        // Save index for future use
+        const indexPath = getIndexPath(pdfPath);
+        try {
+            await writeFile(indexPath, JSON.stringify(index), 'utf-8');
+            log.debug(`Saved OCR-based index to ${indexPath}`);
+        } catch (err) {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            log.debug(`Warning: Failed to save OCR-based index: ${errMsg}`);
+        }
+
+        return index;
+    }
+
+    // Fall back to existing index or pdftotext
     const pagesByNumber = new Map<number, IPageIndex>();
     const existing = await loadSearchIndex(pdfPath);
 

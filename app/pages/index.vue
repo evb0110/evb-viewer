@@ -145,6 +145,7 @@
                     :drag-mode="dragMode"
                     :search-page-matches="pageMatches"
                     :current-search-match="currentResult"
+                    :working-copy-path="workingCopyPath"
                     @update:current-page="currentPage = $event"
                     @update:total-pages="totalPages = $event"
                     @update:document="pdfDocument = $event"

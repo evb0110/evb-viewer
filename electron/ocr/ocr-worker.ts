@@ -11,13 +11,17 @@
  * - Sends: { type: 'error', jobId, error: string }
  */
 
-import { parentPort, workerData } from 'worker_threads';
+import {
+    parentPort,
+    workerData,
+} from 'worker_threads';
 import { spawn } from 'child_process';
 import {
     existsSync,
     readFileSync,
 } from 'fs';
 import {
+    mkdir,
     readFile,
     stat,
     unlink,
@@ -44,10 +48,18 @@ function log(level: 'debug' | 'warn' | 'error', message: string) {
 const {
     tesseractBinary,
     tessdataPath,
+    pdftoppmBinary,
+    pdftotextBinary: _pdftotextBinary,
+    qpdfBinary,
+    unpaperBinary: _unpaperBinary,
     tempDir,
 } = workerData as {
     tesseractBinary: string;
     tessdataPath: string;
+    pdftoppmBinary: string;
+    pdftotextBinary: string;
+    qpdfBinary: string;
+    unpaperBinary?: string;
     tempDir: string;
 };
 
@@ -133,7 +145,10 @@ async function forEachConcurrent<T>(
     await Promise.all(workers);
 }
 
-function getPngDimensions(imageBuffer: Buffer): { width: number; height: number } | null {
+function getPngDimensions(imageBuffer: Buffer): {
+    width: number;
+    height: number 
+} | null {
     if (imageBuffer.length < 24) {
         return null;
     }
@@ -145,7 +160,10 @@ function getPngDimensions(imageBuffer: Buffer): { width: number; height: number 
     if (width <= 0 || height <= 0) {
         return null;
     }
-    return { width, height };
+    return {
+        width,
+        height, 
+    };
 }
 
 function getSequentialProgressPage(
@@ -175,13 +193,21 @@ async function runCommand(
     command: string,
     args: string[],
     options: { allowedExitCodes?: number[] } = {},
-): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+): Promise<{
+    stdout: string;
+    stderr: string;
+    exitCode: number 
+}> {
     const { allowedExitCodes = [0] } = options;
 
     return new Promise((resolve, reject) => {
         const proc = spawn(command, args, {
             shell: false,
-            stdio: ['ignore', 'pipe', 'pipe'],
+            stdio: [
+                'ignore',
+                'pipe',
+                'pipe',
+            ],
         });
 
         let stdout = '';
@@ -205,12 +231,21 @@ async function runCommand(
                 reject(new Error(`${command} failed with exit code ${exitCode}: ${stderr || stdout}`));
                 return;
             }
-            resolve({ stdout, stderr, exitCode });
+            resolve({
+                stdout,
+                stderr,
+                exitCode, 
+            });
         });
     });
 }
 
-async function runOcrWithBoundingBoxes(
+/**
+ * Runs OCR via stdin/stdout with TSV-only output.
+ * This is the legacy approach - prefer runOcrFileBased for better text layer quality.
+ * Kept for backward compatibility in case we need to fall back.
+ */
+async function _runOcrStdin(
     imageBuffer: Buffer,
     languages: string[],
     imageWidth: number,
@@ -228,16 +263,26 @@ async function runOcrWithBoundingBoxes(
         languages.join('+'),
         '--tessdata-dir',
         tessdataPath,
-        '-c', 'preserve_interword_spaces=1',
-        '-c', 'textord_words_default_minspace=0.3',
-        '-c', 'textord_words_min_minspace=0.2',
-        '-c', 'tosp_fuzzy_space_factor=0.5',
-        '-c', 'tosp_min_sane_kn_sp=1.2',
-        '-c', 'tosp_kern_gap_factor1=1.5',
-        '-c', 'tosp_kern_gap_factor2=1.0',
-        '-c', 'load_system_dawg=0',
-        '-c', 'load_freq_dawg=0',
-        '-c', 'tessedit_create_tsv=1',
+        '-c',
+        'preserve_interword_spaces=1',
+        '-c',
+        'textord_words_default_minspace=0.3',
+        '-c',
+        'textord_words_min_minspace=0.2',
+        '-c',
+        'tosp_fuzzy_space_factor=0.5',
+        '-c',
+        'tosp_min_sane_kn_sp=1.2',
+        '-c',
+        'tosp_kern_gap_factor1=1.5',
+        '-c',
+        'tosp_kern_gap_factor2=1.0',
+        '-c',
+        'load_system_dawg=0',
+        '-c',
+        'load_freq_dawg=0',
+        '-c',
+        'tessedit_create_tsv=1',
     ];
 
     return new Promise((resolve) => {
@@ -299,6 +344,145 @@ async function runOcrWithBoundingBoxes(
 
         proc.stdin.write(imageBuffer);
         proc.stdin.end();
+    });
+}
+
+interface IOcrFileResult {
+    success: boolean;
+    pageData: IOcrPageWithWords | null;
+    pdfPath: string | null; // Path to Tesseract's textonly_pdf output
+    error?: string;
+}
+
+/**
+ * Runs OCR on a file with dual output: TSV (for word boxes) + text-only PDF.
+ * This uses Tesseract's native PDF output which has better text positioning
+ * than our custom pdf-lib implementation.
+ */
+async function runOcrFileBased(
+    imagePath: string,
+    languages: string[],
+    imageWidth: number,
+    imageHeight: number,
+    extractionDpi: number,
+    threads?: number,
+): Promise<IOcrFileResult> {
+    // Output base path - Tesseract will append .tsv and .pdf
+    const outputBase = imagePath.replace(/\.png$/, '') + '-ocr';
+
+    const args = [
+        imagePath,
+        outputBase,
+        '-l',
+        languages.join('+'),
+        '--tessdata-dir',
+        tessdataPath,
+        '--dpi',
+        String(extractionDpi),
+        '-c',
+        'preserve_interword_spaces=1',
+        '-c',
+        'textord_words_default_minspace=0.3',
+        '-c',
+        'textord_words_min_minspace=0.2',
+        '-c',
+        'tosp_fuzzy_space_factor=0.5',
+        '-c',
+        'tosp_min_sane_kn_sp=1.2',
+        '-c',
+        'tosp_kern_gap_factor1=1.5',
+        '-c',
+        'tosp_kern_gap_factor2=1.0',
+        '-c',
+        'load_system_dawg=0',
+        '-c',
+        'load_freq_dawg=0',
+        '-c',
+        'tessedit_create_tsv=1',
+        '-c',
+        'tessedit_create_pdf=1',
+        '-c',
+        'textonly_pdf=1',
+    ];
+
+    return new Promise((resolve) => {
+        const proc = spawn(tesseractBinary, args, { env: buildTesseractEnv(threads) });
+
+        let stderr = '';
+
+        proc.stderr.on('data', (data: Buffer) => {
+            stderr += data.toString();
+        });
+
+        proc.on('close', async (code) => {
+            if (code !== 0) {
+                resolve({
+                    success: false,
+                    pageData: null,
+                    pdfPath: null,
+                    error: stderr || `Tesseract exited with code ${code}`,
+                });
+                return;
+            }
+
+            try {
+                // Read TSV output
+                const tsvPath = `${outputBase}.tsv`;
+                const tsvContent = await readFile(tsvPath, 'utf-8');
+                const words = parseTsvOutput(tsvContent.trim());
+                const pageText = parseTsvText(tsvContent.trim());
+
+                // Verify PDF was created
+                const pdfPath = `${outputBase}.pdf`;
+                try {
+                    await stat(pdfPath);
+                } catch {
+                    resolve({
+                        success: false,
+                        pageData: null,
+                        pdfPath: null,
+                        error: 'Tesseract did not produce PDF output',
+                    });
+                    return;
+                }
+
+                // Clean up TSV file (we've extracted what we need)
+                try {
+                    await unlink(tsvPath);
+                } catch {
+                    // Ignore cleanup errors
+                }
+
+                resolve({
+                    success: true,
+                    pageData: {
+                        pageNumber: 0,
+                        words,
+                        text: pageText,
+                        imageWidth,
+                        imageHeight,
+                    },
+                    pdfPath,
+                });
+            } catch (parseErr) {
+                const parseMsg = parseErr instanceof Error ? parseErr.message : String(parseErr);
+                resolve({
+                    success: false,
+                    pageData: null,
+                    pdfPath: null,
+                    error: parseMsg,
+                });
+            }
+        });
+
+        proc.on('error', (err) => {
+            resolve({
+                success: false,
+                pageData: null,
+                pdfPath: null,
+                error: err.message,
+            });
+        });
     });
 }
 
@@ -419,17 +603,218 @@ function loadUnicodeFontSync(): Uint8Array | null {
     return null;
 }
 
+// ============================================================================
+// OCR Index v2 types and coordinate transformation
+// ============================================================================
+
+type TRotation = 0 | 90 | 180 | 270;
+
+interface IRect {
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+}
+
+interface IOcrIndexV2Manifest {
+    version: 2;
+    createdAt: number;
+    source: { pdfPath: string };
+    pageCount: number;
+    pageBox: 'crop';
+    ocr: {
+        engine: 'tesseract';
+        languages: string[];
+        renderDpi: number;
+    };
+    pages: Record<number, { path: string }>;
+}
+
+interface IOcrIndexV2Page {
+    pageNumber: number;
+    rotation: TRotation;
+    render: {
+        dpi: number;
+        imagePx: {
+            w: number;
+            h: number 
+        };
+    };
+    text: string;
+    words: IOcrWord[];
+}
+
+/**
+ * Maps word bounding box from raster pixel coordinates to PDF user space coordinates.
+ *
+ * Coordinate conventions:
+ * - Raster: origin at top-left, y increases downward
+ * - PDF user space: origin at bottom-left, y increases upward
+ * - CropBox defines the visible region in PDF user space
+ *
+ * When a page has rotation applied, pdftoppm renders the rotated view,
+ * so we must map the OCR pixel coords back to the unrotated PDF coordinate system.
+ *
+ * NOTE: This function is currently unused but will be used in a future milestone
+ * when CropBox extraction is added to transform pixel coords to PDF user space.
+ */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function mapWordPxToPdfRect(params: {
+    rotation: TRotation;
+    crop: IRect; // CropBox in PDF user space
+    imagePx: {
+        w: number;
+        h: number 
+    };
+    wordPx: {
+        left: number;
+        top: number;
+        w: number;
+        h: number 
+    };
+}): IRect {
+    const {
+        rotation,
+        crop,
+        imagePx,
+        wordPx,
+    } = params;
+
+    // Compute scale factors based on rotation
+    // For 0/180 rotation, rendered image dimensions match CropBox dimensions
+    // For 90/270 rotation, rendered image dimensions are swapped relative to CropBox
+    let sx: number, sy: number;
+    if (rotation === 0 || rotation === 180) {
+        sx = crop.w / imagePx.w;
+        sy = crop.h / imagePx.h;
+    } else {
+        sx = crop.h / imagePx.w;
+        sy = crop.w / imagePx.h;
+    }
+
+    // Map coordinates based on rotation
+    // Rotation 0: standard mapping - image top-left maps to CropBox top-left
+    switch (rotation) {
+        case 0:
+            return {
+                x: crop.x + wordPx.left * sx,
+                y: crop.y + crop.h - (wordPx.top + wordPx.h) * sy,
+                w: wordPx.w * sx,
+                h: wordPx.h * sy,
+            };
+        case 90:
+        case 180:
+        case 270:
+            // TODO: Implement after fixture validation
+            // For now, use rotation 0 logic as placeholder
+            // These will need proper transformation matrices based on how
+            // pdftoppm applies rotation during rasterization
+            return {
+                x: crop.x + wordPx.left * sx,
+                y: crop.y + crop.h - (wordPx.top + wordPx.h) * sy,
+                w: wordPx.w * sx,
+                h: wordPx.h * sy,
+            };
+    }
+}
+
+/**
+ * Writes OCR index in v2 format (directory-based with per-page files).
+ *
+ * Directory structure:
+ * - ${workingCopyPath}.ocr/manifest.json
+ * - ${workingCopyPath}.ocr/page-0001.json
+ * - ${workingCopyPath}.ocr/page-0002.json
+ * ...
+ */
+async function writeOcrIndexV2(
+    workingCopyPath: string,
+    ocrPageData: IOcrPageWithWords[],
+    pageCount: number,
+    languages: string[],
+    extractionDpi: number,
+): Promise<void> {
+    const ocrDir = `${workingCopyPath}.ocr`;
+    await mkdir(ocrDir, { recursive: true });
+
+    const manifest: IOcrIndexV2Manifest = {
+        version: 2,
+        createdAt: Date.now(),
+        source: { pdfPath: workingCopyPath },
+        pageCount,
+        pageBox: 'crop',
+        ocr: {
+            engine: 'tesseract',
+            languages,
+            renderDpi: extractionDpi,
+        },
+        pages: {},
+    };
+
+    // Write per-page files
+    for (const pd of ocrPageData) {
+        const pageFile = `page-${String(pd.pageNumber).padStart(4, '0')}.json`;
+
+        // For now, store in pixel coords with render info
+        // Full PDF coord transform requires CropBox from pdf-lib which will be
+        // added in a later milestone. The viewer can transform using render.dpi
+        // and the page CropBox it already has access to.
+        const pageData: IOcrIndexV2Page = {
+            pageNumber: pd.pageNumber,
+            rotation: 0, // Will be populated when we add CropBox extraction
+            render: {
+                dpi: extractionDpi,
+                imagePx: {
+                    w: pd.imageWidth,
+                    h: pd.imageHeight, 
+                },
+            },
+            text: pd.text,
+            words: pd.words, // Keep pixel coords for now; transform in viewer
+        };
+
+        const pagePath = join(ocrDir, pageFile);
+        // Write to temp file first, then rename for atomicity
+        const tempPath = `${pagePath}.tmp`;
+        await writeFile(tempPath, JSON.stringify(pageData), 'utf-8');
+        const { rename } = await import('fs/promises');
+        await rename(tempPath, pagePath);
+
+        manifest.pages[pd.pageNumber] = { path: pageFile };
+    }
+
+    // Write manifest (atomic write)
+    const manifestPath = join(ocrDir, 'manifest.json');
+    const tempManifestPath = `${manifestPath}.tmp`;
+    await writeFile(tempManifestPath, JSON.stringify(manifest), 'utf-8');
+    const { rename } = await import('fs/promises');
+    await rename(tempManifestPath, manifestPath);
+
+    log('debug', `Wrote OCR index v2 to ${ocrDir} with ${ocrPageData.length} pages`);
+}
+
 /**
  * Creates a text-layer-only PDF (no image) for overlay onto original pages.
  * This preserves original PDF structure including bookmarks.
+ *
+ * @deprecated Kept for backward compatibility. Prefer using Tesseract's native
+ * textonly_pdf output via runOcrFileBased for better text positioning.
  */
-async function createTextLayerOnlyPdf(
+async function _createTextLayerOnlyPdf(
     words: IOcrWord[],
     imageWidth: number,
     imageHeight: number,
     extractionDpi: number,
-): Promise<{ success: boolean; pdfBuffer: Buffer | null; error?: string }> {
-    const { PDFDocument, rgb, StandardFonts } = await import('pdf-lib');
+): Promise<{
+    success: boolean;
+    pdfBuffer: Buffer | null;
+    error?: string 
+}> {
+    const {
+        PDFDocument,
+        rgb,
+        StandardFonts,
+    } = await import('pdf-lib');
 
     try {
         const scale = 72 / extractionDpi;
@@ -437,7 +822,10 @@ async function createTextLayerOnlyPdf(
         const pdfHeight = imageHeight * scale;
 
         const pdfDoc = await PDFDocument.create();
-        const page = pdfDoc.addPage([pdfWidth, pdfHeight]);
+        const page = pdfDoc.addPage([
+            pdfWidth,
+            pdfHeight,
+        ]);
 
         // No image - this is a text-only overlay
 
@@ -497,6 +885,7 @@ async function processOcrJob(
     originalPdfData: Uint8Array,
     pages: IOcrPdfPageRequest[],
     workingCopyPath?: string,
+    renderDpi?: number,
 ) {
     const tempFiles = new Set<string>();
     const keepFiles = new Set<string>();
@@ -549,7 +938,7 @@ async function processOcrJob(
         const ocrPdfMap: Map<number, string> = new Map();
 
         const targetPages = pages.filter((p): p is IOcrPdfPageRequest => !!p);
-        const extractionDpi = 150;
+        const extractionDpi = renderDpi ?? 150;
         const concurrency = getOcrConcurrency(targetPages.length);
         const tesseractThreads = getTesseractThreadLimit(concurrency);
 
@@ -567,7 +956,7 @@ async function processOcrJob(
 
             try {
                 // Extract page image from PDF
-                await runCommand('pdftoppm', [
+                await runCommand(pdftoppmBinary, [
                     '-png',
                     '-r',
                     String(extractionDpi),
@@ -596,7 +985,10 @@ async function processOcrJob(
                         pageImagePath,
                     ]);
                     const identifyOutput = (identifyResult.stdout ?? '').trim();
-                    const [widthStr, heightStr] = identifyOutput.split('x');
+                    const [
+                        widthStr,
+                        heightStr,
+                    ] = identifyOutput.split('x');
                     imageWidth = parseInt(widthStr ?? '0', 10);
                     imageHeight = parseInt(heightStr ?? '0', 10);
                 }
@@ -605,11 +997,13 @@ async function processOcrJob(
                     throw new Error(`Invalid page image dimensions: ${imageWidth}x${imageHeight}`);
                 }
 
-                const ocrResult = await runOcrWithBoundingBoxes(
-                    imageBuffer,
+                // Use file-based OCR with dual output: TSV (word boxes) + PDF (text layer)
+                const ocrResult = await runOcrFileBased(
+                    pageImagePath,
                     page.languages,
                     imageWidth,
                     imageHeight,
+                    extractionDpi,
                     tesseractThreads,
                 );
 
@@ -622,19 +1016,12 @@ async function processOcrJob(
                         imageHeight: ocrResult.pageData.imageHeight,
                     });
 
-                    const pdfResult = await createTextLayerOnlyPdf(
-                        ocrResult.pageData.words,
-                        imageWidth,
-                        imageHeight,
-                        extractionDpi,
-                    );
-
-                    if (pdfResult.success && pdfResult.pdfBuffer) {
-                        const ocrPdfPath = trackTempFile(join(tempDir, `${sessionId}-ocr-page-${page.pageNumber}.pdf`));
-                        await writeFile(ocrPdfPath, pdfResult.pdfBuffer);
-                        ocrPdfMap.set(page.pageNumber, ocrPdfPath);
+                    // Use Tesseract's native PDF output instead of our pdf-lib implementation
+                    if (ocrResult.pdfPath) {
+                        trackTempFile(ocrResult.pdfPath);
+                        ocrPdfMap.set(page.pageNumber, ocrResult.pdfPath);
                     } else {
-                        errors.push(`Failed to generate PDF for page ${page.pageNumber}: ${pdfResult.error}`);
+                        errors.push(`Page ${page.pageNumber}: Tesseract did not produce PDF output`);
                     }
                 } else {
                     errors.push(`Page ${page.pageNumber}: ${ocrResult.error}`);
@@ -691,7 +1078,7 @@ async function processOcrJob(
 
         let pageCount = maxOcrPage;
         try {
-            const pageCountResult = await runCommand('qpdf', [
+            const pageCountResult = await runCommand(qpdfBinary, [
                 '--show-npages',
                 originalPdfPath,
             ]);
@@ -723,7 +1110,10 @@ async function processOcrJob(
                     overlayDoc.addPage(copiedPage);
                 } else {
                     // Add a minimal blank page (will be transparent overlay)
-                    overlayDoc.addPage([1, 1]); // Minimal size - qpdf scales overlay to match
+                    overlayDoc.addPage([
+                        1,
+                        1,
+                    ]); // Minimal size - qpdf scales overlay to match
                 }
             }
 
@@ -732,11 +1122,17 @@ async function processOcrJob(
             await writeFile(overlayPdfPath, overlayBytes);
 
             // Single qpdf overlay command - preserves original structure including bookmarks
-            await runCommand('qpdf', [
+            await runCommand(qpdfBinary, [
                 originalPdfPath,
-                '--overlay', overlayPdfPath, '--',
-                '--', mergedPdfPath,
-            ], { allowedExitCodes: [0, 3] });
+                '--overlay',
+                overlayPdfPath,
+                '--',
+                '--',
+                mergedPdfPath,
+            ], { allowedExitCodes: [
+                0,
+                3,
+            ] });
         } catch (qpdfErr) {
             const errMsg = qpdfErr instanceof Error ? qpdfErr.message : String(qpdfErr);
             errors.push(`Failed to merge OCR'd pages with original PDF: ${errMsg}`);
@@ -754,7 +1150,27 @@ async function processOcrJob(
 
         const mergedPdfBuffer = await readFile(mergedPdfPath);
 
-        // Save OCR index
+        // Extract languages from first page for index metadata
+        const allLanguages = [...new Set(targetPages.flatMap(p => p.languages))];
+
+        // Write OCR index v2 (directory-based format)
+        if (workingCopyPath) {
+            try {
+                await writeOcrIndexV2(
+                    workingCopyPath,
+                    ocrPageData,
+                    pageCount,
+                    allLanguages,
+                    extractionDpi,
+                );
+            } catch (v2Err) {
+                const v2ErrMsg = v2Err instanceof Error ? v2Err.message : String(v2Err);
+                log('warn', `Failed to write OCR index v2: ${v2ErrMsg}`);
+                // Non-blocking - continue with v1 format
+            }
+        }
+
+        // Save OCR index v1 (legacy format for backwards compatibility)
         const indexPageData = ocrPageData.map(pd => ({
             pageNumber: pd.pageNumber,
             words: pd.words,
@@ -837,6 +1253,7 @@ parentPort?.on('message', async (message: {
         originalPdfData: Uint8Array;
         pages: IOcrPdfPageRequest[];
         workingCopyPath?: string;
+        renderDpi?: number;
     };
 }) => {
     if (message.type === 'start') {
@@ -845,6 +1262,7 @@ parentPort?.on('message', async (message: {
             message.data.originalPdfData,
             message.data.pages,
             message.data.workingCopyPath,
+            message.data.renderDpi,
         );
     }
 });

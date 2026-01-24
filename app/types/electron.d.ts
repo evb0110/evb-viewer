@@ -27,13 +27,6 @@ interface IOcrProgress {
     totalPages: number;
 }
 
-interface IOcrSearchablePdfResult {
-    success: boolean;
-    pdfData: number[] | null;
-    pdfPath?: string;
-    errors: string[];
-}
-
 interface IOcrJobStartResult {
     started: boolean;
     jobId: string;
@@ -92,6 +85,8 @@ interface IElectronAPI {
     openPdfDialog: () => Promise<string | null>;
     openPdfDirect: (path: string) => Promise<string | null>;
     readFile: (path: string) => Promise<Uint8Array>;
+    readTextFile: (path: string) => Promise<string>;
+    fileExists: (path: string) => Promise<boolean>;
     writeFile: (path: string, data: Uint8Array) => Promise<boolean>;
     saveFile: (path: string) => Promise<boolean>;
     cleanupFile: (path: string) => Promise<void>;
@@ -123,6 +118,7 @@ interface IElectronAPI {
         }>,
         requestId: string,
         workingCopyPath?: string | null,
+        renderDpi?: number,
     ) => Promise<IOcrJobStartResult>;
     onOcrProgress: (callback: (progress: IOcrProgress) => void) => () => void;
     onOcrComplete: (callback: (result: IOcrCompleteResult) => void) => () => void;

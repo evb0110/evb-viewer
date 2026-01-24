@@ -71,6 +71,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     openPdfDialog: () => ipcRenderer.invoke('dialog:openPdf'),
     openPdfDirect: (path: string) => ipcRenderer.invoke('dialog:openPdfDirect', path),
     readFile: (path: string) => ipcRenderer.invoke('file:read', path),
+    readTextFile: (path: string) => ipcRenderer.invoke('file:readText', path),
+    fileExists: (path: string) => ipcRenderer.invoke('file:exists', path),
     writeFile: (path: string, data: Uint8Array) => ipcRenderer.invoke('file:write', path, data),
     saveFile: (path: string) => ipcRenderer.invoke('file:save', path),
     cleanupFile: (path: string) => ipcRenderer.invoke('file:cleanup', path),
@@ -143,7 +145,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
         }>,
         requestId: string,
         workingCopyPath?: string,
-    ) => ipcRenderer.invoke('ocr:createSearchablePdf', originalPdfData, pages, requestId, workingCopyPath),
+        renderDpi?: number,
+    ) => ipcRenderer.invoke('ocr:createSearchablePdf', originalPdfData, pages, requestId, workingCopyPath, renderDpi),
 
     onOcrProgress: (callback: (progress: {
         requestId: string;

@@ -27,7 +27,10 @@ import {
 import { registerOcrHandlers } from '@electron/ocr/ipc';
 import { registerSearchHandlers } from '@electron/search/ipc';
 import { updateRecentFilesMenu } from '@electron/menu';
-import { isAllowedWritePath } from '@electron/utils/path-validator';
+import {
+    isAllowedWritePath,
+    isAllowedReadPath,
+} from '@electron/utils/path-validator';
 import {
     addRecentFile,
     getRecentFiles,
@@ -65,6 +68,8 @@ export function registerIpcHandlers() {
     ipcMain.handle('dialog:openPdf', handleOpenPdfDialog);
     ipcMain.handle('dialog:openPdfDirect', handleOpenPdfDirect);
     ipcMain.handle('file:read', handleFileRead);
+    ipcMain.handle('file:readText', handleFileReadText);
+    ipcMain.handle('file:exists', handleFileExists);
     ipcMain.handle('file:write', handleFileWrite);
     ipcMain.handle('file:save', handleFileSave);
     ipcMain.handle('file:cleanup', (_event, workingPath: string) => {
@@ -96,7 +101,7 @@ async function handleOpenPdfDirect(
     _event: Electron.IpcMainInvokeEvent,
     filePath: string,
 ): Promise<string | null> {
-    if (typeof filePath !== 'string' || filePath.trim() === '') {
+    if (!filePath || filePath.trim() === '') {
         return null;
     }
 
@@ -162,7 +167,7 @@ async function handleOpenPdfDialog(): Promise<string | null> {
 }
 
 async function handleFileRead(_event: Electron.IpcMainInvokeEvent, filePath: string): Promise<Uint8Array> {
-    if (typeof filePath !== 'string' || filePath.trim() === '') {
+    if (!filePath || filePath.trim() === '') {
         throw new Error('Invalid file path: path must be a non-empty string');
     }
 
@@ -186,7 +191,7 @@ async function handleFileWrite(
     filePath: string,
     data: Uint8Array,
 ): Promise<boolean> {
-    if (typeof filePath !== 'string' || filePath.trim() === '') {
+    if (!filePath || filePath.trim() === '') {
         throw new Error('Invalid file path: path must be a non-empty string');
     }
 
@@ -204,6 +209,56 @@ async function handleFileWrite(
     return true;
 }
 
+const ALLOWED_READ_EXTENSIONS = new Set([
+    '.json',
+    '.txt',
+    '.tsv',
+]);
+
+async function handleFileReadText(
+    _event: Electron.IpcMainInvokeEvent,
+    filePath: string,
+): Promise<string> {
+    if (!filePath || filePath.trim() === '') {
+        throw new Error('Invalid file path: path must be a non-empty string');
+    }
+
+    const normalizedPath = filePath.trim();
+    const extension = extname(normalizedPath).toLowerCase();
+
+    if (!ALLOWED_READ_EXTENSIONS.has(extension)) {
+        throw new Error('Invalid file type: only .json, .txt, and .tsv files are allowed');
+    }
+
+    if (!isAllowedReadPath(normalizedPath)) {
+        throw new Error('Invalid file path: reads only allowed within temp directory');
+    }
+
+    if (!existsSync(normalizedPath)) {
+        throw new Error(`File not found: ${normalizedPath}`);
+    }
+
+    const buffer = await readFile(normalizedPath, 'utf-8');
+    return buffer;
+}
+
+function handleFileExists(
+    _event: Electron.IpcMainInvokeEvent,
+    filePath: string,
+): boolean {
+    if (!filePath || filePath.trim() === '') {
+        return false;
+    }
+
+    const normalizedPath = filePath.trim();
+
+    if (!isAllowedReadPath(normalizedPath)) {
+        return false;
+    }
+
+    return existsSync(normalizedPath);
+}
+
 /**
  * Save working copy back to original location
  * Used when user clicks "Save" button
@@ -212,7 +267,7 @@ async function handleFileSave(
     _event: Electron.IpcMainInvokeEvent,
     workingPath: string,
 ): Promise<boolean> {
-    if (typeof workingPath !== 'string' || workingPath.trim() === '') {
+    if (!workingPath || workingPath.trim() === '') {
         throw new Error('Invalid file path');
     }
 

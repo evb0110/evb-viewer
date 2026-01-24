@@ -11,6 +11,14 @@ export interface IIpcChannels {
         args: [filePath: string];
         result: Uint8Array;
     };
+    'file:readText': {
+        args: [filePath: string];
+        result: string;
+    };
+    'file:exists': {
+        args: [filePath: string];
+        result: boolean;
+    };
     'file:write': {
         args: [filePath: string, data: Uint8Array];
         result: boolean;
