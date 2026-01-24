@@ -3,6 +3,7 @@ import {
     ref,
 } from 'vue';
 import { getElectronAPI } from '@app/utils/electron';
+import { useOcrTextContent } from '@app/composables/pdf/useOcrTextContent';
 
 export const usePdfFile = () => {
     const pdfSrc = ref<Blob | null>(null);
@@ -11,7 +12,9 @@ export const usePdfFile = () => {
     const error = ref<string | null>(null);
     const isDirty = ref(false);
 
-    const fileName = computed(() => workingCopyPath.value?.split('/').pop() ?? null);
+    const { clearCache: clearOcrCache } = useOcrTextContent();
+
+    const fileName = computed(() => workingCopyPath.value?.split(/[\\/]/).pop() ?? null);
     const isElectron = computed(() => typeof window !== 'undefined' && !!window.electronAPI);
 
     async function openFile() {
@@ -45,6 +48,19 @@ export const usePdfFile = () => {
 
     async function loadPdfFromPath(path: string) {
         const api = getElectronAPI();
+
+        // Cleanup previous working copy if opening a different file
+        const prevPath = workingCopyPath.value;
+        if (prevPath && prevPath !== path) {
+            // M4.3: Clear OCR cache for the previous file before cleanup
+            clearOcrCache(prevPath);
+            try {
+                await api.cleanupFile(prevPath);
+            } catch {
+                // Ignore cleanup errors - old directory may already be gone
+            }
+        }
+
         workingCopyPath.value = path;  // Path from backend is already the working copy path
         const buffer = await api.readFile(path);
         const data = new Uint8Array(buffer);
@@ -80,6 +96,11 @@ export const usePdfFile = () => {
 
     async function closeFile() {
         const pathToCleanup = workingCopyPath.value;
+
+        // M4.3: Clear OCR cache for the current file before closing
+        if (pathToCleanup) {
+            clearOcrCache(pathToCleanup);
+        }
 
         pdfSrc.value = null;
         pdfData.value = null;

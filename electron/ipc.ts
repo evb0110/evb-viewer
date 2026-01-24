@@ -38,7 +38,7 @@ import {
     clearRecentFiles,
 } from '@electron/recent-files';
 
-// Map to track original path → working copy path
+// Map to track working copy path → original path
 const workingCopyMap = new Map<string, string>();
 
 /**
@@ -290,16 +290,14 @@ async function handleFileSave(
 }
 
 /**
- * Clean up a working copy entry from the map
- * Called when user closes a PDF without saving
+ * Delete a working copy directory and its OCR sidecar
+ * Validates path is within temp directory before deletion
  */
-function cleanupWorkingCopy(workingPath: string) {
+function cleanupWorkingCopyDirectory(workingPath: string) {
     const normalizedPath = typeof workingPath === 'string' ? workingPath.trim() : '';
     if (!normalizedPath) {
         return;
     }
-
-    workingCopyMap.delete(normalizedPath);
 
     try {
         const tempDir = resolve(app.getPath('temp'));
@@ -314,11 +312,23 @@ function cleanupWorkingCopy(workingPath: string) {
         );
         const isWorkingCopyDir = workDirName.startsWith('pdf-work-');
 
-        if (isWithinTemp && isWorkingCopyDir && existsSync(workDir)) {
-            rmSync(workDir, {
-                recursive: true,
-                force: true,
-            });
+        if (isWithinTemp && isWorkingCopyDir) {
+            // Delete the working directory
+            if (existsSync(workDir)) {
+                rmSync(workDir, {
+                    recursive: true,
+                    force: true,
+                });
+            }
+
+            // Delete the OCR sidecar directory if it exists
+            const ocrDir = `${workDir}.ocr`;
+            if (existsSync(ocrDir)) {
+                rmSync(ocrDir, {
+                    recursive: true,
+                    force: true,
+                });
+            }
         }
     } catch (err) {
         console.warn('[cleanup] Failed to delete working directory:', err);
@@ -326,9 +336,26 @@ function cleanupWorkingCopy(workingPath: string) {
 }
 
 /**
- * Clear all working copy entries
+ * Clean up a working copy entry from the map
+ * Called when user closes a PDF without saving
+ */
+function cleanupWorkingCopy(workingPath: string) {
+    const normalizedPath = typeof workingPath === 'string' ? workingPath.trim() : '';
+    if (!normalizedPath) {
+        return;
+    }
+
+    workingCopyMap.delete(normalizedPath);
+    cleanupWorkingCopyDirectory(normalizedPath);
+}
+
+/**
+ * Clear all working copy entries and delete their directories
  * Called on app shutdown
  */
 export function clearAllWorkingCopies() {
+    for (const workingPath of workingCopyMap.keys()) {
+        cleanupWorkingCopyDirectory(workingPath);
+    }
     workingCopyMap.clear();
 }

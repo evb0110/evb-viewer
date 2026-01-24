@@ -56,6 +56,19 @@ type TCachedIndex = {
 
 const indexCache = new Map<string, TCachedIndex>();
 const latestSearchBySender = new Map<number, string>();
+const registeredSenderCleanup = new Set<number>();
+
+function registerSenderCleanup(event: IpcMainInvokeEvent, senderId: number) {
+    if (registeredSenderCleanup.has(senderId)) {
+        return;
+    }
+
+    registeredSenderCleanup.add(senderId);
+    event.sender.once('destroyed', () => {
+        latestSearchBySender.delete(senderId);
+        registeredSenderCleanup.delete(senderId);
+    });
+}
 
 const SEARCH_RESULT_LIMIT = 500;
 const EXCERPT_CONTEXT_CHARS = 40;
@@ -92,17 +105,29 @@ function buildExcerpt(
 }
 
 function sendProgress(event: IpcMainInvokeEvent, progress: ISearchProgress) {
-    event.sender.send('pdf:search:progress', progress);
+    if (event.sender.isDestroyed()) {
+        return;
+    }
+
+    try {
+        event.sender.send('pdf:search:progress', progress);
+    } catch (err) {
+        log.debug(`Failed to send search progress: ${err instanceof Error ? err.message : String(err)}`);
+    }
 }
 
 async function loadCachedIndex(pdfPath: string): Promise<TCachedIndex | null> {
     const indexPath = getIndexPath(pdfPath);
-    if (!existsSync(indexPath)) {
+
+    // Race-safe stat: file may disappear between existence check and stat
+    let mtimeMs: number;
+    try {
+        mtimeMs = statSync(indexPath).mtimeMs;
+    } catch {
+        // Index file doesn't exist or became unreadable
         indexCache.delete(pdfPath);
         return null;
     }
-
-    const mtimeMs = statSync(indexPath).mtimeMs;
     const cached = indexCache.get(pdfPath);
     if (cached && cached.mtimeMs === mtimeMs) {
         return cached;
@@ -126,7 +151,13 @@ async function loadCachedIndex(pdfPath: string): Promise<TCachedIndex | null> {
 
 function cacheBuiltIndex(pdfPath: string, index: IPdfSearchIndex): TCachedIndex {
     const indexPath = getIndexPath(pdfPath);
-    const mtimeMs = existsSync(indexPath) ? statSync(indexPath).mtimeMs : Date.now();
+    // Race-safe stat: use current time if file is missing or unreadable
+    let mtimeMs: number;
+    try {
+        mtimeMs = statSync(indexPath).mtimeMs;
+    } catch {
+        mtimeMs = Date.now();
+    }
     const entry: TCachedIndex = {
         mtimeMs,
         index,
@@ -190,7 +221,11 @@ async function handlePdfSearch(
     } = request;
 
     const requestId = requestIdRaw || `search-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    latestSearchBySender.set(event.sender.id, requestId);
+    const senderId = event.sender.id;
+    latestSearchBySender.set(senderId, requestId);
+
+    // Register cleanup listener to remove latestSearchBySender entry when webContents is destroyed
+    registerSenderCleanup(event, senderId);
 
     log.debug(`Search requested: pdfPath=${pdfPath}, query="${query}", requestId=${requestId}`);
 
@@ -208,7 +243,7 @@ async function handlePdfSearch(
     const normalizedQuery = query.trim();
     const lowerQuery = normalizedQuery.toLowerCase();
 
-    const shouldCancel = () => latestSearchBySender.get(event.sender.id) !== requestId;
+    const shouldCancel = () => latestSearchBySender.get(senderId) !== requestId;
 
     try {
         const indexEntry = await ensureSearchIndex(

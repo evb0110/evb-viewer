@@ -94,12 +94,66 @@ export async function createWindow() {
         // Debounce showing the window until navigation settles.
         let hasShownWindow = false;
         let hasOpenedDevTools = false;
-        let devToolsWaitPromise: Promise<void> | null = null;
         let pendingShowTimeout: NodeJS.Timeout | null = null;
         let forceShowTimeout: NodeJS.Timeout | null = null;
 
         const SHOW_DEBOUNCE_MS = config.isDev ? 750 : 0;
-        const FORCE_SHOW_MS = 15_000;
+        const FORCE_SHOW_MS = config.isDev ? 5_000 : 15_000;
+        const STABILITY_WINDOW_MS = 500;
+        let lastNavigationTime = 0;
+        let stabilityCheckTimeout: NodeJS.Timeout | null = null;
+
+        const logNavEvent = (event: string, details?: Record<string, unknown>) => {
+            if (config.isDev) {
+                console.log(`[Window] ${event}`, {
+                    timestamp: Date.now(),
+                    hasShownWindow,
+                    hasOpenedDevTools,
+                    pendingShowTimeout: !!pendingShowTimeout,
+                    stabilityCheckTimeout: !!stabilityCheckTimeout,
+                    ...details,
+                });
+            }
+        };
+
+        async function waitForAppReady(timeoutMs: number): Promise<boolean> {
+            const start = Date.now();
+            while (Date.now() - start < timeoutMs) {
+                try {
+                    const isReady = await mainWindow?.webContents.executeJavaScript(
+                        'Boolean(window.__appReady)',
+                        true,
+                    );
+                    if (isReady) {
+                        return true;
+                    }
+                } catch {
+                    // Page navigating
+                }
+                await new Promise(r => setTimeout(r, 100));
+            }
+            return false;
+        }
+
+        const checkStabilityAndShow = () => {
+            if (hasShownWindow) {
+                return;
+            }
+
+            const timeSinceLastNav = Date.now() - lastNavigationTime;
+
+            if (timeSinceLastNav >= STABILITY_WINDOW_MS) {
+                logNavEvent('stability-check-passed', { timeSinceLastNav });
+                showWindowNow();
+            } else {
+                const remaining = STABILITY_WINDOW_MS - timeSinceLastNav;
+                logNavEvent('stability-check-pending', {
+                    timeSinceLastNav,
+                    remaining, 
+                });
+                stabilityCheckTimeout = setTimeout(checkStabilityAndShow, remaining + 50);
+            }
+        };
 
         const openDevToolsOnce = () => {
             if (!config.isDev || hasOpenedDevTools) {
@@ -107,38 +161,6 @@ export async function createWindow() {
             }
             hasOpenedDevTools = true;
             mainWindow?.webContents.openDevTools();
-        };
-
-        const waitForRendererReadyAndOpenDevTools = () => {
-            if (!config.isDev || hasOpenedDevTools || devToolsWaitPromise) {
-                return;
-            }
-
-            const MAX_WAIT_MS = 20_000;
-            devToolsWaitPromise = (async () => {
-                const start = Date.now();
-                while (!hasOpenedDevTools && Date.now() - start < MAX_WAIT_MS) {
-                    if (!mainWindow || mainWindow.isDestroyed()) {
-                        return;
-                    }
-                    try {
-                        const isReady = await mainWindow.webContents.executeJavaScript(
-                            'Boolean(window.__appReady)',
-                            true,
-                        );
-                        if (isReady) {
-                            openDevToolsOnce();
-                            return;
-                        }
-                    } catch {
-                        // The page may be navigating/reloading; retry.
-                    }
-                    await new Promise((resolve) => setTimeout(resolve, 200));
-                }
-
-                // Fallback: open DevTools even if the readiness signal never arrives.
-                openDevToolsOnce();
-            })();
         };
 
         const cleanupShowHandlers = () => {
@@ -150,7 +172,7 @@ export async function createWindow() {
             mainWindow.webContents.removeListener('did-fail-load', onFailLoad);
         };
 
-        const showWindowNow = () => {
+        const showWindowNow = async () => {
             if (!mainWindow || mainWindow.isDestroyed() || hasShownWindow) {
                 return;
             }
@@ -164,11 +186,45 @@ export async function createWindow() {
                 clearTimeout(forceShowTimeout);
                 forceShowTimeout = null;
             }
-
-            if (!mainWindow.isVisible()) {
-                mainWindow.show();
+            if (stabilityCheckTimeout) {
+                clearTimeout(stabilityCheckTimeout);
+                stabilityCheckTimeout = null;
             }
-            waitForRendererReadyAndOpenDevTools();
+
+            // M3.1: In dev mode, wait for app ready and open window + DevTools together
+            if (config.isDev) {
+                logNavEvent('waiting-for-app-ready');
+                const isReady = await waitForAppReady(3000);
+                logNavEvent('app-ready-result', { isReady });
+
+                if (!mainWindow || mainWindow.isDestroyed()) {
+                    return;
+                }
+
+                if (!mainWindow.isVisible()) {
+                    mainWindow.show();
+                }
+                openDevToolsOnce();
+
+                // M6.2: Add navigation timeline to window for debugging
+                try {
+                    await mainWindow.webContents.executeJavaScript(`
+                        window.__navigationTimeline = window.__navigationTimeline || [];
+                        window.__navigationTimeline.push({
+                            event: 'window-shown',
+                            timestamp: ${Date.now()},
+                            hasDevTools: ${hasOpenedDevTools},
+                        });
+                    `);
+                } catch {
+                    // Page might be navigating
+                }
+            } else {
+                if (!mainWindow.isVisible()) {
+                    mainWindow.show();
+                }
+            }
+
             cleanupShowHandlers();
         };
 
@@ -182,18 +238,47 @@ export async function createWindow() {
             pendingShowTimeout = setTimeout(showWindowNow, SHOW_DEBOUNCE_MS);
         };
 
-        const onStartNavigation = (_event: unknown, _url: string, _isInPlace: boolean, isMainFrame: boolean) => {
-            if (hasShownWindow || !isMainFrame) {
+        const onStartNavigation = (_event: unknown, url: string, _isInPlace: boolean, isMainFrame: boolean) => {
+            if (!isMainFrame) {
                 return;
             }
+
+            lastNavigationTime = Date.now();
+            logNavEvent('navigation-start', { url });
+
+            if (hasShownWindow) {
+                return;
+            }
+
+            // Cancel any pending show or stability check
             if (pendingShowTimeout) {
                 clearTimeout(pendingShowTimeout);
                 pendingShowTimeout = null;
             }
+            if (stabilityCheckTimeout) {
+                clearTimeout(stabilityCheckTimeout);
+                stabilityCheckTimeout = null;
+            }
         };
 
         const onFinishLoad = () => {
-            scheduleShow();
+            lastNavigationTime = Date.now();
+            logNavEvent('navigation-finish-load');
+
+            if (hasShownWindow) {
+                return;
+            }
+
+            // In dev mode, use stability window; in prod, show immediately
+            if (config.isDev) {
+                // Clear any existing stability check and schedule a new one
+                if (stabilityCheckTimeout) {
+                    clearTimeout(stabilityCheckTimeout);
+                }
+                stabilityCheckTimeout = setTimeout(checkStabilityAndShow, STABILITY_WINDOW_MS);
+            } else {
+                scheduleShow();
+            }
         };
 
         const onFailLoad = (_event: unknown, errorCode: number, errorDescription: string, validatedURL: string) => {
@@ -205,6 +290,19 @@ export async function createWindow() {
         mainWindow.webContents.on('did-start-navigation', onStartNavigation);
         mainWindow.webContents.on('did-finish-load', onFinishLoad);
         mainWindow.webContents.on('did-fail-load', onFailLoad);
+
+        // M3.2: Handle DevTools reopening after navigation (e.g., hot reload)
+        mainWindow.webContents.on('did-navigate', () => {
+            if (config.isDev) {
+                logNavEvent('navigation-complete-checking-devtools');
+                setTimeout(() => {
+                    if (!mainWindow?.webContents.isDevToolsOpened()) {
+                        logNavEvent('reopening-devtools-after-navigation');
+                        mainWindow?.webContents.openDevTools();
+                    }
+                }, 500);
+            }
+        });
 
         forceShowTimeout = setTimeout(showWindowNow, FORCE_SHOW_MS);
 
@@ -218,6 +316,10 @@ export async function createWindow() {
             if (forceShowTimeout) {
                 clearTimeout(forceShowTimeout);
                 forceShowTimeout = null;
+            }
+            if (stabilityCheckTimeout) {
+                clearTimeout(stabilityCheckTimeout);
+                stabilityCheckTimeout = null;
             }
             mainWindow = null;
         });

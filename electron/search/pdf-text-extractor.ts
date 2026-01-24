@@ -1,5 +1,7 @@
+import { existsSync } from 'fs';
 import { createLogger } from '@electron/utils/logger';
 import { runCommand } from '@electron/utils/exec';
+import { getOcrToolPaths } from '../ocr/paths';
 
 const log = createLogger('pdf-text-extractor');
 
@@ -20,10 +22,22 @@ export async function extractTextFromPdf(
 ): Promise<IPageText[]> {
     log.debug(`Extracting text from PDF: ${pdfPath}`);
 
+    const { pdftotext } = getOcrToolPaths();
+    log.debug(`Using pdftotext at: ${pdftotext}`);
+
+    // Check if the resolved path exists (if it's an absolute path)
+    const isAbsolutePath = pdftotext.includes('/') || pdftotext.includes('\\');
+    if (isAbsolutePath && !existsSync(pdftotext)) {
+        throw new Error(
+            `pdftotext binary not found at: ${pdftotext}. ` +
+            'Ensure Poppler is bundled in resources/poppler/ or installed system-wide.',
+        );
+    }
+
     try {
         // Use pdftotext -layout to preserve some structure
         // Each page is separated by form feed character (0x0C)
-        const result = await runCommand('pdftotext', [
+        const result = await runCommand(pdftotext, [
             '-layout',
             pdfPath,
             '-',
@@ -56,7 +70,17 @@ export async function extractTextFromPdf(
         return pageTexts;
     } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
-        log.debug(`Failed to extract text: ${errMsg}`);
+        log.debug(`Failed to extract text using ${pdftotext}: ${errMsg}`);
+
+        // Provide actionable error message
+        const isNotFound = errMsg.includes('ENOENT') || errMsg.includes('not found');
+        if (isNotFound) {
+            throw new Error(
+                `pdftotext command failed - binary not found or not executable at: ${pdftotext}. ` +
+                'Ensure Poppler is bundled in resources/poppler/ or installed system-wide.',
+            );
+        }
+
         throw new Error(`Failed to extract text from PDF: ${errMsg}`);
     }
 }

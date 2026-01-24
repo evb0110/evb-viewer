@@ -34,9 +34,7 @@ export const usePdfDrag = (dragModeEnabled: () => boolean) => {
     }
 
     function stopDrag() {
-        if (dragModeEnabled()) {
-            isDragging.value = false;
-        }
+        isDragging.value = false;
     }
 
     return {

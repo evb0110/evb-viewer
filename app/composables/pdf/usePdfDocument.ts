@@ -18,7 +18,6 @@ export const usePdfDocument = () => {
     const basePageHeight = ref<number | null>(null);
 
     let renderVersion = 0;
-    let isLoadingPdf = false;
     const pdfPageCache = new Map<number, PDFPageProxy>();
     let objectUrl: string | null = null;
     let loadingTask: ReturnType<typeof pdfjsLib.getDocument> | null = null;
@@ -32,17 +31,13 @@ export const usePdfDocument = () => {
     }
 
     async function loadPdf(src: Blob) {
-        if (isLoadingPdf) {
-            return null;
-        }
+        // Cancel any in-progress load - latest wins
+        cleanup();
 
-        isLoadingPdf = true;
         const version = incrementRenderVersion();
         isLoading.value = true;
         basePageWidth.value = null;
         basePageHeight.value = null;
-
-        cleanup();
 
         objectUrl = URL.createObjectURL(src);
         loadingTask = pdfjsLib.getDocument({
@@ -58,6 +53,13 @@ export const usePdfDocument = () => {
 
         try {
             const pdfDoc = await loadingTask.promise;
+
+            // Discard stale result if a newer load was started
+            if (version !== renderVersion) {
+                pdfDoc.destroy();
+                return null;
+            }
+
             pdfDocument.value = pdfDoc;
             numPages.value = pdfDoc.numPages;
 
@@ -68,14 +70,20 @@ export const usePdfDocument = () => {
 
             return {
                 version,
-                document: pdfDoc, 
+                document: pdfDoc,
             };
         } catch (error) {
+            // Ignore cancellation errors from destroyed loading tasks
+            if (version !== renderVersion) {
+                return null;
+            }
             console.error('Failed to load PDF:', error);
             return null;
         } finally {
-            isLoading.value = false;
-            isLoadingPdf = false;
+            // Only clear loading state if this is still the current load
+            if (version === renderVersion) {
+                isLoading.value = false;
+            }
         }
     }
 

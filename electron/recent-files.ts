@@ -16,9 +16,11 @@ import type { IRecentFile } from '@app/types/shared';
 export type { IRecentFile } from '@app/types/shared';
 
 const MAX_RECENT_FILES = 10;
+const CACHE_TTL_MS = 5000; // Cache valid for 5 seconds
 
 // In-memory cache for synchronous access (needed for menu building)
 let recentFilesCache: IRecentFile[] = [];
+let cacheTimestamp = 0;
 
 interface IRecentFilesData {
     version: number;
@@ -34,7 +36,7 @@ async function loadRecentFilesData(): Promise<IRecentFilesData> {
     if (!existsSync(storagePath)) {
         return {
             version: 1,
-            files: [], 
+            files: [],
         };
     }
 
@@ -45,7 +47,7 @@ async function loadRecentFilesData(): Promise<IRecentFilesData> {
         console.error('Failed to load recent files:', err);
         return {
             version: 1,
-            files: [], 
+            files: [],
         };
     }
 }
@@ -61,7 +63,20 @@ async function saveRecentFilesData(data: IRecentFilesData): Promise<void> {
 }
 
 export async function addRecentFile(originalPath: string): Promise<void> {
-    if (!originalPath || !existsSync(originalPath)) {
+    // Invalidate cache before mutation
+    cacheTimestamp = 0;
+
+    if (!originalPath) {
+        return;
+    }
+
+    // Get file info with race-safe stat
+    let fileSize: number;
+    try {
+        const st = statSync(originalPath);
+        fileSize = st.size;
+    } catch {
+        // File doesn't exist or became unreadable
         return;
     }
 
@@ -72,7 +87,6 @@ export async function addRecentFile(originalPath: string): Promise<void> {
 
     // Get file info
     const fileName = basename(originalPath);
-    const fileSize = statSync(originalPath).size;
 
     // Add to front
     data.files.unshift({
@@ -94,9 +108,19 @@ export async function addRecentFile(originalPath: string): Promise<void> {
 }
 
 export async function getRecentFiles(): Promise<IRecentFile[]> {
+    // Use cache if fresh
+    if (recentFilesCache.length > 0 && Date.now() - cacheTimestamp < CACHE_TTL_MS) {
+        // Still validate existence
+        return recentFilesCache.filter(f => existsSync(f.originalPath));
+    }
+
+    // Refresh cache from disk
     const data = await loadRecentFilesData();
-    // Filter out files that no longer exist
     const validFiles = data.files.filter(f => existsSync(f.originalPath));
+
+    // Update cache
+    recentFilesCache = validFiles;
+    cacheTimestamp = Date.now();
 
     // If files were removed, save updated list
     if (validFiles.length !== data.files.length) {
@@ -108,6 +132,9 @@ export async function getRecentFiles(): Promise<IRecentFile[]> {
 }
 
 export async function removeRecentFile(originalPath: string): Promise<void> {
+    // Invalidate cache before mutation
+    cacheTimestamp = 0;
+
     const data = await loadRecentFilesData();
     data.files = data.files.filter(f => f.originalPath !== originalPath);
     await saveRecentFilesData(data);
@@ -117,11 +144,14 @@ export async function removeRecentFile(originalPath: string): Promise<void> {
 }
 
 export async function clearRecentFiles(): Promise<void> {
+    // Invalidate cache before mutation
+    cacheTimestamp = 0;
+    recentFilesCache = [];
+
     await saveRecentFilesData({
         version: 1,
         files: [],
     });
-    recentFilesCache = [];
 }
 
 /**

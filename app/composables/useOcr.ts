@@ -70,6 +70,7 @@ export const useOcr = () => {
 
     let progressCleanup: (() => void) | null = null;
     let completeCleanup: (() => void) | null = null;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
     async function loadLanguages() {
         try {
@@ -176,7 +177,7 @@ export const useOcr = () => {
             });
         });
 
-        const requestId = `ocr-${Date.now()}`;
+        const requestId = `ocr-${crypto.randomUUID()}`;
         console.log('[useOcr] Request ID:', requestId);
 
         try {
@@ -210,19 +211,36 @@ export const useOcr = () => {
                 pdfPath?: string;
                 errors: string[];
             }>((resolve, reject) => {
+                // Defensive guard to ignore duplicate completions (e.g., from worker exit after terminate)
+                let didResolve = false;
+
                 completeCleanup = api.onOcrComplete((result) => {
                     console.log('[useOcr] OCR complete event:', {
                         requestId: result.requestId,
                         success: result.success,
+                        didResolve,
                     });
                     if (result.requestId === requestId) {
+                        if (didResolve) {
+                            console.log('[useOcr] Ignoring duplicate completion for requestId:', requestId);
+                            return;
+                        }
+                        didResolve = true;
+                        // Clear the timeout since OCR completed
+                        if (timeoutId) {
+                            clearTimeout(timeoutId);
+                            timeoutId = null;
+                        }
                         resolve(result);
                     }
                 });
 
                 // Timeout after 30 minutes (very long OCR jobs)
-                setTimeout(() => {
-                    reject(new Error('OCR operation timed out after 30 minutes'));
+                timeoutId = setTimeout(() => {
+                    if (!didResolve) {
+                        timeoutId = null;
+                        reject(new Error('OCR operation timed out after 30 minutes'));
+                    }
                 }, 30 * 60 * 1000);
             });
 
@@ -262,6 +280,14 @@ export const useOcr = () => {
                     const fileData = await api.readFile(response.pdfPath);
                     pdfBytes = new Uint8Array(fileData);
                     console.log('[useOcr] PDF size:', pdfBytes.length);
+
+                    // Clean up the temp file after reading
+                    try {
+                        await api.cleanupFile(response.pdfPath);
+                        console.log('[useOcr] Cleaned up temp file:', response.pdfPath);
+                    } catch (cleanupErr) {
+                        console.warn('[useOcr] Failed to cleanup temp file:', response.pdfPath, cleanupErr);
+                    }
                 } else if (response.pdfData) {
                     // Small PDF returned directly as array
                     console.log('[useOcr] OCR successful, PDF size:', response.pdfData.length);
@@ -291,6 +317,10 @@ export const useOcr = () => {
             progressCleanup = null;
             completeCleanup?.();
             completeCleanup = null;
+            if (timeoutId) {
+                clearTimeout(timeoutId);
+                timeoutId = null;
+            }
         }
     }
 
@@ -300,6 +330,10 @@ export const useOcr = () => {
         progressCleanup = null;
         completeCleanup?.();
         completeCleanup = null;
+        if (timeoutId) {
+            clearTimeout(timeoutId);
+            timeoutId = null;
+        }
     }
 
     function clearResults() {

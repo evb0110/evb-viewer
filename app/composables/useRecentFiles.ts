@@ -6,6 +6,9 @@ const recentFiles = ref<IRecentFile[]>([]);
 const isLoading = ref(false);
 const error = ref<string | null>(null);
 
+// Deduplication: track in-flight load promise
+let loadPromise: Promise<void> | null = null;
+
 export const useRecentFiles = () => {
 
     async function loadRecentFiles() {
@@ -13,15 +16,25 @@ export const useRecentFiles = () => {
             return;
         }
 
-        isLoading.value = true;
-        error.value = null;
-        try {
-            recentFiles.value = await window.electronAPI.recentFiles.get();
-        } catch (e) {
-            error.value = e instanceof Error ? e.message : 'Failed to load recent files';
-        } finally {
-            isLoading.value = false;
+        // Deduplicate: if already loading, return existing promise
+        if (loadPromise) {
+            return loadPromise;
         }
+
+        loadPromise = (async () => {
+            isLoading.value = true;
+            error.value = null;
+            try {
+                recentFiles.value = await window.electronAPI.recentFiles.get();
+            } catch (e) {
+                error.value = e instanceof Error ? e.message : 'Failed to load recent files';
+            } finally {
+                isLoading.value = false;
+                loadPromise = null;
+            }
+        })();
+
+        return loadPromise;
     }
 
     async function openRecentFile(file: IRecentFile) {

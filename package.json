@@ -6,9 +6,10 @@
   "main": "dist-electron/main.js",
   "scripts": {
     "start": "pnpm run build:electron && electron .",
-    "dev": "pnpm run clean:cache && nuxt prepare && pnpm run build:electron && concurrently -k \"nuxt dev\" \"wait-on http://localhost:3235 && electron .\"",
+    "dev": "pnpm run clean:cache && nuxt prepare && pnpm run build:electron && tsx scripts/electron-run.ts start",
     "dev:nuxt": "nuxt dev",
-    "dev:quick": "pnpm run build:electron && concurrently -k \"nuxt dev\" \"wait-on http://localhost:3235 && electron .\"",
+    "dev:quick": "pnpm run build:electron && tsx scripts/electron-run.ts start",
+    "dev:fast": "pnpm run build:electron && concurrently -k \"nuxt dev\" \"wait-on http://localhost:3235 && electron .\"",
     "clean:cache": "rm -rf node_modules/.vite node_modules/.cache .nuxt .output",
     "build": "nuxt build && pnpm run build:electron",
     "build:electron": "esbuild electron/main.ts --bundle --platform=node --format=esm --outfile=dist-electron/main.js --external:electron && esbuild electron/preload.ts --bundle --platform=node --format=cjs --outfile=dist-electron/preload.js --external:electron && esbuild electron/ocr/ocr-worker.ts --bundle --platform=node --format=esm --outfile=dist-electron/ocr-worker.js --external:electron",
@@ -20,7 +21,7 @@
     "typecheck:electron": "tsc -p electron/tsconfig.json",
     "lint": "eslint . --fix && stylelint \"app/**/*.{vue,scss}\"",
     "validate": "pnpm run typecheck && pnpm run lint && pnpm run build",
-    "electron:run": "bun scripts/electron-run.ts"
+    "electron:run": "tsx scripts/electron-run.ts"
   },
   "dependencies": {
     "@nuxt/icon": "^2.1.1",
@@ -52,6 +53,7 @@
     "stylelint-config-recommended-vue": "^1.6.1",
     "stylelint-config-standard-scss": "^16.0.0",
     "tailwindcss": "^4.1.18",
+    "tsx": "^4.19.0",
     "typescript": "^5.7.0",
     "wait-on": "^9.0.3"
   },

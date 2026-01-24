@@ -232,6 +232,7 @@ import {
 } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { TFitMode } from '@app/types/shared';
+import { useOcrTextContent } from '@app/composables/pdf/useOcrTextContent';
 
 console.log('[PAGE] pages/index.vue script setup executing');
 
@@ -362,6 +363,8 @@ const {
     minQueryLength,
 } = usePdfSearch();
 
+const { clearCache: clearOcrCache } = useOcrTextContent();
+
 const pdfViewerRef = ref<IPdfViewerExpose | null>(null);
 const zoomDropdownRef = ref<{ close: () => void } | null>(null);
 const pageDropdownRef = ref<{ close: () => void } | null>(null);
@@ -431,6 +434,11 @@ function handleOcrComplete(ocrPdfData: Uint8Array) {
     // Remember current page before reload
     const pageToRestore = currentPage.value;
 
+    // M4.1: Clear OCR manifest cache so new OCR data is loaded
+    if (workingCopyPath.value) {
+        clearOcrCache(workingCopyPath.value);
+    }
+
     // Reload the PDF with the OCR'd data
     loadPdfFromData(ocrPdfData);
 
@@ -439,6 +447,8 @@ function handleOcrComplete(ocrPdfData: Uint8Array) {
     const unwatch = watch(pdfDocument, (doc) => {
         if (doc) {
             unwatch();
+            // M4.2: Reset search cache so searches use new OCR content
+            resetSearchCache();
             // Use nextTick to ensure DOM is updated
             void nextTick(() => {
                 pdfViewerRef.value?.scrollToPage(pageToRestore);
@@ -554,10 +564,16 @@ async function handleSave() {
     }
 }
 
-watch(pdfSrc, () => {
-    if (!pdfSrc.value) {
+watch(pdfSrc, (newSrc, oldSrc) => {
+    if (!newSrc) {
         resetSearchCache();
         closeSearch();
+    }
+
+    // Refresh recent files list after opening a file
+    // This ensures the list is up-to-date when user closes the file and returns to empty state
+    if (newSrc && !oldSrc) {
+        loadRecentFiles();
     }
 });
 </script>

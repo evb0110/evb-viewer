@@ -51,6 +51,7 @@ interface IPdfSearchExcerpt {
 
 interface IPdfSearchResult {
     pageNumber: number;
+    pageMatchIndex?: number;
     matchIndex: number;
     startOffset: number;
     endOffset: number;

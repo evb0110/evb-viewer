@@ -4,6 +4,7 @@ import {
     ipcMain,
     app,
 } from 'electron';
+import { randomUUID } from 'crypto';
 import {
     readFile,
     unlink,
@@ -41,9 +42,33 @@ interface IOcrJob {
     jobId: string;
     worker: Worker;
     webContentsId: number;
+    completed: boolean;
+    terminatedByUs: boolean;
 }
 
 const activeJobs = new Map<string, IOcrJob>();
+
+function safeSendToWindow(
+    window: BrowserWindow | null | undefined,
+    channel: string,
+    ...args: unknown[]
+) {
+    if (!window) {
+        return;
+    }
+    if (window.isDestroyed()) {
+        return;
+    }
+    if (window.webContents.isDestroyed()) {
+        return;
+    }
+
+    try {
+        window.webContents.send(channel, ...args);
+    } catch (err) {
+        log.debug(`Failed to send IPC message to channel "${channel}": ${err instanceof Error ? err.message : String(err)}`);
+    }
+}
 
 function getWorkerPath(): string {
     // Worker is compiled to dist-electron alongside main.js
@@ -108,20 +133,23 @@ function handleWorkerMessage(
 
     if (message.type === 'progress' && message.progress) {
         // Forward progress to renderer
-        window?.webContents.send('ocr:progress', message.progress);
+        safeSendToWindow(window, 'ocr:progress', message.progress);
         return;
     }
 
     if (message.type === 'complete' && message.result) {
         // Forward completion to renderer
-        window?.webContents.send('ocr:complete', {
+        safeSendToWindow(window, 'ocr:complete', {
             requestId: jobId,
             ...message.result,
         });
 
-        // Clean up the job
+        // Clean up the job - mark as completed before terminating to prevent
+        // the exit handler from sending a duplicate failure completion
         const job = activeJobs.get(jobId);
         if (job) {
+            job.completed = true;
+            job.terminatedByUs = true;
             job.worker.terminate();
             activeJobs.delete(jobId);
         }
@@ -298,7 +326,7 @@ async function handleOcrRecognizeBatch(
     let processedCount = 0;
 
     // Send immediate progress update so UI shows feedback right away
-    window?.webContents.send('ocr:progress', {
+    safeSendToWindow(window, 'ocr:progress', {
         requestId,
         currentPage: targetPages[0]?.pageNumber ?? 0,
         processedCount,
@@ -321,7 +349,7 @@ async function handleOcrRecognizeBatch(
             errors.push(`Page ${page.pageNumber}: ${errMsg}`);
         } finally {
             processedCount += 1;
-            window?.webContents.send('ocr:progress', {
+            safeSendToWindow(window, 'ocr:progress', {
                 requestId,
                 currentPage: getSequentialProgressPage(targetPages, processedCount),
                 processedCount,
@@ -366,6 +394,8 @@ function handleOcrCreateSearchablePdfAsync(
             jobId: requestId,
             worker,
             webContentsId,
+            completed: false,
+            terminatedByUs: false,
         });
 
         // Handle messages from worker
@@ -373,11 +403,15 @@ function handleOcrCreateSearchablePdfAsync(
             handleWorkerMessage(requestId, webContentsId, message);
         });
 
-        // Handle worker errors
+        // Handle worker errors - mark as completed to prevent exit handler from also sending failure
         worker.on('error', (err: Error) => {
             log.debug(`Worker error for job ${requestId}: ${err.message}`);
+            const job = activeJobs.get(requestId);
+            if (job) {
+                job.completed = true;
+            }
             const window = BrowserWindow.getAllWindows().find(w => w.webContents.id === webContentsId);
-            window?.webContents.send('ocr:complete', {
+            safeSendToWindow(window, 'ocr:complete', {
                 requestId,
                 success: false,
                 pdfData: null,
@@ -386,12 +420,16 @@ function handleOcrCreateSearchablePdfAsync(
             activeJobs.delete(requestId);
         });
 
-        // Handle worker exit
+        // Handle worker exit - only send failure if job wasn't already completed
+        // Worker.terminate() causes exit code 1, so we need to check if we terminated it intentionally
         worker.on('exit', (code) => {
-            if (code !== 0) {
+            const job = activeJobs.get(requestId);
+            const wasCompletedOrTerminated = job?.completed || job?.terminatedByUs;
+
+            if (code !== 0 && !wasCompletedOrTerminated) {
                 log.debug(`Worker exited with code ${code} for job ${requestId}`);
                 const window = BrowserWindow.getAllWindows().find(w => w.webContents.id === webContentsId);
-                window?.webContents.send('ocr:complete', {
+                safeSendToWindow(window, 'ocr:complete', {
                     requestId,
                     success: false,
                     pdfData: null,
@@ -467,14 +505,15 @@ async function handlePreprocessPage(
             return {
                 success: false,
                 imageData,
-                error: `Preprocessing tools not available: ${validation.missing.join(', ')}`,
+                error: 'Preprocessing requires unpaper binary. Build with: ./scripts/bundle-leptonica-unpaper-macos.sh',
             };
         }
 
-        // Write image to temp file
+        // Write image to temp file using UUID to prevent collisions under concurrency
         const tempDir = app.getPath('temp');
-        const inputPath = join(tempDir, `preprocess-input-${Date.now()}.png`);
-        const outputPath = join(tempDir, `preprocess-output-${Date.now()}.png`);
+        const uuid = randomUUID();
+        const inputPath = join(tempDir, `preprocess-input-${uuid}.png`);
+        const outputPath = join(tempDir, `preprocess-output-${uuid}.png`);
 
         try {
             const imageBuffer = Buffer.from(imageData);
