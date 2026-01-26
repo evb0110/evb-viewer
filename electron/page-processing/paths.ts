@@ -165,13 +165,14 @@ export function getPageProcessingPaths(): IPageProcessingPaths {
     const processorDir = join(resourcesBase, 'page-processing', platformArch);
     const popplerDir = join(resourcesBase, 'poppler', platformArch);
     const qpdfDir = join(resourcesBase, 'qpdf', platformArch);
+    const ext = process.platform === 'win32' ? '.exe' : '';
 
     // Return paths without checking existence (worker will handle errors)
     cachedPaths = {
         // Default to the onedir layout; validation/init will correct this if needed.
-        processor: join(processorDir, 'bin', 'page-processor', 'page-processor'),
-        pdftoppm: join(popplerDir, 'bin', 'pdftoppm'),
-        qpdf: join(qpdfDir, 'bin', 'qpdf'),
+        processor: join(processorDir, 'bin', 'page-processor', `page-processor${ext}`),
+        pdftoppm: join(popplerDir, 'bin', `pdftoppm${ext}`),
+        qpdf: join(qpdfDir, 'bin', `qpdf${ext}`),
     };
 
     return cachedPaths;

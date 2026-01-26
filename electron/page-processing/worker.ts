@@ -563,6 +563,12 @@ async function processJob(
         ...options,
         operations: options.operations.filter(op => op !== 'crop'),
     };
+    // Make DPI handling foolproof:
+    // - extractionDpi controls raster pixel dimensions (quality/perf tradeoff)
+    // - outputDpi controls the PDF page physical size for those pixels
+    // If they differ, the output PDF will look "scaled" even though pixels aren't downsampled.
+    // We always keep them in sync to behave correctly for arbitrary DPIs.
+    effectiveOptions.outputDpi = effectiveOptions.extractionDpi;
 
     const tempFiles = new Set<string>();
     const keepFiles = new Set<string>();
