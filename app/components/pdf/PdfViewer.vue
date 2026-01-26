@@ -59,13 +59,14 @@ import type {
     IPdfPageMatches,
     IPdfSearchMatch,
     PDFDocumentProxy,
+    TPdfSource,
     TFitMode,
 } from '@app/types/pdf';
 
 import 'pdfjs-dist/web/pdf_viewer.css';
 
 interface IProps {
-    src: Blob | null;
+    src: TPdfSource | null;
     bufferPages?: number;
     zoom?: number;
     dragMode?: boolean;

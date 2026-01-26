@@ -4,9 +4,10 @@ import {
 } from 'vue';
 import { getElectronAPI } from '@app/utils/electron';
 import { useOcrTextContent } from '@app/composables/pdf/useOcrTextContent';
+import type { TPdfSource } from '@app/types/pdf';
 
 export const usePdfFile = () => {
-    const pdfSrc = ref<Blob | null>(null);
+    const pdfSrc = ref<TPdfSource | null>(null);
     const pdfData = ref<Uint8Array | null>(null);
     const workingCopyPath = ref<string | null>(null);
     const error = ref<string | null>(null);
@@ -46,7 +47,9 @@ export const usePdfFile = () => {
         }
     }
 
-    async function loadPdfFromPath(path: string) {
+    const MAX_IN_MEMORY_PDF_BYTES = 256 * 1024 * 1024;
+
+    async function loadPdfFromPath(path: string, opts?: { markDirty?: boolean }) {
         const api = getElectronAPI();
 
         // Cleanup previous working copy if opening a different file
@@ -62,11 +65,24 @@ export const usePdfFile = () => {
         }
 
         workingCopyPath.value = path;  // Path from backend is already the working copy path
-        const buffer = await api.readFile(path);
-        const data = new Uint8Array(buffer);
-        pdfData.value = data;
-        pdfSrc.value = new Blob([data], { type: 'application/pdf' });
-        isDirty.value = false;
+        const { size } = await api.statFile(path);
+
+        if (size > MAX_IN_MEMORY_PDF_BYTES) {
+            // Large PDFs can't be safely read into memory (and can exceed fs.readFile limits >2GiB).
+            pdfData.value = null;
+            pdfSrc.value = {
+                kind: 'path',
+                path,
+                size,
+            };
+        } else {
+            const buffer = await api.readFile(path);
+            const data = new Uint8Array(buffer);
+            pdfData.value = data;
+            pdfSrc.value = new Blob([data], { type: 'application/pdf' });
+        }
+
+        isDirty.value = !!opts?.markDirty;
         await api.setWindowTitle(fileName.value || 'PDF Viewer');
     }
 
@@ -85,6 +101,21 @@ export const usePdfFile = () => {
             // First update the working copy with latest data
             await api.writeFile(workingCopyPath.value, data);
             // Then save working copy back to original location
+            await api.saveFile(workingCopyPath.value);
+            isDirty.value = false;
+            return true;
+        } catch (e) {
+            error.value = e instanceof Error ? e.message : 'Failed to save file';
+            return false;
+        }
+    }
+
+    async function saveWorkingCopy() {
+        if (!workingCopyPath.value) {
+            return false;
+        }
+        try {
+            const api = getElectronAPI();
             await api.saveFile(workingCopyPath.value);
             isDirty.value = false;
             return true;
@@ -132,8 +163,10 @@ export const usePdfFile = () => {
         isElectron,
         openFile,
         openFileDirect,
+        loadPdfFromPath,
         loadPdfFromData,
         saveFile,
+        saveWorkingCopy,
         closeFile,
         markDirty,
     };

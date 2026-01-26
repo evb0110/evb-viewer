@@ -264,9 +264,11 @@ const {
     isElectron,
     openFile,
     openFileDirect,
+    loadPdfFromPath,
     loadPdfFromData,
     closeFile,
     saveFile,
+    saveWorkingCopy,
 } = usePdfFile();
 
 const {
@@ -471,7 +473,7 @@ function handleOcrComplete(ocrPdfData: Uint8Array) {
     });
 }
 
-function handlePageProcessingComplete(processedPdfData: Uint8Array) {
+async function handlePageProcessingComplete(processedPdfPath: string) {
     // Remember current page before reload
     const pageToRestore = currentPage.value;
 
@@ -480,8 +482,8 @@ function handlePageProcessingComplete(processedPdfData: Uint8Array) {
         clearOcrCache(workingCopyPath.value);
     }
 
-    // Reload the PDF with the processed data
-    loadPdfFromData(processedPdfData);
+    // Reload the PDF from disk (supports large PDFs without loading into memory).
+    await loadPdfFromPath(processedPdfPath, { markDirty: true });
 
     // Restore scroll position after PDF reloads
     const unwatch = watch(pdfDocument, (doc) => {
@@ -598,6 +600,13 @@ async function handleSave() {
     }
     isSaving.value = true;
     try {
+        // If we don't have an in-memory PDF buffer, the working copy on disk is the source of truth
+        // (e.g. after page processing of large PDFs).
+        if (pdfData.value === null) {
+            await saveWorkingCopy();
+            return;
+        }
+
         const data = await pdfViewerRef.value?.saveDocument();
         if (data) {
             await saveFile(data);

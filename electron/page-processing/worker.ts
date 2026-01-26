@@ -18,6 +18,7 @@ import {
 } from 'worker_threads';
 import { spawn } from 'child_process';
 import {
+    copyFile,
     readFile,
     stat,
     unlink,
@@ -1112,12 +1113,21 @@ async function processJob(
 
         const totalPagesOutput = mergedTotalPagesOutput;
 
-        // Always return a file path. Returning `pdfData: number[]` is extremely memory-hungry
-        // (Array.from(Buffer) can explode memory for multi-page PDFs).
-        keepFiles.add(outputPdfPath);
+        // Prefer writing the processed result back into the working copy so Save works (and avoids
+        // keeping huge PDF bytes in renderer memory).
+        let finalPdfPath = outputPdfPath;
+        if (request.workingCopyPath && request.workingCopyPath.trim().length > 0) {
+            setStep('finalize');
+            await copyFile(outputPdfPath, request.workingCopyPath);
+            finalPdfPath = request.workingCopyPath;
+        } else {
+            // Always return a file path. Returning `pdfData: number[]` is extremely memory-hungry
+            // (Array.from(Buffer) can explode memory for multi-page PDFs).
+            keepFiles.add(outputPdfPath);
+        }
 
         try {
-            const outputStats = await stat(outputPdfPath);
+            const outputStats = await stat(finalPdfPath);
             log('debug', `Merged PDF size: ${outputStats.size} bytes`);
         } catch {
             // Non-blocking; output still exists or qpdf would have failed earlier.
@@ -1126,7 +1136,7 @@ async function processJob(
         sendComplete({
             jobId,
             success: true,
-            pdfPath: outputPdfPath,
+            pdfPath: finalPdfPath,
             pageResults,
             errors,
             stats: {

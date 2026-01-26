@@ -31,6 +31,14 @@ export interface IPdfDocumentState {
     basePageHeight: number | null;
 }
 
+export type TPdfSource =
+    | Blob
+    | {
+        kind: 'path';
+        path: string;
+        size: number;
+    };
+
 export interface IPdfLinkServiceOptions {
     pagesCount: number;
     currentPage: number;

@@ -7,6 +7,8 @@ import type {
     PDFDocumentProxy,
     PDFPageProxy,
 } from 'pdfjs-dist';
+import { getElectronAPI } from '@app/utils/electron';
+import type { TPdfSource } from '@app/types/pdf';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf/pdf.worker.min.mjs';
 
@@ -21,6 +23,7 @@ export const usePdfDocument = () => {
     const pdfPageCache = new Map<number, PDFPageProxy>();
     let objectUrl: string | null = null;
     let loadingTask: ReturnType<typeof pdfjsLib.getDocument> | null = null;
+    let rangeTransport: any | null = null;
 
     function getRenderVersion() {
         return renderVersion;
@@ -30,7 +33,7 @@ export const usePdfDocument = () => {
         return ++renderVersion;
     }
 
-    async function loadPdf(src: Blob) {
+    async function loadPdf(src: TPdfSource) {
         // Cancel any in-progress load - latest wins
         cleanup();
 
@@ -39,17 +42,62 @@ export const usePdfDocument = () => {
         basePageWidth.value = null;
         basePageHeight.value = null;
 
-        objectUrl = URL.createObjectURL(src);
-        loadingTask = pdfjsLib.getDocument({
-            url: objectUrl,
-            verbosity: pdfjsLib.VerbosityLevel.ERRORS,
-            standardFontDataUrl: '/pdf/standard_fonts/',
-            cMapUrl: '/pdf/cmaps/',
-            cMapPacked: true,
-            wasmUrl: '/pdf/wasm/',
-            iccUrl: '/pdf/iccs/',
-            useSystemFonts: false,
-        });
+        if (src instanceof Blob) {
+            objectUrl = URL.createObjectURL(src);
+            loadingTask = pdfjsLib.getDocument({
+                url: objectUrl,
+                verbosity: pdfjsLib.VerbosityLevel.ERRORS,
+                standardFontDataUrl: '/pdf/standard_fonts/',
+                cMapUrl: '/pdf/cmaps/',
+                cMapPacked: true,
+                wasmUrl: '/pdf/wasm/',
+                iccUrl: '/pdf/iccs/',
+                useSystemFonts: false,
+            });
+        } else {
+            // Large PDFs: avoid reading the full file into renderer memory. Use range reads via IPC.
+            const api = getElectronAPI();
+            const length = src.size;
+
+            const initialLen = Math.min(1024 * 1024, length);
+            const initialData = await api.readFileRange(src.path, 0, initialLen);
+
+            // pdfjs-dist doesn't export a typed constructor here, so use `any`.
+            const TransportCtor = (pdfjsLib as any).PDFDataRangeTransport;
+            rangeTransport = new TransportCtor(length, initialData);
+
+            // PDF.js will call this to request additional chunks.
+            rangeTransport.requestDataRange = async (begin: number, end: number) => {
+                try {
+                    // Drop stale reads if a newer load has started.
+                    if (version !== renderVersion) {
+                        return;
+                    }
+                    const chunk = await api.readFileRange(src.path, begin, end - begin);
+                    rangeTransport.onDataRange(begin, chunk);
+                } catch (error) {
+                    // Best-effort: surface the error to PDF.js if supported.
+                    try {
+                        rangeTransport.onError?.(error);
+                    } catch {
+                        // ignore
+                    }
+                }
+            };
+
+            loadingTask = pdfjsLib.getDocument({
+                range: rangeTransport,
+                length,
+                rangeChunkSize: 1024 * 1024,
+                verbosity: pdfjsLib.VerbosityLevel.ERRORS,
+                standardFontDataUrl: '/pdf/standard_fonts/',
+                cMapUrl: '/pdf/cmaps/',
+                cMapPacked: true,
+                wasmUrl: '/pdf/wasm/',
+                iccUrl: '/pdf/iccs/',
+                useSystemFonts: false,
+            });
+        }
 
         try {
             const pdfDoc = await loadingTask.promise;
@@ -128,6 +176,15 @@ export const usePdfDocument = () => {
 
     function cleanup() {
         cleanupPageCache();
+        if (rangeTransport) {
+            try {
+                rangeTransport.abort();
+            } catch {
+                // ignore
+            } finally {
+                rangeTransport = null;
+            }
+        }
 
         if (loadingTask) {
             try {

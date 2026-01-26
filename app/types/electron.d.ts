@@ -107,6 +107,8 @@ interface IElectronAPI {
     openPdfDialog: () => Promise<string | null>;
     openPdfDirect: (path: string) => Promise<string | null>;
     readFile: (path: string) => Promise<Uint8Array>;
+    statFile: (path: string) => Promise<{ size: number }>;
+    readFileRange: (path: string, offset: number, length: number) => Promise<Uint8Array>;
     readTextFile: (path: string) => Promise<string>;
     fileExists: (path: string) => Promise<boolean>;
     writeFile: (path: string, data: Uint8Array) => Promise<boolean>;

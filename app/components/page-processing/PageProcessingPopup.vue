@@ -165,8 +165,6 @@
 </template>
 
 <script setup lang="ts">
-import { getElectronAPI } from '@app/utils/electron';
-
 interface IProps {
     pdfPath: string;
     currentPage: number;
@@ -179,7 +177,7 @@ const props = defineProps<IProps>();
 
 const emit = defineEmits<{
     (e: 'open'): void;
-    (e: 'processed', pdfData: Uint8Array): void;
+    (e: 'processed', pdfPath: string): void;
 }>();
 
 const {
@@ -263,22 +261,8 @@ watch(lastResult, async (result) => {
     }
     lastEmittedJobId = result.jobId;
 
-    try {
-        const api = getElectronAPI();
-
-        // If we have inline PDF data
-        if (result.pdfData && result.pdfData.length > 0) {
-            emit('processed', new Uint8Array(result.pdfData));
-            return;
-        }
-
-        // If we have a path to the processed PDF, read it
-        if (result.pdfPath) {
-            const pdfData = await api.readFile(result.pdfPath);
-            emit('processed', pdfData);
-        }
-    } catch (err) {
-        console.error('Failed to emit processed PDF:', err);
+    if (result.pdfPath) {
+        emit('processed', result.pdfPath);
     }
 });
 </script>

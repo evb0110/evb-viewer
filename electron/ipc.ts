@@ -13,7 +13,9 @@ import {
     readFile,
     writeFile,
     copyFile,
+    stat,
 } from 'fs/promises';
+import { open as openFileHandle } from 'fs/promises';
 import {
     extname,
     join,
@@ -69,6 +71,8 @@ export function registerIpcHandlers() {
     ipcMain.handle('dialog:openPdf', handleOpenPdfDialog);
     ipcMain.handle('dialog:openPdfDirect', handleOpenPdfDirect);
     ipcMain.handle('file:read', handleFileRead);
+    ipcMain.handle('file:stat', handleFileStat);
+    ipcMain.handle('file:readRange', handleFileReadRange);
     ipcMain.handle('file:readText', handleFileReadText);
     ipcMain.handle('file:exists', handleFileExists);
     ipcMain.handle('file:write', handleFileWrite);
@@ -188,6 +192,67 @@ async function handleFileRead(_event: Electron.IpcMainInvokeEvent, filePath: str
     return new Uint8Array(buffer);
 }
 
+async function handleFileStat(
+    _event: Electron.IpcMainInvokeEvent,
+    filePath: string,
+): Promise<{ size: number }> {
+    if (!filePath || filePath.trim() === '') {
+        throw new Error('Invalid file path: path must be a non-empty string');
+    }
+
+    const normalizedPath = filePath.trim();
+    const extension = extname(normalizedPath).toLowerCase();
+    if (extension !== '.pdf') {
+        throw new Error('Invalid file type: only PDF files are allowed');
+    }
+    if (!existsSync(normalizedPath)) {
+        throw new Error(`File not found: ${normalizedPath}`);
+    }
+
+    // We intentionally allow stat on PDFs in the working-copy temp dir, and also on
+    // original PDFs (opening a PDF requires reading it anyway).
+    const s = await stat(normalizedPath);
+    return { size: s.size };
+}
+
+async function handleFileReadRange(
+    _event: Electron.IpcMainInvokeEvent,
+    filePath: string,
+    offset: number,
+    length: number,
+): Promise<Uint8Array> {
+    if (!filePath || filePath.trim() === '') {
+        throw new Error('Invalid file path: path must be a non-empty string');
+    }
+    const normalizedPath = filePath.trim();
+    const extension = extname(normalizedPath).toLowerCase();
+    if (extension !== '.pdf') {
+        throw new Error('Invalid file type: only PDF files are allowed');
+    }
+    if (!existsSync(normalizedPath)) {
+        throw new Error(`File not found: ${normalizedPath}`);
+    }
+
+    const off = Number(offset);
+    const len = Number(length);
+    if (!Number.isFinite(off) || !Number.isFinite(len) || off < 0 || len <= 0) {
+        throw new Error('Invalid range: offset must be >=0 and length must be >0');
+    }
+
+    // Hard cap to keep IPC memory usage bounded (PDF.js will request more ranges if needed).
+    const MAX_CHUNK = 8 * 1024 * 1024;
+    const want = Math.min(len, MAX_CHUNK);
+
+    const fh = await openFileHandle(normalizedPath, 'r');
+    try {
+        const buf = Buffer.allocUnsafe(want);
+        const { bytesRead } = await fh.read(buf, 0, want, off);
+        return new Uint8Array(buf.subarray(0, bytesRead));
+    } finally {
+        await fh.close();
+    }
+}
+
 async function handleFileWrite(
     _event: Electron.IpcMainInvokeEvent,
     filePath: string,
@@ -281,9 +346,9 @@ async function handleFileSave(
     }
 
     try {
-        // Copy working version back to original location
-        const workingData = await readFile(normalizedWorkingPath);
-        await writeFile(originalPath, workingData);
+        // Copy working version back to original location without loading into memory.
+        // This must work for large PDFs (>2GiB).
+        await copyFile(normalizedWorkingPath, originalPath);
 
         return true;
     } catch (err) {

@@ -202,6 +202,8 @@ if (!__preloadAlreadyInstalled) {
         openPdfDialog: () => ipcRenderer.invoke('dialog:openPdf'),
         openPdfDirect: (path: string) => ipcRenderer.invoke('dialog:openPdfDirect', path),
         readFile: (path: string) => ipcRenderer.invoke('file:read', path),
+        statFile: (path: string) => ipcRenderer.invoke('file:stat', path),
+        readFileRange: (path: string, offset: number, length: number) => ipcRenderer.invoke('file:readRange', path, offset, length),
         readTextFile: (path: string) => ipcRenderer.invoke('file:readText', path),
         fileExists: (path: string) => ipcRenderer.invoke('file:exists', path),
         writeFile: (path: string, data: Uint8Array) => ipcRenderer.invoke('file:write', path, data),
