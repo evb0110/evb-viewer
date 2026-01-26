@@ -37,6 +37,17 @@
 
                 <!-- Center section: Document controls -->
                 <div class="toolbar-section toolbar-center">
+                    <PageProcessingPopup
+                        ref="pageProcessingPopupRef"
+                        :pdf-path="workingCopyPath ?? ''"
+                        :current-page="currentPage"
+                        :total-pages="totalPages"
+                        :working-copy-path="workingCopyPath ?? undefined"
+                        :pdf-data="pdfData"
+                        @open="closeOtherDropdowns('pageProcessing')"
+                        @processed="handlePageProcessingComplete"
+                    />
+
                     <OcrPopup
                         ref="ocrPopupRef"
                         :pdf-document="pdfDocument"
@@ -369,18 +380,21 @@ const pdfViewerRef = ref<IPdfViewerExpose | null>(null);
 const zoomDropdownRef = ref<{ close: () => void } | null>(null);
 const pageDropdownRef = ref<{ close: () => void } | null>(null);
 const ocrPopupRef = ref<{ close: () => void } | null>(null);
+const pageProcessingPopupRef = ref<{ close: () => void } | null>(null);
 const sidebarRef = ref<{ focusSearch: () => void | Promise<void> } | null>(null);
 
 function closeAllDropdowns() {
     zoomDropdownRef.value?.close();
     pageDropdownRef.value?.close();
     ocrPopupRef.value?.close();
+    pageProcessingPopupRef.value?.close();
 }
 
-function closeOtherDropdowns(except: 'zoom' | 'page' | 'ocr') {
+function closeOtherDropdowns(except: 'zoom' | 'page' | 'ocr' | 'pageProcessing') {
     if (except !== 'zoom') zoomDropdownRef.value?.close();
     if (except !== 'page') pageDropdownRef.value?.close();
     if (except !== 'ocr') ocrPopupRef.value?.close();
+    if (except !== 'pageProcessing') pageProcessingPopupRef.value?.close();
 }
 
 const zoom = ref(1);
@@ -452,6 +466,35 @@ function handleOcrComplete(ocrPdfData: Uint8Array) {
             // Use nextTick to ensure DOM is updated
             void nextTick(() => {
                 pdfViewerRef.value?.scrollToPage(pageToRestore);
+            });
+        }
+    });
+}
+
+function handlePageProcessingComplete(processedPdfData: Uint8Array) {
+    // Remember current page before reload
+    const pageToRestore = currentPage.value;
+
+    // Clear OCR cache since page processing may have changed page structure
+    if (workingCopyPath.value) {
+        clearOcrCache(workingCopyPath.value);
+    }
+
+    // Reload the PDF with the processed data
+    loadPdfFromData(processedPdfData);
+
+    // Restore scroll position after PDF reloads
+    const unwatch = watch(pdfDocument, (doc) => {
+        if (doc) {
+            unwatch();
+            // Reset search cache since page content/structure changed
+            resetSearchCache();
+            // Use nextTick to ensure DOM is updated
+            void nextTick(() => {
+                // After page processing, total pages might change (splits)
+                // Navigate to first page or restore if within new bounds
+                const targetPage = Math.min(pageToRestore, totalPages.value);
+                pdfViewerRef.value?.scrollToPage(targetPage);
             });
         }
     });

@@ -7,6 +7,7 @@ import {
 import { setupMenu } from '@electron/menu';
 import { initRecentFilesCache } from '@electron/recent-files';
 import { stopServer } from '@electron/server';
+import { initPageProcessingPaths } from '@electron/page-processing/paths';
 import {
     createWindow,
     hasWindows,
@@ -14,6 +15,9 @@ import {
 
 async function init() {
     await app.whenReady();
+    // Warm tool path cache early so the first Process click doesn't pay the discovery cost.
+    // Non-blocking: missing tools are handled later via validateTools().
+    void initPageProcessingPaths();
     registerIpcHandlers();
     await initRecentFilesCache();
     setupMenu();

@@ -25,6 +25,7 @@ import {
     sep,
 } from 'path';
 import { registerOcrHandlers } from '@electron/ocr/ipc';
+import { registerPageProcessingHandlers } from '@electron/page-processing/ipc';
 import { registerSearchHandlers } from '@electron/search/ipc';
 import { updateRecentFilesMenu } from '@electron/menu';
 import {
@@ -94,6 +95,7 @@ export function registerIpcHandlers() {
     });
 
     registerOcrHandlers();
+    registerPageProcessingHandlers();
     registerSearchHandlers();
 }
 

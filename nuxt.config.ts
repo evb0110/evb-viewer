@@ -83,6 +83,7 @@ export default defineNuxtConfig({
             'lucide:check-circle',
             'lucide:scaling',
             'lucide:clock',
+            'lucide:wand-2',
         ]},
     },
 

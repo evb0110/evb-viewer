@@ -1,0 +1,10 @@
+# Core dependencies
+numpy>=2.0.0
+scipy>=1.14.0
+opencv-python-headless>=4.10.0
+
+# Dewarping (optional but recommended)
+page-dewarp>=0.2.7
+
+# Build tool
+pyinstaller>=6.0.0

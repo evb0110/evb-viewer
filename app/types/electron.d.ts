@@ -6,6 +6,27 @@ import type {
     IOcrLanguage,
     IRecentFile,
 } from '@app/types/shared';
+import type {
+    IProcessingOptions,
+    IProcessingProgress,
+    IProcessingResult,
+} from '@app/types/page-processing';
+import type { IToolValidation } from 'electron/page-processing/paths';
+import type {
+    ICreateProjectRequest,
+    ICreateProjectResult,
+    IGenerateOutputRequest,
+    IGenerateOutputResult,
+    ILoadProjectResult,
+    IPreviewStageRequest,
+    IPreviewStageResult,
+    IProcessingProject,
+    IProjectStatusResult,
+    IRunStageRequest,
+    IRunStageResult,
+    ISaveProjectResult,
+    IStageProgress,
+} from 'electron/page-processing/project';
 
 interface IOcrRecognizeRequest {
     pageNumber: number;
@@ -151,6 +172,64 @@ interface IElectronAPI {
     };
     onMenuOpenRecentFile: (callback: (path: string) => void) => IMenuEventUnsubscribe;
     onMenuClearRecentFiles: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
+
+    // Page Processing API (Legacy)
+    pageProcessing: {
+        process: (
+            pdfPath: string,
+            pages: number[],
+            options: Partial<IProcessingOptions>,
+            requestId: string,
+            workingCopyPath?: string,
+        ) => Promise<{
+            started: boolean;
+            jobId: string;
+            error?: string
+        }>;
+        cancel: (jobId: string) => Promise<{ success: boolean }>;
+        validateTools: () => Promise<IToolValidation>;
+        onProgress: (callback: (progress: IProcessingProgress) => void) => () => void;
+        onComplete: (callback: (result: IProcessingResult) => void) => () => void;
+        onLog: (callback: (entry: { jobId: string; level: string; message: string; }) => void) => () => void;
+
+        // New Project-Based API
+        createProject: (request: ICreateProjectRequest) => Promise<ICreateProjectResult>;
+        loadProject: (projectId: string) => Promise<ILoadProjectResult>;
+        saveProject: (project: IProcessingProject) => Promise<ISaveProjectResult>;
+        listProjects: () => Promise<{
+            success: boolean;
+            projects?: Array<{
+                id: string;
+                originalPdfPath: string;
+                createdAt: number;
+                updatedAt: number;
+                status: string;
+            }>;
+            error?: string;
+        }>;
+        deleteProject: (projectId: string) => Promise<{
+            success: boolean;
+            error?: string 
+        }>;
+        runStage: (request: IRunStageRequest) => Promise<IRunStageResult>;
+        previewStage: (request: IPreviewStageRequest) => Promise<IPreviewStageResult>;
+        cancelStage: (jobId: string) => Promise<{
+            cancelled: boolean;
+            error?: string 
+        }>;
+        generateOutput: (request: IGenerateOutputRequest) => Promise<IGenerateOutputResult>;
+        getProjectStatus: (projectId: string) => Promise<IProjectStatusResult>;
+        onStageProgress: (callback: (progress: IStageProgress) => void) => () => void;
+        onStageComplete: (callback: (result: IRunStageResult) => void) => () => void;
+        onOutputProgress: (callback: (progress: {
+            jobId: string;
+            currentPage: number;
+            totalPages: number;
+            percentage: number;
+            message: string;
+        }) => void) => () => void;
+        onOutputComplete: (callback: (result: IGenerateOutputResult) => void) => () => void;
+    };
 }
 
 declare global {

@@ -12,7 +12,7 @@
     "dev:fast": "pnpm run build:electron && concurrently -k \"nuxt dev\" \"wait-on http://localhost:3235 && electron .\"",
     "clean:cache": "rm -rf node_modules/.vite node_modules/.cache .nuxt .output",
     "build": "nuxt build && pnpm run build:electron",
-    "build:electron": "esbuild electron/main.ts --bundle --platform=node --format=esm --outfile=dist-electron/main.js --external:electron && esbuild electron/preload.ts --bundle --platform=node --format=cjs --outfile=dist-electron/preload.js --external:electron && esbuild electron/ocr/ocr-worker.ts --bundle --platform=node --format=esm --outfile=dist-electron/ocr-worker.js --external:electron",
+    "build:electron": "esbuild electron/main.ts --bundle --platform=node --format=esm --outfile=dist-electron/main.js --external:electron && esbuild electron/preload.ts --bundle --platform=node --format=cjs --outfile=dist-electron/preload.js --external:electron && esbuild electron/ocr/ocr-worker.ts --bundle --platform=node --format=esm --outfile=dist-electron/ocr-worker.js --external:electron && esbuild electron/page-processing/worker.ts --bundle --platform=node --format=esm --outfile=dist-electron/page-processing-worker.js --external:electron",
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare && pnpm run copy:pdfjs",
     "copy:pdfjs": "mkdir -p public/pdf/standard_fonts public/pdf/cmaps public/pdf/wasm public/pdf/iccs && cp node_modules/pdfjs-dist/build/pdf.worker.min.mjs public/pdf/ && cp node_modules/pdfjs-dist/standard_fonts/* public/pdf/standard_fonts/ && cp node_modules/pdfjs-dist/cmaps/* public/pdf/cmaps/ && cp node_modules/pdfjs-dist/wasm/* public/pdf/wasm/ && cp node_modules/pdfjs-dist/iccs/* public/pdf/iccs/",

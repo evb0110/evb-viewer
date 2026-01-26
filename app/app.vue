@@ -20,8 +20,14 @@ onMounted(() => {
 
     // Expose for testing (set after hydration/mount, not during module evaluation).
     if (typeof window !== 'undefined') {
-        (window as Window & { __appReady?: boolean; __appReadyAt?: number }).__appReady = true;
-        (window as Window & { __appReady?: boolean; __appReadyAt?: number }).__appReadyAt = mountTime;
+        (window as Window & {
+            __appReady?: boolean;
+            __appReadyAt?: number 
+        }).__appReady = true;
+        (window as Window & {
+            __appReady?: boolean;
+            __appReadyAt?: number 
+        }).__appReadyAt = mountTime;
         console.log('[SETUP] App mounted, __appReady set at', mountTime);
     }
 });
