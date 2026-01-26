@@ -244,6 +244,7 @@ import {
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { TFitMode } from '@app/types/shared';
 import { useOcrTextContent } from '@app/composables/pdf/useOcrTextContent';
+import { getElectronAPI } from '@app/utils/electron';
 
 console.log('[PAGE] pages/index.vue script setup executing');
 
@@ -446,7 +447,7 @@ function handleGoToPage(page: number) {
     pdfViewerRef.value?.scrollToPage(page);
 }
 
-function handleOcrComplete(ocrPdfData: Uint8Array) {
+async function handleOcrComplete(ocrPdfData: Uint8Array) {
     // Remember current page before reload
     const pageToRestore = currentPage.value;
 
@@ -455,8 +456,21 @@ function handleOcrComplete(ocrPdfData: Uint8Array) {
         clearOcrCache(workingCopyPath.value);
     }
 
-    // Reload the PDF with the OCR'd data
-    loadPdfFromData(ocrPdfData);
+    // Persist OCR changes to the working copy so subsequent operations (processing/OCR)
+    // don't accidentally operate on an older on-disk version.
+    if (workingCopyPath.value) {
+        try {
+            const api = getElectronAPI();
+            await api.writeFile(workingCopyPath.value, ocrPdfData);
+            await loadPdfFromPath(workingCopyPath.value, { markDirty: true });
+        } catch {
+            // Fallback: keep in-memory state (still better than dropping OCR result).
+            loadPdfFromData(ocrPdfData);
+        }
+    } else {
+        // Reload the PDF with the OCR'd data (web context / no working copy)
+        loadPdfFromData(ocrPdfData);
+    }
 
     // Restore scroll position after PDF reloads
     // Watch for document to be set (happens after loadFromSource completes)
