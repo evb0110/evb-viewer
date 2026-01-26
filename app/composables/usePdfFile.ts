@@ -125,6 +125,23 @@ export const usePdfFile = () => {
         }
     }
 
+    async function saveWorkingCopyAs() {
+        if (!workingCopyPath.value) {
+            return null;
+        }
+        try {
+            const api = getElectronAPI();
+            const savedPath = await api.savePdfAs(workingCopyPath.value);
+            if (savedPath) {
+                isDirty.value = false;
+            }
+            return savedPath;
+        } catch (e) {
+            error.value = e instanceof Error ? e.message : 'Failed to save file';
+            return null;
+        }
+    }
+
     async function closeFile() {
         const pathToCleanup = workingCopyPath.value;
 
@@ -167,6 +184,7 @@ export const usePdfFile = () => {
         loadPdfFromData,
         saveFile,
         saveWorkingCopy,
+        saveWorkingCopyAs,
         closeFile,
         markDirty,
     };

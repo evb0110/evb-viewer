@@ -27,7 +27,7 @@
                 v-for="page in pagesToRender"
                 :key="page"
                 :page="page"
-                :show-skeleton="isPageNearVisible(page)"
+                :show-skeleton="shouldShowSkeleton(page)"
             />
         </div>
     </div>
@@ -154,6 +154,7 @@ const {
     reRenderAllVisiblePages,
     cleanupAllPages: cleanupRenderedPages,
     applySearchHighlights,
+    isPageRendered,
 } = usePdfPageRenderer({
     container: viewerContainer,
     document: pdfDocumentResult,
@@ -175,6 +176,10 @@ function isPageNearVisible(page: number) {
     const start = Math.max(1, visibleRange.value.start - SKELETON_BUFFER);
     const end = Math.min(numPages.value, visibleRange.value.end + SKELETON_BUFFER);
     return page >= start && page <= end;
+}
+
+function shouldShowSkeleton(page: number) {
+    return isPageNearVisible(page) && !isPageRendered(page);
 }
 
 function handleDragStart(e: MouseEvent) {

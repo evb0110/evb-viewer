@@ -7,6 +7,10 @@ export interface IIpcChannels {
         args: [];
         result: string | null;
     };
+    'dialog:savePdfAs': {
+        args: [workingPath: string];
+        result: string | null;
+    };
     'file:read': {
         args: [filePath: string];
         result: Uint8Array;
@@ -52,6 +56,7 @@ export interface IMenuEventUnsubscribe {(): void;}
 export interface IMenuEvents {
     onMenuOpenPdf: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuSave: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
+    onMenuSaveAs: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuZoomIn: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuZoomOut: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuActualSize: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;

@@ -70,6 +70,7 @@ async function createWorkingCopy(originalPath: string): Promise<string> {
 export function registerIpcHandlers() {
     ipcMain.handle('dialog:openPdf', handleOpenPdfDialog);
     ipcMain.handle('dialog:openPdfDirect', handleOpenPdfDirect);
+    ipcMain.handle('dialog:savePdfAs', handleSavePdfAs);
     ipcMain.handle('file:read', handleFileRead);
     ipcMain.handle('file:stat', handleFileStat);
     ipcMain.handle('file:readRange', handleFileReadRange);
@@ -170,6 +171,57 @@ async function handleOpenPdfDialog(): Promise<string | null> {
         console.error('Failed to create working copy:', err);
         return null;
     }
+}
+
+async function handleSavePdfAs(
+    _event: Electron.IpcMainInvokeEvent,
+    workingPath: string,
+): Promise<string | null> {
+    const normalizedWorkingPath = typeof workingPath === 'string' ? workingPath.trim() : '';
+    if (!normalizedWorkingPath) {
+        return null;
+    }
+
+    const extension = extname(normalizedWorkingPath).toLowerCase();
+    if (extension !== '.pdf') {
+        throw new Error('Invalid file type: only PDF files are allowed');
+    }
+
+    if (!existsSync(normalizedWorkingPath)) {
+        throw new Error(`File not found: ${normalizedWorkingPath}`);
+    }
+
+    const originalPath = workingCopyMap.get(normalizedWorkingPath);
+    const suggestedName = originalPath
+        ? basename(originalPath)
+        : basename(normalizedWorkingPath);
+
+    const result = await dialog.showSaveDialog({
+        title: 'Save PDF As',
+        defaultPath: suggestedName.endsWith('.pdf') ? suggestedName : `${suggestedName}.pdf`,
+        filters: [{
+            name: 'PDF Files',
+            extensions: ['pdf'],
+        }],
+    });
+
+    if (result.canceled || !result.filePath) {
+        return null;
+    }
+
+    let targetPath = result.filePath;
+    if (extname(targetPath).toLowerCase() !== '.pdf') {
+        targetPath += '.pdf';
+    }
+
+    await copyFile(normalizedWorkingPath, targetPath);
+
+    // After Save As, treat the new path as the "original" for subsequent Save operations.
+    workingCopyMap.set(normalizedWorkingPath, targetPath);
+    await addRecentFile(targetPath);
+    updateRecentFilesMenu();
+
+    return targetPath;
 }
 
 async function handleFileRead(_event: Electron.IpcMainInvokeEvent, filePath: string): Promise<Uint8Array> {

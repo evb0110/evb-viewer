@@ -18,7 +18,7 @@ from split import find_gutter_position
 def _detect_skew_hough(
     gray: np.ndarray,
     max_angle: float = 15.0,
-) -> float:
+) -> tuple[float, float]:
     """
     Fast skew detection using Hough lines on a downscaled image.
 
@@ -26,7 +26,7 @@ def _detect_skew_hough(
     """
     h, w = gray.shape[:2]
     if h < 10 or w < 10:
-        return 0.0
+        return 0.0, 0.0
 
     edges = cv2.Canny(gray, 50, 150, apertureSize=3)
 
@@ -45,7 +45,7 @@ def _detect_skew_hough(
     )
 
     if lines is None or len(lines) == 0:
-        return 0.0
+        return 0.0, 0.0
 
     angles: list[float] = []
     lengths: list[float] = []
@@ -66,7 +66,7 @@ def _detect_skew_hough(
         lengths.append(length)
 
     if not angles:
-        return 0.0
+        return 0.0, 0.0
 
     total_len = float(np.sum(lengths)) if lengths else 0.0
     if total_len <= 0:
@@ -74,8 +74,17 @@ def _detect_skew_hough(
     else:
         line_angle = float(np.sum(np.array(angles) * np.array(lengths)) / total_len)
 
+    # Confidence: we need enough consistent near-horizontal lines.
+    # If the image contains lots of diagonals (e.g. illustrations, borders), skew detection can be unstable.
+    angle_std = float(np.std(np.array(angles, dtype=np.float64))) if len(angles) > 1 else 0.0
+    # 2 degrees std => good, 4 degrees => poor.
+    consistency = max(0.0, 1.0 - (angle_std / 4.0))
+    # 15 lines => good signal; fewer => lower confidence.
+    count_score = min(1.0, float(len(angles)) / 15.0)
+    confidence = float(min(1.0, max(0.0, (consistency * 0.7) + (count_score * 0.3))))
+
     # Hough finds the angle of the text lines; to deskew we rotate in the opposite direction.
-    return -line_angle
+    return -line_angle, confidence
 
 
 def _to_gray(image: np.ndarray) -> np.ndarray:
@@ -164,9 +173,10 @@ def detect_facing_pages(image: np.ndarray) -> bool:
     h, w = image.shape[:2]
 
     # Heuristic 1: Aspect ratio
-    # Facing pages typically have width > ~1.15 * height
+    # Facing pages are typically wider, but real scans can include large top/bottom margins
+    # which reduce the ratio. Keep this as a weak gate, not a hard exclusion.
     aspect_ratio = w / h
-    if aspect_ratio < 1.15:
+    if aspect_ratio < 1.05:
         return False
 
     # Convert to grayscale and downscale for faster analysis (no quality impact on output).
@@ -323,7 +333,18 @@ def detect_skew_angle(image: np.ndarray) -> float:
         pass
 
     try:
-        return _detect_skew_hough(gray_small, max_angle=15.0)
+        angle, conf = _detect_skew_hough(gray_small, max_angle=15.0)
+
+        # Guardrail: avoid "random rotations" on pages where skew detection is uncertain.
+        # Typical scanner skew is small; larger angles are often false positives.
+        if conf < 0.40:
+            return 0.0
+        if abs(angle) > 5.0 and conf < 0.70:
+            return 0.0
+        if abs(angle) > 10.0:
+            return 0.0
+
+        return float(angle)
     except Exception:
         return 0.0
 

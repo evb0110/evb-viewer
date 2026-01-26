@@ -201,6 +201,7 @@ if (!__preloadAlreadyInstalled) {
     contextBridge.exposeInMainWorld('electronAPI', {
         openPdfDialog: () => ipcRenderer.invoke('dialog:openPdf'),
         openPdfDirect: (path: string) => ipcRenderer.invoke('dialog:openPdfDirect', path),
+        savePdfAs: (workingPath: string) => ipcRenderer.invoke('dialog:savePdfAs', workingPath),
         readFile: (path: string) => ipcRenderer.invoke('file:read', path),
         statFile: (path: string) => ipcRenderer.invoke('file:stat', path),
         readFileRange: (path: string, offset: number, length: number) => ipcRenderer.invoke('file:readRange', path, offset, length),
@@ -220,6 +221,11 @@ if (!__preloadAlreadyInstalled) {
             const handler = (_event: IpcRendererEvent) => callback();
             ipcRenderer.on('menu:save', handler);
             return () => ipcRenderer.removeListener('menu:save', handler);
+        },
+        onMenuSaveAs: (callback: IMenuEventCallback): IMenuEventUnsubscribe => {
+            const handler = (_event: IpcRendererEvent) => callback();
+            ipcRenderer.on('menu:saveAs', handler);
+            return () => ipcRenderer.removeListener('menu:saveAs', handler);
         },
         onMenuZoomIn: (callback: IMenuEventCallback): IMenuEventUnsubscribe => {
             const handler = (_event: IpcRendererEvent) => callback();

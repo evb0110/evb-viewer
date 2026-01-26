@@ -106,6 +106,7 @@ interface IPreprocessPageResult {
 interface IElectronAPI {
     openPdfDialog: () => Promise<string | null>;
     openPdfDirect: (path: string) => Promise<string | null>;
+    savePdfAs: (workingCopyPath: string) => Promise<string | null>;
     readFile: (path: string) => Promise<Uint8Array>;
     statFile: (path: string) => Promise<{ size: number }>;
     readFileRange: (path: string, offset: number, length: number) => Promise<Uint8Array>;
@@ -117,6 +118,7 @@ interface IElectronAPI {
     setWindowTitle: (title: string) => Promise<void>;
     onMenuOpenPdf: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuSave: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
+    onMenuSaveAs: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuZoomIn: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuZoomOut: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuActualSize: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;

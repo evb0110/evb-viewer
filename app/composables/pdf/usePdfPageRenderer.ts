@@ -1133,5 +1133,6 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         reRenderAllVisiblePages,
         cleanupAllPages,
         applySearchHighlights,
+        isPageRendered: (pageNumber: number) => renderedPages.has(pageNumber),
     };
 };

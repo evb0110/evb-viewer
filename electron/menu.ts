@@ -69,6 +69,13 @@ function getFileMenu(): MenuItemConstructorOptions {
                     sendToWindow(window, 'menu:save');
                 },
             },
+            {
+                label: 'Save As...',
+                accelerator: 'CmdOrCtrl+Shift+S',
+                click: (_, window) => {
+                    sendToWindow(window, 'menu:saveAs');
+                },
+            },
             { type: 'separator' },
             {
                 label: 'Close',

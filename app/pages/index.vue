@@ -23,6 +23,14 @@
                     >
                         Save
                     </UButton>
+                    <UButton
+                        icon="i-lucide-save"
+                        variant="ghost"
+                        :disabled="!pdfSrc || isSaving"
+                        @click="handleSaveAs(); closeAllDropdowns()"
+                    >
+                        Save As
+                    </UButton>
 
                     <UButton
                         icon="i-lucide-panel-left"
@@ -270,6 +278,7 @@ const {
     closeFile,
     saveFile,
     saveWorkingCopy,
+    saveWorkingCopyAs,
 } = usePdfFile();
 
 const {
@@ -329,6 +338,7 @@ onMounted(() => {
         menuCleanups.push(
             window.electronAPI.onMenuOpenPdf(() => openFile()),
             window.electronAPI.onMenuSave(() => handleSave()),
+            window.electronAPI.onMenuSaveAs(() => handleSaveAs()),
             window.electronAPI.onMenuZoomIn(() => { zoom.value = Math.min(zoom.value + 0.25, 5); }),
             window.electronAPI.onMenuZoomOut(() => { zoom.value = Math.max(zoom.value - 0.25, 0.25); }),
             window.electronAPI.onMenuActualSize(() => { zoom.value = 1; }),
@@ -625,6 +635,22 @@ async function handleSave() {
         // Web context fallback.
         const data = await pdfViewerRef.value?.saveDocument();
         if (data) await saveFile(data);
+    } finally {
+        isSaving.value = false;
+    }
+}
+
+async function handleSaveAs() {
+    if (isSaving.value) {
+        return;
+    }
+    isSaving.value = true;
+    try {
+        const outPath = await saveWorkingCopyAs();
+        if (outPath) {
+            // Keep the recent files list in sync with Save As.
+            loadRecentFiles();
+        }
     } finally {
         isSaving.value = false;
     }
