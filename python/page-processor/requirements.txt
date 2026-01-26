@@ -3,6 +3,9 @@ numpy>=2.0.0
 scipy>=1.14.0
 opencv-python-headless>=4.10.0
 
+# Fast, lossless image->PDF wrapper (used to avoid slow pdf-lib conversion).
+img2pdf>=0.6.3
+
 # Dewarping (optional but recommended)
 page-dewarp>=0.2.7
 

@@ -333,6 +333,34 @@ async function writeImagePdf(
     await writeFile(outputPath, pdfBytes);
 }
 
+async function writeImagesPdfFast(
+    imagePaths: string[],
+    outputPath: string,
+    outputDpi: number,
+): Promise<boolean> {
+    if (imagePaths.length === 0) {
+        return false;
+    }
+    // Prefer the bundled page-processor's img2pdf-pages subcommand.
+    // This is typically much faster than pdf-lib and preserves pixel data losslessly.
+    try {
+        await runCommand(
+            processorBinary,
+            [
+                'img2pdf-pages',
+                outputPath,
+                ...imagePaths,
+                '--dpi',
+                String(outputDpi > 0 ? outputDpi : 300),
+            ],
+            { timeout: 120000 },
+        );
+        return true;
+    } catch {
+        return false;
+    }
+}
+
 /**
  * Runs the Python page processor binary and parses JSON output.
  */
@@ -946,15 +974,13 @@ async function processJob(
         }
         log('debug', `Resolved page count: ${pageCount}`);
 
-        // Convert processed images to single-page PDFs
-        const processedPagePdfs = new Map<number, string[]>();
+        // Convert processed images to replacement PDFs (one PDF per original page; 1 or 2 pages).
+        const processedPagePdfs = new Map<number, { pdfPath: string; pageCount: number }>();
         const sortedPageNums = Array.from(processedPageImages.keys()).sort((a, b) => a - b);
         const outputPdfPath = trackTempFile(join(tempDir, `${sessionId}-output.pdf`));
         let mergedTotalPagesOutput = pageCount;
 
         try {
-            const pdfLib = await loadPdfLib();
-
             for (const pageNum of sortedPageNums) {
                 const images = processedPageImages.get(pageNum);
                 if (!images) {
@@ -962,25 +988,44 @@ async function processJob(
                 }
 
                 log('debug', `Converting page ${pageNum} (${images.length} image(s)) to PDF...`);
-                const pagePdfPaths: string[] = [];
-                for (let i = 0; i < images.length; i++) {
-                    const imagePath = images[i]!;
-                    const pagePdfPath = trackTempFile(
-                        join(tempDir, `${sessionId}-page-${pageNum}-${i + 1}.pdf`),
-                    );
+                const pagePdfPath = trackTempFile(
+                    join(tempDir, `${sessionId}-page-${pageNum}.pdf`),
+                );
 
-                    await writeImagePdf(
-                        imagePath,
-                        pagePdfPath,
-                        options.outputDpi,
-                        pdfLib,
-                    );
+                // Fast path: let the processor wrap images into a multi-page PDF (lossless, fast).
+                const fastOk = await writeImagesPdfFast(images, pagePdfPath, options.outputDpi);
+                if (!fastOk) {
+                    // Fallback: pdf-lib multi-page PDF (still much cheaper than N separate PDFs).
+                    const pdfLib = await loadPdfLib();
+                    const { PDFDocument } = pdfLib;
 
-                    pagePdfPaths.push(pagePdfPath);
+                    const pdfDoc = await PDFDocument.create();
+                    const scale = options.outputDpi > 0 ? 72 / options.outputDpi : 72 / 300;
+
+                    for (const imagePath of images) {
+                        const imageBytes = await readFile(imagePath);
+                        const ext = extname(imagePath).toLowerCase();
+                        const embeddedImage = (ext === '.jpg' || ext === '.jpeg')
+                            ? await pdfDoc.embedJpg(imageBytes)
+                            : await pdfDoc.embedPng(imageBytes);
+
+                        const pageWidth = embeddedImage.width * scale;
+                        const pageHeight = embeddedImage.height * scale;
+                        const page = pdfDoc.addPage([pageWidth, pageHeight]);
+                        page.drawImage(embeddedImage, {
+                            x: 0,
+                            y: 0,
+                            width: pageWidth,
+                            height: pageHeight,
+                        });
+                    }
+
+                    const pdfBytes = await pdfDoc.save();
+                    await writeFile(pagePdfPath, pdfBytes);
                 }
 
-                processedPagePdfs.set(pageNum, pagePdfPaths);
-                mergedTotalPagesOutput += pagePdfPaths.length - 1;
+                processedPagePdfs.set(pageNum, { pdfPath: pagePdfPath, pageCount: images.length });
+                mergedTotalPagesOutput += images.length - 1;
             }
 
             // Update output page numbering to match merged PDF ordering
@@ -989,9 +1034,9 @@ async function processJob(
             for (let pageNum = 1; pageNum <= pageCount; pageNum++) {
                 const replacement = processedPagePdfs.get(pageNum);
                 if (replacement) {
-                    const mapped = Array.from({ length: replacement.length }, (_, i) => outputIndex + i);
+                    const mapped = Array.from({ length: replacement.pageCount }, (_, i) => outputIndex + i);
                     outputPageMap.set(pageNum, mapped);
-                    outputIndex += replacement.length;
+                    outputIndex += replacement.pageCount;
                 } else {
                     outputIndex += 1;
                 }
@@ -1020,9 +1065,10 @@ async function processJob(
                         qpdfArgs.push(pdfPath, range);
                     }
 
-                    for (const processedPdf of replacement) {
-                        qpdfArgs.push(processedPdf, '1');
-                    }
+                    qpdfArgs.push(
+                        replacement.pdfPath,
+                        replacement.pageCount === 1 ? '1' : `1-${replacement.pageCount}`,
+                    );
 
                     rangeStart = pageNum + 1;
                 }

@@ -14,6 +14,8 @@ Usage:
     page-processor detect <stage> <input_image>
     page-processor apply <stage> <input_image> <output> --params <json>
     page-processor pad <input_image> <output_image> --width <px> --height <px>
+    page-processor img2pdf <input_image> <output_pdf> [--dpi <dpi>]
+    page-processor img2pdf-pages <output_pdf> <image1> [image2 ...] [--dpi <dpi>]
     page-processor --version
 
 Stages:
@@ -249,6 +251,17 @@ def main():
     pad_parser.add_argument('--width', type=int, required=True, help='Target width in pixels')
     pad_parser.add_argument('--height', type=int, required=True, help='Target height in pixels')
 
+    # img2pdf command - wrap an image into a single-page PDF (lossless, fast).
+    img2pdf_parser = subparsers.add_parser('img2pdf', help='Convert image to single-page PDF (lossless)')
+    img2pdf_parser.add_argument('input', help='Input image path')
+    img2pdf_parser.add_argument('output', help='Output PDF path')
+    img2pdf_parser.add_argument('--dpi', type=int, default=300, help='Assumed DPI for page size (default: 300)')
+
+    img2pdf_pages_parser = subparsers.add_parser('img2pdf-pages', help='Convert images to a multi-page PDF (lossless)')
+    img2pdf_pages_parser.add_argument('output', help='Output PDF path')
+    img2pdf_pages_parser.add_argument('images', nargs='+', help='One or more input image paths')
+    img2pdf_pages_parser.add_argument('--dpi', type=int, default=300, help='Assumed DPI for page size (default: 300)')
+
     args = parser.parse_args()
 
     try:
@@ -383,6 +396,60 @@ def main():
                 "output_path": args.output,
                 "input_size": {"width": int(w), "height": int(h)},
                 "output_size": {"width": int(target_w), "height": int(target_h)},
+            })
+
+        elif args.command == 'img2pdf':
+            # Keep this import local to avoid penalizing non-PDF workflows.
+            import img2pdf  # type: ignore
+
+            dpi = int(args.dpi or 300)
+            if dpi <= 0:
+                send_error("DPI must be positive", "INVALID_DPI")
+                sys.exit(1)
+
+            # img2pdf needs a (x_dpi, y_dpi) tuple.
+            layout_fun = img2pdf.get_fixed_dpi_layout_fun((dpi, dpi))
+
+            try:
+                with open(args.output, "wb") as f:
+                    img2pdf.convert(args.input, outputstream=f, layout_fun=layout_fun)
+            except Exception as e:
+                send_error(f"img2pdf failed: {e}", "IMG2PDF_FAILED")
+                sys.exit(1)
+
+            send_result({
+                "success": True,
+                "input_path": args.input,
+                "output_path": args.output,
+                "dpi": dpi,
+            })
+
+        elif args.command == 'img2pdf-pages':
+            import img2pdf  # type: ignore
+
+            dpi = int(args.dpi or 300)
+            if dpi <= 0:
+                send_error("DPI must be positive", "INVALID_DPI")
+                sys.exit(1)
+
+            if not args.images:
+                send_error("At least one image is required", "MISSING_INPUT")
+                sys.exit(1)
+
+            layout_fun = img2pdf.get_fixed_dpi_layout_fun((dpi, dpi))
+
+            try:
+                with open(args.output, "wb") as f:
+                    img2pdf.convert(*args.images, outputstream=f, layout_fun=layout_fun)
+            except Exception as e:
+                send_error(f"img2pdf failed: {e}", "IMG2PDF_FAILED")
+                sys.exit(1)
+
+            send_result({
+                "success": True,
+                "output_path": args.output,
+                "inputs": list(args.images),
+                "dpi": dpi,
             })
 
     except Exception as e:
