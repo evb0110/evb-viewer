@@ -261,6 +261,24 @@ def main():
     img2pdf_pages_parser.add_argument('output', help='Output PDF path')
     img2pdf_pages_parser.add_argument('images', nargs='+', help='One or more input image paths')
     img2pdf_pages_parser.add_argument('--dpi', type=int, default=300, help='Assumed DPI for page size (default: 300)')
+    img2pdf_pages_parser.add_argument(
+        '--reencode',
+        choices=['none', 'jpeg', 'ccitt'],
+        default='none',
+        help='Optional re-encoding for smaller scanned PDFs (default: none)',
+    )
+    img2pdf_pages_parser.add_argument(
+        '--jpeg-quality',
+        type=int,
+        default=95,
+        help='JPEG quality when --reencode=jpeg (default: 95)',
+    )
+    img2pdf_pages_parser.add_argument(
+        '--jpeg-subsampling',
+        type=int,
+        default=0,
+        help='JPEG chroma subsampling when --reencode=jpeg (0=4:4:4, default: 0)',
+    )
 
     args = parser.parse_args()
 
@@ -426,6 +444,8 @@ def main():
 
         elif args.command == 'img2pdf-pages':
             import img2pdf  # type: ignore
+            import tempfile
+            from PIL import Image  # type: ignore
 
             dpi = int(args.dpi or 300)
             if dpi <= 0:
@@ -438,9 +458,120 @@ def main():
 
             layout_fun = img2pdf.get_fixed_dpi_layout_fun((dpi, dpi))
 
+            def _otsu_threshold(gray: Image.Image) -> int:
+                # Compute Otsu threshold on a downscaled grayscale image for speed.
+                # Returns a value in [0, 255].
+                hist = gray.histogram()
+                if not hist or len(hist) < 256:
+                    return 128
+                total = sum(hist[:256])
+                if total <= 0:
+                    return 128
+
+                sum_total = 0
+                for i in range(256):
+                    sum_total += i * hist[i]
+
+                sum_b = 0
+                w_b = 0
+                w_f = 0
+                var_max = -1.0
+                threshold = 128
+
+                for t in range(256):
+                    w_b += hist[t]
+                    if w_b == 0:
+                        continue
+                    w_f = total - w_b
+                    if w_f == 0:
+                        break
+                    sum_b += t * hist[t]
+                    m_b = sum_b / w_b
+                    m_f = (sum_total - sum_b) / w_f
+                    var_between = w_b * w_f * (m_b - m_f) * (m_b - m_f)
+                    if var_between > var_max:
+                        var_max = var_between
+                        threshold = t
+                return int(threshold)
+
+            def _reencode_one(inp: str, mode: str, work_dir: Path) -> str:
+                if mode == "none":
+                    return inp
+
+                src = Image.open(inp)
+                try:
+                    if mode == "jpeg":
+                        # JPEG can't store alpha; flatten to white.
+                        if src.mode in ("RGBA", "LA"):
+                            bg = Image.new("RGB", src.size, (255, 255, 255))
+                            bg.paste(src, mask=src.split()[-1])
+                            src_rgb = bg
+                        elif src.mode != "RGB":
+                            src_rgb = src.convert("RGB")
+                        else:
+                            src_rgb = src
+
+                        q = int(args.jpeg_quality or 95)
+                        q = max(1, min(100, q))
+                        subs = int(args.jpeg_subsampling or 0)
+                        subs = max(0, min(2, subs))
+
+                        outp = work_dir / (Path(inp).stem + ".jpg")
+                        src_rgb.save(
+                            str(outp),
+                            format="JPEG",
+                            quality=q,
+                            subsampling=subs,
+                            optimize=True,
+                        )
+                        return str(outp)
+
+                    if mode == "ccitt":
+                        # Convert to 1-bit and store as TIFF G4 so img2pdf embeds CCITT Fax (lossless for bitonal).
+                        if src.mode != "L":
+                            gray = src.convert("L")
+                        else:
+                            gray = src
+
+                        # Downscale for threshold estimation.
+                        w, h = gray.size
+                        max_w = 900
+                        if w > max_w:
+                            scale = max_w / float(w)
+                            small = gray.resize((max_w, max(1, int(h * scale))), Image.Resampling.BILINEAR)
+                        else:
+                            small = gray
+
+                        thr = _otsu_threshold(small)
+                        bw_l = gray.point(lambda p: 255 if p > thr else 0)
+                        bw = bw_l.convert("1", dither=Image.Dither.NONE)
+
+                        outp = work_dir / (Path(inp).stem + ".tif")
+                        bw.save(str(outp), format="TIFF", compression="group4")
+                        return str(outp)
+
+                    raise ValueError(f"Unknown reencode mode: {mode}")
+                finally:
+                    try:
+                        src.close()
+                    except Exception:
+                        pass
+
             try:
-                with open(args.output, "wb") as f:
-                    img2pdf.convert(*args.images, outputstream=f, layout_fun=layout_fun)
+                tmp_dir: Optional[tempfile.TemporaryDirectory[str]] = None
+                try:
+                    if args.reencode and args.reencode != "none":
+                        tmp_dir = tempfile.TemporaryDirectory(prefix="pp-img2pdf-")
+                        work_dir = Path(tmp_dir.name)
+                        inputs = [_reencode_one(p, args.reencode, work_dir) for p in args.images]
+                    else:
+                        inputs = list(args.images)
+
+                    with open(args.output, "wb") as f:
+                        img2pdf.convert(*inputs, outputstream=f, layout_fun=layout_fun)
+                finally:
+                    if tmp_dir is not None:
+                        tmp_dir.cleanup()
             except Exception as e:
                 send_error(f"img2pdf failed: {e}", "IMG2PDF_FAILED")
                 sys.exit(1)
@@ -450,6 +581,7 @@ def main():
                 "output_path": args.output,
                 "inputs": list(args.images),
                 "dpi": dpi,
+                "reencode": getattr(args, "reencode", "none"),
             })
 
     except Exception as e:

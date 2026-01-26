@@ -301,6 +301,57 @@ async function runCommand(
     });
 }
 
+function parsePdfimagesSize(sizeText: string): number {
+    // pdfimages uses e.g. "236K", "1.2M", sometimes "0B".
+    const t = (sizeText ?? '').trim();
+    const m = t.match(/^(\d+(?:\.\d+)?)([KMG]?)(?:B)?$/i);
+    if (!m) {
+        return 0;
+    }
+    const num = Number(m[1]);
+    const unit = (m[2] ?? '').toUpperCase();
+    const mul = unit === 'G' ? 1024 ** 3 : unit === 'M' ? 1024 ** 2 : unit === 'K' ? 1024 : 1;
+    return Number.isFinite(num) ? Math.floor(num * mul) : 0;
+}
+
+async function getSourceEncByPage(pdfPath: string): Promise<Map<number, string>> {
+    // Best-effort: if pdfimages isn't available, return empty map and fall back to lossless.
+    try {
+        const { stdout } = await runCommand('pdfimages', [
+            '-list',
+            pdfPath,
+        ], { timeout: 120000 });
+
+        const map = new Map<number, { enc: string; bytes: number }>();
+        for (const raw of stdout.split('\n')) {
+            const line = raw.trim();
+            if (!line) continue;
+            if (line.startsWith('page') || line.startsWith('---')) continue;
+            if (!/^\d+/.test(line)) continue;
+
+            const cols = line.split(/\s+/);
+            // Expected layout:
+            // page num type width height color comp bpc enc interp object ID x-ppi y-ppi size ratio
+            const pageNum = Number(cols[0]);
+            const enc = cols[8] ?? '';
+            const sizeText = cols[14] ?? '';
+            if (!Number.isFinite(pageNum) || pageNum <= 0 || !enc) continue;
+
+            const bytes = parsePdfimagesSize(sizeText);
+            const prev = map.get(pageNum);
+            if (!prev || bytes >= prev.bytes) {
+                map.set(pageNum, { enc, bytes });
+            }
+        }
+
+        const out = new Map<number, string>();
+        for (const [page, v] of map) out.set(page, v.enc);
+        return out;
+    } catch {
+        return new Map();
+    }
+}
+
 async function writeImagePdf(
     imagePath: string,
     outputPath: string,
@@ -338,6 +389,11 @@ async function writeImagesPdfFast(
     imagePaths: string[],
     outputPath: string,
     outputDpi: number,
+    opts?: {
+        reencode?: 'none' | 'jpeg' | 'ccitt';
+        jpegQuality?: number;
+        jpegSubsampling?: number;
+    },
 ): Promise<boolean> {
     if (imagePaths.length === 0) {
         return false;
@@ -345,15 +401,29 @@ async function writeImagesPdfFast(
     // Prefer the bundled page-processor's img2pdf-pages subcommand.
     // This is typically much faster than pdf-lib and preserves pixel data losslessly.
     try {
+        const reencode = opts?.reencode ?? 'none';
+        const jpegQuality = opts?.jpegQuality ?? 95;
+        const jpegSubsampling = opts?.jpegSubsampling ?? 0;
+
+        const args = [
+            'img2pdf-pages',
+            outputPath,
+            ...imagePaths,
+            '--dpi',
+            String(outputDpi > 0 ? outputDpi : 300),
+        ];
+
+        if (reencode !== 'none') {
+            args.push('--reencode', reencode);
+            if (reencode === 'jpeg') {
+                args.push('--jpeg-quality', String(jpegQuality));
+                args.push('--jpeg-subsampling', String(jpegSubsampling));
+            }
+        }
+
         await runCommand(
             processorBinary,
-            [
-                'img2pdf-pages',
-                outputPath,
-                ...imagePaths,
-                '--dpi',
-                String(outputDpi > 0 ? outputDpi : 300),
-            ],
+            args,
             { timeout: 120000 },
         );
         return true;
@@ -975,6 +1045,10 @@ async function processJob(
         }
         log('debug', `Resolved page count: ${pageCount}`);
 
+        // Use pdfimages (if available) to decide how to compress processed raster pages so output
+        // PDFs don't explode in size (e.g. PNG/Flate for every page can become multi-GB).
+        const sourceEncByPage = await getSourceEncByPage(pdfPath);
+
         // Convert processed images to replacement PDFs (one PDF per original page; 1 or 2 pages).
         const processedPagePdfs = new Map<number, { pdfPath: string; pageCount: number }>();
         const sortedPageNums = Array.from(processedPageImages.keys()).sort((a, b) => a - b);
@@ -993,8 +1067,19 @@ async function processJob(
                     join(tempDir, `${sessionId}-page-${pageNum}.pdf`),
                 );
 
+                const srcEnc = (sourceEncByPage.get(pageNum) ?? '').toLowerCase();
+                const reencode: 'none' | 'jpeg' | 'ccitt' =
+                    (srcEnc === 'jpeg' || srcEnc === 'jp2') ? 'jpeg'
+                        : (srcEnc === 'ccitt' || srcEnc === 'jbig2') ? 'ccitt'
+                            : 'none';
+
                 // Fast path: let the processor wrap images into a multi-page PDF (lossless, fast).
-                const fastOk = await writeImagesPdfFast(images, pagePdfPath, options.outputDpi);
+                const fastOk = await writeImagesPdfFast(images, pagePdfPath, options.outputDpi, {
+                    reencode,
+                    // Keep JPEG recompression conservative (no subsampling) to minimize quality loss.
+                    jpegQuality: 95,
+                    jpegSubsampling: 0,
+                });
                 if (!fastOk) {
                     // Fallback: pdf-lib multi-page PDF (still much cheaper than N separate PDFs).
                     const pdfLib = await loadPdfLib();
