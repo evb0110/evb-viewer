@@ -614,17 +614,17 @@ async function handleSave() {
     }
     isSaving.value = true;
     try {
-        // If we don't have an in-memory PDF buffer, the working copy on disk is the source of truth
-        // (e.g. after page processing of large PDFs).
-        if (pdfData.value === null) {
+        // In Electron we always operate on a working copy on disk. Saving should just copy
+        // the working copy back to the original, without re-serializing the PDF in the renderer
+        // (which can change compression and bloat scanned PDFs).
+        if (workingCopyPath.value) {
             await saveWorkingCopy();
             return;
         }
 
+        // Web context fallback.
         const data = await pdfViewerRef.value?.saveDocument();
-        if (data) {
-            await saveFile(data);
-        }
+        if (data) await saveFile(data);
     } finally {
         isSaving.value = false;
     }
