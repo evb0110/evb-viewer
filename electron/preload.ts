@@ -7,27 +7,6 @@ import type {
     IMenuEventCallback,
     IMenuEventUnsubscribe,
 } from 'electron/ipc-types';
-import type {
-    IProcessingOptions,
-    IProcessingProgress,
-    IProcessingRequest,
-    IProcessingResult,
-} from 'electron/page-processing/types';
-import type {
-    ICreateProjectRequest,
-    ICreateProjectResult,
-    IGenerateOutputRequest,
-    IGenerateOutputResult,
-    ILoadProjectResult,
-    IPreviewStageRequest,
-    IPreviewStageResult,
-    IProcessingProject,
-    IProjectStatusResult,
-    IRunStageRequest,
-    IRunStageResult,
-    ISaveProjectResult,
-    IStageProgress,
-} from 'electron/page-processing/project';
 
 // M1.4: Improved preload guard - skip duplicate installation without throwing
 const __preloadAlreadyInstalled = (globalThis as Record<string, unknown>).__preloadInstalled === true;
@@ -202,12 +181,14 @@ if (!__preloadAlreadyInstalled) {
         openPdfDialog: () => ipcRenderer.invoke('dialog:openPdf'),
         openPdfDirect: (path: string) => ipcRenderer.invoke('dialog:openPdfDirect', path),
         savePdfAs: (workingPath: string) => ipcRenderer.invoke('dialog:savePdfAs', workingPath),
+        saveDocxAs: (workingPath: string) => ipcRenderer.invoke('dialog:saveDocxAs', workingPath),
         readFile: (path: string) => ipcRenderer.invoke('file:read', path),
         statFile: (path: string) => ipcRenderer.invoke('file:stat', path),
         readFileRange: (path: string, offset: number, length: number) => ipcRenderer.invoke('file:readRange', path, offset, length),
         readTextFile: (path: string) => ipcRenderer.invoke('file:readText', path),
         fileExists: (path: string) => ipcRenderer.invoke('file:exists', path),
         writeFile: (path: string, data: Uint8Array) => ipcRenderer.invoke('file:write', path, data),
+        writeDocxFile: (path: string, data: Uint8Array) => ipcRenderer.invoke('file:writeDocx', path, data),
         saveFile: (path: string) => ipcRenderer.invoke('file:save', path),
         cleanupFile: (path: string) => ipcRenderer.invoke('file:cleanup', path),
         setWindowTitle: (title: string) => ipcRenderer.invoke('window:setTitle', title),
@@ -252,10 +233,15 @@ if (!__preloadAlreadyInstalled) {
             ipcRenderer.on('menu:fitHeight', handler);
             return () => ipcRenderer.removeListener('menu:fitHeight', handler);
         },
-        onMenuAbout: (callback: IMenuEventCallback): IMenuEventUnsubscribe => {
+        onMenuUndo: (callback: IMenuEventCallback): IMenuEventUnsubscribe => {
             const handler = (_event: IpcRendererEvent) => callback();
-            ipcRenderer.on('menu:about', handler);
-            return () => ipcRenderer.removeListener('menu:about', handler);
+            ipcRenderer.on('menu:undo', handler);
+            return () => ipcRenderer.removeListener('menu:undo', handler);
+        },
+        onMenuRedo: (callback: IMenuEventCallback): IMenuEventUnsubscribe => {
+            const handler = (_event: IpcRendererEvent) => callback();
+            ipcRenderer.on('menu:redo', handler);
+            return () => ipcRenderer.removeListener('menu:redo', handler);
         },
 
         // OCR API
@@ -377,150 +363,5 @@ if (!__preloadAlreadyInstalled) {
             return () => ipcRenderer.removeListener('menu:openRecentFile', handler);
         },
 
-        // Page Processing API (Legacy)
-        pageProcessing: {
-            process: (
-                pdfPath: string,
-                pages: number[],
-                options: Partial<IProcessingOptions>,
-                requestId: string,
-                workingCopyPath?: string,
-            ) => {
-                // Construct the request object expected by the IPC handler
-                const request: IProcessingRequest = {
-                    jobId: requestId,
-                    pdfPath,
-                    pages,
-                    options: {
-                        operations: options.operations ?? [
-                            'split',
-                            'deskew',
-                            'dewarp',
-                            'crop',
-                        ],
-                        autoDetectFacingPages: options.autoDetectFacingPages ?? true,
-                        forceSplit: options.forceSplit ?? false,
-                        minSkewAngle: options.minSkewAngle ?? 0.5,
-                        minCurvatureThreshold: options.minCurvatureThreshold ?? 0.1,
-                        cropPadding: options.cropPadding ?? 30,
-                        outputDpi: options.outputDpi ?? 300,
-                        extractionDpi: options.extractionDpi ?? 300,
-                    },
-                    workingCopyPath,
-                };
-                return ipcRenderer.invoke('pageProcessing:process', request);
-            },
-
-            cancel: (jobId: string) =>
-                ipcRenderer.invoke('pageProcessing:cancel', jobId),
-
-            validateTools: () =>
-                ipcRenderer.invoke('pageProcessing:validateTools'),
-
-            onProgress: (callback: (progress: IProcessingProgress) => void): (() => void) => {
-                const handler = (_event: IpcRendererEvent, progress: IProcessingProgress) =>
-                    callback(progress);
-                ipcRenderer.on('pageProcessing:progress', handler);
-                return () => ipcRenderer.removeListener('pageProcessing:progress', handler);
-            },
-
-            onComplete: (callback: (result: IProcessingResult) => void): (() => void) => {
-                const handler = (_event: IpcRendererEvent, result: IProcessingResult) =>
-                    callback(result);
-                ipcRenderer.on('pageProcessing:complete', handler);
-                return () => ipcRenderer.removeListener('pageProcessing:complete', handler);
-            },
-            onLog: (callback: (entry: { jobId: string; level: string; message: string; }) => void): (() => void) => {
-                const handler = (_event: IpcRendererEvent, entry: { jobId: string; level: string; message: string; }) =>
-                    callback(entry);
-                ipcRenderer.on('pageProcessing:log', handler);
-                return () => ipcRenderer.removeListener('pageProcessing:log', handler);
-            },
-
-            // New Project-Based API
-            createProject: (request: ICreateProjectRequest): Promise<ICreateProjectResult> =>
-                ipcRenderer.invoke('pageProcessing:createProject', request),
-
-            loadProject: (projectId: string): Promise<ILoadProjectResult> =>
-                ipcRenderer.invoke('pageProcessing:loadProject', projectId),
-
-            saveProject: (project: IProcessingProject): Promise<ISaveProjectResult> =>
-                ipcRenderer.invoke('pageProcessing:saveProject', project),
-
-            listProjects: (): Promise<{
-                success: boolean;
-                projects?: Array<{
-                    id: string;
-                    originalPdfPath: string;
-                    createdAt: number;
-                    updatedAt: number;
-                    status: string;
-                }>;
-                error?: string;
-            }> => ipcRenderer.invoke('pageProcessing:listProjects'),
-
-            deleteProject: (projectId: string): Promise<{
-                success: boolean;
-                error?: string 
-            }> =>
-                ipcRenderer.invoke('pageProcessing:deleteProject', projectId),
-
-            runStage: (request: IRunStageRequest): Promise<IRunStageResult> =>
-                ipcRenderer.invoke('pageProcessing:runStage', request),
-
-            previewStage: (request: IPreviewStageRequest): Promise<IPreviewStageResult> =>
-                ipcRenderer.invoke('pageProcessing:previewStage', request),
-
-            cancelStage: (jobId: string): Promise<{
-                cancelled: boolean;
-                error?: string 
-            }> =>
-                ipcRenderer.invoke('pageProcessing:cancelStage', jobId),
-
-            generateOutput: (request: IGenerateOutputRequest): Promise<IGenerateOutputResult> =>
-                ipcRenderer.invoke('pageProcessing:generateOutput', request),
-
-            getProjectStatus: (projectId: string): Promise<IProjectStatusResult> =>
-                ipcRenderer.invoke('pageProcessing:getProjectStatus', projectId),
-
-            onStageProgress: (callback: (progress: IStageProgress) => void): (() => void) => {
-                const handler = (_event: IpcRendererEvent, progress: IStageProgress) =>
-                    callback(progress);
-                ipcRenderer.on('pageProcessing:stageProgress', handler);
-                return () => ipcRenderer.removeListener('pageProcessing:stageProgress', handler);
-            },
-
-            onStageComplete: (callback: (result: IRunStageResult) => void): (() => void) => {
-                const handler = (_event: IpcRendererEvent, result: IRunStageResult) =>
-                    callback(result);
-                ipcRenderer.on('pageProcessing:stageComplete', handler);
-                return () => ipcRenderer.removeListener('pageProcessing:stageComplete', handler);
-            },
-
-            onOutputProgress: (callback: (progress: {
-                jobId: string;
-                currentPage: number;
-                totalPages: number;
-                percentage: number;
-                message: string;
-            }) => void): (() => void) => {
-                const handler = (_event: IpcRendererEvent, progress: {
-                    jobId: string;
-                    currentPage: number;
-                    totalPages: number;
-                    percentage: number;
-                    message: string;
-                }) => callback(progress);
-                ipcRenderer.on('pageProcessing:outputProgress', handler);
-                return () => ipcRenderer.removeListener('pageProcessing:outputProgress', handler);
-            },
-
-            onOutputComplete: (callback: (result: IGenerateOutputResult) => void): (() => void) => {
-                const handler = (_event: IpcRendererEvent, result: IGenerateOutputResult) =>
-                    callback(result);
-                ipcRenderer.on('pageProcessing:outputComplete', handler);
-                return () => ipcRenderer.removeListener('pageProcessing:outputComplete', handler);
-            },
-        },
     });
 }

@@ -6,7 +6,6 @@ import {
     app,
     BrowserWindow,
     Menu,
-    shell,
 } from 'electron';
 import { basename } from 'path';
 import { config } from '@electron/config';
@@ -102,9 +101,22 @@ function getEditMenu(): MenuItemConstructorOptions {
     return {
         label: 'Edit',
         submenu: [
-            { role: 'copy' },
+            {
+                label: 'Undo',
+                accelerator: 'CmdOrCtrl+Z',
+                click: (_, window) => {
+                    sendToWindow(window, 'menu:undo');
+                },
+            },
+            {
+                label: 'Redo',
+                accelerator: 'CmdOrCtrl+Shift+Z',
+                click: (_, window) => {
+                    sendToWindow(window, 'menu:redo');
+                },
+            },
             { type: 'separator' },
-            { role: 'selectAll' },
+            { role: 'copy' },
         ],
     };
 }
@@ -173,19 +185,7 @@ function getHelpMenu(): MenuItemConstructorOptions {
     return {
         label: 'Help',
         submenu: [
-            {
-                label: 'About',
-                click: (_, window) => {
-                    sendToWindow(window, 'menu:about');
-                },
-            },
-            { type: 'separator' },
-            {
-                label: 'Learn More',
-                click: async () => {
-                    await shell.openExternal('https://www.electronjs.org');
-                },
-            },
+            { role: 'about' },
         ],
     };
 }

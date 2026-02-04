@@ -440,6 +440,14 @@ defineExpose({
     cursor: grab;
 }
 
+.pdfViewer.drag-mode :deep(.text-layer),
+.pdfViewer.drag-mode :deep(.text-layer span),
+.pdfViewer.drag-mode :deep(.text-layer br),
+.pdfViewer.drag-mode :deep(.annotation-layer a) {
+    cursor: inherit !important;
+    user-select: none !important;
+}
+
 .page_container {
     position: relative;
     margin: 0 auto;

@@ -8,7 +8,7 @@ export interface IRecentFile {
 export interface IOcrLanguage {
     code: string;
     name: string;
-    script: 'latin' | 'cyrillic' | 'rtl';
+    script: 'latin' | 'cyrillic' | 'greek' | 'rtl';
 }
 
 export interface IOcrWord {

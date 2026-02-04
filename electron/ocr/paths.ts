@@ -20,6 +20,7 @@ export interface IOcrToolPaths {
     tessdata: string;
     pdftoppm: string;
     pdftotext: string;
+    pdfimages?: string;
     qpdf: string;
     unpaper?: string;
 }
@@ -163,6 +164,7 @@ export function getOcrToolPaths(): IOcrToolPaths {
     const popplerDir = join(resourcesBase, 'poppler', platformArch);
     const pdftoppm = getBinaryPath(popplerDir, 'pdftoppm');
     const pdftotext = getBinaryPath(popplerDir, 'pdftotext');
+    const pdfimages = getBinaryPath(popplerDir, 'pdfimages', true) || undefined;
 
     // qpdf path
     const qpdfDir = join(resourcesBase, 'qpdf', platformArch);
@@ -176,6 +178,7 @@ export function getOcrToolPaths(): IOcrToolPaths {
         tessdata,
         pdftoppm,
         pdftotext,
+        pdfimages,
         qpdf,
         unpaper,
     };

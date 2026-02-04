@@ -58,3 +58,17 @@
 .app-scrollbar::-webkit-scrollbar-corner {
     background: transparent;
 }
+
+body,
+#__nuxt {
+    user-select: none;
+}
+
+input,
+textarea,
+[contenteditable='true'],
+.pdfViewer .text-layer,
+.pdfViewer .text-layer span,
+.pdfViewer .text-layer br {
+    user-select: text;
+}

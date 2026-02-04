@@ -6,6 +6,7 @@ import {
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { IOcrLanguage } from '@app/types/shared';
 import { getElectronAPI } from '@app/utils/electron';
+import { createDocxFromText } from '@app/utils/docx';
 
 type TOcrPageRange = 'all' | 'current' | 'custom';
 
@@ -13,7 +14,6 @@ interface IOcrSettings {
     pageRange: TOcrPageRange;
     customRange: string;
     selectedLanguages: string[];
-    renderDpi: number;
 }
 
 interface IOcrProgress {
@@ -51,7 +51,6 @@ export const useOcr = () => {
         pageRange: 'current',
         customRange: '',
         selectedLanguages: ['eng'],
-        renderDpi: 300,
     });
     const progress = ref<IOcrProgress>({
         isRunning: false,
@@ -67,6 +66,7 @@ export const useOcr = () => {
         searchablePdfData: null,
     });
     const error = ref<string | null>(null);
+    const isExporting = ref(false);
 
     let progressCleanup: (() => void) | null = null;
     let completeCleanup: (() => void) | null = null;
@@ -250,7 +250,7 @@ export const useOcr = () => {
                 pageRequests,
                 requestId,
                 workingCopyPath,
-                settings.value.renderDpi,
+                undefined,
             );
 
             console.log('[useOcr] OCR job started:', startResult);
@@ -374,12 +374,94 @@ export const useOcr = () => {
     });
 
     const latinCyrillicLanguages = computed(() =>
-        availableLanguages.value.filter(l => l.script !== 'rtl'),
+        availableLanguages.value.filter(l => l.script === 'latin' || l.script === 'cyrillic'),
+    );
+
+    const greekLanguages = computed(() =>
+        availableLanguages.value.filter(l => l.script === 'greek'),
     );
 
     const rtlLanguages = computed(() =>
         availableLanguages.value.filter(l => l.script === 'rtl'),
     );
+
+    async function loadOcrText(workingCopyPath: string): Promise<string | null> {
+        try {
+            const api = getElectronAPI();
+            const manifestPath = `${workingCopyPath}.ocr/manifest.json`;
+            const exists = await api.fileExists(manifestPath);
+            if (!exists) {
+                return null;
+            }
+
+            const manifestJson = await api.readTextFile(manifestPath);
+            const manifest = JSON.parse(manifestJson) as {
+                pages: Record<number, { path: string }>;
+            };
+
+            const pageEntries = Object.entries(manifest.pages ?? {})
+                .map(([page, value]) => ({
+                    page: Number(page),
+                    path: value.path,
+                }))
+                .filter((entry) => Number.isFinite(entry.page) && entry.page > 0)
+                .sort((a, b) => a.page - b.page);
+
+            const texts: string[] = [];
+
+            for (const entry of pageEntries) {
+                const pagePath = `${workingCopyPath}.ocr/${entry.path}`;
+                const pageJson = await api.readTextFile(pagePath);
+                const pageData = JSON.parse(pageJson) as { text?: string };
+                if (pageData?.text) {
+                    texts.push(pageData.text.trim());
+                }
+            }
+
+            const merged = texts.filter(Boolean).join('\n\n');
+            return merged.length > 0 ? merged : null;
+        } catch (e) {
+            console.warn('[useOcr] Failed to load OCR text for DOCX export:', e);
+            return null;
+        }
+    }
+
+    async function exportDocx(workingCopyPath: string | null): Promise<boolean> {
+        if (!workingCopyPath) {
+            error.value = 'DOCX export requires a working copy on disk';
+            return false;
+        }
+
+        if (isExporting.value) {
+            return false;
+        }
+
+        isExporting.value = true;
+        error.value = null;
+
+        try {
+            const text = await loadOcrText(workingCopyPath);
+            if (!text) {
+                error.value = 'No OCR text found. Run OCR first.';
+                return false;
+            }
+
+            const api = getElectronAPI();
+            const outPath = await api.saveDocxAs(workingCopyPath);
+            if (!outPath) {
+                return false;
+            }
+
+            const docxBytes = createDocxFromText(text);
+            await api.writeDocxFile(outPath, docxBytes);
+            return true;
+        } catch (e) {
+            error.value = e instanceof Error ? e.message : 'Failed to export DOCX';
+            return false;
+        } finally {
+            isExporting.value = false;
+        }
+    }
 
     return {
         availableLanguages,
@@ -387,14 +469,17 @@ export const useOcr = () => {
         progress,
         results,
         error,
+        isExporting,
         hasResults,
         progressPercent,
         latinCyrillicLanguages,
+        greekLanguages,
         rtlLanguages,
         loadLanguages,
         runOcr,
         cancelOcr,
         clearResults,
         toggleLanguage,
+        exportDocx,
     };
 };

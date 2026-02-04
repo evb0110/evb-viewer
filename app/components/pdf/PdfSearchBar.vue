@@ -13,36 +13,43 @@
                 <UIcon name="i-lucide-search" class="size-4" />
             </template>
             <template #trailing>
-                <UButton
-                    v-if="searchQuery"
-                    icon="i-lucide-x"
-                    variant="ghost"
-                    color="neutral"
-                    size="xs"
-                    class="pdf-search-bar__clear"
-                    aria-label="Clear search"
-                    @click="clearQuery"
-                />
+                <UTooltip v-if="searchQuery" text="Clear Search" :delay-duration="500">
+                    <UButton
+                        icon="i-lucide-x"
+                        variant="ghost"
+                        color="neutral"
+                        size="xs"
+                        class="pdf-search-bar__clear"
+                        aria-label="Clear search"
+                        @click="clearQuery"
+                    />
+                </UTooltip>
             </template>
         </UInput>
 
         <div class="pdf-search-bar__actions">
-            <UButton
-                icon="i-lucide-chevron-up"
-                variant="ghost"
-                color="neutral"
-                size="xs"
-                :disabled="totalMatches === 0"
-                @click="emit('previous')"
-            />
-            <UButton
-                icon="i-lucide-chevron-down"
-                variant="ghost"
-                color="neutral"
-                size="xs"
-                :disabled="totalMatches === 0"
-                @click="emit('next')"
-            />
+            <UTooltip text="Previous Match" :delay-duration="500">
+                <UButton
+                    icon="i-lucide-chevron-up"
+                    variant="ghost"
+                    color="neutral"
+                    size="xs"
+                    :disabled="totalMatches === 0"
+                    aria-label="Previous match"
+                    @click="emit('previous')"
+                />
+            </UTooltip>
+            <UTooltip text="Next Match" :delay-duration="500">
+                <UButton
+                    icon="i-lucide-chevron-down"
+                    variant="ghost"
+                    color="neutral"
+                    size="xs"
+                    :disabled="totalMatches === 0"
+                    aria-label="Next match"
+                    @click="emit('next')"
+                />
+            </UTooltip>
         </div>
     </div>
 </template>

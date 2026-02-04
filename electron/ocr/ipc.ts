@@ -88,6 +88,7 @@ function createOcrWorker(): Worker {
         tessdataPath: paths.tessdata,
         pdftoppmBinary: paths.pdftoppm,
         pdftotextBinary: paths.pdftotext,
+        pdfimagesBinary: paths.pdfimages,
         qpdfBinary: paths.qpdf,
         unpaperBinary: paths.unpaper,
         tempDir: app.getPath('temp'),
@@ -265,6 +266,16 @@ const AVAILABLE_LANGUAGES: IOcrLanguage[] = [
         code: 'tur',
         name: 'Turkish',
         script: 'latin', 
+    },
+    {
+        code: 'ell',
+        name: 'Greek (Modern)',
+        script: 'greek',
+    },
+    {
+        code: 'grc',
+        name: 'Greek (Ancient)',
+        script: 'greek',
     },
     {
         code: 'kmr',

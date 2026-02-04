@@ -2,42 +2,82 @@
     <div class="h-screen flex flex-col bg-neutral-100 dark:bg-neutral-900">
         <!-- Toolbar -->
         <header class="toolbar">
-            <UButton
-                v-if="!pdfSrc"
-                icon="i-lucide-folder-open"
-                variant="soft"
-                @click="openFile(); closeAllDropdowns()"
-            >
-                Open PDF
-            </UButton>
+            <UTooltip v-if="!pdfSrc" text="Open PDF" :delay-duration="500">
+                <UButton
+                    icon="i-lucide-folder-open"
+                    variant="ghost"
+                    color="neutral"
+                    class="toolbar-icon-button"
+                    aria-label="Open PDF"
+                    @click="openFile(); closeAllDropdowns()"
+                />
+            </UTooltip>
 
             <template v-if="pdfSrc">
                 <!-- Left section: File & view controls -->
                 <div class="toolbar-section">
-                    <UButton
-                        icon="i-lucide-save"
-                        variant="ghost"
-                        :disabled="!isDirty && !isSaving"
-                        :loading="isSaving"
-                        @click="handleSave(); closeAllDropdowns()"
-                    >
-                        Save
-                    </UButton>
-                    <UButton
-                        icon="i-lucide-save"
-                        variant="ghost"
-                        :disabled="!pdfSrc || isSaving"
-                        @click="handleSaveAs(); closeAllDropdowns()"
-                    >
-                        Save As
-                    </UButton>
+                    <UTooltip text="Save" :delay-duration="500">
+                        <UButton
+                            icon="i-lucide-save"
+                            variant="ghost"
+                            color="neutral"
+                            class="toolbar-icon-button"
+                            :disabled="!isDirty || isAnySaving || isHistoryBusy"
+                            :loading="isSaving"
+                            aria-label="Save"
+                            @click="handleSave(); closeAllDropdowns()"
+                        />
+                    </UTooltip>
+                    <UTooltip text="Save As…" :delay-duration="500">
+                        <UButton
+                            icon="i-lucide-save-all"
+                            variant="ghost"
+                            color="neutral"
+                            class="toolbar-icon-button"
+                            :disabled="!pdfSrc || isAnySaving || isHistoryBusy"
+                            :loading="isSavingAs"
+                            aria-label="Save As"
+                            @click="handleSaveAs(); closeAllDropdowns()"
+                        />
+                    </UTooltip>
 
-                    <UButton
-                        icon="i-lucide-panel-left"
-                        :variant="showSidebar ? 'soft' : 'ghost'"
-                        :color="showSidebar ? 'primary' : 'neutral'"
-                        @click="showSidebar = !showSidebar; closeAllDropdowns()"
-                    />
+                    <div class="toolbar-button-group">
+                        <UTooltip text="Undo" :delay-duration="500">
+                            <UButton
+                                icon="i-lucide-undo-2"
+                                variant="ghost"
+                                size="sm"
+                                color="neutral"
+                                class="rounded-r-none h-8"
+                                :disabled="!canUndo || isHistoryBusy || isAnySaving"
+                                aria-label="Undo"
+                                @click="handleUndo(); closeAllDropdowns()"
+                            />
+                        </UTooltip>
+                        <UTooltip text="Redo" :delay-duration="500">
+                            <UButton
+                                icon="i-lucide-redo-2"
+                                variant="ghost"
+                                size="sm"
+                                color="neutral"
+                                class="rounded-l-none h-8"
+                                :disabled="!canRedo || isHistoryBusy || isAnySaving"
+                                aria-label="Redo"
+                                @click="handleRedo(); closeAllDropdowns()"
+                            />
+                        </UTooltip>
+                    </div>
+
+                    <UTooltip text="Toggle Sidebar" :delay-duration="500">
+                        <UButton
+                            icon="i-lucide-panel-left"
+                            :variant="showSidebar ? 'soft' : 'ghost'"
+                            :color="showSidebar ? 'primary' : 'neutral'"
+                            class="toolbar-icon-button"
+                            aria-label="Toggle sidebar"
+                            @click="showSidebar = !showSidebar; closeAllDropdowns()"
+                        />
+                    </UTooltip>
                 </div>
 
                 <!-- Spacer to push center -->
@@ -45,17 +85,6 @@
 
                 <!-- Center section: Document controls -->
                 <div class="toolbar-section toolbar-center">
-                    <PageProcessingPopup
-                        ref="pageProcessingPopupRef"
-                        :pdf-path="workingCopyPath ?? ''"
-                        :current-page="currentPage"
-                        :total-pages="totalPages"
-                        :working-copy-path="workingCopyPath ?? undefined"
-                        :pdf-data="pdfData"
-                        @open="closeOtherDropdowns('pageProcessing')"
-                        @processed="handlePageProcessingComplete"
-                    />
-
                     <OcrPopup
                         ref="ocrPopupRef"
                         :pdf-document="pdfDocument"
@@ -67,38 +96,94 @@
                         @ocr-complete="handleOcrComplete"
                     />
 
-                    <PdfZoomDropdown
-                        ref="zoomDropdownRef"
-                        v-model:zoom="zoom"
-                        v-model:fit-mode="fitMode"
-                        @open="pageDropdownRef?.close()"
-                    />
-
-                    <PdfPageDropdown
-                        ref="pageDropdownRef"
-                        v-model="currentPage"
-                        :total-pages="totalPages"
-                        @go-to-page="handleGoToPage"
-                        @open="zoomDropdownRef?.close()"
-                    />
-
-                    <div class="toolbar-mode-toggle">
-                        <UButton
-                            icon="i-lucide-hand"
-                            :variant="dragMode ? 'soft' : 'ghost'"
-                            size="sm"
-                            :color="dragMode ? 'primary' : 'neutral'"
-                            class="rounded-r-none h-8"
-                            @click="enableDragMode(); closeAllDropdowns()"
+                    <div class="toolbar-inline-group">
+                        <PdfZoomDropdown
+                            ref="zoomDropdownRef"
+                            v-model:zoom="zoom"
+                            v-model:fit-mode="fitMode"
+                            @open="pageDropdownRef?.close()"
                         />
-                        <UButton
-                            icon="i-lucide-text-cursor"
-                            :variant="!dragMode ? 'soft' : 'ghost'"
-                            size="sm"
-                            :color="!dragMode ? 'primary' : 'neutral'"
-                            class="rounded-l-none h-8"
-                            @click="dragMode = false; closeAllDropdowns()"
+                        <div class="toolbar-inline-extra">
+                            <UTooltip text="Fit Width" :delay-duration="500">
+                                <UButton
+                                    icon="i-lucide-move-horizontal"
+                                    :variant="isFitWidthActive ? 'soft' : 'ghost'"
+                                    :color="isFitWidthActive ? 'primary' : 'neutral'"
+                                    class="toolbar-icon-button"
+                                    aria-label="Fit width"
+                                    @click="handleFitMode('width')"
+                                />
+                            </UTooltip>
+                            <UTooltip text="Fit Height" :delay-duration="500">
+                                <UButton
+                                    icon="i-lucide-move-vertical"
+                                    :variant="isFitHeightActive ? 'soft' : 'ghost'"
+                                    :color="isFitHeightActive ? 'primary' : 'neutral'"
+                                    class="toolbar-icon-button"
+                                    aria-label="Fit height"
+                                    @click="handleFitMode('height')"
+                                />
+                            </UTooltip>
+                        </div>
+                    </div>
+
+                    <div class="toolbar-inline-group">
+                        <PdfPageDropdown
+                            ref="pageDropdownRef"
+                            v-model="currentPage"
+                            :total-pages="totalPages"
+                            @go-to-page="handleGoToPage"
+                            @open="zoomDropdownRef?.close()"
                         />
+                        <div class="toolbar-inline-extra">
+                            <UTooltip text="First Page" :delay-duration="500">
+                                <UButton
+                                    icon="i-lucide-chevrons-left"
+                                    variant="ghost"
+                                    color="neutral"
+                                    class="toolbar-icon-button"
+                                    :disabled="currentPage <= 1"
+                                    aria-label="First page"
+                                    @click="goToFirstPage"
+                                />
+                            </UTooltip>
+                            <UTooltip text="Last Page" :delay-duration="500">
+                                <UButton
+                                    icon="i-lucide-chevrons-right"
+                                    variant="ghost"
+                                    color="neutral"
+                                    class="toolbar-icon-button"
+                                    :disabled="currentPage >= totalPages"
+                                    aria-label="Last page"
+                                    @click="goToLastPage"
+                                />
+                            </UTooltip>
+                        </div>
+                    </div>
+
+                    <div class="toolbar-button-group">
+                        <UTooltip text="Hand Tool" :delay-duration="500">
+                            <UButton
+                                icon="i-lucide-hand"
+                                :variant="dragMode ? 'soft' : 'ghost'"
+                                size="sm"
+                                :color="dragMode ? 'primary' : 'neutral'"
+                                class="rounded-r-none h-8"
+                                aria-label="Hand tool"
+                                @click="enableDragMode(); closeAllDropdowns()"
+                            />
+                        </UTooltip>
+                        <UTooltip text="Text Select" :delay-duration="500">
+                            <UButton
+                                icon="i-lucide-text-cursor"
+                                :variant="!dragMode ? 'soft' : 'ghost'"
+                                size="sm"
+                                :color="!dragMode ? 'primary' : 'neutral'"
+                                class="rounded-l-none h-8"
+                                aria-label="Text select"
+                                @click="dragMode = false; closeAllDropdowns()"
+                            />
+                        </UTooltip>
                     </div>
                 </div>
 
@@ -107,11 +192,16 @@
 
                 <!-- Right section: Window control -->
                 <div class="toolbar-section">
-                    <UButton
-                        icon="i-lucide-x"
-                        variant="ghost"
-                        @click="closeFile(); closeAllDropdowns()"
-                    />
+                    <UTooltip text="Close File" :delay-duration="500">
+                        <UButton
+                            icon="i-lucide-x"
+                            variant="ghost"
+                            color="neutral"
+                            class="toolbar-icon-button"
+                            aria-label="Close file"
+                            @click="closeFile(); closeAllDropdowns()"
+                        />
+                    </UTooltip>
                 </div>
             </template>
         </header>
@@ -183,15 +273,17 @@
                             <h3 class="text-sm font-medium text-neutral-600 dark:text-neutral-400">
                                 Recent Files
                             </h3>
-                            <UButton
-                                variant="link"
-                                size="xs"
-                                color="neutral"
-                                class="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"
-                                @click="clearRecentFiles"
-                            >
-                                Clear all
-                            </UButton>
+                            <UTooltip text="Clear Recent Files" :delay-duration="500">
+                                <UButton
+                                    icon="i-lucide-trash-2"
+                                    variant="ghost"
+                                    size="xs"
+                                    color="neutral"
+                                    class="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"
+                                    aria-label="Clear recent files"
+                                    @click="clearRecentFiles"
+                                />
+                            </UTooltip>
                         </div>
                         <ul class="recent-files-list">
                             <li
@@ -208,31 +300,37 @@
                                     <span class="recent-file-name">{{ file.fileName }}</span>
                                     <span class="recent-file-time">{{ formatRelativeTime(file.timestamp) }}</span>
                                 </div>
-                                <UButton
-                                    icon="i-lucide-x"
-                                    size="xs"
-                                    variant="ghost"
-                                    color="neutral"
-                                    class="recent-file-remove"
-                                    @click.stop="removeRecentFile(file)"
-                                />
+                                <UTooltip text="Remove from Recent" :delay-duration="500">
+                                    <UButton
+                                        icon="i-lucide-x"
+                                        size="xs"
+                                        variant="ghost"
+                                        color="neutral"
+                                        class="recent-file-remove"
+                                        aria-label="Remove recent file"
+                                        @click.stop="removeRecentFile(file)"
+                                    />
+                                </UTooltip>
                             </li>
                         </ul>
                     </div>
 
                     <!-- Open file action (clickable) -->
-                    <button
-                        class="open-file-action"
-                        @click="openFile"
-                    >
-                        <UIcon
-                            name="i-lucide-folder-open"
-                            class="size-8 text-neutral-400 group-hover:text-primary-500 transition-colors"
-                        />
-                        <span class="text-sm text-neutral-500 dark:text-neutral-400">
-                            {{ recentFiles.length > 0 ? 'Or open another file...' : 'Open a PDF file' }}
-                        </span>
-                    </button>
+                    <p class="empty-state-hint text-sm text-neutral-500 dark:text-neutral-400">
+                        {{ recentFiles.length > 0 ? 'Or open another file...' : 'Open a PDF file' }}
+                    </p>
+                    <UTooltip text="Open PDF" :delay-duration="500">
+                        <button
+                            class="open-file-action group"
+                            aria-label="Open PDF"
+                            @click="openFile"
+                        >
+                            <UIcon
+                                name="i-lucide-folder-open"
+                                class="size-8 text-neutral-400 group-hover:text-primary-500 transition-colors"
+                            />
+                        </button>
+                    </UTooltip>
                 </div>
             </div>
         </main>
@@ -252,7 +350,6 @@ import {
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { TFitMode } from '@app/types/shared';
 import { useOcrTextContent } from '@app/composables/pdf/useOcrTextContent';
-import { getElectronAPI } from '@app/utils/electron';
 
 console.log('[PAGE] pages/index.vue script setup executing');
 
@@ -267,18 +364,20 @@ const {
     pdfSrc,
     pdfData,
     workingCopyPath,
-    fileName: _fileName,
     isDirty,
     error: pdfError,
     isElectron,
     openFile,
     openFileDirect,
-    loadPdfFromPath,
     loadPdfFromData,
     closeFile,
     saveFile,
     saveWorkingCopy,
     saveWorkingCopyAs,
+    canUndo,
+    canRedo,
+    undo,
+    redo,
 } = usePdfFile();
 
 const {
@@ -339,11 +438,13 @@ onMounted(() => {
             window.electronAPI.onMenuOpenPdf(() => openFile()),
             window.electronAPI.onMenuSave(() => handleSave()),
             window.electronAPI.onMenuSaveAs(() => handleSaveAs()),
+            window.electronAPI.onMenuUndo(() => handleUndo()),
+            window.electronAPI.onMenuRedo(() => handleRedo()),
             window.electronAPI.onMenuZoomIn(() => { zoom.value = Math.min(zoom.value + 0.25, 5); }),
             window.electronAPI.onMenuZoomOut(() => { zoom.value = Math.max(zoom.value - 0.25, 0.25); }),
             window.electronAPI.onMenuActualSize(() => { zoom.value = 1; }),
-            window.electronAPI.onMenuFitWidth(() => { fitMode.value = 'width'; }),
-            window.electronAPI.onMenuFitHeight(() => { fitMode.value = 'height'; }),
+            window.electronAPI.onMenuFitWidth(() => { handleFitMode('width'); }),
+            window.electronAPI.onMenuFitHeight(() => { handleFitMode('height'); }),
             window.electronAPI.onMenuOpenRecentFile((path: string) => openFileDirect(path)),
             window.electronAPI.onMenuClearRecentFiles(() => {
                 clearRecentFiles();
@@ -393,21 +494,18 @@ const pdfViewerRef = ref<IPdfViewerExpose | null>(null);
 const zoomDropdownRef = ref<{ close: () => void } | null>(null);
 const pageDropdownRef = ref<{ close: () => void } | null>(null);
 const ocrPopupRef = ref<{ close: () => void } | null>(null);
-const pageProcessingPopupRef = ref<{ close: () => void } | null>(null);
 const sidebarRef = ref<{ focusSearch: () => void | Promise<void> } | null>(null);
 
 function closeAllDropdowns() {
     zoomDropdownRef.value?.close();
     pageDropdownRef.value?.close();
     ocrPopupRef.value?.close();
-    pageProcessingPopupRef.value?.close();
 }
 
-function closeOtherDropdowns(except: 'zoom' | 'page' | 'ocr' | 'pageProcessing') {
+function closeOtherDropdowns(except: 'zoom' | 'page' | 'ocr') {
     if (except !== 'zoom') zoomDropdownRef.value?.close();
     if (except !== 'page') pageDropdownRef.value?.close();
     if (except !== 'ocr') ocrPopupRef.value?.close();
-    if (except !== 'pageProcessing') pageProcessingPopupRef.value?.close();
 }
 
 const zoom = ref(1);
@@ -420,6 +518,11 @@ const pdfDocument = shallowRef<PDFDocumentProxy | null>(null);
 const showSidebar = ref(false);
 const sidebarTab = ref<TPdfSidebarTab>('thumbnails');
 const isSaving = ref(false);
+const isSavingAs = ref(false);
+const isHistoryBusy = ref(false);
+const isAnySaving = computed(() => isSaving.value || isSavingAs.value);
+const isFitWidthActive = computed(() => fitMode.value === 'width' && Math.abs(zoom.value - 1) < 0.01);
+const isFitHeightActive = computed(() => fitMode.value === 'height' && Math.abs(zoom.value - 1) < 0.01);
 
 const SIDEBAR_DEFAULT_WIDTH = 240;
 const SIDEBAR_MIN_WIDTH = 180;
@@ -457,6 +560,21 @@ function handleGoToPage(page: number) {
     pdfViewerRef.value?.scrollToPage(page);
 }
 
+function waitForPdfReload(pageToRestore: number) {
+    return new Promise<void>((resolve) => {
+        const unwatch = watch(pdfDocument, (doc) => {
+            if (doc) {
+                unwatch();
+                resetSearchCache();
+                void nextTick(() => {
+                    pdfViewerRef.value?.scrollToPage(pageToRestore);
+                    resolve();
+                });
+            }
+        });
+    });
+}
+
 async function handleOcrComplete(ocrPdfData: Uint8Array) {
     // Remember current page before reload
     const pageToRestore = currentPage.value;
@@ -466,64 +584,16 @@ async function handleOcrComplete(ocrPdfData: Uint8Array) {
         clearOcrCache(workingCopyPath.value);
     }
 
-    // Persist OCR changes to the working copy so subsequent operations (processing/OCR)
+    const restorePromise = waitForPdfReload(pageToRestore);
+
+    // Persist OCR changes to the working copy so subsequent operations (OCR/search)
     // don't accidentally operate on an older on-disk version.
-    if (workingCopyPath.value) {
-        try {
-            const api = getElectronAPI();
-            await api.writeFile(workingCopyPath.value, ocrPdfData);
-            await loadPdfFromPath(workingCopyPath.value, { markDirty: true });
-        } catch {
-            // Fallback: keep in-memory state (still better than dropping OCR result).
-            loadPdfFromData(ocrPdfData);
-        }
-    } else {
-        // Reload the PDF with the OCR'd data (web context / no working copy)
-        loadPdfFromData(ocrPdfData);
-    }
-
-    // Restore scroll position after PDF reloads
-    // Watch for document to be set (happens after loadFromSource completes)
-    const unwatch = watch(pdfDocument, (doc) => {
-        if (doc) {
-            unwatch();
-            // M4.2: Reset search cache so searches use new OCR content
-            resetSearchCache();
-            // Use nextTick to ensure DOM is updated
-            void nextTick(() => {
-                pdfViewerRef.value?.scrollToPage(pageToRestore);
-            });
-        }
+    await loadPdfFromData(ocrPdfData, {
+        pushHistory: true,
+        persistWorkingCopy: !!workingCopyPath.value,
     });
-}
 
-async function handlePageProcessingComplete(processedPdfPath: string) {
-    // Remember current page before reload
-    const pageToRestore = currentPage.value;
-
-    // Clear OCR cache since page processing may have changed page structure
-    if (workingCopyPath.value) {
-        clearOcrCache(workingCopyPath.value);
-    }
-
-    // Reload the PDF from disk (supports large PDFs without loading into memory).
-    await loadPdfFromPath(processedPdfPath, { markDirty: true });
-
-    // Restore scroll position after PDF reloads
-    const unwatch = watch(pdfDocument, (doc) => {
-        if (doc) {
-            unwatch();
-            // Reset search cache since page content/structure changed
-            resetSearchCache();
-            // Use nextTick to ensure DOM is updated
-            void nextTick(() => {
-                // After page processing, total pages might change (splits)
-                // Navigate to first page or restore if within new bounds
-                const targetPage = Math.min(pageToRestore, totalPages.value);
-                pdfViewerRef.value?.scrollToPage(targetPage);
-            });
-        }
-    });
+    await restorePromise;
 }
 
 function enableDragMode() {
@@ -618,8 +688,63 @@ function handleGoToResult(index: number) {
     setResultIndex(index);
 }
 
+async function handleUndo() {
+    if (isHistoryBusy.value || isAnySaving.value || !canUndo.value) {
+        return;
+    }
+    isHistoryBusy.value = true;
+    if (workingCopyPath.value) {
+        clearOcrCache(workingCopyPath.value);
+    }
+    const pageToRestore = currentPage.value;
+    const restorePromise = waitForPdfReload(pageToRestore);
+    const didUndo = await undo();
+    if (didUndo) {
+        await restorePromise;
+    }
+    isHistoryBusy.value = false;
+}
+
+async function handleRedo() {
+    if (isHistoryBusy.value || isAnySaving.value || !canRedo.value) {
+        return;
+    }
+    isHistoryBusy.value = true;
+    if (workingCopyPath.value) {
+        clearOcrCache(workingCopyPath.value);
+    }
+    const pageToRestore = currentPage.value;
+    const restorePromise = waitForPdfReload(pageToRestore);
+    const didRedo = await redo();
+    if (didRedo) {
+        await restorePromise;
+    }
+    isHistoryBusy.value = false;
+}
+
+function handleFitMode(mode: TFitMode) {
+    zoom.value = 1;
+    fitMode.value = mode;
+}
+
+function goToFirstPage() {
+    if (totalPages.value <= 0) {
+        return;
+    }
+    currentPage.value = 1;
+    handleGoToPage(1);
+}
+
+function goToLastPage() {
+    if (totalPages.value <= 0) {
+        return;
+    }
+    currentPage.value = totalPages.value;
+    handleGoToPage(totalPages.value);
+}
+
 async function handleSave() {
-    if (isSaving.value) {
+    if (isSaving.value || isSavingAs.value) {
         return;
     }
     isSaving.value = true;
@@ -641,10 +766,10 @@ async function handleSave() {
 }
 
 async function handleSaveAs() {
-    if (isSaving.value) {
+    if (isSaving.value || isSavingAs.value) {
         return;
     }
-    isSaving.value = true;
+    isSavingAs.value = true;
     try {
         const outPath = await saveWorkingCopyAs();
         if (outPath) {
@@ -652,7 +777,7 @@ async function handleSaveAs() {
             loadRecentFiles();
         }
     } finally {
-        isSaving.value = false;
+        isSavingAs.value = false;
     }
 }
 
@@ -681,6 +806,7 @@ watch(pdfSrc, (newSrc, oldSrc) => {
     background: var(--ui-bg);
     white-space: nowrap;
     overflow-x: auto;
+    container-type: inline-size;
 }
 
 .toolbar-section {
@@ -694,11 +820,36 @@ watch(pdfSrc, (newSrc, oldSrc) => {
     gap: clamp(0.5rem, 1.5vw, 1.25rem);
 }
 
-.toolbar-mode-toggle {
+.toolbar-button-group {
     display: flex;
     align-items: center;
     border: 1px solid var(--ui-border);
     border-radius: 0.375rem;
+}
+
+.toolbar-icon-button {
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+    justify-content: center;
+}
+
+.toolbar-inline-group {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.toolbar-inline-extra {
+    display: none;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+@container (min-width: 620px) {
+    .toolbar-inline-extra {
+        display: flex;
+    }
 }
 
 .sidebar-wrapper {
@@ -732,6 +883,11 @@ watch(pdfSrc, (newSrc, oldSrc) => {
     justify-content: center;
     gap: 1.5rem;
     padding: 2rem;
+}
+
+.empty-state-hint {
+    margin: 0;
+    text-align: center;
 }
 
 /* Open file action button */

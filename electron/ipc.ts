@@ -27,7 +27,6 @@ import {
     sep,
 } from 'path';
 import { registerOcrHandlers } from '@electron/ocr/ipc';
-import { registerPageProcessingHandlers } from '@electron/page-processing/ipc';
 import { registerSearchHandlers } from '@electron/search/ipc';
 import { updateRecentFilesMenu } from '@electron/menu';
 import {
@@ -71,12 +70,14 @@ export function registerIpcHandlers() {
     ipcMain.handle('dialog:openPdf', handleOpenPdfDialog);
     ipcMain.handle('dialog:openPdfDirect', handleOpenPdfDirect);
     ipcMain.handle('dialog:savePdfAs', handleSavePdfAs);
+    ipcMain.handle('dialog:saveDocxAs', handleSaveDocxAs);
     ipcMain.handle('file:read', handleFileRead);
     ipcMain.handle('file:stat', handleFileStat);
     ipcMain.handle('file:readRange', handleFileReadRange);
     ipcMain.handle('file:readText', handleFileReadText);
     ipcMain.handle('file:exists', handleFileExists);
     ipcMain.handle('file:write', handleFileWrite);
+    ipcMain.handle('file:writeDocx', handleFileWriteDocx);
     ipcMain.handle('file:save', handleFileSave);
     ipcMain.handle('file:cleanup', (_event, workingPath: string) => {
         cleanupWorkingCopy(workingPath);
@@ -100,7 +101,6 @@ export function registerIpcHandlers() {
     });
 
     registerOcrHandlers();
-    registerPageProcessingHandlers();
     registerSearchHandlers();
 }
 
@@ -138,7 +138,7 @@ async function handleOpenPdfDirect(
 function handleSetWindowTitle(event: Electron.IpcMainInvokeEvent, title: string) {
     const window = BrowserWindow.fromWebContents(event.sender);
     if (window) {
-        window.setTitle(title || 'PDF Viewer');
+        window.setTitle(title || 'EVB-Viewer');
     }
 }
 
@@ -220,6 +220,37 @@ async function handleSavePdfAs(
     workingCopyMap.set(normalizedWorkingPath, targetPath);
     await addRecentFile(targetPath);
     updateRecentFilesMenu();
+
+    return targetPath;
+}
+
+async function handleSaveDocxAs(
+    _event: Electron.IpcMainInvokeEvent,
+    workingPath: string,
+): Promise<string | null> {
+    const normalizedWorkingPath = typeof workingPath === 'string' ? workingPath.trim() : '';
+
+    const suggestedBase = normalizedWorkingPath
+        ? basename(normalizedWorkingPath, extname(normalizedWorkingPath))
+        : 'ocr-text';
+
+    const result = await dialog.showSaveDialog({
+        title: 'Save OCR Text As',
+        defaultPath: `${suggestedBase}.docx`,
+        filters: [{
+            name: 'Word Documents',
+            extensions: ['docx'],
+        }],
+    });
+
+    if (result.canceled || !result.filePath) {
+        return null;
+    }
+
+    let targetPath = result.filePath;
+    if (extname(targetPath).toLowerCase() !== '.docx') {
+        targetPath += '.docx';
+    }
 
     return targetPath;
 }
@@ -322,6 +353,28 @@ async function handleFileWrite(
 
     if (!isAllowedWritePath(normalizedPath)) {
         throw new Error('Invalid file path: writes only allowed within temp directory');
+    }
+
+    await writeFile(normalizedPath, data);
+    return true;
+}
+
+async function handleFileWriteDocx(
+    _event: Electron.IpcMainInvokeEvent,
+    filePath: string,
+    data: Uint8Array,
+): Promise<boolean> {
+    if (!filePath || filePath.trim() === '') {
+        throw new Error('Invalid file path: path must be a non-empty string');
+    }
+
+    if (!(data instanceof Uint8Array)) {
+        throw new Error('Invalid data: must be a Uint8Array');
+    }
+
+    const normalizedPath = filePath.trim();
+    if (extname(normalizedPath).toLowerCase() !== '.docx') {
+        throw new Error('Invalid file type: only DOCX files are allowed');
     }
 
     await writeFile(normalizedPath, data);

@@ -1,14 +1,17 @@
 <template>
     <div class="page-controls">
-        <UButton
-            icon="i-lucide-chevron-left"
-            variant="ghost"
-            color="neutral"
-            size="sm"
-            :disabled="disabled || totalPages === 0 || currentPage <= 1"
-            class="h-8 rounded-l-md rounded-r-none"
-            @click="goToPrevious"
-        />
+        <UTooltip text="Previous Page" :delay-duration="500">
+            <UButton
+                icon="i-lucide-chevron-left"
+                variant="ghost"
+                color="neutral"
+                size="sm"
+                :disabled="disabled || totalPages === 0 || currentPage <= 1"
+                class="h-8 rounded-l-md rounded-r-none"
+                aria-label="Previous page"
+                @click="goToPrevious"
+            />
+        </UTooltip>
 
         <UPopover v-model:open="isOpen" mode="click" :disabled="disabled || totalPages === 0">
             <button
@@ -52,6 +55,7 @@
                             <span class="page-dropdown-goto-label">Go to page</span>
                             <div class="page-dropdown-goto-controls">
                                 <UInput
+                                    ref="pageInputRef"
                                     v-model="pageInputValue"
                                     class="page-dropdown-input"
                                     type="number"
@@ -61,13 +65,15 @@
                                     :max="totalPages"
                                     @keydown.enter.prevent="commitPageInput"
                                 />
-                                <UButton
-                                    size="xs"
-                                    variant="soft"
-                                    @click="commitPageInput"
-                                >
-                                    Go
-                                </UButton>
+                                <UTooltip text="Go to Page" :delay-duration="500">
+                                    <UButton
+                                        icon="i-lucide-arrow-right"
+                                        size="xs"
+                                        variant="soft"
+                                        aria-label="Go to page"
+                                        @click="commitPageInput"
+                                    />
+                                </UTooltip>
                             </div>
                         </div>
                     </div>
@@ -75,19 +81,23 @@
             </template>
         </UPopover>
 
-        <UButton
-            icon="i-lucide-chevron-right"
-            variant="ghost"
-            color="neutral"
-            size="sm"
-            :disabled="disabled || totalPages === 0 || currentPage >= totalPages"
-            class="h-8 rounded-r-md rounded-l-none"
-            @click="goToNext"
-        />
+        <UTooltip text="Next Page" :delay-duration="500">
+            <UButton
+                icon="i-lucide-chevron-right"
+                variant="ghost"
+                color="neutral"
+                size="sm"
+                :disabled="disabled || totalPages === 0 || currentPage >= totalPages"
+                class="h-8 rounded-r-md rounded-l-none"
+                aria-label="Next page"
+                @click="goToNext"
+            />
+        </UTooltip>
     </div>
 </template>
 
 <script setup lang="ts">
+import { nextTick } from 'vue';
 interface IProps {
     modelValue: number;
     totalPages: number;
@@ -108,6 +118,7 @@ const emit = defineEmits<{
 
 const isOpen = ref(false);
 const pageInputValue = ref(currentPage.toString());
+const pageInputRef = ref<{ $el: HTMLElement } | null>(null);
 
 function close() {
     isOpen.value = false;
@@ -118,6 +129,11 @@ defineExpose({ close });
 watch(isOpen, (value) => {
     if (value) {
         emit('open');
+        void nextTick(() => {
+            const input = pageInputRef.value?.$el?.querySelector('input') as HTMLInputElement | null;
+            input?.focus();
+            input?.select();
+        });
     }
 });
 

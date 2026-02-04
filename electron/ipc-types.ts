@@ -11,6 +11,10 @@ export interface IIpcChannels {
         args: [workingPath: string];
         result: string | null;
     };
+    'dialog:saveDocxAs': {
+        args: [workingPath: string];
+        result: string | null;
+    };
     'file:read': {
         args: [filePath: string];
         result: Uint8Array;
@@ -24,6 +28,10 @@ export interface IIpcChannels {
         result: boolean;
     };
     'file:write': {
+        args: [filePath: string, data: Uint8Array];
+        result: boolean;
+    };
+    'file:writeDocx': {
         args: [filePath: string, data: Uint8Array];
         result: boolean;
     };
@@ -62,5 +70,6 @@ export interface IMenuEvents {
     onMenuActualSize: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuFitWidth: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuFitHeight: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
-    onMenuAbout: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
+    onMenuUndo: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
+    onMenuRedo: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
 }

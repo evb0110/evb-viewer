@@ -12,6 +12,10 @@ export const usePdfFile = () => {
     const workingCopyPath = ref<string | null>(null);
     const error = ref<string | null>(null);
     const isDirty = ref(false);
+    const history = ref<Uint8Array[]>([]);
+    const historyIndex = ref(0);
+    const historyCleanIndex = ref(0);
+    const MAX_HISTORY = 20;
 
     const { clearCache: clearOcrCache } = useOcrTextContent();
 
@@ -49,6 +53,24 @@ export const usePdfFile = () => {
 
     const MAX_IN_MEMORY_PDF_BYTES = 256 * 1024 * 1024;
 
+    function resetHistory(snapshot: Uint8Array | null) {
+        if (snapshot) {
+            history.value = [snapshot.slice()];
+            historyIndex.value = 0;
+            historyCleanIndex.value = 0;
+        } else {
+            history.value = [];
+            historyIndex.value = 0;
+            historyCleanIndex.value = 0;
+        }
+    }
+
+    function syncDirtyFromHistory() {
+        if (history.value.length > 0) {
+            isDirty.value = historyIndex.value !== historyCleanIndex.value;
+        }
+    }
+
     async function loadPdfFromPath(path: string, opts?: { markDirty?: boolean }) {
         const api = getElectronAPI();
 
@@ -82,14 +104,59 @@ export const usePdfFile = () => {
             pdfSrc.value = new Blob([data], { type: 'application/pdf' });
         }
 
+        if (pdfData.value) {
+            resetHistory(pdfData.value);
+            syncDirtyFromHistory();
+        } else {
+            resetHistory(null);
+        }
+
         isDirty.value = !!opts?.markDirty;
-        await api.setWindowTitle(fileName.value || 'PDF Viewer');
+        await api.setWindowTitle(fileName.value ? `${fileName.value} — EVB-Viewer` : 'EVB-Viewer');
     }
 
-    function loadPdfFromData(data: Uint8Array) {
-        pdfData.value = data;
-        pdfSrc.value = new Blob([data.slice().buffer], { type: 'application/pdf' });
-        isDirty.value = true;
+    function pushHistorySnapshot(snapshot: Uint8Array) {
+        if (history.value.length === 0) {
+            resetHistory(snapshot);
+            syncDirtyFromHistory();
+            return;
+        }
+
+        const truncated = history.value.slice(0, historyIndex.value + 1);
+        truncated.push(snapshot.slice());
+
+        let offset = 0;
+        let nextHistory = truncated;
+        if (nextHistory.length > MAX_HISTORY) {
+            offset = nextHistory.length - MAX_HISTORY;
+            nextHistory = nextHistory.slice(offset);
+        }
+
+        history.value = nextHistory;
+        historyIndex.value = history.value.length - 1;
+        historyCleanIndex.value = Math.max(0, historyCleanIndex.value - offset);
+        syncDirtyFromHistory();
+    }
+
+    async function applySnapshot(snapshot: Uint8Array, persist = false) {
+        pdfData.value = snapshot;
+        pdfSrc.value = new Blob([snapshot.slice().buffer], { type: 'application/pdf' });
+
+        if (persist && workingCopyPath.value) {
+            const api = getElectronAPI();
+            await api.writeFile(workingCopyPath.value, snapshot);
+        }
+    }
+
+    async function loadPdfFromData(data: Uint8Array, opts?: { pushHistory?: boolean; persistWorkingCopy?: boolean }) {
+        const snapshot = data.slice();
+        await applySnapshot(snapshot, opts?.persistWorkingCopy ?? false);
+
+        if (opts?.pushHistory !== false) {
+            pushHistorySnapshot(snapshot);
+        } else {
+            isDirty.value = true;
+        }
     }
 
     async function saveFile(data: Uint8Array) {
@@ -103,6 +170,8 @@ export const usePdfFile = () => {
             // Then save working copy back to original location
             await api.saveFile(workingCopyPath.value);
             isDirty.value = false;
+            historyCleanIndex.value = historyIndex.value;
+            syncDirtyFromHistory();
             return true;
         } catch (e) {
             error.value = e instanceof Error ? e.message : 'Failed to save file';
@@ -118,6 +187,8 @@ export const usePdfFile = () => {
             const api = getElectronAPI();
             await api.saveFile(workingCopyPath.value);
             isDirty.value = false;
+            historyCleanIndex.value = historyIndex.value;
+            syncDirtyFromHistory();
             return true;
         } catch (e) {
             error.value = e instanceof Error ? e.message : 'Failed to save file';
@@ -134,6 +205,8 @@ export const usePdfFile = () => {
             const savedPath = await api.savePdfAs(workingCopyPath.value);
             if (savedPath) {
                 isDirty.value = false;
+                historyCleanIndex.value = historyIndex.value;
+                syncDirtyFromHistory();
             }
             return savedPath;
         } catch (e) {
@@ -155,12 +228,13 @@ export const usePdfFile = () => {
         workingCopyPath.value = null;
         error.value = null;
         isDirty.value = false;
+        resetHistory(null);
         try {
             const api = getElectronAPI();
             if (pathToCleanup) {
                 await api.cleanupFile(pathToCleanup);
             }
-            await api.setWindowTitle('PDF Viewer');
+            await api.setWindowTitle('EVB-Viewer');
         } catch {
             // Ignore errors when not in Electron
         }
@@ -168,6 +242,35 @@ export const usePdfFile = () => {
 
     function markDirty() {
         isDirty.value = true;
+    }
+
+    const canUndo = computed(() => history.value.length > 0 && historyIndex.value > 0);
+    const canRedo = computed(() => history.value.length > 0 && historyIndex.value < history.value.length - 1);
+
+    async function undo() {
+        if (!canUndo.value) {
+            return false;
+        }
+        historyIndex.value -= 1;
+        const snapshot = history.value[historyIndex.value];
+        if (snapshot) {
+            await applySnapshot(snapshot, true);
+        }
+        syncDirtyFromHistory();
+        return true;
+    }
+
+    async function redo() {
+        if (!canRedo.value) {
+            return false;
+        }
+        historyIndex.value += 1;
+        const snapshot = history.value[historyIndex.value];
+        if (snapshot) {
+            await applySnapshot(snapshot, true);
+        }
+        syncDirtyFromHistory();
+        return true;
     }
 
     return {
@@ -187,5 +290,9 @@ export const usePdfFile = () => {
         saveWorkingCopyAs,
         closeFile,
         markDirty,
+        canUndo,
+        canRedo,
+        undo,
+        redo,
     };
 };

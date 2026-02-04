@@ -1,13 +1,14 @@
 <template>
     <UPopover v-model:open="isOpen" mode="click" :disabled="disabled">
-        <UButton
-            icon="i-lucide-scan-text"
-            variant="ghost"
-            color="neutral"
-            :disabled="disabled"
-        >
-            <span>OCR</span>
-        </UButton>
+        <UTooltip text="OCR" :delay-duration="500">
+            <UButton
+                icon="i-lucide-scan-text"
+                variant="ghost"
+                color="neutral"
+                :disabled="disabled"
+                aria-label="OCR"
+            />
+        </UTooltip>
 
         <template #content>
             <div class="ocr-popup">
@@ -58,71 +59,6 @@
                     />
                 </div>
 
-                <div class="ocr-popup__divider" />
-
-                <!-- DPI Selection -->
-                <div class="ocr-popup__section">
-                    <div class="ocr-popup__label">Quality</div>
-                    <div class="ocr-popup__radios">
-                        <label class="ocr-popup__radio">
-                            <input
-                                v-model.number="settings.renderDpi"
-                                type="radio"
-                                name="dpi"
-                                :value="300"
-                            >
-                            <span>Standard (300 DPI) <span class="ocr-popup__badge">Recommended</span></span>
-                        </label>
-                    </div>
-
-                    <!-- Advanced DPI Options -->
-                    <button
-                        type="button"
-                        class="ocr-popup__advanced-toggle"
-                        @click="showAdvancedDpi = !showAdvancedDpi"
-                    >
-                        <UIcon :name="showAdvancedDpi ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'" class="size-4" />
-                        Advanced
-                    </button>
-
-                    <Transition name="ocr-advance">
-                        <div v-if="showAdvancedDpi" class="ocr-popup__advanced-options">
-                            <label class="ocr-popup__radio">
-                                <input
-                                    v-model.number="settings.renderDpi"
-                                    type="radio"
-                                    name="dpi"
-                                    :value="144"
-                                >
-                                <span>Low (144 DPI) - Fast, lower accuracy</span>
-                            </label>
-                            <label class="ocr-popup__radio">
-                                <input
-                                    v-model.number="settings.renderDpi"
-                                    type="radio"
-                                    name="dpi"
-                                    :value="432"
-                                >
-                                <span>High (432 DPI) - Degraded scans</span>
-                            </label>
-                            <div class="ocr-popup__custom-dpi">
-                                <label class="ocr-popup__label" style="margin-bottom: 0.25rem">Custom DPI</label>
-                                <input
-                                    v-model.number="customDpi"
-                                    type="number"
-                                    placeholder="300"
-                                    min="72"
-                                    max="600"
-                                    class="ocr-popup__custom-dpi-input"
-                                    @blur="applyCustomDpi"
-                                >
-                            </div>
-                        </div>
-                    </Transition>
-                </div>
-
-                <div class="ocr-popup__divider" />
-
                 <!-- Language Selection -->
                 <div class="ocr-popup__section">
                     <div class="ocr-popup__label">Languages</div>
@@ -137,6 +73,36 @@
                             <div class="ocr-popup__checkboxes">
                                 <label
                                     v-for="lang in latinCyrillicLanguages"
+                                    :key="lang.code"
+                                    class="ocr-popup__checkbox"
+                                >
+                                    <input
+                                        type="checkbox"
+                                        :checked="
+                                            settings.selectedLanguages.includes(
+                                                lang.code,
+                                            )
+                                        "
+                                        @change="
+                                            toggleLanguage(
+                                                lang.code,
+                                                ($event.target as HTMLInputElement)
+                                                    .checked,
+                                            )
+                                        "
+                                    >
+                                    <span>{{ lang.name }}</span>
+                                </label>
+                            </div>
+                        </div>
+                        <div
+                            v-if="greekLanguages.length > 0"
+                            class="ocr-popup__lang-group"
+                        >
+                            <span class="ocr-popup__group-label">Greek</span>
+                            <div class="ocr-popup__checkboxes">
+                                <label
+                                    v-for="lang in greekLanguages"
                                     :key="lang.code"
                                     class="ocr-popup__checkbox"
                                 >
@@ -234,25 +200,46 @@
 
                 <!-- Actions -->
                 <div class="ocr-popup__actions">
-                    <UButton
+                    <UTooltip text="Export DOCX" :delay-duration="500">
+                        <UButton
+                            icon="i-lucide-file-text"
+                            variant="ghost"
+                            color="neutral"
+                            size="sm"
+                            :loading="isExporting"
+                            :disabled="isExporting || progress.isRunning || !workingCopyPath"
+                            aria-label="Export DOCX"
+                            @click="handleExportDocx"
+                        />
+                    </UTooltip>
+                    <UTooltip
                         v-if="!progress.isRunning"
-                        color="primary"
-                        size="sm"
-                        :disabled="settings.selectedLanguages.length === 0"
-                        @click="handleRunOcr"
+                        text="Start OCR"
+                        :delay-duration="500"
                     >
-                        <UIcon name="i-lucide-play" class="size-4" />
-                        Start OCR
-                    </UButton>
-                    <UButton
+                        <UButton
+                            icon="i-lucide-play"
+                            color="primary"
+                            size="sm"
+                            :disabled="settings.selectedLanguages.length === 0"
+                            aria-label="Start OCR"
+                            @click="handleRunOcr"
+                        />
+                    </UTooltip>
+                    <UTooltip
                         v-else
-                        color="neutral"
-                        variant="soft"
-                        size="sm"
-                        @click="handleCancel"
+                        text="Cancel OCR"
+                        :delay-duration="500"
                     >
-                        Cancel
-                    </UButton>
+                        <UButton
+                            icon="i-lucide-x"
+                            color="neutral"
+                            variant="soft"
+                            size="sm"
+                            aria-label="Cancel OCR"
+                            @click="handleCancel"
+                        />
+                    </UTooltip>
                 </div>
             </div>
         </template>
@@ -286,26 +273,20 @@ const {
     hasResults,
     progressPercent,
     latinCyrillicLanguages,
+    greekLanguages,
     rtlLanguages,
     loadLanguages,
     runOcr,
     cancelOcr,
     toggleLanguage,
+    exportDocx,
+    isExporting,
 } = useOcr();
 
 const isOpen = ref(false);
-const showAdvancedDpi = ref(false);
-const customDpi = ref<number | null>(null);
 
 function close() {
     isOpen.value = false;
-}
-
-function applyCustomDpi() {
-    if (customDpi.value && customDpi.value >= 72 && customDpi.value <= 600) {
-        settings.value.renderDpi = customDpi.value;
-        customDpi.value = null;
-    }
 }
 
 defineExpose({ close });
@@ -326,6 +307,10 @@ function handleRunOcr() {
 
 function handleCancel() {
     cancelOcr();
+}
+
+function handleExportDocx() {
+    void exportDocx(props.workingCopyPath);
 }
 
 // Emit when OCR completes with PDF data
@@ -465,80 +450,6 @@ watch(() => results.value.searchablePdfData, (pdfData) => {
     padding: 0.25rem 0.75rem 0.5rem;
     display: flex;
     justify-content: flex-end;
-}
-
-.ocr-popup__badge {
-    display: inline-block;
-    background-color: var(--ui-primary);
-    color: white;
-    font-size: 0.65rem;
-    padding: 0.125rem 0.375rem;
-    border-radius: 0.25rem;
-    margin-left: 0.375rem;
-    font-weight: 500;
-}
-
-.ocr-popup__advanced-toggle {
-    display: flex;
-    align-items: center;
-    gap: 0.375rem;
-    width: 100%;
-    padding: 0.375rem 0.25rem;
-    margin-top: 0.5rem;
-    border: none;
-    background: transparent;
-    color: var(--ui-text-muted);
-    font-size: 0.8125rem;
-    cursor: pointer;
-    transition: color 0.2s;
-}
-
-.ocr-popup__advanced-toggle:hover {
-    color: var(--ui-text);
-}
-
-.ocr-popup__advanced-options {
-    padding: 0.375rem 0.25rem 0.5rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.375rem;
-    border-top: 1px solid var(--ui-border);
-    margin-top: 0.375rem;
-}
-
-.ocr-popup__custom-dpi {
-    padding-top: 0.375rem;
-}
-
-.ocr-popup__custom-dpi-input {
-    width: 100%;
-    padding: 0.375rem;
-    border: 1px solid var(--ui-border);
-    border-radius: 0.375rem;
-    font-size: 0.8125rem;
-    background-color: var(--ui-bg-elevated);
-    color: var(--ui-text);
-}
-
-.ocr-popup__custom-dpi-input:focus {
-    outline: none;
-    border-color: var(--ui-primary);
-    box-shadow: 0 0 0 2px var(--ui-primary-alpha);
-}
-
-/* Transition animations */
-.ocr-advance-enter-active,
-.ocr-advance-leave-active {
-    transition: all 0.2s ease;
-}
-
-.ocr-advance-enter-from {
-    opacity: 0;
-    max-height: 0;
-}
-
-.ocr-advance-leave-to {
-    opacity: 0;
-    max-height: 0;
+    gap: 0.5rem;
 }
 </style>

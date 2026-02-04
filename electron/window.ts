@@ -1,5 +1,6 @@
 import {
     BrowserWindow,
+    app,
     session,
 } from 'electron';
 import {
@@ -15,6 +16,9 @@ import {
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+const iconPath = app.isPackaged
+    ? join(process.resourcesPath, 'icon.png')
+    : join(__dirname, '..', 'resources', 'icon.png');
 
 let mainWindow: BrowserWindow | null = null;
 let createWindowPromise: Promise<void> | null = null;
@@ -80,6 +84,7 @@ export async function createWindow() {
             width: config.window.width,
             height: config.window.height,
             title: config.window.title,
+            icon: iconPath,
             show: false,
             backgroundColor: '#f5f5f5',
             webPreferences: {

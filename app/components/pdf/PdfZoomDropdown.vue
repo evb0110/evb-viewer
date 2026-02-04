@@ -1,14 +1,17 @@
 <template>
     <div class="zoom-controls">
-        <UButton
-            icon="i-lucide-minus"
-            variant="ghost"
-            color="neutral"
-            size="sm"
-            :disabled="disabled || zoom <= 0.25"
-            class="h-8 rounded-l-md rounded-r-none"
-            @click="handleZoomOut"
-        />
+        <UTooltip text="Zoom Out" :delay-duration="500">
+            <UButton
+                icon="i-lucide-minus"
+                variant="ghost"
+                color="neutral"
+                size="sm"
+                :disabled="disabled || zoom <= 0.25"
+                class="h-8 rounded-l-md rounded-r-none"
+                aria-label="Zoom out"
+                @click="handleZoomOut"
+            />
+        </UTooltip>
 
         <UPopover v-model:open="isOpen" mode="click" :disabled="disabled">
             <button
@@ -46,6 +49,7 @@
                     <div class="zoom-dropdown-section">
                         <div class="zoom-dropdown-custom">
                             <UInput
+                                ref="customZoomInputRef"
                                 v-model="customZoomValue"
                                 class="zoom-dropdown-input"
                                 type="number"
@@ -58,13 +62,15 @@
                             >
                                 <template #trailing>%</template>
                             </UInput>
-                            <UButton
-                                size="xs"
-                                variant="soft"
-                                @click="applyCustomZoom"
-                            >
-                                Apply
-                            </UButton>
+                            <UTooltip text="Apply Zoom" :delay-duration="500">
+                                <UButton
+                                    icon="i-lucide-check"
+                                    size="xs"
+                                    variant="soft"
+                                    aria-label="Apply zoom"
+                                    @click="applyCustomZoom"
+                                />
+                            </UTooltip>
                         </div>
                     </div>
 
@@ -116,20 +122,24 @@
             </template>
         </UPopover>
 
-        <UButton
-            icon="i-lucide-plus"
-            variant="ghost"
-            color="neutral"
-            size="sm"
-            :disabled="disabled || zoom >= 5"
-            class="h-8 rounded-r-md rounded-l-none"
-            @click="handleZoomIn"
-        />
+        <UTooltip text="Zoom In" :delay-duration="500">
+            <UButton
+                icon="i-lucide-plus"
+                variant="ghost"
+                color="neutral"
+                size="sm"
+                :disabled="disabled || zoom >= 5"
+                class="h-8 rounded-r-md rounded-l-none"
+                aria-label="Zoom in"
+                @click="handleZoomIn"
+            />
+        </UTooltip>
     </div>
 </template>
 
 <script setup lang="ts">
 import type { TFitMode } from '@app/types/shared';
+import { nextTick } from 'vue';
 
 interface IProps {
     zoom: number;
@@ -151,6 +161,7 @@ const emit = defineEmits<{
 
 const isOpen = ref(false);
 const customZoomValue = ref(formatZoomValue(zoom));
+const customZoomInputRef = ref<{ $el: HTMLElement } | null>(null);
 
 function close() {
     isOpen.value = false;
@@ -161,6 +172,11 @@ defineExpose({ close });
 watch(isOpen, (value) => {
     if (value) {
         emit('open');
+        void nextTick(() => {
+            const input = customZoomInputRef.value?.$el?.querySelector('input') as HTMLInputElement | null;
+            input?.focus();
+            input?.select();
+        });
     }
 });
 
@@ -236,6 +252,7 @@ function handleSetZoom(level: number) {
 }
 
 function handleSetFitMode(mode: TFitMode) {
+    emit('update:zoom', 1);
     emit('update:fitMode', mode);
     close();
 }
