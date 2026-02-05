@@ -106,35 +106,19 @@ textarea,
     --comment-edit-button-icon: url('/pdfjs/comment-editButton.svg') !important;
 }
 
-/* Explicit mask-image for editToolbar buttons to ensure icons are visible */
-.pdfViewer .editToolbar .buttons .highlightButton.basic::before,
-.pdf-viewer-container .editToolbar .buttons .highlightButton.basic::before {
-    -webkit-mask-image: url('/pdfjs/toolbarButton-editorHighlight.svg') !important;
-    mask-image: url('/pdfjs/toolbarButton-editorHighlight.svg') !important;
+/* Ensure toolbar buttons contain their ::before icons */
+.pdfViewer .editToolbar .buttons > button,
+.pdf-viewer-container .editToolbar .buttons > button {
+    position: relative !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
 }
 
-.pdfViewer .editToolbar .buttons .commentButton.basic::before,
-.pdf-viewer-container .editToolbar .buttons .commentButton.basic::before {
-    -webkit-mask-image: url('/pdfjs/comment-editButton.svg') !important;
-    mask-image: url('/pdfjs/comment-editButton.svg') !important;
-}
-
-.pdfViewer .editToolbar .buttons .deleteButton.basic::before,
-.pdf-viewer-container .editToolbar .buttons .deleteButton.basic::before,
-.pdfViewer .textLayer .editToolbar .buttons .deleteButton.basic::before {
-    -webkit-mask-image: url('/pdfjs/editor-toolbar-delete.svg') !important;
-    mask-image: url('/pdfjs/editor-toolbar-delete.svg') !important;
-}
-
-/* Also target textLayer specifically for text selection toolbar */
-.pdfViewer .textLayer .editToolbar .buttons .highlightButton.basic::before {
-    -webkit-mask-image: url('/pdfjs/toolbarButton-editorHighlight.svg') !important;
-    mask-image: url('/pdfjs/toolbarButton-editorHighlight.svg') !important;
-}
-
-.pdfViewer .textLayer .editToolbar .buttons .commentButton.basic::before {
-    -webkit-mask-image: url('/pdfjs/comment-editButton.svg') !important;
-    mask-image: url('/pdfjs/comment-editButton.svg') !important;
+.pdfViewer .editToolbar .buttons > button::before,
+.pdf-viewer-container .editToolbar .buttons > button::before {
+    position: relative !important;
+    flex-shrink: 0 !important;
 }
 
 .pdfViewer .annotationCommentButton,
