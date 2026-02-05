@@ -321,6 +321,11 @@ function createSimpleCommentManager(container: HTMLElement) {
             activeEditor.comment = text.length ? text : null;
             activeEditor.addToAnnotationStorage?.();
             emit('annotation-modified');
+
+            // Update visual indicator for comment presence
+            if (activeEditor.div) {
+                activeEditor.div.classList.toggle('has-comment', text.length > 0);
+            }
         }
 
         isEditing = false;
@@ -468,6 +473,32 @@ function createSimpleCommentManager(container: HTMLElement) {
         event.stopPropagation();
     });
 
+    // Add/remove visual indicator for highlights with comments
+    const updateCommentIndicator = (editor: any) => {
+        if (!editor?.div) {
+            return;
+        }
+        if (editor.hasComment) {
+            editor.div.classList.add('has-comment');
+        } else {
+            editor.div.classList.remove('has-comment');
+        }
+    };
+
+    // Reposition popup on scroll to keep it anchored
+    let scrollRAF: number | null = null;
+    container.addEventListener('scroll', () => {
+        if (activeEditor && !popup.classList.contains('is-hidden')) {
+            if (scrollRAF) {
+                cancelAnimationFrame(scrollRAF);
+            }
+            scrollRAF = requestAnimationFrame(() => {
+                positionPopup(activeEditor);
+                scrollRAF = null;
+            });
+        }
+    });
+
     return {
         dialogElement: popup,
         setSidebarUiManager: (uiManager: AnnotationEditorUIManager) => {
@@ -504,12 +535,25 @@ function createSimpleCommentManager(container: HTMLElement) {
             }
         },
         toggleCommentPopup: (editor: any, isSelected: boolean, visibility?: boolean) => {
+            // Update visual indicator for highlights with comments
+            updateCommentIndicator(editor);
+
             if (visibility === false && !isSelected) {
                 hidePopup();
                 return;
             }
-            if (visibility || isSelected) {
+
+            // If highlight has a comment and is being selected, show comment popup
+            // and hide the toolbar to prioritize comment viewing
+            if ((visibility || isSelected) && editor?.hasComment) {
                 showPopup(editor);
+                // Hide the edit toolbar when showing comment
+                const toolbar = editor?.div?.querySelector('.editToolbar');
+                if (toolbar) {
+                    toolbar.style.display = 'none';
+                }
+            } else if (!editor?.hasComment) {
+                hidePopup();
             }
         },
         makeCommentColor: (color: string, opacity = 1) => {
@@ -1369,13 +1413,28 @@ defineExpose({
     pointer-events: none !important;
 }
 
+/* Visual indicator for highlights with comments */
+.pdfViewer :deep(.highlightEditor.has-comment)::after {
+    content: '';
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    width: 10px;
+    height: 10px;
+    background: var(--ui-primary, #3b82f6);
+    border-radius: 50%;
+    border: 2px solid var(--color-surface, #ffffff);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+    pointer-events: none;
+}
+
 .pdfViewer :deep(.pdf-annotation-comment-popup) {
     position: absolute;
     z-index: 6;
-    min-width: 160px;
-    max-width: 260px;
-    padding: 10px 12px;
-    border-radius: 10px;
+    min-width: 180px;
+    max-width: 280px;
+    padding: 12px 14px;
+    border-radius: 8px;
     background: var(--color-surface, #ffffff);
     color: var(--ui-text, #111827);
     border: 1px solid var(--ui-border, #e5e7eb);
@@ -1386,6 +1445,20 @@ defineExpose({
     transform: translate3d(0, 0, 0);
     transition: opacity 0.12s ease, transform 0.12s ease;
     pointer-events: auto;
+}
+
+/* Arrow pointing up to the highlight */
+.pdfViewer :deep(.pdf-annotation-comment-popup)::before {
+    content: '';
+    position: absolute;
+    top: -8px;
+    left: 16px;
+    width: 0;
+    height: 0;
+    border-left: 8px solid transparent;
+    border-right: 8px solid transparent;
+    border-bottom: 8px solid var(--color-surface, #ffffff);
+    filter: drop-shadow(0 -1px 1px rgba(15, 23, 42, 0.08));
 }
 
 .pdfViewer :deep(.pdf-annotation-comment-popup.is-hidden) {
