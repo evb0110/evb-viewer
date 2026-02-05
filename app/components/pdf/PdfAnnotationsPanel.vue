@@ -207,7 +207,7 @@ const emit = defineEmits<{
 }>();
 
 const toolButtonUi = {
-    base: 'justify-center p-0',
+    base: 'justify-center px-0 py-2',
 };
 
 function updateSetting(
