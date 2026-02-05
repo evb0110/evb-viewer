@@ -209,6 +209,11 @@ export async function createWindow() {
                 if (!mainWindow.isVisible()) {
                     mainWindow.show();
                 }
+                // Ensure window comes to front on macOS (needed when spawned from background)
+                mainWindow.focus();
+                if (process.platform === 'darwin') {
+                    app.focus({ steal: true });
+                }
                 openDevToolsOnce();
 
                 // M6.2: Add navigation timeline to window for debugging
@@ -227,6 +232,11 @@ export async function createWindow() {
             } else {
                 if (!mainWindow.isVisible()) {
                     mainWindow.show();
+                }
+                // Ensure window comes to front on macOS (needed when spawned from background)
+                mainWindow.focus();
+                if (process.platform === 'darwin') {
+                    app.focus({ steal: true });
                 }
             }
 

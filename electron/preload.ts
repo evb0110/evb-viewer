@@ -208,6 +208,11 @@ if (!__preloadAlreadyInstalled) {
             ipcRenderer.on('menu:saveAs', handler);
             return () => ipcRenderer.removeListener('menu:saveAs', handler);
         },
+        onMenuExportDocx: (callback: IMenuEventCallback): IMenuEventUnsubscribe => {
+            const handler = (_event: IpcRendererEvent) => callback();
+            ipcRenderer.on('menu:exportDocx', handler);
+            return () => ipcRenderer.removeListener('menu:exportDocx', handler);
+        },
         onMenuZoomIn: (callback: IMenuEventCallback): IMenuEventUnsubscribe => {
             const handler = (_event: IpcRendererEvent) => callback();
             ipcRenderer.on('menu:zoomIn', handler);

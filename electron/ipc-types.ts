@@ -65,6 +65,7 @@ export interface IMenuEvents {
     onMenuOpenPdf: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuSave: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuSaveAs: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
+    onMenuExportDocx: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuZoomIn: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuZoomOut: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuActualSize: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;

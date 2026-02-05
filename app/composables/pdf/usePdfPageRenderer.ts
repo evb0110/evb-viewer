@@ -1,6 +1,8 @@
 import { Mutex } from 'es-toolkit';
 import {
     AnnotationLayer,
+    AnnotationEditorLayer,
+    DrawLayer,
     TextLayer,
 } from 'pdfjs-dist';
 import type { IPDFLinkService } from 'pdfjs-dist/types/web/interfaces';
@@ -25,6 +27,7 @@ import { useTextLayerSelection } from '@app/composables/useTextLayerSelection';
 import { usePdfWordBoxes } from '@app/composables/usePdfWordBoxes';
 import { useOcrTextContent } from '@app/composables/pdf/useOcrTextContent';
 import type { usePdfDocument } from '@app/composables/pdf/usePdfDocument';
+import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 
 interface IPageRange {
     start: number;
@@ -41,6 +44,9 @@ interface IUsePdfPageRendererOptions {
     showAnnotations?: MaybeRefOrGetter<boolean>;
     scrollToPage?: (pageNumber: number) => void;
     outputScale?: number;
+
+    annotationUiManager?: MaybeRefOrGetter<AnnotationEditorUIManager | null>;
+    annotationL10n?: MaybeRefOrGetter<unknown>;
 
     searchPageMatches?: MaybeRefOrGetter<Map<number, IPdfPageMatches>>;
     currentSearchMatch?: MaybeRefOrGetter<IPdfSearchMatch | null>;
@@ -72,6 +78,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     const { getOcrTextContent } = useOcrTextContent();
 
     const {
+        pdfDocument,
         numPages,
         basePageWidth,
         basePageHeight,
@@ -94,6 +101,8 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     const renderingPages = new Map<number, number>();
     const pageCanvases = new Map<number, HTMLCanvasElement>();
     const textLayerCleanupFns = new Map<number, () => void>();
+    const annotationEditorLayers = new Map<number, AnnotationEditorLayer>();
+    const drawLayers = new Map<number, DrawLayer>();
 
     const pendingScrollToMatchPageIndex = ref<number | null>(null);
     const RENDERED_CONTAINER_CLASS = 'page_container--rendered';
@@ -327,6 +336,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             const canvasHost = container?.querySelector<HTMLDivElement>('.page_canvas');
             const textLayerDiv = container?.querySelector<HTMLElement>('.text-layer');
             const annotationLayerDiv = container?.querySelector<HTMLElement>('.annotation-layer');
+            const annotationEditorLayerDiv = container?.querySelector<HTMLElement>('.annotation-editor-layer');
 
             if (canvasHost) {
                 canvasHost.innerHTML = '';
@@ -345,10 +355,26 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                 annotationLayerDiv.innerHTML = '';
             }
 
+            if (annotationEditorLayerDiv) {
+                annotationEditorLayerDiv.innerHTML = '';
+            }
+
             // Clear OCR debug boxes if they exist
             if (container) {
                 clearOcrDebugBoxes(container);
             }
+        }
+
+        const editorLayer = annotationEditorLayers.get(pageNumber);
+        if (editorLayer) {
+            editorLayer.destroy();
+            annotationEditorLayers.delete(pageNumber);
+        }
+
+        const drawLayer = drawLayers.get(pageNumber);
+        if (drawLayer) {
+            drawLayer.destroy();
+            drawLayers.delete(pageNumber);
         }
 
         try {
@@ -693,10 +719,13 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                         }
 
                         const annotationLayerDiv = container.querySelector<HTMLElement>('.annotation-layer');
+                        let annotationLayerInstance: AnnotationLayer | null = null;
                         if (annotationLayerDiv && toValue(showAnnotations)) {
                             annotationLayerDiv.innerHTML = '';
 
                             const annotations = await pdfPage.getAnnotations();
+                            const annotationStorage = pdfDocument.value?.annotationStorage;
+                            const annotationUiManager = toValue(options.annotationUiManager) ?? null;
 
                             if (renderVersion !== version) {
                                 if (renderingPages.get(pageNumber) === version) {
@@ -705,56 +734,106 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                                 return;
                             }
 
-                            if (annotations.length > 0) {
-                                const simpleLinkService = {
-                                    pagesCount: numPages.value,
-                                    page: options.currentPage.value,
-                                    rotation: 0,
-                                    isInPresentationMode: false,
-                                    externalLinkEnabled: true,
-                                    goToDestination: async () => {},
-                                    goToPage: (page: number) => options.scrollToPage?.(page),
-                                    goToXY: () => {},
-                                    addLinkAttributes: (
-                                        link: HTMLAnchorElement,
-                                        url: string,
-                                        newWindow?: boolean,
-                                    ) => {
-                                        link.href = url;
-                                        if (newWindow) {
-                                            link.target = '_blank';
-                                            link.rel = 'noopener noreferrer';
-                                        }
-                                    },
-                                    getDestinationHash: () => '#',
-                                    getAnchorUrl: () => '#',
-                                    setHash: () => {},
-                                    executeNamedAction: () => {},
-                                    executeSetOCGState: () => {},
-                                } as unknown as IPDFLinkService;
+                            const simpleLinkService = {
+                                pagesCount: numPages.value,
+                                page: options.currentPage.value,
+                                rotation: 0,
+                                isInPresentationMode: false,
+                                externalLinkEnabled: true,
+                                goToDestination: async () => {},
+                                goToPage: (page: number) => options.scrollToPage?.(page),
+                                goToXY: () => {},
+                                addLinkAttributes: (
+                                    link: HTMLAnchorElement,
+                                    url: string,
+                                    newWindow?: boolean,
+                                ) => {
+                                    link.href = url;
+                                    if (newWindow) {
+                                        link.target = '_blank';
+                                        link.rel = 'noopener noreferrer';
+                                    }
+                                },
+                                getDestinationHash: () => '#',
+                                getAnchorUrl: () => '#',
+                                setHash: () => {},
+                                executeNamedAction: () => {},
+                                executeSetOCGState: () => {},
+                            } as unknown as IPDFLinkService;
 
-                                const annotationLayer = new AnnotationLayer({
-                                    div: annotationLayerDiv as HTMLDivElement,
-                                    page: pdfPage,
-                                    viewport,
-                                    accessibilityManager: null,
-                                    annotationCanvasMap: null,
-                                    annotationEditorUIManager: null,
-                                    structTreeLayer: null,
-                                    commentManager: null,
-                                    linkService: simpleLinkService,
-                                    annotationStorage: null,
-                                });
+                            annotationLayerInstance = new AnnotationLayer({
+                                div: annotationLayerDiv as HTMLDivElement,
+                                page: pdfPage,
+                                viewport,
+                                accessibilityManager: null,
+                                annotationCanvasMap: null,
+                                annotationEditorUIManager: annotationUiManager,
+                                structTreeLayer: null,
+                                commentManager: null,
+                                linkService: simpleLinkService,
+                                annotationStorage,
+                            });
 
-                                await annotationLayer.render({
-                                    annotations,
-                                    viewport,
-                                    div: annotationLayerDiv as HTMLDivElement,
-                                    page: pdfPage,
-                                    linkService: simpleLinkService,
-                                    renderForms: false,
-                                });
+                            await annotationLayerInstance.render({
+                                annotations,
+                                viewport,
+                                div: annotationLayerDiv as HTMLDivElement,
+                                page: pdfPage,
+                                linkService: simpleLinkService,
+                                renderForms: false,
+                                annotationStorage,
+                            });
+                        }
+
+                        const annotationEditorLayerDiv = container.querySelector<HTMLElement>('.annotation-editor-layer');
+                        const annotationUiManager = toValue(options.annotationUiManager) ?? null;
+                        if (annotationEditorLayerDiv && annotationUiManager) {
+                            const editorViewport = viewport.clone({ dontFlip: true });
+                            const editorLayer = annotationEditorLayers.get(pageNumber);
+                            const drawLayer = drawLayers.get(pageNumber) ?? new DrawLayer({ pageIndex: pageNumber - 1 });
+                            const textLayerShim = textLayerDiv
+                                ? ({ div: textLayerDiv } as any)
+                                : undefined;
+
+                            const canvasHost = container.querySelector<HTMLDivElement>('.page_canvas');
+                            if (canvasHost) {
+                                drawLayer.setParent(canvasHost);
                             }
+                            drawLayers.set(pageNumber, drawLayer);
+
+                            if (!editorLayer) {
+                                annotationEditorLayerDiv.innerHTML = '';
+                                annotationEditorLayerDiv.dir = annotationUiManager.direction;
+                            }
+
+                            const l10n = toValue(options.annotationL10n) ?? null;
+                            const activeLayer = editorLayer ?? new AnnotationEditorLayer({
+                                mode: {},
+                                uiManager: annotationUiManager,
+                                div: annotationEditorLayerDiv as HTMLDivElement,
+                                structTreeLayer: null,
+                                enabled: true,
+                                accessibilityManager: undefined,
+                                pageIndex: pageNumber - 1,
+                                l10n: l10n as any,
+                                viewport: editorViewport,
+                                annotationLayer: annotationLayerInstance ?? undefined,
+                                textLayer: textLayerShim,
+                                drawLayer,
+                            });
+
+                            if (!editorLayer) {
+                                annotationEditorLayers.set(pageNumber, activeLayer);
+                            }
+
+                            if (editorLayer) {
+                                editorLayer.update({ viewport: editorViewport });
+                            } else {
+                                activeLayer.render({ viewport: editorViewport });
+                            }
+
+                            annotationEditorLayerDiv.hidden = activeLayer.isInvisible;
+                            activeLayer.pause(false);
                         }
 
                         // Render OCR debug boxes if debug mode is enabled
@@ -776,7 +855,24 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                             renderedPages.add(pageNumber);
                         }
                     } catch (error) {
-                        console.error('Failed to render PDF page:', pageNumber, error);
+                        const message = error instanceof Error
+                            ? error.message
+                            : typeof error === 'string'
+                                ? error
+                                : (() => {
+                                    try {
+                                        return JSON.stringify(error);
+                                    } catch {
+                                        return String(error);
+                                    }
+                                })();
+
+                        const stack = error instanceof Error ? error.stack ?? '' : '';
+                        const text = stack
+                            ? `Failed to render PDF page: ${pageNumber} ${message}\n${stack}`
+                            : `Failed to render PDF page: ${pageNumber} ${message}`;
+
+                        console.error(text);
                         if (renderingPages.get(pageNumber) === version) {
                             cleanupPage(pageNumber);
                         }
@@ -847,6 +943,8 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         renderedPages.clear();
         renderingPages.clear();
         textLayerCleanupFns.clear();
+        annotationEditorLayers.clear();
+        drawLayers.clear();
 
         pendingScrollToMatchPageIndex.value = null;
         setScrollTargetPage(null);

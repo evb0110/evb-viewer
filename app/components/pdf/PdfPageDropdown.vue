@@ -1,98 +1,128 @@
 <template>
     <div class="page-controls">
-        <UTooltip text="Previous Page" :delay-duration="500">
-            <UButton
-                icon="i-lucide-chevron-left"
-                variant="ghost"
-                color="neutral"
-                size="sm"
-                :disabled="disabled || totalPages === 0 || currentPage <= 1"
-                class="h-8 rounded-l-md rounded-r-none"
-                aria-label="Previous page"
-                @click="goToPrevious"
-            />
-        </UTooltip>
+        <div class="page-controls-item">
+            <UTooltip text="First Page" :delay-duration="1200">
+                <UButton
+                    icon="i-lucide-chevrons-left"
+                    variant="ghost"
+                    color="neutral"
+                    :disabled="disabled || totalPages === 0 || currentPage <= 1"
+                    class="page-controls-button"
+                    aria-label="First page"
+                    @click="goToFirst"
+                />
+            </UTooltip>
+        </div>
+        <div class="page-controls-item">
+            <UTooltip text="Previous Page" :delay-duration="1200">
+                <UButton
+                    icon="i-lucide-chevron-left"
+                    variant="ghost"
+                    color="neutral"
+                    :disabled="disabled || totalPages === 0 || currentPage <= 1"
+                    class="page-controls-button"
+                    aria-label="Previous page"
+                    @click="goToPrevious"
+                />
+            </UTooltip>
+        </div>
 
-        <UPopover v-model:open="isOpen" mode="click" :disabled="disabled || totalPages === 0">
-            <button
-                class="page-controls-display"
-                :disabled="disabled || totalPages === 0"
-            >
-                <span class="page-controls-display-value">{{ pageLabel }}</span>
-            </button>
+        <div class="page-controls-item">
+            <UPopover v-model:open="isOpen" mode="click" :disabled="disabled || totalPages === 0">
+                <button
+                    class="page-controls-display"
+                    :disabled="disabled || totalPages === 0"
+                >
+                    <span class="page-controls-display-value">{{ pageLabel }}</span>
+                </button>
 
-            <template #content>
-                <div class="page-dropdown">
-                    <div class="page-dropdown-section">
-                        <button
-                            class="page-dropdown-item"
-                            :disabled="currentPage <= 1"
-                            @click="goToFirst"
-                        >
-                            <UIcon
-                                name="i-lucide-chevrons-left"
-                                class="page-dropdown-icon size-5"
-                            />
-                            <span class="page-dropdown-label">First page</span>
-                        </button>
-                        <button
-                            class="page-dropdown-item"
-                            :disabled="currentPage >= totalPages"
-                            @click="goToLast"
-                        >
-                            <UIcon
-                                name="i-lucide-chevrons-right"
-                                class="page-dropdown-icon size-5"
-                            />
-                            <span class="page-dropdown-label">Last page</span>
-                        </button>
-                    </div>
-
-                    <div class="page-dropdown-divider" />
-
-                    <div class="page-dropdown-section">
-                        <div class="page-dropdown-goto">
-                            <span class="page-dropdown-goto-label">Go to page</span>
-                            <div class="page-dropdown-goto-controls">
-                                <UInput
-                                    ref="pageInputRef"
-                                    v-model="pageInputValue"
-                                    class="page-dropdown-input"
-                                    type="number"
-                                    inputmode="numeric"
-                                    size="xs"
-                                    min="1"
-                                    :max="totalPages"
-                                    @keydown.enter.prevent="commitPageInput"
+                <template #content>
+                    <div class="page-dropdown">
+                        <div class="page-dropdown-section">
+                            <button
+                                class="page-dropdown-item"
+                                :disabled="currentPage <= 1"
+                                @click="goToFirst"
+                            >
+                                <UIcon
+                                    name="i-lucide-chevrons-left"
+                                    class="page-dropdown-icon size-5"
                                 />
-                                <UTooltip text="Go to Page" :delay-duration="500">
-                                    <UButton
-                                        icon="i-lucide-arrow-right"
+                                <span class="page-dropdown-label">First page</span>
+                            </button>
+                            <button
+                                class="page-dropdown-item"
+                                :disabled="currentPage >= totalPages"
+                                @click="goToLast"
+                            >
+                                <UIcon
+                                    name="i-lucide-chevrons-right"
+                                    class="page-dropdown-icon size-5"
+                                />
+                                <span class="page-dropdown-label">Last page</span>
+                            </button>
+                        </div>
+
+                        <div class="page-dropdown-divider" />
+
+                        <div class="page-dropdown-section">
+                            <div class="page-dropdown-goto">
+                                <span class="page-dropdown-goto-label">Go to page</span>
+                                <div class="page-dropdown-goto-controls">
+                                    <UInput
+                                        ref="pageInputRef"
+                                        v-model="pageInputValue"
+                                        class="page-dropdown-input"
+                                        type="number"
+                                        inputmode="numeric"
                                         size="xs"
-                                        variant="soft"
-                                        aria-label="Go to page"
-                                        @click="commitPageInput"
+                                        min="1"
+                                        :max="totalPages"
+                                        @keydown.enter.prevent="commitPageInput"
                                     />
-                                </UTooltip>
+                                    <UTooltip text="Go to Page" :delay-duration="1200">
+                                        <UButton
+                                            icon="i-lucide-arrow-right"
+                                            size="xs"
+                                            variant="soft"
+                                            aria-label="Go to page"
+                                            @click="commitPageInput"
+                                        />
+                                    </UTooltip>
+                                </div>
                             </div>
                         </div>
                     </div>
-                </div>
-            </template>
-        </UPopover>
+                </template>
+            </UPopover>
+        </div>
 
-        <UTooltip text="Next Page" :delay-duration="500">
-            <UButton
-                icon="i-lucide-chevron-right"
-                variant="ghost"
-                color="neutral"
-                size="sm"
-                :disabled="disabled || totalPages === 0 || currentPage >= totalPages"
-                class="h-8 rounded-r-md rounded-l-none"
-                aria-label="Next page"
-                @click="goToNext"
-            />
-        </UTooltip>
+        <div class="page-controls-item">
+            <UTooltip text="Next Page" :delay-duration="1200">
+                <UButton
+                    icon="i-lucide-chevron-right"
+                    variant="ghost"
+                    color="neutral"
+                    :disabled="disabled || totalPages === 0 || currentPage >= totalPages"
+                    class="page-controls-button"
+                    aria-label="Next page"
+                    @click="goToNext"
+                />
+            </UTooltip>
+        </div>
+        <div class="page-controls-item">
+            <UTooltip text="Last Page" :delay-duration="1200">
+                <UButton
+                    icon="i-lucide-chevrons-right"
+                    variant="ghost"
+                    color="neutral"
+                    :disabled="disabled || totalPages === 0 || currentPage >= totalPages"
+                    class="page-controls-button"
+                    aria-label="Last page"
+                    @click="goToLast"
+                />
+            </UTooltip>
+        </div>
     </div>
 </template>
 
@@ -201,8 +231,30 @@ function commitPageInput() {
     gap: 0;
     border: 1px solid var(--ui-border);
     border-radius: 0.375rem;
+    overflow: hidden;
 }
 
+.page-controls-item {
+    display: flex;
+    border-radius: 0;
+}
+
+.page-controls-item + .page-controls-item {
+    border-left: 1px solid var(--ui-border);
+}
+
+.page-controls-button {
+    border-radius: 0 !important;
+    height: var(--toolbar-control-height, 2.25rem);
+    min-width: var(--toolbar-control-height, 2.25rem);
+    padding: 0.25rem;
+    font-size: var(--toolbar-icon-size, 18px);
+}
+
+.page-controls-button :deep(svg) {
+    width: 1.1rem;
+    height: 1.1rem;
+}
 
 .page-controls-display {
     display: flex;
@@ -210,11 +262,10 @@ function commitPageInput() {
     justify-content: center;
     padding: 0 0.5rem;
     min-width: 5.5rem;
-    height: 2rem;
+    height: var(--toolbar-control-height, 2.25rem);
     background: transparent;
     border: none;
-    border-left: 1px solid var(--ui-border);
-    border-right: 1px solid var(--ui-border);
+    border-radius: 0;
     cursor: pointer;
     transition: background-color 150ms ease;
 }

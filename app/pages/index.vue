@@ -2,7 +2,7 @@
     <div class="h-screen flex flex-col bg-neutral-100 dark:bg-neutral-900">
         <!-- Toolbar -->
         <header class="toolbar">
-            <UTooltip v-if="!pdfSrc" text="Open PDF" :delay-duration="500">
+            <UTooltip v-if="!pdfSrc" text="Open PDF" :delay-duration="1200">
                 <UButton
                     icon="i-lucide-folder-open"
                     variant="ghost"
@@ -16,19 +16,19 @@
             <template v-if="pdfSrc">
                 <!-- Left section: File & view controls -->
                 <div class="toolbar-section">
-                    <UTooltip text="Save" :delay-duration="500">
+                    <UTooltip text="Save" :delay-duration="1200">
                         <UButton
                             icon="i-lucide-save"
                             variant="ghost"
                             color="neutral"
                             class="toolbar-icon-button"
-                            :disabled="!isDirty || isAnySaving || isHistoryBusy"
+                            :disabled="!canSave || isAnySaving || isHistoryBusy"
                             :loading="isSaving"
                             aria-label="Save"
                             @click="handleSave(); closeAllDropdowns()"
                         />
                     </UTooltip>
-                    <UTooltip text="Save As…" :delay-duration="500">
+                    <UTooltip text="Save As…" :delay-duration="1200">
                         <UButton
                             icon="i-lucide-save-all"
                             variant="ghost"
@@ -40,35 +40,49 @@
                             @click="handleSaveAs(); closeAllDropdowns()"
                         />
                     </UTooltip>
+                    <UTooltip text="Export DOCX" :delay-duration="1200">
+                        <UButton
+                            icon="i-lucide-file-text"
+                            variant="ghost"
+                            color="neutral"
+                            class="toolbar-icon-button"
+                            :disabled="!workingCopyPath || isAnySaving || isHistoryBusy || isExportingDocx"
+                            :loading="isExportingDocx"
+                            aria-label="Export DOCX"
+                            @click="handleExportDocx(); closeAllDropdowns()"
+                        />
+                    </UTooltip>
 
                     <div class="toolbar-button-group">
-                        <UTooltip text="Undo" :delay-duration="500">
-                            <UButton
-                                icon="i-lucide-undo-2"
-                                variant="ghost"
-                                size="sm"
-                                color="neutral"
-                                class="rounded-r-none h-8"
-                                :disabled="!canUndo || isHistoryBusy || isAnySaving"
-                                aria-label="Undo"
-                                @click="handleUndo(); closeAllDropdowns()"
-                            />
-                        </UTooltip>
-                        <UTooltip text="Redo" :delay-duration="500">
-                            <UButton
-                                icon="i-lucide-redo-2"
-                                variant="ghost"
-                                size="sm"
-                                color="neutral"
-                                class="rounded-l-none h-8"
-                                :disabled="!canRedo || isHistoryBusy || isAnySaving"
-                                aria-label="Redo"
-                                @click="handleRedo(); closeAllDropdowns()"
-                            />
-                        </UTooltip>
+                        <div class="toolbar-group-item">
+                            <UTooltip text="Undo" :delay-duration="1200">
+                                <UButton
+                                    icon="i-lucide-undo-2"
+                                    variant="ghost"
+                                    color="neutral"
+                                    class="toolbar-group-button"
+                                    :disabled="!canUndo || isHistoryBusy || isAnySaving"
+                                    aria-label="Undo"
+                                    @click="handleUndo(); closeAllDropdowns()"
+                                />
+                            </UTooltip>
+                        </div>
+                        <div class="toolbar-group-item">
+                            <UTooltip text="Redo" :delay-duration="1200">
+                                <UButton
+                                    icon="i-lucide-redo-2"
+                                    variant="ghost"
+                                    color="neutral"
+                                    class="toolbar-group-button"
+                                    :disabled="!canRedo || isHistoryBusy || isAnySaving"
+                                    aria-label="Redo"
+                                    @click="handleRedo(); closeAllDropdowns()"
+                                />
+                            </UTooltip>
+                        </div>
                     </div>
 
-                    <UTooltip text="Toggle Sidebar" :delay-duration="500">
+                    <UTooltip text="Toggle Sidebar" :delay-duration="1200">
                         <UButton
                             icon="i-lucide-panel-left"
                             :variant="showSidebar ? 'soft' : 'ghost'"
@@ -76,6 +90,16 @@
                             class="toolbar-icon-button"
                             aria-label="Toggle sidebar"
                             @click="showSidebar = !showSidebar; closeAllDropdowns()"
+                        />
+                    </UTooltip>
+                    <UTooltip text="Annotations" :delay-duration="1200">
+                        <UButton
+                            icon="i-lucide-pen-tool"
+                            :variant="isAnnotationPanelOpen ? 'soft' : 'ghost'"
+                            :color="isAnnotationPanelOpen ? 'primary' : 'neutral'"
+                            class="toolbar-icon-button"
+                            aria-label="Annotations"
+                            @click="openAnnotations(); closeAllDropdowns()"
                         />
                     </UTooltip>
                 </div>
@@ -103,25 +127,42 @@
                             v-model:fit-mode="fitMode"
                             @open="pageDropdownRef?.close()"
                         />
-                        <div class="toolbar-inline-extra">
-                            <UTooltip text="Fit Width" :delay-duration="500">
+                    </div>
+
+                    <div class="toolbar-button-group">
+                        <div class="toolbar-group-item">
+                            <UTooltip text="Fit Width" :delay-duration="1200">
                                 <UButton
                                     icon="i-lucide-move-horizontal"
                                     :variant="isFitWidthActive ? 'soft' : 'ghost'"
                                     :color="isFitWidthActive ? 'primary' : 'neutral'"
-                                    class="toolbar-icon-button"
+                                    class="toolbar-group-button"
                                     aria-label="Fit width"
-                                    @click="handleFitMode('width')"
+                                    @click="handleFitMode('width'); closeAllDropdowns()"
                                 />
                             </UTooltip>
-                            <UTooltip text="Fit Height" :delay-duration="500">
+                        </div>
+                        <div class="toolbar-group-item">
+                            <UTooltip text="Fit Height" :delay-duration="1200">
                                 <UButton
                                     icon="i-lucide-move-vertical"
                                     :variant="isFitHeightActive ? 'soft' : 'ghost'"
                                     :color="isFitHeightActive ? 'primary' : 'neutral'"
-                                    class="toolbar-icon-button"
+                                    class="toolbar-group-button"
                                     aria-label="Fit height"
-                                    @click="handleFitMode('height')"
+                                    @click="handleFitMode('height'); closeAllDropdowns()"
+                                />
+                            </UTooltip>
+                        </div>
+                        <div class="toolbar-group-item">
+                            <UTooltip text="Continuous Scroll" :delay-duration="1200">
+                                <UButton
+                                    icon="i-lucide-scroll"
+                                    :variant="continuousScroll ? 'soft' : 'ghost'"
+                                    :color="continuousScroll ? 'primary' : 'neutral'"
+                                    class="toolbar-group-button"
+                                    aria-label="Continuous scroll"
+                                    @click="continuousScroll = !continuousScroll; closeAllDropdowns()"
                                 />
                             </UTooltip>
                         </div>
@@ -135,55 +176,33 @@
                             @go-to-page="handleGoToPage"
                             @open="zoomDropdownRef?.close()"
                         />
-                        <div class="toolbar-inline-extra">
-                            <UTooltip text="First Page" :delay-duration="500">
-                                <UButton
-                                    icon="i-lucide-chevrons-left"
-                                    variant="ghost"
-                                    color="neutral"
-                                    class="toolbar-icon-button"
-                                    :disabled="currentPage <= 1"
-                                    aria-label="First page"
-                                    @click="goToFirstPage"
-                                />
-                            </UTooltip>
-                            <UTooltip text="Last Page" :delay-duration="500">
-                                <UButton
-                                    icon="i-lucide-chevrons-right"
-                                    variant="ghost"
-                                    color="neutral"
-                                    class="toolbar-icon-button"
-                                    :disabled="currentPage >= totalPages"
-                                    aria-label="Last page"
-                                    @click="goToLastPage"
-                                />
-                            </UTooltip>
-                        </div>
                     </div>
 
                     <div class="toolbar-button-group">
-                        <UTooltip text="Hand Tool" :delay-duration="500">
-                            <UButton
-                                icon="i-lucide-hand"
-                                :variant="dragMode ? 'soft' : 'ghost'"
-                                size="sm"
-                                :color="dragMode ? 'primary' : 'neutral'"
-                                class="rounded-r-none h-8"
-                                aria-label="Hand tool"
-                                @click="enableDragMode(); closeAllDropdowns()"
-                            />
-                        </UTooltip>
-                        <UTooltip text="Text Select" :delay-duration="500">
-                            <UButton
-                                icon="i-lucide-text-cursor"
-                                :variant="!dragMode ? 'soft' : 'ghost'"
-                                size="sm"
-                                :color="!dragMode ? 'primary' : 'neutral'"
-                                class="rounded-l-none h-8"
-                                aria-label="Text select"
-                                @click="dragMode = false; closeAllDropdowns()"
-                            />
-                        </UTooltip>
+                        <div class="toolbar-group-item">
+                            <UTooltip text="Hand Tool" :delay-duration="1200">
+                                <UButton
+                                    icon="i-lucide-hand"
+                                    :variant="dragMode ? 'soft' : 'ghost'"
+                                    :color="dragMode ? 'primary' : 'neutral'"
+                                    class="toolbar-group-button"
+                                    aria-label="Hand tool"
+                                    @click="enableDragMode(); closeAllDropdowns()"
+                                />
+                            </UTooltip>
+                        </div>
+                        <div class="toolbar-group-item">
+                            <UTooltip text="Text Select" :delay-duration="1200">
+                                <UButton
+                                    icon="i-lucide-text-cursor"
+                                    :variant="!dragMode ? 'soft' : 'ghost'"
+                                    :color="!dragMode ? 'primary' : 'neutral'"
+                                    class="toolbar-group-button"
+                                    aria-label="Text select"
+                                    @click="dragMode = false; closeAllDropdowns()"
+                                />
+                            </UTooltip>
+                        </div>
                     </div>
                 </div>
 
@@ -192,7 +211,7 @@
 
                 <!-- Right section: Window control -->
                 <div class="toolbar-section">
-                    <UTooltip text="Close File" :delay-duration="500">
+                    <UTooltip text="Close File" :delay-duration="1200">
                         <UButton
                             icon="i-lucide-x"
                             variant="ghost"
@@ -229,11 +248,17 @@
                     :is-truncated="isTruncated"
                     :min-query-length="minQueryLength"
                     :width="sidebarWidth"
+                    :annotation-tool="annotationTool"
+                    :annotation-settings="annotationSettings"
                     @search="handleSearch"
                     @next="handleSearchNext"
                     @previous="handleSearchPrevious"
                     @go-to-page="handleGoToPage"
                     @go-to-result="handleGoToResult"
+                    @update:annotation-tool="handleAnnotationToolChange"
+                    @annotation-setting="handleAnnotationSettingChange"
+                    @annotation-highlight-selection="handleHighlightSelection"
+                    @annotation-comment-selection="handleCommentSelection"
                 />
                 <div
                     class="sidebar-resizer"
@@ -252,6 +277,9 @@
                     :zoom="zoom"
                     :fit-mode="fitMode"
                     :drag-mode="dragMode"
+                    :continuous-scroll="continuousScroll"
+                    :annotation-tool="annotationTool"
+                    :annotation-settings="annotationSettings"
                     :search-page-matches="pageMatches"
                     :current-search-match="currentResult"
                     :working-copy-path="workingCopyPath"
@@ -259,6 +287,8 @@
                     @update:total-pages="totalPages = $event"
                     @update:document="pdfDocument = $event"
                     @loading="isLoading = $event"
+                    @annotation-state="handleAnnotationState"
+                    @annotation-modified="handleAnnotationModified"
                 />
                 <div
                     v-else
@@ -273,7 +303,7 @@
                             <h3 class="text-sm font-medium text-neutral-600 dark:text-neutral-400">
                                 Recent Files
                             </h3>
-                            <UTooltip text="Clear Recent Files" :delay-duration="500">
+                            <UTooltip text="Clear Recent Files" :delay-duration="1200">
                                 <UButton
                                     icon="i-lucide-trash-2"
                                     variant="ghost"
@@ -300,7 +330,7 @@
                                     <span class="recent-file-name">{{ file.fileName }}</span>
                                     <span class="recent-file-time">{{ formatRelativeTime(file.timestamp) }}</span>
                                 </div>
-                                <UTooltip text="Remove from Recent" :delay-duration="500">
+                                <UTooltip text="Remove from Recent" :delay-duration="1200">
                                     <UButton
                                         icon="i-lucide-x"
                                         size="xs"
@@ -319,7 +349,7 @@
                     <p class="empty-state-hint text-sm text-neutral-500 dark:text-neutral-400">
                         {{ recentFiles.length > 0 ? 'Or open another file...' : 'Open a PDF file' }}
                     </p>
-                    <UTooltip text="Open PDF" :delay-duration="500">
+                    <UTooltip text="Open PDF" :delay-duration="1200">
                         <button
                             class="open-file-action group"
                             aria-label="Open PDF"
@@ -350,14 +380,29 @@ import {
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { TFitMode } from '@app/types/shared';
 import { useOcrTextContent } from '@app/composables/pdf/useOcrTextContent';
+import type {
+    IAnnotationEditorState,
+    IAnnotationSettings,
+    TAnnotationTool,
+} from '@app/types/annotations';
 
-console.log('[PAGE] pages/index.vue script setup executing');
 
-type TPdfSidebarTab = 'thumbnails' | 'outline' | 'search';
+type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'outline' | 'search';
 
 interface IPdfViewerExpose {
     scrollToPage: (page: number) => void;
     saveDocument: () => Promise<Uint8Array | null>;
+    highlightSelection: () => void;
+    commentSelection: () => void;
+    undoAnnotation: () => void;
+    redoAnnotation: () => void;
+}
+
+interface IOcrPopupExpose {
+    close: () => void;
+    open: () => void;
+    exportDocx: () => Promise<boolean>;
+    isExporting: { value: boolean };
 }
 
 const {
@@ -374,8 +419,9 @@ const {
     saveFile,
     saveWorkingCopy,
     saveWorkingCopyAs,
-    canUndo,
-    canRedo,
+    markDirty,
+    canUndo: canUndoFile,
+    canRedo: canRedoFile,
     undo,
     redo,
 } = usePdfFile();
@@ -438,6 +484,7 @@ onMounted(() => {
             window.electronAPI.onMenuOpenPdf(() => openFile()),
             window.electronAPI.onMenuSave(() => handleSave()),
             window.electronAPI.onMenuSaveAs(() => handleSaveAs()),
+            window.electronAPI.onMenuExportDocx(() => handleExportDocx()),
             window.electronAPI.onMenuUndo(() => handleUndo()),
             window.electronAPI.onMenuRedo(() => handleRedo()),
             window.electronAPI.onMenuZoomIn(() => { zoom.value = Math.min(zoom.value + 0.25, 5); }),
@@ -493,7 +540,7 @@ const { clearCache: clearOcrCache } = useOcrTextContent();
 const pdfViewerRef = ref<IPdfViewerExpose | null>(null);
 const zoomDropdownRef = ref<{ close: () => void } | null>(null);
 const pageDropdownRef = ref<{ close: () => void } | null>(null);
-const ocrPopupRef = ref<{ close: () => void } | null>(null);
+const ocrPopupRef = ref<IOcrPopupExpose | null>(null);
 const sidebarRef = ref<{ focusSearch: () => void | Promise<void> } | null>(null);
 
 function closeAllDropdowns() {
@@ -514,15 +561,55 @@ const currentPage = ref(1);
 const totalPages = ref(0);
 const isLoading = ref(false);
 const dragMode = ref(true);
+const continuousScroll = ref(true);
 const pdfDocument = shallowRef<PDFDocumentProxy | null>(null);
+const annotationTool = ref<TAnnotationTool>('none');
+const annotationSettings = ref<IAnnotationSettings>({
+    highlightColor: '#ffd400',
+    highlightOpacity: 0.35,
+    highlightFree: true,
+    inkColor: '#e11d48',
+    inkOpacity: 0.9,
+    inkThickness: 2,
+    textColor: '#111827',
+    textSize: 12,
+});
+const annotationEditorState = ref<IAnnotationEditorState>({
+    isEditing: false,
+    isEmpty: true,
+    hasSomethingToUndo: false,
+    hasSomethingToRedo: false,
+    hasSelectedEditor: false,
+});
 const showSidebar = ref(false);
 const sidebarTab = ref<TPdfSidebarTab>('thumbnails');
 const isSaving = ref(false);
 const isSavingAs = ref(false);
 const isHistoryBusy = ref(false);
+const annotationRevision = ref(0);
+const annotationSavedRevision = ref(0);
 const isAnySaving = computed(() => isSaving.value || isSavingAs.value);
+const isExportingDocx = computed(() => ocrPopupRef.value?.isExporting?.value ?? false);
 const isFitWidthActive = computed(() => fitMode.value === 'width' && Math.abs(zoom.value - 1) < 0.01);
 const isFitHeightActive = computed(() => fitMode.value === 'height' && Math.abs(zoom.value - 1) < 0.01);
+const isAnnotationUndoContext = computed(() =>
+    annotationTool.value !== 'none'
+    || annotationEditorState.value.hasSomethingToUndo
+    || annotationEditorState.value.hasSomethingToRedo,
+);
+const isAnnotationPanelOpen = computed(() => showSidebar.value && sidebarTab.value === 'annotations');
+const canUndo = computed(() => (
+    isAnnotationUndoContext.value
+        ? annotationEditorState.value.hasSomethingToUndo
+        : canUndoFile.value
+));
+const canRedo = computed(() => (
+    isAnnotationUndoContext.value
+        ? annotationEditorState.value.hasSomethingToRedo
+        : canRedoFile.value
+));
+const annotationDirty = computed(() => annotationRevision.value !== annotationSavedRevision.value);
+const canSave = computed(() => isDirty.value || annotationDirty.value);
 
 const SIDEBAR_DEFAULT_WIDTH = 240;
 const SIDEBAR_MIN_WIDTH = 180;
@@ -555,6 +642,22 @@ watch(showSidebar, (isOpen) => {
 
     stopSidebarResize();
 });
+
+watch(dragMode, (enabled) => {
+    if (enabled) {
+        window.getSelection()?.removeAllRanges();
+        if (annotationTool.value !== 'none') {
+            annotationTool.value = 'none';
+        }
+    }
+});
+
+function enableDragMode() {
+    dragMode.value = true;
+    if (annotationTool.value !== 'none') {
+        annotationTool.value = 'none';
+    }
+}
 
 function handleGoToPage(page: number) {
     pdfViewerRef.value?.scrollToPage(page);
@@ -596,9 +699,14 @@ async function handleOcrComplete(ocrPdfData: Uint8Array) {
     await restorePromise;
 }
 
-function enableDragMode() {
-    dragMode.value = true;
-    window.getSelection()?.removeAllRanges();
+async function handleExportDocx() {
+    if (!ocrPopupRef.value) {
+        return;
+    }
+    const result = await ocrPopupRef.value.exportDocx();
+    if (result === false) {
+        ocrPopupRef.value.open();
+    }
 }
 
 function cleanupSidebarResizeListeners() {
@@ -659,9 +767,70 @@ function openSearch() {
     sidebarTab.value = 'search';
 }
 
+function openAnnotations() {
+    if (showSidebar.value && sidebarTab.value === 'annotations') {
+        showSidebar.value = false;
+        return;
+    }
+    showSidebar.value = true;
+    sidebarTab.value = 'annotations';
+    dragMode.value = false;
+}
+
 function closeSearch() {
     clearSearch();
     sidebarTab.value = 'thumbnails';
+}
+
+function handleAnnotationToolChange(tool: TAnnotationTool) {
+    annotationTool.value = tool;
+    if (tool !== 'none') {
+        dragMode.value = false;
+    }
+}
+
+function handleAnnotationSettingChange(payload: { key: keyof IAnnotationSettings; value: IAnnotationSettings[keyof IAnnotationSettings] }) {
+    annotationSettings.value = {
+        ...annotationSettings.value,
+        [payload.key]: payload.value,
+    };
+}
+
+function handleAnnotationState(state: IAnnotationEditorState) {
+    const hadUndo = annotationEditorState.value.hasSomethingToUndo;
+    annotationEditorState.value = {
+        ...annotationEditorState.value,
+        ...state,
+    };
+    if (!hadUndo && annotationEditorState.value.hasSomethingToUndo) {
+        markAnnotationDirty();
+    }
+}
+
+function handleAnnotationModified() {
+    markAnnotationDirty();
+}
+
+function markAnnotationDirty() {
+    annotationRevision.value += 1;
+    markDirty();
+}
+
+function markAnnotationSaved() {
+    annotationSavedRevision.value = annotationRevision.value;
+}
+
+function resetAnnotationTracking() {
+    annotationRevision.value = 0;
+    annotationSavedRevision.value = 0;
+}
+
+function handleHighlightSelection() {
+    pdfViewerRef.value?.highlightSelection();
+}
+
+function handleCommentSelection() {
+    pdfViewerRef.value?.commentSelection();
 }
 
 async function handleSearch() {
@@ -688,8 +857,34 @@ function handleGoToResult(index: number) {
     setResultIndex(index);
 }
 
+function hasAnnotationChanges() {
+    const doc = pdfDocument.value;
+    if (!doc) {
+        return false;
+    }
+    try {
+        const storage = doc.annotationStorage;
+        if (!storage) {
+            return false;
+        }
+        if (storage.size > 0) {
+            return true;
+        }
+        return storage.modifiedIds?.ids?.size > 0;
+    } catch {
+        return false;
+    }
+}
+
 async function handleUndo() {
-    if (isHistoryBusy.value || isAnySaving.value || !canUndo.value) {
+    if (isAnySaving.value || !canUndo.value) {
+        return;
+    }
+    if (isAnnotationUndoContext.value) {
+        pdfViewerRef.value?.undoAnnotation();
+        return;
+    }
+    if (isHistoryBusy.value) {
         return;
     }
     isHistoryBusy.value = true;
@@ -706,7 +901,14 @@ async function handleUndo() {
 }
 
 async function handleRedo() {
-    if (isHistoryBusy.value || isAnySaving.value || !canRedo.value) {
+    if (isAnySaving.value || !canRedo.value) {
+        return;
+    }
+    if (isAnnotationUndoContext.value) {
+        pdfViewerRef.value?.redoAnnotation();
+        return;
+    }
+    if (isHistoryBusy.value) {
         return;
     }
     isHistoryBusy.value = true;
@@ -727,22 +929,6 @@ function handleFitMode(mode: TFitMode) {
     fitMode.value = mode;
 }
 
-function goToFirstPage() {
-    if (totalPages.value <= 0) {
-        return;
-    }
-    currentPage.value = 1;
-    handleGoToPage(1);
-}
-
-function goToLastPage() {
-    if (totalPages.value <= 0) {
-        return;
-    }
-    currentPage.value = totalPages.value;
-    handleGoToPage(totalPages.value);
-}
-
 async function handleSave() {
     if (isSaving.value || isSavingAs.value) {
         return;
@@ -753,13 +939,34 @@ async function handleSave() {
         // the working copy back to the original, without re-serializing the PDF in the renderer
         // (which can change compression and bloat scanned PDFs).
         if (workingCopyPath.value) {
-            await saveWorkingCopy();
+            const shouldSerialize = annotationDirty.value || hasAnnotationChanges();
+            if (shouldSerialize) {
+                const data = await pdfViewerRef.value?.saveDocument();
+                if (data) {
+                    const saved = await saveFile(data);
+                    if (saved) {
+                        pdfDocument.value?.annotationStorage?.resetModified();
+                        markAnnotationSaved();
+                    }
+                }
+                return;
+            }
+            const saved = await saveWorkingCopy();
+            if (saved) {
+                markAnnotationSaved();
+            }
             return;
         }
 
         // Web context fallback.
         const data = await pdfViewerRef.value?.saveDocument();
-        if (data) await saveFile(data);
+        if (data) {
+            const saved = await saveFile(data);
+            if (saved) {
+                pdfDocument.value?.annotationStorage?.resetModified();
+                markAnnotationSaved();
+            }
+        }
     } finally {
         isSaving.value = false;
     }
@@ -771,7 +978,23 @@ async function handleSaveAs() {
     }
     isSavingAs.value = true;
     try {
-        const outPath = await saveWorkingCopyAs();
+        let outPath: string | null = null;
+        const shouldSerialize = annotationDirty.value || hasAnnotationChanges();
+        if (shouldSerialize) {
+            const data = await pdfViewerRef.value?.saveDocument();
+            if (data) {
+                outPath = await saveWorkingCopyAs(data);
+                if (outPath) {
+                    pdfDocument.value?.annotationStorage?.resetModified();
+                    markAnnotationSaved();
+                }
+            }
+        } else {
+            outPath = await saveWorkingCopyAs();
+            if (outPath) {
+                markAnnotationSaved();
+            }
+        }
         if (outPath) {
             // Keep the recent files list in sync with Save As.
             loadRecentFiles();
@@ -782,9 +1005,21 @@ async function handleSaveAs() {
 }
 
 watch(pdfSrc, (newSrc, oldSrc) => {
+    if (newSrc && newSrc !== oldSrc) {
+        resetAnnotationTracking();
+    }
     if (!newSrc) {
         resetSearchCache();
         closeSearch();
+        annotationTool.value = 'none';
+        resetAnnotationTracking();
+        annotationEditorState.value = {
+            isEditing: false,
+            isEmpty: true,
+            hasSomethingToUndo: false,
+            hasSomethingToRedo: false,
+            hasSelectedEditor: false,
+        };
     }
 
     // Refresh recent files list after opening a file
@@ -807,6 +1042,17 @@ watch(pdfSrc, (newSrc, oldSrc) => {
     white-space: nowrap;
     overflow-x: auto;
     container-type: inline-size;
+    --toolbar-control-height: 2.25rem;
+    --toolbar-icon-size: 18px;
+}
+
+.toolbar :deep(.u-button) {
+    border-radius: 0 !important;
+}
+
+.toolbar :deep(.u-button::before),
+.toolbar :deep(.u-button::after) {
+    border-radius: 0 !important;
 }
 
 .toolbar-section {
@@ -825,31 +1071,50 @@ watch(pdfSrc, (newSrc, oldSrc) => {
     align-items: center;
     border: 1px solid var(--ui-border);
     border-radius: 0.375rem;
+    overflow: hidden;
+}
+
+.toolbar-group-item {
+    display: flex;
+    border-radius: 0;
+}
+
+.toolbar-group-item + .toolbar-group-item {
+    border-left: 1px solid var(--ui-border);
+}
+
+.toolbar-button-group :deep(button),
+.toolbar-button-group :deep(.u-button) {
+    border-radius: 0 !important;
 }
 
 .toolbar-icon-button {
-    width: 2rem;
-    height: 2rem;
-    padding: 0;
+    width: var(--toolbar-control-height);
+    height: var(--toolbar-control-height);
+    padding: 0.25rem;
     justify-content: center;
+    border-radius: 0 !important;
+    font-size: var(--toolbar-icon-size);
+}
+
+.toolbar-group-button {
+    border-radius: 0 !important;
+    height: var(--toolbar-control-height);
+    min-width: var(--toolbar-control-height);
+    padding: 0.25rem;
+    font-size: var(--toolbar-icon-size);
+}
+
+.toolbar :deep(.toolbar-icon-button svg),
+.toolbar :deep(.toolbar-group-button svg) {
+    width: 1.1rem;
+    height: 1.1rem;
 }
 
 .toolbar-inline-group {
     display: flex;
     align-items: center;
     gap: 0.5rem;
-}
-
-.toolbar-inline-extra {
-    display: none;
-    align-items: center;
-    gap: 0.25rem;
-}
-
-@container (min-width: 620px) {
-    .toolbar-inline-extra {
-        display: flex;
-    }
 }
 
 .sidebar-wrapper {

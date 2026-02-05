@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!--
+    Apple macOS Big Sur squircle (superellipse n≈5)
+    Based on Mail.app icon analysis: 220px content in 256px canvas
+    Scaled to 512px: ~430px content with ~41px margins
+  -->
+
+  <!-- Apple-style continuous curvature squircle path -->
+  <!-- This is the canonical macOS Big Sur app icon shape scaled to fit 41-471 (430px) -->
+  <path d="
+    M 256 41
+    C 354.5 41 387 44 415.5 72.5
+    S 471 157.5 471 256
+    S 468 387 439.5 415.5
+    S 354.5 471 256 471
+    S 125 468 96.5 439.5
+    S 41 354.5 41 256
+    S 44 125 72.5 96.5
+    S 157.5 41 256 41
+    Z
+  " fill="#3B82F6"/>
+
+  <!-- Document (shifted toward center, scaled 92%) -->
+  <g transform="translate(256, 256) scale(0.92) translate(-205, -235)">
+    <!-- Document shadow -->
+    <path d="M105 90 L240 90 L305 155 L305 380 L105 380 Z" fill="#1E40AF" opacity="0.18" transform="translate(3,3)"/>
+    <!-- Document body -->
+    <path d="M105 90 L240 90 L305 155 L305 380 L105 380 Z" fill="#FFFFFF"/>
+    <!-- Folded corner -->
+    <path d="M240 90 L240 155 L305 155 Z" fill="#E2E8F0"/>
+    <!-- Text lines -->
+    <rect x="130" y="190" width="95" height="11" rx="3" fill="#CBD5E1"/>
+    <rect x="130" y="214" width="135" height="11" rx="3" fill="#CBD5E1"/>
+    <rect x="130" y="238" width="80" height="11" rx="3" fill="#CBD5E1"/>
+    <rect x="130" y="262" width="115" height="11" rx="3" fill="#CBD5E1"/>
+    <rect x="130" y="286" width="65" height="11" rx="3" fill="#CBD5E1"/>
+  </g>
+
+  <!-- Magnifying glass -->
+  <g>
+    <!-- Handle -->
+    <polygon points="305,335 333,307 372,346 344,374" fill="#1E3A5F"/>
+    <!-- Handle rounded end -->
+    <circle cx="358" cy="360" r="17" fill="#1E3A5F"/>
+    <!-- Glass outer ring -->
+    <circle cx="272" cy="272" r="64" fill="#1E3A5F"/>
+    <circle cx="272" cy="272" r="53" fill="#60A5FA"/>
+    <!-- Glass inner (lens) -->
+    <circle cx="272" cy="272" r="44" fill="#DBEAFE"/>
+    <!-- Glass highlight -->
+    <ellipse cx="254" cy="254" rx="15" ry="9" fill="#FFFFFF" opacity="0.8" transform="rotate(-45 254 254)"/>
+  </g>
+</svg>

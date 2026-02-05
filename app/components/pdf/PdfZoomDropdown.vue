@@ -1,139 +1,143 @@
 <template>
     <div class="zoom-controls">
-        <UTooltip text="Zoom Out" :delay-duration="500">
-            <UButton
-                icon="i-lucide-minus"
-                variant="ghost"
-                color="neutral"
-                size="sm"
-                :disabled="disabled || zoom <= 0.25"
-                class="h-8 rounded-l-md rounded-r-none"
-                aria-label="Zoom out"
-                @click="handleZoomOut"
-            />
-        </UTooltip>
+        <div class="zoom-controls-item">
+            <UTooltip text="Zoom Out" :delay-duration="1200">
+                <UButton
+                    icon="i-lucide-minus"
+                    variant="ghost"
+                    color="neutral"
+                    :disabled="disabled || zoom <= 0.25"
+                    class="zoom-controls-button"
+                    aria-label="Zoom out"
+                    @click="handleZoomOut"
+                />
+            </UTooltip>
+        </div>
 
-        <UPopover v-model:open="isOpen" mode="click" :disabled="disabled">
-            <button
-                class="zoom-controls-display"
-                :disabled="disabled"
-            >
-                <span class="zoom-controls-display-value">{{ zoomDisplay }}</span>
-            </button>
+        <div class="zoom-controls-item">
+            <UPopover v-model:open="isOpen" mode="click" :disabled="disabled">
+                <button
+                    class="zoom-controls-display"
+                    :disabled="disabled"
+                >
+                    <span class="zoom-controls-display-value">{{ zoomDisplay }}</span>
+                </button>
 
-            <template #content>
-                <div class="zoom-dropdown">
-                    <div class="zoom-dropdown-section">
-                        <button
-                            v-for="preset in zoomPresets"
-                            :key="preset.value"
-                            :class="[
-                                'zoom-dropdown-item',
-                                {
-                                    'is-active': isPresetActive(preset.value),
-                                },
-                            ]"
-                            @click="handleSetZoom(preset.value)"
-                        >
-                            <span class="zoom-dropdown-label">{{ preset.label }}</span>
-                            <UIcon
-                                v-if="isPresetActive(preset.value)"
-                                name="i-lucide-check"
-                                class="zoom-dropdown-check size-4"
-                            />
-                        </button>
-                    </div>
-
-                    <div class="zoom-dropdown-divider" />
-
-                    <div class="zoom-dropdown-section">
-                        <div class="zoom-dropdown-custom">
-                            <UInput
-                                ref="customZoomInputRef"
-                                v-model="customZoomValue"
-                                class="zoom-dropdown-input"
-                                type="number"
-                                inputmode="decimal"
-                                min="25"
-                                max="500"
-                                step="1"
-                                placeholder="Custom"
-                                @keydown.enter.prevent="applyCustomZoom"
+                <template #content>
+                    <div class="zoom-dropdown">
+                        <div class="zoom-dropdown-section">
+                            <button
+                                v-for="preset in zoomPresets"
+                                :key="preset.value"
+                                :class="[
+                                    'zoom-dropdown-item',
+                                    {
+                                        'is-active': isPresetActive(preset.value),
+                                    },
+                                ]"
+                                @click="handleSetZoom(preset.value)"
                             >
-                                <template #trailing>%</template>
-                            </UInput>
-                            <UTooltip text="Apply Zoom" :delay-duration="500">
-                                <UButton
-                                    icon="i-lucide-check"
-                                    size="xs"
-                                    variant="soft"
-                                    aria-label="Apply zoom"
-                                    @click="applyCustomZoom"
+                                <span class="zoom-dropdown-label">{{ preset.label }}</span>
+                                <UIcon
+                                    v-if="isPresetActive(preset.value)"
+                                    name="i-lucide-check"
+                                    class="zoom-dropdown-check size-4"
                                 />
-                            </UTooltip>
+                            </button>
+                        </div>
+
+                        <div class="zoom-dropdown-divider" />
+
+                        <div class="zoom-dropdown-section">
+                            <div class="zoom-dropdown-custom">
+                                <UInput
+                                    ref="customZoomInputRef"
+                                    v-model="customZoomValue"
+                                    class="zoom-dropdown-input"
+                                    type="number"
+                                    inputmode="decimal"
+                                    min="25"
+                                    max="500"
+                                    step="1"
+                                    placeholder="Custom"
+                                    @keydown.enter.prevent="applyCustomZoom"
+                                >
+                                    <template #trailing>%</template>
+                                </UInput>
+                                <UTooltip text="Apply Zoom" :delay-duration="1200">
+                                    <UButton
+                                        icon="i-lucide-check"
+                                        size="xs"
+                                        variant="soft"
+                                        aria-label="Apply zoom"
+                                        @click="applyCustomZoom"
+                                    />
+                                </UTooltip>
+                            </div>
+                        </div>
+
+                        <div class="zoom-dropdown-divider" />
+
+                        <div class="zoom-dropdown-section">
+                            <button
+                                :class="[
+                                    'zoom-dropdown-item',
+                                    {
+                                        'is-active': isFitModeActive('width'),
+                                    },
+                                ]"
+                                @click="handleSetFitMode('width')"
+                            >
+                                <UIcon
+                                    name="i-lucide-move-horizontal"
+                                    class="zoom-dropdown-icon size-5"
+                                />
+                                <span class="zoom-dropdown-label">Fit Width</span>
+                                <UIcon
+                                    v-if="isFitModeActive('width')"
+                                    name="i-lucide-check"
+                                    class="zoom-dropdown-check size-4"
+                                />
+                            </button>
+                            <button
+                                :class="[
+                                    'zoom-dropdown-item',
+                                    {
+                                        'is-active': isFitModeActive('height'),
+                                    },
+                                ]"
+                                @click="handleSetFitMode('height')"
+                            >
+                                <UIcon
+                                    name="i-lucide-move-vertical"
+                                    class="zoom-dropdown-icon size-5"
+                                />
+                                <span class="zoom-dropdown-label">Fit Height</span>
+                                <UIcon
+                                    v-if="isFitModeActive('height')"
+                                    name="i-lucide-check"
+                                    class="zoom-dropdown-check size-4"
+                                />
+                            </button>
                         </div>
                     </div>
+                </template>
+            </UPopover>
+        </div>
 
-                    <div class="zoom-dropdown-divider" />
-
-                    <div class="zoom-dropdown-section">
-                        <button
-                            :class="[
-                                'zoom-dropdown-item',
-                                {
-                                    'is-active': isFitModeActive('width'),
-                                },
-                            ]"
-                            @click="handleSetFitMode('width')"
-                        >
-                            <UIcon
-                                name="i-lucide-move-horizontal"
-                                class="zoom-dropdown-icon size-5"
-                            />
-                            <span class="zoom-dropdown-label">Fit Width</span>
-                            <UIcon
-                                v-if="isFitModeActive('width')"
-                                name="i-lucide-check"
-                                class="zoom-dropdown-check size-4"
-                            />
-                        </button>
-                        <button
-                            :class="[
-                                'zoom-dropdown-item',
-                                {
-                                    'is-active': isFitModeActive('height'),
-                                },
-                            ]"
-                            @click="handleSetFitMode('height')"
-                        >
-                            <UIcon
-                                name="i-lucide-move-vertical"
-                                class="zoom-dropdown-icon size-5"
-                            />
-                            <span class="zoom-dropdown-label">Fit Height</span>
-                            <UIcon
-                                v-if="isFitModeActive('height')"
-                                name="i-lucide-check"
-                                class="zoom-dropdown-check size-4"
-                            />
-                        </button>
-                    </div>
-                </div>
-            </template>
-        </UPopover>
-
-        <UTooltip text="Zoom In" :delay-duration="500">
-            <UButton
-                icon="i-lucide-plus"
-                variant="ghost"
-                color="neutral"
-                size="sm"
-                :disabled="disabled || zoom >= 5"
-                class="h-8 rounded-r-md rounded-l-none"
-                aria-label="Zoom in"
-                @click="handleZoomIn"
-            />
-        </UTooltip>
+        <div class="zoom-controls-item">
+            <UTooltip text="Zoom In" :delay-duration="1200">
+                <UButton
+                    icon="i-lucide-plus"
+                    variant="ghost"
+                    color="neutral"
+                    :disabled="disabled || zoom >= 5"
+                    class="zoom-controls-button"
+                    aria-label="Zoom in"
+                    @click="handleZoomIn"
+                />
+            </UTooltip>
+        </div>
     </div>
 </template>
 
@@ -276,8 +280,30 @@ function applyCustomZoom() {
     gap: 0;
     border: 1px solid var(--ui-border);
     border-radius: 0.375rem;
+    overflow: hidden;
 }
 
+.zoom-controls-item {
+    display: flex;
+    border-radius: 0;
+}
+
+.zoom-controls-item + .zoom-controls-item {
+    border-left: 1px solid var(--ui-border);
+}
+
+.zoom-controls-button {
+    border-radius: 0 !important;
+    height: var(--toolbar-control-height, 2.25rem);
+    min-width: var(--toolbar-control-height, 2.25rem);
+    padding: 0.25rem;
+    font-size: var(--toolbar-icon-size, 18px);
+}
+
+.zoom-controls-button :deep(svg) {
+    width: 1.1rem;
+    height: 1.1rem;
+}
 
 .zoom-controls-display {
     display: flex;
@@ -285,11 +311,10 @@ function applyCustomZoom() {
     justify-content: center;
     padding: 0 0.5rem;
     min-width: 4rem;
-    height: 2rem;
+    height: var(--toolbar-control-height, 2.25rem);
     background: transparent;
     border: none;
-    border-left: 1px solid var(--ui-border);
-    border-right: 1px solid var(--ui-border);
+    border-radius: 0;
     cursor: pointer;
     transition: background-color 150ms ease;
 }

@@ -21,6 +21,17 @@
     --app-scrollbar-track: transparent;
     --app-scrollbar-thumb: color-mix(in oklab, var(--ui-border, #d1d5db) 55%, var(--ui-text-muted, #6b7280) 45%);
     --app-scrollbar-thumb-hover: color-mix(in oklab, var(--ui-border, #d1d5db) 35%, var(--ui-text-muted, #6b7280) 65%);
+    --pdfjs-comment-edit-icon: url('/pdfjs/comment-editButton.svg');
+    --pdfjs-comment-popup-edit-icon: url('/pdfjs/comment-popup-editButton.svg');
+    --pdfjs-comment-close-icon: url('/pdfjs/comment-closeButton.svg');
+    --pdfjs-highlight-icon: url('/pdfjs/toolbarButton-editorHighlight.svg');
+    --pdfjs-delete-icon: url('/pdfjs/editor-toolbar-delete.svg');
+    --comment-edit-button-icon: var(--pdfjs-comment-edit-icon);
+    --comment-popup-edit-button-icon: var(--pdfjs-comment-popup-edit-icon);
+    --comment-popup-delete-button-icon: var(--pdfjs-delete-icon);
+    --comment-close-button-icon: var(--pdfjs-comment-close-icon);
+    --editor-toolbar-highlight-image: var(--pdfjs-highlight-icon);
+    --editor-toolbar-delete-image: var(--pdfjs-delete-icon);
 }
 
 .dark {
@@ -71,4 +82,90 @@ textarea,
 .pdfViewer .text-layer span,
 .pdfViewer .text-layer br {
     user-select: text;
+}
+
+/* PDF.js comment + editor UI overrides (global to avoid scoped style misses) */
+.pdfViewer,
+.pdf-viewer-container {
+    --comment-edit-button-icon: url('/pdfjs/comment-editButton.svg');
+    --comment-popup-edit-button-icon: url('/pdfjs/comment-popup-editButton.svg');
+    --comment-popup-delete-button-icon: url('/pdfjs/editor-toolbar-delete.svg');
+    --comment-close-button-icon: url('/pdfjs/comment-closeButton.svg');
+    --editor-toolbar-highlight-image: url('/pdfjs/toolbarButton-editorHighlight.svg');
+    --editor-toolbar-delete-image: url('/pdfjs/editor-toolbar-delete.svg');
+}
+
+.pdfViewer .editToolbar,
+.pdf-viewer-container .editToolbar {
+    --editor-toolbar-height: 32px !important;
+    --editor-toolbar-padding: 4px !important;
+    --editor-toolbar-highlight-image: url('/pdfjs/toolbarButton-editorHighlight.svg') !important;
+    --editor-toolbar-delete-image: url('/pdfjs/editor-toolbar-delete.svg') !important;
+    --comment-edit-button-icon: url('/pdfjs/comment-editButton.svg') !important;
+}
+
+.pdfViewer .annotationCommentButton,
+.pdf-viewer-container .annotationCommentButton {
+    --comment-edit-button-icon: url('/pdfjs/comment-editButton.svg') !important;
+}
+
+.pdfViewer .commentPopup,
+.pdf-viewer-container .commentPopup {
+    --comment-popup-edit-button-icon: url('/pdfjs/comment-popup-editButton.svg') !important;
+    --comment-popup-delete-button-icon: url('/pdfjs/editor-toolbar-delete.svg') !important;
+    --comment-close-button-icon: url('/pdfjs/comment-closeButton.svg') !important;
+    background: var(--color-surface, #ffffff) !important;
+    border: 1px solid var(--ui-border, #e5e7eb) !important;
+    box-shadow:
+        0 6px 18px rgba(15, 23, 42, 0.15),
+        0 2px 6px rgba(15, 23, 42, 0.08) !important;
+    color: var(--ui-text, #111827) !important;
+}
+
+.pdfViewer .commentPopup .commentPopupText,
+.pdf-viewer-container .commentPopup .commentPopupText {
+    color: var(--ui-text, #111827) !important;
+}
+
+.pdfViewer .commentPopup .commentPopupTime,
+.pdf-viewer-container .commentPopup .commentPopupTime {
+    color: var(--ui-text-muted, #6b7280) !important;
+}
+
+.pdfViewer #commentManagerDialog,
+.pdf-viewer-container #commentManagerDialog {
+    background: var(--color-surface, #ffffff) !important;
+    border: 1px solid var(--ui-border, #e5e7eb) !important;
+    box-shadow:
+        0 6px 18px rgba(15, 23, 42, 0.15),
+        0 2px 6px rgba(15, 23, 42, 0.08) !important;
+    color: var(--ui-text, #111827) !important;
+}
+
+.pdfViewer #commentManagerDialog #commentManagerTextInput,
+.pdf-viewer-container #commentManagerDialog #commentManagerTextInput {
+    background: var(--color-surface-2, #f3f4f6) !important;
+    color: var(--ui-text, #111827) !important;
+    border: 1px solid var(--ui-border, #e5e7eb) !important;
+    border-radius: 8px !important;
+    padding: 8px 10px !important;
+}
+
+.pdfViewer .pdf-annotation-comment-popup,
+.pdf-viewer-container .pdf-annotation-comment-popup,
+.pdfViewer #commentPopup,
+.pdf-viewer-container #commentPopup {
+    background: var(--color-surface, #ffffff) !important;
+    border: 1px solid var(--ui-border, #e5e7eb) !important;
+    box-shadow:
+        0 6px 18px rgba(15, 23, 42, 0.15),
+        0 2px 6px rgba(15, 23, 42, 0.08) !important;
+    color: var(--ui-text, #111827) !important;
+}
+
+.pdfViewer .pdf-annotation-comment-popup__textarea,
+.pdf-viewer-container .pdf-annotation-comment-popup__textarea {
+    background: var(--color-surface-2, #f3f4f6) !important;
+    color: var(--ui-text, #111827) !important;
+    border: 1px solid var(--ui-border, #e5e7eb) !important;
 }

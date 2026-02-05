@@ -20,7 +20,7 @@
             class="pdf-sidebar-tabs"
         >
             <template #leading="{ item }">
-                <UTooltip :text="item.tooltip">
+                <UTooltip :text="item.tooltip" :delay-duration="1200">
                     <span class="pdf-sidebar-tab-icon">
                         <UIcon
                             :name="item.icon"
@@ -31,6 +31,15 @@
             </template>
         </UTabs>
         <div class="pdf-sidebar-content app-scrollbar">
+            <PdfAnnotationsPanel
+                v-show="activeTab === 'annotations'"
+                :tool="annotationTool"
+                :settings="annotationSettings"
+                @set-tool="emit('update:annotation-tool', $event)"
+                @update-setting="emit('annotation-setting', $event)"
+                @highlight-selection="emit('annotation-highlight-selection')"
+                @comment-selection="emit('annotation-comment-selection')"
+            />
             <PdfThumbnails
                 v-show="activeTab === 'thumbnails'"
                 :pdf-document="pdfDocument"
@@ -80,10 +89,13 @@ import {
     computed,
     nextTick,
     ref,
+    toRefs,
     watch,
 } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { IPdfSearchMatch } from '@app/types/pdf';
+import type { IAnnotationSettings, TAnnotationTool } from '@app/types/annotations';
+import PdfAnnotationsPanel from '@app/components/pdf/PdfAnnotationsPanel.vue';
 
 interface IProps {
     isOpen: boolean;
@@ -103,21 +115,31 @@ interface IProps {
     minQueryLength?: number;
     activeTab?: TPdfSidebarTab;
     width?: number;
+    annotationTool: TAnnotationTool;
+    annotationSettings: IAnnotationSettings;
 }
 
 const props = defineProps<IProps>();
+const {
+    annotationTool,
+    annotationSettings,
+} = toRefs(props);
 
 const emit = defineEmits<{
     (e: 'goToPage', page: number): void;
     (e: 'goToResult', index: number): void;
     (e: 'update:activeTab', value: TPdfSidebarTab): void;
     (e: 'update:searchQuery', value: string): void;
+    (e: 'update:annotation-tool', value: TAnnotationTool): void;
     (e: 'search'): void;
     (e: 'next'): void;
     (e: 'previous'): void;
+    (e: 'annotation-setting', payload: { key: keyof IAnnotationSettings; value: IAnnotationSettings[keyof IAnnotationSettings] }): void;
+    (e: 'annotation-highlight-selection'): void;
+    (e: 'annotation-comment-selection'): void;
 }>();
 
-type TPdfSidebarTab = 'thumbnails' | 'outline' | 'search';
+type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'outline' | 'search';
 
 const activeTabLocal = ref<TPdfSidebarTab>('thumbnails');
 
@@ -170,6 +192,12 @@ interface IPdfSidebarTabItem {
 }
 
 const tabs = [
+    {
+        value: 'annotations',
+        label: '',
+        tooltip: 'Annotations',
+        icon: 'i-lucide-pen-tool',
+    },
     {
         value: 'thumbnails',
         label: '',

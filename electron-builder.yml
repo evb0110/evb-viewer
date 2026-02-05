@@ -1,3 +1,13 @@
 files:
   - "!.devkit/**/*"
   - "!.devkit"
+
+# Icon configuration per platform
+mac:
+  icon: resources/icon.icns
+
+win:
+  icon: resources/icon.ico
+
+linux:
+  icon: resources/icon.png

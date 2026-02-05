@@ -13,7 +13,7 @@ const CRC_TABLE = (() => {
 function crc32(data: Uint8Array) {
     let crc = 0xFFFFFFFF;
     for (const byte of data) {
-        crc = CRC_TABLE[(crc ^ byte) & 0xFF] ^ (crc >>> 8);
+        crc = (CRC_TABLE[(crc ^ byte) & 0xFF] ?? 0) ^ (crc >>> 8);
     }
     return (crc ^ 0xFFFFFFFF) >>> 0;
 }

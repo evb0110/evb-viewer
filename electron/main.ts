@@ -17,6 +17,11 @@ import {
     hasWindows,
 } from '@electron/window';
 
+app.setName('EVB-Viewer');
+if (process.platform === 'win32') {
+    app.setAppUserModelId('com.evb.viewer');
+}
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const iconPath = app.isPackaged
     ? join(process.resourcesPath, 'icon.png')
@@ -24,10 +29,6 @@ const iconPath = app.isPackaged
 
 async function init() {
     await app.whenReady();
-    app.setName('EVB-Viewer');
-    if (process.platform === 'win32') {
-        app.setAppUserModelId('com.evb.viewer');
-    }
     if (process.platform === 'darwin') {
         try {
             app.dock.setIcon(iconPath);

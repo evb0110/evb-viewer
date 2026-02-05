@@ -1,6 +1,6 @@
 <template>
     <UPopover v-model:open="isOpen" mode="click" :disabled="disabled">
-        <UTooltip text="OCR" :delay-duration="500">
+        <UTooltip text="OCR" :delay-duration="1200">
             <UButton
                 icon="i-lucide-scan-text"
                 variant="ghost"
@@ -200,7 +200,7 @@
 
                 <!-- Actions -->
                 <div class="ocr-popup__actions">
-                    <UTooltip text="Export DOCX" :delay-duration="500">
+                    <UTooltip text="Export DOCX" :delay-duration="1200">
                         <UButton
                             icon="i-lucide-file-text"
                             variant="ghost"
@@ -215,7 +215,7 @@
                     <UTooltip
                         v-if="!progress.isRunning"
                         text="Start OCR"
-                        :delay-duration="500"
+                        :delay-duration="1200"
                     >
                         <UButton
                             icon="i-lucide-play"
@@ -229,7 +229,7 @@
                     <UTooltip
                         v-else
                         text="Cancel OCR"
-                        :delay-duration="500"
+                        :delay-duration="1200"
                     >
                         <UButton
                             icon="i-lucide-x"
@@ -289,7 +289,20 @@ function close() {
     isOpen.value = false;
 }
 
-defineExpose({ close });
+function open() {
+    isOpen.value = true;
+}
+
+async function exportDocxFromToolbar() {
+    return exportDocx(props.workingCopyPath, props.pdfDocument);
+}
+
+defineExpose({
+    close,
+    open,
+    exportDocx: exportDocxFromToolbar,
+    isExporting,
+});
 
 watch(isOpen, (value) => {
     if (value) {
@@ -310,7 +323,7 @@ function handleCancel() {
 }
 
 function handleExportDocx() {
-    void exportDocx(props.workingCopyPath);
+    void exportDocx(props.workingCopyPath, props.pdfDocument);
 }
 
 // Emit when OCR completes with PDF data

@@ -11,6 +11,8 @@ import { basename } from 'path';
 import { config } from '@electron/config';
 import { getRecentFilesSync } from '@electron/recent-files';
 
+const appName = 'EVB-Viewer';
+
 function sendToWindow(window: BaseWindow | undefined, channel: string, ...args: unknown[]) {
     if (window instanceof BrowserWindow) {
         window.webContents.send(channel, ...args);
@@ -75,6 +77,13 @@ function getFileMenu(): MenuItemConstructorOptions {
                     sendToWindow(window, 'menu:saveAs');
                 },
             },
+            {
+                label: 'Export DOCX...',
+                accelerator: 'CmdOrCtrl+Shift+E',
+                click: (_, window) => {
+                    sendToWindow(window, 'menu:exportDocx');
+                },
+            },
             { type: 'separator' },
             {
                 label: 'Close',
@@ -99,7 +108,7 @@ function getFileMenu(): MenuItemConstructorOptions {
 
 function getEditMenu(): MenuItemConstructorOptions {
     return {
-        label: 'Edit',
+        label: 'Actions',
         submenu: [
             {
                 label: 'Undo',
@@ -116,7 +125,13 @@ function getEditMenu(): MenuItemConstructorOptions {
                 },
             },
             { type: 'separator' },
-            { role: 'copy' },
+            {
+                label: 'Copy',
+                accelerator: 'CmdOrCtrl+C',
+                click: (_item, window) => {
+                    window?.webContents.copy();
+                },
+            },
         ],
     };
 }
@@ -192,7 +207,7 @@ function getHelpMenu(): MenuItemConstructorOptions {
 
 function getMacAppMenu(): MenuItemConstructorOptions {
     return {
-        label: app.name,
+        label: appName,
         submenu: [
             { role: 'about' },
             { type: 'separator' },

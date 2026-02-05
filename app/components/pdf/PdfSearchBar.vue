@@ -13,7 +13,7 @@
                 <UIcon name="i-lucide-search" class="size-4" />
             </template>
             <template #trailing>
-                <UTooltip v-if="searchQuery" text="Clear Search" :delay-duration="500">
+                <UTooltip v-if="searchQuery" text="Clear Search" :delay-duration="1200">
                     <UButton
                         icon="i-lucide-x"
                         variant="ghost"
@@ -28,7 +28,7 @@
         </UInput>
 
         <div class="pdf-search-bar__actions">
-            <UTooltip text="Previous Match" :delay-duration="500">
+            <UTooltip text="Previous Match" :delay-duration="1200">
                 <UButton
                     icon="i-lucide-chevron-up"
                     variant="ghost"
@@ -39,7 +39,7 @@
                     @click="emit('previous')"
                 />
             </UTooltip>
-            <UTooltip text="Next Match" :delay-duration="500">
+            <UTooltip text="Next Match" :delay-duration="1200">
                 <UButton
                     icon="i-lucide-chevron-down"
                     variant="ghost"

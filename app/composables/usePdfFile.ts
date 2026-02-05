@@ -112,7 +112,7 @@ export const usePdfFile = () => {
         }
 
         isDirty.value = !!opts?.markDirty;
-        await api.setWindowTitle(fileName.value ? `${fileName.value} — EVB-Viewer` : 'EVB-Viewer');
+        await api.setWindowTitle(fileName.value || 'EVB-Viewer');
     }
 
     function pushHistorySnapshot(snapshot: Uint8Array) {
@@ -196,12 +196,15 @@ export const usePdfFile = () => {
         }
     }
 
-    async function saveWorkingCopyAs() {
+    async function saveWorkingCopyAs(data?: Uint8Array) {
         if (!workingCopyPath.value) {
             return null;
         }
         try {
             const api = getElectronAPI();
+            if (data) {
+                await api.writeFile(workingCopyPath.value, data);
+            }
             const savedPath = await api.savePdfAs(workingCopyPath.value);
             if (savedPath) {
                 isDirty.value = false;

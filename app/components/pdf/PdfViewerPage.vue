@@ -3,9 +3,10 @@
         class="page_container"
         :data-page="page"
     >
-        <div class="page_canvas"></div>
-        <div class="text-layer"></div>
-        <div class="annotation-layer"></div>
+        <div class="page_canvas canvasWrapper"></div>
+        <div class="text-layer textLayer"></div>
+        <div class="annotation-layer annotationLayer"></div>
+        <div class="annotation-editor-layer annotationEditorLayer"></div>
         <PdfPageSkeleton
             v-if="showSkeleton"
             :padding="scaledSkeletonPadding"
