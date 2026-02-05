@@ -328,8 +328,9 @@
                                 />
                                 <div class="recent-file-info">
                                     <span class="recent-file-name">{{ file.fileName }}</span>
-                                    <span class="recent-file-time">{{ formatRelativeTime(file.timestamp) }}</span>
+                                    <span class="recent-file-path">{{ getParentFolder(file.originalPath) }}</span>
                                 </div>
+                                <span class="recent-file-time">{{ formatRelativeTime(file.timestamp) }}</span>
                                 <UTooltip text="Remove from Recent" :delay-duration="1200">
                                     <UButton
                                         icon="i-lucide-x"
@@ -455,6 +456,14 @@ function formatRelativeTime(timestamp: number) {
         return minutes === 1 ? '1 minute ago' : `${minutes} minutes ago`;
     }
     return 'Just now';
+}
+
+function getParentFolder(filePath: string) {
+    const parts = filePath.split('/');
+    parts.pop(); // Remove filename
+    // Show last 2 folder segments for context, or full path if shorter
+    const folderParts = parts.slice(-2);
+    return folderParts.join('/');
 }
 
 // Expose for testing
@@ -1235,9 +1244,19 @@ watch(pdfSrc, (newSrc, oldSrc) => {
     text-overflow: ellipsis;
 }
 
+.recent-file-path {
+    font-size: 0.7rem;
+    color: var(--ui-text-dimmed);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 .recent-file-time {
-    font-size: 0.75rem;
+    font-size: 0.7rem;
     color: var(--ui-text-muted);
+    flex-shrink: 0;
+    margin-left: auto;
 }
 
 .recent-file-remove {

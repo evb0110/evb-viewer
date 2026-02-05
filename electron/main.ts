@@ -22,6 +22,10 @@ if (process.platform === 'win32') {
     app.setAppUserModelId('com.evb.viewer');
 }
 
+// Explicitly set userData path to ensure it uses our app name
+// This fixes a race condition where imports above may cache the default "Electron" path
+app.setPath('userData', join(app.getPath('appData'), app.name));
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const iconPath = app.isPackaged
     ? join(process.resourcesPath, 'icon.png')

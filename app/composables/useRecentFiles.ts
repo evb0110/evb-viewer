@@ -1,6 +1,16 @@
 import { ref } from 'vue';
 import type { IRecentFile } from '@app/types/shared';
 
+// Vite HMR types (not exposed by Nuxt's type system)
+declare global {
+    interface ImportMeta {
+        hot?: {
+            data?: Record<string, unknown>;
+            dispose: (callback: (data: Record<string, unknown>) => void) => void;
+        };
+    }
+}
+
 // Shared state across all composable instances
 const recentFiles = ref<IRecentFile[]>([]);
 const isLoading = ref(false);
@@ -88,3 +98,21 @@ export const useRecentFiles = () => {
         clearRecentFiles,
     };
 };
+
+// HMR support: preserve and restore state across hot updates
+if (import.meta.hot) {
+    // Save current state before the module is replaced
+    import.meta.hot.dispose((data) => {
+        data.recentFiles = recentFiles.value;
+        data.isLoading = isLoading.value;
+        data.error = error.value;
+    });
+
+    // Restore state from previous module version
+    const hmrData = import.meta.hot.data;
+    if (hmrData?.recentFiles) {
+        recentFiles.value = hmrData.recentFiles as IRecentFile[];
+        isLoading.value = (hmrData.isLoading as boolean) ?? false;
+        error.value = (hmrData.error as string | null) ?? null;
+    }
+}
