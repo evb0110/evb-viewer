@@ -99,9 +99,42 @@ textarea,
 .pdf-viewer-container .editToolbar {
     --editor-toolbar-height: 32px !important;
     --editor-toolbar-padding: 4px !important;
+    --editor-toolbar-fg-color: var(--ui-text, #374151) !important;
+    --editor-toolbar-hover-fg-color: var(--ui-text, #111827) !important;
     --editor-toolbar-highlight-image: url('/pdfjs/toolbarButton-editorHighlight.svg') !important;
     --editor-toolbar-delete-image: url('/pdfjs/editor-toolbar-delete.svg') !important;
     --comment-edit-button-icon: url('/pdfjs/comment-editButton.svg') !important;
+}
+
+/* Explicit mask-image for editToolbar buttons to ensure icons are visible */
+.pdfViewer .editToolbar .buttons .highlightButton.basic::before,
+.pdf-viewer-container .editToolbar .buttons .highlightButton.basic::before {
+    -webkit-mask-image: url('/pdfjs/toolbarButton-editorHighlight.svg') !important;
+    mask-image: url('/pdfjs/toolbarButton-editorHighlight.svg') !important;
+}
+
+.pdfViewer .editToolbar .buttons .commentButton.basic::before,
+.pdf-viewer-container .editToolbar .buttons .commentButton.basic::before {
+    -webkit-mask-image: url('/pdfjs/comment-editButton.svg') !important;
+    mask-image: url('/pdfjs/comment-editButton.svg') !important;
+}
+
+.pdfViewer .editToolbar .buttons .deleteButton.basic::before,
+.pdf-viewer-container .editToolbar .buttons .deleteButton.basic::before,
+.pdfViewer .textLayer .editToolbar .buttons .deleteButton.basic::before {
+    -webkit-mask-image: url('/pdfjs/editor-toolbar-delete.svg') !important;
+    mask-image: url('/pdfjs/editor-toolbar-delete.svg') !important;
+}
+
+/* Also target textLayer specifically for text selection toolbar */
+.pdfViewer .textLayer .editToolbar .buttons .highlightButton.basic::before {
+    -webkit-mask-image: url('/pdfjs/toolbarButton-editorHighlight.svg') !important;
+    mask-image: url('/pdfjs/toolbarButton-editorHighlight.svg') !important;
+}
+
+.pdfViewer .textLayer .editToolbar .buttons .commentButton.basic::before {
+    -webkit-mask-image: url('/pdfjs/comment-editButton.svg') !important;
+    mask-image: url('/pdfjs/comment-editButton.svg') !important;
 }
 
 .pdfViewer .annotationCommentButton,
