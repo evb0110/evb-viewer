@@ -441,6 +441,7 @@ function createSimpleCommentManager(container: HTMLElement) {
         isEditing = false;
         popup.classList.toggle('is-editing', false);
         popup.classList.add('is-hidden');
+        container.classList.remove('is-viewing-comment');
     };
 
     editButton.addEventListener('click', () => {
@@ -539,20 +540,17 @@ function createSimpleCommentManager(container: HTMLElement) {
             updateCommentIndicator(editor);
 
             if (visibility === false && !isSelected) {
+                container.classList.remove('is-viewing-comment');
                 hidePopup();
                 return;
             }
 
-            // If highlight has a comment and is being selected, show comment popup
-            // and hide the toolbar to prioritize comment viewing
+            // If highlight has a comment, show comment popup and hide toolbar via CSS
             if ((visibility || isSelected) && editor?.hasComment) {
+                container.classList.add('is-viewing-comment');
                 showPopup(editor);
-                // Hide the edit toolbar when showing comment
-                const toolbar = editor?.div?.querySelector('.editToolbar');
-                if (toolbar) {
-                    toolbar.style.display = 'none';
-                }
-            } else if (!editor?.hasComment) {
+            } else {
+                container.classList.remove('is-viewing-comment');
                 hidePopup();
             }
         },
@@ -1411,6 +1409,11 @@ defineExpose({
     cursor: inherit !important;
     user-select: none !important;
     pointer-events: none !important;
+}
+
+/* Hide edit toolbar when viewing a comment popup */
+.pdfViewer.is-viewing-comment :deep(.editToolbar) {
+    display: none !important;
 }
 
 /* Visual indicator for highlights with comments */
