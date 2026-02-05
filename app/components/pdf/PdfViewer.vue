@@ -363,39 +363,35 @@ function createSimpleCommentManager(container: HTMLElement) {
 
     const positionPopup = (editor: any, clientPosition?: { x: number; y: number }) => {
         const containerRect = container.getBoundingClientRect();
-        const layerRect = editor?.parent?.boundingClientRect ?? containerRect;
 
-        let left = clientPosition?.x ?? layerRect.left + layerRect.width / 2;
-        let top = clientPosition?.y ?? layerRect.top + layerRect.height / 2;
+        // Use the editor's actual DOM element for positioning
+        const highlightElement = editor?.div;
+        let left: number;
+        let top: number;
 
-        if (!clientPosition) {
-            const popupPos = editor?.commentPopupPosition;
-            if (Array.isArray(popupPos) && popupPos.length === 2) {
-                left = layerRect.left + layerRect.width * popupPos[0];
-                top = layerRect.top + layerRect.height * popupPos[1];
-            } else if (Array.isArray(editor?.commentButtonPosition) && editor?.commentButtonPosition.length === 2) {
-                const [btnX, btnY] = editor.commentButtonPosition;
-                const editorX = typeof editor?.x === 'number' ? editor.x : 0;
-                const editorY = typeof editor?.y === 'number' ? editor.y : 0;
-                const editorW = typeof editor?.width === 'number' ? editor.width : 0;
-                const editorH = typeof editor?.height === 'number' ? editor.height : 0;
-                const relX = editorX + btnX * editorW;
-                const relY = editorY + btnY * editorH;
-                left = layerRect.left + layerRect.width * relX;
-                top = layerRect.top + layerRect.height * relY;
-            }
+        if (clientPosition) {
+            // Use provided client position
+            left = clientPosition.x - containerRect.left + container.scrollLeft;
+            top = clientPosition.y - containerRect.top + container.scrollTop;
+        } else if (highlightElement) {
+            // Position below the highlight element
+            const highlightRect = highlightElement.getBoundingClientRect();
+            left = highlightRect.left - containerRect.left + container.scrollLeft;
+            top = highlightRect.bottom - containerRect.top + container.scrollTop + 8;
+        } else {
+            // Fallback: center of visible area
+            left = container.scrollLeft + container.clientWidth / 2 - popup.offsetWidth / 2;
+            top = container.scrollTop + container.clientHeight / 2 - popup.offsetHeight / 2;
         }
 
-        let leftInContainer = left - containerRect.left + container.scrollLeft + 8;
-        let topInContainer = top - containerRect.top + container.scrollTop + 8;
-
+        // Keep popup within container bounds
         const maxLeft = container.scrollWidth - popup.offsetWidth - 8;
         const maxTop = container.scrollHeight - popup.offsetHeight - 8;
-        leftInContainer = Math.min(Math.max(8, leftInContainer), Math.max(8, maxLeft));
-        topInContainer = Math.min(Math.max(8, topInContainer), Math.max(8, maxTop));
+        left = Math.min(Math.max(8, left), Math.max(8, maxLeft));
+        top = Math.min(Math.max(8, top), Math.max(8, maxTop));
 
-        popup.style.left = `${leftInContainer}px`;
-        popup.style.top = `${topInContainer}px`;
+        popup.style.left = `${left}px`;
+        popup.style.top = `${top}px`;
     };
 
     const showPopup = (editor: any) => {
@@ -442,6 +438,10 @@ function createSimpleCommentManager(container: HTMLElement) {
     cancelButton.addEventListener('click', () => cancelEdit());
 
     closeButton.addEventListener('click', () => {
+        // Deselect the editor to hide both popup and toolbar
+        if (activeEditor?.setSelected) {
+            activeEditor.setSelected(false);
+        }
         hidePopup();
     });
 
@@ -1379,8 +1379,8 @@ defineExpose({
 }
 
 .pdfViewer :deep(.pdf-annotation-comment-popup__text) {
-    font-size: 12px;
-    line-height: 1.4;
+    font-size: 13px;
+    line-height: 1.5;
     white-space: pre-wrap;
     word-break: break-word;
 }
@@ -1419,19 +1419,19 @@ defineExpose({
 
 .pdfViewer :deep(.pdf-annotation-comment-popup__actions) {
     display: flex;
-    gap: 8px;
-    margin-top: 8px;
+    gap: 6px;
+    margin-top: 10px;
     justify-content: flex-end;
 }
 
 .pdfViewer :deep(.pdf-annotation-comment-popup__btn) {
-    border-radius: 6px;
+    border-radius: 4px;
     border: 1px solid var(--ui-border, #e5e7eb);
     background: var(--color-surface-2, #f3f4f6);
     color: inherit;
     font-size: 12px;
-    padding: 7px 12px;
-    min-height: 30px;
+    padding: 4px 10px;
+    min-height: 26px;
     cursor: pointer;
 }
 

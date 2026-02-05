@@ -97,28 +97,13 @@ textarea,
 
 .pdfViewer .editToolbar,
 .pdf-viewer-container .editToolbar {
-    --editor-toolbar-height: 32px !important;
-    --editor-toolbar-padding: 4px !important;
+    --editor-toolbar-height: 28px !important;
+    --editor-toolbar-padding: 2px !important;
     --editor-toolbar-fg-color: var(--ui-text, #374151) !important;
     --editor-toolbar-hover-fg-color: var(--ui-text, #111827) !important;
     --editor-toolbar-highlight-image: url('/pdfjs/toolbarButton-editorHighlight.svg') !important;
     --editor-toolbar-delete-image: url('/pdfjs/editor-toolbar-delete.svg') !important;
     --comment-edit-button-icon: url('/pdfjs/comment-editButton.svg') !important;
-}
-
-/* Ensure toolbar buttons contain their ::before icons */
-.pdfViewer .editToolbar .buttons > button,
-.pdf-viewer-container .editToolbar .buttons > button {
-    position: relative !important;
-    display: inline-flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-}
-
-.pdfViewer .editToolbar .buttons > button::before,
-.pdf-viewer-container .editToolbar .buttons > button::before {
-    position: relative !important;
-    flex-shrink: 0 !important;
 }
 
 .pdfViewer .annotationCommentButton,
