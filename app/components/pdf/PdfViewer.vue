@@ -363,9 +363,6 @@ function createSimpleCommentManager(container: HTMLElement) {
 
     const positionPopup = (editor: any, clientPosition?: { x: number; y: number }) => {
         const containerRect = container.getBoundingClientRect();
-
-        // Use the editor's actual DOM element for positioning
-        const highlightElement = editor?.div;
         let left: number;
         let top: number;
 
@@ -373,15 +370,34 @@ function createSimpleCommentManager(container: HTMLElement) {
             // Use provided client position
             left = clientPosition.x - containerRect.left + container.scrollLeft;
             top = clientPosition.y - containerRect.top + container.scrollTop;
-        } else if (highlightElement) {
-            // Position below the highlight element
-            const highlightRect = highlightElement.getBoundingClientRect();
-            left = highlightRect.left - containerRect.left + container.scrollLeft;
-            top = highlightRect.bottom - containerRect.top + container.scrollTop + 8;
         } else {
-            // Fallback: center of visible area
-            left = container.scrollLeft + container.clientWidth / 2 - popup.offsetWidth / 2;
-            top = container.scrollTop + container.clientHeight / 2 - popup.offsetHeight / 2;
+            // Try to find the editToolbar near this editor for positioning reference
+            const editToolbar = editor?.div?.querySelector('.editToolbar')
+                || container.querySelector('.editToolbar:not([style*="display: none"])');
+
+            if (editToolbar) {
+                const toolbarRect = editToolbar.getBoundingClientRect();
+                left = toolbarRect.left - containerRect.left + container.scrollLeft;
+                top = toolbarRect.bottom - containerRect.top + container.scrollTop + 8;
+            } else if (editor?.div) {
+                // Use editor's DOM element
+                const editorRect = editor.div.getBoundingClientRect();
+                left = editorRect.left - containerRect.left + container.scrollLeft;
+                top = editorRect.bottom - containerRect.top + container.scrollTop + 8;
+            } else {
+                // Fallback: use editor's relative coordinates within its parent layer
+                const layerRect = editor?.parent?.div?.getBoundingClientRect();
+                if (layerRect && typeof editor?.x === 'number' && typeof editor?.y === 'number') {
+                    const editorWidth = typeof editor.width === 'number' ? editor.width : 0.1;
+                    const editorHeight = typeof editor.height === 'number' ? editor.height : 0.05;
+                    left = layerRect.left + layerRect.width * editor.x - containerRect.left + container.scrollLeft;
+                    top = layerRect.top + layerRect.height * (editor.y + editorHeight) - containerRect.top + container.scrollTop + 8;
+                } else {
+                    // Last resort: center of visible area
+                    left = container.scrollLeft + container.clientWidth / 2 - popup.offsetWidth / 2;
+                    top = container.scrollTop + container.clientHeight / 3;
+                }
+            }
         }
 
         // Keep popup within container bounds

@@ -106,6 +106,48 @@ textarea,
     --comment-edit-button-icon: url('/pdfjs/comment-editButton.svg') !important;
 }
 
+/* Ensure toolbar buttons contain their ::before icons */
+.pdfViewer .editToolbar .buttons .comment,
+.pdfViewer .editToolbar .buttons .deleteButton.basic,
+.pdfViewer .editToolbar .buttons .highlightButton.basic {
+    position: relative !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    overflow: hidden !important;
+}
+
+.pdfViewer .editToolbar .buttons .comment::before,
+.pdfViewer .editToolbar .buttons .deleteButton.basic::before,
+.pdfViewer .editToolbar .buttons .highlightButton.basic::before {
+    content: "" !important;
+    display: block !important;
+    width: 16px !important;
+    height: 16px !important;
+    background-color: var(--editor-toolbar-fg-color, #374151) !important;
+    -webkit-mask-repeat: no-repeat !important;
+    mask-repeat: no-repeat !important;
+    -webkit-mask-position: center !important;
+    mask-position: center !important;
+    -webkit-mask-size: contain !important;
+    mask-size: contain !important;
+}
+
+.pdfViewer .editToolbar .buttons .comment::before {
+    -webkit-mask-image: var(--comment-edit-button-icon) !important;
+    mask-image: var(--comment-edit-button-icon) !important;
+}
+
+.pdfViewer .editToolbar .buttons .deleteButton.basic::before {
+    -webkit-mask-image: var(--editor-toolbar-delete-image) !important;
+    mask-image: var(--editor-toolbar-delete-image) !important;
+}
+
+.pdfViewer .editToolbar .buttons .highlightButton.basic::before {
+    -webkit-mask-image: var(--editor-toolbar-highlight-image) !important;
+    mask-image: var(--editor-toolbar-highlight-image) !important;
+}
+
 .pdfViewer .annotationCommentButton,
 .pdf-viewer-container .annotationCommentButton {
     --comment-edit-button-icon: url('/pdfjs/comment-editButton.svg') !important;
