@@ -35,10 +35,16 @@
                 v-show="activeTab === 'annotations'"
                 :tool="annotationTool"
                 :settings="annotationSettings"
+                :comments="annotationComments"
+                :current-page="currentPage"
                 @set-tool="emit('update:annotation-tool', $event)"
                 @update-setting="emit('annotation-setting', $event)"
                 @highlight-selection="emit('annotation-highlight-selection')"
                 @comment-selection="emit('annotation-comment-selection')"
+                @focus-comment="emit('annotation-focus-comment', $event)"
+                @open-note="emit('annotation-open-note', $event)"
+                @copy-comment="emit('annotation-copy-comment', $event)"
+                @delete-comment="emit('annotation-delete-comment', $event)"
             />
             <PdfThumbnails
                 v-show="activeTab === 'thumbnails'"
@@ -94,7 +100,11 @@ import {
 } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { IPdfSearchMatch } from '@app/types/pdf';
-import type { IAnnotationSettings, TAnnotationTool } from '@app/types/annotations';
+import type {
+    IAnnotationCommentSummary,
+    IAnnotationSettings,
+    TAnnotationTool,
+} from '@app/types/annotations';
 import PdfAnnotationsPanel from '@app/components/pdf/PdfAnnotationsPanel.vue';
 
 interface IProps {
@@ -117,12 +127,14 @@ interface IProps {
     width?: number;
     annotationTool: TAnnotationTool;
     annotationSettings: IAnnotationSettings;
+    annotationComments: IAnnotationCommentSummary[];
 }
 
 const props = defineProps<IProps>();
 const {
     annotationTool,
     annotationSettings,
+    annotationComments,
 } = toRefs(props);
 
 const emit = defineEmits<{
@@ -134,9 +146,16 @@ const emit = defineEmits<{
     (e: 'search'): void;
     (e: 'next'): void;
     (e: 'previous'): void;
-    (e: 'annotation-setting', payload: { key: keyof IAnnotationSettings; value: IAnnotationSettings[keyof IAnnotationSettings] }): void;
+    (e: 'annotation-setting', payload: {
+        key: keyof IAnnotationSettings;
+        value: IAnnotationSettings[keyof IAnnotationSettings] 
+    }): void;
     (e: 'annotation-highlight-selection'): void;
     (e: 'annotation-comment-selection'): void;
+    (e: 'annotation-focus-comment', comment: IAnnotationCommentSummary): void;
+    (e: 'annotation-open-note', comment: IAnnotationCommentSummary): void;
+    (e: 'annotation-copy-comment', comment: IAnnotationCommentSummary): void;
+    (e: 'annotation-delete-comment', comment: IAnnotationCommentSummary): void;
 }>();
 
 type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'outline' | 'search';

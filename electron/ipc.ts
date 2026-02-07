@@ -14,8 +14,8 @@ import {
     writeFile,
     copyFile,
     stat,
+    open as openFileHandle,
 } from 'fs/promises';
-import { open as openFileHandle } from 'fs/promises';
 import {
     extname,
     join,

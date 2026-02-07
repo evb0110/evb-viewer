@@ -215,6 +215,26 @@ async function startElectron(): Promise<ChildProcess> {
     throw new Error('Electron failed to start CDP');
 }
 
+async function checkHydration(page: Page): Promise<boolean> {
+    try {
+        return await page.evaluate(() => {
+            const nuxtEl = document.querySelector('#__nuxt');
+            return !!(
+                (window as any).__appReady ||
+                (nuxtEl && nuxtEl.children.length > 0)
+            );
+        });
+    } catch {
+        // Execution context destroyed (page navigated) — not hydrated yet
+        return false;
+    }
+}
+
+async function findAppPage(browser: Browser): Promise<Page | null> {
+    const pages = await browser.pages();
+    return pages.find(p => p.url().includes(`localhost:${NUXT_PORT}`)) ?? null;
+}
+
 async function connectToBrowser(): Promise<{ browser: Browser; page: Page }> {
     console.log('[Puppeteer] Connecting via CDP...');
 
@@ -223,11 +243,10 @@ async function connectToBrowser(): Promise<{ browser: Browser; page: Page }> {
         defaultViewport: null, // Don't override Electron window's natural viewport
     });
 
-    // Wait for the app page
+    // Wait for the app page (may take a moment after Electron starts)
     let page: Page | null = null;
     for (let i = 0; i < 30; i++) {
-        const pages = await browser.pages();
-        page = pages.find(p => p.url().includes(`localhost:${NUXT_PORT}`)) ?? null;
+        page = await findAppPage(browser);
         if (page) break;
         await delay(500);
     }
@@ -243,30 +262,54 @@ async function connectToBrowser(): Promise<{ browser: Browser; page: Page }> {
         }
     });
 
-    // Wait for page to fully load
-    await page.waitForSelector('body', { timeout: 30000 });
+    // Wait for page to fully load (handle navigation during initial load)
+    try {
+        await page.waitForSelector('body', { timeout: 30000 });
+    } catch {
+        // Page may have navigated — re-find it and try again
+        console.log('[Puppeteer] Page navigated during initial load, re-finding...');
+        await delay(2000);
+        page = await findAppPage(browser);
+        if (!page) {
+            throw new Error('Lost app page after navigation');
+        }
+        await page.waitForSelector('body', { timeout: 15000 });
+    }
 
     // Wait for Vue to hydrate (check for __appReady or #__nuxt children)
     console.log('[Puppeteer] Waiting for Vue to hydrate...');
     let hydrated = false;
+    let navigationCount = 0;
+    const MAX_NAVIGATIONS = 3;
+
     for (let attempt = 0; attempt < 30; attempt++) {
         if (sawOutdatedOptimizeDep) {
             console.log('[Puppeteer] Detected Vite 504 (Outdated Optimize Dep), reloading...');
             break;
         }
 
-        const isReady = await page.evaluate(() => {
-            const nuxtEl = document.querySelector('#__nuxt');
-            return !!(
-                (window as any).__appReady ||
-                (nuxtEl && nuxtEl.children.length > 0)
-            );
-        });
+        const isReady = await checkHydration(page);
 
         if (isReady) {
             hydrated = true;
             break;
         }
+
+        // If page.evaluate failed (context destroyed), the page navigated.
+        // Re-find the page in case Vite did a full reload.
+        if (attempt > 0 && attempt % 5 === 0) {
+            const freshPage = await findAppPage(browser);
+            if (freshPage && freshPage !== page) {
+                navigationCount++;
+                console.log(`[Puppeteer] Page navigated (${navigationCount}/${MAX_NAVIGATIONS}), re-attaching...`);
+                if (navigationCount > MAX_NAVIGATIONS) {
+                    console.log('[Puppeteer] Too many navigations, proceeding with current page');
+                    break;
+                }
+                page = freshPage;
+            }
+        }
+
         await delay(500);
     }
 
@@ -274,17 +317,16 @@ async function connectToBrowser(): Promise<{ browser: Browser; page: Page }> {
     if (!hydrated) {
         console.log('[Puppeteer] Vue not ready, reloading page...');
         sawOutdatedOptimizeDep = false;
-        await page.reload({ waitUntil: 'networkidle2' });
+        try {
+            await page.reload({ waitUntil: 'networkidle2' });
+        } catch {
+            // Reload can fail if page is navigating — re-find
+            await delay(2000);
+            page = await findAppPage(browser) ?? page;
+        }
         await delay(3000);
 
-        // Check again
-        const isReadyAfterReload = await page.evaluate(() => {
-            const nuxtEl = document.querySelector('#__nuxt');
-            return !!(
-                (window as any).__appReady ||
-                (nuxtEl && nuxtEl.children.length > 0)
-            );
-        });
+        const isReadyAfterReload = await checkHydration(page);
 
         if (!isReadyAfterReload) {
             console.log('[Puppeteer] Warning: Vue may not be fully hydrated');
@@ -319,8 +361,17 @@ async function startSession(forceClean = false) {
     // Start Electron with CDP
     const electronProcess = await startElectron();
 
-    // Connect via Puppeteer
-    const { browser, page } = await connectToBrowser();
+    // Connect via Puppeteer — clean up spawned processes on failure
+    let browser: Browser;
+    let page: Page;
+    try {
+        ({ browser, page } = await connectToBrowser());
+    } catch (err) {
+        console.error('[Session] Failed to connect to browser, cleaning up...');
+        try { electronProcess.kill(); } catch {}
+        try { nuxtProcess?.kill(); } catch {}
+        throw err;
+    }
 
     // Setup console capture
     const consoleMessages: ISessionState['consoleMessages'] = [];

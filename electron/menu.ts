@@ -129,7 +129,7 @@ function getEditMenu(): MenuItemConstructorOptions {
                 label: 'Copy',
                 accelerator: 'CmdOrCtrl+C',
                 click: (_item, window) => {
-                    window?.webContents.copy();
+                    (window as Electron.BrowserWindow | undefined)?.webContents.copy();
                 },
             },
         ],
@@ -199,9 +199,7 @@ function getWindowMenu(): MenuItemConstructorOptions {
 function getHelpMenu(): MenuItemConstructorOptions {
     return {
         label: 'Help',
-        submenu: [
-            { role: 'about' },
-        ],
+        submenu: [{ role: 'about' }],
     };
 }
 

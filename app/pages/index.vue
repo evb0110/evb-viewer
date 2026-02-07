@@ -250,6 +250,7 @@
                     :width="sidebarWidth"
                     :annotation-tool="annotationTool"
                     :annotation-settings="annotationSettings"
+                    :annotation-comments="annotationComments"
                     @search="handleSearch"
                     @next="handleSearchNext"
                     @previous="handleSearchPrevious"
@@ -259,6 +260,10 @@
                     @annotation-setting="handleAnnotationSettingChange"
                     @annotation-highlight-selection="handleHighlightSelection"
                     @annotation-comment-selection="handleCommentSelection"
+                    @annotation-focus-comment="handleAnnotationFocusComment"
+                    @annotation-open-note="handleOpenAnnotationNote"
+                    @annotation-copy-comment="handleCopyAnnotationComment"
+                    @annotation-delete-comment="handleDeleteAnnotationComment"
                 />
                 <div
                     class="sidebar-resizer"
@@ -289,6 +294,8 @@
                     @loading="isLoading = $event"
                     @annotation-state="handleAnnotationState"
                     @annotation-modified="handleAnnotationModified"
+                    @annotation-comments="annotationComments = $event"
+                    @annotation-open-note="handleOpenAnnotationNote"
                 />
                 <div
                     v-else
@@ -365,6 +372,17 @@
                 </div>
             </div>
         </main>
+        <PdfAnnotationNoteWindow
+            v-if="annotationNoteComment"
+            :comment="annotationNoteComment"
+            :text="annotationNoteText"
+            :saving="isAnnotationNoteSaving"
+            :error="annotationNoteError"
+            @update:text="annotationNoteText = $event"
+            @save="saveAnnotationNote"
+            @delete="deleteAnnotationNote"
+            @close="closeAnnotationNote"
+        />
     </div>
 </template>
 
@@ -382,6 +400,7 @@ import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { TFitMode } from '@app/types/shared';
 import { useOcrTextContent } from '@app/composables/pdf/useOcrTextContent';
 import type {
+    IAnnotationCommentSummary,
     IAnnotationEditorState,
     IAnnotationSettings,
     TAnnotationTool,
@@ -397,6 +416,9 @@ interface IPdfViewerExpose {
     commentSelection: () => void;
     undoAnnotation: () => void;
     redoAnnotation: () => void;
+    focusAnnotationComment: (comment: IAnnotationCommentSummary) => Promise<void>;
+    updateAnnotationComment: (comment: IAnnotationCommentSummary, text: string) => boolean;
+    deleteAnnotationComment: (comment: IAnnotationCommentSummary) => boolean;
 }
 
 interface IOcrPopupExpose {
@@ -473,15 +495,58 @@ if (typeof window !== 'undefined') {
 
 const menuCleanups: Array<() => void> = [];
 
-function handleFindShortcut(event: KeyboardEvent) {
+function isTypingTarget(target: EventTarget | null) {
+    if (!(target instanceof HTMLElement)) {
+        return false;
+    }
+    if (target.isContentEditable) {
+        return true;
+    }
+    const tag = target.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
+        return true;
+    }
+    return Boolean(target.closest('[contenteditable="true"], [contenteditable=""]'));
+}
+
+function handleGlobalShortcut(event: KeyboardEvent) {
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'f' && pdfSrc.value) {
+        event.preventDefault();
+        openSearch();
+        nextTick(() => sidebarRef.value?.focusSearch());
+        return;
+    }
+
     if (!pdfSrc.value) {
         return;
     }
 
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'f') {
-        event.preventDefault();
-        openSearch();
-        nextTick(() => sidebarRef.value?.focusSearch());
+    if (event.metaKey || event.ctrlKey || event.altKey || isTypingTarget(event.target)) {
+        return;
+    }
+
+    const key = event.key.toLowerCase();
+    switch (key) {
+        case 'v':
+            annotationTool.value = 'none';
+            return;
+        case 'h':
+            openAnnotations();
+            annotationTool.value = 'highlight';
+            return;
+        case 't':
+            openAnnotations();
+            annotationTool.value = 'text';
+            return;
+        case 'i':
+            openAnnotations();
+            annotationTool.value = 'draw';
+            return;
+        case 'escape':
+            annotationTool.value = 'none';
+            return;
+        default:
+            return;
     }
 }
 
@@ -511,13 +576,13 @@ onMounted(() => {
         loadRecentFiles();
     }
 
-    window.addEventListener('keydown', handleFindShortcut);
+    window.addEventListener('keydown', handleGlobalShortcut);
 });
 
 onUnmounted(() => {
     menuCleanups.forEach((cleanup) => cleanup());
     cleanupSidebarResizeListeners();
-    window.removeEventListener('keydown', handleFindShortcut);
+    window.removeEventListener('keydown', handleGlobalShortcut);
 });
 
 watch(pdfError, (err) => {
@@ -576,13 +641,20 @@ const annotationTool = ref<TAnnotationTool>('none');
 const annotationSettings = ref<IAnnotationSettings>({
     highlightColor: '#ffd400',
     highlightOpacity: 0.35,
+    highlightThickness: 12,
     highlightFree: true,
+    highlightShowAll: true,
     inkColor: '#e11d48',
     inkOpacity: 0.9,
     inkThickness: 2,
     textColor: '#111827',
     textSize: 12,
 });
+const annotationComments = ref<IAnnotationCommentSummary[]>([]);
+const annotationNoteComment = ref<IAnnotationCommentSummary | null>(null);
+const annotationNoteText = ref('');
+const isAnnotationNoteSaving = ref(false);
+const annotationNoteError = ref<string | null>(null);
 const annotationEditorState = ref<IAnnotationEditorState>({
     isEditing: false,
     isEmpty: true,
@@ -798,7 +870,10 @@ function handleAnnotationToolChange(tool: TAnnotationTool) {
     }
 }
 
-function handleAnnotationSettingChange(payload: { key: keyof IAnnotationSettings; value: IAnnotationSettings[keyof IAnnotationSettings] }) {
+function handleAnnotationSettingChange(payload: {
+    key: keyof IAnnotationSettings;
+    value: IAnnotationSettings[keyof IAnnotationSettings] 
+}) {
     annotationSettings.value = {
         ...annotationSettings.value,
         [payload.key]: payload.value,
@@ -840,6 +915,92 @@ function handleHighlightSelection() {
 
 function handleCommentSelection() {
     pdfViewerRef.value?.commentSelection();
+}
+
+async function handleAnnotationFocusComment(comment: IAnnotationCommentSummary) {
+    if (!pdfViewerRef.value) {
+        return;
+    }
+    showSidebar.value = true;
+    sidebarTab.value = 'annotations';
+    dragMode.value = false;
+    await pdfViewerRef.value.focusAnnotationComment(comment);
+}
+
+function handleOpenAnnotationNote(comment: IAnnotationCommentSummary) {
+    annotationNoteComment.value = comment;
+    annotationNoteText.value = comment.text || '';
+    annotationNoteError.value = null;
+    showSidebar.value = true;
+    sidebarTab.value = 'annotations';
+    dragMode.value = false;
+    void handleAnnotationFocusComment(comment);
+}
+
+async function handleCopyAnnotationComment(comment: IAnnotationCommentSummary) {
+    const text = comment.text?.trim();
+    if (!text) {
+        return;
+    }
+    try {
+        await navigator.clipboard.writeText(text);
+    } catch {
+        // Ignore clipboard errors in non-secure contexts.
+    }
+}
+
+async function handleDeleteAnnotationComment(comment: IAnnotationCommentSummary) {
+    if (!pdfViewerRef.value) {
+        return;
+    }
+    annotationNoteError.value = null;
+    const deleted = await pdfViewerRef.value.deleteAnnotationComment(comment);
+    if (!deleted) {
+        annotationNoteError.value = 'Unable to delete this annotation from the current document.';
+        return;
+    }
+    if (annotationNoteComment.value?.id === comment.id) {
+        closeAnnotationNote();
+    }
+}
+
+function closeAnnotationNote() {
+    annotationNoteComment.value = null;
+    annotationNoteText.value = '';
+    annotationNoteError.value = null;
+}
+
+async function saveAnnotationNote() {
+    if (!pdfViewerRef.value || !annotationNoteComment.value) {
+        return;
+    }
+    isAnnotationNoteSaving.value = true;
+    annotationNoteError.value = null;
+    try {
+        const saved = await pdfViewerRef.value.updateAnnotationComment(
+            annotationNoteComment.value,
+            annotationNoteText.value,
+        );
+        if (!saved) {
+            annotationNoteError.value = 'Unable to save this note for the selected annotation.';
+            return;
+        }
+        const savedCommentId = annotationNoteComment.value.id;
+        const latest = annotationComments.value.find(comment => comment.id === savedCommentId);
+        if (latest) {
+            annotationNoteComment.value = latest;
+            annotationNoteText.value = latest.text || '';
+        }
+    } finally {
+        isAnnotationNoteSaving.value = false;
+    }
+}
+
+async function deleteAnnotationNote() {
+    if (!annotationNoteComment.value) {
+        return;
+    }
+    await handleDeleteAnnotationComment(annotationNoteComment.value);
 }
 
 async function handleSearch() {
@@ -1016,11 +1177,15 @@ async function handleSaveAs() {
 watch(pdfSrc, (newSrc, oldSrc) => {
     if (newSrc && newSrc !== oldSrc) {
         resetAnnotationTracking();
+        annotationComments.value = [];
+        closeAnnotationNote();
     }
     if (!newSrc) {
         resetSearchCache();
         closeSearch();
         annotationTool.value = 'none';
+        annotationComments.value = [];
+        closeAnnotationNote();
         resetAnnotationTracking();
         annotationEditorState.value = {
             isEditing: false,
@@ -1037,6 +1202,33 @@ watch(pdfSrc, (newSrc, oldSrc) => {
         loadRecentFiles();
     }
 });
+
+watch(annotationComments, (comments) => {
+    const current = annotationNoteComment.value;
+    if (!current) {
+        return;
+    }
+
+    const updated = comments.find(comment => (
+        comment.id === current.id
+        || (current.uid && comment.uid === current.uid)
+        || (current.annotationId && comment.annotationId === current.annotationId)
+    ));
+    if (!updated) {
+        // Keep newly created editor notes open while they are still empty; they'll
+        // appear in the reviews list once the user saves non-empty text.
+        if (current.source === 'editor') {
+            return;
+        }
+        closeAnnotationNote();
+        return;
+    }
+
+    annotationNoteComment.value = updated;
+    if (!isAnnotationNoteSaving.value) {
+        annotationNoteText.value = updated.text || '';
+    }
+});
 </script>
 
 <style scoped>
@@ -1051,6 +1243,7 @@ watch(pdfSrc, (newSrc, oldSrc) => {
     white-space: nowrap;
     overflow-x: auto;
     container-type: inline-size;
+
     --toolbar-control-height: 2.25rem;
     --toolbar-icon-size: 18px;
 }

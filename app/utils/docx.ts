@@ -89,7 +89,10 @@ function makeEndOfCentralDirectory(entryCount: number, centralSize: number, cent
     return footer;
 }
 
-function createZip(entries: Array<{ name: string; data: Uint8Array }>) {
+function createZip(entries: Array<{
+    name: string;
+    data: Uint8Array 
+}>) {
     const fileParts: Uint8Array[] = [];
     const centralParts: Uint8Array[] = [];
     let offset = 0;
@@ -110,7 +113,11 @@ function createZip(entries: Array<{ name: string; data: Uint8Array }>) {
     const centralSize = centralParts.reduce((sum, part) => sum + part.length, 0);
     const footer = makeEndOfCentralDirectory(entries.length, centralSize, centralOffset);
 
-    return concatBytes([...fileParts, ...centralParts, footer]);
+    return concatBytes([
+        ...fileParts,
+        ...centralParts,
+        footer,
+    ]);
 }
 
 function escapeXml(text: string) {
@@ -118,7 +125,7 @@ function escapeXml(text: string) {
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
-        .replace(/\"/g, '&quot;')
+        .replace(/"/g, '&quot;')
         .replace(/'/g, '&apos;');
 }
 
@@ -129,40 +136,52 @@ function buildDocumentXml(text: string) {
         return `<w:p><w:r><w:t xml:space="preserve">${safe}</w:t></w:r></w:p>`;
     }).join('');
 
-    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n` +
-        `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">` +
-        `<w:body>` +
+    return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
+        '<w:body>' +
         `${paragraphs}` +
-        `<w:sectPr>` +
-        `<w:pgSz w:w="12240" w:h="15840"/>` +
-        `<w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/>` +
-        `</w:sectPr>` +
-        `</w:body>` +
-        `</w:document>`;
+        '<w:sectPr>' +
+        '<w:pgSz w:w="12240" w:h="15840"/>' +
+        '<w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/>' +
+        '</w:sectPr>' +
+        '</w:body>' +
+        '</w:document>';
 }
 
 export function createDocxFromText(text: string) {
-    const contentTypes = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n` +
-        `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">` +
-        `<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>` +
-        `<Default Extension="xml" ContentType="application/xml"/>` +
-        `<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>` +
-        `</Types>`;
+    const contentTypes = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+        '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
+        '<Default Extension="xml" ContentType="application/xml"/>' +
+        '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>' +
+        '</Types>';
 
-    const rels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n` +
-        `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
-        `<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>` +
-        `</Relationships>`;
+    const rels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>' +
+        '</Relationships>';
 
-    const docRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n` +
-        `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>`;
+    const docRels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>';
 
     const docXml = buildDocumentXml(text);
 
     return createZip([
-        { name: '[Content_Types].xml', data: encodeUtf8(contentTypes) },
-        { name: '_rels/.rels', data: encodeUtf8(rels) },
-        { name: 'word/document.xml', data: encodeUtf8(docXml) },
-        { name: 'word/_rels/document.xml.rels', data: encodeUtf8(docRels) },
+        {
+            name: '[Content_Types].xml',
+            data: encodeUtf8(contentTypes), 
+        },
+        {
+            name: '_rels/.rels',
+            data: encodeUtf8(rels), 
+        },
+        {
+            name: 'word/document.xml',
+            data: encodeUtf8(docXml), 
+        },
+        {
+            name: 'word/_rels/document.xml.rels',
+            data: encodeUtf8(docRels), 
+        },
     ]);
 }

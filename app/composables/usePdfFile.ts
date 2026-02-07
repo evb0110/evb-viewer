@@ -148,7 +148,10 @@ export const usePdfFile = () => {
         }
     }
 
-    async function loadPdfFromData(data: Uint8Array, opts?: { pushHistory?: boolean; persistWorkingCopy?: boolean }) {
+    async function loadPdfFromData(data: Uint8Array, opts?: {
+        pushHistory?: boolean;
+        persistWorkingCopy?: boolean 
+    }) {
         const snapshot = data.slice();
         await applySnapshot(snapshot, opts?.persistWorkingCopy ?? false);
 

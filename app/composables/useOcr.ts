@@ -392,12 +392,13 @@ export const useOcr = () => {
             const exists = await api.fileExists(manifestPath);
             if (exists) {
                 const manifestJson = await api.readTextFile(manifestPath);
-                const manifest = JSON.parse(manifestJson) as {
-                    pages: Record<number, { path: string }>;
-                };
+                const manifest = JSON.parse(manifestJson) as {pages: Record<number, { path: string }>;};
 
                 const pageEntries = Object.entries(manifest.pages ?? {})
-                    .map(([page, value]) => ({
+                    .map(([
+                        page,
+                        value,
+                    ]) => ({
                         page: Number(page),
                         path: value.path,
                     }))
@@ -426,9 +427,7 @@ export const useOcr = () => {
             }
 
             const indexJson = await api.readTextFile(legacyIndexPath);
-            const index = JSON.parse(indexJson) as {
-                pages?: Array<{ text?: string }>;
-            };
+            const index = JSON.parse(indexJson) as {pages?: Array<{ text?: string }>;};
 
             const legacyTexts = (index.pages ?? [])
                 .map((page) => page?.text?.trim())

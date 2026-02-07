@@ -791,8 +791,9 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                             const editorViewport = viewport.clone({ dontFlip: true });
                             const editorLayer = annotationEditorLayers.get(pageNumber);
                             const drawLayer = drawLayers.get(pageNumber) ?? new DrawLayer({ pageIndex: pageNumber - 1 });
+                             
                             const textLayerShim = textLayerDiv
-                                ? ({ div: textLayerDiv } as any)
+                                ? ({ div: textLayerDiv } as any) // eslint-disable-line @typescript-eslint/no-explicit-any -- PDF.js expects TextLayer-like object
                                 : undefined;
 
                             const canvasHost = container.querySelector<HTMLDivElement>('.page_canvas');
@@ -815,6 +816,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                                 enabled: true,
                                 accessibilityManager: undefined,
                                 pageIndex: pageNumber - 1,
+                                // eslint-disable-next-line @typescript-eslint/no-explicit-any -- GenericL10n type mismatch with AnnotationEditorLayer constructor
                                 l10n: l10n as any,
                                 viewport: editorViewport,
                                 annotationLayer: annotationLayerInstance ?? undefined,

@@ -23,6 +23,7 @@ export const usePdfDocument = () => {
     const pdfPageCache = new Map<number, PDFPageProxy>();
     let objectUrl: string | null = null;
     let loadingTask: ReturnType<typeof pdfjsLib.getDocument> | null = null;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- PDFDataRangeTransport is not exported by pdfjs-dist
     let rangeTransport: any | null = null;
 
     function getRenderVersion() {
@@ -63,6 +64,7 @@ export const usePdfDocument = () => {
             const initialData = await api.readFileRange(src.path, 0, initialLen);
 
             // pdfjs-dist doesn't export a typed constructor here, so use `any`.
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- PDFDataRangeTransport not in public types
             const TransportCtor = (pdfjsLib as any).PDFDataRangeTransport;
             rangeTransport = new TransportCtor(length, initialData);
 

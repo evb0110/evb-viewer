@@ -73,3 +73,14 @@ icon: {
     ]},
 },
 ```
+
+## Task Completion Checks
+
+**Rule**: A task is not complete until all repository checks pass.
+
+Before considering any implementation task done, run:
+```bash
+pnpm lint && pnpm typecheck
+```
+
+Both must exit with zero errors. Fix any issues introduced by your changes before reporting completion. This applies to all code changes — features, bug fixes, refactors, and style updates.

@@ -248,7 +248,10 @@ async function detectSourceDpi(pdfPath: string): Promise<number | null> {
     }
 
     try {
-        const result = await runCommand(pdfimagesBinary, ['-list', pdfPath]);
+        const result = await runCommand(pdfimagesBinary, [
+            '-list',
+            pdfPath,
+        ]);
         const lines = result.stdout.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
         if (lines.length <= 1) {
             return null;

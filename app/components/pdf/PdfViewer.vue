@@ -52,6 +52,7 @@ import {
     AnnotationEditorParamsType,
     AnnotationEditorType,
     AnnotationEditorUIManager,
+    PDFDateString,
     PixelsPerInch,
 } from 'pdfjs-dist';
 import {
@@ -75,6 +76,7 @@ import type {
     TFitMode,
 } from '@app/types/pdf';
 import type {
+    IAnnotationCommentSummary,
     IAnnotationEditorState,
     IAnnotationSettings,
     TAnnotationTool,
@@ -130,6 +132,8 @@ const emit = defineEmits<{
     (e: 'loading', loading: boolean): void;
     (e: 'annotation-state', state: IAnnotationEditorState): void;
     (e: 'annotation-modified'): void;
+    (e: 'annotation-comments', comments: IAnnotationCommentSummary[]): void;
+    (e: 'annotation-open-note', comment: IAnnotationCommentSummary): void;
 }>();
 
 const viewerContainer = ref<HTMLElement | null>(null);
@@ -220,21 +224,228 @@ const isSnapping = ref(false);
 let annotationStateListener: ((event: { details?: Partial<IAnnotationEditorState> }) => void) | null = null;
 
 const DEFAULT_PDFJS_HIGHLIGHT_COLORS = 'yellow=#FFFF98,green=#98FF98,blue=#98C0FF,pink=#FF98FF,red=#FF9090';
+let annotationCommentsSyncToken = 0;
+const editorRuntimeIds = new WeakMap<IPdfjsEditor, string>();
+let editorRuntimeIdCounter = 0;
+let cachedSelectionRange: Range | null = null;
+let cachedSelectionTimestamp = 0;
+const SELECTION_CACHE_TTL_MS = 3000;
 
-let restoreModeAfterCommentEdit: TAnnotationEditorMode | null = null;
+/**
+ * Minimal shape for PDF.js annotation editor instances.
+ * PDF.js doesn't export a public type for individual editors, so we define
+ * just the properties we actually access to satisfy the type checker.
+ */
+interface IPdfjsEditor {
+    id?: string;
+    div?: HTMLElement;
+    uid?: string;
+    annotationElementId?: string | null;
+    comment?: string | { text?: string } | null;
+    hasComment?: boolean;
+    color?: string | number[] | null;
+    opacity?: number;
+    parentPageIndex?: number;
+    x?: number;
+    y?: number;
+    width?: number;
+    height?: number;
+    parent?: { div?: HTMLElement };
+    getData?: () => {
+        modificationDate?: string | null;
+        creationDate?: string | null;
+        color?: string | number[] | null;
+        opacity?: number;
+    };
+    toggleComment?: (isSelected: boolean, visibility?: boolean) => void;
+    addToAnnotationStorage?: () => void;
+    focusCommentButton?: () => void;
+    remove?: () => void;
+    delete?: () => void;
+}
 
-function getCommentText(editor: any) {
+function getCommentText(editor: IPdfjsEditor | null | undefined) {
     if (!editor) {
         return '';
     }
-    const comment = editor.comment;
-    if (typeof comment === 'string') {
-        return comment;
-    }
-    if (comment && typeof comment.text === 'string') {
-        return comment.text;
+    try {
+        const comment = editor.comment;
+        if (typeof comment === 'string') {
+            return comment;
+        }
+        if (comment && typeof comment.text === 'string') {
+            return comment.text;
+        }
+    } catch {
+        return '';
     }
     return '';
+}
+
+function parsePdfDateTimestamp(value: string | null | undefined) {
+    if (!value) {
+        return null;
+    }
+
+    try {
+        const date = PDFDateString.toDateObject(value);
+        if (!date) {
+            return null;
+        }
+        return date.getTime();
+    } catch {
+        return null;
+    }
+}
+
+function toCssColor(
+    color: string | number[] | {
+        r: number;
+        g: number;
+        b: number;
+    } | null | undefined,
+    opacity = 1,
+) {
+    if (!color) {
+        return null;
+    }
+
+    if (typeof color === 'string') {
+        return color;
+    }
+
+    if (Array.isArray(color) && color.length >= 3) {
+        return `rgba(${color[0]}, ${color[1]}, ${color[2]}, ${opacity})`;
+    }
+
+    if (
+        typeof (color as { r?: number }).r === 'number'
+        && typeof (color as { g?: number }).g === 'number'
+        && typeof (color as { b?: number }).b === 'number'
+    ) {
+        const rgb = color as {
+            r: number;
+            g: number;
+            b: number;
+        };
+        return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${opacity})`;
+    }
+
+    return null;
+}
+
+function getAnnotationCommentText(annotation: {
+    contents?: string;
+    contentsObj?: { str?: string | null };
+    richText?: { str?: string | null };
+}) {
+    const rich = annotation.richText?.str?.trim();
+    if (rich) {
+        return rich;
+    }
+    const structured = annotation.contentsObj?.str?.trim();
+    if (structured) {
+        return structured;
+    }
+    return annotation.contents?.trim() ?? '';
+}
+
+function getAnnotationAuthor(annotation: {
+    titleObj?: { str?: string | null };
+    title?: string;
+}) {
+    const withObj = annotation.titleObj?.str?.trim();
+    if (withObj) {
+        return withObj;
+    }
+    const direct = annotation.title?.trim();
+    return direct || null;
+}
+
+function compareAnnotationComments(a: IAnnotationCommentSummary, b: IAnnotationCommentSummary) {
+    const aTime = a.modifiedAt ?? 0;
+    const bTime = b.modifiedAt ?? 0;
+    if (aTime !== bTime) {
+        return bTime - aTime;
+    }
+    if (a.pageIndex !== b.pageIndex) {
+        return a.pageIndex - b.pageIndex;
+    }
+    return a.id.localeCompare(b.id);
+}
+
+function getEditorRuntimeId(editor: IPdfjsEditor, pageIndex: number) {
+    let runtimeId = editorRuntimeIds.get(editor);
+    if (!runtimeId) {
+        editorRuntimeIdCounter += 1;
+        runtimeId = `runtime-${pageIndex}-${editorRuntimeIdCounter}`;
+        editorRuntimeIds.set(editor, runtimeId);
+    }
+    return runtimeId;
+}
+
+function getEditorIdentity(editor: IPdfjsEditor, pageIndex: number) {
+    return editor.uid
+        ?? editor.annotationElementId
+        ?? editor.id
+        ?? getEditorRuntimeId(editor, pageIndex);
+}
+
+function toEditorSummary(
+    editor: IPdfjsEditor,
+    pageIndex: number,
+    textOverride?: string,
+): IAnnotationCommentSummary {
+    let data: ReturnType<NonNullable<IPdfjsEditor['getData']>> = {};
+    try {
+        data = editor.getData?.() ?? {};
+    } catch {
+        data = {};
+    }
+    const text = typeof textOverride === 'string'
+        ? textOverride
+        : getCommentText(editor).trim();
+
+    return {
+        id: getEditorIdentity(editor, pageIndex),
+        pageIndex,
+        pageNumber: pageIndex + 1,
+        text,
+        author: null,
+        modifiedAt: parsePdfDateTimestamp(data.modificationDate) ?? parsePdfDateTimestamp(data.creationDate),
+        color: toCssColor(data.color ?? editor.color, data.opacity ?? editor.opacity ?? 1),
+        uid: editor.uid ?? null,
+        annotationId: editor.annotationElementId ?? null,
+        source: 'editor',
+    };
+}
+
+function cacheCurrentTextSelection() {
+    const container = viewerContainer.value;
+    if (!container) {
+        cachedSelectionRange = null;
+        return;
+    }
+
+    const selection = document.getSelection();
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+        return;
+    }
+
+    const range = selection.getRangeAt(0);
+    const commonAncestor = range.commonAncestorContainer;
+    const element = commonAncestor.nodeType === Node.TEXT_NODE
+        ? commonAncestor.parentElement
+        : commonAncestor as HTMLElement | null;
+
+    if (!element?.closest('.text-layer, .textLayer') || !container.contains(element)) {
+        cachedSelectionRange = null;
+        cachedSelectionTimestamp = 0;
+        return;
+    }
+
+    cachedSelectionRange = range.cloneRange();
+    cachedSelectionTimestamp = Date.now();
 }
 
 function shouldIgnoreEditorEvent(event: Event) {
@@ -258,323 +469,40 @@ function shouldIgnoreEditorEvent(event: Event) {
     return false;
 }
 
-function createSimpleCommentManager(container: HTMLElement) {
-    const popup = document.createElement('div');
-    popup.id = 'commentPopup';
-    popup.className = 'pdf-annotation-comment-popup is-hidden';
-    popup.setAttribute('role', 'dialog');
-    popup.setAttribute('aria-live', 'polite');
-    popup.tabIndex = -1;
-
-    const textEl = document.createElement('div');
-    textEl.className = 'pdf-annotation-comment-popup__text';
-    popup.append(textEl);
-
-    const textarea = document.createElement('textarea');
-    textarea.className = 'pdf-annotation-comment-popup__textarea';
-    textarea.setAttribute('rows', '5');
-    textarea.setAttribute('placeholder', 'Write a comment…');
-    textarea.addEventListener('keydown', (event) => event.stopPropagation());
-    textarea.addEventListener('keyup', (event) => event.stopPropagation());
-    textarea.addEventListener('pointerdown', (event) => event.stopPropagation());
-    popup.append(textarea);
-
-    const actionRow = document.createElement('div');
-    actionRow.className = 'pdf-annotation-comment-popup__actions';
-
-    const editButton = document.createElement('button');
-    editButton.type = 'button';
-    editButton.textContent = 'Edit';
-    editButton.className = 'pdf-annotation-comment-popup__btn pdf-annotation-comment-popup__btn--edit';
-
-    const saveButton = document.createElement('button');
-    saveButton.type = 'button';
-    saveButton.textContent = 'Save';
-    saveButton.className = 'pdf-annotation-comment-popup__btn pdf-annotation-comment-popup__btn--save';
-
-    const cancelButton = document.createElement('button');
-    cancelButton.type = 'button';
-    cancelButton.textContent = 'Cancel';
-    cancelButton.className = 'pdf-annotation-comment-popup__btn pdf-annotation-comment-popup__btn--cancel';
-
-    const closeButton = document.createElement('button');
-    closeButton.type = 'button';
-    closeButton.textContent = 'Close';
-    closeButton.className = 'pdf-annotation-comment-popup__btn pdf-annotation-comment-popup__btn--close';
-
-    actionRow.append(editButton, saveButton, cancelButton, closeButton);
-    popup.append(actionRow);
-    container.append(popup);
-
-    let activeEditor: any = null;
-    let sidebarUiManager: AnnotationEditorUIManager | null = null;
-    let isEditing = false;
-
-    const commitEdit = () => {
-        if (!activeEditor) {
-            return;
-        }
-
-        const text = textarea.value.trim();
-        const previousText = getCommentText(activeEditor).trim();
-        if (text !== previousText) {
-            activeEditor.comment = text.length ? text : null;
-            activeEditor.addToAnnotationStorage?.();
-            emit('annotation-modified');
-
-            // Update visual indicator for comment presence
-            if (activeEditor.div) {
-                activeEditor.div.classList.toggle('has-comment', text.length > 0);
-            }
-        }
-
-        isEditing = false;
-        popup.classList.toggle('is-editing', false);
-        textarea.blur();
-
-        if (text.length) {
-            showPopup(activeEditor);
-        } else {
-            hidePopup();
-        }
-
-        activeEditor?.focusCommentButton?.();
-
-        if (restoreModeAfterCommentEdit && sidebarUiManager) {
-            // Restore the tool/mode after a one-off comment operation (e.g. "Comment Selection").
-            void sidebarUiManager.updateMode(restoreModeAfterCommentEdit);
-            restoreModeAfterCommentEdit = null;
-        }
-    };
-
-    const cancelEdit = () => {
-        if (!activeEditor) {
-            hidePopup();
-        } else {
-            showPopup(activeEditor);
-        }
-
-        isEditing = false;
-        popup.classList.toggle('is-editing', false);
-        textarea.blur();
-
-        activeEditor?.focusCommentButton?.();
-
-        if (restoreModeAfterCommentEdit && sidebarUiManager) {
-            void sidebarUiManager.updateMode(restoreModeAfterCommentEdit);
-            restoreModeAfterCommentEdit = null;
-        }
-    };
-
-    const positionPopup = (editor: any, clientPosition?: { x: number; y: number }) => {
-        const containerRect = container.getBoundingClientRect();
-        let left: number;
-        let top: number;
-
-        if (clientPosition) {
-            // Use provided client position
-            left = clientPosition.x - containerRect.left + container.scrollLeft;
-            top = clientPosition.y - containerRect.top + container.scrollTop;
-        } else {
-            // Try to find the editToolbar near this editor for positioning reference
-            const editToolbar = editor?.div?.querySelector('.editToolbar')
-                || container.querySelector('.editToolbar:not([style*="display: none"])');
-
-            if (editToolbar) {
-                const toolbarRect = editToolbar.getBoundingClientRect();
-                left = toolbarRect.left - containerRect.left + container.scrollLeft;
-                top = toolbarRect.bottom - containerRect.top + container.scrollTop + 8;
-            } else if (editor?.div) {
-                // Use editor's DOM element
-                const editorRect = editor.div.getBoundingClientRect();
-                left = editorRect.left - containerRect.left + container.scrollLeft;
-                top = editorRect.bottom - containerRect.top + container.scrollTop + 8;
-            } else {
-                // Fallback: use editor's relative coordinates within its parent layer
-                const layerRect = editor?.parent?.div?.getBoundingClientRect();
-                if (layerRect && typeof editor?.x === 'number' && typeof editor?.y === 'number') {
-                    const editorWidth = typeof editor.width === 'number' ? editor.width : 0.1;
-                    const editorHeight = typeof editor.height === 'number' ? editor.height : 0.05;
-                    left = layerRect.left + layerRect.width * editor.x - containerRect.left + container.scrollLeft;
-                    top = layerRect.top + layerRect.height * (editor.y + editorHeight) - containerRect.top + container.scrollTop + 8;
-                } else {
-                    // Last resort: center of visible area
-                    left = container.scrollLeft + container.clientWidth / 2 - popup.offsetWidth / 2;
-                    top = container.scrollTop + container.clientHeight / 3;
-                }
-            }
-        }
-
-        // Keep popup within container bounds
-        const maxLeft = container.scrollWidth - popup.offsetWidth - 8;
-        const maxTop = container.scrollHeight - popup.offsetHeight - 8;
-        left = Math.min(Math.max(8, left), Math.max(8, maxLeft));
-        top = Math.min(Math.max(8, top), Math.max(8, maxTop));
-
-        popup.style.left = `${left}px`;
-        popup.style.top = `${top}px`;
-    };
-
-    const showPopup = (editor: any) => {
-        if (!editor?.hasComment) {
-            hidePopup();
-            return;
-        }
-
-        const commentText = getCommentText(editor);
-        if (!commentText) {
-            hidePopup();
-            return;
-        }
-
-        isEditing = false;
-        popup.classList.toggle('is-editing', false);
-
-        activeEditor = editor;
-        textEl.textContent = commentText;
-        positionPopup(editor);
-        popup.classList.remove('is-hidden');
-    };
-
-    const hidePopup = () => {
-        activeEditor = null;
-        isEditing = false;
-        popup.classList.toggle('is-editing', false);
-        popup.classList.add('is-hidden');
-        container.classList.remove('is-viewing-comment');
-    };
-
-    editButton.addEventListener('click', () => {
-        if (activeEditor) {
-            isEditing = true;
-            popup.classList.toggle('is-editing', true);
-            textarea.value = getCommentText(activeEditor);
-            positionPopup(activeEditor);
-            popup.classList.remove('is-hidden');
-            textarea.focus();
-            textarea.setSelectionRange(textarea.value.length, textarea.value.length);
-        }
-    });
-
-    saveButton.addEventListener('click', () => commitEdit());
-    cancelButton.addEventListener('click', () => cancelEdit());
-
-    closeButton.addEventListener('click', () => {
-        // Deselect the editor to hide both popup and toolbar
-        if (activeEditor?.setSelected) {
-            activeEditor.setSelected(false);
-        }
-        hidePopup();
-    });
-
-    popup.addEventListener('click', (event) => {
-        event.stopPropagation();
-    });
-    popup.addEventListener('pointerdown', (event) => {
-        event.stopPropagation();
-    });
-
-    // Add/remove visual indicator for highlights with comments
-    const updateCommentIndicator = (editor: any) => {
-        if (!editor?.div) {
-            return;
-        }
-        if (editor.hasComment) {
-            editor.div.classList.add('has-comment');
-        } else {
-            editor.div.classList.remove('has-comment');
-        }
-    };
-
-    // Reposition popup on scroll to keep it anchored
-    let scrollRAF: number | null = null;
-    container.addEventListener('scroll', () => {
-        if (activeEditor && !popup.classList.contains('is-hidden')) {
-            if (scrollRAF) {
-                cancelAnimationFrame(scrollRAF);
-            }
-            scrollRAF = requestAnimationFrame(() => {
-                positionPopup(activeEditor);
-                scrollRAF = null;
-            });
-        }
-    });
+function createSimpleCommentManager(_container: HTMLElement) {
+    const dialogElement = document.createElement('div');
+    dialogElement.className = 'pdf-annotation-comment-dialog-placeholder';
+    dialogElement.setAttribute('aria-hidden', 'true');
+    dialogElement.style.display = 'none';
 
     return {
-        dialogElement: popup,
-        setSidebarUiManager: (uiManager: AnnotationEditorUIManager) => {
-            sidebarUiManager = uiManager;
-        },
-        // Called by the UI manager on mode changes. In the full PDF.js viewer this
-        // closes any currently opened comment UI; for us it just hides the popup.
-        destroyPopup: () => {
-            hidePopup();
-        },
-        // Sidebar comments aren't implemented yet; we keep these as no-ops so
-        // PDF.js can safely call them.
+        dialogElement,
+        setSidebarUiManager: (_uiManager: AnnotationEditorUIManager) => {},
+        destroyPopup: () => {},
         showSidebar: () => {},
         hideSidebar: () => {},
-        showDialog: (_uiManager: unknown, editor: any, x?: number, y?: number) => {
-            activeEditor = editor;
-            isEditing = true;
-            popup.classList.toggle('is-editing', true);
-            textarea.value = getCommentText(editor);
-            positionPopup(editor, typeof x === 'number' && typeof y === 'number' ? { x, y } : undefined);
-            popup.classList.remove('is-hidden');
-            textarea.focus();
-            textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+        showDialog: (_uiManager: unknown, editor: IPdfjsEditor) => {
+            const summary = toEditorSummary(editor, editor.parentPageIndex ?? currentPage.value - 1, getCommentText(editor));
+            emit('annotation-open-note', summary);
         },
-        updateComment: (data: { uid?: string } & { text?: string }) => {
-            if (activeEditor && data?.uid && activeEditor.uid === data.uid) {
-                showPopup(activeEditor);
-            }
+        updateComment: () => {
+            scheduleAnnotationCommentsSync();
         },
         updatePopupColor: () => {},
-        removeComments: (uids: string[]) => {
-            if (activeEditor && uids.includes(activeEditor.uid)) {
-                hidePopup();
-            }
+        removeComments: () => {
+            scheduleAnnotationCommentsSync();
         },
-        toggleCommentPopup: (editor: any, isSelected: boolean, visibility?: boolean) => {
-            // Update visual indicator for highlights with comments
-            updateCommentIndicator(editor);
-
-            if (visibility === false && !isSelected) {
-                container.classList.remove('is-viewing-comment');
-                hidePopup();
-                return;
-            }
-
-            // If highlight has a comment, show comment popup and hide toolbar via CSS
-            if ((visibility || isSelected) && editor?.hasComment) {
-                container.classList.add('is-viewing-comment');
-                showPopup(editor);
-            } else {
-                container.classList.remove('is-viewing-comment');
-                hidePopup();
-            }
-        },
-        makeCommentColor: (color: string, opacity = 1) => {
-            if (!color) {
-                return null;
-            }
-            if (color.startsWith('#') && (color.length === 7 || color.length === 4)) {
-                const hex = color.length === 4
-                    ? color
-                        .slice(1)
-                        .split('')
-                        .map((c) => c + c)
-                        .join('')
-                    : color.slice(1);
-                const r = Number.parseInt(hex.slice(0, 2), 16);
-                const g = Number.parseInt(hex.slice(2, 4), 16);
-                const b = Number.parseInt(hex.slice(4, 6), 16);
-                return `rgba(${r}, ${g}, ${b}, ${opacity})`;
-            }
-            return color;
-        },
+        toggleCommentPopup: () => {},
+        makeCommentColor: (
+            color: string | number[] | {
+                r: number;
+                g: number;
+                b: number;
+            } | null,
+            opacity = 1,
+        ) => toCssColor(color, opacity),
         destroy: () => {
-            popup.remove();
+            dialogElement.remove();
         },
     };
 }
@@ -593,7 +521,7 @@ function getAnnotationMode(tool: TAnnotationTool) {
     }
 }
 
-type TAnnotationEditorMode = (typeof AnnotationEditorType)[keyof typeof AnnotationEditorType];
+type TUiManagerSelectedEditor = Parameters<AnnotationEditorUIManager['setSelected']>[0];
 
 function colorWithOpacity(color: string, opacity: number) {
     if (color.startsWith('#') && (color.length === 7 || color.length === 4)) {
@@ -625,7 +553,9 @@ function applyAnnotationSettings(settings: IAnnotationSettings | null) {
         AnnotationEditorParamsType.HIGHLIGHT_COLOR,
         colorWithOpacity(settings.highlightColor, settings.highlightOpacity),
     );
+    uiManager.updateParams(AnnotationEditorParamsType.HIGHLIGHT_THICKNESS, settings.highlightThickness);
     uiManager.updateParams(AnnotationEditorParamsType.HIGHLIGHT_FREE, settings.highlightFree);
+    uiManager.updateParams(AnnotationEditorParamsType.HIGHLIGHT_SHOW_ALL, settings.highlightShowAll);
     uiManager.updateParams(AnnotationEditorParamsType.INK_COLOR, settings.inkColor);
     uiManager.updateParams(AnnotationEditorParamsType.INK_OPACITY, settings.inkOpacity);
     uiManager.updateParams(AnnotationEditorParamsType.INK_THICKNESS, settings.inkThickness);
@@ -664,48 +594,6 @@ async function setAnnotationTool(tool: TAnnotationTool) {
     }
 }
 
-async function runWithAnnotationMode(mode: TAnnotationEditorMode, action: () => void) {
-    const uiManager = annotationUiManager.value;
-    if (!uiManager) {
-        return;
-    }
-
-    const previousMode = uiManager.getMode();
-    if (previousMode === mode) {
-        action();
-        return;
-    }
-
-    try {
-        await uiManager.updateMode(mode);
-        action();
-    } finally {
-        // Restore whatever tool/mode was active before the quick action.
-        try {
-            await uiManager.updateMode(previousMode);
-        } catch (error) {
-            const message = error instanceof Error
-                ? error.message
-                : typeof error === 'string'
-                    ? error
-                    : (() => {
-                        try {
-                            return JSON.stringify(error);
-                        } catch {
-                            return String(error);
-                        }
-                    })();
-
-            const stack = error instanceof Error ? error.stack ?? '' : '';
-            const text = stack
-                ? `Failed to restore annotation mode: ${message}\n${stack}`
-                : `Failed to restore annotation mode: ${message}`;
-
-            console.warn(text);
-        }
-    }
-}
-
 function highlightSelection() {
     void highlightSelectionInternal(false);
 }
@@ -722,7 +610,268 @@ function redoAnnotation() {
     annotationUiManager.value?.redo();
 }
 
+function toSummaryKey(summary: IAnnotationCommentSummary) {
+    if (summary.annotationId) {
+        return `ann:${summary.annotationId}`;
+    }
+    if (summary.uid) {
+        return `uid:${summary.uid}`;
+    }
+    return `id:${summary.id}`;
+}
+
+async function syncAnnotationComments() {
+    const doc = pdfDocument.value;
+    if (!doc || numPages.value <= 0) {
+        emit('annotation-comments', []);
+        return;
+    }
+
+    const localToken = ++annotationCommentsSyncToken;
+    const commentsByKey = new Map<string, IAnnotationCommentSummary>();
+
+    const uiManager = annotationUiManager.value;
+    if (uiManager) {
+        for (let pageIndex = 0; pageIndex < numPages.value; pageIndex += 1) {
+            for (const editor of uiManager.getEditors(pageIndex)) {
+                const text = getCommentText(editor).trim();
+                if (!text) {
+                    continue;
+                }
+
+                const summary = toEditorSummary(editor as IPdfjsEditor, pageIndex, text);
+                commentsByKey.set(toSummaryKey(summary), summary);
+            }
+        }
+    }
+
+    for (let pageNumber = 1; pageNumber <= numPages.value; pageNumber += 1) {
+        if (localToken !== annotationCommentsSyncToken) {
+            return;
+        }
+
+        let pageAnnotations: Array<{
+            id?: string;
+            pageIndex?: number;
+            rect?: number[];
+            contents?: string;
+            contentsObj?: { str?: string | null };
+            richText?: { str?: string | null };
+            title?: string;
+            titleObj?: { str?: string | null };
+            color?: number[] | string | null;
+            opacity?: number;
+            modificationDate?: string | null;
+            creationDate?: string | null;
+        }> = [];
+
+        try {
+            const page = await doc.getPage(pageNumber);
+            pageAnnotations = await page.getAnnotations();
+        } catch {
+            continue;
+        }
+
+        pageAnnotations.forEach((annotation, annotationIndex) => {
+            const text = getAnnotationCommentText(annotation);
+            if (!text) {
+                return;
+            }
+
+            const summary: IAnnotationCommentSummary = {
+                id: annotation.id ?? `pdf-${pageNumber}-${annotationIndex}`,
+                pageIndex: pageNumber - 1,
+                pageNumber,
+                text,
+                author: getAnnotationAuthor(annotation),
+                modifiedAt: parsePdfDateTimestamp(annotation.modificationDate)
+                    ?? parsePdfDateTimestamp(annotation.creationDate),
+                color: toCssColor(annotation.color, annotation.opacity ?? 1),
+                uid: null,
+                annotationId: annotation.id ?? null,
+                source: 'pdf',
+            };
+
+            const key = toSummaryKey(summary);
+            if (!commentsByKey.has(key)) {
+                commentsByKey.set(key, summary);
+            }
+        });
+    }
+
+    if (localToken !== annotationCommentsSyncToken) {
+        return;
+    }
+
+    const comments = Array.from(commentsByKey.values()).sort(compareAnnotationComments);
+    emit('annotation-comments', comments);
+}
+
+const debouncedSyncAnnotationComments = useDebounceFn(() => {
+    void syncAnnotationComments();
+}, 140);
+
+function scheduleAnnotationCommentsSync(immediate = false) {
+    if (immediate) {
+        void syncAnnotationComments();
+        return;
+    }
+    debouncedSyncAnnotationComments();
+}
+
+function escapeCssAttr(value: string) {
+    if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') {
+        return CSS.escape(value);
+    }
+    return value.replace(/"/g, '\\"');
+}
+
+function findEditorForComment(comment: IAnnotationCommentSummary) {
+    const uiManager = annotationUiManager.value;
+    if (!uiManager || numPages.value <= 0) {
+        return null;
+    }
+
+    const pageIndex = Math.max(0, Math.min(comment.pageIndex, numPages.value - 1));
+    const candidateIds = [
+        comment.uid,
+        comment.annotationId,
+        comment.id,
+    ]
+        .filter((id): id is string => typeof id === 'string' && id.length > 0)
+        .filter((id, index, arr) => arr.indexOf(id) === index);
+
+    for (const editor of uiManager.getEditors(pageIndex)) {
+        if (candidateIds.length === 0) {
+            continue;
+        }
+        const identity = getEditorIdentity(editor as IPdfjsEditor, pageIndex);
+        if (
+            candidateIds.includes(identity)
+            || 
+            (editor.uid && candidateIds.includes(editor.uid))
+            || (editor.annotationElementId && candidateIds.includes(editor.annotationElementId))
+            || (editor.id && candidateIds.includes(editor.id))
+        ) {
+            return editor as IPdfjsEditor;
+        }
+    }
+
+    return null;
+}
+
+async function focusAnnotationComment(comment: IAnnotationCommentSummary) {
+    if (!pdfDocument.value) {
+        return;
+    }
+
+    const pageNumber = Math.max(1, Math.min(comment.pageNumber, numPages.value));
+    scrollToPage(pageNumber);
+
+    await nextTick();
+    updateVisibleRange(viewerContainer.value, numPages.value);
+    await renderVisiblePages(visibleRange.value, { preserveRenderedPages: true });
+
+    const uiManager = annotationUiManager.value as (AnnotationEditorUIManager & {
+        getLayer?: (pageIndex: number) => { getEditorByUID?: (uid: string) => IPdfjsEditor | null } | null;
+        selectComment?: (pageIndex: number, uid: string) => void;
+    }) | null;
+    const pageIndex = pageNumber - 1;
+
+    if (uiManager) {
+        try {
+            await uiManager.waitForEditorsRendered(pageNumber);
+        } catch {
+            // ignore
+        }
+
+        const layer = uiManager.getLayer?.(pageIndex) ?? null;
+        const candidateIds = [
+            comment.uid,
+            comment.annotationId,
+            comment.id,
+        ]
+            .filter((id): id is string => typeof id === 'string' && id.length > 0)
+            .filter((id, index, arr) => arr.indexOf(id) === index);
+
+        for (const id of candidateIds) {
+            const editor = layer?.getEditorByUID?.(id);
+            if (editor) {
+                editor.toggleComment?.(true, true);
+                return;
+            }
+        }
+
+        if (typeof uiManager.selectComment === 'function') {
+            for (const id of candidateIds) {
+                uiManager.selectComment(pageIndex, id);
+            }
+        }
+    }
+
+    const annotationId = comment.annotationId;
+    const container = viewerContainer.value;
+    if (!annotationId || !container) {
+        return;
+    }
+
+    const selector = `[data-annotation-id="${escapeCssAttr(annotationId)}"]`;
+    const target = container.querySelector<HTMLElement>(selector);
+    if (!target) {
+        return;
+    }
+    target.classList.add('annotation-focus-pulse');
+    setTimeout(() => {
+        target.classList.remove('annotation-focus-pulse');
+    }, 900);
+}
+
+function updateAnnotationComment(comment: IAnnotationCommentSummary, text: string) {
+    const editor = findEditorForComment(comment);
+    if (!editor) {
+        return false;
+    }
+
+    const nextText = text.trim();
+    const previousText = getCommentText(editor).trim();
+    if (nextText === previousText) {
+        return true;
+    }
+
+    editor.comment = nextText.length > 0 ? nextText : null;
+    editor.addToAnnotationStorage?.();
+    emit('annotation-modified');
+    scheduleAnnotationCommentsSync(true);
+    return true;
+}
+
+function deleteAnnotationComment(comment: IAnnotationCommentSummary) {
+    const uiManager = annotationUiManager.value;
+    const editor = findEditorForComment(comment);
+    if (!uiManager || !editor) {
+        return false;
+    }
+
+    try {
+        uiManager.setSelected(editor as unknown as TUiManagerSelectedEditor);
+        uiManager.delete();
+        emit('annotation-modified');
+        scheduleAnnotationCommentsSync(true);
+        return true;
+    } catch {
+        try {
+            editor.remove?.();
+            emit('annotation-modified');
+            scheduleAnnotationCommentsSync(true);
+            return true;
+        } catch {
+            return false;
+        }
+    }
+}
+
 function destroyAnnotationEditor() {
+    annotationCommentsSyncToken += 1;
     if (annotationEventBus.value && annotationStateListener) {
         annotationEventBus.value.off('annotationeditorstateschanged', annotationStateListener);
     }
@@ -794,46 +943,50 @@ function initAnnotationEditor() {
     };
 
     const originalCopy = uiManager.copy.bind(uiManager);
-    uiManager.copy = (event: ClipboardEvent) => {
+    uiManager.copy = async (event: ClipboardEvent) => {
         if (shouldIgnoreEditorEvent(event)) {
             return;
         }
-        originalCopy(event);
+        await originalCopy(event);
     };
 
     const originalCut = uiManager.cut.bind(uiManager);
-    uiManager.cut = (event: ClipboardEvent) => {
+    uiManager.cut = async (event: ClipboardEvent) => {
         if (shouldIgnoreEditorEvent(event)) {
             return;
         }
-        originalCut(event);
+        await originalCut(event);
     };
 
     const originalPaste = uiManager.paste.bind(uiManager);
-    uiManager.paste = (event: ClipboardEvent) => {
+    uiManager.paste = async (event: ClipboardEvent) => {
         if (shouldIgnoreEditorEvent(event)) {
             return;
         }
-        void originalPaste(event);
+        await originalPaste(event);
     };
 
     const originalAddToAnnotationStorage = uiManager.addToAnnotationStorage.bind(uiManager);
     uiManager.addToAnnotationStorage = (editor) => {
         const result = originalAddToAnnotationStorage(editor);
         emit('annotation-modified');
+        scheduleAnnotationCommentsSync();
         return result;
     };
 
     const originalAddCommands = uiManager.addCommands.bind(uiManager);
     uiManager.addCommands = (params) => {
         emit('annotation-modified');
-        return originalAddCommands(params);
+        const result = originalAddCommands(params);
+        scheduleAnnotationCommentsSync();
+        return result;
     };
 
     const originalUndo = uiManager.undo.bind(uiManager);
     uiManager.undo = () => {
         const result = originalUndo();
         emit('annotation-modified');
+        scheduleAnnotationCommentsSync();
         return result;
     };
 
@@ -841,6 +994,7 @@ function initAnnotationEditor() {
     uiManager.redo = () => {
         const result = originalRedo();
         emit('annotation-modified');
+        scheduleAnnotationCommentsSync();
         return result;
     };
 
@@ -857,7 +1011,10 @@ function initAnnotationEditor() {
     eventBus.on('annotationeditorstateschanged', annotationStateListener);
 
     try {
-        pdfDoc.annotationStorage.onSetModified = () => emit('annotation-modified');
+        pdfDoc.annotationStorage.onSetModified = () => {
+            emit('annotation-modified');
+            scheduleAnnotationCommentsSync();
+        };
     } catch (error) {
         console.warn('Failed to attach annotation modified handler:', error);
     }
@@ -869,6 +1026,7 @@ function initAnnotationEditor() {
     applyAnnotationSettings(pendingAnnotationSettings.value);
     void setAnnotationTool(pendingAnnotationTool.value);
     emit('annotation-state', annotationState.value);
+    scheduleAnnotationCommentsSync(true);
 }
 
 async function highlightSelectionInternal(withComment: boolean) {
@@ -877,23 +1035,48 @@ async function highlightSelectionInternal(withComment: boolean) {
         return;
     }
 
-    const selection = document.getSelection();
-    if (!selection || selection.isCollapsed) {
+    let selection = document.getSelection();
+    const cachedRange = cachedSelectionRange;
+    const hasFreshCachedSelection = (
+        !!cachedRange
+        && (Date.now() - cachedSelectionTimestamp) <= SELECTION_CACHE_TTL_MS
+    );
+    let activeRange: Range | null = null;
+    if (selection && !selection.isCollapsed && selection.rangeCount > 0) {
+        activeRange = selection.getRangeAt(0).cloneRange();
+    } else if (hasFreshCachedSelection) {
+        activeRange = cachedRange.cloneRange();
+    }
+
+    if (!activeRange) {
         return;
     }
 
-    const {
-        anchorNode,
-        anchorOffset,
-        focusNode,
-        focusOffset,
-    } = selection;
+    try {
+        selection = document.getSelection();
+        selection?.removeAllRanges();
+        selection?.addRange(activeRange.cloneRange());
+    } catch {
+        // Ignore selection restoration failure and continue with available data.
+    }
 
-    const text = selection.toString();
-    const anchorElement = anchorNode?.nodeType === Node.TEXT_NODE
-        ? anchorNode.parentElement
-        : (anchorNode as HTMLElement | null);
-    const textLayer = anchorElement?.closest('.textLayer') as HTMLElement | null;
+    const {
+        startContainer,
+        startOffset,
+        endContainer,
+        endOffset,
+        commonAncestorContainer,
+    } = activeRange;
+    const text = activeRange.toString();
+
+    const anchorElement = startContainer.nodeType === Node.TEXT_NODE
+        ? startContainer.parentElement
+        : (startContainer as HTMLElement | null);
+    const commonAncestorElement = commonAncestorContainer.nodeType === Node.TEXT_NODE
+        ? commonAncestorContainer.parentElement
+        : (commonAncestorContainer as HTMLElement | null);
+    const textLayer = (anchorElement?.closest('.text-layer, .textLayer')
+        ?? commonAncestorElement?.closest('.text-layer, .textLayer')) as HTMLElement | null;
     if (!textLayer) {
         return;
     }
@@ -907,46 +1090,108 @@ async function highlightSelectionInternal(withComment: boolean) {
     const pageNumber = pageContainer?.dataset.page
         ? Number(pageContainer.dataset.page)
         : currentPage.value;
+    const pageIndex = Math.max(0, pageNumber - 1);
 
-    selection.empty();
+    const editorsBefore = Array.from(uiManager.getEditors(pageIndex)) as IPdfjsEditor[];
+    const editorsBeforeRefs = new Set<IPdfjsEditor>(editorsBefore);
+    const editorsBeforeIds = new Set<string>(editorsBefore.map(editor => getEditorIdentity(editor, pageIndex)));
+
+    selection?.removeAllRanges();
+    cachedSelectionRange = null;
+    cachedSelectionTimestamp = 0;
 
     const previousMode = uiManager.getMode();
-
-    if (withComment) {
-        restoreModeAfterCommentEdit = previousMode;
-    }
 
     try {
         await uiManager.updateMode(AnnotationEditorType.HIGHLIGHT);
         await uiManager.waitForEditorsRendered(pageNumber);
 
         const layer = uiManager.getLayer(pageNumber - 1) ?? uiManager.currentLayer;
-        const editor = layer?.createAndAddNewEditor(
-            { offsetX: 0, offsetY: 0 } as unknown as PointerEvent,
+        const createdEditor = layer?.createAndAddNewEditor(
+            {
+                offsetX: 0,
+                offsetY: 0, 
+            } as unknown as PointerEvent,
             false,
             {
                 methodOfCreation: 'toolbar',
                 boxes,
-                anchorNode,
-                anchorOffset,
-                focusNode,
-                focusOffset,
+                anchorNode: startContainer,
+                anchorOffset: startOffset,
+                focusNode: endContainer,
+                focusOffset: endOffset,
                 text,
             },
         );
 
         if (withComment) {
-            if (editor) {
-                await editor.editComment();
-                return;
+            let targetEditor = (createdEditor ?? null) as IPdfjsEditor | null;
+            if (!targetEditor) {
+                const activeEditor = (uiManager as AnnotationEditorUIManager & { getActive?: () => unknown })
+                    .getActive?.() as IPdfjsEditor | null | undefined;
+                if (activeEditor) {
+                    targetEditor = activeEditor;
+                }
             }
-            restoreModeAfterCommentEdit = null;
+
+            if (!targetEditor) {
+                try {
+                    await uiManager.waitForEditorsRendered(pageNumber);
+                } catch {
+                    // ignore
+                }
+                await nextTick();
+                const editorsAfter = Array.from(uiManager.getEditors(pageIndex)) as IPdfjsEditor[];
+                targetEditor = editorsAfter.find((editor) => {
+                    if (!editorsBeforeRefs.has(editor)) {
+                        return true;
+                    }
+                    const identity = getEditorIdentity(editor, pageIndex);
+                    return !editorsBeforeIds.has(identity);
+                }) ?? editorsAfter.at(-1) ?? null;
+            }
+
+            if (targetEditor) {
+                const summary = toEditorSummary(targetEditor, pageIndex, getCommentText(targetEditor));
+                emit('annotation-open-note', summary);
+            } else {
+                let attempts = 0;
+                const tryEmitLater = () => {
+                    const editorsLater = Array.from(uiManager.getEditors(pageIndex)) as IPdfjsEditor[];
+                    const lateEditor = editorsLater.find((editor) => {
+                        if (!editorsBeforeRefs.has(editor)) {
+                            return true;
+                        }
+                        const identity = getEditorIdentity(editor, pageIndex);
+                        return !editorsBeforeIds.has(identity);
+                    }) ?? editorsLater.at(-1) ?? null;
+                    if (!lateEditor) {
+                        attempts += 1;
+                        if (attempts < 12) {
+                            setTimeout(tryEmitLater, 80);
+                        }
+                        return;
+                    }
+                    const summary = toEditorSummary(lateEditor, pageIndex, getCommentText(lateEditor));
+                    emit('annotation-open-note', summary);
+                };
+                setTimeout(tryEmitLater, 80);
+            }
         }
     } catch (error) {
-        console.warn('Failed to highlight selection:', error);
-        if (withComment) {
-            restoreModeAfterCommentEdit = null;
-        }
+        const message = error instanceof Error
+            ? error.message
+            : typeof error === 'string'
+                ? error
+                : (() => {
+                    try {
+                        return JSON.stringify(error);
+                    } catch {
+                        return String(error);
+                    }
+                })();
+        const stack = error instanceof Error ? error.stack ?? '' : '';
+        console.warn(stack ? `Failed to highlight selection: ${message}\n${stack}` : `Failed to highlight selection: ${message}`);
     }
 
     // If we're doing a one-off highlight (no comment dialog) then restore the previous mode right away.
@@ -982,6 +1227,8 @@ function getVisibleRange() {
 
 async function loadFromSource() {
     if (!src.value) {
+        annotationCommentsSyncToken += 1;
+        emit('annotation-comments', []);
         return;
     }
 
@@ -1031,6 +1278,7 @@ async function loadFromSource() {
     updateVisibleRange(viewerContainer.value, numPages.value);
     await renderVisiblePages(visibleRange.value);
     applySearchHighlights();
+    scheduleAnnotationCommentsSync(true);
 }
 
 const debouncedRenderOnScroll = useDebounceFn(() => {
@@ -1143,13 +1391,18 @@ function handleResize() {
 useResizeObserver(viewerContainer, handleResize);
 
 onMounted(() => {
+    document.addEventListener('selectionchange', cacheCurrentTextSelection, { passive: true });
     loadFromSource();
 });
 
 onUnmounted(() => {
+    document.removeEventListener('selectionchange', cacheCurrentTextSelection);
+    cachedSelectionRange = null;
+    cachedSelectionTimestamp = 0;
     cleanupRenderedPages();
     destroyAnnotationEditor();
     cleanupDocument();
+    emit('annotation-comments', []);
 });
 
 watch(
@@ -1231,7 +1484,10 @@ watch(
     (settings) => {
         applyAnnotationSettings(settings);
     },
-    { deep: true, immediate: true },
+    {
+        deep: true,
+        immediate: true, 
+    },
 );
 
 watch(
@@ -1267,6 +1523,9 @@ defineExpose({
     commentSelection,
     undoAnnotation,
     redoAnnotation,
+    focusAnnotationComment,
+    updateAnnotationComment,
+    deleteAnnotationComment,
 });
 </script>
 
@@ -1301,6 +1560,7 @@ defineExpose({
     background: var(--color-surface-muted);
     display: flex;
     flex-direction: column;
+
     --pdfjs-comment-edit-icon: url('/pdfjs/comment-editButton.svg');
     --pdfjs-comment-popup-edit-icon: url('/pdfjs/comment-popup-editButton.svg');
     --pdfjs-comment-close-icon: url('/pdfjs/comment-closeButton.svg');
@@ -1329,8 +1589,16 @@ defineExpose({
     --comment-edit-button-icon: var(--pdfjs-comment-edit-icon);
 }
 
+/* Okular-style workflow: comment editing is handled from side reviews + note window. */
+.pdfViewer :deep(.editToolbar),
+.pdfViewer :deep(.annotationCommentButton),
+.pdfViewer :deep(.commentPopup),
+.pdfViewer :deep(#commentManagerDialog) {
+    display: none !important;
+}
+
 .pdfViewer :deep(.commentPopup) {
-    background: var(--color-surface, #ffffff);
+    background: var(--color-surface, #fff);
     border: 1px solid var(--ui-border, #e5e7eb);
     box-shadow:
         0 6px 18px rgba(15, 23, 42, 0.15),
@@ -1346,8 +1614,9 @@ defineExpose({
     color: var(--ui-text-muted, #6b7280);
 }
 
+/* stylelint-disable-next-line selector-id-pattern -- PDF.js internal ID */
 .pdfViewer :deep(#commentManagerDialog) {
-    background: var(--color-surface, #ffffff);
+    background: var(--color-surface, #fff);
     border: 1px solid var(--ui-border, #e5e7eb);
     box-shadow:
         0 6px 18px rgba(15, 23, 42, 0.15),
@@ -1355,6 +1624,7 @@ defineExpose({
     color: var(--ui-text, #111827);
 }
 
+/* stylelint-disable-next-line selector-id-pattern -- PDF.js internal IDs */
 .pdfViewer :deep(#commentManagerDialog #commentManagerTextInput) {
     background: var(--color-surface-2, #f3f4f6);
     color: var(--ui-text, #111827);
@@ -1420,15 +1690,79 @@ defineExpose({
 .pdfViewer :deep(.highlightEditor.has-comment)::after {
     content: '';
     position: absolute;
-    top: -4px;
-    right: -4px;
-    width: 10px;
-    height: 10px;
-    background: var(--ui-primary, #3b82f6);
-    border-radius: 50%;
-    border: 2px solid var(--color-surface, #ffffff);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+    top: -8px;
+    right: -8px;
+    width: 16px;
+    height: 16px;
+    background-color: var(--ui-primary, #3b82f6);
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M20 2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h14l4 4V4c0-1.1-.9-2-2-2zm-2 9H6V9h12v2zm0 4H6v-2h12v2z'/%3E%3C/svg%3E");
+    mask-repeat: no-repeat;
+    mask-position: center;
+    mask-size: contain;
+    border-radius: 0;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
     pointer-events: none;
+    transition: transform 0.12s ease;
+}
+
+.pdfViewer :deep(.highlightEditor.has-comment) {
+    cursor: pointer;
+}
+
+.pdfViewer :deep(.highlightEditor.has-comment:hover) {
+    filter: drop-shadow(0 0 3px rgba(59, 130, 246, 0.35));
+}
+
+.pdfViewer :deep(.highlightEditor.has-comment:hover)::after {
+    transform: scale(1.08);
+}
+
+.pdfViewer :deep(.pdf-annotation-comment-tooltip) {
+    position: absolute;
+    z-index: 5;
+    max-width: 260px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    background: var(--color-surface, #fff);
+    color: var(--ui-text, #111827);
+    border: 1px solid var(--ui-border, #e5e7eb);
+    box-shadow:
+        0 6px 16px rgba(15, 23, 42, 0.12),
+        0 2px 6px rgba(15, 23, 42, 0.1);
+    font-size: 12px;
+    line-height: 1.4;
+    opacity: 0;
+    transform: translate3d(0, 4px, 0);
+    transition: opacity 0.12s ease, transform 0.12s ease;
+    pointer-events: none;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+}
+
+.pdfViewer :deep(.pdf-annotation-comment-tooltip.is-visible) {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+}
+
+.pdfViewer :deep(.pdf-annotation-comment-tooltip)::before {
+    content: '';
+    position: absolute;
+    left: 14px;
+    bottom: -6px;
+    width: 0;
+    height: 0;
+    border-left: 6px solid transparent;
+    border-right: 6px solid transparent;
+    border-top: 6px solid var(--color-surface, #fff);
+    filter: drop-shadow(0 1px 1px rgba(15, 23, 42, 0.12));
+}
+
+.pdfViewer :deep(.pdf-annotation-comment-tooltip.is-below)::before {
+    top: -6px;
+    bottom: auto;
+    border-top: none;
+    border-bottom: 6px solid var(--color-surface, #fff);
+    filter: drop-shadow(0 -1px 1px rgba(15, 23, 42, 0.12));
 }
 
 .pdfViewer :deep(.pdf-annotation-comment-popup) {
@@ -1438,7 +1772,7 @@ defineExpose({
     max-width: 280px;
     padding: 12px 14px;
     border-radius: 8px;
-    background: var(--color-surface, #ffffff);
+    background: var(--color-surface, #fff);
     color: var(--ui-text, #111827);
     border: 1px solid var(--ui-border, #e5e7eb);
     box-shadow:
@@ -1460,7 +1794,7 @@ defineExpose({
     height: 0;
     border-left: 8px solid transparent;
     border-right: 8px solid transparent;
-    border-bottom: 8px solid var(--color-surface, #ffffff);
+    border-bottom: 8px solid var(--color-surface, #fff);
     filter: drop-shadow(0 -1px 1px rgba(15, 23, 42, 0.08));
 }
 
@@ -1474,7 +1808,7 @@ defineExpose({
     font-size: 13px;
     line-height: 1.5;
     white-space: pre-wrap;
-    word-break: break-word;
+    overflow-wrap: break-word;
 }
 
 .pdfViewer :deep(.pdf-annotation-comment-popup__textarea) {
@@ -1531,12 +1865,28 @@ defineExpose({
     background: var(--color-surface-3, #e5e7eb);
 }
 
+.pdfViewer :deep(.annotation-focus-pulse) {
+    animation: annotation-focus-pulse 0.9s ease-out;
+    outline: 2px solid color-mix(in oklab, var(--ui-primary, #3b82f6) 80%, white 20%);
+    outline-offset: 2px;
+}
+
+@keyframes annotation-focus-pulse {
+    0% {
+        box-shadow: 0 0 0 0 color-mix(in oklab, var(--ui-primary, #3b82f6) 45%, transparent);
+    }
+    100% {
+        box-shadow: 0 0 0 14px transparent;
+    }
+}
+
 .page_container {
     position: relative;
     margin: 0 auto;
     flex-shrink: 0;
     content-visibility: auto;
     contain-intrinsic-size: auto 800px;
+
     --scale-round-x: 1px;
     --scale-round-y: 1px;
 }

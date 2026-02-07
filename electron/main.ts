@@ -35,7 +35,7 @@ async function init() {
     await app.whenReady();
     if (process.platform === 'darwin') {
         try {
-            app.dock.setIcon(iconPath);
+            app.dock?.setIcon(iconPath);
         } catch (err) {
             console.warn('[Electron] Failed to set dock icon:', err);
         }

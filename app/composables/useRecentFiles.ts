@@ -3,12 +3,11 @@ import type { IRecentFile } from '@app/types/shared';
 
 // Vite HMR types (not exposed by Nuxt's type system)
 declare global {
-    interface ImportMeta {
-        hot?: {
-            data?: Record<string, unknown>;
-            dispose: (callback: (data: Record<string, unknown>) => void) => void;
-        };
-    }
+    // eslint-disable-next-line @typescript-eslint/naming-convention -- augmenting built-in ImportMeta
+    interface ImportMeta {hot?: {
+        data?: Record<string, unknown>;
+        dispose: (callback: (data: Record<string, unknown>) => void) => void;
+    };}
 }
 
 // Shared state across all composable instances
