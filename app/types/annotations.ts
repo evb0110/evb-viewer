@@ -43,5 +43,6 @@ export interface IAnnotationCommentSummary {
     uid: string | null;
     annotationId: string | null;
     source: 'editor' | 'pdf';
+    hasNote?: boolean;
     markerRect?: IAnnotationMarkerRect | null;
 }

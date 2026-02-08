@@ -39,6 +39,9 @@
                 tabindex="0"
                 @click.self="focusReviewsList"
             >
+                <p class="reviews-hint">
+                    Click to focus. Double-click opens the pop-up note.
+                </p>
                 <ul v-if="visibleNodes.length > 0" class="reviews-tree">
                     <li v-for="node in visibleNodes" :key="node.id">
                         <button
@@ -489,11 +492,11 @@ const selectedQuickToolId = ref(quickTools[0]?.id ?? '');
 const commentQuery = ref('');
 const reviewQuickFilter = ref<TReviewQuickFilter>('all');
 const groupByPage = ref(true);
-const groupByAuthor = ref(true);
+const groupByAuthor = ref(false);
 const collapsedGroupIds = ref<string[]>([]);
 const transientExpandedGroupIds = ref<string[]>([]);
 const transientSuppressedGroupIds = ref<string[]>([]);
-const quickSectionOpen = ref(true);
+const quickSectionOpen = ref(false);
 const toolSettingsOpen = ref(false);
 const selectedCommentKeys = ref<string[]>([]);
 const selectionAnchorKey = ref<string | null>(null);
@@ -518,10 +521,6 @@ const timeFormatter = new Intl.DateTimeFormat(undefined, {
 });
 const STORAGE_KEYS = {
     selectedQuickToolId: 'pdf.annotations.quick.default',
-    reviewQuickFilter: 'pdf.annotations.reviews.quickFilter',
-    groupByPage: 'pdf.annotations.reviews.groupByPage',
-    groupByAuthor: 'pdf.annotations.reviews.groupByAuthor',
-    collapsedGroupIds: 'pdf.annotations.reviews.collapsedGroupIds',
     quickSectionOpen: 'pdf.annotations.panel.quickSectionOpen',
     toolSettingsOpen: 'pdf.annotations.panel.toolSettingsOpen',
 } as const;
@@ -542,32 +541,6 @@ function saveBooleanSetting(key: string, value: boolean) {
         return;
     }
     window.localStorage.setItem(key, value ? '1' : '0');
-}
-
-function loadStringArraySetting(key: string, fallback: string[]) {
-    if (typeof window === 'undefined') {
-        return fallback;
-    }
-    const raw = window.localStorage.getItem(key);
-    if (!raw) {
-        return fallback;
-    }
-    try {
-        const parsed = JSON.parse(raw);
-        if (!Array.isArray(parsed)) {
-            return fallback;
-        }
-        return parsed.filter((value): value is string => typeof value === 'string');
-    } catch {
-        return fallback;
-    }
-}
-
-function saveStringArraySetting(key: string, values: string[]) {
-    if (typeof window === 'undefined') {
-        return;
-    }
-    window.localStorage.setItem(key, JSON.stringify(values));
 }
 
 function commentMatchesQuery(comment: IAnnotationCommentSummary, normalizedQuery: string) {
@@ -635,7 +608,7 @@ function matchesReviewQuickFilter(comment: IAnnotationCommentSummary, filter: TR
         return true;
     }
     if (filter === 'with-note') {
-        return comment.text.trim().length > 0;
+        return comment.hasNote === true || comment.text.trim().length > 0;
     }
     if (filter === 'current-page') {
         return comment.pageNumber === props.currentPage;
@@ -699,7 +672,7 @@ const reviewQuickFilters = computed<IReviewQuickFilterItem[]>(() => {
         {
             id: 'with-note',
             label: 'With Note',
-            title: 'Only annotations with comment text',
+            title: 'Only annotations that carry a pop-up note',
             count: countBy('with-note'),
         },
         {
@@ -1313,6 +1286,9 @@ function reviewItemText(comment: IAnnotationCommentSummary) {
     if (noteText) {
         return noteText;
     }
+    if (comment.hasNote) {
+        return 'Empty note';
+    }
     const kind = reviewKindLabel(comment);
     return `${kind} annotation`;
 }
@@ -1751,24 +1727,12 @@ onMounted(() => {
         if (storedQuickToolId && quickTools.some(tool => tool.id === storedQuickToolId)) {
             selectedQuickToolId.value = storedQuickToolId;
         }
-        const storedQuickFilter = window.localStorage.getItem(STORAGE_KEYS.reviewQuickFilter);
-        const validFilters: TReviewQuickFilter[] = [
-            'all',
-            'with-note',
-            'highlight',
-            'ink',
-            'text',
-            'current-page',
-        ];
-        if (storedQuickFilter && validFilters.includes(storedQuickFilter as TReviewQuickFilter)) {
-            reviewQuickFilter.value = storedQuickFilter as TReviewQuickFilter;
-        }
     }
 
-    groupByPage.value = loadBooleanSetting(STORAGE_KEYS.groupByPage, groupByPage.value);
-    groupByAuthor.value = loadBooleanSetting(STORAGE_KEYS.groupByAuthor, groupByAuthor.value);
-    collapsedGroupIds.value = loadStringArraySetting(STORAGE_KEYS.collapsedGroupIds, []);
-    quickSectionOpen.value = loadBooleanSetting(STORAGE_KEYS.quickSectionOpen, true);
+    groupByPage.value = true;
+    groupByAuthor.value = false;
+    collapsedGroupIds.value = [];
+    quickSectionOpen.value = loadBooleanSetting(STORAGE_KEYS.quickSectionOpen, false);
     toolSettingsOpen.value = loadBooleanSetting(STORAGE_KEYS.toolSettingsOpen, false);
 
     window.addEventListener('pointerdown', handleWindowPointerDown);
@@ -1785,25 +1749,6 @@ watch(selectedQuickToolId, (nextId) => {
         return;
     }
     window.localStorage.setItem(STORAGE_KEYS.selectedQuickToolId, nextId);
-});
-
-watch(reviewQuickFilter, (value) => {
-    if (typeof window === 'undefined') {
-        return;
-    }
-    window.localStorage.setItem(STORAGE_KEYS.reviewQuickFilter, value);
-});
-
-watch(collapsedGroupIds, (value) => {
-    saveStringArraySetting(STORAGE_KEYS.collapsedGroupIds, value);
-});
-
-watch(groupByPage, (value) => {
-    saveBooleanSetting(STORAGE_KEYS.groupByPage, value);
-});
-
-watch(groupByAuthor, (value) => {
-    saveBooleanSetting(STORAGE_KEYS.groupByAuthor, value);
 });
 
 watch(
@@ -1857,19 +1802,20 @@ watch(
 <style scoped>
 .pdf-annotations-panel {
     position: relative;
-    display: grid;
-    grid-template-rows: minmax(15rem, 1fr) auto;
+    display: flex;
+    flex-direction: column;
     gap: 0.55rem;
     height: 100%;
     min-height: 0;
     padding: 0.55rem;
     color: var(--ui-text);
     background: var(--ui-bg, #fff);
-    overflow: hidden;
+    overflow: auto;
 }
 
 .reviews-section {
-    min-height: 15rem;
+    flex: 1 1 auto;
+    min-height: 12rem;
     display: grid;
     grid-template-rows: auto auto auto minmax(7rem, 1fr) auto;
     border: 1px solid var(--ui-border);
@@ -1965,6 +1911,12 @@ watch(
     min-height: 7rem;
     overflow: auto;
     padding: 0 0.35rem 0.45rem;
+}
+
+.reviews-hint {
+    margin: 0.3rem 0.35rem 0.45rem;
+    font-size: 0.68rem;
+    color: var(--ui-text-dimmed);
 }
 
 .reviews-tree {
@@ -2173,11 +2125,11 @@ watch(
 }
 
 .quick-section {
+    flex: 0 0 auto;
     border: 1px solid var(--ui-border);
     background: color-mix(in oklab, var(--ui-bg, #fff) 94%, #eef2f7 6%);
     min-height: 0;
-    max-height: 52%;
-    overflow: auto;
+    overflow: visible;
 }
 
 .quick-section__summary {

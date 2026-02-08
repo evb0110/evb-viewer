@@ -310,6 +310,24 @@ function getCommentText(editor: IPdfjsEditor | null | undefined) {
     return '';
 }
 
+function hasEditorCommentPayload(editor: IPdfjsEditor | null | undefined) {
+    if (!editor) {
+        return false;
+    }
+    try {
+        const comment = editor.comment;
+        if (typeof comment === 'string') {
+            return true;
+        }
+        if (comment && typeof comment === 'object' && 'text' in comment) {
+            return true;
+        }
+    } catch {
+        return false;
+    }
+    return Boolean(editor.hasComment);
+}
+
 function parsePdfDateTimestamp(value: string | null | undefined) {
     if (!value) {
         return null;
@@ -712,6 +730,9 @@ function commentMergePriority(comment: IAnnotationCommentSummary) {
     if (comment.text.trim()) {
         score += 12;
     }
+    if (comment.hasNote) {
+        score += 8;
+    }
     if (comment.modifiedAt) {
         score += 5;
     }
@@ -860,6 +881,7 @@ function toEditorSummary(
     const subtype = detectEditorSubtype(editor);
     const uid = editor.uid ?? null;
     const annotationId = editor.annotationElementId ?? null;
+    const hasNote = hasEditorCommentPayload(editor) || text.length > 0;
     const id = getEditorIdentity(editor, pageIndex);
 
     return {
@@ -883,6 +905,7 @@ function toEditorSummary(
         uid,
         annotationId,
         source: 'editor',
+        hasNote,
         markerRect: toMarkerRectFromEditor(editor),
     };
 }
@@ -962,6 +985,9 @@ function forgetSummaryText(summary: IAnnotationCommentSummary) {
 
 function hydrateSummaryFromMemory(summary: IAnnotationCommentSummary) {
     if (summary.text.trim()) {
+        return summary;
+    }
+    if (summary.hasNote) {
         return summary;
     }
 
@@ -1350,6 +1376,7 @@ function mergeCommentSummaries(
             ? Math.min(existingSortIndex, incomingSortIndex)
             : (existingSortIndex ?? incomingSortIndex)
     );
+    const hasNote = Boolean(existing.hasNote || incoming.hasNote);
 
     return {
         ...existing,
@@ -1363,6 +1390,7 @@ function mergeCommentSummaries(
         subtype: existing.subtype ?? incoming.subtype,
         color: existing.color ?? incoming.color,
         source,
+        hasNote,
         markerRect: existing.markerRect ?? incoming.markerRect ?? null,
     };
 }
@@ -1562,6 +1590,17 @@ function pickPrimaryDetachedComment(comments: IAnnotationCommentSummary[]) {
         })[0] ?? comments[0];
 }
 
+function commentPreviewText(comment: IAnnotationCommentSummary) {
+    const raw = comment.text.trim();
+    if (!raw) {
+        return 'Empty note';
+    }
+    if (raw.length > 120) {
+        return `${raw.slice(0, 117)}...`;
+    }
+    return raw;
+}
+
 function createDetachedCommentClusterMarkerElement(
     comments: IAnnotationCommentSummary[],
     placement: IDetachedMarkerPlacement,
@@ -1571,10 +1610,7 @@ function createDetachedCommentClusterMarkerElement(
         return null;
     }
     const noteCount = comments.length;
-    const rawPreview = primaryComment.text.trim();
-    const trimmedPreview = rawPreview.length > 120
-        ? `${rawPreview.slice(0, 117)}...`
-        : rawPreview;
+    const trimmedPreview = commentPreviewText(primaryComment);
     const preview = noteCount > 1
         ? `${trimmedPreview} (+${noteCount - 1} more note${noteCount > 2 ? 's' : ''})`
         : trimmedPreview;
@@ -1758,7 +1794,7 @@ function syncInlineCommentIndicators() {
 
     const commentsWithNotes = annotationCommentsCache.value.filter(comment => (
         isTextMarkupSubtype(comment.subtype)
-        && comment.text.trim().length > 0
+        && (comment.hasNote === true || comment.text.trim().length > 0)
     ));
     if (commentsWithNotes.length === 0) {
         return;
@@ -1790,7 +1826,7 @@ function syncInlineCommentIndicators() {
                 const summary = hydrateSummaryFromMemory(
                     toEditorSummary(normalizedEditor, pageIndex, getCommentText(normalizedEditor).trim()),
                 );
-                if (!summary.text.trim()) {
+                if (!summary.hasNote && !summary.text.trim()) {
                     continue;
                 }
                 if (normalizedEditor.div) {
@@ -2020,6 +2056,10 @@ async function syncAnnotationComments() {
                 uid: null,
                 annotationId,
                 source: 'pdf',
+                hasNote: Boolean(
+                    isTextMarkupSubtype(subtype)
+                    && (Boolean(annotation.popupRef) || Boolean(popupAnnotation) || Boolean(annotationText.trim()) || Boolean(popupText.trim())),
+                ),
                 markerRect: toMarkerRectFromPdfRect(
                     annotation.rect ?? popupAnnotation?.rect,
                     pageView,
@@ -2210,24 +2250,31 @@ function updateAnnotationComment(comment: IAnnotationCommentSummary, text: strin
         Number.isFinite(editor.parentPageIndex) ? (editor.parentPageIndex as number) : resolvedComment.pageIndex,
     );
 
-    const nextText = text.trim();
-    const previousText = getCommentText(editor).trim();
+    const nextText = text;
+    const nextTrimmed = nextText.trim();
+    const previousText = getCommentText(editor);
+    const previousTrimmed = previousText.trim();
     if (nextText === previousText) {
         return true;
     }
 
-    editor.comment = nextText.length > 0 ? nextText : null;
+    // Preserve empty pop-up notes as real notes (Okular-like behavior),
+    // instead of converting them to "no note".
+    editor.comment = nextTrimmed.length > 0 ? nextText : '';
     editor.addToAnnotationStorage?.();
-    if (nextText.length > 0) {
+    if (nextTrimmed.length > 0) {
         pendingCommentEditorKeys.delete(pendingKey);
         rememberSummaryText({
             ...resolvedComment,
             text: nextText,
+            hasNote: true,
             modifiedAt: Date.now(),
         });
     } else {
-        pendingCommentEditorKeys.add(pendingKey);
-        forgetSummaryText(resolvedComment);
+        pendingCommentEditorKeys.delete(pendingKey);
+        if (previousTrimmed.length > 0) {
+            forgetSummaryText(resolvedComment);
+        }
     }
     emit('annotation-modified');
     scheduleAnnotationCommentsSync(true);

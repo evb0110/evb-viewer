@@ -1467,6 +1467,24 @@ function parsePdfJsAnnotationRef(annotationId: string | null | undefined) {
     return PDFRef.of(objectNumber, generationNumber);
 }
 
+function parseAnnotationRefFromStableKey(stableKey: string | null | undefined) {
+    if (!stableKey) {
+        return null;
+    }
+    const match = stableKey.trim().match(/^ann:\d+:(\d+R(?:\d+)?)$/i);
+    if (!match?.[1]) {
+        return null;
+    }
+    return parsePdfJsAnnotationRef(match[1]);
+}
+
+function resolveCommentPdfRef(comment: IAnnotationCommentSummary) {
+    return (
+        parsePdfJsAnnotationRef(comment.annotationId ?? comment.id)
+        ?? parseAnnotationRefFromStableKey(comment.stableKey)
+    );
+}
+
 function toPdfDateString(date: Date = new Date()) {
     const year = String(date.getFullYear()).padStart(4, '0');
     const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -1568,7 +1586,7 @@ function removeAnnotationRefsFromPages(doc: PDFDocument, refsToRemove: PDFRef[])
 }
 
 async function deleteEmbeddedAnnotationByRef(comment: IAnnotationCommentSummary) {
-    const targetRef = parsePdfJsAnnotationRef(comment.annotationId ?? comment.id);
+    const targetRef = resolveCommentPdfRef(comment);
     if (!targetRef) {
         return false;
     }
@@ -1612,7 +1630,7 @@ async function deleteEmbeddedAnnotationByRef(comment: IAnnotationCommentSummary)
 }
 
 async function updateEmbeddedAnnotationByRef(comment: IAnnotationCommentSummary, text: string) {
-    const targetRef = parsePdfJsAnnotationRef(comment.annotationId ?? comment.id);
+    const targetRef = resolveCommentPdfRef(comment);
     if (!targetRef) {
         return false;
     }
