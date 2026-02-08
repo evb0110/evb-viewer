@@ -1601,6 +1601,40 @@ function commentPreviewText(comment: IAnnotationCommentSummary) {
     return raw;
 }
 
+function commentLogicalIndicatorKey(comment: IAnnotationCommentSummary) {
+    if (comment.annotationId) {
+        return `ann:${comment.pageNumber}:${comment.annotationId}`;
+    }
+    if (comment.uid) {
+        return `uid:${comment.pageNumber}:${comment.uid}`;
+    }
+    return `stable:${comment.pageNumber}:${comment.stableKey}`;
+}
+
+function pickPreferredIndicatorComment(
+    existing: IAnnotationCommentSummary,
+    candidate: IAnnotationCommentSummary,
+) {
+    const priorityDelta = commentMergePriority(candidate) - commentMergePriority(existing);
+    if (priorityDelta > 0) {
+        return candidate;
+    }
+    if (priorityDelta < 0) {
+        return existing;
+    }
+    const existingTs = existing.modifiedAt ?? 0;
+    const candidateTs = candidate.modifiedAt ?? 0;
+    if (candidateTs > existingTs) {
+        return candidate;
+    }
+    if (candidateTs < existingTs) {
+        return existing;
+    }
+    return existing.stableKey.localeCompare(candidate.stableKey) <= 0
+        ? existing
+        : candidate;
+}
+
 function createDetachedCommentClusterMarkerElement(
     comments: IAnnotationCommentSummary[],
     placement: IDetachedMarkerPlacement,
@@ -1801,13 +1835,22 @@ function syncInlineCommentIndicators() {
     }
 
     const commentsByAnnotationId = new Map<string, IAnnotationCommentSummary>();
-    const handledComments = new Set<string>();
-    const dedupedCommentsByStableKey = new Map<string, IAnnotationCommentSummary>();
+    const handledLogicalCommentKeys = new Set<string>();
+    const dedupedCommentsByLogicalKey = new Map<string, IAnnotationCommentSummary>();
     commentsWithNotes.forEach((comment) => {
-        dedupedCommentsByStableKey.set(comment.stableKey, comment);
+        const logicalKey = commentLogicalIndicatorKey(comment);
+        const existing = dedupedCommentsByLogicalKey.get(logicalKey);
+        if (!existing) {
+            dedupedCommentsByLogicalKey.set(logicalKey, comment);
+            return;
+        }
+        dedupedCommentsByLogicalKey.set(
+            logicalKey,
+            pickPreferredIndicatorComment(existing, comment),
+        );
     });
 
-    const dedupedComments = Array.from(dedupedCommentsByStableKey.values());
+    const dedupedComments = Array.from(dedupedCommentsByLogicalKey.values());
     dedupedComments.forEach((comment) => {
         if (comment.annotationId) {
             commentsByAnnotationId.set(comment.annotationId, comment);
@@ -1831,7 +1874,7 @@ function syncInlineCommentIndicators() {
                 }
                 if (normalizedEditor.div) {
                     markInlineCommentTargetWithKey(normalizedEditor.div, summary.text, summary.stableKey, { anchor: true });
-                    handledComments.add(summary.stableKey);
+                    handledLogicalCommentKeys.add(commentLogicalIndicatorKey(summary));
                 }
                 if (summary.annotationId) {
                     commentsByAnnotationId.delete(summary.annotationId);
@@ -1850,23 +1893,22 @@ function syncInlineCommentIndicators() {
             markInlineCommentTargetWithKey(target, comment.text, comment.stableKey, { anchor: target === anchor });
         });
         if (marked) {
-            handledComments.add(comment.stableKey);
+            handledLogicalCommentKeys.add(commentLogicalIndicatorKey(comment));
         }
     });
 
     const detachedCommentsByPage = new Map<number, IAnnotationCommentSummary[]>();
     const detachedGroupSeen = new Set<string>();
     dedupedComments.forEach((comment) => {
-        if (handledComments.has(comment.stableKey)) {
+        const logicalKey = commentLogicalIndicatorKey(comment);
+        if (handledLogicalCommentKeys.has(logicalKey)) {
             return;
         }
         const markerRect = normalizeMarkerRect(comment.markerRect);
         if (!markerRect) {
             return;
         }
-        const groupKey = comment.annotationId
-            ? `ann:${comment.pageNumber}:${comment.annotationId}`
-            : `stable:${comment.stableKey}`;
+        const groupKey = logicalKey;
         if (detachedGroupSeen.has(groupKey)) {
             return;
         }
@@ -1875,7 +1917,7 @@ function syncInlineCommentIndicators() {
         const pageComments = detachedCommentsByPage.get(comment.pageNumber) ?? [];
         pageComments.push(comment);
         detachedCommentsByPage.set(comment.pageNumber, pageComments);
-        handledComments.add(comment.stableKey);
+        handledLogicalCommentKeys.add(logicalKey);
     });
 
     detachedCommentsByPage.forEach((comments, pageNumber) => {
