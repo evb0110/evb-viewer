@@ -623,7 +623,7 @@ interface IPdfViewerExpose {
     scrollToPage: (page: number) => void;
     saveDocument: () => Promise<Uint8Array | null>;
     highlightSelection: () => void;
-    commentSelection: () => void;
+    commentSelection: () => Promise<boolean>;
     commentAtPoint: (pageNumber: number, pageX: number, pageY: number) => Promise<boolean>;
     startCommentPlacement: () => void;
     cancelCommentPlacement: () => void;
@@ -1377,8 +1377,14 @@ function resetAnnotationTracking() {
     annotationSavedRevision.value = 0;
 }
 
-function handleCommentSelection() {
-    pdfViewerRef.value?.commentSelection();
+async function handleCommentSelection() {
+    if (!pdfViewerRef.value) {
+        return;
+    }
+    const created = await pdfViewerRef.value.commentSelection();
+    if (!created) {
+        handleStartPlaceNote();
+    }
 }
 
 function handleStartPlaceNote() {

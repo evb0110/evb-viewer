@@ -41,8 +41,6 @@
                 <button
                     type="button"
                     class="sticky-action"
-                    @pointerdown.prevent
-                    @mousedown.prevent
                     @click="emit('comment-selection')"
                 >
                     <UIcon name="i-lucide-message-circle" class="sticky-action-icon" />
@@ -52,8 +50,6 @@
                     type="button"
                     class="sticky-action"
                     :class="{ 'is-active': placingPageNote }"
-                    @pointerdown.prevent
-                    @mousedown.prevent
                     @click="emit('start-place-note')"
                 >
                     <UIcon name="i-lucide-plus" class="sticky-action-icon" />

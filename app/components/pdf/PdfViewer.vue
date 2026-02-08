@@ -22,7 +22,7 @@
             @scroll.passive="handleScroll"
             @mousedown="handleDragStart"
             @mousemove="handleDragMove"
-            @mouseup="stopDrag"
+            @mouseup="handleViewerMouseUp"
             @mouseleave="stopDrag"
             @click="handleAnnotationCommentClick"
             @dblclick="handleAnnotationEditorDblClick"
@@ -343,9 +343,10 @@ const SELECTION_CACHE_TTL_MS = 3000;
 const activeCommentStableKey = ref<string | null>(null);
 const pendingCommentEditorKeys = new Set<string>();
 const trackedCreatedEditors = new WeakSet<object>();
-const patchedAnnotationLayerDestroy = new WeakSet<object>();
 let inlineCommentMarkerObserver: MutationObserver | null = null;
 let inlineCommentFocusPulseTimeout: ReturnType<typeof setTimeout> | null = null;
+let annotationToolUpdateToken = 0;
+let annotationToolUpdatePromise: Promise<void> = Promise.resolve();
 const commentSummaryMemory = new Map<string, {
     text: string;
     modifiedAt: number | null;
@@ -1253,130 +1254,12 @@ function createSimpleCommentManager(_container: HTMLElement) {
     };
 }
 
-function installAnnotationLayerDestroyGuard(uiManager: AnnotationEditorUIManager) {
-    const hiddenFallbackDiv = document.createElement('div');
-    hiddenFallbackDiv.className = 'annotation-editor-layer-destroyed-fallback';
-    hiddenFallbackDiv.setAttribute('aria-hidden', 'true');
-    hiddenFallbackDiv.style.display = 'none';
-    const hiddenTextLayerFallbackDiv = document.createElement('div');
-    hiddenTextLayerFallbackDiv.className = 'annotation-editor-layer-text-fallback';
-    hiddenTextLayerFallbackDiv.setAttribute('aria-hidden', 'true');
-    hiddenTextLayerFallbackDiv.style.display = 'none';
-
-    const hardenElementProperty = (
-        owner: object,
-        key: string,
-        fallback: HTMLElement,
-    ) => {
-        const descriptor = Object.getOwnPropertyDescriptor(owner, key);
-        if (descriptor && descriptor.get && descriptor.set && descriptor.configurable === false) {
-            return;
-        }
-
-        const initial = Reflect.get(owner, key);
-        let current = initial instanceof HTMLElement
-            ? initial
-            : fallback;
-
-        Object.defineProperty(owner, key, {
-            configurable: true,
-            enumerable: true,
-            get() {
-                return current ?? fallback;
-            },
-            set(value: unknown) {
-                current = value instanceof HTMLElement
-                    ? value
-                    : fallback;
-            },
-        });
-
-        Reflect.set(owner, key, current);
-    };
-
-    const patchLayerSafety = (layer: unknown) => {
-        if (!layer || typeof layer !== 'object' || patchedAnnotationLayerDestroy.has(layer)) {
-            return;
-        }
-        const candidate = layer as {
-            div?: HTMLElement | null;
-            textLayer?: { div?: HTMLElement | null } | null;
-            disable?: () => void;
-            destroy?: () => void;
-        };
-        if (typeof candidate.destroy !== 'function' && typeof candidate.disable !== 'function') {
-            return;
-        }
-
-        hardenElementProperty(candidate as object, 'div', hiddenFallbackDiv);
-        if (candidate.textLayer && typeof candidate.textLayer === 'object') {
-            hardenElementProperty(candidate.textLayer as object, 'div', hiddenTextLayerFallbackDiv);
-        }
-
-        if (typeof candidate.disable === 'function') {
-            const originalDisable = candidate.disable.bind(candidate);
-            candidate.disable = () => {
-                if (!candidate.div) {
-                    candidate.div = hiddenFallbackDiv;
-                }
-                if (candidate.textLayer && !candidate.textLayer.div) {
-                    candidate.textLayer.div = hiddenTextLayerFallbackDiv;
-                }
-                originalDisable();
-                if (!candidate.div) {
-                    candidate.div = hiddenFallbackDiv;
-                }
-                if (candidate.textLayer && !candidate.textLayer.div) {
-                    candidate.textLayer.div = hiddenTextLayerFallbackDiv;
-                }
-            };
-        }
-
-        if (typeof candidate.destroy === 'function') {
-            const originalDestroy = candidate.destroy.bind(candidate);
-            candidate.destroy = () => {
-                originalDestroy();
-                if (candidate.div == null) {
-                    // PDF.js may invoke stale text-layer pointer listeners after destroy().
-                    // Keep a harmless detached element so classList/contains access stays safe.
-                    candidate.div = hiddenFallbackDiv;
-                }
-                if (candidate.textLayer && !candidate.textLayer.div) {
-                    candidate.textLayer.div = hiddenTextLayerFallbackDiv;
-                }
-            };
-        }
-
-        if (candidate.div == null) {
-            candidate.div = hiddenFallbackDiv;
-        }
-        if (candidate.textLayer && !candidate.textLayer.div) {
-            candidate.textLayer.div = hiddenTextLayerFallbackDiv;
-        }
-
-        patchedAnnotationLayerDestroy.add(layer);
-    };
-
-    for (let pageIndex = 0; pageIndex < numPages.value; pageIndex += 1) {
-        patchLayerSafety(uiManager.getLayer(pageIndex));
-    }
-
-    const managerWithAddLayer = uiManager as AnnotationEditorUIManager & { addLayer?: (layer: unknown) => void };
-    const originalAddLayer = managerWithAddLayer.addLayer;
-    if (typeof originalAddLayer === 'function') {
-        managerWithAddLayer.addLayer = (layer: unknown) => {
-            patchLayerSafety(layer);
-            originalAddLayer.call(uiManager, layer);
-        };
-    }
-}
-
 function getAnnotationMode(tool: TAnnotationTool) {
     switch (tool) {
         case 'highlight':
         case 'underline':
         case 'strikethrough':
-            return AnnotationEditorType.HIGHLIGHT;
+            return AnnotationEditorType.NONE;
         case 'text':
             return AnnotationEditorType.FREETEXT;
         case 'draw':
@@ -1392,6 +1275,10 @@ function getAnnotationMode(tool: TAnnotationTool) {
         default:
             return AnnotationEditorType.NONE;
     }
+}
+
+function isSelectionMarkupTool(tool: TAnnotationTool) {
+    return tool === 'highlight' || tool === 'underline' || tool === 'strikethrough';
 }
 
 const TOOL_TO_MARKUP_SUBTYPE: Partial<Record<TAnnotationTool, TMarkupSubtype>> = {
@@ -1463,6 +1350,31 @@ function resolveHighlightColorForTool(settings: IAnnotationSettings, tool: TAnno
     }
 }
 
+function shouldForceTextMarkup(tool: TAnnotationTool) {
+    return tool === 'underline' || tool === 'strikethrough';
+}
+
+function resolveHighlightFreeForTool(settings: IAnnotationSettings, tool: TAnnotationTool) {
+    if (shouldForceTextMarkup(tool)) {
+        return false;
+    }
+    return settings.highlightFree;
+}
+
+function applyHighlightParamsForTool(
+    uiManager: AnnotationEditorUIManager,
+    settings: IAnnotationSettings,
+    tool: TAnnotationTool,
+) {
+    uiManager.updateParams(
+        AnnotationEditorParamsType.HIGHLIGHT_COLOR,
+        resolveHighlightColorForTool(settings, tool),
+    );
+    uiManager.updateParams(AnnotationEditorParamsType.HIGHLIGHT_THICKNESS, settings.highlightThickness);
+    uiManager.updateParams(AnnotationEditorParamsType.HIGHLIGHT_FREE, resolveHighlightFreeForTool(settings, tool));
+    uiManager.updateParams(AnnotationEditorParamsType.HIGHLIGHT_SHOW_ALL, settings.highlightShowAll);
+}
+
 function applyAnnotationSettings(settings: IAnnotationSettings | null) {
     pendingAnnotationSettings.value = settings;
     const uiManager = annotationUiManager.value;
@@ -1471,13 +1383,7 @@ function applyAnnotationSettings(settings: IAnnotationSettings | null) {
     }
 
     const tool = annotationTool.value;
-    uiManager.updateParams(
-        AnnotationEditorParamsType.HIGHLIGHT_COLOR,
-        resolveHighlightColorForTool(settings, tool),
-    );
-    uiManager.updateParams(AnnotationEditorParamsType.HIGHLIGHT_THICKNESS, settings.highlightThickness);
-    uiManager.updateParams(AnnotationEditorParamsType.HIGHLIGHT_FREE, settings.highlightFree);
-    uiManager.updateParams(AnnotationEditorParamsType.HIGHLIGHT_SHOW_ALL, settings.highlightShowAll);
+    applyHighlightParamsForTool(uiManager, settings, tool);
     uiManager.updateParams(AnnotationEditorParamsType.INK_COLOR, settings.inkColor);
     uiManager.updateParams(AnnotationEditorParamsType.INK_OPACITY, settings.inkOpacity);
     uiManager.updateParams(AnnotationEditorParamsType.INK_THICKNESS, settings.inkThickness);
@@ -1491,37 +1397,57 @@ async function setAnnotationTool(tool: TAnnotationTool) {
     if (!uiManager) {
         return;
     }
-    const mode = getAnnotationMode(tool);
+    const localToken = ++annotationToolUpdateToken;
 
-    if (pendingAnnotationSettings.value) {
-        uiManager.updateParams(
-            AnnotationEditorParamsType.HIGHLIGHT_COLOR,
-            resolveHighlightColorForTool(pendingAnnotationSettings.value, tool),
-        );
-    }
+    annotationToolUpdatePromise = annotationToolUpdatePromise.then(async () => {
+        if (annotationToolUpdateToken !== localToken) {
+            return;
+        }
 
-    try {
-        await uiManager.updateMode(mode);
-    } catch (error) {
-        const message = error instanceof Error
-            ? error.message
-            : typeof error === 'string'
-                ? error
-                : (() => {
-                    try {
-                        return JSON.stringify(error);
-                    } catch {
-                        return String(error);
-                    }
-                })();
+        const effectiveTool = pendingAnnotationTool.value;
+        const mode = getAnnotationMode(effectiveTool);
+        const settings = pendingAnnotationSettings.value;
 
-        const stack = error instanceof Error ? error.stack ?? '' : '';
-        const text = stack
-            ? `Failed to update annotation tool mode: ${message}\n${stack}`
-            : `Failed to update annotation tool mode: ${message}`;
+        if (settings) {
+            applyHighlightParamsForTool(uiManager, settings, effectiveTool);
+        }
 
-        console.warn(text);
-    }
+        try {
+            await uiManager.updateMode(mode);
+        } catch (error) {
+            const message = error instanceof Error
+                ? error.message
+                : typeof error === 'string'
+                    ? error
+                    : (() => {
+                        try {
+                            return JSON.stringify(error);
+                        } catch {
+                            return String(error);
+                        }
+                    })();
+
+            const stack = error instanceof Error ? error.stack ?? '' : '';
+            const text = stack
+                ? `Failed to update annotation tool mode: ${message}\n${stack}`
+                : `Failed to update annotation tool mode: ${message}`;
+
+            console.warn(text);
+            return;
+        }
+
+        if (annotationToolUpdateToken !== localToken || !settings) {
+            return;
+        }
+
+        // PDF.js can emit mode-state updates that re-sync defaults; re-apply to keep
+        // sidebar tool semantics deterministic after rapid mode switches.
+        applyHighlightParamsForTool(uiManager, settings, effectiveTool);
+    }).catch((error: unknown) => {
+        console.warn('Failed to apply annotation tool update:', error);
+    });
+
+    await annotationToolUpdatePromise;
 }
 
 function maybeAutoResetAnnotationTool() {
@@ -1540,8 +1466,48 @@ function highlightSelection() {
     void highlightSelectionInternal(false);
 }
 
-function commentSelection() {
-    void highlightSelectionInternal(true);
+async function maybeApplySelectionMarkup(explicitRange: Range | null = null) {
+    if (!isSelectionMarkupTool(annotationTool.value) || isPlacingComment.value) {
+        return false;
+    }
+    const range = explicitRange ?? getSelectionRangeForCommentAction();
+    if (!range) {
+        return false;
+    }
+    return highlightSelectionInternal(false, range);
+}
+
+async function commentSelection() {
+    const created = await highlightSelectionInternal(true);
+    if (created) {
+        return true;
+    }
+
+    const container = viewerContainer.value;
+    if (!container) {
+        return false;
+    }
+    const rect = container.getBoundingClientRect();
+    const createdAtCenter = await placeCommentAtClientPoint(
+        rect.left + rect.width / 2,
+        rect.top + rect.height / 2,
+    );
+    return createdAtCenter;
+}
+
+function handleViewerMouseUp(event: MouseEvent) {
+    stopDrag();
+    if (event.button !== 0) {
+        return;
+    }
+    void maybeApplySelectionMarkup();
+}
+
+function handleDocumentPointerUp(event: PointerEvent) {
+    if (event.button !== 0) {
+        return;
+    }
+    void maybeApplySelectionMarkup();
 }
 
 function setCommentPlacementMode(active: boolean) {
@@ -3068,7 +3034,14 @@ function initAnnotationEditor() {
     );
 
     annotationUiManager.value = uiManager;
-    installAnnotationLayerDestroyGuard(uiManager);
+
+    const originalUpdateParams = uiManager.updateParams.bind(uiManager);
+    uiManager.updateParams = (type, value) => {
+        if (type === AnnotationEditorParamsType.HIGHLIGHT_FREE && shouldForceTextMarkup(annotationTool.value)) {
+            return originalUpdateParams(type, false);
+        }
+        return originalUpdateParams(type, value);
+    };
 
     const originalKeydown = uiManager.keydown.bind(uiManager);
     uiManager.keydown = (event: KeyboardEvent) => {
@@ -4155,12 +4128,14 @@ useResizeObserver(viewerContainer, handleResize);
 
 onMounted(() => {
     document.addEventListener('selectionchange', cacheCurrentTextSelection, { passive: true });
+    document.addEventListener('pointerup', handleDocumentPointerUp, { passive: true });
     attachInlineCommentMarkerObserver();
     loadFromSource();
 });
 
 onUnmounted(() => {
     document.removeEventListener('selectionchange', cacheCurrentTextSelection);
+    document.removeEventListener('pointerup', handleDocumentPointerUp);
     inlineCommentMarkerObserver?.disconnect();
     inlineCommentMarkerObserver = null;
     clearInlineCommentIndicators();
