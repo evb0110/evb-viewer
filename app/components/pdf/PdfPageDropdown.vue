@@ -188,6 +188,7 @@ const pageLabel = computed(() => {
 function goToFirst() {
     emit('update:modelValue', 1);
     emit('goToPage', 1);
+    close();
 }
 
 function goToPrevious() {
@@ -209,6 +210,7 @@ function goToNext() {
 function goToLast() {
     emit('update:modelValue', totalPages);
     emit('goToPage', totalPages);
+    close();
 }
 
 function commitPageInput() {

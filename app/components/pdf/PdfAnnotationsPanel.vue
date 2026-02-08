@@ -1,5 +1,5 @@
 <template>
-    <div class="notes-panel app-scrollbar" @click="closeContextMenu">
+    <div class="notes-panel" @click="closeContextMenu">
         <section class="notes-section notes-tools">
             <header class="notes-section-header">
                 <h3 class="notes-section-title">Create</h3>
@@ -188,6 +188,7 @@
                     :class="{ 'is-selected': selectedStableKey === comment.stableKey }"
                     @click="selectComment(comment)"
                     @dblclick.prevent.stop="openComment(comment)"
+                    @contextmenu.prevent.stop="openItemContextMenu($event, comment)"
                 >
                     <span class="note-item-top">
                         <span class="note-item-page">P{{ comment.pageNumber }}</span>
@@ -337,13 +338,11 @@ const emit = defineEmits<{
         key: keyof IAnnotationSettings;
         value: IAnnotationSettings[keyof IAnnotationSettings];
     }): void;
-    (e: 'highlight-selection'): void;
     (e: 'comment-selection'): void;
     (e: 'focus-comment', comment: IAnnotationCommentSummary): void;
     (e: 'open-note', comment: IAnnotationCommentSummary): void;
     (e: 'copy-comment', comment: IAnnotationCommentSummary): void;
     (e: 'delete-comment', comment: IAnnotationCommentSummary): void;
-    (e: 'apply-stamp', presetId: string): void;
     (e: 'start-place-note'): void;
 }>();
 
@@ -377,12 +376,6 @@ const toolItems: IToolItem[] = [
         label: 'Strike',
         icon: 'i-lucide-strikethrough',
         hint: 'Cross out text selection',
-    },
-    {
-        id: 'squiggly',
-        label: 'Squiggle',
-        icon: 'i-lucide-waves',
-        hint: 'Wavy underline for text',
     },
     {
         id: 'rectangle',
@@ -820,6 +813,22 @@ function openContextComment() {
     openComment(contextMenu.value.comment);
 }
 
+function openItemContextMenu(event: MouseEvent, comment: IAnnotationCommentSummary) {
+    selectedStableKey.value = comment.stableKey;
+    const width = 168;
+    const height = 120;
+    const margin = 8;
+    const maxX = Math.max(margin, window.innerWidth - width - margin);
+    const maxY = Math.max(margin, window.innerHeight - height - margin);
+
+    contextMenu.value = {
+        visible: true,
+        x: Math.min(Math.max(margin, event.clientX), maxX),
+        y: Math.min(Math.max(margin, event.clientY), maxY),
+        comment,
+    };
+}
+
 function copyContextComment() {
     if (!contextMenu.value.comment || !contextMenu.value.comment.text.trim()) {
         return;
@@ -845,9 +854,6 @@ const activeToolColor = computed(() => {
     }
     if (props.tool === 'strikethrough') {
         return props.settings.strikethroughColor;
-    }
-    if (props.tool === 'squiggly') {
-        return props.settings.squigglyColor;
     }
     if (isShapeTool(props.tool)) {
         return props.settings.shapeColor;
@@ -928,11 +934,6 @@ function handleColorInput(color: string) {
         return;
     }
 
-    if (props.tool === 'squiggly') {
-        updateSetting('squigglyColor', color);
-        return;
-    }
-
     if (isShapeTool(props.tool)) {
         updateSetting('shapeColor', color);
         return;
@@ -968,9 +969,8 @@ function applyDrawStyle(style: TDrawStyle) {
     flex-direction: column;
     gap: 0.75rem;
     padding: 0.75rem;
-    height: 100%;
-    min-height: 0;
-    overflow: hidden auto;
+    min-height: 100%;
+    overflow: visible;
     box-sizing: border-box;
     position: relative;
 }

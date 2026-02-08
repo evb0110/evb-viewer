@@ -975,9 +975,15 @@ function toEditorSummary(
     const text = typeof textOverride === 'string'
         ? textOverride
         : getCommentText(editor).trim();
-    const subtype = detectEditorSubtype(editor);
+    const subtype = resolveEditorMarkupSubtypeOverride(editor, pageIndex) ?? detectEditorSubtype(editor);
     const uid = editor.uid ?? null;
     const annotationId = editor.annotationElementId ?? null;
+    if (annotationId && subtype && subtype !== 'Highlight' && subtype !== 'Ink' && subtype !== 'Typewriter') {
+        const normalized = subtype.toLowerCase();
+        if (normalized === 'underline' || normalized === 'strikeout' || normalized === 'squiggly') {
+            markupSubtypeOverrides.set(annotationId, subtype as TMarkupSubtype);
+        }
+    }
     const hasNote = hasEditorCommentPayload(editor) || text.length > 0;
     const id = getEditorIdentity(editor, pageIndex);
 
@@ -1370,7 +1376,6 @@ function getAnnotationMode(tool: TAnnotationTool) {
         case 'highlight':
         case 'underline':
         case 'strikethrough':
-        case 'squiggly':
             return AnnotationEditorType.HIGHLIGHT;
         case 'text':
             return AnnotationEditorType.FREETEXT;
@@ -1392,10 +1397,35 @@ function getAnnotationMode(tool: TAnnotationTool) {
 const TOOL_TO_MARKUP_SUBTYPE: Partial<Record<TAnnotationTool, TMarkupSubtype>> = {
     underline: 'Underline',
     strikethrough: 'StrikeOut',
-    squiggly: 'Squiggly',
 };
 
 const markupSubtypeOverrides = new Map<string, TMarkupSubtype>();
+const editorMarkupSubtypeOverrides = new Map<string, TMarkupSubtype>();
+const editorObjectMarkupSubtypeOverrides = new WeakMap<IPdfjsEditor, TMarkupSubtype>();
+
+function setEditorMarkupSubtypeOverride(editor: IPdfjsEditor, pageIndex: number, subtype: TMarkupSubtype) {
+    editorObjectMarkupSubtypeOverrides.set(editor, subtype);
+    const identity = getEditorIdentity(editor, pageIndex);
+    editorMarkupSubtypeOverrides.set(identity, subtype);
+    if (editor.annotationElementId) {
+        markupSubtypeOverrides.set(editor.annotationElementId, subtype);
+    }
+}
+
+function resolveEditorMarkupSubtypeOverride(editor: IPdfjsEditor, pageIndex: number): TMarkupSubtype | null {
+    const byObject = editorObjectMarkupSubtypeOverrides.get(editor);
+    if (byObject) {
+        return byObject;
+    }
+    if (editor.annotationElementId) {
+        const byAnnotationId = markupSubtypeOverrides.get(editor.annotationElementId);
+        if (byAnnotationId) {
+            return byAnnotationId;
+        }
+    }
+    const identity = getEditorIdentity(editor, pageIndex);
+    return editorMarkupSubtypeOverrides.get(identity) ?? null;
+}
 
 function getMarkupSubtypeOverrides() {
     return markupSubtypeOverrides;
@@ -1428,8 +1458,6 @@ function resolveHighlightColorForTool(settings: IAnnotationSettings, tool: TAnno
             return colorWithOpacity(settings.underlineColor, settings.underlineOpacity);
         case 'strikethrough':
             return colorWithOpacity(settings.strikethroughColor, settings.strikethroughOpacity);
-        case 'squiggly':
-            return colorWithOpacity(settings.squigglyColor, settings.squigglyOpacity);
         default:
             return colorWithOpacity(settings.highlightColor, settings.highlightOpacity);
     }
@@ -2500,6 +2528,8 @@ async function syncAnnotationComments() {
     const doc = pdfDocument.value;
     if (!doc || numPages.value <= 0) {
         commentSummaryMemory.clear();
+        markupSubtypeOverrides.clear();
+        editorMarkupSubtypeOverrides.clear();
         annotationCommentsCache.value = [];
         emit('annotation-comments', []);
         clearInlineCommentIndicators();
@@ -2992,6 +3022,8 @@ function destroyAnnotationEditor() {
     annotationL10n.value = null;
     pendingCommentEditorKeys.clear();
     commentSummaryMemory.clear();
+    markupSubtypeOverrides.clear();
+    editorMarkupSubtypeOverrides.clear();
 }
 
 function initAnnotationEditor() {
@@ -3087,11 +3119,12 @@ function initAnnotationEditor() {
             maybeAutoResetAnnotationTool();
         }
         const subtypeOverride = TOOL_TO_MARKUP_SUBTYPE[annotationTool.value];
-        if (subtypeOverride) {
-            const editorId = (editor as IPdfjsEditor | null)?.annotationElementId;
-            if (editorId) {
-                markupSubtypeOverrides.set(editorId, subtypeOverride);
-            }
+        const normalizedEditor = editor as IPdfjsEditor | null;
+        if (subtypeOverride && normalizedEditor) {
+            const pageIndex = Number.isFinite(normalizedEditor.parentPageIndex)
+                ? normalizedEditor.parentPageIndex as number
+                : Math.max(0, currentPage.value - 1);
+            setEditorMarkupSubtypeOverride(normalizedEditor, pageIndex, subtypeOverride);
         }
         emit('annotation-modified');
         scheduleAnnotationCommentsSync();
@@ -3192,12 +3225,12 @@ async function highlightSelectionInternal(withComment: boolean, explicitRange: R
     const textLayer = (anchorElement?.closest('.text-layer, .textLayer')
         ?? commonAncestorElement?.closest('.text-layer, .textLayer')) as HTMLElement | null;
     if (!textLayer) {
-        return;
+        return false;
     }
 
     const boxes = uiManager.getSelectionBoxes(textLayer);
     if (!boxes) {
-        return;
+        return false;
     }
 
     const pageContainer = textLayer.closest<HTMLElement>('.page_container');
@@ -3215,6 +3248,7 @@ async function highlightSelectionInternal(withComment: boolean, explicitRange: R
     cachedSelectionTimestamp = 0;
 
     const previousMode = uiManager.getMode();
+    const markupSubtypeOverride = TOOL_TO_MARKUP_SUBTYPE[annotationTool.value] ?? null;
     let createdAnnotation = false;
 
     try {
@@ -3236,6 +3270,9 @@ async function highlightSelectionInternal(withComment: boolean, explicitRange: R
             },
         );
         createdAnnotation = true;
+        if (createdEditor && markupSubtypeOverride) {
+            setEditorMarkupSubtypeOverride(createdEditor as IPdfjsEditor, pageIndex, markupSubtypeOverride);
+        }
 
         if (withComment) {
             let targetEditor = (createdEditor ?? null) as IPdfjsEditor | null;
@@ -3265,6 +3302,9 @@ async function highlightSelectionInternal(withComment: boolean, explicitRange: R
             }
 
             if (targetEditor) {
+                if (markupSubtypeOverride) {
+                    setEditorMarkupSubtypeOverride(targetEditor, pageIndex, markupSubtypeOverride);
+                }
                 pendingCommentEditorKeys.add(getEditorPendingKey(targetEditor, pageIndex));
                 const summary = toEditorSummary(targetEditor, pageIndex, getCommentText(targetEditor));
                 emit('annotation-open-note', summary);
@@ -3285,6 +3325,9 @@ async function highlightSelectionInternal(withComment: boolean, explicitRange: R
                             setTimeout(tryEmitLater, 80);
                         }
                         return;
+                    }
+                    if (markupSubtypeOverride) {
+                        setEditorMarkupSubtypeOverride(lateEditor, pageIndex, markupSubtypeOverride);
                     }
                     pendingCommentEditorKeys.add(getEditorPendingKey(lateEditor, pageIndex));
                     const summary = toEditorSummary(lateEditor, pageIndex, getCommentText(lateEditor));

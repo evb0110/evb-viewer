@@ -1,4 +1,4 @@
-export type TAnnotationTool = 'none' | 'highlight' | 'underline' | 'strikethrough' | 'squiggly' | 'text' | 'draw' | 'rectangle' | 'circle' | 'line' | 'arrow' | 'stamp';
+export type TAnnotationTool = 'none' | 'highlight' | 'underline' | 'strikethrough' | 'text' | 'draw' | 'rectangle' | 'circle' | 'line' | 'arrow' | 'stamp';
 
 export type TMarkupSubtype = 'Highlight' | 'Underline' | 'StrikeOut' | 'Squiggly';
 

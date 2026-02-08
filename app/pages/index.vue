@@ -140,18 +140,6 @@
                                 />
                             </UTooltip>
                         </div>
-                        <div class="toolbar-group-item">
-                            <UTooltip text="Squiggly (Q)" :delay-duration="1200">
-                                <UButton
-                                    icon="i-lucide-waves"
-                                    :variant="annotationTool === 'squiggly' ? 'soft' : 'ghost'"
-                                    :color="annotationTool === 'squiggly' ? 'primary' : 'neutral'"
-                                    class="toolbar-group-button"
-                                    aria-label="Squiggly"
-                                    @click="handleAnnotationToolChange(annotationTool === 'squiggly' ? 'none' : 'squiggly'); closeAllDropdowns()"
-                                />
-                            </UTooltip>
-                        </div>
                     </div>
 
                     <div v-if="pdfSrc" class="toolbar-button-group">
@@ -205,16 +193,6 @@
                         </div>
                     </div>
 
-                    <UTooltip text="Stamp (P)" :delay-duration="1200">
-                        <UButton
-                            icon="i-lucide-stamp"
-                            :variant="annotationTool === 'stamp' ? 'soft' : 'ghost'"
-                            :color="annotationTool === 'stamp' ? 'primary' : 'neutral'"
-                            class="toolbar-icon-button"
-                            aria-label="Stamp"
-                            @click="handleAnnotationToolChange(annotationTool === 'stamp' ? 'none' : 'stamp'); closeAllDropdowns()"
-                        />
-                    </UTooltip>
                 </div>
 
                 <!-- Spacer to push center -->
@@ -375,10 +353,8 @@
                     @update:annotation-tool="handleAnnotationToolChange"
                     @update:annotation-keep-active="annotationKeepActive = $event"
                     @annotation-setting="handleAnnotationSettingChange"
-                    @annotation-highlight-selection="handleHighlightSelection"
                     @annotation-comment-selection="handleCommentSelection"
                     @annotation-start-place-note="handleStartPlaceNote"
-                    @annotation-apply-stamp="handleApplyStamp"
                     @annotation-focus-comment="handleAnnotationFocusComment"
                     @annotation-open-note="handleOpenAnnotationNote"
                     @annotation-copy-comment="handleCopyAnnotationComment"
@@ -573,13 +549,6 @@
                 >
                     Strikethrough
                 </button>
-                <button
-                    type="button"
-                    class="annotation-context-menu__action"
-                    @click="createContextMenuMarkup('squiggly')"
-                >
-                    Squiggly
-                </button>
                 <div class="annotation-context-menu__divider" />
             </template>
 
@@ -631,6 +600,7 @@ import {
     PDFDocument,
     PDFHexString,
     PDFName,
+    PDFNumber,
     PDFRef,
     PDFString,
 } from 'pdf-lib';
@@ -645,7 +615,6 @@ import type {
     TAnnotationTool,
     TMarkupSubtype,
 } from '@app/types/annotations';
-import { useStampPresets } from '@app/composables/pdf/useStampPresets';
 
 
 type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'outline' | 'search';
@@ -891,14 +860,6 @@ function handleGlobalShortcut(event: KeyboardEvent) {
             openAnnotations();
             annotationTool.value = 'strikethrough';
             return;
-        case 'q':
-            openAnnotations();
-            annotationTool.value = 'squiggly';
-            return;
-        case 't':
-            openAnnotations();
-            annotationTool.value = 'text';
-            return;
         case 'i':
             openAnnotations();
             annotationTool.value = 'draw';
@@ -918,10 +879,6 @@ function handleGlobalShortcut(event: KeyboardEvent) {
         case 'a':
             openAnnotations();
             annotationTool.value = 'arrow';
-            return;
-        case 'p':
-            openAnnotations();
-            annotationTool.value = 'stamp';
             return;
         case 'escape':
             annotationTool.value = 'none';
@@ -1022,7 +979,6 @@ const {
 } = usePdfSearch();
 
 const { clearCache: clearOcrCache } = useOcrTextContent();
-const { getStampImage } = useStampPresets();
 
 const pdfViewerRef = ref<IPdfViewerExpose | null>(null);
 const zoomDropdownRef = ref<{ close: () => void } | null>(null);
@@ -1362,9 +1318,9 @@ function handleAnnotationToolChange(tool: TAnnotationTool) {
     annotationTool.value = tool;
     if (tool !== 'none') {
         dragMode.value = false;
-        pdfViewerRef.value?.cancelCommentPlacement();
-        annotationPlacingPageNote.value = false;
     }
+    pdfViewerRef.value?.cancelCommentPlacement();
+    annotationPlacingPageNote.value = false;
 }
 
 function handleAnnotationToolAutoReset() {
@@ -1421,10 +1377,6 @@ function resetAnnotationTracking() {
     annotationSavedRevision.value = 0;
 }
 
-function handleHighlightSelection() {
-    pdfViewerRef.value?.highlightSelection();
-}
-
 function handleCommentSelection() {
     pdfViewerRef.value?.commentSelection();
 }
@@ -1446,17 +1398,6 @@ function handleStartPlaceNote() {
     annotationTool.value = 'none';
     pdfViewerRef.value.startCommentPlacement();
     annotationPlacingPageNote.value = true;
-}
-
-async function handleApplyStamp(presetId: string) {
-    const blob = await getStampImage(presetId);
-    if (!blob) {
-        return;
-    }
-    const file = new File([blob], `stamp-${presetId}.png`, { type: 'image/png' });
-    annotationTool.value = 'stamp';
-    await nextTick();
-    pdfViewerRef.value?.applyStampImage(file);
 }
 
 async function handleAnnotationFocusComment(comment: IAnnotationCommentSummary) {
@@ -1634,7 +1575,7 @@ function createContextMenuSelectionNote() {
 
 function createContextMenuMarkup(tool: TAnnotationTool) {
     handleAnnotationToolChange(tool);
-    pdfViewerRef.value?.commentSelection();
+    pdfViewerRef.value?.highlightSelection();
     if (!annotationKeepActive.value) {
         annotationTool.value = 'none';
     }
@@ -2113,7 +2054,25 @@ const MARKUP_SUBTYPE_TO_PDF_NAME: Record<TMarkupSubtype, string> = {
 
 async function rewriteMarkupSubtypes(data: Uint8Array): Promise<Uint8Array> {
     const overrides = pdfViewerRef.value?.getMarkupSubtypeOverrides();
-    if (!overrides || overrides.size === 0) {
+    const subtypeHints = annotationComments.value
+        .filter(comment => (
+            comment.source === 'editor'
+            && (comment.subtype === 'Underline' || comment.subtype === 'StrikeOut')
+            && comment.markerRect
+        ))
+        .map(comment => ({
+            subtype: comment.subtype as TMarkupSubtype,
+            pageIndex: comment.pageIndex,
+            markerRect: comment.markerRect as {
+                left: number;
+                top: number;
+                width: number;
+                height: number;
+            },
+            consumed: false,
+        }));
+
+    if ((!overrides || overrides.size === 0) && subtypeHints.length === 0) {
         return data;
     }
 
@@ -2128,7 +2087,100 @@ async function rewriteMarkupSubtypes(data: Uint8Array): Promise<Uint8Array> {
     const highlightName = PDFName.of('Highlight');
     let rewritten = false;
 
-    for (const page of doc.getPages()) {
+    const numberFromArray = (array: PDFArray, index: number) => {
+        const value = array.get(index);
+        return value instanceof PDFNumber ? value.asNumber() : null;
+    };
+
+    const markerRectFromDict = (dict: PDFDict, pageWidth: number, pageHeight: number) => {
+        const rectArray = dict.lookupMaybe(PDFName.of('Rect'), PDFArray);
+        if (!(rectArray instanceof PDFArray) || rectArray.size() < 4 || pageWidth <= 0 || pageHeight <= 0) {
+            return null;
+        }
+
+        const x1 = numberFromArray(rectArray, 0);
+        const y1 = numberFromArray(rectArray, 1);
+        const x2 = numberFromArray(rectArray, 2);
+        const y2 = numberFromArray(rectArray, 3);
+        if (
+            x1 === null
+            || y1 === null
+            || x2 === null
+            || y2 === null
+        ) {
+            return null;
+        }
+
+        const minX = Math.min(x1, x2);
+        const maxX = Math.max(x1, x2);
+        const minY = Math.min(y1, y2);
+        const maxY = Math.max(y1, y2);
+        const width = (maxX - minX) / pageWidth;
+        const height = (maxY - minY) / pageHeight;
+        if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+            return null;
+        }
+
+        const left = minX / pageWidth;
+        const top = 1 - (maxY / pageHeight);
+        return {
+            left: Math.max(0, Math.min(1, left)),
+            top: Math.max(0, Math.min(1, top)),
+            width: Math.max(0, Math.min(1, width)),
+            height: Math.max(0, Math.min(1, height)),
+        };
+    };
+
+    const markerRectIoU = (
+        left: {
+            left: number;
+            top: number;
+            width: number;
+            height: number;
+        } | null,
+        right: {
+            left: number;
+            top: number;
+            width: number;
+            height: number;
+        } | null,
+    ) => {
+        if (!left || !right) {
+            return 0;
+        }
+        const leftRight = left.left + left.width;
+        const leftBottom = left.top + left.height;
+        const rightRight = right.left + right.width;
+        const rightBottom = right.top + right.height;
+        const intersectionLeft = Math.max(left.left, right.left);
+        const intersectionTop = Math.max(left.top, right.top);
+        const intersectionRight = Math.min(leftRight, rightRight);
+        const intersectionBottom = Math.min(leftBottom, rightBottom);
+        const intersectionWidth = Math.max(0, intersectionRight - intersectionLeft);
+        const intersectionHeight = Math.max(0, intersectionBottom - intersectionTop);
+        const intersectionArea = intersectionWidth * intersectionHeight;
+        if (intersectionArea <= 0) {
+            return 0;
+        }
+        const leftArea = left.width * left.height;
+        const rightArea = right.width * right.height;
+        const unionArea = leftArea + rightArea - intersectionArea;
+        if (unionArea <= 0) {
+            return 0;
+        }
+        return intersectionArea / unionArea;
+    };
+
+    const pages = doc.getPages();
+    for (const [
+        pageIndex,
+        page,
+    ] of pages.entries()) {
+        const pageHints = subtypeHints.filter(hint => !hint.consumed && hint.pageIndex === pageIndex);
+        const {
+            width: pageWidth,
+            height: pageHeight,
+        } = page.getSize();
         const annots = page.node.Annots();
         if (!(annots instanceof PDFArray)) {
             continue;
@@ -2152,7 +2204,33 @@ async function rewriteMarkupSubtypes(data: Uint8Array): Promise<Uint8Array> {
             }
 
             const refTag = `${ref.objectNumber}R${ref.generationNumber}`;
-            const targetSubtype = overrides.get(refTag);
+            let targetSubtype = overrides?.get(refTag) ?? null;
+            if (!targetSubtype && pageHints.length > 0) {
+                const markerRect = markerRectFromDict(dict, pageWidth, pageHeight);
+                let bestMatch: {
+                    score: number;
+                    hint: (typeof pageHints)[number];
+                } | null = null;
+                for (const hint of pageHints) {
+                    if (hint.consumed) {
+                        continue;
+                    }
+                    const score = markerRectIoU(markerRect, hint.markerRect);
+                    if (score <= 0) {
+                        continue;
+                    }
+                    if (!bestMatch || score > bestMatch.score) {
+                        bestMatch = {
+                            score,
+                            hint,
+                        };
+                    }
+                }
+                if (bestMatch && bestMatch.score >= 0.2) {
+                    targetSubtype = bestMatch.hint.subtype;
+                    bestMatch.hint.consumed = true;
+                }
+            }
             if (!targetSubtype) {
                 continue;
             }

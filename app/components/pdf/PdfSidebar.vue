@@ -19,7 +19,7 @@
             }"
             class="pdf-sidebar-tabs"
         />
-        <div class="pdf-sidebar-content app-scrollbar" :class="{ 'is-annotations': activeTab === 'annotations' }">
+        <div class="pdf-sidebar-content app-scrollbar">
             <PdfAnnotationsPanel
                 v-show="activeTab === 'annotations'"
                 :tool="annotationTool"
@@ -32,14 +32,12 @@
                 @set-tool="emit('update:annotation-tool', $event)"
                 @update:keep-active="emit('update:annotation-keep-active', $event)"
                 @update-setting="emit('annotation-setting', $event)"
-                @highlight-selection="emit('annotation-highlight-selection')"
                 @comment-selection="emit('annotation-comment-selection')"
                 @start-place-note="emit('annotation-start-place-note')"
                 @focus-comment="emit('annotation-focus-comment', $event)"
                 @open-note="emit('annotation-open-note', $event)"
                 @copy-comment="emit('annotation-copy-comment', $event)"
                 @delete-comment="emit('annotation-delete-comment', $event)"
-                @apply-stamp="emit('annotation-apply-stamp', $event)"
             />
             <PdfThumbnails
                 v-show="activeTab === 'thumbnails'"
@@ -152,10 +150,8 @@ const emit = defineEmits<{
         key: keyof IAnnotationSettings;
         value: IAnnotationSettings[keyof IAnnotationSettings] 
     }): void;
-    (e: 'annotation-highlight-selection'): void;
     (e: 'annotation-comment-selection'): void;
     (e: 'annotation-start-place-note'): void;
-    (e: 'annotation-apply-stamp', presetId: string): void;
     (e: 'annotation-focus-comment', comment: IAnnotationCommentSummary): void;
     (e: 'annotation-open-note', comment: IAnnotationCommentSummary): void;
     (e: 'annotation-copy-comment', comment: IAnnotationCommentSummary): void;
@@ -283,10 +279,6 @@ const sidebarStyle = computed(() => {
     min-height: 0;
     overflow: hidden auto;
     position: relative;
-}
-
-.pdf-sidebar-content.is-annotations {
-    overflow: hidden;
 }
 
 /* Ensure v-show hidden components don't affect layout */
