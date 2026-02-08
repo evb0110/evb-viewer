@@ -28,6 +28,10 @@ const SERVER_PORT = 9847;
 const CDP_PORT = 9222;
 const NUXT_PORT = 3235;
 const SESSION_WAIT_TIMEOUT_MS = 60_000;
+const COMMAND_REQUEST_TIMEOUT_MS = 120_000;
+const OPEN_PDF_READY_TIMEOUT_MS = 60_000;
+const OPEN_PDF_TRIGGER_TIMEOUT_MS = 12_000;
+const COMMAND_EXECUTION_TIMEOUT_MS = 180_000;
 
 // ============ Session State ============
 
@@ -543,13 +547,23 @@ async function handleCommand(command: string, args: unknown[]): Promise<unknown>
                 `return (async () => { ${code} })()`,
             );
 
-            return await asyncFn(page, screenshotFn);
+            return await Promise.race([
+                asyncFn(page, screenshotFn),
+                delay(COMMAND_EXECUTION_TIMEOUT_MS).then(() => {
+                    throw new Error(`run command timed out after ${Math.round(COMMAND_EXECUTION_TIMEOUT_MS / 1000)}s`);
+                }),
+            ]);
         }
 
         case 'eval': {
             const code = args[0] as string;
             if (!code) throw new Error('No code provided');
-            return await page.evaluate(code);
+            return await Promise.race([
+                page.evaluate(code),
+                delay(COMMAND_EXECUTION_TIMEOUT_MS).then(() => {
+                    throw new Error(`eval command timed out after ${Math.round(COMMAND_EXECUTION_TIMEOUT_MS / 1000)}s`);
+                }),
+            ]);
         }
 
         case 'click': {
@@ -589,14 +603,152 @@ async function handleCommand(command: string, args: unknown[]): Promise<unknown>
         case 'openPdf': {
             const pdfPath = args[0] as string;
             if (!pdfPath) throw new Error('PDF path required');
-            await page.evaluate((path: string) => {
-                return (window as any).__openFileDirect(path);
-            }, pdfPath);
-            // Wait for PDF to load (check for pdf-viewer element and no loading state)
-            await page.waitForSelector('[id="pdf-viewer"]', { timeout: 30000 });
-            // Give it a moment to finish rendering
-            await new Promise(r => setTimeout(r, 500));
-            return { opened: pdfPath };
+            type TOpenPdfState = {
+                numPages: number | null;
+                currentPage: number | null;
+                isLoading: boolean | null;
+                workingCopyPath: string | null;
+                renderedPageContainers: number;
+                hasViewer: boolean;
+                hasEmptyState: boolean;
+                openTrigger?: {
+                    token: string;
+                    status: 'pending' | 'resolved' | 'rejected';
+                    error: string | null;
+                } | null;
+            };
+
+            const readViewerState = async (token?: string) => await page.evaluate((requestedToken?: string) => {
+                const host = document.querySelector('#pdf-viewer') as (HTMLElement & {
+                    __vueParentComponent?: {
+                        setupState?: {
+                            numPages?: number;
+                            currentPage?: number;
+                            isLoading?: boolean;
+                            workingCopyPath?: string | null;
+                        };
+                    };
+                }) | null;
+                const setupState = host?.__vueParentComponent?.setupState;
+                const trigger = (window as any).__electronRunOpenPdfTrigger as {
+                    token?: string;
+                    status?: 'pending' | 'resolved' | 'rejected';
+                    error?: string | null;
+                } | undefined;
+                const openTrigger = (
+                    requestedToken
+                    && trigger
+                    && trigger.token === requestedToken
+                )
+                    ? {
+                        token: trigger.token ?? '',
+                        status: trigger.status ?? 'pending',
+                        error: trigger.error ?? null,
+                    }
+                    : null;
+
+                return {
+                    numPages: setupState?.numPages ?? null,
+                    currentPage: setupState?.currentPage ?? null,
+                    isLoading: setupState?.isLoading ?? null,
+                    workingCopyPath: setupState?.workingCopyPath ?? null,
+                    renderedPageContainers: document.querySelectorAll('.page_container').length,
+                    hasViewer: Boolean(host),
+                    hasEmptyState: Boolean(document.querySelector('.empty-state')),
+                    openTrigger,
+                } satisfies TOpenPdfState;
+            }, token);
+
+            const beforeState = await readViewerState();
+            const triggerToken = await page.evaluate((path: string, triggerTimeoutMs: number) => {
+                const token = `open-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+                (window as any).__electronRunOpenPdfTrigger = {
+                    token,
+                    status: 'pending',
+                    error: null,
+                };
+
+                const openFileDirect = (window as any).__openFileDirect;
+                if (typeof openFileDirect !== 'function') {
+                    (window as any).__electronRunOpenPdfTrigger = {
+                        token,
+                        status: 'rejected',
+                        error: 'window.__openFileDirect is not available',
+                    };
+                    return token;
+                }
+
+                Promise.resolve()
+                    .then(async () => {
+                        await Promise.race([
+                            openFileDirect(path),
+                            new Promise((_, reject) => {
+                                setTimeout(() => reject(new Error('openFileDirect trigger timeout')), triggerTimeoutMs);
+                            }),
+                        ]);
+                        (window as any).__electronRunOpenPdfTrigger = {
+                            token,
+                            status: 'resolved',
+                            error: null,
+                        };
+                    })
+                    .catch((error: unknown) => {
+                        const message = error instanceof Error ? error.message : String(error);
+                        (window as any).__electronRunOpenPdfTrigger = {
+                            token,
+                            status: 'rejected',
+                            error: message,
+                        };
+                    });
+
+                return token;
+            }, pdfPath, OPEN_PDF_TRIGGER_TIMEOUT_MS);
+
+            const start = Date.now();
+            let lastState: TOpenPdfState = beforeState;
+            while (Date.now() - start < OPEN_PDF_READY_TIMEOUT_MS) {
+                lastState = await readViewerState(triggerToken as string);
+
+                if (lastState.openTrigger?.status === 'rejected') {
+                    throw new Error(lastState.openTrigger.error || 'openPdf failed');
+                }
+
+                const hasPages = (lastState.numPages ?? 0) > 0 || lastState.renderedPageContainers > 0;
+                const notLoading = lastState.isLoading === false || lastState.isLoading === null;
+                const hasDocumentUi = lastState.hasViewer && !lastState.hasEmptyState;
+                const openedNewDoc = (
+                    !!beforeState.workingCopyPath
+                    && !!lastState.workingCopyPath
+                    && beforeState.workingCopyPath !== lastState.workingCopyPath
+                );
+                const sameDocButReady = (
+                    beforeState.workingCopyPath === lastState.workingCopyPath
+                    && hasPages
+                    && hasDocumentUi
+                    && notLoading
+                );
+
+                if (hasPages && hasDocumentUi && notLoading && (openedNewDoc || sameDocButReady)) {
+                    await delay(250);
+                    break;
+                }
+
+                await delay(250);
+            }
+
+            const state = await readViewerState();
+            if (
+                !state.hasViewer
+                || state.hasEmptyState
+                || state.renderedPageContainers <= 0
+            ) {
+                throw new Error(`openPdf readiness timeout for ${pdfPath}`);
+            }
+
+            return {
+                opened: pdfPath,
+                state,
+            };
         }
 
         case 'health': {
@@ -649,7 +801,11 @@ async function isSessionRunning(): Promise<boolean> {
     }
 }
 
-async function sendCommand(command: string, args: unknown[] = []): Promise<unknown> {
+async function sendCommand(
+    command: string,
+    args: unknown[] = [],
+    requestTimeoutMs = COMMAND_REQUEST_TIMEOUT_MS,
+): Promise<unknown> {
     const start = Date.now();
     let didPrintWaitMessage = false;
 
@@ -666,14 +822,20 @@ async function sendCommand(command: string, args: unknown[] = []): Promise<unkno
         }
 
         let data: { success: boolean; result?: unknown; error?: string } | null = null;
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), requestTimeoutMs);
         try {
             const res = await fetch(`http://localhost:${info.port}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ command, args }),
+                signal: controller.signal,
             });
             data = (await res.json()) as { success: boolean; result?: unknown; error?: string };
-        } catch {
+        } catch (error) {
+            if (error instanceof Error && error.name === 'AbortError') {
+                throw new Error(`Command "${command}" timed out after ${Math.round(requestTimeoutMs / 1000)}s`);
+            }
             // Session file exists but the server isn't responding yet (or it's stale).
             // Wait briefly and retry until timeout.
             if (!didPrintWaitMessage) {
@@ -683,6 +845,8 @@ async function sendCommand(command: string, args: unknown[] = []): Promise<unkno
             try { unlinkSync(sessionFile); } catch {}
             await delay(250);
             continue;
+        } finally {
+            clearTimeout(timeoutId);
         }
 
         if (!data.success) {
@@ -842,7 +1006,7 @@ Examples:
                     console.error('No code provided');
                     process.exit(1);
                 }
-                const result = await sendCommand('run', [code]);
+                const result = await sendCommand('run', [code], COMMAND_EXECUTION_TIMEOUT_MS);
                 if (result !== undefined) {
                     console.log(JSON.stringify(result, null, 2));
                 }
@@ -855,7 +1019,7 @@ Examples:
                     console.error('No code provided');
                     process.exit(1);
                 }
-                const result = await sendCommand('eval', [code]);
+                const result = await sendCommand('eval', [code], COMMAND_EXECUTION_TIMEOUT_MS);
                 console.log(JSON.stringify(result, null, 2));
                 break;
             }
@@ -866,7 +1030,7 @@ Examples:
                     console.error('PDF path required');
                     process.exit(1);
                 }
-                const result = await sendCommand('openPdf', [pdfPath]);
+                const result = await sendCommand('openPdf', [pdfPath], COMMAND_EXECUTION_TIMEOUT_MS);
                 console.log(JSON.stringify(result, null, 2));
                 break;
             }

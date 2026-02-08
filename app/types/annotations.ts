@@ -21,15 +21,27 @@ export interface IAnnotationEditorState {
     hasSelectedEditor: boolean;
 }
 
+export interface IAnnotationMarkerRect {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+}
+
 export interface IAnnotationCommentSummary {
     id: string;
+    stableKey: string;
+    sortIndex?: number | null;
     pageIndex: number;
     pageNumber: number;
     text: string;
+    kindLabel?: string | null;
+    subtype?: string | null;
     author: string | null;
     modifiedAt: number | null;
     color: string | null;
     uid: string | null;
     annotationId: string | null;
     source: 'editor' | 'pdf';
+    markerRect?: IAnnotationMarkerRect | null;
 }

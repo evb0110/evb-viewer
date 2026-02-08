@@ -59,8 +59,99 @@ interface IUsePdfPageRendererOptions {
 }
 
 const CONCURRENT_RENDERS = 3;
+let annotationEditorLayerSafetyPatched = false;
+let destroyedEditorLayerFallbackDiv: HTMLDivElement | null = null;
+let textLayerFallbackDiv: HTMLDivElement | null = null;
+type TAnnotationEditorLayerProto = {
+    disable?: (...args: unknown[]) => unknown;
+    destroy?: (...args: unknown[]) => unknown;
+    __evbSafetyPatchApplied?: boolean;
+};
+type TAnnotationEditorLayerCtor = { prototype?: TAnnotationEditorLayerProto };
+
+function ensureAnnotationEditorLayerSafetyPatch() {
+    if (annotationEditorLayerSafetyPatched) {
+        return;
+    }
+
+    const layerCtor = AnnotationEditorLayer as unknown as TAnnotationEditorLayerCtor;
+    const proto = layerCtor.prototype;
+    if (!proto || proto.__evbSafetyPatchApplied) {
+        annotationEditorLayerSafetyPatched = true;
+        return;
+    }
+
+    if (typeof document !== 'undefined') {
+        if (!destroyedEditorLayerFallbackDiv) {
+            destroyedEditorLayerFallbackDiv = document.createElement('div');
+            destroyedEditorLayerFallbackDiv.className = 'annotation-editor-layer-destroyed-fallback';
+            destroyedEditorLayerFallbackDiv.style.display = 'none';
+            destroyedEditorLayerFallbackDiv.setAttribute('aria-hidden', 'true');
+        }
+        if (!textLayerFallbackDiv) {
+            textLayerFallbackDiv = document.createElement('div');
+            textLayerFallbackDiv.className = 'annotation-editor-layer-text-fallback';
+            textLayerFallbackDiv.style.display = 'none';
+            textLayerFallbackDiv.setAttribute('aria-hidden', 'true');
+        }
+    }
+
+    const originalDisable = typeof proto.disable === 'function'
+        ? proto.disable
+        : null;
+    if (originalDisable) {
+        proto.disable = function patchedDisable(
+            this: {
+                div?: HTMLElement | null;
+                textLayer?: { div?: HTMLElement | null } | null;
+            },
+            ...args: unknown[]
+        ) {
+            if (!this) {
+                return undefined;
+            }
+            if (!this.div) {
+                this.div = destroyedEditorLayerFallbackDiv;
+            }
+            if (this.textLayer && !this.textLayer.div) {
+                this.textLayer.div = textLayerFallbackDiv;
+            }
+            return originalDisable.call(this, ...args);
+        };
+    }
+
+    const originalDestroy = typeof proto.destroy === 'function'
+        ? proto.destroy
+        : null;
+    if (originalDestroy) {
+        proto.destroy = function patchedDestroy(
+            this: {
+                div?: HTMLElement | null;
+                textLayer?: { div?: HTMLElement | null } | null;
+            },
+            ...args: unknown[]
+        ) {
+            if (this?.div == null) {
+                this.div = destroyedEditorLayerFallbackDiv;
+            }
+            const result = originalDestroy.call(this, ...args);
+            if (this?.div == null) {
+                this.div = destroyedEditorLayerFallbackDiv;
+            }
+            if (this?.textLayer && !this.textLayer.div) {
+                this.textLayer.div = textLayerFallbackDiv;
+            }
+            return result;
+        };
+    }
+
+    proto.__evbSafetyPatchApplied = true;
+    annotationEditorLayerSafetyPatched = true;
+}
 
 export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
+    ensureAnnotationEditorLayerSafetyPatch();
+
     const { setupTextLayer } = useTextLayerSelection();
     const {
         clearHighlights,
@@ -114,6 +205,32 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         ?? (typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1);
 
     let lastHighlightDebugKey: string | null = null;
+
+    function isRenderingCancelledError(error: unknown) {
+        if (!error) {
+            return false;
+        }
+        if (
+            typeof error === 'object'
+            && 'name' in error
+            && (error as { name?: string }).name === 'RenderingCancelledException'
+        ) {
+            return true;
+        }
+
+        const message = typeof error === 'string'
+            ? error
+            : (
+                typeof error === 'object'
+                && error !== null
+                && 'message' in error
+                && typeof (error as { message?: unknown }).message === 'string'
+            )
+                ? (error as { message: string }).message
+                : '';
+
+        return /rendering cancelled/i.test(message);
+    }
 
     function isHighlightDebugEnabled() {
         if (typeof window === 'undefined') {
@@ -327,6 +444,12 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         renderedPages.delete(pageNumber);
         renderingPages.delete(pageNumber);
 
+        const editorLayer = annotationEditorLayers.get(pageNumber);
+        if (editorLayer) {
+            editorLayer.destroy();
+            annotationEditorLayers.delete(pageNumber);
+        }
+
         if (containerRoot) {
             const container = containerRoot.querySelector<HTMLElement>(
                 `.page_container[data-page="${pageNumber}"]`,
@@ -363,12 +486,6 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             if (container) {
                 clearOcrDebugBoxes(container);
             }
-        }
-
-        const editorLayer = annotationEditorLayers.get(pageNumber);
-        if (editorLayer) {
-            editorLayer.destroy();
-            annotationEditorLayers.delete(pageNumber);
         }
 
         const drawLayer = drawLayers.get(pageNumber);
@@ -857,6 +974,27 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                             renderedPages.add(pageNumber);
                         }
                     } catch (error) {
+                        if (isRenderingCancelledError(error)) {
+                            if (renderVersion === version) {
+                                setTimeout(() => {
+                                    if (renderVersion !== version) {
+                                        return;
+                                    }
+                                    void renderVisiblePages(
+                                        {
+                                            start: pageNumber,
+                                            end: pageNumber,
+                                        },
+                                        {
+                                            preserveRenderedPages: true,
+                                            bufferOverride: 0,
+                                        },
+                                    );
+                                }, 0);
+                            }
+                            return;
+                        }
+
                         const message = error instanceof Error
                             ? error.message
                             : typeof error === 'string'

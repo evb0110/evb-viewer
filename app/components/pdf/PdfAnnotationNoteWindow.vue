@@ -1,70 +1,69 @@
 <template>
-    <div class="note-window" :style="windowStyle">
+    <div
+        class="note-window"
+        :style="windowStyle"
+        @mousedown="emit('focus')"
+        @focusin="emit('focus')"
+    >
         <header
             class="note-window__title"
             @mousedown.prevent="startDrag"
         >
             <div class="note-window__title-main">
                 <strong class="note-window__summary">{{ title }}</strong>
-                <span class="note-window__meta">{{ metaText }}</span>
+                <span class="note-window__meta">{{ authorText }}</span>
             </div>
-            <button
-                type="button"
-                class="note-window__close"
-                aria-label="Close note"
-                @click="emit('close')"
-            >
-                <UIcon name="i-lucide-x" class="size-3.5" />
-            </button>
+            <div class="note-window__title-side">
+                <span class="note-window__date">{{ timestampText }}</span>
+                <button
+                    type="button"
+                    class="note-window__close"
+                    aria-label="Close note"
+                    @click="emit('close')"
+                >
+                    <UIcon name="i-lucide-x" class="size-3.5" />
+                </button>
+            </div>
         </header>
 
         <textarea
+            ref="noteInputRef"
             class="note-window__textarea"
             :value="text"
             rows="8"
             placeholder="Write annotation note"
+            @keydown.esc.stop.prevent="emit('close')"
             @input="emit('update:text', ($event.target as HTMLTextAreaElement).value)"
         ></textarea>
 
+        <p v-if="saving" class="note-window__status">Saving…</p>
         <p v-if="error" class="note-window__error">{{ error }}</p>
-
-        <footer class="note-window__actions">
-            <UButton
-                icon="i-lucide-save"
-                size="sm"
-                color="primary"
-                :loading="saving"
-                @click="emit('save')"
-            >
-                Save
-            </UButton>
-            <UButton
-                icon="i-lucide-trash-2"
-                size="sm"
-                color="error"
-                variant="soft"
-                :disabled="saving"
-                @click="emit('delete')"
-            >
-                Delete
-            </UButton>
-        </footer>
     </div>
 </template>
 
 <script setup lang="ts">
 import {
     computed,
+    nextTick,
     onBeforeUnmount,
+    onMounted,
     ref,
+    watch,
 } from 'vue';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
+
+interface IAnnotationNotePosition {
+    x: number;
+    y: number;
+}
 
 interface IProps {
     comment: IAnnotationCommentSummary;
     text: string;
     saving?: boolean;
     error?: string | null;
+    position?: IAnnotationNotePosition | null;
+    zIndex?: number;
 }
 
 const {
@@ -72,17 +71,20 @@ const {
     text,
     saving = false,
     error = null,
+    position = null,
+    zIndex = 55,
 } = defineProps<IProps>();
 
 const emit = defineEmits<{
     (e: 'update:text', value: string): void;
-    (e: 'save'): void;
-    (e: 'delete'): void;
+    (e: 'update:position', value: IAnnotationNotePosition): void;
     (e: 'close'): void;
+    (e: 'focus'): void;
 }>();
 
-const offsetX = ref(24);
-const offsetY = ref(86);
+const noteInputRef = ref<HTMLTextAreaElement | null>(null);
+const offsetX = ref(14);
+const offsetY = ref(72);
 const dragStartX = ref(0);
 const dragStartY = ref(0);
 const frameStartX = ref(0);
@@ -94,19 +96,36 @@ const timeFormatter = new Intl.DateTimeFormat(undefined, {
     timeStyle: 'short',
 });
 
-const title = computed(() => `Pop-up Note · Page ${comment.pageNumber}`);
-const metaText = computed(() => {
-    const author = comment.author || 'Unknown Author';
-    const timestamp = comment.modifiedAt
-        ? timeFormatter.format(new Date(comment.modifiedAt))
-        : 'No date';
-    return `${author} · ${timestamp}`;
+const title = computed(() => `Pop-up Note : Page ${comment.pageNumber}`);
+const authorText = computed(() => comment.author?.trim() || 'Unknown Author');
+const timestampText = computed(() => {
+    if (!comment.modifiedAt) {
+        return 'No date';
+    }
+    return timeFormatter.format(new Date(comment.modifiedAt));
 });
 
 const windowStyle = computed(() => ({
     left: `${offsetX.value}px`,
     top: `${offsetY.value}px`,
+    zIndex: String(zIndex),
 }));
+
+function applyPosition(position: IAnnotationNotePosition | null) {
+    if (!position) {
+        return;
+    }
+    const clamped = clampPosition(position.x, position.y);
+    offsetX.value = clamped.x;
+    offsetY.value = clamped.y;
+}
+
+function emitPositionUpdate() {
+    emit('update:position', {
+        x: offsetX.value,
+        y: offsetY.value,
+    });
+}
 
 function clampPosition(x: number, y: number) {
     if (typeof window === 'undefined') {
@@ -116,8 +135,8 @@ function clampPosition(x: number, y: number) {
         };
     }
 
-    const maxX = Math.max(8, window.innerWidth - 380);
-    const maxY = Math.max(8, window.innerHeight - 260);
+    const maxX = Math.max(8, window.innerWidth - 320);
+    const maxY = Math.max(8, window.innerHeight - 320);
 
     return {
         x: Math.min(maxX, Math.max(8, x)),
@@ -136,6 +155,7 @@ function handlePointerMove(event: MouseEvent) {
 
     offsetX.value = clamped.x;
     offsetY.value = clamped.y;
+    emitPositionUpdate();
 }
 
 function stopDrag() {
@@ -146,9 +166,11 @@ function stopDrag() {
     isDragging.value = false;
     window.removeEventListener('mousemove', handlePointerMove);
     window.removeEventListener('mouseup', stopDrag);
+    emitPositionUpdate();
 }
 
 function startDrag(event: MouseEvent) {
+    emit('focus');
     isDragging.value = true;
     dragStartX.value = event.clientX;
     dragStartY.value = event.clientY;
@@ -159,63 +181,104 @@ function startDrag(event: MouseEvent) {
     window.addEventListener('mouseup', stopDrag);
 }
 
+onMounted(async () => {
+    applyPosition(position);
+    await nextTick();
+    noteInputRef.value?.focus();
+});
+
 onBeforeUnmount(() => {
     stopDrag();
 });
+
+watch(
+    () => position,
+    (nextPosition) => {
+        if (isDragging.value) {
+            return;
+        }
+        applyPosition(nextPosition);
+    },
+);
+
+watch(
+    () => comment.stableKey,
+    () => {
+        applyPosition(position);
+        void nextTick(() => {
+            noteInputRef.value?.focus();
+        });
+    },
+);
 </script>
 
 <style scoped>
 .note-window {
     position: fixed;
-    z-index: 50;
-    width: min(360px, calc(100vw - 20px));
-    min-height: 230px;
-    border: 1px solid var(--ui-border);
-    background: #fff6b8;
+    z-index: 55;
+    width: min(300px, calc(100vw - 18px));
+    height: min(300px, calc(100vh - 86px));
+    min-width: 240px;
+    min-height: 220px;
+    border: 1px solid #c7b75b;
+    background: #fff5a0;
     box-shadow:
-        0 16px 30px rgb(15 23 42 / 18%),
+        0 14px 28px rgb(15 23 42 / 20%),
         0 4px 10px rgb(15 23 42 / 12%);
     display: grid;
     grid-template-rows: auto 1fr auto auto;
+    resize: both;
+    overflow: hidden;
 }
 
 .note-window__title {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
-    gap: 0.4rem;
-    border-bottom: 1px solid rgb(0 0 0 / 14%);
-    padding: 0.42rem 0.5rem 0.34rem;
+    gap: 0.5rem;
+    border-bottom: 1px solid rgb(88 72 7 / 30%);
+    padding: 0.4rem 0.5rem 0.35rem;
     cursor: move;
     user-select: none;
-    background: rgb(255 255 255 / 46%);
+    background: rgb(255 255 255 / 42%);
 }
 
 .note-window__title-main {
-    display: flex;
-    flex-direction: column;
-    gap: 0.16rem;
     min-width: 0;
+    display: grid;
+    gap: 0.12rem;
 }
 
 .note-window__summary {
-    font-size: 0.77rem;
-    color: #1f2937;
+    font-size: 0.79rem;
+    color: #473b08;
     line-height: 1.25;
 }
 
 .note-window__meta {
-    font-size: 0.66rem;
-    color: rgb(31 41 55 / 80%);
+    font-size: 0.7rem;
+    color: rgb(71 59 8 / 88%);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
+.note-window__title-side {
+    display: grid;
+    justify-items: end;
+    gap: 0.18rem;
+}
+
+.note-window__date {
+    font-size: 0.66rem;
+    color: rgb(71 59 8 / 84%);
+    white-space: nowrap;
+}
+
 .note-window__close {
-    border: 1px solid rgb(0 0 0 / 16%);
-    background: rgb(255 255 255 / 64%);
-    color: #111827;
+    border: 1px solid rgb(88 72 7 / 28%);
+    background: rgb(255 255 255 / 70%);
+    color: #3e3307;
     width: 1.45rem;
     height: 1.45rem;
     display: inline-flex;
@@ -226,29 +289,28 @@ onBeforeUnmount(() => {
 
 .note-window__textarea {
     width: 100%;
+    min-height: 100%;
     border: none;
     background: transparent;
-    color: #111827;
-    line-height: 1.4;
-    font-size: 0.82rem;
+    color: #2b2206;
+    line-height: 1.45;
+    font-size: 0.84rem;
     resize: none;
     outline: none;
-    padding: 0.5rem;
+    padding: 0.52rem;
+}
+
+.note-window__status {
+    margin: 0;
+    font-size: 0.68rem;
+    color: rgb(71 59 8 / 82%);
+    padding: 0 0.52rem 0.3rem;
 }
 
 .note-window__error {
     margin: 0;
     font-size: 0.7rem;
-    color: #b91c1c;
-    padding: 0 0.5rem;
-}
-
-.note-window__actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 0.35rem;
-    border-top: 1px solid rgb(0 0 0 / 12%);
-    padding: 0.42rem 0.5rem;
-    background: rgb(255 255 255 / 42%);
+    color: #a61414;
+    padding: 0 0.52rem 0.35rem;
 }
 </style>

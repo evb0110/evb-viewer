@@ -13,31 +13,23 @@
             size="sm"
             :ui="{
                 root: 'gap-0',
-                list: 'p-0 mb-0 rounded-none bg-transparent',
+                list: 'p-0 mb-0 rounded-none bg-transparent border-b border-default',
                 indicator: 'bg-primary/40 rounded-none bottom-0',
-                trigger: 'flex-1 justify-center rounded-none data-[state=active]:text-default data-[state=inactive]:hover:bg-muted/30',
+                trigger: 'flex-1 justify-center px-1 py-1.5 rounded-none text-[11px] font-semibold tracking-wide uppercase data-[state=active]:text-default data-[state=inactive]:text-muted data-[state=inactive]:hover:bg-muted/30',
             }"
             class="pdf-sidebar-tabs"
-        >
-            <template #leading="{ item }">
-                <UTooltip :text="item.tooltip" :delay-duration="1200">
-                    <span class="pdf-sidebar-tab-icon">
-                        <UIcon
-                            :name="item.icon"
-                            class="size-4"
-                        />
-                    </span>
-                </UTooltip>
-            </template>
-        </UTabs>
+        />
         <div class="pdf-sidebar-content app-scrollbar">
             <PdfAnnotationsPanel
                 v-show="activeTab === 'annotations'"
                 :tool="annotationTool"
                 :settings="annotationSettings"
                 :comments="annotationComments"
+                :active-comment-stable-key="annotationActiveCommentStableKey"
                 :current-page="currentPage"
+                :keep-active="annotationKeepActive"
                 @set-tool="emit('update:annotation-tool', $event)"
+                @update:keep-active="emit('update:annotation-keep-active', $event)"
                 @update-setting="emit('annotation-setting', $event)"
                 @highlight-selection="emit('annotation-highlight-selection')"
                 @comment-selection="emit('annotation-comment-selection')"
@@ -126,16 +118,20 @@ interface IProps {
     activeTab?: TPdfSidebarTab;
     width?: number;
     annotationTool: TAnnotationTool;
+    annotationKeepActive: boolean;
     annotationSettings: IAnnotationSettings;
     annotationComments: IAnnotationCommentSummary[];
+    annotationActiveCommentStableKey?: string | null;
 }
 
 const props = defineProps<IProps>();
 const {
     annotationTool,
+    annotationKeepActive,
     annotationSettings,
     annotationComments,
 } = toRefs(props);
+const annotationActiveCommentStableKey = computed(() => props.annotationActiveCommentStableKey ?? null);
 
 const emit = defineEmits<{
     (e: 'goToPage', page: number): void;
@@ -143,6 +139,7 @@ const emit = defineEmits<{
     (e: 'update:activeTab', value: TPdfSidebarTab): void;
     (e: 'update:searchQuery', value: string): void;
     (e: 'update:annotation-tool', value: TAnnotationTool): void;
+    (e: 'update:annotation-keep-active', value: boolean): void;
     (e: 'search'): void;
     (e: 'next'): void;
     (e: 'previous'): void;
@@ -205,35 +202,30 @@ watch(
 
 interface IPdfSidebarTabItem {
     value: TPdfSidebarTab;
-    label: '';
-    tooltip: string;
-    icon: string;
+    label: string;
+    title: string;
 }
 
 const tabs = [
     {
         value: 'annotations',
-        label: '',
-        tooltip: 'Annotations',
-        icon: 'i-lucide-pen-tool',
+        label: 'Notes',
+        title: 'Annotations',
     },
     {
         value: 'thumbnails',
-        label: '',
-        tooltip: 'Pages',
-        icon: 'i-lucide-layout-grid',
+        label: 'Pages',
+        title: 'Pages',
     },
     {
         value: 'outline',
-        label: '',
-        tooltip: 'Outline',
-        icon: 'i-lucide-list',
+        label: 'Outline',
+        title: 'Outline',
     },
     {
         value: 'search',
-        label: '',
-        tooltip: 'Search',
-        icon: 'i-lucide-search',
+        label: 'Search',
+        title: 'Search',
     },
 ] satisfies IPdfSidebarTabItem[];
 
@@ -258,12 +250,6 @@ const sidebarStyle = computed(() => {
 
 .pdf-sidebar-tabs {
     flex-shrink: 0;
-}
-
-.pdf-sidebar-tab-icon {
-    display: flex;
-    align-items: center;
-    justify-content: center;
 }
 
 .pdf-sidebar-search {

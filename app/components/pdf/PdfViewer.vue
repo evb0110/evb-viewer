@@ -23,6 +23,9 @@
             @mousemove="handleDragMove"
             @mouseup="stopDrag"
             @mouseleave="stopDrag"
+            @click="handleAnnotationCommentClick"
+            @dblclick="handleAnnotationEditorDblClick"
+            @contextmenu="handleAnnotationCommentContextMenu"
         >
             <PdfViewerPage
                 v-for="page in pagesToRender"
@@ -78,6 +81,7 @@ import type {
 import type {
     IAnnotationCommentSummary,
     IAnnotationEditorState,
+    IAnnotationMarkerRect,
     IAnnotationSettings,
     TAnnotationTool,
 } from '@app/types/annotations';
@@ -95,6 +99,7 @@ interface IProps {
     invertColors?: boolean;
     showAnnotations?: boolean;
     annotationTool?: TAnnotationTool;
+    annotationKeepActive?: boolean;
     annotationSettings?: IAnnotationSettings | null;
     searchPageMatches?: Map<number, IPdfPageMatches>;
     currentSearchMatch?: IPdfSearchMatch | null;
@@ -115,6 +120,7 @@ const isResizing = computed(() => props.isResizing ?? false);
 const invertColors = computed(() => props.invertColors ?? false);
 const showAnnotations = computed(() => props.showAnnotations ?? true);
 const annotationTool = computed<TAnnotationTool>(() => props.annotationTool ?? 'none');
+const annotationKeepActive = computed(() => props.annotationKeepActive ?? true);
 const annotationSettings = computed<IAnnotationSettings | null>(() => props.annotationSettings ?? null);
 const emptySearchPageMatches = new Map<number, IPdfPageMatches>();
 const searchPageMatches = computed(() => props.searchPageMatches ?? emptySearchPageMatches);
@@ -134,6 +140,13 @@ const emit = defineEmits<{
     (e: 'annotation-modified'): void;
     (e: 'annotation-comments', comments: IAnnotationCommentSummary[]): void;
     (e: 'annotation-open-note', comment: IAnnotationCommentSummary): void;
+    (e: 'annotation-context-menu', payload: {
+        comment: IAnnotationCommentSummary;
+        clientX: number;
+        clientY: number;
+    }): void;
+    (e: 'annotation-tool-auto-reset'): void;
+    (e: 'annotation-tool-cancel'): void;
 }>();
 
 const viewerContainer = ref<HTMLElement | null>(null);
@@ -148,6 +161,7 @@ const annotationState = ref<IAnnotationEditorState>({
     hasSomethingToRedo: false,
     hasSelectedEditor: false,
 });
+const annotationCommentsCache = ref<IAnnotationCommentSummary[]>([]);
 const pendingAnnotationTool = ref<TAnnotationTool>(annotationTool.value);
 const pendingAnnotationSettings = ref<IAnnotationSettings | null>(annotationSettings.value);
 
@@ -230,6 +244,20 @@ let editorRuntimeIdCounter = 0;
 let cachedSelectionRange: Range | null = null;
 let cachedSelectionTimestamp = 0;
 const SELECTION_CACHE_TTL_MS = 3000;
+const activeCommentStableKey = ref<string | null>(null);
+const pendingCommentEditorKeys = new Set<string>();
+const trackedCreatedEditors = new WeakSet<object>();
+const patchedAnnotationLayerDestroy = new WeakSet<object>();
+let inlineCommentMarkerObserver: MutationObserver | null = null;
+const commentSummaryMemory = new Map<string, {
+    text: string;
+    modifiedAt: number | null;
+    author: string | null;
+    kindLabel: string | null;
+    subtype: string | null;
+    color: string | null;
+    markerRect: IAnnotationMarkerRect | null;
+}>();
 
 /**
  * Minimal shape for PDF.js annotation editor instances.
@@ -334,6 +362,94 @@ function toCssColor(
     return null;
 }
 
+function normalizeMarkerRect(rect: IAnnotationMarkerRect | null | undefined): IAnnotationMarkerRect | null {
+    if (!rect) {
+        return null;
+    }
+    const left = Number.isFinite(rect.left) ? rect.left : 0;
+    const top = Number.isFinite(rect.top) ? rect.top : 0;
+    const width = Number.isFinite(rect.width) ? rect.width : 0;
+    const height = Number.isFinite(rect.height) ? rect.height : 0;
+    if (width <= 0 || height <= 0) {
+        return null;
+    }
+
+    const clampedLeft = Math.min(1, Math.max(0, left));
+    const clampedTop = Math.min(1, Math.max(0, top));
+    const maxWidth = 1 - clampedLeft;
+    const maxHeight = 1 - clampedTop;
+    const clampedWidth = Math.min(maxWidth, Math.max(0, width));
+    const clampedHeight = Math.min(maxHeight, Math.max(0, height));
+    if (clampedWidth <= 0 || clampedHeight <= 0) {
+        return null;
+    }
+
+    return {
+        left: clampedLeft,
+        top: clampedTop,
+        width: clampedWidth,
+        height: clampedHeight,
+    };
+}
+
+function toMarkerRectFromPdfRect(
+    rect: number[] | null | undefined,
+    pageView: number[] | null | undefined,
+): IAnnotationMarkerRect | null {
+    if (!rect || rect.length < 4 || !pageView || pageView.length < 4) {
+        return null;
+    }
+
+    const x1 = rect[0] ?? 0;
+    const y1 = rect[1] ?? 0;
+    const x2 = rect[2] ?? 0;
+    const y2 = rect[3] ?? 0;
+    const minX = Math.min(x1, x2);
+    const maxX = Math.max(x1, x2);
+    const minY = Math.min(y1, y2);
+    const maxY = Math.max(y1, y2);
+
+    const xMin = pageView[0] ?? 0;
+    const yMin = pageView[1] ?? 0;
+    const xMax = pageView[2] ?? 0;
+    const yMax = pageView[3] ?? 0;
+    const pageWidth = xMax - xMin;
+    const pageHeight = yMax - yMin;
+    if (!Number.isFinite(pageWidth) || !Number.isFinite(pageHeight) || pageWidth <= 0 || pageHeight <= 0) {
+        return null;
+    }
+
+    return normalizeMarkerRect({
+        left: (minX - xMin) / pageWidth,
+        top: (yMax - maxY) / pageHeight,
+        width: (maxX - minX) / pageWidth,
+        height: (maxY - minY) / pageHeight,
+    });
+}
+
+function toMarkerRectFromEditor(editor: IPdfjsEditor): IAnnotationMarkerRect | null {
+    const editorDiv = editor.div;
+    if (!editorDiv) {
+        return null;
+    }
+    const pageContainer = editorDiv.closest<HTMLElement>('.page_container');
+    if (!pageContainer) {
+        return null;
+    }
+    const pageRect = pageContainer.getBoundingClientRect();
+    const editorRect = editorDiv.getBoundingClientRect();
+    if (pageRect.width <= 0 || pageRect.height <= 0 || editorRect.width <= 0 || editorRect.height <= 0) {
+        return null;
+    }
+
+    return normalizeMarkerRect({
+        left: (editorRect.left - pageRect.left) / pageRect.width,
+        top: (editorRect.top - pageRect.top) / pageRect.height,
+        width: editorRect.width / pageRect.width,
+        height: editorRect.height / pageRect.height,
+    });
+}
+
 function getAnnotationCommentText(annotation: {
     contents?: string;
     contentsObj?: { str?: string | null };
@@ -362,16 +478,328 @@ function getAnnotationAuthor(annotation: {
     return direct || null;
 }
 
+function annotationKindLabelFromSubtype(subtype: string | null | undefined) {
+    const normalized = (subtype ?? '').trim().toLowerCase();
+    switch (normalized) {
+        case 'highlight':
+            return 'Highlight';
+        case 'underline':
+            return 'Underline';
+        case 'squiggly':
+            return 'Squiggle';
+        case 'strikeout':
+            return 'Strike Out';
+        case 'text':
+        case 'note-linked':
+            return 'Pop-up Note';
+        case 'freetext':
+        case 'typewriter':
+        case 'note-inline':
+            return 'Inline Note';
+        case 'ink':
+            return 'Freehand Line';
+        case 'line':
+        case 'straight-line':
+            return 'Line';
+        case 'square':
+        case 'geomsquare':
+        case 'rectangle':
+            return 'Rectangle';
+        case 'circle':
+        case 'geomcircle':
+        case 'ellipse':
+            return 'Ellipse';
+        case 'polygon':
+            return 'Polygon';
+        case 'stamp':
+            return 'Stamp';
+        default:
+            return 'Annotation';
+    }
+}
+
+function isPopupSubtype(subtype: string | null | undefined) {
+    return (subtype ?? '').trim().toLowerCase() === 'popup';
+}
+
+function detectEditorSubtype(editor: IPdfjsEditor) {
+    const className = editor.div?.className ?? '';
+    if (className.includes('highlightEditor')) {
+        return 'Highlight';
+    }
+    if (className.includes('freeTextEditor')) {
+        return 'Typewriter';
+    }
+    if (className.includes('inkEditor')) {
+        return 'Ink';
+    }
+    return null;
+}
+
 function compareAnnotationComments(a: IAnnotationCommentSummary, b: IAnnotationCommentSummary) {
+    if (a.pageIndex !== b.pageIndex) {
+        return a.pageIndex - b.pageIndex;
+    }
+
+    const sortIndexA = typeof a.sortIndex === 'number' ? a.sortIndex : null;
+    const sortIndexB = typeof b.sortIndex === 'number' ? b.sortIndex : null;
+    if (sortIndexA !== null && sortIndexB !== null && sortIndexA !== sortIndexB) {
+        return sortIndexA - sortIndexB;
+    }
+    if (sortIndexA !== null && sortIndexB === null) {
+        return -1;
+    }
+    if (sortIndexA === null && sortIndexB !== null) {
+        return 1;
+    }
+
     const aTime = a.modifiedAt ?? 0;
     const bTime = b.modifiedAt ?? 0;
     if (aTime !== bTime) {
         return bTime - aTime;
     }
-    if (a.pageIndex !== b.pageIndex) {
-        return a.pageIndex - b.pageIndex;
+    return a.stableKey.localeCompare(b.stableKey);
+}
+
+function toCanonicalStableKey(summary: Pick<IAnnotationCommentSummary, 'id' | 'pageIndex' | 'source' | 'uid' | 'annotationId'>) {
+    return computeSummaryStableKey({
+        id: summary.id,
+        pageIndex: summary.pageIndex,
+        source: summary.source,
+        uid: summary.uid,
+        annotationId: summary.annotationId,
+    });
+}
+
+function normalizeSummaryStableKey(summary: IAnnotationCommentSummary): IAnnotationCommentSummary {
+    return {
+        ...summary,
+        stableKey: toCanonicalStableKey(summary),
+    };
+}
+
+function markerRectIoU(
+    leftRect: IAnnotationMarkerRect | null | undefined,
+    rightRect: IAnnotationMarkerRect | null | undefined,
+) {
+    const left = normalizeMarkerRect(leftRect);
+    const right = normalizeMarkerRect(rightRect);
+    if (!left || !right) {
+        return 0;
     }
-    return a.id.localeCompare(b.id);
+
+    const intersectionLeft = Math.max(left.left, right.left);
+    const intersectionTop = Math.max(left.top, right.top);
+    const intersectionRight = Math.min(left.left + left.width, right.left + right.width);
+    const intersectionBottom = Math.min(left.top + left.height, right.top + right.height);
+    const intersectionWidth = Math.max(0, intersectionRight - intersectionLeft);
+    const intersectionHeight = Math.max(0, intersectionBottom - intersectionTop);
+    const intersectionArea = intersectionWidth * intersectionHeight;
+    if (intersectionArea <= 0) {
+        return 0;
+    }
+
+    const leftArea = left.width * left.height;
+    const rightArea = right.width * right.height;
+    const unionArea = leftArea + rightArea - intersectionArea;
+    if (unionArea <= 0) {
+        return 0;
+    }
+
+    return intersectionArea / unionArea;
+}
+
+function areTextMarkupCommentsLikelySame(
+    left: IAnnotationCommentSummary,
+    right: IAnnotationCommentSummary,
+) {
+    if (left.pageIndex !== right.pageIndex) {
+        return false;
+    }
+    if (!isTextMarkupSubtype(left.subtype) || !isTextMarkupSubtype(right.subtype)) {
+        return false;
+    }
+
+    const iou = markerRectIoU(left.markerRect, right.markerRect);
+    if (iou >= 0.46) {
+        return true;
+    }
+
+    const leftRect = normalizeMarkerRect(left.markerRect);
+    const rightRect = normalizeMarkerRect(right.markerRect);
+    if (!leftRect || !rightRect) {
+        return false;
+    }
+
+    const leftCenterX = leftRect.left + leftRect.width / 2;
+    const leftCenterY = leftRect.top + leftRect.height / 2;
+    const rightCenterX = rightRect.left + rightRect.width / 2;
+    const rightCenterY = rightRect.top + rightRect.height / 2;
+    const dx = leftCenterX - rightCenterX;
+    const dy = leftCenterY - rightCenterY;
+    const centerDistance = Math.hypot(dx, dy);
+
+    const leftArea = leftRect.width * leftRect.height;
+    const rightArea = rightRect.width * rightRect.height;
+    const largerArea = Math.max(leftArea, rightArea);
+    const smallerArea = Math.max(1e-6, Math.min(leftArea, rightArea));
+    const areaRatio = largerArea / smallerArea;
+
+    return centerDistance <= 0.045 && areaRatio <= 2.8;
+}
+
+function commentsAreSameLogicalAnnotation(
+    left: IAnnotationCommentSummary,
+    right: IAnnotationCommentSummary,
+) {
+    if (left.pageIndex !== right.pageIndex) {
+        return false;
+    }
+
+    if (left.annotationId && right.annotationId) {
+        return left.annotationId === right.annotationId;
+    }
+
+    if (left.uid && right.uid) {
+        return left.uid === right.uid;
+    }
+
+    if (left.annotationId && right.annotationId === null) {
+        const rightHasText = right.text.trim().length > 0;
+        const leftHasText = left.text.trim().length > 0;
+        const textCompatible = !leftHasText || !rightHasText || left.text.trim() === right.text.trim();
+        return textCompatible && areTextMarkupCommentsLikelySame(left, right);
+    }
+
+    if (right.annotationId && left.annotationId === null) {
+        const rightHasText = right.text.trim().length > 0;
+        const leftHasText = left.text.trim().length > 0;
+        const textCompatible = !leftHasText || !rightHasText || left.text.trim() === right.text.trim();
+        return textCompatible && areTextMarkupCommentsLikelySame(left, right);
+    }
+
+    if (left.uid && !right.uid) {
+        const rightHasText = right.text.trim().length > 0;
+        const leftHasText = left.text.trim().length > 0;
+        const textCompatible = !leftHasText || !rightHasText || left.text.trim() === right.text.trim();
+        return textCompatible && areTextMarkupCommentsLikelySame(left, right);
+    }
+
+    if (right.uid && !left.uid) {
+        const rightHasText = right.text.trim().length > 0;
+        const leftHasText = left.text.trim().length > 0;
+        const textCompatible = !leftHasText || !rightHasText || left.text.trim() === right.text.trim();
+        return textCompatible && areTextMarkupCommentsLikelySame(left, right);
+    }
+
+    return (
+        left.id === right.id
+        && left.source === right.source
+    ) || areTextMarkupCommentsLikelySame(left, right);
+}
+
+function commentMergePriority(comment: IAnnotationCommentSummary) {
+    let score = 0;
+    if (comment.annotationId) {
+        score += 110;
+    }
+    if (comment.uid) {
+        score += 55;
+    }
+    if (comment.source === 'editor') {
+        score += 22;
+    }
+    if (comment.text.trim()) {
+        score += 12;
+    }
+    if (comment.modifiedAt) {
+        score += 5;
+    }
+    if (comment.markerRect) {
+        score += 3;
+    }
+    return score;
+}
+
+function mergeDuplicateCommentSummary(
+    primary: IAnnotationCommentSummary,
+    secondary: IAnnotationCommentSummary,
+): IAnnotationCommentSummary {
+    const merged = mergeCommentSummaries(primary, secondary);
+    const annotationId = primary.annotationId ?? secondary.annotationId ?? null;
+    const uid = primary.uid ?? secondary.uid ?? null;
+    const markerRect = normalizeMarkerRect(primary.markerRect)
+        ?? normalizeMarkerRect(secondary.markerRect)
+        ?? null;
+    const source: IAnnotationCommentSummary['source'] = (
+        primary.source === 'editor' || secondary.source === 'editor'
+            ? 'editor'
+            : 'pdf'
+    );
+    const primarySortIndex = typeof primary.sortIndex === 'number' ? primary.sortIndex : null;
+    const secondarySortIndex = typeof secondary.sortIndex === 'number' ? secondary.sortIndex : null;
+    const sortIndex = (
+        primarySortIndex !== null && secondarySortIndex !== null
+            ? Math.min(primarySortIndex, secondarySortIndex)
+            : (primarySortIndex ?? secondarySortIndex)
+    );
+
+    const id = annotationId
+        ? (
+            primary.annotationId
+                ? primary.id
+                : secondary.id
+        )
+        : (
+            uid
+                ? (primary.uid ? primary.id : secondary.id)
+                : merged.id
+        );
+
+    const normalized: IAnnotationCommentSummary = {
+        ...merged,
+        id,
+        sortIndex,
+        annotationId,
+        uid,
+        source,
+        markerRect,
+    };
+    return normalizeSummaryStableKey(normalized);
+}
+
+function dedupeAnnotationCommentSummaries(comments: IAnnotationCommentSummary[]) {
+    const sorted = comments
+        .map(comment => normalizeSummaryStableKey(comment))
+        .sort((left, right) => {
+            const priorityDelta = commentMergePriority(right) - commentMergePriority(left);
+            if (priorityDelta !== 0) {
+                return priorityDelta;
+            }
+            const leftTs = left.modifiedAt ?? 0;
+            const rightTs = right.modifiedAt ?? 0;
+            if (leftTs !== rightTs) {
+                return rightTs - leftTs;
+            }
+            return left.stableKey.localeCompare(right.stableKey);
+        });
+
+    const merged: IAnnotationCommentSummary[] = [];
+    for (const candidate of sorted) {
+        const existingIndex = merged.findIndex(existing => commentsAreSameLogicalAnnotation(existing, candidate));
+        if (existingIndex === -1) {
+            merged.push(candidate);
+            continue;
+        }
+        const primary = merged[existingIndex];
+        if (!primary) {
+            merged.push(candidate);
+            continue;
+        }
+        merged[existingIndex] = mergeDuplicateCommentSummary(primary, candidate);
+    }
+
+    return merged.sort(compareAnnotationComments);
 }
 
 function getEditorRuntimeId(editor: IPdfjsEditor, pageIndex: number) {
@@ -385,16 +813,40 @@ function getEditorRuntimeId(editor: IPdfjsEditor, pageIndex: number) {
 }
 
 function getEditorIdentity(editor: IPdfjsEditor, pageIndex: number) {
+    const rawEditorId = typeof editor.id === 'string' || typeof editor.id === 'number'
+        ? String(editor.id)
+        : '';
     return editor.uid
         ?? editor.annotationElementId
-        ?? editor.id
+        ?? (rawEditorId ? `editor:${pageIndex}:${rawEditorId}` : null)
         ?? getEditorRuntimeId(editor, pageIndex);
+}
+
+function getEditorPendingKey(editor: IPdfjsEditor, pageIndex: number) {
+    return `p${pageIndex}:${getEditorIdentity(editor, pageIndex)}`;
+}
+
+function computeSummaryStableKey(params: {
+    pageIndex: number;
+    id: string;
+    source: IAnnotationCommentSummary['source'];
+    uid?: string | null;
+    annotationId?: string | null;
+}) {
+    if (params.annotationId) {
+        return `ann:${params.pageIndex}:${params.annotationId}`;
+    }
+    if (params.uid) {
+        return `uid:${params.pageIndex}:${params.uid}`;
+    }
+    return `src:${params.source}:${params.pageIndex}:${params.id}`;
 }
 
 function toEditorSummary(
     editor: IPdfjsEditor,
     pageIndex: number,
     textOverride?: string,
+    sortIndex: number | null = null,
 ): IAnnotationCommentSummary {
     let data: ReturnType<NonNullable<IPdfjsEditor['getData']>> = {};
     try {
@@ -405,19 +857,132 @@ function toEditorSummary(
     const text = typeof textOverride === 'string'
         ? textOverride
         : getCommentText(editor).trim();
+    const subtype = detectEditorSubtype(editor);
+    const uid = editor.uid ?? null;
+    const annotationId = editor.annotationElementId ?? null;
+    const id = getEditorIdentity(editor, pageIndex);
 
     return {
-        id: getEditorIdentity(editor, pageIndex),
+        id,
+        stableKey: computeSummaryStableKey({
+            id,
+            pageIndex,
+            source: 'editor',
+            uid,
+            annotationId,
+        }),
+        sortIndex,
         pageIndex,
         pageNumber: pageIndex + 1,
         text,
+        kindLabel: annotationKindLabelFromSubtype(subtype),
+        subtype,
         author: null,
         modifiedAt: parsePdfDateTimestamp(data.modificationDate) ?? parsePdfDateTimestamp(data.creationDate),
         color: toCssColor(data.color ?? editor.color, data.opacity ?? editor.opacity ?? 1),
-        uid: editor.uid ?? null,
-        annotationId: editor.annotationElementId ?? null,
+        uid,
+        annotationId,
         source: 'editor',
+        markerRect: toMarkerRectFromEditor(editor),
     };
+}
+
+function getSummaryMemoryKeys(summary: Pick<IAnnotationCommentSummary, 'stableKey' | 'pageIndex' | 'annotationId' | 'uid' | 'id'>) {
+    const keys = new Set<string>();
+    if (summary.stableKey) {
+        keys.add(`stable:${summary.stableKey}`);
+    }
+    if (summary.annotationId) {
+        keys.add(`ann:${summary.pageIndex}:${summary.annotationId}`);
+        keys.add(`ann:any:${summary.annotationId}`);
+    }
+    if (summary.uid) {
+        keys.add(`uid:${summary.pageIndex}:${summary.uid}`);
+        keys.add(`uid:any:${summary.uid}`);
+    }
+    if (summary.id) {
+        keys.add(`id:${summary.pageIndex}:${summary.id}`);
+        keys.add(`id:any:${summary.id}`);
+    }
+    return Array.from(keys);
+}
+
+function rememberSummaryText(summary: IAnnotationCommentSummary) {
+    const text = summary.text.trim();
+    if (!text) {
+        return;
+    }
+    const payload = {
+        text: summary.text,
+        modifiedAt: summary.modifiedAt ?? null,
+        author: summary.author ?? null,
+        kindLabel: summary.kindLabel ?? null,
+        subtype: summary.subtype ?? null,
+        color: summary.color ?? null,
+        markerRect: summary.markerRect ?? null,
+    };
+    getSummaryMemoryKeys(summary).forEach((key) => {
+        commentSummaryMemory.set(key, payload);
+    });
+}
+
+function commentsMatchForEditorLookup(
+    left: Pick<IAnnotationCommentSummary, 'stableKey' | 'annotationId' | 'uid' | 'id' | 'pageIndex' | 'source'>,
+    right: Pick<IAnnotationCommentSummary, 'stableKey' | 'annotationId' | 'uid' | 'id' | 'pageIndex' | 'source'>,
+) {
+    if (left.stableKey && right.stableKey && left.stableKey === right.stableKey) {
+        return true;
+    }
+    if (left.annotationId && right.annotationId) {
+        return left.annotationId === right.annotationId && left.pageIndex === right.pageIndex;
+    }
+    if (left.uid && right.uid) {
+        return left.uid === right.uid && left.pageIndex === right.pageIndex;
+    }
+    return (
+        left.id === right.id
+        && left.pageIndex === right.pageIndex
+        && left.source === right.source
+    );
+}
+
+function resolveCommentFromCache(comment: IAnnotationCommentSummary) {
+    const direct = findCommentByStableKey(comment.stableKey);
+    if (direct) {
+        return direct;
+    }
+    return annotationCommentsCache.value.find(candidate => commentsMatchForEditorLookup(candidate, comment)) ?? null;
+}
+
+function forgetSummaryText(summary: IAnnotationCommentSummary) {
+    getSummaryMemoryKeys(summary).forEach((key) => {
+        commentSummaryMemory.delete(key);
+    });
+}
+
+function hydrateSummaryFromMemory(summary: IAnnotationCommentSummary) {
+    if (summary.text.trim()) {
+        return summary;
+    }
+
+    for (const key of getSummaryMemoryKeys(summary)) {
+        const cached = commentSummaryMemory.get(key);
+        if (!cached || !cached.text.trim()) {
+            continue;
+        }
+        return {
+            ...summary,
+            text: cached.text,
+            modifiedAt: summary.modifiedAt ?? cached.modifiedAt,
+            author: summary.author ?? cached.author,
+            kindLabel: summary.kindLabel ?? cached.kindLabel,
+            subtype: summary.subtype ?? cached.subtype,
+            color: summary.color ?? cached.color,
+            markerRect: summary.markerRect ?? cached.markerRect,
+        };
+    }
+
+    return summary;
 }
 
 function cacheCurrentTextSelection() {
@@ -482,7 +1047,10 @@ function createSimpleCommentManager(_container: HTMLElement) {
         showSidebar: () => {},
         hideSidebar: () => {},
         showDialog: (_uiManager: unknown, editor: IPdfjsEditor) => {
-            const summary = toEditorSummary(editor, editor.parentPageIndex ?? currentPage.value - 1, getCommentText(editor));
+            const summary = hydrateSummaryFromMemory(
+                toEditorSummary(editor, editor.parentPageIndex ?? currentPage.value - 1, getCommentText(editor)),
+            );
+            setActiveCommentStableKey(summary.stableKey);
             emit('annotation-open-note', summary);
         },
         updateComment: () => {
@@ -505,6 +1073,124 @@ function createSimpleCommentManager(_container: HTMLElement) {
             dialogElement.remove();
         },
     };
+}
+
+function installAnnotationLayerDestroyGuard(uiManager: AnnotationEditorUIManager) {
+    const hiddenFallbackDiv = document.createElement('div');
+    hiddenFallbackDiv.className = 'annotation-editor-layer-destroyed-fallback';
+    hiddenFallbackDiv.setAttribute('aria-hidden', 'true');
+    hiddenFallbackDiv.style.display = 'none';
+    const hiddenTextLayerFallbackDiv = document.createElement('div');
+    hiddenTextLayerFallbackDiv.className = 'annotation-editor-layer-text-fallback';
+    hiddenTextLayerFallbackDiv.setAttribute('aria-hidden', 'true');
+    hiddenTextLayerFallbackDiv.style.display = 'none';
+
+    const hardenElementProperty = (
+        owner: object,
+        key: string,
+        fallback: HTMLElement,
+    ) => {
+        const descriptor = Object.getOwnPropertyDescriptor(owner, key);
+        if (descriptor && descriptor.get && descriptor.set && descriptor.configurable === false) {
+            return;
+        }
+
+        const initial = Reflect.get(owner, key);
+        let current = initial instanceof HTMLElement
+            ? initial
+            : fallback;
+
+        Object.defineProperty(owner, key, {
+            configurable: true,
+            enumerable: true,
+            get() {
+                return current ?? fallback;
+            },
+            set(value: unknown) {
+                current = value instanceof HTMLElement
+                    ? value
+                    : fallback;
+            },
+        });
+
+        Reflect.set(owner, key, current);
+    };
+
+    const patchLayerSafety = (layer: unknown) => {
+        if (!layer || typeof layer !== 'object' || patchedAnnotationLayerDestroy.has(layer)) {
+            return;
+        }
+        const candidate = layer as {
+            div?: HTMLElement | null;
+            textLayer?: { div?: HTMLElement | null } | null;
+            disable?: () => void;
+            destroy?: () => void;
+        };
+        if (typeof candidate.destroy !== 'function' && typeof candidate.disable !== 'function') {
+            return;
+        }
+
+        hardenElementProperty(candidate as object, 'div', hiddenFallbackDiv);
+        if (candidate.textLayer && typeof candidate.textLayer === 'object') {
+            hardenElementProperty(candidate.textLayer as object, 'div', hiddenTextLayerFallbackDiv);
+        }
+
+        if (typeof candidate.disable === 'function') {
+            const originalDisable = candidate.disable.bind(candidate);
+            candidate.disable = () => {
+                if (!candidate.div) {
+                    candidate.div = hiddenFallbackDiv;
+                }
+                if (candidate.textLayer && !candidate.textLayer.div) {
+                    candidate.textLayer.div = hiddenTextLayerFallbackDiv;
+                }
+                originalDisable();
+                if (!candidate.div) {
+                    candidate.div = hiddenFallbackDiv;
+                }
+                if (candidate.textLayer && !candidate.textLayer.div) {
+                    candidate.textLayer.div = hiddenTextLayerFallbackDiv;
+                }
+            };
+        }
+
+        if (typeof candidate.destroy === 'function') {
+            const originalDestroy = candidate.destroy.bind(candidate);
+            candidate.destroy = () => {
+                originalDestroy();
+                if (candidate.div == null) {
+                    // PDF.js may invoke stale text-layer pointer listeners after destroy().
+                    // Keep a harmless detached element so classList/contains access stays safe.
+                    candidate.div = hiddenFallbackDiv;
+                }
+                if (candidate.textLayer && !candidate.textLayer.div) {
+                    candidate.textLayer.div = hiddenTextLayerFallbackDiv;
+                }
+            };
+        }
+
+        if (candidate.div == null) {
+            candidate.div = hiddenFallbackDiv;
+        }
+        if (candidate.textLayer && !candidate.textLayer.div) {
+            candidate.textLayer.div = hiddenTextLayerFallbackDiv;
+        }
+
+        patchedAnnotationLayerDestroy.add(layer);
+    };
+
+    for (let pageIndex = 0; pageIndex < numPages.value; pageIndex += 1) {
+        patchLayerSafety(uiManager.getLayer(pageIndex));
+    }
+
+    const managerWithAddLayer = uiManager as AnnotationEditorUIManager & { addLayer?: (layer: unknown) => void };
+    const originalAddLayer = managerWithAddLayer.addLayer;
+    if (typeof originalAddLayer === 'function') {
+        managerWithAddLayer.addLayer = (layer: unknown) => {
+            patchLayerSafety(layer);
+            originalAddLayer.call(uiManager, layer);
+        };
+    }
 }
 
 function getAnnotationMode(tool: TAnnotationTool) {
@@ -594,6 +1280,18 @@ async function setAnnotationTool(tool: TAnnotationTool) {
     }
 }
 
+function maybeAutoResetAnnotationTool() {
+    if (annotationKeepActive.value) {
+        return;
+    }
+    if (annotationTool.value === 'none') {
+        return;
+    }
+    queueMicrotask(() => {
+        emit('annotation-tool-auto-reset');
+    });
+}
+
 function highlightSelection() {
     void highlightSelectionInternal(false);
 }
@@ -611,36 +1309,542 @@ function redoAnnotation() {
 }
 
 function toSummaryKey(summary: IAnnotationCommentSummary) {
-    if (summary.annotationId) {
-        return `ann:${summary.annotationId}`;
-    }
-    if (summary.uid) {
-        return `uid:${summary.uid}`;
-    }
-    return `id:${summary.id}`;
+    return summary.stableKey;
 }
 
-async function syncAnnotationComments() {
-    const doc = pdfDocument.value;
-    if (!doc || numPages.value <= 0) {
-        emit('annotation-comments', []);
+function mergeCommentSummaries(
+    existing: IAnnotationCommentSummary,
+    incoming: IAnnotationCommentSummary,
+): IAnnotationCommentSummary {
+    const existingText = existing.text.trim();
+    const text = existingText.length > 0
+        ? existing.text
+        : incoming.text;
+
+    const author = existing.author?.trim()
+        ? existing.author
+        : incoming.author;
+
+    const kindLabel = existing.kindLabel?.trim()
+        ? existing.kindLabel
+        : incoming.kindLabel;
+
+    const modifiedAt = (() => {
+        const existingTs = existing.modifiedAt ?? null;
+        const incomingTs = incoming.modifiedAt ?? null;
+        if (existingTs && incomingTs) {
+            return Math.max(existingTs, incomingTs);
+        }
+        return existingTs ?? incomingTs;
+    })();
+
+    // Keep the editor/source identity for write operations, but hydrate empty
+    // fields from persisted PDF annotation data when available.
+    const source = existing.source === 'editor'
+        ? 'editor'
+        : incoming.source;
+    const existingSortIndex = typeof existing.sortIndex === 'number' ? existing.sortIndex : null;
+    const incomingSortIndex = typeof incoming.sortIndex === 'number' ? incoming.sortIndex : null;
+    const sortIndex = (
+        existingSortIndex !== null && incomingSortIndex !== null
+            ? Math.min(existingSortIndex, incomingSortIndex)
+            : (existingSortIndex ?? incomingSortIndex)
+    );
+
+    return {
+        ...existing,
+        text,
+        author,
+        kindLabel,
+        modifiedAt,
+        sortIndex,
+        annotationId: existing.annotationId ?? incoming.annotationId,
+        uid: existing.uid ?? incoming.uid,
+        subtype: existing.subtype ?? incoming.subtype,
+        color: existing.color ?? incoming.color,
+        source,
+        markerRect: existing.markerRect ?? incoming.markerRect ?? null,
+    };
+}
+
+function isTextMarkupSubtype(subtype: string | null | undefined) {
+    const normalized = (subtype ?? '').trim().toLowerCase();
+    return (
+        normalized === 'highlight'
+        || normalized === 'underline'
+        || normalized === 'squiggly'
+        || normalized === 'strikeout'
+    );
+}
+
+function clearInlineCommentIndicators() {
+    const container = viewerContainer.value;
+    if (!container) {
+        return;
+    }
+    container.querySelectorAll<HTMLElement>('.pdf-annotation-has-note-target, .pdf-annotation-has-comment').forEach((element) => {
+        element.classList.remove(
+            'pdf-annotation-has-note-target',
+            'pdf-annotation-has-note-anchor',
+            'pdf-annotation-has-note-active',
+            // Legacy classes kept for safe cleanup during migration.
+            'pdf-annotation-has-comment',
+            'has-comment',
+            'pdf-annotation-has-comment--active',
+        );
+        element.removeAttribute('data-comment-preview');
+        element.removeAttribute('data-comment-stable-key');
+    });
+    container.querySelectorAll<HTMLElement>('.pdf-comment-marker-layer').forEach((layer) => {
+        layer.remove();
+    });
+}
+
+function markInlineCommentTarget(target: HTMLElement, text: string) {
+    const normalizedText = text.trim();
+    if (!normalizedText) {
+        return;
+    }
+    const preview = normalizedText.length > 280
+        ? `${normalizedText.slice(0, 277)}...`
+        : normalizedText;
+    target.classList.add('pdf-annotation-has-note-target');
+    target.setAttribute('data-comment-preview', preview);
+}
+
+function isCommentActive(stableKey: string) {
+    return activeCommentStableKey.value === stableKey;
+}
+
+function markInlineCommentTargetWithKey(
+    target: HTMLElement,
+    text: string,
+    stableKey: string,
+    options: { anchor?: boolean } = {},
+) {
+    markInlineCommentTarget(target, text);
+    target.setAttribute('data-comment-stable-key', stableKey);
+    target.classList.toggle('pdf-annotation-has-note-anchor', options.anchor === true);
+    if (isCommentActive(stableKey)) {
+        target.classList.add('pdf-annotation-has-note-active');
+    } else {
+        target.classList.remove('pdf-annotation-has-note-active');
+    }
+}
+
+function pickInlineCommentAnchorTarget(targets: HTMLElement[]) {
+    if (targets.length === 0) {
+        return null;
+    }
+    return targets
+        .slice()
+        .sort((left, right) => {
+            const leftRect = left.getBoundingClientRect();
+            const rightRect = right.getBoundingClientRect();
+            if (leftRect.top !== rightRect.top) {
+                return leftRect.top - rightRect.top;
+            }
+            if (leftRect.right !== rightRect.right) {
+                return rightRect.right - leftRect.right;
+            }
+            return leftRect.left - rightRect.left;
+        })[0] ?? null;
+}
+
+function findCommentByStableKey(stableKey: string) {
+    return annotationCommentsCache.value.find(comment => comment.stableKey === stableKey) ?? null;
+}
+
+function ensureCommentMarkerLayer(pageContainer: HTMLElement) {
+    let layer = pageContainer.querySelector<HTMLElement>('.pdf-comment-marker-layer');
+    if (layer) {
+        return layer;
+    }
+
+    layer = document.createElement('div');
+    layer.className = 'pdf-comment-marker-layer';
+    layer.setAttribute('aria-hidden', 'false');
+    pageContainer.append(layer);
+    return layer;
+}
+
+interface IDetachedMarkerPlacement {
+    leftPercent: number;
+    topPercent: number;
+}
+
+interface IDetachedMarkerOccupied {
+    x: number;
+    y: number;
+}
+
+interface IDetachedMarkerOffset {
+    x: number;
+    y: number;
+}
+
+interface IDetachedMarkerFallback {
+    x: number;
+    y: number;
+    minDistanceSquared: number;
+}
+
+const DETACHED_MARKER_OFFSETS: IDetachedMarkerOffset[] = [
+    {
+        x: 0,
+        y: 0,
+    },
+    {
+        x: 18,
+        y: -10,
+    },
+    {
+        x: 18,
+        y: 10,
+    },
+    {
+        x: -18,
+        y: -10,
+    },
+    {
+        x: -18,
+        y: 10,
+    },
+    {
+        x: 30,
+        y: 0,
+    },
+    {
+        x: 0,
+        y: -20,
+    },
+    {
+        x: 0,
+        y: 20,
+    },
+    {
+        x: 30,
+        y: -18,
+    },
+    {
+        x: 30,
+        y: 18,
+    },
+    {
+        x: -30,
+        y: 0,
+    },
+    {
+        x: 42,
+        y: 0,
+    },
+];
+
+function createDetachedCommentMarkerElement(comment: IAnnotationCommentSummary, placement: IDetachedMarkerPlacement) {
+    const preview = comment.text.trim().length > 120
+        ? `${comment.text.trim().slice(0, 117)}...`
+        : comment.text.trim();
+
+    const marker = document.createElement('button');
+    marker.type = 'button';
+    marker.className = 'pdf-inline-comment-marker';
+    if (isCommentActive(comment.stableKey)) {
+        marker.classList.add('is-active');
+    }
+    marker.dataset.commentStableKey = comment.stableKey;
+    marker.dataset.annotationId = comment.annotationId ?? '';
+    marker.style.left = `${placement.leftPercent}%`;
+    marker.style.top = `${placement.topPercent}%`;
+    marker.title = preview;
+    marker.setAttribute('aria-label', 'Open pop-up note');
+    marker.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const summary = findCommentByStableKey(comment.stableKey);
+        if (summary) {
+            setActiveCommentStableKey(summary.stableKey);
+            emit('annotation-open-note', summary);
+        }
+    });
+    marker.addEventListener('contextmenu', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const summary = findCommentByStableKey(comment.stableKey);
+        if (summary) {
+            setActiveCommentStableKey(summary.stableKey);
+            emit('annotation-context-menu', {
+                comment: summary,
+                clientX: event.clientX,
+                clientY: event.clientY,
+            });
+        }
+    });
+    return marker;
+}
+
+function resolveDetachedMarkerPlacement(
+    pageContainer: HTMLElement,
+    markerRect: IAnnotationMarkerRect,
+    occupied: IDetachedMarkerOccupied[],
+) {
+    const width = pageContainer.clientWidth;
+    const height = pageContainer.clientHeight;
+    if (width <= 0 || height <= 0) {
+        return {
+            leftPercent: Math.max(1, Math.min(99, (markerRect.left + markerRect.width) * 100)),
+            topPercent: Math.max(1, Math.min(99, markerRect.top * 100)),
+        };
+    }
+
+    const baseX = (markerRect.left + markerRect.width) * width;
+    const baseY = markerRect.top * height;
+    const markerRadius = 9;
+    const minDistanceSquared = 18 * 18;
+    let bestFallback: IDetachedMarkerFallback | null = null;
+
+    for (const offset of DETACHED_MARKER_OFFSETS) {
+        const x = Math.min(width - markerRadius, Math.max(markerRadius, baseX + offset.x));
+        const y = Math.min(height - markerRadius, Math.max(markerRadius, baseY + offset.y));
+        const minDistance = occupied.reduce((min, point) => {
+            const dx = point.x - x;
+            const dy = point.y - y;
+            const distanceSquared = dx * dx + dy * dy;
+            return Math.min(min, distanceSquared);
+        }, Number.POSITIVE_INFINITY);
+
+        if (minDistance >= minDistanceSquared || occupied.length === 0) {
+            occupied.push({
+                x,
+                y,
+            });
+            return {
+                leftPercent: (x / width) * 100,
+                topPercent: (y / height) * 100,
+            };
+        }
+
+        if (!bestFallback || minDistance > bestFallback.minDistanceSquared) {
+            bestFallback = {
+                x,
+                y,
+                minDistanceSquared: minDistance,
+            };
+        }
+    }
+
+    const fallbackX = bestFallback?.x ?? Math.min(width - markerRadius, Math.max(markerRadius, baseX));
+    const fallbackY = bestFallback?.y ?? Math.min(height - markerRadius, Math.max(markerRadius, baseY));
+    occupied.push({
+        x: fallbackX,
+        y: fallbackY,
+    });
+    return {
+        leftPercent: (fallbackX / width) * 100,
+        topPercent: (fallbackY / height) * 100,
+    };
+}
+
+function renderDetachedCommentMarkers(pageContainer: HTMLElement, comments: IAnnotationCommentSummary[]) {
+    const layer = ensureCommentMarkerLayer(pageContainer);
+    const occupied: IDetachedMarkerOccupied[] = [];
+
+    comments
+        .slice()
+        .sort((left, right) => {
+            const leftRect = normalizeMarkerRect(left.markerRect);
+            const rightRect = normalizeMarkerRect(right.markerRect);
+            if (!leftRect || !rightRect) {
+                return left.stableKey.localeCompare(right.stableKey);
+            }
+            const leftTop = leftRect.top;
+            const rightTop = rightRect.top;
+            if (leftTop !== rightTop) {
+                return leftTop - rightTop;
+            }
+            const leftX = leftRect.left + leftRect.width;
+            const rightX = rightRect.left + rightRect.width;
+            if (leftX !== rightX) {
+                return leftX - rightX;
+            }
+            return left.stableKey.localeCompare(right.stableKey);
+        })
+        .forEach((comment) => {
+            const markerRect = normalizeMarkerRect(comment.markerRect);
+            if (!markerRect) {
+                return;
+            }
+            const placement = resolveDetachedMarkerPlacement(pageContainer, markerRect, occupied);
+            layer.append(createDetachedCommentMarkerElement(comment, placement));
+        });
+}
+
+function syncInlineCommentIndicators() {
+    clearInlineCommentIndicators();
+
+    const container = viewerContainer.value;
+    if (!container || annotationCommentsCache.value.length === 0) {
         return;
     }
 
-    const localToken = ++annotationCommentsSyncToken;
-    const commentsByKey = new Map<string, IAnnotationCommentSummary>();
+    const commentsWithNotes = annotationCommentsCache.value.filter(comment => (
+        isTextMarkupSubtype(comment.subtype)
+        && comment.text.trim().length > 0
+    ));
+    if (commentsWithNotes.length === 0) {
+        return;
+    }
+
+    const commentsByAnnotationId = new Map<string, IAnnotationCommentSummary>();
+    const handledComments = new Set<string>();
+    const dedupedCommentsByStableKey = new Map<string, IAnnotationCommentSummary>();
+    commentsWithNotes.forEach((comment) => {
+        dedupedCommentsByStableKey.set(comment.stableKey, comment);
+    });
+
+    const dedupedComments = Array.from(dedupedCommentsByStableKey.values());
+    dedupedComments.forEach((comment) => {
+        if (comment.annotationId) {
+            commentsByAnnotationId.set(comment.annotationId, comment);
+        }
+    });
 
     const uiManager = annotationUiManager.value;
     if (uiManager) {
         for (let pageIndex = 0; pageIndex < numPages.value; pageIndex += 1) {
             for (const editor of uiManager.getEditors(pageIndex)) {
-                const text = getCommentText(editor).trim();
-                if (!text) {
+                const normalizedEditor = editor as IPdfjsEditor;
+                const subtype = detectEditorSubtype(normalizedEditor);
+                if ((subtype ?? '').trim().toLowerCase() !== 'highlight') {
                     continue;
                 }
+                const summary = hydrateSummaryFromMemory(
+                    toEditorSummary(normalizedEditor, pageIndex, getCommentText(normalizedEditor).trim()),
+                );
+                if (!summary.text.trim()) {
+                    continue;
+                }
+                if (normalizedEditor.div) {
+                    markInlineCommentTargetWithKey(normalizedEditor.div, summary.text, summary.stableKey, { anchor: true });
+                    handledComments.add(summary.stableKey);
+                }
+                if (summary.annotationId) {
+                    commentsByAnnotationId.delete(summary.annotationId);
+                }
+            }
+        }
+    }
 
-                const summary = toEditorSummary(editor as IPdfjsEditor, pageIndex, text);
-                commentsByKey.set(toSummaryKey(summary), summary);
+    commentsByAnnotationId.forEach((comment, annotationId) => {
+        const selector = `.annotationLayer [data-annotation-id="${escapeCssAttr(annotationId)}"], .annotation-layer [data-annotation-id="${escapeCssAttr(annotationId)}"]`;
+        const targets = Array.from(container.querySelectorAll<HTMLElement>(selector));
+        const anchor = pickInlineCommentAnchorTarget(targets);
+        let marked = false;
+        targets.forEach((target) => {
+            marked = true;
+            markInlineCommentTargetWithKey(target, comment.text, comment.stableKey, { anchor: target === anchor });
+        });
+        if (marked) {
+            handledComments.add(comment.stableKey);
+        }
+    });
+
+    const detachedCommentsByPage = new Map<number, IAnnotationCommentSummary[]>();
+    const detachedGroupSeen = new Set<string>();
+    dedupedComments.forEach((comment) => {
+        if (handledComments.has(comment.stableKey)) {
+            return;
+        }
+        const markerRect = normalizeMarkerRect(comment.markerRect);
+        if (!markerRect) {
+            return;
+        }
+        const groupKey = comment.annotationId
+            ? `ann:${comment.pageNumber}:${comment.annotationId}`
+            : `stable:${comment.stableKey}`;
+        if (detachedGroupSeen.has(groupKey)) {
+            return;
+        }
+        detachedGroupSeen.add(groupKey);
+
+        const pageComments = detachedCommentsByPage.get(comment.pageNumber) ?? [];
+        pageComments.push(comment);
+        detachedCommentsByPage.set(comment.pageNumber, pageComments);
+        handledComments.add(comment.stableKey);
+    });
+
+    detachedCommentsByPage.forEach((comments, pageNumber) => {
+        const pageContainer = container.querySelector<HTMLElement>(`.page_container[data-page="${pageNumber}"]`);
+        if (!pageContainer) {
+            return;
+        }
+        renderDetachedCommentMarkers(pageContainer, comments);
+    });
+}
+
+const debouncedSyncInlineCommentIndicators = useDebounceFn(() => {
+    syncInlineCommentIndicators();
+}, 70);
+
+function attachInlineCommentMarkerObserver() {
+    if (inlineCommentMarkerObserver) {
+        inlineCommentMarkerObserver.disconnect();
+        inlineCommentMarkerObserver = null;
+    }
+    const container = viewerContainer.value;
+    if (!container || typeof MutationObserver === 'undefined') {
+        return;
+    }
+
+    inlineCommentMarkerObserver = new MutationObserver((records) => {
+        const hasRelevantMutation = records.some((record) => (
+            Array.from(record.addedNodes).some((node) => (
+                node instanceof HTMLElement
+                && (
+                    node.matches('.highlightEditor, [data-annotation-id], .annotationLayer, .annotation-layer')
+                    || !!node.querySelector('.highlightEditor, [data-annotation-id]')
+                )
+            ))
+        ));
+        if (hasRelevantMutation) {
+            debouncedSyncInlineCommentIndicators();
+        }
+    });
+    inlineCommentMarkerObserver.observe(container, {
+        childList: true,
+        subtree: true,
+    });
+}
+
+async function syncAnnotationComments() {
+    const doc = pdfDocument.value;
+    if (!doc || numPages.value <= 0) {
+        commentSummaryMemory.clear();
+        annotationCommentsCache.value = [];
+        emit('annotation-comments', []);
+        clearInlineCommentIndicators();
+        return;
+    }
+
+    const localToken = ++annotationCommentsSyncToken;
+    const commentsByKey = new Map<string, IAnnotationCommentSummary>();
+    let sourceOrder = 0;
+
+    const uiManager = annotationUiManager.value;
+    const managerWithDeletedLookup = uiManager as (AnnotationEditorUIManager & { isDeletedAnnotationElement?: (annotationElementId: string) => boolean }) | null;
+    if (uiManager) {
+        for (let pageIndex = 0; pageIndex < numPages.value; pageIndex += 1) {
+            for (const editor of uiManager.getEditors(pageIndex)) {
+                const normalizedEditor = editor as IPdfjsEditor;
+                const text = getCommentText(normalizedEditor).trim();
+                const pendingKey = getEditorPendingKey(normalizedEditor, pageIndex);
+                if (text) {
+                    pendingCommentEditorKeys.delete(pendingKey);
+                }
+
+                const summary = toEditorSummary(normalizedEditor, pageIndex, text, sourceOrder);
+                sourceOrder += 1;
+                const hydrated = hydrateSummaryFromMemory(summary);
+                commentsByKey.set(toSummaryKey(hydrated), hydrated);
             }
         }
     }
@@ -663,39 +1867,104 @@ async function syncAnnotationComments() {
             opacity?: number;
             modificationDate?: string | null;
             creationDate?: string | null;
+            subtype?: string;
+            popupRef?: string | null;
         }> = [];
+        let pageView: number[] | null = null;
 
         try {
             const page = await doc.getPage(pageNumber);
             pageAnnotations = await page.getAnnotations();
+            pageView = ((page as { view?: number[] }).view ?? null);
         } catch {
             continue;
         }
 
+        const popupById = new Map<string, (typeof pageAnnotations)[number]>();
+        pageAnnotations.forEach((annotation) => {
+            if (annotation.id && managerWithDeletedLookup?.isDeletedAnnotationElement?.(annotation.id)) {
+                return;
+            }
+            if (!isPopupSubtype(annotation.subtype)) {
+                return;
+            }
+            if (!annotation.id) {
+                return;
+            }
+            popupById.set(annotation.id, annotation);
+        });
+
         pageAnnotations.forEach((annotation, annotationIndex) => {
-            const text = getAnnotationCommentText(annotation);
-            if (!text) {
+            if (annotation.id && managerWithDeletedLookup?.isDeletedAnnotationElement?.(annotation.id)) {
+                return;
+            }
+            if (isPopupSubtype(annotation.subtype)) {
                 return;
             }
 
+            const popupAnnotation = annotation.popupRef
+                ? popupById.get(annotation.popupRef) ?? null
+                : null;
+            const annotationText = getAnnotationCommentText(annotation);
+            const popupText = popupAnnotation ? getAnnotationCommentText(popupAnnotation) : '';
+            const text = annotationText || popupText;
+            const subtype = annotation.subtype ?? null;
+            const id = annotation.id ?? `pdf-${pageNumber}-${annotationIndex}`;
+            const annotationId = annotation.id ?? null;
+            const summaryKey = computeSummaryStableKey({
+                id,
+                pageIndex: pageNumber - 1,
+                source: 'pdf',
+                uid: null,
+                annotationId,
+            });
+
             const summary: IAnnotationCommentSummary = {
-                id: annotation.id ?? `pdf-${pageNumber}-${annotationIndex}`,
+                id,
+                stableKey: summaryKey,
+                sortIndex: sourceOrder,
                 pageIndex: pageNumber - 1,
                 pageNumber,
                 text,
-                author: getAnnotationAuthor(annotation),
-                modifiedAt: parsePdfDateTimestamp(annotation.modificationDate)
-                    ?? parsePdfDateTimestamp(annotation.creationDate),
-                color: toCssColor(annotation.color, annotation.opacity ?? 1),
+                kindLabel: annotationKindLabelFromSubtype(subtype),
+                subtype,
+                author: getAnnotationAuthor(annotation) ?? (popupAnnotation ? getAnnotationAuthor(popupAnnotation) : null),
+                modifiedAt: (() => {
+                    const own = parsePdfDateTimestamp(annotation.modificationDate)
+                        ?? parsePdfDateTimestamp(annotation.creationDate);
+                    const popup = popupAnnotation
+                        ? (
+                            parsePdfDateTimestamp(popupAnnotation.modificationDate)
+                            ?? parsePdfDateTimestamp(popupAnnotation.creationDate)
+                        )
+                        : null;
+                    if (own && popup) {
+                        return Math.max(own, popup);
+                    }
+                    return own ?? popup;
+                })(),
+                color: toCssColor(
+                    annotation.color ?? popupAnnotation?.color ?? null,
+                    annotation.opacity ?? popupAnnotation?.opacity ?? 1,
+                ),
                 uid: null,
-                annotationId: annotation.id ?? null,
+                annotationId,
                 source: 'pdf',
+                markerRect: toMarkerRectFromPdfRect(
+                    annotation.rect ?? popupAnnotation?.rect,
+                    pageView,
+                ),
             };
+            sourceOrder += 1;
+            const hydratedSummary = hydrateSummaryFromMemory(summary);
 
-            const key = toSummaryKey(summary);
-            if (!commentsByKey.has(key)) {
-                commentsByKey.set(key, summary);
+            const key = summaryKey;
+            const existing = commentsByKey.get(key);
+            if (!existing) {
+                commentsByKey.set(key, hydratedSummary);
+                return;
             }
+            commentsByKey.set(key, mergeCommentSummaries(existing, hydratedSummary));
         });
     }
 
@@ -703,8 +1972,13 @@ async function syncAnnotationComments() {
         return;
     }
 
-    const comments = Array.from(commentsByKey.values()).sort(compareAnnotationComments);
+    const comments = dedupeAnnotationCommentSummaries(Array.from(commentsByKey.values()));
+    comments.forEach((comment) => {
+        rememberSummaryText(comment);
+    });
+    annotationCommentsCache.value = comments;
     emit('annotation-comments', comments);
+    syncInlineCommentIndicators();
 }
 
 const debouncedSyncAnnotationComments = useDebounceFn(() => {
@@ -726,34 +2000,68 @@ function escapeCssAttr(value: string) {
     return value.replace(/"/g, '\\"');
 }
 
-function findEditorForComment(comment: IAnnotationCommentSummary) {
-    const uiManager = annotationUiManager.value;
-    if (!uiManager || numPages.value <= 0) {
-        return null;
-    }
-
-    const pageIndex = Math.max(0, Math.min(comment.pageIndex, numPages.value - 1));
-    const candidateIds = [
+function getCommentCandidateIds(comment: IAnnotationCommentSummary) {
+    return [
         comment.uid,
         comment.annotationId,
         comment.id,
     ]
         .filter((id): id is string => typeof id === 'string' && id.length > 0)
         .filter((id, index, arr) => arr.indexOf(id) === index);
+}
 
-    for (const editor of uiManager.getEditors(pageIndex)) {
-        if (candidateIds.length === 0) {
-            continue;
+function findEditorForComment(comment: IAnnotationCommentSummary) {
+    const uiManager = annotationUiManager.value;
+    if (!uiManager || numPages.value <= 0) {
+        return null;
+    }
+
+    const candidateIds = getCommentCandidateIds(comment);
+    if (candidateIds.length === 0) {
+        return null;
+    }
+
+    const preferredPage = Math.max(0, Math.min(comment.pageIndex, numPages.value - 1));
+    const pageIndexes = [
+        preferredPage,
+        ...Array.from({ length: numPages.value }, (_, index) => index).filter(index => index !== preferredPage),
+    ];
+
+    for (const pageIndex of pageIndexes) {
+        for (const editor of uiManager.getEditors(pageIndex)) {
+            const identity = getEditorIdentity(editor as IPdfjsEditor, pageIndex);
+            if (
+                candidateIds.includes(identity)
+                || (editor.uid && candidateIds.includes(editor.uid))
+                || (editor.annotationElementId && candidateIds.includes(editor.annotationElementId))
+                || (editor.id && candidateIds.includes(editor.id))
+            ) {
+                return editor as IPdfjsEditor;
+            }
         }
-        const identity = getEditorIdentity(editor as IPdfjsEditor, pageIndex);
-        if (
-            candidateIds.includes(identity)
-            || 
-            (editor.uid && candidateIds.includes(editor.uid))
-            || (editor.annotationElementId && candidateIds.includes(editor.annotationElementId))
-            || (editor.id && candidateIds.includes(editor.id))
-        ) {
-            return editor as IPdfjsEditor;
+    }
+
+    return null;
+}
+
+function findEditorByAnnotationElementId(pageIndex: number, annotationId: string) {
+    const uiManager = annotationUiManager.value;
+    if (!uiManager || numPages.value <= 0) {
+        return null;
+    }
+
+    const preferredPage = Math.max(0, Math.min(pageIndex, numPages.value - 1));
+    const pageIndexes = [
+        preferredPage,
+        ...Array.from({ length: numPages.value }, (_, index) => index).filter(index => index !== preferredPage),
+    ];
+
+    for (const candidatePageIndex of pageIndexes) {
+        for (const editor of uiManager.getEditors(candidatePageIndex)) {
+            const normalizedEditor = editor as IPdfjsEditor;
+            if (normalizedEditor.annotationElementId === annotationId) {
+                return normalizedEditor;
+            }
         }
     }
 
@@ -764,6 +2072,7 @@ async function focusAnnotationComment(comment: IAnnotationCommentSummary) {
     if (!pdfDocument.value) {
         return;
     }
+    setActiveCommentStableKey(comment.stableKey);
 
     const pageNumber = Math.max(1, Math.min(comment.pageNumber, numPages.value));
     scrollToPage(pageNumber);
@@ -786,13 +2095,7 @@ async function focusAnnotationComment(comment: IAnnotationCommentSummary) {
         }
 
         const layer = uiManager.getLayer?.(pageIndex) ?? null;
-        const candidateIds = [
-            comment.uid,
-            comment.annotationId,
-            comment.id,
-        ]
-            .filter((id): id is string => typeof id === 'string' && id.length > 0)
-            .filter((id, index, arr) => arr.indexOf(id) === index);
+        const candidateIds = getCommentCandidateIds(comment);
 
         for (const id of candidateIds) {
             const editor = layer?.getEditorByUID?.(id);
@@ -827,10 +2130,15 @@ async function focusAnnotationComment(comment: IAnnotationCommentSummary) {
 }
 
 function updateAnnotationComment(comment: IAnnotationCommentSummary, text: string) {
-    const editor = findEditorForComment(comment);
+    const resolvedComment = resolveCommentFromCache(comment) ?? comment;
+    const editor = findEditorForComment(resolvedComment) ?? findEditorForComment(comment);
     if (!editor) {
         return false;
     }
+    const pendingKey = getEditorPendingKey(
+        editor,
+        Number.isFinite(editor.parentPageIndex) ? (editor.parentPageIndex as number) : resolvedComment.pageIndex,
+    );
 
     const nextText = text.trim();
     const previousText = getCommentText(editor).trim();
@@ -840,34 +2148,140 @@ function updateAnnotationComment(comment: IAnnotationCommentSummary, text: strin
 
     editor.comment = nextText.length > 0 ? nextText : null;
     editor.addToAnnotationStorage?.();
+    if (nextText.length > 0) {
+        pendingCommentEditorKeys.delete(pendingKey);
+        rememberSummaryText({
+            ...resolvedComment,
+            text: nextText,
+            modifiedAt: Date.now(),
+        });
+    } else {
+        pendingCommentEditorKeys.add(pendingKey);
+        forgetSummaryText(resolvedComment);
+    }
     emit('annotation-modified');
     scheduleAnnotationCommentsSync(true);
+    debouncedSyncInlineCommentIndicators();
     return true;
 }
 
-function deleteAnnotationComment(comment: IAnnotationCommentSummary) {
+async function deleteAnnotationComment(comment: IAnnotationCommentSummary) {
     const uiManager = annotationUiManager.value;
-    const editor = findEditorForComment(comment);
-    if (!uiManager || !editor) {
+    if (!uiManager) {
         return false;
     }
+    const resolvedComment = resolveCommentFromCache(comment) ?? comment;
+
+    const pageNumber = Math.max(1, Math.min(resolvedComment.pageNumber, numPages.value));
+    const pageIndex = Math.max(0, pageNumber - 1);
+    const candidateIds = getCommentCandidateIds(resolvedComment);
+    const managerWithCommentSelection = uiManager as AnnotationEditorUIManager & {
+        selectComment?: (candidatePageIndex: number, uid: string) => void;
+        getLayer?: (candidatePageIndex: number) => { getEditorByUID?: (uid: string) => IPdfjsEditor | null } | null;
+    };
+
+    let editor = findEditorForComment(resolvedComment);
+    let switchedToPopupMode = false;
+    const previousMode = uiManager.getMode();
+
+    if (!editor && previousMode === AnnotationEditorType.NONE) {
+        try {
+            await uiManager.updateMode(AnnotationEditorType.POPUP);
+            switchedToPopupMode = true;
+        } catch {
+            // Ignore mode-switch failure and continue with best effort.
+        }
+    }
+
+    if (!editor) {
+        try {
+            await uiManager.waitForEditorsRendered(pageNumber);
+        } catch {
+            // Ignore and continue with best effort lookup.
+        }
+        editor = findEditorForComment(resolvedComment) ?? findEditorForComment(comment);
+    }
+
+    if (!editor && candidateIds.length > 0) {
+        for (const id of candidateIds) {
+            const fromLayer = managerWithCommentSelection.getLayer?.(pageIndex)?.getEditorByUID?.(id);
+            if (fromLayer) {
+                editor = fromLayer;
+                break;
+            }
+        }
+    }
+
+    if (!editor && candidateIds.length > 0 && typeof managerWithCommentSelection.selectComment === 'function') {
+        for (const id of candidateIds) {
+            managerWithCommentSelection.selectComment(pageIndex, id);
+        }
+        await nextTick();
+        editor = findEditorForComment(comment);
+    }
+
+    if (!editor && resolvedComment.annotationId) {
+        const annotationStorage = pdfDocument.value?.annotationStorage as { getEditor?: (annotationElementId: string) => IPdfjsEditor | null } | undefined;
+        editor = annotationStorage?.getEditor?.(resolvedComment.annotationId) ?? null;
+    }
+
+    if (!editor && resolvedComment.annotationId) {
+        editor = findEditorByAnnotationElementId(pageIndex, resolvedComment.annotationId);
+    }
+
+    if (!editor) {
+        if (switchedToPopupMode) {
+            try {
+                await uiManager.updateMode(previousMode);
+            } catch {
+                // Ignore mode restore failure.
+            }
+        }
+        return false;
+    }
+
+    const pendingKey = getEditorPendingKey(
+        editor,
+        Number.isFinite(editor.parentPageIndex) ? (editor.parentPageIndex as number) : resolvedComment.pageIndex,
+    );
+    let deleted = false;
 
     try {
         uiManager.setSelected(editor as unknown as TUiManagerSelectedEditor);
         uiManager.delete();
-        emit('annotation-modified');
-        scheduleAnnotationCommentsSync(true);
-        return true;
+        deleted = true;
     } catch {
         try {
             editor.remove?.();
-            emit('annotation-modified');
-            scheduleAnnotationCommentsSync(true);
-            return true;
+            deleted = true;
         } catch {
-            return false;
+            try {
+                editor.delete?.();
+                deleted = true;
+            } catch {
+                deleted = false;
+            }
+        }
+    } finally {
+        if (switchedToPopupMode) {
+            try {
+                await uiManager.updateMode(previousMode);
+            } catch {
+                // Ignore mode restore failure.
+            }
         }
     }
+
+    if (!deleted) {
+        return false;
+    }
+
+    pendingCommentEditorKeys.delete(pendingKey);
+    forgetSummaryText(resolvedComment);
+    emit('annotation-modified');
+    scheduleAnnotationCommentsSync(true);
+    debouncedSyncInlineCommentIndicators();
+    return true;
 }
 
 function destroyAnnotationEditor() {
@@ -881,6 +2295,8 @@ function destroyAnnotationEditor() {
     annotationUiManager.value = null;
     annotationEventBus.value = null;
     annotationL10n.value = null;
+    pendingCommentEditorKeys.clear();
+    commentSummaryMemory.clear();
 }
 
 function initAnnotationEditor() {
@@ -925,6 +2341,7 @@ function initAnnotationEditor() {
     );
 
     annotationUiManager.value = uiManager;
+    installAnnotationLayerDestroyGuard(uiManager);
 
     const originalKeydown = uiManager.keydown.bind(uiManager);
     uiManager.keydown = (event: KeyboardEvent) => {
@@ -969,6 +2386,11 @@ function initAnnotationEditor() {
     const originalAddToAnnotationStorage = uiManager.addToAnnotationStorage.bind(uiManager);
     uiManager.addToAnnotationStorage = (editor) => {
         const result = originalAddToAnnotationStorage(editor);
+        const editorObject = editor as object | null;
+        if (editorObject && !trackedCreatedEditors.has(editorObject)) {
+            trackedCreatedEditors.add(editorObject);
+            maybeAutoResetAnnotationTool();
+        }
         emit('annotation-modified');
         scheduleAnnotationCommentsSync();
         return result;
@@ -1101,6 +2523,7 @@ async function highlightSelectionInternal(withComment: boolean) {
     cachedSelectionTimestamp = 0;
 
     const previousMode = uiManager.getMode();
+    let createdAnnotation = false;
 
     try {
         await uiManager.updateMode(AnnotationEditorType.HIGHLIGHT);
@@ -1123,6 +2546,7 @@ async function highlightSelectionInternal(withComment: boolean) {
                 text,
             },
         );
+        createdAnnotation = true;
 
         if (withComment) {
             let targetEditor = (createdEditor ?? null) as IPdfjsEditor | null;
@@ -1152,6 +2576,7 @@ async function highlightSelectionInternal(withComment: boolean) {
             }
 
             if (targetEditor) {
+                pendingCommentEditorKeys.add(getEditorPendingKey(targetEditor, pageIndex));
                 const summary = toEditorSummary(targetEditor, pageIndex, getCommentText(targetEditor));
                 emit('annotation-open-note', summary);
             } else {
@@ -1172,6 +2597,7 @@ async function highlightSelectionInternal(withComment: boolean) {
                         }
                         return;
                     }
+                    pendingCommentEditorKeys.add(getEditorPendingKey(lateEditor, pageIndex));
                     const summary = toEditorSummary(lateEditor, pageIndex, getCommentText(lateEditor));
                     emit('annotation-open-note', summary);
                 };
@@ -1194,6 +2620,10 @@ async function highlightSelectionInternal(withComment: boolean) {
         console.warn(stack ? `Failed to highlight selection: ${message}\n${stack}` : `Failed to highlight selection: ${message}`);
     }
 
+    if (createdAnnotation) {
+        maybeAutoResetAnnotationTool();
+    }
+
     // If we're doing a one-off highlight (no comment dialog) then restore the previous mode right away.
     try {
         await uiManager.updateMode(previousMode);
@@ -1212,6 +2642,312 @@ function shouldShowSkeleton(page: number) {
     return isPageNearVisible(page) && !isPageRendered(page);
 }
 
+function findEditorSummaryFromTarget(target: HTMLElement) {
+    const uiManager = annotationUiManager.value;
+    if (!uiManager) {
+        return null;
+    }
+
+    const targetAnnotationId = target.closest<HTMLElement>('[data-annotation-id]')
+        ?.dataset.annotationId
+        ?? null;
+
+    const editorElement = target.closest<HTMLElement>(
+        '.annotation-editor-layer .highlightEditor, .annotation-editor-layer .freeTextEditor, .annotation-editor-layer .inkEditor, .annotationEditorLayer .highlightEditor, .annotationEditorLayer .freeTextEditor, .annotationEditorLayer .inkEditor',
+    );
+    if (!editorElement) {
+        return null;
+    }
+
+    const pageContainer = editorElement.closest<HTMLElement>('.page_container');
+    const pageNumber = pageContainer?.dataset.page
+        ? Number(pageContainer.dataset.page)
+        : currentPage.value;
+    const pageIndex = Math.max(0, pageNumber - 1);
+
+    for (const editor of uiManager.getEditors(pageIndex)) {
+        const normalizedEditor = editor as IPdfjsEditor;
+        const editorDiv = normalizedEditor.div;
+        if (!editorDiv) {
+            continue;
+        }
+        if (editorDiv === editorElement || editorDiv.contains(target)) {
+            const summary = toEditorSummary(normalizedEditor, pageIndex, getCommentText(normalizedEditor));
+            const normalizedSummary = {
+                ...hydrateSummaryFromMemory(summary),
+                annotationId: summary.annotationId ?? targetAnnotationId,
+                stableKey: computeSummaryStableKey({
+                    id: summary.id,
+                    pageIndex: summary.pageIndex,
+                    source: summary.source,
+                    uid: summary.uid,
+                    annotationId: summary.annotationId ?? targetAnnotationId,
+                }),
+            };
+            const candidateIds = [
+                normalizedSummary.annotationId,
+                normalizedSummary.uid,
+                normalizedSummary.id,
+            ]
+                .filter((id): id is string => typeof id === 'string' && id.length > 0)
+                .filter((id, index, arr) => arr.indexOf(id) === index);
+
+            const cached = annotationCommentsCache.value.find((comment) => (
+                comment.pageIndex === pageIndex
+                && (
+                    candidateIds.includes(comment.annotationId ?? '')
+                    || candidateIds.includes(comment.uid ?? '')
+                    || candidateIds.includes(comment.id)
+                )
+            )) ?? annotationCommentsCache.value.find((comment) => (
+                candidateIds.includes(comment.annotationId ?? '')
+                || candidateIds.includes(comment.uid ?? '')
+                || candidateIds.includes(comment.id)
+            )) ?? null;
+
+            // Prefer the persisted summary when available; editor objects can miss
+            // comment/date fields after re-render, which causes blank "new note" popups.
+            return cached ?? hydrateSummaryFromMemory(normalizedSummary);
+        }
+    }
+
+    return null;
+}
+
+function findPdfAnnotationSummaryFromTarget(target: HTMLElement) {
+    const annotationElement = target.closest<HTMLElement>(
+        '.annotationLayer [data-annotation-id], .annotation-layer [data-annotation-id]',
+    );
+    if (!annotationElement) {
+        return null;
+    }
+
+    const annotationId = annotationElement.dataset.annotationId ?? annotationElement.getAttribute('data-annotation-id');
+    if (!annotationId) {
+        return null;
+    }
+
+    const pageContainer = annotationElement.closest<HTMLElement>('.page_container');
+    const pageNumber = pageContainer?.dataset.page
+        ? Number(pageContainer.dataset.page)
+        : currentPage.value;
+    const pageIndex = Math.max(0, pageNumber - 1);
+
+    return annotationCommentsCache.value.find(comment => (
+        comment.annotationId === annotationId && comment.pageIndex === pageIndex
+    )) ?? annotationCommentsCache.value.find(comment => comment.annotationId === annotationId) ?? null;
+}
+
+function findAnnotationSummaryFromTarget(target: HTMLElement) {
+    const editorSummary = findEditorSummaryFromTarget(target);
+    const pdfSummary = findPdfAnnotationSummaryFromTarget(target);
+
+    if (!editorSummary) {
+        return pdfSummary;
+    }
+    if (!pdfSummary) {
+        return editorSummary;
+    }
+
+    const editorText = editorSummary.text.trim();
+    const pdfText = pdfSummary.text.trim();
+    if (!editorText && pdfText) {
+        return pdfSummary;
+    }
+    if (!editorSummary.modifiedAt && pdfSummary.modifiedAt) {
+        return pdfSummary;
+    }
+    return editorSummary;
+}
+
+function setActiveCommentStableKey(stableKey: string | null) {
+    activeCommentStableKey.value = stableKey;
+    debouncedSyncInlineCommentIndicators();
+}
+
+function findPageContainerFromClientPoint(clientX: number, clientY: number) {
+    const container = viewerContainer.value;
+    if (!container) {
+        return null;
+    }
+
+    const pages = Array.from(container.querySelectorAll<HTMLElement>('.page_container'));
+    if (pages.length === 0) {
+        return null;
+    }
+
+    let nearest: {
+        element: HTMLElement;
+        distanceSquared: number;
+    } | null = null;
+    for (const element of pages) {
+        const rect = element.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) {
+            continue;
+        }
+
+        const inside = (
+            clientX >= rect.left
+            && clientX <= rect.right
+            && clientY >= rect.top
+            && clientY <= rect.bottom
+        );
+        if (inside) {
+            return element;
+        }
+
+        const dx = clientX < rect.left
+            ? rect.left - clientX
+            : (clientX > rect.right ? clientX - rect.right : 0);
+        const dy = clientY < rect.top
+            ? rect.top - clientY
+            : (clientY > rect.bottom ? clientY - rect.bottom : 0);
+        const distanceSquared = dx * dx + dy * dy;
+        if (!nearest || distanceSquared < nearest.distanceSquared) {
+            nearest = {
+                element,
+                distanceSquared,
+            };
+        }
+    }
+
+    return nearest?.element ?? null;
+}
+
+function findAnnotationSummaryFromPoint(target: HTMLElement, clientX: number, clientY: number) {
+    const pageContainer = target.closest<HTMLElement>('.page_container')
+        ?? findPageContainerFromClientPoint(clientX, clientY);
+    if (!pageContainer) {
+        return null;
+    }
+
+    const pageNumber = pageContainer.dataset.page
+        ? Number(pageContainer.dataset.page)
+        : currentPage.value;
+    if (!Number.isFinite(pageNumber) || pageNumber <= 0) {
+        return null;
+    }
+
+    const pageRect = pageContainer.getBoundingClientRect();
+    if (pageRect.width <= 0 || pageRect.height <= 0) {
+        return null;
+    }
+
+    const x = (clientX - pageRect.left) / pageRect.width;
+    const y = (clientY - pageRect.top) / pageRect.height;
+    const toleranceX = 14 / pageRect.width;
+    const toleranceY = 14 / pageRect.height;
+
+    let bestSummary: IAnnotationCommentSummary | null = null;
+    let bestScore = Number.POSITIVE_INFINITY;
+
+    annotationCommentsCache.value.forEach((summary) => {
+        if (summary.pageNumber !== pageNumber) {
+            return;
+        }
+        const rect = normalizeMarkerRect(summary.markerRect);
+        if (!rect) {
+            return;
+        }
+
+        const left = rect.left - toleranceX;
+        const top = rect.top - toleranceY;
+        const right = rect.left + rect.width + toleranceX;
+        const bottom = rect.top + rect.height + toleranceY;
+
+        if (x < left || x > right || y < top || y > bottom) {
+            return;
+        }
+
+        const centerX = rect.left + rect.width / 2;
+        const centerY = rect.top + rect.height / 2;
+        const distanceScore = ((x - centerX) ** 2 + (y - centerY) ** 2) * 10000;
+        const areaScore = rect.width * rect.height;
+        const score = distanceScore + areaScore;
+
+        if (score < bestScore) {
+            bestScore = score;
+            bestSummary = summary;
+        }
+    });
+
+    return bestSummary;
+}
+
+function handleAnnotationEditorDblClick(event: MouseEvent) {
+    if (!(event.target instanceof HTMLElement)) {
+        return;
+    }
+
+    const summary = findAnnotationSummaryFromTarget(event.target);
+    if (summary) {
+        setActiveCommentStableKey(summary.stableKey);
+        emit('annotation-open-note', summary);
+    }
+}
+
+function handleAnnotationCommentClick(event: MouseEvent) {
+    if (!(event.target instanceof HTMLElement)) {
+        return;
+    }
+    if (annotationTool.value !== 'none') {
+        return;
+    }
+    if (event.target.closest('.pdf-annotation-comment-popup, #commentPopup, #commentManagerDialog')) {
+        return;
+    }
+
+    const selection = document.getSelection();
+    if (selection && !selection.isCollapsed) {
+        return;
+    }
+
+    const inlineTarget = event.target.closest<HTMLElement>('.pdf-annotation-has-note-target, .pdf-annotation-has-comment');
+    const stableKey = inlineTarget?.getAttribute('data-comment-stable-key') ?? null;
+    if (stableKey) {
+        const summary = findCommentByStableKey(stableKey);
+        if (summary) {
+            setActiveCommentStableKey(summary.stableKey);
+            emit('annotation-open-note', summary);
+            return;
+        }
+    }
+
+    const summary = findAnnotationSummaryFromTarget(event.target)
+        ?? findAnnotationSummaryFromPoint(event.target, event.clientX, event.clientY);
+    if (!summary) {
+        return;
+    }
+    setActiveCommentStableKey(summary.stableKey);
+    emit('annotation-open-note', summary);
+}
+
+function handleAnnotationCommentContextMenu(event: MouseEvent) {
+    if (!(event.target instanceof HTMLElement)) {
+        return;
+    }
+
+    if (annotationTool.value !== 'none') {
+        event.preventDefault();
+        emit('annotation-tool-cancel');
+        return;
+    }
+
+    const summary = findAnnotationSummaryFromTarget(event.target)
+        ?? findAnnotationSummaryFromPoint(event.target, event.clientX, event.clientY);
+    if (!summary) {
+        return;
+    }
+
+    event.preventDefault();
+    setActiveCommentStableKey(summary.stableKey);
+    emit('annotation-context-menu', {
+        comment: summary,
+        clientX: event.clientX,
+        clientY: event.clientY,
+    });
+}
+
 function handleDragStart(e: MouseEvent) {
     startDrag(e, viewerContainer.value);
 }
@@ -1228,6 +2964,8 @@ function getVisibleRange() {
 async function loadFromSource() {
     if (!src.value) {
         annotationCommentsSyncToken += 1;
+        annotationCommentsCache.value = [];
+        activeCommentStableKey.value = null;
         emit('annotation-comments', []);
         return;
     }
@@ -1392,16 +3130,22 @@ useResizeObserver(viewerContainer, handleResize);
 
 onMounted(() => {
     document.addEventListener('selectionchange', cacheCurrentTextSelection, { passive: true });
+    attachInlineCommentMarkerObserver();
     loadFromSource();
 });
 
 onUnmounted(() => {
     document.removeEventListener('selectionchange', cacheCurrentTextSelection);
+    inlineCommentMarkerObserver?.disconnect();
+    inlineCommentMarkerObserver = null;
+    clearInlineCommentIndicators();
     cachedSelectionRange = null;
     cachedSelectionTimestamp = 0;
     cleanupRenderedPages();
     destroyAnnotationEditor();
     cleanupDocument();
+    annotationCommentsCache.value = [];
+    activeCommentStableKey.value = null;
     emit('annotation-comments', []);
 });
 
@@ -1429,10 +3173,27 @@ watch(
         if (newSrc !== oldSrc) {
             if (!newSrc) {
                 emit('update:document', null);
+                annotationCommentsCache.value = [];
+                activeCommentStableKey.value = null;
+                emit('annotation-comments', []);
             }
             loadFromSource();
         }
     },
+);
+
+watch(
+    annotationCommentsCache,
+    (comments) => {
+        const activeKey = activeCommentStableKey.value;
+        if (!activeKey) {
+            return;
+        }
+        if (!comments.some(comment => comment.stableKey === activeKey)) {
+            activeCommentStableKey.value = null;
+        }
+    },
+    { deep: true },
 );
 
 watch(
@@ -1590,12 +3351,14 @@ defineExpose({
 }
 
 /* Okular-style workflow: comment editing is handled from side reviews + note window. */
+/* stylelint-disable selector-id-pattern -- pdf.js internal element ID */
 .pdfViewer :deep(.editToolbar),
 .pdfViewer :deep(.annotationCommentButton),
 .pdfViewer :deep(.commentPopup),
 .pdfViewer :deep(#commentManagerDialog) {
     display: none !important;
 }
+/* stylelint-enable selector-id-pattern */
 
 .pdfViewer :deep(.commentPopup) {
     background: var(--color-surface, #fff);
@@ -1686,35 +3449,119 @@ defineExpose({
     display: none !important;
 }
 
-/* Visual indicator for highlights with comments */
-.pdfViewer :deep(.highlightEditor.has-comment)::after {
+/* Visual indicator for text markup annotations with comments. */
+.pdfViewer :deep(.pdf-comment-marker-layer) {
+    position: absolute;
+    inset: 0;
+    z-index: 4;
+    pointer-events: none;
+}
+
+.pdfViewer :deep(.pdf-inline-comment-marker) {
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    border: 1px solid rgb(165 145 41 / 0.82);
+    border-radius: 3px;
+    transform: translate(-50%, -50%);
+    background: linear-gradient(180deg, #fcf6ba 0%, #f2e68f 100%);
+    box-shadow:
+        0 2px 5px rgb(0 0 0 / 0.24),
+        inset 0 0 0 1px rgb(255 255 255 / 0.64);
+    cursor: pointer;
+    pointer-events: auto;
+}
+
+.pdfViewer :deep(.pdf-inline-comment-marker)::before {
+    content: '';
+    position: absolute;
+    inset: 2px;
+    background-color: rgb(110 96 23 / 0.95);
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M4 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 5V5z'/%3E%3C/svg%3E");
+    mask-repeat: no-repeat;
+    mask-position: center;
+    mask-size: contain;
+}
+
+.pdfViewer :deep(.pdf-inline-comment-marker)::after {
+    content: '';
+    position: absolute;
+    right: 1px;
+    top: 1px;
+    width: 4px;
+    height: 4px;
+    background: linear-gradient(135deg, rgb(255 255 255 / 0.88) 0%, rgb(235 224 145 / 0.95) 100%);
+    clip-path: polygon(0 0, 100% 0, 100% 100%);
+}
+
+.pdfViewer :deep(.pdf-inline-comment-marker:hover) {
+    transform: translate(-50%, -50%) scale(1.08);
+}
+
+.pdfViewer :deep(.pdf-inline-comment-marker.is-active) {
+    border-color: color-mix(in oklab, var(--ui-primary, #3b82f6) 44%, rgb(165 145 41));
+    box-shadow:
+        0 0 0 2px color-mix(in oklab, var(--ui-primary, #3b82f6) 28%, transparent),
+        0 2px 6px rgb(0 0 0 / 0.28),
+        inset 0 0 0 1px rgb(255 255 255 / 0.7);
+}
+
+.pdfViewer :deep(.pdf-annotation-has-note-anchor)::after {
     content: '';
     position: absolute;
     top: -8px;
     right: -8px;
-    width: 16px;
-    height: 16px;
-    background-color: var(--ui-primary, #3b82f6);
+    width: 15px;
+    height: 15px;
+    background: linear-gradient(180deg, #fbf3b6 0%, #ecd978 100%);
+    border: 1px solid rgb(137 116 31 / 0.9);
     mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M20 2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h14l4 4V4c0-1.1-.9-2-2-2zm-2 9H6V9h12v2zm0 4H6v-2h12v2z'/%3E%3C/svg%3E");
     mask-repeat: no-repeat;
     mask-position: center;
-    mask-size: contain;
-    border-radius: 0;
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+    mask-size: 78% 78%;
+    box-shadow:
+        0 2px 4px rgb(0 0 0 / 0.2),
+        inset 0 0 0 1px rgb(255 255 255 / 0.52);
     pointer-events: none;
     transition: transform 0.12s ease;
 }
 
-.pdfViewer :deep(.highlightEditor.has-comment) {
+.pdfViewer :deep(.pdf-annotation-has-note-target) {
+    position: relative;
+    overflow: visible;
     cursor: pointer;
+    outline: 1px solid rgb(150 126 36 / 0.68);
+    outline-offset: 0;
+    box-shadow:
+        inset 0 -1.5px 0 rgb(126 103 20 / 0.72),
+        0 0 0 1px rgb(255 246 172 / 0.36);
+    background-image:
+        linear-gradient(180deg, rgb(255 248 203 / 0.14), rgb(255 244 173 / 0.14)),
+        repeating-linear-gradient(
+            -45deg,
+            rgb(137 116 31 / 0.08) 0 2px,
+            transparent 2px 6px
+        );
 }
 
-.pdfViewer :deep(.highlightEditor.has-comment:hover) {
+.pdfViewer :deep(.pdf-annotation-has-note-target:hover) {
     filter: drop-shadow(0 0 3px rgba(59, 130, 246, 0.35));
 }
 
-.pdfViewer :deep(.highlightEditor.has-comment:hover)::after {
+.pdfViewer :deep(.pdf-annotation-has-note-anchor:hover)::after {
     transform: scale(1.08);
+}
+
+.pdfViewer :deep(.pdf-annotation-has-note-active) {
+    filter: drop-shadow(0 0 5px color-mix(in oklab, var(--ui-primary, #3b82f6) 35%, transparent));
+    outline-color: color-mix(in oklab, var(--ui-primary, #3b82f6) 42%, rgb(137 116 31));
+    box-shadow:
+        inset 0 -2px 0 color-mix(in oklab, var(--ui-primary, #3b82f6) 36%, rgb(126 103 20)),
+        0 0 0 2px color-mix(in oklab, var(--ui-primary, #3b82f6) 24%, transparent);
+}
+
+.pdfViewer :deep(.pdf-annotation-has-note-active.pdf-annotation-has-note-anchor)::after {
+    transform: scale(1.1);
 }
 
 .pdfViewer :deep(.pdf-annotation-comment-tooltip) {
@@ -1875,6 +3722,7 @@ defineExpose({
     0% {
         box-shadow: 0 0 0 0 color-mix(in oklab, var(--ui-primary, #3b82f6) 45%, transparent);
     }
+
     100% {
         box-shadow: 0 0 0 14px transparent;
     }

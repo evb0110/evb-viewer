@@ -9,7 +9,7 @@
                     color="neutral"
                     class="toolbar-icon-button"
                     aria-label="Open PDF"
-                    @click="openFile(); closeAllDropdowns()"
+                    @click="handleOpenFileFromUi"
                 />
             </UTooltip>
 
@@ -218,7 +218,7 @@
                             color="neutral"
                             class="toolbar-icon-button"
                             aria-label="Close file"
-                            @click="closeFile(); closeAllDropdowns()"
+                            @click="handleCloseFileFromUi"
                         />
                     </UTooltip>
                 </div>
@@ -249,14 +249,17 @@
                     :min-query-length="minQueryLength"
                     :width="sidebarWidth"
                     :annotation-tool="annotationTool"
+                    :annotation-keep-active="annotationKeepActive"
                     :annotation-settings="annotationSettings"
                     :annotation-comments="annotationComments"
+                    :annotation-active-comment-stable-key="annotationActiveCommentStableKey"
                     @search="handleSearch"
                     @next="handleSearchNext"
                     @previous="handleSearchPrevious"
                     @go-to-page="handleGoToPage"
                     @go-to-result="handleGoToResult"
                     @update:annotation-tool="handleAnnotationToolChange"
+                    @update:annotation-keep-active="annotationKeepActive = $event"
                     @annotation-setting="handleAnnotationSettingChange"
                     @annotation-highlight-selection="handleHighlightSelection"
                     @annotation-comment-selection="handleCommentSelection"
@@ -284,6 +287,7 @@
                     :drag-mode="dragMode"
                     :continuous-scroll="continuousScroll"
                     :annotation-tool="annotationTool"
+                    :annotation-keep-active="annotationKeepActive"
                     :annotation-settings="annotationSettings"
                     :search-page-matches="pageMatches"
                     :current-search-match="currentResult"
@@ -296,6 +300,9 @@
                     @annotation-modified="handleAnnotationModified"
                     @annotation-comments="annotationComments = $event"
                     @annotation-open-note="handleOpenAnnotationNote"
+                    @annotation-context-menu="handleViewerAnnotationContextMenu"
+                    @annotation-tool-auto-reset="handleAnnotationToolAutoReset"
+                    @annotation-tool-cancel="handleAnnotationToolCancel"
                 />
                 <div
                     v-else
@@ -361,7 +368,7 @@
                         <button
                             class="open-file-action group"
                             aria-label="Open PDF"
-                            @click="openFile"
+                            @click="handleOpenFileFromUi"
                         >
                             <UIcon
                                 name="i-lucide-folder-open"
@@ -373,16 +380,44 @@
             </div>
         </main>
         <PdfAnnotationNoteWindow
-            v-if="annotationNoteComment"
-            :comment="annotationNoteComment"
-            :text="annotationNoteText"
-            :saving="isAnnotationNoteSaving"
-            :error="annotationNoteError"
-            @update:text="annotationNoteText = $event"
-            @save="saveAnnotationNote"
-            @delete="deleteAnnotationNote"
-            @close="closeAnnotationNote"
+            v-for="note in sortedAnnotationNoteWindows"
+            :key="note.comment.stableKey"
+            :comment="note.comment"
+            :text="note.text"
+            :saving="note.saving"
+            :error="note.error"
+            :position="annotationNotePositions[note.comment.stableKey] ?? null"
+            :z-index="90 + note.order"
+            @update:text="updateAnnotationNoteText(note.comment.stableKey, $event)"
+            @update:position="updateAnnotationNotePosition(note.comment.stableKey, $event)"
+            @close="closeAnnotationNote(note.comment.stableKey)"
+            @focus="bringAnnotationNoteToFront(note.comment.stableKey)"
         />
+        <div
+            v-if="annotationContextMenu.visible"
+            class="annotation-context-menu"
+            :style="annotationContextMenuStyle"
+            @click.stop
+        >
+            <button type="button" class="annotation-context-menu__action" @click="openContextMenuNote">
+                Open Pop-up Note
+            </button>
+            <button
+                type="button"
+                class="annotation-context-menu__action"
+                :disabled="!annotationContextMenuCanCopy"
+                @click="copyContextMenuNoteText"
+            >
+                Copy Text to Clipboard
+            </button>
+            <button
+                type="button"
+                class="annotation-context-menu__action annotation-context-menu__action--danger"
+                @click="deleteContextMenuComment"
+            >
+                Delete
+            </button>
+        </div>
     </div>
 </template>
 
@@ -396,6 +431,16 @@ import {
     computed,
     watch,
 } from 'vue';
+import { useDebounceFn } from '@vueuse/core';
+import {
+    PDFArray,
+    PDFDict,
+    PDFDocument,
+    PDFHexString,
+    PDFName,
+    PDFRef,
+    PDFString,
+} from 'pdf-lib';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { TFitMode } from '@app/types/shared';
 import { useOcrTextContent } from '@app/composables/pdf/useOcrTextContent';
@@ -418,7 +463,7 @@ interface IPdfViewerExpose {
     redoAnnotation: () => void;
     focusAnnotationComment: (comment: IAnnotationCommentSummary) => Promise<void>;
     updateAnnotationComment: (comment: IAnnotationCommentSummary, text: string) => boolean;
-    deleteAnnotationComment: (comment: IAnnotationCommentSummary) => boolean;
+    deleteAnnotationComment: (comment: IAnnotationCommentSummary) => Promise<boolean>;
 }
 
 interface IOcrPopupExpose {
@@ -427,6 +472,23 @@ interface IOcrPopupExpose {
     exportDocx: () => Promise<boolean>;
     isExporting: { value: boolean };
 }
+
+interface IAnnotationNotePosition {
+    x: number;
+    y: number;
+}
+
+interface IAnnotationNoteWindowState {
+    comment: IAnnotationCommentSummary;
+    text: string;
+    lastSavedText: string;
+    saving: boolean;
+    error: string | null;
+    order: number;
+    saveMode: 'auto' | 'embedded';
+}
+
+const ANNOTATION_KEEP_ACTIVE_STORAGE_KEY = 'pdf.annotations.keepActive';
 
 const {
     pdfSrc,
@@ -457,7 +519,78 @@ const {
 } = useRecentFiles();
 
 async function openRecentFile(file: { originalPath: string }) {
-    await openFileDirect(file.originalPath);
+    await handleOpenFileDirectWithPersist(file.originalPath);
+}
+
+function wait(ms: number) {
+    return new Promise<void>((resolve) => {
+        setTimeout(resolve, ms);
+    });
+}
+
+async function waitUntilIdle() {
+    let attempts = 0;
+    while (
+        (isAnySaving.value || isHistoryBusy.value || isExportingDocx.value || isAnyAnnotationNoteSaving.value)
+        && attempts < 120
+    ) {
+        await wait(25);
+        attempts += 1;
+    }
+}
+
+async function ensureCurrentDocumentPersistedBeforeSwitch() {
+    if (!pdfSrc.value) {
+        return true;
+    }
+
+    await waitUntilIdle();
+    if (isAnySaving.value || isHistoryBusy.value || isExportingDocx.value || isAnyAnnotationNoteSaving.value) {
+        return false;
+    }
+
+    if (annotationNoteWindows.value.length > 0) {
+        const savedAllNotes = await persistAllAnnotationNotes(true);
+        if (!savedAllNotes) {
+            return false;
+        }
+    }
+
+    const hasPendingChanges = annotationDirty.value || isDirty.value || hasAnnotationChanges();
+    if (!hasPendingChanges) {
+        return true;
+    }
+
+    await handleSave();
+
+    return !(annotationDirty.value || isDirty.value || hasAnnotationChanges());
+}
+
+async function handleOpenFileFromUi() {
+    const canProceed = await ensureCurrentDocumentPersistedBeforeSwitch();
+    if (!canProceed) {
+        return;
+    }
+    await openFile();
+    closeAllDropdowns();
+}
+
+async function handleOpenFileDirectWithPersist(path: string) {
+    const canProceed = await ensureCurrentDocumentPersistedBeforeSwitch();
+    if (!canProceed) {
+        return;
+    }
+    await openFileDirect(path);
+    closeAllDropdowns();
+}
+
+async function handleCloseFileFromUi() {
+    const canProceed = await ensureCurrentDocumentPersistedBeforeSwitch();
+    if (!canProceed) {
+        return;
+    }
+    await closeFile();
+    closeAllDropdowns();
 }
 
 function formatRelativeTime(timestamp: number) {
@@ -490,7 +623,7 @@ function getParentFolder(filePath: string) {
 
 // Expose for testing
 if (typeof window !== 'undefined') {
-    (window as unknown as { __openFileDirect: typeof openFileDirect }).__openFileDirect = openFileDirect;
+    (window as unknown as { __openFileDirect: typeof openFileDirect }).__openFileDirect = handleOpenFileDirectWithPersist;
 }
 
 const menuCleanups: Array<() => void> = [];
@@ -510,6 +643,10 @@ function isTypingTarget(target: EventTarget | null) {
 }
 
 function handleGlobalShortcut(event: KeyboardEvent) {
+    if (event.key === 'Escape') {
+        closeAnnotationContextMenu();
+    }
+
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'f' && pdfSrc.value) {
         event.preventDefault();
         openSearch();
@@ -550,12 +687,26 @@ function handleGlobalShortcut(event: KeyboardEvent) {
     }
 }
 
+function handleGlobalPointerDown(event: PointerEvent) {
+    if (!annotationContextMenu.value.visible) {
+        return;
+    }
+
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    if (target?.closest('.annotation-context-menu')) {
+        return;
+    }
+    closeAnnotationContextMenu();
+}
+
 onMounted(() => {
     console.log('Electron API available:', isElectron.value);
 
     if (window.electronAPI) {
         menuCleanups.push(
-            window.electronAPI.onMenuOpenPdf(() => openFile()),
+            window.electronAPI.onMenuOpenPdf(() => {
+                void handleOpenFileFromUi();
+            }),
             window.electronAPI.onMenuSave(() => handleSave()),
             window.electronAPI.onMenuSaveAs(() => handleSaveAs()),
             window.electronAPI.onMenuExportDocx(() => handleExportDocx()),
@@ -566,7 +717,9 @@ onMounted(() => {
             window.electronAPI.onMenuActualSize(() => { zoom.value = 1; }),
             window.electronAPI.onMenuFitWidth(() => { handleFitMode('width'); }),
             window.electronAPI.onMenuFitHeight(() => { handleFitMode('height'); }),
-            window.electronAPI.onMenuOpenRecentFile((path: string) => openFileDirect(path)),
+            window.electronAPI.onMenuOpenRecentFile((path: string) => {
+                void handleOpenFileDirectWithPersist(path);
+            }),
             window.electronAPI.onMenuClearRecentFiles(() => {
                 clearRecentFiles();
                 loadRecentFiles();
@@ -576,13 +729,20 @@ onMounted(() => {
         loadRecentFiles();
     }
 
+    const storedKeepActive = window.localStorage.getItem(ANNOTATION_KEEP_ACTIVE_STORAGE_KEY);
+    if (storedKeepActive !== null) {
+        annotationKeepActive.value = storedKeepActive === '1';
+    }
+
     window.addEventListener('keydown', handleGlobalShortcut);
+    window.addEventListener('pointerdown', handleGlobalPointerDown);
 });
 
 onUnmounted(() => {
     menuCleanups.forEach((cleanup) => cleanup());
     cleanupSidebarResizeListeners();
     window.removeEventListener('keydown', handleGlobalShortcut);
+    window.removeEventListener('pointerdown', handleGlobalPointerDown);
 });
 
 watch(pdfError, (err) => {
@@ -638,6 +798,7 @@ const dragMode = ref(true);
 const continuousScroll = ref(true);
 const pdfDocument = shallowRef<PDFDocumentProxy | null>(null);
 const annotationTool = ref<TAnnotationTool>('none');
+const annotationKeepActive = ref(true);
 const annotationSettings = ref<IAnnotationSettings>({
     highlightColor: '#ffd400',
     highlightOpacity: 0.35,
@@ -651,10 +812,22 @@ const annotationSettings = ref<IAnnotationSettings>({
     textSize: 12,
 });
 const annotationComments = ref<IAnnotationCommentSummary[]>([]);
-const annotationNoteComment = ref<IAnnotationCommentSummary | null>(null);
-const annotationNoteText = ref('');
-const isAnnotationNoteSaving = ref(false);
-const annotationNoteError = ref<string | null>(null);
+const annotationActiveCommentStableKey = ref<string | null>(null);
+const annotationNoteWindows = ref<IAnnotationNoteWindowState[]>([]);
+const annotationNotePositions = ref<Record<string, IAnnotationNotePosition>>({});
+const annotationNoteDebouncers = new Map<string, ReturnType<typeof useDebounceFn>>();
+let annotationNoteOrderCounter = 0;
+const annotationContextMenu = ref<{
+    visible: boolean;
+    x: number;
+    y: number;
+    comment: IAnnotationCommentSummary | null;
+}>({
+    visible: false,
+    x: 0,
+    y: 0,
+    comment: null,
+});
 const annotationEditorState = ref<IAnnotationEditorState>({
     isEditing: false,
     isEmpty: true,
@@ -670,6 +843,7 @@ const isHistoryBusy = ref(false);
 const annotationRevision = ref(0);
 const annotationSavedRevision = ref(0);
 const isAnySaving = computed(() => isSaving.value || isSavingAs.value);
+const isAnyAnnotationNoteSaving = computed(() => annotationNoteWindows.value.some(note => note.saving));
 const isExportingDocx = computed(() => ocrPopupRef.value?.isExporting?.value ?? false);
 const isFitWidthActive = computed(() => fitMode.value === 'width' && Math.abs(zoom.value - 1) < 0.01);
 const isFitHeightActive = computed(() => fitMode.value === 'height' && Math.abs(zoom.value - 1) < 0.01);
@@ -691,9 +865,26 @@ const canRedo = computed(() => (
 ));
 const annotationDirty = computed(() => annotationRevision.value !== annotationSavedRevision.value);
 const canSave = computed(() => isDirty.value || annotationDirty.value);
+const annotationContextMenuStyle = computed(() => ({
+    left: `${annotationContextMenu.value.x}px`,
+    top: `${annotationContextMenu.value.y}px`,
+}));
+const annotationContextMenuCanCopy = computed(() => {
+    const text = annotationContextMenu.value.comment?.text?.trim();
+    return Boolean(text);
+});
+const sortedAnnotationNoteWindows = computed(() =>
+    [...annotationNoteWindows.value].sort((left, right) => left.order - right.order));
 
-const SIDEBAR_DEFAULT_WIDTH = 240;
-const SIDEBAR_MIN_WIDTH = 180;
+watch(annotationKeepActive, (value) => {
+    if (typeof window === 'undefined') {
+        return;
+    }
+    window.localStorage.setItem(ANNOTATION_KEEP_ACTIVE_STORAGE_KEY, value ? '1' : '0');
+});
+
+const SIDEBAR_DEFAULT_WIDTH = 272;
+const SIDEBAR_MIN_WIDTH = 220;
 const SIDEBAR_COLLAPSE_WIDTH = 160;
 const SIDEBAR_MAX_WIDTH = 520;
 const SIDEBAR_RESIZER_WIDTH = 8;
@@ -870,6 +1061,19 @@ function handleAnnotationToolChange(tool: TAnnotationTool) {
     }
 }
 
+function handleAnnotationToolAutoReset() {
+    if (annotationKeepActive.value) {
+        return;
+    }
+    annotationTool.value = 'none';
+    closeAnnotationContextMenu();
+}
+
+function handleAnnotationToolCancel() {
+    annotationTool.value = 'none';
+    closeAnnotationContextMenu();
+}
+
 function handleAnnotationSettingChange(payload: {
     key: keyof IAnnotationSettings;
     value: IAnnotationSettings[keyof IAnnotationSettings] 
@@ -921,6 +1125,7 @@ async function handleAnnotationFocusComment(comment: IAnnotationCommentSummary) 
     if (!pdfViewerRef.value) {
         return;
     }
+    annotationActiveCommentStableKey.value = comment.stableKey;
     showSidebar.value = true;
     sidebarTab.value = 'annotations';
     dragMode.value = false;
@@ -928,16 +1133,529 @@ async function handleAnnotationFocusComment(comment: IAnnotationCommentSummary) 
 }
 
 function handleOpenAnnotationNote(comment: IAnnotationCommentSummary) {
-    annotationNoteComment.value = comment;
-    annotationNoteText.value = comment.text || '';
-    annotationNoteError.value = null;
+    closeAnnotationContextMenu();
+    annotationActiveCommentStableKey.value = comment.stableKey;
+    const matched = findMatchingAnnotationComment(comment);
+    if (matched) {
+        const matchedText = matched.text.trim();
+        const incomingText = comment.text.trim();
+        upsertAnnotationNoteWindow(matchedText.length >= incomingText.length ? matched : comment);
+    } else {
+        upsertAnnotationNoteWindow(comment);
+    }
     showSidebar.value = true;
     sidebarTab.value = 'annotations';
     dragMode.value = false;
     void handleAnnotationFocusComment(comment);
 }
 
+function closeAnnotationContextMenu() {
+    if (!annotationContextMenu.value.visible) {
+        return;
+    }
+    annotationContextMenu.value = {
+        visible: false,
+        x: 0,
+        y: 0,
+        comment: null,
+    };
+}
+
+function handleViewerAnnotationContextMenu(payload: {
+    comment: IAnnotationCommentSummary;
+    clientX: number;
+    clientY: number;
+}) {
+    annotationActiveCommentStableKey.value = payload.comment.stableKey;
+    const width = 230;
+    const height = 124;
+    const margin = 8;
+    const maxX = Math.max(margin, window.innerWidth - width - margin);
+    const maxY = Math.max(margin, window.innerHeight - height - margin);
+
+    annotationContextMenu.value = {
+        visible: true,
+        x: Math.min(Math.max(margin, payload.clientX), maxX),
+        y: Math.min(Math.max(margin, payload.clientY), maxY),
+        comment: payload.comment,
+    };
+    void handleAnnotationFocusComment(payload.comment);
+}
+
+function openContextMenuNote() {
+    const comment = annotationContextMenu.value.comment;
+    if (!comment) {
+        return;
+    }
+    handleOpenAnnotationNote(comment);
+    closeAnnotationContextMenu();
+}
+
+function copyContextMenuNoteText() {
+    const comment = annotationContextMenu.value.comment;
+    if (!comment) {
+        return;
+    }
+    void handleCopyAnnotationComment(comment);
+    closeAnnotationContextMenu();
+}
+
+function deleteContextMenuComment() {
+    const comment = annotationContextMenu.value.comment;
+    if (!comment) {
+        return;
+    }
+    void handleDeleteAnnotationComment(comment);
+    closeAnnotationContextMenu();
+}
+
+function annotationCommentsMatch(left: IAnnotationCommentSummary, right: IAnnotationCommentSummary) {
+    if (left.stableKey && right.stableKey) {
+        return left.stableKey === right.stableKey;
+    }
+
+    if (left.annotationId && right.annotationId) {
+        return left.annotationId === right.annotationId && left.pageIndex === right.pageIndex;
+    }
+
+    if (left.uid && right.uid) {
+        return left.uid === right.uid && left.pageIndex === right.pageIndex;
+    }
+
+    return (
+        left.id === right.id
+        && left.pageIndex === right.pageIndex
+        && left.source === right.source
+    );
+}
+
+function findMatchingAnnotationComment(comment: IAnnotationCommentSummary) {
+    return annotationComments.value.find(candidate => annotationCommentsMatch(candidate, comment));
+}
+
+function isSameAnnotationComment(left: IAnnotationCommentSummary, right: IAnnotationCommentSummary) {
+    return annotationCommentsMatch(left, right);
+}
+
+function findAnnotationNoteWindowIndex(stableKey: string) {
+    return annotationNoteWindows.value.findIndex(note => note.comment.stableKey === stableKey);
+}
+
+function findAnnotationNoteWindow(stableKey: string) {
+    const index = findAnnotationNoteWindowIndex(stableKey);
+    if (index === -1) {
+        return null;
+    }
+    return annotationNoteWindows.value[index] ?? null;
+}
+
+function bringAnnotationNoteToFront(stableKey: string) {
+    const note = findAnnotationNoteWindow(stableKey);
+    if (!note) {
+        return;
+    }
+    annotationNoteOrderCounter += 1;
+    note.order = annotationNoteOrderCounter;
+}
+
+function ensureAnnotationNoteDefaultPosition(stableKey: string) {
+    if (annotationNotePositions.value[stableKey]) {
+        return;
+    }
+    const noteCount = annotationNoteWindows.value.length;
+    const lane = Math.max(0, noteCount - 1) % 5;
+    annotationNotePositions.value = {
+        ...annotationNotePositions.value,
+        [stableKey]: {
+            x: 14 + lane * 20,
+            y: 72 + lane * 14,
+        },
+    };
+}
+
+function upsertAnnotationNoteWindow(comment: IAnnotationCommentSummary) {
+    const key = comment.stableKey;
+    const existing = findAnnotationNoteWindow(key);
+    if (existing) {
+        const hasUnsavedLocalChanges = existing.text !== existing.lastSavedText;
+        existing.comment = comment;
+        existing.error = null;
+        if (!hasUnsavedLocalChanges) {
+            const nextText = comment.text || '';
+            existing.text = nextText;
+            existing.lastSavedText = nextText;
+        }
+        bringAnnotationNoteToFront(key);
+        return;
+    }
+
+    annotationNoteOrderCounter += 1;
+    const initialText = comment.text || '';
+    annotationNoteWindows.value = [
+        ...annotationNoteWindows.value,
+        {
+            comment,
+            text: initialText,
+            lastSavedText: initialText,
+            saving: false,
+            error: null,
+            order: annotationNoteOrderCounter,
+            saveMode: 'auto',
+        },
+    ];
+    ensureAnnotationNoteDefaultPosition(key);
+}
+
+function removeAnnotationNoteWindow(stableKey: string) {
+    const before = annotationNoteWindows.value.length;
+    annotationNoteWindows.value = annotationNoteWindows.value.filter(note => note.comment.stableKey !== stableKey);
+    if (annotationNoteWindows.value.length !== before) {
+        const debounced = annotationNoteDebouncers.get(stableKey) as ({ cancel?: () => void } & (() => void)) | undefined;
+        debounced?.cancel?.();
+        annotationNoteDebouncers.delete(stableKey);
+    }
+}
+
+function setAnnotationNoteWindowError(stableKey: string, message: string | null) {
+    const note = findAnnotationNoteWindow(stableKey);
+    if (!note) {
+        return;
+    }
+    note.error = message;
+}
+
+function updateAnnotationNoteText(stableKey: string, text: string) {
+    const note = findAnnotationNoteWindow(stableKey);
+    if (!note) {
+        return;
+    }
+    note.text = text;
+    note.error = null;
+    if (note.text !== note.lastSavedText) {
+        markAnnotationDirty();
+    }
+    schedulePersistAnnotationNote(stableKey);
+}
+
+function updateAnnotationNotePosition(stableKey: string, position: IAnnotationNotePosition) {
+    annotationNotePositions.value = {
+        ...annotationNotePositions.value,
+        [stableKey]: {
+            x: Math.round(position.x),
+            y: Math.round(position.y),
+        },
+    };
+}
+
+function getAnnotationNoteDebouncedSaver(stableKey: string) {
+    const existing = annotationNoteDebouncers.get(stableKey);
+    if (existing) {
+        return existing;
+    }
+    const saver = useDebounceFn(() => {
+        void persistAnnotationNote(stableKey, false);
+    }, 220);
+    annotationNoteDebouncers.set(stableKey, saver);
+    return saver;
+}
+
+function schedulePersistAnnotationNote(stableKey: string) {
+    getAnnotationNoteDebouncedSaver(stableKey)();
+}
+
+async function persistAnnotationNote(stableKey: string, force = false) {
+    const note = findAnnotationNoteWindow(stableKey);
+    if (!note || !pdfViewerRef.value) {
+        return true;
+    }
+
+    const current = note.comment;
+    const nextText = note.text;
+    if (!force && nextText === note.lastSavedText) {
+        return true;
+    }
+
+    if (!force && note.saveMode === 'embedded') {
+        // For embedded-reference annotations, autosave would require a full PDF reload.
+        // Defer writes until forced save (close/save/export) to keep popup editing stable.
+        return true;
+    }
+
+    if (note.saving) {
+        return false;
+    }
+
+    note.saving = true;
+    note.error = null;
+    try {
+        let saved = await pdfViewerRef.value.updateAnnotationComment(current, nextText);
+        if (!saved && !force) {
+            note.saveMode = 'embedded';
+            return true;
+        }
+        if (!saved) {
+            saved = await updateEmbeddedAnnotationByRef(current, nextText);
+        }
+        if (!saved) {
+            note.error = 'Unable to update this note.';
+            return false;
+        }
+
+        note.saveMode = saved && note.saveMode === 'embedded'
+            ? 'embedded'
+            : 'auto';
+
+        const localUpdated: IAnnotationCommentSummary = {
+            ...current,
+            text: nextText,
+            modifiedAt: Date.now(),
+        };
+        note.comment = localUpdated;
+        note.text = nextText;
+        note.lastSavedText = nextText;
+
+        const latest = findMatchingAnnotationComment(current);
+        if (latest && latest.text === nextText) {
+            note.comment = latest;
+            note.text = latest.text || '';
+            note.lastSavedText = latest.text || '';
+            return true;
+        }
+        return true;
+    } finally {
+        const latestNote = findAnnotationNoteWindow(stableKey);
+        if (latestNote) {
+            latestNote.saving = false;
+            if (latestNote.text !== latestNote.lastSavedText) {
+                schedulePersistAnnotationNote(stableKey);
+            }
+        }
+    }
+}
+
+async function persistAllAnnotationNotes(force = false) {
+    const notes = [...annotationNoteWindows.value];
+    for (const note of notes) {
+        const saved = await persistAnnotationNote(note.comment.stableKey, force);
+        if (!saved) {
+            return false;
+        }
+    }
+    return true;
+}
+
+function parsePdfJsAnnotationRef(annotationId: string | null | undefined) {
+    if (!annotationId) {
+        return null;
+    }
+    const match = annotationId.trim().match(/^(\d+)R(?:(\d+))?$/i);
+    if (!match) {
+        return null;
+    }
+
+    const objectNumber = Number(match[1]);
+    const generationNumber = match[2] ? Number(match[2]) : 0;
+    if (
+        !Number.isInteger(objectNumber)
+        || objectNumber <= 0
+        || !Number.isInteger(generationNumber)
+        || generationNumber < 0
+    ) {
+        return null;
+    }
+
+    return PDFRef.of(objectNumber, generationNumber);
+}
+
+function toPdfDateString(date: Date = new Date()) {
+    const year = String(date.getFullYear()).padStart(4, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    const seconds = String(date.getSeconds()).padStart(2, '0');
+
+    const timezoneMinutes = -date.getTimezoneOffset();
+    const sign = timezoneMinutes >= 0 ? '+' : '-';
+    const absOffset = Math.abs(timezoneMinutes);
+    const offsetHours = String(Math.floor(absOffset / 60)).padStart(2, '0');
+    const offsetMinutes = String(absOffset % 60).padStart(2, '0');
+
+    return `D:${year}${month}${day}${hours}${minutes}${seconds}${sign}${offsetHours}'${offsetMinutes}'`;
+}
+
+function setAnnotationDictContents(
+    dict: PDFDict | null,
+    text: string,
+    modifiedAt: string,
+) {
+    if (!dict) {
+        return false;
+    }
+
+    dict.set(PDFName.of('Contents'), PDFHexString.fromText(text));
+    dict.set(PDFName.of('M'), PDFString.of(modifiedAt));
+    return true;
+}
+
+function updateAnnotationTextByRef(
+    doc: PDFDocument,
+    targetRef: PDFRef,
+    text: string,
+) {
+    const targetDict = doc.context.lookupMaybe(targetRef, PDFDict);
+    if (!targetDict) {
+        return false;
+    }
+
+    const modifiedAt = toPdfDateString(new Date());
+    let updated = setAnnotationDictContents(targetDict, text, modifiedAt);
+
+    const popupValue = targetDict.get(PDFName.of('Popup'));
+    if (popupValue instanceof PDFRef) {
+        updated = setAnnotationDictContents(doc.context.lookupMaybe(popupValue, PDFDict) ?? null, text, modifiedAt) || updated;
+    } else if (popupValue instanceof PDFDict) {
+        updated = setAnnotationDictContents(popupValue, text, modifiedAt) || updated;
+    }
+
+    return updated;
+}
+
+function collectAnnotationRefsToDelete(doc: PDFDocument, targetRef: PDFRef) {
+    const refs = new Map<string, PDFRef>();
+    refs.set(targetRef.toString(), targetRef);
+
+    const targetDict = doc.context.lookupMaybe(targetRef, PDFDict);
+    if (targetDict) {
+        const popupValue = targetDict.get(PDFName.of('Popup'));
+        const popupRef = popupValue instanceof PDFRef ? popupValue : null;
+        if (popupRef) {
+            refs.set(popupRef.toString(), popupRef);
+        }
+    }
+
+    return Array.from(refs.values());
+}
+
+function removeAnnotationRefsFromPages(doc: PDFDocument, refsToRemove: PDFRef[]) {
+    if (refsToRemove.length === 0) {
+        return false;
+    }
+
+    const refTags = new Set(refsToRemove.map(ref => ref.toString()));
+    let removed = false;
+
+    doc.getPages().forEach((page) => {
+        const annots = page.node.Annots();
+        if (!(annots instanceof PDFArray)) {
+            return;
+        }
+
+        for (let index = annots.size() - 1; index >= 0; index -= 1) {
+            const value = annots.get(index);
+            if (!(value instanceof PDFRef)) {
+                continue;
+            }
+            if (!refTags.has(value.toString())) {
+                continue;
+            }
+            annots.remove(index);
+            removed = true;
+        }
+    });
+
+    return removed;
+}
+
+async function deleteEmbeddedAnnotationByRef(comment: IAnnotationCommentSummary) {
+    const targetRef = parsePdfJsAnnotationRef(comment.annotationId ?? comment.id);
+    if (!targetRef) {
+        return false;
+    }
+
+    let sourceData = pdfData.value ? pdfData.value.slice() : null;
+    if (!sourceData && workingCopyPath.value && window.electronAPI) {
+        try {
+            const buffer = await window.electronAPI.readFile(workingCopyPath.value);
+            sourceData = new Uint8Array(buffer);
+        } catch {
+            sourceData = null;
+        }
+    }
+    if (!sourceData) {
+        return false;
+    }
+
+    let document: PDFDocument;
+    try {
+        document = await PDFDocument.load(sourceData, { updateMetadata: false });
+    } catch {
+        return false;
+    }
+
+    const refsToDelete = collectAnnotationRefsToDelete(document, targetRef);
+    const removed = removeAnnotationRefsFromPages(document, refsToDelete);
+    if (!removed) {
+        return false;
+    }
+
+    const nextData = await document.save();
+    const pageToRestore = currentPage.value;
+    const restorePromise = waitForPdfReload(pageToRestore);
+
+    await loadPdfFromData(nextData, {
+        pushHistory: true,
+        persistWorkingCopy: !!workingCopyPath.value,
+    });
+    await restorePromise;
+    return true;
+}
+
+async function updateEmbeddedAnnotationByRef(comment: IAnnotationCommentSummary, text: string) {
+    const targetRef = parsePdfJsAnnotationRef(comment.annotationId ?? comment.id);
+    if (!targetRef) {
+        return false;
+    }
+
+    let sourceData = pdfData.value ? pdfData.value.slice() : null;
+    if (!sourceData && workingCopyPath.value && window.electronAPI) {
+        try {
+            const buffer = await window.electronAPI.readFile(workingCopyPath.value);
+            sourceData = new Uint8Array(buffer);
+        } catch {
+            sourceData = null;
+        }
+    }
+    if (!sourceData) {
+        return false;
+    }
+
+    let document: PDFDocument;
+    try {
+        document = await PDFDocument.load(sourceData, { updateMetadata: false });
+    } catch {
+        return false;
+    }
+
+    const updated = updateAnnotationTextByRef(document, targetRef, text);
+    if (!updated) {
+        return false;
+    }
+
+    const nextData = await document.save();
+    const pageToRestore = currentPage.value;
+    const restorePromise = waitForPdfReload(pageToRestore);
+
+    await loadPdfFromData(nextData, {
+        pushHistory: true,
+        persistWorkingCopy: !!workingCopyPath.value,
+    });
+    await restorePromise;
+    return true;
+}
+
 async function handleCopyAnnotationComment(comment: IAnnotationCommentSummary) {
+    closeAnnotationContextMenu();
     const text = comment.text?.trim();
     if (!text) {
         return;
@@ -949,58 +1667,79 @@ async function handleCopyAnnotationComment(comment: IAnnotationCommentSummary) {
     }
 }
 
-async function handleDeleteAnnotationComment(comment: IAnnotationCommentSummary) {
+let annotationDeleteQueue: Promise<void> = Promise.resolve();
+
+async function performDeleteAnnotationComment(comment: IAnnotationCommentSummary) {
+    closeAnnotationContextMenu();
     if (!pdfViewerRef.value) {
         return;
     }
-    annotationNoteError.value = null;
-    const deleted = await pdfViewerRef.value.deleteAnnotationComment(comment);
+    setAnnotationNoteWindowError(comment.stableKey, null);
+    let deleted = await pdfViewerRef.value.deleteAnnotationComment(comment);
     if (!deleted) {
-        annotationNoteError.value = 'Unable to delete this annotation from the current document.';
+        deleted = await deleteEmbeddedAnnotationByRef(comment);
+    }
+    if (!deleted) {
+        setAnnotationNoteWindowError(comment.stableKey, 'Unable to delete this annotation from the current document.');
         return;
     }
-    if (annotationNoteComment.value?.id === comment.id) {
-        closeAnnotationNote();
-    }
+    annotationNoteWindows.value
+        .filter(note => isSameAnnotationComment(note.comment, comment))
+        .forEach(note => removeAnnotationNoteWindow(note.comment.stableKey));
 }
 
-function closeAnnotationNote() {
-    annotationNoteComment.value = null;
-    annotationNoteText.value = '';
-    annotationNoteError.value = null;
+async function handleDeleteAnnotationComment(comment: IAnnotationCommentSummary) {
+    annotationDeleteQueue = annotationDeleteQueue
+        .catch(() => undefined)
+        .then(async () => {
+            await performDeleteAnnotationComment(comment);
+        });
+    await annotationDeleteQueue;
 }
 
-async function saveAnnotationNote() {
-    if (!pdfViewerRef.value || !annotationNoteComment.value) {
+async function closeAnnotationNote(stableKey: string, options: { saveIfDirty?: boolean } = {}) {
+    const saveIfDirty = options.saveIfDirty ?? true;
+    const note = findAnnotationNoteWindow(stableKey);
+    if (!note) {
         return;
     }
-    isAnnotationNoteSaving.value = true;
-    annotationNoteError.value = null;
-    try {
-        const saved = await pdfViewerRef.value.updateAnnotationComment(
-            annotationNoteComment.value,
-            annotationNoteText.value,
-        );
+
+    if (saveIfDirty) {
+        if (note.saving) {
+            let attempts = 0;
+            while (note.saving && attempts < 20) {
+                await new Promise(resolve => setTimeout(resolve, 25));
+                attempts += 1;
+            }
+        }
+        const saved = await persistAnnotationNote(stableKey, true);
         if (!saved) {
-            annotationNoteError.value = 'Unable to save this note for the selected annotation.';
+            setAnnotationNoteWindowError(stableKey, 'Unable to save this note before closing.');
             return;
         }
-        const savedCommentId = annotationNoteComment.value.id;
-        const latest = annotationComments.value.find(comment => comment.id === savedCommentId);
-        if (latest) {
-            annotationNoteComment.value = latest;
-            annotationNoteText.value = latest.text || '';
-        }
-    } finally {
-        isAnnotationNoteSaving.value = false;
     }
+
+    removeAnnotationNoteWindow(stableKey);
+    closeAnnotationContextMenu();
 }
 
-async function deleteAnnotationNote() {
-    if (!annotationNoteComment.value) {
-        return;
+async function closeAllAnnotationNotes(options: { saveIfDirty?: boolean } = {}) {
+    const saveIfDirty = options.saveIfDirty ?? true;
+    if (saveIfDirty) {
+        const saved = await persistAllAnnotationNotes(true);
+        if (!saved) {
+            return false;
+        }
     }
-    await handleDeleteAnnotationComment(annotationNoteComment.value);
+
+    annotationNoteWindows.value.forEach((note) => {
+        const debounced = annotationNoteDebouncers.get(note.comment.stableKey) as ({ cancel?: () => void } & (() => void)) | undefined;
+        debounced?.cancel?.();
+        annotationNoteDebouncers.delete(note.comment.stableKey);
+    });
+    annotationNoteWindows.value = [];
+    closeAnnotationContextMenu();
+    return true;
 }
 
 async function handleSearch() {
@@ -1037,10 +1776,11 @@ function hasAnnotationChanges() {
         if (!storage) {
             return false;
         }
-        if (storage.size > 0) {
-            return true;
+        const modifiedIds = storage.modifiedIds?.ids;
+        if (modifiedIds && typeof modifiedIds.size === 'number') {
+            return modifiedIds.size > 0;
         }
-        return storage.modifiedIds?.ids?.size > 0;
+        return false;
     } catch {
         return false;
     }
@@ -1103,6 +1843,12 @@ async function handleSave() {
     if (isSaving.value || isSavingAs.value) {
         return;
     }
+    if (annotationNoteWindows.value.length > 0) {
+        const savedNotes = await persistAllAnnotationNotes(true);
+        if (!savedNotes) {
+            return;
+        }
+    }
     isSaving.value = true;
     try {
         // In Electron we always operate on a working copy on disk. Saving should just copy
@@ -1146,6 +1892,12 @@ async function handleSaveAs() {
     if (isSaving.value || isSavingAs.value) {
         return;
     }
+    if (annotationNoteWindows.value.length > 0) {
+        const savedNotes = await persistAllAnnotationNotes(true);
+        if (!savedNotes) {
+            return;
+        }
+    }
     isSavingAs.value = true;
     try {
         let outPath: string | null = null;
@@ -1178,14 +1930,17 @@ watch(pdfSrc, (newSrc, oldSrc) => {
     if (newSrc && newSrc !== oldSrc) {
         resetAnnotationTracking();
         annotationComments.value = [];
-        closeAnnotationNote();
+        closeAnnotationContextMenu();
+        void closeAllAnnotationNotes({ saveIfDirty: false });
     }
     if (!newSrc) {
         resetSearchCache();
         closeSearch();
         annotationTool.value = 'none';
         annotationComments.value = [];
-        closeAnnotationNote();
+        annotationActiveCommentStableKey.value = null;
+        closeAnnotationContextMenu();
+        void closeAllAnnotationNotes({ saveIfDirty: false });
         resetAnnotationTracking();
         annotationEditorState.value = {
             isEditing: false,
@@ -1203,31 +1958,62 @@ watch(pdfSrc, (newSrc, oldSrc) => {
     }
 });
 
+watch(workingCopyPath, (nextPath, previousPath) => {
+    if (nextPath === previousPath) {
+        return;
+    }
+    annotationActiveCommentStableKey.value = null;
+    closeAnnotationContextMenu();
+    void closeAllAnnotationNotes({ saveIfDirty: false });
+});
+
 watch(annotationComments, (comments) => {
-    const current = annotationNoteComment.value;
-    if (!current) {
+    if (
+        annotationActiveCommentStableKey.value
+        && !comments.some(comment => comment.stableKey === annotationActiveCommentStableKey.value)
+    ) {
+        annotationActiveCommentStableKey.value = null;
+    }
+
+    if (annotationNoteWindows.value.length === 0) {
         return;
     }
 
-    const updated = comments.find(comment => (
-        comment.id === current.id
-        || (current.uid && comment.uid === current.uid)
-        || (current.annotationId && comment.annotationId === current.annotationId)
-    ));
-    if (!updated) {
-        // Keep newly created editor notes open while they are still empty; they'll
-        // appear in the reviews list once the user saves non-empty text.
-        if (current.source === 'editor') {
+    annotationNoteWindows.value.forEach((note) => {
+        const updated = comments.find(comment => annotationCommentsMatch(comment, note.comment));
+        if (!updated) {
+            // Keep open instead of force-closing on transient sync misses.
             return;
         }
-        closeAnnotationNote();
-        return;
-    }
 
-    annotationNoteComment.value = updated;
-    if (!isAnnotationNoteSaving.value) {
-        annotationNoteText.value = updated.text || '';
-    }
+        const savedText = note.lastSavedText.trim();
+        const updatedText = updated.text.trim();
+        const currentTimestamp = note.comment.modifiedAt ?? 0;
+        const updatedTimestamp = updated.modifiedAt ?? 0;
+        const staleEmptySync = (
+            !note.saving
+            && savedText.length > 0
+            && updatedText.length === 0
+            && updatedTimestamp <= currentTimestamp
+        );
+
+        if (staleEmptySync) {
+            note.comment = {
+                ...updated,
+                text: note.lastSavedText,
+                modifiedAt: currentTimestamp || updatedTimestamp || null,
+            };
+            return;
+        }
+
+        note.comment = updated;
+        const hasUnsavedLocalChanges = note.text !== note.lastSavedText;
+        if (!note.saving && !hasUnsavedLocalChanges) {
+            const nextText = updated.text || '';
+            note.text = nextText;
+            note.lastSavedText = nextText;
+        }
+    });
 });
 </script>
 
@@ -1388,6 +2174,7 @@ watch(annotationComments, (comments) => {
 .recent-files {
     width: 100%;
     max-width: 400px;
+    min-height: 0;
 }
 
 .recent-files-header {
@@ -1405,6 +2192,8 @@ watch(annotationComments, (comments) => {
     display: flex;
     flex-direction: column;
     gap: 2px;
+    max-height: 40vh;
+    overflow-y: auto;
 }
 
 .recent-file-item {
@@ -1459,5 +2248,42 @@ watch(annotationComments, (comments) => {
 
 .recent-file-item:hover .recent-file-remove {
     opacity: 1;
+}
+
+.annotation-context-menu {
+    position: fixed;
+    z-index: 70;
+    min-width: 220px;
+    display: grid;
+    gap: 1px;
+    border: 1px solid var(--ui-border);
+    background: var(--ui-border);
+    box-shadow:
+        0 10px 24px rgb(15 23 42 / 20%),
+        0 3px 8px rgb(15 23 42 / 15%);
+}
+
+.annotation-context-menu__action {
+    text-align: left;
+    border: none;
+    background: var(--ui-bg, #fff);
+    color: var(--ui-text);
+    min-height: 2rem;
+    padding: 0 0.6rem;
+    cursor: pointer;
+}
+
+.annotation-context-menu__action:hover {
+    background: color-mix(in oklab, var(--ui-bg, #fff) 93%, var(--ui-primary) 7%);
+}
+
+.annotation-context-menu__action:disabled {
+    color: var(--ui-text-dimmed);
+    cursor: default;
+    background: var(--ui-bg, #fff);
+}
+
+.annotation-context-menu__action--danger {
+    color: #b42318;
 }
 </style>

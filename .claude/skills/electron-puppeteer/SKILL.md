@@ -69,6 +69,9 @@ The session automatically handles:
 - **CDP disconnection** → Session detects and shuts down cleanly
 - **504 Outdated Dep errors** → Fixed by clearing Vite cache (cleanstart)
 - **Vue not hydrating** → Auto-reloads page if needed
+- **Hung client commands** → Per-command request timeout with clear timeout error
+- **`openPdf` hangs** → Non-blocking trigger + readiness polling with explicit failure reason
+- **Long `run`/`eval` snippets** → Extended command execution timeout to reduce false failures
 
 ## Verifying the Session is Working
 
