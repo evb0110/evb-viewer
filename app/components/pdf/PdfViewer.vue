@@ -1473,6 +1473,11 @@ interface IDetachedMarkerPlacement {
     topPercent: number;
 }
 
+interface IDetachedCommentCluster {
+    anchorRect: IAnnotationMarkerRect;
+    comments: IAnnotationCommentSummary[];
+}
+
 interface IDetachedMarkerOccupied {
     x: number;
     y: number;
@@ -1540,27 +1545,65 @@ const DETACHED_MARKER_OFFSETS: IDetachedMarkerOffset[] = [
     },
 ];
 
-function createDetachedCommentMarkerElement(comment: IAnnotationCommentSummary, placement: IDetachedMarkerPlacement) {
-    const preview = comment.text.trim().length > 120
-        ? `${comment.text.trim().slice(0, 117)}...`
-        : comment.text.trim();
+function pickPrimaryDetachedComment(comments: IAnnotationCommentSummary[]) {
+    const active = comments.find(candidate => isCommentActive(candidate.stableKey));
+    if (active) {
+        return active;
+    }
+    return comments
+        .slice()
+        .sort((left, right) => {
+            const leftTs = left.modifiedAt ?? 0;
+            const rightTs = right.modifiedAt ?? 0;
+            if (leftTs !== rightTs) {
+                return rightTs - leftTs;
+            }
+            return left.stableKey.localeCompare(right.stableKey);
+        })[0] ?? comments[0];
+}
+
+function createDetachedCommentClusterMarkerElement(
+    comments: IAnnotationCommentSummary[],
+    placement: IDetachedMarkerPlacement,
+) {
+    const primaryComment = pickPrimaryDetachedComment(comments);
+    if (!primaryComment) {
+        return null;
+    }
+    const noteCount = comments.length;
+    const rawPreview = primaryComment.text.trim();
+    const trimmedPreview = rawPreview.length > 120
+        ? `${rawPreview.slice(0, 117)}...`
+        : rawPreview;
+    const preview = noteCount > 1
+        ? `${trimmedPreview} (+${noteCount - 1} more note${noteCount > 2 ? 's' : ''})`
+        : trimmedPreview;
 
     const marker = document.createElement('button');
     marker.type = 'button';
     marker.className = 'pdf-inline-comment-marker';
-    if (isCommentActive(comment.stableKey)) {
+    if (comments.some(candidate => isCommentActive(candidate.stableKey))) {
         marker.classList.add('is-active');
     }
-    marker.dataset.commentStableKey = comment.stableKey;
-    marker.dataset.annotationId = comment.annotationId ?? '';
+    if (noteCount > 1) {
+        marker.classList.add('is-cluster');
+        marker.dataset.commentCount = String(noteCount);
+    }
+    marker.dataset.commentStableKey = primaryComment.stableKey;
+    marker.dataset.annotationId = primaryComment.annotationId ?? '';
     marker.style.left = `${placement.leftPercent}%`;
     marker.style.top = `${placement.topPercent}%`;
     marker.title = preview;
-    marker.setAttribute('aria-label', 'Open pop-up note');
+    marker.setAttribute(
+        'aria-label',
+        noteCount > 1
+            ? `Open pop-up note (${noteCount} notes)`
+            : 'Open pop-up note',
+    );
     marker.addEventListener('click', (event) => {
         event.preventDefault();
         event.stopPropagation();
-        const summary = findCommentByStableKey(comment.stableKey);
+        const summary = findCommentByStableKey(primaryComment.stableKey);
         if (summary) {
             setActiveCommentStableKey(summary.stableKey);
             emit('annotation-open-note', summary);
@@ -1569,7 +1612,7 @@ function createDetachedCommentMarkerElement(comment: IAnnotationCommentSummary, 
     marker.addEventListener('contextmenu', (event) => {
         event.preventDefault();
         event.stopPropagation();
-        const summary = findCommentByStableKey(comment.stableKey);
+        const summary = findCommentByStableKey(primaryComment.stableKey);
         if (summary) {
             setActiveCommentStableKey(summary.stableKey);
             emit('annotation-context-menu', {
@@ -1580,6 +1623,54 @@ function createDetachedCommentMarkerElement(comment: IAnnotationCommentSummary, 
         }
     });
     return marker;
+}
+
+function clusterDetachedComments(comments: IAnnotationCommentSummary[]) {
+    const clusters: IDetachedCommentCluster[] = [];
+    comments
+        .slice()
+        .sort((left, right) => {
+            const leftRect = normalizeMarkerRect(left.markerRect);
+            const rightRect = normalizeMarkerRect(right.markerRect);
+            if (!leftRect || !rightRect) {
+                return left.stableKey.localeCompare(right.stableKey);
+            }
+            if (leftRect.top !== rightRect.top) {
+                return leftRect.top - rightRect.top;
+            }
+            if (leftRect.left !== rightRect.left) {
+                return leftRect.left - rightRect.left;
+            }
+            return left.stableKey.localeCompare(right.stableKey);
+        })
+        .forEach((comment) => {
+            const rect = normalizeMarkerRect(comment.markerRect);
+            if (!rect) {
+                return;
+            }
+            const candidate = clusters.find((cluster) => {
+                const iou = markerRectIoU(cluster.anchorRect, rect);
+                if (iou >= 0.35) {
+                    return true;
+                }
+                const clusterCenterX = cluster.anchorRect.left + cluster.anchorRect.width / 2;
+                const clusterCenterY = cluster.anchorRect.top + cluster.anchorRect.height / 2;
+                const centerX = rect.left + rect.width / 2;
+                const centerY = rect.top + rect.height / 2;
+                const dx = Math.abs(clusterCenterX - centerX);
+                const dy = Math.abs(clusterCenterY - centerY);
+                return dx <= 0.018 && dy <= 0.02;
+            });
+            if (candidate) {
+                candidate.comments.push(comment);
+                return;
+            }
+            clusters.push({
+                anchorRect: rect,
+                comments: [comment],
+            });
+        });
+    return clusters;
 }
 
 function resolveDetachedMarkerPlacement(
@@ -1647,35 +1738,14 @@ function resolveDetachedMarkerPlacement(
 function renderDetachedCommentMarkers(pageContainer: HTMLElement, comments: IAnnotationCommentSummary[]) {
     const layer = ensureCommentMarkerLayer(pageContainer);
     const occupied: IDetachedMarkerOccupied[] = [];
-
-    comments
-        .slice()
-        .sort((left, right) => {
-            const leftRect = normalizeMarkerRect(left.markerRect);
-            const rightRect = normalizeMarkerRect(right.markerRect);
-            if (!leftRect || !rightRect) {
-                return left.stableKey.localeCompare(right.stableKey);
-            }
-            const leftTop = leftRect.top;
-            const rightTop = rightRect.top;
-            if (leftTop !== rightTop) {
-                return leftTop - rightTop;
-            }
-            const leftX = leftRect.left + leftRect.width;
-            const rightX = rightRect.left + rightRect.width;
-            if (leftX !== rightX) {
-                return leftX - rightX;
-            }
-            return left.stableKey.localeCompare(right.stableKey);
-        })
-        .forEach((comment) => {
-            const markerRect = normalizeMarkerRect(comment.markerRect);
-            if (!markerRect) {
-                return;
-            }
-            const placement = resolveDetachedMarkerPlacement(pageContainer, markerRect, occupied);
-            layer.append(createDetachedCommentMarkerElement(comment, placement));
-        });
+    const clusters = clusterDetachedComments(comments);
+    clusters.forEach((cluster) => {
+        const placement = resolveDetachedMarkerPlacement(pageContainer, cluster.anchorRect, occupied);
+        const marker = createDetachedCommentClusterMarkerElement(cluster.comments, placement);
+        if (marker) {
+            layer.append(marker);
+        }
+    });
 }
 
 function syncInlineCommentIndicators() {
@@ -3492,6 +3562,27 @@ defineExpose({
     height: 4px;
     background: linear-gradient(135deg, rgb(255 255 255 / 0.88) 0%, rgb(235 224 145 / 0.95) 100%);
     clip-path: polygon(0 0, 100% 0, 100% 100%);
+}
+
+.pdfViewer :deep(.pdf-inline-comment-marker.is-cluster)::after {
+    content: attr(data-comment-count);
+    right: -7px;
+    top: -7px;
+    width: 13px;
+    height: 13px;
+    border-radius: 999px;
+    border: 1px solid rgb(120 104 34 / 0.9);
+    background: linear-gradient(180deg, #fff9cf 0%, #f0e183 100%);
+    color: rgb(87 73 16 / 0.95);
+    clip-path: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 8px;
+    font-weight: 700;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    box-shadow: 0 1px 3px rgb(0 0 0 / 0.22);
 }
 
 .pdfViewer :deep(.pdf-inline-comment-marker:hover) {
