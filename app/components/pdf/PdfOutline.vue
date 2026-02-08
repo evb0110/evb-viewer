@@ -42,6 +42,7 @@ import {
     watch,
 } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
+import { isPdfDocumentUsable } from '@app/utils/pdf-document-guard';
 
 interface IRefProxy {
     num: number;
@@ -73,32 +74,6 @@ const outline = ref<IOutlineItem[] | null>(null);
 const isLoading = ref(false);
 const activeItemId = ref<string | null>(null);
 let outlineRunId = 0;
-
-function isPdfDocumentUsable(pdfDocument: PDFDocumentProxy) {
-    const internal = pdfDocument as unknown as {
-        destroyed?: boolean;
-        _transport?: unknown | null;
-    };
-
-    if (internal.destroyed === true) {
-        return false;
-    }
-
-    if ('_transport' in internal && internal._transport === null) {
-        return false;
-    }
-
-    if (
-        internal._transport
-        && typeof internal._transport === 'object'
-        && 'messageHandler' in internal._transport
-        && (internal._transport as { messageHandler?: unknown }).messageHandler == null
-    ) {
-        return false;
-    }
-
-    return true;
-}
 
 function isRefProxy(value: unknown): value is IRefProxy {
     return (

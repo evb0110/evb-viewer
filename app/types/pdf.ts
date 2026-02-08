@@ -81,6 +81,16 @@ export interface IPdfPageMatches {
 
 export type TSearchDirection = 'next' | 'previous';
 
+/**
+ * The shape returned by `PageViewport.rawDims` at runtime.
+ * pdf.js types declare the getter as `Object`, but the actual
+ * value always carries the original (unscaled) page dimensions.
+ */
+export interface IPdfRawDims {
+    pageWidth: number;
+    pageHeight: number;
+}
+
 export type {
     PDFDocumentProxy, PDFPageProxy,
 };

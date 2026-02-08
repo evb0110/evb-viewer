@@ -49,7 +49,7 @@ const configuredLogLevel: TBrowserLogLevel = (() => {
         // Ignore localStorage errors (privacy mode / disabled storage)
     }
 
-    const maybeGlobal = normalizeLogLevel((window as unknown as { __logLevel?: unknown }).__logLevel);
+    const maybeGlobal = normalizeLogLevel(window.__logLevel);
     if (maybeGlobal) {
         return maybeGlobal;
     }

@@ -1,4 +1,5 @@
 import type { PageViewport } from 'pdfjs-dist';
+import type { IPdfRawDims } from '@app/types/pdf';
 import { getElectronAPI } from '@app/utils/electron';
 import type { IOcrWord } from '@app/types/shared';
 
@@ -190,10 +191,7 @@ export const useOcrTextContent = () => {
 
         // Get raw page dimensions from viewport
         // PDF.js viewport includes a rawDims property with the original page size
-        const rawDims = (viewport as unknown as {rawDims?: {
-            pageWidth: number;
-            pageHeight: number;
-        };}).rawDims ?? {
+        const rawDims = (viewport.rawDims as IPdfRawDims | undefined) ?? {
             pageWidth: viewport.width / viewport.scale,
             pageHeight: viewport.height / viewport.scale,
         };

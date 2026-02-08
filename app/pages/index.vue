@@ -366,6 +366,7 @@
                     :annotation-settings="annotationSettings"
                     :annotation-comments="annotationComments"
                     :annotation-active-comment-stable-key="annotationActiveCommentStableKey"
+                    :annotation-placing-page-note="annotationPlacingPageNote"
                     @search="handleSearch"
                     @next="handleSearchNext"
                     @previous="handleSearchPrevious"
@@ -376,6 +377,7 @@
                     @annotation-setting="handleAnnotationSettingChange"
                     @annotation-highlight-selection="handleHighlightSelection"
                     @annotation-comment-selection="handleCommentSelection"
+                    @annotation-start-place-note="handleStartPlaceNote"
                     @annotation-apply-stamp="handleApplyStamp"
                     @annotation-focus-comment="handleAnnotationFocusComment"
                     @annotation-open-note="handleOpenAnnotationNote"
@@ -418,6 +420,7 @@
                     @annotation-context-menu="handleViewerAnnotationContextMenu"
                     @annotation-tool-auto-reset="handleAnnotationToolAutoReset"
                     @annotation-tool-cancel="handleAnnotationToolCancel"
+                    @annotation-note-placement-change="annotationPlacingPageNote = $event"
                     @shape-context-menu="handleShapeContextMenu"
                 />
                 <div
@@ -653,6 +656,8 @@ interface IPdfViewerExpose {
     highlightSelection: () => void;
     commentSelection: () => void;
     commentAtPoint: (pageNumber: number, pageX: number, pageY: number) => Promise<boolean>;
+    startCommentPlacement: () => void;
+    cancelCommentPlacement: () => void;
     undoAnnotation: () => void;
     redoAnnotation: () => void;
     focusAnnotationComment: (comment: IAnnotationCommentSummary) => Promise<void>;
@@ -827,7 +832,7 @@ function getParentFolder(filePath: string) {
 
 // Expose for testing
 if (typeof window !== 'undefined') {
-    (window as unknown as { __openFileDirect: typeof openFileDirect }).__openFileDirect = handleOpenFileDirectWithPersist;
+    window.__openFileDirect = handleOpenFileDirectWithPersist;
 }
 
 const menuCleanups: Array<() => void> = [];
@@ -850,6 +855,8 @@ function handleGlobalShortcut(event: KeyboardEvent) {
     if (event.key === 'Escape') {
         closeAnnotationContextMenu();
         closeShapeProperties();
+        pdfViewerRef.value?.cancelCommentPlacement();
+        annotationPlacingPageNote.value = false;
     }
 
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'f' && pdfSrc.value) {
@@ -1045,6 +1052,7 @@ const continuousScroll = ref(true);
 const pdfDocument = shallowRef<PDFDocumentProxy | null>(null);
 const annotationTool = ref<TAnnotationTool>('none');
 const annotationKeepActive = ref(true);
+const annotationPlacingPageNote = ref(false);
 const annotationSettings = ref<IAnnotationSettings>({
     highlightColor: '#ffd400',
     highlightOpacity: 0.35,
@@ -1213,11 +1221,15 @@ watch(dragMode, (enabled) => {
         if (annotationTool.value !== 'none') {
             annotationTool.value = 'none';
         }
+        pdfViewerRef.value?.cancelCommentPlacement();
+        annotationPlacingPageNote.value = false;
     }
 });
 
 function enableDragMode() {
     dragMode.value = true;
+    pdfViewerRef.value?.cancelCommentPlacement();
+    annotationPlacingPageNote.value = false;
     if (annotationTool.value !== 'none') {
         annotationTool.value = 'none';
     }
@@ -1350,6 +1362,8 @@ function handleAnnotationToolChange(tool: TAnnotationTool) {
     annotationTool.value = tool;
     if (tool !== 'none') {
         dragMode.value = false;
+        pdfViewerRef.value?.cancelCommentPlacement();
+        annotationPlacingPageNote.value = false;
     }
 }
 
@@ -1358,11 +1372,13 @@ function handleAnnotationToolAutoReset() {
         return;
     }
     annotationTool.value = 'none';
+    annotationPlacingPageNote.value = false;
     closeAnnotationContextMenu();
 }
 
 function handleAnnotationToolCancel() {
     annotationTool.value = 'none';
+    annotationPlacingPageNote.value = false;
     closeAnnotationContextMenu();
 }
 
@@ -1411,6 +1427,25 @@ function handleHighlightSelection() {
 
 function handleCommentSelection() {
     pdfViewerRef.value?.commentSelection();
+}
+
+function handleStartPlaceNote() {
+    if (!pdfViewerRef.value) {
+        return;
+    }
+
+    if (annotationPlacingPageNote.value) {
+        pdfViewerRef.value.cancelCommentPlacement();
+        annotationPlacingPageNote.value = false;
+        return;
+    }
+
+    showSidebar.value = true;
+    sidebarTab.value = 'annotations';
+    dragMode.value = false;
+    annotationTool.value = 'none';
+    pdfViewerRef.value.startCommentPlacement();
+    annotationPlacingPageNote.value = true;
 }
 
 async function handleApplyStamp(presetId: string) {

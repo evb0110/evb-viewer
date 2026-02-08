@@ -67,15 +67,12 @@ type TAnnotationEditorLayerProto = {
     destroy?: (...args: unknown[]) => unknown;
     __evbSafetyPatchApplied?: boolean;
 };
-type TAnnotationEditorLayerCtor = { prototype?: TAnnotationEditorLayerProto };
-
 function ensureAnnotationEditorLayerSafetyPatch() {
     if (annotationEditorLayerSafetyPatched) {
         return;
     }
 
-    const layerCtor = AnnotationEditorLayer as unknown as TAnnotationEditorLayerCtor;
-    const proto = layerCtor.prototype;
+    const proto = AnnotationEditorLayer.prototype as TAnnotationEditorLayerProto;
     if (!proto || proto.__evbSafetyPatchApplied) {
         annotationEditorLayerSafetyPatched = true;
         return;
@@ -624,9 +621,9 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                         }
 
                         const viewport = pdfPage.getViewport({ scale });
-                        const userUnit = (viewport as unknown as { userUnit?: number }).userUnit ?? 1;
+                        const userUnit = viewport.userUnit ?? 1;
                         const totalScaleFactor = scale * userUnit;
-                        const rawDims = viewport.rawDims as unknown as {
+                        const rawDims = viewport.rawDims as {
                             pageWidth: number;
                             pageHeight: number;
                         };
@@ -876,7 +873,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                                 setHash: () => {},
                                 executeNamedAction: () => {},
                                 executeSetOCGState: () => {},
-                            } as unknown as IPDFLinkService;
+                            } as IPDFLinkService;
 
                             annotationLayerInstance = new AnnotationLayer({
                                 div: annotationLayerDiv as HTMLDivElement,

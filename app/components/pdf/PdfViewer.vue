@@ -13,6 +13,7 @@
             :class="{
                 'is-dragging': isDragging,
                 'drag-mode': dragMode,
+                'is-placing-comment': isPlacingComment,
                 'pdfViewer--single-page': !continuousScroll,
                 'pdfViewer--hidden': src && isLoading,
                 'pdfViewer--fit-height': fitMode === 'height',
@@ -163,6 +164,7 @@ const emit = defineEmits<{
     (e: 'annotation-tool-auto-reset'): void;
     (e: 'annotation-comment-click', comment: IAnnotationCommentSummary): void;
     (e: 'annotation-tool-cancel'): void;
+    (e: 'annotation-note-placement-change', active: boolean): void;
     (e: 'shape-context-menu', payload: {
         shapeId: string;
         clientX: number;
@@ -185,6 +187,7 @@ const annotationState = ref<IAnnotationEditorState>({
 const annotationCommentsCache = ref<IAnnotationCommentSummary[]>([]);
 const pendingAnnotationTool = ref<TAnnotationTool>(annotationTool.value);
 const pendingAnnotationSettings = ref<IAnnotationSettings | null>(annotationSettings.value);
+const isPlacingComment = ref(false);
 
 const pdfDocumentResult = usePdfDocument();
 const {
@@ -1511,6 +1514,35 @@ function highlightSelection() {
 
 function commentSelection() {
     void highlightSelectionInternal(true);
+}
+
+function setCommentPlacementMode(active: boolean) {
+    if (isPlacingComment.value === active) {
+        return;
+    }
+    isPlacingComment.value = active;
+    emit('annotation-note-placement-change', active);
+}
+
+function startCommentPlacement() {
+    setCommentPlacementMode(true);
+}
+
+function cancelCommentPlacement() {
+    setCommentPlacementMode(false);
+}
+
+async function placeCommentAtClientPoint(clientX: number, clientY: number) {
+    const target = resolvePagePointTarget(clientX, clientY);
+    if (!target) {
+        return false;
+    }
+
+    const created = await commentAtPoint(target.pageNumber, target.pageX, target.pageY);
+    if (created) {
+        setCommentPlacementMode(false);
+    }
+    return created;
 }
 
 function undoAnnotation() {
@@ -2910,7 +2942,7 @@ async function deleteAnnotationComment(comment: IAnnotationCommentSummary) {
     let deleted = false;
 
     try {
-        uiManager.setSelected(editor as unknown as TUiManagerSelectedEditor);
+        uiManager.setSelected(editor as TUiManagerSelectedEditor);
         uiManager.delete();
         deleted = true;
     } catch {
@@ -3121,17 +3153,17 @@ function initAnnotationEditor() {
     scheduleAnnotationCommentsSync(true);
 }
 
-async function highlightSelectionInternal(withComment: boolean, explicitRange: Range | null = null) {
+async function highlightSelectionInternal(withComment: boolean, explicitRange: Range | null = null): Promise<boolean> {
     const uiManager = annotationUiManager.value;
     if (!uiManager) {
-        return;
+        return false;
     }
 
     let selection = document.getSelection();
     const activeRange = explicitRange?.cloneRange() ?? getSelectionRangeForCommentAction();
 
     if (!activeRange) {
-        return;
+        return false;
     }
 
     try {
@@ -3287,6 +3319,8 @@ async function highlightSelectionInternal(withComment: boolean, explicitRange: R
     } catch (error) {
         console.warn('Failed to restore annotation mode:', error);
     }
+
+    return createdAnnotation;
 }
 
 function isPageNearVisible(page: number) {
@@ -3655,8 +3689,11 @@ async function commentAtPoint(pageNumber: number, pageX: number, pageY: number) 
         pageY: clamp01(pageY),
     });
     if (range) {
-        await highlightSelectionInternal(true, range);
-        return true;
+        const created = await highlightSelectionInternal(true, range);
+        if (created) {
+            return true;
+        }
+        // Highlight creation failed (e.g. DrawLayer not ready) — fall through to FreeText.
     }
 
     const previousMode = uiManager.getMode();
@@ -3670,12 +3707,14 @@ async function commentAtPoint(pageNumber: number, pageX: number, pageY: number) 
         const layerRect = layer.div.getBoundingClientRect();
         const clientX = layerRect.left + clamp01(pageX) * layerRect.width;
         const clientY = layerRect.top + clamp01(pageY) * layerRect.height;
-        const event = new PointerEvent('pointerdown', {
+        const eventInit: PointerEventInit = {
             clientX,
             clientY,
-            bubbles: true,
-        });
-        layer.div.dispatchEvent(event);
+            button: 0,
+            bubbles: false, 
+        };
+        layer.div.dispatchEvent(new PointerEvent('pointerdown', eventInit));
+        layer.div.dispatchEvent(new PointerEvent('pointerup', eventInit));
         return true;
     } finally {
         if (previousMode !== AnnotationEditorType.FREETEXT) {
@@ -3777,6 +3816,12 @@ function handleAnnotationCommentClick(event: MouseEvent) {
     if (!(event.target instanceof HTMLElement)) {
         return;
     }
+
+    if (isPlacingComment.value) {
+        void placeCommentAtClientPoint(event.clientX, event.clientY);
+        return;
+    }
+
     if (annotationTool.value !== 'none') {
         return;
     }
@@ -3812,6 +3857,11 @@ function handleAnnotationCommentClick(event: MouseEvent) {
 
 function handleAnnotationCommentContextMenu(event: MouseEvent) {
     if (!(event.target instanceof HTMLElement)) {
+        return;
+    }
+
+    if (isPlacingComment.value) {
+        event.preventDefault();
         return;
     }
 
@@ -4167,6 +4217,9 @@ watch(
 watch(
     annotationTool,
     (tool) => {
+        if (tool !== 'none') {
+            setCommentPlacementMode(false);
+        }
         void setAnnotationTool(tool);
     },
     { immediate: true },
@@ -4216,6 +4269,8 @@ defineExpose({
     highlightSelection,
     commentSelection,
     commentAtPoint,
+    startCommentPlacement,
+    cancelCommentPlacement,
     undoAnnotation,
     redoAnnotation,
     focusAnnotationComment,
@@ -4277,6 +4332,10 @@ defineExpose({
     --comment-popup-edit-button-icon: var(--pdfjs-comment-popup-edit-icon);
     --comment-popup-delete-button-icon: var(--pdfjs-delete-icon);
     --comment-close-button-icon: var(--pdfjs-comment-close-icon);
+}
+
+.pdfViewer.is-placing-comment {
+    cursor: crosshair;
 }
 
 .pdfViewer :deep(.editToolbar) {

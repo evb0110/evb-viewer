@@ -24,7 +24,11 @@ import {
     nextTick,
     onBeforeUnmount,
 } from 'vue';
-import type { PDFDocumentProxy } from 'pdfjs-dist';
+import type {
+    PDFDocumentProxy,
+    RenderTask,
+} from 'pdfjs-dist';
+import { isPdfDocumentUsable } from '@app/utils/pdf-document-guard';
 
 interface IProps {
     pdfDocument: PDFDocumentProxy | null;
@@ -39,36 +43,9 @@ defineEmits<{(e: 'goToPage', page: number): void;}>();
 const containerRef = ref<HTMLElement | null>(null);
 const renderedPages = new Set<number>();
 const renderingPages = new Set<number>();
-const renderTasks = new Map<number, { cancel: () => void }>();
+const renderTasks = new Map<number, RenderTask>();
 const THUMBNAIL_WIDTH = 150;
 let renderRunId = 0;
-
-function isPdfDocumentUsable(pdfDocument: PDFDocumentProxy) {
-    const internal = pdfDocument as unknown as {
-        destroyed?: boolean;
-        _transport?: unknown | null;
-    };
-
-    if (internal.destroyed === true) {
-        return false;
-    }
-
-    // pdf.js sets _transport to null during destroy() which causes getPage/render to crash.
-    if ('_transport' in internal && internal._transport === null) {
-        return false;
-    }
-
-    if (
-        internal._transport
-        && typeof internal._transport === 'object'
-        && 'messageHandler' in internal._transport
-        && (internal._transport as { messageHandler?: unknown }).messageHandler == null
-    ) {
-        return false;
-    }
-
-    return true;
-}
 
 function getCanvas(pageNum: number): HTMLCanvasElement | null {
     if (!containerRef.value) {
@@ -136,7 +113,7 @@ async function renderThumbnail(
             viewport: scaledViewport,
             canvas,
         });
-        renderTasks.set(pageNum, task as unknown as { cancel: () => void });
+        renderTasks.set(pageNum, task);
         await task.promise;
         renderTasks.delete(pageNum);
 

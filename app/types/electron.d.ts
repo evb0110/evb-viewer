@@ -166,6 +166,7 @@ declare global {
         electronAPI: IElectronAPI;
         __openFileDirect?: (path: string) => Promise<void>;
         __appReady?: boolean;
+        __logLevel?: unknown;
     }
 }
 

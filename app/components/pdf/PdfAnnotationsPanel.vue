@@ -1,446 +1,267 @@
 <template>
-    <div
-        ref="panelRootRef"
-        class="pdf-annotations-panel"
-        @click="closeContextMenu"
-        @keydown.capture="handlePanelKeydown"
-    >
-        <section class="reviews-section">
-            <header class="reviews-head">
-                <h3 class="reviews-title">Annotations</h3>
-                <span class="reviews-count">{{ filteredComments.length }}</span>
+    <div class="notes-panel app-scrollbar" @click="closeContextMenu">
+        <section class="notes-section notes-tools">
+            <header class="notes-section-header">
+                <h3 class="notes-section-title">Create</h3>
+                <p class="notes-section-description">Pick a tool and annotate directly on the page.</p>
             </header>
 
-            <input
-                v-model.trim="commentQuery"
-                type="search"
-                class="reviews-search"
-                placeholder="Search notes, authors, page…"
-            />
-
-            <div class="reviews-filters">
+            <div class="tool-grid">
                 <button
-                    v-for="filter in reviewQuickFilters"
-                    :key="filter.id"
+                    v-for="toolItem in toolItems"
+                    :key="toolItem.id"
                     type="button"
-                    class="reviews-filter"
-                    :class="{ 'is-active': reviewQuickFilter === filter.id }"
-                    :title="filter.title"
-                    @click="setReviewQuickFilter(filter.id)"
+                    class="tool-button"
+                    :class="{ 'is-active': tool === toolItem.id }"
+                    :title="toolItem.hint"
+                    @click="emit('set-tool', toolItem.id)"
                 >
-                    <span class="reviews-filter__label">{{ filter.label }}</span>
-                    <span class="reviews-filter__count">{{ filter.count }}</span>
+                    <UIcon :name="toolItem.icon" class="tool-button-icon" />
+                    <span class="tool-button-label">{{ toolItem.label }}</span>
                 </button>
             </div>
 
-            <div
-                ref="reviewsListRef"
-                class="reviews-list app-scrollbar"
-                tabindex="0"
-                @click.self="focusReviewsList"
-            >
-                <p class="reviews-hint">
-                    Click to focus. Double-click or Enter opens the pop-up note.
-                </p>
-                <ul v-if="visibleNodes.length > 0" class="reviews-tree">
-                    <li v-for="node in visibleNodes" :key="node.id">
-                        <button
-                            v-if="node.type === 'group'"
-                            type="button"
-                            class="reviews-group"
-                            :data-group-id="node.id"
-                            :style="{ paddingLeft: `${node.depth * 0.75 + 0.35}rem` }"
-                            @click="toggleGroup(node.id)"
-                            @contextmenu.prevent.stop="openGroupContextMenu($event, node)"
-                        >
-                            <UIcon
-                                :name="isExpanded(node.id) ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'"
-                                class="reviews-group__icon"
-                            />
-                            <span class="reviews-group__label">{{ node.label }}</span>
-                            <span class="reviews-group__count">{{ node.count }}</span>
-                        </button>
-
-                        <button
-                            v-else
-                            type="button"
-                            class="review-item"
-                            :class="{ 'is-selected': isCommentSelected(node.comment) }"
-                            :data-stable-key="node.comment.stableKey"
-                            :style="{ paddingLeft: `${node.depth * 0.75 + 0.35}rem` }"
-                            @click="handleReviewItemClick($event, node.comment)"
-                            @dblclick.prevent.stop="handleReviewItemDoubleClick($event, node.comment)"
-                            @contextmenu.prevent.stop="openCommentContextMenu($event, node.comment)"
-                            @focus="handleReviewItemFocus(node.comment)"
-                        >
-                            <span class="review-item__head">
-                                <span class="review-item__meta-left">
-                                    <span
-                                        class="review-item__type"
-                                        :class="`is-${reviewKind(node.comment)}`"
-                                    >
-                                        {{ reviewKindLabel(node.comment) }}
-                                    </span>
-                                    <span class="review-item__page">P{{ node.comment.pageNumber }}</span>
-                                    <span class="review-item__author">{{ node.comment.author || 'Unknown Author' }}</span>
-                                </span>
-                                <span class="review-item__time">{{ formatCommentTime(node.comment.modifiedAt) }}</span>
-                            </span>
-                            <span class="review-item__text">{{ reviewItemText(node.comment) }}</span>
-                        </button>
-                    </li>
-                </ul>
-
-                <p v-else class="reviews-empty">
-                    No annotations yet
-                </p>
-            </div>
-
-            <footer class="reviews-toolbar">
-                <div class="reviews-toolbar__line">
-                    <span class="reviews-toolbar__label">Group</span>
-                    <button
-                        type="button"
-                        class="reviews-toggle"
-                        :class="{ 'is-active': groupByPage }"
-                        title="Group by page"
-                        @click="groupByPage = !groupByPage"
-                    >
-                        <UIcon name="i-lucide-file-text" class="reviews-toggle__icon" />
-                        <span>By Page</span>
-                    </button>
-                    <button
-                        type="button"
-                        class="reviews-toggle"
-                        :class="{ 'is-active': groupByAuthor }"
-                        title="Group by author"
-                        @click="groupByAuthor = !groupByAuthor"
-                    >
-                        <UIcon name="i-lucide-user" class="reviews-toggle__icon" />
-                        <span>By Author</span>
-                    </button>
-                </div>
-                <div class="reviews-toolbar__line">
-                    <span class="reviews-toolbar__label">List</span>
-                    <button
-                        type="button"
-                        class="reviews-toggle reviews-toggle--compact"
-                        title="Expand all"
-                        @click="expandAll"
-                    >
-                        <UIcon name="i-lucide-chevrons-down" class="reviews-toggle__icon" />
-                        <span>Expand</span>
-                    </button>
-                    <button
-                        type="button"
-                        class="reviews-toggle reviews-toggle--compact"
-                        title="Collapse all"
-                        @click="collapseAll"
-                    >
-                        <UIcon name="i-lucide-chevrons-up" class="reviews-toggle__icon" />
-                        <span>Collapse</span>
-                    </button>
-                </div>
-                <div class="reviews-toolbar__line reviews-toolbar__line--selection">
-                    <span class="reviews-toolbar__label">Selection</span>
-                    <template v-if="selectedCommentCount > 0">
-                        <button
-                            type="button"
-                            class="reviews-selection-action"
-                            :disabled="!canOpenSelectedComment"
-                            @click="openPrimarySelectedComment"
-                        >
-                            Open
-                        </button>
-                        <button
-                            type="button"
-                            class="reviews-selection-action"
-                            :disabled="!canCopySelectedComment"
-                            @click="copyPrimarySelectedComment"
-                        >
-                            Copy
-                        </button>
-                        <button
-                            type="button"
-                            class="reviews-selection-action reviews-selection-action--danger"
-                            :disabled="selectedCommentCount === 0"
-                            @click="deleteSelectedComments"
-                        >
-                            {{ selectedCommentCount > 1 ? `Delete ${selectedCommentCount}` : 'Delete' }}
-                        </button>
-                    </template>
-                    <p v-else class="reviews-selection-hint">
-                        Select an annotation to open, copy, or delete.
-                    </p>
-                </div>
-            </footer>
+            <label class="keep-active-toggle">
+                <input
+                    type="checkbox"
+                    :checked="keepActive"
+                    @change="emit('update:keep-active', ($event.target as HTMLInputElement).checked)"
+                />
+                Keep selected tool active
+            </label>
         </section>
 
-        <details class="quick-section" :open="quickSectionOpen" @toggle="handleQuickSectionToggle">
-            <summary class="quick-section__summary">
-                <span class="quick-section__title">Quick Annotations</span>
-                <span class="quick-section__meta">Okular presets</span>
-                <UIcon
-                    name="i-lucide-chevron-down"
-                    class="quick-section__chevron"
-                />
-            </summary>
-            <div class="quick-section__content">
-                <div class="quick-section__row quick-section__row--preset">
-                    <label class="quick-select-group">
-                        <span class="quick-select-group__label">Preset</span>
-                        <select
-                            v-model="selectedQuickToolId"
-                            class="quick-select"
-                        >
-                            <option
-                                v-for="quick in quickTools"
-                                :key="quick.id"
-                                :value="quick.id"
-                            >
-                                {{ quick.label }}
-                            </option>
-                        </select>
-                    </label>
-                    <button
-                        type="button"
-                        class="quick-apply-button"
-                        @click="applySelectedQuickTool"
-                    >
-                        Apply
-                    </button>
-                </div>
-                <p class="quick-preset-hint">
-                    {{ selectedQuickToolHint }}
-                </p>
+        <section class="notes-section notes-sticky">
+            <header class="notes-section-header">
+                <h3 class="notes-section-title">Sticky Notes</h3>
+                <p class="notes-section-description">Create notes from selected text or place one anywhere on a page.</p>
+            </header>
 
-                <div class="quick-section__row quick-section__row--actions">
-                    <button
-                        type="button"
-                        class="quick-action"
-                        @pointerdown.prevent
-                        @mousedown.prevent
-                        @click="emit('highlight-selection')"
-                    >
-                        Highlight Selection
-                    </button>
-                    <button
-                        type="button"
-                        class="quick-action"
-                        @pointerdown.prevent
-                        @mousedown.prevent
-                        @click="emit('comment-selection')"
-                    >
-                        Pop-up Note from Selection
-                    </button>
-                </div>
-
-                <div class="quick-section__row quick-section__row--preset">
-                    <label class="quick-select-group">
-                        <span class="quick-select-group__label">Stamp</span>
-                        <select
-                            v-model="selectedStampId"
-                            class="quick-select"
-                        >
-                            <option
-                                v-for="stamp in stampPresets"
-                                :key="stamp.id"
-                                :value="stamp.id"
-                            >
-                                {{ stamp.label }}
-                            </option>
-                        </select>
-                    </label>
-                    <button
-                        type="button"
-                        class="quick-apply-button"
-                        @click="emit('apply-stamp', selectedStampId)"
-                    >
-                        Place
-                    </button>
-                </div>
-
-                <label class="quick-keep-active">
-                    <input
-                        type="checkbox"
-                        :checked="keepActive"
-                        @change="emit('update:keep-active', ($event.target as HTMLInputElement).checked)"
-                    />
-                    Keep Active
-                </label>
-
-                <details class="tool-settings" :open="toolSettingsOpen" @toggle="handleToolSettingsToggle">
-                    <summary>Current Tool Settings</summary>
-                    <div class="tool-settings__grid">
-                        <label v-if="showHighlightSettings" class="tool-setting">
-                            <span>Highlight Color</span>
-                            <input
-                                class="tool-setting__color"
-                                type="color"
-                                :value="settings.highlightColor"
-                                @input="updateSetting('highlightColor', ($event.target as HTMLInputElement).value)"
-                            />
-                        </label>
-                        <label v-if="showHighlightSettings" class="tool-setting">
-                            <span>Highlight Width {{ settings.highlightThickness }}</span>
-                            <input
-                                class="tool-setting__range"
-                                type="range"
-                                min="4"
-                                max="24"
-                                step="1"
-                                :value="settings.highlightThickness"
-                                @input="updateSetting('highlightThickness', Number(($event.target as HTMLInputElement).value))"
-                            />
-                        </label>
-                        <label v-if="showUnderlineSettings" class="tool-setting">
-                            <span>Underline Color</span>
-                            <input
-                                class="tool-setting__color"
-                                type="color"
-                                :value="settings.underlineColor"
-                                @input="updateSetting('underlineColor', ($event.target as HTMLInputElement).value)"
-                            />
-                        </label>
-                        <label v-if="showStrikethroughSettings" class="tool-setting">
-                            <span>Strikethrough Color</span>
-                            <input
-                                class="tool-setting__color"
-                                type="color"
-                                :value="settings.strikethroughColor"
-                                @input="updateSetting('strikethroughColor', ($event.target as HTMLInputElement).value)"
-                            />
-                        </label>
-                        <label v-if="showSquigglySettings" class="tool-setting">
-                            <span>Squiggly Color</span>
-                            <input
-                                class="tool-setting__color"
-                                type="color"
-                                :value="settings.squigglyColor"
-                                @input="updateSetting('squigglyColor', ($event.target as HTMLInputElement).value)"
-                            />
-                        </label>
-                        <label v-if="showInkSettings" class="tool-setting">
-                            <span>Ink Color</span>
-                            <input
-                                class="tool-setting__color"
-                                type="color"
-                                :value="settings.inkColor"
-                                @input="updateSetting('inkColor', ($event.target as HTMLInputElement).value)"
-                            />
-                        </label>
-                        <label v-if="showInkSettings" class="tool-setting">
-                            <span>Ink Width {{ settings.inkThickness }}</span>
-                            <input
-                                class="tool-setting__range"
-                                type="range"
-                                min="1"
-                                max="16"
-                                step="1"
-                                :value="settings.inkThickness"
-                                @input="updateSetting('inkThickness', Number(($event.target as HTMLInputElement).value))"
-                            />
-                        </label>
-                        <label v-if="showTextSettings" class="tool-setting">
-                            <span>Text Color</span>
-                            <input
-                                class="tool-setting__color"
-                                type="color"
-                                :value="settings.textColor"
-                                @input="updateSetting('textColor', ($event.target as HTMLInputElement).value)"
-                            />
-                        </label>
-                        <label v-if="showTextSettings" class="tool-setting">
-                            <span>Text Size {{ settings.textSize }}</span>
-                            <input
-                                class="tool-setting__range"
-                                type="range"
-                                min="8"
-                                max="48"
-                                step="1"
-                                :value="settings.textSize"
-                                @input="updateSetting('textSize', Number(($event.target as HTMLInputElement).value))"
-                            />
-                        </label>
-                        <label v-if="showShapeSettings" class="tool-setting">
-                            <span>Shape Color</span>
-                            <input
-                                class="tool-setting__color"
-                                type="color"
-                                :value="settings.shapeColor"
-                                @input="updateSetting('shapeColor', ($event.target as HTMLInputElement).value)"
-                            />
-                        </label>
-                        <label v-if="showShapeSettings" class="tool-setting">
-                            <span>Fill Color</span>
-                            <input
-                                class="tool-setting__color"
-                                type="color"
-                                :value="settings.shapeFillColor === 'transparent' ? '#ffffff' : settings.shapeFillColor"
-                                @input="updateSetting('shapeFillColor', ($event.target as HTMLInputElement).value)"
-                            />
-                        </label>
-                        <label v-if="showShapeSettings" class="tool-setting">
-                            <span>Stroke Width {{ settings.shapeStrokeWidth }}</span>
-                            <input
-                                class="tool-setting__range"
-                                type="range"
-                                min="1"
-                                max="10"
-                                step="0.5"
-                                :value="settings.shapeStrokeWidth"
-                                @input="updateSetting('shapeStrokeWidth', Number(($event.target as HTMLInputElement).value))"
-                            />
-                        </label>
-                        <p v-if="!hasAdjustableToolSettings" class="tool-settings__empty">
-                            No adjustable settings for this preset.
-                        </p>
-                    </div>
-                    <div v-if="showHighlightSettings" class="tool-flags">
-                        <label>
-                            <input
-                                type="checkbox"
-                                :checked="settings.highlightFree"
-                                @change="updateSetting('highlightFree', ($event.target as HTMLInputElement).checked)"
-                            />
-                            Freehand highlight
-                        </label>
-                        <label>
-                            <input
-                                type="checkbox"
-                                :checked="settings.highlightShowAll"
-                                @change="updateSetting('highlightShowAll', ($event.target as HTMLInputElement).checked)"
-                            />
-                            Show all highlights
-                        </label>
-                    </div>
-                </details>
+            <div class="sticky-actions">
+                <button
+                    type="button"
+                    class="sticky-action"
+                    @pointerdown.prevent
+                    @mousedown.prevent
+                    @click="emit('comment-selection')"
+                >
+                    <UIcon name="i-lucide-message-circle" class="sticky-action-icon" />
+                    <span>Add Note to Selection</span>
+                </button>
+                <button
+                    type="button"
+                    class="sticky-action"
+                    :class="{ 'is-active': placingPageNote }"
+                    @pointerdown.prevent
+                    @mousedown.prevent
+                    @click="emit('start-place-note')"
+                >
+                    <UIcon name="i-lucide-plus" class="sticky-action-icon" />
+                    <span>{{ placingPageNote ? 'Cancel Place Mode' : 'Place Note on Page' }}</span>
+                </button>
             </div>
-        </details>
+
+            <p class="sticky-hint">
+                {{ placingPageNote ? 'Click inside the document to place a sticky note.' : 'Use “Place Note on Page”, then click where the note should appear.' }}
+            </p>
+        </section>
+
+        <section class="notes-section notes-style">
+            <header class="notes-section-header">
+                <h3 class="notes-section-title">Style</h3>
+                <p class="notes-section-description">Color and size for the currently selected tool.</p>
+            </header>
+
+            <div class="style-row">
+                <label class="style-label" for="annotation-color-input">Color</label>
+                <input
+                    id="annotation-color-input"
+                    class="style-color"
+                    type="color"
+                    :value="activeToolColor"
+                    @input="handleColorInput(($event.target as HTMLInputElement).value)"
+                />
+            </div>
+
+            <div class="swatch-row">
+                <button
+                    v-for="swatch in colorSwatches"
+                    :key="swatch"
+                    type="button"
+                    class="swatch"
+                    :style="{ backgroundColor: swatch }"
+                    :title="swatch"
+                    @click="handleColorInput(swatch)"
+                />
+            </div>
+
+            <div v-if="activeWidthControl" class="style-row">
+                <label class="style-label" for="annotation-width-input">
+                    {{ activeWidthControl.label }} {{ activeWidthValue }}
+                </label>
+                <input
+                    id="annotation-width-input"
+                    class="style-range"
+                    type="range"
+                    :min="activeWidthControl.min"
+                    :max="activeWidthControl.max"
+                    :step="activeWidthControl.step"
+                    :value="activeWidthValue"
+                    @input="handleWidthInput(Number(($event.target as HTMLInputElement).value))"
+                />
+            </div>
+
+            <div v-if="tool === 'draw'" class="draw-style-row">
+                <span class="style-label">Pen Type</span>
+                <div class="draw-style-list">
+                    <button
+                        v-for="preset in drawStylePresets"
+                        :key="preset.id"
+                        type="button"
+                        class="draw-style-button"
+                        :class="{ 'is-active': activeDrawStyle === preset.id }"
+                        @click="applyDrawStyle(preset.id)"
+                    >
+                        {{ preset.label }}
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <section v-if="pagesWithAnnotations.length > 0" class="notes-section notes-pages">
+            <header class="notes-section-header">
+                <h3 class="notes-section-title">Where Notes Are</h3>
+                <p class="notes-section-description">Pages that currently contain annotations.</p>
+            </header>
+
+            <div class="page-chip-list">
+                <button
+                    v-for="item in pagesWithAnnotations"
+                    :key="item.pageNumber"
+                    type="button"
+                    class="page-chip"
+                    :class="{ 'is-current': item.pageNumber === currentPage }"
+                    @click="focusFirstCommentOnPage(item.pageNumber)"
+                >
+                    <span class="page-chip-label">Page {{ item.pageNumber }}</span>
+                    <span class="page-chip-count">{{ item.count }}</span>
+                    <span v-if="item.stickyCount > 0" class="page-chip-note">
+                        {{ item.stickyCount }} note{{ item.stickyCount === 1 ? '' : 's' }}
+                    </span>
+                </button>
+            </div>
+        </section>
+
+        <section class="notes-section notes-list-section">
+            <header class="notes-section-header notes-list-header">
+                <h3 class="notes-section-title">Notes List</h3>
+                <span class="notes-count">{{ filteredComments.length }}</span>
+            </header>
+
+            <input
+                v-model.trim="query"
+                type="search"
+                class="notes-search"
+                placeholder="Search notes, author, page..."
+            />
+
+            <div class="filter-row">
+                <button
+                    v-for="option in filterOptions"
+                    :key="option.id"
+                    type="button"
+                    class="filter-button"
+                    :class="{ 'is-active': activeFilter === option.id }"
+                    @click="activeFilter = option.id"
+                >
+                    <span>{{ option.label }}</span>
+                    <span class="filter-count">{{ option.count }}</span>
+                </button>
+            </div>
+
+            <div class="notes-list app-scrollbar" @click.self="selectedStableKey = null">
+                <button
+                    v-for="comment in filteredComments"
+                    :key="comment.stableKey"
+                    type="button"
+                    class="note-item"
+                    :class="{ 'is-selected': selectedStableKey === comment.stableKey }"
+                    @click="selectComment(comment)"
+                    @dblclick.prevent.stop="openComment(comment)"
+                >
+                    <span class="note-item-top">
+                        <span class="note-item-page">P{{ comment.pageNumber }}</span>
+                        <span class="note-item-type">{{ commentTypeLabel(comment) }}</span>
+                        <span v-if="isStickyNote(comment)" class="note-item-sticky">Sticky</span>
+                    </span>
+                    <span class="note-item-text">{{ notePreview(comment) }}</span>
+                    <span class="note-item-meta">
+                        <span>{{ comment.author || 'Unknown author' }}</span>
+                        <span v-if="comment.modifiedAt">{{ formatTime(comment.modifiedAt) }}</span>
+                    </span>
+                </button>
+
+                <p v-if="filteredComments.length === 0" class="notes-empty">
+                    No annotations match this filter.
+                </p>
+            </div>
+
+            <div class="selection-actions">
+                <button
+                    type="button"
+                    class="selection-action"
+                    :disabled="!selectedComment"
+                    @click="openSelectedComment"
+                >
+                    Open Note
+                </button>
+                <button
+                    type="button"
+                    class="selection-action"
+                    :disabled="!canCopySelectedComment"
+                    @click="copySelectedComment"
+                >
+                    Copy Text
+                </button>
+                <button
+                    type="button"
+                    class="selection-action is-danger"
+                    :disabled="!selectedComment"
+                    @click="deleteSelectedComment"
+                >
+                    Delete
+                </button>
+            </div>
+        </section>
 
         <div
             v-if="contextMenu.visible"
-            class="reviews-context-menu"
+            class="notes-context-menu"
             :style="contextMenuStyle"
             @click.stop
         >
             <button
                 type="button"
-                class="context-action"
-                :disabled="!canOpenContextComment"
-                @click="openContextNote"
+                class="context-menu-action"
+                :disabled="!contextMenu.comment"
+                @click="openContextComment"
             >
-                Open Pop-up Note
+                Open Note
             </button>
             <button
                 type="button"
-                class="context-action"
-                :disabled="!canCopyContextComment"
-                @click="copyContextNoteText"
+                class="context-menu-action"
+                :disabled="!contextMenu.comment"
+                @click="copyContextComment"
             >
-                Copy Text to Clipboard
+                Copy Text
             </button>
-            <button type="button" class="context-action context-action--danger" @click="deleteContextComment">
+            <button
+                type="button"
+                class="context-menu-action is-danger"
+                :disabled="!contextMenu.comment"
+                @click="deleteContextComment"
+            >
                 Delete
             </button>
         </div>
@@ -450,13 +271,9 @@
 <script setup lang="ts">
 import {
     computed,
-    nextTick,
-    onBeforeUnmount,
-    onMounted,
     ref,
     watch,
 } from 'vue';
-import { useStampPresets } from '@app/composables/pdf/useStampPresets';
 import type {
     IAnnotationCommentSummary,
     IAnnotationSettings,
@@ -470,42 +287,45 @@ interface IProps {
     comments: IAnnotationCommentSummary[];
     currentPage: number;
     activeCommentStableKey?: string | null;
+    placingPageNote?: boolean;
 }
 
-interface IQuickToolPreset {
-    id: string;
-    label: string;
-    swatch: string;
-    tool?: TAnnotationTool;
-    settings?: Partial<IAnnotationSettings>;
-    action?: 'highlight-selection' | 'comment-selection';
-}
+type TListFilter = 'all' | 'sticky' | 'markup' | 'draw' | 'shape' | 'current-page';
+type TCommentCategory = 'sticky' | 'markup' | 'draw' | 'shape' | 'other';
+type TDrawStyle = 'pen' | 'pencil' | 'marker';
 
-interface IGroupNode {
-    type: 'group';
-    id: string;
+interface IFilterOption {
+    id: TListFilter;
     label: string;
     count: number;
-    depth: number;
-    children: TTreeNode[];
 }
 
-interface ICommentNode {
-    type: 'comment';
-    id: string;
-    depth: number;
-    comment: IAnnotationCommentSummary;
-}
-
-type TTreeNode = IGroupNode | ICommentNode;
-type TReviewKind = 'highlight' | 'ink' | 'text' | 'other';
-type TReviewQuickFilter = 'all' | 'with-note' | 'highlight' | 'ink' | 'text' | 'current-page';
-
-interface IReviewQuickFilterItem {
-    id: TReviewQuickFilter;
+interface IToolItem {
+    id: TAnnotationTool;
     label: string;
-    title: string;
+    icon: string;
+    hint: string;
+}
+
+interface IWidthControl {
+    key: 'inkThickness' | 'highlightThickness' | 'shapeStrokeWidth';
+    min: number;
+    max: number;
+    step: number;
+    label: string;
+}
+
+interface IPageAnnotationOverview {
+    pageNumber: number;
     count: number;
+    stickyCount: number;
+}
+
+interface IDrawStylePreset {
+    id: TDrawStyle;
+    label: string;
+    thickness: number;
+    opacity: number;
 }
 
 const props = defineProps<IProps>();
@@ -524,233 +344,190 @@ const emit = defineEmits<{
     (e: 'copy-comment', comment: IAnnotationCommentSummary): void;
     (e: 'delete-comment', comment: IAnnotationCommentSummary): void;
     (e: 'apply-stamp', presetId: string): void;
+    (e: 'start-place-note'): void;
 }>();
 
-const {
-    presets: stampPresets,
-    selectedPresetId: selectedStampId,
-} = useStampPresets();
-
-const quickTools: IQuickToolPreset[] = [
+const toolItems: IToolItem[] = [
     {
-        id: 'quick-highlight-yellow',
-        label: 'Yellow Highlighter',
-        swatch: '#ffff00',
-        tool: 'highlight',
-        settings: {
-            highlightColor: '#ffff00',
-            highlightOpacity: 0.35,
-            highlightThickness: 12,
-            highlightFree: true,
-        },
+        id: 'none',
+        label: 'Cursor',
+        icon: 'i-lucide-mouse-pointer',
+        hint: 'Navigate and select existing annotations',
     },
     {
-        id: 'quick-highlight-green',
-        label: 'Green Highlighter',
-        swatch: '#00ff00',
-        tool: 'highlight',
-        settings: {
-            highlightColor: '#00ff00',
-            highlightOpacity: 0.35,
-            highlightThickness: 12,
-            highlightFree: true,
-        },
+        id: 'draw',
+        label: 'Draw',
+        icon: 'i-lucide-pen-tool',
+        hint: 'Freehand pen or pencil drawing',
     },
     {
-        id: 'quick-underline',
+        id: 'highlight',
+        label: 'Highlight',
+        icon: 'i-lucide-highlighter',
+        hint: 'Highlight text selection',
+    },
+    {
+        id: 'underline',
         label: 'Underline',
-        swatch: '#2563eb',
-        tool: 'underline',
-        settings: {
-            underlineColor: '#2563eb',
-            underlineOpacity: 0.8,
-        },
+        icon: 'i-lucide-underline',
+        hint: 'Underline text selection',
     },
     {
-        id: 'quick-strikethrough',
-        label: 'Strikethrough',
-        swatch: '#dc2626',
-        tool: 'strikethrough',
-        settings: {
-            strikethroughColor: '#dc2626',
-            strikethroughOpacity: 0.7,
-        },
+        id: 'strikethrough',
+        label: 'Strike',
+        icon: 'i-lucide-strikethrough',
+        hint: 'Cross out text selection',
     },
     {
-        id: 'quick-squiggly',
-        label: 'Squiggly',
-        swatch: '#16a34a',
-        tool: 'squiggly',
-        settings: {
-            squigglyColor: '#16a34a',
-            squigglyOpacity: 0.7,
-        },
+        id: 'squiggly',
+        label: 'Squiggle',
+        icon: 'i-lucide-waves',
+        hint: 'Wavy underline for text',
     },
     {
-        id: 'quick-text-insert',
-        label: 'Insert Text',
-        swatch: '#111827',
-        tool: 'text',
-        settings: {
-            textColor: '#111827',
-            textSize: 12,
-        },
+        id: 'rectangle',
+        label: 'Rect',
+        icon: 'i-lucide-square',
+        hint: 'Draw rectangle shapes',
     },
     {
-        id: 'quick-inline-note',
-        label: 'Inline Note',
-        swatch: '#ffd54f',
-        tool: 'text',
-        settings: {
-            textColor: '#111827',
-            textSize: 12,
-        },
-    },
-    {
-        id: 'quick-popup-note',
-        label: 'Pop-up Note',
-        swatch: '#d1a80a',
-        action: 'comment-selection',
-    },
-    {
-        id: 'quick-ink-pen',
-        label: 'Ink Pen',
-        swatch: '#198754',
-        tool: 'draw',
-        settings: {
-            inkColor: '#198754',
-            inkOpacity: 0.95,
-            inkThickness: 2,
-        },
-    },
-    {
-        id: 'quick-rectangle',
-        label: 'Rectangle',
-        swatch: '#2563eb',
-        tool: 'rectangle',
-        settings: {
-            shapeColor: '#2563eb',
-            shapeOpacity: 1,
-            shapeStrokeWidth: 2,
-        },
-    },
-    {
-        id: 'quick-circle',
+        id: 'circle',
         label: 'Circle',
-        swatch: '#7c3aed',
-        tool: 'circle',
-        settings: {
-            shapeColor: '#7c3aed',
-            shapeOpacity: 1,
-            shapeStrokeWidth: 2,
-        },
+        icon: 'i-lucide-circle',
+        hint: 'Draw circle shapes',
     },
     {
-        id: 'quick-arrow',
-        label: 'Arrow',
-        swatch: '#dc2626',
-        tool: 'arrow',
-        settings: {
-            shapeColor: '#dc2626',
-            shapeOpacity: 1,
-            shapeStrokeWidth: 2,
-        },
-    },
-    {
-        id: 'quick-line',
+        id: 'line',
         label: 'Line',
-        swatch: '#059669',
-        tool: 'line',
-        settings: {
-            shapeColor: '#059669',
-            shapeOpacity: 1,
-            shapeStrokeWidth: 2,
-        },
+        icon: 'i-lucide-minus',
+        hint: 'Draw straight lines',
+    },
+    {
+        id: 'arrow',
+        label: 'Arrow',
+        icon: 'i-lucide-arrow-up-right',
+        hint: 'Draw arrows',
     },
 ];
 
-const selectedQuickToolId = ref(quickTools[0]?.id ?? '');
-const commentQuery = ref('');
-const reviewQuickFilter = ref<TReviewQuickFilter>('all');
-const groupByPage = ref(true);
-const groupByAuthor = ref(false);
-const collapsedGroupIds = ref<string[]>([]);
-const transientExpandedGroupIds = ref<string[]>([]);
-const transientSuppressedGroupIds = ref<string[]>([]);
-const quickSectionOpen = ref(false);
-const toolSettingsOpen = ref(false);
-const selectedCommentKeys = ref<string[]>([]);
-const selectionAnchorKey = ref<string | null>(null);
-const panelRootRef = ref<HTMLElement | null>(null);
-const reviewsListRef = ref<HTMLElement | null>(null);
+const colorSwatches = [
+    '#111827',
+    '#ef4444',
+    '#f59e0b',
+    '#eab308',
+    '#22c55e',
+    '#06b6d4',
+    '#3b82f6',
+    '#8b5cf6',
+    '#ec4899',
+];
 
-const contextMenu = ref<{
-    visible: boolean;
-    x: number;
-    y: number;
-    comments: IAnnotationCommentSummary[];
-}>({
-    visible: false,
-    x: 0,
-    y: 0,
-    comments: [],
-});
+const drawStylePresets: IDrawStylePreset[] = [
+    {
+        id: 'pen',
+        label: 'Pen',
+        thickness: 2,
+        opacity: 0.95,
+    },
+    {
+        id: 'pencil',
+        label: 'Pencil',
+        thickness: 1,
+        opacity: 0.55,
+    },
+    {
+        id: 'marker',
+        label: 'Marker',
+        thickness: 6,
+        opacity: 0.42,
+    },
+];
+
+const query = ref('');
+const activeFilter = ref<TListFilter>('all');
+const selectedStableKey = ref<string | null>(null);
+
+const tool = computed(() => props.tool);
+const keepActive = computed(() => props.keepActive);
+const currentPage = computed(() => props.currentPage);
+const placingPageNote = computed(() => props.placingPageNote ?? false);
 
 const timeFormatter = new Intl.DateTimeFormat(undefined, {
     dateStyle: 'medium',
     timeStyle: 'short',
 });
-const STORAGE_KEYS = {
-    selectedQuickToolId: 'pdf.annotations.quick.default',
-    quickSectionOpen: 'pdf.annotations.panel.quickSectionOpen',
-    toolSettingsOpen: 'pdf.annotations.panel.toolSettingsOpen',
-} as const;
 
-function loadBooleanSetting(key: string, fallback: boolean) {
-    if (typeof window === 'undefined') {
-        return fallback;
-    }
-    const raw = window.localStorage.getItem(key);
-    if (raw === null) {
-        return fallback;
-    }
-    return raw === '1';
+const contextMenu = ref<{
+    visible: boolean;
+    x: number;
+    y: number;
+    comment: IAnnotationCommentSummary | null;
+}>({
+    visible: false,
+    x: 0,
+    y: 0,
+    comment: null,
+});
+
+function closeContextMenu() {
+    contextMenu.value = {
+        visible: false,
+        x: 0,
+        y: 0,
+        comment: null,
+    };
 }
 
-function saveBooleanSetting(key: string, value: boolean) {
-    if (typeof window === 'undefined') {
-        return;
-    }
-    window.localStorage.setItem(key, value ? '1' : '0');
+const contextMenuStyle = computed(() => ({
+    left: `${contextMenu.value.x}px`,
+    top: `${contextMenu.value.y}px`,
+}));
+
+watch(
+    () => props.activeCommentStableKey,
+    (stableKey) => {
+        selectedStableKey.value = stableKey ?? null;
+    },
+    { immediate: true },
+);
+
+watch(
+    () => props.comments,
+    (comments) => {
+        if (!selectedStableKey.value) {
+            return;
+        }
+        const stillExists = comments.some(comment => comment.stableKey === selectedStableKey.value);
+        if (!stillExists) {
+            selectedStableKey.value = null;
+        }
+    },
+    { deep: true },
+);
+
+function updateSetting<K extends keyof IAnnotationSettings>(key: K, value: IAnnotationSettings[K]) {
+    emit('update-setting', {
+        key,
+        value,
+    });
 }
 
-function commentMatchesQuery(comment: IAnnotationCommentSummary, normalizedQuery: string) {
-    if (!normalizedQuery) {
-        return true;
-    }
-    return (
-        comment.text.toLowerCase().includes(normalizedQuery)
-        || (comment.kindLabel || '').toLowerCase().includes(normalizedQuery)
-        || (comment.author || '').toLowerCase().includes(normalizedQuery)
-        || `p${comment.pageNumber}`.includes(normalizedQuery)
-    );
+function isShapeTool(tool: TAnnotationTool) {
+    return tool === 'rectangle' || tool === 'circle' || tool === 'line' || tool === 'arrow';
 }
 
-function resolveReviewKind(comment: IAnnotationCommentSummary): TReviewKind {
-    const subtype = (comment.subtype || '').toLowerCase();
-    const label = (comment.kindLabel || '').toLowerCase();
+function resolveCommentCategory(comment: IAnnotationCommentSummary): TCommentCategory {
+    if (isStickyNote(comment)) {
+        return 'sticky';
+    }
+
+    const subtype = (comment.subtype ?? '').toLowerCase();
+    const label = (comment.kindLabel ?? '').toLowerCase();
 
     if (subtype.includes('ink') || label.includes('ink') || label.includes('draw')) {
-        return 'ink';
+        return 'draw';
     }
-    if (
-        subtype.includes('freetext')
-        || subtype.includes('text')
-        || label.includes('text')
-        || label.includes('note')
-    ) {
-        return 'text';
-    }
+
     if (
         subtype.includes('highlight')
         || subtype.includes('underline')
@@ -758,1920 +535,874 @@ function resolveReviewKind(comment: IAnnotationCommentSummary): TReviewKind {
         || subtype.includes('squiggly')
         || label.includes('highlight')
         || label.includes('underline')
+        || label.includes('strike')
         || label.includes('markup')
     ) {
-        return 'highlight';
+        return 'markup';
+    }
+
+    if (
+        subtype.includes('square')
+        || subtype.includes('circle')
+        || subtype.includes('line')
+        || subtype.includes('arrow')
+        || label.includes('rectangle')
+        || label.includes('ellipse')
+        || label.includes('line')
+        || label.includes('arrow')
+    ) {
+        return 'shape';
     }
 
     return 'other';
 }
 
-function reviewKind(comment: IAnnotationCommentSummary) {
-    return resolveReviewKind(comment);
+function isStickyNote(comment: IAnnotationCommentSummary) {
+    if (comment.hasNote) {
+        return true;
+    }
+
+    const subtype = (comment.subtype ?? '').toLowerCase();
+    const label = (comment.kindLabel ?? '').toLowerCase();
+
+    return (
+        subtype.includes('popup')
+        || subtype.includes('text')
+        || subtype.includes('note')
+        || label.includes('note')
+        || label.includes('comment')
+    );
 }
 
-function reviewKindLabel(comment: IAnnotationCommentSummary) {
-    const kind = resolveReviewKind(comment);
-    if (kind === 'highlight') {
-        return 'Markup';
+function compareComments(left: IAnnotationCommentSummary, right: IAnnotationCommentSummary) {
+    if (left.pageIndex !== right.pageIndex) {
+        return left.pageIndex - right.pageIndex;
     }
-    if (kind === 'ink') {
-        return 'Ink';
+
+    const leftSort = typeof left.sortIndex === 'number' ? left.sortIndex : null;
+    const rightSort = typeof right.sortIndex === 'number' ? right.sortIndex : null;
+
+    if (leftSort !== null && rightSort !== null && leftSort !== rightSort) {
+        return leftSort - rightSort;
     }
-    if (kind === 'text') {
-        return 'Text';
+
+    if (leftSort !== null && rightSort === null) {
+        return -1;
     }
-    return 'Other';
+
+    if (leftSort === null && rightSort !== null) {
+        return 1;
+    }
+
+    const leftModified = left.modifiedAt ?? 0;
+    const rightModified = right.modifiedAt ?? 0;
+    if (leftModified !== rightModified) {
+        return rightModified - leftModified;
+    }
+
+    return left.stableKey.localeCompare(right.stableKey);
 }
 
-function matchesReviewQuickFilter(comment: IAnnotationCommentSummary, filter: TReviewQuickFilter) {
+const sortedComments = computed(() => props.comments.slice().sort(compareComments));
+
+function matchesQuery(comment: IAnnotationCommentSummary, normalizedQuery: string) {
+    if (!normalizedQuery) {
+        return true;
+    }
+
+    return (
+        comment.text.toLowerCase().includes(normalizedQuery)
+        || (comment.kindLabel ?? '').toLowerCase().includes(normalizedQuery)
+        || (comment.author ?? '').toLowerCase().includes(normalizedQuery)
+        || `p${comment.pageNumber}`.includes(normalizedQuery)
+    );
+}
+
+function matchesFilter(comment: IAnnotationCommentSummary, filter: TListFilter) {
     if (filter === 'all') {
         return true;
     }
-    if (filter === 'with-note') {
-        return comment.hasNote === true || comment.text.trim().length > 0;
-    }
+
     if (filter === 'current-page') {
         return comment.pageNumber === props.currentPage;
     }
-    return resolveReviewKind(comment) === filter;
+
+    const category = resolveCommentCategory(comment);
+    return category === filter;
 }
 
-function setReviewQuickFilter(filterId: TReviewQuickFilter) {
-    reviewQuickFilter.value = reviewQuickFilter.value === filterId ? 'all' : filterId;
-}
+const filteredComments = computed(() => {
+    const normalizedQuery = query.value.trim().toLowerCase();
 
-function isCommentVisibleUnderActiveFilters(comment: IAnnotationCommentSummary) {
-    if (!matchesReviewQuickFilter(comment, reviewQuickFilter.value)) {
-        return false;
-    }
-    const normalizedQuery = commentQuery.value.trim().toLowerCase();
-    return commentMatchesQuery(comment, normalizedQuery);
-}
-
-function compareCommentOrder(a: IAnnotationCommentSummary, b: IAnnotationCommentSummary) {
-    if (a.pageIndex !== b.pageIndex) {
-        return a.pageIndex - b.pageIndex;
-    }
-    const sortIndexA = typeof a.sortIndex === 'number' ? a.sortIndex : null;
-    const sortIndexB = typeof b.sortIndex === 'number' ? b.sortIndex : null;
-    if (sortIndexA !== null && sortIndexB !== null && sortIndexA !== sortIndexB) {
-        return sortIndexA - sortIndexB;
-    }
-    if (sortIndexA !== null && sortIndexB === null) {
-        return -1;
-    }
-    if (sortIndexA === null && sortIndexB !== null) {
-        return 1;
-    }
-    const timeA = a.modifiedAt ?? 0;
-    const timeB = b.modifiedAt ?? 0;
-    if (timeA !== timeB) {
-        return timeB - timeA;
-    }
-    return a.stableKey.localeCompare(b.stableKey);
-}
-
-const queryMatchedComments = computed(() => {
-    const query = commentQuery.value.trim().toLowerCase();
-    return props.comments.filter(comment => commentMatchesQuery(comment, query));
+    return sortedComments.value.filter((comment) => {
+        return matchesQuery(comment, normalizedQuery) && matchesFilter(comment, activeFilter.value);
+    });
 });
 
-const reviewQuickFilters = computed<IReviewQuickFilterItem[]>(() => {
-    const source = queryMatchedComments.value;
-    const countBy = (filter: TReviewQuickFilter) => (
-        source.filter(comment => matchesReviewQuickFilter(comment, filter)).length
-    );
+const filterOptions = computed<IFilterOption[]>(() => {
+    const normalizedQuery = query.value.trim().toLowerCase();
+    const source = sortedComments.value.filter(comment => matchesQuery(comment, normalizedQuery));
+
+    const countBy = (filter: TListFilter) => source.filter(comment => matchesFilter(comment, filter)).length;
 
     return [
         {
             id: 'all',
             label: 'All',
-            title: 'All annotations',
             count: source.length,
         },
         {
-            id: 'with-note',
-            label: 'With Note',
-            title: 'Only annotations that carry a pop-up note',
-            count: countBy('with-note'),
+            id: 'sticky',
+            label: 'Sticky',
+            count: countBy('sticky'),
         },
         {
-            id: 'highlight',
+            id: 'markup',
             label: 'Markup',
-            title: 'Highlight/underline/text-markup annotations',
-            count: countBy('highlight'),
+            count: countBy('markup'),
         },
         {
-            id: 'ink',
-            label: 'Ink',
-            title: 'Ink drawing annotations',
-            count: countBy('ink'),
+            id: 'draw',
+            label: 'Draw',
+            count: countBy('draw'),
         },
         {
-            id: 'text',
-            label: 'Text',
-            title: 'Text and inline note annotations',
-            count: countBy('text'),
+            id: 'shape',
+            label: 'Shapes',
+            count: countBy('shape'),
         },
         {
             id: 'current-page',
             label: 'Current Page',
-            title: `Annotations on page ${props.currentPage}`,
             count: countBy('current-page'),
         },
     ];
 });
 
-const filteredComments = computed(() => {
-    return queryMatchedComments.value
-        .filter(comment => matchesReviewQuickFilter(comment, reviewQuickFilter.value))
-        .slice()
-        .sort(compareCommentOrder);
-});
+const pagesWithAnnotations = computed<IPageAnnotationOverview[]>(() => {
+    const map = new Map<number, IPageAnnotationOverview>();
 
-const hasActiveReviewConstraint = computed(() => (
-    reviewQuickFilter.value !== 'all'
-    || commentQuery.value.trim().length > 0
-));
-
-function commentNodeKey(comment: IAnnotationCommentSummary) {
-    return `comment:${comment.stableKey}`;
-}
-
-function makeCommentNode(comment: IAnnotationCommentSummary, depth: number): ICommentNode {
-    return {
-        type: 'comment',
-        id: commentNodeKey(comment),
-        depth,
-        comment,
-    };
-}
-
-function makeGroupNode(id: string, label: string, depth: number, children: TTreeNode[]): IGroupNode {
-    const count = children.reduce((total, child) => {
-        if (child.type === 'comment') {
-            return total + 1;
-        }
-        return total + child.count;
-    }, 0);
-
-    return {
-        type: 'group',
-        id,
-        label,
-        count,
-        depth,
-        children,
-    };
-}
-
-function groupCommentsByAuthor(comments: IAnnotationCommentSummary[], depth: number, prefix: string) {
-    const authorMap = new Map<string, IAnnotationCommentSummary[]>();
-    comments.forEach((comment) => {
-        const author = comment.author?.trim() || 'Unknown Author';
-        const list = authorMap.get(author);
-        if (list) {
-            list.push(comment);
-        } else {
-            authorMap.set(author, [comment]);
-        }
-    });
-
-    return Array
-        .from(authorMap.entries())
-        .sort((leftEntry, rightEntry) => leftEntry[0].localeCompare(rightEntry[0]))
-        .map((entry) => {
-            const author = entry[0];
-            const authorComments = entry[1];
-            return makeGroupNode(
-                `${prefix}|author:${author}`,
-                author,
-                depth,
-                authorComments.map(comment => makeCommentNode(comment, depth + 1)),
-            );
-        });
-}
-
-const reviewTree = computed<TTreeNode[]>(() => {
-    const comments = filteredComments.value;
-    if (!groupByPage.value && !groupByAuthor.value) {
-        return comments.map(comment => makeCommentNode(comment, 0));
-    }
-
-    if (groupByPage.value) {
-        const pageMap = new Map<number, IAnnotationCommentSummary[]>();
-        comments.forEach((comment) => {
-            const list = pageMap.get(comment.pageNumber);
-            if (list) {
-                list.push(comment);
-            } else {
-                pageMap.set(comment.pageNumber, [comment]);
+    sortedComments.value.forEach((comment) => {
+        const current = map.get(comment.pageNumber);
+        if (current) {
+            current.count += 1;
+            if (isStickyNote(comment)) {
+                current.stickyCount += 1;
             }
-        });
-
-        return Array
-            .from(pageMap.entries())
-            .sort((leftEntry, rightEntry) => leftEntry[0] - rightEntry[0])
-            .map((entry) => {
-                const pageNumber = entry[0];
-                const pageComments = entry[1];
-                const children = groupByAuthor.value
-                    ? groupCommentsByAuthor(pageComments, 1, `page:${pageNumber}`)
-                    : pageComments.map(comment => makeCommentNode(comment, 1));
-
-                return makeGroupNode(
-                    `page:${pageNumber}`,
-                    `Page ${pageNumber}`,
-                    0,
-                    children,
-                );
-            });
-    }
-
-    return groupCommentsByAuthor(comments, 0, 'root');
-});
-
-function flattenVisible(nodes: TTreeNode[]): TTreeNode[] {
-    const visible: TTreeNode[] = [];
-
-    nodes.forEach((node) => {
-        visible.push(node);
-
-        if (node.type === 'group' && isExpanded(node.id)) {
-            visible.push(...flattenVisible(node.children));
-        }
-    });
-
-    return visible;
-}
-
-const allGroupIds = computed(() => {
-    const ids: string[] = [];
-
-    const walk = (nodes: TTreeNode[]) => {
-        nodes.forEach((node) => {
-            if (node.type === 'group') {
-                ids.push(node.id);
-                walk(node.children);
-            }
-        });
-    };
-
-    walk(reviewTree.value);
-    return ids;
-});
-
-function refreshTransientGroupExpansion() {
-    if (!hasActiveReviewConstraint.value) {
-        transientExpandedGroupIds.value = [];
-        transientSuppressedGroupIds.value = [];
-        return;
-    }
-    const suppressed = new Set(transientSuppressedGroupIds.value);
-    transientExpandedGroupIds.value = allGroupIds.value.filter(groupId => !suppressed.has(groupId));
-}
-
-watch(
-    () => [
-        hasActiveReviewConstraint.value,
-        allGroupIds.value.join('|'),
-    ] as const,
-    () => {
-        refreshTransientGroupExpansion();
-    },
-    { immediate: true },
-);
-
-const visibleNodes = computed(() => flattenVisible(reviewTree.value));
-const commentByStableKey = computed(() => {
-    const map = new Map<string, IAnnotationCommentSummary>();
-    props.comments.forEach((comment) => {
-        map.set(comment.stableKey, comment);
-    });
-    return map;
-});
-const visibleCommentKeys = computed(() => (
-    visibleNodes.value
-        .filter((node): node is ICommentNode => node.type === 'comment')
-        .map(node => node.comment.stableKey)
-));
-
-function collectCommentsFromNode(node: TTreeNode): IAnnotationCommentSummary[] {
-    if (node.type === 'comment') {
-        return [node.comment];
-    }
-    return node.children.flatMap(child => collectCommentsFromNode(child));
-}
-
-function normalizeComments(comments: IAnnotationCommentSummary[]) {
-    const seen = new Set<string>();
-    const normalized: IAnnotationCommentSummary[] = [];
-    comments.forEach((comment) => {
-        const stableKey = comment.stableKey;
-        if (seen.has(stableKey)) {
             return;
         }
-        const canonical = commentByStableKey.value.get(stableKey) ?? comment;
-        seen.add(stableKey);
-        normalized.push(canonical);
+
+        map.set(comment.pageNumber, {
+            pageNumber: comment.pageNumber,
+            count: 1,
+            stickyCount: isStickyNote(comment) ? 1 : 0,
+        });
     });
-    return normalized;
+
+    return Array.from(map.values()).sort((left, right) => left.pageNumber - right.pageNumber);
+});
+
+function focusFirstCommentOnPage(pageNumber: number) {
+    const comment = sortedComments.value.find(item => item.pageNumber === pageNumber);
+    if (!comment) {
+        return;
+    }
+    selectComment(comment);
 }
 
-function getSelectedComments() {
-    return normalizeComments(
-        selectedCommentKeys.value
-            .map(stableKey => commentByStableKey.value.get(stableKey))
-            .filter((candidate): candidate is IAnnotationCommentSummary => !!candidate),
-    );
+function commentTypeLabel(comment: IAnnotationCommentSummary) {
+    const kind = comment.kindLabel?.trim();
+    if (kind) {
+        return kind;
+    }
+
+    const subtype = (comment.subtype ?? '').toLowerCase();
+    if (subtype.includes('highlight')) {
+        return 'Highlight';
+    }
+    if (subtype.includes('underline')) {
+        return 'Underline';
+    }
+    if (subtype.includes('strike')) {
+        return 'Strike Out';
+    }
+    if (subtype.includes('squiggly')) {
+        return 'Squiggle';
+    }
+    if (subtype.includes('ink')) {
+        return 'Ink';
+    }
+    if (subtype.includes('text') || subtype.includes('popup') || subtype.includes('note')) {
+        return 'Sticky Note';
+    }
+    if (subtype.includes('square') || subtype.includes('rectangle')) {
+        return 'Rectangle';
+    }
+    if (subtype.includes('circle')) {
+        return 'Circle';
+    }
+    if (subtype.includes('line')) {
+        return 'Line';
+    }
+    if (subtype.includes('arrow')) {
+        return 'Arrow';
+    }
+
+    return 'Annotation';
 }
 
-function getPrimarySelectedComment() {
-    const selectedComments = getSelectedComments();
-    if (selectedComments.length === 0) {
+function notePreview(comment: IAnnotationCommentSummary) {
+    const text = comment.text.trim();
+    if (!text) {
+        return isStickyNote(comment)
+            ? 'Sticky note (empty text)'
+            : 'No note text';
+    }
+
+    return text;
+}
+
+function formatTime(timestamp: number) {
+    return timeFormatter.format(timestamp);
+}
+
+function selectComment(comment: IAnnotationCommentSummary) {
+    selectedStableKey.value = comment.stableKey;
+    emit('focus-comment', comment);
+    closeContextMenu();
+}
+
+function openComment(comment: IAnnotationCommentSummary) {
+    selectedStableKey.value = comment.stableKey;
+    emit('focus-comment', comment);
+    emit('open-note', comment);
+    closeContextMenu();
+}
+
+const selectedComment = computed(() => {
+    if (!selectedStableKey.value) {
         return null;
     }
-
-    const selectedMap = new Map(
-        selectedComments.map(comment => [
-            comment.stableKey,
-            comment,
-        ]),
-    );
-
-    if (selectionAnchorKey.value) {
-        const anchored = selectedMap.get(selectionAnchorKey.value);
-        if (anchored) {
-            return anchored;
-        }
-    }
-
-    const selectedKeys = new Set(selectedComments.map(comment => comment.stableKey));
-    const firstVisible = visibleCommentKeys.value.find(stableKey => selectedKeys.has(stableKey));
-    if (firstVisible) {
-        return selectedMap.get(firstVisible) ?? null;
-    }
-
-    return selectedComments[0] ?? null;
-}
-
-function focusReviewsList() {
-    reviewsListRef.value?.focus();
-}
-
-function handleReviewItemFocus(comment: IAnnotationCommentSummary) {
-    if (!isCommentSelected(comment)) {
-        return;
-    }
-    selectionAnchorKey.value = comment.stableKey;
-}
-
-function scrollCommentIntoView(stableKey: string) {
-    const container = reviewsListRef.value;
-    if (!container) {
-        return;
-    }
-    const target = Array
-        .from(container.querySelectorAll<HTMLElement>('.review-item'))
-        .find(node => node.dataset.stableKey === stableKey);
-    target?.scrollIntoView({ block: 'nearest' });
-}
-
-function findGroupPathForCommentStableKey(
-    stableKey: string,
-    nodes: TTreeNode[],
-    ancestorGroupIds: string[] = [],
-): string[] | null {
-    for (const node of nodes) {
-        if (node.type === 'comment') {
-            if (node.comment.stableKey === stableKey) {
-                return ancestorGroupIds;
-            }
-            continue;
-        }
-
-        const nextAncestors = [
-            ...ancestorGroupIds,
-            node.id,
-        ];
-        const nestedPath = findGroupPathForCommentStableKey(stableKey, node.children, nextAncestors);
-        if (nestedPath) {
-            return nestedPath;
-        }
-    }
-
-    return null;
-}
-
-function ensureCommentGroupsExpanded(stableKey: string) {
-    const groupPath = findGroupPathForCommentStableKey(stableKey, reviewTree.value);
-    if (!groupPath || groupPath.length === 0) {
-        return;
-    }
-    const collapsed = new Set(collapsedGroupIds.value);
-    const suppressed = new Set(transientSuppressedGroupIds.value);
-    const transient = new Set(transientExpandedGroupIds.value);
-    groupPath.forEach((groupId) => {
-        collapsed.delete(groupId);
-        suppressed.delete(groupId);
-        transient.add(groupId);
-    });
-    collapsedGroupIds.value = Array.from(collapsed);
-    transientSuppressedGroupIds.value = Array.from(suppressed);
-    transientExpandedGroupIds.value = Array.from(transient);
-}
-
-async function revealActiveComment(stableKey: string) {
-    const comment = commentByStableKey.value.get(stableKey);
-    if (!comment) {
-        return;
-    }
-
-    if (!matchesReviewQuickFilter(comment, reviewQuickFilter.value)) {
-        reviewQuickFilter.value = 'all';
-    }
-
-    if (!isCommentVisibleUnderActiveFilters(comment) && commentQuery.value.trim().length > 0) {
-        // Okular-style behavior: document-driven focus should reveal the review entry
-        // even when search filter currently hides it.
-        commentQuery.value = '';
-    }
-
-    ensureCommentGroupsExpanded(stableKey);
-    setSelectedComments([comment], stableKey);
-    await nextTick();
-    scrollCommentIntoView(stableKey);
-}
-
-function getCommentAncestorGroupPath(stableKey: string) {
-    return findGroupPathForCommentStableKey(stableKey, reviewTree.value) ?? [];
-}
-
-function focusGroupButton(groupId: string) {
-    const container = reviewsListRef.value;
-    if (!container) {
-        return;
-    }
-    const escaped = (typeof CSS !== 'undefined' && typeof CSS.escape === 'function')
-        ? CSS.escape(groupId)
-        : groupId.replace(/"/g, '\\"');
-    const target = container.querySelector<HTMLElement>(`.reviews-group[data-group-id="${escaped}"]`);
-    target?.focus();
-    target?.scrollIntoView({ block: 'nearest' });
-}
-
-function findParentGroupId(groupId: string, nodes: TTreeNode[], parentGroupId: string | null = null): string | null {
-    for (const node of nodes) {
-        if (node.type !== 'group') {
-            continue;
-        }
-        if (node.id === groupId) {
-            return parentGroupId;
-        }
-        const nested = findParentGroupId(groupId, node.children, node.id);
-        if (nested !== null) {
-            return nested;
-        }
-    }
-    return null;
-}
-
-function setSelectedComments(comments: IAnnotationCommentSummary[], anchorStableKey: string | null = null) {
-    const normalized = normalizeComments(comments);
-    selectedCommentKeys.value = normalized.map(comment => comment.stableKey);
-    selectionAnchorKey.value = anchorStableKey ?? normalized.at(-1)?.stableKey ?? null;
-}
-
-function toggleSelectedComment(comment: IAnnotationCommentSummary) {
-    const key = comment.stableKey;
-    const current = new Set(selectedCommentKeys.value);
-    if (current.has(key)) {
-        current.delete(key);
-    } else {
-        current.add(key);
-    }
-    const normalized = normalizeComments(
-        Array.from(current).map(stableKey => commentByStableKey.value.get(stableKey)).filter(
-            (candidate): candidate is IAnnotationCommentSummary => !!candidate,
-        ),
-    );
-    selectedCommentKeys.value = normalized.map(candidate => candidate.stableKey);
-    selectionAnchorKey.value = key;
-}
-
-function selectCommentRange(comment: IAnnotationCommentSummary, additive = false) {
-    const anchorKey = selectionAnchorKey.value;
-    const keys = visibleCommentKeys.value;
-    const targetKey = comment.stableKey;
-    const targetIndex = keys.indexOf(targetKey);
-    if (targetIndex === -1) {
-        setSelectedComments([comment], targetKey);
-        return;
-    }
-    const anchorIndex = anchorKey ? keys.indexOf(anchorKey) : -1;
-    if (anchorIndex === -1) {
-        setSelectedComments([comment], targetKey);
-        return;
-    }
-
-    const start = Math.min(anchorIndex, targetIndex);
-    const end = Math.max(anchorIndex, targetIndex);
-    const rangeKeys = keys.slice(start, end + 1);
-    const rangeComments = normalizeComments(
-        rangeKeys
-            .map(stableKey => commentByStableKey.value.get(stableKey))
-            .filter((candidate): candidate is IAnnotationCommentSummary => !!candidate),
-    );
-
-    if (!additive) {
-        setSelectedComments(rangeComments, anchorKey);
-        return;
-    }
-
-    const merged = normalizeComments([
-        ...selectedCommentKeys.value
-            .map(stableKey => commentByStableKey.value.get(stableKey))
-            .filter((candidate): candidate is IAnnotationCommentSummary => !!candidate),
-        ...rangeComments,
-    ]);
-    setSelectedComments(merged, anchorKey);
-}
-
-function isCommentSelected(comment: IAnnotationCommentSummary) {
-    return selectedCommentKeys.value.includes(comment.stableKey);
-}
-
-function isExpanded(groupId: string) {
-    if (transientExpandedGroupIds.value.includes(groupId)) {
-        return true;
-    }
-    return !collapsedGroupIds.value.includes(groupId);
-}
-
-function toggleGroup(groupId: string) {
-    const collapsed = new Set(collapsedGroupIds.value);
-    const transient = new Set(transientExpandedGroupIds.value);
-    const suppressed = new Set(transientSuppressedGroupIds.value);
-
-    if (isExpanded(groupId)) {
-        collapsed.add(groupId);
-        if (transient.has(groupId)) {
-            transient.delete(groupId);
-            suppressed.add(groupId);
-        }
-        collapsedGroupIds.value = Array.from(collapsed);
-        transientExpandedGroupIds.value = Array.from(transient);
-        transientSuppressedGroupIds.value = Array.from(suppressed);
-        return;
-    }
-    collapsed.delete(groupId);
-    transient.delete(groupId);
-    suppressed.delete(groupId);
-    collapsedGroupIds.value = Array.from(collapsed);
-    transientExpandedGroupIds.value = Array.from(transient);
-    transientSuppressedGroupIds.value = Array.from(suppressed);
-}
-
-function expandAll() {
-    const collapsed = new Set(collapsedGroupIds.value);
-    allGroupIds.value.forEach(groupId => collapsed.delete(groupId));
-    collapsedGroupIds.value = Array.from(collapsed);
-    transientSuppressedGroupIds.value = transientSuppressedGroupIds.value.filter(
-        groupId => !allGroupIds.value.includes(groupId),
-    );
-    refreshTransientGroupExpansion();
-}
-
-function collapseAll() {
-    const collapsed = new Set(collapsedGroupIds.value);
-    allGroupIds.value.forEach(groupId => collapsed.add(groupId));
-    collapsedGroupIds.value = Array.from(collapsed);
-    const transient = new Set(transientExpandedGroupIds.value);
-    const suppressed = new Set(transientSuppressedGroupIds.value);
-    allGroupIds.value.forEach((groupId) => {
-        transient.delete(groupId);
-        suppressed.add(groupId);
-    });
-    transientExpandedGroupIds.value = Array.from(transient);
-    transientSuppressedGroupIds.value = Array.from(suppressed);
-}
-
-function updateSetting(
-    key: keyof IAnnotationSettings,
-    value: IAnnotationSettings[keyof IAnnotationSettings],
-) {
-    emit('update-setting', {
-        key,
-        value,
-    });
-}
-
-function applyQuickTool(quick: IQuickToolPreset) {
-    if (quick.action === 'highlight-selection') {
-        emit('highlight-selection');
-        return;
-    }
-    if (quick.action === 'comment-selection') {
-        emit('comment-selection');
-        return;
-    }
-
-    if (quick.tool) {
-        emit('set-tool', quick.tool);
-    }
-
-    Object.entries(quick.settings ?? {}).forEach((entry) => {
-        const key = entry[0];
-        const value = entry[1];
-        if (value === undefined) {
-            return;
-        }
-        updateSetting(
-            key as keyof IAnnotationSettings,
-            value as IAnnotationSettings[keyof IAnnotationSettings],
-        );
-    });
-}
-
-function applySelectedQuickTool() {
-    const quick = quickTools.find(candidate => candidate.id === selectedQuickToolId.value);
-    if (!quick) {
-        return;
-    }
-    applyQuickTool(quick);
-}
-
-const selectedQuickTool = computed(() => (
-    quickTools.find(candidate => candidate.id === selectedQuickToolId.value) ?? quickTools[0] ?? null
-));
-
-function quickToolUsageHint(quick: IQuickToolPreset | null) {
-    if (!quick) {
-        return 'Choose a preset, then apply it.';
-    }
-    if (quick.action === 'comment-selection') {
-        return 'Creates a pop-up note from the current text selection.';
-    }
-    if (quick.action === 'highlight-selection') {
-        return 'Highlights the currently selected text.';
-    }
-    if (quick.tool === 'highlight') {
-        return 'Switches to text markup mode using this preset.';
-    }
-    if (quick.tool === 'underline') {
-        return 'Underlines selected text in the PDF.';
-    }
-    if (quick.tool === 'strikethrough') {
-        return 'Draws a line through selected text.';
-    }
-    if (quick.tool === 'squiggly') {
-        return 'Adds a wavy underline to selected text.';
-    }
-    if (quick.tool === 'draw') {
-        return 'Switches to ink drawing mode with this pen preset.';
-    }
-    if (quick.tool === 'text') {
-        return 'Switches to text-note mode with this style.';
-    }
-    if (quick.tool === 'rectangle') {
-        return 'Draws a rectangle shape on the page.';
-    }
-    if (quick.tool === 'circle') {
-        return 'Draws an ellipse shape on the page.';
-    }
-    if (quick.tool === 'line') {
-        return 'Draws a straight line on the page.';
-    }
-    if (quick.tool === 'arrow') {
-        return 'Draws an arrow on the page.';
-    }
-    return 'Applies the selected quick annotation preset.';
-}
-
-const selectedQuickToolHint = computed(() => quickToolUsageHint(selectedQuickTool.value));
-const effectiveToolForSettings = computed<TAnnotationTool>(() => {
-    if (props.tool !== 'none') {
-        return props.tool;
-    }
-    return selectedQuickTool.value?.tool ?? 'none';
+    return sortedComments.value.find(comment => comment.stableKey === selectedStableKey.value) ?? null;
 });
-const showHighlightSettings = computed(() => effectiveToolForSettings.value === 'highlight');
-const showUnderlineSettings = computed(() => effectiveToolForSettings.value === 'underline');
-const showStrikethroughSettings = computed(() => effectiveToolForSettings.value === 'strikethrough');
-const showSquigglySettings = computed(() => effectiveToolForSettings.value === 'squiggly');
-const showInkSettings = computed(() => effectiveToolForSettings.value === 'draw');
-const showTextSettings = computed(() => effectiveToolForSettings.value === 'text');
-const showShapeSettings = computed(() => (
-    effectiveToolForSettings.value === 'rectangle'
-    || effectiveToolForSettings.value === 'circle'
-    || effectiveToolForSettings.value === 'line'
-    || effectiveToolForSettings.value === 'arrow'
-));
-const hasAdjustableToolSettings = computed(() => (
-    showHighlightSettings.value
-    || showUnderlineSettings.value
-    || showStrikethroughSettings.value
-    || showSquigglySettings.value
-    || showInkSettings.value
-    || showTextSettings.value
-    || showShapeSettings.value
-));
 
-function handleReviewItemClick(event: MouseEvent, comment: IAnnotationCommentSummary) {
-    closeContextMenu();
-    focusReviewsList();
-    if (event.shiftKey) {
-        selectCommentRange(comment, event.metaKey || event.ctrlKey);
-    } else if (event.metaKey || event.ctrlKey) {
-        toggleSelectedComment(comment);
-    } else {
-        setSelectedComments([comment], comment.stableKey);
-    }
-    emit('focus-comment', comment);
-}
-
-function handleReviewItemDoubleClick(_event: MouseEvent, comment: IAnnotationCommentSummary) {
-    closeContextMenu();
-    setSelectedComments([comment], comment.stableKey);
-    emit('focus-comment', comment);
-    emit('open-note', comment);
-}
-
-function reviewItemText(comment: IAnnotationCommentSummary) {
-    const noteText = comment.text.trim();
-    if (noteText) {
-        return noteText;
-    }
-    if (comment.hasNote) {
-        return 'Empty note';
-    }
-    const kind = reviewKindLabel(comment);
-    return `${kind} annotation`;
-}
-
-function formatCommentTime(timestamp: number | null) {
-    if (!timestamp) {
-        return 'No date';
-    }
-    return timeFormatter.format(new Date(timestamp));
-}
-
-const contextMenuStyle = computed(() => ({
-    left: `${contextMenu.value.x}px`,
-    top: `${contextMenu.value.y}px`,
-}));
-const contextMenuComments = computed(() => normalizeComments(contextMenu.value.comments));
-const canOpenContextComment = computed(() => contextMenuComments.value.length === 1);
-const selectedComments = computed(() => getSelectedComments());
-const selectedCommentCount = computed(() => selectedComments.value.length);
-const primarySelectedComment = computed(() => getPrimarySelectedComment());
-
-const canCopyContextComment = computed(() => {
-    const text = canOpenContextComment.value
-        ? contextMenuComments.value[0]?.text?.trim()
-        : '';
-    return Boolean(text);
-});
-const canOpenSelectedComment = computed(() => Boolean(primarySelectedComment.value));
 const canCopySelectedComment = computed(() => {
-    const text = primarySelectedComment.value?.text?.trim() ?? '';
-    return Boolean(text);
+    const comment = selectedComment.value;
+    return Boolean(comment && comment.text.trim().length > 0);
 });
 
-function openCommentContextMenu(event: MouseEvent, comment: IAnnotationCommentSummary) {
-    if (!isCommentSelected(comment)) {
-        setSelectedComments([comment], comment.stableKey);
-    } else if (!selectionAnchorKey.value) {
-        selectionAnchorKey.value = comment.stableKey;
+function openSelectedComment() {
+    if (!selectedComment.value) {
+        return;
     }
-    const selectedComments = normalizeComments(
-        selectedCommentKeys.value
-            .map(stableKey => commentByStableKey.value.get(stableKey))
-            .filter((candidate): candidate is IAnnotationCommentSummary => !!candidate),
-    );
-    const comments = selectedComments.length > 0 ? selectedComments : [comment];
-    openContextMenuAt(event.clientX, event.clientY, comments);
-    emit('focus-comment', comment);
+    openComment(selectedComment.value);
 }
 
-function openGroupContextMenu(event: MouseEvent, node: IGroupNode) {
-    const comments = normalizeComments(collectCommentsFromNode(node));
-    if (comments.length === 0) {
+function copySelectedComment() {
+    if (!selectedComment.value || !selectedComment.value.text.trim()) {
         return;
     }
-    const focusComment = comments[0];
-    if (!focusComment) {
-        return;
-    }
-    setSelectedComments(comments, focusComment.stableKey);
-    openContextMenuAt(event.clientX, event.clientY, comments);
-    emit('focus-comment', focusComment);
+    emit('copy-comment', selectedComment.value);
 }
 
-function openContextMenuAt(clientX: number, clientY: number, comments: IAnnotationCommentSummary[]) {
-    const width = 230;
-    const height = 124;
-    const margin = 8;
-    const maxX = Math.max(margin, window.innerWidth - width - margin);
-    const maxY = Math.max(margin, window.innerHeight - height - margin);
-
-    contextMenu.value = {
-        visible: true,
-        x: Math.min(Math.max(margin, clientX), maxX),
-        y: Math.min(Math.max(margin, clientY), maxY),
-        comments: normalizeComments(comments),
-    };
+function deleteSelectedComment() {
+    if (!selectedComment.value) {
+        return;
+    }
+    emit('delete-comment', selectedComment.value);
+    selectedStableKey.value = null;
 }
 
-function closeContextMenu() {
-    if (!contextMenu.value.visible) {
+function openContextComment() {
+    if (!contextMenu.value.comment) {
         return;
     }
-    contextMenu.value = {
-        visible: false,
-        x: 0,
-        y: 0,
-        comments: [],
-    };
+    openComment(contextMenu.value.comment);
 }
 
-function openContextNote() {
-    if (!canOpenContextComment.value) {
+function copyContextComment() {
+    if (!contextMenu.value.comment || !contextMenu.value.comment.text.trim()) {
         return;
     }
-    const comment = contextMenuComments.value[0];
-    if (!comment) {
-        return;
-    }
-    emit('open-note', comment);
-    closeContextMenu();
-}
-
-function copyContextNoteText() {
-    if (!canOpenContextComment.value) {
-        return;
-    }
-    const comment = contextMenuComments.value[0];
-    if (!comment) {
-        return;
-    }
-    emit('copy-comment', comment);
+    emit('copy-comment', contextMenu.value.comment);
     closeContextMenu();
 }
 
 function deleteContextComment() {
-    const comments = contextMenuComments.value;
-    if (comments.length === 0) {
+    if (!contextMenu.value.comment) {
         return;
     }
-    comments.forEach((comment) => {
-        emit('delete-comment', comment);
-    });
-    selectedCommentKeys.value = selectedCommentKeys.value.filter(stableKey => !comments.some(comment => comment.stableKey === stableKey));
-    if (selectionAnchorKey.value && !selectedCommentKeys.value.includes(selectionAnchorKey.value)) {
-        selectionAnchorKey.value = selectedCommentKeys.value.at(0) ?? null;
-    }
+    emit('delete-comment', contextMenu.value.comment);
     closeContextMenu();
 }
 
-function deleteSelectedComments() {
-    const comments = selectedComments.value;
-    if (comments.length === 0) {
-        return;
+const activeToolColor = computed(() => {
+    if (props.tool === 'draw') {
+        return props.settings.inkColor;
     }
-    comments.forEach((comment) => {
-        emit('delete-comment', comment);
-    });
-    closeContextMenu();
-}
-
-function openPrimarySelectedComment() {
-    const comment = primarySelectedComment.value;
-    if (!comment) {
-        return;
+    if (props.tool === 'underline') {
+        return props.settings.underlineColor;
     }
-    emit('focus-comment', comment);
-    emit('open-note', comment);
-}
-
-function copyPrimarySelectedComment() {
-    const comment = primarySelectedComment.value;
-    if (!comment) {
-        return;
+    if (props.tool === 'strikethrough') {
+        return props.settings.strikethroughColor;
     }
-    if (!comment.text.trim()) {
-        return;
+    if (props.tool === 'squiggly') {
+        return props.settings.squigglyColor;
     }
-    emit('copy-comment', comment);
-}
-
-function selectAllVisibleComments() {
-    const comments = normalizeComments(
-        visibleCommentKeys.value
-            .map(stableKey => commentByStableKey.value.get(stableKey))
-            .filter((candidate): candidate is IAnnotationCommentSummary => !!candidate),
-    );
-    if (comments.length === 0) {
-        return;
-    }
-    const anchor = comments[0]?.stableKey ?? null;
-    setSelectedComments(comments, anchor);
-    const focusComment = comments[0];
-    if (focusComment) {
-        emit('focus-comment', focusComment);
-        scrollCommentIntoView(focusComment.stableKey);
-    }
-}
-
-function moveSelection(step: number, extendRange: boolean) {
-    const keys = visibleCommentKeys.value;
-    if (keys.length === 0) {
-        return;
+    if (isShapeTool(props.tool)) {
+        return props.settings.shapeColor;
     }
 
-    const selectedSet = new Set(selectedCommentKeys.value);
-    let currentIndex = -1;
-
-    if (selectionAnchorKey.value && selectedSet.has(selectionAnchorKey.value)) {
-        currentIndex = keys.indexOf(selectionAnchorKey.value);
-    }
-
-    if (currentIndex === -1 && selectedSet.size > 0) {
-        const selectedIndexes = keys
-            .map((stableKey, index) => (selectedSet.has(stableKey) ? index : -1))
-            .filter(index => index >= 0);
-        if (selectedIndexes.length > 0) {
-            currentIndex = step > 0
-                ? Math.max(...selectedIndexes)
-                : Math.min(...selectedIndexes);
-        }
-    }
-
-    if (currentIndex === -1) {
-        currentIndex = step >= 0 ? -1 : keys.length;
-    }
-
-    const nextIndex = Math.min(keys.length - 1, Math.max(0, currentIndex + step));
-    const nextStableKey = keys[nextIndex];
-    if (!nextStableKey) {
-        return;
-    }
-    const nextComment = commentByStableKey.value.get(nextStableKey);
-    if (!nextComment) {
-        return;
-    }
-
-    if (extendRange) {
-        if (!selectionAnchorKey.value) {
-            selectionAnchorKey.value = nextStableKey;
-        }
-        selectCommentRange(nextComment);
-    } else {
-        setSelectedComments([nextComment], nextStableKey);
-    }
-
-    emit('focus-comment', nextComment);
-    scrollCommentIntoView(nextStableKey);
-}
-
-function selectEdgeComment(edge: 'start' | 'end') {
-    const keys = visibleCommentKeys.value;
-    if (keys.length === 0) {
-        return;
-    }
-    const targetKey = edge === 'start'
-        ? keys[0]
-        : keys[keys.length - 1];
-    if (!targetKey) {
-        return;
-    }
-    const targetComment = commentByStableKey.value.get(targetKey);
-    if (!targetComment) {
-        return;
-    }
-    setSelectedComments([targetComment], targetKey);
-    emit('focus-comment', targetComment);
-    scrollCommentIntoView(targetKey);
-}
-
-function toggleGroupFromKeyboard(target: EventTarget | null, key: 'ArrowLeft' | 'ArrowRight') {
-    if (!(target instanceof HTMLElement)) {
-        return false;
-    }
-
-    const groupButton = target.closest<HTMLElement>('.reviews-group');
-    if (groupButton) {
-        const groupId = groupButton.dataset.groupId ?? null;
-        if (!groupId) {
-            return false;
-        }
-
-        if (key === 'ArrowRight') {
-            if (!isExpanded(groupId)) {
-                toggleGroup(groupId);
-            }
-            return true;
-        }
-
-        if (isExpanded(groupId)) {
-            toggleGroup(groupId);
-            return true;
-        }
-
-        const parentGroupId = findParentGroupId(groupId, reviewTree.value);
-        if (parentGroupId) {
-            focusGroupButton(parentGroupId);
-        }
-        return true;
-    }
-
-    const primaryComment = getPrimarySelectedComment();
-    if (!primaryComment || key !== 'ArrowLeft') {
-        return false;
-    }
-    const ancestorPath = getCommentAncestorGroupPath(primaryComment.stableKey);
-    const deepestExpandedAncestor = [...ancestorPath].reverse().find(groupId => isExpanded(groupId));
-    if (!deepestExpandedAncestor) {
-        return false;
-    }
-    toggleGroup(deepestExpandedAncestor);
-    focusGroupButton(deepestExpandedAncestor);
-    return true;
-}
-
-function isTypingTarget(target: EventTarget | null) {
-    if (!(target instanceof HTMLElement)) {
-        return false;
-    }
-    if (target.isContentEditable) {
-        return true;
-    }
-    const tagName = target.tagName;
-    if (tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT') {
-        return true;
-    }
-    return Boolean(target.closest('[contenteditable="true"], [contenteditable=""]'));
-}
-
-function isInReviewsSection(target: EventTarget | null) {
-    if (!(target instanceof HTMLElement)) {
-        return false;
-    }
-    return Boolean(target.closest('.reviews-section'));
-}
-
-function handlePanelKeydown(event: KeyboardEvent) {
-    const key = event.key;
-    const target = event.target;
-
-    if (key === 'Escape') {
-        if (contextMenu.value.visible) {
-            event.preventDefault();
-            closeContextMenu();
-            return;
-        }
-        if (selectedCommentKeys.value.length > 0 && isInReviewsSection(target)) {
-            event.preventDefault();
-            selectedCommentKeys.value = [];
-            selectionAnchorKey.value = null;
-        }
-        return;
-    }
-
-    if (!isInReviewsSection(target)) {
-        return;
-    }
-
-    if ((event.metaKey || event.ctrlKey) && !event.shiftKey && key.toLowerCase() === 'a') {
-        if (isTypingTarget(target)) {
-            return;
-        }
-        event.preventDefault();
-        selectAllVisibleComments();
-        return;
-    }
-
-    if (isTypingTarget(target)) {
-        return;
-    }
-
-    if (key === 'ArrowDown') {
-        event.preventDefault();
-        moveSelection(1, event.shiftKey);
-        return;
-    }
-
-    if (key === 'ArrowUp') {
-        event.preventDefault();
-        moveSelection(-1, event.shiftKey);
-        return;
-    }
-
-    if (key === 'PageDown') {
-        event.preventDefault();
-        moveSelection(8, event.shiftKey);
-        return;
-    }
-
-    if (key === 'PageUp') {
-        event.preventDefault();
-        moveSelection(-8, event.shiftKey);
-        return;
-    }
-
-    if (key === 'Home') {
-        event.preventDefault();
-        selectEdgeComment('start');
-        return;
-    }
-
-    if (key === 'End') {
-        event.preventDefault();
-        selectEdgeComment('end');
-        return;
-    }
-
-    if (key === 'ArrowLeft' || key === 'ArrowRight') {
-        const handled = toggleGroupFromKeyboard(target, key);
-        if (handled) {
-            event.preventDefault();
-        }
-        return;
-    }
-
-    if (key === 'Enter') {
-        const primaryComment = getPrimarySelectedComment();
-        if (!primaryComment) {
-            return;
-        }
-        event.preventDefault();
-        emit('focus-comment', primaryComment);
-        emit('open-note', primaryComment);
-        return;
-    }
-
-    if (key === 'Delete' || key === 'Backspace') {
-        if (event.metaKey || event.ctrlKey || event.altKey) {
-            return;
-        }
-        if (selectedCommentKeys.value.length === 0) {
-            return;
-        }
-        event.preventDefault();
-        deleteSelectedComments();
-    }
-}
-
-function handleWindowPointerDown(event: PointerEvent) {
-    const target = event.target instanceof HTMLElement ? event.target : null;
-
-    if (!contextMenu.value.visible) {
-        return;
-    }
-
-    if (!target) {
-        closeContextMenu();
-        return;
-    }
-
-    if (target.closest('.reviews-context-menu')) {
-        return;
-    }
-
-    closeContextMenu();
-}
-
-function handleWindowKeydown(event: KeyboardEvent) {
-    if (event.key === 'Escape') {
-        closeContextMenu();
-    }
-}
-
-function handleToolSettingsToggle(event: Event) {
-    const target = event.target;
-    if (!(target instanceof HTMLDetailsElement)) {
-        return;
-    }
-    toolSettingsOpen.value = target.open;
-    saveBooleanSetting(STORAGE_KEYS.toolSettingsOpen, toolSettingsOpen.value);
-}
-
-function handleQuickSectionToggle(event: Event) {
-    const target = event.target;
-    if (!(target instanceof HTMLDetailsElement)) {
-        return;
-    }
-    quickSectionOpen.value = target.open;
-    saveBooleanSetting(STORAGE_KEYS.quickSectionOpen, quickSectionOpen.value);
-}
-
-onMounted(() => {
-    if (typeof window !== 'undefined') {
-        const storedQuickToolId = window.localStorage.getItem(STORAGE_KEYS.selectedQuickToolId);
-        if (storedQuickToolId && quickTools.some(tool => tool.id === storedQuickToolId)) {
-            selectedQuickToolId.value = storedQuickToolId;
-        }
-    }
-
-    groupByPage.value = true;
-    groupByAuthor.value = false;
-    collapsedGroupIds.value = [];
-    quickSectionOpen.value = loadBooleanSetting(STORAGE_KEYS.quickSectionOpen, false);
-    toolSettingsOpen.value = loadBooleanSetting(STORAGE_KEYS.toolSettingsOpen, false);
-
-    window.addEventListener('pointerdown', handleWindowPointerDown);
-    window.addEventListener('keydown', handleWindowKeydown);
+    return props.settings.highlightColor;
 });
 
-onBeforeUnmount(() => {
-    window.removeEventListener('pointerdown', handleWindowPointerDown);
-    window.removeEventListener('keydown', handleWindowKeydown);
-});
-
-watch(selectedQuickToolId, (nextId) => {
-    if (typeof window === 'undefined') {
-        return;
-    }
-    window.localStorage.setItem(STORAGE_KEYS.selectedQuickToolId, nextId);
-});
-
-watch(
-    () => props.comments,
-    (comments) => {
-        const availableStableKeys = new Set(comments.map(comment => comment.stableKey));
-        selectedCommentKeys.value = selectedCommentKeys.value.filter(stableKey => availableStableKeys.has(stableKey));
-        const activeStableKey = props.activeCommentStableKey ?? null;
-        if (activeStableKey && availableStableKeys.has(activeStableKey)) {
-            void revealActiveComment(activeStableKey);
-        }
-
-        if (selectionAnchorKey.value && !availableStableKeys.has(selectionAnchorKey.value)) {
-            selectionAnchorKey.value = selectedCommentKeys.value.at(-1) ?? null;
-        }
-
-        if (!contextMenu.value.visible || contextMenu.value.comments.length === 0) {
-            return;
-        }
-
-        const nextContextComments = normalizeComments(
-            contextMenu.value.comments
-                .map(comment => commentByStableKey.value.get(comment.stableKey))
-                .filter((candidate): candidate is IAnnotationCommentSummary => !!candidate),
-        );
-
-        if (nextContextComments.length === 0) {
-            closeContextMenu();
-            return;
-        }
-
-        contextMenu.value = {
-            ...contextMenu.value,
-            comments: nextContextComments,
+const activeWidthControl = computed<IWidthControl | null>(() => {
+    if (props.tool === 'draw') {
+        return {
+            key: 'inkThickness',
+            min: 1,
+            max: 16,
+            step: 1,
+            label: 'Width',
         };
-    },
-);
+    }
 
-watch(
-    () => props.activeCommentStableKey,
-    (stableKey) => {
-        if (!stableKey) {
-            return;
-        }
-        void revealActiveComment(stableKey);
-    },
-    { immediate: true },
-);
+    if (props.tool === 'highlight') {
+        return {
+            key: 'highlightThickness',
+            min: 4,
+            max: 24,
+            step: 1,
+            label: 'Thickness',
+        };
+    }
+
+    if (isShapeTool(props.tool)) {
+        return {
+            key: 'shapeStrokeWidth',
+            min: 1,
+            max: 10,
+            step: 0.5,
+            label: 'Stroke',
+        };
+    }
+
+    return null;
+});
+
+const activeWidthValue = computed(() => {
+    if (!activeWidthControl.value) {
+        return 0;
+    }
+    return props.settings[activeWidthControl.value.key];
+});
+
+const activeDrawStyle = computed<TDrawStyle>(() => {
+    const thickness = props.settings.inkThickness;
+    const opacity = props.settings.inkOpacity;
+
+    if (thickness >= 5 || opacity <= 0.45) {
+        return 'marker';
+    }
+
+    if (thickness <= 1.5 || opacity < 0.75) {
+        return 'pencil';
+    }
+
+    return 'pen';
+});
+
+function handleColorInput(color: string) {
+    if (props.tool === 'draw') {
+        updateSetting('inkColor', color);
+        return;
+    }
+
+    if (props.tool === 'underline') {
+        updateSetting('underlineColor', color);
+        return;
+    }
+
+    if (props.tool === 'strikethrough') {
+        updateSetting('strikethroughColor', color);
+        return;
+    }
+
+    if (props.tool === 'squiggly') {
+        updateSetting('squigglyColor', color);
+        return;
+    }
+
+    if (isShapeTool(props.tool)) {
+        updateSetting('shapeColor', color);
+        return;
+    }
+
+    updateSetting('highlightColor', color);
+}
+
+function handleWidthInput(width: number) {
+    const control = activeWidthControl.value;
+    if (!control) {
+        return;
+    }
+
+    updateSetting(control.key, width);
+}
+
+function applyDrawStyle(style: TDrawStyle) {
+    const preset = drawStylePresets.find(item => item.id === style);
+    if (!preset) {
+        return;
+    }
+
+    emit('set-tool', 'draw');
+    updateSetting('inkThickness', preset.thickness);
+    updateSetting('inkOpacity', preset.opacity);
+}
 </script>
 
 <style scoped>
-.pdf-annotations-panel {
-    position: relative;
+.notes-panel {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
+    gap: 0.75rem;
+    padding: 0.75rem;
     height: 100%;
     min-height: 0;
-    padding: 0.55rem;
+    overflow: hidden auto;
     box-sizing: border-box;
-    color: var(--ui-text);
-    background: var(--ui-bg, #fff);
-    overflow: auto;
+    position: relative;
 }
 
-.reviews-section {
-    flex: 1 1 auto;
-    min-height: clamp(11rem, 40vh, 25rem);
-    display: grid;
-    grid-template-rows: auto auto auto minmax(0, 1fr) auto;
-    border: 1px solid var(--ui-border);
-    background: color-mix(in oklab, var(--ui-bg, #fff) 94%, #eef2f7 6%);
-    overflow: hidden;
-    overflow: clip;
-}
-
-.reviews-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0.45rem 0.5rem;
-    border-bottom: 1px solid var(--ui-border);
-}
-
-.reviews-title {
-    margin: 0;
-    font-size: 0.78rem;
-    letter-spacing: 0.07em;
-    text-transform: uppercase;
-    color: var(--ui-text-muted);
-}
-
-.reviews-count {
-    font-size: 0.76rem;
-    color: var(--ui-text-dimmed);
-    font-variant-numeric: tabular-nums;
-}
-
-.reviews-search {
-    width: calc(100% - 1rem);
-    margin: 0.5rem;
-    min-height: 2rem;
-    border: 1px solid var(--ui-border);
-    background: var(--ui-bg, #fff);
-    color: inherit;
-    padding: 0.32rem 0.5rem;
-    font-size: 0.78rem;
-    outline: none;
-}
-
-.reviews-search:focus {
-    border-color: color-mix(in oklab, var(--ui-primary) 36%, var(--ui-border));
-}
-
-.reviews-filters {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.22rem;
-    padding: 0 0.5rem 0.45rem;
-}
-
-.reviews-filter {
-    border: 1px solid var(--ui-border);
-    background: var(--ui-bg, #fff);
-    color: var(--ui-text-muted);
-    font-size: 0.68rem;
-    line-height: 1;
-    min-height: 1.55rem;
-    padding: 0 0.36rem;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.28rem;
-    cursor: pointer;
-}
-
-.reviews-filter:hover {
-    border-color: color-mix(in oklab, var(--ui-primary) 26%, var(--ui-border));
-    color: var(--ui-text);
-}
-
-.reviews-filter.is-active {
-    border-color: color-mix(in oklab, var(--ui-primary) 42%, var(--ui-border));
-    color: var(--ui-text);
-    background: color-mix(in oklab, var(--ui-bg, #fff) 89%, var(--ui-primary) 11%);
-}
-
-.reviews-filter__label {
-    white-space: nowrap;
-}
-
-.reviews-filter__count {
-    min-width: 1.1rem;
-    padding: 0.08rem 0.18rem;
-    border-radius: 999px;
-    font-size: 0.64rem;
-    text-align: center;
-    color: var(--ui-text-dimmed);
-    background: color-mix(in oklab, var(--ui-bg, #fff) 87%, #dbe4f3 13%);
-}
-
-.reviews-list {
-    min-height: 0;
-    overflow: auto;
-    padding: 0 0.35rem 0.45rem;
-}
-
-.reviews-hint {
-    margin: 0.3rem 0.35rem 0.45rem;
-    font-size: 0.68rem;
-    color: var(--ui-text-dimmed);
-}
-
-.reviews-tree {
-    list-style: none;
-    margin: 0;
-    padding: 0;
+.notes-section {
+    border: 1px solid var(--ui-border-muted);
+    border-radius: 0.7rem;
+    background: color-mix(in srgb, var(--ui-bg) 94%, var(--ui-bg-muted) 6%);
+    padding: 0.75rem;
     display: flex;
     flex-direction: column;
-    gap: 0.15rem;
+    gap: 0.6rem;
 }
 
-.reviews-group {
-    width: 100%;
-    min-height: 1.9rem;
-    border: 1px solid var(--ui-border);
-    background: color-mix(in oklab, var(--ui-bg, #fff) 92%, #e6ebf4 8%);
-    color: inherit;
-    display: flex;
-    align-items: center;
-    gap: 0.3rem;
-    padding-right: 0.42rem;
-    cursor: pointer;
-    text-align: left;
-}
-
-.reviews-group__icon {
-    width: 0.86rem;
-    height: 0.86rem;
-    color: var(--ui-text-dimmed);
-}
-
-.reviews-group__label {
-    flex: 1;
-    font-size: 0.75rem;
-}
-
-.reviews-group__count {
-    font-size: 0.71rem;
-    color: var(--ui-text-muted);
-}
-
-.review-item {
-    width: 100%;
-    border: 1px solid var(--ui-border);
-    background: var(--ui-bg, #fff);
-    color: inherit;
-    text-align: left;
+.notes-section-header {
     display: flex;
     flex-direction: column;
-    gap: 0.22rem;
-    padding: 0.34rem 0.42rem 0.4rem;
-    cursor: pointer;
+    gap: 0.2rem;
 }
 
-.review-item:hover {
-    border-color: color-mix(in oklab, var(--ui-primary) 28%, var(--ui-border));
-    background: color-mix(in oklab, var(--ui-bg, #fff) 94%, var(--ui-primary) 6%);
-}
-
-.review-item.is-selected {
-    border-color: color-mix(in oklab, var(--ui-primary) 42%, var(--ui-border));
-    background: color-mix(in oklab, var(--ui-bg, #fff) 88%, var(--ui-primary) 12%);
-}
-
-.review-item__head {
-    display: flex;
-    align-items: flex-start;
-    gap: 0.34rem;
-    justify-content: space-between;
-    min-width: 0;
-    font-size: 0.68rem;
-    color: var(--ui-text-dimmed);
-}
-
-.review-item__meta-left {
-    min-width: 0;
-    display: inline-flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 0.28rem;
-}
-
-.review-item__type {
-    display: inline-flex;
-    align-items: center;
-    border: 1px solid var(--ui-border);
-    border-radius: 0.2rem;
-    padding: 0.06rem 0.24rem;
-    font-size: 0.62rem;
-    font-weight: 600;
-    letter-spacing: 0.03em;
+.notes-section-title {
+    margin: 0;
+    font-size: 0.82rem;
+    line-height: 1.2;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: var(--ui-text-muted);
-    background: color-mix(in oklab, var(--ui-bg, #fff) 90%, #e5e7eb 10%);
+    color: var(--ui-text-highlighted);
 }
 
-.review-item__type.is-highlight {
-    border-color: rgb(182 157 36 / 0.55);
-    background: rgb(254 246 197 / 0.9);
-    color: rgb(120 90 18);
-}
-
-.review-item__type.is-ink {
-    border-color: rgb(23 118 74 / 0.4);
-    background: rgb(221 247 232 / 0.95);
-    color: rgb(24 99 67);
-}
-
-.review-item__type.is-text {
-    border-color: rgb(59 130 246 / 0.4);
-    background: rgb(224 236 255 / 0.95);
-    color: rgb(40 84 158);
-}
-
-.review-item__page {
-    font-variant-numeric: tabular-nums;
+.notes-section-description {
+    margin: 0;
+    font-size: 0.8rem;
+    line-height: 1.35;
     color: var(--ui-text-muted);
 }
 
-.review-item__author {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.review-item__time {
-    white-space: nowrap;
-    font-variant-numeric: tabular-nums;
-    font-size: 0.64rem;
-    color: var(--ui-text-dimmed);
-}
-
-.review-item__text {
-    font-size: 0.77rem;
-    line-height: 1.34;
-    color: var(--ui-text);
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-}
-
-.reviews-empty {
-    margin: 0.4rem 0.25rem;
-    font-size: 0.76rem;
-    color: var(--ui-text-dimmed);
-}
-
-.reviews-toolbar {
-    display: grid;
-    gap: 0.28rem;
-    border-top: 1px solid var(--ui-border);
-    padding: 0.38rem 0.4rem;
-    background: color-mix(in oklab, var(--ui-bg, #fff) 92%, #eef2f7 8%);
-}
-
-.reviews-toolbar__line {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.24rem;
-}
-
-.reviews-toolbar__line--selection {
+.tool-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0.24rem;
-    padding-top: 0.15rem;
-    border-top: 1px dashed var(--ui-border);
+    gap: 0.4rem;
 }
 
-.reviews-toolbar__label {
-    font-size: 0.65rem;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--ui-text-dimmed);
-    min-width: 2.45rem;
-}
-
-.reviews-toolbar__line--selection .reviews-toolbar__label {
-    grid-column: 1 / -1;
-    min-width: 0;
-}
-
-.reviews-selection-action {
-    min-height: 1.82rem;
-    width: 100%;
-    border: 1px solid var(--ui-border);
-    background: color-mix(in oklab, var(--ui-bg, #fff) 96%, #e9eef7 4%);
-    color: var(--ui-text-muted);
-    font-size: 0.72rem;
-    font-weight: 600;
-    line-height: 1;
-    text-align: center;
-    padding: 0 0.35rem;
-    cursor: pointer;
-}
-
-.reviews-selection-action:hover {
-    border-color: color-mix(in oklab, var(--ui-primary) 28%, var(--ui-border));
-    color: var(--ui-text);
-    background: color-mix(in oklab, var(--ui-bg, #fff) 95%, var(--ui-primary) 5%);
-}
-
-.reviews-selection-action:disabled {
-    cursor: default;
-    opacity: 1;
-    color: color-mix(in oklab, var(--ui-text-dimmed) 72%, #7c8aa3 28%);
-    background: color-mix(in oklab, var(--ui-bg, #fff) 94%, #edf2fa 6%);
-}
-
-.reviews-selection-action:disabled:hover {
-    border-color: var(--ui-border);
-    color: var(--ui-text-dimmed);
-    background: var(--ui-bg, #fff);
-}
-
-.reviews-selection-action--danger {
-    color: #b42318;
-    grid-column: 1 / -1;
-}
-
-.reviews-selection-hint {
-    margin: 0;
-    grid-column: 1 / -1;
-    font-size: 0.7rem;
-    color: var(--ui-text-dimmed);
-    line-height: 1.35;
-}
-
-.reviews-toggle {
-    min-height: 1.78rem;
-    border: 1px solid var(--ui-border);
-    background: var(--ui-bg, #fff);
-    color: var(--ui-text-muted);
-    font-size: 0.72rem;
-    line-height: 1;
+.tool-button {
     display: inline-flex;
     align-items: center;
-    gap: 0.25rem;
-    padding: 0 0.42rem;
-    cursor: pointer;
-}
-
-.reviews-toggle__icon {
-    width: 0.78rem;
-    height: 0.78rem;
-}
-
-.reviews-toggle:hover {
-    border-color: color-mix(in oklab, var(--ui-primary) 28%, var(--ui-border));
-    color: var(--ui-text);
-    background: color-mix(in oklab, var(--ui-bg, #fff) 95%, var(--ui-primary) 5%);
-}
-
-.reviews-toggle:disabled {
-    cursor: default;
-    opacity: 0.52;
-    color: var(--ui-text-dimmed);
-    background: var(--ui-bg, #fff);
-}
-
-.reviews-toggle:disabled:hover {
-    border-color: var(--ui-border);
-    color: var(--ui-text-dimmed);
-    background: var(--ui-bg, #fff);
-}
-
-.reviews-toggle.is-active {
-    color: var(--ui-text);
-    border-color: color-mix(in oklab, var(--ui-primary) 42%, var(--ui-border));
-    background: color-mix(in oklab, var(--ui-bg, #fff) 88%, var(--ui-primary) 12%);
-}
-
-.reviews-toggle--danger {
-    color: #b42318;
-}
-
-.reviews-toggle--compact {
-    font-size: 0.67rem;
-    padding-inline: 0.36rem;
-}
-
-.quick-section {
-    flex: 0 0 auto;
-    align-self: stretch;
+    justify-content: center;
+    gap: 0.35rem;
     border: 1px solid var(--ui-border);
-    background: color-mix(in oklab, var(--ui-bg, #fff) 94%, #eef2f7 6%);
-    min-height: 0;
-    overflow: visible;
-}
-
-.quick-section__summary {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.4rem;
-    padding: 0.46rem 0.5rem;
+    border-radius: 0.5rem;
+    background: var(--ui-bg);
+    color: var(--ui-text-muted);
+    font-size: 0.8rem;
+    font-weight: 600;
+    min-height: 2.1rem;
     cursor: pointer;
-    list-style: none;
-    border-bottom: 1px solid var(--ui-border);
 }
 
-.quick-section__summary::-webkit-details-marker {
-    display: none;
+.tool-button:hover {
+    border-color: color-mix(in srgb, var(--ui-primary) 40%, var(--ui-border) 60%);
+    color: var(--ui-text-highlighted);
 }
 
-.quick-section[open] .quick-section__summary {
-    background: color-mix(in oklab, var(--ui-bg, #fff) 90%, #eef2f7 10%);
+.tool-button.is-active {
+    border-color: color-mix(in srgb, var(--ui-primary) 60%, var(--ui-border) 40%);
+    background: color-mix(in srgb, var(--ui-primary) 18%, var(--ui-bg) 82%);
+    color: var(--ui-text-highlighted);
 }
 
-.quick-section__content {
-    display: grid;
+.tool-button-icon {
+    font-size: 0.95rem;
+}
+
+.tool-button-label {
+    white-space: nowrap;
+}
+
+.keep-active-toggle {
+    display: inline-flex;
+    align-items: center;
     gap: 0.45rem;
-    padding: 0.5rem;
-    align-content: start;
-}
-
-.quick-section__title {
-    font-size: 0.73rem;
-    letter-spacing: 0.07em;
-    text-transform: uppercase;
+    font-size: 0.82rem;
     color: var(--ui-text-muted);
 }
 
-.quick-section__meta {
-    font-size: 0.7rem;
-    color: var(--ui-text-dimmed);
-    margin-left: auto;
-}
-
-.quick-section__chevron {
-    width: 0.86rem;
-    height: 0.86rem;
-    color: var(--ui-text-dimmed);
-    transition: transform 0.14s ease;
-}
-
-.quick-section[open] .quick-section__chevron {
-    transform: rotate(180deg);
-}
-
-.quick-section__row {
+.sticky-actions {
     display: grid;
-    gap: 0.25rem;
+    grid-template-columns: repeat(1, minmax(0, 1fr));
+    gap: 0.45rem;
 }
 
-.quick-section__row--preset {
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: end;
+.sticky-action {
+    border: 1px solid var(--ui-border);
+    border-radius: 0.5rem;
+    background: var(--ui-bg);
+    color: var(--ui-text-highlighted);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    min-height: 2.1rem;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.sticky-action:hover {
+    border-color: color-mix(in srgb, var(--ui-primary) 40%, var(--ui-border) 60%);
+}
+
+.sticky-action.is-active {
+    border-color: color-mix(in srgb, var(--ui-primary) 70%, var(--ui-border) 30%);
+    background: color-mix(in srgb, var(--ui-primary) 20%, var(--ui-bg) 80%);
+}
+
+.sticky-action-icon {
+    font-size: 0.9rem;
+}
+
+.sticky-hint {
+    margin: 0;
+    font-size: 0.78rem;
+    color: var(--ui-text-toned);
+}
+
+.style-row {
+    display: flex;
+    flex-direction: column;
     gap: 0.35rem;
 }
 
-.quick-section__row--actions {
-    display: grid;
-    gap: 0.28rem;
-    grid-template-columns: 1fr;
-}
-
-.quick-select-group {
-    display: grid;
-    gap: 0.24rem;
-}
-
-.quick-select-group__label {
-    font-size: 0.72rem;
+.style-label {
+    font-size: 0.8rem;
     color: var(--ui-text-muted);
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
 }
 
-.quick-select {
+.style-color {
     width: 100%;
-    min-height: 2rem;
+    height: 2rem;
+    border-radius: 0.45rem;
     border: 1px solid var(--ui-border);
-    background: var(--ui-bg, #fff);
-    color: inherit;
-    padding: 0 0.45rem;
-    font-size: 0.78rem;
-}
-
-.quick-select:focus {
-    outline: none;
-    border-color: color-mix(in oklab, var(--ui-primary) 35%, var(--ui-border));
-}
-
-.quick-apply-button,
-.quick-action,
-.context-action {
-    border: 1px solid var(--ui-border);
-    background: var(--ui-bg, #fff);
-    color: inherit;
-    min-height: 2rem;
-    font-size: 0.76rem;
-    padding: 0 0.5rem;
+    background: transparent;
     cursor: pointer;
 }
 
-.quick-action {
-    text-align: left;
+.swatch-row {
+    display: grid;
+    grid-template-columns: repeat(9, minmax(0, 1fr));
+    gap: 0.25rem;
 }
 
-.quick-apply-button {
-    min-width: 4.3rem;
+.swatch {
+    border: 1px solid color-mix(in srgb, var(--ui-border) 80%, #000 20%);
+    border-radius: 0.3rem;
+    height: 1.1rem;
+    cursor: pointer;
+}
+
+.style-range {
+    width: 100%;
+}
+
+.draw-style-row {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.draw-style-list {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.35rem;
+}
+
+.draw-style-button {
+    border: 1px solid var(--ui-border);
+    border-radius: 0.45rem;
+    background: var(--ui-bg);
+    color: var(--ui-text-muted);
+    min-height: 1.9rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.draw-style-button.is-active {
+    border-color: color-mix(in srgb, var(--ui-primary) 65%, var(--ui-border) 35%);
+    color: var(--ui-text-highlighted);
+    background: color-mix(in srgb, var(--ui-primary) 14%, var(--ui-bg) 86%);
+}
+
+.page-chip-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+}
+
+.page-chip {
+    border: 1px solid var(--ui-border);
+    border-radius: 999px;
+    background: var(--ui-bg);
+    color: var(--ui-text-muted);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.76rem;
+    padding: 0.22rem 0.55rem;
+    cursor: pointer;
+}
+
+.page-chip.is-current {
+    border-color: color-mix(in srgb, var(--ui-primary) 70%, var(--ui-border) 30%);
+    color: var(--ui-text-highlighted);
+}
+
+.page-chip-label {
     font-weight: 600;
 }
 
-.quick-preset-hint {
-    margin: 0;
-    font-size: 0.72rem;
-    color: var(--ui-text-dimmed);
-    line-height: 1.35;
+.page-chip-count {
+    color: var(--ui-text-toned);
 }
 
-.quick-keep-active {
+.page-chip-note {
+    color: color-mix(in srgb, var(--ui-primary) 70%, var(--ui-text-toned) 30%);
+}
+
+.notes-list-header {
+    flex-direction: row;
+    align-items: baseline;
+    justify-content: space-between;
+}
+
+.notes-count {
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: var(--ui-text-highlighted);
+}
+
+.notes-search {
+    width: 100%;
+    border: 1px solid var(--ui-border);
+    border-radius: 0.5rem;
+    background: var(--ui-bg);
+    color: var(--ui-text-highlighted);
+    font-size: 0.82rem;
+    padding: 0.45rem 0.55rem;
+}
+
+.filter-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+}
+
+.filter-button {
+    border: 1px solid var(--ui-border);
+    border-radius: 999px;
+    background: var(--ui-bg);
+    color: var(--ui-text-muted);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.72rem;
+    font-weight: 600;
+    padding: 0.2rem 0.5rem;
+    cursor: pointer;
+}
+
+.filter-button.is-active {
+    border-color: color-mix(in srgb, var(--ui-primary) 70%, var(--ui-border) 30%);
+    color: var(--ui-text-highlighted);
+    background: color-mix(in srgb, var(--ui-primary) 14%, var(--ui-bg) 86%);
+}
+
+.filter-count {
+    color: var(--ui-text-toned);
+}
+
+.notes-list {
+    max-height: 20rem;
+    min-height: 7rem;
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+    padding-right: 0.1rem;
+}
+
+.note-item {
+    border: 1px solid var(--ui-border);
+    border-radius: 0.55rem;
+    background: var(--ui-bg);
+    color: var(--ui-text-highlighted);
+    text-align: left;
+    padding: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    cursor: pointer;
+}
+
+.note-item.is-selected {
+    border-color: color-mix(in srgb, var(--ui-primary) 75%, var(--ui-border) 25%);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--ui-primary) 30%, transparent 70%);
+}
+
+.note-item-top {
     display: flex;
     align-items: center;
-    gap: 0.38rem;
-    font-size: 0.75rem;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+    font-size: 0.72rem;
+}
+
+.note-item-page {
+    font-weight: 700;
+    color: var(--ui-text-highlighted);
+}
+
+.note-item-type {
     color: var(--ui-text-muted);
 }
 
-.tool-settings {
-    border-top: 1px dashed var(--ui-border);
-    padding-top: 0.42rem;
+.note-item-sticky {
+    border: 1px solid color-mix(in srgb, var(--ui-primary) 55%, var(--ui-border) 45%);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--ui-primary) 16%, var(--ui-bg) 84%);
+    color: var(--ui-text-highlighted);
+    padding: 0.05rem 0.4rem;
 }
 
-.tool-settings > summary {
-    cursor: pointer;
-    list-style: none;
-    font-size: 0.74rem;
-    color: var(--ui-text-muted);
+.note-item-text {
+    font-size: 0.8rem;
+    line-height: 1.35;
+    color: var(--ui-text-highlighted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
 }
 
-.tool-settings > summary::-webkit-details-marker {
-    display: none;
+.note-item-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.45rem;
+    font-size: 0.7rem;
+    color: var(--ui-text-toned);
 }
 
-.tool-settings__grid {
-    display: grid;
-    gap: 0.42rem;
-    margin-top: 0.42rem;
-}
-
-.tool-setting {
-    display: grid;
-    gap: 0.2rem;
-    font-size: 0.74rem;
-}
-
-.tool-setting__color {
-    width: 100%;
-    height: 1.9rem;
-    border: 1px solid var(--ui-border);
-    background: var(--ui-bg);
-    padding: 0.08rem;
-}
-
-.tool-setting__range {
-    width: 100%;
-}
-
-.tool-settings__empty {
+.notes-empty {
     margin: 0;
-    font-size: 0.74rem;
-    color: var(--ui-text-dimmed);
+    border: 1px dashed var(--ui-border);
+    border-radius: 0.5rem;
+    padding: 0.65rem;
+    font-size: 0.8rem;
+    color: var(--ui-text-muted);
 }
 
-.tool-flags {
+.selection-actions {
     display: grid;
-    gap: 0.25rem;
-    margin-top: 0.35rem;
-    font-size: 0.74rem;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.4rem;
 }
 
-.reviews-context-menu {
-    position: fixed;
-    z-index: 70;
-    min-width: 220px;
-    display: grid;
-    gap: 1px;
+.selection-action {
     border: 1px solid var(--ui-border);
-    background: var(--ui-border);
-    box-shadow:
-        0 10px 24px rgb(15 23 42 / 20%),
-        0 3px 8px rgb(15 23 42 / 15%);
-}
-
-.context-action {
-    text-align: left;
-    border: none;
+    border-radius: 0.45rem;
+    background: var(--ui-bg);
+    color: var(--ui-text-highlighted);
     min-height: 2rem;
-    padding: 0 0.6rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
 }
 
-.quick-action:hover,
-.quick-apply-button:hover,
-.context-action:hover {
-    background: color-mix(in oklab, var(--ui-bg, #fff) 93%, var(--ui-primary) 7%);
+.selection-action:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
 }
 
-.context-action:disabled {
-    color: var(--ui-text-dimmed);
-    cursor: default;
-    background: var(--ui-bg, #fff);
+.selection-action.is-danger {
+    color: color-mix(in srgb, #ef4444 65%, var(--ui-text-highlighted) 35%);
 }
 
-.context-action--danger {
-    color: #b42318;
+.notes-context-menu {
+    position: fixed;
+    z-index: 1400;
+    min-width: 10.5rem;
+    border: 1px solid var(--ui-border);
+    border-radius: 0.55rem;
+    background: var(--ui-bg);
+    box-shadow: 0 14px 30px color-mix(in srgb, var(--ui-bg-inverted) 20%, transparent 80%);
+    padding: 0.3rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+}
+
+.context-menu-action {
+    border: 1px solid transparent;
+    border-radius: 0.4rem;
+    background: transparent;
+    color: var(--ui-text-highlighted);
+    font-size: 0.77rem;
+    text-align: left;
+    padding: 0.35rem 0.45rem;
+    cursor: pointer;
+}
+
+.context-menu-action:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.context-menu-action:hover:not(:disabled) {
+    border-color: var(--ui-border);
+    background: color-mix(in srgb, var(--ui-bg-muted) 55%, var(--ui-bg) 45%);
+}
+
+.context-menu-action.is-danger {
+    color: color-mix(in srgb, #ef4444 68%, var(--ui-text-highlighted) 32%);
+}
+
+@media (width <= 860px) {
+    .tool-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .swatch-row {
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+    }
 }
 </style>
