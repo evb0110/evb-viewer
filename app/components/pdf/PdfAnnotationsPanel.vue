@@ -1808,6 +1808,7 @@ watch(
     height: 100%;
     min-height: 0;
     padding: 0.55rem;
+    box-sizing: border-box;
     color: var(--ui-text);
     background: var(--ui-bg, #fff);
     overflow: auto;
@@ -1815,12 +1816,13 @@ watch(
 
 .reviews-section {
     flex: 1 1 auto;
-    min-height: 12rem;
+    min-height: 18rem;
     display: grid;
-    grid-template-rows: auto auto auto minmax(7rem, 1fr) auto;
+    grid-template-rows: auto auto auto minmax(0, 1fr) auto;
     border: 1px solid var(--ui-border);
     background: color-mix(in oklab, var(--ui-bg, #fff) 94%, #eef2f7 6%);
     overflow: hidden;
+    overflow: clip;
 }
 
 .reviews-head {
@@ -1908,7 +1910,7 @@ watch(
 }
 
 .reviews-list {
-    min-height: 7rem;
+    min-height: 0;
     overflow: auto;
     padding: 0 0.35rem 0.45rem;
 }
@@ -2238,12 +2240,6 @@ watch(
     cursor: pointer;
 }
 
-.quick-action:hover,
-.quick-apply-button:hover,
-.context-action:hover {
-    background: color-mix(in oklab, var(--ui-bg, #fff) 93%, var(--ui-primary) 7%);
-}
-
 .quick-action {
     text-align: left;
 }
@@ -2339,6 +2335,12 @@ watch(
     border: none;
     min-height: 2rem;
     padding: 0 0.6rem;
+}
+
+.quick-action:hover,
+.quick-apply-button:hover,
+.context-action:hover {
+    background: color-mix(in oklab, var(--ui-bg, #fff) 93%, var(--ui-primary) 7%);
 }
 
 .context-action:disabled {

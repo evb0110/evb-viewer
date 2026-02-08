@@ -3730,15 +3730,15 @@ defineExpose({
 
 .pdfViewer :deep(.pdf-inline-comment-marker) {
     position: absolute;
-    width: 16px;
-    height: 16px;
-    border: 1px solid rgb(165 145 41 / 0.82);
+    width: 14px;
+    height: 14px;
+    border: 1px solid rgb(150 129 33 / 0.78);
     border-radius: 3px;
     transform: translate(-50%, -50%);
-    background: linear-gradient(180deg, #fcf6ba 0%, #f2e68f 100%);
+    background: linear-gradient(180deg, #fcf6c6 0%, #efe187 100%);
     box-shadow:
-        0 2px 5px rgb(0 0 0 / 0.24),
-        inset 0 0 0 1px rgb(255 255 255 / 0.64);
+        0 2px 5px rgb(0 0 0 / 0.2),
+        inset 0 0 0 1px rgb(255 255 255 / 0.58);
     cursor: pointer;
     pointer-events: auto;
 }
@@ -3746,7 +3746,7 @@ defineExpose({
 .pdfViewer :deep(.pdf-inline-comment-marker)::before {
     content: '';
     position: absolute;
-    inset: 2px;
+    inset: 1.5px;
     background-color: rgb(110 96 23 / 0.95);
     mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M4 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 5V5z'/%3E%3C/svg%3E");
     mask-repeat: no-repeat;
@@ -3767,10 +3767,10 @@ defineExpose({
 
 .pdfViewer :deep(.pdf-inline-comment-marker.is-cluster)::after {
     content: attr(data-comment-count);
-    right: -7px;
-    top: -7px;
-    width: 13px;
-    height: 13px;
+    right: -6px;
+    top: -6px;
+    width: 12px;
+    height: 12px;
     border-radius: 999px;
     border: 1px solid rgb(120 104 34 / 0.9);
     background: linear-gradient(180deg, #fff9cf 0%, #f0e183 100%);
@@ -3779,7 +3779,7 @@ defineExpose({
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    font-size: 8px;
+    font-size: 7px;
     font-weight: 700;
     line-height: 1;
     font-variant-numeric: tabular-nums;
@@ -3801,19 +3801,19 @@ defineExpose({
 .pdfViewer :deep(.pdf-annotation-has-note-anchor)::after {
     content: '';
     position: absolute;
-    top: -8px;
-    right: -8px;
-    width: 15px;
-    height: 15px;
-    background: linear-gradient(180deg, #fbf3b6 0%, #ecd978 100%);
-    border: 1px solid rgb(137 116 31 / 0.9);
+    top: -6px;
+    right: -6px;
+    width: 12px;
+    height: 12px;
+    background: linear-gradient(180deg, #fcf6c4 0%, #ebda80 100%);
+    border: 1px solid rgb(137 116 31 / 0.84);
     mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M20 2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h14l4 4V4c0-1.1-.9-2-2-2zm-2 9H6V9h12v2zm0 4H6v-2h12v2z'/%3E%3C/svg%3E");
     mask-repeat: no-repeat;
     mask-position: center;
-    mask-size: 78% 78%;
+    mask-size: 75% 75%;
     box-shadow:
-        0 2px 4px rgb(0 0 0 / 0.2),
-        inset 0 0 0 1px rgb(255 255 255 / 0.52);
+        0 1px 3px rgb(0 0 0 / 0.18),
+        inset 0 0 0 1px rgb(255 255 255 / 0.42);
     pointer-events: none;
     transition: transform 0.12s ease;
 }
@@ -3822,22 +3822,14 @@ defineExpose({
     position: relative;
     overflow: visible;
     cursor: pointer;
-    outline: 1px solid rgb(150 126 36 / 0.68);
-    outline-offset: 0;
-    box-shadow:
-        inset 0 -1.5px 0 rgb(126 103 20 / 0.72),
-        0 0 0 1px rgb(255 246 172 / 0.36);
-    background-image:
-        linear-gradient(180deg, rgb(255 248 203 / 0.14), rgb(255 244 173 / 0.14)),
-        repeating-linear-gradient(
-            -45deg,
-            rgb(137 116 31 / 0.08) 0 2px,
-            transparent 2px 6px
-        );
+    text-decoration: underline dotted rgb(127 105 23 / 0.9);
+    text-decoration-thickness: 1.5px;
+    text-underline-offset: 2px;
+    box-shadow: inset 0 -1px 0 rgb(126 103 20 / 0.5);
 }
 
 .pdfViewer :deep(.pdf-annotation-has-note-target:hover) {
-    filter: drop-shadow(0 0 3px rgba(59, 130, 246, 0.35));
+    filter: drop-shadow(0 0 2px rgba(59, 130, 246, 0.28));
 }
 
 .pdfViewer :deep(.pdf-annotation-has-note-anchor:hover)::after {
@@ -3845,11 +3837,10 @@ defineExpose({
 }
 
 .pdfViewer :deep(.pdf-annotation-has-note-active) {
-    filter: drop-shadow(0 0 5px color-mix(in oklab, var(--ui-primary, #3b82f6) 35%, transparent));
-    outline-color: color-mix(in oklab, var(--ui-primary, #3b82f6) 42%, rgb(137 116 31));
+    filter: drop-shadow(0 0 4px color-mix(in oklab, var(--ui-primary, #3b82f6) 28%, transparent));
+    text-decoration-color: color-mix(in oklab, var(--ui-primary, #3b82f6) 44%, rgb(137 116 31));
     box-shadow:
-        inset 0 -2px 0 color-mix(in oklab, var(--ui-primary, #3b82f6) 36%, rgb(126 103 20)),
-        0 0 0 2px color-mix(in oklab, var(--ui-primary, #3b82f6) 24%, transparent);
+        inset 0 -2px 0 color-mix(in oklab, var(--ui-primary, #3b82f6) 34%, rgb(126 103 20));
 }
 
 .pdfViewer :deep(.pdf-annotation-has-note-active.pdf-annotation-has-note-anchor)::after {

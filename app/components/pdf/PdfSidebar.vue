@@ -19,7 +19,7 @@
             }"
             class="pdf-sidebar-tabs"
         />
-        <div class="pdf-sidebar-content app-scrollbar">
+        <div class="pdf-sidebar-content app-scrollbar" :class="{ 'is-annotations': activeTab === 'annotations' }">
             <PdfAnnotationsPanel
                 v-show="activeTab === 'annotations'"
                 :tool="annotationTool"
@@ -276,6 +276,10 @@ const sidebarStyle = computed(() => {
     min-height: 0;
     overflow: hidden auto;
     position: relative;
+}
+
+.pdf-sidebar-content.is-annotations {
+    overflow: hidden;
 }
 
 /* Ensure v-show hidden components don't affect layout */
