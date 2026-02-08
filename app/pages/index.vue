@@ -399,23 +399,49 @@
             :style="annotationContextMenuStyle"
             @click.stop
         >
-            <button type="button" class="annotation-context-menu__action" @click="openContextMenuNote">
-                Open Pop-up Note
+            <template v-if="annotationContextMenu.comment">
+                <p class="annotation-context-menu__section-title">
+                    Selected Annotation
+                </p>
+                <button type="button" class="annotation-context-menu__action" @click="openContextMenuNote">
+                    Open Pop-up Note
+                </button>
+                <button
+                    type="button"
+                    class="annotation-context-menu__action"
+                    :disabled="!annotationContextMenuCanCopy"
+                    @click="copyContextMenuNoteText"
+                >
+                    Copy Text to Clipboard
+                </button>
+                <button
+                    type="button"
+                    class="annotation-context-menu__action annotation-context-menu__action--danger"
+                    @click="deleteContextMenuComment"
+                >
+                    Delete Annotation
+                </button>
+                <div class="annotation-context-menu__divider" />
+            </template>
+
+            <p class="annotation-context-menu__section-title">
+                New Annotation
+            </p>
+            <button
+                type="button"
+                class="annotation-context-menu__action"
+                :disabled="!annotationContextMenuCanCreateFree"
+                @click="createContextMenuFreeNote"
+            >
+                Add Pop-up Note Here
             </button>
             <button
                 type="button"
                 class="annotation-context-menu__action"
-                :disabled="!annotationContextMenuCanCopy"
-                @click="copyContextMenuNoteText"
+                :disabled="!annotationContextMenu.hasSelection"
+                @click="createContextMenuSelectionNote"
             >
-                Copy Text to Clipboard
-            </button>
-            <button
-                type="button"
-                class="annotation-context-menu__action annotation-context-menu__action--danger"
-                @click="deleteContextMenuComment"
-            >
-                Delete
+                Add Pop-up Note from Selection
             </button>
         </div>
     </div>
@@ -459,6 +485,7 @@ interface IPdfViewerExpose {
     saveDocument: () => Promise<Uint8Array | null>;
     highlightSelection: () => void;
     commentSelection: () => void;
+    commentAtPoint: (pageNumber: number, pageX: number, pageY: number) => Promise<boolean>;
     undoAnnotation: () => void;
     redoAnnotation: () => void;
     focusAnnotationComment: (comment: IAnnotationCommentSummary) => Promise<void>;
@@ -822,11 +849,19 @@ const annotationContextMenu = ref<{
     x: number;
     y: number;
     comment: IAnnotationCommentSummary | null;
+    hasSelection: boolean;
+    pageNumber: number | null;
+    pageX: number | null;
+    pageY: number | null;
 }>({
     visible: false,
     x: 0,
     y: 0,
     comment: null,
+    hasSelection: false,
+    pageNumber: null,
+    pageX: null,
+    pageY: null,
 });
 const annotationEditorState = ref<IAnnotationEditorState>({
     isEditing: false,
@@ -873,6 +908,11 @@ const annotationContextMenuCanCopy = computed(() => {
     const text = annotationContextMenu.value.comment?.text?.trim();
     return Boolean(text);
 });
+const annotationContextMenuCanCreateFree = computed(() => (
+    Number.isFinite(annotationContextMenu.value.pageNumber)
+    && Number.isFinite(annotationContextMenu.value.pageX)
+    && Number.isFinite(annotationContextMenu.value.pageY)
+));
 const sortedAnnotationNoteWindows = computed(() =>
     [...annotationNoteWindows.value].sort((left, right) => left.order - right.order));
 
@@ -1158,28 +1198,48 @@ function closeAnnotationContextMenu() {
         x: 0,
         y: 0,
         comment: null,
+        hasSelection: false,
+        pageNumber: null,
+        pageX: null,
+        pageY: null,
     };
 }
 
 function handleViewerAnnotationContextMenu(payload: {
-    comment: IAnnotationCommentSummary;
+    comment: IAnnotationCommentSummary | null;
     clientX: number;
     clientY: number;
+    hasSelection: boolean;
+    pageNumber: number | null;
+    pageX: number | null;
+    pageY: number | null;
 }) {
-    annotationActiveCommentStableKey.value = payload.comment.stableKey;
-    const width = 230;
-    const height = 124;
+    if (payload.comment) {
+        annotationActiveCommentStableKey.value = payload.comment.stableKey;
+    } else {
+        annotationActiveCommentStableKey.value = null;
+    }
+
+    const hasComment = Boolean(payload.comment);
+    const width = 258;
+    const estimatedHeight = hasComment ? 258 : 132;
     const margin = 8;
     const maxX = Math.max(margin, window.innerWidth - width - margin);
-    const maxY = Math.max(margin, window.innerHeight - height - margin);
+    const maxY = Math.max(margin, window.innerHeight - estimatedHeight - margin);
 
     annotationContextMenu.value = {
         visible: true,
         x: Math.min(Math.max(margin, payload.clientX), maxX),
         y: Math.min(Math.max(margin, payload.clientY), maxY),
         comment: payload.comment,
+        hasSelection: payload.hasSelection,
+        pageNumber: payload.pageNumber,
+        pageX: payload.pageX,
+        pageY: payload.pageY,
     };
-    void handleAnnotationFocusComment(payload.comment);
+    if (payload.comment) {
+        void handleAnnotationFocusComment(payload.comment);
+    }
 }
 
 function openContextMenuNote() {
@@ -1206,6 +1266,35 @@ function deleteContextMenuComment() {
         return;
     }
     void handleDeleteAnnotationComment(comment);
+    closeAnnotationContextMenu();
+}
+
+async function createContextMenuFreeNote() {
+    if (!pdfViewerRef.value) {
+        closeAnnotationContextMenu();
+        return;
+    }
+
+    const {
+        pageNumber,
+        pageX,
+        pageY,
+    } = annotationContextMenu.value;
+    if (
+        !Number.isFinite(pageNumber)
+        || !Number.isFinite(pageX)
+        || !Number.isFinite(pageY)
+    ) {
+        closeAnnotationContextMenu();
+        return;
+    }
+
+    await pdfViewerRef.value.commentAtPoint(pageNumber as number, pageX as number, pageY as number);
+    closeAnnotationContextMenu();
+}
+
+function createContextMenuSelectionNote() {
+    pdfViewerRef.value?.commentSelection();
     closeAnnotationContextMenu();
 }
 
@@ -2150,10 +2239,11 @@ watch(annotationComments, (comments) => {
     height: 100%;
     display: flex;
     flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 1.5rem;
-    padding: 2rem;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: 1rem;
+    padding: clamp(1rem, 2.6vh, 1.8rem) clamp(1rem, 2.2vw, 2rem);
+    overflow: auto;
 }
 
 .empty-state-hint {
@@ -2190,8 +2280,8 @@ watch(annotationComments, (comments) => {
 
 /* Recent files */
 .recent-files {
-    width: 100%;
-    max-width: 400px;
+    width: min(100%, 640px);
+    margin: 0 auto;
     min-height: 0;
 }
 
@@ -2210,8 +2300,12 @@ watch(annotationComments, (comments) => {
     display: flex;
     flex-direction: column;
     gap: 2px;
-    max-height: 40vh;
+    max-height: min(60vh, 34rem);
     overflow-y: auto;
+}
+
+.open-file-action {
+    margin: 0 auto;
 }
 
 .recent-file-item {
@@ -2271,7 +2365,7 @@ watch(annotationComments, (comments) => {
 .annotation-context-menu {
     position: fixed;
     z-index: 70;
-    min-width: 220px;
+    min-width: 246px;
     display: grid;
     gap: 1px;
     border: 1px solid var(--ui-border);
@@ -2279,6 +2373,22 @@ watch(annotationComments, (comments) => {
     box-shadow:
         0 10px 24px rgb(15 23 42 / 20%),
         0 3px 8px rgb(15 23 42 / 15%);
+}
+
+.annotation-context-menu__section-title {
+    margin: 0;
+    padding: 0.45rem 0.6rem 0.35rem;
+    background: color-mix(in oklab, var(--ui-bg, #fff) 94%, #e8eef8 6%);
+    color: var(--ui-text-dimmed);
+    font-size: 0.64rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-weight: 600;
+}
+
+.annotation-context-menu__divider {
+    height: 1px;
+    background: color-mix(in oklab, var(--ui-border) 82%, #c7d2e6 18%);
 }
 
 .annotation-context-menu__action {
@@ -2298,7 +2408,7 @@ watch(annotationComments, (comments) => {
 .annotation-context-menu__action:disabled {
     color: var(--ui-text-dimmed);
     cursor: default;
-    background: var(--ui-bg, #fff);
+    background: color-mix(in oklab, var(--ui-bg, #fff) 96%, #f3f6fb 4%);
 }
 
 .annotation-context-menu__action--danger {

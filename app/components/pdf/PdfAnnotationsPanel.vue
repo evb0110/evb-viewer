@@ -141,35 +141,37 @@
                         <span>Collapse</span>
                     </button>
                 </div>
-                <div class="reviews-toolbar__line">
+                <div class="reviews-toolbar__line reviews-toolbar__line--selection">
                     <span class="reviews-toolbar__label">Selection</span>
-                    <button
-                        type="button"
-                        class="reviews-toggle reviews-toggle--compact"
-                        :disabled="!canOpenSelectedComment"
-                        @click="openPrimarySelectedComment"
-                    >
-                        <UIcon name="i-lucide-message-square" class="reviews-toggle__icon" />
-                        <span>Open</span>
-                    </button>
-                    <button
-                        type="button"
-                        class="reviews-toggle reviews-toggle--compact"
-                        :disabled="!canCopySelectedComment"
-                        @click="copyPrimarySelectedComment"
-                    >
-                        <UIcon name="i-lucide-copy" class="reviews-toggle__icon" />
-                        <span>Copy</span>
-                    </button>
-                    <button
-                        type="button"
-                        class="reviews-toggle reviews-toggle--compact reviews-toggle--danger"
-                        :disabled="selectedCommentCount === 0"
-                        @click="deleteSelectedComments"
-                    >
-                        <UIcon name="i-lucide-trash-2" class="reviews-toggle__icon" />
-                        <span>{{ selectedCommentCount > 1 ? `Delete ${selectedCommentCount}` : 'Delete' }}</span>
-                    </button>
+                    <template v-if="selectedCommentCount > 0">
+                        <button
+                            type="button"
+                            class="reviews-selection-action"
+                            :disabled="!canOpenSelectedComment"
+                            @click="openPrimarySelectedComment"
+                        >
+                            Open
+                        </button>
+                        <button
+                            type="button"
+                            class="reviews-selection-action"
+                            :disabled="!canCopySelectedComment"
+                            @click="copyPrimarySelectedComment"
+                        >
+                            Copy
+                        </button>
+                        <button
+                            type="button"
+                            class="reviews-selection-action reviews-selection-action--danger"
+                            :disabled="selectedCommentCount === 0"
+                            @click="deleteSelectedComments"
+                        >
+                            {{ selectedCommentCount > 1 ? `Delete ${selectedCommentCount}` : 'Delete' }}
+                        </button>
+                    </template>
+                    <p v-else class="reviews-selection-hint">
+                        Select an annotation to open, copy, or delete.
+                    </p>
                 </div>
             </footer>
         </section>
@@ -1860,8 +1862,8 @@ watch(
 <style scoped>
 .pdf-annotations-panel {
     position: relative;
-    display: grid;
-    grid-template-rows: minmax(0, 1fr) max-content;
+    display: flex;
+    flex-direction: column;
     gap: 0.5rem;
     height: 100%;
     min-height: 0;
@@ -1873,7 +1875,8 @@ watch(
 }
 
 .reviews-section {
-    min-height: clamp(14rem, 52vh, 30rem);
+    flex: 1 1 auto;
+    min-height: clamp(11rem, 40vh, 25rem);
     display: grid;
     grid-template-rows: auto auto auto minmax(0, 1fr) auto;
     border: 1px solid var(--ui-border);
@@ -2139,6 +2142,65 @@ watch(
     gap: 0.24rem;
 }
 
+.reviews-toolbar__line--selection {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.24rem;
+    padding-top: 0.15rem;
+    border-top: 1px dashed var(--ui-border);
+}
+
+.reviews-toolbar__line--selection .reviews-toolbar__label {
+    grid-column: 1 / -1;
+    min-width: 0;
+}
+
+.reviews-selection-action {
+    min-height: 1.82rem;
+    width: 100%;
+    border: 1px solid var(--ui-border);
+    background: color-mix(in oklab, var(--ui-bg, #fff) 96%, #e9eef7 4%);
+    color: var(--ui-text-muted);
+    font-size: 0.72rem;
+    font-weight: 600;
+    line-height: 1;
+    text-align: center;
+    padding: 0 0.35rem;
+    cursor: pointer;
+}
+
+.reviews-selection-action:hover {
+    border-color: color-mix(in oklab, var(--ui-primary) 28%, var(--ui-border));
+    color: var(--ui-text);
+    background: color-mix(in oklab, var(--ui-bg, #fff) 95%, var(--ui-primary) 5%);
+}
+
+.reviews-selection-action:disabled {
+    cursor: default;
+    opacity: 1;
+    color: color-mix(in oklab, var(--ui-text-dimmed) 72%, #7c8aa3 28%);
+    background: color-mix(in oklab, var(--ui-bg, #fff) 94%, #edf2fa 6%);
+}
+
+.reviews-selection-action:disabled:hover {
+    border-color: var(--ui-border);
+    color: var(--ui-text-dimmed);
+    background: var(--ui-bg, #fff);
+}
+
+.reviews-selection-action--danger {
+    color: #b42318;
+    grid-column: 1 / -1;
+}
+
+.reviews-selection-hint {
+    margin: 0;
+    grid-column: 1 / -1;
+    font-size: 0.7rem;
+    color: var(--ui-text-dimmed);
+    line-height: 1.35;
+}
+
 .reviews-toolbar__label {
     font-size: 0.65rem;
     letter-spacing: 0.06em;
@@ -2201,6 +2263,7 @@ watch(
 }
 
 .quick-section {
+    flex: 0 0 auto;
     align-self: stretch;
     border: 1px solid var(--ui-border);
     background: color-mix(in oklab, var(--ui-bg, #fff) 94%, #eef2f7 6%);

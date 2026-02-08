@@ -107,6 +107,16 @@ interface IProps {
     workingCopyPath?: string | null;
 }
 
+interface IAnnotationContextMenuPayload {
+    comment: IAnnotationCommentSummary | null;
+    clientX: number;
+    clientY: number;
+    hasSelection: boolean;
+    pageNumber: number | null;
+    pageX: number | null;
+    pageY: number | null;
+}
+
 const props = defineProps<IProps>();
 
 // Important: avoid destructuring `props` into plain values, otherwise changes from
@@ -140,11 +150,7 @@ const emit = defineEmits<{
     (e: 'annotation-modified'): void;
     (e: 'annotation-comments', comments: IAnnotationCommentSummary[]): void;
     (e: 'annotation-open-note', comment: IAnnotationCommentSummary): void;
-    (e: 'annotation-context-menu', payload: {
-        comment: IAnnotationCommentSummary;
-        clientX: number;
-        clientY: number;
-    }): void;
+    (e: 'annotation-context-menu', payload: IAnnotationContextMenuPayload): void;
     (e: 'annotation-tool-auto-reset'): void;
     (e: 'annotation-tool-cancel'): void;
 }>();
@@ -1038,6 +1044,55 @@ function cacheCurrentTextSelection() {
 
     cachedSelectionRange = range.cloneRange();
     cachedSelectionTimestamp = Date.now();
+}
+
+function isRangeWithinViewerTextLayer(range: Range) {
+    const container = viewerContainer.value;
+    if (!container) {
+        return false;
+    }
+
+    const commonAncestor = range.commonAncestorContainer;
+    const element = commonAncestor.nodeType === Node.TEXT_NODE
+        ? commonAncestor.parentElement
+        : commonAncestor as HTMLElement | null;
+    if (!element) {
+        return false;
+    }
+
+    const textLayer = element.closest('.text-layer, .textLayer');
+    return Boolean(textLayer && container.contains(textLayer));
+}
+
+function getSelectionRangeFromDocument() {
+    const selection = document.getSelection();
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+        return null;
+    }
+
+    const range = selection.getRangeAt(0);
+    if (!isRangeWithinViewerTextLayer(range)) {
+        return null;
+    }
+    return range.cloneRange();
+}
+
+function getSelectionRangeForCommentAction() {
+    const direct = getSelectionRangeFromDocument();
+    if (direct) {
+        return direct;
+    }
+
+    if (!cachedSelectionRange) {
+        return null;
+    }
+    if ((Date.now() - cachedSelectionTimestamp) > SELECTION_CACHE_TTL_MS) {
+        return null;
+    }
+    if (!isRangeWithinViewerTextLayer(cachedSelectionRange)) {
+        return null;
+    }
+    return cachedSelectionRange.cloneRange();
 }
 
 function shouldIgnoreEditorEvent(event: Event) {
@@ -1966,11 +2021,7 @@ function createDetachedCommentClusterMarkerElement(
         if (summary) {
             setActiveCommentStableKey(summary.stableKey);
             pulseCommentIndicator(summary.stableKey);
-            emit('annotation-context-menu', {
-                comment: summary,
-                clientX: event.clientX,
-                clientY: event.clientY,
-            });
+            emit('annotation-context-menu', buildAnnotationContextMenuPayload(summary, event.clientX, event.clientY));
         }
     });
     return marker;
@@ -2915,24 +2966,14 @@ function initAnnotationEditor() {
     scheduleAnnotationCommentsSync(true);
 }
 
-async function highlightSelectionInternal(withComment: boolean) {
+async function highlightSelectionInternal(withComment: boolean, explicitRange: Range | null = null) {
     const uiManager = annotationUiManager.value;
     if (!uiManager) {
         return;
     }
 
     let selection = document.getSelection();
-    const cachedRange = cachedSelectionRange;
-    const hasFreshCachedSelection = (
-        !!cachedRange
-        && (Date.now() - cachedSelectionTimestamp) <= SELECTION_CACHE_TTL_MS
-    );
-    let activeRange: Range | null = null;
-    if (selection && !selection.isCollapsed && selection.rangeCount > 0) {
-        activeRange = selection.getRangeAt(0).cloneRange();
-    } else if (hasFreshCachedSelection) {
-        activeRange = cachedRange.cloneRange();
-    }
+    const activeRange = explicitRange?.cloneRange() ?? getSelectionRangeForCommentAction();
 
     if (!activeRange) {
         return;
@@ -3278,6 +3319,194 @@ function findPageContainerFromClientPoint(clientX: number, clientY: number) {
     return nearest?.element ?? null;
 }
 
+interface IPagePointTarget {
+    pageContainer: HTMLElement;
+    pageNumber: number;
+    pageX: number;
+    pageY: number;
+}
+
+function clamp01(value: number) {
+    if (!Number.isFinite(value)) {
+        return 0;
+    }
+    return Math.max(0, Math.min(1, value));
+}
+
+function resolvePagePointTarget(clientX: number, clientY: number): IPagePointTarget | null {
+    const pageContainer = findPageContainerFromClientPoint(clientX, clientY);
+    if (!pageContainer) {
+        return null;
+    }
+    const rect = pageContainer.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) {
+        return null;
+    }
+    const pageNumber = pageContainer.dataset.page
+        ? Number(pageContainer.dataset.page)
+        : currentPage.value;
+    if (!Number.isFinite(pageNumber) || pageNumber <= 0) {
+        return null;
+    }
+    return {
+        pageContainer,
+        pageNumber,
+        pageX: clamp01((clientX - rect.left) / rect.width),
+        pageY: clamp01((clientY - rect.top) / rect.height),
+    };
+}
+
+function findClosestTextSpanInPage(
+    pageContainer: HTMLElement,
+    targetX: number,
+    targetY: number,
+) {
+    const spans = Array.from(
+        pageContainer.querySelectorAll<HTMLElement>('.text-layer span, .textLayer span'),
+    );
+    let best: {
+        span: HTMLElement;
+        score: number;
+        rect: DOMRect;
+    } | null = null;
+
+    spans.forEach((span) => {
+        const text = span.textContent?.trim() ?? '';
+        if (!text) {
+            return;
+        }
+        const rect = span.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) {
+            return;
+        }
+
+        const inside = targetX >= rect.left
+            && targetX <= rect.right
+            && targetY >= rect.top
+            && targetY <= rect.bottom;
+        const dx = inside
+            ? 0
+            : Math.min(Math.abs(targetX - rect.left), Math.abs(targetX - rect.right));
+        const dy = inside
+            ? 0
+            : Math.min(Math.abs(targetY - rect.top), Math.abs(targetY - rect.bottom));
+        const score = (dx * dx) + (dy * dy);
+        if (!best || score < best.score) {
+            best = {
+                span,
+                score,
+                rect,
+            };
+        }
+    });
+
+    return best;
+}
+
+function resolveWordOffsets(text: string, seedOffset: number) {
+    const length = text.length;
+    if (length <= 0) {
+        return null;
+    }
+
+    let offset = Math.max(0, Math.min(length - 1, seedOffset));
+    if (/\s/.test(text[offset] ?? '')) {
+        let left = offset - 1;
+        let right = offset + 1;
+        while (left >= 0 || right < length) {
+            if (left >= 0 && !/\s/.test(text[left] ?? '')) {
+                offset = left;
+                break;
+            }
+            if (right < length && !/\s/.test(text[right] ?? '')) {
+                offset = right;
+                break;
+            }
+            left -= 1;
+            right += 1;
+        }
+    }
+
+    let start = offset;
+    let end = Math.min(length, offset + 1);
+    while (start > 0 && !/\s/.test(text[start - 1] ?? '')) {
+        start -= 1;
+    }
+    while (end < length && !/\s/.test(text[end] ?? '')) {
+        end += 1;
+    }
+
+    if (start === end) {
+        end = Math.min(length, start + 1);
+    }
+    return {
+        start,
+        end,
+    };
+}
+
+function buildRangeFromPagePoint(target: IPagePointTarget) {
+    const pageRect = target.pageContainer.getBoundingClientRect();
+    const clientX = pageRect.left + (target.pageX * pageRect.width);
+    const clientY = pageRect.top + (target.pageY * pageRect.height);
+    const nearest = findClosestTextSpanInPage(target.pageContainer, clientX, clientY);
+    if (!nearest) {
+        return null;
+    }
+
+    const textNode = Array
+        .from(nearest.span.childNodes)
+        .find((node): node is Text => node.nodeType === Node.TEXT_NODE && (node.textContent?.length ?? 0) > 0)
+        ?? null;
+    if (!textNode) {
+        return null;
+    }
+
+    const text = textNode.textContent ?? '';
+    if (!text.length) {
+        return null;
+    }
+
+    const ratio = nearest.rect.width > 0
+        ? clamp01((clientX - nearest.rect.left) / nearest.rect.width)
+        : 0;
+    const offsetSeed = Math.floor(ratio * Math.max(1, text.length - 1));
+    const offsets = resolveWordOffsets(text, offsetSeed);
+    if (!offsets) {
+        return null;
+    }
+
+    const range = document.createRange();
+    range.setStart(textNode, offsets.start);
+    range.setEnd(textNode, offsets.end);
+    return range;
+}
+
+async function commentAtPoint(pageNumber: number, pageX: number, pageY: number) {
+    const container = viewerContainer.value;
+    if (!container || !annotationUiManager.value) {
+        return false;
+    }
+
+    const pageContainer = container.querySelector<HTMLElement>(`.page_container[data-page="${pageNumber}"]`);
+    if (!pageContainer) {
+        return false;
+    }
+
+    const range = buildRangeFromPagePoint({
+        pageContainer,
+        pageNumber,
+        pageX: clamp01(pageX),
+        pageY: clamp01(pageY),
+    });
+    if (!range) {
+        return false;
+    }
+
+    await highlightSelectionInternal(true, range);
+    return true;
+}
+
 function findAnnotationSummaryFromPoint(target: HTMLElement, clientX: number, clientY: number) {
     const pageContainer = target.closest<HTMLElement>('.page_container')
         ?? findPageContainerFromClientPoint(clientX, clientY);
@@ -3336,6 +3565,23 @@ function findAnnotationSummaryFromPoint(target: HTMLElement, clientX: number, cl
     });
 
     return bestSummary;
+}
+
+function buildAnnotationContextMenuPayload(
+    comment: IAnnotationCommentSummary | null,
+    clientX: number,
+    clientY: number,
+): IAnnotationContextMenuPayload {
+    const target = resolvePagePointTarget(clientX, clientY);
+    return {
+        comment,
+        clientX,
+        clientY,
+        hasSelection: Boolean(getSelectionRangeForCommentAction()),
+        pageNumber: target?.pageNumber ?? null,
+        pageX: target?.pageX ?? null,
+        pageY: target?.pageY ?? null,
+    };
 }
 
 function handleAnnotationEditorDblClick(event: MouseEvent) {
@@ -3402,18 +3648,14 @@ function handleAnnotationCommentContextMenu(event: MouseEvent) {
     const summary = (inlineTarget ? findCommentFromInlineTarget(inlineTarget) : null)
         ?? findAnnotationSummaryFromTarget(event.target)
         ?? findAnnotationSummaryFromPoint(event.target, event.clientX, event.clientY);
-    if (!summary) {
-        return;
-    }
-
     event.preventDefault();
-    setActiveCommentStableKey(summary.stableKey);
-    pulseCommentIndicator(summary.stableKey);
-    emit('annotation-context-menu', {
-        comment: summary,
-        clientX: event.clientX,
-        clientY: event.clientY,
-    });
+    if (summary) {
+        setActiveCommentStableKey(summary.stableKey);
+        pulseCommentIndicator(summary.stableKey);
+    } else {
+        setActiveCommentStableKey(null);
+    }
+    emit('annotation-context-menu', buildAnnotationContextMenuPayload(summary, event.clientX, event.clientY));
 }
 
 function handleDragStart(e: MouseEvent) {
@@ -3427,6 +3669,50 @@ function handleDragMove(e: MouseEvent) {
 function getVisibleRange() {
     updateVisibleRange(viewerContainer.value, numPages.value);
     return visibleRange.value;
+}
+
+function hasRenderedPageCanvas() {
+    const container = viewerContainer.value;
+    if (!container) {
+        return false;
+    }
+    return Boolean(container.querySelector('.page_container .page_canvas canvas'));
+}
+
+function hasRenderedTextLayerContent() {
+    const container = viewerContainer.value;
+    if (!container) {
+        return false;
+    }
+    return Boolean(container.querySelector('.page_container .text-layer span, .page_container .textLayer span'));
+}
+
+async function recoverInitialRenderIfNeeded() {
+    if (!pdfDocument.value || isLoading.value || numPages.value <= 0) {
+        return;
+    }
+    if (hasRenderedPageCanvas() || hasRenderedTextLayerContent()) {
+        return;
+    }
+
+    await nextTick();
+    await delay(40);
+    if (hasRenderedPageCanvas() || hasRenderedTextLayerContent()) {
+        return;
+    }
+
+    updateVisibleRange(viewerContainer.value, numPages.value);
+    await reRenderAllVisiblePages(getVisibleRange);
+
+    await nextTick();
+    await delay(80);
+    if (hasRenderedPageCanvas() || hasRenderedTextLayerContent()) {
+        return;
+    }
+
+    // Last-chance pass in case a stale render token race cancelled the first two attempts.
+    updateVisibleRange(viewerContainer.value, numPages.value);
+    await renderVisiblePages(getVisibleRange());
 }
 
 async function loadFromSource() {
@@ -3485,6 +3771,7 @@ async function loadFromSource() {
     await renderVisiblePages(visibleRange.value);
     applySearchHighlights();
     scheduleAnnotationCommentsSync(true);
+    void recoverInitialRenderIfNeeded();
 }
 
 const debouncedRenderOnScroll = useDebounceFn(() => {
@@ -3738,6 +4025,7 @@ watch(
     async (value, oldValue) => {
         if (oldValue === true && value === false) {
             await nextTick();
+            void recoverInitialRenderIfNeeded();
         }
         emit('update:loading', value);
         emit('loading', value);
@@ -3750,6 +4038,7 @@ defineExpose({
     saveDocument,
     highlightSelection,
     commentSelection,
+    commentAtPoint,
     undoAnnotation,
     redoAnnotation,
     focusAnnotationComment,
@@ -3963,6 +4252,20 @@ defineExpose({
 }
 
 .pdfViewer :deep(.pdf-inline-comment-marker.is-cluster)::after {
+    content: '';
+    right: 1px;
+    top: 1px;
+    width: 4px;
+    height: 4px;
+    border: 1px solid rgb(120 104 34 / 0.7);
+    border-radius: 999px;
+    background: rgb(255 252 226 / 0.96);
+    clip-path: none;
+    box-shadow: none;
+}
+
+.pdfViewer :deep(.pdf-inline-comment-marker.is-cluster:hover)::after,
+.pdfViewer :deep(.pdf-inline-comment-marker.is-cluster.is-active)::after {
     content: attr(data-comment-count);
     right: -6px;
     top: -6px;
@@ -4000,6 +4303,11 @@ defineExpose({
 }
 
 .pdfViewer :deep(.pdf-annotation-has-note-anchor)::after {
+    content: none;
+}
+
+.pdfViewer :deep(.pdf-annotation-has-note-anchor:hover)::after,
+.pdfViewer :deep(.pdf-annotation-has-note-anchor.pdf-annotation-has-note-active)::after {
     content: '';
     position: absolute;
     top: -6px;
@@ -4019,7 +4327,8 @@ defineExpose({
     transition: transform 0.12s ease;
 }
 
-.pdfViewer :deep(.pdf-annotation-has-note-multi.pdf-annotation-has-note-anchor)::before {
+.pdfViewer :deep(.pdf-annotation-has-note-multi.pdf-annotation-has-note-anchor:hover)::before,
+.pdfViewer :deep(.pdf-annotation-has-note-multi.pdf-annotation-has-note-anchor.pdf-annotation-has-note-active)::before {
     content: attr(data-comment-count);
     position: absolute;
     top: -9px;
@@ -4049,9 +4358,9 @@ defineExpose({
     overflow: visible;
     cursor: pointer;
     text-decoration: underline dotted rgb(127 105 23 / 0.9);
-    text-decoration-thickness: 1.5px;
+    text-decoration-thickness: 2px;
     text-underline-offset: 2px;
-    box-shadow: inset 0 -1px 0 rgb(126 103 20 / 0.5);
+    box-shadow: inset 0 -1px 0 rgb(126 103 20 / 0.58);
 }
 
 .pdfViewer :deep(.pdf-annotation-has-note-target:hover) {

@@ -74,6 +74,19 @@ icon: {
 },
 ```
 
+## Skill Maintenance
+
+**Rule**: If the `electron-puppeteer` skill stops working, investigate and fix it.
+
+The skill at `.claude/skills/electron-puppeteer/SKILL.md` documents how to launch, interact with, and verify the Electron app. If the skill's commands fail or produce unexpected results:
+
+1. Diagnose the root cause (stale process, missing build step, changed API, etc.)
+2. Fix the underlying scripts or configuration
+3. Update `SKILL.md` to reflect the fix so the documentation stays accurate
+4. Verify the skill works again before continuing with other tasks
+
+Do not work around a broken skill — fix it so all future sessions benefit.
+
 ## Task Completion Checks
 
 **Rule**: A task is not complete until all repository checks pass.
