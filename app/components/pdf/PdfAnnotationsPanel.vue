@@ -40,7 +40,7 @@
                 @click.self="focusReviewsList"
             >
                 <p class="reviews-hint">
-                    Click to focus. Double-click opens the pop-up note.
+                    Click to focus. Double-click or Enter opens the pop-up note.
                 </p>
                 <ul v-if="visibleNodes.length > 0" class="reviews-tree">
                     <li v-for="node in visibleNodes" :key="node.id">
@@ -139,6 +139,36 @@
                     >
                         <UIcon name="i-lucide-chevrons-up" class="reviews-toggle__icon" />
                         <span>Collapse</span>
+                    </button>
+                </div>
+                <div class="reviews-toolbar__line">
+                    <span class="reviews-toolbar__label">Selection</span>
+                    <button
+                        type="button"
+                        class="reviews-toggle reviews-toggle--compact"
+                        :disabled="!canOpenSelectedComment"
+                        @click="openPrimarySelectedComment"
+                    >
+                        <UIcon name="i-lucide-message-square" class="reviews-toggle__icon" />
+                        <span>Open</span>
+                    </button>
+                    <button
+                        type="button"
+                        class="reviews-toggle reviews-toggle--compact"
+                        :disabled="!canCopySelectedComment"
+                        @click="copyPrimarySelectedComment"
+                    >
+                        <UIcon name="i-lucide-copy" class="reviews-toggle__icon" />
+                        <span>Copy</span>
+                    </button>
+                    <button
+                        type="button"
+                        class="reviews-toggle reviews-toggle--compact reviews-toggle--danger"
+                        :disabled="selectedCommentCount === 0"
+                        @click="deleteSelectedComments"
+                    >
+                        <UIcon name="i-lucide-trash-2" class="reviews-toggle__icon" />
+                        <span>{{ selectedCommentCount > 1 ? `Delete ${selectedCommentCount}` : 'Delete' }}</span>
                     </button>
                 </div>
             </footer>
@@ -1306,11 +1336,19 @@ const contextMenuStyle = computed(() => ({
 }));
 const contextMenuComments = computed(() => normalizeComments(contextMenu.value.comments));
 const canOpenContextComment = computed(() => contextMenuComments.value.length === 1);
+const selectedComments = computed(() => getSelectedComments());
+const selectedCommentCount = computed(() => selectedComments.value.length);
+const primarySelectedComment = computed(() => getPrimarySelectedComment());
 
 const canCopyContextComment = computed(() => {
     const text = canOpenContextComment.value
         ? contextMenuComments.value[0]?.text?.trim()
         : '';
+    return Boolean(text);
+});
+const canOpenSelectedComment = computed(() => Boolean(primarySelectedComment.value));
+const canCopySelectedComment = computed(() => {
+    const text = primarySelectedComment.value?.text?.trim() ?? '';
     return Boolean(text);
 });
 
@@ -1411,7 +1449,7 @@ function deleteContextComment() {
 }
 
 function deleteSelectedComments() {
-    const comments = getSelectedComments();
+    const comments = selectedComments.value;
     if (comments.length === 0) {
         return;
     }
@@ -1419,6 +1457,26 @@ function deleteSelectedComments() {
         emit('delete-comment', comment);
     });
     closeContextMenu();
+}
+
+function openPrimarySelectedComment() {
+    const comment = primarySelectedComment.value;
+    if (!comment) {
+        return;
+    }
+    emit('focus-comment', comment);
+    emit('open-note', comment);
+}
+
+function copyPrimarySelectedComment() {
+    const comment = primarySelectedComment.value;
+    if (!comment) {
+        return;
+    }
+    if (!comment.text.trim()) {
+        return;
+    }
+    emit('copy-comment', comment);
 }
 
 function selectAllVisibleComments() {
@@ -2115,10 +2173,27 @@ watch(
     background: color-mix(in oklab, var(--ui-bg, #fff) 95%, var(--ui-primary) 5%);
 }
 
+.reviews-toggle:disabled {
+    cursor: default;
+    opacity: 0.52;
+    color: var(--ui-text-dimmed);
+    background: var(--ui-bg, #fff);
+}
+
+.reviews-toggle:disabled:hover {
+    border-color: var(--ui-border);
+    color: var(--ui-text-dimmed);
+    background: var(--ui-bg, #fff);
+}
+
 .reviews-toggle.is-active {
     color: var(--ui-text);
     border-color: color-mix(in oklab, var(--ui-primary) 42%, var(--ui-border));
     background: color-mix(in oklab, var(--ui-bg, #fff) 88%, var(--ui-primary) 12%);
+}
+
+.reviews-toggle--danger {
+    color: #b42318;
 }
 
 .reviews-toggle--compact {
