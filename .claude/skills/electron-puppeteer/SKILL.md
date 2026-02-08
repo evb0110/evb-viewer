@@ -1,6 +1,6 @@
 ---
 name: electron-puppeteer
-description: Launch and interact with the Electron app using Puppeteer CDP. Use when you need to see the app UI, take screenshots, click buttons, fill forms, read console, or debug the app. Supports persistent sessions for multi-step debugging workflows.
+description: Launch and interact with the Electron app using Puppeteer CDP. Use when you need to see the app UI, take screenshots, click buttons, fill forms, read console, or debug the app. Supports persistent sessions for multi-step debugging workflows. Triggers: 'launch the app', 'open the app', 'start the app', 'run the app', 'show me the app', 'take a screenshot', 'screenshot the app', 'what does the app look like', 'check the UI', 'test the app', 'debug the app', 'open a PDF', 'click the button', 'verify the UI', 'see what happened', 'look at the app', 'inspect the app', 'check in the app'.
 allowed-tools: Bash, Read
 ---
 

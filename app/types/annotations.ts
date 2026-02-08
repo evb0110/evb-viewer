@@ -1,4 +1,27 @@
-export type TAnnotationTool = 'none' | 'highlight' | 'text' | 'draw';
+export type TAnnotationTool = 'none' | 'highlight' | 'underline' | 'strikethrough' | 'squiggly' | 'text' | 'draw' | 'rectangle' | 'circle' | 'line' | 'arrow' | 'stamp';
+
+export type TMarkupSubtype = 'Highlight' | 'Underline' | 'StrikeOut' | 'Squiggly';
+
+export type TShapeType = 'rectangle' | 'circle' | 'line' | 'arrow';
+
+export type TLineEndStyle = 'none' | 'openArrow' | 'closedArrow';
+
+export interface IShapeAnnotation {
+    id: string;
+    type: TShapeType;
+    pageIndex: number;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    x2?: number;
+    y2?: number;
+    color: string;
+    fillColor?: string;
+    opacity: number;
+    strokeWidth: number;
+    lineEndStyle?: TLineEndStyle;
+}
 
 export interface IAnnotationSettings {
     highlightColor: string;
@@ -6,11 +29,21 @@ export interface IAnnotationSettings {
     highlightThickness: number;
     highlightFree: boolean;
     highlightShowAll: boolean;
+    underlineColor: string;
+    underlineOpacity: number;
+    strikethroughColor: string;
+    strikethroughOpacity: number;
+    squigglyColor: string;
+    squigglyOpacity: number;
     inkColor: string;
     inkOpacity: number;
     inkThickness: number;
     textColor: string;
     textSize: number;
+    shapeColor: string;
+    shapeFillColor: string;
+    shapeOpacity: number;
+    shapeStrokeWidth: number;
 }
 
 export interface IAnnotationEditorState {

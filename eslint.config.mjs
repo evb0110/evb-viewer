@@ -64,6 +64,13 @@ export default withNuxt(
                     message: 'Use absolute imports with @app/ or @electron/ prefix instead of relative imports',
                 }]},
             ],
+            'no-restricted-syntax': [
+                'error',
+                {
+                    selector: 'TSAsExpression[expression.type="TSAsExpression"][expression.typeAnnotation.type="TSUnknownKeyword"]',
+                    message: 'Avoid "as unknown as" double assertion. Use a type guard, generic parameter, or fix the underlying type instead.',
+                },
+            ],
             'custom/brace-return-after-if': 'error',
             'custom/import-specifier-newline': 'error',
             'custom/destructuring-property-newline': 'error',
@@ -167,6 +174,10 @@ export default withNuxt(
                     selector: 'Identifier[name="withDefaults"]',
                     message:
                         'use props destructuring. beware that withDefaults is not compatible with destructured props. Use default values in destructuring pattern directly, vue 3.5 supports them',
+                },
+                {
+                    selector: 'TSAsExpression[expression.type="TSAsExpression"][expression.typeAnnotation.type="TSUnknownKeyword"]',
+                    message: 'Avoid "as unknown as" double assertion. Use a type guard, generic parameter, or fix the underlying type instead.',
                 },
             ],
             'custom/vue-boolean-prop-shorthand': 'error',

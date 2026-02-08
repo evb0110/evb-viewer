@@ -43,6 +43,7 @@ import {
     nextTick,
     onMounted,
     onUnmounted,
+    provide,
     ref,
     shallowRef,
     watch,
@@ -69,6 +70,11 @@ import { usePdfPageRenderer } from '@app/composables/pdf/usePdfPageRenderer';
 import { usePdfScale } from '@app/composables/pdf/usePdfScale';
 import { usePdfScroll } from '@app/composables/pdf/usePdfScroll';
 import { usePdfSkeletonInsets } from '@app/composables/pdf/usePdfSkeletonInsets';
+import {
+    useAnnotationShapes,
+    isShapeTool,
+} from '@app/composables/pdf/useAnnotationShapes';
+import type { IShapeContextProvide } from '@app/composables/pdf/useAnnotationShapes';
 import { delay } from 'es-toolkit/promise';
 import { range } from 'es-toolkit/math';
 import type {
@@ -83,7 +89,10 @@ import type {
     IAnnotationEditorState,
     IAnnotationMarkerRect,
     IAnnotationSettings,
+    IShapeAnnotation,
     TAnnotationTool,
+    TMarkupSubtype,
+    TShapeType,
 } from '@app/types/annotations';
 
 import 'pdfjs-dist/web/pdf_viewer.css';
@@ -152,7 +161,13 @@ const emit = defineEmits<{
     (e: 'annotation-open-note', comment: IAnnotationCommentSummary): void;
     (e: 'annotation-context-menu', payload: IAnnotationContextMenuPayload): void;
     (e: 'annotation-tool-auto-reset'): void;
+    (e: 'annotation-comment-click', comment: IAnnotationCommentSummary): void;
     (e: 'annotation-tool-cancel'): void;
+    (e: 'shape-context-menu', payload: {
+        shapeId: string;
+        clientX: number;
+        clientY: number;
+    }): void;
 }>();
 
 const viewerContainer = ref<HTMLElement | null>(null);
@@ -213,6 +228,78 @@ const {
     computeSkeletonInsets,
     resetInsets,
 } = usePdfSkeletonInsets(basePageWidth, basePageHeight, effectiveScale);
+
+const shapeComposable = useAnnotationShapes();
+
+const isShapeToolActive = computed(() => isShapeTool(annotationTool.value));
+const activeShapeTool = computed<TShapeType | null>(() => isShapeTool(annotationTool.value) ? annotationTool.value : null);
+
+provide<IShapeContextProvide>('shapeContext', {
+    selectedShapeId: shapeComposable.selectedShapeId,
+    drawingShape: shapeComposable.drawingShape,
+    isShapeToolActive,
+    activeShapeTool,
+    settings: computed(() => annotationSettings.value ?? {
+        highlightColor: '#ffd400',
+        highlightOpacity: 0.35,
+        highlightThickness: 12,
+        highlightFree: true,
+        highlightShowAll: true,
+        underlineColor: '#2563eb',
+        underlineOpacity: 0.8,
+        strikethroughColor: '#dc2626',
+        strikethroughOpacity: 0.7,
+        squigglyColor: '#16a34a',
+        squigglyOpacity: 0.7,
+        inkColor: '#e11d48',
+        inkOpacity: 0.9,
+        inkThickness: 2,
+        textColor: '#111827',
+        textSize: 12,
+        shapeColor: '#2563eb',
+        shapeFillColor: 'transparent',
+        shapeOpacity: 1,
+        shapeStrokeWidth: 2,
+    }),
+    getShapesForPage: shapeComposable.getShapesForPage,
+    handleStartDrawing(pageIndex: number, coords: {
+        x: number;
+        y: number 
+    }) {
+        const tool = activeShapeTool.value;
+        if (!tool) {
+            return;
+        }
+        const settings = annotationSettings.value;
+        if (!settings) {
+            return;
+        }
+        shapeComposable.startDrawing(pageIndex, tool, coords.x, coords.y, settings);
+    },
+    handleContinueDrawing(coords: {
+        x: number;
+        y: number 
+    }) {
+        shapeComposable.continueDrawing(coords.x, coords.y);
+    },
+    handleFinishDrawing() {
+        const shape = shapeComposable.finishDrawing();
+        if (shape) {
+            emit('annotation-modified');
+        }
+    },
+    handleSelectShape(id: string | null) {
+        shapeComposable.selectShape(id);
+    },
+    handleShapeContextMenu(payload: {
+        shapeId: string;
+        clientX: number;
+        clientY: number;
+    }) {
+        shapeComposable.selectShape(payload.shapeId);
+        emit('shape-context-menu', payload);
+    },
+});
 
 const {
     setupPagePlaceholders,
@@ -1278,15 +1365,37 @@ function installAnnotationLayerDestroyGuard(uiManager: AnnotationEditorUIManager
 function getAnnotationMode(tool: TAnnotationTool) {
     switch (tool) {
         case 'highlight':
+        case 'underline':
+        case 'strikethrough':
+        case 'squiggly':
             return AnnotationEditorType.HIGHLIGHT;
         case 'text':
             return AnnotationEditorType.FREETEXT;
         case 'draw':
             return AnnotationEditorType.INK;
+        case 'stamp':
+            return AnnotationEditorType.STAMP;
+        case 'rectangle':
+        case 'circle':
+        case 'line':
+        case 'arrow':
+            return AnnotationEditorType.NONE;
         case 'none':
         default:
             return AnnotationEditorType.NONE;
     }
+}
+
+const TOOL_TO_MARKUP_SUBTYPE: Partial<Record<TAnnotationTool, TMarkupSubtype>> = {
+    underline: 'Underline',
+    strikethrough: 'StrikeOut',
+    squiggly: 'Squiggly',
+};
+
+const markupSubtypeOverrides = new Map<string, TMarkupSubtype>();
+
+function getMarkupSubtypeOverrides() {
+    return markupSubtypeOverrides;
 }
 
 type TUiManagerSelectedEditor = Parameters<AnnotationEditorUIManager['setSelected']>[0];
@@ -1310,6 +1419,19 @@ function colorWithOpacity(color: string, opacity: number) {
     return color;
 }
 
+function resolveHighlightColorForTool(settings: IAnnotationSettings, tool: TAnnotationTool) {
+    switch (tool) {
+        case 'underline':
+            return colorWithOpacity(settings.underlineColor, settings.underlineOpacity);
+        case 'strikethrough':
+            return colorWithOpacity(settings.strikethroughColor, settings.strikethroughOpacity);
+        case 'squiggly':
+            return colorWithOpacity(settings.squigglyColor, settings.squigglyOpacity);
+        default:
+            return colorWithOpacity(settings.highlightColor, settings.highlightOpacity);
+    }
+}
+
 function applyAnnotationSettings(settings: IAnnotationSettings | null) {
     pendingAnnotationSettings.value = settings;
     const uiManager = annotationUiManager.value;
@@ -1317,9 +1439,10 @@ function applyAnnotationSettings(settings: IAnnotationSettings | null) {
         return;
     }
 
+    const tool = annotationTool.value;
     uiManager.updateParams(
         AnnotationEditorParamsType.HIGHLIGHT_COLOR,
-        colorWithOpacity(settings.highlightColor, settings.highlightOpacity),
+        resolveHighlightColorForTool(settings, tool),
     );
     uiManager.updateParams(AnnotationEditorParamsType.HIGHLIGHT_THICKNESS, settings.highlightThickness);
     uiManager.updateParams(AnnotationEditorParamsType.HIGHLIGHT_FREE, settings.highlightFree);
@@ -1338,6 +1461,14 @@ async function setAnnotationTool(tool: TAnnotationTool) {
         return;
     }
     const mode = getAnnotationMode(tool);
+
+    if (pendingAnnotationSettings.value) {
+        uiManager.updateParams(
+            AnnotationEditorParamsType.HIGHLIGHT_COLOR,
+            resolveHighlightColorForTool(pendingAnnotationSettings.value, tool),
+        );
+    }
+
     try {
         await uiManager.updateMode(mode);
     } catch (error) {
@@ -1388,6 +1519,23 @@ function undoAnnotation() {
 
 function redoAnnotation() {
     annotationUiManager.value?.redo();
+}
+
+function applyStampImage(file: File) {
+    const uiManager = annotationUiManager.value;
+    if (!uiManager) {
+        return;
+    }
+    uiManager.updateParams(AnnotationEditorParamsType.CREATE, { bitmapFile: file });
+}
+
+function getSelectedShape(): IShapeAnnotation | null {
+    const id = shapeComposable.selectedShapeId.value;
+    if (!id) {
+        return null;
+    }
+    const all = shapeComposable.getAllShapes();
+    return all.find(s => s.id === id) ?? null;
 }
 
 function toSummaryKey(summary: IAnnotationCommentSummary) {
@@ -2906,6 +3054,13 @@ function initAnnotationEditor() {
             trackedCreatedEditors.add(editorObject);
             maybeAutoResetAnnotationTool();
         }
+        const subtypeOverride = TOOL_TO_MARKUP_SUBTYPE[annotationTool.value];
+        if (subtypeOverride) {
+            const editorId = (editor as IPdfjsEditor | null)?.annotationElementId;
+            if (editorId) {
+                markupSubtypeOverrides.set(editorId, subtypeOverride);
+            }
+        }
         emit('annotation-modified');
         scheduleAnnotationCommentsSync();
         return result;
@@ -3036,10 +3191,7 @@ async function highlightSelectionInternal(withComment: boolean, explicitRange: R
 
         const layer = uiManager.getLayer(pageNumber - 1) ?? uiManager.currentLayer;
         const createdEditor = layer?.createAndAddNewEditor(
-            {
-                offsetX: 0,
-                offsetY: 0, 
-            } as unknown as PointerEvent,
+            new PointerEvent('pointerdown'),
             false,
             {
                 methodOfCreation: 'toolbar',
@@ -3486,7 +3638,8 @@ function buildRangeFromPagePoint(target: IPagePointTarget) {
 
 async function commentAtPoint(pageNumber: number, pageX: number, pageY: number) {
     const container = viewerContainer.value;
-    if (!container || !annotationUiManager.value) {
+    const uiManager = annotationUiManager.value;
+    if (!container || !uiManager) {
         return false;
     }
 
@@ -3501,12 +3654,34 @@ async function commentAtPoint(pageNumber: number, pageX: number, pageY: number) 
         pageX: clamp01(pageX),
         pageY: clamp01(pageY),
     });
-    if (!range) {
-        return false;
+    if (range) {
+        await highlightSelectionInternal(true, range);
+        return true;
     }
 
-    await highlightSelectionInternal(true, range);
-    return true;
+    const previousMode = uiManager.getMode();
+    try {
+        await uiManager.updateMode(AnnotationEditorType.FREETEXT);
+        await uiManager.waitForEditorsRendered(pageNumber);
+        const layer = uiManager.getLayer(pageNumber - 1) ?? uiManager.currentLayer;
+        if (!layer?.div) {
+            return false;
+        }
+        const layerRect = layer.div.getBoundingClientRect();
+        const clientX = layerRect.left + clamp01(pageX) * layerRect.width;
+        const clientY = layerRect.top + clamp01(pageY) * layerRect.height;
+        const event = new PointerEvent('pointerdown', {
+            clientX,
+            clientY,
+            bubbles: true,
+        });
+        layer.div.dispatchEvent(event);
+        return true;
+    } finally {
+        if (previousMode !== AnnotationEditorType.FREETEXT) {
+            await uiManager.updateMode(previousMode);
+        }
+    }
 }
 
 function findAnnotationSummaryFromPoint(target: HTMLElement, clientX: number, clientY: number) {
@@ -3620,7 +3795,7 @@ function handleAnnotationCommentClick(event: MouseEvent) {
         if (summary) {
             setActiveCommentStableKey(summary.stableKey);
             pulseCommentIndicator(summary.stableKey);
-            emit('annotation-open-note', summary);
+            emit('annotation-comment-click', summary);
             return;
         }
     }
@@ -3632,7 +3807,7 @@ function handleAnnotationCommentClick(event: MouseEvent) {
     }
     setActiveCommentStableKey(summary.stableKey);
     pulseCommentIndicator(summary.stableKey);
-    emit('annotation-open-note', summary);
+    emit('annotation-comment-click', summary);
 }
 
 function handleAnnotationCommentContextMenu(event: MouseEvent) {
@@ -4046,6 +4221,16 @@ defineExpose({
     focusAnnotationComment,
     updateAnnotationComment,
     deleteAnnotationComment,
+    getMarkupSubtypeOverrides,
+    getAllShapes: shapeComposable.getAllShapes,
+    loadShapes: shapeComposable.loadShapes,
+    clearShapes: shapeComposable.clearShapes,
+    deleteSelectedShape: shapeComposable.deleteSelectedShape,
+    hasShapes: shapeComposable.hasShapes,
+    selectedShapeId: shapeComposable.selectedShapeId,
+    updateShape: shapeComposable.updateShape,
+    getSelectedShape,
+    applyStampImage,
 });
 </script>
 
@@ -4254,38 +4439,31 @@ defineExpose({
 }
 
 .pdfViewer :deep(.pdf-inline-comment-marker.is-cluster)::after {
-    content: '';
-    right: 1px;
-    top: 1px;
-    width: 4px;
-    height: 4px;
-    border: 1px solid rgb(120 104 34 / 0.7);
-    border-radius: 999px;
-    background: rgb(255 252 226 / 0.96);
-    clip-path: none;
-    box-shadow: none;
-}
-
-.pdfViewer :deep(.pdf-inline-comment-marker.is-cluster:hover)::after,
-.pdfViewer :deep(.pdf-inline-comment-marker.is-cluster.is-active)::after {
     content: attr(data-comment-count);
-    right: -6px;
-    top: -6px;
-    width: 12px;
-    height: 12px;
+    right: -7px;
+    top: -7px;
+    min-width: 15px;
+    height: 15px;
     border-radius: 999px;
-    border: 1px solid rgb(120 104 34 / 0.9);
-    background: linear-gradient(180deg, #fff9cf 0%, #f0e183 100%);
-    color: rgb(87 73 16 / 0.95);
+    border: 1.5px solid rgb(120 80 10 / 0.75);
+    background: linear-gradient(180deg, #fff 0%, #fde68a 100%);
+    color: rgb(60 40 5);
     clip-path: none;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    font-size: 7px;
+    font-size: 9px;
     font-weight: 700;
     line-height: 1;
+    padding: 0 3px;
     font-variant-numeric: tabular-nums;
     box-shadow: 0 1px 3px rgb(0 0 0 / 0.22);
+}
+
+.pdfViewer :deep(.pdf-inline-comment-marker.is-cluster:hover)::after,
+.pdfViewer :deep(.pdf-inline-comment-marker.is-cluster.is-active)::after {
+    border-color: rgb(100 65 5 / 0.9);
+    box-shadow: 0 1px 4px rgb(0 0 0 / 0.32);
 }
 
 .pdfViewer :deep(.pdf-inline-comment-marker:hover) {
@@ -4329,40 +4507,39 @@ defineExpose({
     transition: transform 0.12s ease;
 }
 
-.pdfViewer :deep(.pdf-annotation-has-note-multi.pdf-annotation-has-note-anchor:hover)::before,
-.pdfViewer :deep(.pdf-annotation-has-note-multi.pdf-annotation-has-note-anchor.pdf-annotation-has-note-active)::before {
+.pdfViewer :deep(.pdf-annotation-has-note-multi.pdf-annotation-has-note-anchor)::before {
     content: attr(data-comment-count);
     position: absolute;
     top: -9px;
-    right: 5px;
-    min-width: 11px;
-    height: 11px;
+    right: 3px;
+    min-width: 15px;
+    height: 15px;
     border-radius: 999px;
-    border: 1px solid rgb(120 104 34 / 0.88);
-    background: linear-gradient(180deg, #fff9cf 0%, #f0e183 100%);
-    color: rgb(87 73 16 / 0.95);
+    border: 1.5px solid rgb(120 80 10 / 0.75);
+    background: linear-gradient(180deg, #fff 0%, #fde68a 100%);
+    color: rgb(60 40 5);
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    font-size: 7px;
+    font-size: 9px;
     font-weight: 700;
     line-height: 1;
-    padding: 0 2px;
+    padding: 0 3px;
     font-variant-numeric: tabular-nums;
-    box-shadow:
-        0 1px 2px rgb(0 0 0 / 0.2),
-        inset 0 0 0 1px rgb(255 255 255 / 0.5);
+    box-shadow: 0 1px 3px rgb(0 0 0 / 0.22);
     pointer-events: none;
+}
+
+.pdfViewer :deep(.pdf-annotation-has-note-multi.pdf-annotation-has-note-anchor:hover)::before,
+.pdfViewer :deep(.pdf-annotation-has-note-multi.pdf-annotation-has-note-anchor.pdf-annotation-has-note-active)::before {
+    border-color: rgb(100 65 5 / 0.9);
+    box-shadow: 0 1px 4px rgb(0 0 0 / 0.32);
 }
 
 .pdfViewer :deep(.pdf-annotation-has-note-target) {
     position: relative;
     overflow: visible;
     cursor: pointer;
-    text-decoration: underline dotted rgb(127 105 23 / 0.9);
-    text-decoration-thickness: 2px;
-    text-underline-offset: 2px;
-    box-shadow: inset 0 -1px 0 rgb(126 103 20 / 0.58);
 }
 
 .pdfViewer :deep(.pdf-annotation-has-note-target:hover) {
@@ -4375,9 +4552,6 @@ defineExpose({
 
 .pdfViewer :deep(.pdf-annotation-has-note-active) {
     filter: drop-shadow(0 0 4px color-mix(in oklab, var(--ui-primary, #3b82f6) 28%, transparent));
-    text-decoration-color: color-mix(in oklab, var(--ui-primary, #3b82f6) 44%, rgb(137 116 31));
-    box-shadow:
-        inset 0 -2px 0 color-mix(in oklab, var(--ui-primary, #3b82f6) 34%, rgb(126 103 20));
 }
 
 .pdfViewer :deep(.pdf-annotation-has-note-active.pdf-annotation-has-note-anchor)::after {

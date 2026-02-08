@@ -102,6 +102,119 @@
                             @click="openAnnotations(); closeAllDropdowns()"
                         />
                     </UTooltip>
+
+                    <div v-if="pdfSrc" class="toolbar-button-group">
+                        <div class="toolbar-group-item">
+                            <UTooltip text="Highlight (H)" :delay-duration="1200">
+                                <UButton
+                                    icon="i-lucide-highlighter"
+                                    :variant="annotationTool === 'highlight' ? 'soft' : 'ghost'"
+                                    :color="annotationTool === 'highlight' ? 'primary' : 'neutral'"
+                                    class="toolbar-group-button"
+                                    aria-label="Highlight"
+                                    @click="handleAnnotationToolChange(annotationTool === 'highlight' ? 'none' : 'highlight'); closeAllDropdowns()"
+                                />
+                            </UTooltip>
+                        </div>
+                        <div class="toolbar-group-item">
+                            <UTooltip text="Underline (U)" :delay-duration="1200">
+                                <UButton
+                                    icon="i-lucide-underline"
+                                    :variant="annotationTool === 'underline' ? 'soft' : 'ghost'"
+                                    :color="annotationTool === 'underline' ? 'primary' : 'neutral'"
+                                    class="toolbar-group-button"
+                                    aria-label="Underline"
+                                    @click="handleAnnotationToolChange(annotationTool === 'underline' ? 'none' : 'underline'); closeAllDropdowns()"
+                                />
+                            </UTooltip>
+                        </div>
+                        <div class="toolbar-group-item">
+                            <UTooltip text="Strikethrough (S)" :delay-duration="1200">
+                                <UButton
+                                    icon="i-lucide-strikethrough"
+                                    :variant="annotationTool === 'strikethrough' ? 'soft' : 'ghost'"
+                                    :color="annotationTool === 'strikethrough' ? 'primary' : 'neutral'"
+                                    class="toolbar-group-button"
+                                    aria-label="Strikethrough"
+                                    @click="handleAnnotationToolChange(annotationTool === 'strikethrough' ? 'none' : 'strikethrough'); closeAllDropdowns()"
+                                />
+                            </UTooltip>
+                        </div>
+                        <div class="toolbar-group-item">
+                            <UTooltip text="Squiggly (Q)" :delay-duration="1200">
+                                <UButton
+                                    icon="i-lucide-waves"
+                                    :variant="annotationTool === 'squiggly' ? 'soft' : 'ghost'"
+                                    :color="annotationTool === 'squiggly' ? 'primary' : 'neutral'"
+                                    class="toolbar-group-button"
+                                    aria-label="Squiggly"
+                                    @click="handleAnnotationToolChange(annotationTool === 'squiggly' ? 'none' : 'squiggly'); closeAllDropdowns()"
+                                />
+                            </UTooltip>
+                        </div>
+                    </div>
+
+                    <div v-if="pdfSrc" class="toolbar-button-group">
+                        <div class="toolbar-group-item">
+                            <UTooltip text="Rectangle (R)" :delay-duration="1200">
+                                <UButton
+                                    icon="i-lucide-square"
+                                    :variant="annotationTool === 'rectangle' ? 'soft' : 'ghost'"
+                                    :color="annotationTool === 'rectangle' ? 'primary' : 'neutral'"
+                                    class="toolbar-group-button"
+                                    aria-label="Rectangle"
+                                    @click="handleAnnotationToolChange(annotationTool === 'rectangle' ? 'none' : 'rectangle'); closeAllDropdowns()"
+                                />
+                            </UTooltip>
+                        </div>
+                        <div class="toolbar-group-item">
+                            <UTooltip text="Circle (C)" :delay-duration="1200">
+                                <UButton
+                                    icon="i-lucide-circle"
+                                    :variant="annotationTool === 'circle' ? 'soft' : 'ghost'"
+                                    :color="annotationTool === 'circle' ? 'primary' : 'neutral'"
+                                    class="toolbar-group-button"
+                                    aria-label="Circle"
+                                    @click="handleAnnotationToolChange(annotationTool === 'circle' ? 'none' : 'circle'); closeAllDropdowns()"
+                                />
+                            </UTooltip>
+                        </div>
+                        <div class="toolbar-group-item">
+                            <UTooltip text="Line (L)" :delay-duration="1200">
+                                <UButton
+                                    icon="i-lucide-minus"
+                                    :variant="annotationTool === 'line' ? 'soft' : 'ghost'"
+                                    :color="annotationTool === 'line' ? 'primary' : 'neutral'"
+                                    class="toolbar-group-button"
+                                    aria-label="Line"
+                                    @click="handleAnnotationToolChange(annotationTool === 'line' ? 'none' : 'line'); closeAllDropdowns()"
+                                />
+                            </UTooltip>
+                        </div>
+                        <div class="toolbar-group-item">
+                            <UTooltip text="Arrow (A)" :delay-duration="1200">
+                                <UButton
+                                    icon="i-lucide-arrow-up-right"
+                                    :variant="annotationTool === 'arrow' ? 'soft' : 'ghost'"
+                                    :color="annotationTool === 'arrow' ? 'primary' : 'neutral'"
+                                    class="toolbar-group-button"
+                                    aria-label="Arrow"
+                                    @click="handleAnnotationToolChange(annotationTool === 'arrow' ? 'none' : 'arrow'); closeAllDropdowns()"
+                                />
+                            </UTooltip>
+                        </div>
+                    </div>
+
+                    <UTooltip text="Stamp (P)" :delay-duration="1200">
+                        <UButton
+                            icon="i-lucide-stamp"
+                            :variant="annotationTool === 'stamp' ? 'soft' : 'ghost'"
+                            :color="annotationTool === 'stamp' ? 'primary' : 'neutral'"
+                            class="toolbar-icon-button"
+                            aria-label="Stamp"
+                            @click="handleAnnotationToolChange(annotationTool === 'stamp' ? 'none' : 'stamp'); closeAllDropdowns()"
+                        />
+                    </UTooltip>
                 </div>
 
                 <!-- Spacer to push center -->
@@ -263,6 +376,7 @@
                     @annotation-setting="handleAnnotationSettingChange"
                     @annotation-highlight-selection="handleHighlightSelection"
                     @annotation-comment-selection="handleCommentSelection"
+                    @annotation-apply-stamp="handleApplyStamp"
                     @annotation-focus-comment="handleAnnotationFocusComment"
                     @annotation-open-note="handleOpenAnnotationNote"
                     @annotation-copy-comment="handleCopyAnnotationComment"
@@ -300,9 +414,11 @@
                     @annotation-modified="handleAnnotationModified"
                     @annotation-comments="annotationComments = $event"
                     @annotation-open-note="handleOpenAnnotationNote"
+                    @annotation-comment-click="handleAnnotationCommentClick"
                     @annotation-context-menu="handleViewerAnnotationContextMenu"
                     @annotation-tool-auto-reset="handleAnnotationToolAutoReset"
                     @annotation-tool-cancel="handleAnnotationToolCancel"
+                    @shape-context-menu="handleShapeContextMenu"
                 />
                 <div
                     v-else
@@ -401,7 +517,12 @@
         >
             <template v-if="annotationContextMenu.comment">
                 <p class="annotation-context-menu__section-title">
-                    Selected Annotation
+                    <span
+                        v-if="annotationContextMenu.comment.color"
+                        class="annotation-context-menu__color-swatch"
+                        :style="{ background: annotationContextMenu.comment.color }"
+                    />
+                    {{ contextMenuAnnotationLabel }}
                 </p>
                 <button type="button" class="annotation-context-menu__action" @click="openContextMenuNote">
                     Open Pop-up Note
@@ -420,6 +541,41 @@
                     @click="deleteContextMenuComment"
                 >
                     Delete Annotation
+                </button>
+                <div class="annotation-context-menu__divider" />
+            </template>
+
+            <template v-if="annotationContextMenu.hasSelection">
+                <p class="annotation-context-menu__section-title">
+                    Markup Selection
+                </p>
+                <button
+                    type="button"
+                    class="annotation-context-menu__action"
+                    @click="createContextMenuMarkup('highlight')"
+                >
+                    Highlight
+                </button>
+                <button
+                    type="button"
+                    class="annotation-context-menu__action"
+                    @click="createContextMenuMarkup('underline')"
+                >
+                    Underline
+                </button>
+                <button
+                    type="button"
+                    class="annotation-context-menu__action"
+                    @click="createContextMenuMarkup('strikethrough')"
+                >
+                    Strikethrough
+                </button>
+                <button
+                    type="button"
+                    class="annotation-context-menu__action"
+                    @click="createContextMenuMarkup('squiggly')"
+                >
+                    Squiggly
                 </button>
                 <div class="annotation-context-menu__divider" />
             </template>
@@ -444,6 +600,14 @@
                 Add Pop-up Note from Selection
             </button>
         </div>
+
+        <PdfAnnotationProperties
+            :shape="selectedShapeForProperties"
+            :x="shapePropertiesPopover.x"
+            :y="shapePropertiesPopover.y"
+            @update="handleShapePropertyUpdate"
+            @close="closeShapeProperties"
+        />
     </div>
 </template>
 
@@ -474,8 +638,11 @@ import type {
     IAnnotationCommentSummary,
     IAnnotationEditorState,
     IAnnotationSettings,
+    IShapeAnnotation,
     TAnnotationTool,
+    TMarkupSubtype,
 } from '@app/types/annotations';
+import { useStampPresets } from '@app/composables/pdf/useStampPresets';
 
 
 type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'outline' | 'search';
@@ -491,6 +658,16 @@ interface IPdfViewerExpose {
     focusAnnotationComment: (comment: IAnnotationCommentSummary) => Promise<void>;
     updateAnnotationComment: (comment: IAnnotationCommentSummary, text: string) => boolean;
     deleteAnnotationComment: (comment: IAnnotationCommentSummary) => Promise<boolean>;
+    getMarkupSubtypeOverrides: () => Map<string, TMarkupSubtype>;
+    getAllShapes: () => IShapeAnnotation[];
+    loadShapes: (shapes: IShapeAnnotation[]) => void;
+    clearShapes: () => void;
+    deleteSelectedShape: () => void;
+    hasShapes: { value: boolean };
+    selectedShapeId: { value: string | null };
+    updateShape: (id: string, updates: Partial<IShapeAnnotation>) => void;
+    getSelectedShape: () => IShapeAnnotation | null;
+    applyStampImage: (file: File) => void;
 }
 
 interface IOcrPopupExpose {
@@ -672,6 +849,7 @@ function isTypingTarget(target: EventTarget | null) {
 function handleGlobalShortcut(event: KeyboardEvent) {
     if (event.key === 'Escape') {
         closeAnnotationContextMenu();
+        closeShapeProperties();
     }
 
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'f' && pdfSrc.value) {
@@ -698,6 +876,18 @@ function handleGlobalShortcut(event: KeyboardEvent) {
             openAnnotations();
             annotationTool.value = 'highlight';
             return;
+        case 'u':
+            openAnnotations();
+            annotationTool.value = 'underline';
+            return;
+        case 's':
+            openAnnotations();
+            annotationTool.value = 'strikethrough';
+            return;
+        case 'q':
+            openAnnotations();
+            annotationTool.value = 'squiggly';
+            return;
         case 't':
             openAnnotations();
             annotationTool.value = 'text';
@@ -706,8 +896,32 @@ function handleGlobalShortcut(event: KeyboardEvent) {
             openAnnotations();
             annotationTool.value = 'draw';
             return;
+        case 'r':
+            openAnnotations();
+            annotationTool.value = 'rectangle';
+            return;
+        case 'c':
+            openAnnotations();
+            annotationTool.value = 'circle';
+            return;
+        case 'l':
+            openAnnotations();
+            annotationTool.value = 'line';
+            return;
+        case 'a':
+            openAnnotations();
+            annotationTool.value = 'arrow';
+            return;
+        case 'p':
+            openAnnotations();
+            annotationTool.value = 'stamp';
+            return;
         case 'escape':
             annotationTool.value = 'none';
+            return;
+        case 'delete':
+        case 'backspace':
+            pdfViewerRef.value?.deleteSelectedShape();
             return;
         default:
             return;
@@ -715,15 +929,19 @@ function handleGlobalShortcut(event: KeyboardEvent) {
 }
 
 function handleGlobalPointerDown(event: PointerEvent) {
-    if (!annotationContextMenu.value.visible) {
-        return;
+    const target = event.target instanceof HTMLElement ? event.target : null;
+
+    if (shapePropertiesPopover.value.visible) {
+        if (!target?.closest('.annotation-properties')) {
+            closeShapeProperties();
+        }
     }
 
-    const target = event.target instanceof HTMLElement ? event.target : null;
-    if (target?.closest('.annotation-context-menu')) {
-        return;
+    if (annotationContextMenu.value.visible) {
+        if (!target?.closest('.annotation-context-menu')) {
+            closeAnnotationContextMenu();
+        }
     }
-    closeAnnotationContextMenu();
 }
 
 onMounted(() => {
@@ -797,6 +1015,7 @@ const {
 } = usePdfSearch();
 
 const { clearCache: clearOcrCache } = useOcrTextContent();
+const { getStampImage } = useStampPresets();
 
 const pdfViewerRef = ref<IPdfViewerExpose | null>(null);
 const zoomDropdownRef = ref<{ close: () => void } | null>(null);
@@ -832,11 +1051,21 @@ const annotationSettings = ref<IAnnotationSettings>({
     highlightThickness: 12,
     highlightFree: true,
     highlightShowAll: true,
+    underlineColor: '#2563eb',
+    underlineOpacity: 0.8,
+    strikethroughColor: '#dc2626',
+    strikethroughOpacity: 0.7,
+    squigglyColor: '#16a34a',
+    squigglyOpacity: 0.7,
     inkColor: '#e11d48',
     inkOpacity: 0.9,
     inkThickness: 2,
     textColor: '#111827',
     textSize: 12,
+    shapeColor: '#2563eb',
+    shapeFillColor: 'transparent',
+    shapeOpacity: 1,
+    shapeStrokeWidth: 2,
 });
 const annotationComments = ref<IAnnotationCommentSummary[]>([]);
 const annotationActiveCommentStableKey = ref<string | null>(null);
@@ -913,6 +1142,29 @@ const annotationContextMenuCanCreateFree = computed(() => (
     && Number.isFinite(annotationContextMenu.value.pageX)
     && Number.isFinite(annotationContextMenu.value.pageY)
 ));
+const contextMenuAnnotationLabel = computed(() => {
+    const comment = annotationContextMenu.value.comment;
+    if (!comment) {
+        return 'Selected Annotation';
+    }
+    return comment.kindLabel ?? comment.subtype ?? 'Annotation';
+});
+const shapePropertiesPopover = ref<{
+    visible: boolean;
+    x: number;
+    y: number;
+}>({
+    visible: false,
+    x: 0,
+    y: 0,
+});
+
+const selectedShapeForProperties = computed(() =>
+    shapePropertiesPopover.value.visible
+        ? pdfViewerRef.value?.getSelectedShape() ?? null
+        : null,
+);
+
 const sortedAnnotationNoteWindows = computed(() =>
     [...annotationNoteWindows.value].sort((left, right) => left.order - right.order));
 
@@ -1161,6 +1413,17 @@ function handleCommentSelection() {
     pdfViewerRef.value?.commentSelection();
 }
 
+async function handleApplyStamp(presetId: string) {
+    const blob = await getStampImage(presetId);
+    if (!blob) {
+        return;
+    }
+    const file = new File([blob], `stamp-${presetId}.png`, { type: 'image/png' });
+    annotationTool.value = 'stamp';
+    await nextTick();
+    pdfViewerRef.value?.applyStampImage(file);
+}
+
 async function handleAnnotationFocusComment(comment: IAnnotationCommentSummary) {
     if (!pdfViewerRef.value) {
         return;
@@ -1170,6 +1433,11 @@ async function handleAnnotationFocusComment(comment: IAnnotationCommentSummary) 
     sidebarTab.value = 'annotations';
     dragMode.value = false;
     await pdfViewerRef.value.focusAnnotationComment(comment);
+}
+
+function handleAnnotationCommentClick(comment: IAnnotationCommentSummary) {
+    annotationActiveCommentStableKey.value = comment.stableKey;
+    dragMode.value = false;
 }
 
 function handleOpenAnnotationNote(comment: IAnnotationCommentSummary) {
@@ -1183,10 +1451,7 @@ function handleOpenAnnotationNote(comment: IAnnotationCommentSummary) {
     } else {
         upsertAnnotationNoteWindow(comment);
     }
-    showSidebar.value = true;
-    sidebarTab.value = 'annotations';
     dragMode.value = false;
-    void handleAnnotationFocusComment(comment);
 }
 
 function closeAnnotationContextMenu() {
@@ -1202,6 +1467,41 @@ function closeAnnotationContextMenu() {
         pageNumber: null,
         pageX: null,
         pageY: null,
+    };
+}
+
+function closeShapeProperties() {
+    shapePropertiesPopover.value = {
+        visible: false,
+        x: 0,
+        y: 0, 
+    };
+}
+
+function handleShapePropertyUpdate(updates: Partial<IShapeAnnotation>) {
+    const id = pdfViewerRef.value?.selectedShapeId?.value;
+    if (!id) {
+        return;
+    }
+    pdfViewerRef.value?.updateShape(id, updates);
+}
+
+function handleShapeContextMenu(payload: {
+    shapeId: string;
+    clientX: number;
+    clientY: number;
+}) {
+    closeAnnotationContextMenu();
+    const popoverWidth = 260;
+    const popoverHeight = 200;
+    const margin = 8;
+    const maxX = Math.max(margin, window.innerWidth - popoverWidth - margin);
+    const maxY = Math.max(margin, window.innerHeight - popoverHeight - margin);
+
+    shapePropertiesPopover.value = {
+        visible: true,
+        x: Math.min(Math.max(margin, payload.clientX), maxX),
+        y: Math.min(Math.max(margin, payload.clientY), maxY),
     };
 }
 
@@ -1221,8 +1521,10 @@ function handleViewerAnnotationContextMenu(payload: {
     }
 
     const hasComment = Boolean(payload.comment);
+    const hasSelection = payload.hasSelection;
     const width = 258;
-    const estimatedHeight = hasComment ? 258 : 132;
+    const markupSectionHeight = hasSelection ? 164 : 0;
+    const estimatedHeight = (hasComment ? 258 : 0) + markupSectionHeight + 132;
     const margin = 8;
     const maxX = Math.max(margin, window.innerWidth - width - margin);
     const maxY = Math.max(margin, window.innerHeight - estimatedHeight - margin);
@@ -1237,9 +1539,6 @@ function handleViewerAnnotationContextMenu(payload: {
         pageX: payload.pageX,
         pageY: payload.pageY,
     };
-    if (payload.comment) {
-        void handleAnnotationFocusComment(payload.comment);
-    }
 }
 
 function openContextMenuNote() {
@@ -1295,6 +1594,15 @@ async function createContextMenuFreeNote() {
 
 function createContextMenuSelectionNote() {
     pdfViewerRef.value?.commentSelection();
+    closeAnnotationContextMenu();
+}
+
+function createContextMenuMarkup(tool: TAnnotationTool) {
+    handleAnnotationToolChange(tool);
+    pdfViewerRef.value?.commentSelection();
+    if (!annotationKeepActive.value) {
+        annotationTool.value = 'none';
+    }
     closeAnnotationContextMenu();
 }
 
@@ -1761,6 +2069,278 @@ async function updateEmbeddedAnnotationByRef(comment: IAnnotationCommentSummary,
     return true;
 }
 
+const MARKUP_SUBTYPE_TO_PDF_NAME: Record<TMarkupSubtype, string> = {
+    Highlight: 'Highlight',
+    Underline: 'Underline',
+    StrikeOut: 'StrikeOut',
+    Squiggly: 'Squiggly',
+};
+
+async function rewriteMarkupSubtypes(data: Uint8Array): Promise<Uint8Array> {
+    const overrides = pdfViewerRef.value?.getMarkupSubtypeOverrides();
+    if (!overrides || overrides.size === 0) {
+        return data;
+    }
+
+    let doc: PDFDocument;
+    try {
+        doc = await PDFDocument.load(data, { updateMetadata: false });
+    } catch {
+        return data;
+    }
+
+    const subtypeName = PDFName.of('Subtype');
+    const highlightName = PDFName.of('Highlight');
+    let rewritten = false;
+
+    for (const page of doc.getPages()) {
+        const annots = page.node.Annots();
+        if (!(annots instanceof PDFArray)) {
+            continue;
+        }
+
+        for (let i = 0; i < annots.size(); i++) {
+            const value = annots.get(i);
+            const ref = value instanceof PDFRef ? value : null;
+            if (!ref) {
+                continue;
+            }
+
+            const dict = doc.context.lookupMaybe(ref, PDFDict);
+            if (!dict) {
+                continue;
+            }
+
+            const currentSubtype = dict.get(subtypeName);
+            if (!(currentSubtype instanceof PDFName) || currentSubtype !== highlightName) {
+                continue;
+            }
+
+            const refTag = `${ref.objectNumber}R${ref.generationNumber}`;
+            const targetSubtype = overrides.get(refTag);
+            if (!targetSubtype) {
+                continue;
+            }
+
+            const pdfSubtypeName = MARKUP_SUBTYPE_TO_PDF_NAME[targetSubtype];
+            if (pdfSubtypeName && pdfSubtypeName !== 'Highlight') {
+                dict.set(subtypeName, PDFName.of(pdfSubtypeName));
+                rewritten = true;
+            }
+        }
+    }
+
+    if (!rewritten) {
+        return data;
+    }
+
+    return new Uint8Array(await doc.save());
+}
+
+function parseHexColor(hex: string): [number, number, number] {
+    const clean = hex.replace('#', '');
+    if (clean.length === 3) {
+        return [
+            Number.parseInt(clean[0]! + clean[0]!, 16) / 255,
+            Number.parseInt(clean[1]! + clean[1]!, 16) / 255,
+            Number.parseInt(clean[2]! + clean[2]!, 16) / 255,
+        ];
+    }
+    return [
+        Number.parseInt(clean.slice(0, 2), 16) / 255,
+        Number.parseInt(clean.slice(2, 4), 16) / 255,
+        Number.parseInt(clean.slice(4, 6), 16) / 255,
+    ];
+}
+
+async function serializeShapeAnnotations(data: Uint8Array): Promise<Uint8Array> {
+    const shapes = pdfViewerRef.value?.getAllShapes() ?? [];
+    if (shapes.length === 0) {
+        return data;
+    }
+
+    let doc: PDFDocument;
+    try {
+        doc = await PDFDocument.load(data, { updateMetadata: false });
+    } catch {
+        return data;
+    }
+
+    const pages = doc.getPages();
+
+    for (const shape of shapes) {
+        const page = pages[shape.pageIndex];
+        if (!page) continue;
+
+        const {
+            width: pageWidth,
+            height: pageHeight,
+        } = page.getSize();
+        const [
+            r,
+            g,
+            b,
+        ] = parseHexColor(shape.color);
+        const lineWidth = shape.strokeWidth;
+
+        if (shape.type === 'rectangle') {
+            const x = shape.x * pageWidth;
+            const y = (1 - shape.y - shape.height) * pageHeight;
+            const w = shape.width * pageWidth;
+            const h = shape.height * pageHeight;
+
+            const rect = doc.context.obj([
+                x,
+                y,
+                x + w,
+                y + h,
+            ]);
+            const annotDict = doc.context.obj({
+                Type: 'Annot',
+                Subtype: 'Square',
+                Rect: rect,
+                C: [
+                    r,
+                    g,
+                    b,
+                ],
+                CA: shape.opacity,
+                Border: [
+                    0,
+                    0,
+                    lineWidth,
+                ],
+            });
+
+            if (shape.fillColor) {
+                const [
+                    fr,
+                    fg,
+                    fb,
+                ] = parseHexColor(shape.fillColor);
+                (annotDict as PDFDict).set(PDFName.of('IC'), doc.context.obj([
+                    fr,
+                    fg,
+                    fb,
+                ]));
+            }
+
+            const annotRef = doc.context.register(annotDict);
+            const annots = page.node.Annots() ?? doc.context.obj([]);
+            if (annots instanceof PDFArray) {
+                annots.push(annotRef);
+            }
+            page.node.set(PDFName.of('Annots'), annots instanceof PDFArray ? annots : doc.context.obj([annotRef]));
+        } else if (shape.type === 'circle') {
+            const x = shape.x * pageWidth;
+            const y = (1 - shape.y - shape.height) * pageHeight;
+            const w = shape.width * pageWidth;
+            const h = shape.height * pageHeight;
+
+            const rect = doc.context.obj([
+                x,
+                y,
+                x + w,
+                y + h,
+            ]);
+            const annotDict = doc.context.obj({
+                Type: 'Annot',
+                Subtype: 'Circle',
+                Rect: rect,
+                C: [
+                    r,
+                    g,
+                    b,
+                ],
+                CA: shape.opacity,
+                Border: [
+                    0,
+                    0,
+                    lineWidth,
+                ],
+            });
+
+            if (shape.fillColor) {
+                const [
+                    fr,
+                    fg,
+                    fb,
+                ] = parseHexColor(shape.fillColor);
+                (annotDict as PDFDict).set(PDFName.of('IC'), doc.context.obj([
+                    fr,
+                    fg,
+                    fb,
+                ]));
+            }
+
+            const annotRef = doc.context.register(annotDict);
+            const annots = page.node.Annots() ?? doc.context.obj([]);
+            if (annots instanceof PDFArray) {
+                annots.push(annotRef);
+            }
+            page.node.set(PDFName.of('Annots'), annots instanceof PDFArray ? annots : doc.context.obj([annotRef]));
+        } else if (shape.type === 'line' || shape.type === 'arrow') {
+            const x1 = shape.x * pageWidth;
+            const y1 = (1 - shape.y) * pageHeight;
+            const x2 = (shape.x2 ?? shape.x) * pageWidth;
+            const y2 = (1 - (shape.y2 ?? shape.y)) * pageHeight;
+
+            const minX = Math.min(x1, x2) - lineWidth;
+            const minY = Math.min(y1, y2) - lineWidth;
+            const maxX = Math.max(x1, x2) + lineWidth;
+            const maxY = Math.max(y1, y2) + lineWidth;
+
+            const rect = doc.context.obj([
+                minX,
+                minY,
+                maxX,
+                maxY,
+            ]);
+            const l = doc.context.obj([
+                x1,
+                y1,
+                x2,
+                y2,
+            ]);
+
+            const annotDict = doc.context.obj({
+                Type: 'Annot',
+                Subtype: 'Line',
+                Rect: rect,
+                L: l,
+                C: [
+                    r,
+                    g,
+                    b,
+                ],
+                CA: shape.opacity,
+                Border: [
+                    0,
+                    0,
+                    lineWidth,
+                ],
+            });
+
+            if (shape.type === 'arrow') {
+                const leStyle = shape.lineEndStyle === 'openArrow' ? 'OpenArrow' : 'ClosedArrow';
+                (annotDict as PDFDict).set(PDFName.of('LE'), doc.context.obj([
+                    PDFName.of('None'),
+                    PDFName.of(leStyle),
+                ]));
+            }
+
+            const annotRef = doc.context.register(annotDict);
+            const annots = page.node.Annots() ?? doc.context.obj([]);
+            if (annots instanceof PDFArray) {
+                annots.push(annotRef);
+            }
+            page.node.set(PDFName.of('Annots'), annots instanceof PDFArray ? annots : doc.context.obj([annotRef]));
+        }
+    }
+
+    return new Uint8Array(await doc.save());
+}
+
 async function handleCopyAnnotationComment(comment: IAnnotationCommentSummary) {
     closeAnnotationContextMenu();
     const text = comment.text?.trim();
@@ -1874,6 +2454,9 @@ function handleGoToResult(index: number) {
 }
 
 function hasAnnotationChanges() {
+    if (pdfViewerRef.value?.hasShapes?.value) {
+        return true;
+    }
     const doc = pdfDocument.value;
     if (!doc) {
         return false;
@@ -1964,8 +2547,10 @@ async function handleSave() {
         if (workingCopyPath.value) {
             const shouldSerialize = annotationDirty.value || hasAnnotationChanges();
             if (shouldSerialize) {
-                const data = await pdfViewerRef.value?.saveDocument();
-                if (data) {
+                const rawData = await pdfViewerRef.value?.saveDocument();
+                if (rawData) {
+                    let data = await rewriteMarkupSubtypes(rawData);
+                    data = await serializeShapeAnnotations(data);
                     const saved = await saveFile(data);
                     if (saved) {
                         pdfDocument.value?.annotationStorage?.resetModified();
@@ -1982,8 +2567,9 @@ async function handleSave() {
         }
 
         // Web context fallback.
-        const data = await pdfViewerRef.value?.saveDocument();
-        if (data) {
+        const rawData = await pdfViewerRef.value?.saveDocument();
+        if (rawData) {
+            const data = await rewriteMarkupSubtypes(rawData);
             const saved = await saveFile(data);
             if (saved) {
                 pdfDocument.value?.annotationStorage?.resetModified();
@@ -2010,8 +2596,10 @@ async function handleSaveAs() {
         let outPath: string | null = null;
         const shouldSerialize = annotationDirty.value || hasAnnotationChanges();
         if (shouldSerialize) {
-            const data = await pdfViewerRef.value?.saveDocument();
-            if (data) {
+            const rawData = await pdfViewerRef.value?.saveDocument();
+            if (rawData) {
+                let data = await rewriteMarkupSubtypes(rawData);
+                data = await serializeShapeAnnotations(data);
                 outPath = await saveWorkingCopyAs(data);
                 if (outPath) {
                     pdfDocument.value?.annotationStorage?.resetModified();
@@ -2046,6 +2634,7 @@ watch(pdfSrc, (newSrc, oldSrc) => {
         annotationTool.value = 'none';
         annotationComments.value = [];
         annotationActiveCommentStableKey.value = null;
+        pdfViewerRef.value?.clearShapes();
         closeAnnotationContextMenu();
         void closeAllAnnotationNotes({ saveIfDirty: false });
         resetAnnotationTracking();
@@ -2381,6 +2970,18 @@ watch(annotationComments, (comments) => {
     letter-spacing: 0.08em;
     text-transform: uppercase;
     font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.annotation-context-menu__color-swatch {
+    display: inline-block;
+    width: 0.55rem;
+    height: 0.55rem;
+    border-radius: 2px;
+    flex-shrink: 0;
+    border: 1px solid rgb(0 0 0 / 15%);
 }
 
 .annotation-context-menu__divider {

@@ -235,6 +235,31 @@
                     </button>
                 </div>
 
+                <div class="quick-section__row quick-section__row--preset">
+                    <label class="quick-select-group">
+                        <span class="quick-select-group__label">Stamp</span>
+                        <select
+                            v-model="selectedStampId"
+                            class="quick-select"
+                        >
+                            <option
+                                v-for="stamp in stampPresets"
+                                :key="stamp.id"
+                                :value="stamp.id"
+                            >
+                                {{ stamp.label }}
+                            </option>
+                        </select>
+                    </label>
+                    <button
+                        type="button"
+                        class="quick-apply-button"
+                        @click="emit('apply-stamp', selectedStampId)"
+                    >
+                        Place
+                    </button>
+                </div>
+
                 <label class="quick-keep-active">
                     <input
                         type="checkbox"
@@ -266,6 +291,33 @@
                                 step="1"
                                 :value="settings.highlightThickness"
                                 @input="updateSetting('highlightThickness', Number(($event.target as HTMLInputElement).value))"
+                            />
+                        </label>
+                        <label v-if="showUnderlineSettings" class="tool-setting">
+                            <span>Underline Color</span>
+                            <input
+                                class="tool-setting__color"
+                                type="color"
+                                :value="settings.underlineColor"
+                                @input="updateSetting('underlineColor', ($event.target as HTMLInputElement).value)"
+                            />
+                        </label>
+                        <label v-if="showStrikethroughSettings" class="tool-setting">
+                            <span>Strikethrough Color</span>
+                            <input
+                                class="tool-setting__color"
+                                type="color"
+                                :value="settings.strikethroughColor"
+                                @input="updateSetting('strikethroughColor', ($event.target as HTMLInputElement).value)"
+                            />
+                        </label>
+                        <label v-if="showSquigglySettings" class="tool-setting">
+                            <span>Squiggly Color</span>
+                            <input
+                                class="tool-setting__color"
+                                type="color"
+                                :value="settings.squigglyColor"
+                                @input="updateSetting('squigglyColor', ($event.target as HTMLInputElement).value)"
                             />
                         </label>
                         <label v-if="showInkSettings" class="tool-setting">
@@ -308,6 +360,36 @@
                                 step="1"
                                 :value="settings.textSize"
                                 @input="updateSetting('textSize', Number(($event.target as HTMLInputElement).value))"
+                            />
+                        </label>
+                        <label v-if="showShapeSettings" class="tool-setting">
+                            <span>Shape Color</span>
+                            <input
+                                class="tool-setting__color"
+                                type="color"
+                                :value="settings.shapeColor"
+                                @input="updateSetting('shapeColor', ($event.target as HTMLInputElement).value)"
+                            />
+                        </label>
+                        <label v-if="showShapeSettings" class="tool-setting">
+                            <span>Fill Color</span>
+                            <input
+                                class="tool-setting__color"
+                                type="color"
+                                :value="settings.shapeFillColor === 'transparent' ? '#ffffff' : settings.shapeFillColor"
+                                @input="updateSetting('shapeFillColor', ($event.target as HTMLInputElement).value)"
+                            />
+                        </label>
+                        <label v-if="showShapeSettings" class="tool-setting">
+                            <span>Stroke Width {{ settings.shapeStrokeWidth }}</span>
+                            <input
+                                class="tool-setting__range"
+                                type="range"
+                                min="1"
+                                max="10"
+                                step="0.5"
+                                :value="settings.shapeStrokeWidth"
+                                @input="updateSetting('shapeStrokeWidth', Number(($event.target as HTMLInputElement).value))"
                             />
                         </label>
                         <p v-if="!hasAdjustableToolSettings" class="tool-settings__empty">
@@ -374,6 +456,7 @@ import {
     ref,
     watch,
 } from 'vue';
+import { useStampPresets } from '@app/composables/pdf/useStampPresets';
 import type {
     IAnnotationCommentSummary,
     IAnnotationSettings,
@@ -440,7 +523,13 @@ const emit = defineEmits<{
     (e: 'open-note', comment: IAnnotationCommentSummary): void;
     (e: 'copy-comment', comment: IAnnotationCommentSummary): void;
     (e: 'delete-comment', comment: IAnnotationCommentSummary): void;
+    (e: 'apply-stamp', presetId: string): void;
 }>();
+
+const {
+    presets: stampPresets,
+    selectedPresetId: selectedStampId,
+} = useStampPresets();
 
 const quickTools: IQuickToolPreset[] = [
     {
@@ -470,15 +559,31 @@ const quickTools: IQuickToolPreset[] = [
     {
         id: 'quick-underline',
         label: 'Underline',
-        swatch: '#ff0000',
-        tool: 'highlight',
+        swatch: '#2563eb',
+        tool: 'underline',
         settings: {
-            // PDF.js doesn't expose a true underline editor action through our current API.
-            // Closest behavior is a thin red text markup tool preset.
-            highlightColor: '#ff0000',
-            highlightOpacity: 0.22,
-            highlightThickness: 4,
-            highlightFree: false,
+            underlineColor: '#2563eb',
+            underlineOpacity: 0.8,
+        },
+    },
+    {
+        id: 'quick-strikethrough',
+        label: 'Strikethrough',
+        swatch: '#dc2626',
+        tool: 'strikethrough',
+        settings: {
+            strikethroughColor: '#dc2626',
+            strikethroughOpacity: 0.7,
+        },
+    },
+    {
+        id: 'quick-squiggly',
+        label: 'Squiggly',
+        swatch: '#16a34a',
+        tool: 'squiggly',
+        settings: {
+            squigglyColor: '#16a34a',
+            squigglyOpacity: 0.7,
         },
     },
     {
@@ -516,6 +621,50 @@ const quickTools: IQuickToolPreset[] = [
             inkColor: '#198754',
             inkOpacity: 0.95,
             inkThickness: 2,
+        },
+    },
+    {
+        id: 'quick-rectangle',
+        label: 'Rectangle',
+        swatch: '#2563eb',
+        tool: 'rectangle',
+        settings: {
+            shapeColor: '#2563eb',
+            shapeOpacity: 1,
+            shapeStrokeWidth: 2,
+        },
+    },
+    {
+        id: 'quick-circle',
+        label: 'Circle',
+        swatch: '#7c3aed',
+        tool: 'circle',
+        settings: {
+            shapeColor: '#7c3aed',
+            shapeOpacity: 1,
+            shapeStrokeWidth: 2,
+        },
+    },
+    {
+        id: 'quick-arrow',
+        label: 'Arrow',
+        swatch: '#dc2626',
+        tool: 'arrow',
+        settings: {
+            shapeColor: '#dc2626',
+            shapeOpacity: 1,
+            shapeStrokeWidth: 2,
+        },
+    },
+    {
+        id: 'quick-line',
+        label: 'Line',
+        swatch: '#059669',
+        tool: 'line',
+        settings: {
+            shapeColor: '#059669',
+            shapeOpacity: 1,
+            shapeStrokeWidth: 2,
         },
     },
 ];
@@ -1270,11 +1419,32 @@ function quickToolUsageHint(quick: IQuickToolPreset | null) {
     if (quick.tool === 'highlight') {
         return 'Switches to text markup mode using this preset.';
     }
+    if (quick.tool === 'underline') {
+        return 'Underlines selected text in the PDF.';
+    }
+    if (quick.tool === 'strikethrough') {
+        return 'Draws a line through selected text.';
+    }
+    if (quick.tool === 'squiggly') {
+        return 'Adds a wavy underline to selected text.';
+    }
     if (quick.tool === 'draw') {
         return 'Switches to ink drawing mode with this pen preset.';
     }
     if (quick.tool === 'text') {
         return 'Switches to text-note mode with this style.';
+    }
+    if (quick.tool === 'rectangle') {
+        return 'Draws a rectangle shape on the page.';
+    }
+    if (quick.tool === 'circle') {
+        return 'Draws an ellipse shape on the page.';
+    }
+    if (quick.tool === 'line') {
+        return 'Draws a straight line on the page.';
+    }
+    if (quick.tool === 'arrow') {
+        return 'Draws an arrow on the page.';
     }
     return 'Applies the selected quick annotation preset.';
 }
@@ -1287,10 +1457,25 @@ const effectiveToolForSettings = computed<TAnnotationTool>(() => {
     return selectedQuickTool.value?.tool ?? 'none';
 });
 const showHighlightSettings = computed(() => effectiveToolForSettings.value === 'highlight');
+const showUnderlineSettings = computed(() => effectiveToolForSettings.value === 'underline');
+const showStrikethroughSettings = computed(() => effectiveToolForSettings.value === 'strikethrough');
+const showSquigglySettings = computed(() => effectiveToolForSettings.value === 'squiggly');
 const showInkSettings = computed(() => effectiveToolForSettings.value === 'draw');
 const showTextSettings = computed(() => effectiveToolForSettings.value === 'text');
+const showShapeSettings = computed(() => (
+    effectiveToolForSettings.value === 'rectangle'
+    || effectiveToolForSettings.value === 'circle'
+    || effectiveToolForSettings.value === 'line'
+    || effectiveToolForSettings.value === 'arrow'
+));
 const hasAdjustableToolSettings = computed(() => (
-    showHighlightSettings.value || showInkSettings.value || showTextSettings.value
+    showHighlightSettings.value
+    || showUnderlineSettings.value
+    || showStrikethroughSettings.value
+    || showSquigglySettings.value
+    || showInkSettings.value
+    || showTextSettings.value
+    || showShapeSettings.value
 ));
 
 function handleReviewItemClick(event: MouseEvent, comment: IAnnotationCommentSummary) {

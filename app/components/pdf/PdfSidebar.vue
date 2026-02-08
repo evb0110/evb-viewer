@@ -37,6 +37,7 @@
                 @open-note="emit('annotation-open-note', $event)"
                 @copy-comment="emit('annotation-copy-comment', $event)"
                 @delete-comment="emit('annotation-delete-comment', $event)"
+                @apply-stamp="emit('annotation-apply-stamp', $event)"
             />
             <PdfThumbnails
                 v-show="activeTab === 'thumbnails'"
@@ -149,6 +150,7 @@ const emit = defineEmits<{
     }): void;
     (e: 'annotation-highlight-selection'): void;
     (e: 'annotation-comment-selection'): void;
+    (e: 'annotation-apply-stamp', presetId: string): void;
     (e: 'annotation-focus-comment', comment: IAnnotationCommentSummary): void;
     (e: 'annotation-open-note', comment: IAnnotationCommentSummary): void;
     (e: 'annotation-copy-comment', comment: IAnnotationCommentSummary): void;
