@@ -15,14 +15,24 @@
             </div>
             <div class="note-window__title-side">
                 <span class="note-window__date">{{ timestampText }}</span>
-                <button
-                    type="button"
-                    class="note-window__close"
-                    aria-label="Close note"
-                    @click="emit('close')"
-                >
-                    <UIcon name="i-lucide-x" class="size-3.5" />
-                </button>
+                <div class="note-window__actions">
+                    <button
+                        type="button"
+                        class="note-window__delete"
+                        aria-label="Delete note"
+                        @click="emit('delete')"
+                    >
+                        <UIcon name="i-lucide-trash-2" class="size-3.5" />
+                    </button>
+                    <button
+                        type="button"
+                        class="note-window__close"
+                        aria-label="Close note"
+                        @click="emit('close')"
+                    >
+                        <UIcon name="i-lucide-x" class="size-3.5" />
+                    </button>
+                </div>
             </div>
         </header>
 
@@ -79,6 +89,7 @@ const emit = defineEmits<{
     (e: 'update:text', value: string): void;
     (e: 'update:position', value: IAnnotationNotePosition): void;
     (e: 'close'): void;
+    (e: 'delete'): void;
     (e: 'focus'): void;
 }>();
 
@@ -269,6 +280,12 @@ watch(
     gap: 0.18rem;
 }
 
+.note-window__actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.28rem;
+}
+
 .note-window__date {
     font-size: 0.66rem;
     color: rgb(71 59 8 / 84%);
@@ -279,6 +296,18 @@ watch(
     border: 1px solid rgb(88 72 7 / 28%);
     background: rgb(255 255 255 / 70%);
     color: #3e3307;
+    width: 1.45rem;
+    height: 1.45rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+
+.note-window__delete {
+    border: 1px solid rgb(161 23 23 / 26%);
+    background: rgb(255 255 255 / 72%);
+    color: #a61414;
     width: 1.45rem;
     height: 1.45rem;
     display: inline-flex;

@@ -985,8 +985,9 @@ function toEditorSummary(
             markupSubtypeOverrides.set(annotationId, subtype as TMarkupSubtype);
         }
     }
-    const hasNote = hasEditorCommentPayload(editor) || text.length > 0;
     const id = getEditorIdentity(editor, pageIndex);
+    const pendingKey = getEditorPendingKey(editor, pageIndex);
+    const hasNote = hasEditorCommentPayload(editor) || text.length > 0 || pendingCommentEditorKeys.has(pendingKey);
 
     return {
         id,
@@ -1659,6 +1660,10 @@ function clearInlineCommentIndicators() {
         element.removeAttribute('data-comment-stable-key');
         element.removeAttribute('data-comment-stable-keys');
         element.removeAttribute('data-comment-count');
+        element.removeAttribute('title');
+        element.querySelectorAll('.pdf-inline-comment-anchor-marker').forEach((marker) => {
+            marker.remove();
+        });
     });
     container.querySelectorAll<HTMLElement>('.pdf-comment-marker-layer').forEach((layer) => {
         layer.remove();
@@ -1676,6 +1681,7 @@ function markInlineCommentTarget(target: HTMLElement, text: string) {
         )
         : 'Empty note';
     target.setAttribute('data-comment-preview', preview);
+    target.setAttribute('title', preview);
 }
 
 function parseStableKeysAttr(value: string | null | undefined) {
@@ -1724,6 +1730,76 @@ function isCommentActive(stableKey: string) {
     return activeCommentStableKey.value === stableKey;
 }
 
+function makeInlineMarkerPreview(stableKeys: string[], fallbackText: string) {
+    const best = pickBestCommentFromStableKeys(stableKeys);
+    const base = best
+        ? commentPreviewText(best)
+        : commentPreviewFromRawText(fallbackText);
+    if (stableKeys.length <= 1) {
+        return base;
+    }
+    return `${base} (+${stableKeys.length - 1} more note${stableKeys.length > 2 ? 's' : ''})`;
+}
+
+function openInlineMarkerCommentFromStableKeys(stableKeys: string[]) {
+    const summary = pickBestCommentFromStableKeys(stableKeys);
+    if (!summary) {
+        return;
+    }
+    setActiveCommentStableKey(summary.stableKey);
+    pulseCommentIndicator(summary.stableKey);
+    emit('annotation-open-note', summary);
+}
+
+function upsertInlineCommentAnchorMarker(target: HTMLElement, stableKeys: string[], fallbackText: string) {
+    if (stableKeys.length === 0) {
+        target.querySelectorAll('.pdf-inline-comment-anchor-marker').forEach((marker) => {
+            marker.remove();
+        });
+        return;
+    }
+
+    const preview = makeInlineMarkerPreview(stableKeys, fallbackText);
+    const summary = pickBestCommentFromStableKeys(stableKeys);
+    const marker = (
+        target.querySelector('.pdf-inline-comment-anchor-marker') as HTMLButtonElement | null
+    ) ?? document.createElement('button');
+
+    if (!marker.parentElement) {
+        marker.type = 'button';
+        marker.className = 'pdf-inline-comment-anchor-marker';
+        marker.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            const markerStableKeys = parseStableKeysAttr(marker.getAttribute('data-comment-stable-keys'));
+            openInlineMarkerCommentFromStableKeys(markerStableKeys);
+        });
+        marker.addEventListener('contextmenu', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            const markerStableKeys = parseStableKeysAttr(marker.getAttribute('data-comment-stable-keys'));
+            const selected = pickBestCommentFromStableKeys(markerStableKeys);
+            if (!selected) {
+                return;
+            }
+            setActiveCommentStableKey(selected.stableKey);
+            pulseCommentIndicator(selected.stableKey);
+            emit('annotation-context-menu', buildAnnotationContextMenuPayload(selected, event.clientX, event.clientY));
+        });
+        target.append(marker);
+    }
+
+    marker.dataset.commentStableKey = summary?.stableKey ?? stableKeys[0] ?? '';
+    marker.dataset.commentStableKeys = serializeStableKeysAttr(stableKeys);
+    marker.dataset.annotationId = summary?.annotationId ?? '';
+    marker.dataset.commentCount = String(stableKeys.length);
+    marker.classList.toggle('is-active', stableKeys.some(stableKey => isCommentActive(stableKey)));
+    marker.classList.toggle('is-cluster', stableKeys.length > 1);
+    marker.setAttribute('aria-label', stableKeys.length > 1 ? `Open pop-up note (${stableKeys.length} notes)` : 'Open pop-up note');
+    marker.setAttribute('title', preview);
+    target.setAttribute('title', preview);
+}
+
 function markInlineCommentTargetWithKey(
     target: HTMLElement,
     text: string,
@@ -1746,6 +1822,11 @@ function markInlineCommentTargetWithKey(
 
     if (options.anchor === true) {
         target.classList.add('pdf-annotation-has-note-anchor');
+        upsertInlineCommentAnchorMarker(target, nextStableKeys, text);
+    } else {
+        target.querySelectorAll('.pdf-inline-comment-anchor-marker').forEach((marker) => {
+            marker.remove();
+        });
     }
     if (activeInTarget || isCommentActive(stableKey)) {
         target.classList.add('pdf-annotation-has-note-active');
@@ -1934,7 +2015,7 @@ function pulseCommentIndicator(stableKey: string) {
         .from(container.querySelectorAll<HTMLElement>('[data-comment-stable-keys]'))
         .filter(target => getInlineTargetStableKeys(target).includes(stableKey));
     const markers = Array
-        .from(container.querySelectorAll<HTMLElement>('.pdf-inline-comment-marker'))
+        .from(container.querySelectorAll<HTMLElement>('.pdf-inline-comment-marker, .pdf-inline-comment-anchor-marker'))
         .filter(marker => markerIncludesStableKey(marker, stableKey));
 
     const pulseTargets = Array.from(new Set([
@@ -2099,6 +2180,17 @@ function pickPrimaryDetachedComment(comments: IAnnotationCommentSummary[]) {
 
 function commentPreviewText(comment: IAnnotationCommentSummary) {
     const raw = comment.text.trim();
+    if (!raw) {
+        return 'Empty note';
+    }
+    if (raw.length > 120) {
+        return `${raw.slice(0, 117)}...`;
+    }
+    return raw;
+}
+
+function commentPreviewFromRawText(text: string) {
+    const raw = text.trim();
     if (!raw) {
         return 'Empty note';
     }
@@ -2513,10 +2605,6 @@ async function syncAnnotationComments() {
             for (const editor of uiManager.getEditors(pageIndex)) {
                 const normalizedEditor = editor as IPdfjsEditor;
                 const text = getCommentText(normalizedEditor).trim();
-                const pendingKey = getEditorPendingKey(normalizedEditor, pageIndex);
-                if (text) {
-                    pendingCommentEditorKeys.delete(pendingKey);
-                }
 
                 const summary = toEditorSummary(normalizedEditor, pageIndex, text, sourceOrder);
                 sourceOrder += 1;
@@ -2819,10 +2907,6 @@ function updateAnnotationComment(comment: IAnnotationCommentSummary, text: strin
     if (!editor) {
         return false;
     }
-    const pendingKey = getEditorPendingKey(
-        editor,
-        Number.isFinite(editor.parentPageIndex) ? (editor.parentPageIndex as number) : resolvedComment.pageIndex,
-    );
 
     const nextText = text;
     const nextTrimmed = nextText.trim();
@@ -2837,7 +2921,6 @@ function updateAnnotationComment(comment: IAnnotationCommentSummary, text: strin
     editor.comment = nextTrimmed.length > 0 ? nextText : '';
     editor.addToAnnotationStorage?.();
     if (nextTrimmed.length > 0) {
-        pendingCommentEditorKeys.delete(pendingKey);
         rememberSummaryText({
             ...resolvedComment,
             text: nextText,
@@ -2845,7 +2928,6 @@ function updateAnnotationComment(comment: IAnnotationCommentSummary, text: strin
             modifiedAt: Date.now(),
         });
     } else {
-        pendingCommentEditorKeys.delete(pendingKey);
         if (previousTrimmed.length > 0) {
             forgetSummaryText(resolvedComment);
         }
@@ -4559,43 +4641,47 @@ defineExpose({
     animation: inline-comment-focus-pulse 0.9s ease-out;
 }
 
-.pdfViewer :deep(.pdf-annotation-has-note-anchor)::after {
-    content: none;
+.pdfViewer :deep(.pdf-inline-comment-anchor-marker) {
+    position: absolute;
+    right: -8px;
+    top: -8px;
+    width: 13px;
+    height: 13px;
+    border: 1px solid rgb(150 129 33 / 0.78);
+    border-radius: 3px;
+    background: linear-gradient(180deg, #fcf6c6 0%, #efe187 100%);
+    box-shadow:
+        0 1px 4px rgb(0 0 0 / 0.18),
+        inset 0 0 0 1px rgb(255 255 255 / 0.54);
+    cursor: pointer !important;
+    z-index: 9999 !important;
+    pointer-events: auto !important;
+    padding: 0;
 }
 
-.pdfViewer :deep(.pdf-annotation-has-note-anchor:hover)::after,
-.pdfViewer :deep(.pdf-annotation-has-note-anchor.pdf-annotation-has-note-active)::after {
+.pdfViewer :deep(.pdf-inline-comment-anchor-marker)::before {
     content: '';
     position: absolute;
-    top: -6px;
-    right: -6px;
-    width: 12px;
-    height: 12px;
-    background: linear-gradient(180deg, #fcf6c4 0%, #ebda80 100%);
-    border: 1px solid rgb(137 116 31 / 0.84);
-    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M20 2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h14l4 4V4c0-1.1-.9-2-2-2zm-2 9H6V9h12v2zm0 4H6v-2h12v2z'/%3E%3C/svg%3E");
+    inset: 1.5px;
+    background-color: rgb(110 96 23 / 0.95);
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M4 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 5V5z'/%3E%3C/svg%3E");
     mask-repeat: no-repeat;
     mask-position: center;
-    mask-size: 75% 75%;
-    box-shadow:
-        0 1px 3px rgb(0 0 0 / 0.18),
-        inset 0 0 0 1px rgb(255 255 255 / 0.42);
-    pointer-events: none;
-    transition: transform 0.12s ease;
+    mask-size: contain;
 }
 
-.pdfViewer :deep(.pdf-annotation-has-note-multi.pdf-annotation-has-note-anchor)::before {
+.pdfViewer :deep(.pdf-inline-comment-anchor-marker)::after {
     content: attr(data-comment-count);
     position: absolute;
-    top: -9px;
-    right: 3px;
-    min-width: 15px;
-    height: 15px;
+    right: -7px;
+    top: -7px;
+    min-width: 14px;
+    height: 14px;
     border-radius: 999px;
     border: 1.5px solid rgb(120 80 10 / 0.75);
     background: linear-gradient(180deg, #fff 0%, #fde68a 100%);
     color: rgb(60 40 5);
-    display: inline-flex;
+    display: none;
     align-items: center;
     justify-content: center;
     font-size: 9px;
@@ -4604,35 +4690,41 @@ defineExpose({
     padding: 0 3px;
     font-variant-numeric: tabular-nums;
     box-shadow: 0 1px 3px rgb(0 0 0 / 0.22);
-    pointer-events: none;
 }
 
-.pdfViewer :deep(.pdf-annotation-has-note-multi.pdf-annotation-has-note-anchor:hover)::before,
-.pdfViewer :deep(.pdf-annotation-has-note-multi.pdf-annotation-has-note-anchor.pdf-annotation-has-note-active)::before {
-    border-color: rgb(100 65 5 / 0.9);
-    box-shadow: 0 1px 4px rgb(0 0 0 / 0.32);
+.pdfViewer :deep(.pdf-inline-comment-anchor-marker.is-cluster)::after {
+    display: inline-flex;
+}
+
+.pdfViewer :deep(.pdf-inline-comment-anchor-marker:hover) {
+    transform: scale(1.08);
+}
+
+.pdfViewer :deep(.pdf-inline-comment-anchor-marker.is-active) {
+    border-color: color-mix(in oklab, var(--ui-primary, #3b82f6) 44%, rgb(165 145 41));
+    box-shadow:
+        0 0 0 1.5px color-mix(in oklab, var(--ui-primary, #3b82f6) 28%, transparent),
+        0 2px 6px rgb(0 0 0 / 0.24),
+        inset 0 0 0 1px rgb(255 255 255 / 0.68);
+}
+
+.pdfViewer :deep(.pdf-inline-comment-anchor-marker.pdf-comment-focus-pulse) {
+    animation: inline-comment-focus-pulse 0.9s ease-out;
 }
 
 .pdfViewer :deep(.pdf-annotation-has-note-target) {
     position: relative;
     overflow: visible;
     cursor: pointer;
+    pointer-events: auto !important;
 }
 
 .pdfViewer :deep(.pdf-annotation-has-note-target:hover) {
     filter: drop-shadow(0 0 2px rgba(59, 130, 246, 0.28));
 }
 
-.pdfViewer :deep(.pdf-annotation-has-note-anchor:hover)::after {
-    transform: scale(1.08);
-}
-
 .pdfViewer :deep(.pdf-annotation-has-note-active) {
     filter: drop-shadow(0 0 4px color-mix(in oklab, var(--ui-primary, #3b82f6) 28%, transparent));
-}
-
-.pdfViewer :deep(.pdf-annotation-has-note-active.pdf-annotation-has-note-anchor)::after {
-    transform: scale(1.1);
 }
 
 .pdfViewer :deep(.pdf-annotation-has-note-target.pdf-comment-focus-pulse) {

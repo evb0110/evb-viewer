@@ -486,6 +486,7 @@
             @update:text="updateAnnotationNoteText(note.comment.stableKey, $event)"
             @update:position="updateAnnotationNotePosition(note.comment.stableKey, $event)"
             @close="closeAnnotationNote(note.comment.stableKey)"
+            @delete="handleDeleteAnnotationComment(note.comment)"
             @focus="bringAnnotationNoteToFront(note.comment.stableKey)"
         />
         <div
