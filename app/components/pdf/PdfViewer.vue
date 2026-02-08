@@ -249,6 +249,7 @@ const pendingCommentEditorKeys = new Set<string>();
 const trackedCreatedEditors = new WeakSet<object>();
 const patchedAnnotationLayerDestroy = new WeakSet<object>();
 let inlineCommentMarkerObserver: MutationObserver | null = null;
+let inlineCommentFocusPulseTimeout: ReturnType<typeof setTimeout> | null = null;
 const commentSummaryMemory = new Map<string, {
     text: string;
     modifiedAt: number | null;
@@ -1410,11 +1411,16 @@ function clearInlineCommentIndicators() {
     if (!container) {
         return;
     }
+    if (inlineCommentFocusPulseTimeout) {
+        clearTimeout(inlineCommentFocusPulseTimeout);
+        inlineCommentFocusPulseTimeout = null;
+    }
     container.querySelectorAll<HTMLElement>('.pdf-annotation-has-note-target, .pdf-annotation-has-comment').forEach((element) => {
         element.classList.remove(
             'pdf-annotation-has-note-target',
             'pdf-annotation-has-note-anchor',
             'pdf-annotation-has-note-active',
+            'pdf-annotation-has-note-multi',
             // Legacy classes kept for safe cleanup during migration.
             'pdf-annotation-has-comment',
             'has-comment',
@@ -1422,6 +1428,8 @@ function clearInlineCommentIndicators() {
         );
         element.removeAttribute('data-comment-preview');
         element.removeAttribute('data-comment-stable-key');
+        element.removeAttribute('data-comment-stable-keys');
+        element.removeAttribute('data-comment-count');
     });
     container.querySelectorAll<HTMLElement>('.pdf-comment-marker-layer').forEach((layer) => {
         layer.remove();
@@ -1441,6 +1449,48 @@ function markInlineCommentTarget(target: HTMLElement, text: string) {
     target.setAttribute('data-comment-preview', preview);
 }
 
+function parseStableKeysAttr(value: string | null | undefined) {
+    if (!value) {
+        return [];
+    }
+    return value
+        .split('|')
+        .map(entry => entry.trim())
+        .filter(Boolean);
+}
+
+function serializeStableKeysAttr(keys: string[]) {
+    if (keys.length === 0) {
+        return '';
+    }
+    return `|${keys.join('|')}|`;
+}
+
+function getInlineTargetStableKeys(target: HTMLElement) {
+    const fromList = parseStableKeysAttr(target.getAttribute('data-comment-stable-keys'));
+    if (fromList.length > 0) {
+        return fromList;
+    }
+    const single = target.getAttribute('data-comment-stable-key');
+    if (single) {
+        return [single];
+    }
+    return [];
+}
+
+function setInlineTargetStableKeys(target: HTMLElement, stableKeys: string[]) {
+    const deduped = Array.from(new Set(stableKeys.filter(Boolean)));
+    if (deduped.length === 0) {
+        target.removeAttribute('data-comment-stable-keys');
+        target.removeAttribute('data-comment-count');
+        target.classList.remove('pdf-annotation-has-note-multi');
+        return;
+    }
+    target.setAttribute('data-comment-stable-keys', serializeStableKeysAttr(deduped));
+    target.setAttribute('data-comment-count', String(deduped.length));
+    target.classList.toggle('pdf-annotation-has-note-multi', deduped.length > 1);
+}
+
 function isCommentActive(stableKey: string) {
     return activeCommentStableKey.value === stableKey;
 }
@@ -1452,9 +1502,23 @@ function markInlineCommentTargetWithKey(
     options: { anchor?: boolean } = {},
 ) {
     markInlineCommentTarget(target, text);
-    target.setAttribute('data-comment-stable-key', stableKey);
-    target.classList.toggle('pdf-annotation-has-note-anchor', options.anchor === true);
-    if (isCommentActive(stableKey)) {
+    const nextStableKeys = Array.from(new Set([
+        ...getInlineTargetStableKeys(target),
+        stableKey,
+    ]));
+    setInlineTargetStableKeys(target, nextStableKeys);
+
+    const activeKey = activeCommentStableKey.value;
+    const activeInTarget = Boolean(activeKey && nextStableKeys.includes(activeKey));
+    const preferredStableKey = activeInTarget
+        ? (activeKey as string)
+        : (target.getAttribute('data-comment-stable-key') || stableKey);
+    target.setAttribute('data-comment-stable-key', preferredStableKey);
+
+    if (options.anchor === true) {
+        target.classList.add('pdf-annotation-has-note-anchor');
+    }
+    if (activeInTarget || isCommentActive(stableKey)) {
         target.classList.add('pdf-annotation-has-note-active');
     } else {
         target.classList.remove('pdf-annotation-has-note-active');
@@ -1552,8 +1616,7 @@ function markInlineCommentTargetsFromTextLayer(
                 bottom: rect.bottom - pageRect.top,
             };
             return rectsIntersect(spanBounds, markerBounds);
-        })
-        .filter(span => !span.dataset.commentStableKey);
+        });
 
     if (textSpans.length === 0) {
         return false;
@@ -1573,6 +1636,96 @@ function markInlineCommentTargetsFromTextLayer(
 
 function findCommentByStableKey(stableKey: string) {
     return annotationCommentsCache.value.find(comment => comment.stableKey === stableKey) ?? null;
+}
+
+function findCommentFromInlineTarget(target: HTMLElement) {
+    const stableKeys = getInlineTargetStableKeys(target);
+    if (stableKeys.length > 0) {
+        return pickBestCommentFromStableKeys(stableKeys);
+    }
+    const stableKey = target.getAttribute('data-comment-stable-key');
+    if (!stableKey) {
+        return null;
+    }
+    return findCommentByStableKey(stableKey);
+}
+
+function pickBestCommentFromStableKeys(stableKeys: string[]) {
+    if (stableKeys.length === 0) {
+        return null;
+    }
+
+    const activeStableKey = activeCommentStableKey.value;
+    if (activeStableKey && stableKeys.includes(activeStableKey)) {
+        const activeComment = findCommentByStableKey(activeStableKey);
+        if (activeComment) {
+            return activeComment;
+        }
+    }
+
+    return stableKeys
+        .map(stableKey => findCommentByStableKey(stableKey))
+        .filter((comment): comment is IAnnotationCommentSummary => Boolean(comment))
+        .sort((left, right) => {
+            const leftTs = left.modifiedAt ?? 0;
+            const rightTs = right.modifiedAt ?? 0;
+            if (leftTs !== rightTs) {
+                return rightTs - leftTs;
+            }
+            return left.stableKey.localeCompare(right.stableKey);
+        })[0] ?? null;
+}
+
+function markerIncludesStableKey(marker: HTMLElement, stableKey: string) {
+    const markerStableKey = marker.dataset.commentStableKey ?? '';
+    if (markerStableKey === stableKey) {
+        return true;
+    }
+    const markerStableKeys = parseStableKeysAttr(marker.getAttribute('data-comment-stable-keys'));
+    return markerStableKeys.includes(stableKey);
+}
+
+function pulseCommentIndicator(stableKey: string) {
+    const container = viewerContainer.value;
+    if (!container) {
+        return;
+    }
+    if (inlineCommentFocusPulseTimeout) {
+        clearTimeout(inlineCommentFocusPulseTimeout);
+        inlineCommentFocusPulseTimeout = null;
+    }
+
+    container.querySelectorAll<HTMLElement>('.pdf-comment-focus-pulse').forEach((element) => {
+        element.classList.remove('pdf-comment-focus-pulse');
+    });
+
+    const escapedStableKey = escapeCssAttr(stableKey);
+    const inlineTargets = Array.from(container.querySelectorAll<HTMLElement>(`[data-comment-stable-key="${escapedStableKey}"]`));
+    const multiTargets = Array
+        .from(container.querySelectorAll<HTMLElement>('[data-comment-stable-keys]'))
+        .filter(target => getInlineTargetStableKeys(target).includes(stableKey));
+    const markers = Array
+        .from(container.querySelectorAll<HTMLElement>('.pdf-inline-comment-marker'))
+        .filter(marker => markerIncludesStableKey(marker, stableKey));
+
+    const pulseTargets = Array.from(new Set([
+        ...inlineTargets,
+        ...multiTargets,
+        ...markers,
+    ]));
+    if (pulseTargets.length === 0) {
+        return;
+    }
+
+    pulseTargets.forEach((target) => {
+        target.classList.add('pdf-comment-focus-pulse');
+    });
+    inlineCommentFocusPulseTimeout = setTimeout(() => {
+        container.querySelectorAll<HTMLElement>('.pdf-comment-focus-pulse').forEach((element) => {
+            element.classList.remove('pdf-comment-focus-pulse');
+        });
+        inlineCommentFocusPulseTimeout = null;
+    }, 900);
 }
 
 function ensureCommentMarkerLayer(pageContainer: HTMLElement) {
@@ -1663,7 +1816,40 @@ const DETACHED_MARKER_OFFSETS: IDetachedMarkerOffset[] = [
         x: 42,
         y: 0,
     },
+    {
+        x: -42,
+        y: 0,
+    },
+    {
+        x: 52,
+        y: -14,
+    },
+    {
+        x: 52,
+        y: 14,
+    },
+    {
+        x: -52,
+        y: -14,
+    },
+    {
+        x: -52,
+        y: 14,
+    },
 ];
+
+function mergeMarkerRects(left: IAnnotationMarkerRect, right: IAnnotationMarkerRect): IAnnotationMarkerRect {
+    const minLeft = Math.min(left.left, right.left);
+    const minTop = Math.min(left.top, right.top);
+    const maxRight = Math.max(left.left + left.width, right.left + right.width);
+    const maxBottom = Math.max(left.top + left.height, right.top + right.height);
+    return {
+        left: minLeft,
+        top: minTop,
+        width: Math.max(0.0001, maxRight - minLeft),
+        height: Math.max(0.0001, maxBottom - minTop),
+    };
+}
 
 function pickPrimaryDetachedComment(comments: IAnnotationCommentSummary[]) {
     const active = comments.find(candidate => isCommentActive(candidate.stableKey));
@@ -1752,6 +1938,7 @@ function createDetachedCommentClusterMarkerElement(
         marker.dataset.commentCount = String(noteCount);
     }
     marker.dataset.commentStableKey = primaryComment.stableKey;
+    marker.dataset.commentStableKeys = serializeStableKeysAttr(comments.map(comment => comment.stableKey));
     marker.dataset.annotationId = primaryComment.annotationId ?? '';
     marker.style.left = `${placement.leftPercent}%`;
     marker.style.top = `${placement.topPercent}%`;
@@ -1768,6 +1955,7 @@ function createDetachedCommentClusterMarkerElement(
         const summary = findCommentByStableKey(primaryComment.stableKey);
         if (summary) {
             setActiveCommentStableKey(summary.stableKey);
+            pulseCommentIndicator(summary.stableKey);
             emit('annotation-open-note', summary);
         }
     });
@@ -1777,6 +1965,7 @@ function createDetachedCommentClusterMarkerElement(
         const summary = findCommentByStableKey(primaryComment.stableKey);
         if (summary) {
             setActiveCommentStableKey(summary.stableKey);
+            pulseCommentIndicator(summary.stableKey);
             emit('annotation-context-menu', {
                 comment: summary,
                 clientX: event.clientX,
@@ -1812,7 +2001,7 @@ function clusterDetachedComments(comments: IAnnotationCommentSummary[]) {
             }
             const candidate = clusters.find((cluster) => {
                 const iou = markerRectIoU(cluster.anchorRect, rect);
-                if (iou >= 0.35) {
+                if (iou >= 0.22) {
                     return true;
                 }
                 const clusterCenterX = cluster.anchorRect.left + cluster.anchorRect.width / 2;
@@ -1821,10 +2010,11 @@ function clusterDetachedComments(comments: IAnnotationCommentSummary[]) {
                 const centerY = rect.top + rect.height / 2;
                 const dx = Math.abs(clusterCenterX - centerX);
                 const dy = Math.abs(clusterCenterY - centerY);
-                return dx <= 0.018 && dy <= 0.02;
+                return dx <= 0.028 && dy <= 0.028;
             });
             if (candidate) {
                 candidate.comments.push(comment);
+                candidate.anchorRect = mergeMarkerRects(candidate.anchorRect, rect);
                 return;
             }
             clusters.push({
@@ -1851,8 +2041,8 @@ function resolveDetachedMarkerPlacement(
 
     const baseX = (markerRect.left + markerRect.width) * width;
     const baseY = markerRect.top * height;
-    const markerRadius = 9;
-    const minDistanceSquared = 18 * 18;
+    const markerRadius = 10;
+    const minDistanceSquared = 24 * 24;
     let bestFallback: IDetachedMarkerFallback | null = null;
 
     for (const offset of DETACHED_MARKER_OFFSETS) {
@@ -2344,6 +2534,9 @@ async function focusAnnotationComment(comment: IAnnotationCommentSummary) {
     await nextTick();
     updateVisibleRange(viewerContainer.value, numPages.value);
     await renderVisiblePages(visibleRange.value, { preserveRenderedPages: true });
+    syncInlineCommentIndicators();
+    await nextTick();
+    pulseCommentIndicator(comment.stableKey);
 
     const uiManager = annotationUiManager.value as (AnnotationEditorUIManager & {
         getLayer?: (pageIndex: number) => { getEditorByUID?: (uid: string) => IPdfjsEditor | null } | null;
@@ -3174,11 +3367,11 @@ function handleAnnotationCommentClick(event: MouseEvent) {
     }
 
     const inlineTarget = event.target.closest<HTMLElement>('.pdf-annotation-has-note-target, .pdf-annotation-has-comment');
-    const stableKey = inlineTarget?.getAttribute('data-comment-stable-key') ?? null;
-    if (stableKey) {
-        const summary = findCommentByStableKey(stableKey);
+    if (inlineTarget) {
+        const summary = findCommentFromInlineTarget(inlineTarget);
         if (summary) {
             setActiveCommentStableKey(summary.stableKey);
+            pulseCommentIndicator(summary.stableKey);
             emit('annotation-open-note', summary);
             return;
         }
@@ -3190,6 +3383,7 @@ function handleAnnotationCommentClick(event: MouseEvent) {
         return;
     }
     setActiveCommentStableKey(summary.stableKey);
+    pulseCommentIndicator(summary.stableKey);
     emit('annotation-open-note', summary);
 }
 
@@ -3204,7 +3398,9 @@ function handleAnnotationCommentContextMenu(event: MouseEvent) {
         return;
     }
 
-    const summary = findAnnotationSummaryFromTarget(event.target)
+    const inlineTarget = event.target.closest<HTMLElement>('.pdf-annotation-has-note-target, .pdf-annotation-has-comment');
+    const summary = (inlineTarget ? findCommentFromInlineTarget(inlineTarget) : null)
+        ?? findAnnotationSummaryFromTarget(event.target)
         ?? findAnnotationSummaryFromPoint(event.target, event.clientX, event.clientY);
     if (!summary) {
         return;
@@ -3212,6 +3408,7 @@ function handleAnnotationCommentContextMenu(event: MouseEvent) {
 
     event.preventDefault();
     setActiveCommentStableKey(summary.stableKey);
+    pulseCommentIndicator(summary.stableKey);
     emit('annotation-context-menu', {
         comment: summary,
         clientX: event.clientX,
@@ -3798,6 +3995,10 @@ defineExpose({
         inset 0 0 0 1px rgb(255 255 255 / 0.7);
 }
 
+.pdfViewer :deep(.pdf-inline-comment-marker.pdf-comment-focus-pulse) {
+    animation: inline-comment-focus-pulse 0.9s ease-out;
+}
+
 .pdfViewer :deep(.pdf-annotation-has-note-anchor)::after {
     content: '';
     position: absolute;
@@ -3816,6 +4017,31 @@ defineExpose({
         inset 0 0 0 1px rgb(255 255 255 / 0.42);
     pointer-events: none;
     transition: transform 0.12s ease;
+}
+
+.pdfViewer :deep(.pdf-annotation-has-note-multi.pdf-annotation-has-note-anchor)::before {
+    content: attr(data-comment-count);
+    position: absolute;
+    top: -9px;
+    right: 5px;
+    min-width: 11px;
+    height: 11px;
+    border-radius: 999px;
+    border: 1px solid rgb(120 104 34 / 0.88);
+    background: linear-gradient(180deg, #fff9cf 0%, #f0e183 100%);
+    color: rgb(87 73 16 / 0.95);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 7px;
+    font-weight: 700;
+    line-height: 1;
+    padding: 0 2px;
+    font-variant-numeric: tabular-nums;
+    box-shadow:
+        0 1px 2px rgb(0 0 0 / 0.2),
+        inset 0 0 0 1px rgb(255 255 255 / 0.5);
+    pointer-events: none;
 }
 
 .pdfViewer :deep(.pdf-annotation-has-note-target) {
@@ -3845,6 +4071,24 @@ defineExpose({
 
 .pdfViewer :deep(.pdf-annotation-has-note-active.pdf-annotation-has-note-anchor)::after {
     transform: scale(1.1);
+}
+
+.pdfViewer :deep(.pdf-annotation-has-note-target.pdf-comment-focus-pulse) {
+    animation: inline-comment-focus-pulse 0.9s ease-out;
+}
+
+@keyframes inline-comment-focus-pulse {
+    0% {
+        filter: drop-shadow(0 0 0 color-mix(in oklab, var(--ui-primary, #3b82f6) 0%, transparent));
+    }
+
+    30% {
+        filter: drop-shadow(0 0 6px color-mix(in oklab, var(--ui-primary, #3b82f6) 42%, transparent));
+    }
+
+    100% {
+        filter: drop-shadow(0 0 0 color-mix(in oklab, var(--ui-primary, #3b82f6) 0%, transparent));
+    }
 }
 
 .pdfViewer :deep(.pdf-annotation-comment-tooltip) {
