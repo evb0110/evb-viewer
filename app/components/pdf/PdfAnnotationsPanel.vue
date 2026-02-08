@@ -1860,9 +1860,9 @@ watch(
 <style scoped>
 .pdf-annotations-panel {
     position: relative;
-    display: flex;
-    flex-direction: column;
-    gap: 0.55rem;
+    display: grid;
+    grid-template-rows: minmax(0, 1fr) max-content;
+    gap: 0.5rem;
     height: 100%;
     min-height: 0;
     padding: 0.55rem;
@@ -1873,8 +1873,7 @@ watch(
 }
 
 .reviews-section {
-    flex: 1 1 auto;
-    min-height: 18rem;
+    min-height: clamp(14rem, 52vh, 30rem);
     display: grid;
     grid-template-rows: auto auto auto minmax(0, 1fr) auto;
     border: 1px solid var(--ui-border);
@@ -2202,7 +2201,7 @@ watch(
 }
 
 .quick-section {
-    flex: 0 0 auto;
+    align-self: stretch;
     border: 1px solid var(--ui-border);
     background: color-mix(in oklab, var(--ui-bg, #fff) 94%, #eef2f7 6%);
     min-height: 0;
