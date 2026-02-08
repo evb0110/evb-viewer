@@ -1430,13 +1430,14 @@ function clearInlineCommentIndicators() {
 
 function markInlineCommentTarget(target: HTMLElement, text: string) {
     const normalizedText = text.trim();
-    if (!normalizedText) {
-        return;
-    }
-    const preview = normalizedText.length > 280
-        ? `${normalizedText.slice(0, 277)}...`
-        : normalizedText;
     target.classList.add('pdf-annotation-has-note-target');
+    const preview = normalizedText
+        ? (
+            normalizedText.length > 280
+                ? `${normalizedText.slice(0, 277)}...`
+                : normalizedText
+        )
+        : 'Empty note';
     target.setAttribute('data-comment-preview', preview);
 }
 
@@ -1477,6 +1478,97 @@ function pickInlineCommentAnchorTarget(targets: HTMLElement[]) {
             }
             return leftRect.left - rightRect.left;
         })[0] ?? null;
+}
+
+function markerRectToPagePixels(pageContainer: HTMLElement, markerRect: IAnnotationMarkerRect) {
+    const width = pageContainer.clientWidth;
+    const height = pageContainer.clientHeight;
+    if (width <= 0 || height <= 0) {
+        return null;
+    }
+    return {
+        left: markerRect.left * width,
+        top: markerRect.top * height,
+        right: (markerRect.left + markerRect.width) * width,
+        bottom: (markerRect.top + markerRect.height) * height,
+    };
+}
+
+function rectsIntersect(
+    leftRect: {
+        left: number;
+        top: number;
+        right: number;
+        bottom: number;
+    },
+    rightRect: {
+        left: number;
+        top: number;
+        right: number;
+        bottom: number;
+    },
+) {
+    return !(
+        leftRect.right < rightRect.left
+        || leftRect.left > rightRect.right
+        || leftRect.bottom < rightRect.top
+        || leftRect.top > rightRect.bottom
+    );
+}
+
+function markInlineCommentTargetsFromTextLayer(
+    pageContainer: HTMLElement,
+    comment: IAnnotationCommentSummary,
+) {
+    const markerRect = normalizeMarkerRect(comment.markerRect);
+    if (!markerRect) {
+        return false;
+    }
+    const markerPx = markerRectToPagePixels(pageContainer, markerRect);
+    if (!markerPx) {
+        return false;
+    }
+
+    const pageRect = pageContainer.getBoundingClientRect();
+    const tolerance = 2;
+    const markerBounds = {
+        left: markerPx.left - tolerance,
+        top: markerPx.top - tolerance,
+        right: markerPx.right + tolerance,
+        bottom: markerPx.bottom + tolerance,
+    };
+
+    const textSpans = Array
+        .from(pageContainer.querySelectorAll<HTMLElement>('.text-layer span, .textLayer span'))
+        .filter((span) => {
+            const rect = span.getBoundingClientRect();
+            if (rect.width <= 0 || rect.height <= 0) {
+                return false;
+            }
+            const spanBounds = {
+                left: rect.left - pageRect.left,
+                top: rect.top - pageRect.top,
+                right: rect.right - pageRect.left,
+                bottom: rect.bottom - pageRect.top,
+            };
+            return rectsIntersect(spanBounds, markerBounds);
+        })
+        .filter(span => !span.dataset.commentStableKey);
+
+    if (textSpans.length === 0) {
+        return false;
+    }
+
+    const anchor = pickInlineCommentAnchorTarget(textSpans);
+    textSpans.forEach((target) => {
+        markInlineCommentTargetWithKey(
+            target,
+            comment.text,
+            comment.stableKey,
+            { anchor: target === anchor },
+        );
+    });
+    return true;
 }
 
 function findCommentByStableKey(stableKey: string) {
@@ -1850,7 +1942,20 @@ function syncInlineCommentIndicators() {
         );
     });
 
-    const dedupedComments = Array.from(dedupedCommentsByLogicalKey.values());
+    const dedupedComments = Array
+        .from(dedupedCommentsByLogicalKey.values())
+        .sort((left, right) => {
+            const priorityDelta = commentMergePriority(right) - commentMergePriority(left);
+            if (priorityDelta !== 0) {
+                return priorityDelta;
+            }
+            const leftTs = left.modifiedAt ?? 0;
+            const rightTs = right.modifiedAt ?? 0;
+            if (leftTs !== rightTs) {
+                return rightTs - leftTs;
+            }
+            return left.stableKey.localeCompare(right.stableKey);
+        });
     dedupedComments.forEach((comment) => {
         if (comment.annotationId) {
             commentsByAnnotationId.set(comment.annotationId, comment);
@@ -1904,6 +2009,13 @@ function syncInlineCommentIndicators() {
         if (handledLogicalCommentKeys.has(logicalKey)) {
             return;
         }
+
+        const pageContainer = container.querySelector<HTMLElement>(`.page_container[data-page="${comment.pageNumber}"]`);
+        if (pageContainer && markInlineCommentTargetsFromTextLayer(pageContainer, comment)) {
+            handledLogicalCommentKeys.add(logicalKey);
+            return;
+        }
+
         const markerRect = normalizeMarkerRect(comment.markerRect);
         if (!markerRect) {
             return;
@@ -1948,8 +2060,8 @@ function attachInlineCommentMarkerObserver() {
             Array.from(record.addedNodes).some((node) => (
                 node instanceof HTMLElement
                 && (
-                    node.matches('.highlightEditor, [data-annotation-id], .annotationLayer, .annotation-layer')
-                    || !!node.querySelector('.highlightEditor, [data-annotation-id]')
+                    node.matches('.highlightEditor, [data-annotation-id], .annotationLayer, .annotation-layer, .text-layer, .textLayer')
+                    || !!node.querySelector('.highlightEditor, [data-annotation-id], .text-layer span, .textLayer span')
                 )
             ))
         ));
