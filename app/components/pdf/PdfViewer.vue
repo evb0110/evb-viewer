@@ -3326,6 +3326,12 @@ interface IPagePointTarget {
     pageY: number;
 }
 
+interface IClosestTextSpan {
+    span: HTMLElement;
+    score: number;
+    rect: DOMRect;
+}
+
 function clamp01(value: number) {
     if (!Number.isFinite(value)) {
         return 0;
@@ -3360,15 +3366,11 @@ function findClosestTextSpanInPage(
     pageContainer: HTMLElement,
     targetX: number,
     targetY: number,
-) {
+): IClosestTextSpan | null {
     const spans = Array.from(
         pageContainer.querySelectorAll<HTMLElement>('.text-layer span, .textLayer span'),
     );
-    let best: {
-        span: HTMLElement;
-        score: number;
-        rect: DOMRect;
-    } | null = null;
+    let best: IClosestTextSpan | null = null;
 
     spans.forEach((span) => {
         const text = span.textContent?.trim() ?? '';

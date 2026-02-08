@@ -27,15 +27,15 @@ if (process.platform === 'win32') {
 app.setPath('userData', join(app.getPath('appData'), app.name));
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const iconPath = app.isPackaged
-    ? join(process.resourcesPath, 'icon.png')
-    : join(__dirname, '..', 'resources', 'icon.png');
+const devDockIconPath = join(__dirname, '..', 'resources', 'icon.png');
 
 async function init() {
     await app.whenReady();
-    if (process.platform === 'darwin') {
+    // In packaged builds, macOS uses the app bundle's .icns icon.
+    // Only override in development where the host Electron binary has the default icon.
+    if (process.platform === 'darwin' && !app.isPackaged) {
         try {
-            app.dock?.setIcon(iconPath);
+            app.dock?.setIcon(devDockIconPath);
         } catch (err) {
             console.warn('[Electron] Failed to set dock icon:', err);
         }

@@ -2257,6 +2257,7 @@ watch(annotationComments, (comments) => {
     flex-direction: column;
     align-items: center;
     gap: 0.5rem;
+    margin: 0 auto;
     padding: 1rem 1.5rem;
     border-radius: 0.5rem;
     border: 1px dashed var(--ui-border);
@@ -2302,10 +2303,6 @@ watch(annotationComments, (comments) => {
     gap: 2px;
     max-height: min(60vh, 34rem);
     overflow-y: auto;
-}
-
-.open-file-action {
-    margin: 0 auto;
 }
 
 .recent-file-item {

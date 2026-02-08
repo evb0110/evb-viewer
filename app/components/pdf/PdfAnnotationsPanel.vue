@@ -2150,6 +2150,14 @@ watch(
     border-top: 1px dashed var(--ui-border);
 }
 
+.reviews-toolbar__label {
+    font-size: 0.65rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ui-text-dimmed);
+    min-width: 2.45rem;
+}
+
 .reviews-toolbar__line--selection .reviews-toolbar__label {
     grid-column: 1 / -1;
     min-width: 0;
@@ -2199,14 +2207,6 @@ watch(
     font-size: 0.7rem;
     color: var(--ui-text-dimmed);
     line-height: 1.35;
-}
-
-.reviews-toolbar__label {
-    font-size: 0.65rem;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--ui-text-dimmed);
-    min-width: 2.45rem;
 }
 
 .reviews-toggle {
