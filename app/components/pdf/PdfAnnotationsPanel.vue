@@ -149,86 +149,103 @@
         </section>
 
         <section class="notes-section notes-list-section">
-            <header class="notes-section-header notes-list-header">
-                <h3 class="notes-section-title">Notes List</h3>
-                <span class="notes-count">{{ filteredComments.length }}</span>
-            </header>
+            <UCollapsible :default-open="false" :unmount-on-hide="false">
+                <template #default="{ open }">
+                    <button
+                        type="button"
+                        class="notes-list-trigger"
+                        :aria-expanded="open ? 'true' : 'false'"
+                    >
+                        <span class="notes-list-trigger-meta">
+                            <h3 class="notes-section-title">Notes List</h3>
+                            <span class="notes-count">{{ filteredComments.length }}</span>
+                        </span>
+                        <UIcon
+                            name="i-lucide-chevron-down"
+                            class="notes-list-chevron"
+                            :class="{ 'is-open': open }"
+                        />
+                    </button>
+                </template>
 
-            <input
-                v-model.trim="query"
-                type="search"
-                class="notes-search"
-                placeholder="Search notes, author, page..."
-            />
+                <template #content>
+                    <input
+                        v-model.trim="query"
+                        type="search"
+                        class="notes-search"
+                        placeholder="Search notes, author, page..."
+                    />
 
-            <div class="filter-row">
-                <button
-                    v-for="option in filterOptions"
-                    :key="option.id"
-                    type="button"
-                    class="filter-button"
-                    :class="{ 'is-active': activeFilter === option.id }"
-                    @click="activeFilter = option.id"
-                >
-                    <span>{{ option.label }}</span>
-                    <span class="filter-count">{{ option.count }}</span>
-                </button>
-            </div>
+                    <div class="filter-row">
+                        <button
+                            v-for="option in filterOptions"
+                            :key="option.id"
+                            type="button"
+                            class="filter-button"
+                            :class="{ 'is-active': activeFilter === option.id }"
+                            @click="activeFilter = option.id"
+                        >
+                            <span>{{ option.label }}</span>
+                            <span class="filter-count">{{ option.count }}</span>
+                        </button>
+                    </div>
 
-            <div class="notes-list app-scrollbar" @click.self="selectedStableKey = null">
-                <button
-                    v-for="comment in filteredComments"
-                    :key="comment.stableKey"
-                    type="button"
-                    class="note-item"
-                    :class="{ 'is-selected': selectedStableKey === comment.stableKey }"
-                    @click="selectComment(comment)"
-                    @dblclick.prevent.stop="openComment(comment)"
-                    @contextmenu.prevent.stop="openItemContextMenu($event, comment)"
-                >
-                    <span class="note-item-top">
-                        <span class="note-item-page">P{{ comment.pageNumber }}</span>
-                        <span class="note-item-type">{{ commentTypeLabel(comment) }}</span>
-                        <span v-if="isStickyNote(comment)" class="note-item-sticky">Sticky</span>
-                    </span>
-                    <span class="note-item-text">{{ notePreview(comment) }}</span>
-                    <span class="note-item-meta">
-                        <span>{{ comment.author || 'Unknown author' }}</span>
-                        <span v-if="comment.modifiedAt">{{ formatTime(comment.modifiedAt) }}</span>
-                    </span>
-                </button>
+                    <div class="notes-list app-scrollbar" @click.self="selectedStableKey = null">
+                        <button
+                            v-for="comment in filteredComments"
+                            :key="comment.stableKey"
+                            type="button"
+                            class="note-item"
+                            :class="{ 'is-selected': selectedStableKey === comment.stableKey }"
+                            @click="selectComment(comment)"
+                            @dblclick.prevent.stop="openComment(comment)"
+                            @contextmenu.prevent.stop="openItemContextMenu($event, comment)"
+                        >
+                            <span class="note-item-top">
+                                <span class="note-item-page">P{{ comment.pageNumber }}</span>
+                                <span class="note-item-type">{{ commentTypeLabel(comment) }}</span>
+                                <span v-if="isStickyNote(comment)" class="note-item-sticky">Sticky</span>
+                            </span>
+                            <span class="note-item-text">{{ notePreview(comment) }}</span>
+                            <span class="note-item-meta">
+                                <span>{{ comment.author || 'Unknown author' }}</span>
+                                <span v-if="comment.modifiedAt">{{ formatTime(comment.modifiedAt) }}</span>
+                            </span>
+                        </button>
 
-                <p v-if="filteredComments.length === 0" class="notes-empty">
-                    No annotations match this filter.
-                </p>
-            </div>
+                        <p v-if="filteredComments.length === 0" class="notes-empty">
+                            No annotations match this filter.
+                        </p>
+                    </div>
 
-            <div class="selection-actions">
-                <button
-                    type="button"
-                    class="selection-action"
-                    :disabled="!selectedComment"
-                    @click="openSelectedComment"
-                >
-                    Open Note
-                </button>
-                <button
-                    type="button"
-                    class="selection-action"
-                    :disabled="!canCopySelectedComment"
-                    @click="copySelectedComment"
-                >
-                    Copy Text
-                </button>
-                <button
-                    type="button"
-                    class="selection-action is-danger"
-                    :disabled="!selectedComment"
-                    @click="deleteSelectedComment"
-                >
-                    Delete
-                </button>
-            </div>
+                    <div class="selection-actions">
+                        <button
+                            type="button"
+                            class="selection-action"
+                            :disabled="!selectedComment"
+                            @click="openSelectedComment"
+                        >
+                            Open Note
+                        </button>
+                        <button
+                            type="button"
+                            class="selection-action"
+                            :disabled="!canCopySelectedComment"
+                            @click="copySelectedComment"
+                        >
+                            Copy Text
+                        </button>
+                        <button
+                            type="button"
+                            class="selection-action is-danger"
+                            :disabled="!selectedComment"
+                            @click="deleteSelectedComment"
+                        >
+                            Delete
+                        </button>
+                    </div>
+                </template>
+            </UCollapsible>
         </section>
 
         <div
@@ -1197,6 +1214,39 @@ function applyDrawStyle(style: TDrawStyle) {
     flex-direction: row;
     align-items: baseline;
     justify-content: space-between;
+}
+
+.notes-list-trigger {
+    width: 100%;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.55rem;
+    cursor: pointer;
+}
+
+.notes-list-trigger-meta {
+    min-width: 0;
+    flex: 1 1 auto;
+    display: inline-flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.55rem;
+}
+
+.notes-list-chevron {
+    flex: 0 0 auto;
+    font-size: 0.95rem;
+    color: var(--ui-text-toned);
+    transition: transform 0.18s ease;
+}
+
+.notes-list-chevron.is-open {
+    transform: rotate(180deg);
 }
 
 .notes-count {

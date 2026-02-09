@@ -531,7 +531,7 @@
                     class="annotation-context-menu__action annotation-context-menu__action--danger"
                     @click="deleteContextMenuComment"
                 >
-                    Delete Annotation
+                    {{ contextMenuDeleteActionLabel }}
                 </button>
                 <div class="annotation-context-menu__divider" />
             </template>
@@ -634,7 +634,7 @@ type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'outline' | 'search';
 interface IPdfViewerExpose {
     scrollToPage: (page: number) => void;
     saveDocument: () => Promise<Uint8Array | null>;
-    highlightSelection: () => void;
+    highlightSelection: () => Promise<boolean>;
     commentSelection: () => Promise<boolean>;
     commentAtPoint: (pageNumber: number, pageX: number, pageY: number) => Promise<boolean>;
     startCommentPlacement: () => void;
@@ -858,42 +858,42 @@ function handleGlobalShortcut(event: KeyboardEvent) {
     const key = event.key.toLowerCase();
     switch (key) {
         case 'v':
-            annotationTool.value = 'none';
+            handleAnnotationToolChange('none');
             return;
         case 'h':
             openAnnotations();
-            annotationTool.value = 'highlight';
+            handleAnnotationToolChange('highlight');
             return;
         case 'u':
             openAnnotations();
-            annotationTool.value = 'underline';
+            handleAnnotationToolChange('underline');
             return;
         case 's':
             openAnnotations();
-            annotationTool.value = 'strikethrough';
+            handleAnnotationToolChange('strikethrough');
             return;
         case 'i':
             openAnnotations();
-            annotationTool.value = 'draw';
+            handleAnnotationToolChange('draw');
             return;
         case 'r':
             openAnnotations();
-            annotationTool.value = 'rectangle';
+            handleAnnotationToolChange('rectangle');
             return;
         case 'c':
             openAnnotations();
-            annotationTool.value = 'circle';
+            handleAnnotationToolChange('circle');
             return;
         case 'l':
             openAnnotations();
-            annotationTool.value = 'line';
+            handleAnnotationToolChange('line');
             return;
         case 'a':
             openAnnotations();
-            annotationTool.value = 'arrow';
+            handleAnnotationToolChange('arrow');
             return;
         case 'escape':
-            annotationTool.value = 'none';
+            handleAnnotationToolChange('none');
             return;
         case 'delete':
         case 'backspace':
@@ -1124,6 +1124,25 @@ const contextMenuAnnotationLabel = computed(() => {
         return 'Selected Annotation';
     }
     return comment.kindLabel ?? comment.subtype ?? 'Annotation';
+});
+const contextMenuDeleteActionLabel = computed(() => {
+    const comment = annotationContextMenu.value.comment;
+    if (!comment) {
+        return 'Delete';
+    }
+
+    const subtype = (comment.subtype ?? '').trim().toLowerCase();
+    const isMarkup = (
+        subtype === 'highlight'
+        || subtype === 'underline'
+        || subtype === 'strikeout'
+        || subtype === 'squiggly'
+    );
+    if (isMarkup && !comment.text.trim()) {
+        return 'Delete Markup';
+    }
+
+    return 'Delete Annotation';
 });
 const shapePropertiesPopover = ref<{
     visible: boolean;
@@ -1389,11 +1408,12 @@ function closeSearch() {
 
 function handleAnnotationToolChange(tool: TAnnotationTool) {
     annotationTool.value = tool;
-    if (tool !== 'none') {
-        dragMode.value = false;
-    }
+    // Sidebar tools should always return to text-selection interaction,
+    // while hand-pan remains an explicit, separate toolbar mode.
+    dragMode.value = false;
     pdfViewerRef.value?.cancelCommentPlacement();
     annotationPlacingPageNote.value = false;
+    closeAnnotationContextMenu();
 }
 
 function handleAnnotationToolAutoReset() {
@@ -1647,14 +1667,19 @@ async function createContextMenuFreeNote() {
     closeAnnotationContextMenu();
 }
 
-function createContextMenuSelectionNote() {
-    pdfViewerRef.value?.commentSelection();
+async function createContextMenuSelectionNote() {
+    await pdfViewerRef.value?.commentSelection();
     closeAnnotationContextMenu();
 }
 
-function createContextMenuMarkup(tool: TAnnotationTool) {
+async function createContextMenuMarkup(tool: TAnnotationTool) {
+    if (!pdfViewerRef.value) {
+        closeAnnotationContextMenu();
+        return;
+    }
     handleAnnotationToolChange(tool);
-    pdfViewerRef.value?.highlightSelection();
+    await nextTick();
+    await pdfViewerRef.value.highlightSelection();
     if (!annotationKeepActive.value) {
         annotationTool.value = 'none';
     }
