@@ -11,12 +11,14 @@ Control the Electron app via Puppeteer CDP with persistent sessions.
 > **Note**: Uses Puppeteer instead of Playwright due to compatibility issues with Electron 39.
 >
 > Client commands like `health` and `screenshot` will wait briefly for the session to become ready (instead of immediately erroring) when `start` is still spinning up.
+>
+> For non-interactive/automation usage, prefer `startd` (detached background start).
 
 ## Quick Start
 
 ```bash
-# 1. Start session
-pnpm electron:run start &
+# 1. Start session in background
+pnpm electron:run startd
 
 # 2. Wait for "Session ready" message, then interact
 pnpm electron:run screenshot "initial"
@@ -37,6 +39,7 @@ The `start` command automatically:
 | Command | Description |
 |---------|-------------|
 | `start` | Start session (clears cache, fresh Nuxt, waits for hydration) |
+| `startd` | Start session in background and return when ready |
 | `cleanstart` | Alias for `start` |
 | `stop` | Stop running session |
 | `restart` | Stop and cleanstart (for recovery) |
@@ -44,7 +47,8 @@ The `start` command automatically:
 | `health` | Check app health (verify `openFileDirect: "function"`) |
 | `screenshot [name]` | Take screenshot → `.devkit/screenshots/<name>.png` |
 | `console [level]` | Get console messages (all\|log\|warn\|error) |
-| `run <code>` | Run Puppeteer code |
+| `run <code>` | Run Puppeteer code (supports `sleep(ms)`/`wait(ms)`) |
+| `run-file <path>` | Run Puppeteer code from a JS file |
 | `eval <code>` | Evaluate JS in renderer process |
 | `click <selector>` | Click element |
 | `type <sel> <text>` | Type into element |
@@ -110,6 +114,7 @@ pnpm electron:run restart
 Execute Puppeteer code with access to:
 - `page` - Puppeteer Page object
 - `screenshot(name)` - Take named screenshot
+- `sleep(ms)` / `wait(ms)` - delay helper
 
 ### Examples
 
@@ -126,9 +131,17 @@ pnpm electron:run run "await page.type('input', 'hello')"
 # Wait for elements
 pnpm electron:run run "await page.waitForSelector('.loaded')"
 
+# Delay safely (do not rely on page.waitForTimeout)
+pnpm electron:run run "await sleep(500); return 'ok'"
+
 # Screenshots in code
 pnpm electron:run run "await screenshot('before'); await page.click('button'); await screenshot('after')"
+
+# Use a file for long scripts to avoid shell escaping issues
+pnpm electron:run run-file "/tmp/flow.js"
 ```
+
+`run-file` expects plain JavaScript code (same as `run` snippet body).
 
 ## Opening PDFs
 
@@ -154,6 +167,7 @@ Read .devkit/screenshots/initial.png
 | `openFileDirect: "undefined"` | Run `restart` |
 | Session says running but fails | Run `restart` |
 | Status shows "DISCONNECTED" | Run `restart` |
+| Complex `run` snippet fails from shell escaping | Put code in a file and use `run-file` |
 
 **Nuclear option** (if all else fails):
 ```bash

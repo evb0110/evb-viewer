@@ -14,7 +14,7 @@
 import puppeteer, { type Browser, type Page } from 'puppeteer-core';
 import { createServer } from 'node:http';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { mkdirSync, existsSync, writeFileSync, readFileSync, unlinkSync, rmSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { delay } from 'es-toolkit/promise';
@@ -23,6 +23,8 @@ const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const projectRoot = join(__dirname, '..');
 const screenshotDir = join(projectRoot, '.devkit', 'screenshots');
 const sessionFile = join(projectRoot, '.devkit', 'electron-session.json');
+const sessionStartingFile = join(projectRoot, '.devkit', 'electron-session-starting.json');
+const sessionLogFile = join(projectRoot, '.devkit', 'electron-run-session.log');
 const electronUserDataDir = join(projectRoot, '.devkit', 'electron-user-data');
 const SERVER_PORT = 9847;
 const CDP_PORT = 9222;
@@ -58,10 +60,67 @@ async function isNuxtRunning(): Promise<boolean> {
 
 async function killExistingNuxt(): Promise<void> {
     try {
-        const { execSync } = await import('node:child_process');
-        execSync(`lsof -ti :${NUXT_PORT} | xargs kill -9 2>/dev/null || true`, { stdio: 'ignore' });
+        const pids = await getPidsOnPort(NUXT_PORT);
+        await killPids(pids);
         await delay(500);
     } catch {}
+}
+
+async function killExistingElectronOnDebugPort(): Promise<void> {
+    try {
+        const pids = await getPidsOnPort(CDP_PORT);
+        await killPids(pids);
+        await delay(500);
+    } catch {}
+}
+
+async function killExistingSessionServerOnPort(): Promise<void> {
+    try {
+        const pids = await getPidsOnPort(SERVER_PORT);
+        await killPids(pids);
+        await delay(300);
+    } catch {}
+}
+
+async function getPidsOnPort(port: number): Promise<number[]> {
+    try {
+        const { execSync } = await import('node:child_process');
+        const output = execSync(`lsof -ti :${port} 2>/dev/null || true`, { encoding: 'utf8' }) as string;
+        return output
+            .split('\n')
+            .map(entry => Number(entry.trim()))
+            .filter(pid => Number.isFinite(pid) && pid > 0);
+    } catch {
+        return [];
+    }
+}
+
+async function killPids(
+    pids: number[],
+    options: {
+        signal?: NodeJS.Signals | number;
+        exclude?: Set<number>;
+    } = {},
+): Promise<void> {
+    if (!Array.isArray(pids) || pids.length === 0) {
+        return;
+    }
+    const signal = options.signal ?? 'SIGKILL';
+    const exclude = options.exclude ?? new Set<number>();
+    exclude.add(process.pid);
+    if (typeof process.ppid === 'number' && process.ppid > 0) {
+        exclude.add(process.ppid);
+    }
+
+    const uniquePids = Array.from(new Set(pids));
+    for (const pid of uniquePids) {
+        if (exclude.has(pid)) {
+            continue;
+        }
+        try {
+            process.kill(pid, signal);
+        } catch {}
+    }
 }
 
 async function clearViteCache(): Promise<void> {
@@ -241,11 +300,32 @@ async function findAppPage(browser: Browser): Promise<Page | null> {
 
 async function connectToBrowser(): Promise<{ browser: Browser; page: Page }> {
     console.log('[Puppeteer] Connecting via CDP...');
+    let browser: Browser | null = null;
 
-    const browser = await puppeteer.connect({
-        browserURL: `http://localhost:${CDP_PORT}`,
-        defaultViewport: null, // Don't override Electron window's natural viewport
-    });
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+        try {
+            browser = await Promise.race([
+                puppeteer.connect({
+                    browserURL: `http://localhost:${CDP_PORT}`,
+                    defaultViewport: null, // Don't override Electron window's natural viewport
+                }),
+                delay(3500).then(() => {
+                    throw new Error('CDP connect timeout');
+                }),
+            ]);
+            break;
+        } catch (error) {
+            if (attempt === 0 || attempt === 9 || attempt === 19) {
+                const message = error instanceof Error ? error.message : String(error);
+                console.log(`[Puppeteer] CDP connect retry ${attempt + 1}/20: ${message}`);
+            }
+            await delay(350);
+        }
+    }
+
+    if (!browser) {
+        throw new Error('Could not connect to Electron CDP');
+    }
 
     // Wait for the app page (may take a moment after Electron starts)
     let page: Page | null = null;
@@ -256,7 +336,14 @@ async function connectToBrowser(): Promise<{ browser: Browser; page: Page }> {
     }
 
     if (!page) {
-        throw new Error('Could not find app page');
+        const pages = await browser.pages();
+        page = pages.find(candidate => !candidate.isClosed()) ?? await browser.newPage();
+        if (!page.url().includes(`localhost:${NUXT_PORT}`)) {
+            await page.goto(`http://localhost:${NUXT_PORT}/`, {
+                waitUntil: 'domcontentloaded',
+                timeout: 30_000,
+            });
+        }
     }
 
     let sawOutdatedOptimizeDep = false;
@@ -344,38 +431,53 @@ async function connectToBrowser(): Promise<{ browser: Browser; page: Page }> {
 // ============ Session Server ============
 
 async function startSession(forceClean = false) {
+    await cleanupStaleSessionArtifacts();
+
     if (await isSessionRunning()) {
         console.log('Session already running. Use `pnpm electron:run stop` to stop it.');
-        process.exit(0);
+        return;
     }
+    if (isSessionStarting()) {
+        console.log('Session startup already in progress. Waiting for readiness...');
+        const ready = await waitForSessionReady(90_000);
+        if (!ready) {
+            throw new Error('Session startup is stuck. Run `pnpm electron:run stop` and retry.');
+        }
+        return;
+    }
+    await killExistingSessionServerOnPort();
+    markSessionStarting(process.pid);
 
     console.log('Starting Electron Puppeteer session...\n');
 
-    // Ensure Nuxt is running (force clean if requested)
-    const nuxtProcess = await startNuxtServer(forceClean);
-
-    // Clear Electron profile in clean starts to avoid stale cache issues (Vite 504 "Outdated Optimize Dep").
-    if (forceClean) {
-        try {
-            rmSync(electronUserDataDir, { recursive: true, force: true });
-            console.log('[Cache] Cleared .devkit/electron-user-data');
-        } catch {}
-    }
-
-    // Start Electron with CDP
-    const electronProcess = await startElectron();
-
-    // Connect via Puppeteer — clean up spawned processes on failure
-    let browser: Browser;
-    let page: Page;
     try {
-        ({ browser, page } = await connectToBrowser());
-    } catch (err) {
-        console.error('[Session] Failed to connect to browser, cleaning up...');
-        try { electronProcess.kill(); } catch {}
-        try { nuxtProcess?.kill(); } catch {}
-        throw err;
-    }
+        // Ensure Nuxt is running (force clean if requested)
+        const nuxtProcess = await startNuxtServer(forceClean);
+
+        // Clear Electron profile in clean starts to avoid stale cache issues (Vite 504 "Outdated Optimize Dep").
+        if (forceClean) {
+            try {
+                rmSync(electronUserDataDir, { recursive: true, force: true });
+                console.log('[Cache] Cleared .devkit/electron-user-data');
+            } catch {}
+        }
+
+        await killExistingElectronOnDebugPort();
+
+        // Start Electron with CDP
+        const electronProcess = await startElectron();
+
+        // Connect via Puppeteer — clean up spawned processes on failure
+        let browser: Browser;
+        let page: Page;
+        try {
+            ({ browser, page } = await connectToBrowser());
+        } catch (err) {
+            console.error('[Session] Failed to connect to browser, cleaning up...');
+            try { electronProcess.kill(); } catch {}
+            try { nuxtProcess?.kill(); } catch {}
+            throw err;
+        }
 
     // Setup console capture
     const consoleMessages: ISessionState['consoleMessages'] = [];
@@ -417,91 +519,97 @@ async function startSession(forceClean = false) {
         if (consoleMessages.length > 100) consoleMessages.shift();
     });
 
-    sessionState = { browser, page, electronProcess, nuxtProcess, consoleMessages };
+        sessionState = { browser, page, electronProcess, nuxtProcess, consoleMessages };
 
-    // Shutdown state
-    let isShuttingDown = false;
-    let httpServer: ReturnType<typeof createServer> | null = null;
+        // Shutdown state
+        let isShuttingDown = false;
+        let httpServer: ReturnType<typeof createServer> | null = null;
 
-    // Cleanup function - must be defined before event handlers
-    const cleanupAndExit = async (exitCode: number) => {
-        if (isShuttingDown) return;
-        isShuttingDown = true;
+        // Cleanup function - must be defined before event handlers
+        const cleanupAndExit = async (exitCode: number) => {
+            if (isShuttingDown) return;
+            isShuttingDown = true;
 
-        console.log('\nShutting down...');
-        try { unlinkSync(sessionFile); } catch {}
-        httpServer?.close();
+            console.log('\nShutting down...');
+            try { unlinkSync(sessionFile); } catch {}
+            clearSessionStarting();
+            httpServer?.close();
 
-        // Disconnect Puppeteer (suppress errors since browser may already be gone)
-        await sessionState?.browser.disconnect().catch(() => {});
+            // Disconnect Puppeteer (suppress errors since browser may already be gone)
+            await sessionState?.browser.disconnect().catch(() => {});
 
-        // Kill processes (they may already be dead)
-        try { sessionState?.electronProcess.kill(); } catch {}
-        try { sessionState?.nuxtProcess?.kill(); } catch {}
+            // Kill processes (they may already be dead)
+            try { sessionState?.electronProcess.kill(); } catch {}
+            try { sessionState?.nuxtProcess?.kill(); } catch {}
 
-        process.exit(exitCode);
-    };
+            process.exit(exitCode);
+        };
 
-    // Monitor Electron process exit
-    electronProcess.on('exit', (code, signal) => {
-        if (isShuttingDown) {
-            return;
-        }
-        console.log(`\n[Electron] Process exited (code: ${code}, signal: ${signal})`);
-        console.log('[Session] Electron died - shutting down session...');
-        cleanupAndExit(1);
-    });
-
-    // Monitor Puppeteer disconnection
-    browser.on('disconnected', () => {
-        if (isShuttingDown) {
-            return;
-        }
-        console.log('\n[Puppeteer] Browser disconnected');
-        console.log('[Session] Lost connection to Electron - shutting down session...');
-        cleanupAndExit(1);
-    });
-
-    // HTTP server for commands
-    const server = createServer(async (req, res) => {
-        if (req.method !== 'POST') {
-            res.writeHead(405);
-            res.end('Method not allowed');
-            return;
-        }
-
-        let body = '';
-        req.on('data', (chunk) => (body += chunk));
-        req.on('end', async () => {
-            try {
-                const { command, args } = JSON.parse(body);
-                const result = await handleCommand(command, args);
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ success: true, result }));
-            } catch (error) {
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({
-                    success: false,
-                    error: error instanceof Error ? error.message : String(error),
-                }));
+        // Monitor Electron process exit
+        electronProcess.on('exit', (code, signal) => {
+            if (isShuttingDown) {
+                return;
             }
+            console.log(`\n[Electron] Process exited (code: ${code}, signal: ${signal})`);
+            console.log('[Session] Electron died - shutting down session...');
+            cleanupAndExit(1);
         });
-    });
 
-    httpServer = server;
+        // Monitor Puppeteer disconnection
+        browser.on('disconnected', () => {
+            if (isShuttingDown) {
+                return;
+            }
+            console.log('\n[Puppeteer] Browser disconnected');
+            console.log('[Session] Lost connection to Electron - shutting down session...');
+            cleanupAndExit(1);
+        });
 
-    server.listen(SERVER_PORT, () => {
-        mkdirSync(join(projectRoot, '.devkit'), { recursive: true });
-        writeFileSync(sessionFile, JSON.stringify({ port: SERVER_PORT, pid: process.pid }));
+        // HTTP server for commands
+        const server = createServer(async (req, res) => {
+            if (req.method !== 'POST') {
+                res.writeHead(405);
+                res.end('Method not allowed');
+                return;
+            }
 
-        console.log(`\n✓ Session ready on port ${SERVER_PORT}`);
-        console.log('  Press Ctrl+C to stop\n');
-    });
+            let body = '';
+            req.on('data', (chunk) => (body += chunk));
+            req.on('end', async () => {
+                try {
+                    const { command, args } = JSON.parse(body);
+                    const result = await handleCommand(command, args);
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ success: true, result }));
+                } catch (error) {
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({
+                        success: false,
+                        error: error instanceof Error ? error.message : String(error),
+                    }));
+                }
+            });
+        });
 
-    process.on('SIGINT', () => cleanupAndExit(0));
-    process.on('SIGTERM', () => cleanupAndExit(0));
+        httpServer = server;
 
-    await new Promise(() => {});
+        server.listen(SERVER_PORT, () => {
+            mkdirSync(join(projectRoot, '.devkit'), { recursive: true });
+            writeFileSync(sessionFile, JSON.stringify({ port: SERVER_PORT, pid: process.pid }));
+            clearSessionStarting();
+
+            console.log(`\n✓ Session ready on port ${SERVER_PORT}`);
+            console.log('  Press Ctrl+C to stop\n');
+        });
+
+        process.on('SIGINT', () => cleanupAndExit(0));
+        process.on('SIGTERM', () => cleanupAndExit(0));
+
+        await new Promise(() => {});
+    } catch (error) {
+        clearSessionStarting();
+        throw error;
+    }
 }
 
 // ============ Command Handlers ============
@@ -541,14 +649,18 @@ async function handleCommand(command: string, args: unknown[]): Promise<unknown>
                 await page.screenshot({ path: filepath });
                 return filepath;
             };
+            const sleepFn = async (ms: number) => {
+                const duration = Number.isFinite(ms) ? Math.max(0, ms) : 0;
+                await delay(duration);
+            };
 
             const asyncFn = new Function(
-                'page', 'screenshot',
+                'page', 'screenshot', 'sleep', 'wait',
                 `return (async () => { ${code} })()`,
             );
 
             return await Promise.race([
-                asyncFn(page, screenshotFn),
+                asyncFn(page, screenshotFn, sleepFn, sleepFn),
                 delay(COMMAND_EXECUTION_TIMEOUT_MS).then(() => {
                     throw new Error(`run command timed out after ${Math.round(COMMAND_EXECUTION_TIMEOUT_MS / 1000)}s`);
                 }),
@@ -609,6 +721,9 @@ async function handleCommand(command: string, args: unknown[]): Promise<unknown>
                 isLoading: boolean | null;
                 workingCopyPath: string | null;
                 renderedPageContainers: number;
+                renderedCanvasCount: number;
+                renderedTextSpanCount: number;
+                visibleSkeletonCount: number;
                 hasViewer: boolean;
                 hasEmptyState: boolean;
                 openTrigger?: {
@@ -653,6 +768,22 @@ async function handleCommand(command: string, args: unknown[]): Promise<unknown>
                     isLoading: setupState?.isLoading ?? null,
                     workingCopyPath: setupState?.workingCopyPath ?? null,
                     renderedPageContainers: document.querySelectorAll('.page_container').length,
+                    renderedCanvasCount: document.querySelectorAll('.page_container .page_canvas canvas').length,
+                    renderedTextSpanCount: document.querySelectorAll('.page_container .text-layer span, .page_container .textLayer span').length,
+                    visibleSkeletonCount: Array.from(document.querySelectorAll('.page_container .pdf-page-skeleton'))
+                        .filter((node) => {
+                            const element = node as HTMLElement;
+                            if (!element.isConnected) {
+                                return false;
+                            }
+                            const style = window.getComputedStyle(element);
+                            if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) {
+                                return false;
+                            }
+                            const rect = element.getBoundingClientRect();
+                            return rect.width > 0 && rect.height > 0;
+                        })
+                        .length,
                     hasViewer: Boolean(host),
                     hasEmptyState: Boolean(document.querySelector('.empty-state')),
                     openTrigger,
@@ -716,6 +847,8 @@ async function handleCommand(command: string, args: unknown[]): Promise<unknown>
                 const hasPages = (lastState.numPages ?? 0) > 0 || lastState.renderedPageContainers > 0;
                 const notLoading = lastState.isLoading === false || lastState.isLoading === null;
                 const hasDocumentUi = lastState.hasViewer && !lastState.hasEmptyState;
+                const hasRenderedContent = lastState.renderedCanvasCount > 0 || lastState.renderedTextSpanCount > 0;
+                const skeletonGone = lastState.visibleSkeletonCount === 0;
                 const openedNewDoc = (
                     !!beforeState.workingCopyPath
                     && !!lastState.workingCopyPath
@@ -726,9 +859,11 @@ async function handleCommand(command: string, args: unknown[]): Promise<unknown>
                     && hasPages
                     && hasDocumentUi
                     && notLoading
+                    && hasRenderedContent
+                    && skeletonGone
                 );
 
-                if (hasPages && hasDocumentUi && notLoading && (openedNewDoc || sameDocButReady)) {
+                if (hasPages && hasDocumentUi && notLoading && hasRenderedContent && skeletonGone && (openedNewDoc || sameDocButReady)) {
                     await delay(250);
                     break;
                 }
@@ -741,6 +876,8 @@ async function handleCommand(command: string, args: unknown[]): Promise<unknown>
                 !state.hasViewer
                 || state.hasEmptyState
                 || state.renderedPageContainers <= 0
+                || (state.renderedCanvasCount <= 0 && state.renderedTextSpanCount <= 0)
+                || state.visibleSkeletonCount > 0
             ) {
                 throw new Error(`openPdf readiness timeout for ${pdfPath}`);
             }
@@ -784,6 +921,82 @@ function getSessionInfo(): ISessionInfo | null {
     }
 }
 
+interface ISessionStartingInfo {
+    pid: number;
+    startedAt: number;
+}
+
+function getSessionStartingInfo(): ISessionStartingInfo | null {
+    try {
+        return JSON.parse(readFileSync(sessionStartingFile, 'utf8')) as ISessionStartingInfo;
+    } catch {
+        return null;
+    }
+}
+
+function isProcessAlive(pid: number) {
+    if (!Number.isFinite(pid) || pid <= 0) {
+        return false;
+    }
+    try {
+        process.kill(pid, 0);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+function readSessionLogTail(maxLines = 80) {
+    try {
+        const text = readFileSync(sessionLogFile, 'utf8');
+        const lines = text.split('\n');
+        return lines.slice(Math.max(0, lines.length - maxLines)).join('\n').trim();
+    } catch {
+        return '';
+    }
+}
+
+function markSessionStarting(pid: number) {
+    mkdirSync(join(projectRoot, '.devkit'), { recursive: true });
+    writeFileSync(sessionStartingFile, JSON.stringify({
+        pid,
+        startedAt: Date.now(),
+    }));
+}
+
+function clearSessionStarting() {
+    try { unlinkSync(sessionStartingFile); } catch {}
+}
+
+function isSessionStarting() {
+    const info = getSessionStartingInfo();
+    if (!info) {
+        return false;
+    }
+    const startupAge = Date.now() - info.startedAt;
+    if (startupAge > 5 * 60_000 || !isProcessAlive(info.pid)) {
+        clearSessionStarting();
+        return false;
+    }
+    return true;
+}
+
+async function cleanupStaleSessionArtifacts() {
+    const info = getSessionInfo();
+    if (info && !isProcessAlive(info.pid)) {
+        try { unlinkSync(sessionFile); } catch {}
+    }
+
+    const starting = getSessionStartingInfo();
+    if (starting && !isProcessAlive(starting.pid)) {
+        clearSessionStarting();
+    }
+
+    if (info && !(await isSessionRunning()) && !isProcessAlive(info.pid)) {
+        try { unlinkSync(sessionFile); } catch {}
+    }
+}
+
 async function isSessionRunning(): Promise<boolean> {
     const info = getSessionInfo();
     if (!info) return false;
@@ -796,7 +1009,9 @@ async function isSessionRunning(): Promise<boolean> {
         });
         return res.ok;
     } catch {
-        try { unlinkSync(sessionFile); } catch {}
+        if (!isProcessAlive(info.pid)) {
+            try { unlinkSync(sessionFile); } catch {}
+        }
         return false;
     }
 }
@@ -842,7 +1057,6 @@ async function sendCommand(
                 didPrintWaitMessage = true;
                 console.log('[Session] Waiting for session to become ready...');
             }
-            try { unlinkSync(sessionFile); } catch {}
             await delay(250);
             continue;
         } finally {
@@ -859,22 +1073,103 @@ async function sendCommand(
 }
 
 async function stopSession() {
+    await cleanupStaleSessionArtifacts();
+
     const info = getSessionInfo();
-    if (!info) {
+    const starting = getSessionStartingInfo();
+
+    if (!info && !starting) {
+        await killExistingSessionServerOnPort();
+        await killExistingElectronOnDebugPort();
         console.log('No session running.');
         return;
     }
 
-    try {
-        process.kill(info.pid, 'SIGTERM');
-        console.log('Session stopped.');
-    } catch {
-        console.log('Session was not running.');
+    if (info) {
+        try {
+            process.kill(info.pid, 'SIGTERM');
+            console.log('Session stopped.');
+        } catch {
+            console.log('Session was not running.');
+        }
+        try { unlinkSync(sessionFile); } catch {}
     }
-    try { unlinkSync(sessionFile); } catch {}
+
+    if (starting?.pid && isProcessAlive(starting.pid)) {
+        try { process.kill(starting.pid, 'SIGTERM'); } catch {}
+    }
+    const sessionPortPids = await getPidsOnPort(SERVER_PORT);
+    await killPids(sessionPortPids, { signal: 'SIGKILL' });
+    const cdpPortPids = await getPidsOnPort(CDP_PORT);
+    await killPids(cdpPortPids, { signal: 'SIGKILL' });
+    await delay(250);
+    clearSessionStarting();
 }
 
 // ============ Utilities ============
+
+async function waitForSessionReady(timeoutMs = SESSION_WAIT_TIMEOUT_MS): Promise<boolean> {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+        if (await isSessionRunning()) {
+            return true;
+        }
+        await delay(250);
+    }
+    return false;
+}
+
+async function startSessionDetached() {
+    await cleanupStaleSessionArtifacts();
+
+    if (await isSessionRunning()) {
+        console.log('Session already running.');
+        return;
+    }
+    if (isSessionStarting()) {
+        console.log('Session startup already in progress. Waiting for readiness...');
+        const ready = await waitForSessionReady(90_000);
+        if (!ready) {
+            throw new Error(`Startup is still pending. Check logs: ${sessionLogFile}`);
+        }
+        console.log('Session is ready.');
+        return;
+    }
+
+    mkdirSync(join(projectRoot, '.devkit'), { recursive: true });
+    const logFd = openSync(sessionLogFile, 'w');
+    const child = spawn('pnpm', ['electron:run', 'start'], {
+        cwd: projectRoot,
+        detached: true,
+        shell: false,
+        stdio: ['ignore', logFd, logFd],
+        env: { ...process.env },
+    });
+    closeSync(logFd);
+    child.unref();
+
+    const timeoutMs = 120_000;
+    const start = Date.now();
+    let ready = false;
+    while (Date.now() - start < timeoutMs) {
+        if (await isSessionRunning()) {
+            ready = true;
+            break;
+        }
+        if (child.pid && !isProcessAlive(child.pid) && !isSessionStarting()) {
+            break;
+        }
+        await delay(300);
+    }
+    if (!ready) {
+        const tail = readSessionLogTail();
+        const details = tail ? `\n\n--- Recent session log ---\n${tail}` : '';
+        throw new Error(`Detached session failed to become ready in ${Math.round(timeoutMs / 1000)}s. Check logs: ${sessionLogFile}${details}`);
+    }
+
+    console.log(`Session started in background (pid: ${child.pid ?? 'unknown'}).`);
+    console.log(`Logs: ${sessionLogFile}`);
+}
 
 // ============ CLI ============
 
@@ -890,6 +1185,7 @@ Usage:
 
 Session:
   start               Start session (foreground, Ctrl+C to stop)
+  startd              Start session in background (detached) and return
   cleanstart          Start with fresh Nuxt server (clears stale cache)
   stop                Stop running session
   status              Check session status and Electron connection health
@@ -899,7 +1195,8 @@ Commands (require running session):
   health              Check app health status (loaded, API availability)
   screenshot [name]   Take screenshot → .devkit/screenshots/<name>.png
   console [level]     Get console messages (all|log|warn|error)
-  run <code>          Run Puppeteer code (access: page, screenshot)
+  run <code>          Run Puppeteer code (access: page, screenshot, sleep/wait)
+  run-file <path>     Run Puppeteer code from a JS file
   eval <code>         Evaluate JS in page
   click <selector>    Click element
   type <sel> <text>   Type into element
@@ -908,10 +1205,12 @@ Commands (require running session):
 
 Examples:
   pnpm electron:run start
+  pnpm electron:run startd
   pnpm electron:run screenshot "home"
   pnpm electron:run openPdf "/path/to/document.pdf"
   pnpm electron:run click "text=Open PDF"
-  pnpm electron:run run "await page.click('button'); return await page.title()"
+  pnpm electron:run run "await sleep(500); return await page.title()"
+  pnpm electron:run run-file "/tmp/flow.js"
   pnpm electron:run console error
   pnpm electron:run stop
 `);
@@ -930,6 +1229,10 @@ Examples:
                 // Alias for start - both do the same thing now
                 console.log('Starting fresh session...');
                 await startSession(true);
+                break;
+
+            case 'startd':
+                await startSessionDetached();
                 break;
 
             case 'stop':
@@ -1006,6 +1309,20 @@ Examples:
                     console.error('No code provided');
                     process.exit(1);
                 }
+                const result = await sendCommand('run', [code], COMMAND_EXECUTION_TIMEOUT_MS);
+                if (result !== undefined) {
+                    console.log(JSON.stringify(result, null, 2));
+                }
+                break;
+            }
+
+            case 'run-file': {
+                const filePath = args[0];
+                if (!filePath) {
+                    console.error('JS file path required');
+                    process.exit(1);
+                }
+                const code = readFileSync(filePath, 'utf8');
                 const result = await sendCommand('run', [code], COMMAND_EXECUTION_TIMEOUT_MS);
                 if (result !== undefined) {
                     console.log(JSON.stringify(result, null, 2));

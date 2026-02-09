@@ -1342,13 +1342,98 @@ function resolveEditorDrawLayerHighlight(editor: IPdfjsEditor) {
 
     const escapedClipPathId = clipPathId.replaceAll('\\', '\\\\').replaceAll('"', '\\"');
     const clipPathNode = pageContainer.querySelector<SVGElement>(
-        `.canvasWrapper svg.highlight clipPath[id="${escapedClipPathId}"]`,
+        `svg.highlight clipPath[id="${escapedClipPathId}"]`,
     );
-    const highlightSvg = clipPathNode?.closest<SVGElement>('svg.highlight') ?? null;
+    let highlightSvg = clipPathNode?.closest<SVGElement>('svg.highlight') ?? null;
+    if (!highlightSvg && editor.div) {
+        highlightSvg = findClosestHighlightDrawLayerSvg(pageContainer, editor.div);
+    }
     if (highlightSvg) {
         editorDrawLayerHighlightRefs.set(editor, highlightSvg);
     }
     return highlightSvg;
+}
+
+function rectIntersectionArea(left: DOMRect, right: DOMRect) {
+    const x1 = Math.max(left.left, right.left);
+    const y1 = Math.max(left.top, right.top);
+    const x2 = Math.min(left.right, right.right);
+    const y2 = Math.min(left.bottom, right.bottom);
+    const width = Math.max(0, x2 - x1);
+    const height = Math.max(0, y2 - y1);
+    return width * height;
+}
+
+function rectIoU(left: DOMRect, right: DOMRect) {
+    const intersection = rectIntersectionArea(left, right);
+    if (intersection <= 0) {
+        return 0;
+    }
+    const leftArea = left.width * left.height;
+    const rightArea = right.width * right.height;
+    const union = leftArea + rightArea - intersection;
+    if (union <= 0) {
+        return 0;
+    }
+    return intersection / union;
+}
+
+function rectCenterDistance(left: DOMRect, right: DOMRect) {
+    const leftX = left.left + left.width / 2;
+    const leftY = left.top + left.height / 2;
+    const rightX = right.left + right.width / 2;
+    const rightY = right.top + right.height / 2;
+    return Math.hypot(leftX - rightX, leftY - rightY);
+}
+
+function findClosestHighlightDrawLayerSvg(pageContainer: HTMLElement, editorDiv: HTMLElement) {
+    const editorRect = editorDiv.getBoundingClientRect();
+    if (editorRect.width <= 0 || editorRect.height <= 0) {
+        return null;
+    }
+
+    const candidates = Array.from(pageContainer.querySelectorAll<SVGElement>('svg.highlight'));
+    let bestOverlap: {
+        score: number;
+        svg: SVGElement;
+    } | null = null;
+    let bestDistance: {
+        distance: number;
+        svg: SVGElement;
+    } | null = null;
+
+    for (const candidate of candidates) {
+        const rect = candidate.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) {
+            continue;
+        }
+        const overlapScore = rectIoU(editorRect, rect);
+        if (overlapScore > 0) {
+            if (!bestOverlap || overlapScore > bestOverlap.score) {
+                bestOverlap = {
+                    score: overlapScore,
+                    svg: candidate,
+                };
+            }
+            continue;
+        }
+
+        const distance = rectCenterDistance(editorRect, rect);
+        if (!bestDistance || distance < bestDistance.distance) {
+            bestDistance = {
+                distance,
+                svg: candidate,
+            };
+        }
+    }
+
+    if (bestOverlap) {
+        return bestOverlap.svg;
+    }
+    if (bestDistance && bestDistance.distance <= 40) {
+        return bestDistance.svg;
+    }
+    return null;
 }
 
 function clearMarkupSubtypeDrawLayerClass(editor: IPdfjsEditor) {
@@ -1368,10 +1453,10 @@ function clearMarkupSubtypeDrawLayerClass(editor: IPdfjsEditor) {
 function applyMarkupSubtypeDrawLayerClass(editor: IPdfjsEditor, subtype: TMarkupSubtype | null, attempt = 0) {
     const highlightSvg = resolveEditorDrawLayerHighlight(editor);
     if (!highlightSvg) {
-        if (attempt < 4 && editor.div?.isConnected) {
-            requestAnimationFrame(() => {
+        if (attempt < 18 && editor.div?.isConnected) {
+            setTimeout(() => {
                 applyMarkupSubtypeDrawLayerClass(editor, subtype, attempt + 1);
-            });
+            }, 50);
         }
         return;
     }
@@ -1397,6 +1482,7 @@ function clearMarkupSubtypeEditorClass(editor: IPdfjsEditor) {
         `${MARKUP_EDITOR_CLASS_PREFIX}strikeout`,
         `${MARKUP_EDITOR_CLASS_PREFIX}squiggly`,
     );
+    delete div.dataset.markupSubtype;
     div.style.removeProperty('--pdf-markup-subtype-color');
     clearMarkupSubtypeDrawLayerClass(editor);
 }
@@ -1416,7 +1502,40 @@ function applyEditorMarkupSubtypePresentation(editor: IPdfjsEditor, subtype: TMa
 
     const normalizedSubtype = subtype.toLowerCase();
     div.classList.add(`${MARKUP_EDITOR_CLASS_PREFIX}${normalizedSubtype}`);
+    div.dataset.markupSubtype = normalizedSubtype;
     div.style.setProperty('--pdf-markup-subtype-color', resolveMarkupSubtypeColor(subtype));
+}
+
+function resolveEditorSubtypeFromPresentation(editor: IPdfjsEditor): TMarkupSubtype | null {
+    const div = editor.div;
+    if (!div) {
+        return null;
+    }
+    const explicit = div.dataset.markupSubtype?.trim().toLowerCase() ?? '';
+    if (explicit === 'underline') {
+        return 'Underline';
+    }
+    if (explicit === 'strikeout' || explicit === 'strikethrough') {
+        return 'StrikeOut';
+    }
+    if (explicit === 'squiggly') {
+        return 'Squiggly';
+    }
+    if (explicit === 'highlight') {
+        return 'Highlight';
+    }
+
+    const classList = Array.from(div.classList);
+    if (classList.some(name => name.includes(`${MARKUP_EDITOR_CLASS_PREFIX}underline`))) {
+        return 'Underline';
+    }
+    if (classList.some(name => name.includes(`${MARKUP_EDITOR_CLASS_PREFIX}strikeout`))) {
+        return 'StrikeOut';
+    }
+    if (classList.some(name => name.includes(`${MARKUP_EDITOR_CLASS_PREFIX}squiggly`))) {
+        return 'Squiggly';
+    }
+    return null;
 }
 
 function syncMarkupSubtypePresentationForEditors() {
@@ -1428,7 +1547,10 @@ function syncMarkupSubtypePresentationForEditors() {
     for (let pageIndex = 0; pageIndex < numPages.value; pageIndex += 1) {
         for (const editor of uiManager.getEditors(pageIndex)) {
             const normalizedEditor = editor as IPdfjsEditor;
-            const subtype = resolveEditorMarkupSubtypeOverride(normalizedEditor, pageIndex);
+            const subtype = (
+                resolveEditorMarkupSubtypeOverride(normalizedEditor, pageIndex)
+                ?? resolveEditorSubtypeFromPresentation(normalizedEditor)
+            );
             applyEditorMarkupSubtypePresentation(normalizedEditor, subtype);
         }
     }
@@ -1609,7 +1731,7 @@ function maybeAutoResetAnnotationTool() {
 }
 
 function highlightSelection() {
-    void highlightSelectionInternal(false);
+    return highlightSelectionInternal(false);
 }
 
 async function maybeApplySelectionMarkup(explicitRange: Range | null = null) {
@@ -1641,12 +1763,8 @@ async function commentSelection() {
     return createdAtCenter;
 }
 
-function handleViewerMouseUp(event: MouseEvent) {
+function handleViewerMouseUp() {
     stopDrag();
-    if (event.button !== 0) {
-        return;
-    }
-    void maybeApplySelectionMarkup();
 }
 
 function handleDocumentPointerUp(event: PointerEvent) {
@@ -3408,7 +3526,17 @@ function initAnnotationEditor() {
             const pageIndex = Number.isFinite(normalizedEditor.parentPageIndex)
                 ? normalizedEditor.parentPageIndex as number
                 : Math.max(0, currentPage.value - 1);
-            const knownSubtype = resolveEditorMarkupSubtypeOverride(normalizedEditor, pageIndex);
+            let knownSubtype = resolveEditorMarkupSubtypeOverride(normalizedEditor, pageIndex);
+            if (!knownSubtype) {
+                knownSubtype = resolveEditorSubtypeFromPresentation(normalizedEditor);
+            }
+            if (!knownSubtype && detectEditorSubtype(normalizedEditor) === 'Highlight') {
+                const toolSubtype = TOOL_TO_MARKUP_SUBTYPE[annotationTool.value] ?? null;
+                if (toolSubtype) {
+                    setEditorMarkupSubtypeOverride(normalizedEditor, pageIndex, toolSubtype);
+                    knownSubtype = toolSubtype;
+                }
+            }
             if (knownSubtype) {
                 applyEditorMarkupSubtypePresentation(normalizedEditor, knownSubtype);
             }
@@ -3538,6 +3666,48 @@ async function highlightSelectionInternal(withComment: boolean, explicitRange: R
     const markupSubtypeOverride = TOOL_TO_MARKUP_SUBTYPE[annotationTool.value] ?? null;
     let createdAnnotation = false;
 
+    const pickCreatedEditorCandidate = () => {
+        const editorsAfter = Array.from(uiManager.getEditors(pageIndex)) as IPdfjsEditor[];
+        return editorsAfter.find((editor) => {
+            if (!editorsBeforeRefs.has(editor)) {
+                return true;
+            }
+            const identity = getEditorIdentity(editor, pageIndex);
+            return !editorsBeforeIds.has(identity);
+        }) ?? editorsAfter.at(-1) ?? null;
+    };
+
+    const resolveCreatedEditor = async (createdEditor: IPdfjsEditor | null) => {
+        if (createdEditor) {
+            return createdEditor;
+        }
+
+        const activeEditor = (uiManager as AnnotationEditorUIManager & { getActive?: () => unknown })
+            .getActive?.() as IPdfjsEditor | null | undefined;
+        if (activeEditor) {
+            return activeEditor;
+        }
+
+        try {
+            await uiManager.waitForEditorsRendered(pageNumber);
+        } catch {
+            // Ignore and continue with best-effort lookup.
+        }
+        await nextTick();
+        return pickCreatedEditorCandidate();
+    };
+
+    const applySubtypeOverrideToEditor = (editor: IPdfjsEditor | null) => {
+        if (!editor || !markupSubtypeOverride) {
+            return false;
+        }
+        setEditorMarkupSubtypeOverride(editor, pageIndex, markupSubtypeOverride);
+        queueMicrotask(() => {
+            syncMarkupSubtypePresentationForEditors();
+        });
+        return true;
+    };
+
     try {
         await uiManager.updateMode(AnnotationEditorType.HIGHLIGHT);
         await uiManager.waitForEditorsRendered(pageNumber);
@@ -3557,61 +3727,33 @@ async function highlightSelectionInternal(withComment: boolean, explicitRange: R
             },
         );
         createdAnnotation = true;
-        if (createdEditor && markupSubtypeOverride) {
-            setEditorMarkupSubtypeOverride(createdEditor as IPdfjsEditor, pageIndex, markupSubtypeOverride);
-            queueMicrotask(() => {
-                syncMarkupSubtypePresentationForEditors();
-            });
+        const targetEditor = await resolveCreatedEditor((createdEditor ?? null) as IPdfjsEditor | null);
+        applySubtypeOverrideToEditor(targetEditor);
+
+        if (!targetEditor && !withComment && markupSubtypeOverride) {
+            let attempts = 0;
+            const applySubtypeLater = () => {
+                const lateEditor = pickCreatedEditorCandidate();
+                if (applySubtypeOverrideToEditor(lateEditor)) {
+                    return;
+                }
+                attempts += 1;
+                if (attempts < 12) {
+                    setTimeout(applySubtypeLater, 80);
+                }
+            };
+            setTimeout(applySubtypeLater, 80);
         }
 
         if (withComment) {
-            let targetEditor = (createdEditor ?? null) as IPdfjsEditor | null;
-            if (!targetEditor) {
-                const activeEditor = (uiManager as AnnotationEditorUIManager & { getActive?: () => unknown })
-                    .getActive?.() as IPdfjsEditor | null | undefined;
-                if (activeEditor) {
-                    targetEditor = activeEditor;
-                }
-            }
-
-            if (!targetEditor) {
-                try {
-                    await uiManager.waitForEditorsRendered(pageNumber);
-                } catch {
-                    // ignore
-                }
-                await nextTick();
-                const editorsAfter = Array.from(uiManager.getEditors(pageIndex)) as IPdfjsEditor[];
-                targetEditor = editorsAfter.find((editor) => {
-                    if (!editorsBeforeRefs.has(editor)) {
-                        return true;
-                    }
-                    const identity = getEditorIdentity(editor, pageIndex);
-                    return !editorsBeforeIds.has(identity);
-                }) ?? editorsAfter.at(-1) ?? null;
-            }
-
             if (targetEditor) {
-                if (markupSubtypeOverride) {
-                    setEditorMarkupSubtypeOverride(targetEditor, pageIndex, markupSubtypeOverride);
-                }
-                queueMicrotask(() => {
-                    syncMarkupSubtypePresentationForEditors();
-                });
                 pendingCommentEditorKeys.add(getEditorPendingKey(targetEditor, pageIndex));
                 const summary = toEditorSummary(targetEditor, pageIndex, getCommentText(targetEditor));
                 emit('annotation-open-note', summary);
             } else {
                 let attempts = 0;
                 const tryEmitLater = () => {
-                    const editorsLater = Array.from(uiManager.getEditors(pageIndex)) as IPdfjsEditor[];
-                    const lateEditor = editorsLater.find((editor) => {
-                        if (!editorsBeforeRefs.has(editor)) {
-                            return true;
-                        }
-                        const identity = getEditorIdentity(editor, pageIndex);
-                        return !editorsBeforeIds.has(identity);
-                    }) ?? editorsLater.at(-1) ?? null;
+                    const lateEditor = pickCreatedEditorCandidate();
                     if (!lateEditor) {
                         attempts += 1;
                         if (attempts < 12) {
@@ -3619,12 +3761,7 @@ async function highlightSelectionInternal(withComment: boolean, explicitRange: R
                         }
                         return;
                     }
-                    if (markupSubtypeOverride) {
-                        setEditorMarkupSubtypeOverride(lateEditor, pageIndex, markupSubtypeOverride);
-                    }
-                    queueMicrotask(() => {
-                        syncMarkupSubtypePresentationForEditors();
-                    });
+                    applySubtypeOverrideToEditor(lateEditor);
                     pendingCommentEditorKeys.add(getEditorPendingKey(lateEditor, pageIndex));
                     const summary = toEditorSummary(lateEditor, pageIndex, getCommentText(lateEditor));
                     emit('annotation-open-note', summary);
@@ -4161,6 +4298,17 @@ function handleAnnotationCommentClick(event: MouseEvent) {
         return;
     }
 
+    const indicator = event.target.closest<HTMLElement>('.pdf-inline-comment-anchor-marker, .pdf-inline-comment-marker');
+    if (indicator) {
+        const summary = resolveCommentFromIndicatorElement(indicator);
+        if (summary) {
+            setActiveCommentStableKey(summary.stableKey);
+            pulseCommentIndicator(summary.stableKey);
+            emit('annotation-open-note', summary);
+            return;
+        }
+    }
+
     if (annotationTool.value !== 'none') {
         return;
     }
@@ -4171,17 +4319,6 @@ function handleAnnotationCommentClick(event: MouseEvent) {
     const selection = document.getSelection();
     if (selection && !selection.isCollapsed) {
         return;
-    }
-
-    const indicator = event.target.closest<HTMLElement>('.pdf-inline-comment-anchor-marker, .pdf-inline-comment-marker');
-    if (indicator) {
-        const summary = resolveCommentFromIndicatorElement(indicator);
-        if (summary) {
-            setActiveCommentStableKey(summary.stableKey);
-            pulseCommentIndicator(summary.stableKey);
-            emit('annotation-open-note', summary);
-            return;
-        }
     }
 
     const inlineTarget = event.target.closest<HTMLElement>('.pdf-annotation-has-note-target, .pdf-annotation-has-comment');
@@ -4813,8 +4950,8 @@ defineExpose({
 
 .pdfViewer :deep(.pdf-inline-comment-marker) {
     position: absolute;
-    width: 18px;
-    height: 18px;
+    width: 22px;
+    height: 22px;
     border: 1px solid rgb(150 129 33 / 0.78);
     border-radius: 3px;
     transform: translate(-50%, -50%);
@@ -4894,10 +5031,10 @@ defineExpose({
 
 .pdfViewer :deep(.pdf-inline-comment-anchor-marker) {
     position: absolute;
-    right: -11px;
-    top: -11px;
-    width: 18px;
-    height: 18px;
+    right: -13px;
+    top: -13px;
+    width: 22px;
+    height: 22px;
     border: 1px solid rgb(150 129 33 / 0.78);
     border-radius: 5px;
     background: linear-gradient(180deg, #fcf6c6 0%, #efe187 100%);
@@ -4989,8 +5126,8 @@ defineExpose({
     opacity: 0 !important;
 }
 
-.pdfViewer :deep(.canvasWrapper svg.highlight.pdf-markup-subtype-draw-underline),
-.pdfViewer :deep(.canvasWrapper svg.highlight.pdf-markup-subtype-draw-strikeout) {
+.pdfViewer :deep(svg.highlight.pdf-markup-subtype-draw-underline),
+.pdfViewer :deep(svg.highlight.pdf-markup-subtype-draw-strikeout) {
     fill: transparent !important;
     fill-opacity: 0 !important;
     mix-blend-mode: normal !important;
