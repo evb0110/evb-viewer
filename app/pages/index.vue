@@ -474,6 +474,17 @@
                 </div>
             </div>
         </main>
+        <footer class="status-bar">
+            <div class="status-bar-path" :title="statusFilePath">
+                {{ statusFilePath }}
+            </div>
+            <div class="status-bar-metrics">
+                <span class="status-bar-item">{{ statusFileSizeLabel }}</span>
+                <span class="status-bar-item">{{ statusPageLabel }}</span>
+                <span class="status-bar-item">{{ statusZoomLabel }}</span>
+                <span class="status-bar-item">{{ statusSaveLabel }}</span>
+            </div>
+        </footer>
         <PdfAnnotationNoteWindow
             v-for="note in sortedAnnotationNoteWindows"
             :key="note.comment.stableKey"
@@ -1132,6 +1143,67 @@ const selectedShapeForProperties = computed(() =>
 
 const sortedAnnotationNoteWindows = computed(() =>
     [...annotationNoteWindows.value].sort((left, right) => left.order - right.order));
+const statusFilePath = computed(() => workingCopyPath.value ?? 'No file open');
+const statusFileSizeBytes = computed(() => {
+    if (pdfData.value) {
+        return pdfData.value.byteLength;
+    }
+    if (pdfSrc.value && typeof pdfSrc.value === 'object' && 'kind' in pdfSrc.value && pdfSrc.value.kind === 'path') {
+        return pdfSrc.value.size;
+    }
+    return null;
+});
+const statusFileSizeLabel = computed(() => {
+    if (statusFileSizeBytes.value === null) {
+        return 'Size: -';
+    }
+    return `Size: ${formatBytes(statusFileSizeBytes.value)}`;
+});
+const statusPageLabel = computed(() => {
+    if (!pdfSrc.value || totalPages.value <= 0) {
+        return 'Page: -';
+    }
+    return `Page: ${currentPage.value}/${totalPages.value}`;
+});
+const statusZoomLabel = computed(() => `Zoom: ${Math.round(zoom.value * 100)}%`);
+const statusSaveLabel = computed(() => {
+    if (!pdfSrc.value) {
+        return 'Status: idle';
+    }
+    if (isAnySaving.value) {
+        return 'Status: saving...';
+    }
+    if (canSave.value) {
+        return 'Status: unsaved changes';
+    }
+    return 'Status: all changes saved';
+});
+
+function formatBytes(bytes: number) {
+    if (!Number.isFinite(bytes) || bytes < 0) {
+        return '-';
+    }
+    if (bytes < 1024) {
+        return `${bytes} B`;
+    }
+
+    const units = [
+        'KB',
+        'MB',
+        'GB',
+        'TB',
+    ];
+    let value = bytes;
+    let unitIndex = -1;
+
+    do {
+        value /= 1024;
+        unitIndex += 1;
+    } while (value >= 1024 && unitIndex < units.length - 1);
+
+    const digits = value >= 10 ? 1 : 2;
+    return `${value.toFixed(digits)} ${units[unitIndex]}`;
+}
 
 watch(annotationKeepActive, (value) => {
     if (typeof window === 'undefined') {
@@ -2924,6 +2996,40 @@ watch(annotationComments, (comments) => {
 .sidebar-wrapper {
     display: flex;
     height: 100%;
+}
+
+.status-bar {
+    min-height: 1.9rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.25rem 0.75rem;
+    border-top: 1px solid var(--ui-border);
+    background: color-mix(in oklab, var(--ui-bg) 95%, var(--ui-bg-elevated) 5%);
+    color: var(--ui-text-dimmed);
+    font-size: 0.74rem;
+    line-height: 1.2;
+}
+
+.status-bar-path {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+.status-bar-metrics {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+}
+
+.status-bar-item {
+    white-space: nowrap;
 }
 
 .sidebar-resizer {
