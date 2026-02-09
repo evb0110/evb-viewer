@@ -443,6 +443,12 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
 
         const editorLayer = annotationEditorLayers.get(pageNumber);
         if (editorLayer) {
+            const annotationUiManager = toValue(options.annotationUiManager) ?? null;
+            try {
+                annotationUiManager?.removeLayer?.(editorLayer);
+            } catch {
+                // Layer might already be detached from UIManager during teardown.
+            }
             editorLayer.destroy();
             annotationEditorLayers.delete(pageNumber);
         }
@@ -939,6 +945,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                             });
 
                             if (!editorLayer) {
+                                annotationUiManager.addLayer(activeLayer);
                                 annotationEditorLayers.set(pageNumber, activeLayer);
                             }
 

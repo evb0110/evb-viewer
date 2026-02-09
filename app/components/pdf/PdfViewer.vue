@@ -367,7 +367,10 @@ interface IPdfjsEditor {
     div?: HTMLElement;
     uid?: string;
     annotationElementId?: string | null;
-    comment?: string | { text?: string } | null;
+    comment?: string | {
+        text?: string | null;
+        deleted?: boolean | null;
+    } | null;
     hasComment?: boolean;
     color?: string | number[] | null;
     opacity?: number;
@@ -415,15 +418,19 @@ function hasEditorCommentPayload(editor: IPdfjsEditor | null | undefined) {
     try {
         const comment = editor.comment;
         if (typeof comment === 'string') {
-            return true;
+            return comment.trim().length > 0;
         }
-        if (comment && typeof comment === 'object' && 'text' in comment) {
-            return true;
+        if (comment && typeof comment === 'object') {
+            const text = typeof comment.text === 'string'
+                ? comment.text.trim()
+                : '';
+            const deleted = comment.deleted === true;
+            return !deleted && text.length > 0;
         }
     } catch {
         return false;
     }
-    return Boolean(editor.hasComment);
+    return false;
 }
 
 function parsePdfDateTimestamp(value: string | null | undefined) {
@@ -987,7 +994,7 @@ function toEditorSummary(
     }
     const id = getEditorIdentity(editor, pageIndex);
     const pendingKey = getEditorPendingKey(editor, pageIndex);
-    const hasNote = hasEditorCommentPayload(editor) || text.length > 0 || pendingCommentEditorKeys.has(pendingKey);
+    const hasNote = hasEditorCommentPayload(editor) || pendingCommentEditorKeys.has(pendingKey);
 
     return {
         id,
@@ -1287,9 +1294,145 @@ const TOOL_TO_MARKUP_SUBTYPE: Partial<Record<TAnnotationTool, TMarkupSubtype>> =
     strikethrough: 'StrikeOut',
 };
 
+const MARKUP_EDITOR_CLASS_PREFIX = 'pdf-markup-subtype-';
+const MARKUP_DRAW_LAYER_CLASS_PREFIX = 'pdf-markup-subtype-draw-';
+
 const markupSubtypeOverrides = new Map<string, TMarkupSubtype>();
 const editorMarkupSubtypeOverrides = new Map<string, TMarkupSubtype>();
 const editorObjectMarkupSubtypeOverrides = new WeakMap<IPdfjsEditor, TMarkupSubtype>();
+const editorDrawLayerHighlightRefs = new WeakMap<IPdfjsEditor, SVGElement>();
+
+function resolveMarkupSubtypeColor(subtype: TMarkupSubtype) {
+    const settings = annotationSettings.value;
+    if (subtype === 'Underline') {
+        return settings?.underlineColor ?? '#2563eb';
+    }
+    if (subtype === 'StrikeOut') {
+        return settings?.strikethroughColor ?? '#dc2626';
+    }
+    return settings?.highlightColor ?? '#ffd400';
+}
+
+function resolveEditorHighlightClipPathId(editor: IPdfjsEditor) {
+    const internal = editor.div?.querySelector<HTMLElement>('.internal');
+    if (!internal) {
+        return null;
+    }
+
+    const clipPath = internal.style.clipPath || getComputedStyle(internal).clipPath;
+    const clipMatch = /#([A-Za-z0-9_-]+)/.exec(clipPath);
+    return clipMatch?.[1] ?? null;
+}
+
+function resolveEditorDrawLayerHighlight(editor: IPdfjsEditor) {
+    const cached = editorDrawLayerHighlightRefs.get(editor);
+    if (cached?.isConnected) {
+        return cached;
+    }
+
+    const pageContainer = editor.div?.closest<HTMLElement>('.page_container');
+    if (!pageContainer) {
+        return null;
+    }
+
+    const clipPathId = resolveEditorHighlightClipPathId(editor);
+    if (!clipPathId) {
+        return null;
+    }
+
+    const escapedClipPathId = clipPathId.replaceAll('\\', '\\\\').replaceAll('"', '\\"');
+    const clipPathNode = pageContainer.querySelector<SVGElement>(
+        `.canvasWrapper svg.highlight clipPath[id="${escapedClipPathId}"]`,
+    );
+    const highlightSvg = clipPathNode?.closest<SVGElement>('svg.highlight') ?? null;
+    if (highlightSvg) {
+        editorDrawLayerHighlightRefs.set(editor, highlightSvg);
+    }
+    return highlightSvg;
+}
+
+function clearMarkupSubtypeDrawLayerClass(editor: IPdfjsEditor) {
+    const highlightSvg = resolveEditorDrawLayerHighlight(editor);
+    if (!highlightSvg) {
+        return;
+    }
+
+    highlightSvg.classList.remove(
+        `${MARKUP_DRAW_LAYER_CLASS_PREFIX}underline`,
+        `${MARKUP_DRAW_LAYER_CLASS_PREFIX}strikeout`,
+        `${MARKUP_DRAW_LAYER_CLASS_PREFIX}squiggly`,
+    );
+    highlightSvg.style.removeProperty('--pdf-markup-subtype-color');
+}
+
+function applyMarkupSubtypeDrawLayerClass(editor: IPdfjsEditor, subtype: TMarkupSubtype | null, attempt = 0) {
+    const highlightSvg = resolveEditorDrawLayerHighlight(editor);
+    if (!highlightSvg) {
+        if (attempt < 4 && editor.div?.isConnected) {
+            requestAnimationFrame(() => {
+                applyMarkupSubtypeDrawLayerClass(editor, subtype, attempt + 1);
+            });
+        }
+        return;
+    }
+
+    clearMarkupSubtypeDrawLayerClass(editor);
+    if (!subtype || subtype === 'Highlight') {
+        return;
+    }
+
+    highlightSvg.classList.add(`${MARKUP_DRAW_LAYER_CLASS_PREFIX}${subtype.toLowerCase()}`);
+    highlightSvg.style.setProperty('--pdf-markup-subtype-color', resolveMarkupSubtypeColor(subtype));
+}
+
+function clearMarkupSubtypeEditorClass(editor: IPdfjsEditor) {
+    const div = editor.div;
+    if (!div) {
+        clearMarkupSubtypeDrawLayerClass(editor);
+        return;
+    }
+    div.classList.remove(
+        `${MARKUP_EDITOR_CLASS_PREFIX}highlight`,
+        `${MARKUP_EDITOR_CLASS_PREFIX}underline`,
+        `${MARKUP_EDITOR_CLASS_PREFIX}strikeout`,
+        `${MARKUP_EDITOR_CLASS_PREFIX}squiggly`,
+    );
+    div.style.removeProperty('--pdf-markup-subtype-color');
+    clearMarkupSubtypeDrawLayerClass(editor);
+}
+
+function applyEditorMarkupSubtypePresentation(editor: IPdfjsEditor, subtype: TMarkupSubtype | null) {
+    clearMarkupSubtypeEditorClass(editor);
+    applyMarkupSubtypeDrawLayerClass(editor, subtype);
+
+    const div = editor.div;
+    if (!div) {
+        return;
+    }
+
+    if (!subtype || subtype === 'Highlight') {
+        return;
+    }
+
+    const normalizedSubtype = subtype.toLowerCase();
+    div.classList.add(`${MARKUP_EDITOR_CLASS_PREFIX}${normalizedSubtype}`);
+    div.style.setProperty('--pdf-markup-subtype-color', resolveMarkupSubtypeColor(subtype));
+}
+
+function syncMarkupSubtypePresentationForEditors() {
+    const uiManager = annotationUiManager.value;
+    if (!uiManager) {
+        return;
+    }
+
+    for (let pageIndex = 0; pageIndex < numPages.value; pageIndex += 1) {
+        for (const editor of uiManager.getEditors(pageIndex)) {
+            const normalizedEditor = editor as IPdfjsEditor;
+            const subtype = resolveEditorMarkupSubtypeOverride(normalizedEditor, pageIndex);
+            applyEditorMarkupSubtypePresentation(normalizedEditor, subtype);
+        }
+    }
+}
 
 function setEditorMarkupSubtypeOverride(editor: IPdfjsEditor, pageIndex: number, subtype: TMarkupSubtype) {
     editorObjectMarkupSubtypeOverrides.set(editor, subtype);
@@ -1298,6 +1441,7 @@ function setEditorMarkupSubtypeOverride(editor: IPdfjsEditor, pageIndex: number,
     if (editor.annotationElementId) {
         markupSubtypeOverrides.set(editor.annotationElementId, subtype);
     }
+    applyEditorMarkupSubtypePresentation(editor, subtype);
 }
 
 function resolveEditorMarkupSubtypeOverride(editor: IPdfjsEditor, pageIndex: number): TMarkupSubtype | null {
@@ -1390,6 +1534,7 @@ function applyAnnotationSettings(settings: IAnnotationSettings | null) {
     uiManager.updateParams(AnnotationEditorParamsType.INK_THICKNESS, settings.inkThickness);
     uiManager.updateParams(AnnotationEditorParamsType.FREETEXT_COLOR, settings.textColor);
     uiManager.updateParams(AnnotationEditorParamsType.FREETEXT_SIZE, settings.textSize);
+    syncMarkupSubtypePresentationForEditors();
 }
 
 async function setAnnotationTool(tool: TAnnotationTool) {
@@ -1582,9 +1727,17 @@ function mergeCommentSummaries(
         ? existing.author
         : incoming.author;
 
-    const kindLabel = existing.kindLabel?.trim()
-        ? existing.kindLabel
-        : incoming.kindLabel;
+    const kindLabel = (() => {
+        if (existing.kindLabel?.trim() && existing.subtype !== 'Highlight') {
+            return existing.kindLabel;
+        }
+        if (incoming.kindLabel?.trim() && incoming.subtype !== 'Highlight') {
+            return incoming.kindLabel;
+        }
+        return existing.kindLabel?.trim()
+            ? existing.kindLabel
+            : incoming.kindLabel;
+    })();
 
     const modifiedAt = (() => {
         const existingTs = existing.modifiedAt ?? null;
@@ -1608,6 +1761,17 @@ function mergeCommentSummaries(
             : (existingSortIndex ?? incomingSortIndex)
     );
     const hasNote = Boolean(existing.hasNote || incoming.hasNote);
+    const subtype = (() => {
+        const existingSubtype = existing.subtype ?? null;
+        const incomingSubtype = incoming.subtype ?? null;
+        if (existingSubtype && existingSubtype !== 'Highlight') {
+            return existingSubtype;
+        }
+        if (incomingSubtype && incomingSubtype !== 'Highlight') {
+            return incomingSubtype;
+        }
+        return existingSubtype ?? incomingSubtype;
+    })();
 
     return {
         ...existing,
@@ -1618,7 +1782,7 @@ function mergeCommentSummaries(
         sortIndex,
         annotationId: existing.annotationId ?? incoming.annotationId,
         uid: existing.uid ?? incoming.uid,
-        subtype: existing.subtype ?? incoming.subtype,
+        subtype,
         color: existing.color ?? incoming.color,
         source,
         hasNote,
@@ -2427,7 +2591,7 @@ function syncInlineCommentIndicators() {
 
     const commentsWithNotes = annotationCommentsCache.value.filter(comment => (
         isTextMarkupSubtype(comment.subtype)
-        && (comment.hasNote === true || comment.text.trim().length > 0)
+        && comment.hasNote === true
     ));
     if (commentsWithNotes.length === 0) {
         return;
@@ -2481,7 +2645,7 @@ function syncInlineCommentIndicators() {
                 const summary = hydrateSummaryFromMemory(
                     toEditorSummary(normalizedEditor, pageIndex, getCommentText(normalizedEditor).trim()),
                 );
-                if (!summary.hasNote && !summary.text.trim()) {
+                if (!summary.hasNote) {
                     continue;
                 }
                 if (normalizedEditor.div) {
@@ -2676,6 +2840,7 @@ async function syncAnnotationComments() {
             const subtype = annotation.subtype ?? null;
             const id = annotation.id ?? `pdf-${pageNumber}-${annotationIndex}`;
             const annotationId = annotation.id ?? null;
+            const hasLinkedPopup = Boolean(annotation.popupRef) || Boolean(popupAnnotation);
             const summaryKey = computeSummaryStableKey({
                 id,
                 pageIndex: pageNumber - 1,
@@ -2717,13 +2882,20 @@ async function syncAnnotationComments() {
                 source: 'pdf',
                 hasNote: Boolean(
                     isTextMarkupSubtype(subtype)
-                    && (Boolean(annotation.popupRef) || Boolean(popupAnnotation) || Boolean(annotationText.trim()) || Boolean(popupText.trim())),
+                    && hasLinkedPopup,
                 ),
                 markerRect: toMarkerRectFromPdfRect(
                     annotation.rect ?? popupAnnotation?.rect,
                     pageView,
                 ),
             };
+            const normalizedSubtype = (subtype ?? '').trim().toLowerCase();
+            if (
+                annotationId
+                && (normalizedSubtype === 'underline' || normalizedSubtype === 'strikeout' || normalizedSubtype === 'squiggly')
+            ) {
+                markupSubtypeOverrides.set(annotationId, subtype as TMarkupSubtype);
+            }
             sourceOrder += 1;
             const hydratedSummary = hydrateSummaryFromMemory(summary);
 
@@ -2747,6 +2919,7 @@ async function syncAnnotationComments() {
     });
     annotationCommentsCache.value = comments;
     emit('annotation-comments', comments);
+    syncMarkupSubtypePresentationForEditors();
     syncInlineCommentIndicators();
 }
 
@@ -2912,6 +3085,16 @@ function updateAnnotationComment(comment: IAnnotationCommentSummary, text: strin
     const nextTrimmed = nextText.trim();
     const previousText = getCommentText(editor);
     const previousTrimmed = previousText.trim();
+    const editorPageIndex = Number.isFinite(editor.parentPageIndex)
+        ? editor.parentPageIndex as number
+        : resolvedComment.pageIndex;
+    const pendingKey = getEditorPendingKey(editor, editorPageIndex);
+    const hadExplicitNote = Boolean(
+        resolvedComment.hasNote
+        || pendingCommentEditorKeys.has(pendingKey)
+        || hasEditorCommentPayload(editor)
+        || previousTrimmed.length > 0,
+    );
     if (nextText === previousText) {
         return true;
     }
@@ -2921,6 +3104,7 @@ function updateAnnotationComment(comment: IAnnotationCommentSummary, text: strin
     editor.comment = nextTrimmed.length > 0 ? nextText : '';
     editor.addToAnnotationStorage?.();
     if (nextTrimmed.length > 0) {
+        pendingCommentEditorKeys.add(pendingKey);
         rememberSummaryText({
             ...resolvedComment,
             text: nextText,
@@ -2928,6 +3112,11 @@ function updateAnnotationComment(comment: IAnnotationCommentSummary, text: strin
             modifiedAt: Date.now(),
         });
     } else {
+        if (hadExplicitNote) {
+            pendingCommentEditorKeys.add(pendingKey);
+        } else {
+            pendingCommentEditorKeys.delete(pendingKey);
+        }
         if (previousTrimmed.length > 0) {
             forgetSummaryText(resolvedComment);
         }
@@ -3173,13 +3362,15 @@ function initAnnotationEditor() {
             trackedCreatedEditors.add(editorObject);
             maybeAutoResetAnnotationTool();
         }
-        const subtypeOverride = TOOL_TO_MARKUP_SUBTYPE[annotationTool.value];
         const normalizedEditor = editor as IPdfjsEditor | null;
-        if (subtypeOverride && normalizedEditor) {
+        if (normalizedEditor) {
             const pageIndex = Number.isFinite(normalizedEditor.parentPageIndex)
                 ? normalizedEditor.parentPageIndex as number
                 : Math.max(0, currentPage.value - 1);
-            setEditorMarkupSubtypeOverride(normalizedEditor, pageIndex, subtypeOverride);
+            const knownSubtype = resolveEditorMarkupSubtypeOverride(normalizedEditor, pageIndex);
+            if (knownSubtype) {
+                applyEditorMarkupSubtypePresentation(normalizedEditor, knownSubtype);
+            }
         }
         emit('annotation-modified');
         scheduleAnnotationCommentsSync();
@@ -3327,6 +3518,9 @@ async function highlightSelectionInternal(withComment: boolean, explicitRange: R
         createdAnnotation = true;
         if (createdEditor && markupSubtypeOverride) {
             setEditorMarkupSubtypeOverride(createdEditor as IPdfjsEditor, pageIndex, markupSubtypeOverride);
+            queueMicrotask(() => {
+                syncMarkupSubtypePresentationForEditors();
+            });
         }
 
         if (withComment) {
@@ -3360,6 +3554,9 @@ async function highlightSelectionInternal(withComment: boolean, explicitRange: R
                 if (markupSubtypeOverride) {
                     setEditorMarkupSubtypeOverride(targetEditor, pageIndex, markupSubtypeOverride);
                 }
+                queueMicrotask(() => {
+                    syncMarkupSubtypePresentationForEditors();
+                });
                 pendingCommentEditorKeys.add(getEditorPendingKey(targetEditor, pageIndex));
                 const summary = toEditorSummary(targetEditor, pageIndex, getCommentText(targetEditor));
                 emit('annotation-open-note', summary);
@@ -3384,6 +3581,9 @@ async function highlightSelectionInternal(withComment: boolean, explicitRange: R
                     if (markupSubtypeOverride) {
                         setEditorMarkupSubtypeOverride(lateEditor, pageIndex, markupSubtypeOverride);
                     }
+                    queueMicrotask(() => {
+                        syncMarkupSubtypePresentationForEditors();
+                    });
                     pendingCommentEditorKeys.add(getEditorPendingKey(lateEditor, pageIndex));
                     const summary = toEditorSummary(lateEditor, pageIndex, getCommentText(lateEditor));
                     emit('annotation-open-note', summary);
@@ -4729,6 +4929,42 @@ defineExpose({
 
 .pdfViewer :deep(.pdf-annotation-has-note-target.pdf-comment-focus-pulse) {
     animation: inline-comment-focus-pulse 0.9s ease-out;
+}
+
+.pdfViewer :deep(.annotationEditorLayer .highlightEditor[class*='pdf-markup-subtype-underline'] .internal),
+.pdfViewer :deep(.annotation-editor-layer .highlightEditor[class*='pdf-markup-subtype-underline'] .internal),
+.pdfViewer :deep(.annotationEditorLayer .highlightEditor[class*='pdf-markup-subtype-strikeout'] .internal),
+.pdfViewer :deep(.annotation-editor-layer .highlightEditor[class*='pdf-markup-subtype-strikeout'] .internal) {
+    opacity: 0 !important;
+}
+
+.pdfViewer :deep(.canvasWrapper svg.highlight.pdf-markup-subtype-draw-underline),
+.pdfViewer :deep(.canvasWrapper svg.highlight.pdf-markup-subtype-draw-strikeout) {
+    fill: transparent !important;
+    fill-opacity: 0 !important;
+    mix-blend-mode: normal !important;
+}
+
+.pdfViewer :deep(.annotationEditorLayer .highlightEditor[class*='pdf-markup-subtype-underline']::after),
+.pdfViewer :deep(.annotation-editor-layer .highlightEditor[class*='pdf-markup-subtype-underline']::after) {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 7%;
+    border-bottom: max(1.5px, calc(var(--total-scale-factor, 1) * 1px)) solid var(--pdf-markup-subtype-color, #2563eb);
+    pointer-events: none;
+}
+
+.pdfViewer :deep(.annotationEditorLayer .highlightEditor[class*='pdf-markup-subtype-strikeout']::after),
+.pdfViewer :deep(.annotation-editor-layer .highlightEditor[class*='pdf-markup-subtype-strikeout']::after) {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 50%;
+    border-top: max(1.5px, calc(var(--total-scale-factor, 1) * 1px)) solid var(--pdf-markup-subtype-color, #dc2626);
+    pointer-events: none;
 }
 
 @keyframes inline-comment-focus-pulse {
