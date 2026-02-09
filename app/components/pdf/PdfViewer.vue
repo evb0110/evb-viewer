@@ -1905,16 +1905,6 @@ function makeInlineMarkerPreview(stableKeys: string[], fallbackText: string) {
     return `${base} (+${stableKeys.length - 1} more note${stableKeys.length > 2 ? 's' : ''})`;
 }
 
-function openInlineMarkerCommentFromStableKeys(stableKeys: string[]) {
-    const summary = pickBestCommentFromStableKeys(stableKeys);
-    if (!summary) {
-        return;
-    }
-    setActiveCommentStableKey(summary.stableKey);
-    pulseCommentIndicator(summary.stableKey);
-    emit('annotation-open-note', summary);
-}
-
 function upsertInlineCommentAnchorMarker(target: HTMLElement, stableKeys: string[], fallbackText: string) {
     if (stableKeys.length === 0) {
         target.querySelectorAll('.pdf-inline-comment-anchor-marker').forEach((marker) => {
@@ -1935,14 +1925,18 @@ function upsertInlineCommentAnchorMarker(target: HTMLElement, stableKeys: string
         marker.addEventListener('click', (event) => {
             event.preventDefault();
             event.stopPropagation();
-            const markerStableKeys = parseStableKeysAttr(marker.getAttribute('data-comment-stable-keys'));
-            openInlineMarkerCommentFromStableKeys(markerStableKeys);
+            const selected = resolveCommentFromIndicatorElement(marker);
+            if (!selected) {
+                return;
+            }
+            setActiveCommentStableKey(selected.stableKey);
+            pulseCommentIndicator(selected.stableKey);
+            emit('annotation-open-note', selected);
         });
         marker.addEventListener('contextmenu', (event) => {
             event.preventDefault();
             event.stopPropagation();
-            const markerStableKeys = parseStableKeysAttr(marker.getAttribute('data-comment-stable-keys'));
-            const selected = pickBestCommentFromStableKeys(markerStableKeys);
+            const selected = resolveCommentFromIndicatorElement(marker);
             if (!selected) {
                 return;
             }
@@ -1956,6 +1950,7 @@ function upsertInlineCommentAnchorMarker(target: HTMLElement, stableKeys: string
     marker.dataset.commentStableKey = summary?.stableKey ?? stableKeys[0] ?? '';
     marker.dataset.commentStableKeys = serializeStableKeysAttr(stableKeys);
     marker.dataset.annotationId = summary?.annotationId ?? '';
+    marker.dataset.pageNumber = summary ? String(summary.pageNumber) : '';
     marker.dataset.commentCount = String(stableKeys.length);
     marker.classList.toggle('is-active', stableKeys.some(stableKey => isCommentActive(stableKey)));
     marker.classList.toggle('is-cluster', stableKeys.length > 1);
@@ -2110,6 +2105,51 @@ function markInlineCommentTargetsFromTextLayer(
 
 function findCommentByStableKey(stableKey: string) {
     return annotationCommentsCache.value.find(comment => comment.stableKey === stableKey) ?? null;
+}
+
+function findCommentByAnnotationId(annotationId: string | null | undefined, pageNumber: number | null = null) {
+    const normalized = (annotationId ?? '').trim();
+    if (!normalized) {
+        return null;
+    }
+
+    if (Number.isFinite(pageNumber)) {
+        const byPage = annotationCommentsCache.value.find(comment => (
+            comment.annotationId === normalized
+            && comment.pageNumber === pageNumber
+        ));
+        if (byPage) {
+            return byPage;
+        }
+    }
+
+    return annotationCommentsCache.value.find(comment => comment.annotationId === normalized) ?? null;
+}
+
+function resolveCommentFromIndicatorElement(indicator: HTMLElement) {
+    const stableKeys = parseStableKeysAttr(indicator.getAttribute('data-comment-stable-keys'));
+    const fromStableKeys = pickBestCommentFromStableKeys(stableKeys);
+    if (fromStableKeys) {
+        return fromStableKeys;
+    }
+
+    const directStableKey = indicator.dataset.commentStableKey ?? indicator.getAttribute('data-comment-stable-key');
+    if (directStableKey) {
+        const byStableKey = findCommentByStableKey(directStableKey);
+        if (byStableKey) {
+            return byStableKey;
+        }
+    }
+
+    const pageNumberRaw = indicator.dataset.pageNumber ?? null;
+    const pageNumber = pageNumberRaw && Number.isFinite(Number(pageNumberRaw))
+        ? Number(pageNumberRaw)
+        : null;
+
+    return findCommentByAnnotationId(
+        indicator.dataset.annotationId ?? indicator.getAttribute('data-annotation-id'),
+        pageNumber,
+    );
 }
 
 function findCommentFromInlineTarget(target: HTMLElement) {
@@ -2425,6 +2465,7 @@ function createDetachedCommentClusterMarkerElement(
     marker.dataset.commentStableKey = primaryComment.stableKey;
     marker.dataset.commentStableKeys = serializeStableKeysAttr(comments.map(comment => comment.stableKey));
     marker.dataset.annotationId = primaryComment.annotationId ?? '';
+    marker.dataset.pageNumber = String(primaryComment.pageNumber);
     marker.style.left = `${placement.leftPercent}%`;
     marker.style.top = `${placement.topPercent}%`;
     marker.title = preview;
@@ -2437,7 +2478,7 @@ function createDetachedCommentClusterMarkerElement(
     marker.addEventListener('click', (event) => {
         event.preventDefault();
         event.stopPropagation();
-        const summary = findCommentByStableKey(primaryComment.stableKey);
+        const summary = resolveCommentFromIndicatorElement(marker);
         if (summary) {
             setActiveCommentStableKey(summary.stableKey);
             pulseCommentIndicator(summary.stableKey);
@@ -2447,7 +2488,7 @@ function createDetachedCommentClusterMarkerElement(
     marker.addEventListener('contextmenu', (event) => {
         event.preventDefault();
         event.stopPropagation();
-        const summary = findCommentByStableKey(primaryComment.stableKey);
+        const summary = resolveCommentFromIndicatorElement(marker);
         if (summary) {
             setActiveCommentStableKey(summary.stableKey);
             pulseCommentIndicator(summary.stableKey);
@@ -4132,6 +4173,17 @@ function handleAnnotationCommentClick(event: MouseEvent) {
         return;
     }
 
+    const indicator = event.target.closest<HTMLElement>('.pdf-inline-comment-anchor-marker, .pdf-inline-comment-marker');
+    if (indicator) {
+        const summary = resolveCommentFromIndicatorElement(indicator);
+        if (summary) {
+            setActiveCommentStableKey(summary.stableKey);
+            pulseCommentIndicator(summary.stableKey);
+            emit('annotation-open-note', summary);
+            return;
+        }
+    }
+
     const inlineTarget = event.target.closest<HTMLElement>('.pdf-annotation-has-note-target, .pdf-annotation-has-comment');
     if (inlineTarget) {
         const summary = findCommentFromInlineTarget(inlineTarget);
@@ -4166,7 +4218,6 @@ function handleAnnotationCommentContextMenu(event: MouseEvent) {
     if (annotationTool.value !== 'none') {
         event.preventDefault();
         emit('annotation-tool-cancel');
-        return;
     }
 
     const inlineTarget = event.target.closest<HTMLElement>('.pdf-annotation-has-note-target, .pdf-annotation-has-comment');
@@ -4762,8 +4813,8 @@ defineExpose({
 
 .pdfViewer :deep(.pdf-inline-comment-marker) {
     position: absolute;
-    width: 14px;
-    height: 14px;
+    width: 18px;
+    height: 18px;
     border: 1px solid rgb(150 129 33 / 0.78);
     border-radius: 3px;
     transform: translate(-50%, -50%);
@@ -4778,7 +4829,7 @@ defineExpose({
 .pdfViewer :deep(.pdf-inline-comment-marker)::before {
     content: '';
     position: absolute;
-    inset: 1.5px;
+    inset: 2px;
     background-color: rgb(110 96 23 / 0.95);
     mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M4 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 5V5z'/%3E%3C/svg%3E");
     mask-repeat: no-repeat;
@@ -4789,20 +4840,20 @@ defineExpose({
 .pdfViewer :deep(.pdf-inline-comment-marker)::after {
     content: '';
     position: absolute;
-    right: 1px;
-    top: 1px;
-    width: 4px;
-    height: 4px;
+    right: 2px;
+    top: 2px;
+    width: 5px;
+    height: 5px;
     background: linear-gradient(135deg, rgb(255 255 255 / 0.88) 0%, rgb(235 224 145 / 0.95) 100%);
     clip-path: polygon(0 0, 100% 0, 100% 100%);
 }
 
 .pdfViewer :deep(.pdf-inline-comment-marker.is-cluster)::after {
     content: attr(data-comment-count);
-    right: -7px;
-    top: -7px;
-    min-width: 15px;
-    height: 15px;
+    right: -9px;
+    top: -9px;
+    min-width: 17px;
+    height: 17px;
     border-radius: 999px;
     border: 1.5px solid rgb(120 80 10 / 0.75);
     background: linear-gradient(180deg, #fff 0%, #fde68a 100%);
@@ -4843,12 +4894,12 @@ defineExpose({
 
 .pdfViewer :deep(.pdf-inline-comment-anchor-marker) {
     position: absolute;
-    right: -8px;
-    top: -8px;
-    width: 13px;
-    height: 13px;
+    right: -11px;
+    top: -11px;
+    width: 18px;
+    height: 18px;
     border: 1px solid rgb(150 129 33 / 0.78);
-    border-radius: 3px;
+    border-radius: 5px;
     background: linear-gradient(180deg, #fcf6c6 0%, #efe187 100%);
     box-shadow:
         0 1px 4px rgb(0 0 0 / 0.18),
@@ -4862,7 +4913,7 @@ defineExpose({
 .pdfViewer :deep(.pdf-inline-comment-anchor-marker)::before {
     content: '';
     position: absolute;
-    inset: 1.5px;
+    inset: 2px;
     background-color: rgb(110 96 23 / 0.95);
     mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M4 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 5V5z'/%3E%3C/svg%3E");
     mask-repeat: no-repeat;
@@ -4873,10 +4924,10 @@ defineExpose({
 .pdfViewer :deep(.pdf-inline-comment-anchor-marker)::after {
     content: attr(data-comment-count);
     position: absolute;
-    right: -7px;
-    top: -7px;
-    min-width: 14px;
-    height: 14px;
+    right: -9px;
+    top: -9px;
+    min-width: 17px;
+    height: 17px;
     border-radius: 999px;
     border: 1.5px solid rgb(120 80 10 / 0.75);
     background: linear-gradient(180deg, #fff 0%, #fde68a 100%);
@@ -4884,7 +4935,7 @@ defineExpose({
     display: none;
     align-items: center;
     justify-content: center;
-    font-size: 9px;
+    font-size: 10px;
     font-weight: 700;
     line-height: 1;
     padding: 0 3px;

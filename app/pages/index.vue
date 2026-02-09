@@ -554,7 +554,7 @@
             </template>
 
             <p class="annotation-context-menu__section-title">
-                New Annotation
+                Add Note
             </p>
             <button
                 type="button"
@@ -562,15 +562,15 @@
                 :disabled="!annotationContextMenuCanCreateFree"
                 @click="createContextMenuFreeNote"
             >
-                Add Pop-up Note Here
+                Add Note Here
             </button>
             <button
+                v-if="annotationContextMenu.hasSelection"
                 type="button"
                 class="annotation-context-menu__action"
-                :disabled="!annotationContextMenu.hasSelection"
                 @click="createContextMenuSelectionNote"
             >
-                Add Pop-up Note from Selection
+                Add Note to Selection
             </button>
         </div>
 
