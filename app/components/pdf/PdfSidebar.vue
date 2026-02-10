@@ -141,7 +141,7 @@
                                                 :disabled="selectedThumbnailPages.length === 0"
                                                 @click="clearPageSelection"
                                             >
-                                                Clear selection
+                                                <span class="pdf-sidebar-pages-button-label">Clear selection</span>
                                             </UButton>
                                         </UTooltip>
                                     </div>
@@ -170,7 +170,7 @@
                                         :disabled="applyTargetRange === null"
                                         @click="applyToTargetRange"
                                     >
-                                        Apply numbering
+                                        <span class="pdf-sidebar-pages-button-label">Apply numbering</span>
                                     </UButton>
                                 </UTooltip>
                             </div>
@@ -695,7 +695,7 @@ const sidebarStyle = computed(() => {
     width: 100%;
     display: flex;
     align-items: center;
-    justify-content: flex-start;
+    justify-content: center;
     gap: 0.5rem;
     border: 1px solid var(--ui-border);
     border-radius: 0.375rem;
@@ -841,13 +841,19 @@ const sidebarStyle = computed(() => {
     align-items: center;
     justify-content: center;
     min-width: 0;
+    text-align: center;
 }
 
 :deep(.pdf-sidebar-pages-button) {
+    justify-content: center !important;
+    text-align: center !important;
     white-space: nowrap !important;
 }
 
 :deep(.pdf-sidebar-pages-button span) {
+    display: block;
+    width: 100%;
+    text-align: center;
     white-space: nowrap !important;
     overflow: hidden;
     text-overflow: ellipsis;
