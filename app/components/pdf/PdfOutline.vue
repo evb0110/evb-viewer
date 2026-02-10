@@ -6,50 +6,65 @@
                 role="group"
                 aria-label="Bookmark controls"
             >
-                <button
+                <UTooltip
                     v-for="option in displayModeOptions"
                     :key="option.id"
-                    type="button"
-                    class="pdf-bookmarks-view-mode-button"
-                    :class="{ 'is-active': displayMode === option.id }"
-                    :title="option.title"
-                    :aria-label="option.title"
-                    @click="setDisplayMode(option.id)"
+                    :text="option.title"
+                    :delay-duration="800"
                 >
-                    <UIcon
-                        :name="option.icon"
-                        class="size-4"
-                    />
-                </button>
-                <button
-                    type="button"
-                    class="pdf-bookmarks-view-mode-button"
-                    :class="{ 'is-active': isEditMode }"
-                    :title="isEditMode ? 'Exit bookmark edit mode' : 'Enter bookmark edit mode'"
-                    :aria-label="isEditMode ? 'Exit bookmark edit mode' : 'Enter bookmark edit mode'"
-                    @click="isEditMode = !isEditMode"
+                    <button
+                        type="button"
+                        class="pdf-bookmarks-view-mode-button"
+                        :class="{ 'is-active': displayMode === option.id }"
+                        :title="option.title"
+                        :aria-label="option.title"
+                        @click="setDisplayMode(option.id)"
+                    >
+                        <UIcon
+                            :name="option.icon"
+                            class="size-4"
+                        />
+                    </button>
+                </UTooltip>
+                <UTooltip
+                    :text="isEditMode ? 'Exit bookmark edit mode' : 'Enter bookmark edit mode'"
+                    :delay-duration="800"
                 >
-                    <UIcon
-                        :name="isEditMode ? 'i-lucide-square-pen' : 'i-lucide-pencil'"
-                        class="size-4"
-                    />
-                </button>
+                    <button
+                        type="button"
+                        class="pdf-bookmarks-view-mode-button"
+                        :class="{ 'is-active': isEditMode }"
+                        :title="isEditMode ? 'Exit bookmark edit mode' : 'Enter bookmark edit mode'"
+                        :aria-label="isEditMode ? 'Exit bookmark edit mode' : 'Enter bookmark edit mode'"
+                        @click="isEditMode = !isEditMode"
+                    >
+                        <UIcon
+                            :name="isEditMode ? 'i-lucide-square-pen' : 'i-lucide-pencil'"
+                            class="size-4"
+                        />
+                    </button>
+                </UTooltip>
             </div>
 
             <div class="pdf-bookmarks-toolbar-actions">
-                <button
+                <UTooltip
                     v-if="isEditMode"
-                    type="button"
-                    class="pdf-bookmarks-icon-button"
-                    title="Add top-level bookmark"
-                    aria-label="Add top-level bookmark"
-                    @click="addRootBookmark"
+                    text="Add top-level bookmark"
+                    :delay-duration="800"
                 >
-                    <UIcon
-                        name="i-lucide-plus"
-                        class="size-4"
-                    />
-                </button>
+                    <button
+                        type="button"
+                        class="pdf-bookmarks-icon-button"
+                        title="Add top-level bookmark"
+                        aria-label="Add top-level bookmark"
+                        @click="addRootBookmark"
+                    >
+                        <UIcon
+                            name="i-lucide-plus"
+                            class="size-4"
+                        />
+                    </button>
+                </UTooltip>
             </div>
         </div>
 
@@ -74,6 +89,7 @@
                 v-if="isEditMode"
                 type="button"
                 class="pdf-bookmarks-empty-action"
+                title="Add first bookmark"
                 @click="addRootBookmark"
             >
                 <UIcon
@@ -133,6 +149,7 @@
             <button
                 type="button"
                 class="bookmarks-context-menu-action"
+                title="Edit bookmark"
                 @click="startEditingBookmark(selectedContextBookmark.id)"
             >
                 Edit bookmark
@@ -140,6 +157,7 @@
             <button
                 type="button"
                 class="bookmarks-context-menu-action"
+                title="Add sibling above"
                 @click="addSiblingAbove(selectedContextBookmark.id)"
             >
                 Add sibling above
@@ -147,6 +165,7 @@
             <button
                 type="button"
                 class="bookmarks-context-menu-action"
+                title="Add sibling below"
                 @click="addSiblingBelow(selectedContextBookmark.id)"
             >
                 Add sibling below
@@ -154,6 +173,7 @@
             <button
                 type="button"
                 class="bookmarks-context-menu-action"
+                title="Add child bookmark"
                 @click="addChildBookmark(selectedContextBookmark.id)"
             >
                 Add child
@@ -166,7 +186,7 @@
                         type="button"
                         class="bookmarks-style-toggle"
                         :class="{ 'is-active': selectedContextBookmark.bold }"
-                        title="Toggle bold"
+                        :title="selectedContextBookmark.bold ? 'Disable bold' : 'Enable bold'"
                         @click="toggleBookmarkBold(selectedContextBookmark.id)"
                     >
                         B
@@ -175,7 +195,7 @@
                         type="button"
                         class="bookmarks-style-toggle"
                         :class="{ 'is-active': selectedContextBookmark.italic }"
-                        title="Toggle italic"
+                        :title="selectedContextBookmark.italic ? 'Disable italic' : 'Enable italic'"
                         @click="toggleBookmarkItalic(selectedContextBookmark.id)"
                     >
                         I
@@ -208,6 +228,7 @@
             <button
                 type="button"
                 class="bookmarks-context-menu-action"
+                title="Set style range start"
                 @click="setStyleRangeStart(selectedContextBookmark.id)"
             >
                 {{ selectedContextBookmark.id === styleRangeStartId ? 'Range start set' : 'Set style range start' }}
@@ -216,6 +237,7 @@
                 type="button"
                 class="bookmarks-context-menu-action"
                 :disabled="!canApplyStyleRange"
+                :title="applyStyleRangeLabel"
                 @click="applyContextStyleToRange"
             >
                 {{ applyStyleRangeLabel }}
@@ -225,6 +247,7 @@
             <button
                 type="button"
                 class="bookmarks-context-menu-action is-danger"
+                title="Remove bookmark"
                 @click="removeBookmark(selectedContextBookmark.id)"
             >
                 Remove bookmark

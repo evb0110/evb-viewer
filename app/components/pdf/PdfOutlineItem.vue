@@ -34,17 +34,23 @@
                     class="size-3.5"
                 />
             </span>
-            <button
+            <UTooltip
                 v-if="hasChildren"
-                type="button"
-                class="pdf-bookmark-item-toggle"
-                @click.stop="emit('toggle-expand', item.id)"
+                :text="isExpanded ? 'Collapse bookmark' : 'Expand bookmark'"
+                :delay-duration="800"
             >
-                <UIcon
-                    :name="isExpanded ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'"
-                    class="size-4"
-                />
-            </button>
+                <button
+                    type="button"
+                    class="pdf-bookmark-item-toggle"
+                    :title="isExpanded ? 'Collapse bookmark' : 'Expand bookmark'"
+                    @click.stop="emit('toggle-expand', item.id)"
+                >
+                    <UIcon
+                        :name="isExpanded ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'"
+                        class="size-4"
+                    />
+                </button>
+            </UTooltip>
             <span
                 v-else
                 class="pdf-bookmark-item-spacer"
@@ -70,18 +76,24 @@
                 {{ item.title || 'Untitled Bookmark' }}
             </span>
 
-            <button
+            <UTooltip
                 v-if="isEditMode"
-                type="button"
-                class="pdf-bookmark-item-actions-trigger"
-                aria-label="Bookmark actions"
-                @click.stop="openActionsFromButton"
+                text="Bookmark actions"
+                :delay-duration="800"
             >
-                <UIcon
-                    name="i-lucide-ellipsis"
-                    class="size-4"
-                />
-            </button>
+                <button
+                    type="button"
+                    class="pdf-bookmark-item-actions-trigger"
+                    aria-label="Bookmark actions"
+                    title="Bookmark actions"
+                    @click.stop="openActionsFromButton"
+                >
+                    <UIcon
+                        name="i-lucide-ellipsis"
+                        class="size-4"
+                    />
+                </button>
+            </UTooltip>
         </div>
 
         <div
