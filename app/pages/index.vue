@@ -3579,7 +3579,22 @@ watch(annotationComments, (comments) => {
     flex-shrink: 0;
     display: flex;
     align-items: center;
-    gap: 0.625rem;
+    gap: 0.875rem;
+}
+
+.status-bar-metrics > * + * {
+    position: relative;
+}
+
+.status-bar-metrics > * + *::before {
+    content: "";
+    position: absolute;
+    left: -0.5rem;
+    top: 50%;
+    width: 1px;
+    height: 0.76rem;
+    transform: translateY(-50%);
+    background: color-mix(in oklab, var(--ui-border) 86%, transparent 14%);
 }
 
 .status-bar-item {
