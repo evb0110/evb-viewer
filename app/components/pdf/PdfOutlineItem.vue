@@ -1,14 +1,24 @@
 <template>
-    <div class="pdf-outline-item">
+    <div class="pdf-bookmark-item">
         <div
-            class="pdf-outline-item-row"
-            :class="{ 'is-active': isActive }"
+            class="pdf-bookmark-item-row"
+            :class="{
+                'is-active': isActive,
+                'is-editing': isEditing,
+            }"
+            tabindex="0"
+            role="button"
             @click="handleClick"
+            @keydown.enter.prevent="handleClick"
+            @keydown.space.prevent="handleClick"
+            @contextmenu.prevent.stop="openActionsFromPointer"
         >
             <button
                 v-if="hasChildren"
-                class="pdf-outline-item-toggle"
-                @click.stop="isExpanded = !isExpanded"
+                type="button"
+                class="pdf-bookmark-item-toggle"
+                :disabled="isToggleDisabled"
+                @click.stop="emit('toggle-expand', item.id)"
             >
                 <UIcon
                     :name="isExpanded ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'"
@@ -17,13 +27,44 @@
             </button>
             <span
                 v-else
-                class="pdf-outline-item-spacer"
+                class="pdf-bookmark-item-spacer"
             />
-            <span class="pdf-outline-item-title">{{ item.title }}</span>
+
+            <input
+                v-if="isEditing"
+                ref="titleInputRef"
+                v-model="editingTitle"
+                type="text"
+                class="pdf-bookmark-item-input"
+                @click.stop
+                @keydown.enter.prevent="commitEdit"
+                @keydown.escape.prevent="cancelEdit"
+                @blur="commitEdit"
+            />
+            <span
+                v-else
+                class="pdf-bookmark-item-title"
+            >
+                {{ item.title || 'Untitled Bookmark' }}
+            </span>
+
+            <button
+                v-if="isEditMode"
+                type="button"
+                class="pdf-bookmark-item-actions-trigger"
+                aria-label="Bookmark actions"
+                @click.stop="openActionsFromButton"
+            >
+                <UIcon
+                    name="i-lucide-ellipsis"
+                    class="size-4"
+                />
+            </button>
         </div>
+
         <div
             v-if="hasChildren && isExpanded"
-            class="pdf-outline-item-children"
+            class="pdf-bookmark-item-children"
         >
             <PdfOutlineItem
                 v-for="(child, index) in item.items"
@@ -31,8 +72,17 @@
                 :item="child"
                 :pdf-document="pdfDocument"
                 :active-item-id="activeItemId"
-                @go-to-page="$emit('goToPage', $event)"
-                @activate="$emit('activate', $event)"
+                :editing-item-id="editingItemId"
+                :display-mode="displayMode"
+                :expanded-bookmark-ids="expandedBookmarkIds"
+                :active-path-bookmark-ids="activePathBookmarkIds"
+                :is-edit-mode="isEditMode"
+                @go-to-page="emit('go-to-page', $event)"
+                @activate="emit('activate', $event)"
+                @toggle-expand="emit('toggle-expand', $event)"
+                @open-actions="emit('open-actions', $event)"
+                @save-edit="emit('save-edit', $event)"
+                @cancel-edit="emit('cancel-edit')"
             />
         </div>
     </div>
@@ -40,8 +90,9 @@
 
 <script setup lang="ts">
 import {
-    ref,
     computed,
+    nextTick,
+    ref,
     watch,
 } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
@@ -51,63 +102,88 @@ interface IRefProxy {
     gen: number;
 }
 
-interface IOutlineItem {
+interface IBookmarkItem {
     title: string;
     dest: string | unknown[] | null;
     id: string;
     pageIndex: number | null;
-    items?: IOutlineItem[];
+    items: IBookmarkItem[];
+}
+
+interface IBookmarkMenuPayload {
+    id: string;
+    x: number;
+    y: number;
 }
 
 interface IProps {
-    item: IOutlineItem;
+    item: IBookmarkItem;
     pdfDocument: PDFDocumentProxy | null;
     activeItemId: string | null;
+    editingItemId: string | null;
+    displayMode: 'top-level' | 'all-expanded' | 'current-expanded';
+    expandedBookmarkIds: Set<string>;
+    activePathBookmarkIds: Set<string>;
+    isEditMode: boolean;
 }
 
 const props = defineProps<IProps>();
 
 const emit = defineEmits<{
-    (e: 'goToPage', page: number): void;
+    (e: 'go-to-page', page: number): void;
     (e: 'activate', id: string): void;
+    (e: 'toggle-expand', id: string): void;
+    (e: 'open-actions', payload: IBookmarkMenuPayload): void;
+    (e: 'save-edit', payload: {
+        id: string;
+        title: string 
+    }): void;
+    (e: 'cancel-edit'): void;
 }>();
 
-const isExpanded = ref(false);
+const editingTitle = ref('');
+const titleInputRef = ref<HTMLInputElement | null>(null);
 
-const hasChildren = computed(() => {
-    return props.item.items && props.item.items.length > 0;
-});
-
+const hasChildren = computed(() => props.item.items.length > 0);
 const isActive = computed(() => props.item.id === props.activeItemId);
-
-const hasActiveChild = computed(() => {
-    if (!hasChildren.value || !props.activeItemId) {
+const isEditing = computed(() => props.item.id === props.editingItemId);
+const isToggleDisabled = computed(() => props.displayMode !== 'top-level');
+const isExpanded = computed(() => {
+    if (!hasChildren.value) {
         return false;
     }
 
-    const visit = (items?: IOutlineItem[]): boolean => {
-        if (!items?.length) {
-            return false;
-        }
-        for (const child of items) {
-            if (child.id === props.activeItemId) {
-                return true;
-            }
-            if (visit(child.items)) {
-                return true;
-            }
-        }
-        return false;
-    };
+    if (props.displayMode === 'all-expanded') {
+        return true;
+    }
 
-    return visit(props.item.items);
+    if (props.displayMode === 'current-expanded') {
+        return props.activePathBookmarkIds.has(props.item.id);
+    }
+
+    return props.expandedBookmarkIds.has(props.item.id);
 });
 
 watch(
-    hasActiveChild,
+    isEditing,
+    async (value) => {
+        if (!value) {
+            return;
+        }
+
+        editingTitle.value = props.item.title;
+        await nextTick();
+        titleInputRef.value?.focus();
+        titleInputRef.value?.select();
+    },
+    { immediate: true },
+);
+
+watch(
+    () => props.item.title,
     (value) => {
-        if (value) {
-            isExpanded.value = true;
+        if (!isEditing.value) {
+            editingTitle.value = value;
         }
     },
     { immediate: true },
@@ -124,11 +200,49 @@ function isRefProxy(value: unknown): value is IRefProxy {
     );
 }
 
+function openActions(payload: IBookmarkMenuPayload) {
+    emit('open-actions', payload);
+}
+
+function openActionsFromPointer(event: MouseEvent) {
+    openActions({
+        id: props.item.id,
+        x: event.clientX,
+        y: event.clientY,
+    });
+}
+
+function openActionsFromButton(event: MouseEvent) {
+    const target = event.currentTarget as HTMLElement | null;
+    const rect = target?.getBoundingClientRect();
+    openActions({
+        id: props.item.id,
+        x: rect ? rect.right : event.clientX,
+        y: rect ? rect.bottom : event.clientY,
+    });
+}
+
+function commitEdit() {
+    emit('save-edit', {
+        id: props.item.id,
+        title: editingTitle.value,
+    });
+}
+
+function cancelEdit() {
+    editingTitle.value = props.item.title;
+    emit('cancel-edit');
+}
+
 async function handleClick() {
     emit('activate', props.item.id);
 
+    if (isEditing.value) {
+        return;
+    }
+
     if (typeof props.item.pageIndex === 'number') {
-        emit('goToPage', props.item.pageIndex + 1);
+        emit('go-to-page', props.item.pageIndex + 1);
         return;
     }
 
@@ -153,11 +267,11 @@ async function handleClick() {
         if (typeof pageRef === 'number' && Number.isFinite(pageRef)) {
             const maybeIndex = Math.trunc(pageRef);
             if (maybeIndex >= 0 && maybeIndex < props.pdfDocument.numPages) {
-                emit('goToPage', maybeIndex + 1);
+                emit('go-to-page', maybeIndex + 1);
                 return;
             }
             if (maybeIndex > 0 && maybeIndex <= props.pdfDocument.numPages) {
-                emit('goToPage', maybeIndex);
+                emit('go-to-page', maybeIndex);
                 return;
             }
             return;
@@ -168,7 +282,7 @@ async function handleClick() {
         }
 
         const pageIndex = await props.pdfDocument.getPageIndex(pageRef);
-        emit('goToPage', pageIndex + 1);
+        emit('go-to-page', pageIndex + 1);
     } catch (error) {
         // Silently ignore known PDF issues (malformed destinations, missing pages)
         // These are PDF authoring problems, not application errors
@@ -178,35 +292,44 @@ async function handleClick() {
             message.includes('page must be a reference');
 
         if (!isKnownPdfIssue) {
-            console.error('Failed to navigate to outline destination:', error);
+            console.error('Failed to navigate to bookmark destination:', error);
         }
     }
 }
 </script>
 
 <style scoped>
-.pdf-outline-item-row {
+.pdf-bookmark-item-row {
     display: flex;
     align-items: center;
     gap: 4px;
     padding: 6px 8px;
-    border-radius: 4px;
+    border-radius: 6px;
     cursor: pointer;
     transition: background-color 0.15s;
     user-select: none;
+    outline: none;
 }
 
-.pdf-outline-item-row:hover {
+.pdf-bookmark-item-row:hover {
     background: var(--ui-bg-muted);
 }
 
-.pdf-outline-item-row.is-active {
+.pdf-bookmark-item-row:focus-visible {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--ui-primary) 35%, transparent 65%);
+}
+
+.pdf-bookmark-item-row.is-active {
     background: var(--ui-bg-accented);
     color: var(--ui-primary);
     font-weight: 600;
 }
 
-.pdf-outline-item-toggle {
+.pdf-bookmark-item-row.is-editing {
+    background: color-mix(in srgb, var(--ui-primary) 10%, var(--ui-bg) 90%);
+}
+
+.pdf-bookmark-item-toggle {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -217,19 +340,26 @@ async function handleClick() {
     background: none;
     color: var(--ui-text-muted);
     cursor: pointer;
-    border-radius: 2px;
+    border-radius: 4px;
 }
 
-.pdf-outline-item-toggle:hover {
+.pdf-bookmark-item-toggle:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.pdf-bookmark-item-toggle:hover:not(:disabled) {
     background: var(--ui-bg-elevated);
 }
 
-.pdf-outline-item-spacer {
+.pdf-bookmark-item-spacer {
     width: 20px;
+    flex-shrink: 0;
 }
 
-.pdf-outline-item-title {
+.pdf-bookmark-item-title {
     flex: 1;
+    min-width: 0;
     font-size: 13px;
     line-height: 1.4;
     overflow: hidden;
@@ -237,7 +367,53 @@ async function handleClick() {
     white-space: nowrap;
 }
 
-.pdf-outline-item-children {
+.pdf-bookmark-item-input {
+    flex: 1;
+    min-width: 0;
+    border: 1px solid color-mix(in srgb, var(--ui-primary) 45%, var(--ui-border) 55%);
+    border-radius: 4px;
+    background: var(--ui-bg);
+    color: var(--ui-text-highlighted);
+    font-size: 12px;
+    line-height: 1.4;
+    padding: 3px 6px;
+}
+
+.pdf-bookmark-item-input:focus {
+    outline: none;
+    border-color: var(--ui-primary);
+}
+
+.pdf-bookmark-item-actions-trigger {
+    flex-shrink: 0;
+    width: 22px;
+    height: 22px;
+    border: 1px solid transparent;
+    border-radius: 5px;
+    background: transparent;
+    color: var(--ui-text-muted);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s;
+}
+
+.pdf-bookmark-item-actions-trigger:hover {
+    color: var(--ui-text-highlighted);
+    border-color: var(--ui-border);
+    background: var(--ui-bg-elevated);
+}
+
+.pdf-bookmark-item-row:hover .pdf-bookmark-item-actions-trigger,
+.pdf-bookmark-item-row.is-active .pdf-bookmark-item-actions-trigger,
+.pdf-bookmark-item-row:focus-within .pdf-bookmark-item-actions-trigger {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.pdf-bookmark-item-children {
     padding-left: 16px;
 }
 </style>

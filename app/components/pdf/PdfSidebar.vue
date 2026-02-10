@@ -44,10 +44,11 @@
                 :pdf-document="pdfDocument"
                 :current-page="currentPage"
                 :total-pages="totalPages"
+                :page-labels="pageLabels"
                 @go-to-page="$emit('goToPage', $event)"
             />
             <PdfOutline
-                v-show="activeTab === 'outline'"
+                v-show="activeTab === 'bookmarks'"
                 :pdf-document="pdfDocument"
                 :current-page="currentPage"
                 @go-to-page="$emit('goToPage', $event)"
@@ -71,6 +72,7 @@
                         :results="searchResults"
                         :current-result-index="currentResultIndex"
                         :search-query="searchQuery"
+                        :page-labels="pageLabels"
                         :is-searching="isSearching"
                         :search-progress="props.searchProgress"
                         :is-truncated="props.isTruncated"
@@ -105,6 +107,7 @@ interface IProps {
     pdfDocument: PDFDocumentProxy | null;
     currentPage: number;
     totalPages: number;
+    pageLabels?: string[] | null;
     searchResults: IPdfSearchMatch[];
     currentResultIndex: number;
     searchQuery: string;
@@ -158,7 +161,7 @@ const emit = defineEmits<{
     (e: 'annotation-delete-comment', comment: IAnnotationCommentSummary): void;
 }>();
 
-type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'outline' | 'search';
+type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'bookmarks' | 'search';
 
 const activeTabLocal = ref<TPdfSidebarTab>('thumbnails');
 
@@ -221,9 +224,9 @@ const tabs = [
         title: 'Pages',
     },
     {
-        value: 'outline',
-        label: 'Outline',
-        title: 'Outline',
+        value: 'bookmarks',
+        label: 'Bookmarks',
+        title: 'Bookmarks',
     },
     {
         value: 'search',

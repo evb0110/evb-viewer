@@ -276,7 +276,10 @@
                             ref="pageDropdownRef"
                             v-model="currentPage"
                             :total-pages="totalPages"
+                            :page-labels="pageLabels"
+                            :page-label-ranges="pageLabelRanges"
                             @go-to-page="handleGoToPage"
+                            @update:page-label-ranges="handlePageLabelRangesUpdate"
                             @open="zoomDropdownRef?.close()"
                         />
                     </div>
@@ -343,6 +346,7 @@
                     :pdf-document="pdfDocument"
                     :current-page="currentPage"
                     :total-pages="totalPages"
+                    :page-labels="pageLabels"
                     :search-results="results"
                     :current-result-index="currentResultIndex"
                     :total-matches="totalMatches"
@@ -391,6 +395,7 @@
                     :drag-mode="dragMode"
                     :continuous-scroll="continuousScroll"
                     :annotation-tool="annotationTool"
+                    :annotation-cursor-mode="annotationCursorMode"
                     :annotation-keep-active="annotationKeepActive"
                     :annotation-settings="annotationSettings"
                     :search-page-matches="pageMatches"
@@ -492,7 +497,6 @@
             </div>
             <div class="status-bar-metrics">
                 <span class="status-bar-item">{{ statusFileSizeLabel }}</span>
-                <span class="status-bar-item">{{ statusPageLabel }}</span>
                 <span class="status-bar-item">{{ statusZoomLabel }}</span>
                 <UTooltip :text="statusSaveDotTooltip" :delay-duration="800">
                     <button
@@ -642,6 +646,13 @@ import {
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { TFitMode } from '@app/types/shared';
 import { useOcrTextContent } from '@app/composables/pdf/useOcrTextContent';
+import type { IPdfPageLabelRange } from '@app/types/pdf';
+import {
+    buildPageLabelsFromRanges,
+    derivePageLabelRangesFromLabels,
+    isImplicitDefaultPageLabels,
+    normalizePageLabelRanges,
+} from '@app/utils/pdf-page-labels';
 import type {
     IAnnotationCommentSummary,
     IAnnotationEditorState,
@@ -774,14 +785,14 @@ async function ensureCurrentDocumentPersistedBeforeSwitch() {
         }
     }
 
-    const hasPendingChanges = annotationDirty.value || isDirty.value || hasAnnotationChanges();
+    const hasPendingChanges = annotationDirty.value || isDirty.value || hasAnnotationChanges() || pageLabelsDirty.value;
     if (!hasPendingChanges) {
         return true;
     }
 
     await handleSave();
 
-    return !(annotationDirty.value || isDirty.value || hasAnnotationChanges());
+    return !(annotationDirty.value || isDirty.value || hasAnnotationChanges() || pageLabelsDirty.value);
 }
 
 async function handleOpenFileFromUi() {
@@ -1046,6 +1057,9 @@ const zoom = ref(1);
 const fitMode = ref<TFitMode>('width');
 const currentPage = ref(1);
 const totalPages = ref(0);
+const pageLabels = ref<string[] | null>(null);
+const pageLabelRanges = ref<IPdfPageLabelRange[]>([]);
+const pageLabelsDirty = ref(false);
 const isLoading = ref(false);
 const dragMode = ref(true);
 const continuousScroll = ref(true);
@@ -1125,6 +1139,7 @@ const isAnnotationUndoContext = computed(() =>
     || annotationEditorState.value.hasSomethingToRedo,
 );
 const isAnnotationPanelOpen = computed(() => showSidebar.value && sidebarTab.value === 'annotations');
+const annotationCursorMode = computed(() => isAnnotationPanelOpen.value && !dragMode.value);
 const canUndo = computed(() => (
     isAnnotationUndoContext.value
         ? annotationEditorState.value.hasSomethingToUndo
@@ -1136,7 +1151,7 @@ const canRedo = computed(() => (
         : canRedoFile.value
 ));
 const annotationDirty = computed(() => annotationRevision.value !== annotationSavedRevision.value);
-const canSave = computed(() => isDirty.value || annotationDirty.value);
+const canSave = computed(() => isDirty.value || annotationDirty.value || pageLabelsDirty.value);
 const annotationContextMenuStyle = computed(() => ({
     left: `${annotationContextMenu.value.x}px`,
     top: `${annotationContextMenu.value.y}px`,
@@ -1218,12 +1233,6 @@ const statusFileSizeLabel = computed(() => {
         return 'Size: -';
     }
     return `Size: ${formatBytes(statusFileSizeBytes.value)}`;
-});
-const statusPageLabel = computed(() => {
-    if (!pdfSrc.value || totalPages.value <= 0) {
-        return 'Page: -';
-    }
-    return `Page: ${currentPage.value}/${totalPages.value}`;
 });
 const statusZoomLabel = computed(() => `Zoom: ${Math.round(zoom.value * 100)}%`);
 const statusSaveDotState = computed(() => {
@@ -1365,6 +1374,56 @@ function enableDragMode() {
 function handleGoToPage(page: number) {
     pdfViewerRef.value?.scrollToPage(page);
 }
+
+async function syncPageLabelsFromDocument(doc: PDFDocumentProxy | null) {
+    if (!doc) {
+        pageLabels.value = null;
+        pageLabelRanges.value = [];
+        pageLabelsDirty.value = false;
+        return;
+    }
+
+    let labels: string[] | null = null;
+    try {
+        const raw = await doc.getPageLabels();
+        labels = raw && raw.length === doc.numPages ? raw : null;
+    } catch {
+        labels = null;
+    }
+
+    pageLabels.value = labels;
+    pageLabelRanges.value = derivePageLabelRangesFromLabels(labels, doc.numPages);
+    pageLabelsDirty.value = false;
+}
+
+function markPageLabelsSaved() {
+    pageLabelsDirty.value = false;
+}
+
+function handlePageLabelRangesUpdate(ranges: IPdfPageLabelRange[]) {
+    if (totalPages.value <= 0) {
+        return;
+    }
+
+    const normalized = normalizePageLabelRanges(ranges, totalPages.value);
+    const currentNormalized = normalizePageLabelRanges(pageLabelRanges.value, totalPages.value);
+    const unchanged = JSON.stringify(normalized) === JSON.stringify(currentNormalized);
+    if (unchanged) {
+        return;
+    }
+    pageLabelRanges.value = normalized;
+    pageLabels.value = buildPageLabelsFromRanges(totalPages.value, normalized);
+    pageLabelsDirty.value = true;
+    markDirty();
+}
+
+watch(
+    pdfDocument,
+    (doc) => {
+        void syncPageLabelsFromDocument(doc);
+    },
+    { immediate: true },
+);
 
 function waitForPdfReload(pageToRestore: number) {
     return new Promise<void>((resolve) => {
@@ -1518,6 +1577,31 @@ function handleAnnotationSettingChange(payload: {
         ...annotationSettings.value,
         [payload.key]: payload.value,
     };
+
+    const selectedShapeId = pdfViewerRef.value?.selectedShapeId?.value;
+    if (!selectedShapeId) {
+        return;
+    }
+
+    if (payload.key === 'shapeColor') {
+        pdfViewerRef.value?.updateShape(selectedShapeId, { color: String(payload.value) });
+        return;
+    }
+
+    if (payload.key === 'shapeStrokeWidth') {
+        pdfViewerRef.value?.updateShape(selectedShapeId, { strokeWidth: Number(payload.value) });
+        return;
+    }
+
+    if (payload.key === 'shapeOpacity') {
+        pdfViewerRef.value?.updateShape(selectedShapeId, { opacity: Number(payload.value) });
+        return;
+    }
+
+    if (payload.key === 'shapeFillColor') {
+        const fill = String(payload.value);
+        pdfViewerRef.value?.updateShape(selectedShapeId, {fillColor: fill === 'transparent' ? undefined : fill});
+    }
 }
 
 function handleAnnotationState(state: IAnnotationEditorState) {
@@ -1634,6 +1718,30 @@ function handleShapePropertyUpdate(updates: Partial<IShapeAnnotation>) {
     if (!id) {
         return;
     }
+
+    const nextSettings: IAnnotationSettings = {...annotationSettings.value};
+    let didUpdateDefaults = false;
+    if (typeof updates.color === 'string' && updates.color.trim()) {
+        nextSettings.shapeColor = updates.color;
+        didUpdateDefaults = true;
+    }
+    if (typeof updates.strokeWidth === 'number' && Number.isFinite(updates.strokeWidth)) {
+        nextSettings.shapeStrokeWidth = updates.strokeWidth;
+        didUpdateDefaults = true;
+    }
+    if (typeof updates.opacity === 'number' && Number.isFinite(updates.opacity)) {
+        nextSettings.shapeOpacity = updates.opacity;
+        didUpdateDefaults = true;
+    }
+    if ('fillColor' in updates) {
+        const fill = updates.fillColor ?? 'transparent';
+        nextSettings.shapeFillColor = fill;
+        didUpdateDefaults = true;
+    }
+    if (didUpdateDefaults) {
+        annotationSettings.value = nextSettings;
+    }
+
     pdfViewerRef.value?.updateShape(id, updates);
 }
 
@@ -2639,6 +2747,57 @@ async function serializeShapeAnnotations(data: Uint8Array): Promise<Uint8Array> 
     return new Uint8Array(await doc.save());
 }
 
+async function rewritePageLabels(data: Uint8Array): Promise<Uint8Array> {
+    if (!pageLabelsDirty.value || totalPages.value <= 0) {
+        return data;
+    }
+
+    let doc: PDFDocument;
+    try {
+        doc = await PDFDocument.load(data, { updateMetadata: false });
+    } catch {
+        return data;
+    }
+
+    const normalizedRanges = normalizePageLabelRanges(pageLabelRanges.value, totalPages.value);
+    const pageLabelsName = PDFName.of('PageLabels');
+
+    if (isImplicitDefaultPageLabels(normalizedRanges, totalPages.value)) {
+        doc.catalog.delete(pageLabelsName);
+        return new Uint8Array(await doc.save());
+    }
+
+    const nums = doc.context.obj([]) as PDFArray;
+    const styleName = PDFName.of('S');
+    const prefixName = PDFName.of('P');
+    const startName = PDFName.of('St');
+    const typeName = PDFName.of('Type');
+    const pageLabelName = PDFName.of('PageLabel');
+
+    for (const range of normalizedRanges) {
+        nums.push(PDFNumber.of(range.startPage - 1));
+
+        const labelDict = doc.context.obj({}) as PDFDict;
+        labelDict.set(typeName, pageLabelName);
+        if (range.style) {
+            labelDict.set(styleName, PDFName.of(range.style));
+        }
+        if (range.prefix.length > 0) {
+            labelDict.set(prefixName, PDFHexString.fromText(range.prefix));
+        }
+        if (range.style && range.startNumber > 1) {
+            labelDict.set(startName, PDFNumber.of(range.startNumber));
+        }
+
+        nums.push(labelDict);
+    }
+
+    const pageLabelsDict = doc.context.obj({Nums: nums}) as PDFDict;
+
+    doc.catalog.set(pageLabelsName, pageLabelsDict);
+    return new Uint8Array(await doc.save());
+}
+
 async function handleCopyAnnotationComment(comment: IAnnotationCommentSummary) {
     closeAnnotationContextMenu();
     const text = comment.text?.trim();
@@ -2843,16 +3002,18 @@ async function handleSave() {
         // the working copy back to the original, without re-serializing the PDF in the renderer
         // (which can change compression and bloat scanned PDFs).
         if (workingCopyPath.value) {
-            const shouldSerialize = annotationDirty.value || hasAnnotationChanges();
+            const shouldSerialize = annotationDirty.value || hasAnnotationChanges() || pageLabelsDirty.value;
             if (shouldSerialize) {
                 const rawData = await pdfViewerRef.value?.saveDocument();
                 if (rawData) {
                     let data = await rewriteMarkupSubtypes(rawData);
                     data = await serializeShapeAnnotations(data);
+                    data = await rewritePageLabels(data);
                     const saved = await saveFile(data);
                     if (saved) {
                         pdfDocument.value?.annotationStorage?.resetModified();
                         markAnnotationSaved();
+                        markPageLabelsSaved();
                     }
                 }
                 return;
@@ -2860,6 +3021,7 @@ async function handleSave() {
             const saved = await saveWorkingCopy();
             if (saved) {
                 markAnnotationSaved();
+                markPageLabelsSaved();
             }
             return;
         }
@@ -2867,11 +3029,13 @@ async function handleSave() {
         // Web context fallback.
         const rawData = await pdfViewerRef.value?.saveDocument();
         if (rawData) {
-            const data = await rewriteMarkupSubtypes(rawData);
+            let data = await rewriteMarkupSubtypes(rawData);
+            data = await rewritePageLabels(data);
             const saved = await saveFile(data);
             if (saved) {
                 pdfDocument.value?.annotationStorage?.resetModified();
                 markAnnotationSaved();
+                markPageLabelsSaved();
             }
         }
     } finally {
@@ -2892,22 +3056,25 @@ async function handleSaveAs() {
     isSavingAs.value = true;
     try {
         let outPath: string | null = null;
-        const shouldSerialize = annotationDirty.value || hasAnnotationChanges();
+        const shouldSerialize = annotationDirty.value || hasAnnotationChanges() || pageLabelsDirty.value;
         if (shouldSerialize) {
             const rawData = await pdfViewerRef.value?.saveDocument();
             if (rawData) {
                 let data = await rewriteMarkupSubtypes(rawData);
                 data = await serializeShapeAnnotations(data);
+                data = await rewritePageLabels(data);
                 outPath = await saveWorkingCopyAs(data);
                 if (outPath) {
                     pdfDocument.value?.annotationStorage?.resetModified();
                     markAnnotationSaved();
+                    markPageLabelsSaved();
                 }
             }
         } else {
             outPath = await saveWorkingCopyAs();
             if (outPath) {
                 markAnnotationSaved();
+                markPageLabelsSaved();
             }
         }
         if (outPath) {
@@ -2932,6 +3099,9 @@ watch(pdfSrc, (newSrc, oldSrc) => {
         annotationTool.value = 'none';
         annotationComments.value = [];
         annotationActiveCommentStableKey.value = null;
+        pageLabels.value = null;
+        pageLabelRanges.value = [];
+        pageLabelsDirty.value = false;
         pdfViewerRef.value?.clearShapes();
         closeAnnotationContextMenu();
         void closeAllAnnotationNotes({ saveIfDirty: false });
