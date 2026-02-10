@@ -7,12 +7,15 @@
             v-for="page in totalPages"
             :key="page"
             class="pdf-thumbnail"
-            :class="{ 'is-active': page === currentPage }"
+            :class="{
+                'is-active': page === currentPage,
+                'is-selected': isSelected(page),
+            }"
             :data-page="page"
-            @click="$emit('goToPage', page)"
+            @click="handleThumbnailClick($event, page)"
         >
             <canvas class="pdf-thumbnail-canvas" />
-            <span class="pdf-thumbnail-number">{{ page }}</span>
+            <span class="pdf-thumbnail-number">{{ getPageIndicator(page) }}</span>
         </div>
     </div>
 </template>
@@ -29,16 +32,22 @@ import type {
     RenderTask,
 } from 'pdfjs-dist';
 import { isPdfDocumentUsable } from '@app/utils/pdf-document-guard';
+import { formatPageIndicator } from '@app/utils/pdf-page-labels';
 
 interface IProps {
     pdfDocument: PDFDocumentProxy | null;
     currentPage: number;
     totalPages: number;
+    pageLabels?: string[] | null;
+    selectedPages?: number[];
 }
 
 const props = defineProps<IProps>();
 
-defineEmits<{(e: 'goToPage', page: number): void;}>();
+const emit = defineEmits<{
+    (e: 'go-to-page', page: number): void;
+    (e: 'update:selected-pages', pages: number[]): void;
+}>();
 
 const containerRef = ref<HTMLElement | null>(null);
 const renderedPages = new Set<number>();
@@ -46,6 +55,71 @@ const renderingPages = new Set<number>();
 const renderTasks = new Map<number, RenderTask>();
 const THUMBNAIL_WIDTH = 150;
 let renderRunId = 0;
+const selectionAnchor = ref<number | null>(null);
+
+function normalizeSelectedPages(pages: number[]) {
+    const unique = new Set<number>();
+    for (const page of pages) {
+        if (Number.isInteger(page) && page >= 1 && page <= props.totalPages) {
+            unique.add(page);
+        }
+    }
+    return Array.from(unique).sort((left, right) => left - right);
+}
+
+function arePageListsEqual(left: number[], right: number[]) {
+    if (left.length !== right.length) {
+        return false;
+    }
+    for (let index = 0; index < left.length; index += 1) {
+        if (left[index] !== right[index]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+function isSelected(page: number) {
+    return (props.selectedPages ?? []).includes(page);
+}
+
+function buildRangeSelection(start: number, end: number) {
+    const from = Math.min(start, end);
+    const to = Math.max(start, end);
+    const selected: number[] = [];
+    for (let page = from; page <= to; page += 1) {
+        selected.push(page);
+    }
+    return selected;
+}
+
+function commitSelection(pages: number[], anchor: number | null) {
+    const normalized = normalizeSelectedPages(pages);
+    emit('update:selected-pages', normalized);
+    selectionAnchor.value = anchor;
+}
+
+function handleThumbnailClick(event: MouseEvent, page: number) {
+    const toggleSelection = event.metaKey || event.ctrlKey;
+    const extendRange = event.shiftKey && selectionAnchor.value !== null;
+    const currentSelection = normalizeSelectedPages(props.selectedPages ?? []);
+
+    if (extendRange) {
+        commitSelection(buildRangeSelection(selectionAnchor.value ?? page, page), page);
+    } else if (toggleSelection) {
+        const nextSelection = new Set<number>(currentSelection);
+        if (nextSelection.has(page)) {
+            nextSelection.delete(page);
+        } else {
+            nextSelection.add(page);
+        }
+        commitSelection(Array.from(nextSelection.values()), page);
+    } else {
+        commitSelection([page], page);
+    }
+
+    emit('go-to-page', page);
+}
 
 function getCanvas(pageNum: number): HTMLCanvasElement | null {
     if (!containerRef.value) {
@@ -54,6 +128,34 @@ function getCanvas(pageNum: number): HTMLCanvasElement | null {
     const thumbnail = containerRef.value.querySelector(`[data-page="${pageNum}"]`);
     return thumbnail?.querySelector('canvas') ?? null;
 }
+
+function getPageIndicator(page: number) {
+    return formatPageIndicator(page, props.pageLabels ?? null);
+}
+
+watch(
+    () => props.selectedPages,
+    (pages) => {
+        const normalized = normalizeSelectedPages(pages ?? []);
+        if (!arePageListsEqual(normalized, pages ?? [])) {
+            emit('update:selected-pages', normalized);
+            return;
+        }
+
+        if (normalized.length === 0) {
+            selectionAnchor.value = null;
+            return;
+        }
+
+        if (selectionAnchor.value === null || !normalized.includes(selectionAnchor.value)) {
+            selectionAnchor.value = normalized[normalized.length - 1] ?? null;
+        }
+    },
+    {
+        immediate: true,
+        deep: true,
+    },
+);
 
 function cancelAllRenders() {
     for (const task of renderTasks.values()) {
@@ -215,8 +317,9 @@ onBeforeUnmount(() => {
     gap: 4px;
     padding: 4px;
     border-radius: 4px;
+    border: 1px solid transparent;
     cursor: pointer;
-    transition: background-color 0.15s;
+    transition: background-color 0.15s, border-color 0.15s;
 }
 
 .pdf-thumbnail:hover {
@@ -225,6 +328,11 @@ onBeforeUnmount(() => {
 
 .pdf-thumbnail.is-active {
     background: var(--ui-bg-accented);
+}
+
+.pdf-thumbnail.is-selected {
+    border-color: var(--ui-primary);
+    background: var(--ui-bg-elevated);
 }
 
 .pdf-thumbnail-canvas {
@@ -242,5 +350,9 @@ onBeforeUnmount(() => {
 .pdf-thumbnail.is-active .pdf-thumbnail-number {
     color: var(--ui-primary);
     font-weight: 600;
+}
+
+.pdf-thumbnail.is-selected .pdf-thumbnail-number {
+    color: var(--ui-primary);
 }
 </style>

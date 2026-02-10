@@ -90,6 +90,11 @@ export interface IPdfPageLabelRange {
     startNumber: number;
 }
 
+export interface IPdfPageRange {
+    startPage: number;
+    endPage: number;
+}
+
 export interface IPdfBookmarkEntry {
     title: string;
     pageIndex: number | null;
