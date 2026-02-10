@@ -13,7 +13,7 @@
                     type="button"
                     class="tool-button"
                     :class="{ 'is-active': tool === toolItem.id }"
-                    @click="emit('set-tool', toolItem.id)"
+                    @click="emit('set-tool', tool === toolItem.id ? 'none' : toolItem.id)"
                 >
                     <UIcon :name="toolItem.icon" class="tool-button-icon" />
                     <span class="tool-button-label">{{ toolItem.label }}</span>
@@ -353,12 +353,6 @@ const emit = defineEmits<{
 }>();
 
 const toolItems = computed<IToolItem[]>(() => [
-    {
-        id: 'none',
-        label: t('annotations.cursor'),
-        icon: 'i-lucide-mouse-pointer',
-        hint: 'Navigate and select existing annotations',
-    },
     {
         id: 'draw',
         label: t('annotations.draw'),
