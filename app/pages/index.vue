@@ -277,9 +277,7 @@
                             v-model="currentPage"
                             :total-pages="totalPages"
                             :page-labels="pageLabels"
-                            :page-label-ranges="pageLabelRanges"
                             @go-to-page="handleGoToPage"
-                            @update:page-label-ranges="handlePageLabelRangesUpdate"
                             @open="zoomDropdownRef?.close()"
                         />
                     </div>
