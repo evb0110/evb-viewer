@@ -19,7 +19,7 @@
                 orient="auto"
                 markerUnits="strokeWidth"
             >
-                <polygon points="0 0, 10 3.5, 0 7" fill="currentColor" />
+                <polygon points="0 0, 10 3.5, 0 7" fill="context-stroke" />
             </marker>
             <marker
                 id="arrowhead-open"
@@ -30,7 +30,7 @@
                 orient="auto"
                 markerUnits="strokeWidth"
             >
-                <polyline points="0 0, 10 3.5, 0 7" fill="none" stroke="currentColor" stroke-width="1" />
+                <polyline points="0 0, 10 3.5, 0 7" fill="none" stroke="context-stroke" stroke-width="1" />
             </marker>
         </defs>
 
