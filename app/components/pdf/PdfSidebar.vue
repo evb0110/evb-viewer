@@ -45,139 +45,137 @@
                 class="pdf-sidebar-pages"
             >
                 <div class="pdf-sidebar-pages-panel">
-                    <button
-                        type="button"
-                        class="pdf-sidebar-pages-disclosure"
-                        :aria-expanded="isPageNumberingExpanded"
-                        title="Toggle Number Pages panel"
-                        @click="isPageNumberingExpanded = !isPageNumberingExpanded"
+                    <UCollapsible
+                        v-model:open="isPageNumberingExpanded"
+                        :default-open="false"
+                        :unmount-on-hide="false"
+                        class="pdf-sidebar-pages-collapsible"
                     >
-                        <span class="pdf-sidebar-pages-title">Number Pages</span>
-                        <UIcon
-                            :name="isPageNumberingExpanded ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'"
-                            class="size-4"
-                        />
-                    </button>
-
-                    <div
-                        v-if="isPageNumberingExpanded"
-                        class="pdf-sidebar-pages-editor"
-                    >
-                        <p class="pdf-sidebar-pages-help">
-                            Select pages in the list or enter a range like 1-12.
-                        </p>
-
-                        <div class="pdf-sidebar-pages-fields">
-                            <div class="pdf-sidebar-pages-field">
-                                <label class="pdf-sidebar-pages-label" for="page-label-range-input">Page Range</label>
-                                <input
-                                    id="page-label-range-input"
-                                    v-model="pageRangeInput"
-                                    class="pdf-sidebar-pages-input"
-                                    type="text"
-                                    inputmode="numeric"
-                                    placeholder="e.g. 1-12"
-                                >
-                            </div>
-
-                            <div class="pdf-sidebar-pages-field">
-                                <label class="pdf-sidebar-pages-label" for="page-label-style-input">Style</label>
-                                <select
-                                    id="page-label-style-input"
-                                    v-model="pageLabelStyle"
-                                    class="pdf-sidebar-pages-select"
-                                >
-                                    <option
-                                        v-for="styleOption in pageLabelStyleOptions"
-                                        :key="styleOption.value"
-                                        :value="styleOption.value"
-                                    >
-                                        {{ styleOption.label }}
-                                    </option>
-                                </select>
-                            </div>
-
-                            <div class="pdf-sidebar-pages-field">
-                                <label class="pdf-sidebar-pages-label" for="page-label-prefix-input">Prefix</label>
-                                <input
-                                    id="page-label-prefix-input"
-                                    v-model="pageLabelPrefix"
-                                    class="pdf-sidebar-pages-input"
-                                    type="text"
-                                    placeholder="Section-"
-                                >
-                            </div>
-
-                            <div class="pdf-sidebar-pages-field">
-                                <label class="pdf-sidebar-pages-label" for="page-label-start-input">Start At</label>
-                                <input
-                                    id="page-label-start-input"
-                                    :value="pageLabelStartNumber"
-                                    class="pdf-sidebar-pages-input"
-                                    type="number"
-                                    min="1"
-                                    :disabled="pageLabelStyle.length === 0"
-                                    @input="handleStartNumberInput"
-                                >
-                            </div>
-                        </div>
-
-                        <div class="pdf-sidebar-pages-selection">
-                            <span class="pdf-sidebar-pages-selection-text">{{ selectionSummary }}</span>
-                            <div class="pdf-sidebar-pages-selection-actions">
-                                <UButton
-                                    size="xs"
-                                    variant="ghost"
-                                    color="neutral"
-                                    class="pdf-sidebar-pages-button"
-                                    :disabled="selectionRange === null"
-                                    @click="copySelectionRangeToInput"
-                                >
-                                    Use selection
-                                </UButton>
-                                <UButton
-                                    size="xs"
-                                    variant="ghost"
-                                    color="neutral"
-                                    class="pdf-sidebar-pages-button"
-                                    :disabled="selectedThumbnailPages.length === 0"
-                                    @click="clearSelection"
-                                >
-                                    Clear
-                                </UButton>
-                            </div>
-                        </div>
-
-                        <p
-                            v-if="rangeErrorMessage"
-                            class="pdf-sidebar-pages-error"
-                        >
-                            {{ rangeErrorMessage }}
-                        </p>
-
-                        <div class="pdf-sidebar-pages-actions">
-                                <UButton
-                                    size="xs"
-                                    variant="soft"
-                                    color="primary"
-                                    class="pdf-sidebar-pages-button"
-                                    :disabled="selectionRange === null"
-                                    @click="applyToSelection"
-                                >
-                                    Apply selection
-                                </UButton>
-                            <UButton
-                                size="xs"
-                                variant="soft"
-                                color="primary"
-                                class="pdf-sidebar-pages-button"
-                                :disabled="manualRange === null"
-                                @click="applyToManualRange"
+                        <template #default="{ open }">
+                            <button
+                                type="button"
+                                class="pdf-sidebar-pages-disclosure"
+                                :aria-expanded="open ? 'true' : 'false'"
                             >
-                                Apply range
-                            </UButton>
-                        </div>
-                    </div>
+                                <span class="pdf-sidebar-pages-disclosure-main">
+                                    <UIcon
+                                        :name="open ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'"
+                                        class="pdf-sidebar-pages-disclosure-icon size-4"
+                                    />
+                                    <span class="pdf-sidebar-pages-title">Number Pages</span>
+                                </span>
+                            </button>
+                        </template>
+
+                        <template #content>
+                            <div class="pdf-sidebar-pages-editor">
+                                <p class="pdf-sidebar-pages-help">
+                                    Enter a page range like 1-12, or select contiguous thumbnails and use Fill range.
+                                </p>
+
+                                <div class="pdf-sidebar-pages-fields">
+                                    <div class="pdf-sidebar-pages-field">
+                                        <label class="pdf-sidebar-pages-label" for="page-label-range-input">Page Range</label>
+                                        <input
+                                            id="page-label-range-input"
+                                            v-model="pageRangeInput"
+                                            class="pdf-sidebar-pages-input"
+                                            type="text"
+                                            inputmode="numeric"
+                                            placeholder="e.g. 1-12"
+                                        >
+                                    </div>
+
+                                    <div class="pdf-sidebar-pages-field">
+                                        <label class="pdf-sidebar-pages-label" for="page-label-style-input">Style</label>
+                                        <select
+                                            id="page-label-style-input"
+                                            v-model="pageLabelStyle"
+                                            class="pdf-sidebar-pages-select"
+                                        >
+                                            <option
+                                                v-for="styleOption in pageLabelStyleOptions"
+                                                :key="styleOption.value"
+                                                :value="styleOption.value"
+                                            >
+                                                {{ styleOption.label }}
+                                            </option>
+                                        </select>
+                                    </div>
+
+                                    <div class="pdf-sidebar-pages-field">
+                                        <label class="pdf-sidebar-pages-label" for="page-label-prefix-input">Prefix</label>
+                                        <input
+                                            id="page-label-prefix-input"
+                                            v-model="pageLabelPrefix"
+                                            class="pdf-sidebar-pages-input"
+                                            type="text"
+                                            placeholder="Section-"
+                                        >
+                                    </div>
+
+                                    <div class="pdf-sidebar-pages-field">
+                                        <label class="pdf-sidebar-pages-label" for="page-label-start-input">Start At</label>
+                                        <input
+                                            id="page-label-start-input"
+                                            :value="pageLabelStartNumber"
+                                            class="pdf-sidebar-pages-input"
+                                            type="number"
+                                            min="1"
+                                            :disabled="pageLabelStyle.length === 0"
+                                            @input="handleStartNumberInput"
+                                        >
+                                    </div>
+                                </div>
+
+                                <div class="pdf-sidebar-pages-selection">
+                                    <span class="pdf-sidebar-pages-selection-label">Thumbnail selection</span>
+                                    <span class="pdf-sidebar-pages-selection-text">{{ selectionSummary }}</span>
+                                    <div class="pdf-sidebar-pages-selection-actions">
+                                        <UTooltip text="Clear selected thumbnails" :delay-duration="1200">
+                                            <UButton
+                                                size="xs"
+                                                variant="outline"
+                                                color="neutral"
+                                                class="pdf-sidebar-pages-button pdf-sidebar-pages-secondary-button"
+                                                :disabled="selectedThumbnailPages.length === 0"
+                                                @click="clearPageSelection"
+                                            >
+                                                Clear selection
+                                            </UButton>
+                                        </UTooltip>
+                                    </div>
+                                </div>
+
+                                <p
+                                    v-if="rangeErrorMessage"
+                                    class="pdf-sidebar-pages-error"
+                                >
+                                    {{ rangeErrorMessage }}
+                                </p>
+
+                                <p
+                                    class="pdf-sidebar-pages-target"
+                                    :class="{ 'is-invalid': hasNonContiguousSelection && manualRange === null }"
+                                >
+                                    {{ applyTargetSummary }}
+                                </p>
+
+                                <UTooltip text="Apply numbering format to the active target range" :delay-duration="1200">
+                                    <UButton
+                                        size="xs"
+                                        variant="soft"
+                                        color="primary"
+                                        class="pdf-sidebar-pages-button pdf-sidebar-pages-primary-button"
+                                        :disabled="applyTargetRange === null"
+                                        @click="applyToTargetRange"
+                                    >
+                                        Apply numbering
+                                    </UButton>
+                                </UTooltip>
+                            </div>
+                        </template>
+                    </UCollapsible>
                 </div>
 
                 <PdfThumbnails
@@ -428,20 +426,21 @@ function deriveContiguousSelectionRange(pages: number[]): IPdfPageRange | null {
 }
 
 const selectionRange = computed(() => deriveContiguousSelectionRange(selectedThumbnailPages.value));
+const hasNonContiguousSelection = computed(() => selectedThumbnailPages.value.length > 0 && selectionRange.value === null);
 
 const selectionSummary = computed(() => {
     if (selectedThumbnailPages.value.length === 0) {
-        return 'No pages selected';
+        return 'None';
     }
 
     if (selectionRange.value === null) {
-        return `${selectedThumbnailPages.value.length} selected (must be contiguous)`;
+        return `${selectedThumbnailPages.value.length} pages (non-contiguous)`;
     }
 
     const rangeText = formatPageRange(selectionRange.value);
     const pageCount = selectionRange.value.endPage - selectionRange.value.startPage + 1;
     const pageWord = pageCount === 1 ? 'page' : 'pages';
-    return `Selected ${rangeText} (${pageCount} ${pageWord})`;
+    return `${rangeText} (${pageCount} ${pageWord})`;
 });
 
 const rangeErrorMessage = computed(() => {
@@ -453,7 +452,25 @@ const rangeErrorMessage = computed(() => {
         return '';
     }
 
-    return 'Use a page range like 7 or 7-14.';
+    return 'Enter one page (7) or a range (7-14).';
+});
+
+const applyTargetRange = computed(() => manualRange.value ?? selectionRange.value);
+
+const applyTargetSummary = computed(() => {
+    if (manualRange.value !== null) {
+        return `Target: range ${formatPageRange(manualRange.value)} (from Page Range).`;
+    }
+
+    if (selectionRange.value !== null) {
+        return `Target: selected pages ${formatPageRange(selectionRange.value)}.`;
+    }
+
+    if (hasNonContiguousSelection.value) {
+        return 'Target unavailable: selected pages are not contiguous. Enter a range instead.';
+    }
+
+    return 'Target: none. Enter a range or select contiguous thumbnails.';
 });
 
 async function focusSearch() {
@@ -467,16 +484,8 @@ function handleSelectedPagesUpdate(pages: number[]) {
     selectedThumbnailPages.value = pages;
 }
 
-function clearSelection() {
+function clearPageSelection() {
     selectedThumbnailPages.value = [];
-}
-
-function copySelectionRangeToInput() {
-    if (selectionRange.value === null) {
-        return;
-    }
-
-    pageRangeInput.value = formatPageRange(selectionRange.value);
 }
 
 function readEventValue(event: Event) {
@@ -536,22 +545,15 @@ function applyPageLabelsToRange(range: IPdfPageRange) {
     emit('update:pageLabelRanges', nextRanges);
 }
 
-function applyToSelection() {
-    if (selectionRange.value === null) {
+function applyToTargetRange() {
+    if (applyTargetRange.value === null) {
         return;
     }
 
-    applyPageLabelsToRange(selectionRange.value);
-    pageRangeInput.value = formatPageRange(selectionRange.value);
-}
-
-function applyToManualRange() {
-    if (manualRange.value === null) {
-        return;
-    }
-
-    selectedThumbnailPages.value = buildRangePages(manualRange.value);
-    applyPageLabelsToRange(manualRange.value);
+    const targetRange = applyTargetRange.value;
+    selectedThumbnailPages.value = buildRangePages(targetRange);
+    pageRangeInput.value = formatPageRange(targetRange);
+    applyPageLabelsToRange(targetRange);
 }
 
 watch(
@@ -683,11 +685,17 @@ const sidebarStyle = computed(() => {
     gap: 0.5rem;
 }
 
+.pdf-sidebar-pages-collapsible {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
 .pdf-sidebar-pages-disclosure {
     width: 100%;
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-start;
     gap: 0.5rem;
     border: 1px solid var(--ui-border);
     border-radius: 0.375rem;
@@ -697,23 +705,37 @@ const sidebarStyle = computed(() => {
     font-size: 0.75rem;
     font-weight: 600;
     cursor: pointer;
+    white-space: nowrap;
+}
+
+.pdf-sidebar-pages-disclosure-main {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    min-width: 0;
 }
 
 .pdf-sidebar-pages-disclosure:hover {
     background: var(--ui-bg-elevated);
 }
 
+.pdf-sidebar-pages-disclosure-icon {
+    color: var(--ui-text-muted);
+    flex-shrink: 0;
+}
+
 .pdf-sidebar-pages-editor {
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
+    padding-top: 0.375rem;
 }
 
 .pdf-sidebar-pages-title {
     margin: 0;
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: var(--ui-text);
+    font-size: 0.875rem;
+    font-weight: 700;
+    color: inherit;
 }
 
 .pdf-sidebar-pages-help {
@@ -766,43 +788,74 @@ const sidebarStyle = computed(() => {
 
 .pdf-sidebar-pages-selection {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.5rem;
+    flex-direction: column;
+    gap: 0.375rem;
+    border: 1px solid var(--ui-border);
+    border-radius: 0.375rem;
+    padding: 0.5rem;
+    background: var(--ui-bg-muted);
+}
+
+.pdf-sidebar-pages-selection-label {
+    font-size: 0.675rem;
+    color: var(--ui-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
 }
 
 .pdf-sidebar-pages-selection-text {
-    font-size: 0.7rem;
-    color: var(--ui-text-muted);
+    font-size: 0.75rem;
+    color: var(--ui-text);
+    line-height: 1.3;
     min-width: 0;
-    text-overflow: ellipsis;
-    overflow: hidden;
-    white-space: nowrap;
+    white-space: normal;
+    overflow-wrap: anywhere;
 }
 
 .pdf-sidebar-pages-selection-actions {
     display: flex;
-    align-items: center;
+    flex-direction: column;
+    align-items: stretch;
     gap: 0.25rem;
-    flex-wrap: nowrap;
 }
 
-.pdf-sidebar-pages-actions {
+.pdf-sidebar-pages-target {
+    margin: 0;
+    font-size: 0.7rem;
+    color: var(--ui-text-muted);
+    line-height: 1.3;
+}
+
+.pdf-sidebar-pages-target.is-invalid {
+    color: #dc2626;
+}
+
+.pdf-sidebar-pages-primary-button,
+.pdf-sidebar-pages-secondary-button {
+    width: 100%;
+    justify-content: center;
+}
+
+.pdf-sidebar-pages-button {
     display: flex;
     align-items: center;
-    justify-content: flex-start;
-    gap: 0.375rem;
+    justify-content: center;
+    min-width: 0;
+}
+
+:deep(.pdf-sidebar-pages-button) {
+    white-space: nowrap !important;
+}
+
+:deep(.pdf-sidebar-pages-button span) {
+    white-space: nowrap !important;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .pdf-sidebar-pages-error {
     margin: 0;
     font-size: 0.7rem;
     color: #dc2626;
-}
-
-.pdf-sidebar-pages-button {
-    white-space: nowrap !important;
-    min-width: 0;
-    flex: 1 1 0;
 }
 </style>
