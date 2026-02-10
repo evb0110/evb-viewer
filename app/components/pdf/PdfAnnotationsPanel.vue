@@ -321,7 +321,7 @@ interface IToolItem {
 }
 
 interface IWidthControl {
-    key: 'inkThickness' | 'highlightThickness' | 'shapeStrokeWidth';
+    key: 'inkThickness' | 'highlightThickness' | 'shapeStrokeWidth' | 'textSize';
     min: number;
     max: number;
     step: number;
@@ -370,6 +370,12 @@ const toolItems: IToolItem[] = [
         label: 'Draw',
         icon: 'i-lucide-pen-tool',
         hint: 'Freehand pen or pencil drawing',
+    },
+    {
+        id: 'text',
+        label: 'Text',
+        icon: 'i-lucide-type',
+        hint: 'Place free text on the page',
     },
     {
         id: 'highlight',
@@ -889,6 +895,9 @@ const activeToolColor = computed(() => {
     if (props.tool === 'draw') {
         return props.settings.inkColor;
     }
+    if (props.tool === 'text') {
+        return props.settings.textColor;
+    }
     if (props.tool === 'underline') {
         return props.settings.underlineColor;
     }
@@ -933,6 +942,16 @@ const activeWidthControl = computed<IWidthControl | null>(() => {
         };
     }
 
+    if (props.tool === 'text') {
+        return {
+            key: 'textSize',
+            min: 8,
+            max: 72,
+            step: 1,
+            label: 'Text Size',
+        };
+    }
+
     return null;
 });
 
@@ -966,6 +985,11 @@ function handleColorInput(color: string) {
 
     if (props.tool === 'underline') {
         updateSetting('underlineColor', color);
+        return;
+    }
+
+    if (props.tool === 'text') {
+        updateSetting('textColor', color);
         return;
     }
 

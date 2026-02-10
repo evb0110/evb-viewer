@@ -105,6 +105,18 @@
 
                     <div v-if="pdfSrc" class="toolbar-button-group">
                         <div class="toolbar-group-item">
+                            <UTooltip text="Free Text (T)" :delay-duration="1200">
+                                <UButton
+                                    icon="i-lucide-type"
+                                    :variant="annotationTool === 'text' ? 'soft' : 'ghost'"
+                                    :color="annotationTool === 'text' ? 'primary' : 'neutral'"
+                                    class="toolbar-group-button"
+                                    aria-label="Free text"
+                                    @click="handleAnnotationToolChange(annotationTool === 'text' ? 'none' : 'text'); closeAllDropdowns()"
+                                />
+                            </UTooltip>
+                        </div>
+                        <div class="toolbar-group-item">
                             <UTooltip text="Highlight (H)" :delay-duration="1200">
                                 <UButton
                                     icon="i-lucide-highlighter"
@@ -880,6 +892,10 @@ function handleGlobalShortcut(event: KeyboardEvent) {
         case 'i':
             openAnnotations();
             handleAnnotationToolChange('draw');
+            return;
+        case 't':
+            openAnnotations();
+            handleAnnotationToolChange('text');
             return;
         case 'r':
             openAnnotations();
