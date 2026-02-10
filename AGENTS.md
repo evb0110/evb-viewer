@@ -8,9 +8,12 @@ These instructions apply to all agents spawned in this project.
 
 CLAUDE.md contains project conventions for TypeScript, Vue, scoped styles, icon bundling, and task completion checks. All agents must adhere to these rules.
 
+- If something in this document or in CLAUDE.md is erroneous, feel free to fix, just don't be too verbose
+
 ## Verification with Electron Puppeteer
 
-**Rule**: Verify all UI-facing changes using the `electron-puppeteer` skill.
+**Rule**: Verify all important UI-facing changes using the `electron-puppeteer` skill.
+Don't verify them piecemeal, only in large batches for speed
 
 The skill is located at `.claude/skills/electron-puppeteer/SKILL.md`. Read it to understand available commands.
 

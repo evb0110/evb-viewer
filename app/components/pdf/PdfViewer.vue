@@ -109,6 +109,7 @@ interface IProps {
     invertColors?: boolean;
     showAnnotations?: boolean;
     annotationTool?: TAnnotationTool;
+    annotationCursorMode?: boolean;
     annotationKeepActive?: boolean;
     annotationSettings?: IAnnotationSettings | null;
     searchPageMatches?: Map<number, IPdfPageMatches>;
@@ -140,6 +141,7 @@ const isResizing = computed(() => props.isResizing ?? false);
 const invertColors = computed(() => props.invertColors ?? false);
 const showAnnotations = computed(() => props.showAnnotations ?? true);
 const annotationTool = computed<TAnnotationTool>(() => props.annotationTool ?? 'none');
+const annotationCursorMode = computed(() => props.annotationCursorMode ?? false);
 const annotationKeepActive = computed(() => props.annotationKeepActive ?? true);
 const annotationSettings = computed<IAnnotationSettings | null>(() => props.annotationSettings ?? null);
 const emptySearchPageMatches = new Map<number, IPdfPageMatches>();
@@ -337,6 +339,7 @@ const DEFAULT_PDFJS_HIGHLIGHT_COLORS = 'yellow=#FFFF98,green=#98FF98,blue=#98C0F
 let annotationCommentsSyncToken = 0;
 const editorRuntimeIds = new WeakMap<IPdfjsEditor, string>();
 let editorRuntimeIdCounter = 0;
+let hasPatchedFreeTextResizable = false;
 let cachedSelectionRange: Range | null = null;
 let cachedSelectionTimestamp = 0;
 const SELECTION_CACHE_TTL_MS = 3000;
@@ -657,6 +660,47 @@ function detectEditorSubtype(editor: IPdfjsEditor) {
         return 'Ink';
     }
     return null;
+}
+
+function ensureFreeTextEditorCanResize(editor: IPdfjsEditor) {
+    if (hasPatchedFreeTextResizable) {
+        return;
+    }
+    if (detectEditorSubtype(editor) !== 'Typewriter') {
+        return;
+    }
+
+    const ctor = (editor as {constructor?: {prototype?: object;};}).constructor;
+    const prototype = ctor?.prototype;
+    if (!prototype) {
+        return;
+    }
+
+    try {
+        Object.defineProperty(prototype, 'isResizable', {
+            configurable: true,
+            get() {
+                return true;
+            },
+        });
+        hasPatchedFreeTextResizable = true;
+    } catch {
+        // Ignore descriptor errors when running against unexpected PDF.js internals.
+    }
+}
+
+function patchResizableFreeTextEditors(uiManager: AnnotationEditorUIManager) {
+    if (hasPatchedFreeTextResizable) {
+        return;
+    }
+    for (let pageIndex = 0; pageIndex < numPages.value; pageIndex += 1) {
+        for (const editor of uiManager.getEditors(pageIndex)) {
+            ensureFreeTextEditorCanResize(editor as IPdfjsEditor);
+            if (hasPatchedFreeTextResizable) {
+                return;
+            }
+        }
+    }
 }
 
 function compareAnnotationComments(a: IAnnotationCommentSummary, b: IAnnotationCommentSummary) {
@@ -1281,7 +1325,9 @@ function getAnnotationMode(tool: TAnnotationTool) {
             return AnnotationEditorType.NONE;
         case 'none':
         default:
-            return AnnotationEditorType.NONE;
+            return annotationCursorMode.value
+                ? AnnotationEditorType.POPUP
+                : AnnotationEditorType.NONE;
     }
 }
 
@@ -1684,6 +1730,7 @@ function applyAnnotationSettings(settings: IAnnotationSettings | null) {
     uiManager.updateParams(AnnotationEditorParamsType.INK_THICKNESS, settings.inkThickness);
     uiManager.updateParams(AnnotationEditorParamsType.FREETEXT_COLOR, settings.textColor);
     uiManager.updateParams(AnnotationEditorParamsType.FREETEXT_SIZE, settings.textSize);
+    patchResizableFreeTextEditors(uiManager);
     syncMarkupSubtypePresentationForEditors();
 }
 
@@ -1739,6 +1786,7 @@ async function setAnnotationTool(tool: TAnnotationTool) {
         // PDF.js can emit mode-state updates that re-sync defaults; re-apply to keep
         // sidebar tool semantics deterministic after rapid mode switches.
         applyHighlightParamsForTool(uiManager, settings, effectiveTool);
+        patchResizableFreeTextEditors(uiManager);
     }).catch((error: unknown) => {
         console.warn('Failed to apply annotation tool update:', error);
     });
@@ -1845,6 +1893,11 @@ function getSelectedShape(): IShapeAnnotation | null {
     }
     const all = shapeComposable.getAllShapes();
     return all.find(s => s.id === id) ?? null;
+}
+
+function updateShape(id: string, updates: Partial<IShapeAnnotation>) {
+    shapeComposable.updateShape(id, updates);
+    emit('annotation-modified');
 }
 
 function toSummaryKey(summary: IAnnotationCommentSummary) {
@@ -3556,6 +3609,7 @@ function initAnnotationEditor() {
         }
         const normalizedEditor = editor as IPdfjsEditor | null;
         if (normalizedEditor) {
+            ensureFreeTextEditorCanResize(normalizedEditor);
             const pageIndex = Number.isFinite(normalizedEditor.parentPageIndex)
                 ? normalizedEditor.parentPageIndex as number
                 : Math.max(0, currentPage.value - 1);
@@ -4830,6 +4884,15 @@ watch(
 );
 
 watch(
+    annotationCursorMode,
+    () => {
+        if (annotationTool.value === 'none') {
+            void setAnnotationTool('none');
+        }
+    },
+);
+
+watch(
     annotationSettings,
     (settings) => {
         applyAnnotationSettings(settings);
@@ -4887,7 +4950,7 @@ defineExpose({
     deleteSelectedShape: shapeComposable.deleteSelectedShape,
     hasShapes: shapeComposable.hasShapes,
     selectedShapeId: shapeComposable.selectedShapeId,
-    updateShape: shapeComposable.updateShape,
+    updateShape,
     getSelectedShape,
     applyStampImage,
 });

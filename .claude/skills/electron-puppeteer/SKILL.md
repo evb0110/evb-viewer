@@ -1,6 +1,6 @@
 ---
 name: electron-puppeteer
-description: Launch and interact with the Electron app using Puppeteer CDP. Use when you need to see the app UI, take screenshots, click buttons, fill forms, read console, or debug the app. Supports persistent sessions for multi-step debugging workflows. Triggers: 'launch the app', 'open the app', 'start the app', 'run the app', 'show me the app', 'take a screenshot', 'screenshot the app', 'what does the app look like', 'check the UI', 'test the app', 'debug the app', 'open a PDF', 'click the button', 'verify the UI', 'see what happened', 'look at the app', 'inspect the app', 'check in the app'.
+description: Launch and interact with the Electron app using Puppeteer CDP. Use when you need to see the app UI, take screenshots, click buttons, fill forms, read console, or debug the app. Supports persistent sessions for multi-step debugging workflows. Multiple named sessions can run concurrently. Triggers: 'launch the app', 'open the app', 'start the app', 'run the app', 'show me the app', 'take a screenshot', 'screenshot the app', 'what does the app look like', 'check the UI', 'test the app', 'debug the app', 'open a PDF', 'click the button', 'verify the UI', 'see what happened', 'look at the app', 'inspect the app'.
 allowed-tools: Bash, Read
 ---
 
@@ -28,10 +28,35 @@ pnpm electron:run health  # Verify openFileDirect: "function"
 pnpm electron:run stop
 ```
 
+## Multi-Session Support
+
+Multiple sessions can run concurrently using `--session <name>` (or `-s <name>`). Each session gets its own Electron instance, CDP port, and HTTP command server. The Nuxt dev server is shared.
+
+```bash
+# Session A (e.g., agent 1)
+pnpm electron:run -s a startd
+pnpm electron:run -s a screenshot "test1"
+pnpm electron:run -s a openPdf "/path/to/doc.pdf"
+
+# Session B (e.g., agent 2) — runs in parallel, no conflicts
+pnpm electron:run -s b startd
+pnpm electron:run -s b screenshot "test2"
+pnpm electron:run -s b openPdf "/path/to/other.pdf"
+
+# List all sessions
+pnpm electron:run list
+
+# Stop individual or all
+pnpm electron:run -s a stop
+pnpm electron:run stop --all
+```
+
+Without `--session`, the default session name is `"default"`.
+
 The `start` command automatically:
-- Kills any existing Nuxt server
-- Clears Vite cache (fixes 504 Outdated Optimize Dep errors)
-- Uses a fresh Electron profile (disables HTTP cache)
+- Starts the shared Nuxt dev server if not already running (skips restart if other sessions are active)
+- Uses a fresh Electron profile per session
+- Allocates free ports dynamically (no fixed ports to conflict)
 - Waits for Vue to hydrate (auto-reloads if needed)
 
 ## Commands
@@ -41,11 +66,12 @@ The `start` command automatically:
 | `start` | Start session (clears cache, fresh Nuxt, waits for hydration) |
 | `startd` | Start session in background and return when ready |
 | `cleanstart` | Alias for `start` |
-| `stop` | Stop running session |
+| `stop` | Stop running session (add `--all` to stop every session) |
 | `restart` | Stop and cleanstart (for recovery) |
 | `status` | Check session health (shows connection status) |
+| `list` | List all sessions and their status |
 | `health` | Check app health (verify `openFileDirect: "function"`) |
-| `screenshot [name]` | Take screenshot → `.devkit/screenshots/<name>.png` |
+| `screenshot [name]` | Take screenshot → `.devkit/sessions/<session>/screenshots/<name>.png` |
 | `console [level]` | Get console messages (all\|log\|warn\|error) |
 | `run <code>` | Run Puppeteer code (supports `sleep(ms)`/`wait(ms)`) |
 | `run-file <path>` | Run Puppeteer code from a JS file |
@@ -57,13 +83,13 @@ The `start` command automatically:
 
 ## What `start` Does Automatically
 
-1. **Kills existing Nuxt** - Prevents stale server reuse
-2. **Clears Vite cache** - Removes `node_modules/.vite` and `.nuxt`
-   - Also clears `node_modules/.cache/vite` (Vite 7+ default)
-3. **Starts fresh Nuxt** - Rebuilds all dependencies
-4. **Starts Electron with a clean profile** - Clears `.devkit/electron-user-data`
-5. **Waits for Vue hydration** - Checks for `#__nuxt` children
-6. **Auto-reloads if needed** - Fixes timing issues on cold starts
+1. **Checks for other sessions** - If other sessions are running, skips Nuxt restart
+2. **Starts Nuxt if needed** - Kills and rebuilds only when safe to do so
+3. **Clears Vite cache** - Removes `node_modules/.vite` and `.nuxt` (only when no other sessions running)
+4. **Allocates free ports** - Each session gets unique CDP and HTTP ports
+5. **Starts Electron with a clean profile** - Per-session `.devkit/sessions/<name>/electron-user-data`
+6. **Waits for Vue hydration** - Checks for `#__nuxt` children
+7. **Auto-reloads if needed** - Fixes timing issues on cold starts
 
 ## Reliability Features
 
@@ -77,6 +103,7 @@ The session automatically handles:
 - **`openPdf` hangs** → Non-blocking trigger + readiness polling with explicit failure reason
 - **`openPdf` false-positive success** → Command now validates the loaded file name matches the requested path
 - **Long `run`/`eval` snippets** → Extended command execution timeout to reduce false failures
+- **Multi-session safety** → Stopping one session leaves others (and shared Nuxt) intact
 
 ## Verifying the Session is Working
 
@@ -84,13 +111,15 @@ After `cleanstart`, check that the app loaded properly:
 
 ```bash
 pnpm electron:run health
+# Or for a named session:
+pnpm electron:run -s mytest health
 ```
 
 **Good output** (app ready):
 ```json
 {
   "health": {
-    "openFileDirect": "function",  // ✓ Must be "function"
+    "openFileDirect": "function",
     "electronAPI": "object"
   }
 }
@@ -100,7 +129,7 @@ pnpm electron:run health
 ```json
 {
   "health": {
-    "openFileDirect": "undefined",  // ✗ Problem - use restart
+    "openFileDirect": "undefined",
   }
 }
 ```
@@ -152,12 +181,20 @@ pnpm electron:run openPdf "/absolute/path/to/document.pdf"
 
 ## Screenshots
 
-Screenshots saved to `.devkit/screenshots/<name>.png`
+Screenshots saved to `.devkit/sessions/<session>/screenshots/<name>.png`
 
 View with the Read tool:
 ```bash
-Read .devkit/screenshots/initial.png
+Read .devkit/sessions/default/screenshots/initial.png
 ```
+
+## Session Files
+
+Each session stores its state under `.devkit/sessions/<name>/`:
+- `session.json` — port, PID, and connection info
+- `session.log` — log output for detached sessions
+- `electron-user-data/` — isolated Electron profile
+- `screenshots/` — screenshots for this session
 
 ## Troubleshooting
 
@@ -170,13 +207,14 @@ Read .devkit/screenshots/initial.png
 | Status shows "DISCONNECTED" | Run `restart` |
 | `openPdf` says timeout with `(loaded: <path>)` | Current doc likely wasn't switched (often unsaved changes); save/close current doc first, then retry |
 | Complex `run` snippet fails from shell escaping | Put code in a file and use `run-file` |
+| Port conflict | Sessions auto-allocate free ports, so this shouldn't happen. Use `list` to check |
 
 **Nuclear option** (if all else fails):
 ```bash
-pnpm electron:run stop
+pnpm electron:run stop --all
 pkill -f "node.*nuxt"
 pkill -f "Electron"
-rm -rf .nuxt node_modules/.vite
+rm -rf .nuxt node_modules/.vite .devkit/sessions
 pnpm electron:run cleanstart &
 ```
 

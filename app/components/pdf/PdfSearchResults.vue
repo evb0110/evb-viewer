@@ -51,6 +51,7 @@
                 :key="index"
                 :result="result"
                 :is-active="index === currentResultIndex"
+                :page-labels="pageLabels"
                 @click="$emit('goToResult', index)"
             />
         </div>
@@ -66,6 +67,7 @@ interface IProps {
     results: IPdfSearchMatch[];
     currentResultIndex: number;
     searchQuery: string;
+    pageLabels?: string[] | null;
     isSearching?: boolean;
     searchProgress?: {
         processed: number;

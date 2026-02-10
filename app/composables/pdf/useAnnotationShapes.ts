@@ -148,6 +148,7 @@ export const useAnnotationShapes = () => {
         y: number,
         settings: IAnnotationSettings,
     ) {
+        selectedShapeId.value = null;
         drawOrigin = {
             x,
             y, 
@@ -223,6 +224,7 @@ export const useAnnotationShapes = () => {
         }
 
         addShape(shape);
+        selectedShapeId.value = shape.id;
         return shape;
     }
 

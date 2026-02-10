@@ -4,7 +4,7 @@
         :class="{ 'is-active': isActive }"
     >
         <div class="pdf-search-result-meta">
-            <span class="pdf-search-result-page">Page {{ result.pageIndex + 1 }}</span>
+            <span class="pdf-search-result-page">Page {{ pageIndicator }}</span>
             <span class="pdf-search-result-match">Match {{ result.matchIndex + 1 }}</span>
         </div>
         <div
@@ -36,10 +36,12 @@ import {
     registerSearchHighlight,
     unregisterSearchHighlight,
 } from '@app/composables/useSearchHighlight';
+import { formatPageIndicator } from '@app/utils/pdf-page-labels';
 
 interface IProps {
     result: IPdfSearchMatch;
     isActive: boolean;
+    pageLabels?: string[] | null;
 }
 
 const props = defineProps<IProps>();
@@ -56,6 +58,7 @@ const fullText = computed(() => {
 
 const matchStart = computed(() => props.result.excerpt?.before.length ?? 0);
 const matchEnd = computed(() => matchStart.value + (props.result.excerpt?.match.length ?? 0));
+const pageIndicator = computed(() => formatPageIndicator(props.result.pageIndex + 1, props.pageLabels ?? null));
 
 function applyHighlight() {
     if (!textRef.value || typeof CSS === 'undefined' || !CSS.highlights) {

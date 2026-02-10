@@ -158,9 +158,6 @@
                 >
                     <span class="page-chip-label">Page {{ item.pageNumber }}</span>
                     <span class="page-chip-count">• {{ item.noteCount }} note{{ item.noteCount === 1 ? '' : 's' }}</span>
-                    <span v-if="item.annotationCount > item.noteCount" class="page-chip-meta">
-                        • {{ item.annotationCount - item.noteCount }} other
-                    </span>
                 </button>
             </div>
         </section>
@@ -193,20 +190,6 @@
                         placeholder="Search notes, author, page..."
                     />
 
-                    <div class="filter-row">
-                        <button
-                            v-for="option in filterOptions"
-                            :key="option.id"
-                            type="button"
-                            class="filter-button"
-                            :class="{ 'is-active': activeFilter === option.id }"
-                            @click="activeFilter = option.id"
-                        >
-                            <span>{{ option.label }}</span>
-                            <span class="filter-count">{{ option.count }}</span>
-                        </button>
-                    </div>
-
                     <div class="notes-list app-scrollbar" @click.self="selectedStableKey = null">
                         <button
                             v-for="comment in filteredComments"
@@ -221,7 +204,6 @@
                             <span class="note-item-top">
                                 <span class="note-item-page">P{{ comment.pageNumber }}</span>
                                 <span class="note-item-type">{{ commentTypeLabel(comment) }}</span>
-                                <span v-if="isTextNoteComment(comment)" class="note-item-sticky">Note</span>
                             </span>
                             <span class="note-item-text">{{ notePreview(comment) }}</span>
                             <span class="note-item-meta">
@@ -231,7 +213,7 @@
                         </button>
 
                         <p v-if="filteredComments.length === 0" class="notes-empty">
-                            No annotations match this filter.
+                            No notes found.
                         </p>
                     </div>
 
@@ -321,14 +303,7 @@ interface IProps {
     placingPageNote?: boolean;
 }
 
-type TListFilter = 'all' | 'notes' | 'markup' | 'draw' | 'shape' | 'current-page';
 type TDrawStyle = 'pen' | 'pencil' | 'marker';
-
-interface IFilterOption {
-    id: TListFilter;
-    label: string;
-    count: number;
-}
 
 interface IToolItem {
     id: TAnnotationTool;
@@ -347,7 +322,6 @@ interface IWidthControl {
 
 interface IPageAnnotationOverview {
     pageNumber: number;
-    annotationCount: number;
     noteCount: number;
 }
 
@@ -472,7 +446,6 @@ const drawStylePresets: IDrawStylePreset[] = [
 ];
 
 const query = ref('');
-const activeFilter = ref<TListFilter>('notes');
 const selectedStableKey = ref<string | null>(null);
 
 const tool = computed(() => props.tool);
@@ -525,7 +498,10 @@ watch(
         if (!selectedStableKey.value) {
             return;
         }
-        const stillExists = comments.some(comment => comment.stableKey === selectedStableKey.value);
+        const stillExists = comments.some(comment => (
+            comment.stableKey === selectedStableKey.value
+            && isTextNoteComment(comment)
+        ));
         if (!stillExists) {
             selectedStableKey.value = null;
         }
@@ -546,50 +522,6 @@ function isShapeTool(tool: TAnnotationTool) {
 
 function containsWord(text: string, word: string) {
     return new RegExp(`\\b${word}\\b`, 'i').test(text);
-}
-
-function isMarkupComment(comment: IAnnotationCommentSummary) {
-    const subtype = (comment.subtype ?? '').toLowerCase();
-    const label = (comment.kindLabel ?? '').toLowerCase();
-
-    return (
-        subtype.includes('highlight')
-        || subtype.includes('underline')
-        || subtype.includes('strike')
-        || subtype.includes('squiggly')
-        || label.includes('highlight')
-        || label.includes('underline')
-        || label.includes('strike')
-        || label.includes('markup')
-    );
-}
-
-function isDrawComment(comment: IAnnotationCommentSummary) {
-    const subtype = (comment.subtype ?? '').toLowerCase();
-    const label = (comment.kindLabel ?? '').toLowerCase();
-
-    return subtype.includes('ink') || containsWord(label, 'ink') || containsWord(label, 'draw');
-}
-
-function isShapeComment(comment: IAnnotationCommentSummary) {
-    if (isDrawComment(comment)) {
-        return false;
-    }
-
-    const subtype = (comment.subtype ?? '').toLowerCase();
-    const label = (comment.kindLabel ?? '').toLowerCase().trim();
-
-    return (
-        subtype.includes('square')
-        || subtype.includes('circle')
-        || subtype.includes('line')
-        || subtype.includes('arrow')
-        || label === 'rectangle'
-        || label === 'ellipse'
-        || label === 'line'
-        || label === 'arrow'
-        || label === 'circle'
-    );
 }
 
 function isTextNoteComment(comment: IAnnotationCommentSummary) {
@@ -640,6 +572,7 @@ function compareComments(left: IAnnotationCommentSummary, right: IAnnotationComm
 }
 
 const sortedComments = computed(() => props.comments.slice().sort(compareComments));
+const noteComments = computed(() => sortedComments.value.filter(isTextNoteComment));
 
 function matchesQuery(comment: IAnnotationCommentSummary, normalizedQuery: string) {
     if (!normalizedQuery) {
@@ -654,112 +587,34 @@ function matchesQuery(comment: IAnnotationCommentSummary, normalizedQuery: strin
     );
 }
 
-function matchesFilter(comment: IAnnotationCommentSummary, filter: TListFilter) {
-    if (filter === 'all') {
-        return true;
-    }
-
-    if (filter === 'notes') {
-        return isTextNoteComment(comment);
-    }
-
-    if (filter === 'current-page') {
-        return comment.pageNumber === props.currentPage;
-    }
-
-    if (filter === 'markup') {
-        return isMarkupComment(comment);
-    }
-
-    if (filter === 'draw') {
-        return isDrawComment(comment);
-    }
-
-    if (filter === 'shape') {
-        return isShapeComment(comment);
-    }
-
-    return false;
-}
-
 const filteredComments = computed(() => {
     const normalizedQuery = query.value.trim().toLowerCase();
-
-    return sortedComments.value.filter((comment) => {
-        return matchesQuery(comment, normalizedQuery) && matchesFilter(comment, activeFilter.value);
-    });
-});
-
-const filterOptions = computed<IFilterOption[]>(() => {
-    const normalizedQuery = query.value.trim().toLowerCase();
-    const source = sortedComments.value.filter(comment => matchesQuery(comment, normalizedQuery));
-
-    const countBy = (filter: TListFilter) => source.filter(comment => matchesFilter(comment, filter)).length;
-
-    return [
-        {
-            id: 'all',
-            label: 'All',
-            count: source.length,
-        },
-        {
-            id: 'notes',
-            label: 'Notes',
-            count: countBy('notes'),
-        },
-        {
-            id: 'markup',
-            label: 'Markup',
-            count: countBy('markup'),
-        },
-        {
-            id: 'draw',
-            label: 'Draw',
-            count: countBy('draw'),
-        },
-        {
-            id: 'shape',
-            label: 'Shapes',
-            count: countBy('shape'),
-        },
-        {
-            id: 'current-page',
-            label: 'Current Page',
-            count: countBy('current-page'),
-        },
-    ];
+    return noteComments.value.filter(comment => matchesQuery(comment, normalizedQuery));
 });
 
 const pagesWithNotes = computed<IPageAnnotationOverview[]>(() => {
     const map = new Map<number, IPageAnnotationOverview>();
 
-    sortedComments.value.forEach((comment) => {
+    noteComments.value.forEach((comment) => {
         const current = map.get(comment.pageNumber);
         if (current) {
-            current.annotationCount += 1;
-            if (isTextNoteComment(comment)) {
-                current.noteCount += 1;
-            }
+            current.noteCount += 1;
             return;
         }
 
         map.set(comment.pageNumber, {
             pageNumber: comment.pageNumber,
-            annotationCount: 1,
-            noteCount: isTextNoteComment(comment) ? 1 : 0,
+            noteCount: 1,
         });
     });
 
     return Array
         .from(map.values())
-        .filter(item => item.noteCount > 0)
         .sort((left, right) => left.pageNumber - right.pageNumber);
 });
 
 function focusFirstCommentOnPage(pageNumber: number) {
-    const comment = sortedComments.value.find(item => (
-        item.pageNumber === pageNumber && isTextNoteComment(item)
-    )) ?? sortedComments.value.find(item => item.pageNumber === pageNumber);
+    const comment = noteComments.value.find(item => item.pageNumber === pageNumber);
     if (!comment) {
         return;
     }
@@ -810,9 +665,7 @@ function commentTypeLabel(comment: IAnnotationCommentSummary) {
 function notePreview(comment: IAnnotationCommentSummary) {
     const text = comment.text.trim();
     if (!text) {
-        return isTextNoteComment(comment)
-            ? 'Empty note'
-            : 'No note text';
+        return 'Empty note';
     }
 
     return text;
@@ -839,7 +692,7 @@ const selectedComment = computed(() => {
     if (!selectedStableKey.value) {
         return null;
     }
-    return sortedComments.value.find(comment => comment.stableKey === selectedStableKey.value) ?? null;
+    return noteComments.value.find(comment => comment.stableKey === selectedStableKey.value) ?? null;
 });
 
 const canCopySelectedComment = computed(() => {
@@ -1309,10 +1162,6 @@ function applyDrawStyle(style: TDrawStyle) {
     color: var(--ui-text-toned);
 }
 
-.page-chip-meta {
-    color: color-mix(in srgb, var(--ui-primary) 70%, var(--ui-text-toned) 30%);
-}
-
 .notes-list-header {
     flex-direction: row;
     align-items: baseline;
@@ -1368,36 +1217,6 @@ function applyDrawStyle(style: TDrawStyle) {
     padding: 0.45rem 0.55rem;
 }
 
-.filter-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.3rem;
-}
-
-.filter-button {
-    border: 1px solid var(--ui-border);
-    border-radius: 999px;
-    background: var(--ui-bg);
-    color: var(--ui-text-muted);
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    font-size: 0.72rem;
-    font-weight: 600;
-    padding: 0.2rem 0.5rem;
-    cursor: pointer;
-}
-
-.filter-button.is-active {
-    border-color: color-mix(in srgb, var(--ui-primary) 70%, var(--ui-border) 30%);
-    color: var(--ui-text-highlighted);
-    background: color-mix(in srgb, var(--ui-primary) 14%, var(--ui-bg) 86%);
-}
-
-.filter-count {
-    color: var(--ui-text-toned);
-}
-
 .notes-list {
     max-height: 20rem;
     min-height: 7rem;
@@ -1441,14 +1260,6 @@ function applyDrawStyle(style: TDrawStyle) {
 
 .note-item-type {
     color: var(--ui-text-muted);
-}
-
-.note-item-sticky {
-    border: 1px solid color-mix(in srgb, var(--ui-primary) 55%, var(--ui-border) 45%);
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--ui-primary) 16%, var(--ui-bg) 84%);
-    color: var(--ui-text-highlighted);
-    padding: 0.05rem 0.4rem;
 }
 
 .note-item-text {
