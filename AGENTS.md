@@ -36,6 +36,9 @@ The skill is located at `.claude/skills/electron-puppeteer/SKILL.md`. Read it to
 **If any of the scripts doesn't work:**
 - Follow the same flow as for non-working skill: investigate and fix the issue
 
+## Branching ##
+NB! Never create branches or switch to branches unless explicitly asked by user or if it's done by your harness
+
 ## Commit and Push Workflow
 
 **Rule**: Commit and push after every major verified change.
