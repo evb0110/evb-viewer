@@ -4288,6 +4288,31 @@ function handleAnnotationEditorDblClick(event: MouseEvent) {
     }
 }
 
+function resolveCommentFromIndicatorClickTarget(target: HTMLElement, clientX: number, clientY: number) {
+    const customIndicator = target.closest<HTMLElement>('.pdf-inline-comment-anchor-marker, .pdf-inline-comment-marker');
+    if (customIndicator) {
+        const inlineTarget = customIndicator.closest<HTMLElement>('.pdf-annotation-has-note-target, .pdf-annotation-has-comment');
+        return (
+            resolveCommentFromIndicatorElement(customIndicator)
+            ?? (inlineTarget ? findCommentFromInlineTarget(inlineTarget) : null)
+            ?? findAnnotationSummaryFromTarget(customIndicator)
+            ?? findAnnotationSummaryFromPoint(customIndicator, clientX, clientY)
+        );
+    }
+
+    // PDF.js renders built-in popup triggers for some annotations; clicking those
+    // should behave like clicking our custom note icon and open the note.
+    const popupTrigger = target.closest<HTMLElement>('.annotationLayer .popupTriggerArea, .annotation-layer .popupTriggerArea');
+    if (popupTrigger) {
+        return (
+            findAnnotationSummaryFromTarget(popupTrigger)
+            ?? findAnnotationSummaryFromPoint(popupTrigger, clientX, clientY)
+        );
+    }
+
+    return null;
+}
+
 function handleAnnotationCommentClick(event: MouseEvent) {
     if (!(event.target instanceof HTMLElement)) {
         return;
@@ -4298,15 +4323,12 @@ function handleAnnotationCommentClick(event: MouseEvent) {
         return;
     }
 
-    const indicator = event.target.closest<HTMLElement>('.pdf-inline-comment-anchor-marker, .pdf-inline-comment-marker');
-    if (indicator) {
-        const summary = resolveCommentFromIndicatorElement(indicator);
-        if (summary) {
-            setActiveCommentStableKey(summary.stableKey);
-            pulseCommentIndicator(summary.stableKey);
-            emit('annotation-open-note', summary);
-            return;
-        }
+    const indicatorSummary = resolveCommentFromIndicatorClickTarget(event.target, event.clientX, event.clientY);
+    if (indicatorSummary) {
+        setActiveCommentStableKey(indicatorSummary.stableKey);
+        pulseCommentIndicator(indicatorSummary.stableKey);
+        emit('annotation-open-note', indicatorSummary);
+        return;
     }
 
     if (annotationTool.value !== 'none') {
