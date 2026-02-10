@@ -51,8 +51,10 @@
                 v-show="activeTab === 'bookmarks'"
                 :pdf-document="pdfDocument"
                 :current-page="currentPage"
+                :is-edit-mode="bookmarkEditMode"
                 @go-to-page="$emit('goToPage', $event)"
                 @bookmarks-change="emit('bookmarks-change', $event)"
+                @update:is-edit-mode="emit('update:bookmark-edit-mode', $event)"
             />
             <div
                 v-show="activeTab === 'search'"
@@ -131,6 +133,7 @@ interface IProps {
     annotationComments: IAnnotationCommentSummary[];
     annotationActiveCommentStableKey?: string | null;
     annotationPlacingPageNote?: boolean;
+    bookmarkEditMode: boolean;
 }
 
 const props = defineProps<IProps>();
@@ -150,6 +153,7 @@ const emit = defineEmits<{
     (e: 'update:searchQuery', value: string): void;
     (e: 'update:annotation-tool', value: TAnnotationTool): void;
     (e: 'update:annotation-keep-active', value: boolean): void;
+    (e: 'update:bookmark-edit-mode', value: boolean): void;
     (e: 'search'): void;
     (e: 'next'): void;
     (e: 'previous'): void;

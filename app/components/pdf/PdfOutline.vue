@@ -37,19 +37,6 @@
                         class="size-4"
                     />
                 </button>
-                <button
-                    type="button"
-                    class="pdf-bookmarks-edit-toggle"
-                    :class="{ 'is-active': isEditMode }"
-                    :title="isEditMode ? 'Exit bookmark edit mode' : 'Enter bookmark edit mode'"
-                    :aria-label="isEditMode ? 'Exit bookmark edit mode' : 'Enter bookmark edit mode'"
-                    @click="isEditMode = !isEditMode"
-                >
-                    <UIcon
-                        :name="isEditMode ? 'i-lucide-square-pen' : 'i-lucide-pencil'"
-                        class="size-4"
-                    />
-                </button>
             </div>
         </div>
 
@@ -303,6 +290,7 @@ interface IBookmarkDropPayload {
 interface IProps {
     pdfDocument: PDFDocumentProxy | null;
     currentPage: number;
+    isEditMode: boolean;
 }
 
 const props = defineProps<IProps>();
@@ -313,6 +301,7 @@ const emit = defineEmits<{
         bookmarks: IPdfBookmarkEntry[];
         dirty: boolean;
     }): void;
+    (e: 'update:isEditMode', value: boolean): void;
 }>();
 
 const bookmarkColorPresets = [
@@ -328,7 +317,6 @@ const bookmarks = ref<IBookmarkItem[]>([]);
 const isLoading = ref(false);
 const activeItemId = ref<string | null>(null);
 const editingItemId = ref<string | null>(null);
-const isEditMode = ref(false);
 const displayMode = ref<TBookmarkDisplayMode>('current-expanded');
 const expandedBookmarkIds = ref<Set<string>>(new Set());
 const styleRangeStartId = ref<string | null>(null);
@@ -344,6 +332,11 @@ const bookmarkContextMenu = ref<{
     x: 0,
     y: 0,
     itemId: null,
+});
+
+const isEditMode = computed({
+    get: () => props.isEditMode,
+    set: (value: boolean) => emit('update:isEditMode', value),
 });
 
 const displayModeOptions = [
@@ -1300,8 +1293,7 @@ onBeforeUnmount(() => {
 }
 
 .pdf-bookmarks-view-mode-button,
-.pdf-bookmarks-icon-button,
-.pdf-bookmarks-edit-toggle {
+.pdf-bookmarks-icon-button {
     border: 1px solid var(--ui-border);
     border-radius: 6px;
     background: var(--ui-bg);
@@ -1315,14 +1307,12 @@ onBeforeUnmount(() => {
 }
 
 .pdf-bookmarks-view-mode-button:hover,
-.pdf-bookmarks-icon-button:hover,
-.pdf-bookmarks-edit-toggle:hover {
+.pdf-bookmarks-icon-button:hover {
     background: var(--ui-bg-muted);
     color: var(--ui-text-highlighted);
 }
 
-.pdf-bookmarks-view-mode-button.is-active,
-.pdf-bookmarks-edit-toggle.is-active {
+.pdf-bookmarks-view-mode-button.is-active {
     border-color: color-mix(in srgb, var(--ui-primary) 45%, var(--ui-border) 55%);
     color: var(--ui-primary);
     background: color-mix(in srgb, var(--ui-primary) 8%, var(--ui-bg) 92%);
@@ -1475,3 +1465,7 @@ onBeforeUnmount(() => {
     }
 }
 </style>
+const isEditMode = computed({
+    get: () => props.isEditMode,
+    set: (value: boolean) => emit('update:isEditMode', value),
+});

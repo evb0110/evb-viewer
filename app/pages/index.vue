@@ -102,6 +102,16 @@
                             @click="openAnnotations(); closeAllDropdowns()"
                         />
                     </UTooltip>
+                    <UTooltip text="Edit Bookmarks" :delay-duration="1200">
+                        <UButton
+                            icon="i-lucide-square-pen"
+                            :variant="isBookmarksEditOpen ? 'soft' : 'ghost'"
+                            :color="isBookmarksEditOpen ? 'primary' : 'neutral'"
+                            class="toolbar-icon-button"
+                            aria-label="Edit bookmarks"
+                            @click="toggleBookmarkEditMode(); closeAllDropdowns()"
+                        />
+                    </UTooltip>
 
                     <div v-if="pdfSrc" class="toolbar-button-group">
                         <div class="toolbar-group-item">
@@ -361,6 +371,7 @@
                     :annotation-comments="annotationComments"
                     :annotation-active-comment-stable-key="annotationActiveCommentStableKey"
                     :annotation-placing-page-note="annotationPlacingPageNote"
+                    :bookmark-edit-mode="bookmarkEditMode"
                     @search="handleSearch"
                     @next="handleSearchNext"
                     @previous="handleSearchPrevious"
@@ -376,6 +387,7 @@
                     @annotation-copy-comment="handleCopyAnnotationComment"
                     @annotation-delete-comment="handleDeleteAnnotationComment"
                     @bookmarks-change="handleBookmarksChange"
+                    @update:bookmark-edit-mode="bookmarkEditMode = $event"
                 />
                 <div
                     class="sidebar-resizer"
@@ -1141,6 +1153,7 @@ const annotationEditorState = ref<IAnnotationEditorState>({
 });
 const showSidebar = ref(false);
 const sidebarTab = ref<TPdfSidebarTab>('thumbnails');
+const bookmarkEditMode = ref(false);
 const isSaving = ref(false);
 const isSavingAs = ref(false);
 const isHistoryBusy = ref(false);
@@ -1157,6 +1170,11 @@ const isAnnotationUndoContext = computed(() =>
     || annotationEditorState.value.hasSomethingToRedo,
 );
 const isAnnotationPanelOpen = computed(() => showSidebar.value && sidebarTab.value === 'annotations');
+const isBookmarksEditOpen = computed(() => (
+    showSidebar.value
+    && sidebarTab.value === 'bookmarks'
+    && bookmarkEditMode.value
+));
 const annotationCursorMode = computed(() => isAnnotationPanelOpen.value && !dragMode.value);
 const canUndo = computed(() => (
     isAnnotationUndoContext.value
@@ -1369,6 +1387,21 @@ watch(showSidebar, (isOpen) => {
     stopSidebarResize();
 });
 
+watch(
+    () => [
+        showSidebar.value,
+        sidebarTab.value,
+    ] as const,
+    ([
+        isOpen,
+        tab,
+    ]) => {
+        if (!isOpen || tab !== 'bookmarks') {
+            bookmarkEditMode.value = false;
+        }
+    },
+);
+
 watch(dragMode, (enabled) => {
     if (enabled) {
         window.getSelection()?.removeAllRanges();
@@ -1576,6 +1609,17 @@ function openAnnotations() {
     showSidebar.value = true;
     sidebarTab.value = 'annotations';
     dragMode.value = false;
+}
+
+function toggleBookmarkEditMode() {
+    if (!(showSidebar.value && sidebarTab.value === 'bookmarks')) {
+        showSidebar.value = true;
+        sidebarTab.value = 'bookmarks';
+        bookmarkEditMode.value = true;
+        return;
+    }
+
+    bookmarkEditMode.value = !bookmarkEditMode.value;
 }
 
 function closeSearch() {
@@ -3346,6 +3390,7 @@ watch(pdfSrc, (newSrc, oldSrc) => {
         annotationComments.value = [];
         bookmarkItems.value = [];
         bookmarksDirty.value = false;
+        bookmarkEditMode.value = false;
         closeAnnotationContextMenu();
         void closeAllAnnotationNotes({ saveIfDirty: false });
     }
@@ -3360,6 +3405,7 @@ watch(pdfSrc, (newSrc, oldSrc) => {
         pageLabelsDirty.value = false;
         bookmarkItems.value = [];
         bookmarksDirty.value = false;
+        bookmarkEditMode.value = false;
         pdfViewerRef.value?.clearShapes();
         closeAnnotationContextMenu();
         void closeAllAnnotationNotes({ saveIfDirty: false });
