@@ -533,9 +533,9 @@ function handleGlobalPointerDown(event: PointerEvent) {
         return;
     }
 
-    const button = pageDisplayButtonRef.value;
-    if (button && document.activeElement === button) {
-        button.blur();
+    const activeElement = document.activeElement as HTMLElement | null;
+    if (activeElement?.closest('.page-controls')) {
+        activeElement.blur();
     }
 }
 

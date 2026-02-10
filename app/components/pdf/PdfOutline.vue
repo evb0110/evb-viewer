@@ -13,29 +13,44 @@
                     class="pdf-bookmarks-view-mode-button"
                     :class="{ 'is-active': displayMode === option.id }"
                     :title="option.title"
+                    :aria-label="option.title"
                     @click="setDisplayMode(option.id)"
                 >
                     <UIcon
                         :name="option.icon"
                         class="size-4"
                     />
-                    <span>{{ option.label }}</span>
                 </button>
             </div>
 
-            <button
-                type="button"
-                class="pdf-bookmarks-edit-toggle"
-                :class="{ 'is-active': isEditMode }"
-                :title="isEditMode ? 'Exit bookmark edit mode' : 'Enter bookmark edit mode'"
-                @click="isEditMode = !isEditMode"
-            >
-                <UIcon
-                    name="i-lucide-pen-tool"
-                    class="size-4"
-                />
-                <span>{{ isEditMode ? 'Editing' : 'Edit' }}</span>
-            </button>
+            <div class="pdf-bookmarks-toolbar-actions">
+                <button
+                    v-if="isEditMode"
+                    type="button"
+                    class="pdf-bookmarks-icon-button"
+                    title="Add top-level bookmark"
+                    aria-label="Add top-level bookmark"
+                    @click="addRootBookmark"
+                >
+                    <UIcon
+                        name="i-lucide-plus"
+                        class="size-4"
+                    />
+                </button>
+                <button
+                    type="button"
+                    class="pdf-bookmarks-edit-toggle"
+                    :class="{ 'is-active': isEditMode }"
+                    :title="isEditMode ? 'Exit bookmark edit mode' : 'Enter bookmark edit mode'"
+                    :aria-label="isEditMode ? 'Exit bookmark edit mode' : 'Enter bookmark edit mode'"
+                    @click="isEditMode = !isEditMode"
+                >
+                    <UIcon
+                        :name="isEditMode ? 'i-lucide-square-pen' : 'i-lucide-pencil'"
+                        class="size-4"
+                    />
+                </button>
+            </div>
         </div>
 
         <div
@@ -85,12 +100,19 @@
                 :expanded-bookmark-ids="expandedBookmarkIds"
                 :active-path-bookmark-ids="activePathBookmarkIds"
                 :is-edit-mode="isEditMode"
+                :dragging-item-id="draggingBookmarkId"
+                :drop-target="bookmarkDropTarget"
+                :style-range-start-id="styleRangeStartId"
                 @go-to-page="$emit('goToPage', $event)"
                 @activate="handleActivate"
                 @toggle-expand="toggleExpanded"
                 @open-actions="openBookmarkContextMenu"
                 @save-edit="renameBookmark"
                 @cancel-edit="cancelEditingBookmark"
+                @drag-start="handleBookmarkDragStart"
+                @drag-hover="handleBookmarkDragHover"
+                @drop-bookmark="handleBookmarkDrop"
+                @drag-end="handleBookmarkDragEnd"
             />
         </div>
 
@@ -129,6 +151,69 @@
                 Add child
             </button>
             <div class="bookmarks-context-menu-divider" />
+
+            <div class="bookmarks-context-menu-style-block">
+                <div class="bookmarks-context-menu-style-row">
+                    <button
+                        type="button"
+                        class="bookmarks-style-toggle"
+                        :class="{ 'is-active': selectedContextBookmark.bold }"
+                        title="Toggle bold"
+                        @click="toggleBookmarkBold(selectedContextBookmark.id)"
+                    >
+                        B
+                    </button>
+                    <button
+                        type="button"
+                        class="bookmarks-style-toggle"
+                        :class="{ 'is-active': selectedContextBookmark.italic }"
+                        title="Toggle italic"
+                        @click="toggleBookmarkItalic(selectedContextBookmark.id)"
+                    >
+                        I
+                    </button>
+                    <button
+                        type="button"
+                        class="bookmarks-style-toggle"
+                        :class="{ 'is-active': !selectedContextBookmark.color }"
+                        title="Use default text color"
+                        @click="setBookmarkColor(selectedContextBookmark.id, null)"
+                    >
+                        A
+                    </button>
+                </div>
+                <div class="bookmarks-context-menu-color-row">
+                    <button
+                        v-for="preset in bookmarkColorPresets"
+                        :key="preset"
+                        type="button"
+                        class="bookmarks-color-swatch"
+                        :class="{ 'is-active': selectedContextBookmark.color === preset }"
+                        :style="{ background: preset }"
+                        :title="`Set color ${preset}`"
+                        @click="setBookmarkColor(selectedContextBookmark.id, preset)"
+                    />
+                </div>
+            </div>
+
+            <div class="bookmarks-context-menu-divider" />
+            <button
+                type="button"
+                class="bookmarks-context-menu-action"
+                @click="setStyleRangeStart(selectedContextBookmark.id)"
+            >
+                {{ selectedContextBookmark.id === styleRangeStartId ? 'Range start set' : 'Set style range start' }}
+            </button>
+            <button
+                type="button"
+                class="bookmarks-context-menu-action"
+                :disabled="!canApplyStyleRange"
+                @click="applyContextStyleToRange"
+            >
+                {{ applyStyleRangeLabel }}
+            </button>
+
+            <div class="bookmarks-context-menu-divider" />
             <button
                 type="button"
                 class="bookmarks-context-menu-action is-danger"
@@ -157,15 +242,26 @@ interface IRefProxy {
     gen: number;
 }
 
+type TBookmarkDisplayMode = 'top-level' | 'all-expanded' | 'current-expanded';
+type TBookmarkDropPosition = 'before' | 'after' | 'child';
+
 interface IOutlineItemRaw {
     title: string;
     dest: string | unknown[] | null;
+    bold?: boolean;
+    italic?: boolean;
+    color?: ArrayLike<number> | null;
     items?: IOutlineItemRaw[];
 }
 
-interface IBookmarkItem extends Omit<IOutlineItemRaw, 'items'> {
+interface IBookmarkItem {
+    title: string;
+    dest: string | unknown[] | null;
     id: string;
     pageIndex: number | null;
+    bold: boolean;
+    italic: boolean;
+    color: string | null;
     items: IBookmarkItem[];
 }
 
@@ -182,13 +278,26 @@ interface IBookmarkMenuPayload {
     y: number;
 }
 
-type TBookmarkDisplayMode = 'top-level' | 'all-expanded' | 'current-expanded';
-
 interface IBookmarkDisplayModeOption {
     id: TBookmarkDisplayMode;
-    label: string;
     title: string;
     icon: string;
+}
+
+interface IBookmarkDropTarget {
+    id: string;
+    position: TBookmarkDropPosition;
+}
+
+interface IBookmarkActivatePayload {
+    id: string;
+    hasChildren: boolean;
+    wasActive: boolean;
+}
+
+interface IBookmarkDropPayload {
+    targetId: string;
+    position: TBookmarkDropPosition;
 }
 
 interface IProps {
@@ -206,6 +315,15 @@ const emit = defineEmits<{
     }): void;
 }>();
 
+const bookmarkColorPresets = [
+    '#1f2937',
+    '#1d4ed8',
+    '#b91c1c',
+    '#047857',
+    '#7c3aed',
+    '#c2410c',
+] as const;
+
 const bookmarks = ref<IBookmarkItem[]>([]);
 const isLoading = ref(false);
 const activeItemId = ref<string | null>(null);
@@ -213,6 +331,9 @@ const editingItemId = ref<string | null>(null);
 const isEditMode = ref(false);
 const displayMode = ref<TBookmarkDisplayMode>('current-expanded');
 const expandedBookmarkIds = ref<Set<string>>(new Set());
+const styleRangeStartId = ref<string | null>(null);
+const draggingBookmarkId = ref<string | null>(null);
+const bookmarkDropTarget = ref<IBookmarkDropTarget | null>(null);
 const bookmarkContextMenu = ref<{
     visible: boolean;
     x: number;
@@ -228,20 +349,17 @@ const bookmarkContextMenu = ref<{
 const displayModeOptions = [
     {
         id: 'top-level',
-        label: 'Top',
         title: 'Top level only',
         icon: 'i-lucide-list',
     },
     {
         id: 'all-expanded',
-        label: 'All',
         title: 'Expand all bookmarks',
         icon: 'i-lucide-chevrons-down',
     },
     {
         id: 'current-expanded',
-        label: 'Current',
-        title: 'Expand only the current bookmark path',
+        title: 'Expand current bookmark path',
         icon: 'i-lucide-eye',
     },
 ] satisfies IBookmarkDisplayModeOption[];
@@ -301,6 +419,39 @@ const selectedContextBookmark = computed(() => {
     return findBookmarkById(bookmarks.value, id);
 });
 
+const styleRangeInfo = computed(() => {
+    const selected = selectedContextBookmark.value;
+    const startId = styleRangeStartId.value;
+    if (!selected || !startId) {
+        return null;
+    }
+
+    const startLocation = findBookmarkLocation(bookmarks.value, startId);
+    const endLocation = findBookmarkLocation(bookmarks.value, selected.id);
+    if (!startLocation || !endLocation || startLocation.list !== endLocation.list) {
+        return null;
+    }
+
+    const start = Math.min(startLocation.index, endLocation.index);
+    const end = Math.max(startLocation.index, endLocation.index);
+
+    return {
+        list: startLocation.list,
+        start,
+        end,
+        count: end - start + 1,
+    };
+});
+
+const canApplyStyleRange = computed(() => Boolean(styleRangeInfo.value));
+const applyStyleRangeLabel = computed(() => {
+    const info = styleRangeInfo.value;
+    if (!info) {
+        return 'Apply style to range';
+    }
+    return `Apply style to ${info.count} bookmarks`;
+});
+
 let outlineRunId = 0;
 let bookmarkIdCounter = 0;
 const initialBookmarkSnapshot = ref('[]');
@@ -315,6 +466,51 @@ function createBookmarkId() {
     return id;
 }
 
+function normalizeBookmarkColor(color: string | null | undefined): string | null {
+    if (typeof color !== 'string') {
+        return null;
+    }
+
+    const value = color.trim().toLowerCase();
+    const shortHexMatch = /^#([0-9a-f]{3})$/.exec(value);
+    if (shortHexMatch) {
+        const triple = shortHexMatch[1];
+        if (!triple) {
+            return null;
+        }
+        const [
+            r,
+            g,
+            b,
+        ] = triple.split('');
+        return `#${r}${r}${g}${g}${b}${b}`;
+    }
+
+    return /^#[0-9a-f]{6}$/.test(value) ? value : null;
+}
+
+function convertOutlineColorToHex(color: ArrayLike<number> | null | undefined): string | null {
+    if (!color || typeof color.length !== 'number' || color.length < 3) {
+        return null;
+    }
+
+    const parts = [
+        color[0],
+        color[1],
+        color[2],
+    ];
+
+    const rgb = parts.map((value) => {
+        const numeric = Number(value);
+        if (!Number.isFinite(numeric)) {
+            return 0;
+        }
+        return Math.max(0, Math.min(255, Math.round(numeric)));
+    });
+
+    return `#${rgb.map(value => value.toString(16).padStart(2, '0')).join('')}`;
+}
+
 function mapBookmarksForPersistence(items: IBookmarkItem[]): IPdfBookmarkEntry[] {
     return items.map((item) => {
         const title = item.title.trim();
@@ -322,6 +518,9 @@ function mapBookmarksForPersistence(items: IBookmarkItem[]): IPdfBookmarkEntry[]
             title: title.length > 0 ? title : 'Untitled Bookmark',
             pageIndex: typeof item.pageIndex === 'number' ? item.pageIndex : null,
             namedDest: typeof item.dest === 'string' && item.dest.trim().length > 0 ? item.dest : null,
+            bold: item.bold,
+            italic: item.italic,
+            color: normalizeBookmarkColor(item.color),
             items: mapBookmarksForPersistence(item.items),
         };
     });
@@ -347,12 +546,12 @@ function setBookmarkBaseline() {
 
 function isRefProxy(value: unknown): value is IRefProxy {
     return (
-        typeof value === 'object' &&
-        value !== null &&
-        'num' in value &&
-        'gen' in value &&
-        typeof (value as IRefProxy).num === 'number' &&
-        typeof (value as IRefProxy).gen === 'number'
+        typeof value === 'object'
+        && value !== null
+        && 'num' in value
+        && 'gen' in value
+        && typeof (value as IRefProxy).num === 'number'
+        && typeof (value as IRefProxy).gen === 'number'
     );
 }
 
@@ -447,6 +646,9 @@ async function buildResolvedOutline(
                 dest: item.dest,
                 id: createBookmarkId(),
                 pageIndex,
+                bold: item.bold === true,
+                italic: item.italic === true,
+                color: convertOutlineColorToHex(item.color),
                 items: children,
             };
         }),
@@ -472,6 +674,8 @@ async function loadOutline() {
     const runId = outlineRunId;
     closeBookmarkContextMenu();
     cancelEditingBookmark();
+    resetDragState();
+    styleRangeStartId.value = null;
     expandedBookmarkIds.value = new Set();
 
     if (!pdfDocument || !isPdfDocumentUsable(pdfDocument)) {
@@ -548,6 +752,9 @@ function createDraftBookmark(): IBookmarkItem {
         title: 'New Bookmark',
         dest: null,
         pageIndex: Math.max(0, (props.currentPage || 1) - 1),
+        bold: false,
+        italic: false,
+        color: null,
         items: [],
     };
 }
@@ -614,6 +821,14 @@ function pruneStaleState() {
         editingItemId.value = null;
     }
 
+    if (styleRangeStartId.value && !validIds.has(styleRangeStartId.value)) {
+        styleRangeStartId.value = null;
+    }
+
+    if (draggingBookmarkId.value && !validIds.has(draggingBookmarkId.value)) {
+        resetDragState();
+    }
+
     const nextExpanded = new Set<string>();
     for (const id of expandedBookmarkIds.value) {
         if (validIds.has(id)) {
@@ -643,13 +858,16 @@ function ensureBookmarkVisibleInTopLevelMode(id: string) {
 }
 
 function openBookmarkContextMenu(payload: IBookmarkMenuPayload) {
-    const width = 200;
-    const height = 208;
+    if (!isEditMode.value) {
+        return;
+    }
+
+    const width = 228;
+    const height = 380;
     const margin = 8;
     const maxX = Math.max(margin, window.innerWidth - width - margin);
     const maxY = Math.max(margin, window.innerHeight - height - margin);
 
-    activeItemId.value = payload.id;
     bookmarkContextMenu.value = {
         visible: true,
         x: Math.min(Math.max(margin, payload.x), maxX),
@@ -671,14 +889,14 @@ function closeBookmarkContextMenu() {
     };
 }
 
-function handleActivate(id: string) {
-    activeItemId.value = id;
+function handleActivate(payload: IBookmarkActivatePayload) {
+    activeItemId.value = payload.id;
     closeBookmarkContextMenu();
 }
 
 function toggleExpanded(id: string) {
     if (displayMode.value !== 'top-level') {
-        return;
+        displayMode.value = 'top-level';
     }
 
     const nextExpanded = new Set(expandedBookmarkIds.value);
@@ -703,7 +921,7 @@ function cancelEditingBookmark() {
 
 function renameBookmark(payload: {
     id: string;
-    title: string 
+    title: string;
 }) {
     const location = findBookmarkLocation(bookmarks.value, payload.id);
     editingItemId.value = null;
@@ -794,6 +1012,10 @@ function removeBookmark(id: string) {
         editingItemId.value = null;
     }
 
+    if (styleRangeStartId.value && removedIds.has(styleRangeStartId.value)) {
+        styleRangeStartId.value = null;
+    }
+
     const nextExpanded = new Set<string>();
     for (const expandedId of expandedBookmarkIds.value) {
         if (!removedIds.has(expandedId)) {
@@ -805,6 +1027,196 @@ function removeBookmark(id: string) {
     closeBookmarkContextMenu();
     pruneStaleState();
     emitBookmarksChange();
+}
+
+function updateBookmarkStyle(
+    id: string,
+    updates: Partial<Pick<IBookmarkItem, 'bold' | 'italic' | 'color'>>,
+) {
+    const location = findBookmarkLocation(bookmarks.value, id);
+    if (!location) {
+        return;
+    }
+
+    const nextBold = typeof updates.bold === 'boolean' ? updates.bold : location.item.bold;
+    const nextItalic = typeof updates.italic === 'boolean' ? updates.italic : location.item.italic;
+    const nextColor = updates.color === undefined
+        ? location.item.color
+        : normalizeBookmarkColor(updates.color);
+
+    if (
+        location.item.bold === nextBold
+        && location.item.italic === nextItalic
+        && location.item.color === nextColor
+    ) {
+        return;
+    }
+
+    location.item.bold = nextBold;
+    location.item.italic = nextItalic;
+    location.item.color = nextColor;
+    emitBookmarksChange();
+}
+
+function toggleBookmarkBold(id: string) {
+    const bookmark = findBookmarkById(bookmarks.value, id);
+    if (!bookmark) {
+        return;
+    }
+    updateBookmarkStyle(id, { bold: !bookmark.bold });
+}
+
+function toggleBookmarkItalic(id: string) {
+    const bookmark = findBookmarkById(bookmarks.value, id);
+    if (!bookmark) {
+        return;
+    }
+    updateBookmarkStyle(id, { italic: !bookmark.italic });
+}
+
+function setBookmarkColor(id: string, color: string | null) {
+    updateBookmarkStyle(id, { color });
+}
+
+function setStyleRangeStart(id: string) {
+    styleRangeStartId.value = id;
+}
+
+function applyContextStyleToRange() {
+    const selected = selectedContextBookmark.value;
+    const range = styleRangeInfo.value;
+    if (!selected || !range) {
+        return;
+    }
+
+    let changed = false;
+    for (let index = range.start; index <= range.end; index += 1) {
+        const target = range.list[index];
+        if (!target) {
+            continue;
+        }
+
+        const nextColor = normalizeBookmarkColor(selected.color);
+        if (
+            target.bold === selected.bold
+            && target.italic === selected.italic
+            && target.color === nextColor
+        ) {
+            continue;
+        }
+
+        target.bold = selected.bold;
+        target.italic = selected.italic;
+        target.color = nextColor;
+        changed = true;
+    }
+
+    if (changed) {
+        emitBookmarksChange();
+    }
+}
+
+function resetDragState() {
+    draggingBookmarkId.value = null;
+    bookmarkDropTarget.value = null;
+}
+
+function canDropBookmark(draggedId: string, targetId: string) {
+    if (draggedId === targetId) {
+        return false;
+    }
+
+    const draggedLocation = findBookmarkLocation(bookmarks.value, draggedId);
+    if (!draggedLocation) {
+        return false;
+    }
+
+    const draggedBranchIds = new Set<string>();
+    collectBookmarkIds(draggedLocation.item, draggedBranchIds);
+    if (draggedBranchIds.has(targetId)) {
+        return false;
+    }
+
+    return true;
+}
+
+function moveBookmark(
+    draggedId: string,
+    targetId: string,
+    position: TBookmarkDropPosition,
+) {
+    const draggedLocation = findBookmarkLocation(bookmarks.value, draggedId);
+    if (!draggedLocation || !canDropBookmark(draggedId, targetId)) {
+        return;
+    }
+
+    const draggedItem = draggedLocation.item;
+    draggedLocation.list.splice(draggedLocation.index, 1);
+
+    const targetLocation = findBookmarkLocation(bookmarks.value, targetId);
+    if (!targetLocation) {
+        draggedLocation.list.splice(Math.min(draggedLocation.index, draggedLocation.list.length), 0, draggedItem);
+        return;
+    }
+
+    if (position === 'child') {
+        targetLocation.item.items.push(draggedItem);
+        const nextExpanded = new Set(expandedBookmarkIds.value);
+        nextExpanded.add(targetLocation.item.id);
+        expandedBookmarkIds.value = nextExpanded;
+    } else {
+        const insertionIndex = position === 'before' ? targetLocation.index : targetLocation.index + 1;
+        targetLocation.list.splice(insertionIndex, 0, draggedItem);
+    }
+
+    activeItemId.value = draggedId;
+    emitBookmarksChange();
+}
+
+function handleBookmarkDragStart(payload: { id: string }) {
+    if (!isEditMode.value) {
+        return;
+    }
+
+    draggingBookmarkId.value = payload.id;
+    bookmarkDropTarget.value = null;
+    closeBookmarkContextMenu();
+}
+
+function handleBookmarkDragHover(payload: IBookmarkDropPayload) {
+    const draggingId = draggingBookmarkId.value;
+    if (!isEditMode.value || !draggingId) {
+        return;
+    }
+
+    if (!canDropBookmark(draggingId, payload.targetId)) {
+        bookmarkDropTarget.value = null;
+        return;
+    }
+
+    bookmarkDropTarget.value = {
+        id: payload.targetId,
+        position: payload.position,
+    };
+}
+
+function handleBookmarkDrop(payload: IBookmarkDropPayload) {
+    const draggingId = draggingBookmarkId.value;
+    if (!isEditMode.value || !draggingId) {
+        return;
+    }
+
+    if (!canDropBookmark(draggingId, payload.targetId)) {
+        resetDragState();
+        return;
+    }
+
+    moveBookmark(draggingId, payload.targetId, payload.position);
+    resetDragState();
+}
+
+function handleBookmarkDragEnd() {
+    resetDragState();
 }
 
 function handleGlobalPointerDown(event: PointerEvent) {
@@ -822,6 +1234,7 @@ function handleGlobalKeydown(event: KeyboardEvent) {
     if (event.key === 'Escape') {
         closeBookmarkContextMenu();
         cancelEditingBookmark();
+        resetDragState();
     }
 }
 
@@ -842,6 +1255,8 @@ watch(
         if (!value) {
             cancelEditingBookmark();
             closeBookmarkContextMenu();
+            resetDragState();
+            styleRangeStartId.value = null;
         }
     },
 );
@@ -884,31 +1299,8 @@ onBeforeUnmount(() => {
     min-width: 0;
 }
 
-.pdf-bookmarks-view-mode-button {
-    border: 1px solid var(--ui-border);
-    border-radius: 6px;
-    background: var(--ui-bg);
-    color: var(--ui-text-muted);
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    font-size: 11px;
-    font-weight: 600;
-    padding: 4px 6px;
-    cursor: pointer;
-}
-
-.pdf-bookmarks-view-mode-button:hover {
-    background: var(--ui-bg-muted);
-    color: var(--ui-text-highlighted);
-}
-
-.pdf-bookmarks-view-mode-button.is-active {
-    border-color: color-mix(in srgb, var(--ui-primary) 45%, var(--ui-border) 55%);
-    color: var(--ui-primary);
-    background: color-mix(in srgb, var(--ui-primary) 8%, var(--ui-bg) 92%);
-}
-
+.pdf-bookmarks-view-mode-button,
+.pdf-bookmarks-icon-button,
 .pdf-bookmarks-edit-toggle {
     border: 1px solid var(--ui-border);
     border-radius: 6px;
@@ -916,22 +1308,29 @@ onBeforeUnmount(() => {
     color: var(--ui-text-muted);
     display: inline-flex;
     align-items: center;
-    gap: 5px;
-    font-size: 11px;
-    font-weight: 700;
-    padding: 5px 8px;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
     cursor: pointer;
 }
 
+.pdf-bookmarks-view-mode-button:hover,
+.pdf-bookmarks-icon-button:hover,
 .pdf-bookmarks-edit-toggle:hover {
     background: var(--ui-bg-muted);
     color: var(--ui-text-highlighted);
 }
 
+.pdf-bookmarks-view-mode-button.is-active,
 .pdf-bookmarks-edit-toggle.is-active {
     border-color: color-mix(in srgb, var(--ui-primary) 45%, var(--ui-border) 55%);
     color: var(--ui-primary);
-    background: color-mix(in srgb, var(--ui-primary) 10%, var(--ui-bg) 90%);
+    background: color-mix(in srgb, var(--ui-primary) 8%, var(--ui-bg) 92%);
+}
+
+.pdf-bookmarks-toolbar-actions {
+    display: inline-flex;
+    gap: 4px;
 }
 
 .pdf-bookmarks-loading,
@@ -973,7 +1372,7 @@ onBeforeUnmount(() => {
 .bookmarks-context-menu {
     position: fixed;
     z-index: 1400;
-    min-width: 180px;
+    min-width: 210px;
     border: 1px solid var(--ui-border);
     border-radius: 10px;
     background: var(--ui-bg);
@@ -995,7 +1394,12 @@ onBeforeUnmount(() => {
     cursor: pointer;
 }
 
-.bookmarks-context-menu-action:hover {
+.bookmarks-context-menu-action:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.bookmarks-context-menu-action:hover:not(:disabled) {
     border-color: var(--ui-border);
     background: color-mix(in srgb, var(--ui-bg-muted) 55%, var(--ui-bg) 45%);
 }
@@ -1010,13 +1414,64 @@ onBeforeUnmount(() => {
     margin: 3px 2px;
 }
 
+.bookmarks-context-menu-style-block {
+    padding: 3px 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.bookmarks-context-menu-style-row {
+    display: flex;
+    gap: 6px;
+}
+
+.bookmarks-style-toggle {
+    width: 24px;
+    height: 24px;
+    border: 1px solid var(--ui-border);
+    border-radius: 5px;
+    background: var(--ui-bg);
+    color: var(--ui-text-muted);
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.bookmarks-style-toggle:nth-child(2) {
+    font-style: italic;
+}
+
+.bookmarks-style-toggle.is-active {
+    border-color: color-mix(in srgb, var(--ui-primary) 50%, var(--ui-border) 50%);
+    color: var(--ui-primary);
+    background: color-mix(in srgb, var(--ui-primary) 9%, var(--ui-bg) 91%);
+}
+
+.bookmarks-context-menu-color-row {
+    display: flex;
+    gap: 6px;
+}
+
+.bookmarks-color-swatch {
+    width: 18px;
+    height: 18px;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--ui-bg-inverted) 16%, transparent 84%);
+    cursor: pointer;
+}
+
+.bookmarks-color-swatch.is-active {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--ui-primary) 45%, transparent 55%);
+}
+
 @media (width <= 780px) {
     .pdf-bookmarks-toolbar {
         grid-template-columns: 1fr;
     }
 
-    .pdf-bookmarks-edit-toggle {
-        justify-content: center;
+    .pdf-bookmarks-toolbar-actions {
+        justify-content: flex-end;
     }
 }
 </style>

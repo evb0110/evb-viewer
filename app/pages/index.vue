@@ -2801,11 +2801,19 @@ function normalizeBookmarkEntries(entries: IPdfBookmarkEntry[]): IPdfBookmarkEnt
         const namedDest = typeof item.namedDest === 'string' && item.namedDest.trim().length > 0
             ? item.namedDest
             : null;
+        const bold = item.bold === true;
+        const italic = item.italic === true;
+        const color = typeof item.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(item.color.trim())
+            ? item.color.trim().toLowerCase()
+            : null;
 
         return {
             title: title.length > 0 ? title : 'Untitled Bookmark',
             pageIndex,
             namedDest,
+            bold,
+            italic,
+            color,
             items: item.items.map(normalizeItem),
         };
     }
@@ -2849,6 +2857,8 @@ async function rewriteBookmarks(data: Uint8Array): Promise<Uint8Array> {
     const titleName = PDFName.of('Title');
     const destName = PDFName.of('Dest');
     const typeName = PDFName.of('Type');
+    const flagsName = PDFName.of('F');
+    const colorName = PDFName.of('C');
 
     const pdfNull = doc.context.obj(null);
 
@@ -2871,6 +2881,28 @@ async function rewriteBookmarks(data: Uint8Array): Promise<Uint8Array> {
         }
     }
 
+    function setNodeStyle(dict: PDFDict, item: IPdfBookmarkEntry) {
+        const flags = (item.italic ? 1 : 0) | (item.bold ? 2 : 0);
+        if (flags > 0) {
+            dict.set(flagsName, PDFNumber.of(flags));
+        }
+
+        if (!item.color) {
+            return;
+        }
+
+        const value = item.color.replace('#', '');
+        const red = Number.parseInt(value.slice(0, 2), 16) / 255;
+        const green = Number.parseInt(value.slice(2, 4), 16) / 255;
+        const blue = Number.parseInt(value.slice(4, 6), 16) / 255;
+
+        dict.set(colorName, doc.context.obj([
+            red,
+            green,
+            blue,
+        ]));
+    }
+
     function buildOutlineLevel(
         items: IPdfBookmarkEntry[],
         parentRef: PDFRef,
@@ -2891,6 +2923,7 @@ async function rewriteBookmarks(data: Uint8Array): Promise<Uint8Array> {
             const dict = doc.context.obj({}) as PDFDict;
             dict.set(titleName, PDFHexString.fromText(item.title));
             setNodeDestination(dict, item);
+            setNodeStyle(dict, item);
 
             const ref = doc.context.register(dict);
             return {

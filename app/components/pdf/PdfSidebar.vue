@@ -15,7 +15,7 @@
                 root: 'gap-0',
                 list: 'p-0 mb-0 rounded-none bg-transparent border-b border-default',
                 indicator: 'bg-primary/40 rounded-none bottom-0',
-                trigger: 'flex-1 justify-center px-1 py-1.5 rounded-none text-[11px] font-semibold tracking-wide uppercase data-[state=active]:text-default data-[state=inactive]:text-muted data-[state=inactive]:hover:bg-muted/30',
+                trigger: 'flex-1 justify-center px-1 py-1.5 rounded-none text-[10px] font-semibold tracking-normal data-[state=active]:text-default data-[state=inactive]:text-muted data-[state=inactive]:hover:bg-muted/30',
             }"
             class="pdf-sidebar-tabs"
         />
