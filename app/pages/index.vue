@@ -494,7 +494,18 @@
                 <span class="status-bar-item">{{ statusFileSizeLabel }}</span>
                 <span class="status-bar-item">{{ statusPageLabel }}</span>
                 <span class="status-bar-item">{{ statusZoomLabel }}</span>
-                <span class="status-bar-item">{{ statusSaveLabel }}</span>
+                <UTooltip :text="statusSaveDotTooltip" :delay-duration="800">
+                    <button
+                        type="button"
+                        class="status-save-dot-button"
+                        :class="[statusSaveDotClass, { 'is-actionable': statusSaveDotCanSave }]"
+                        :disabled="!statusSaveDotCanSave"
+                        :aria-label="statusSaveDotAriaLabel"
+                        @click="handleStatusSaveClick"
+                    >
+                        <span class="status-save-dot" />
+                    </button>
+                </UTooltip>
             </div>
         </footer>
         <PdfAnnotationNoteWindow
@@ -641,7 +652,7 @@ import type {
 } from '@app/types/annotations';
 
 
-type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'outline' | 'search';
+type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'bookmarks' | 'search';
 
 interface IPdfViewerExpose {
     scrollToPage: (page: number) => void;
@@ -1153,16 +1164,25 @@ const contextMenuDeleteActionLabel = computed(() => {
     }
 
     const subtype = (comment.subtype ?? '').trim().toLowerCase();
+    const kind = comment.kindLabel?.trim() ?? '';
     const isMarkup = (
         subtype === 'highlight'
         || subtype === 'underline'
         || subtype === 'strikeout'
         || subtype === 'squiggly'
     );
-    if (isMarkup && !comment.text.trim()) {
+    const hasNoteText = comment.text.trim().length > 0;
+    if (!hasNoteText && isMarkup) {
+        if (kind.length > 0) {
+            return `Delete ${kind}`;
+        }
         return 'Delete Markup';
     }
 
+    const isExplicitNote = comment.hasNote === true || subtype === 'popup' || subtype === 'text';
+    if (isExplicitNote) {
+        return 'Delete Note';
+    }
     return 'Delete Annotation';
 });
 const shapePropertiesPopover = ref<{
@@ -1206,18 +1226,56 @@ const statusPageLabel = computed(() => {
     return `Page: ${currentPage.value}/${totalPages.value}`;
 });
 const statusZoomLabel = computed(() => `Zoom: ${Math.round(zoom.value * 100)}%`);
-const statusSaveLabel = computed(() => {
+const statusSaveDotState = computed(() => {
     if (!pdfSrc.value) {
-        return 'Status: idle';
+        return 'idle';
     }
     if (isAnySaving.value) {
-        return 'Status: saving...';
+        return 'saving';
     }
     if (canSave.value) {
-        return 'Status: unsaved changes';
+        return 'dirty';
     }
-    return 'Status: all changes saved';
+    return 'clean';
 });
+const statusSaveDotClass = computed(() => `is-${statusSaveDotState.value}`);
+const statusSaveDotCanSave = computed(() => (
+    !!pdfSrc.value
+    && canSave.value
+    && !isAnySaving.value
+    && !isHistoryBusy.value
+));
+const statusSaveDotTooltip = computed(() => {
+    if (statusSaveDotState.value === 'idle') {
+        return 'No file open';
+    }
+    if (statusSaveDotState.value === 'saving') {
+        return 'Saving...';
+    }
+    if (statusSaveDotState.value === 'dirty') {
+        return 'Unsaved changes - click to save';
+    }
+    return 'All changes saved';
+});
+const statusSaveDotAriaLabel = computed(() => {
+    if (statusSaveDotState.value === 'dirty') {
+        return 'Save changes';
+    }
+    if (statusSaveDotState.value === 'saving') {
+        return 'Saving changes';
+    }
+    if (statusSaveDotState.value === 'clean') {
+        return 'All changes saved';
+    }
+    return 'No file open';
+});
+
+async function handleStatusSaveClick() {
+    if (!statusSaveDotCanSave.value) {
+        return;
+    }
+    await handleSave();
+}
 
 function formatBytes(bytes: number) {
     if (!Number.isFinite(bytes) || bytes < 0) {
@@ -3078,6 +3136,65 @@ watch(annotationComments, (comments) => {
 
 .status-bar-item {
     white-space: nowrap;
+}
+
+.status-save-dot-button {
+    width: 1.1rem;
+    height: 1.1rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: transparent;
+    padding: 0;
+    border-radius: 999px;
+    cursor: default;
+}
+
+.status-save-dot-button.is-actionable {
+    cursor: pointer;
+}
+
+.status-save-dot {
+    width: 0.56rem;
+    height: 0.56rem;
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--ui-text-dimmed) 72%, var(--ui-bg) 28%);
+    box-shadow: 0 0 0 1px color-mix(in oklab, var(--ui-bg) 36%, #94a3b8 64%);
+    transition: transform 0.14s ease, background-color 0.14s ease, box-shadow 0.14s ease;
+}
+
+.status-save-dot-button.is-dirty .status-save-dot {
+    background: #f59e0b;
+    box-shadow: 0 0 0 1px color-mix(in oklab, #f59e0b 55%, #78350f 45%);
+}
+
+.status-save-dot-button.is-clean .status-save-dot {
+    background: #16a34a;
+    box-shadow: 0 0 0 1px color-mix(in oklab, #16a34a 58%, #14532d 42%);
+}
+
+.status-save-dot-button.is-saving .status-save-dot {
+    background: #2563eb;
+    box-shadow: 0 0 0 1px color-mix(in oklab, #2563eb 58%, #1e3a8a 42%);
+    animation: status-save-dot-pulse 1s ease-in-out infinite;
+}
+
+.status-save-dot-button.is-actionable:hover .status-save-dot {
+    transform: scale(1.15);
+}
+
+@keyframes status-save-dot-pulse {
+    0%,
+    100% {
+        transform: scale(1);
+        opacity: 1;
+    }
+
+    50% {
+        transform: scale(1.15);
+        opacity: 0.72;
+    }
 }
 
 .sidebar-resizer {

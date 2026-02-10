@@ -1586,6 +1586,34 @@ function getMarkupSubtypeOverrides() {
 }
 
 type TUiManagerSelectedEditor = Parameters<AnnotationEditorUIManager['setSelected']>[0];
+type TEditorParamType = Parameters<AnnotationEditorUIManager['updateParams']>[0];
+type TEditorParamValue = Parameters<AnnotationEditorUIManager['updateParams']>[1];
+
+interface IPdfjsEditorConstructor {updateDefaultParams?: (type: TEditorParamType, value: TEditorParamValue) => void;}
+
+function syncSelectedEditorParamToDefaults(
+    uiManager: AnnotationEditorUIManager,
+    type: TEditorParamType,
+    value: TEditorParamValue,
+) {
+    const constructors = new Set<IPdfjsEditorConstructor>();
+    for (let pageIndex = 0; pageIndex < numPages.value; pageIndex += 1) {
+        for (const editor of uiManager.getEditors(pageIndex)) {
+            const ctor = (editor as IPdfjsEditor & {constructor?: IPdfjsEditorConstructor;}).constructor;
+            if (ctor && typeof ctor.updateDefaultParams === 'function') {
+                constructors.add(ctor);
+            }
+        }
+    }
+
+    constructors.forEach((ctor) => {
+        try {
+            ctor.updateDefaultParams?.(type, value);
+        } catch {
+            // Ignore PDF.js internal constructor mismatches.
+        }
+    });
+}
 
 function colorWithOpacity(color: string, opacity: number) {
     if (color.startsWith('#') && (color.length === 7 || color.length === 4)) {
@@ -3458,10 +3486,24 @@ function initAnnotationEditor() {
 
     const originalUpdateParams = uiManager.updateParams.bind(uiManager);
     uiManager.updateParams = (type, value) => {
-        if (type === AnnotationEditorParamsType.HIGHLIGHT_FREE && shouldForceTextMarkup(annotationTool.value)) {
-            return originalUpdateParams(type, false);
+        const hasSelection = 'hasSelection' in uiManager
+            ? Boolean((uiManager as { hasSelection?: boolean }).hasSelection)
+            : false;
+        const resolvedValue = (
+            type === AnnotationEditorParamsType.HIGHLIGHT_FREE && shouldForceTextMarkup(annotationTool.value)
+                ? false
+                : value
+        );
+
+        const result = originalUpdateParams(type, resolvedValue);
+        if (
+            hasSelection
+            && type !== AnnotationEditorParamsType.CREATE
+            && type !== AnnotationEditorParamsType.HIGHLIGHT_SHOW_ALL
+        ) {
+            syncSelectedEditorParamToDefaults(uiManager, type, resolvedValue);
         }
-        return originalUpdateParams(type, value);
+        return result;
     };
 
     const originalKeydown = uiManager.keydown.bind(uiManager);
