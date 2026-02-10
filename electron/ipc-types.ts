@@ -1,6 +1,10 @@
-import type { IRecentFile } from '@app/types/shared';
+import type {
+    IRecentFile,
+    ISettingsData,
+} from '@app/types/shared';
 
 export type { IRecentFile } from '@app/types/shared';
+export type { ISettingsData } from '@app/types/shared';
 
 export interface IIpcChannels {
     'dialog:openPdf': {
@@ -55,6 +59,14 @@ export interface IIpcChannels {
         args: [];
         result: undefined;
     };
+    'settings:get': {
+        args: [];
+        result: ISettingsData;
+    };
+    'settings:save': {
+        args: [settings: ISettingsData];
+        result: undefined;
+    };
 }
 
 export interface IMenuEventCallback {(): void;}
@@ -73,4 +85,5 @@ export interface IMenuEvents {
     onMenuFitHeight: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuUndo: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuRedo: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
+    onMenuOpenSettings: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
 }

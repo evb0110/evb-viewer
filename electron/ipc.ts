@@ -28,6 +28,11 @@ import {
 } from 'path';
 import { registerOcrHandlers } from '@electron/ocr/ipc';
 import { registerSearchHandlers } from '@electron/search/ipc';
+import type { ISettingsData } from '@app/types/shared';
+import {
+    loadSettings,
+    saveSettings,
+} from '@electron/settings';
 import { updateRecentFilesMenu } from '@electron/menu';
 import {
     isAllowedWritePath,
@@ -98,6 +103,12 @@ export function registerIpcHandlers() {
     ipcMain.handle('recent-files:clear', async () => {
         await clearRecentFiles();
         updateRecentFilesMenu();
+    });
+
+    // Settings handlers
+    ipcMain.handle('settings:get', () => loadSettings());
+    ipcMain.handle('settings:save', async (_event, settings: ISettingsData) => {
+        await saveSettings(settings);
     });
 
     registerOcrHandlers();

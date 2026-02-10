@@ -20,3 +20,13 @@ export interface IOcrWord {
 }
 
 export type TFitMode = 'width' | 'height';
+
+export type TAppTheme = 'light' | 'dark';
+export type TAppLocale = 'en' | 'ru';
+
+export interface ISettingsData {
+    version: number;
+    authorName: string;
+    theme: TAppTheme;
+    locale: TAppLocale;
+}

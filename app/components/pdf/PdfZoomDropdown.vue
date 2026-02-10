@@ -92,7 +92,7 @@
                                     name="i-lucide-move-horizontal"
                                     class="zoom-dropdown-icon size-5"
                                 />
-                                <span class="zoom-dropdown-label">Fit Width</span>
+                                <span class="zoom-dropdown-label">{{ t('zoom.fitWidth') }}</span>
                                 <UIcon
                                     v-if="isFitModeActive('width')"
                                     name="i-lucide-check"
@@ -112,7 +112,7 @@
                                     name="i-lucide-move-vertical"
                                     class="zoom-dropdown-icon size-5"
                                 />
-                                <span class="zoom-dropdown-label">Fit Height</span>
+                                <span class="zoom-dropdown-label">{{ t('zoom.fitHeight') }}</span>
                                 <UIcon
                                     v-if="isFitModeActive('height')"
                                     name="i-lucide-check"
@@ -144,6 +144,8 @@
 <script setup lang="ts">
 import type { TFitMode } from '@app/types/shared';
 import { nextTick } from 'vue';
+
+const { t } = useI18n();
 
 interface IProps {
     zoom: number;

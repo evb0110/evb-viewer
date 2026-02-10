@@ -5,6 +5,7 @@ import type {
 import type {
     IOcrLanguage,
     IRecentFile,
+    ISettingsData,
 } from '@app/types/shared';
 
 interface IOcrRecognizeRequest {
@@ -159,6 +160,13 @@ interface IElectronAPI {
     };
     onMenuOpenRecentFile: (callback: (path: string) => void) => IMenuEventUnsubscribe;
     onMenuClearRecentFiles: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
+
+    // Settings API
+    settings: {
+        get: () => Promise<ISettingsData>;
+        save: (settings: ISettingsData) => Promise<void>;
+    };
+    onMenuOpenSettings: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
 }
 
 declare global {

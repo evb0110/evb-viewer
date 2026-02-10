@@ -78,7 +78,7 @@
                                         name="i-lucide-hash"
                                         class="pdf-sidebar-pages-disclosure-type-icon size-3.5"
                                     />
-                                    <span class="pdf-sidebar-pages-title">Number Pages</span>
+                                    <span class="pdf-sidebar-pages-title">{{ t('pageNumbering.numberPages') }}</span>
                                 </span>
                             </button>
                         </template>
@@ -87,7 +87,7 @@
                             <div class="pdf-sidebar-pages-editor">
                                 <div class="pdf-sidebar-pages-fields">
                                     <div class="pdf-sidebar-pages-field">
-                                        <label class="pdf-sidebar-pages-label" for="page-label-range-input">Page Range</label>
+                                        <label class="pdf-sidebar-pages-label" for="page-label-range-input">{{ t('pageNumbering.pageRange') }}</label>
                                         <input
                                             id="page-label-range-input"
                                             v-model="pageRangeInput"
@@ -99,7 +99,7 @@
                                     </div>
 
                                     <div class="pdf-sidebar-pages-field">
-                                        <label class="pdf-sidebar-pages-label" for="page-label-style-input">Style</label>
+                                        <label class="pdf-sidebar-pages-label" for="page-label-style-input">{{ t('pageNumbering.style') }}</label>
                                         <select
                                             id="page-label-style-input"
                                             v-model="pageLabelStyle"
@@ -116,7 +116,7 @@
                                     </div>
 
                                     <div class="pdf-sidebar-pages-field">
-                                        <label class="pdf-sidebar-pages-label" for="page-label-prefix-input">Prefix</label>
+                                        <label class="pdf-sidebar-pages-label" for="page-label-prefix-input">{{ t('pageNumbering.prefix') }}</label>
                                         <input
                                             id="page-label-prefix-input"
                                             v-model="pageLabelPrefix"
@@ -127,7 +127,7 @@
                                     </div>
 
                                     <div class="pdf-sidebar-pages-field">
-                                        <label class="pdf-sidebar-pages-label" for="page-label-start-input">Start At</label>
+                                        <label class="pdf-sidebar-pages-label" for="page-label-start-input">{{ t('pageNumbering.startAt') }}</label>
                                         <input
                                             id="page-label-start-input"
                                             :value="pageLabelStartNumber"
@@ -150,7 +150,7 @@
                                         :disabled="selectedThumbnailPages.length === 0 && !pageRangeInput.trim()"
                                         @click="clearPageSelection"
                                     >
-                                        Clear
+                                        {{ t('pageNumbering.clear') }}
                                     </UButton>
                                 </div>
 
@@ -170,7 +170,7 @@
                                         :disabled="applyTargetRange === null"
                                         @click="applyToTargetRange"
                                     >
-                                        <span class="pdf-sidebar-pages-button-label">Apply numbering</span>
+                                        <span class="pdf-sidebar-pages-button-label">{{ t('pageNumbering.applyNumbering') }}</span>
                                     </UButton>
                                 </UTooltip>
                             </div>
@@ -279,6 +279,8 @@ interface IProps {
     bookmarkEditMode: boolean;
 }
 
+const { t } = useI18n();
+
 const props = defineProps<IProps>();
 const {
     annotationTool,
@@ -347,35 +349,35 @@ const pageLabelStyle = ref<'' | Exclude<TPageLabelStyle, null>>('D');
 const pageLabelPrefix = ref('');
 const pageLabelStartNumber = ref(1);
 
-const pageLabelStyleOptions: Array<{
+const pageLabelStyleOptions = computed<Array<{
     value: '' | Exclude<TPageLabelStyle, null>;
     label: string;
-}> = [
+}>>(() => [
     {
         value: 'D',
-        label: 'Decimal',
+        label: t('pageNumbering.decimal'),
     },
     {
         value: 'r',
-        label: 'Roman (i, ii)',
+        label: t('pageNumbering.romanLower'),
     },
     {
         value: 'R',
-        label: 'Roman (I, II)',
+        label: t('pageNumbering.romanUpper'),
     },
     {
         value: 'a',
-        label: 'Letters (a, b)',
+        label: t('pageNumbering.lettersLower'),
     },
     {
         value: 'A',
-        label: 'Letters (A, B)',
+        label: t('pageNumbering.lettersUpper'),
     },
     {
         value: '',
-        label: 'Prefix only',
+        label: t('pageNumbering.prefixOnly'),
     },
-];
+]);
 
 const normalizedPageLabelRanges = computed(() => normalizePageLabelRanges(
     props.pageLabelRanges ?? [],
@@ -422,16 +424,16 @@ const hasNonContiguousSelection = computed(() => selectedThumbnailPages.value.le
 
 const selectionSummary = computed(() => {
     if (selectedThumbnailPages.value.length === 0) {
-        return 'None';
+        return t('pageNumbering.none');
     }
 
     if (selectionRange.value === null) {
-        return `${selectedThumbnailPages.value.length} pages (non-contiguous)`;
+        return t('pageNumbering.pagesNonContiguous', { count: selectedThumbnailPages.value.length });
     }
 
     const rangeText = formatPageRange(selectionRange.value);
     const pageCount = selectionRange.value.endPage - selectionRange.value.startPage + 1;
-    const pageWord = pageCount === 1 ? 'page' : 'pages';
+    const pageWord = t('pageNumbering.pageWord', pageCount);
     return `${rangeText} (${pageCount} ${pageWord})`;
 });
 
@@ -444,7 +446,7 @@ const rangeErrorMessage = computed(() => {
         return '';
     }
 
-    return 'Enter one page (7) or a range (7-14).';
+    return t('pageNumbering.rangeError');
 });
 
 const applyTargetRange = computed(() => {
@@ -457,22 +459,22 @@ const applyTargetRange = computed(() => {
 
 const applyTargetSummary = computed(() => {
     if (pageRangeInput.value.trim().length > 0 && manualRange.value === null) {
-        return 'Target unavailable: enter one page (7) or a range (7-14).';
+        return t('pageNumbering.targetUnavailableRange');
     }
 
     if (manualRange.value !== null) {
-        return `Target: pages ${formatPageRange(manualRange.value)}.`;
+        return t('pageNumbering.targetPages', { range: formatPageRange(manualRange.value) });
     }
 
     if (selectionRange.value !== null) {
-        return `Target: selected pages ${formatPageRange(selectionRange.value)}.`;
+        return t('pageNumbering.targetSelectedPages', { range: formatPageRange(selectionRange.value) });
     }
 
     if (hasNonContiguousSelection.value) {
-        return 'Target unavailable: selection is not contiguous.';
+        return t('pageNumbering.targetUnavailableNonContiguous');
     }
 
-    return 'Target: none. Enter a range or select contiguous thumbnails.';
+    return t('pageNumbering.targetNone');
 });
 
 async function focusSearch() {
@@ -669,28 +671,28 @@ interface IPdfSidebarTabItem {
     title: string;
 }
 
-const tabs = [
+const tabs = computed<IPdfSidebarTabItem[]>(() => [
     {
         value: 'annotations',
-        label: 'Notes',
-        title: 'Annotations',
+        label: t('sidebar.notes'),
+        title: t('sidebar.notes'),
     },
     {
         value: 'thumbnails',
-        label: 'Pages',
-        title: 'Pages',
+        label: t('sidebar.pages'),
+        title: t('sidebar.pages'),
     },
     {
         value: 'bookmarks',
-        label: 'Bookmarks',
-        title: 'Bookmarks',
+        label: t('sidebar.bookmarks'),
+        title: t('sidebar.bookmarks'),
     },
     {
         value: 'search',
-        label: 'Search',
-        title: 'Search',
+        label: t('sidebar.search'),
+        title: t('sidebar.search'),
     },
-] satisfies IPdfSidebarTabItem[];
+]);
 
 const sidebarStyle = computed(() => {
     const width = props.width ?? 240;

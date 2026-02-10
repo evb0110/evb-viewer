@@ -5,6 +5,7 @@ export default defineNuxtConfig({
         '@nuxt/eslint',
         '@nuxt/ui',
         '@nuxt/icon',
+        '@nuxtjs/i18n',
     ],
 
     css: ['~/assets/css/main.css'],
@@ -19,6 +20,18 @@ export default defineNuxtConfig({
     devServer: {port: 3235},
 
     colorMode: {preference: 'light'},
+
+    i18n: {
+        restructureDir: 'app',
+        locales: [
+            { code: 'en', file: 'en.json', name: 'English' },
+            { code: 'ru', file: 'ru.json', name: 'Русский' },
+        ],
+        defaultLocale: 'en',
+        lazy: true,
+        langDir: 'locales/',
+        strategy: 'no_prefix',
+    },
 
     icon: {
         serverBundle: {collections: ['lucide']},
@@ -108,6 +121,8 @@ export default defineNuxtConfig({
             'lucide:minus',
             'lucide:arrow-up-right',
             'lucide:stamp',
+            'lucide:settings',
+            'lucide:languages',
         ]},
     },
 

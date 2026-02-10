@@ -116,6 +116,8 @@ interface IProps {
     currentSearchMatch?: IPdfSearchMatch | null;
     /** Path to the working copy of the PDF for OCR text layer lookup */
     workingCopyPath?: string | null;
+    /** Author name to stamp on newly created annotations */
+    authorName?: string | null;
 }
 
 interface IAnnotationContextMenuPayload {
@@ -260,7 +262,7 @@ provide<IShapeContextProvide>('shapeContext', {
         inkOpacity: 0.9,
         inkThickness: 2,
         textColor: '#111827',
-        textSize: 12,
+        textSize: 16,
         shapeColor: '#2563eb',
         shapeFillColor: 'transparent',
         shapeOpacity: 1,
@@ -339,7 +341,6 @@ const DEFAULT_PDFJS_HIGHLIGHT_COLORS = 'yellow=#FFFF98,green=#98FF98,blue=#98C0F
 let annotationCommentsSyncToken = 0;
 const editorRuntimeIds = new WeakMap<IPdfjsEditor, string>();
 let editorRuntimeIdCounter = 0;
-let hasPatchedFreeTextResizable = false;
 let cachedSelectionRange: Range | null = null;
 let cachedSelectionTimestamp = 0;
 const SELECTION_CACHE_TTL_MS = 3000;
@@ -350,6 +351,9 @@ let inlineCommentMarkerObserver: MutationObserver | null = null;
 let inlineCommentFocusPulseTimeout: ReturnType<typeof setTimeout> | null = null;
 let annotationToolUpdateToken = 0;
 let annotationToolUpdatePromise: Promise<void> = Promise.resolve();
+const FREE_TEXT_FONT_SIZE_MIN = 8;
+const FREE_TEXT_FONT_SIZE_MAX = 96;
+const FREE_TEXT_RESIZE_EPSILON = 0.005;
 const commentSummaryMemory = new Map<string, {
     text: string;
     modifiedAt: number | null;
@@ -382,6 +386,8 @@ interface IPdfjsEditor {
     y?: number;
     width?: number;
     height?: number;
+    _onResized?: () => void;
+    updateParams?: (type: number, value: unknown) => void;
     parent?: { div?: HTMLElement };
     getData?: () => {
         modificationDate?: string | null;
@@ -659,48 +665,199 @@ function detectEditorSubtype(editor: IPdfjsEditor) {
     if (className.includes('inkEditor')) {
         return 'Ink';
     }
+
+    const constructorType = (editor as {constructor?: {_type?: unknown;};}).constructor?._type;
+    if (constructorType === 'freetext') {
+        return 'Typewriter';
+    }
+    if (constructorType === 'highlight') {
+        return 'Highlight';
+    }
+    if (constructorType === 'ink') {
+        return 'Ink';
+    }
+
+    const serialized = (editor as {serialize?: () => unknown;}).serialize?.();
+    if (serialized && typeof serialized === 'object') {
+        const annotationType = (serialized as {annotationType?: unknown;}).annotationType;
+        if (annotationType === 'freetext') {
+            return 'Typewriter';
+        }
+        if (annotationType === 'highlight') {
+            return 'Highlight';
+        }
+        if (annotationType === 'ink') {
+            return 'Ink';
+        }
+    }
     return null;
 }
 
 function ensureFreeTextEditorCanResize(editor: IPdfjsEditor) {
-    if (hasPatchedFreeTextResizable) {
-        return;
-    }
     if (detectEditorSubtype(editor) !== 'Typewriter') {
         return;
     }
-
-    const ctor = (editor as {constructor?: {prototype?: object;};}).constructor;
-    const prototype = ctor?.prototype;
-    if (!prototype) {
+    const tagged = editor as IPdfjsEditor & {__freeTextResizablePatched?: boolean;};
+    if (tagged.__freeTextResizablePatched) {
         return;
     }
 
     try {
-        Object.defineProperty(prototype, 'isResizable', {
+        Object.defineProperty(editor, 'isResizable', {
             configurable: true,
             get() {
                 return true;
             },
         });
-        hasPatchedFreeTextResizable = true;
+        tagged.__freeTextResizablePatched = true;
     } catch {
-        // Ignore descriptor errors when running against unexpected PDF.js internals.
+        // Ignore if PDF.js internals reject instance patching.
     }
+
+    patchFreeTextResizeFontSync(editor);
 }
 
 function patchResizableFreeTextEditors(uiManager: AnnotationEditorUIManager) {
-    if (hasPatchedFreeTextResizable) {
-        return;
-    }
     for (let pageIndex = 0; pageIndex < numPages.value; pageIndex += 1) {
         for (const editor of uiManager.getEditors(pageIndex)) {
             ensureFreeTextEditorCanResize(editor as IPdfjsEditor);
-            if (hasPatchedFreeTextResizable) {
-                return;
-            }
         }
     }
+}
+
+function parseEditorInlineFontSizePx(value: string) {
+    const calcMatch = value.match(/calc\(([\d.]+)px\s*\*/);
+    if (calcMatch?.[1]) {
+        const parsed = Number.parseFloat(calcMatch[1]);
+        if (Number.isFinite(parsed) && parsed > 0) {
+            return parsed;
+        }
+    }
+    const pxMatch = value.match(/([\d.]+)px/);
+    if (!pxMatch?.[1]) {
+        return null;
+    }
+    const parsed = Number.parseFloat(pxMatch[1]);
+    return Number.isFinite(parsed) && parsed > 0
+        ? parsed
+        : null;
+}
+
+function getFreeTextEditorFontSize(editor: IPdfjsEditor) {
+    const serialized = (editor as {serialize?: () => unknown;}).serialize?.();
+    if (
+        serialized
+        && typeof serialized === 'object'
+        && 'fontSize' in serialized
+        && typeof (serialized as {fontSize?: unknown;}).fontSize === 'number'
+    ) {
+        const fontSize = (serialized as {fontSize: number;}).fontSize;
+        if (Number.isFinite(fontSize) && fontSize > 0) {
+            return fontSize;
+        }
+    }
+
+    const internal = editor.div?.querySelector<HTMLElement>('.internal');
+    if (!internal) {
+        return null;
+    }
+
+    const inlineFontSize = parseEditorInlineFontSizePx(internal.style.fontSize);
+    if (inlineFontSize) {
+        return inlineFontSize;
+    }
+
+    const computedFontSize = Number.parseFloat(getComputedStyle(internal).fontSize);
+    if (!Number.isFinite(computedFontSize) || computedFontSize <= 0) {
+        return null;
+    }
+
+    const scaleToken = getComputedStyle(internal).getPropertyValue('--total-scale-factor').trim();
+    const scale = Number.parseFloat(scaleToken);
+    if (Number.isFinite(scale) && scale > 0) {
+        return computedFontSize / scale;
+    }
+    return computedFontSize;
+}
+
+function patchFreeTextResizeFontSync(editor: IPdfjsEditor) {
+    const tagged = editor as IPdfjsEditor & {
+        __freeTextResizeHookPatched?: boolean;
+        __freeTextResizeSyncApplying?: boolean;
+        __freeTextLastWidth?: number;
+        __freeTextLastHeight?: number;
+    };
+    if (tagged.__freeTextResizeHookPatched) {
+        return;
+    }
+
+    const originalOnResized = typeof editor._onResized === 'function'
+        ? editor._onResized.bind(editor)
+        : null;
+
+    editor._onResized = () => {
+        originalOnResized?.();
+        if (tagged.__freeTextResizeSyncApplying) {
+            return;
+        }
+
+        const editorDiv = editor.div;
+        const uiManager = annotationUiManager.value;
+        if (!editorDiv || !uiManager || !editorDiv.isConnected) {
+            return;
+        }
+
+        const rect = editorDiv.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) {
+            return;
+        }
+
+        const previousWidth = tagged.__freeTextLastWidth ?? rect.width;
+        const previousHeight = tagged.__freeTextLastHeight ?? rect.height;
+        tagged.__freeTextLastWidth = rect.width;
+        tagged.__freeTextLastHeight = rect.height;
+        if (previousWidth <= 0 || previousHeight <= 0) {
+            return;
+        }
+
+        const areaScale = Math.sqrt((rect.width * rect.height) / (previousWidth * previousHeight));
+        if (!Number.isFinite(areaScale) || Math.abs(areaScale - 1) < FREE_TEXT_RESIZE_EPSILON) {
+            return;
+        }
+
+        const currentFontSize = getFreeTextEditorFontSize(editor);
+        if (!currentFontSize) {
+            return;
+        }
+
+        const nextFontSize = Math.round(
+            Math.max(
+                FREE_TEXT_FONT_SIZE_MIN,
+                Math.min(FREE_TEXT_FONT_SIZE_MAX, currentFontSize * areaScale),
+            ),
+        );
+        if (nextFontSize === Math.round(currentFontSize)) {
+            return;
+        }
+
+        try {
+            tagged.__freeTextResizeSyncApplying = true;
+            if (typeof editor.updateParams === 'function') {
+                editor.updateParams(AnnotationEditorParamsType.FREETEXT_SIZE, nextFontSize);
+            } else {
+                uiManager.setSelected(editor as TUiManagerSelectedEditor);
+                uiManager.updateParams(AnnotationEditorParamsType.FREETEXT_SIZE, nextFontSize);
+            }
+            emit('annotation-modified');
+            scheduleAnnotationCommentsSync();
+        } catch (error) {
+            console.warn('Failed to synchronize free text font while resizing:', error);
+        } finally {
+            tagged.__freeTextResizeSyncApplying = false;
+        }
+    };
+
+    tagged.__freeTextResizeHookPatched = true;
 }
 
 function compareAnnotationComments(a: IAnnotationCommentSummary, b: IAnnotationCommentSummary) {
@@ -1055,7 +1212,7 @@ function toEditorSummary(
         text,
         kindLabel: annotationKindLabelFromSubtype(subtype),
         subtype,
-        author: null,
+        author: props.authorName?.trim() || null,
         modifiedAt: parsePdfDateTimestamp(data.modificationDate) ?? parsePdfDateTimestamp(data.creationDate),
         color: toCssColor(data.color ?? editor.color, data.opacity ?? editor.opacity ?? 1),
         uid,
@@ -1734,6 +1891,49 @@ function applyAnnotationSettings(settings: IAnnotationSettings | null) {
     syncMarkupSubtypePresentationForEditors();
 }
 
+function errorToLogText(error: unknown) {
+    const message = error instanceof Error
+        ? error.message
+        : typeof error === 'string'
+            ? error
+            : (() => {
+                try {
+                    return JSON.stringify(error);
+                } catch {
+                    return String(error);
+                }
+            })();
+    const stack = error instanceof Error ? error.stack ?? '' : '';
+    return stack
+        ? `${message}\n${stack}`
+        : message;
+}
+
+async function updateModeWithRetry(
+    uiManager: AnnotationEditorUIManager,
+    mode: Parameters<AnnotationEditorUIManager['updateMode']>[0],
+    pageNumber = currentPage.value,
+) {
+    try {
+        await uiManager.updateMode(mode);
+        return null;
+    } catch {
+        try {
+            await uiManager.waitForEditorsRendered(Math.max(1, pageNumber));
+        } catch {
+            // Ignore and retry mode switch once.
+        }
+        await nextTick();
+    }
+
+    try {
+        await uiManager.updateMode(mode);
+        return null;
+    } catch (retryError) {
+        return retryError;
+    }
+}
+
 async function setAnnotationTool(tool: TAnnotationTool) {
     pendingAnnotationTool.value = tool;
     const uiManager = annotationUiManager.value;
@@ -1755,27 +1955,9 @@ async function setAnnotationTool(tool: TAnnotationTool) {
             applyHighlightParamsForTool(uiManager, settings, effectiveTool);
         }
 
-        try {
-            await uiManager.updateMode(mode);
-        } catch (error) {
-            const message = error instanceof Error
-                ? error.message
-                : typeof error === 'string'
-                    ? error
-                    : (() => {
-                        try {
-                            return JSON.stringify(error);
-                        } catch {
-                            return String(error);
-                        }
-                    })();
-
-            const stack = error instanceof Error ? error.stack ?? '' : '';
-            const text = stack
-                ? `Failed to update annotation tool mode: ${message}\n${stack}`
-                : `Failed to update annotation tool mode: ${message}`;
-
-            console.warn(text);
+        const modeError = await updateModeWithRetry(uiManager, mode, currentPage.value);
+        if (modeError) {
+            console.warn(`Failed to update annotation tool mode: ${errorToLogText(modeError)}`);
             return;
         }
 
@@ -3378,11 +3560,9 @@ async function deleteAnnotationComment(comment: IAnnotationCommentSummary) {
     const previousMode = uiManager.getMode();
 
     if (!editor && previousMode === AnnotationEditorType.NONE) {
-        try {
-            await uiManager.updateMode(AnnotationEditorType.POPUP);
+        const switchError = await updateModeWithRetry(uiManager, AnnotationEditorType.POPUP, pageNumber);
+        if (!switchError) {
             switchedToPopupMode = true;
-        } catch {
-            // Ignore mode-switch failure and continue with best effort.
         }
     }
 
@@ -3424,11 +3604,7 @@ async function deleteAnnotationComment(comment: IAnnotationCommentSummary) {
 
     if (!editor) {
         if (switchedToPopupMode) {
-            try {
-                await uiManager.updateMode(previousMode);
-            } catch {
-                // Ignore mode restore failure.
-            }
+            await updateModeWithRetry(uiManager, previousMode, pageNumber);
         }
         return false;
     }
@@ -3457,11 +3633,7 @@ async function deleteAnnotationComment(comment: IAnnotationCommentSummary) {
         }
     } finally {
         if (switchedToPopupMode) {
-            try {
-                await uiManager.updateMode(previousMode);
-            } catch {
-                // Ignore mode restore failure.
-            }
+            await updateModeWithRetry(uiManager, previousMode, pageNumber);
         }
     }
 
@@ -3641,6 +3813,14 @@ function initAnnotationEditor() {
         return result;
     };
 
+    const originalSetSelected = uiManager.setSelected.bind(uiManager);
+    uiManager.setSelected = (editor) => {
+        if (editor) {
+            ensureFreeTextEditorCanResize(editor as IPdfjsEditor);
+        }
+        return originalSetSelected(editor);
+    };
+
     const originalUndo = uiManager.undo.bind(uiManager);
     uiManager.undo = () => {
         const result = originalUndo();
@@ -3796,7 +3976,10 @@ async function highlightSelectionInternal(withComment: boolean, explicitRange: R
     };
 
     try {
-        await uiManager.updateMode(AnnotationEditorType.HIGHLIGHT);
+        const highlightModeError = await updateModeWithRetry(uiManager, AnnotationEditorType.HIGHLIGHT, pageNumber);
+        if (highlightModeError) {
+            throw highlightModeError;
+        }
         await uiManager.waitForEditorsRendered(pageNumber);
 
         const layer = uiManager.getLayer(pageNumber - 1) ?? uiManager.currentLayer;
@@ -3857,19 +4040,7 @@ async function highlightSelectionInternal(withComment: boolean, explicitRange: R
             }
         }
     } catch (error) {
-        const message = error instanceof Error
-            ? error.message
-            : typeof error === 'string'
-                ? error
-                : (() => {
-                    try {
-                        return JSON.stringify(error);
-                    } catch {
-                        return String(error);
-                    }
-                })();
-        const stack = error instanceof Error ? error.stack ?? '' : '';
-        console.warn(stack ? `Failed to highlight selection: ${message}\n${stack}` : `Failed to highlight selection: ${message}`);
+        console.warn(`Failed to highlight selection: ${errorToLogText(error)}`);
     }
 
     if (createdAnnotation) {
@@ -3877,10 +4048,9 @@ async function highlightSelectionInternal(withComment: boolean, explicitRange: R
     }
 
     // If we're doing a one-off highlight (no comment dialog) then restore the previous mode right away.
-    try {
-        await uiManager.updateMode(previousMode);
-    } catch (error) {
-        console.warn('Failed to restore annotation mode:', error);
+    const restoreModeError = await updateModeWithRetry(uiManager, previousMode, pageNumber);
+    if (restoreModeError) {
+        console.warn('Failed to restore annotation mode:', restoreModeError);
     }
 
     return createdAnnotation;
@@ -4304,7 +4474,10 @@ async function commentAtPoint(
 
     const previousMode = uiManager.getMode();
     try {
-        await uiManager.updateMode(AnnotationEditorType.FREETEXT);
+        const freeTextModeError = await updateModeWithRetry(uiManager, AnnotationEditorType.FREETEXT, pageNumber);
+        if (freeTextModeError) {
+            throw freeTextModeError;
+        }
         await uiManager.waitForEditorsRendered(pageNumber);
         const layer = uiManager.getLayer(pageNumber - 1) ?? uiManager.currentLayer;
         if (!layer?.div) {
@@ -4342,7 +4515,7 @@ async function commentAtPoint(
         return true;
     } finally {
         if (previousMode !== AnnotationEditorType.FREETEXT) {
-            await uiManager.updateMode(previousMode);
+            await updateModeWithRetry(uiManager, previousMode, pageNumber);
         }
     }
 }
@@ -4429,7 +4602,15 @@ function handleAnnotationEditorDblClick(event: MouseEvent) {
         return;
     }
 
-    const summary = findAnnotationSummaryFromTarget(event.target);
+    const explicitCommentTrigger = event.target.closest<HTMLElement>(
+        '.pdf-inline-comment-anchor-marker, .pdf-inline-comment-marker, .annotationLayer .popupTriggerArea, .annotation-layer .popupTriggerArea',
+    );
+    if (!explicitCommentTrigger) {
+        return;
+    }
+
+    const summary = findAnnotationSummaryFromTarget(explicitCommentTrigger)
+        ?? findAnnotationSummaryFromPoint(explicitCommentTrigger, event.clientX, event.clientY);
     if (summary) {
         setActiveCommentStableKey(summary.stableKey);
         emit('annotation-open-note', summary);

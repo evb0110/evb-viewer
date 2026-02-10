@@ -4,7 +4,7 @@
             ref="inputRef"
             v-model="searchQuery"
             class="pdf-search-bar__input"
-            placeholder="Search..."
+            :placeholder="t('search.placeholder')"
             autofocus
             @keydown.enter.exact="emit('next')"
             @keydown.shift.enter="emit('previous')"
@@ -13,14 +13,14 @@
                 <UIcon name="i-lucide-search" class="size-4" />
             </template>
             <template #trailing>
-                <UTooltip v-if="searchQuery" text="Clear Search" :delay-duration="1200">
+                <UTooltip v-if="searchQuery" :text="t('search.clearSearch')" :delay-duration="1200">
                     <UButton
                         icon="i-lucide-x"
                         variant="ghost"
                         color="neutral"
                         size="xs"
                         class="pdf-search-bar__clear"
-                        aria-label="Clear search"
+                        :aria-label="t('search.clearSearchLabel')"
                         @click="clearQuery"
                     />
                 </UTooltip>
@@ -28,25 +28,25 @@
         </UInput>
 
         <div class="pdf-search-bar__actions">
-            <UTooltip text="Previous Match" :delay-duration="1200">
+            <UTooltip :text="t('search.previousMatch')" :delay-duration="1200">
                 <UButton
                     icon="i-lucide-chevron-up"
                     variant="ghost"
                     color="neutral"
                     size="xs"
                     :disabled="totalMatches === 0"
-                    aria-label="Previous match"
+                    :aria-label="t('search.previousMatchLabel')"
                     @click="emit('previous')"
                 />
             </UTooltip>
-            <UTooltip text="Next Match" :delay-duration="1200">
+            <UTooltip :text="t('search.nextMatch')" :delay-duration="1200">
                 <UButton
                     icon="i-lucide-chevron-down"
                     variant="ghost"
                     color="neutral"
                     size="xs"
                     :disabled="totalMatches === 0"
-                    aria-label="Next match"
+                    :aria-label="t('search.nextMatchLabel')"
                     @click="emit('next')"
                 />
             </UTooltip>
@@ -59,6 +59,8 @@ import {
     computed,
     ref,
 } from 'vue';
+
+const { t } = useI18n();
 
 interface IProps {
     modelValue: string;

@@ -368,5 +368,17 @@ if (!__preloadAlreadyInstalled) {
             return () => ipcRenderer.removeListener('menu:openRecentFile', handler);
         },
 
+        // Settings API
+        settings: {
+            get: () => ipcRenderer.invoke('settings:get'),
+            save: (settings: unknown) => ipcRenderer.invoke('settings:save', settings),
+        },
+
+        onMenuOpenSettings: (callback: IMenuEventCallback): IMenuEventUnsubscribe => {
+            const handler = (_event: IpcRendererEvent) => callback();
+            ipcRenderer.on('menu:openSettings', handler);
+            return () => ipcRenderer.removeListener('menu:openSettings', handler);
+        },
+
     });
 }

@@ -6,9 +6,9 @@
         >
             <UIcon name="i-lucide-loader-2" class="pdf-search-results-spinner size-4" />
             <span>
-                Searching…
+                {{ t('searchResults.searching') }}
                 <template v-if="progressText">
-                    ({{ progressText }} pages)
+                    ({{ progressText }})
                 </template>
             </span>
         </div>
@@ -17,33 +17,33 @@
             class="pdf-search-results-empty"
         >
             <UIcon name="i-lucide-search" />
-            <span>Enter a search term</span>
+            <span>{{ t('searchResults.enterSearchTerm') }}</span>
         </div>
         <div
             v-else-if="isQueryTooShort"
             class="pdf-search-results-empty"
         >
             <UIcon name="i-lucide-type" />
-            <span>Type at least {{ minQueryLength }} characters</span>
+            <span>{{ t('searchResults.typeMinChars', { count: minQueryLength }) }}</span>
         </div>
         <div
             v-else-if="!isSearching && results.length === 0"
             class="pdf-search-results-empty"
         >
             <UIcon name="i-lucide-search-x" />
-            <span>No results found</span>
+            <span>{{ t('searchResults.noResults') }}</span>
         </div>
         <div
             v-else-if="results.length > 0"
             class="pdf-search-results-list"
         >
             <div class="pdf-search-results-header">
-                {{ results.length }} result{{ results.length === 1 ? '' : 's' }} for "{{ trimmedQuery }}"
+                {{ t('searchResults.resultCount', { count: results.length }) }} {{ t('searchResults.forQuery', { query: trimmedQuery }) }}
                 <div
                     v-if="isTruncated"
                     class="pdf-search-results-truncated"
                 >
-                    Showing first {{ results.length }} results — keep typing to narrow
+                    {{ t('searchResults.showingFirst', { count: results.length }) }}
                 </div>
             </div>
             <PdfSearchResultItem
@@ -62,6 +62,8 @@
 import { computed } from 'vue';
 import type { IPdfSearchMatch } from '@app/types/pdf';
 import PdfSearchResultItem from '@app/components/pdf/PdfSearchResultItem.vue';
+
+const { t } = useI18n();
 
 interface IProps {
     results: IPdfSearchMatch[];
@@ -102,7 +104,10 @@ const progressText = computed(() => {
 
     const total = props.searchProgress.total;
     const processed = Math.min(props.searchProgress.processed, total);
-    return `${processed}/${total}`;
+    return t('searchResults.pagesProgress', {
+        processed,
+        total, 
+    });
 });
 </script>
 

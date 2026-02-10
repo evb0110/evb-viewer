@@ -27,15 +27,15 @@
                     </button>
                 </UTooltip>
                 <UTooltip
-                    :text="isEditMode ? 'Exit bookmark edit mode' : 'Enter bookmark edit mode'"
+                    :text="isEditMode ? t('bookmarks.exitEditMode') : t('bookmarks.enterEditMode')"
                     :delay-duration="800"
                 >
                     <button
                         type="button"
                         class="pdf-bookmarks-view-mode-button"
                         :class="{ 'is-active': isEditMode }"
-                        :title="isEditMode ? 'Exit bookmark edit mode' : 'Enter bookmark edit mode'"
-                        :aria-label="isEditMode ? 'Exit bookmark edit mode' : 'Enter bookmark edit mode'"
+                        :title="isEditMode ? t('bookmarks.exitEditMode') : t('bookmarks.enterEditMode')"
+                        :aria-label="isEditMode ? t('bookmarks.exitEditMode') : t('bookmarks.enterEditMode')"
                         @click="isEditMode = !isEditMode"
                     >
                         <UIcon
@@ -49,14 +49,14 @@
             <div class="pdf-bookmarks-toolbar-actions">
                 <UTooltip
                     v-if="isEditMode"
-                    text="Add top-level bookmark"
+                    :text="t('bookmarks.addTopLevel')"
                     :delay-duration="800"
                 >
                     <button
                         type="button"
                         class="pdf-bookmarks-icon-button"
-                        title="Add top-level bookmark"
-                        aria-label="Add top-level bookmark"
+                        :title="t('bookmarks.addTopLevel')"
+                        :aria-label="t('bookmarks.addTopLevel')"
                         @click="addRootBookmark"
                     >
                         <UIcon
@@ -84,7 +84,7 @@
             class="pdf-bookmarks-empty"
         >
             <UIcon name="i-lucide-book-open" />
-            <span>No bookmarks available</span>
+            <span>{{ t('bookmarks.noBookmarks') }}</span>
             <button
                 v-if="isEditMode"
                 type="button"
@@ -149,34 +149,34 @@
             <button
                 type="button"
                 class="bookmarks-context-menu-action"
-                title="Edit bookmark"
+                :title="t('bookmarks.editBookmark')"
                 @click="startEditingBookmark(selectedContextBookmark.id)"
             >
-                Edit bookmark
+                {{ t('bookmarks.editBookmark') }}
             </button>
             <button
                 type="button"
                 class="bookmarks-context-menu-action"
-                title="Add sibling above"
+                :title="t('bookmarks.addSiblingAbove')"
                 @click="addSiblingAbove(selectedContextBookmark.id)"
             >
-                Add sibling above
+                {{ t('bookmarks.addSiblingAbove') }}
             </button>
             <button
                 type="button"
                 class="bookmarks-context-menu-action"
-                title="Add sibling below"
+                :title="t('bookmarks.addSiblingBelow')"
                 @click="addSiblingBelow(selectedContextBookmark.id)"
             >
-                Add sibling below
+                {{ t('bookmarks.addSiblingBelow') }}
             </button>
             <button
                 type="button"
                 class="bookmarks-context-menu-action"
-                title="Add child bookmark"
+                :title="t('bookmarks.addChild')"
                 @click="addChildBookmark(selectedContextBookmark.id)"
             >
-                Add child
+                {{ t('bookmarks.addChild') }}
             </button>
             <div class="bookmarks-context-menu-divider" />
 
@@ -186,7 +186,7 @@
                         type="button"
                         class="bookmarks-style-toggle"
                         :class="{ 'is-active': selectedContextBookmark.bold }"
-                        :title="selectedContextBookmark.bold ? 'Disable bold' : 'Enable bold'"
+                        :title="selectedContextBookmark.bold ? t('bookmarks.disableBold') : t('bookmarks.enableBold')"
                         @click="toggleBookmarkBold(selectedContextBookmark.id)"
                     >
                         B
@@ -195,7 +195,7 @@
                         type="button"
                         class="bookmarks-style-toggle"
                         :class="{ 'is-active': selectedContextBookmark.italic }"
-                        :title="selectedContextBookmark.italic ? 'Disable italic' : 'Enable italic'"
+                        :title="selectedContextBookmark.italic ? t('bookmarks.disableItalic') : t('bookmarks.enableItalic')"
                         @click="toggleBookmarkItalic(selectedContextBookmark.id)"
                     >
                         I
@@ -204,7 +204,7 @@
                         type="button"
                         class="bookmarks-style-toggle"
                         :class="{ 'is-active': !selectedContextBookmark.color }"
-                        title="Use default text color"
+                        :title="t('bookmarks.defaultColor')"
                         @click="setBookmarkColor(selectedContextBookmark.id, null)"
                     >
                         A
@@ -228,10 +228,10 @@
             <button
                 type="button"
                 class="bookmarks-context-menu-action"
-                title="Set style range start"
+                :title="t('bookmarks.setStyleStart')"
                 @click="setStyleRangeStart(selectedContextBookmark.id)"
             >
-                {{ selectedContextBookmark.id === styleRangeStartId ? 'Range start set' : 'Set style range start' }}
+                {{ selectedContextBookmark.id === styleRangeStartId ? 'Range start set' : t('bookmarks.setStyleStart') }}
             </button>
             <button
                 type="button"
@@ -247,10 +247,10 @@
             <button
                 type="button"
                 class="bookmarks-context-menu-action is-danger"
-                title="Remove bookmark"
+                :title="t('bookmarks.removeBookmark')"
                 @click="removeBookmark(selectedContextBookmark.id)"
             >
-                Remove bookmark
+                {{ t('bookmarks.removeBookmark') }}
             </button>
         </div>
     </div>
@@ -349,6 +349,8 @@ const emit = defineEmits<{
     }): void;
     (e: 'update:isEditMode', value: boolean): void;
 }>();
+
+const { t } = useI18n();
 
 const bookmarkColorPresets = [
     '#1f2937',
@@ -845,7 +847,7 @@ function setDisplayMode(mode: TBookmarkDisplayMode) {
 function createDraftBookmark(): IBookmarkItem {
     return {
         id: createBookmarkId(),
-        title: 'New Bookmark',
+        title: t('bookmarks.newBookmark'),
         dest: null,
         pageIndex: Math.max(0, (props.currentPage || 1) - 1),
         bold: false,

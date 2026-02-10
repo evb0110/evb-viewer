@@ -2,8 +2,8 @@
     <div class="notes-panel" @click="closeContextMenu">
         <section class="notes-section notes-tools">
             <header class="notes-section-header">
-                <h3 class="notes-section-title">Create</h3>
-                <p class="notes-section-description">Pick a tool and annotate directly on the page.</p>
+                <h3 class="notes-section-title">{{ t('annotations.create') }}</h3>
+                <p class="notes-section-description">{{ t('annotations.createDescription') }}</p>
             </header>
 
             <div class="tool-grid">
@@ -26,18 +26,18 @@
                     :checked="keepActive"
                     @change="emit('update:keep-active', ($event.target as HTMLInputElement).checked)"
                 />
-                Keep selected tool active
+                {{ t('annotations.keepActive') }}
             </label>
         </section>
 
         <section class="notes-section notes-style">
             <header class="notes-section-header">
-                <h3 class="notes-section-title">Style</h3>
-                <p class="notes-section-description">Color and size for the currently selected tool.</p>
+                <h3 class="notes-section-title">{{ t('annotations.style') }}</h3>
+                <p class="notes-section-description">{{ t('annotations.styleDescription') }}</p>
             </header>
 
             <div class="style-row">
-                <label class="style-label" for="annotation-color-input">Color</label>
+                <label class="style-label" for="annotation-color-input">{{ t('annotations.color') }}</label>
                 <input
                     id="annotation-color-input"
                     class="style-color"
@@ -67,7 +67,7 @@
                     <button
                         type="button"
                         class="style-step-button"
-                        aria-label="Decrease width"
+                        :aria-label="t('annotations.decreaseWidth')"
                         @click="nudgeWidth(-activeWidthControl.step)"
                     >
                         -
@@ -85,7 +85,7 @@
                     <button
                         type="button"
                         class="style-step-button"
-                        aria-label="Increase width"
+                        :aria-label="t('annotations.increaseWidth')"
                         @click="nudgeWidth(activeWidthControl.step)"
                     >
                         +
@@ -94,7 +94,7 @@
             </div>
 
             <div v-if="tool === 'draw'" class="draw-style-row">
-                <span class="style-label">Pen Type</span>
+                <span class="style-label">{{ t('annotations.penType') }}</span>
                 <div class="draw-style-list">
                     <button
                         v-for="preset in drawStylePresets"
@@ -112,8 +112,8 @@
 
         <section class="notes-section notes-sticky">
             <header class="notes-section-header">
-                <h3 class="notes-section-title">Sticky Notes</h3>
-                <p class="notes-section-description">Create notes from selected text or place one anywhere on a page.</p>
+                <h3 class="notes-section-title">{{ t('annotations.stickyNotes') }}</h3>
+                <p class="notes-section-description">{{ t('annotations.stickyDescription') }}</p>
             </header>
 
             <div class="sticky-actions">
@@ -123,7 +123,7 @@
                     @click="emit('comment-selection')"
                 >
                     <UIcon name="i-lucide-message-circle" class="sticky-action-icon" />
-                    <span>Add Note to Selection</span>
+                    <span>{{ t('annotations.addNoteToSelection') }}</span>
                 </button>
                 <button
                     type="button"
@@ -132,19 +132,19 @@
                     @click="emit('start-place-note')"
                 >
                     <UIcon name="i-lucide-plus" class="sticky-action-icon" />
-                    <span>{{ placingPageNote ? 'Cancel Place Mode' : 'Place Note on Page' }}</span>
+                    <span>{{ placingPageNote ? t('annotations.cancelPlaceMode') : t('annotations.placeNoteOnPage') }}</span>
                 </button>
             </div>
 
             <p class="sticky-hint">
-                {{ placingPageNote ? 'Click inside the document to place a sticky note.' : 'Use “Place Note on Page”, then click where the note should appear.' }}
+                {{ placingPageNote ? t('annotations.placeHint') : t('annotations.defaultHint') }}
             </p>
         </section>
 
         <section v-if="pagesWithNotes.length > 0" class="notes-section notes-pages">
             <header class="notes-section-header">
-                <h3 class="notes-section-title">Where Notes Are</h3>
-                <p class="notes-section-description">Pages that contain textual notes.</p>
+                <h3 class="notes-section-title">{{ t('annotations.whereNotes') }}</h3>
+                <p class="notes-section-description">{{ t('annotations.whereNotesDescription') }}</p>
             </header>
 
             <div class="page-chip-list">
@@ -156,8 +156,8 @@
                     :class="{ 'is-current': item.pageNumber === currentPage }"
                     @click="focusFirstCommentOnPage(item.pageNumber)"
                 >
-                    <span class="page-chip-label">Page {{ item.pageNumber }}</span>
-                    <span class="page-chip-count">• {{ item.noteCount }} note{{ item.noteCount === 1 ? '' : 's' }}</span>
+                    <span class="page-chip-label">{{ t('annotations.page') }} {{ item.pageNumber }}</span>
+                    <span class="page-chip-count">• {{ t('annotations.noteCount', item.noteCount) }}</span>
                 </button>
             </div>
         </section>
@@ -171,7 +171,7 @@
                         :aria-expanded="open ? 'true' : 'false'"
                     >
                         <span class="notes-list-trigger-meta">
-                            <h3 class="notes-section-title">Notes List</h3>
+                            <h3 class="notes-section-title">{{ t('annotations.notesList') }}</h3>
                             <span class="notes-count">{{ filteredComments.length }}</span>
                         </span>
                         <UIcon
@@ -187,7 +187,7 @@
                         v-model.trim="query"
                         type="search"
                         class="notes-search"
-                        placeholder="Search notes, author, page..."
+                        :placeholder="t('annotations.searchNotes')"
                     />
 
                     <div class="notes-list app-scrollbar" @click.self="selectedStableKey = null">
@@ -207,13 +207,13 @@
                             </span>
                             <span class="note-item-text">{{ notePreview(comment) }}</span>
                             <span class="note-item-meta">
-                                <span>{{ comment.author || 'Unknown author' }}</span>
+                                <span>{{ comment.author || appSettings.authorName || t('annotations.unknownAuthor') }}</span>
                                 <span v-if="comment.modifiedAt">{{ formatTime(comment.modifiedAt) }}</span>
                             </span>
                         </button>
 
                         <p v-if="filteredComments.length === 0" class="notes-empty">
-                            No notes found.
+                            {{ t('annotations.noNotesFound') }}
                         </p>
                     </div>
 
@@ -224,7 +224,7 @@
                             :disabled="!selectedComment"
                             @click="openSelectedComment"
                         >
-                            Open Note
+                            {{ t('annotations.openNote') }}
                         </button>
                         <button
                             type="button"
@@ -232,7 +232,7 @@
                             :disabled="!canCopySelectedComment"
                             @click="copySelectedComment"
                         >
-                            Copy Text
+                            {{ t('annotations.copyText') }}
                         </button>
                         <button
                             type="button"
@@ -240,7 +240,7 @@
                             :disabled="!selectedComment"
                             @click="deleteSelectedComment"
                         >
-                            Delete
+                            {{ t('annotations.delete') }}
                         </button>
                     </div>
                 </template>
@@ -259,7 +259,7 @@
                 :disabled="!contextMenu.comment"
                 @click="openContextComment"
             >
-                Open Note
+                {{ t('annotations.openNote') }}
             </button>
             <button
                 type="button"
@@ -267,7 +267,7 @@
                 :disabled="!contextMenu.comment"
                 @click="copyContextComment"
             >
-                Copy Text
+                {{ t('annotations.copyText') }}
             </button>
             <button
                 type="button"
@@ -275,7 +275,7 @@
                 :disabled="!contextMenu.comment"
                 @click="deleteContextComment"
             >
-                Delete
+                {{ t('annotations.delete') }}
             </button>
         </div>
     </div>
@@ -332,6 +332,9 @@ interface IDrawStylePreset {
     opacity: number;
 }
 
+const { t } = useI18n();
+const { settings: appSettings } = useSettings();
+
 const props = defineProps<IProps>();
 
 const emit = defineEmits<{
@@ -349,68 +352,68 @@ const emit = defineEmits<{
     (e: 'start-place-note'): void;
 }>();
 
-const toolItems: IToolItem[] = [
+const toolItems = computed<IToolItem[]>(() => [
     {
         id: 'none',
-        label: 'Cursor',
+        label: t('annotations.cursor'),
         icon: 'i-lucide-mouse-pointer',
         hint: 'Navigate and select existing annotations',
     },
     {
         id: 'draw',
-        label: 'Draw',
+        label: t('annotations.draw'),
         icon: 'i-lucide-pen-tool',
         hint: 'Freehand pen or pencil drawing',
     },
     {
         id: 'text',
-        label: 'Text',
+        label: t('annotations.text'),
         icon: 'i-lucide-type',
         hint: 'Place free text on the page',
     },
     {
         id: 'highlight',
-        label: 'Highlight',
+        label: t('annotations.highlight'),
         icon: 'i-lucide-highlighter',
         hint: 'Highlight text selection',
     },
     {
         id: 'underline',
-        label: 'Underline',
+        label: t('annotations.underline'),
         icon: 'i-lucide-underline',
         hint: 'Underline text selection',
     },
     {
         id: 'strikethrough',
-        label: 'Strike',
+        label: t('annotations.strikethrough'),
         icon: 'i-lucide-strikethrough',
         hint: 'Cross out text selection',
     },
     {
         id: 'rectangle',
-        label: 'Rect',
+        label: t('annotations.rectangle'),
         icon: 'i-lucide-square',
         hint: 'Draw rectangle shapes',
     },
     {
         id: 'circle',
-        label: 'Circle',
+        label: t('annotations.circle'),
         icon: 'i-lucide-circle',
         hint: 'Draw circle shapes',
     },
     {
         id: 'line',
-        label: 'Line',
+        label: t('annotations.line'),
         icon: 'i-lucide-minus',
         hint: 'Draw straight lines',
     },
     {
         id: 'arrow',
-        label: 'Arrow',
+        label: t('annotations.arrow'),
         icon: 'i-lucide-arrow-up-right',
         hint: 'Draw arrows',
     },
-];
+]);
 
 const colorSwatches = [
     '#111827',
@@ -424,26 +427,26 @@ const colorSwatches = [
     '#ec4899',
 ];
 
-const drawStylePresets: IDrawStylePreset[] = [
+const drawStylePresets = computed<IDrawStylePreset[]>(() => [
     {
         id: 'pen',
-        label: 'Pen',
+        label: t('annotations.pen'),
         thickness: 2,
         opacity: 0.95,
     },
     {
         id: 'pencil',
-        label: 'Pencil',
+        label: t('annotations.pencil'),
         thickness: 1,
         opacity: 0.55,
     },
     {
         id: 'marker',
-        label: 'Marker',
+        label: t('annotations.marker'),
         thickness: 6,
         opacity: 0.42,
     },
-];
+]);
 
 const query = ref('');
 const selectedStableKey = ref<string | null>(null);
@@ -629,43 +632,43 @@ function commentTypeLabel(comment: IAnnotationCommentSummary) {
 
     const subtype = (comment.subtype ?? '').toLowerCase();
     if (subtype.includes('highlight')) {
-        return 'Highlight';
+        return t('annotations.highlightLabel');
     }
     if (subtype.includes('underline')) {
-        return 'Underline';
+        return t('annotations.underlineLabel');
     }
     if (subtype.includes('strike')) {
-        return 'Strike Out';
+        return t('annotations.strikeOutLabel');
     }
     if (subtype.includes('squiggly')) {
-        return 'Squiggle';
+        return t('annotations.squiggleLabel');
     }
     if (subtype.includes('ink')) {
-        return 'Ink';
+        return t('annotations.inkLabel');
     }
     if (subtype.includes('text') || subtype.includes('popup') || subtype.includes('note')) {
-        return 'Sticky Note';
+        return t('annotations.stickyNoteLabel');
     }
     if (subtype.includes('square') || subtype.includes('rectangle')) {
-        return 'Rectangle';
+        return t('annotations.rectangleLabel');
     }
     if (subtype.includes('circle')) {
-        return 'Circle';
+        return t('annotations.circleLabel');
     }
     if (subtype.includes('line')) {
-        return 'Line';
+        return t('annotations.lineLabel');
     }
     if (subtype.includes('arrow')) {
-        return 'Arrow';
+        return t('annotations.arrowLabel');
     }
 
-    return 'Annotation';
+    return t('annotations.annotationLabel');
 }
 
 function notePreview(comment: IAnnotationCommentSummary) {
     const text = comment.text.trim();
     if (!text) {
-        return 'Empty note';
+        return t('annotations.emptyNote');
     }
 
     return text;
@@ -788,7 +791,7 @@ const activeWidthControl = computed<IWidthControl | null>(() => {
             min: 1,
             max: 24,
             step: 1,
-            label: 'Draw Thickness',
+            label: t('annotations.drawThickness'),
         };
     }
 
@@ -798,7 +801,7 @@ const activeWidthControl = computed<IWidthControl | null>(() => {
             min: 4,
             max: 24,
             step: 1,
-            label: 'Thickness',
+            label: t('annotations.thickness'),
         };
     }
 
@@ -808,7 +811,7 @@ const activeWidthControl = computed<IWidthControl | null>(() => {
             min: 1,
             max: 10,
             step: 0.5,
-            label: 'Stroke',
+            label: t('annotations.stroke'),
         };
     }
 
@@ -818,7 +821,7 @@ const activeWidthControl = computed<IWidthControl | null>(() => {
             min: 8,
             max: 72,
             step: 1,
-            label: 'Text Size',
+            label: t('annotations.textSize'),
         };
     }
 
@@ -899,7 +902,7 @@ function nudgeWidth(delta: number) {
 }
 
 function applyDrawStyle(style: TDrawStyle) {
-    const preset = drawStylePresets.find(item => item.id === style);
+    const preset = drawStylePresets.value.find(item => item.id === style);
     if (!preset) {
         return;
     }

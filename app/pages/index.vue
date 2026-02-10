@@ -2,21 +2,34 @@
     <div class="h-screen flex flex-col bg-neutral-100 dark:bg-neutral-900">
         <!-- Toolbar -->
         <header class="toolbar">
-            <UTooltip v-if="!pdfSrc" text="Open PDF" :delay-duration="1200">
-                <UButton
-                    icon="i-lucide-folder-open"
-                    variant="ghost"
-                    color="neutral"
-                    class="toolbar-icon-button"
-                    aria-label="Open PDF"
-                    @click="handleOpenFileFromUi"
-                />
-            </UTooltip>
+            <template v-if="!pdfSrc">
+                <UTooltip :text="t('toolbar.openPdf')" :delay-duration="1200">
+                    <UButton
+                        icon="i-lucide-folder-open"
+                        variant="ghost"
+                        color="neutral"
+                        class="toolbar-icon-button"
+                        :aria-label="t('toolbar.openPdf')"
+                        @click="handleOpenFileFromUi"
+                    />
+                </UTooltip>
+                <div class="flex-1" />
+                <UTooltip :text="t('toolbar.settings')" :delay-duration="1200">
+                    <UButton
+                        icon="i-lucide-settings"
+                        variant="ghost"
+                        color="neutral"
+                        class="toolbar-icon-button"
+                        :aria-label="t('toolbar.settings')"
+                        @click="showSettings = true"
+                    />
+                </UTooltip>
+            </template>
 
             <template v-if="pdfSrc">
                 <!-- Left section: File & view controls -->
                 <div class="toolbar-section">
-                    <UTooltip text="Save" :delay-duration="1200">
+                    <UTooltip :text="t('toolbar.save')" :delay-duration="1200">
                         <UButton
                             icon="i-lucide-save"
                             variant="ghost"
@@ -24,11 +37,11 @@
                             class="toolbar-icon-button"
                             :disabled="!canSave || isAnySaving || isHistoryBusy"
                             :loading="isSaving"
-                            aria-label="Save"
+                            :aria-label="t('toolbar.save')"
                             @click="handleSave(); closeAllDropdowns()"
                         />
                     </UTooltip>
-                    <UTooltip text="Save As…" :delay-duration="1200">
+                    <UTooltip :text="t('toolbar.saveAs')" :delay-duration="1200">
                         <UButton
                             icon="i-lucide-save-all"
                             variant="ghost"
@@ -36,11 +49,11 @@
                             class="toolbar-icon-button"
                             :disabled="!pdfSrc || isAnySaving || isHistoryBusy"
                             :loading="isSavingAs"
-                            aria-label="Save As"
+                            :aria-label="t('toolbar.saveAs')"
                             @click="handleSaveAs(); closeAllDropdowns()"
                         />
                     </UTooltip>
-                    <UTooltip text="Export DOCX" :delay-duration="1200">
+                    <UTooltip :text="t('toolbar.exportDocx')" :delay-duration="1200">
                         <UButton
                             icon="i-lucide-file-text"
                             variant="ghost"
@@ -48,106 +61,106 @@
                             class="toolbar-icon-button"
                             :disabled="!workingCopyPath || isAnySaving || isHistoryBusy || isExportingDocx"
                             :loading="isExportingDocx"
-                            aria-label="Export DOCX"
+                            :aria-label="t('toolbar.exportDocx')"
                             @click="handleExportDocx(); closeAllDropdowns()"
                         />
                     </UTooltip>
 
                     <div class="toolbar-button-group">
                         <div class="toolbar-group-item">
-                            <UTooltip text="Undo" :delay-duration="1200">
+                            <UTooltip :text="t('toolbar.undo')" :delay-duration="1200">
                                 <UButton
                                     icon="i-lucide-undo-2"
                                     variant="ghost"
                                     color="neutral"
                                     class="toolbar-group-button"
                                     :disabled="!canUndo || isHistoryBusy || isAnySaving"
-                                    aria-label="Undo"
+                                    :aria-label="t('toolbar.undo')"
                                     @click="handleUndo(); closeAllDropdowns()"
                                 />
                             </UTooltip>
                         </div>
                         <div class="toolbar-group-item">
-                            <UTooltip text="Redo" :delay-duration="1200">
+                            <UTooltip :text="t('toolbar.redo')" :delay-duration="1200">
                                 <UButton
                                     icon="i-lucide-redo-2"
                                     variant="ghost"
                                     color="neutral"
                                     class="toolbar-group-button"
                                     :disabled="!canRedo || isHistoryBusy || isAnySaving"
-                                    aria-label="Redo"
+                                    :aria-label="t('toolbar.redo')"
                                     @click="handleRedo(); closeAllDropdowns()"
                                 />
                             </UTooltip>
                         </div>
                     </div>
 
-                    <UTooltip text="Toggle Sidebar" :delay-duration="1200">
+                    <UTooltip :text="t('toolbar.toggleSidebar')" :delay-duration="1200">
                         <UButton
                             icon="i-lucide-panel-left"
                             :variant="showSidebar ? 'soft' : 'ghost'"
                             :color="showSidebar ? 'primary' : 'neutral'"
                             class="toolbar-icon-button"
-                            aria-label="Toggle sidebar"
+                            :aria-label="t('toolbar.toggleSidebar')"
                             @click="showSidebar = !showSidebar; closeAllDropdowns()"
                         />
                     </UTooltip>
-                    <UTooltip text="Annotations" :delay-duration="1200">
+                    <UTooltip :text="t('toolbar.annotations')" :delay-duration="1200">
                         <UButton
                             icon="i-lucide-pen-tool"
                             :variant="isAnnotationPanelOpen ? 'soft' : 'ghost'"
                             :color="isAnnotationPanelOpen ? 'primary' : 'neutral'"
                             class="toolbar-icon-button"
-                            aria-label="Annotations"
+                            :aria-label="t('toolbar.annotations')"
                             @click="openAnnotations(); closeAllDropdowns()"
                         />
                     </UTooltip>
 
                     <div v-if="pdfSrc" class="toolbar-button-group">
                         <div class="toolbar-group-item">
-                            <UTooltip text="Free Text (T)" :delay-duration="1200">
+                            <UTooltip :text="t('toolbar.freeText')" :delay-duration="1200">
                                 <UButton
                                     icon="i-lucide-type"
                                     :variant="annotationTool === 'text' ? 'soft' : 'ghost'"
                                     :color="annotationTool === 'text' ? 'primary' : 'neutral'"
                                     class="toolbar-group-button"
-                                    aria-label="Free text"
+                                    :aria-label="t('toolbar.freeText')"
                                     @click="handleAnnotationToolChange(annotationTool === 'text' ? 'none' : 'text'); closeAllDropdowns()"
                                 />
                             </UTooltip>
                         </div>
                         <div class="toolbar-group-item">
-                            <UTooltip text="Highlight (H)" :delay-duration="1200">
+                            <UTooltip :text="t('toolbar.highlight')" :delay-duration="1200">
                                 <UButton
                                     icon="i-lucide-highlighter"
                                     :variant="annotationTool === 'highlight' ? 'soft' : 'ghost'"
                                     :color="annotationTool === 'highlight' ? 'primary' : 'neutral'"
                                     class="toolbar-group-button"
-                                    aria-label="Highlight"
+                                    :aria-label="t('toolbar.highlight')"
                                     @click="handleAnnotationToolChange(annotationTool === 'highlight' ? 'none' : 'highlight'); closeAllDropdowns()"
                                 />
                             </UTooltip>
                         </div>
                         <div class="toolbar-group-item">
-                            <UTooltip text="Underline (U)" :delay-duration="1200">
+                            <UTooltip :text="t('toolbar.underline')" :delay-duration="1200">
                                 <UButton
                                     icon="i-lucide-underline"
                                     :variant="annotationTool === 'underline' ? 'soft' : 'ghost'"
                                     :color="annotationTool === 'underline' ? 'primary' : 'neutral'"
                                     class="toolbar-group-button"
-                                    aria-label="Underline"
+                                    :aria-label="t('toolbar.underline')"
                                     @click="handleAnnotationToolChange(annotationTool === 'underline' ? 'none' : 'underline'); closeAllDropdowns()"
                                 />
                             </UTooltip>
                         </div>
                         <div class="toolbar-group-item">
-                            <UTooltip text="Strikethrough (S)" :delay-duration="1200">
+                            <UTooltip :text="t('toolbar.strikethrough')" :delay-duration="1200">
                                 <UButton
                                     icon="i-lucide-strikethrough"
                                     :variant="annotationTool === 'strikethrough' ? 'soft' : 'ghost'"
                                     :color="annotationTool === 'strikethrough' ? 'primary' : 'neutral'"
                                     class="toolbar-group-button"
-                                    aria-label="Strikethrough"
+                                    :aria-label="t('toolbar.strikethrough')"
                                     @click="handleAnnotationToolChange(annotationTool === 'strikethrough' ? 'none' : 'strikethrough'); closeAllDropdowns()"
                                 />
                             </UTooltip>
@@ -156,49 +169,49 @@
 
                     <div v-if="pdfSrc" class="toolbar-button-group">
                         <div class="toolbar-group-item">
-                            <UTooltip text="Rectangle (R)" :delay-duration="1200">
+                            <UTooltip :text="t('toolbar.rectangle')" :delay-duration="1200">
                                 <UButton
                                     icon="i-lucide-square"
                                     :variant="annotationTool === 'rectangle' ? 'soft' : 'ghost'"
                                     :color="annotationTool === 'rectangle' ? 'primary' : 'neutral'"
                                     class="toolbar-group-button"
-                                    aria-label="Rectangle"
+                                    :aria-label="t('toolbar.rectangle')"
                                     @click="handleAnnotationToolChange(annotationTool === 'rectangle' ? 'none' : 'rectangle'); closeAllDropdowns()"
                                 />
                             </UTooltip>
                         </div>
                         <div class="toolbar-group-item">
-                            <UTooltip text="Circle (C)" :delay-duration="1200">
+                            <UTooltip :text="t('toolbar.circle')" :delay-duration="1200">
                                 <UButton
                                     icon="i-lucide-circle"
                                     :variant="annotationTool === 'circle' ? 'soft' : 'ghost'"
                                     :color="annotationTool === 'circle' ? 'primary' : 'neutral'"
                                     class="toolbar-group-button"
-                                    aria-label="Circle"
+                                    :aria-label="t('toolbar.circle')"
                                     @click="handleAnnotationToolChange(annotationTool === 'circle' ? 'none' : 'circle'); closeAllDropdowns()"
                                 />
                             </UTooltip>
                         </div>
                         <div class="toolbar-group-item">
-                            <UTooltip text="Line (L)" :delay-duration="1200">
+                            <UTooltip :text="t('toolbar.line')" :delay-duration="1200">
                                 <UButton
                                     icon="i-lucide-minus"
                                     :variant="annotationTool === 'line' ? 'soft' : 'ghost'"
                                     :color="annotationTool === 'line' ? 'primary' : 'neutral'"
                                     class="toolbar-group-button"
-                                    aria-label="Line"
+                                    :aria-label="t('toolbar.line')"
                                     @click="handleAnnotationToolChange(annotationTool === 'line' ? 'none' : 'line'); closeAllDropdowns()"
                                 />
                             </UTooltip>
                         </div>
                         <div class="toolbar-group-item">
-                            <UTooltip text="Arrow (A)" :delay-duration="1200">
+                            <UTooltip :text="t('toolbar.arrow')" :delay-duration="1200">
                                 <UButton
                                     icon="i-lucide-arrow-up-right"
                                     :variant="annotationTool === 'arrow' ? 'soft' : 'ghost'"
                                     :color="annotationTool === 'arrow' ? 'primary' : 'neutral'"
                                     class="toolbar-group-button"
-                                    aria-label="Arrow"
+                                    :aria-label="t('toolbar.arrow')"
                                     @click="handleAnnotationToolChange(annotationTool === 'arrow' ? 'none' : 'arrow'); closeAllDropdowns()"
                                 />
                             </UTooltip>
@@ -234,37 +247,37 @@
 
                     <div class="toolbar-button-group">
                         <div class="toolbar-group-item">
-                            <UTooltip text="Fit Width" :delay-duration="1200">
+                            <UTooltip :text="t('zoom.fitWidth')" :delay-duration="1200">
                                 <UButton
                                     icon="i-lucide-move-horizontal"
                                     :variant="isFitWidthActive ? 'soft' : 'ghost'"
                                     :color="isFitWidthActive ? 'primary' : 'neutral'"
                                     class="toolbar-group-button"
-                                    aria-label="Fit width"
+                                    :aria-label="t('zoom.fitWidth')"
                                     @click="handleFitMode('width'); closeAllDropdowns()"
                                 />
                             </UTooltip>
                         </div>
                         <div class="toolbar-group-item">
-                            <UTooltip text="Fit Height" :delay-duration="1200">
+                            <UTooltip :text="t('zoom.fitHeight')" :delay-duration="1200">
                                 <UButton
                                     icon="i-lucide-move-vertical"
                                     :variant="isFitHeightActive ? 'soft' : 'ghost'"
                                     :color="isFitHeightActive ? 'primary' : 'neutral'"
                                     class="toolbar-group-button"
-                                    aria-label="Fit height"
+                                    :aria-label="t('zoom.fitHeight')"
                                     @click="handleFitMode('height'); closeAllDropdowns()"
                                 />
                             </UTooltip>
                         </div>
                         <div class="toolbar-group-item">
-                            <UTooltip text="Continuous Scroll" :delay-duration="1200">
+                            <UTooltip :text="t('zoom.continuousScroll')" :delay-duration="1200">
                                 <UButton
                                     icon="i-lucide-scroll"
                                     :variant="continuousScroll ? 'soft' : 'ghost'"
                                     :color="continuousScroll ? 'primary' : 'neutral'"
                                     class="toolbar-group-button"
-                                    aria-label="Continuous scroll"
+                                    :aria-label="t('zoom.continuousScroll')"
                                     @click="continuousScroll = !continuousScroll; closeAllDropdowns()"
                                 />
                             </UTooltip>
@@ -284,25 +297,25 @@
 
                     <div class="toolbar-button-group">
                         <div class="toolbar-group-item">
-                            <UTooltip text="Hand Tool" :delay-duration="1200">
+                            <UTooltip :text="t('zoom.handTool')" :delay-duration="1200">
                                 <UButton
                                     icon="i-lucide-hand"
                                     :variant="dragMode ? 'soft' : 'ghost'"
                                     :color="dragMode ? 'primary' : 'neutral'"
                                     class="toolbar-group-button"
-                                    aria-label="Hand tool"
+                                    :aria-label="t('zoom.handTool')"
                                     @click="enableDragMode(); closeAllDropdowns()"
                                 />
                             </UTooltip>
                         </div>
                         <div class="toolbar-group-item">
-                            <UTooltip text="Text Select" :delay-duration="1200">
+                            <UTooltip :text="t('zoom.textSelect')" :delay-duration="1200">
                                 <UButton
                                     icon="i-lucide-text-cursor"
                                     :variant="!dragMode ? 'soft' : 'ghost'"
                                     :color="!dragMode ? 'primary' : 'neutral'"
                                     class="toolbar-group-button"
-                                    aria-label="Text select"
+                                    :aria-label="t('zoom.textSelect')"
                                     @click="dragMode = false; closeAllDropdowns()"
                                 />
                             </UTooltip>
@@ -313,15 +326,25 @@
                 <!-- Spacer to push right section -->
                 <div class="flex-1" />
 
-                <!-- Right section: Window control -->
+                <!-- Right section: Settings & window control -->
                 <div class="toolbar-section">
-                    <UTooltip text="Close File" :delay-duration="1200">
+                    <UTooltip :text="t('toolbar.settings')" :delay-duration="1200">
+                        <UButton
+                            icon="i-lucide-settings"
+                            variant="ghost"
+                            color="neutral"
+                            class="toolbar-icon-button"
+                            :aria-label="t('toolbar.settings')"
+                            @click="showSettings = true"
+                        />
+                    </UTooltip>
+                    <UTooltip :text="t('toolbar.closeFile')" :delay-duration="1200">
                         <UButton
                             icon="i-lucide-x"
                             variant="ghost"
                             color="neutral"
                             class="toolbar-icon-button"
-                            aria-label="Close file"
+                            :aria-label="t('toolbar.closeFile')"
                             @click="handleCloseFileFromUi"
                         />
                     </UTooltip>
@@ -404,6 +427,7 @@
                     :search-page-matches="pageMatches"
                     :current-search-match="currentResult"
                     :working-copy-path="workingCopyPath"
+                    :author-name="appSettings.authorName"
                     @update:current-page="currentPage = $event"
                     @update:total-pages="totalPages = $event"
                     @update:document="pdfDocument = $event"
@@ -430,16 +454,16 @@
                     >
                         <div class="recent-files-header">
                             <h3 class="text-sm font-medium text-neutral-600 dark:text-neutral-400">
-                                Recent Files
+                                {{ t('emptyState.recentFiles') }}
                             </h3>
-                            <UTooltip text="Clear Recent Files" :delay-duration="1200">
+                            <UTooltip :text="t('emptyState.clearRecentFiles')" :delay-duration="1200">
                                 <UButton
                                     icon="i-lucide-trash-2"
                                     variant="ghost"
                                     size="xs"
                                     color="neutral"
                                     class="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"
-                                    aria-label="Clear recent files"
+                                    :aria-label="t('emptyState.clearRecentFiles')"
                                     @click="clearRecentFiles"
                                 />
                             </UTooltip>
@@ -460,14 +484,14 @@
                                     <span class="recent-file-path">{{ getParentFolder(file.originalPath) }}</span>
                                 </div>
                                 <span class="recent-file-time">{{ formatRelativeTime(file.timestamp) }}</span>
-                                <UTooltip text="Remove from Recent" :delay-duration="1200">
+                                <UTooltip :text="t('emptyState.removeFromRecent')" :delay-duration="1200">
                                     <UButton
                                         icon="i-lucide-x"
                                         size="xs"
                                         variant="ghost"
                                         color="neutral"
                                         class="recent-file-remove"
-                                        aria-label="Remove recent file"
+                                        :aria-label="t('emptyState.removeFromRecent')"
                                         @click.stop="removeRecentFile(file)"
                                     />
                                 </UTooltip>
@@ -477,12 +501,12 @@
 
                     <!-- Open file action (clickable) -->
                     <p class="empty-state-hint text-sm text-neutral-500 dark:text-neutral-400">
-                        {{ recentFiles.length > 0 ? 'Or open another file...' : 'Open a PDF file' }}
+                        {{ recentFiles.length > 0 ? t('emptyState.openAnother') : t('emptyState.openPdf') }}
                     </p>
-                    <UTooltip text="Open PDF" :delay-duration="1200">
+                    <UTooltip :text="t('toolbar.openPdf')" :delay-duration="1200">
                         <button
                             class="open-file-action group"
-                            aria-label="Open PDF"
+                            :aria-label="t('toolbar.openPdf')"
                             @click="handleOpenFileFromUi"
                         >
                             <UIcon
@@ -546,7 +570,7 @@
                     {{ contextMenuAnnotationLabel }}
                 </p>
                 <button type="button" class="annotation-context-menu__action" @click="openContextMenuNote">
-                    Open Pop-up Note
+                    {{ t('contextMenu.openPopUpNote') }}
                 </button>
                 <button
                     type="button"
@@ -554,7 +578,7 @@
                     :disabled="!annotationContextMenuCanCopy"
                     @click="copyContextMenuNoteText"
                 >
-                    Copy Text to Clipboard
+                    {{ t('contextMenu.copyTextToClipboard') }}
                 </button>
                 <button
                     type="button"
@@ -568,34 +592,34 @@
 
             <template v-if="annotationContextMenu.hasSelection">
                 <p class="annotation-context-menu__section-title">
-                    Markup Selection
+                    {{ t('contextMenu.markupSelection') }}
                 </p>
                 <button
                     type="button"
                     class="annotation-context-menu__action"
                     @click="createContextMenuMarkup('highlight')"
                 >
-                    Highlight
+                    {{ t('contextMenu.highlight') }}
                 </button>
                 <button
                     type="button"
                     class="annotation-context-menu__action"
                     @click="createContextMenuMarkup('underline')"
                 >
-                    Underline
+                    {{ t('contextMenu.underline') }}
                 </button>
                 <button
                     type="button"
                     class="annotation-context-menu__action"
                     @click="createContextMenuMarkup('strikethrough')"
                 >
-                    Strikethrough
+                    {{ t('contextMenu.strikethrough') }}
                 </button>
                 <div class="annotation-context-menu__divider" />
             </template>
 
             <p class="annotation-context-menu__section-title">
-                Add Note
+                {{ t('contextMenu.addNote') }}
             </p>
             <button
                 type="button"
@@ -603,7 +627,7 @@
                 :disabled="!annotationContextMenuCanCreateFree"
                 @click="createContextMenuFreeNote"
             >
-                Add Note Here
+                {{ t('contextMenu.addNoteHere') }}
             </button>
             <button
                 v-if="annotationContextMenu.hasSelection"
@@ -611,7 +635,7 @@
                 class="annotation-context-menu__action"
                 @click="createContextMenuSelectionNote"
             >
-                Add Note to Selection
+                {{ t('contextMenu.addNoteToSelection') }}
             </button>
         </div>
 
@@ -622,6 +646,8 @@
             @update="handleShapePropertyUpdate"
             @close="closeShapeProperties"
         />
+
+        <SettingsDialog v-model:open="showSettings" />
     </div>
 </template>
 
@@ -711,6 +737,8 @@ interface IOcrPopupExpose {
 interface IAnnotationNotePosition {
     x: number;
     y: number;
+    width?: number;
+    height?: number;
 }
 
 interface IAnnotationNoteWindowState {
@@ -724,6 +752,8 @@ interface IAnnotationNoteWindowState {
 }
 
 const ANNOTATION_KEEP_ACTIVE_STORAGE_KEY = 'pdf.annotations.keepActive';
+
+const { t } = useI18n();
 
 const {
     pdfSrc,
@@ -849,15 +879,15 @@ function formatRelativeTime(timestamp: number) {
     const days = Math.floor(hours / 24);
 
     if (days > 0) {
-        return days === 1 ? 'Yesterday' : `${days} days ago`;
+        return days === 1 ? t('relativeTime.yesterday') : t('relativeTime.daysAgo', { count: days });
     }
     if (hours > 0) {
-        return hours === 1 ? '1 hour ago' : `${hours} hours ago`;
+        return hours === 1 ? t('relativeTime.oneHourAgo') : t('relativeTime.hoursAgo', { count: hours });
     }
     if (minutes > 0) {
-        return minutes === 1 ? '1 minute ago' : `${minutes} minutes ago`;
+        return minutes === 1 ? t('relativeTime.oneMinuteAgo') : t('relativeTime.minutesAgo', { count: minutes });
     }
-    return 'Just now';
+    return t('relativeTime.justNow');
 }
 
 function getParentFolder(filePath: string) {
@@ -895,6 +925,12 @@ function handleGlobalShortcut(event: KeyboardEvent) {
         closeShapeProperties();
         pdfViewerRef.value?.cancelCommentPlacement();
         annotationPlacingPageNote.value = false;
+    }
+
+    if ((event.metaKey || event.ctrlKey) && event.key === ',') {
+        event.preventDefault();
+        showSettings.value = true;
+        return;
     }
 
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'f' && pdfSrc.value) {
@@ -1006,6 +1042,9 @@ onMounted(() => {
                 clearRecentFiles();
                 loadRecentFiles();
             }),
+            window.electronAPI.onMenuOpenSettings(() => {
+                showSettings.value = true;
+            }),
         );
 
         loadRecentFiles();
@@ -1103,7 +1142,7 @@ const annotationSettings = ref<IAnnotationSettings>({
     inkOpacity: 0.9,
     inkThickness: 2,
     textColor: '#111827',
-    textSize: 12,
+    textSize: 16,
     shapeColor: '#2563eb',
     shapeFillColor: 'transparent',
     shapeOpacity: 1,
@@ -1141,7 +1180,9 @@ const annotationEditorState = ref<IAnnotationEditorState>({
     hasSomethingToRedo: false,
     hasSelectedEditor: false,
 });
+const { settings: appSettings } = useSettings();
 const showSidebar = ref(false);
+const showSettings = ref(false);
 const sidebarTab = ref<TPdfSidebarTab>('thumbnails');
 const bookmarkEditMode = ref(false);
 const isSaving = ref(false);
@@ -1189,14 +1230,14 @@ const annotationContextMenuCanCreateFree = computed(() => (
 const contextMenuAnnotationLabel = computed(() => {
     const comment = annotationContextMenu.value.comment;
     if (!comment) {
-        return 'Selected Annotation';
+        return t('annotations.annotationLabel');
     }
-    return comment.kindLabel ?? comment.subtype ?? 'Annotation';
+    return comment.kindLabel ?? comment.subtype ?? t('annotations.annotationLabel');
 });
 const contextMenuDeleteActionLabel = computed(() => {
     const comment = annotationContextMenu.value.comment;
     if (!comment) {
-        return 'Delete';
+        return t('annotations.delete');
     }
 
     const subtype = (comment.subtype ?? '').trim().toLowerCase();
@@ -1210,16 +1251,16 @@ const contextMenuDeleteActionLabel = computed(() => {
     const hasNoteText = comment.text.trim().length > 0;
     if (!hasNoteText && isMarkup) {
         if (kind.length > 0) {
-            return `Delete ${kind}`;
+            return `${t('annotations.delete')} ${kind}`;
         }
-        return 'Delete Markup';
+        return `${t('annotations.delete')} ${t('annotations.annotationLabel')}`;
     }
 
     const isExplicitNote = comment.hasNote === true || subtype === 'popup' || subtype === 'text';
     if (isExplicitNote) {
-        return 'Delete Note';
+        return `${t('annotations.delete')} ${t('annotations.stickyNoteLabel')}`;
     }
-    return 'Delete Annotation';
+    return `${t('annotations.delete')} ${t('annotations.annotationLabel')}`;
 });
 const shapePropertiesPopover = ref<{
     visible: boolean;
@@ -1239,7 +1280,7 @@ const selectedShapeForProperties = computed(() =>
 
 const sortedAnnotationNoteWindows = computed(() =>
     [...annotationNoteWindows.value].sort((left, right) => left.order - right.order));
-const statusFilePath = computed(() => workingCopyPath.value ?? 'No file open');
+const statusFilePath = computed(() => workingCopyPath.value ?? t('status.noFileOpen'));
 const statusFileSizeBytes = computed(() => {
     if (pdfData.value) {
         return pdfData.value.byteLength;
@@ -1277,27 +1318,27 @@ const statusSaveDotCanSave = computed(() => (
 ));
 const statusSaveDotTooltip = computed(() => {
     if (statusSaveDotState.value === 'idle') {
-        return 'No file open';
+        return t('status.noFileOpen');
     }
     if (statusSaveDotState.value === 'saving') {
-        return 'Saving...';
+        return t('status.savingChanges');
     }
     if (statusSaveDotState.value === 'dirty') {
-        return 'Unsaved changes - click to save';
+        return t('status.unsavedChanges');
     }
-    return 'All changes saved';
+    return t('status.allSaved');
 });
 const statusSaveDotAriaLabel = computed(() => {
     if (statusSaveDotState.value === 'dirty') {
-        return 'Save changes';
+        return t('status.saveChanges');
     }
     if (statusSaveDotState.value === 'saving') {
-        return 'Saving changes';
+        return t('status.savingChanges');
     }
     if (statusSaveDotState.value === 'clean') {
-        return 'All changes saved';
+        return t('status.allSaved');
     }
-    return 'No file open';
+    return t('status.noFileOpen');
 });
 
 async function handleStatusSaveClick() {
@@ -1737,9 +1778,7 @@ function handleOpenAnnotationNote(comment: IAnnotationCommentSummary) {
     annotationActiveCommentStableKey.value = comment.stableKey;
     const matched = findMatchingAnnotationComment(comment);
     if (matched) {
-        const matchedText = matched.text.trim();
-        const incomingText = comment.text.trim();
-        upsertAnnotationNoteWindow(matchedText.length >= incomingText.length ? matched : comment);
+        upsertAnnotationNoteWindow(selectPreferredAnnotationComment(comment, matched));
     } else {
         upsertAnnotationNoteWindow(comment);
     }
@@ -1960,6 +1999,51 @@ function isSameAnnotationComment(left: IAnnotationCommentSummary, right: IAnnota
     return annotationCommentsMatch(left, right);
 }
 
+function annotationCommentEditScore(comment: IAnnotationCommentSummary) {
+    let score = 0;
+    if (comment.source === 'editor') {
+        score += 8;
+    }
+    if (comment.uid) {
+        score += 6;
+    }
+    if (comment.annotationId) {
+        score += 4;
+    }
+    if (comment.id) {
+        score += 2;
+    }
+    if (comment.markerRect) {
+        score += 1;
+    }
+    return score;
+}
+
+function selectPreferredAnnotationComment(
+    left: IAnnotationCommentSummary,
+    right: IAnnotationCommentSummary,
+) {
+    const leftScore = annotationCommentEditScore(left);
+    const rightScore = annotationCommentEditScore(right);
+    if (leftScore !== rightScore) {
+        return leftScore > rightScore ? left : right;
+    }
+
+    const leftTextLength = left.text.trim().length;
+    const rightTextLength = right.text.trim().length;
+    if (leftTextLength !== rightTextLength) {
+        return leftTextLength > rightTextLength ? left : right;
+    }
+
+    const leftModified = left.modifiedAt ?? 0;
+    const rightModified = right.modifiedAt ?? 0;
+    if (leftModified !== rightModified) {
+        return leftModified > rightModified ? left : right;
+    }
+
+    return left;
+}
+
 function findAnnotationNoteWindowIndex(stableKey: string) {
     return annotationNoteWindows.value.findIndex(note => note.comment.stableKey === stableKey);
 }
@@ -2001,7 +2085,7 @@ function upsertAnnotationNoteWindow(comment: IAnnotationCommentSummary) {
     const existing = findAnnotationNoteWindow(key);
     if (existing) {
         const hasUnsavedLocalChanges = existing.text !== existing.lastSavedText;
-        existing.comment = comment;
+        existing.comment = selectPreferredAnnotationComment(existing.comment, comment);
         existing.error = null;
         if (!hasUnsavedLocalChanges) {
             const nextText = comment.text || '';
@@ -2066,6 +2150,8 @@ function updateAnnotationNotePosition(stableKey: string, position: IAnnotationNo
         [stableKey]: {
             x: Math.round(position.x),
             y: Math.round(position.y),
+            width: typeof position.width === 'number' ? Math.round(position.width) : undefined,
+            height: typeof position.height === 'number' ? Math.round(position.height) : undefined,
         },
     };
 }
@@ -2119,6 +2205,12 @@ async function persistAnnotationNote(stableKey: string, force = false) {
         if (!saved) {
             saved = await updateEmbeddedAnnotationByRef(current, nextText);
         }
+        if (!saved && force) {
+            const materialized = await serializeCurrentPdfForEmbeddedFallback();
+            if (materialized) {
+                saved = await updateEmbeddedAnnotationByRef(current, nextText);
+            }
+        }
         if (!saved) {
             note.error = 'Unable to update this note.';
             return false;
@@ -2167,6 +2259,26 @@ async function persistAllAnnotationNotes(force = false) {
     return true;
 }
 
+async function serializeCurrentPdfForEmbeddedFallback() {
+    if (!pdfViewerRef.value) {
+        return false;
+    }
+
+    const rawData = await pdfViewerRef.value.saveDocument();
+    if (!rawData) {
+        return false;
+    }
+
+    const pageToRestore = currentPage.value;
+    const restorePromise = waitForPdfReload(pageToRestore);
+    await loadPdfFromData(rawData, {
+        pushHistory: true,
+        persistWorkingCopy: !!workingCopyPath.value,
+    });
+    await restorePromise;
+    return true;
+}
+
 function parsePdfJsAnnotationRef(annotationId: string | null | undefined) {
     if (!annotationId) {
         return null;
@@ -2206,6 +2318,333 @@ function resolveCommentPdfRef(comment: IAnnotationCommentSummary) {
         parsePdfJsAnnotationRef(comment.annotationId ?? comment.id)
         ?? parseAnnotationRefFromStableKey(comment.stableKey)
     );
+}
+
+function normalizeAnnotationSubtypeToken(subtype: string | null | undefined) {
+    const normalized = (subtype ?? '')
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '');
+    if (!normalized) {
+        return '';
+    }
+    switch (normalized) {
+        case 'strikethrough':
+            return 'strikeout';
+        case 'typewriter':
+        case 'noteinline':
+            return 'freetext';
+        case 'notelinked':
+            return 'text';
+        default:
+            return normalized;
+    }
+}
+
+function normalizeComparableText(value: string | null | undefined) {
+    return (value ?? '')
+        .trim()
+        .replace(/\s+/g, ' ')
+        .toLowerCase();
+}
+
+function getPdfStringValue(value: unknown) {
+    if (value instanceof PDFHexString || value instanceof PDFString) {
+        return value.decodeText();
+    }
+    return '';
+}
+
+function getPdfDictSubtype(dict: PDFDict | null) {
+    if (!dict) {
+        return null;
+    }
+    const subtype = dict.lookupMaybe(PDFName.of('Subtype'), PDFName);
+    if (!(subtype instanceof PDFName)) {
+        return null;
+    }
+    return subtype.decodeText();
+}
+
+function getPdfDictContents(dict: PDFDict | null) {
+    if (!dict) {
+        return '';
+    }
+    return getPdfStringValue(dict.get(PDFName.of('Contents')));
+}
+
+function getPdfDictAuthor(dict: PDFDict | null) {
+    if (!dict) {
+        return '';
+    }
+    return getPdfStringValue(dict.get(PDFName.of('T')));
+}
+
+function getPdfPopupDict(doc: PDFDocument, dict: PDFDict | null) {
+    if (!dict) {
+        return null;
+    }
+    const popupValue = dict.get(PDFName.of('Popup'));
+    if (popupValue instanceof PDFDict) {
+        return popupValue;
+    }
+    if (popupValue instanceof PDFRef) {
+        return doc.context.lookupMaybe(popupValue, PDFDict) ?? null;
+    }
+    return null;
+}
+
+function numberFromPdfArray(array: PDFArray, index: number) {
+    const value = array.get(index);
+    return value instanceof PDFNumber ? value.asNumber() : null;
+}
+
+function normalizeMarkerRectFromDict(
+    dict: PDFDict | null,
+    pageWidth: number,
+    pageHeight: number,
+) {
+    if (!dict || pageWidth <= 0 || pageHeight <= 0) {
+        return null;
+    }
+
+    const rectArray = dict.lookupMaybe(PDFName.of('Rect'), PDFArray);
+    if (!(rectArray instanceof PDFArray) || rectArray.size() < 4) {
+        return null;
+    }
+
+    const x1 = numberFromPdfArray(rectArray, 0);
+    const y1 = numberFromPdfArray(rectArray, 1);
+    const x2 = numberFromPdfArray(rectArray, 2);
+    const y2 = numberFromPdfArray(rectArray, 3);
+    if (
+        x1 === null
+        || y1 === null
+        || x2 === null
+        || y2 === null
+    ) {
+        return null;
+    }
+
+    const minX = Math.min(x1, x2);
+    const maxX = Math.max(x1, x2);
+    const minY = Math.min(y1, y2);
+    const maxY = Math.max(y1, y2);
+
+    const width = (maxX - minX) / pageWidth;
+    const height = (maxY - minY) / pageHeight;
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+        return null;
+    }
+
+    const left = minX / pageWidth;
+    const top = 1 - (maxY / pageHeight);
+
+    return {
+        left: Math.max(0, Math.min(1, left)),
+        top: Math.max(0, Math.min(1, top)),
+        width: Math.max(0, Math.min(1, width)),
+        height: Math.max(0, Math.min(1, height)),
+    };
+}
+
+function markerRectIoU(
+    left: {
+        left: number;
+        top: number;
+        width: number;
+        height: number;
+    } | null,
+    right: {
+        left: number;
+        top: number;
+        width: number;
+        height: number;
+    } | null,
+) {
+    if (!left || !right) {
+        return 0;
+    }
+
+    const leftRight = left.left + left.width;
+    const leftBottom = left.top + left.height;
+    const rightRight = right.left + right.width;
+    const rightBottom = right.top + right.height;
+    const intersectionLeft = Math.max(left.left, right.left);
+    const intersectionTop = Math.max(left.top, right.top);
+    const intersectionRight = Math.min(leftRight, rightRight);
+    const intersectionBottom = Math.min(leftBottom, rightBottom);
+    const intersectionWidth = Math.max(0, intersectionRight - intersectionLeft);
+    const intersectionHeight = Math.max(0, intersectionBottom - intersectionTop);
+    const intersectionArea = intersectionWidth * intersectionHeight;
+    if (intersectionArea <= 0) {
+        return 0;
+    }
+    const leftArea = left.width * left.height;
+    const rightArea = right.width * right.height;
+    const unionArea = leftArea + rightArea - intersectionArea;
+    if (unionArea <= 0) {
+        return 0;
+    }
+    return intersectionArea / unionArea;
+}
+
+function findCommentRefByGeneratedId(doc: PDFDocument, comment: IAnnotationCommentSummary) {
+    const generated = comment.id.match(/^pdf-(\d+)-(\d+)$/);
+    if (!generated) {
+        return null;
+    }
+    const pageNumber = Number(generated[1]);
+    const annotationIndex = Number(generated[2]);
+    if (!Number.isInteger(pageNumber) || !Number.isInteger(annotationIndex)) {
+        return null;
+    }
+    if (pageNumber !== comment.pageNumber || annotationIndex < 0) {
+        return null;
+    }
+
+    const pageIndex = Math.max(0, Math.min(pageNumber - 1, doc.getPageCount() - 1));
+    const page = doc.getPages()[pageIndex];
+    if (!page) {
+        return null;
+    }
+    const annots = page.node.Annots();
+    if (!(annots instanceof PDFArray) || annotationIndex >= annots.size()) {
+        return null;
+    }
+    const value = annots.get(annotationIndex);
+    return value instanceof PDFRef ? value : null;
+}
+
+function resolveCommentPdfRefInDocument(doc: PDFDocument, comment: IAnnotationCommentSummary) {
+    const explicitRef = resolveCommentPdfRef(comment);
+    if (explicitRef) {
+        return explicitRef;
+    }
+
+    const byGeneratedId = findCommentRefByGeneratedId(doc, comment);
+    if (byGeneratedId) {
+        return byGeneratedId;
+    }
+
+    const pageIndex = Math.max(0, Math.min(comment.pageIndex, doc.getPageCount() - 1));
+    const page = doc.getPages()[pageIndex];
+    if (!page) {
+        return null;
+    }
+
+    const annots = page.node.Annots();
+    if (!(annots instanceof PDFArray) || annots.size() === 0) {
+        return null;
+    }
+
+    const pageSize = page.getSize();
+    const pageWidth = pageSize.width;
+    const pageHeight = pageSize.height;
+    const commentSubtype = normalizeAnnotationSubtypeToken(comment.subtype);
+    const commentText = normalizeComparableText(comment.text);
+    const commentAuthor = normalizeComparableText(comment.author);
+    const commentRect = comment.markerRect
+        ? {
+            left: Math.max(0, Math.min(1, comment.markerRect.left)),
+            top: Math.max(0, Math.min(1, comment.markerRect.top)),
+            width: Math.max(0, Math.min(1, comment.markerRect.width)),
+            height: Math.max(0, Math.min(1, comment.markerRect.height)),
+        }
+        : null;
+
+    let bestMatch: {
+        ref: PDFRef;
+        score: number;
+    } | null = null;
+
+    for (let index = 0; index < annots.size(); index += 1) {
+        const value = annots.get(index);
+        if (!(value instanceof PDFRef)) {
+            continue;
+        }
+
+        const dict = doc.context.lookupMaybe(value, PDFDict);
+        if (!dict) {
+            continue;
+        }
+
+        const subtype = normalizeAnnotationSubtypeToken(getPdfDictSubtype(dict));
+        if (subtype === 'popup') {
+            continue;
+        }
+
+        const popupDict = getPdfPopupDict(doc, dict);
+        const candidateText = normalizeComparableText(
+            getPdfDictContents(dict) || getPdfDictContents(popupDict),
+        );
+        const candidateAuthor = normalizeComparableText(
+            getPdfDictAuthor(dict) || getPdfDictAuthor(popupDict),
+        );
+        const candidateRect = normalizeMarkerRectFromDict(dict, pageWidth, pageHeight);
+
+        let score = 0;
+        if (commentSubtype) {
+            if (commentSubtype === subtype) {
+                score += 5;
+            } else if (
+                (commentSubtype === 'text' && subtype === 'freetext')
+                || (commentSubtype === 'freetext' && subtype === 'text')
+            ) {
+                score += 2;
+            } else {
+                score -= 1.5;
+            }
+        }
+
+        if (commentText) {
+            if (candidateText === commentText) {
+                score += 6;
+            } else if (
+                candidateText.length > 0
+                && (candidateText.includes(commentText) || commentText.includes(candidateText))
+            ) {
+                score += 3;
+            } else {
+                score -= 1;
+            }
+        } else if (!candidateText) {
+            score += 0.5;
+        }
+
+        if (commentAuthor && candidateAuthor && commentAuthor === candidateAuthor) {
+            score += 1;
+        }
+
+        const rectIoU = markerRectIoU(commentRect, candidateRect);
+        if (rectIoU > 0) {
+            score += rectIoU * 8;
+        } else if (commentRect) {
+            score -= 0.2;
+        }
+
+        if (!bestMatch || score > bestMatch.score) {
+            bestMatch = {
+                ref: value,
+                score,
+            };
+        }
+    }
+
+    return bestMatch && bestMatch.score >= 2 ? bestMatch.ref : null;
+}
+
+async function getSourcePdfData() {
+    let sourceData = pdfData.value ? pdfData.value.slice() : null;
+    if (!sourceData && workingCopyPath.value && window.electronAPI) {
+        try {
+            const buffer = await window.electronAPI.readFile(workingCopyPath.value);
+            sourceData = new Uint8Array(buffer);
+        } catch {
+            sourceData = null;
+        }
+    }
+    return sourceData;
 }
 
 function toPdfDateString(date: Date = new Date()) {
@@ -2252,6 +2691,7 @@ function updateAnnotationTextByRef(
     const modifiedAt = toPdfDateString(new Date());
     let updated = setAnnotationDictContents(targetDict, text, modifiedAt);
 
+    const targetSubtype = normalizeAnnotationSubtypeToken(getPdfDictSubtype(targetDict));
     const popupValue = targetDict.get(PDFName.of('Popup'));
     if (popupValue instanceof PDFRef) {
         updated = setAnnotationDictContents(doc.context.lookupMaybe(popupValue, PDFDict) ?? null, text, modifiedAt) || updated;
@@ -2259,20 +2699,54 @@ function updateAnnotationTextByRef(
         updated = setAnnotationDictContents(popupValue, text, modifiedAt) || updated;
     }
 
+    if (targetSubtype === 'popup') {
+        const parentValue = targetDict.get(PDFName.of('Parent'));
+        if (parentValue instanceof PDFRef) {
+            updated = setAnnotationDictContents(doc.context.lookupMaybe(parentValue, PDFDict) ?? null, text, modifiedAt) || updated;
+        } else if (parentValue instanceof PDFDict) {
+            updated = setAnnotationDictContents(parentValue, text, modifiedAt) || updated;
+        }
+    }
+
     return updated;
 }
 
 function collectAnnotationRefsToDelete(doc: PDFDocument, targetRef: PDFRef) {
     const refs = new Map<string, PDFRef>();
-    refs.set(targetRef.toString(), targetRef);
-
-    const targetDict = doc.context.lookupMaybe(targetRef, PDFDict);
-    if (targetDict) {
-        const popupValue = targetDict.get(PDFName.of('Popup'));
-        const popupRef = popupValue instanceof PDFRef ? popupValue : null;
-        if (popupRef) {
-            refs.set(popupRef.toString(), popupRef);
+    const enqueueRef = (ref: PDFRef | null) => {
+        if (!ref) {
+            return false;
         }
+        const key = ref.toString();
+        if (refs.has(key)) {
+            return false;
+        }
+        refs.set(key, ref);
+        return true;
+    };
+
+    enqueueRef(targetRef);
+
+    let pending = [targetRef];
+    while (pending.length > 0) {
+        const currentBatch = pending;
+        pending = [];
+        currentBatch.forEach((ref) => {
+            const dict = doc.context.lookupMaybe(ref, PDFDict);
+            if (!dict) {
+                return;
+            }
+
+            const popupValue = dict.get(PDFName.of('Popup'));
+            if (popupValue instanceof PDFRef && enqueueRef(popupValue)) {
+                pending.push(popupValue);
+            }
+
+            const parentValue = dict.get(PDFName.of('Parent'));
+            if (parentValue instanceof PDFRef && enqueueRef(parentValue)) {
+                pending.push(parentValue);
+            }
+        });
     }
 
     return Array.from(refs.values());
@@ -2309,20 +2783,7 @@ function removeAnnotationRefsFromPages(doc: PDFDocument, refsToRemove: PDFRef[])
 }
 
 async function deleteEmbeddedAnnotationByRef(comment: IAnnotationCommentSummary) {
-    const targetRef = resolveCommentPdfRef(comment);
-    if (!targetRef) {
-        return false;
-    }
-
-    let sourceData = pdfData.value ? pdfData.value.slice() : null;
-    if (!sourceData && workingCopyPath.value && window.electronAPI) {
-        try {
-            const buffer = await window.electronAPI.readFile(workingCopyPath.value);
-            sourceData = new Uint8Array(buffer);
-        } catch {
-            sourceData = null;
-        }
-    }
+    const sourceData = await getSourcePdfData();
     if (!sourceData) {
         return false;
     }
@@ -2331,6 +2792,11 @@ async function deleteEmbeddedAnnotationByRef(comment: IAnnotationCommentSummary)
     try {
         document = await PDFDocument.load(sourceData, { updateMetadata: false });
     } catch {
+        return false;
+    }
+
+    const targetRef = resolveCommentPdfRefInDocument(document, comment);
+    if (!targetRef) {
         return false;
     }
 
@@ -2353,20 +2819,7 @@ async function deleteEmbeddedAnnotationByRef(comment: IAnnotationCommentSummary)
 }
 
 async function updateEmbeddedAnnotationByRef(comment: IAnnotationCommentSummary, text: string) {
-    const targetRef = resolveCommentPdfRef(comment);
-    if (!targetRef) {
-        return false;
-    }
-
-    let sourceData = pdfData.value ? pdfData.value.slice() : null;
-    if (!sourceData && workingCopyPath.value && window.electronAPI) {
-        try {
-            const buffer = await window.electronAPI.readFile(workingCopyPath.value);
-            sourceData = new Uint8Array(buffer);
-        } catch {
-            sourceData = null;
-        }
-    }
+    const sourceData = await getSourcePdfData();
     if (!sourceData) {
         return false;
     }
@@ -2375,6 +2828,11 @@ async function updateEmbeddedAnnotationByRef(comment: IAnnotationCommentSummary,
     try {
         document = await PDFDocument.load(sourceData, { updateMetadata: false });
     } catch {
+        return false;
+    }
+
+    const targetRef = resolveCommentPdfRefInDocument(document, comment);
+    if (!targetRef) {
         return false;
     }
 
@@ -3088,6 +3546,12 @@ async function performDeleteAnnotationComment(comment: IAnnotationCommentSummary
         deleted = await deleteEmbeddedAnnotationByRef(comment);
     }
     if (!deleted) {
+        const materialized = await serializeCurrentPdfForEmbeddedFallback();
+        if (materialized) {
+            deleted = await deleteEmbeddedAnnotationByRef(comment);
+        }
+    }
+    if (!deleted) {
         setAnnotationNoteWindowError(comment.stableKey, 'Unable to delete this annotation from the current document.');
         return;
     }
@@ -3427,6 +3891,7 @@ watch(annotationComments, (comments) => {
             // Keep open instead of force-closing on transient sync misses.
             return;
         }
+        const preferred = selectPreferredAnnotationComment(note.comment, updated);
 
         const savedText = note.lastSavedText.trim();
         const updatedText = updated.text.trim();
@@ -3441,14 +3906,14 @@ watch(annotationComments, (comments) => {
 
         if (staleEmptySync) {
             note.comment = {
-                ...updated,
+                ...preferred,
                 text: note.lastSavedText,
                 modifiedAt: currentTimestamp || updatedTimestamp || null,
             };
             return;
         }
 
-        note.comment = updated;
+        note.comment = preferred;
         const hasUnsavedLocalChanges = note.text !== note.lastSavedText;
         if (!note.saving && !hasUnsavedLocalChanges) {
             const nextText = updated.text || '';
@@ -3467,10 +3932,14 @@ watch(annotationComments, (comments) => {
     gap: 0.5rem;
     padding: 0.5rem;
     border-bottom: 1px solid var(--ui-border);
+    box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.04), 0 1px 2px -1px rgb(0 0 0 / 0.04);
     background: var(--ui-bg);
     white-space: nowrap;
     overflow-x: auto;
     container-type: inline-size;
+    position: relative;
+    z-index: 10;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
 
     --toolbar-control-height: 2.25rem;
     --toolbar-icon-size: 18px;
@@ -3525,6 +3994,7 @@ watch(annotationComments, (comments) => {
     justify-content: center;
     border-radius: 0 !important;
     font-size: var(--toolbar-icon-size);
+    transition: background-color 0.1s ease, color 0.1s ease;
 }
 
 .toolbar-group-button {
@@ -3533,6 +4003,7 @@ watch(annotationComments, (comments) => {
     min-width: var(--toolbar-control-height);
     padding: 0.25rem;
     font-size: var(--toolbar-icon-size);
+    transition: background-color 0.1s ease, color 0.1s ease;
 }
 
 .toolbar :deep(.toolbar-icon-button svg),
@@ -3558,12 +4029,13 @@ watch(annotationComments, (comments) => {
     align-items: center;
     justify-content: space-between;
     gap: 0.75rem;
-    padding: 0.25rem 0.75rem;
+    padding: 0.3rem 0.75rem;
     border-top: 1px solid var(--ui-border);
     background: color-mix(in oklab, var(--ui-bg) 95%, var(--ui-bg-elevated) 5%);
     color: var(--ui-text-dimmed);
     font-size: 0.74rem;
     line-height: 1.2;
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
 .status-bar-path {

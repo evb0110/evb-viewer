@@ -1,27 +1,27 @@
 <template>
     <div class="page-controls">
         <div class="page-controls-item">
-            <UTooltip text="First Page" :delay-duration="1200">
+            <UTooltip :text="t('pageDropdown.firstPage')" :delay-duration="1200">
                 <UButton
                     icon="i-lucide-chevrons-left"
                     variant="ghost"
                     color="neutral"
                     :disabled="disabled || totalPages === 0 || currentPage <= 1"
                     class="page-controls-button"
-                    aria-label="First page"
+                    :aria-label="t('pageDropdown.firstPage')"
                     @click="goToFirst"
                 />
             </UTooltip>
         </div>
         <div class="page-controls-item">
-            <UTooltip text="Previous Page" :delay-duration="1200">
+            <UTooltip :text="t('pageDropdown.previousPage')" :delay-duration="1200">
                 <UButton
                     icon="i-lucide-chevron-left"
                     variant="ghost"
                     color="neutral"
                     :disabled="disabled || totalPages === 0 || currentPage <= 1"
                     class="page-controls-button"
-                    aria-label="Previous page"
+                    :aria-label="t('pageDropdown.previousPage')"
                     @click="goToPrevious"
                 />
             </UTooltip>
@@ -49,7 +49,7 @@
                                     name="i-lucide-chevrons-left"
                                     class="page-dropdown-icon size-5"
                                 />
-                                <span class="page-dropdown-label">First page</span>
+                                <span class="page-dropdown-label">{{ t('pageDropdown.firstPage') }}</span>
                             </button>
                             <button
                                 class="page-dropdown-item"
@@ -60,7 +60,7 @@
                                     name="i-lucide-chevrons-right"
                                     class="page-dropdown-icon size-5"
                                 />
-                                <span class="page-dropdown-label">Last page</span>
+                                <span class="page-dropdown-label">{{ t('pageDropdown.lastPage') }}</span>
                             </button>
                         </div>
 
@@ -97,27 +97,27 @@
         </div>
 
         <div class="page-controls-item">
-            <UTooltip text="Next Page" :delay-duration="1200">
+            <UTooltip :text="t('pageDropdown.nextPage')" :delay-duration="1200">
                 <UButton
                     icon="i-lucide-chevron-right"
                     variant="ghost"
                     color="neutral"
                     :disabled="disabled || totalPages === 0 || currentPage >= totalPages"
                     class="page-controls-button"
-                    aria-label="Next page"
+                    :aria-label="t('pageDropdown.nextPage')"
                     @click="goToNext"
                 />
             </UTooltip>
         </div>
         <div class="page-controls-item">
-            <UTooltip text="Last Page" :delay-duration="1200">
+            <UTooltip :text="t('pageDropdown.lastPage')" :delay-duration="1200">
                 <UButton
                     icon="i-lucide-chevrons-right"
                     variant="ghost"
                     color="neutral"
                     :disabled="disabled || totalPages === 0 || currentPage >= totalPages"
                     class="page-controls-button"
-                    aria-label="Last page"
+                    :aria-label="t('pageDropdown.lastPage')"
                     @click="goToLast"
                 />
             </UTooltip>
@@ -131,6 +131,8 @@ import {
     findPageByPageLabelInput,
     formatPageIndicator,
 } from '@app/utils/pdf-page-labels';
+
+const { t } = useI18n();
 
 interface IProps {
     modelValue: number;
