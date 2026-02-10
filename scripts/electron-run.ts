@@ -15,7 +15,7 @@ import puppeteer, { type Browser, type Page } from 'puppeteer-core';
 import { createServer } from 'node:http';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { delay } from 'es-toolkit/promise';
 
@@ -715,6 +715,7 @@ async function handleCommand(command: string, args: unknown[]): Promise<unknown>
         case 'openPdf': {
             const pdfPath = args[0] as string;
             if (!pdfPath) throw new Error('PDF path required');
+            const requestedBasename = basename(pdfPath).toLowerCase();
             type TOpenPdfState = {
                 numPages: number | null;
                 currentPage: number | null;
@@ -731,6 +732,13 @@ async function handleCommand(command: string, args: unknown[]): Promise<unknown>
                     status: 'pending' | 'resolved' | 'rejected';
                     error: string | null;
                 } | null;
+            };
+
+            const isRequestedDocumentLoaded = (workingCopyPath: string | null | undefined) => {
+                if (!workingCopyPath) {
+                    return false;
+                }
+                return basename(workingCopyPath).toLowerCase() === requestedBasename;
             };
 
             const readViewerState = async (token?: string) => await page.evaluate((requestedToken?: string) => {
@@ -848,20 +856,9 @@ async function handleCommand(command: string, args: unknown[]): Promise<unknown>
                 const notLoading = lastState.isLoading === false || lastState.isLoading === null;
                 const hasDocumentUi = lastState.hasViewer && !lastState.hasEmptyState;
                 const hasRenderedContent = lastState.renderedCanvasCount > 0 || lastState.renderedTextSpanCount > 0;
-                const openedNewDoc = (
-                    !!beforeState.workingCopyPath
-                    && !!lastState.workingCopyPath
-                    && beforeState.workingCopyPath !== lastState.workingCopyPath
-                );
-                const sameDocButReady = (
-                    beforeState.workingCopyPath === lastState.workingCopyPath
-                    && hasPages
-                    && hasDocumentUi
-                    && notLoading
-                    && hasRenderedContent
-                );
+                const requestedDocLoaded = isRequestedDocumentLoaded(lastState.workingCopyPath);
 
-                if (hasPages && hasDocumentUi && notLoading && hasRenderedContent && (openedNewDoc || sameDocButReady)) {
+                if (hasPages && hasDocumentUi && notLoading && hasRenderedContent && requestedDocLoaded) {
                     await delay(250);
                     break;
                 }
@@ -875,8 +872,10 @@ async function handleCommand(command: string, args: unknown[]): Promise<unknown>
                 || state.hasEmptyState
                 || state.renderedPageContainers <= 0
                 || (state.renderedCanvasCount <= 0 && state.renderedTextSpanCount <= 0)
+                || !isRequestedDocumentLoaded(state.workingCopyPath)
             ) {
-                throw new Error(`openPdf readiness timeout for ${pdfPath}`);
+                const loadedPath = state.workingCopyPath ?? '<none>';
+                throw new Error(`openPdf readiness timeout for ${pdfPath} (loaded: ${loadedPath})`);
             }
 
             return {

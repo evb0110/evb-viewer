@@ -124,15 +124,15 @@
             </div>
         </section>
 
-        <section v-if="pagesWithAnnotations.length > 0" class="notes-section notes-pages">
+        <section v-if="pagesWithNotes.length > 0" class="notes-section notes-pages">
             <header class="notes-section-header">
                 <h3 class="notes-section-title">Where Notes Are</h3>
-                <p class="notes-section-description">Pages that currently contain annotations.</p>
+                <p class="notes-section-description">Pages that contain textual notes.</p>
             </header>
 
             <div class="page-chip-list">
                 <button
-                    v-for="item in pagesWithAnnotations"
+                    v-for="item in pagesWithNotes"
                     :key="item.pageNumber"
                     type="button"
                     class="page-chip"
@@ -140,9 +140,9 @@
                     @click="focusFirstCommentOnPage(item.pageNumber)"
                 >
                     <span class="page-chip-label">Page {{ item.pageNumber }}</span>
-                    <span class="page-chip-count">{{ item.count }}</span>
-                    <span v-if="item.stickyCount > 0" class="page-chip-note">
-                        {{ item.stickyCount }} note{{ item.stickyCount === 1 ? '' : 's' }}
+                    <span class="page-chip-count">• {{ item.noteCount }} note{{ item.noteCount === 1 ? '' : 's' }}</span>
+                    <span v-if="item.annotationCount > item.noteCount" class="page-chip-meta">
+                        • {{ item.annotationCount - item.noteCount }} other
                     </span>
                 </button>
             </div>
@@ -204,7 +204,7 @@
                             <span class="note-item-top">
                                 <span class="note-item-page">P{{ comment.pageNumber }}</span>
                                 <span class="note-item-type">{{ commentTypeLabel(comment) }}</span>
-                                <span v-if="isStickyNote(comment)" class="note-item-sticky">Sticky</span>
+                                <span v-if="isTextNoteComment(comment)" class="note-item-sticky">Note</span>
                             </span>
                             <span class="note-item-text">{{ notePreview(comment) }}</span>
                             <span class="note-item-meta">
@@ -304,8 +304,7 @@ interface IProps {
     placingPageNote?: boolean;
 }
 
-type TListFilter = 'all' | 'sticky' | 'markup' | 'draw' | 'shape' | 'current-page';
-type TCommentCategory = 'sticky' | 'markup' | 'draw' | 'shape' | 'other';
+type TListFilter = 'all' | 'notes' | 'markup' | 'draw' | 'shape' | 'current-page';
 type TDrawStyle = 'pen' | 'pencil' | 'marker';
 
 interface IFilterOption {
@@ -331,8 +330,8 @@ interface IWidthControl {
 
 interface IPageAnnotationOverview {
     pageNumber: number;
-    count: number;
-    stickyCount: number;
+    annotationCount: number;
+    noteCount: number;
 }
 
 interface IDrawStylePreset {
@@ -450,7 +449,7 @@ const drawStylePresets: IDrawStylePreset[] = [
 ];
 
 const query = ref('');
-const activeFilter = ref<TListFilter>('all');
+const activeFilter = ref<TListFilter>('notes');
 const selectedStableKey = ref<string | null>(null);
 
 const tool = computed(() => props.tool);
@@ -522,19 +521,15 @@ function isShapeTool(tool: TAnnotationTool) {
     return tool === 'rectangle' || tool === 'circle' || tool === 'line' || tool === 'arrow';
 }
 
-function resolveCommentCategory(comment: IAnnotationCommentSummary): TCommentCategory {
-    if (isStickyNote(comment)) {
-        return 'sticky';
-    }
+function containsWord(text: string, word: string) {
+    return new RegExp(`\\b${word}\\b`, 'i').test(text);
+}
 
+function isMarkupComment(comment: IAnnotationCommentSummary) {
     const subtype = (comment.subtype ?? '').toLowerCase();
     const label = (comment.kindLabel ?? '').toLowerCase();
 
-    if (subtype.includes('ink') || label.includes('ink') || label.includes('draw')) {
-        return 'draw';
-    }
-
-    if (
+    return (
         subtype.includes('highlight')
         || subtype.includes('underline')
         || subtype.includes('strike')
@@ -543,28 +538,39 @@ function resolveCommentCategory(comment: IAnnotationCommentSummary): TCommentCat
         || label.includes('underline')
         || label.includes('strike')
         || label.includes('markup')
-    ) {
-        return 'markup';
+    );
+}
+
+function isDrawComment(comment: IAnnotationCommentSummary) {
+    const subtype = (comment.subtype ?? '').toLowerCase();
+    const label = (comment.kindLabel ?? '').toLowerCase();
+
+    return subtype.includes('ink') || containsWord(label, 'ink') || containsWord(label, 'draw');
+}
+
+function isShapeComment(comment: IAnnotationCommentSummary) {
+    if (isDrawComment(comment)) {
+        return false;
     }
 
-    if (
+    const subtype = (comment.subtype ?? '').toLowerCase();
+    const label = (comment.kindLabel ?? '').toLowerCase().trim();
+
+    return (
         subtype.includes('square')
         || subtype.includes('circle')
         || subtype.includes('line')
         || subtype.includes('arrow')
-        || label.includes('rectangle')
-        || label.includes('ellipse')
-        || label.includes('line')
-        || label.includes('arrow')
-    ) {
-        return 'shape';
-    }
-
-    return 'other';
+        || label === 'rectangle'
+        || label === 'ellipse'
+        || label === 'line'
+        || label === 'arrow'
+        || label === 'circle'
+    );
 }
 
-function isStickyNote(comment: IAnnotationCommentSummary) {
-    if (comment.hasNote) {
+function isTextNoteComment(comment: IAnnotationCommentSummary) {
+    if (comment.hasNote === true) {
         return true;
     }
 
@@ -575,8 +581,9 @@ function isStickyNote(comment: IAnnotationCommentSummary) {
         subtype.includes('popup')
         || subtype.includes('text')
         || subtype.includes('note')
-        || label.includes('note')
-        || label.includes('comment')
+        || containsWord(label, 'note')
+        || containsWord(label, 'comment')
+        || containsWord(label, 'sticky')
     );
 }
 
@@ -629,12 +636,27 @@ function matchesFilter(comment: IAnnotationCommentSummary, filter: TListFilter) 
         return true;
     }
 
+    if (filter === 'notes') {
+        return isTextNoteComment(comment);
+    }
+
     if (filter === 'current-page') {
         return comment.pageNumber === props.currentPage;
     }
 
-    const category = resolveCommentCategory(comment);
-    return category === filter;
+    if (filter === 'markup') {
+        return isMarkupComment(comment);
+    }
+
+    if (filter === 'draw') {
+        return isDrawComment(comment);
+    }
+
+    if (filter === 'shape') {
+        return isShapeComment(comment);
+    }
+
+    return false;
 }
 
 const filteredComments = computed(() => {
@@ -658,9 +680,9 @@ const filterOptions = computed<IFilterOption[]>(() => {
             count: source.length,
         },
         {
-            id: 'sticky',
-            label: 'Sticky',
-            count: countBy('sticky'),
+            id: 'notes',
+            label: 'Notes',
+            count: countBy('notes'),
         },
         {
             id: 'markup',
@@ -685,31 +707,36 @@ const filterOptions = computed<IFilterOption[]>(() => {
     ];
 });
 
-const pagesWithAnnotations = computed<IPageAnnotationOverview[]>(() => {
+const pagesWithNotes = computed<IPageAnnotationOverview[]>(() => {
     const map = new Map<number, IPageAnnotationOverview>();
 
     sortedComments.value.forEach((comment) => {
         const current = map.get(comment.pageNumber);
         if (current) {
-            current.count += 1;
-            if (isStickyNote(comment)) {
-                current.stickyCount += 1;
+            current.annotationCount += 1;
+            if (isTextNoteComment(comment)) {
+                current.noteCount += 1;
             }
             return;
         }
 
         map.set(comment.pageNumber, {
             pageNumber: comment.pageNumber,
-            count: 1,
-            stickyCount: isStickyNote(comment) ? 1 : 0,
+            annotationCount: 1,
+            noteCount: isTextNoteComment(comment) ? 1 : 0,
         });
     });
 
-    return Array.from(map.values()).sort((left, right) => left.pageNumber - right.pageNumber);
+    return Array
+        .from(map.values())
+        .filter(item => item.noteCount > 0)
+        .sort((left, right) => left.pageNumber - right.pageNumber);
 });
 
 function focusFirstCommentOnPage(pageNumber: number) {
-    const comment = sortedComments.value.find(item => item.pageNumber === pageNumber);
+    const comment = sortedComments.value.find(item => (
+        item.pageNumber === pageNumber && isTextNoteComment(item)
+    )) ?? sortedComments.value.find(item => item.pageNumber === pageNumber);
     if (!comment) {
         return;
     }
@@ -760,8 +787,8 @@ function commentTypeLabel(comment: IAnnotationCommentSummary) {
 function notePreview(comment: IAnnotationCommentSummary) {
     const text = comment.text.trim();
     if (!text) {
-        return isStickyNote(comment)
-            ? 'Sticky note (empty text)'
+        return isTextNoteComment(comment)
+            ? 'Empty note'
             : 'No note text';
     }
 
@@ -1206,7 +1233,7 @@ function applyDrawStyle(style: TDrawStyle) {
     color: var(--ui-text-toned);
 }
 
-.page-chip-note {
+.page-chip-meta {
     color: color-mix(in srgb, var(--ui-primary) 70%, var(--ui-text-toned) 30%);
 }
 

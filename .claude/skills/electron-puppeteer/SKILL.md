@@ -75,6 +75,7 @@ The session automatically handles:
 - **Vue not hydrating** → Auto-reloads page if needed
 - **Hung client commands** → Per-command request timeout with clear timeout error
 - **`openPdf` hangs** → Non-blocking trigger + readiness polling with explicit failure reason
+- **`openPdf` false-positive success** → Command now validates the loaded file name matches the requested path
 - **Long `run`/`eval` snippets** → Extended command execution timeout to reduce false failures
 
 ## Verifying the Session is Working
@@ -167,6 +168,7 @@ Read .devkit/screenshots/initial.png
 | `openFileDirect: "undefined"` | Run `restart` |
 | Session says running but fails | Run `restart` |
 | Status shows "DISCONNECTED" | Run `restart` |
+| `openPdf` says timeout with `(loaded: <path>)` | Current doc likely wasn't switched (often unsaved changes); save/close current doc first, then retry |
 | Complex `run` snippet fails from shell escaping | Put code in a file and use `run-file` |
 
 **Nuclear option** (if all else fails):
