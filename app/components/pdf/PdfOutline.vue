@@ -149,6 +149,7 @@ import {
     watch,
 } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
+import type { IPdfBookmarkEntry } from '@app/types/pdf';
 import { isPdfDocumentUsable } from '@app/utils/pdf-document-guard';
 
 interface IRefProxy {
@@ -197,7 +198,13 @@ interface IProps {
 
 const props = defineProps<IProps>();
 
-defineEmits<{(e: 'goToPage', page: number): void;}>();
+const emit = defineEmits<{
+    (e: 'goToPage', page: number): void;
+    (e: 'bookmarks-change', payload: {
+        bookmarks: IPdfBookmarkEntry[];
+        dirty: boolean;
+    }): void;
+}>();
 
 const bookmarks = ref<IBookmarkItem[]>([]);
 const isLoading = ref(false);
@@ -296,6 +303,7 @@ const selectedContextBookmark = computed(() => {
 
 let outlineRunId = 0;
 let bookmarkIdCounter = 0;
+const initialBookmarkSnapshot = ref('[]');
 
 function resetBookmarkIdCounter() {
     bookmarkIdCounter = 0;
@@ -305,6 +313,36 @@ function createBookmarkId() {
     const id = `bookmark-${bookmarkIdCounter}`;
     bookmarkIdCounter += 1;
     return id;
+}
+
+function mapBookmarksForPersistence(items: IBookmarkItem[]): IPdfBookmarkEntry[] {
+    return items.map((item) => {
+        const title = item.title.trim();
+        return {
+            title: title.length > 0 ? title : 'Untitled Bookmark',
+            pageIndex: typeof item.pageIndex === 'number' ? item.pageIndex : null,
+            namedDest: typeof item.dest === 'string' && item.dest.trim().length > 0 ? item.dest : null,
+            items: mapBookmarksForPersistence(item.items),
+        };
+    });
+}
+
+function emitBookmarksChange() {
+    const persisted = mapBookmarksForPersistence(bookmarks.value);
+    const snapshot = JSON.stringify(persisted);
+    emit('bookmarks-change', {
+        bookmarks: persisted,
+        dirty: snapshot !== initialBookmarkSnapshot.value,
+    });
+}
+
+function setBookmarkBaseline() {
+    const persisted = mapBookmarksForPersistence(bookmarks.value);
+    initialBookmarkSnapshot.value = JSON.stringify(persisted);
+    emit('bookmarks-change', {
+        bookmarks: persisted,
+        dirty: false,
+    });
 }
 
 function isRefProxy(value: unknown): value is IRefProxy {
@@ -440,6 +478,7 @@ async function loadOutline() {
         isLoading.value = false;
         bookmarks.value = [];
         activeItemId.value = null;
+        setBookmarkBaseline();
         return;
     }
 
@@ -475,6 +514,7 @@ async function loadOutline() {
 
         bookmarks.value = resolved;
         updateActiveItemFromCurrentPage();
+        setBookmarkBaseline();
     } catch (error) {
         if (
             runId !== outlineRunId
@@ -486,6 +526,7 @@ async function loadOutline() {
         console.error('Failed to load bookmarks:', error);
         bookmarks.value = [];
         activeItemId.value = null;
+        setBookmarkBaseline();
     } finally {
         if (runId === outlineRunId) {
             isLoading.value = false;
@@ -675,7 +716,12 @@ function renameBookmark(payload: {
         return;
     }
 
+    if (location.item.title === nextTitle) {
+        return;
+    }
+
     location.item.title = nextTitle;
+    emitBookmarksChange();
 }
 
 function focusNewBookmark(id: string) {
@@ -689,6 +735,7 @@ function addRootBookmark() {
     const bookmark = createDraftBookmark();
     bookmarks.value.push(bookmark);
     focusNewBookmark(bookmark.id);
+    emitBookmarksChange();
 }
 
 function addSiblingAbove(id: string) {
@@ -700,6 +747,7 @@ function addSiblingAbove(id: string) {
     const bookmark = createDraftBookmark();
     location.list.splice(location.index, 0, bookmark);
     focusNewBookmark(bookmark.id);
+    emitBookmarksChange();
 }
 
 function addSiblingBelow(id: string) {
@@ -711,6 +759,7 @@ function addSiblingBelow(id: string) {
     const bookmark = createDraftBookmark();
     location.list.splice(location.index + 1, 0, bookmark);
     focusNewBookmark(bookmark.id);
+    emitBookmarksChange();
 }
 
 function addChildBookmark(id: string) {
@@ -723,6 +772,7 @@ function addChildBookmark(id: string) {
     location.item.items.push(bookmark);
     ensureBookmarkVisibleInTopLevelMode(bookmark.id);
     focusNewBookmark(bookmark.id);
+    emitBookmarksChange();
 }
 
 function removeBookmark(id: string) {
@@ -754,6 +804,7 @@ function removeBookmark(id: string) {
 
     closeBookmarkContextMenu();
     pruneStaleState();
+    emitBookmarksChange();
 }
 
 function handleGlobalPointerDown(event: PointerEvent) {

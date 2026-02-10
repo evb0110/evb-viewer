@@ -81,6 +81,22 @@ export interface IPdfPageMatches {
 
 export type TSearchDirection = 'next' | 'previous';
 
+export type TPageLabelStyle = 'D' | 'R' | 'r' | 'A' | 'a' | null;
+
+export interface IPdfPageLabelRange {
+    startPage: number;
+    style: TPageLabelStyle;
+    prefix: string;
+    startNumber: number;
+}
+
+export interface IPdfBookmarkEntry {
+    title: string;
+    pageIndex: number | null;
+    namedDest: string | null;
+    items: IPdfBookmarkEntry[];
+}
+
 /**
  * The shape returned by `PageViewport.rawDims` at runtime.
  * pdf.js types declare the getter as `Object`, but the actual

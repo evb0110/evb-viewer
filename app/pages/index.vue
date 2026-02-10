@@ -375,6 +375,7 @@
                     @annotation-open-note="handleOpenAnnotationNote"
                     @annotation-copy-comment="handleCopyAnnotationComment"
                     @annotation-delete-comment="handleDeleteAnnotationComment"
+                    @bookmarks-change="handleBookmarksChange"
                 />
                 <div
                     class="sidebar-resizer"
@@ -646,7 +647,10 @@ import {
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { TFitMode } from '@app/types/shared';
 import { useOcrTextContent } from '@app/composables/pdf/useOcrTextContent';
-import type { IPdfPageLabelRange } from '@app/types/pdf';
+import type {
+    IPdfBookmarkEntry,
+    IPdfPageLabelRange,
+} from '@app/types/pdf';
 import {
     buildPageLabelsFromRanges,
     derivePageLabelRangesFromLabels,
@@ -785,14 +789,26 @@ async function ensureCurrentDocumentPersistedBeforeSwitch() {
         }
     }
 
-    const hasPendingChanges = annotationDirty.value || isDirty.value || hasAnnotationChanges() || pageLabelsDirty.value;
+    const hasPendingChanges = (
+        annotationDirty.value
+        || isDirty.value
+        || hasAnnotationChanges()
+        || pageLabelsDirty.value
+        || bookmarksDirty.value
+    );
     if (!hasPendingChanges) {
         return true;
     }
 
     await handleSave();
 
-    return !(annotationDirty.value || isDirty.value || hasAnnotationChanges() || pageLabelsDirty.value);
+    return !(
+        annotationDirty.value
+        || isDirty.value
+        || hasAnnotationChanges()
+        || pageLabelsDirty.value
+        || bookmarksDirty.value
+    );
 }
 
 async function handleOpenFileFromUi() {
@@ -1060,6 +1076,8 @@ const totalPages = ref(0);
 const pageLabels = ref<string[] | null>(null);
 const pageLabelRanges = ref<IPdfPageLabelRange[]>([]);
 const pageLabelsDirty = ref(false);
+const bookmarkItems = ref<IPdfBookmarkEntry[]>([]);
+const bookmarksDirty = ref(false);
 const isLoading = ref(false);
 const dragMode = ref(true);
 const continuousScroll = ref(true);
@@ -1151,7 +1169,7 @@ const canRedo = computed(() => (
         : canRedoFile.value
 ));
 const annotationDirty = computed(() => annotationRevision.value !== annotationSavedRevision.value);
-const canSave = computed(() => isDirty.value || annotationDirty.value || pageLabelsDirty.value);
+const canSave = computed(() => isDirty.value || annotationDirty.value || pageLabelsDirty.value || bookmarksDirty.value);
 const annotationContextMenuStyle = computed(() => ({
     left: `${annotationContextMenu.value.x}px`,
     top: `${annotationContextMenu.value.y}px`,
@@ -1398,6 +1416,27 @@ async function syncPageLabelsFromDocument(doc: PDFDocumentProxy | null) {
 
 function markPageLabelsSaved() {
     pageLabelsDirty.value = false;
+}
+
+function markBookmarksSaved() {
+    bookmarksDirty.value = false;
+}
+
+function handleBookmarksChange(payload: {
+    bookmarks: IPdfBookmarkEntry[];
+    dirty: boolean;
+}) {
+    bookmarkItems.value = payload.bookmarks;
+
+    if (payload.dirty) {
+        if (!bookmarksDirty.value) {
+            markDirty();
+        }
+        bookmarksDirty.value = true;
+        return;
+    }
+
+    bookmarksDirty.value = false;
 }
 
 function handlePageLabelRangesUpdate(ranges: IPdfPageLabelRange[]) {
@@ -2747,6 +2786,180 @@ async function serializeShapeAnnotations(data: Uint8Array): Promise<Uint8Array> 
     return new Uint8Array(await doc.save());
 }
 
+function normalizeBookmarkEntries(entries: IPdfBookmarkEntry[]): IPdfBookmarkEntry[] {
+    if (totalPages.value <= 0) {
+        return [] as IPdfBookmarkEntry[];
+    }
+
+    const maxPageIndex = totalPages.value - 1;
+
+    function normalizeItem(item: IPdfBookmarkEntry): IPdfBookmarkEntry {
+        const title = item.title.trim();
+        const pageIndex = typeof item.pageIndex === 'number'
+            ? Math.max(0, Math.min(maxPageIndex, Math.trunc(item.pageIndex)))
+            : null;
+        const namedDest = typeof item.namedDest === 'string' && item.namedDest.trim().length > 0
+            ? item.namedDest
+            : null;
+
+        return {
+            title: title.length > 0 ? title : 'Untitled Bookmark',
+            pageIndex,
+            namedDest,
+            items: item.items.map(normalizeItem),
+        };
+    }
+
+    return entries.map(normalizeItem);
+}
+
+async function rewriteBookmarks(data: Uint8Array): Promise<Uint8Array> {
+    if (!bookmarksDirty.value) {
+        return data;
+    }
+
+    const normalizedBookmarks = normalizeBookmarkEntries(bookmarkItems.value);
+
+    let doc: PDFDocument;
+    try {
+        doc = await PDFDocument.load(data, { updateMetadata: false });
+    } catch {
+        return data;
+    }
+
+    const outlinesName = PDFName.of('Outlines');
+    if (normalizedBookmarks.length === 0) {
+        doc.catalog.delete(outlinesName);
+        return new Uint8Array(await doc.save());
+    }
+
+    interface IOutlineNodeBuild {
+        ref: PDFRef;
+        dict: PDFDict;
+        item: IPdfBookmarkEntry;
+        visibleCount: number;
+    }
+
+    const parentName = PDFName.of('Parent');
+    const prevName = PDFName.of('Prev');
+    const nextName = PDFName.of('Next');
+    const firstName = PDFName.of('First');
+    const lastName = PDFName.of('Last');
+    const countName = PDFName.of('Count');
+    const titleName = PDFName.of('Title');
+    const destName = PDFName.of('Dest');
+    const typeName = PDFName.of('Type');
+
+    const pdfNull = doc.context.obj(null);
+
+    function setNodeDestination(dict: PDFDict, item: IPdfBookmarkEntry) {
+        if (typeof item.pageIndex === 'number') {
+            const pageRef = doc.getPage(item.pageIndex).ref;
+            const destArray = doc.context.obj([
+                pageRef,
+                PDFName.of('XYZ'),
+                pdfNull,
+                pdfNull,
+                pdfNull,
+            ]) as PDFArray;
+            dict.set(destName, destArray);
+            return;
+        }
+
+        if (item.namedDest) {
+            dict.set(destName, PDFString.of(item.namedDest));
+        }
+    }
+
+    function buildOutlineLevel(
+        items: IPdfBookmarkEntry[],
+        parentRef: PDFRef,
+    ): {
+        first: PDFRef | null;
+        last: PDFRef | null;
+        visibleCount: number;
+    } {
+        if (items.length === 0) {
+            return {
+                first: null,
+                last: null,
+                visibleCount: 0,
+            };
+        }
+
+        const nodes: IOutlineNodeBuild[] = items.map((item) => {
+            const dict = doc.context.obj({}) as PDFDict;
+            dict.set(titleName, PDFHexString.fromText(item.title));
+            setNodeDestination(dict, item);
+
+            const ref = doc.context.register(dict);
+            return {
+                ref,
+                dict,
+                item,
+                visibleCount: 1,
+            };
+        });
+
+        for (const [
+            index,
+            node,
+        ] of nodes.entries()) {
+            node.dict.set(parentName, parentRef);
+            if (index > 0) {
+                const previous = nodes[index - 1];
+                if (previous) {
+                    node.dict.set(prevName, previous.ref);
+                }
+            }
+            if (index + 1 < nodes.length) {
+                const next = nodes[index + 1];
+                if (next) {
+                    node.dict.set(nextName, next.ref);
+                }
+            }
+        }
+
+        for (const node of nodes) {
+            const childResult = buildOutlineLevel(node.item.items, node.ref);
+            if (childResult.first && childResult.last) {
+                node.dict.set(firstName, childResult.first);
+                node.dict.set(lastName, childResult.last);
+                if (childResult.visibleCount > 0) {
+                    node.dict.set(countName, PDFNumber.of(childResult.visibleCount));
+                }
+                node.visibleCount += childResult.visibleCount;
+            }
+        }
+
+        const first = nodes[0]?.ref ?? null;
+        const last = nodes[nodes.length - 1]?.ref ?? null;
+        const visibleCount = nodes.reduce((total, node) => total + node.visibleCount, 0);
+
+        return {
+            first,
+            last,
+            visibleCount,
+        };
+    }
+
+    const outlinesDict = doc.context.obj({}) as PDFDict;
+    outlinesDict.set(typeName, PDFName.of('Outlines'));
+    const outlinesRef = doc.context.register(outlinesDict);
+
+    const tree = buildOutlineLevel(normalizedBookmarks, outlinesRef);
+    if (!tree.first || !tree.last) {
+        doc.catalog.delete(outlinesName);
+        return new Uint8Array(await doc.save());
+    }
+
+    outlinesDict.set(firstName, tree.first);
+    outlinesDict.set(lastName, tree.last);
+    outlinesDict.set(countName, PDFNumber.of(tree.visibleCount));
+    doc.catalog.set(outlinesName, outlinesRef);
+    return new Uint8Array(await doc.save());
+}
+
 async function rewritePageLabels(data: Uint8Array): Promise<Uint8Array> {
     if (!pageLabelsDirty.value || totalPages.value <= 0) {
         return data;
@@ -3002,18 +3215,20 @@ async function handleSave() {
         // the working copy back to the original, without re-serializing the PDF in the renderer
         // (which can change compression and bloat scanned PDFs).
         if (workingCopyPath.value) {
-            const shouldSerialize = annotationDirty.value || hasAnnotationChanges() || pageLabelsDirty.value;
+            const shouldSerialize = annotationDirty.value || hasAnnotationChanges() || pageLabelsDirty.value || bookmarksDirty.value;
             if (shouldSerialize) {
                 const rawData = await pdfViewerRef.value?.saveDocument();
                 if (rawData) {
                     let data = await rewriteMarkupSubtypes(rawData);
                     data = await serializeShapeAnnotations(data);
                     data = await rewritePageLabels(data);
+                    data = await rewriteBookmarks(data);
                     const saved = await saveFile(data);
                     if (saved) {
                         pdfDocument.value?.annotationStorage?.resetModified();
                         markAnnotationSaved();
                         markPageLabelsSaved();
+                        markBookmarksSaved();
                     }
                 }
                 return;
@@ -3022,6 +3237,7 @@ async function handleSave() {
             if (saved) {
                 markAnnotationSaved();
                 markPageLabelsSaved();
+                markBookmarksSaved();
             }
             return;
         }
@@ -3031,11 +3247,13 @@ async function handleSave() {
         if (rawData) {
             let data = await rewriteMarkupSubtypes(rawData);
             data = await rewritePageLabels(data);
+            data = await rewriteBookmarks(data);
             const saved = await saveFile(data);
             if (saved) {
                 pdfDocument.value?.annotationStorage?.resetModified();
                 markAnnotationSaved();
                 markPageLabelsSaved();
+                markBookmarksSaved();
             }
         }
     } finally {
@@ -3056,18 +3274,20 @@ async function handleSaveAs() {
     isSavingAs.value = true;
     try {
         let outPath: string | null = null;
-        const shouldSerialize = annotationDirty.value || hasAnnotationChanges() || pageLabelsDirty.value;
+        const shouldSerialize = annotationDirty.value || hasAnnotationChanges() || pageLabelsDirty.value || bookmarksDirty.value;
         if (shouldSerialize) {
             const rawData = await pdfViewerRef.value?.saveDocument();
             if (rawData) {
                 let data = await rewriteMarkupSubtypes(rawData);
                 data = await serializeShapeAnnotations(data);
                 data = await rewritePageLabels(data);
+                data = await rewriteBookmarks(data);
                 outPath = await saveWorkingCopyAs(data);
                 if (outPath) {
                     pdfDocument.value?.annotationStorage?.resetModified();
                     markAnnotationSaved();
                     markPageLabelsSaved();
+                    markBookmarksSaved();
                 }
             }
         } else {
@@ -3075,6 +3295,7 @@ async function handleSaveAs() {
             if (outPath) {
                 markAnnotationSaved();
                 markPageLabelsSaved();
+                markBookmarksSaved();
             }
         }
         if (outPath) {
@@ -3090,6 +3311,8 @@ watch(pdfSrc, (newSrc, oldSrc) => {
     if (newSrc && newSrc !== oldSrc) {
         resetAnnotationTracking();
         annotationComments.value = [];
+        bookmarkItems.value = [];
+        bookmarksDirty.value = false;
         closeAnnotationContextMenu();
         void closeAllAnnotationNotes({ saveIfDirty: false });
     }
@@ -3102,6 +3325,8 @@ watch(pdfSrc, (newSrc, oldSrc) => {
         pageLabels.value = null;
         pageLabelRanges.value = [];
         pageLabelsDirty.value = false;
+        bookmarkItems.value = [];
+        bookmarksDirty.value = false;
         pdfViewerRef.value?.clearShapes();
         closeAnnotationContextMenu();
         void closeAllAnnotationNotes({ saveIfDirty: false });

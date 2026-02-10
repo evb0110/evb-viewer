@@ -52,6 +52,7 @@
                 :pdf-document="pdfDocument"
                 :current-page="currentPage"
                 @go-to-page="$emit('goToPage', $event)"
+                @bookmarks-change="emit('bookmarks-change', $event)"
             />
             <div
                 v-show="activeTab === 'search'"
@@ -94,7 +95,10 @@ import {
     watch,
 } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
-import type { IPdfSearchMatch } from '@app/types/pdf';
+import type {
+    IPdfBookmarkEntry,
+    IPdfSearchMatch,
+} from '@app/types/pdf';
 import type {
     IAnnotationCommentSummary,
     IAnnotationSettings,
@@ -159,6 +163,10 @@ const emit = defineEmits<{
     (e: 'annotation-open-note', comment: IAnnotationCommentSummary): void;
     (e: 'annotation-copy-comment', comment: IAnnotationCommentSummary): void;
     (e: 'annotation-delete-comment', comment: IAnnotationCommentSummary): void;
+    (e: 'bookmarks-change', payload: {
+        bookmarks: IPdfBookmarkEntry[];
+        dirty: boolean;
+    }): void;
 }>();
 
 type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'bookmarks' | 'search';
