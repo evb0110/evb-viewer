@@ -102,16 +102,6 @@
                             @click="openAnnotations(); closeAllDropdowns()"
                         />
                     </UTooltip>
-                    <UTooltip text="Edit Bookmarks" :delay-duration="1200">
-                        <UButton
-                            icon="i-lucide-square-pen"
-                            :variant="isBookmarksEditOpen ? 'soft' : 'ghost'"
-                            :color="isBookmarksEditOpen ? 'primary' : 'neutral'"
-                            class="toolbar-icon-button"
-                            aria-label="Edit bookmarks"
-                            @click="toggleBookmarkEditMode(); closeAllDropdowns()"
-                        />
-                    </UTooltip>
 
                     <div v-if="pdfSrc" class="toolbar-button-group">
                         <div class="toolbar-group-item">
@@ -1170,11 +1160,6 @@ const isAnnotationUndoContext = computed(() =>
     || annotationEditorState.value.hasSomethingToRedo,
 );
 const isAnnotationPanelOpen = computed(() => showSidebar.value && sidebarTab.value === 'annotations');
-const isBookmarksEditOpen = computed(() => (
-    showSidebar.value
-    && sidebarTab.value === 'bookmarks'
-    && bookmarkEditMode.value
-));
 const annotationCursorMode = computed(() => isAnnotationPanelOpen.value && !dragMode.value);
 const canUndo = computed(() => (
     isAnnotationUndoContext.value
@@ -1609,17 +1594,6 @@ function openAnnotations() {
     showSidebar.value = true;
     sidebarTab.value = 'annotations';
     dragMode.value = false;
-}
-
-function toggleBookmarkEditMode() {
-    if (!(showSidebar.value && sidebarTab.value === 'bookmarks')) {
-        showSidebar.value = true;
-        sidebarTab.value = 'bookmarks';
-        bookmarkEditMode.value = true;
-        return;
-    }
-
-    bookmarkEditMode.value = !bookmarkEditMode.value;
 }
 
 function closeSearch() {

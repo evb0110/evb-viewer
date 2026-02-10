@@ -4,7 +4,7 @@
             <div
                 class="pdf-bookmarks-view-modes"
                 role="group"
-                aria-label="Bookmark display mode"
+                aria-label="Bookmark controls"
             >
                 <button
                     v-for="option in displayModeOptions"
@@ -18,6 +18,19 @@
                 >
                     <UIcon
                         :name="option.icon"
+                        class="size-4"
+                    />
+                </button>
+                <button
+                    type="button"
+                    class="pdf-bookmarks-view-mode-button"
+                    :class="{ 'is-active': isEditMode }"
+                    :title="isEditMode ? 'Exit bookmark edit mode' : 'Enter bookmark edit mode'"
+                    :aria-label="isEditMode ? 'Exit bookmark edit mode' : 'Enter bookmark edit mode'"
+                    @click="isEditMode = !isEditMode"
+                >
+                    <UIcon
+                        :name="isEditMode ? 'i-lucide-square-pen' : 'i-lucide-pencil'"
                         class="size-4"
                     />
                 </button>
