@@ -13,7 +13,6 @@
                     type="button"
                     class="tool-button"
                     :class="{ 'is-active': tool === toolItem.id }"
-                    :title="toolItem.hint"
                     @click="emit('set-tool', toolItem.id)"
                 >
                     <UIcon :name="toolItem.icon" class="tool-button-icon" />
@@ -29,37 +28,6 @@
                 />
                 Keep selected tool active
             </label>
-        </section>
-
-        <section class="notes-section notes-sticky">
-            <header class="notes-section-header">
-                <h3 class="notes-section-title">Sticky Notes</h3>
-                <p class="notes-section-description">Create notes from selected text or place one anywhere on a page.</p>
-            </header>
-
-            <div class="sticky-actions">
-                <button
-                    type="button"
-                    class="sticky-action"
-                    @click="emit('comment-selection')"
-                >
-                    <UIcon name="i-lucide-message-circle" class="sticky-action-icon" />
-                    <span>Add Note to Selection</span>
-                </button>
-                <button
-                    type="button"
-                    class="sticky-action"
-                    :class="{ 'is-active': placingPageNote }"
-                    @click="emit('start-place-note')"
-                >
-                    <UIcon name="i-lucide-plus" class="sticky-action-icon" />
-                    <span>{{ placingPageNote ? 'Cancel Place Mode' : 'Place Note on Page' }}</span>
-                </button>
-            </div>
-
-            <p class="sticky-hint">
-                {{ placingPageNote ? 'Click inside the document to place a sticky note.' : 'Use “Place Note on Page”, then click where the note should appear.' }}
-            </p>
         </section>
 
         <section class="notes-section notes-style">
@@ -91,20 +59,38 @@
                 />
             </div>
 
-            <div v-if="activeWidthControl" class="style-row">
+            <div v-if="activeWidthControl" class="style-row style-row-width">
                 <label class="style-label" for="annotation-width-input">
                     {{ activeWidthControl.label }} {{ activeWidthValue }}
                 </label>
-                <input
-                    id="annotation-width-input"
-                    class="style-range"
-                    type="range"
-                    :min="activeWidthControl.min"
-                    :max="activeWidthControl.max"
-                    :step="activeWidthControl.step"
-                    :value="activeWidthValue"
-                    @input="handleWidthInput(Number(($event.target as HTMLInputElement).value))"
-                />
+                <div class="style-width-control">
+                    <button
+                        type="button"
+                        class="style-step-button"
+                        aria-label="Decrease width"
+                        @click="nudgeWidth(-activeWidthControl.step)"
+                    >
+                        -
+                    </button>
+                    <input
+                        id="annotation-width-input"
+                        class="style-range"
+                        type="range"
+                        :min="activeWidthControl.min"
+                        :max="activeWidthControl.max"
+                        :step="activeWidthControl.step"
+                        :value="activeWidthValue"
+                        @input="handleWidthInput(Number(($event.target as HTMLInputElement).value))"
+                    />
+                    <button
+                        type="button"
+                        class="style-step-button"
+                        aria-label="Increase width"
+                        @click="nudgeWidth(activeWidthControl.step)"
+                    >
+                        +
+                    </button>
+                </div>
             </div>
 
             <div v-if="tool === 'draw'" class="draw-style-row">
@@ -122,6 +108,37 @@
                     </button>
                 </div>
             </div>
+        </section>
+
+        <section class="notes-section notes-sticky">
+            <header class="notes-section-header">
+                <h3 class="notes-section-title">Sticky Notes</h3>
+                <p class="notes-section-description">Create notes from selected text or place one anywhere on a page.</p>
+            </header>
+
+            <div class="sticky-actions">
+                <button
+                    type="button"
+                    class="sticky-action"
+                    @click="emit('comment-selection')"
+                >
+                    <UIcon name="i-lucide-message-circle" class="sticky-action-icon" />
+                    <span>Add Note to Selection</span>
+                </button>
+                <button
+                    type="button"
+                    class="sticky-action"
+                    :class="{ 'is-active': placingPageNote }"
+                    @click="emit('start-place-note')"
+                >
+                    <UIcon name="i-lucide-plus" class="sticky-action-icon" />
+                    <span>{{ placingPageNote ? 'Cancel Place Mode' : 'Place Note on Page' }}</span>
+                </button>
+            </div>
+
+            <p class="sticky-hint">
+                {{ placingPageNote ? 'Click inside the document to place a sticky note.' : 'Use “Place Note on Page”, then click where the note should appear.' }}
+            </p>
         </section>
 
         <section v-if="pagesWithNotes.length > 0" class="notes-section notes-pages">
@@ -916,9 +933,9 @@ const activeWidthControl = computed<IWidthControl | null>(() => {
         return {
             key: 'inkThickness',
             min: 1,
-            max: 16,
+            max: 24,
             step: 1,
-            label: 'Width',
+            label: 'Draw Thickness',
         };
     }
 
@@ -1013,6 +1030,19 @@ function handleWidthInput(width: number) {
     }
 
     updateSetting(control.key, width);
+}
+
+function nudgeWidth(delta: number) {
+    const control = activeWidthControl.value;
+    if (!control) {
+        return;
+    }
+
+    const next = Math.max(
+        control.min,
+        Math.min(control.max, activeWidthValue.value + delta),
+    );
+    updateSetting(control.key, next);
 }
 
 function applyDrawStyle(style: TDrawStyle) {
@@ -1194,6 +1224,28 @@ function applyDrawStyle(style: TDrawStyle) {
 
 .style-range {
     width: 100%;
+}
+
+.style-width-control {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+}
+
+.style-step-button {
+    border: 1px solid var(--ui-border);
+    border-radius: 0.4rem;
+    background: var(--ui-bg);
+    color: var(--ui-text-highlighted);
+    width: 1.8rem;
+    height: 1.8rem;
+    font-size: 1rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.style-step-button:hover {
+    border-color: color-mix(in srgb, var(--ui-primary) 55%, var(--ui-border) 45%);
 }
 
 .draw-style-row {
