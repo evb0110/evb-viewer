@@ -1029,7 +1029,7 @@ const annotationSettings = ref<IAnnotationSettings>({
     inkOpacity: 0.9,
     inkThickness: 2,
     textColor: '#111827',
-    textSize: 16,
+    textSize: 22,
     shapeColor: '#2563eb',
     shapeFillColor: 'transparent',
     shapeOpacity: 1,

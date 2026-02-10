@@ -262,7 +262,7 @@ provide<IShapeContextProvide>('shapeContext', {
         inkOpacity: 0.9,
         inkThickness: 2,
         textColor: '#111827',
-        textSize: 16,
+        textSize: 22,
         shapeColor: '#2563eb',
         shapeFillColor: 'transparent',
         shapeOpacity: 1,
@@ -353,7 +353,6 @@ let annotationToolUpdateToken = 0;
 let annotationToolUpdatePromise: Promise<void> = Promise.resolve();
 const FREE_TEXT_FONT_SIZE_MIN = 8;
 const FREE_TEXT_FONT_SIZE_MAX = 96;
-const FREE_TEXT_RESIZE_EPSILON = 0.005;
 const commentSummaryMemory = new Map<string, {
     text: string;
     modifiedAt: number | null;
@@ -387,7 +386,10 @@ interface IPdfjsEditor {
     width?: number;
     height?: number;
     _onResized?: () => void;
+    _onResizing?: () => void;
     updateParams?: (type: number, value: unknown) => void;
+    setDims?: () => void;
+    fixAndSetPosition?: () => void;
     parent?: { div?: HTMLElement };
     getData?: () => {
         modificationDate?: string | null;
@@ -697,8 +699,22 @@ function ensureFreeTextEditorCanResize(editor: IPdfjsEditor) {
     if (detectEditorSubtype(editor) !== 'Typewriter') {
         return;
     }
-    const tagged = editor as IPdfjsEditor & {__freeTextResizablePatched?: boolean;};
+    const tagged = editor as IPdfjsEditor & {
+        __freeTextResizablePatched?: boolean;
+        __freeTextFontToWidthRatio?: number;
+        _willKeepAspectRatio?: boolean;
+        makeResizable?: () => void;
+    };
     if (tagged.__freeTextResizablePatched) {
+        // Re-attempt ratio capture if it was missed on the first call
+        // (editor may not have had valid dimensions at commit time).
+        if (!tagged.__freeTextFontToWidthRatio) {
+            const fontSize = getFreeTextEditorFontSize(editor);
+            const w = editor.width;
+            if (fontSize && fontSize > 0 && w && w > 0) {
+                tagged.__freeTextFontToWidthRatio = fontSize / w;
+            }
+        }
         return;
     }
 
@@ -709,12 +725,18 @@ function ensureFreeTextEditorCanResize(editor: IPdfjsEditor) {
                 return true;
             },
         });
+        // Only create corner resize handles (proportional resize).
+        tagged._willKeepAspectRatio = true;
         tagged.__freeTextResizablePatched = true;
     } catch {
         // Ignore if PDF.js internals reject instance patching.
     }
 
     patchFreeTextResizeFontSync(editor);
+
+    if (typeof tagged.makeResizable === 'function') {
+        tagged.makeResizable();
+    }
 }
 
 function patchResizableFreeTextEditors(uiManager: AnnotationEditorUIManager) {
@@ -783,81 +805,119 @@ function getFreeTextEditorFontSize(editor: IPdfjsEditor) {
 function patchFreeTextResizeFontSync(editor: IPdfjsEditor) {
     const tagged = editor as IPdfjsEditor & {
         __freeTextResizeHookPatched?: boolean;
-        __freeTextResizeSyncApplying?: boolean;
-        __freeTextLastWidth?: number;
-        __freeTextLastHeight?: number;
+        __freeTextFontToWidthRatio?: number;
+        __freeTextResizeSyncRaf?: number;
     };
     if (tagged.__freeTextResizeHookPatched) {
         return;
     }
 
+    // Capture the font-to-width ratio once.  This defines the
+    // proportional relationship between font size and editor width,
+    // and is used to compute the target font for any given width.
+    function captureRatio() {
+        const fontSize = getFreeTextEditorFontSize(editor);
+        const w = editor.width;
+        if (fontSize && fontSize > 0 && w && w > 0) {
+            tagged.__freeTextFontToWidthRatio = fontSize / w;
+        }
+    }
+    captureRatio();
+
+    // ── _onResizing: live CSS font during every pointermove ──────
+    const originalOnResizing = typeof editor._onResizing === 'function'
+        ? editor._onResizing.bind(editor)
+        : null;
+
+    editor._onResizing = () => {
+        originalOnResizing?.();
+        const ratio = tagged.__freeTextFontToWidthRatio;
+        const w = editor.width;
+        if (!ratio || !w || w <= 0) {
+            return;
+        }
+        const targetFont = Math.max(
+            FREE_TEXT_FONT_SIZE_MIN,
+            Math.min(FREE_TEXT_FONT_SIZE_MAX, ratio * w),
+        );
+        const internal = editor.div?.querySelector<HTMLElement>('.internal');
+        if (internal) {
+            internal.style.fontSize = `calc(${targetFont}px * var(--total-scale-factor))`;
+        }
+    };
+
+    // ── _onResized: finalize after drag or undo/redo ─────────────
     const originalOnResized = typeof editor._onResized === 'function'
         ? editor._onResized.bind(editor)
         : null;
 
     editor._onResized = () => {
         originalOnResized?.();
-        if (tagged.__freeTextResizeSyncApplying) {
+        const ratio = tagged.__freeTextFontToWidthRatio;
+        const w = editor.width;
+        if (!ratio || !w || w <= 0) {
             return;
         }
-
-        const editorDiv = editor.div;
-        const uiManager = annotationUiManager.value;
-        if (!editorDiv || !uiManager || !editorDiv.isConnected) {
-            return;
-        }
-
-        const rect = editorDiv.getBoundingClientRect();
-        if (rect.width <= 0 || rect.height <= 0) {
-            return;
-        }
-
-        const previousWidth = tagged.__freeTextLastWidth ?? rect.width;
-        const previousHeight = tagged.__freeTextLastHeight ?? rect.height;
-        tagged.__freeTextLastWidth = rect.width;
-        tagged.__freeTextLastHeight = rect.height;
-        if (previousWidth <= 0 || previousHeight <= 0) {
-            return;
-        }
-
-        const areaScale = Math.sqrt((rect.width * rect.height) / (previousWidth * previousHeight));
-        if (!Number.isFinite(areaScale) || Math.abs(areaScale - 1) < FREE_TEXT_RESIZE_EPSILON) {
-            return;
-        }
-
-        const currentFontSize = getFreeTextEditorFontSize(editor);
-        if (!currentFontSize) {
-            return;
-        }
-
-        const nextFontSize = Math.round(
+        const targetFont = Math.round(
             Math.max(
                 FREE_TEXT_FONT_SIZE_MIN,
-                Math.min(FREE_TEXT_FONT_SIZE_MAX, currentFontSize * areaScale),
+                Math.min(FREE_TEXT_FONT_SIZE_MAX, ratio * w),
             ),
         );
-        if (nextFontSize === Math.round(currentFontSize)) {
+
+        // Set font CSS immediately for a consistent visual.
+        const internal = editor.div?.querySelector<HTMLElement>('.internal');
+        if (internal) {
+            internal.style.fontSize = `calc(${targetFont}px * var(--total-scale-factor))`;
+        }
+
+        // Defer the PDF.js internal state sync to the next frame so it
+        // doesn't interfere with the undo entry being committed.
+        if (tagged.__freeTextResizeSyncRaf) {
+            cancelAnimationFrame(tagged.__freeTextResizeSyncRaf);
+        }
+        tagged.__freeTextResizeSyncRaf = requestAnimationFrame(() => {
+            tagged.__freeTextResizeSyncRaf = undefined;
+            syncInternalFontSize(targetFont);
+        });
+    };
+
+    tagged.__freeTextResizeHookPatched = true;
+
+    // ── helper: sync font with PDF.js internal state ─────────────
+    function syncInternalFontSize(targetFont: number) {
+        const uiManager = annotationUiManager.value;
+        if (!editor.div?.isConnected || !uiManager) {
             return;
         }
 
         try {
-            tagged.__freeTextResizeSyncApplying = true;
+            const savedX = editor.x;
+            const savedY = editor.y;
+            const savedW = editor.width;
+            const savedH = editor.height;
+
             if (typeof editor.updateParams === 'function') {
-                editor.updateParams(AnnotationEditorParamsType.FREETEXT_SIZE, nextFontSize);
+                editor.updateParams(AnnotationEditorParamsType.FREETEXT_SIZE, targetFont);
             } else {
                 uiManager.setSelected(editor as TUiManagerSelectedEditor);
-                uiManager.updateParams(AnnotationEditorParamsType.FREETEXT_SIZE, nextFontSize);
+                uiManager.updateParams(AnnotationEditorParamsType.FREETEXT_SIZE, targetFont);
             }
+
+            // Undo the translate() + setEditorDimensions() side effects.
+            editor.x = savedX;
+            editor.y = savedY;
+            editor.width = savedW;
+            editor.height = savedH;
+            editor.setDims?.();
+            editor.fixAndSetPosition?.();
+
             emit('annotation-modified');
             scheduleAnnotationCommentsSync();
         } catch (error) {
-            console.warn('Failed to synchronize free text font while resizing:', error);
-        } finally {
-            tagged.__freeTextResizeSyncApplying = false;
+            console.warn('[PdfViewer] Failed to sync FreeText font size:', error);
         }
-    };
-
-    tagged.__freeTextResizeHookPatched = true;
+    }
 }
 
 function compareAnnotationComments(a: IAnnotationCommentSummary, b: IAnnotationCommentSummary) {
@@ -1965,9 +2025,10 @@ async function setAnnotationTool(tool: TAnnotationTool) {
             return;
         }
 
-        // PDF.js can emit mode-state updates that re-sync defaults; re-apply to keep
-        // sidebar tool semantics deterministic after rapid mode switches.
-        applyHighlightParamsForTool(uiManager, settings, effectiveTool);
+        // PDF.js can emit mode-state updates that re-sync defaults; re-apply ALL
+        // annotation params (not just highlight) to keep sidebar semantics
+        // deterministic after rapid mode switches.
+        applyAnnotationSettings(settings);
         patchResizableFreeTextEditors(uiManager);
     }).catch((error: unknown) => {
         console.warn('Failed to apply annotation tool update:', error);
@@ -5910,6 +5971,80 @@ defineExpose({
     background: rgba(255, 140, 0, 0.15);
     pointer-events: none;
     box-sizing: border-box;
+}
+
+/* FreeText editors: hide middle (non-corner) resize handles as a CSS fallback.
+   Normally _willKeepAspectRatio = true prevents their creation, but for editors
+   created before our patch runs we still need to hide them. */
+.pdfViewer :deep(.freeTextEditor > .resizers > .resizer.topMiddle),
+.pdfViewer :deep(.freeTextEditor > .resizers > .resizer.middleRight),
+.pdfViewer :deep(.freeTextEditor > .resizers > .resizer.bottomMiddle),
+.pdfViewer :deep(.freeTextEditor > .resizers > .resizer.middleLeft) {
+    display: none !important;
+}
+
+/* FreeText editors: fix PDF.js CSS bug — the selector for .overlay.enabled
+   is missing the dot on "freeTextEditor" (element vs class), so the overlay
+   never shows and the editor cannot be dragged after committing text. */
+.pdfViewer :deep(.freeTextEditor .overlay.enabled) {
+    display: block !important;
+}
+
+/* FreeText editors: enlarge resize handle grab area from 6×6px to 20×20px.
+   The actual .resizer element is transparent and borderless; a ::after
+   pseudo-element draws the small visible 6×6px dot. */
+.pdfViewer :deep(.freeTextEditor > .resizers > .resizer) {
+    width: 20px !important;
+    height: 20px !important;
+    background: transparent !important;
+    border: none !important;
+}
+
+.pdfViewer :deep(.freeTextEditor > .resizers > .resizer)::after {
+    content: '';
+    position: absolute;
+    width: 6px;
+    height: 6px;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: var(--resizer-bg-color, #0060df);
+    border-radius: 2px;
+    pointer-events: none;
+}
+
+/* Position 20px handles centered on the editor corners. */
+.pdfViewer :deep(.freeTextEditor > .resizers > .resizer.topLeft) {
+    top: -10px !important;
+    left: -10px !important;
+}
+
+.pdfViewer :deep(.freeTextEditor > .resizers > .resizer.topRight) {
+    top: -10px !important;
+    right: -10px !important;
+}
+
+.pdfViewer :deep(.freeTextEditor > .resizers > .resizer.bottomRight) {
+    bottom: -10px !important;
+    right: -10px !important;
+}
+
+.pdfViewer :deep(.freeTextEditor > .resizers > .resizer.bottomLeft) {
+    bottom: -10px !important;
+    left: -10px !important;
+}
+
+/* Explicit cursor for FreeText corner handles — PDF.js CSS rules depend on
+   data-main-rotation / data-editor-rotation attributes that may not match,
+   causing the cursor to fall back to 'auto' (arrow). */
+.pdfViewer :deep(.freeTextEditor > .resizers > .resizer.topLeft),
+.pdfViewer :deep(.freeTextEditor > .resizers > .resizer.bottomRight) {
+    cursor: nwse-resize !important;
+}
+
+.pdfViewer :deep(.freeTextEditor > .resizers > .resizer.topRight),
+.pdfViewer :deep(.freeTextEditor > .resizers > .resizer.bottomLeft) {
+    cursor: nesw-resize !important;
 }
 </style>
 
