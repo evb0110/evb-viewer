@@ -105,7 +105,7 @@ function handleThumbnailClick(event: MouseEvent, page: number) {
     const currentSelection = normalizeSelectedPages(props.selectedPages ?? []);
 
     if (extendRange) {
-        commitSelection(buildRangeSelection(selectionAnchor.value ?? page, page), page);
+        commitSelection(buildRangeSelection(selectionAnchor.value ?? page, page), selectionAnchor.value);
     } else if (toggleSelection) {
         const nextSelection = new Set<number>(currentSelection);
         if (nextSelection.has(page)) {

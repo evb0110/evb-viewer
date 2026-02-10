@@ -44,6 +44,18 @@
                 v-show="activeTab === 'thumbnails'"
                 class="pdf-sidebar-pages"
             >
+                <div class="pdf-sidebar-pages-thumbnails app-scrollbar">
+                    <PdfThumbnails
+                        :pdf-document="pdfDocument"
+                        :current-page="currentPage"
+                        :total-pages="totalPages"
+                        :page-labels="pageLabels"
+                        :selected-pages="selectedThumbnailPages"
+                        @go-to-page="emit('goToPage', $event)"
+                        @update:selected-pages="handleSelectedPagesUpdate"
+                    />
+                </div>
+
                 <div class="pdf-sidebar-pages-panel">
                     <UCollapsible
                         v-model:open="isPageNumberingExpanded"
@@ -62,6 +74,10 @@
                                         :name="open ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'"
                                         class="pdf-sidebar-pages-disclosure-icon size-4"
                                     />
+                                    <UIcon
+                                        name="i-lucide-hash"
+                                        class="pdf-sidebar-pages-disclosure-type-icon size-3.5"
+                                    />
                                     <span class="pdf-sidebar-pages-title">Number Pages</span>
                                 </span>
                             </button>
@@ -69,10 +85,6 @@
 
                         <template #content>
                             <div class="pdf-sidebar-pages-editor">
-                                <p class="pdf-sidebar-pages-help">
-                                    Select contiguous thumbnails or enter a range. Both stay synced.
-                                </p>
-
                                 <div class="pdf-sidebar-pages-fields">
                                     <div class="pdf-sidebar-pages-field">
                                         <label class="pdf-sidebar-pages-label" for="page-label-range-input">Page Range</label>
@@ -129,22 +141,17 @@
                                 </div>
 
                                 <div class="pdf-sidebar-pages-selection">
-                                    <span class="pdf-sidebar-pages-selection-label">Thumbnail selection</span>
                                     <span class="pdf-sidebar-pages-selection-text">{{ selectionSummary }}</span>
-                                    <div class="pdf-sidebar-pages-selection-actions">
-                                        <UTooltip text="Clear selected thumbnails and range" :delay-duration="1200">
-                                            <UButton
-                                                size="xs"
-                                                variant="outline"
-                                                color="neutral"
-                                                class="pdf-sidebar-pages-button pdf-sidebar-pages-secondary-button"
-                                                :disabled="selectedThumbnailPages.length === 0 && !pageRangeInput.trim()"
-                                                @click="clearPageSelection"
-                                            >
-                                                <span class="pdf-sidebar-pages-button-label">Clear selection</span>
-                                            </UButton>
-                                        </UTooltip>
-                                    </div>
+                                    <UButton
+                                        size="xs"
+                                        variant="link"
+                                        color="neutral"
+                                        class="pdf-sidebar-pages-clear-button"
+                                        :disabled="selectedThumbnailPages.length === 0 && !pageRangeInput.trim()"
+                                        @click="clearPageSelection"
+                                    >
+                                        Clear
+                                    </UButton>
                                 </div>
 
                                 <p
@@ -154,14 +161,7 @@
                                     {{ rangeErrorMessage }}
                                 </p>
 
-                                <p
-                                    class="pdf-sidebar-pages-target"
-                                    :class="{ 'is-invalid': hasTargetError }"
-                                >
-                                    {{ applyTargetSummary }}
-                                </p>
-
-                                <UTooltip text="Apply numbering format to the active target range" :delay-duration="1200">
+                                <UTooltip :text="applyTargetSummary" :delay-duration="600">
                                     <UButton
                                         size="xs"
                                         variant="soft"
@@ -177,16 +177,6 @@
                         </template>
                     </UCollapsible>
                 </div>
-
-                <PdfThumbnails
-                    :pdf-document="pdfDocument"
-                    :current-page="currentPage"
-                    :total-pages="totalPages"
-                    :page-labels="pageLabels"
-                    :selected-pages="selectedThumbnailPages"
-                    @go-to-page="emit('goToPage', $event)"
-                    @update:selected-pages="handleSelectedPagesUpdate"
-                />
             </div>
 
             <PdfOutline
@@ -463,14 +453,6 @@ const applyTargetRange = computed(() => {
     }
 
     return selectionRange.value;
-});
-
-const hasTargetError = computed(() => {
-    if (pageRangeInput.value.trim().length > 0 && manualRange.value === null) {
-        return true;
-    }
-
-    return hasNonContiguousSelection.value;
 });
 
 const applyTargetSummary = computed(() => {
@@ -766,14 +748,19 @@ const sidebarStyle = computed(() => {
 .pdf-sidebar-pages {
     display: flex;
     flex-direction: column;
-    min-height: 100%;
+    height: 100%;
+    min-height: 0;
+}
+
+.pdf-sidebar-pages-thumbnails {
+    flex: 1;
+    min-height: 80px;
+    overflow: hidden auto;
 }
 
 .pdf-sidebar-pages-panel {
-    position: sticky;
-    top: 0;
-    z-index: 1;
-    border-bottom: 1px solid var(--ui-border);
+    flex-shrink: 0;
+    border-top: 1px solid var(--ui-border);
     padding: 0.625rem 0.75rem;
     background: var(--ui-bg);
     display: flex;
@@ -820,6 +807,11 @@ const sidebarStyle = computed(() => {
     flex-shrink: 0;
 }
 
+.pdf-sidebar-pages-disclosure-type-icon {
+    color: var(--ui-text-muted);
+    flex-shrink: 0;
+}
+
 .pdf-sidebar-pages-editor {
     display: flex;
     flex-direction: column;
@@ -832,13 +824,6 @@ const sidebarStyle = computed(() => {
     font-size: 0.875rem;
     font-weight: 700;
     color: inherit;
-}
-
-.pdf-sidebar-pages-help {
-    margin: 0;
-    font-size: 0.7rem;
-    color: var(--ui-text-muted);
-    line-height: 1.25;
 }
 
 .pdf-sidebar-pages-fields {
@@ -884,50 +869,27 @@ const sidebarStyle = computed(() => {
 
 .pdf-sidebar-pages-selection {
     display: flex;
-    flex-direction: column;
+    align-items: center;
     gap: 0.375rem;
-    border: 1px solid var(--ui-border);
-    border-radius: 0.375rem;
-    padding: 0.5rem;
-    background: var(--ui-bg-muted);
-}
-
-.pdf-sidebar-pages-selection-label {
-    font-size: 0.675rem;
-    color: var(--ui-text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
 }
 
 .pdf-sidebar-pages-selection-text {
     font-size: 0.75rem;
-    color: var(--ui-text);
-    line-height: 1.3;
-    min-width: 0;
-    white-space: normal;
-    overflow-wrap: anywhere;
-}
-
-.pdf-sidebar-pages-selection-actions {
-    display: flex;
-    flex-direction: column;
-    align-items: stretch;
-    gap: 0.25rem;
-}
-
-.pdf-sidebar-pages-target {
-    margin: 0;
-    font-size: 0.7rem;
     color: var(--ui-text-muted);
     line-height: 1.3;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
-.pdf-sidebar-pages-target.is-invalid {
-    color: #dc2626;
+.pdf-sidebar-pages-clear-button {
+    flex-shrink: 0;
+    font-size: 0.7rem;
+    padding: 0;
 }
 
-.pdf-sidebar-pages-primary-button,
-.pdf-sidebar-pages-secondary-button {
+.pdf-sidebar-pages-primary-button {
     width: 100%;
     justify-content: center;
 }
