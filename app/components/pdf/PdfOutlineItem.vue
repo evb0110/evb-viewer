@@ -4,6 +4,7 @@
             class="pdf-bookmark-item-row"
             :class="{
                 'is-active': isActive,
+                'is-selected': isSelected,
                 'is-editing': isEditing,
                 'is-dragging': isDragging,
                 'is-drop-before': isDropTargetBefore,
@@ -98,7 +99,8 @@
                 :expanded-bookmark-ids="expandedBookmarkIds"
                 :active-path-bookmark-ids="activePathBookmarkIds"
                 :is-edit-mode="isEditMode"
-                :dragging-item-id="draggingItemId"
+                :selected-bookmark-ids="selectedBookmarkIds"
+                :dragging-item-ids="draggingItemIds"
                 :drop-target="dropTarget"
                 :style-range-start-id="styleRangeStartId"
                 @go-to-page="emit('go-to-page', $event)"
@@ -168,7 +170,8 @@ interface IProps {
     expandedBookmarkIds: Set<string>;
     activePathBookmarkIds: Set<string>;
     isEditMode: boolean;
-    draggingItemId: string | null;
+    selectedBookmarkIds: Set<string>;
+    draggingItemIds: Set<string>;
     dropTarget: IDropTarget | null;
     styleRangeStartId: string | null;
 }
@@ -181,6 +184,8 @@ const emit = defineEmits<{
         id: string;
         hasChildren: boolean;
         wasActive: boolean;
+        multiSelect: boolean;
+        rangeSelect: boolean;
     }): void;
     (e: 'toggle-expand', id: string): void;
     (e: 'open-actions', payload: IBookmarkMenuPayload): void;
@@ -200,8 +205,9 @@ const titleInputRef = ref<HTMLInputElement | null>(null);
 
 const hasChildren = computed(() => props.item.items.length > 0);
 const isActive = computed(() => props.item.id === props.activeItemId);
+const isSelected = computed(() => props.selectedBookmarkIds.has(props.item.id));
 const isEditing = computed(() => props.item.id === props.editingItemId);
-const isDragging = computed(() => props.item.id === props.draggingItemId);
+const isDragging = computed(() => props.draggingItemIds.has(props.item.id));
 const isDropTargetBefore = computed(() => (
     props.dropTarget?.id === props.item.id
     && props.dropTarget.position === 'before'
@@ -345,7 +351,7 @@ function handleDragStart(event: DragEvent) {
 }
 
 function handleDragOver(event: DragEvent) {
-    if (!props.isEditMode || !props.draggingItemId) {
+    if (!props.isEditMode || props.draggingItemIds.size === 0) {
         return;
     }
 
@@ -360,7 +366,7 @@ function handleDragOver(event: DragEvent) {
 }
 
 function handleDrop(event: DragEvent) {
-    if (!props.isEditMode || !props.draggingItemId) {
+    if (!props.isEditMode || props.draggingItemIds.size === 0) {
         return;
     }
 
@@ -383,14 +389,23 @@ async function handleClick(event?: MouseEvent | KeyboardEvent) {
         return;
     }
 
+    const isMouseEvent = event instanceof MouseEvent;
+    const multiSelect = Boolean(isMouseEvent && (event.metaKey || event.ctrlKey));
+    const rangeSelect = Boolean(isMouseEvent && event.shiftKey);
     const wasActive = isActive.value;
     emit('activate', {
         id: props.item.id,
         hasChildren: hasChildren.value,
         wasActive,
+        multiSelect,
+        rangeSelect,
     });
 
     if (isEditing.value) {
+        return;
+    }
+
+    if (props.isEditMode && (multiSelect || rangeSelect)) {
         return;
     }
 
@@ -479,6 +494,10 @@ async function handleClick(event?: MouseEvent | KeyboardEvent) {
 .pdf-bookmark-item-row.is-active {
     background: var(--ui-bg-accented);
     color: var(--ui-primary);
+}
+
+.pdf-bookmark-item-row.is-selected:not(.is-active) {
+    background: color-mix(in srgb, var(--ui-primary) 10%, var(--ui-bg) 90%);
 }
 
 .pdf-bookmark-item-row.is-editing {

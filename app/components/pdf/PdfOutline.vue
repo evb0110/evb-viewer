@@ -100,7 +100,8 @@
                 :expanded-bookmark-ids="expandedBookmarkIds"
                 :active-path-bookmark-ids="activePathBookmarkIds"
                 :is-edit-mode="isEditMode"
-                :dragging-item-id="draggingBookmarkId"
+                :selected-bookmark-ids="selectedBookmarkIds"
+                :dragging-item-ids="draggingBookmarkIds"
                 :drop-target="bookmarkDropTarget"
                 :style-range-start-id="styleRangeStartId"
                 @go-to-page="$emit('goToPage', $event)"
@@ -113,6 +114,13 @@
                 @drag-hover="handleBookmarkDragHover"
                 @drop-bookmark="handleBookmarkDrop"
                 @drag-end="handleBookmarkDragEnd"
+            />
+            <div
+                v-if="isEditMode"
+                class="pdf-bookmarks-drop-end"
+                :class="{ 'is-active': isRootAppendDropTarget }"
+                @dragover.prevent="handleTreeEndDragOver"
+                @drop.prevent="handleTreeEndDrop"
             />
         </div>
 
@@ -293,6 +301,8 @@ interface IBookmarkActivatePayload {
     id: string;
     hasChildren: boolean;
     wasActive: boolean;
+    multiSelect: boolean;
+    rangeSelect: boolean;
 }
 
 interface IBookmarkDropPayload {
@@ -330,11 +340,14 @@ const bookmarks = ref<IBookmarkItem[]>([]);
 const isLoading = ref(false);
 const activeItemId = ref<string | null>(null);
 const editingItemId = ref<string | null>(null);
+const selectedBookmarkIds = ref<Set<string>>(new Set());
+const selectionAnchorBookmarkId = ref<string | null>(null);
 const displayMode = ref<TBookmarkDisplayMode>('current-expanded');
 const expandedBookmarkIds = ref<Set<string>>(new Set());
 const styleRangeStartId = ref<string | null>(null);
-const draggingBookmarkId = ref<string | null>(null);
+const draggingBookmarkIds = ref<Set<string>>(new Set());
 const bookmarkDropTarget = ref<IBookmarkDropTarget | null>(null);
+const isRootAppendDropTarget = ref(false);
 const bookmarkContextMenu = ref<{
     visible: boolean;
     x: number;
@@ -414,6 +427,43 @@ const flatBookmarks = computed(() => {
 
     visit(bookmarks.value);
     return flattened;
+});
+
+function isBookmarkExpandedForVisibility(item: IBookmarkItem) {
+    if (displayMode.value === 'all-expanded') {
+        return true;
+    }
+    if (displayMode.value === 'current-expanded') {
+        return activePathBookmarkIds.value.has(item.id);
+    }
+    return expandedBookmarkIds.value.has(item.id);
+}
+
+const visibleBookmarkIds = computed(() => {
+    const ids: string[] = [];
+
+    function visit(items: IBookmarkItem[]) {
+        for (const item of items) {
+            ids.push(item.id);
+            if (item.items.length > 0 && isBookmarkExpandedForVisibility(item)) {
+                visit(item.items);
+            }
+        }
+    }
+
+    visit(bookmarks.value);
+    return ids;
+});
+
+const bookmarkOrderIndexMap = computed(() => {
+    const map = new Map<string, number>();
+    for (const [
+        index,
+        item,
+    ] of flatBookmarks.value.entries()) {
+        map.set(item.id, index);
+    }
+    return map;
 });
 
 const selectedContextBookmark = computed(() => {
@@ -672,6 +722,14 @@ function updateActiveItemFromCurrentPage() {
     }
 
     activeItemId.value = active?.id ?? null;
+    if (!isEditMode.value) {
+        if (activeItemId.value) {
+            applySingleSelection(activeItemId.value);
+        } else {
+            selectedBookmarkIds.value = new Set();
+            selectionAnchorBookmarkId.value = null;
+        }
+    }
 }
 
 async function loadOutline() {
@@ -682,12 +740,16 @@ async function loadOutline() {
     cancelEditingBookmark();
     resetDragState();
     styleRangeStartId.value = null;
+    selectedBookmarkIds.value = new Set();
+    selectionAnchorBookmarkId.value = null;
     expandedBookmarkIds.value = new Set();
 
     if (!pdfDocument || !isPdfDocumentUsable(pdfDocument)) {
         isLoading.value = false;
         bookmarks.value = [];
         activeItemId.value = null;
+        selectedBookmarkIds.value = new Set();
+        selectionAnchorBookmarkId.value = null;
         setBookmarkBaseline();
         return;
     }
@@ -724,6 +786,9 @@ async function loadOutline() {
 
         bookmarks.value = resolved;
         updateActiveItemFromCurrentPage();
+        if (activeItemId.value) {
+            applySingleSelection(activeItemId.value);
+        }
         setBookmarkBaseline();
     } catch (error) {
         if (
@@ -736,6 +801,8 @@ async function loadOutline() {
         console.error('Failed to load bookmarks:', error);
         bookmarks.value = [];
         activeItemId.value = null;
+        selectedBookmarkIds.value = new Set();
+        selectionAnchorBookmarkId.value = null;
         setBookmarkBaseline();
     } finally {
         if (runId === outlineRunId) {
@@ -813,6 +880,61 @@ function collectBookmarkIds(item: IBookmarkItem, ids: Set<string>) {
     }
 }
 
+function getSelectedRootIds(selection: Set<string>) {
+    const roots = new Set<string>();
+    for (const id of selection) {
+        let hasSelectedAncestor = false;
+        let cursor = parentBookmarkIdMap.value.get(id) ?? null;
+
+        while (cursor) {
+            if (selection.has(cursor)) {
+                hasSelectedAncestor = true;
+                break;
+            }
+            cursor = parentBookmarkIdMap.value.get(cursor) ?? null;
+        }
+
+        if (!hasSelectedAncestor) {
+            roots.add(id);
+        }
+    }
+
+    const order = bookmarkOrderIndexMap.value;
+    return [...roots].sort((left, right) => (order.get(left) ?? 0) - (order.get(right) ?? 0));
+}
+
+function applySingleSelection(id: string) {
+    selectedBookmarkIds.value = new Set([id]);
+    selectionAnchorBookmarkId.value = id;
+}
+
+function applyRangeSelection(id: string) {
+    const anchorId = selectionAnchorBookmarkId.value;
+    if (!anchorId) {
+        applySingleSelection(id);
+        return;
+    }
+
+    const visibleIds = visibleBookmarkIds.value;
+    const anchorIndex = visibleIds.indexOf(anchorId);
+    const targetIndex = visibleIds.indexOf(id);
+    if (anchorIndex < 0 || targetIndex < 0) {
+        applySingleSelection(id);
+        return;
+    }
+
+    const start = Math.min(anchorIndex, targetIndex);
+    const end = Math.max(anchorIndex, targetIndex);
+    const nextSelection = new Set<string>();
+    for (let index = start; index <= end; index += 1) {
+        const currentId = visibleIds[index];
+        if (currentId) {
+            nextSelection.add(currentId);
+        }
+    }
+    selectedBookmarkIds.value = nextSelection;
+}
+
 function pruneStaleState() {
     const validIds = new Set<string>();
     for (const item of flatBookmarks.value) {
@@ -831,7 +953,26 @@ function pruneStaleState() {
         styleRangeStartId.value = null;
     }
 
-    if (draggingBookmarkId.value && !validIds.has(draggingBookmarkId.value)) {
+    const nextSelected = new Set<string>();
+    for (const id of selectedBookmarkIds.value) {
+        if (validIds.has(id)) {
+            nextSelected.add(id);
+        }
+    }
+    selectedBookmarkIds.value = nextSelected;
+
+    if (selectionAnchorBookmarkId.value && !validIds.has(selectionAnchorBookmarkId.value)) {
+        selectionAnchorBookmarkId.value = null;
+    }
+
+    let hasInvalidDraggingId = false;
+    for (const id of draggingBookmarkIds.value) {
+        if (!validIds.has(id)) {
+            hasInvalidDraggingId = true;
+            break;
+        }
+    }
+    if (hasInvalidDraggingId) {
         resetDragState();
     }
 
@@ -897,6 +1038,25 @@ function closeBookmarkContextMenu() {
 
 function handleActivate(payload: IBookmarkActivatePayload) {
     activeItemId.value = payload.id;
+    if (isEditMode.value) {
+        if (payload.rangeSelect) {
+            applyRangeSelection(payload.id);
+        } else if (payload.multiSelect) {
+            const nextSelection = new Set(selectedBookmarkIds.value);
+            if (nextSelection.has(payload.id)) {
+                nextSelection.delete(payload.id);
+            } else {
+                nextSelection.add(payload.id);
+            }
+            selectedBookmarkIds.value = nextSelection;
+            selectionAnchorBookmarkId.value = payload.id;
+        } else {
+            applySingleSelection(payload.id);
+        }
+    } else {
+        applySingleSelection(payload.id);
+    }
+
     closeBookmarkContextMenu();
 }
 
@@ -917,6 +1077,7 @@ function toggleExpanded(id: string) {
 function startEditingBookmark(id: string) {
     isEditMode.value = true;
     activeItemId.value = id;
+    applySingleSelection(id);
     editingItemId.value = id;
     closeBookmarkContextMenu();
 }
@@ -952,6 +1113,7 @@ function focusNewBookmark(id: string) {
     activeItemId.value = id;
     editingItemId.value = id;
     isEditMode.value = true;
+    applySingleSelection(id);
     closeBookmarkContextMenu();
 }
 
@@ -1123,60 +1285,96 @@ function applyContextStyleToRange() {
 }
 
 function resetDragState() {
-    draggingBookmarkId.value = null;
+    draggingBookmarkIds.value = new Set();
     bookmarkDropTarget.value = null;
+    isRootAppendDropTarget.value = false;
 }
 
-function canDropBookmark(draggedId: string, targetId: string) {
-    if (draggedId === targetId) {
-        return false;
+function collectDraggedBranchIds(draggedRootIds: string[]) {
+    const ids = new Set<string>();
+    for (const id of draggedRootIds) {
+        const location = findBookmarkLocation(bookmarks.value, id);
+        if (!location) {
+            continue;
+        }
+        collectBookmarkIds(location.item, ids);
     }
-
-    const draggedLocation = findBookmarkLocation(bookmarks.value, draggedId);
-    if (!draggedLocation) {
-        return false;
-    }
-
-    const draggedBranchIds = new Set<string>();
-    collectBookmarkIds(draggedLocation.item, draggedBranchIds);
-    if (draggedBranchIds.has(targetId)) {
-        return false;
-    }
-
-    return true;
+    return ids;
 }
 
-function moveBookmark(
-    draggedId: string,
+function canDropBookmarks(draggedRootIds: string[], targetId: string) {
+    if (draggedRootIds.includes(targetId)) {
+        return false;
+    }
+
+    const draggedBranchIds = collectDraggedBranchIds(draggedRootIds);
+    return !draggedBranchIds.has(targetId);
+}
+
+function extractDraggedItems(draggedRootIds: string[]) {
+    const order = bookmarkOrderIndexMap.value;
+    const descendingIds = [...draggedRootIds].sort((left, right) => (
+        (order.get(right) ?? 0) - (order.get(left) ?? 0)
+    ));
+
+    const extracted = new Map<string, IBookmarkItem>();
+    for (const id of descendingIds) {
+        const location = findBookmarkLocation(bookmarks.value, id);
+        if (!location) {
+            continue;
+        }
+        location.list.splice(location.index, 1);
+        extracted.set(id, location.item);
+    }
+
+    return draggedRootIds
+        .map(id => extracted.get(id) ?? null)
+        .filter((item): item is IBookmarkItem => item !== null);
+}
+
+function moveBookmarksToTarget(
+    draggedRootIds: string[],
     targetId: string,
     position: TBookmarkDropPosition,
 ) {
-    const draggedLocation = findBookmarkLocation(bookmarks.value, draggedId);
-    if (!draggedLocation || !canDropBookmark(draggedId, targetId)) {
+    if (!canDropBookmarks(draggedRootIds, targetId)) {
         return;
     }
 
-    const draggedItem = draggedLocation.item;
-    draggedLocation.list.splice(draggedLocation.index, 1);
+    const targetLocationBeforeExtraction = findBookmarkLocation(bookmarks.value, targetId);
+    if (!targetLocationBeforeExtraction) {
+        return;
+    }
+
+    const draggedItems = extractDraggedItems(draggedRootIds);
+    if (draggedItems.length === 0) {
+        return;
+    }
 
     const targetLocation = findBookmarkLocation(bookmarks.value, targetId);
     if (!targetLocation) {
-        draggedLocation.list.splice(Math.min(draggedLocation.index, draggedLocation.list.length), 0, draggedItem);
+        bookmarks.value.push(...draggedItems);
         return;
     }
 
     if (position === 'child') {
-        targetLocation.item.items.push(draggedItem);
+        targetLocation.item.items.push(...draggedItems);
         const nextExpanded = new Set(expandedBookmarkIds.value);
         nextExpanded.add(targetLocation.item.id);
         expandedBookmarkIds.value = nextExpanded;
-    } else {
-        const insertionIndex = position === 'before' ? targetLocation.index : targetLocation.index + 1;
-        targetLocation.list.splice(insertionIndex, 0, draggedItem);
+        return;
     }
 
-    activeItemId.value = draggedId;
-    emitBookmarksChange();
+    const insertionIndex = position === 'before' ? targetLocation.index : targetLocation.index + 1;
+    targetLocation.list.splice(insertionIndex, 0, ...draggedItems);
+}
+
+function moveBookmarksToRootEnd(draggedRootIds: string[]) {
+    const draggedItems = extractDraggedItems(draggedRootIds);
+    if (draggedItems.length === 0) {
+        return;
+    }
+    bookmarks.value.push(...draggedItems);
 }
 
 function handleBookmarkDragStart(payload: { id: string }) {
@@ -1184,19 +1382,26 @@ function handleBookmarkDragStart(payload: { id: string }) {
         return;
     }
 
-    draggingBookmarkId.value = payload.id;
+    if (!selectedBookmarkIds.value.has(payload.id)) {
+        applySingleSelection(payload.id);
+    }
+
+    const draggedRoots = getSelectedRootIds(selectedBookmarkIds.value);
+    draggingBookmarkIds.value = new Set(draggedRoots.length > 0 ? draggedRoots : [payload.id]);
     bookmarkDropTarget.value = null;
+    isRootAppendDropTarget.value = false;
     closeBookmarkContextMenu();
 }
 
 function handleBookmarkDragHover(payload: IBookmarkDropPayload) {
-    const draggingId = draggingBookmarkId.value;
-    if (!isEditMode.value || !draggingId) {
+    const draggingRoots = [...draggingBookmarkIds.value];
+    if (!isEditMode.value || draggingRoots.length === 0) {
         return;
     }
 
-    if (!canDropBookmark(draggingId, payload.targetId)) {
+    if (!canDropBookmarks(draggingRoots, payload.targetId)) {
         bookmarkDropTarget.value = null;
+        isRootAppendDropTarget.value = false;
         return;
     }
 
@@ -1204,20 +1409,44 @@ function handleBookmarkDragHover(payload: IBookmarkDropPayload) {
         id: payload.targetId,
         position: payload.position,
     };
+    isRootAppendDropTarget.value = false;
 }
 
 function handleBookmarkDrop(payload: IBookmarkDropPayload) {
-    const draggingId = draggingBookmarkId.value;
-    if (!isEditMode.value || !draggingId) {
+    const draggingRoots = [...draggingBookmarkIds.value];
+    if (!isEditMode.value || draggingRoots.length === 0) {
         return;
     }
 
-    if (!canDropBookmark(draggingId, payload.targetId)) {
+    if (!canDropBookmarks(draggingRoots, payload.targetId)) {
         resetDragState();
         return;
     }
 
-    moveBookmark(draggingId, payload.targetId, payload.position);
+    moveBookmarksToTarget(draggingRoots, payload.targetId, payload.position);
+    activeItemId.value = draggingRoots[0] ?? null;
+    emitBookmarksChange();
+    resetDragState();
+}
+
+function handleTreeEndDragOver() {
+    if (!isEditMode.value || draggingBookmarkIds.value.size === 0) {
+        return;
+    }
+
+    bookmarkDropTarget.value = null;
+    isRootAppendDropTarget.value = true;
+}
+
+function handleTreeEndDrop() {
+    const draggingRoots = [...draggingBookmarkIds.value];
+    if (!isEditMode.value || draggingRoots.length === 0) {
+        return;
+    }
+
+    moveBookmarksToRootEnd(draggingRoots);
+    activeItemId.value = draggingRoots[0] ?? null;
+    emitBookmarksChange();
     resetDragState();
 }
 
@@ -1263,6 +1492,12 @@ watch(
             closeBookmarkContextMenu();
             resetDragState();
             styleRangeStartId.value = null;
+            if (activeItemId.value) {
+                applySingleSelection(activeItemId.value);
+            } else {
+                selectedBookmarkIds.value = new Set();
+                selectionAnchorBookmarkId.value = null;
+            }
         }
     },
 );
@@ -1370,6 +1605,17 @@ onBeforeUnmount(() => {
     display: flex;
     flex-direction: column;
     user-select: none;
+}
+
+.pdf-bookmarks-drop-end {
+    height: 18px;
+    margin-top: 2px;
+    border-radius: 6px;
+}
+
+.pdf-bookmarks-drop-end.is-active {
+    background: color-mix(in srgb, var(--ui-primary) 12%, transparent 88%);
+    box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--ui-primary) 72%, transparent 28%);
 }
 
 .bookmarks-context-menu {
