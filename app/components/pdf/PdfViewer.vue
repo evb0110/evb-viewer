@@ -1746,21 +1746,7 @@ async function maybeApplySelectionMarkup(explicitRange: Range | null = null) {
 }
 
 async function commentSelection() {
-    const created = await highlightSelectionInternal(true);
-    if (created) {
-        return true;
-    }
-
-    const container = viewerContainer.value;
-    if (!container) {
-        return false;
-    }
-    const rect = container.getBoundingClientRect();
-    const createdAtCenter = await placeCommentAtClientPoint(
-        rect.left + rect.width / 2,
-        rect.top + rect.height / 2,
-    );
-    return createdAtCenter;
+    return highlightSelectionInternal(true);
 }
 
 function handleViewerMouseUp() {

@@ -1479,10 +1479,7 @@ async function handleCommentSelection() {
     if (!pdfViewerRef.value) {
         return;
     }
-    const created = await pdfViewerRef.value.commentSelection();
-    if (!created) {
-        handleStartPlaceNote();
-    }
+    await pdfViewerRef.value.commentSelection();
 }
 
 function handleStartPlaceNote() {
