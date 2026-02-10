@@ -31,7 +31,7 @@ const CDP_PORT = 9222;
 const NUXT_PORT = 3235;
 const SESSION_WAIT_TIMEOUT_MS = 60_000;
 const COMMAND_REQUEST_TIMEOUT_MS = 120_000;
-const OPEN_PDF_READY_TIMEOUT_MS = 60_000;
+const OPEN_PDF_READY_TIMEOUT_MS = 120_000;
 const OPEN_PDF_TRIGGER_TIMEOUT_MS = 12_000;
 const COMMAND_EXECUTION_TIMEOUT_MS = 180_000;
 
@@ -848,7 +848,6 @@ async function handleCommand(command: string, args: unknown[]): Promise<unknown>
                 const notLoading = lastState.isLoading === false || lastState.isLoading === null;
                 const hasDocumentUi = lastState.hasViewer && !lastState.hasEmptyState;
                 const hasRenderedContent = lastState.renderedCanvasCount > 0 || lastState.renderedTextSpanCount > 0;
-                const skeletonGone = lastState.visibleSkeletonCount === 0;
                 const openedNewDoc = (
                     !!beforeState.workingCopyPath
                     && !!lastState.workingCopyPath
@@ -860,10 +859,9 @@ async function handleCommand(command: string, args: unknown[]): Promise<unknown>
                     && hasDocumentUi
                     && notLoading
                     && hasRenderedContent
-                    && skeletonGone
                 );
 
-                if (hasPages && hasDocumentUi && notLoading && hasRenderedContent && skeletonGone && (openedNewDoc || sameDocButReady)) {
+                if (hasPages && hasDocumentUi && notLoading && hasRenderedContent && (openedNewDoc || sameDocButReady)) {
                     await delay(250);
                     break;
                 }
@@ -877,7 +875,6 @@ async function handleCommand(command: string, args: unknown[]): Promise<unknown>
                 || state.hasEmptyState
                 || state.renderedPageContainers <= 0
                 || (state.renderedCanvasCount <= 0 && state.renderedTextSpanCount <= 0)
-                || state.visibleSkeletonCount > 0
             ) {
                 throw new Error(`openPdf readiness timeout for ${pdfPath}`);
             }
