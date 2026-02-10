@@ -1796,7 +1796,12 @@ async function placeCommentAtClientPoint(clientX: number, clientY: number) {
         return false;
     }
 
-    const created = await commentAtPoint(target.pageNumber, target.pageX, target.pageY);
+    const created = await commentAtPoint(
+        target.pageNumber,
+        target.pageX,
+        target.pageY,
+        { preferTextAnchor: false },
+    );
     if (created) {
         setCommentPlacementMode(false);
     }
@@ -4146,7 +4151,12 @@ function buildRangeFromPagePoint(target: IPagePointTarget) {
     return range;
 }
 
-async function commentAtPoint(pageNumber: number, pageX: number, pageY: number) {
+async function commentAtPoint(
+    pageNumber: number,
+    pageX: number,
+    pageY: number,
+    options: { preferTextAnchor?: boolean } = {},
+) {
     const container = viewerContainer.value;
     const uiManager = annotationUiManager.value;
     if (!container || !uiManager) {
@@ -4158,19 +4168,57 @@ async function commentAtPoint(pageNumber: number, pageX: number, pageY: number) 
         return false;
     }
 
-    const range = buildRangeFromPagePoint({
-        pageContainer,
-        pageNumber,
-        pageX: clamp01(pageX),
-        pageY: clamp01(pageY),
-    });
-    if (range) {
-        const created = await highlightSelectionInternal(true, range);
-        if (created) {
-            return true;
+    if (options.preferTextAnchor ?? true) {
+        const range = buildRangeFromPagePoint({
+            pageContainer,
+            pageNumber,
+            pageX: clamp01(pageX),
+            pageY: clamp01(pageY),
+        });
+        if (range) {
+            const created = await highlightSelectionInternal(true, range);
+            if (created) {
+                return true;
+            }
+            // Highlight creation failed (e.g. DrawLayer not ready) — fall through to FreeText.
         }
-        // Highlight creation failed (e.g. DrawLayer not ready) — fall through to FreeText.
     }
+
+    const pageIndex = Math.max(0, pageNumber - 1);
+    const editorsBefore = Array.from(uiManager.getEditors(pageIndex)) as IPdfjsEditor[];
+    const editorsBeforeRefs = new Set<IPdfjsEditor>(editorsBefore);
+    const editorsBeforeIds = new Set<string>(editorsBefore.map(editor => getEditorIdentity(editor, pageIndex)));
+
+    const pickCreatedEditorCandidate = () => {
+        const editorsAfter = Array.from(uiManager.getEditors(pageIndex)) as IPdfjsEditor[];
+        return editorsAfter.find((editor) => {
+            if (!editorsBeforeRefs.has(editor)) {
+                return true;
+            }
+            const identity = getEditorIdentity(editor, pageIndex);
+            return !editorsBeforeIds.has(identity);
+        }) ?? editorsAfter.at(-1) ?? null;
+    };
+
+    const resolveCreatedEditor = async (createdEditor: IPdfjsEditor | null) => {
+        if (createdEditor) {
+            return createdEditor;
+        }
+
+        const immediate = pickCreatedEditorCandidate();
+        if (immediate) {
+            return immediate;
+        }
+
+        try {
+            await uiManager.waitForEditorsRendered(pageNumber);
+        } catch {
+            // Ignore and continue with best-effort lookup.
+        }
+        await delay(60);
+        await nextTick();
+        return pickCreatedEditorCandidate();
+    };
 
     const previousMode = uiManager.getMode();
     try {
@@ -4180,6 +4228,7 @@ async function commentAtPoint(pageNumber: number, pageX: number, pageY: number) 
         if (!layer?.div) {
             return false;
         }
+
         const layerRect = layer.div.getBoundingClientRect();
         const clientX = layerRect.left + clamp01(pageX) * layerRect.width;
         const clientY = layerRect.top + clamp01(pageY) * layerRect.height;
@@ -4187,10 +4236,27 @@ async function commentAtPoint(pageNumber: number, pageX: number, pageY: number) 
             clientX,
             clientY,
             button: 0,
-            bubbles: false, 
+            buttons: 1,
+            bubbles: true,
+            pointerType: 'mouse',
+            isPrimary: true,
         };
         layer.div.dispatchEvent(new PointerEvent('pointerdown', eventInit));
         layer.div.dispatchEvent(new PointerEvent('pointerup', eventInit));
+
+        const resolvedEditor = await resolveCreatedEditor(null);
+        if (!resolvedEditor) {
+            return false;
+        }
+
+        pendingCommentEditorKeys.add(getEditorPendingKey(resolvedEditor, pageIndex));
+        const resolvedEditorWithComment = resolvedEditor as IPdfjsEditor & { editComment?: () => void };
+        if (typeof resolvedEditorWithComment.editComment === 'function') {
+            resolvedEditorWithComment.editComment();
+        } else {
+            const summary = toEditorSummary(resolvedEditor, pageIndex, getCommentText(resolvedEditor));
+            emit('annotation-open-note', summary);
+        }
         return true;
     } finally {
         if (previousMode !== AnnotationEditorType.FREETEXT) {

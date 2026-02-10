@@ -636,7 +636,12 @@ interface IPdfViewerExpose {
     saveDocument: () => Promise<Uint8Array | null>;
     highlightSelection: () => Promise<boolean>;
     commentSelection: () => Promise<boolean>;
-    commentAtPoint: (pageNumber: number, pageX: number, pageY: number) => Promise<boolean>;
+    commentAtPoint: (
+        pageNumber: number,
+        pageX: number,
+        pageY: number,
+        options?: { preferTextAnchor?: boolean },
+    ) => Promise<boolean>;
     startCommentPlacement: () => void;
     cancelCommentPlacement: () => void;
     undoAnnotation: () => void;
@@ -1663,7 +1668,12 @@ async function createContextMenuFreeNote() {
         return;
     }
 
-    await pdfViewerRef.value.commentAtPoint(pageNumber as number, pageX as number, pageY as number);
+    await pdfViewerRef.value.commentAtPoint(
+        pageNumber as number,
+        pageX as number,
+        pageY as number,
+        { preferTextAnchor: false },
+    );
     closeAnnotationContextMenu();
 }
 
