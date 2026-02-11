@@ -1089,7 +1089,19 @@ const isAnnotationUndoContext = computed(() =>
     || annotationEditorState.value.hasSomethingToRedo,
 );
 const isAnnotationPanelOpen = computed(() => showSidebar.value && sidebarTab.value === 'annotations');
-const annotationCursorMode = computed(() => isAnnotationPanelOpen.value && !dragMode.value);
+const annotationCursorMode = computed(() => {
+    if (dragMode.value) {
+        return false;
+    }
+
+    // Keep annotation interaction enabled while:
+    // 1) the annotations sidebar tab is open, or
+    // 2) an annotation tool is active, or
+    // 3) an editor is currently selected (so move/resize continues to work).
+    return isAnnotationPanelOpen.value
+        || annotationTool.value !== 'none'
+        || annotationEditorState.value.hasSelectedEditor;
+});
 const canUndo = computed(() => (
     isAnnotationUndoContext.value
         ? annotationEditorState.value.hasSomethingToUndo

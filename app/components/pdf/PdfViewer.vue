@@ -4201,7 +4201,13 @@ function shouldShowSkeleton(page: number) {
     return isPageNearVisible(page) && !isPageRendered(page);
 }
 
-function findEditorSummaryFromTarget(target: HTMLElement) {
+interface IEditorTargetMatch {
+    editor: IPdfjsEditor;
+    pageIndex: number;
+    targetAnnotationId: string | null;
+}
+
+function findEditorFromTarget(target: HTMLElement): IEditorTargetMatch | null {
     const uiManager = annotationUiManager.value;
     if (!uiManager) {
         return null;
@@ -4231,46 +4237,91 @@ function findEditorSummaryFromTarget(target: HTMLElement) {
             continue;
         }
         if (editorDiv === editorElement || editorDiv.contains(target)) {
-            const summary = toEditorSummary(normalizedEditor, pageIndex, getCommentText(normalizedEditor));
-            const normalizedSummary = {
-                ...hydrateSummaryFromMemory(summary),
-                annotationId: summary.annotationId ?? targetAnnotationId,
-                stableKey: computeSummaryStableKey({
-                    id: summary.id,
-                    pageIndex: summary.pageIndex,
-                    source: summary.source,
-                    uid: summary.uid,
-                    annotationId: summary.annotationId ?? targetAnnotationId,
-                }),
+            return {
+                editor: normalizedEditor,
+                pageIndex,
+                targetAnnotationId,
             };
-            const candidateIds = [
-                normalizedSummary.annotationId,
-                normalizedSummary.uid,
-                normalizedSummary.id,
-            ]
-                .filter((id): id is string => typeof id === 'string' && id.length > 0)
-                .filter((id, index, arr) => arr.indexOf(id) === index);
-
-            const cached = annotationCommentsCache.value.find((comment) => (
-                comment.pageIndex === pageIndex
-                && (
-                    candidateIds.includes(comment.annotationId ?? '')
-                    || candidateIds.includes(comment.uid ?? '')
-                    || candidateIds.includes(comment.id)
-                )
-            )) ?? annotationCommentsCache.value.find((comment) => (
-                candidateIds.includes(comment.annotationId ?? '')
-                || candidateIds.includes(comment.uid ?? '')
-                || candidateIds.includes(comment.id)
-            )) ?? null;
-
-            // Prefer the persisted summary when available; editor objects can miss
-            // comment/date fields after re-render, which causes blank "new note" popups.
-            return cached ?? hydrateSummaryFromMemory(normalizedSummary);
         }
     }
 
     return null;
+}
+
+function findEditorSummaryFromTarget(target: HTMLElement) {
+    const match = findEditorFromTarget(target);
+    if (!match) {
+        return null;
+    }
+
+    const summary = toEditorSummary(match.editor, match.pageIndex, getCommentText(match.editor));
+    const normalizedSummary = {
+        ...hydrateSummaryFromMemory(summary),
+        annotationId: summary.annotationId ?? match.targetAnnotationId,
+        stableKey: computeSummaryStableKey({
+            id: summary.id,
+            pageIndex: summary.pageIndex,
+            source: summary.source,
+            uid: summary.uid,
+            annotationId: summary.annotationId ?? match.targetAnnotationId,
+        }),
+    };
+    const candidateIds = [
+        normalizedSummary.annotationId,
+        normalizedSummary.uid,
+        normalizedSummary.id,
+    ]
+        .filter((id): id is string => typeof id === 'string' && id.length > 0)
+        .filter((id, index, arr) => arr.indexOf(id) === index);
+
+    const cached = annotationCommentsCache.value.find((comment) => (
+        comment.pageIndex === match.pageIndex
+        && (
+            candidateIds.includes(comment.annotationId ?? '')
+            || candidateIds.includes(comment.uid ?? '')
+            || candidateIds.includes(comment.id)
+        )
+    )) ?? annotationCommentsCache.value.find((comment) => (
+        candidateIds.includes(comment.annotationId ?? '')
+        || candidateIds.includes(comment.uid ?? '')
+        || candidateIds.includes(comment.id)
+    )) ?? null;
+
+    // Prefer the persisted summary when available; editor objects can miss
+    // comment/date fields after re-render, which causes blank "new note" popups.
+    return cached ?? hydrateSummaryFromMemory(normalizedSummary);
+}
+
+async function ensureEditorInteractionModeFromTarget(target: HTMLElement) {
+    if (annotationTool.value !== 'none') {
+        return false;
+    }
+    const uiManager = annotationUiManager.value;
+    if (!uiManager) {
+        return false;
+    }
+
+    const match = findEditorFromTarget(target);
+    if (!match) {
+        return false;
+    }
+
+    const layerClass = match.editor.div?.closest<HTMLElement>('.annotationEditorLayer, .annotation-editor-layer')
+        ?.className ?? '';
+    const isNonEditing = layerClass.includes('nonEditing');
+    if (!isNonEditing) {
+        return false;
+    }
+
+    const modeError = await updateModeWithRetry(uiManager, AnnotationEditorType.POPUP, match.pageIndex + 1);
+    if (modeError) {
+        console.warn(`Failed to enable editor interaction mode: ${errorToLogText(modeError)}`);
+        return false;
+    }
+
+    uiManager.setSelected(match.editor as TUiManagerSelectedEditor);
+    ensureFreeTextEditorCanResize(match.editor);
+    return true;
 }
 
 function findPdfAnnotationSummaryFromTarget(target: HTMLElement) {
@@ -4777,7 +4828,7 @@ function resolveCommentFromIndicatorClickTarget(target: HTMLElement, clientX: nu
     return null;
 }
 
-function handleAnnotationCommentClick(event: MouseEvent) {
+async function handleAnnotationCommentClick(event: MouseEvent) {
     if (!(event.target instanceof HTMLElement)) {
         return;
     }
@@ -4806,6 +4857,8 @@ function handleAnnotationCommentClick(event: MouseEvent) {
     if (selection && !selection.isCollapsed) {
         return;
     }
+
+    await ensureEditorInteractionModeFromTarget(event.target);
 
     const inlineTarget = event.target.closest<HTMLElement>('.pdf-annotation-has-note-target, .pdf-annotation-has-comment');
     if (inlineTarget) {
@@ -6208,12 +6261,30 @@ defineExpose({
     display: block !important;
 }
 
-/* Keep corner handles usable across zoom levels without covering the editor
-   body: size grows when zoomed out, and handles sit outside the box so drag
-   target for moving remains available in the center. */
+/* PDF.js disables pointer events for the whole annotation layer in non-editing
+   mode. Re-enable them for existing FreeText editors so selecting/moving/
+   resizing still works when no creation tool is active. */
+.pdfViewer :deep(.annotationEditorLayer.disabled.nonEditing .freeTextEditor),
+.pdfViewer :deep(.annotation-editor-layer.disabled.nonEditing .freeTextEditor) {
+    pointer-events: auto !important;
+}
+
+.pdfViewer :deep(.annotationEditorLayer.disabled.nonEditing .freeTextEditor > .resizers),
+.pdfViewer :deep(.annotation-editor-layer.disabled.nonEditing .freeTextEditor > .resizers),
+.pdfViewer :deep(.annotationEditorLayer.disabled.nonEditing .freeTextEditor > .resizers > .resizer),
+.pdfViewer :deep(.annotation-editor-layer.disabled.nonEditing .freeTextEditor > .resizers > .resizer),
+.pdfViewer :deep(.annotationEditorLayer.disabled.nonEditing .freeTextEditor .overlay),
+.pdfViewer :deep(.annotation-editor-layer.disabled.nonEditing .freeTextEditor .overlay) {
+    pointer-events: auto !important;
+}
+
+/* Keep corner handles usable across zoom levels while keeping them anchored
+   on the actual box corners (PDF.js default positioning model). */
 .pdfViewer :deep(.freeTextEditor) {
-    --resizer-size: clamp(8px, calc(12px / var(--total-scale-factor, 1)), 18px);
-    --resizer-shift: calc(0px - (var(--outline-width, 1px) + var(--resizer-size)));
+    --resizer-size: clamp(8px, calc(11px / var(--total-scale-factor, 1)), 14px);
+    --resizer-shift: calc(
+        0px - (var(--outline-width, 1px) + var(--resizer-size)) / 2 - var(--outline-around-width, 0px)
+    );
 }
 
 /* Prevent the .resizers container (which covers the full editor at z-index:1)
