@@ -661,7 +661,10 @@ function isPopupSubtype(subtype: string | null | undefined) {
     return (subtype ?? '').trim().toLowerCase() === 'popup';
 }
 
-function detectEditorSubtype(editor: IPdfjsEditor) {
+function detectEditorSubtype(editor: IPdfjsEditor | null | undefined) {
+    if (!editor) {
+        return null;
+    }
     const className = editor.div?.className ?? '';
     if (className.includes('highlightEditor')) {
         return 'Highlight';
@@ -701,6 +704,9 @@ function detectEditorSubtype(editor: IPdfjsEditor) {
 }
 
 function ensureFreeTextEditorCanResize(editor: IPdfjsEditor) {
+    if (!editor) {
+        return;
+    }
     if (detectEditorSubtype(editor) !== 'Typewriter') {
         return;
     }
@@ -719,6 +725,7 @@ function ensureFreeTextEditorCanResize(editor: IPdfjsEditor) {
                 tagged.__freeTextFontToWidthRatio = fontSize / w;
             }
         }
+        ensureFreeTextEditorInteractivity(editor);
         return;
     }
 
@@ -736,10 +743,46 @@ function ensureFreeTextEditorCanResize(editor: IPdfjsEditor) {
 
     patchFreeTextResizeFontSync(editor);
 
+    ensureFreeTextEditorInteractivity(editor);
+}
+
+function updateFreeTextResizerSize(editor: IPdfjsEditor) {
+    const div = editor.div;
+    if (!div) {
+        return;
+    }
+    const rect = div.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) {
+        return;
+    }
+
+    // Keep corner handles visible but avoid overlap on tiny text boxes,
+    // which causes all drags to be captured by a single corner.
+    const maxCornerSize = Math.floor((Math.min(rect.width, rect.height) - 2) / 2);
+    const nextSize = Math.max(4, Math.min(10, maxCornerSize));
+    div.style.setProperty('--evb-resizer-size', `${nextSize}px`);
+}
+
+function ensureFreeTextEditorInteractivity(editor: IPdfjsEditor) {
+    const tagged = editor as IPdfjsEditor & {makeResizable?: () => void;};
+    const div = editor.div;
+    if (!div) {
+        return;
+    }
+
     if (typeof tagged.makeResizable === 'function') {
         tagged.makeResizable();
     }
 
+    // Some PDF.js mode transitions can drop draggable/overlay classes,
+    // which blocks move/resize interactions until another mode toggle.
+    div.classList.add('draggable');
+    const overlay = div.querySelector<HTMLElement>('.overlay');
+    if (overlay) {
+        overlay.classList.add('enabled');
+    }
+
+    updateFreeTextResizerSize(editor);
     addResizeCursorManagement(editor);
 }
 
@@ -750,6 +793,10 @@ function addResizeCursorManagement(editor: IPdfjsEditor) {
     }
     const resizers = div.querySelectorAll<HTMLElement>('.resizer');
     for (const resizer of resizers) {
+        if (resizer.dataset.evbResizeCursorBound === '1') {
+            continue;
+        }
+        resizer.dataset.evbResizeCursorBound = '1';
         resizer.addEventListener('pointerdown', () => {
             const isNWSE = resizer.classList.contains('topLeft')
                 || resizer.classList.contains('bottomRight');
@@ -769,6 +816,9 @@ function addResizeCursorManagement(editor: IPdfjsEditor) {
 function patchResizableFreeTextEditors(uiManager: AnnotationEditorUIManager) {
     for (let pageIndex = 0; pageIndex < numPages.value; pageIndex += 1) {
         for (const editor of uiManager.getEditors(pageIndex)) {
+            if (!editor) {
+                continue;
+            }
             ensureFreeTextEditorCanResize(editor as IPdfjsEditor);
         }
     }
@@ -908,6 +958,7 @@ function patchFreeTextResizeFontSync(editor: IPdfjsEditor) {
         if (internal) {
             internal.style.fontSize = `calc(${targetFont}px * var(--total-scale-factor))`;
         }
+        updateFreeTextResizerSize(editor);
     };
 
     // ── _onResized: finalize after drag or undo/redo ─────────────
@@ -934,6 +985,7 @@ function patchFreeTextResizeFontSync(editor: IPdfjsEditor) {
         if (internal) {
             internal.style.fontSize = `calc(${targetFont}px * var(--total-scale-factor))`;
         }
+        updateFreeTextResizerSize(editor);
 
         // Defer the PDF.js internal state sync to the next frame so it
         // doesn't interfere with the undo entry being committed.
@@ -4293,7 +4345,8 @@ function findEditorSummaryFromTarget(target: HTMLElement) {
 }
 
 async function ensureEditorInteractionModeFromTarget(target: HTMLElement) {
-    if (annotationTool.value !== 'none') {
+    const activeTool = annotationTool.value;
+    if (activeTool !== 'none' && activeTool !== 'text') {
         return false;
     }
     const uiManager = annotationUiManager.value;
@@ -4313,7 +4366,10 @@ async function ensureEditorInteractionModeFromTarget(target: HTMLElement) {
         return false;
     }
 
-    const modeError = await updateModeWithRetry(uiManager, AnnotationEditorType.POPUP, match.pageIndex + 1);
+    const mode = activeTool === 'text'
+        ? AnnotationEditorType.FREETEXT
+        : AnnotationEditorType.POPUP;
+    const modeError = await updateModeWithRetry(uiManager, mode, match.pageIndex + 1);
     if (modeError) {
         console.warn(`Failed to enable editor interaction mode: ${errorToLogText(modeError)}`);
         return false;
@@ -4847,6 +4903,9 @@ async function handleAnnotationCommentClick(event: MouseEvent) {
     }
 
     if (annotationTool.value !== 'none') {
+        if (annotationTool.value === 'text') {
+            await ensureEditorInteractionModeFromTarget(event.target);
+        }
         return;
     }
     if (event.target.closest('.pdf-annotation-comment-popup, #commentPopup, #commentManagerDialog')) {
@@ -6281,7 +6340,7 @@ defineExpose({
 /* Keep corner handles usable across zoom levels while keeping them anchored
    on the actual box corners (PDF.js default positioning model). */
 .pdfViewer :deep(.freeTextEditor) {
-    --resizer-size: clamp(8px, calc(11px / var(--total-scale-factor, 1)), 14px);
+    --resizer-size: var(--evb-resizer-size, clamp(6px, calc(8px / var(--total-scale-factor, 1)), 10px));
     --resizer-shift: calc(
         0px - (var(--outline-width, 1px) + var(--resizer-size)) / 2 - var(--outline-around-width, 0px)
     );
