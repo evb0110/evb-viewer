@@ -327,6 +327,7 @@
                     @annotation-context-menu="handleViewerAnnotationContextMenu"
                     @annotation-tool-auto-reset="handleAnnotationToolAutoReset"
                     @annotation-tool-cancel="handleAnnotationToolCancel"
+                    @annotation-setting="handleAnnotationSettingChange"
                     @annotation-note-placement-change="annotationPlacingPageNote = $event"
                     @shape-context-menu="handleShapeContextMenu"
                 />

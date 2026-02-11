@@ -167,6 +167,10 @@ const emit = defineEmits<{
     (e: 'annotation-open-note', comment: IAnnotationCommentSummary): void;
     (e: 'annotation-context-menu', payload: IAnnotationContextMenuPayload): void;
     (e: 'annotation-tool-auto-reset'): void;
+    (e: 'annotation-setting', payload: {
+        key: keyof IAnnotationSettings;
+        value: IAnnotationSettings[keyof IAnnotationSettings] 
+    }): void;
     (e: 'annotation-comment-click', comment: IAnnotationCommentSummary): void;
     (e: 'annotation-tool-cancel'): void;
     (e: 'annotation-note-placement-change', active: boolean): void;
@@ -765,10 +769,36 @@ function addResizeCursorManagement(editor: IPdfjsEditor) {
     }
 }
 
+let freeTextPrototypePatched = false;
+
+function patchFreeTextPrototypeAspectRatio(editor: IPdfjsEditor) {
+    if (freeTextPrototypePatched) {
+        return;
+    }
+    const ctor = (editor as IPdfjsEditor & { constructor?: { prototype: Record<string, unknown> } }).constructor;
+    if (!ctor?.prototype) {
+        return;
+    }
+    try {
+        Object.defineProperty(ctor.prototype, '_willKeepAspectRatio', {
+            configurable: true,
+            get() {
+                return true;
+            },
+            set() { },
+        });
+        freeTextPrototypePatched = true;
+    } catch { /* Ignore if PDF.js internals reject prototype patching. */ }
+}
+
 function patchResizableFreeTextEditors(uiManager: AnnotationEditorUIManager) {
     for (let pageIndex = 0; pageIndex < numPages.value; pageIndex += 1) {
         for (const editor of uiManager.getEditors(pageIndex)) {
-            ensureFreeTextEditorCanResize(editor as IPdfjsEditor);
+            const pdfjsEditor = editor as IPdfjsEditor;
+            if (detectEditorSubtype(pdfjsEditor) === 'Typewriter') {
+                patchFreeTextPrototypeAspectRatio(pdfjsEditor);
+            }
+            ensureFreeTextEditorCanResize(pdfjsEditor);
         }
     }
 }
@@ -868,6 +898,11 @@ function patchFreeTextResizeFontSync(editor: IPdfjsEditor) {
                 = type === AnnotationEditorParamsType.FREETEXT_SIZE
                 && !tagged.__freeTextIsResizeSync;
             if (isExternalFontChange && editor.div) {
+                const currentFont = getFreeTextEditorFontSize(editor);
+                if (currentFont && Math.abs(currentFont - Number(value)) < 0.5) {
+                    originalUpdateParams(type, value);
+                    return;
+                }
                 editor.div.style.width = '';
                 editor.div.style.height = '';
             }
@@ -937,6 +972,10 @@ function patchFreeTextResizeFontSync(editor: IPdfjsEditor) {
         tagged.__freeTextResizeSyncRaf = requestAnimationFrame(() => {
             tagged.__freeTextResizeSyncRaf = undefined;
             syncInternalFontSize(targetFont);
+            emit('annotation-setting', {
+                key: 'textSize',
+                value: targetFont, 
+            });
         });
     };
 
@@ -3977,6 +4016,7 @@ function initAnnotationEditor() {
         pdfDoc.annotationStorage.onSetModified = () => {
             emit('annotation-modified');
             scheduleAnnotationCommentsSync();
+            patchResizableFreeTextEditors(uiManager);
         };
     } catch (error) {
         console.warn('Failed to attach annotation modified handler:', error);
@@ -6204,6 +6244,7 @@ defineExpose({
    small 6px dot drawn by the ::after pseudo-element. */
 .pdfViewer :deep(.freeTextEditor) {
     --resizer-size: 28px;
+    --resizer-shift: calc(0px - (var(--outline-width) + var(--resizer-size)) / 2 - var(--outline-around-width));
 }
 
 /* Prevent the .resizers container (which covers the full editor at z-index:1)
