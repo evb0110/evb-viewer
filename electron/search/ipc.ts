@@ -356,32 +356,3 @@ export function registerSearchHandlers() {
     });
 }
 
-/**
- * Public function to build index during OCR completion
- */
-export async function saveOcrIndex(
-    pdfPath: string,
-    pageData: Array<{
-        pageNumber: number;
-        words: Array<{
-            text: string;
-            x: number;
-            y: number;
-            width: number;
-            height: number;
-        }>;
-        text?: string;
-        pageWidth?: number;
-        pageHeight?: number;
-    }>,
-    pageCount?: number,
-): Promise<void> {
-    try {
-        await buildSearchIndex(pdfPath, pageData, { pageCount });
-        indexCache.delete(pdfPath);
-    } catch (err) {
-        const errMsg = err instanceof Error ? err.message : String(err);
-        log.debug(`Failed to save OCR index: ${errMsg}`);
-        // Non-blocking - don't fail OCR if index save fails
-    }
-}

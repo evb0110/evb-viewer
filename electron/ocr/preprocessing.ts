@@ -27,14 +27,14 @@ interface IPreprocessingResult {
  * Get paths to preprocessing binaries
  * Falls back gracefully if binaries don't exist
  */
-export interface IPreprocessingBinaries {
+interface IPreprocessingBinaries {
     leptonica: string | null;
     unpaper: string | null;
 }
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-export function getPreprocessingBinaries(): IPreprocessingBinaries {
+function getPreprocessingBinaries(): IPreprocessingBinaries {
     let resourcesBase: string;
 
     if (app.isPackaged) {
@@ -74,7 +74,7 @@ export function getPreprocessingBinaries(): IPreprocessingBinaries {
  * Generic preprocessing tool runner
  * Executes preprocessing binaries with given arguments
  */
-export async function runPreprocessing(
+async function runPreprocessing(
     options: IPreprocessingOptions,
 ): Promise<IPreprocessingResult> {
     log.debug(`Running: ${options.binary} ${options.args.join(' ')}`);
@@ -152,43 +152,6 @@ export async function runPreprocessing(
 }
 
 /**
- * Deskew an image using Unpaper
- * Unpaper is the best tool for deskewing scanned documents
- *
- * @param inputPath Path to input image
- * @param outputPath Path to write output image
- * @param additionalArgs Optional additional Unpaper arguments
- */
-export async function deskewWithUnpaper(
-    inputPath: string,
-    outputPath: string,
-    additionalArgs: string[] = [],
-): Promise<IPreprocessingResult> {
-    const bins = getPreprocessingBinaries();
-
-    if (!bins.unpaper) {
-        return {
-            success: false,
-            error: 'Unpaper binary not found. Build with: ./scripts/bundle-leptonica-unpaper-macos.sh',
-        };
-    }
-
-    const args = [
-        '--deskew',  // Automatic deskew detection and rotation
-        '--cleanup', // General cleanup (remove marks, dust)
-        ...additionalArgs,
-        inputPath,
-        outputPath,
-    ];
-
-    return runPreprocessing({
-        binary: bins.unpaper,
-        args,
-        timeout: 30000, // Images are fast
-    });
-}
-
-/**
  * Clean a scanned document with Unpaper
  * Removes noise, marks, and artifacts from scanned pages
  *
@@ -196,7 +159,7 @@ export async function deskewWithUnpaper(
  * @param outputPath Path to write output image
  * @param aggressive If true, applies stronger cleaning filters
  */
-export async function cleanScannedPageWithUnpaper(
+async function cleanScannedPageWithUnpaper(
     inputPath: string,
     outputPath: string,
     aggressive = false,
@@ -252,25 +215,6 @@ export async function preprocessPageForOcr(
 }
 
 /**
- * Get preprocessing capabilities
- * Returns what tools are available
- */
-export function getPreprocessingCapabilities() {
-    const bins = getPreprocessingBinaries();
-
-    return {
-        deskew: !!bins.unpaper,
-        cleanup: !!bins.unpaper,
-        fullPipeline: !!bins.unpaper,
-        availableBinaries: Object.fromEntries(
-            Object.entries(bins).filter(([
-                , path,
-            ]) => path !== null),
-        ),
-    };
-}
-
-/**
  * Validate preprocessing setup
  * Check if required binaries are available
  */
@@ -303,39 +247,3 @@ export function validatePreprocessingSetup(): {
     };
 }
 
-/**
- * Get detailed information about a preprocessing tool
- */
-export async function getToolInfo(tool: 'unpaper' | 'leptonica'): Promise<{
-    available: boolean;
-    version?: string;
-    help?: string;
-}> {
-    const bins = getPreprocessingBinaries();
-    const binary = bins[tool];
-
-    if (!binary) {
-        return { available: false };
-    }
-
-    const helpResult = await runPreprocessing({
-        binary,
-        args: ['--help'],
-        timeout: 5000,
-    });
-
-    if (helpResult.success) {
-        // Try to extract version from help output
-        const versionMatch = (helpResult.stdout || '').match(/(?:version|Version)\s*[:\s]+([0-9.]+)/i);
-        return {
-            available: true,
-            version: versionMatch ? versionMatch[1] : undefined,
-            help: (helpResult.stdout || '').split('\n').slice(0, 20).join('\n'),
-        };
-    }
-
-    return {
-        available: true,
-        help: (helpResult.stdout || '').split('\n').slice(0, 10).join('\n'),
-    };
-}

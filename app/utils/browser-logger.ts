@@ -130,5 +130,3 @@ export const BrowserLogger = {
         }
     },
 };
-
-export default BrowserLogger;

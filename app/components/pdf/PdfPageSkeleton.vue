@@ -111,8 +111,8 @@ const repeatParagraphs = computed(() => {
     position: absolute;
     inset: 0;
     border-radius: 2px;
-    box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
-    background: white;
+    box-shadow: var(--shadow-sm);
+    background: var(--ui-bg);
     display: flex;
     justify-content: center;
     align-items: flex-start;
@@ -120,10 +120,6 @@ const repeatParagraphs = computed(() => {
     pointer-events: none;
     animation: pdf-page-skeleton-pulse 0.9s ease-in-out infinite;
     box-sizing: border-box;
-}
-
-.dark .pdf-page-skeleton {
-    background: rgb(38 38 38);
 }
 
 .pdf-page-skeleton__inner {

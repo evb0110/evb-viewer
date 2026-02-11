@@ -1,7 +1,7 @@
 <template>
     <aside
         v-if="isOpen"
-        class="pdf-sidebar"
+        class="flex h-full flex-col overflow-hidden bg-[var(--ui-bg)]"
         :style="sidebarStyle"
     >
         <UTabs
@@ -17,9 +17,9 @@
                 indicator: 'bg-primary/40 rounded-none bottom-0',
                 trigger: 'flex-1 min-w-0 justify-center px-1 py-1.5 rounded-none text-[10px] font-semibold tracking-normal whitespace-nowrap overflow-hidden text-ellipsis data-[state=active]:text-default data-[state=inactive]:text-muted data-[state=inactive]:hover:bg-muted/30',
             }"
-            class="pdf-sidebar-tabs"
+            class="shrink-0"
         />
-        <div class="pdf-sidebar-content app-scrollbar">
+        <div class="relative min-h-0 flex-1 overflow-hidden overflow-y-auto [&>*]:w-full app-scrollbar">
             <PdfAnnotationsPanel
                 v-show="activeTab === 'annotations'"
                 :tool="annotationTool"
@@ -190,9 +190,9 @@
             />
             <div
                 v-show="activeTab === 'search'"
-                class="pdf-sidebar-search"
+                class="flex min-h-full flex-col"
             >
-                <div class="pdf-sidebar-search-bar">
+                <div class="sticky top-0 z-[1] border-b border-[var(--ui-border)] bg-[var(--ui-bg)]">
                     <PdfSearchBar
                         ref="searchBarRef"
                         v-model="searchQueryProxy"
@@ -202,7 +202,7 @@
                         @previous="emit('previous')"
                     />
                 </div>
-                <div class="pdf-sidebar-search-results">
+                <div class="flex flex-col">
                     <PdfSearchResults
                         :results="searchResults"
                         :current-result-index="currentResultIndex"
@@ -705,48 +705,6 @@ const sidebarStyle = computed(() => {
 </script>
 
 <style scoped>
-.pdf-sidebar {
-    height: 100%;
-    background: var(--ui-bg);
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-}
-
-.pdf-sidebar-tabs {
-    flex-shrink: 0;
-}
-
-.pdf-sidebar-search {
-    display: flex;
-    flex-direction: column;
-    min-height: 100%;
-}
-
-.pdf-sidebar-search-bar {
-    position: sticky;
-    top: 0;
-    z-index: 1;
-    background: var(--ui-bg);
-    border-bottom: 1px solid var(--ui-border);
-}
-
-.pdf-sidebar-search-results {
-    display: flex;
-    flex-direction: column;
-}
-
-.pdf-sidebar-content {
-    flex: 1;
-    min-height: 0;
-    overflow: hidden auto;
-    position: relative;
-}
-
-.pdf-sidebar-content > * {
-    width: 100%;
-}
-
 .pdf-sidebar-pages {
     display: flex;
     flex-direction: column;
@@ -923,6 +881,6 @@ const sidebarStyle = computed(() => {
 .pdf-sidebar-pages-error {
     margin: 0;
     font-size: 0.7rem;
-    color: #dc2626;
+    color: var(--ui-error);
 }
 </style>

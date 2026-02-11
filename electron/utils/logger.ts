@@ -12,13 +12,13 @@ import {
 } from 'path';
 import { config } from '@electron/config';
 
-export interface ILogMessage {
+interface ILogMessage {
     source: string;
     message: string;
     timestamp: string;
 }
 
-export interface ILogger {
+interface ILogger {
     debug(msg: string): void;
     info(msg: string): void;
     warn(msg: string): void;
@@ -127,10 +127,3 @@ export function createLogger(source: string): ILogger {
     };
 }
 
-/**
- * Get the path to log files directory
- * Useful for debugging or exposing to users
- */
-export function getLogDirectory() {
-    return LOG_DIR;
-}

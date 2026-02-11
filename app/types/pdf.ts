@@ -23,14 +23,6 @@ export interface IScrollSnapshot {
     centerY: number;
 }
 
-export interface IPdfDocumentState {
-    pdfDocument: PDFDocumentProxy | null;
-    numPages: number;
-    isLoading: boolean;
-    basePageWidth: number | null;
-    basePageHeight: number | null;
-}
-
 export type TPdfSource =
     | Blob
     | {
@@ -38,12 +30,6 @@ export type TPdfSource =
         path: string;
         size: number;
     };
-
-export interface IPdfLinkServiceOptions {
-    pagesCount: number;
-    currentPage: number;
-    goToPage: (page: number) => void;
-}
 
 export interface ISearchExcerpt {
     prefix: boolean;

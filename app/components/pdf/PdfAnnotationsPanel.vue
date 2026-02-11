@@ -6,7 +6,7 @@
                 <p class="notes-section-description">{{ t('annotations.createDescription') }}</p>
             </header>
 
-            <div class="tool-grid">
+            <div class="grid grid-cols-2 gap-1.5">
                 <button
                     v-for="toolItem in toolItems"
                     :key="toolItem.id"
@@ -951,12 +951,6 @@ function applyDrawStyle(style: TDrawStyle) {
     color: var(--ui-text-muted);
 }
 
-.tool-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0.4rem;
-}
-
 .tool-button {
     display: inline-flex;
     align-items: center;
@@ -1311,7 +1305,7 @@ function applyDrawStyle(style: TDrawStyle) {
 }
 
 .selection-action.is-danger {
-    color: color-mix(in srgb, #ef4444 65%, var(--ui-text-highlighted) 35%);
+    color: color-mix(in srgb, var(--ui-error) 65%, var(--ui-text-highlighted) 35%);
 }
 
 .notes-context-menu {
@@ -1350,14 +1344,10 @@ function applyDrawStyle(style: TDrawStyle) {
 }
 
 .context-menu-action.is-danger {
-    color: color-mix(in srgb, #ef4444 68%, var(--ui-text-highlighted) 32%);
+    color: color-mix(in srgb, var(--ui-error) 68%, var(--ui-text-highlighted) 32%);
 }
 
 @media (width <= 860px) {
-    .tool-grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-
     .swatch-row {
         grid-template-columns: repeat(6, minmax(0, 1fr));
     }

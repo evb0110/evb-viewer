@@ -13,8 +13,6 @@ import {
 import { app } from 'electron';
 import type { IRecentFile } from '@app/types/shared';
 
-export type { IRecentFile } from '@app/types/shared';
-
 const MAX_RECENT_FILES = 10;
 const CACHE_TTL_MS = 5000; // Cache valid for 5 seconds
 

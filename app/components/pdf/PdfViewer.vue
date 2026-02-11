@@ -1,10 +1,10 @@
 <template>
     <div
-        class="pdf-viewer-container"
+        class="relative h-full w-full"
         :class="{ 'pdf-viewer-container--dark': invertColors }"
     >
-        <div v-if="src && isLoading" class="pdf-loader">
-            <USkeleton class="pdf-loader__skeleton" />
+        <div v-if="src && isLoading" class="absolute inset-0 z-[1] flex items-center justify-center bg-[var(--ui-bg-muted)]">
+            <USkeleton class="size-16 rounded-lg" />
         </div>
         <div
             id="pdf-viewer"
@@ -100,6 +100,7 @@ import type {
     TShapeType,
 } from '@app/types/annotations';
 import type { IAnnotationContextMenuPayload } from '@app/composables/pdf/pdfAnnotationUtils';
+import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotation-defaults';
 
 import 'pdfjs-dist/web/pdf_viewer.css';
 
@@ -231,28 +232,7 @@ provide<IShapeContextProvide>('shapeContext', {
     drawingShape: shapeComposable.drawingShape,
     isShapeToolActive,
     activeShapeTool,
-    settings: computed(() => annotationSettings.value ?? {
-        highlightColor: '#ffd400',
-        highlightOpacity: 0.35,
-        highlightThickness: 12,
-        highlightFree: true,
-        highlightShowAll: true,
-        underlineColor: '#2563eb',
-        underlineOpacity: 0.8,
-        strikethroughColor: '#dc2626',
-        strikethroughOpacity: 0.7,
-        squigglyColor: '#16a34a',
-        squigglyOpacity: 0.7,
-        inkColor: '#e11d48',
-        inkOpacity: 0.9,
-        inkThickness: 2,
-        textColor: '#111827',
-        textSize: 22,
-        shapeColor: '#2563eb',
-        shapeFillColor: 'transparent',
-        shapeOpacity: 1,
-        shapeStrokeWidth: 2,
-    }),
+    settings: computed(() => annotationSettings.value ?? DEFAULT_ANNOTATION_SETTINGS),
     getShapesForPage: shapeComposable.getShapesForPage,
     handleStartDrawing(pageIndex: number, coords: {
         x: number;
@@ -805,170 +785,87 @@ defineExpose({
 });
 </script>
 
-<style scoped>
-.pdf-viewer-container {
-    position: relative;
-    height: 100%;
-    width: 100%;
-}
-
-.pdf-loader {
-    position: absolute;
-    inset: 0;
-    z-index: 1;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    background: var(--color-surface-muted);
-}
-
-.pdf-loader__skeleton {
-    width: 64px;
-    height: 64px;
-    border-radius: 8px;
-}
+<style lang="scss" scoped>
+/* ── Container & Viewer ────────────────────────────────────────────── */
 
 .pdfViewer {
     position: relative;
     width: 100%;
     height: 100%;
     overflow: auto;
-    background: var(--color-surface-muted);
+    background: var(--ui-bg-muted);
     display: flex;
     flex-direction: column;
 
-    --pdfjs-comment-edit-icon: url('/pdfjs/comment-editButton.svg');
-    --pdfjs-comment-popup-edit-icon: url('/pdfjs/comment-popup-editButton.svg');
-    --pdfjs-comment-close-icon: url('/pdfjs/comment-closeButton.svg');
-    --pdfjs-highlight-icon: url('/pdfjs/toolbarButton-editorHighlight.svg');
-    --pdfjs-delete-icon: url('/pdfjs/editor-toolbar-delete.svg');
-    --comment-edit-button-icon: var(--pdfjs-comment-edit-icon);
-    --editor-toolbar-highlight-image: var(--pdfjs-highlight-icon);
-    --editor-toolbar-delete-image: var(--pdfjs-delete-icon);
-    --comment-popup-edit-button-icon: var(--pdfjs-comment-popup-edit-icon);
-    --comment-popup-delete-button-icon: var(--pdfjs-delete-icon);
-    --comment-close-button-icon: var(--pdfjs-comment-close-icon);
+    &.is-placing-comment {
+        cursor: crosshair;
+    }
+
+    &.pdfViewer--fit-height {
+        overflow-x: auto;
+    }
+
+    &.pdfViewer--single-page {
+        scroll-snap-type: y mandatory;
+        scroll-snap-stop: always;
+
+        :deep(.page_container) {
+            scroll-snap-align: center;
+        }
+    }
+
+    &.pdfViewer--hidden {
+        opacity: 0;
+        pointer-events: none;
+    }
+
+    /* Hidden PDF.js UI — Okular-style workflow: comment editing is handled from side reviews + note window. */
+    /* stylelint-disable selector-id-pattern -- pdf.js internal element ID */
+    :deep(.editToolbar),
+    :deep(.annotationCommentButton),
+    :deep(.commentPopup),
+    :deep(#commentManagerDialog) {
+        display: none !important;
+    }
+    /* stylelint-enable selector-id-pattern */
 }
 
-.pdfViewer.is-placing-comment {
-    cursor: crosshair;
+/* ── Drag Mode Cursor Overrides ────────────────────────────────────── */
+
+.pdfViewer.drag-mode {
+    &.is-dragging {
+        cursor: grabbing !important;
+        user-select: none;
+    }
+
+    &:not(.is-dragging) {
+        cursor: grab !important;
+    }
+
+    *,
+    &.is-dragging * {
+        cursor: inherit !important;
+    }
+
+    :deep(.text-layer),
+    :deep(.text-layer span),
+    :deep(.text-layer br),
+    :deep(.annotation-layer a),
+    :deep(.annotation-editor-layer),
+    :deep(.annotationEditorLayer),
+    :deep(.page_container),
+    :deep(.page_container canvas),
+    :deep(.annotationLayer),
+    :deep(.annotationLayer *),
+    :deep(.canvasWrapper) {
+        cursor: inherit !important;
+        user-select: none !important;
+        pointer-events: none !important;
+    }
 }
 
-.pdfViewer :deep(.editToolbar) {
-    --editor-toolbar-height: 32px;
-    --editor-toolbar-padding: 4px;
-    --editor-toolbar-highlight-image: var(--pdfjs-highlight-icon);
-    --editor-toolbar-delete-image: var(--pdfjs-delete-icon);
-    --comment-edit-button-icon: var(--pdfjs-comment-edit-icon);
-    --comment-popup-edit-button-icon: var(--pdfjs-comment-popup-edit-icon);
-    --comment-popup-delete-button-icon: var(--pdfjs-delete-icon);
-    --comment-close-button-icon: var(--pdfjs-comment-close-icon);
-}
+/* ── Comment Markers & Inline Indicators ───────────────────────────── */
 
-.pdfViewer :deep(.annotationCommentButton) {
-    --comment-edit-button-icon: var(--pdfjs-comment-edit-icon);
-}
-
-/* Okular-style workflow: comment editing is handled from side reviews + note window. */
-/* stylelint-disable selector-id-pattern -- pdf.js internal element ID */
-.pdfViewer :deep(.editToolbar),
-.pdfViewer :deep(.annotationCommentButton),
-.pdfViewer :deep(.commentPopup),
-.pdfViewer :deep(#commentManagerDialog) {
-    display: none !important;
-}
-/* stylelint-enable selector-id-pattern */
-
-.pdfViewer :deep(.commentPopup) {
-    background: var(--color-surface, #fff);
-    border: 1px solid var(--ui-border, #e5e7eb);
-    box-shadow:
-        0 6px 18px rgba(15, 23, 42, 0.15),
-        0 2px 6px rgba(15, 23, 42, 0.08);
-    color: var(--ui-text, #111827);
-}
-
-.pdfViewer :deep(.commentPopup .commentPopupText) {
-    color: var(--ui-text, #111827);
-}
-
-.pdfViewer :deep(.commentPopup .commentPopupTime) {
-    color: var(--ui-text-muted, #6b7280);
-}
-
-/* stylelint-disable-next-line selector-id-pattern -- PDF.js internal ID */
-.pdfViewer :deep(#commentManagerDialog) {
-    background: var(--color-surface, #fff);
-    border: 1px solid var(--ui-border, #e5e7eb);
-    box-shadow:
-        0 6px 18px rgba(15, 23, 42, 0.15),
-        0 2px 6px rgba(15, 23, 42, 0.08);
-    color: var(--ui-text, #111827);
-}
-
-/* stylelint-disable-next-line selector-id-pattern -- PDF.js internal IDs */
-.pdfViewer :deep(#commentManagerDialog #commentManagerTextInput) {
-    background: var(--color-surface-2, #f3f4f6);
-    color: var(--ui-text, #111827);
-    border: 1px solid var(--ui-border, #e5e7eb);
-    border-radius: 8px;
-    padding: 8px 10px;
-}
-
-.pdfViewer--fit-height {
-    overflow-x: auto;
-}
-
-.pdfViewer--single-page {
-    scroll-snap-type: y mandatory;
-    scroll-snap-stop: always;
-}
-
-.pdfViewer--single-page :deep(.page_container) {
-    scroll-snap-align: center;
-}
-
-.pdfViewer--hidden {
-    opacity: 0;
-    pointer-events: none;
-}
-
-.pdfViewer.drag-mode.is-dragging {
-    cursor: grabbing !important;
-    user-select: none;
-}
-
-.pdfViewer.drag-mode:not(.is-dragging) {
-    cursor: grab !important;
-}
-
-.pdfViewer.drag-mode *,
-.pdfViewer.drag-mode.is-dragging * {
-    cursor: inherit !important;
-}
-
-.pdfViewer.drag-mode :deep(.text-layer),
-.pdfViewer.drag-mode :deep(.text-layer span),
-.pdfViewer.drag-mode :deep(.text-layer br),
-.pdfViewer.drag-mode :deep(.annotation-layer a),
-.pdfViewer.drag-mode :deep(.annotation-editor-layer),
-.pdfViewer.drag-mode :deep(.annotationEditorLayer),
-.pdfViewer.drag-mode :deep(.page_container),
-.pdfViewer.drag-mode :deep(.page_container canvas),
-.pdfViewer.drag-mode :deep(.annotationLayer),
-.pdfViewer.drag-mode :deep(.annotationLayer *),
-.pdfViewer.drag-mode :deep(.canvasWrapper) {
-    cursor: inherit !important;
-    user-select: none !important;
-    pointer-events: none !important;
-}
-
-/* Hide edit toolbar when viewing a comment popup */
-.pdfViewer.is-viewing-comment :deep(.editToolbar) {
-    display: none !important;
-}
-
-/* Visual indicator for text markup annotations with comments. */
 .pdfViewer :deep(.pdf-comment-marker-layer) {
     position: absolute;
     inset: 0;
@@ -989,72 +886,72 @@ defineExpose({
         inset 0 0 0 1px rgb(255 255 255 / 0.58);
     cursor: pointer;
     pointer-events: auto;
-}
 
-.pdfViewer :deep(.pdf-inline-comment-marker)::before {
-    content: '';
-    position: absolute;
-    inset: 2px;
-    background-color: rgb(110 96 23 / 0.95);
-    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M4 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 5V5z'/%3E%3C/svg%3E");
-    mask-repeat: no-repeat;
-    mask-position: center;
-    mask-size: contain;
-}
+    &::before {
+        content: '';
+        position: absolute;
+        inset: 2px;
+        background-color: rgb(110 96 23 / 0.95);
+        mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M4 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 5V5z'/%3E%3C/svg%3E");
+        mask-repeat: no-repeat;
+        mask-position: center;
+        mask-size: contain;
+    }
 
-.pdfViewer :deep(.pdf-inline-comment-marker)::after {
-    content: '';
-    position: absolute;
-    right: 2px;
-    top: 2px;
-    width: 5px;
-    height: 5px;
-    background: linear-gradient(135deg, rgb(255 255 255 / 0.88) 0%, rgb(235 224 145 / 0.95) 100%);
-    clip-path: polygon(0 0, 100% 0, 100% 100%);
-}
+    &::after {
+        content: '';
+        position: absolute;
+        right: 2px;
+        top: 2px;
+        width: 5px;
+        height: 5px;
+        background: linear-gradient(135deg, rgb(255 255 255 / 0.88) 0%, rgb(235 224 145 / 0.95) 100%);
+        clip-path: polygon(0 0, 100% 0, 100% 100%);
+    }
 
-.pdfViewer :deep(.pdf-inline-comment-marker.is-cluster)::after {
-    content: attr(data-comment-count);
-    right: -9px;
-    top: -9px;
-    min-width: 17px;
-    height: 17px;
-    border-radius: 999px;
-    border: 1.5px solid rgb(120 80 10 / 0.75);
-    background: linear-gradient(180deg, #fff 0%, #fde68a 100%);
-    color: rgb(60 40 5);
-    clip-path: none;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 9px;
-    font-weight: 700;
-    line-height: 1;
-    padding: 0 3px;
-    font-variant-numeric: tabular-nums;
-    box-shadow: 0 1px 3px rgb(0 0 0 / 0.22);
-}
+    &.is-cluster::after {
+        content: attr(data-comment-count);
+        right: -9px;
+        top: -9px;
+        min-width: 17px;
+        height: 17px;
+        border-radius: 999px;
+        border: 1.5px solid rgb(120 80 10 / 0.75);
+        background: linear-gradient(180deg, #fff 0%, #fde68a 100%);
+        color: rgb(60 40 5);
+        clip-path: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 9px;
+        font-weight: 700;
+        line-height: 1;
+        padding: 0 3px;
+        font-variant-numeric: tabular-nums;
+        box-shadow: 0 1px 3px rgb(0 0 0 / 0.22);
+    }
 
-.pdfViewer :deep(.pdf-inline-comment-marker.is-cluster:hover)::after,
-.pdfViewer :deep(.pdf-inline-comment-marker.is-cluster.is-active)::after {
-    border-color: rgb(100 65 5 / 0.9);
-    box-shadow: 0 1px 4px rgb(0 0 0 / 0.32);
-}
+    &.is-cluster:hover::after,
+    &.is-cluster.is-active::after {
+        border-color: rgb(100 65 5 / 0.9);
+        box-shadow: 0 1px 4px rgb(0 0 0 / 0.32);
+    }
 
-.pdfViewer :deep(.pdf-inline-comment-marker:hover) {
-    transform: translate(-50%, -50%) scale(1.08);
-}
+    &:hover {
+        transform: translate(-50%, -50%) scale(1.08);
+    }
 
-.pdfViewer :deep(.pdf-inline-comment-marker.is-active) {
-    border-color: color-mix(in oklab, var(--ui-primary, #3b82f6) 44%, rgb(165 145 41));
-    box-shadow:
-        0 0 0 2px color-mix(in oklab, var(--ui-primary, #3b82f6) 28%, transparent),
-        0 2px 6px rgb(0 0 0 / 0.28),
-        inset 0 0 0 1px rgb(255 255 255 / 0.7);
-}
+    &.is-active {
+        border-color: color-mix(in oklab, var(--ui-primary, #3b82f6) 44%, rgb(165 145 41));
+        box-shadow:
+            0 0 0 2px color-mix(in oklab, var(--ui-primary, #3b82f6) 28%, transparent),
+            0 2px 6px rgb(0 0 0 / 0.28),
+            inset 0 0 0 1px rgb(255 255 255 / 0.7);
+    }
 
-.pdfViewer :deep(.pdf-inline-comment-marker.pdf-comment-focus-pulse) {
-    animation: inline-comment-focus-pulse 0.9s ease-out;
+    &.pdf-comment-focus-pulse {
+        animation: inline-comment-focus-pulse 0.9s ease-out;
+    }
 }
 
 .pdfViewer :deep(.pdf-inline-comment-anchor-marker) {
@@ -1073,59 +970,60 @@ defineExpose({
     z-index: 9999 !important;
     pointer-events: auto !important;
     padding: 0;
-}
 
-.pdfViewer :deep(.pdf-inline-comment-anchor-marker)::before {
-    content: '';
-    position: absolute;
-    inset: 2px;
-    background-color: rgb(110 96 23 / 0.95);
-    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M4 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 5V5z'/%3E%3C/svg%3E");
-    mask-repeat: no-repeat;
-    mask-position: center;
-    mask-size: contain;
-}
+    &::before {
+        content: '';
+        position: absolute;
+        inset: 2px;
+        background-color: rgb(110 96 23 / 0.95);
+        mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M4 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 5V5z'/%3E%3C/svg%3E");
+        mask-repeat: no-repeat;
+        mask-position: center;
+        mask-size: contain;
+    }
 
-.pdfViewer :deep(.pdf-inline-comment-anchor-marker)::after {
-    content: attr(data-comment-count);
-    position: absolute;
-    right: -9px;
-    top: -9px;
-    min-width: 17px;
-    height: 17px;
-    border-radius: 999px;
-    border: 1.5px solid rgb(120 80 10 / 0.75);
-    background: linear-gradient(180deg, #fff 0%, #fde68a 100%);
-    color: rgb(60 40 5);
-    display: none;
-    align-items: center;
-    justify-content: center;
-    font-size: 10px;
-    font-weight: 700;
-    line-height: 1;
-    padding: 0 3px;
-    font-variant-numeric: tabular-nums;
-    box-shadow: 0 1px 3px rgb(0 0 0 / 0.22);
-}
+    &::after {
+        content: attr(data-comment-count);
+        position: absolute;
+        right: -9px;
+        top: -9px;
+        min-width: 17px;
+        height: 17px;
+        border-radius: 999px;
+        border: 1.5px solid rgb(120 80 10 / 0.75);
+        background: linear-gradient(180deg, #fff 0%, #fde68a 100%);
+        color: rgb(60 40 5);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        font-size: 10px;
+        font-weight: 700;
+        line-height: 1;
+        padding: 0 3px;
+        font-variant-numeric: tabular-nums;
+        box-shadow: 0 1px 3px rgb(0 0 0 / 0.22);
+    }
 
-.pdfViewer :deep(.pdf-inline-comment-anchor-marker.is-cluster)::after {
-    display: inline-flex;
-}
+    /* stylelint-disable-next-line no-descending-specificity -- different element than .pdf-inline-comment-marker */
+    &.is-cluster::after {
+        display: inline-flex;
+    }
 
-.pdfViewer :deep(.pdf-inline-comment-anchor-marker:hover) {
-    transform: scale(1.08);
-}
+    &:hover {
+        transform: scale(1.08);
+    }
 
-.pdfViewer :deep(.pdf-inline-comment-anchor-marker.is-active) {
-    border-color: color-mix(in oklab, var(--ui-primary, #3b82f6) 44%, rgb(165 145 41));
-    box-shadow:
-        0 0 0 1.5px color-mix(in oklab, var(--ui-primary, #3b82f6) 28%, transparent),
-        0 2px 6px rgb(0 0 0 / 0.24),
-        inset 0 0 0 1px rgb(255 255 255 / 0.68);
-}
+    &.is-active {
+        border-color: color-mix(in oklab, var(--ui-primary, #3b82f6) 44%, rgb(165 145 41));
+        box-shadow:
+            0 0 0 1.5px color-mix(in oklab, var(--ui-primary, #3b82f6) 28%, transparent),
+            0 2px 6px rgb(0 0 0 / 0.24),
+            inset 0 0 0 1px rgb(255 255 255 / 0.68);
+    }
 
-.pdfViewer :deep(.pdf-inline-comment-anchor-marker.pdf-comment-focus-pulse) {
-    animation: inline-comment-focus-pulse 0.9s ease-out;
+    &.pdf-comment-focus-pulse {
+        animation: inline-comment-focus-pulse 0.9s ease-out;
+    }
 }
 
 .pdfViewer :deep(.pdf-annotation-has-note-target) {
@@ -1133,19 +1031,168 @@ defineExpose({
     overflow: visible;
     cursor: pointer;
     pointer-events: auto !important;
-}
 
-.pdfViewer :deep(.pdf-annotation-has-note-target:hover) {
-    filter: drop-shadow(0 0 2px rgba(59, 130, 246, 0.28));
+    &:hover {
+        filter: drop-shadow(0 0 2px rgba(59, 130, 246, 0.28));
+    }
+
+    &.pdf-comment-focus-pulse {
+        animation: inline-comment-focus-pulse 0.9s ease-out;
+    }
 }
 
 .pdfViewer :deep(.pdf-annotation-has-note-active) {
     filter: drop-shadow(0 0 4px color-mix(in oklab, var(--ui-primary, #3b82f6) 28%, transparent));
 }
 
-.pdfViewer :deep(.pdf-annotation-has-note-target.pdf-comment-focus-pulse) {
-    animation: inline-comment-focus-pulse 0.9s ease-out;
+/* ── Comment Tooltips & Popups ─────────────────────────────────────── */
+
+.pdfViewer :deep(.pdf-annotation-comment-tooltip) {
+    position: absolute;
+    z-index: 5;
+    max-width: 260px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    background: var(--ui-bg);
+    color: var(--ui-text);
+    border: 1px solid var(--ui-border);
+    box-shadow:
+        0 6px 16px rgba(15, 23, 42, 0.12),
+        0 2px 6px rgba(15, 23, 42, 0.1);
+    font-size: 12px;
+    line-height: 1.4;
+    opacity: 0;
+    transform: translate3d(0, 4px, 0);
+    transition: opacity 0.12s ease, transform 0.12s ease;
+    pointer-events: none;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+
+    &.is-visible {
+        opacity: 1;
+        transform: translate3d(0, 0, 0);
+    }
+
+    &::before {
+        content: '';
+        position: absolute;
+        left: 14px;
+        bottom: -6px;
+        width: 0;
+        height: 0;
+        border-left: 6px solid transparent;
+        border-right: 6px solid transparent;
+        border-top: 6px solid var(--ui-bg);
+        filter: drop-shadow(0 1px 1px rgba(15, 23, 42, 0.12));
+    }
+
+    &.is-below::before {
+        top: -6px;
+        bottom: auto;
+        border-top: none;
+        border-bottom: 6px solid var(--ui-bg);
+        filter: drop-shadow(0 -1px 1px rgba(15, 23, 42, 0.12));
+    }
 }
+
+.pdfViewer :deep(.pdf-annotation-comment-popup) {
+    position: absolute;
+    z-index: 6;
+    min-width: 180px;
+    max-width: 280px;
+    padding: 12px 14px;
+    border-radius: 8px;
+    background: var(--ui-bg);
+    color: var(--ui-text);
+    border: 1px solid var(--ui-border);
+    box-shadow: var(--shadow-popup);
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+    transition: opacity 0.12s ease, transform 0.12s ease;
+    pointer-events: auto;
+
+    &::before {
+        content: '';
+        position: absolute;
+        top: -8px;
+        left: 16px;
+        width: 0;
+        height: 0;
+        border-left: 8px solid transparent;
+        border-right: 8px solid transparent;
+        border-bottom: 8px solid var(--ui-bg);
+        filter: drop-shadow(0 -1px 1px rgba(15, 23, 42, 0.08));
+    }
+
+    &.is-hidden {
+        opacity: 0;
+        pointer-events: none;
+        transform: translate3d(0, 6px, 0);
+    }
+
+    &.is-editing .pdf-annotation-comment-popup__text {
+        display: none;
+    }
+
+    &:not(.is-editing) .pdf-annotation-comment-popup__textarea {
+        display: none;
+    }
+
+    &.is-editing .pdf-annotation-comment-popup__btn--edit,
+    &.is-editing .pdf-annotation-comment-popup__btn--close {
+        display: none;
+    }
+
+    &:not(.is-editing) .pdf-annotation-comment-popup__btn--save,
+    &:not(.is-editing) .pdf-annotation-comment-popup__btn--cancel {
+        display: none;
+    }
+}
+
+.pdfViewer :deep(.pdf-annotation-comment-popup__text) {
+    font-size: 13px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+}
+
+.pdfViewer :deep(.pdf-annotation-comment-popup__textarea) {
+    width: 100%;
+    min-height: 84px;
+    margin-top: 8px;
+    border-radius: 8px;
+    border: 1px solid var(--ui-border);
+    background: var(--ui-bg-muted);
+    color: inherit;
+    font-size: 12px;
+    line-height: 1.4;
+    padding: 6px 8px;
+    resize: vertical;
+}
+
+.pdfViewer :deep(.pdf-annotation-comment-popup__actions) {
+    display: flex;
+    gap: 6px;
+    margin-top: 10px;
+    justify-content: flex-end;
+}
+
+.pdfViewer :deep(.pdf-annotation-comment-popup__btn) {
+    border-radius: 4px;
+    border: 1px solid var(--ui-border);
+    background: var(--ui-bg-muted);
+    color: inherit;
+    font-size: 12px;
+    padding: 4px 10px;
+    min-height: 26px;
+    cursor: pointer;
+
+    &:hover {
+        background: var(--ui-bg-accented);
+    }
+}
+
+/* ── Markup Subtype Visual Overrides (underline / strikethrough) ──── */
 
 .pdfViewer :deep(.annotationEditorLayer .highlightEditor[class*='pdf-markup-subtype-underline'] .internal),
 .pdfViewer :deep(.annotation-editor-layer .highlightEditor[class*='pdf-markup-subtype-underline'] .internal),
@@ -1183,6 +1230,8 @@ defineExpose({
     pointer-events: none;
 }
 
+/* ── Animations ────────────────────────────────────────────────────── */
+
 @keyframes inline-comment-focus-pulse {
     0% {
         filter: drop-shadow(0 0 0 color-mix(in oklab, var(--ui-primary, #3b82f6) 0%, transparent));
@@ -1195,154 +1244,6 @@ defineExpose({
     100% {
         filter: drop-shadow(0 0 0 color-mix(in oklab, var(--ui-primary, #3b82f6) 0%, transparent));
     }
-}
-
-.pdfViewer :deep(.pdf-annotation-comment-tooltip) {
-    position: absolute;
-    z-index: 5;
-    max-width: 260px;
-    padding: 8px 12px;
-    border-radius: 6px;
-    background: var(--color-surface, #fff);
-    color: var(--ui-text, #111827);
-    border: 1px solid var(--ui-border, #e5e7eb);
-    box-shadow:
-        0 6px 16px rgba(15, 23, 42, 0.12),
-        0 2px 6px rgba(15, 23, 42, 0.1);
-    font-size: 12px;
-    line-height: 1.4;
-    opacity: 0;
-    transform: translate3d(0, 4px, 0);
-    transition: opacity 0.12s ease, transform 0.12s ease;
-    pointer-events: none;
-    white-space: pre-wrap;
-    overflow-wrap: break-word;
-}
-
-.pdfViewer :deep(.pdf-annotation-comment-tooltip.is-visible) {
-    opacity: 1;
-    transform: translate3d(0, 0, 0);
-}
-
-.pdfViewer :deep(.pdf-annotation-comment-tooltip)::before {
-    content: '';
-    position: absolute;
-    left: 14px;
-    bottom: -6px;
-    width: 0;
-    height: 0;
-    border-left: 6px solid transparent;
-    border-right: 6px solid transparent;
-    border-top: 6px solid var(--color-surface, #fff);
-    filter: drop-shadow(0 1px 1px rgba(15, 23, 42, 0.12));
-}
-
-.pdfViewer :deep(.pdf-annotation-comment-tooltip.is-below)::before {
-    top: -6px;
-    bottom: auto;
-    border-top: none;
-    border-bottom: 6px solid var(--color-surface, #fff);
-    filter: drop-shadow(0 -1px 1px rgba(15, 23, 42, 0.12));
-}
-
-.pdfViewer :deep(.pdf-annotation-comment-popup) {
-    position: absolute;
-    z-index: 6;
-    min-width: 180px;
-    max-width: 280px;
-    padding: 12px 14px;
-    border-radius: 8px;
-    background: var(--color-surface, #fff);
-    color: var(--ui-text, #111827);
-    border: 1px solid var(--ui-border, #e5e7eb);
-    box-shadow:
-        0 6px 18px rgba(15, 23, 42, 0.15),
-        0 2px 6px rgba(15, 23, 42, 0.08);
-    opacity: 1;
-    transform: translate3d(0, 0, 0);
-    transition: opacity 0.12s ease, transform 0.12s ease;
-    pointer-events: auto;
-}
-
-/* Arrow pointing up to the highlight */
-.pdfViewer :deep(.pdf-annotation-comment-popup)::before {
-    content: '';
-    position: absolute;
-    top: -8px;
-    left: 16px;
-    width: 0;
-    height: 0;
-    border-left: 8px solid transparent;
-    border-right: 8px solid transparent;
-    border-bottom: 8px solid var(--color-surface, #fff);
-    filter: drop-shadow(0 -1px 1px rgba(15, 23, 42, 0.08));
-}
-
-.pdfViewer :deep(.pdf-annotation-comment-popup.is-hidden) {
-    opacity: 0;
-    pointer-events: none;
-    transform: translate3d(0, 6px, 0);
-}
-
-.pdfViewer :deep(.pdf-annotation-comment-popup__text) {
-    font-size: 13px;
-    line-height: 1.5;
-    white-space: pre-wrap;
-    overflow-wrap: break-word;
-}
-
-.pdfViewer :deep(.pdf-annotation-comment-popup__textarea) {
-    width: 100%;
-    min-height: 84px;
-    margin-top: 8px;
-    border-radius: 8px;
-    border: 1px solid var(--ui-border, #e5e7eb);
-    background: var(--color-surface-2, #f3f4f6);
-    color: inherit;
-    font-size: 12px;
-    line-height: 1.4;
-    padding: 6px 8px;
-    resize: vertical;
-}
-
-.pdfViewer :deep(.pdf-annotation-comment-popup.is-editing .pdf-annotation-comment-popup__text) {
-    display: none;
-}
-
-.pdfViewer :deep(.pdf-annotation-comment-popup:not(.is-editing) .pdf-annotation-comment-popup__textarea) {
-    display: none;
-}
-
-.pdfViewer :deep(.pdf-annotation-comment-popup.is-editing .pdf-annotation-comment-popup__btn--edit),
-.pdfViewer :deep(.pdf-annotation-comment-popup.is-editing .pdf-annotation-comment-popup__btn--close) {
-    display: none;
-}
-
-.pdfViewer :deep(.pdf-annotation-comment-popup:not(.is-editing) .pdf-annotation-comment-popup__btn--save),
-.pdfViewer :deep(.pdf-annotation-comment-popup:not(.is-editing) .pdf-annotation-comment-popup__btn--cancel) {
-    display: none;
-}
-
-.pdfViewer :deep(.pdf-annotation-comment-popup__actions) {
-    display: flex;
-    gap: 6px;
-    margin-top: 10px;
-    justify-content: flex-end;
-}
-
-.pdfViewer :deep(.pdf-annotation-comment-popup__btn) {
-    border-radius: 4px;
-    border: 1px solid var(--ui-border, #e5e7eb);
-    background: var(--color-surface-2, #f3f4f6);
-    color: inherit;
-    font-size: 12px;
-    padding: 4px 10px;
-    min-height: 26px;
-    cursor: pointer;
-}
-
-.pdfViewer :deep(.pdf-annotation-comment-popup__btn:hover) {
-    background: var(--color-surface-3, #e5e7eb);
 }
 
 .pdfViewer :deep(.annotation-focus-pulse) {
@@ -1361,6 +1262,8 @@ defineExpose({
     }
 }
 
+/* ── Page Container & Canvas ───────────────────────────────────────── */
+
 .page_container {
     position: relative;
     margin: 0 auto;
@@ -1370,16 +1273,16 @@ defineExpose({
 
     --scale-round-x: 1px;
     --scale-round-y: 1px;
-}
 
-.page_container--scroll-target {
-    content-visibility: visible;
-}
+    &.page_container--scroll-target {
+        content-visibility: visible;
+    }
 
-.page_container canvas {
-    background: transparent;
-    box-shadow: none;
-    border-radius: inherit;
+    canvas {
+        background: transparent;
+        box-shadow: none;
+        border-radius: inherit;
+    }
 }
 
 .pdfViewer :deep(.page_container--rendered .pdf-page-skeleton) {
@@ -1396,6 +1299,8 @@ defineExpose({
     border-radius: 2px;
 }
 
+/* ── Text Layer (PDF.js) ───────────────────────────────────────────── */
+
 .pdfViewer :deep(.text-layer) {
     position: absolute;
     text-align: initial;
@@ -1411,46 +1316,57 @@ defineExpose({
     pointer-events: auto;
     user-select: text;
 
-    /* We multiply the font size by --min-font-size, and then scale the text
-     * elements by 1/--min-font-size. This allows us to effectively ignore the
-     * minimum font size enforced by the browser, so that the text layer <span>s
-     * can always match the size of the text in the canvas. */
     --min-font-size: 1;
     --text-scale-factor: calc(var(--total-scale-factor, 1) * var(--min-font-size));
     --min-font-size-inv: calc(1 / var(--min-font-size));
+
+    span,
+    br {
+        color: transparent;
+        position: absolute;
+        white-space: pre;
+        cursor: text;
+        transform-origin: 0% 0%;
+    }
+
+    > :not(.markedContent),
+    .markedContent span:not(.markedContent) {
+        z-index: 1;
+        font-size: calc(var(--text-scale-factor) * var(--font-height, 10px));
+        transform: rotate(var(--rotate, 0deg)) scaleX(var(--scale-x, 1)) scale(var(--min-font-size-inv));
+    }
+
+    .markedContent {
+        display: contents;
+    }
+
+    br {
+        user-select: none;
+    }
+
+    ::selection {
+        background: rgb(0 0 255 / 0.25);
+    }
+
+    br::selection {
+        background: transparent;
+    }
+
+    .end-of-content {
+        display: block;
+        position: absolute;
+        inset: 100% 0 0;
+        z-index: 0;
+        cursor: default;
+        user-select: none;
+    }
+
+    &.selecting .end-of-content {
+        top: 0;
+    }
 }
 
-.pdfViewer :deep(.text-layer span),
-.pdfViewer :deep(.text-layer br) {
-    color: transparent;
-    position: absolute;
-    white-space: pre;
-    cursor: text;
-    transform-origin: 0% 0%;
-}
-
-.pdfViewer :deep(.text-layer > :not(.markedContent)),
-.pdfViewer :deep(.text-layer .markedContent span:not(.markedContent)) {
-    z-index: 1;
-    font-size: calc(var(--text-scale-factor) * var(--font-height, 10px));
-    transform: rotate(var(--rotate, 0deg)) scaleX(var(--scale-x, 1)) scale(var(--min-font-size-inv));
-}
-
-.pdfViewer :deep(.text-layer .markedContent) {
-    display: contents;
-}
-
-.pdfViewer :deep(.text-layer br) {
-    user-select: none;
-}
-
-.pdfViewer :deep(.text-layer ::selection) {
-    background: rgb(0 0 255 / 0.25);
-}
-
-.pdfViewer :deep(.text-layer br::selection) {
-    background: transparent;
-}
+/* ── Search Highlights ─────────────────────────────────────────────── */
 
 .pdfViewer :deep(.pdf-search-highlight) {
     background-color: rgb(255 230 0 / 0.5);
@@ -1465,18 +1381,7 @@ defineExpose({
     outline-offset: 0;
 }
 
-.pdfViewer :deep(.text-layer .end-of-content) {
-    display: block;
-    position: absolute;
-    inset: 100% 0 0;
-    z-index: 0;
-    cursor: default;
-    user-select: none;
-}
-
-.pdfViewer :deep(.text-layer.selecting .end-of-content) {
-    top: 0;
-}
+/* ── Annotation Layers ─────────────────────────────────────────────── */
 
 .pdfViewer :deep(.annotation-layer) {
     position: absolute;
@@ -1484,6 +1389,25 @@ defineExpose({
     overflow: hidden;
     z-index: 2;
     pointer-events: none;
+
+    a {
+        pointer-events: auto;
+        display: block;
+        position: absolute;
+    }
+
+    section {
+        position: absolute;
+    }
+
+    .linkAnnotation > a {
+        background: rgb(255 255 0 / 0);
+        transition: background 150ms ease;
+
+        &:hover {
+            background: rgb(255 255 0 / 0.2);
+        }
+    }
 }
 
 .pdfViewer :deep(.annotation-editor-layer),
@@ -1493,45 +1417,30 @@ defineExpose({
     z-index: 3;
 }
 
-.pdfViewer :deep(.annotation-layer a) {
-    pointer-events: auto;
-    display: block;
-    position: absolute;
-}
+/* ── Dark Mode (Invert Colors) Overrides ───────────────────────────── */
 
-.pdfViewer :deep(.annotation-layer section) {
-    position: absolute;
-}
+.pdf-viewer-container--dark {
+    :deep(.text-layer ::selection) {
+        background: rgb(255 200 0 / 0.35);
+    }
 
-.pdfViewer :deep(.annotation-layer .linkAnnotation > a) {
-    background: rgb(255 255 0 / 0);
-    transition: background 150ms ease;
-}
+    :deep(.pdf-search-highlight) {
+        background-color: rgb(255 230 0 / 0.6);
+    }
 
-.pdfViewer :deep(.annotation-layer .linkAnnotation > a:hover) {
-    background: rgb(255 255 0 / 0.2);
-}
+    :deep(.pdf-search-highlight--current) {
+        background-color: rgb(255 150 0 / 0.8);
+        outline: 2px solid rgb(255 100 0 / 0.9);
+    }
 
-.pdf-viewer-container--dark :deep(.text-layer ::selection) {
-    background: rgb(255 200 0 / 0.35);
-}
+    .page_container,
+    .page_container canvas {
+        filter: invert(1) hue-rotate(180deg) saturate(1.05);
+    }
 
-.pdf-viewer-container--dark :deep(.pdf-search-highlight) {
-    background-color: rgb(255 230 0 / 0.6);
-}
-
-.pdf-viewer-container--dark :deep(.pdf-search-highlight--current) {
-    background-color: rgb(255 150 0 / 0.8);
-    outline: 2px solid rgb(255 100 0 / 0.9);
-}
-
-.pdf-viewer-container--dark .page_container,
-.pdf-viewer-container--dark .page_container canvas {
-    filter: invert(1) hue-rotate(180deg) saturate(1.05);
-}
-
-.pdf-viewer-container--dark .pdfViewer {
-    background: var(--color-neutral-900);
+    .pdfViewer {
+        background: var(--color-neutral-900);
+    }
 }
 
 :global(.page) {
@@ -1542,6 +1451,8 @@ defineExpose({
     user-select: none;
     position: relative;
 }
+
+/* ── Debug Boxes (Word / OCR) ──────────────────────────────────────── */
 
 .pdfViewer :deep(.pdf-word-boxes-layer) {
     position: absolute;
@@ -1556,14 +1467,13 @@ defineExpose({
     background: rgba(0, 100, 255, 0.1);
     pointer-events: none;
     box-sizing: border-box;
+
+    &.pdf-word-box--current {
+        background: rgba(0, 150, 255, 0.25);
+        border-color: rgba(0, 150, 255, 0.8);
+    }
 }
 
-.pdfViewer :deep(.pdf-word-box--current) {
-    background: rgba(0, 150, 255, 0.25);
-    border-color: rgba(0, 150, 255, 0.8);
-}
-
-/* OCR Debug boxes - orange to distinguish from regular word boxes (blue) */
 .pdfViewer :deep(.pdf-ocr-debug-layer) {
     position: absolute;
     inset: 0;
@@ -1579,26 +1489,61 @@ defineExpose({
     box-sizing: border-box;
 }
 
-/* FreeText editors: hide middle (non-corner) resize handles as a CSS fallback.
-   Normally _willKeepAspectRatio = true prevents their creation, but for editors
-   created before our patch runs we still need to hide them. */
-.pdfViewer :deep(.freeTextEditor > .resizers > .resizer.topMiddle),
-.pdfViewer :deep(.freeTextEditor > .resizers > .resizer.middleRight),
-.pdfViewer :deep(.freeTextEditor > .resizers > .resizer.bottomMiddle),
-.pdfViewer :deep(.freeTextEditor > .resizers > .resizer.middleLeft) {
-    display: none !important;
+/* ── FreeText Editor & Resize Handles ──────────────────────────────── */
+
+.pdfViewer :deep(.freeTextEditor) {
+    --resizer-size: var(--evb-resizer-size, clamp(6px, calc(8px / var(--total-scale-factor, 1)), 10px));
+    --resizer-shift: calc(
+        0px - (var(--outline-width, 1px) + var(--resizer-size)) / 2 - var(--outline-around-width, 0px)
+    );
+
+    .overlay.enabled {
+        display: block !important;
+    }
+
+    > .resizers {
+        pointer-events: none;
+
+        > .resizer {
+            pointer-events: auto;
+            background: transparent !important;
+            border: none !important;
+            box-sizing: border-box;
+            touch-action: none;
+
+            &::after {
+                content: '';
+                position: absolute;
+                width: 6px;
+                height: 6px;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: var(--resizer-bg-color, #0060df);
+                border-radius: 2px;
+                pointer-events: none;
+            }
+
+            &.topLeft,
+            &.bottomRight {
+                cursor: nwse-resize !important;
+            }
+
+            &.topRight,
+            &.bottomLeft {
+                cursor: nesw-resize !important;
+            }
+
+            &.topMiddle,
+            &.middleRight,
+            &.bottomMiddle,
+            &.middleLeft {
+                display: none !important;
+            }
+        }
+    }
 }
 
-/* FreeText editors: fix PDF.js CSS bug — the selector for .overlay.enabled
-   is missing the dot on "freeTextEditor" (element vs class), so the overlay
-   never shows and the editor cannot be dragged after committing text. */
-.pdfViewer :deep(.freeTextEditor .overlay.enabled) {
-    display: block !important;
-}
-
-/* PDF.js disables pointer events for the whole annotation layer in non-editing
-   mode. Re-enable them for existing FreeText editors so selecting/moving/
-   resizing still works when no creation tool is active. */
 .pdfViewer :deep(.annotationEditorLayer.disabled.nonEditing .freeTextEditor),
 .pdfViewer :deep(.annotation-editor-layer.disabled.nonEditing .freeTextEditor) {
     pointer-events: auto !important;
@@ -1611,87 +1556,5 @@ defineExpose({
 .pdfViewer :deep(.annotationEditorLayer.disabled.nonEditing .freeTextEditor .overlay),
 .pdfViewer :deep(.annotation-editor-layer.disabled.nonEditing .freeTextEditor .overlay) {
     pointer-events: auto !important;
-}
-
-/* Keep corner handles usable across zoom levels while keeping them anchored
-   on the actual box corners (PDF.js default positioning model). */
-.pdfViewer :deep(.freeTextEditor) {
-    --resizer-size: var(--evb-resizer-size, clamp(6px, calc(8px / var(--total-scale-factor, 1)), 10px));
-    --resizer-shift: calc(
-        0px - (var(--outline-width, 1px) + var(--resizer-size)) / 2 - var(--outline-around-width, 0px)
-    );
-}
-
-/* Prevent the .resizers container (which covers the full editor at z-index:1)
-   from intercepting pointer events meant for the overlay (drag) or the
-   internal editor (text).  Individual .resizer handles opt back in. */
-.pdfViewer :deep(.freeTextEditor > .resizers) {
-    pointer-events: none;
-}
-
-.pdfViewer :deep(.freeTextEditor > .resizers > .resizer) {
-    pointer-events: auto;
-    background: transparent !important;
-    border: none !important;
-    box-sizing: border-box;
-    touch-action: none;
-}
-
-.pdfViewer :deep(.freeTextEditor > .resizers > .resizer)::after {
-    content: '';
-    position: absolute;
-    width: 6px;
-    height: 6px;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    background: var(--resizer-bg-color, #0060df);
-    border-radius: 2px;
-    pointer-events: none;
-}
-
-/* Explicit cursor for FreeText corner handles — PDF.js CSS rules depend on
-   data-main-rotation / data-editor-rotation attributes that may not match,
-   causing the cursor to fall back to 'auto' (arrow). */
-.pdfViewer :deep(.freeTextEditor > .resizers > .resizer.topLeft),
-.pdfViewer :deep(.freeTextEditor > .resizers > .resizer.bottomRight) {
-    cursor: nwse-resize !important;
-}
-
-.pdfViewer :deep(.freeTextEditor > .resizers > .resizer.topRight),
-.pdfViewer :deep(.freeTextEditor > .resizers > .resizer.bottomLeft) {
-    cursor: nesw-resize !important;
-}
-</style>
-
-<style>
-/* CSS Custom Highlight API (global; works with Electron/Chromium). */
-::highlight(pdf-search-match) {
-    background-color: rgb(255 230 0 / 0.5);
-}
-
-::highlight(pdf-search-current-match) {
-    background-color: rgb(255 150 0 / 0.7);
-}
-
-.pdf-viewer-container--dark ::highlight(pdf-search-match) {
-    background-color: rgb(255 230 0 / 0.6);
-}
-
-.pdf-viewer-container--dark ::highlight(pdf-search-current-match) {
-    background-color: rgb(255 150 0 / 0.8);
-}
-
-/* Lock cursor to resize direction during FreeText corner resize drag.
-   Without this, the cursor reverts when the pointer leaves the editor
-   (PDF.js disables pointer-events on the layer during resize). */
-html.pdf-resizing-nwse,
-html.pdf-resizing-nwse * {
-    cursor: nwse-resize !important;
-}
-
-html.pdf-resizing-nesw,
-html.pdf-resizing-nesw * {
-    cursor: nesw-resize !important;
 }
 </style>

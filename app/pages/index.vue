@@ -635,6 +635,7 @@ import type {
     TAnnotationTool,
     TMarkupSubtype,
 } from '@app/types/annotations';
+import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotation-defaults';
 
 
 type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'bookmarks' | 'search';
@@ -1078,28 +1079,7 @@ const pdfDocument = shallowRef<PDFDocumentProxy | null>(null);
 const annotationTool = ref<TAnnotationTool>('none');
 const annotationKeepActive = ref(true);
 const annotationPlacingPageNote = ref(false);
-const annotationSettings = ref<IAnnotationSettings>({
-    highlightColor: '#ffd400',
-    highlightOpacity: 0.35,
-    highlightThickness: 12,
-    highlightFree: true,
-    highlightShowAll: true,
-    underlineColor: '#2563eb',
-    underlineOpacity: 0.8,
-    strikethroughColor: '#dc2626',
-    strikethroughOpacity: 0.7,
-    squigglyColor: '#16a34a',
-    squigglyOpacity: 0.7,
-    inkColor: '#e11d48',
-    inkOpacity: 0.9,
-    inkThickness: 2,
-    textColor: '#111827',
-    textSize: 22,
-    shapeColor: '#2563eb',
-    shapeFillColor: 'transparent',
-    shapeOpacity: 1,
-    shapeStrokeWidth: 2,
-});
+const annotationSettings = ref<IAnnotationSettings>({ ...DEFAULT_ANNOTATION_SETTINGS });
 const annotationComments = ref<IAnnotationCommentSummary[]>([]);
 const annotationActiveCommentStableKey = ref<string | null>(null);
 const annotationNoteWindows = ref<IAnnotationNoteWindowState[]>([]);

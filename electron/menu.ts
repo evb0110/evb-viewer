@@ -244,13 +244,6 @@ export function setupMenu() {
     Menu.setApplicationMenu(menu);
 }
 
-export function sendMenuCommand(channel: string) {
-    const focusedWindow = BrowserWindow.getFocusedWindow();
-    if (focusedWindow) {
-        focusedWindow.webContents.send(channel);
-    }
-}
-
 export function updateRecentFilesMenu() {
     const template = buildMenuTemplate();
     const menu = Menu.buildFromTemplate(template);

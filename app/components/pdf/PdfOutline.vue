@@ -1679,7 +1679,7 @@ onBeforeUnmount(() => {
 }
 
 .bookmarks-context-menu-action.is-danger {
-    color: color-mix(in srgb, #ef4444 68%, var(--ui-text-highlighted) 32%);
+    color: color-mix(in srgb, var(--ui-error) 68%, var(--ui-text-highlighted) 32%);
 }
 
 .bookmarks-context-menu-divider {

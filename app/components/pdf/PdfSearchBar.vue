@@ -1,9 +1,9 @@
 <template>
-    <div class="pdf-search-bar">
+    <div class="flex items-center gap-2 px-2 py-1">
         <UInput
             ref="inputRef"
             v-model="searchQuery"
-            class="pdf-search-bar__input"
+            class="min-w-0 flex-1"
             :placeholder="t('search.placeholder')"
             autofocus
             @keydown.enter.exact="emit('next')"
@@ -19,7 +19,7 @@
                         variant="ghost"
                         color="neutral"
                         size="xs"
-                        class="pdf-search-bar__clear"
+                        class="min-w-auto px-1"
                         :aria-label="t('search.clearSearchLabel')"
                         @click="clearQuery"
                     />
@@ -27,7 +27,7 @@
             </template>
         </UInput>
 
-        <div class="pdf-search-bar__actions">
+        <div class="flex shrink-0 items-center gap-0.5">
             <UTooltip :text="t('search.previousMatch')" :delay-duration="1200">
                 <UButton
                     icon="i-lucide-chevron-up"
@@ -100,29 +100,3 @@ function clearQuery() {
 
 defineExpose({ focus });
 </script>
-
-<style scoped>
-.pdf-search-bar {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.25rem 0.5rem;
-}
-
-.pdf-search-bar__input {
-    flex: 1;
-    min-width: 0;
-}
-
-.pdf-search-bar__clear {
-    min-width: auto;
-    padding-inline: 0.25rem;
-}
-
-.pdf-search-bar__actions {
-    display: flex;
-    align-items: center;
-    gap: 0.125rem;
-    flex-shrink: 0;
-}
-</style>

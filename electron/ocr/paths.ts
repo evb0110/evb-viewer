@@ -15,7 +15,7 @@ interface IOcrPaths {
     tessdata: string;
 }
 
-export interface IOcrToolPaths {
+interface IOcrToolPaths {
     tesseract: string;
     tessdata: string;
     pdftoppm: string;
@@ -25,7 +25,7 @@ export interface IOcrToolPaths {
     unpaper?: string;
 }
 
-export interface IToolValidationResult {
+interface IToolValidationResult {
     valid: boolean;
     tools: {
         tesseract: {
@@ -182,36 +182,6 @@ export function getOcrToolPaths(): IOcrToolPaths {
         qpdf,
         unpaper,
     };
-}
-
-export function validateOcrPaths(): {
-    valid: boolean;
-    error?: string
-} {
-    try {
-        const paths = getOcrPaths();
-
-        if (!existsSync(paths.binary)) {
-            return {
-                valid: false,
-                error: `Tesseract binary not found: ${paths.binary}`,
-            };
-        }
-
-        if (!existsSync(paths.tessdata)) {
-            return {
-                valid: false,
-                error: `Tessdata directory not found: ${paths.tessdata}`,
-            };
-        }
-
-        return { valid: true };
-    } catch (error) {
-        return {
-            valid: false,
-            error: error instanceof Error ? error.message : 'Unknown error',
-        };
-    }
 }
 
 function checkToolExists(path: string): boolean {

@@ -8,8 +8,6 @@ import type { IOcrWord } from '@app/types/shared';
 import { extractTextFromPdf } from '@electron/search/pdf-text-extractor';
 import { createLogger } from '@electron/utils/logger';
 
-export type { IOcrWord } from '@app/types/shared';
-
 export interface IPageIndex {
     pageNumber: number;
     text: string;

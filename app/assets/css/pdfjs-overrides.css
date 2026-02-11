@@ -1,0 +1,153 @@
+/* PDF.js comment + editor UI overrides (global to avoid scoped style misses) */
+.pdfViewer,
+.pdf-viewer-container {
+    --comment-edit-button-icon: url('/pdfjs/comment-editButton.svg');
+    --comment-popup-edit-button-icon: url('/pdfjs/comment-popup-editButton.svg');
+    --comment-popup-delete-button-icon: url('/pdfjs/editor-toolbar-delete.svg');
+    --comment-close-button-icon: url('/pdfjs/comment-closeButton.svg');
+    --editor-toolbar-highlight-image: url('/pdfjs/toolbarButton-editorHighlight.svg');
+    --editor-toolbar-delete-image: url('/pdfjs/editor-toolbar-delete.svg');
+}
+
+.pdfViewer .editToolbar,
+.pdf-viewer-container .editToolbar {
+    --editor-toolbar-height: 28px !important;
+    --editor-toolbar-padding: 2px !important;
+    --editor-toolbar-fg-color: var(--ui-text) !important;
+    --editor-toolbar-hover-fg-color: var(--ui-text) !important;
+    --editor-toolbar-highlight-image: url('/pdfjs/toolbarButton-editorHighlight.svg') !important;
+    --editor-toolbar-delete-image: url('/pdfjs/editor-toolbar-delete.svg') !important;
+    --comment-edit-button-icon: url('/pdfjs/comment-editButton.svg') !important;
+}
+
+/* Ensure toolbar buttons contain their ::before icons */
+.pdfViewer .editToolbar .buttons .comment,
+.pdfViewer .editToolbar .buttons .deleteButton.basic,
+.pdfViewer .editToolbar .buttons .highlightButton.basic {
+    position: relative !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    overflow: hidden !important;
+}
+
+.pdfViewer .editToolbar .buttons .comment::before,
+.pdfViewer .editToolbar .buttons .deleteButton.basic::before,
+.pdfViewer .editToolbar .buttons .highlightButton.basic::before {
+    content: "" !important;
+    display: block !important;
+    width: 16px !important;
+    height: 16px !important;
+    background-color: var(--editor-toolbar-fg-color) !important;
+    -webkit-mask-repeat: no-repeat !important;
+    mask-repeat: no-repeat !important;
+    -webkit-mask-position: center !important;
+    mask-position: center !important;
+    -webkit-mask-size: contain !important;
+    mask-size: contain !important;
+}
+
+.pdfViewer .editToolbar .buttons .comment::before {
+    -webkit-mask-image: var(--comment-edit-button-icon) !important;
+    mask-image: var(--comment-edit-button-icon) !important;
+}
+
+.pdfViewer .editToolbar .buttons .deleteButton.basic::before {
+    -webkit-mask-image: var(--editor-toolbar-delete-image) !important;
+    mask-image: var(--editor-toolbar-delete-image) !important;
+}
+
+.pdfViewer .editToolbar .buttons .highlightButton.basic::before {
+    -webkit-mask-image: var(--editor-toolbar-highlight-image) !important;
+    mask-image: var(--editor-toolbar-highlight-image) !important;
+}
+
+.pdfViewer .annotationCommentButton,
+.pdf-viewer-container .annotationCommentButton {
+    --comment-edit-button-icon: url('/pdfjs/comment-editButton.svg') !important;
+}
+
+.pdfViewer .commentPopup,
+.pdf-viewer-container .commentPopup {
+    --comment-popup-edit-button-icon: url('/pdfjs/comment-popup-editButton.svg') !important;
+    --comment-popup-delete-button-icon: url('/pdfjs/editor-toolbar-delete.svg') !important;
+    --comment-close-button-icon: url('/pdfjs/comment-closeButton.svg') !important;
+    background: var(--ui-bg) !important;
+    border: 1px solid var(--ui-border) !important;
+    box-shadow: var(--shadow-popup) !important;
+    color: var(--ui-text) !important;
+}
+
+.pdfViewer .commentPopup .commentPopupText,
+.pdf-viewer-container .commentPopup .commentPopupText {
+    color: var(--ui-text) !important;
+}
+
+.pdfViewer .commentPopup .commentPopupTime,
+.pdf-viewer-container .commentPopup .commentPopupTime {
+    color: var(--ui-text-muted) !important;
+}
+
+.pdfViewer #commentManagerDialog,
+.pdf-viewer-container #commentManagerDialog {
+    background: var(--ui-bg) !important;
+    border: 1px solid var(--ui-border) !important;
+    box-shadow: var(--shadow-popup) !important;
+    color: var(--ui-text) !important;
+}
+
+.pdfViewer #commentManagerDialog #commentManagerTextInput,
+.pdf-viewer-container #commentManagerDialog #commentManagerTextInput {
+    background: var(--ui-bg-muted) !important;
+    color: var(--ui-text) !important;
+    border: 1px solid var(--ui-border) !important;
+    border-radius: 8px !important;
+    padding: 8px 10px !important;
+}
+
+.pdfViewer .pdf-annotation-comment-popup,
+.pdf-viewer-container .pdf-annotation-comment-popup,
+.pdfViewer #commentPopup,
+.pdf-viewer-container #commentPopup {
+    background: var(--ui-bg) !important;
+    border: 1px solid var(--ui-border) !important;
+    box-shadow: var(--shadow-popup) !important;
+    color: var(--ui-text) !important;
+}
+
+.pdfViewer .pdf-annotation-comment-popup__textarea,
+.pdf-viewer-container .pdf-annotation-comment-popup__textarea {
+    background: var(--ui-bg-muted) !important;
+    color: var(--ui-text) !important;
+    border: 1px solid var(--ui-border) !important;
+}
+
+/* CSS Custom Highlight API (global; works with Electron/Chromium). */
+::highlight(pdf-search-match) {
+    background-color: rgb(255 230 0 / 0.5);
+}
+
+::highlight(pdf-search-current-match) {
+    background-color: rgb(255 150 0 / 0.7);
+}
+
+.pdf-viewer-container--dark ::highlight(pdf-search-match) {
+    background-color: rgb(255 230 0 / 0.6);
+}
+
+.pdf-viewer-container--dark ::highlight(pdf-search-current-match) {
+    background-color: rgb(255 150 0 / 0.8);
+}
+
+/* Lock cursor to resize direction during FreeText corner resize drag.
+   Without this, the cursor reverts when the pointer leaves the editor
+   (PDF.js disables pointer-events on the layer during resize). */
+html.pdf-resizing-nwse,
+html.pdf-resizing-nwse * {
+    cursor: nwse-resize !important;
+}
+
+html.pdf-resizing-nesw,
+html.pdf-resizing-nesw * {
+    cursor: nesw-resize !important;
+}

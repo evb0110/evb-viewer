@@ -1,6 +1,6 @@
 import { spawn } from 'child_process';
 
-export type TRunCommandResult = {
+type TRunCommandResult = {
     stdout: string;
     stderr: string;
     exitCode: number;
