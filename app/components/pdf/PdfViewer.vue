@@ -707,7 +707,6 @@ function ensureFreeTextEditorCanResize(editor: IPdfjsEditor) {
     const tagged = editor as IPdfjsEditor & {
         __freeTextResizablePatched?: boolean;
         __freeTextFontToWidthRatio?: number;
-        _willKeepAspectRatio?: boolean;
         makeResizable?: () => void;
     };
     if (tagged.__freeTextResizablePatched) {
@@ -730,8 +729,6 @@ function ensureFreeTextEditorCanResize(editor: IPdfjsEditor) {
                 return true;
             },
         });
-        // Only create corner resize handles (proportional resize).
-        tagged._willKeepAspectRatio = true;
         tagged.__freeTextResizablePatched = true;
     } catch {
         // Ignore if PDF.js internals reject instance patching.
@@ -769,36 +766,10 @@ function addResizeCursorManagement(editor: IPdfjsEditor) {
     }
 }
 
-let freeTextPrototypePatched = false;
-
-function patchFreeTextPrototypeAspectRatio(editor: IPdfjsEditor) {
-    if (freeTextPrototypePatched) {
-        return;
-    }
-    const ctor = (editor as IPdfjsEditor & { constructor?: { prototype: Record<string, unknown> } }).constructor;
-    if (!ctor?.prototype) {
-        return;
-    }
-    try {
-        Object.defineProperty(ctor.prototype, '_willKeepAspectRatio', {
-            configurable: true,
-            get() {
-                return true;
-            },
-            set() { },
-        });
-        freeTextPrototypePatched = true;
-    } catch { /* Ignore if PDF.js internals reject prototype patching. */ }
-}
-
 function patchResizableFreeTextEditors(uiManager: AnnotationEditorUIManager) {
     for (let pageIndex = 0; pageIndex < numPages.value; pageIndex += 1) {
         for (const editor of uiManager.getEditors(pageIndex)) {
-            const pdfjsEditor = editor as IPdfjsEditor;
-            if (detectEditorSubtype(pdfjsEditor) === 'Typewriter') {
-                patchFreeTextPrototypeAspectRatio(pdfjsEditor);
-            }
-            ensureFreeTextEditorCanResize(pdfjsEditor);
+            ensureFreeTextEditorCanResize(editor as IPdfjsEditor);
         }
     }
 }
@@ -6237,14 +6208,12 @@ defineExpose({
     display: block !important;
 }
 
-/* FreeText editors: enlarge resize handle grab area from 6×6px to 28×28px
-   via the --resizer-size CSS variable.  PDF.js uses this variable for both
-   sizing and positioning (--resizer-shift), so changing it automatically
-   centers the larger handles on the editor corners.  The visual remains a
-   small 6px dot drawn by the ::after pseudo-element. */
+/* Keep corner handles usable across zoom levels without covering the editor
+   body: size grows when zoomed out, and handles sit outside the box so drag
+   target for moving remains available in the center. */
 .pdfViewer :deep(.freeTextEditor) {
-    --resizer-size: 28px;
-    --resizer-shift: calc(0px - (var(--outline-width) + var(--resizer-size)) / 2 - var(--outline-around-width));
+    --resizer-size: clamp(8px, calc(12px / var(--total-scale-factor, 1)), 18px);
+    --resizer-shift: calc(0px - (var(--outline-width, 1px) + var(--resizer-size)));
 }
 
 /* Prevent the .resizers container (which covers the full editor at z-index:1)
@@ -6258,6 +6227,8 @@ defineExpose({
     pointer-events: auto;
     background: transparent !important;
     border: none !important;
+    box-sizing: border-box;
+    touch-action: none;
 }
 
 .pdfViewer :deep(.freeTextEditor > .resizers > .resizer)::after {
