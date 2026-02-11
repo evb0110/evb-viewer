@@ -149,7 +149,7 @@ async function handleOpenPdfDirect(
 function handleSetWindowTitle(event: Electron.IpcMainInvokeEvent, title: string) {
     const window = BrowserWindow.fromWebContents(event.sender);
     if (window) {
-        window.setTitle(title || 'EVB-Viewer');
+        window.setTitle(title || 'EVB Viewer');
     }
 }
 

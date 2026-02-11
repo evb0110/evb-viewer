@@ -11,7 +11,7 @@ import { basename } from 'path';
 import { config } from '@electron/config';
 import { getRecentFilesSync } from '@electron/recent-files';
 
-const appName = 'EVB-Viewer';
+const appName = 'EVB Viewer';
 
 function sendToWindow(window: BaseWindow | undefined, channel: string, ...args: unknown[]) {
     if (window instanceof BrowserWindow) {

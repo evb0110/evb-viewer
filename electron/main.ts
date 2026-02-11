@@ -17,7 +17,7 @@ import {
     hasWindows,
 } from '@electron/window';
 
-app.setName('EVB-Viewer');
+app.setName('EVB Viewer');
 if (process.platform === 'win32') {
     app.setAppUserModelId('com.evb.viewer');
 }

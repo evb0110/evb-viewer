@@ -1,6 +1,6 @@
 {
   "name": "evb-viewer",
-  "productName": "EVB-Viewer",
+  "productName": "EVB Viewer",
   "version": "2.0.0",
   "description": "Electron + Nuxt 4 SSR example",
   "type": "module",

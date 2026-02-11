@@ -112,7 +112,7 @@ export const usePdfFile = () => {
         }
 
         isDirty.value = !!opts?.markDirty;
-        await api.setWindowTitle(fileName.value || 'EVB-Viewer');
+        await api.setWindowTitle(fileName.value || 'EVB Viewer');
     }
 
     function pushHistorySnapshot(snapshot: Uint8Array) {
@@ -240,7 +240,7 @@ export const usePdfFile = () => {
             if (pathToCleanup) {
                 await api.cleanupFile(pathToCleanup);
             }
-            await api.setWindowTitle('EVB-Viewer');
+            await api.setWindowTitle('EVB Viewer');
         } catch {
             // Ignore errors when not in Electron
         }

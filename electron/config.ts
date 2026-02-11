@@ -24,6 +24,6 @@ export const config = {
     window: {
         width: 900,
         height: 700,
-        title: 'EVB-Viewer',
+        title: 'EVB Viewer',
     },
 } as const;
