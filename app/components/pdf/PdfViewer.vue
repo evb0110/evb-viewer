@@ -737,6 +737,31 @@ function ensureFreeTextEditorCanResize(editor: IPdfjsEditor) {
     if (typeof tagged.makeResizable === 'function') {
         tagged.makeResizable();
     }
+
+    addResizeCursorManagement(editor);
+}
+
+function addResizeCursorManagement(editor: IPdfjsEditor) {
+    const div = editor.div;
+    if (!div) {
+        return;
+    }
+    const resizers = div.querySelectorAll<HTMLElement>('.resizer');
+    for (const resizer of resizers) {
+        resizer.addEventListener('pointerdown', () => {
+            const isNWSE = resizer.classList.contains('topLeft')
+                || resizer.classList.contains('bottomRight');
+            const cursorClass = isNWSE ? 'pdf-resizing-nwse' : 'pdf-resizing-nesw';
+            document.documentElement.classList.add(cursorClass);
+            const cleanup = () => {
+                document.documentElement.classList.remove(cursorClass);
+                window.removeEventListener('pointerup', cleanup);
+                window.removeEventListener('blur', cleanup);
+            };
+            window.addEventListener('pointerup', cleanup);
+            window.addEventListener('blur', cleanup);
+        });
+    }
 }
 
 function patchResizableFreeTextEditors(uiManager: AnnotationEditorUIManager) {
@@ -807,6 +832,7 @@ function patchFreeTextResizeFontSync(editor: IPdfjsEditor) {
         __freeTextResizeHookPatched?: boolean;
         __freeTextFontToWidthRatio?: number;
         __freeTextResizeSyncRaf?: number;
+        __freeTextIsResizeSync?: boolean;
     };
     if (tagged.__freeTextResizeHookPatched) {
         return;
@@ -823,6 +849,37 @@ function patchFreeTextResizeFontSync(editor: IPdfjsEditor) {
         }
     }
     captureRatio();
+
+    // ── Patch updateParams to handle external font-size changes ──
+    // When the user changes font size from sidebar controls, PDF.js
+    // calls #updateFontSize → #setEditorDimensions.  But if the
+    // editor has explicit CSS width/height (from a previous resize),
+    // getBoundingClientRect() returns the constrained box instead of
+    // the natural content size.  We clear explicit dims before the
+    // call so the box auto-resizes, and re-capture the ratio after.
+    // During resize-sync (our own internal call), we skip this logic
+    // because syncInternalFontSize saves/restores dims itself.
+    const originalUpdateParams = typeof editor.updateParams === 'function'
+        ? editor.updateParams.bind(editor) : null;
+    if (originalUpdateParams) {
+        editor.updateParams = (type: number, value: unknown) => {
+            const isExternalFontChange
+                = type === AnnotationEditorParamsType.FREETEXT_SIZE
+                && !tagged.__freeTextIsResizeSync;
+            if (isExternalFontChange && editor.div) {
+                editor.div.style.width = '';
+                editor.div.style.height = '';
+            }
+            originalUpdateParams(type, value);
+            if (isExternalFontChange) {
+                const fontSize = getFreeTextEditorFontSize(editor);
+                const w = editor.width;
+                if (fontSize && fontSize > 0 && w && w > 0) {
+                    tagged.__freeTextFontToWidthRatio = fontSize / w;
+                }
+            }
+        };
+    }
 
     // ── _onResizing: live CSS font during every pointermove ──────
     const originalOnResizing = typeof editor._onResizing === 'function'
@@ -897,11 +954,16 @@ function patchFreeTextResizeFontSync(editor: IPdfjsEditor) {
             const savedW = editor.width;
             const savedH = editor.height;
 
-            if (typeof editor.updateParams === 'function') {
-                editor.updateParams(AnnotationEditorParamsType.FREETEXT_SIZE, targetFont);
-            } else {
-                uiManager.setSelected(editor as TUiManagerSelectedEditor);
-                uiManager.updateParams(AnnotationEditorParamsType.FREETEXT_SIZE, targetFont);
+            tagged.__freeTextIsResizeSync = true;
+            try {
+                if (typeof editor.updateParams === 'function') {
+                    editor.updateParams(AnnotationEditorParamsType.FREETEXT_SIZE, targetFont);
+                } else {
+                    uiManager.setSelected(editor as TUiManagerSelectedEditor);
+                    uiManager.updateParams(AnnotationEditorParamsType.FREETEXT_SIZE, targetFont);
+                }
+            } finally {
+                tagged.__freeTextIsResizeSync = false;
             }
 
             // Undo the translate() + setEditorDimensions() side effects.
@@ -5883,7 +5945,6 @@ defineExpose({
 .pdfViewer :deep(.annotationEditorLayer) {
     position: absolute;
     inset: 0;
-    overflow: hidden;
     z-index: 3;
 }
 
@@ -5990,12 +6051,24 @@ defineExpose({
     display: block !important;
 }
 
-/* FreeText editors: enlarge resize handle grab area from 6×6px to 20×20px.
-   The actual .resizer element is transparent and borderless; a ::after
-   pseudo-element draws the small visible 6×6px dot. */
+/* FreeText editors: enlarge resize handle grab area from 6×6px to 28×28px
+   via the --resizer-size CSS variable.  PDF.js uses this variable for both
+   sizing and positioning (--resizer-shift), so changing it automatically
+   centers the larger handles on the editor corners.  The visual remains a
+   small 6px dot drawn by the ::after pseudo-element. */
+.pdfViewer :deep(.freeTextEditor) {
+    --resizer-size: 28px;
+}
+
+/* Prevent the .resizers container (which covers the full editor at z-index:1)
+   from intercepting pointer events meant for the overlay (drag) or the
+   internal editor (text).  Individual .resizer handles opt back in. */
+.pdfViewer :deep(.freeTextEditor > .resizers) {
+    pointer-events: none;
+}
+
 .pdfViewer :deep(.freeTextEditor > .resizers > .resizer) {
-    width: 20px !important;
-    height: 20px !important;
+    pointer-events: auto;
     background: transparent !important;
     border: none !important;
 }
@@ -6011,27 +6084,6 @@ defineExpose({
     background: var(--resizer-bg-color, #0060df);
     border-radius: 2px;
     pointer-events: none;
-}
-
-/* Position 20px handles centered on the editor corners. */
-.pdfViewer :deep(.freeTextEditor > .resizers > .resizer.topLeft) {
-    top: -10px !important;
-    left: -10px !important;
-}
-
-.pdfViewer :deep(.freeTextEditor > .resizers > .resizer.topRight) {
-    top: -10px !important;
-    right: -10px !important;
-}
-
-.pdfViewer :deep(.freeTextEditor > .resizers > .resizer.bottomRight) {
-    bottom: -10px !important;
-    right: -10px !important;
-}
-
-.pdfViewer :deep(.freeTextEditor > .resizers > .resizer.bottomLeft) {
-    bottom: -10px !important;
-    left: -10px !important;
 }
 
 /* Explicit cursor for FreeText corner handles — PDF.js CSS rules depend on
@@ -6064,5 +6116,18 @@ defineExpose({
 
 .pdf-viewer-container--dark ::highlight(pdf-search-current-match) {
     background-color: rgb(255 150 0 / 0.8);
+}
+
+/* Lock cursor to resize direction during FreeText corner resize drag.
+   Without this, the cursor reverts when the pointer leaves the editor
+   (PDF.js disables pointer-events on the layer during resize). */
+html.pdf-resizing-nwse,
+html.pdf-resizing-nwse * {
+    cursor: nwse-resize !important;
+}
+
+html.pdf-resizing-nesw,
+html.pdf-resizing-nesw * {
+    cursor: nesw-resize !important;
 }
 </style>

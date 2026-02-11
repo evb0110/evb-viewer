@@ -280,6 +280,10 @@ onBeforeUnmount(() => {
     border-radius: 0;
 }
 
+.page-controls-item :deep(> *) {
+    display: flex;
+}
+
 .page-controls-item + .page-controls-item {
     border-left: 1px solid var(--ui-border);
 }
