@@ -20,6 +20,7 @@
             }"
             :style="containerStyle"
             @scroll.passive="handleScroll"
+            @wheel="handleWheel"
             @mousedown="handleDragStart"
             @mousemove="handleDragMove"
             @mouseup="handleViewerMouseUp"
@@ -4968,6 +4969,10 @@ const debouncedRenderOnScroll = useDebounceFn(() => {
     void renderVisiblePages(visibleRange.value);
 }, 100);
 
+const WHEEL_LINE_DELTA_PX = 16;
+const WHEEL_PAGE_TRIGGER_DELTA = 70;
+const WHEEL_PAGE_LOCK_MS = 160;
+
 const debouncedSnapToPage = useDebounceFn(() => {
     if (isLoading.value || !pdfDocument.value || continuousScroll.value || isSnapping.value) {
         return;
@@ -4975,6 +4980,67 @@ const debouncedSnapToPage = useDebounceFn(() => {
     const page = getMostVisiblePage(viewerContainer.value, numPages.value);
     snapToPage(page);
 }, 120);
+
+const wheelScrollDelta = ref(0);
+const isWheelPageSnapLocked = ref(false);
+
+function normalizeWheelDelta(delta: number, mode: number, container: HTMLElement) {
+    if (mode === 1) {
+        return delta * WHEEL_LINE_DELTA_PX;
+    }
+    if (mode === 2) {
+        return delta * container.clientHeight;
+    }
+    return delta;
+}
+
+function handleWheel(event: WheelEvent) {
+    if (
+        continuousScroll.value
+        || isLoading.value
+        || !pdfDocument.value
+        || !viewerContainer.value
+        || numPages.value === 0
+        || event.ctrlKey
+        || event.metaKey
+    ) {
+        return;
+    }
+
+    if (Math.abs(event.deltaX) > Math.abs(event.deltaY) || event.deltaY === 0) {
+        return;
+    }
+
+    event.preventDefault();
+    if (isWheelPageSnapLocked.value) {
+        return;
+    }
+
+    wheelScrollDelta.value += normalizeWheelDelta(
+        event.deltaY,
+        event.deltaMode,
+        viewerContainer.value,
+    );
+
+    if (Math.abs(wheelScrollDelta.value) < WHEEL_PAGE_TRIGGER_DELTA) {
+        return;
+    }
+
+    const direction = wheelScrollDelta.value > 0 ? 1 : -1;
+    wheelScrollDelta.value = 0;
+
+    const targetPage = Math.max(1, Math.min(numPages.value, currentPage.value + direction));
+    if (targetPage === currentPage.value) {
+        return;
+    }
+
+    isWheelPageSnapLocked.value = true;
+    snapToPage(targetPage);
+
+    window.setTimeout(() => {
+        isWheelPageSnapLocked.value = false;
+    }, WHEEL_PAGE_LOCK_MS);
+}
 
 function handleScroll() {
     if (isLoading.value) {
@@ -5143,6 +5209,8 @@ watch(
 watch(
     () => continuousScroll.value,
     (value) => {
+        wheelScrollDelta.value = 0;
+        isWheelPageSnapLocked.value = false;
         if (!value) {
             void nextTick(() => {
                 const page = getMostVisiblePage(viewerContainer.value, numPages.value);
