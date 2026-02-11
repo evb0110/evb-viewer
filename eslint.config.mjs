@@ -71,6 +71,10 @@ export default withNuxt(
                     message: 'Avoid "as unknown as" double assertion. Use a type guard, generic parameter, or fix the underlying type instead.',
                 },
             ],
+            '@typescript-eslint/no-empty-object-type': [
+                'error',
+                { allowInterfaces: 'with-single-extends' },
+            ],
             'custom/brace-return-after-if': 'error',
             'custom/import-specifier-newline': 'error',
             'custom/destructuring-property-newline': 'error',
@@ -182,6 +186,9 @@ export default withNuxt(
             ],
             'custom/vue-boolean-prop-shorthand': 'error',
             'custom/brace-return-after-if': 'error',
+            'custom/no-scss-ampersand-concatenation': 'error',
+            'custom/nuxt-ui-semantic-utilities': 'error',
+            'custom/tailwind-class-shorthand': 'error',
         },
     },
 );
