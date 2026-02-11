@@ -1,0 +1,33 @@
+{
+    "$schema": "https://unpkg.com/knip@5/schema.json",
+    "entry": [
+        "app/app.vue",
+        "app/app.config.ts",
+        "app/pages/**/*.vue",
+        "app/components/**/*.vue",
+        "app/composables/**/*.ts",
+        "app/utils/**/*.ts",
+        "electron/main.ts",
+        "electron/preload.ts",
+        "electron/ocr/ocr-worker.ts"
+    ],
+    "project": [
+        "app/**/*.{ts,vue}",
+        "electron/**/*.ts"
+    ],
+    "paths": {
+        "@app/*": ["app/*"],
+        "@electron/*": ["electron/*"]
+    },
+    "ignore": [
+        "app/types/*.d.ts",
+        ".nuxt/**"
+    ],
+    "ignoreDependencies": [
+        "@iconify-json/lucide",
+        "@playwright/test",
+        "playwright",
+        "sass-embedded",
+        "tailwindcss"
+    ]
+}

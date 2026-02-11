@@ -97,3 +97,9 @@ pnpm lint && pnpm typecheck
 ```
 
 Both must exit with zero errors. Fix any issues introduced by your changes before reporting completion. This applies to all code changes — features, bug fixes, refactors, and style updates.
+
+## Dead Code Detection (Knip)
+
+**Rule**: Run `pnpm validate` (which includes `pnpm knip`) after major changes — refactors, feature completions, or dependency changes. Do not run it after every small step or individual stage.
+
+Knip finds unused files, exports, types, and dependencies. Configuration lives in `knip.json`. When Knip reports something unused, remove it rather than suppressing with `_` prefixes (the `_` prefix is only acceptable for positional parameters where a later parameter is needed).

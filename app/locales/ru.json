@@ -17,7 +17,8 @@
     "line": "Линия (L)",
     "arrow": "Стрелка (A)",
     "closeFile": "Закрыть файл",
-    "settings": "Настройки"
+    "settings": "Настройки",
+    "moreTools": "Ещё"
   },
   "zoom": {
     "fitWidth": "По ширине",

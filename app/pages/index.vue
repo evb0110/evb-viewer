@@ -1,7 +1,7 @@
 <template>
     <div class="h-screen flex flex-col bg-neutral-100 dark:bg-neutral-900">
         <!-- Toolbar -->
-        <header class="toolbar">
+        <header ref="toolbarRef" class="toolbar">
             <template v-if="!pdfSrc">
                 <UTooltip :text="t('toolbar.openPdf')" :delay-duration="1200">
                     <UButton
@@ -28,32 +28,34 @@
 
             <template v-if="pdfSrc">
                 <!-- Left section: File & view controls -->
-                <div class="toolbar-section">
-                    <UTooltip :text="t('toolbar.save')" :delay-duration="1200">
-                        <UButton
-                            icon="i-lucide-save"
-                            variant="ghost"
-                            color="neutral"
-                            class="toolbar-icon-button"
-                            :disabled="!canSave || isAnySaving || isHistoryBusy"
-                            :loading="isSaving"
-                            :aria-label="t('toolbar.save')"
-                            @click="handleSave(); closeAllDropdowns()"
-                        />
-                    </UTooltip>
-                    <UTooltip :text="t('toolbar.saveAs')" :delay-duration="1200">
-                        <UButton
-                            icon="i-lucide-save-all"
-                            variant="ghost"
-                            color="neutral"
-                            class="toolbar-icon-button"
-                            :disabled="!pdfSrc || isAnySaving || isHistoryBusy"
-                            :loading="isSavingAs"
-                            :aria-label="t('toolbar.saveAs')"
-                            @click="handleSaveAs(); closeAllDropdowns()"
-                        />
-                    </UTooltip>
-                    <UTooltip :text="t('toolbar.exportDocx')" :delay-duration="1200">
+                <div class="toolbar-section toolbar-left">
+                    <template v-if="!isCollapsed(3)">
+                        <UTooltip :text="t('toolbar.save')" :delay-duration="1200">
+                            <UButton
+                                icon="i-lucide-save"
+                                variant="ghost"
+                                color="neutral"
+                                class="toolbar-icon-button"
+                                :disabled="!canSave || isAnySaving || isHistoryBusy"
+                                :loading="isSaving"
+                                :aria-label="t('toolbar.save')"
+                                @click="handleSave(); closeAllDropdowns()"
+                            />
+                        </UTooltip>
+                        <UTooltip :text="t('toolbar.saveAs')" :delay-duration="1200">
+                            <UButton
+                                icon="i-lucide-save-all"
+                                variant="ghost"
+                                color="neutral"
+                                class="toolbar-icon-button"
+                                :disabled="!pdfSrc || isAnySaving || isHistoryBusy"
+                                :loading="isSavingAs"
+                                :aria-label="t('toolbar.saveAs')"
+                                @click="handleSaveAs(); closeAllDropdowns()"
+                            />
+                        </UTooltip>
+                    </template>
+                    <UTooltip v-if="!isCollapsed(1)" :text="t('toolbar.exportDocx')" :delay-duration="1200">
                         <UButton
                             icon="i-lucide-file-text"
                             variant="ghost"
@@ -66,7 +68,9 @@
                         />
                     </UTooltip>
 
-                    <div class="toolbar-button-group">
+                    <div class="toolbar-separator" />
+
+                    <div v-if="!isCollapsed(3)" class="toolbar-button-group">
                         <div class="toolbar-group-item">
                             <UTooltip :text="t('toolbar.undo')" :delay-duration="1200">
                                 <UButton
@@ -95,6 +99,8 @@
                         </div>
                     </div>
 
+                    <div class="toolbar-separator" />
+
                     <UTooltip :text="t('toolbar.toggleSidebar')" :delay-duration="1200">
                         <UButton
                             icon="i-lucide-panel-left"
@@ -107,12 +113,12 @@
                     </UTooltip>
                 </div>
 
-                <!-- Spacer to push center -->
-                <div class="flex-1" />
+                <div class="toolbar-separator" />
 
                 <!-- Center section: Document controls -->
                 <div class="toolbar-section toolbar-center">
                     <OcrPopup
+                        v-if="!isCollapsed(1)"
                         ref="ocrPopupRef"
                         :pdf-document="pdfDocument"
                         :pdf-data="pdfData"
@@ -122,6 +128,21 @@
                         @open="closeOtherDropdowns('ocr')"
                         @ocr-complete="handleOcrComplete"
                     />
+                    <OcrPopup
+                        v-else
+                        ref="ocrPopupRef"
+                        :pdf-document="pdfDocument"
+                        :pdf-data="pdfData"
+                        :current-page="currentPage"
+                        :total-pages="totalPages"
+                        :working-copy-path="workingCopyPath"
+                        disabled
+                        class="toolbar-hidden-ocr"
+                        @open="closeOtherDropdowns('ocr')"
+                        @ocr-complete="handleOcrComplete"
+                    />
+
+                    <div class="toolbar-separator" />
 
                     <div class="toolbar-inline-group">
                         <PdfZoomDropdown
@@ -132,7 +153,9 @@
                         />
                     </div>
 
-                    <div class="toolbar-button-group">
+                    <div class="toolbar-separator" />
+
+                    <div v-if="!isCollapsed(2)" class="toolbar-button-group">
                         <div class="toolbar-group-item">
                             <UTooltip :text="t('zoom.fitWidth')" :delay-duration="1200">
                                 <UButton
@@ -157,7 +180,7 @@
                                 />
                             </UTooltip>
                         </div>
-                        <div class="toolbar-group-item">
+                        <div v-if="!isCollapsed(1)" class="toolbar-group-item">
                             <UTooltip :text="t('zoom.continuousScroll')" :delay-duration="1200">
                                 <UButton
                                     icon="i-lucide-scroll"
@@ -171,6 +194,8 @@
                         </div>
                     </div>
 
+                    <div class="toolbar-separator" />
+
                     <div class="toolbar-inline-group">
                         <PdfPageDropdown
                             ref="pageDropdownRef"
@@ -182,7 +207,9 @@
                         />
                     </div>
 
-                    <div class="toolbar-button-group">
+                    <div class="toolbar-separator" />
+
+                    <div v-if="!isCollapsed(2)" class="toolbar-button-group">
                         <div class="toolbar-group-item">
                             <UTooltip :text="t('zoom.handTool')" :delay-duration="1200">
                                 <UButton
@@ -208,13 +235,40 @@
                             </UTooltip>
                         </div>
                     </div>
+
+                    <ToolbarOverflowMenu
+                        v-if="hasOverflowItems"
+                        ref="overflowMenuRef"
+                        :collapse-tier="collapseTier"
+                        :can-save="canSave"
+                        :can-undo="canUndo"
+                        :can-redo="canRedo"
+                        :is-any-saving="isAnySaving"
+                        :is-history-busy="isHistoryBusy"
+                        :is-exporting-docx="isExportingDocx"
+                        :can-export-docx="!!workingCopyPath && !isAnySaving && !isHistoryBusy && !isExportingDocx"
+                        :drag-mode="dragMode"
+                        :continuous-scroll="continuousScroll"
+                        :is-fit-width-active="isFitWidthActive"
+                        :is-fit-height-active="isFitHeightActive"
+                        @save="handleSave(); closeAllDropdowns()"
+                        @save-as="handleSaveAs(); closeAllDropdowns()"
+                        @export-docx="handleExportDocx(); closeAllDropdowns()"
+                        @open-ocr="ocrPopupRef?.open(); closeAllDropdowns()"
+                        @undo="handleUndo(); closeAllDropdowns()"
+                        @redo="handleRedo(); closeAllDropdowns()"
+                        @fit-width="handleFitMode('width'); closeAllDropdowns()"
+                        @fit-height="handleFitMode('height'); closeAllDropdowns()"
+                        @enable-drag="enableDragMode(); closeAllDropdowns()"
+                        @disable-drag="dragMode = false; closeAllDropdowns()"
+                        @toggle-continuous-scroll="continuousScroll = !continuousScroll; closeAllDropdowns()"
+                    />
                 </div>
 
-                <!-- Spacer to push right section -->
-                <div class="flex-1" />
+                <div class="toolbar-separator" />
 
                 <!-- Right section: Settings & window control -->
-                <div class="toolbar-section">
+                <div class="toolbar-section toolbar-right">
                     <UTooltip :text="t('toolbar.settings')" :delay-duration="1200">
                         <UButton
                             icon="i-lucide-settings"
@@ -984,18 +1038,28 @@ const pdfViewerRef = ref<IPdfViewerExpose | null>(null);
 const zoomDropdownRef = ref<{ close: () => void } | null>(null);
 const pageDropdownRef = ref<{ close: () => void } | null>(null);
 const ocrPopupRef = ref<IOcrPopupExpose | null>(null);
+const overflowMenuRef = ref<{ close: () => void } | null>(null);
 const sidebarRef = ref<{ focusSearch: () => void | Promise<void> } | null>(null);
+
+const {
+    toolbarRef,
+    collapseTier,
+    hasOverflowItems,
+    isCollapsed,
+} = useToolbarOverflow();
 
 function closeAllDropdowns() {
     zoomDropdownRef.value?.close();
     pageDropdownRef.value?.close();
     ocrPopupRef.value?.close();
+    overflowMenuRef.value?.close();
 }
 
 function closeOtherDropdowns(except: 'zoom' | 'page' | 'ocr') {
     if (except !== 'zoom') zoomDropdownRef.value?.close();
     if (except !== 'page') pageDropdownRef.value?.close();
     if (except !== 'ocr') ocrPopupRef.value?.close();
+    overflowMenuRef.value?.close();
 }
 
 const zoom = ref(1);
@@ -3829,14 +3893,13 @@ watch(annotationComments, (comments) => {
 .toolbar {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.25rem;
     padding: 0.5rem;
     border-bottom: 1px solid var(--ui-border);
     box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.04), 0 1px 2px -1px rgb(0 0 0 / 0.04);
     background: var(--ui-bg);
     white-space: nowrap;
-    overflow-x: auto;
-    container-type: inline-size;
+    overflow: hidden;
     position: relative;
     z-index: 10;
     transition: background-color 0.15s ease, border-color 0.15s ease;
@@ -3857,12 +3920,43 @@ watch(annotationComments, (comments) => {
 .toolbar-section {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.25rem;
+}
+
+.toolbar-left {
     flex-shrink: 0;
 }
 
 .toolbar-center {
-    gap: clamp(0.5rem, 1.5vw, 1.25rem);
+    flex: 1;
+    justify-content: center;
+    gap: 0.25rem;
+}
+
+.toolbar-right {
+    flex-shrink: 0;
+}
+
+.toolbar-separator {
+    width: 1px;
+    height: 1rem;
+    background: var(--ui-border);
+    flex-shrink: 0;
+}
+
+.toolbar-separator:first-child,
+.toolbar-separator:last-child,
+.toolbar-separator + .toolbar-separator {
+    display: none;
+}
+
+.toolbar-hidden-ocr {
+    position: absolute;
+    width: 0;
+    height: 0;
+    overflow: hidden;
+    pointer-events: none;
+    opacity: 0;
 }
 
 .toolbar-button-group {
@@ -3915,7 +4009,7 @@ watch(annotationComments, (comments) => {
 .toolbar-inline-group {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.25rem;
 }
 
 .sidebar-wrapper {

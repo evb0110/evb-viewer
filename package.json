@@ -22,7 +22,8 @@
     "typecheck:app": "nuxt typecheck",
     "typecheck:electron": "tsc -p electron/tsconfig.json",
     "lint": "eslint . --fix && stylelint \"app/**/*.{vue,scss}\"",
-    "validate": "pnpm run typecheck && pnpm run lint && pnpm run build",
+    "knip": "knip",
+    "validate": "pnpm run typecheck && pnpm run lint && pnpm run build && pnpm run knip",
     "electron:run": "tsx scripts/electron-run.ts"
   },
   "dependencies": {
@@ -49,6 +50,7 @@
     "eslint": "^9.39.2",
     "eslint-import-resolver-typescript": "^4.4.4",
     "eslint-plugin-import": "^2.32.0",
+    "knip": "^5.83.1",
     "playwright": "^1.57.0",
     "puppeteer-core": "^24.34.0",
     "sass-embedded": "^1.97.1",

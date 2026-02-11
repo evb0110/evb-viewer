@@ -17,7 +17,8 @@
     "line": "Line (L)",
     "arrow": "Arrow (A)",
     "closeFile": "Close File",
-    "settings": "Settings"
+    "settings": "Settings",
+    "moreTools": "More tools"
   },
   "zoom": {
     "fitWidth": "Fit Width",
