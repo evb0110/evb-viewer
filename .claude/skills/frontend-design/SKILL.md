@@ -14,6 +14,7 @@ Before coding, understand the context and commit to a distinctive but mild (not 
 - **Tone**: Pick an academic style. There are so many flavors to choose from. Use these for inspiration but design one that is true to the aesthetic direction.
 - **Constraints**: Technical requirements (framework, performance, accessibility).
 - **Differentiation**: What makes this UNFORGETTABLE? What's the one thing someone will remember?
+- **Context** The main content of the app is the pdf itself, so ui should be modern and cohesive but not distract from the pdf
 
 **CRITICAL**: Choose a clear conceptual direction and execute it with precision. The key is intentionality, not intensity.
 
@@ -26,11 +27,9 @@ Then implement working code (HTML/CSS/JS, Vue, scss, etc.) that is:
 ## Frontend Aesthetics Guidelines
 
 Focus on:
-- **General**: Try to always leverage nuxt ui's tools, work without them only as last resort
+- **General**: Try to always leverage nuxt ui's tools as well as tailwind 4, work without them only as last resort
 - **Theming**: Always support semantic colors and respect light/dark theming
-- **Typography**: Don't use any external fonts.
-- **Color & Theme**: Commit to a cohesive aesthetic. Use CSS variables for consistency. 
-- **Motion**: Use animations for effects and micro-interactions. Prioritize CSS-only solutions for HTML. Don't overengineer: it's always better not to have motion than to have bad one.
+- **Color & Theme**: Commit to a cohesive aesthetic. Use SCSS (for static) and CSS variables (for dynamic) for consistency. 
 
 NEVER use generic AI-generated aesthetics like, clicheed color schemes (particularly purple gradients on white backgrounds or generic green for main color).
 
