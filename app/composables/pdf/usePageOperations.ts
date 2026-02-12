@@ -93,16 +93,13 @@ export const usePageOperations = (deps: {
         error.value = null;
         try {
             const api = getElectronAPI();
-            console.log('[ROT-DIAG] rotatePages: calling IPC');
             const result = await api.pageOps.rotate(workingCopyPath.value, [...pages], angle);
             if (result.success && result.pdfData) {
                 invalidateCaches();
-                console.log('[ROT-DIAG] rotatePages: calling loadPdfFromData');
                 await loadPdfFromData(new Uint8Array(result.pdfData), {
                     pushHistory: true,
                     persistWorkingCopy: false,
                 });
-                console.log('[ROT-DIAG] rotatePages: loadPdfFromData done');
                 return true;
             }
             return false;

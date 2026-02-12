@@ -478,8 +478,6 @@ async function recoverInitialRenderIfNeeded() {
     if (hasRenderedPageCanvas() || hasRenderedTextLayerContent()) {
         return;
     }
-    console.log('[ROT-DIAG] recoverInitialRenderIfNeeded → will reRenderAllVisiblePages (no canvas found)');
-
     await nextTick();
     await delay(40);
     if (hasRenderedPageCanvas() || hasRenderedTextLayerContent()) {
@@ -502,7 +500,6 @@ async function recoverInitialRenderIfNeeded() {
 let pendingInvalidation: number[] | null = null;
 
 function invalidatePages(pages: number[]) {
-    console.log('[ROT-DIAG] PdfViewer.invalidatePages set pendingInvalidation=', pages);
     pendingInvalidation = pages;
 }
 
@@ -520,14 +517,6 @@ async function loadFromSource(isReload = false) {
     pendingInvalidation = null;
     const isSelectiveReload = isReload && pagesToInvalidate !== null;
 
-    console.log('[ROT-DIAG] loadFromSource START', {
-        isReload,
-        isSelectiveReload,
-        pagesToInvalidate,
-        pageToRestore,
-        pendingInvalidationWas: pagesToInvalidate,
-    });
-
     const savedBaseWidth = isSelectiveReload ? basePageWidth.value : null;
     const savedBaseHeight = isSelectiveReload ? basePageHeight.value : null;
     const savedVisibleRange = isSelectiveReload ? { ...visibleRange.value } : null;
@@ -539,10 +528,8 @@ async function loadFromSource(isReload = false) {
     emit('update:currentPage', pageToRestore);
 
     if (isSelectiveReload) {
-        console.log('[ROT-DIAG] SELECTIVE path: calling invalidateRenderedPages for', pagesToInvalidate);
         invalidateRenderedPages(pagesToInvalidate);
     } else {
-        console.log('[ROT-DIAG] FULL path: calling cleanupRenderedPages + resetScale + resetInsets');
         cleanupRenderedPages();
         resetScale();
         resetInsets();
@@ -554,16 +541,12 @@ async function loadFromSource(isReload = false) {
     }
     lifecycle.destroyAnnotationEditor();
 
-    console.log('[ROT-DIAG] before loadPdf, basePageWidth=', basePageWidth.value, 'basePageHeight=', basePageHeight.value);
     const loaded = await loadPdf(src.value, isSelectiveReload ? { preservePageStructure: true } : undefined);
     if (!loaded) {
-        console.log('[ROT-DIAG] loadPdf returned null, aborting');
         return;
     }
-    console.log('[ROT-DIAG] after loadPdf, basePageWidth=', basePageWidth.value, 'basePageHeight=', basePageHeight.value);
 
     if (isSelectiveReload && savedBaseWidth !== null && savedBaseHeight !== null) {
-        console.log('[ROT-DIAG] restoring base dims from', basePageWidth.value, 'x', basePageHeight.value, 'to', savedBaseWidth, 'x', savedBaseHeight);
         basePageWidth.value = savedBaseWidth;
         basePageHeight.value = savedBaseHeight;
     }
@@ -589,7 +572,6 @@ async function loadFromSource(isReload = false) {
     await nextTick();
 
     if (!isSelectiveReload) {
-        console.log('[ROT-DIAG] FULL path: computeFitWidthScale + setupPagePlaceholders');
         computeFitWidthScale(viewerContainer.value);
         setupPagePlaceholders();
 
@@ -598,14 +580,11 @@ async function loadFromSource(isReload = false) {
             await nextTick();
         }
     } else if (savedVisibleRange) {
-        console.log('[ROT-DIAG] SELECTIVE path: restoring visibleRange', savedVisibleRange);
         visibleRange.value = savedVisibleRange;
     }
 
-    console.log('[ROT-DIAG] about to renderVisiblePages, visibleRange=', JSON.stringify(visibleRange.value));
     updateVisibleRange(viewerContainer.value, numPages.value);
     await renderVisiblePages(visibleRange.value);
-    console.log('[ROT-DIAG] renderVisiblePages done');
     applySearchHighlights();
     commentSync.scheduleAnnotationCommentsSync(true);
     void recoverInitialRenderIfNeeded();
@@ -643,10 +622,8 @@ function updateShape(id: string, updates: Partial<IShapeAnnotation>) {
 
 const debouncedRenderOnResize = useDebounceFn(() => {
     if (isLoading.value || !pdfDocument.value) {
-        console.log('[ROT-DIAG] debouncedRenderOnResize SKIPPED (loading or no doc)');
         return;
     }
-    console.log('[ROT-DIAG] debouncedRenderOnResize → reRenderAllVisiblePages', new Error().stack);
     void reRenderAllVisiblePages(getVisibleRange);
 }, 200);
 
@@ -657,7 +634,6 @@ function handleResize() {
 
     const updated = computeFitWidthScale(viewerContainer.value);
     if (updated && pdfDocument.value) {
-        console.log('[ROT-DIAG] handleResize → scale changed, scheduling debouncedRenderOnResize');
         debouncedRenderOnResize();
     }
 }
@@ -693,7 +669,6 @@ watch(
 
         const updated = computeFitWidthScale(viewerContainer.value);
         if (updated && pdfDocument.value) {
-            console.log('[ROT-DIAG] fitMode watcher → reRenderAllVisiblePages');
             await reRenderAllVisiblePages(getVisibleRange);
             if (pageToSnapTo !== null) {
                 await nextTick();
@@ -708,7 +683,6 @@ watch(
     (newSrc, oldSrc) => {
         if (newSrc !== oldSrc) {
             const isReload = !!oldSrc && !!newSrc;
-            console.log('[ROT-DIAG] src watcher fired, isReload=', isReload, 'pendingInvalidation=', pendingInvalidation);
             if (!newSrc) {
                 emit('update:document', null);
                 annotationCommentsCache.value = [];
@@ -745,7 +719,6 @@ watch(
     zoom,
     () => {
         if (pdfDocument.value) {
-            console.log('[ROT-DIAG] zoom watcher → reRenderAllVisiblePages');
             void reRenderAllVisiblePages(getVisibleRange);
         }
     },
@@ -800,7 +773,6 @@ watch(
     isResizing,
     async (value) => {
         if (!value && pdfDocument.value && !isLoading.value) {
-            console.log('[ROT-DIAG] isResizing watcher → reRenderAllVisiblePages');
             await nextTick();
             await delay(20);
             computeFitWidthScale(viewerContainer.value);
@@ -815,7 +787,6 @@ watch(
     isEffectivelyLoading,
     async (value, oldValue) => {
         if (oldValue === true && value === false) {
-            console.log('[ROT-DIAG] isEffectivelyLoading false→true, calling recoverInitialRenderIfNeeded');
             await nextTick();
             void recoverInitialRenderIfNeeded();
         }

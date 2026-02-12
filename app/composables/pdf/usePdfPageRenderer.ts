@@ -322,15 +322,6 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             i => !renderedPages.has(i),
         );
 
-        console.log('[ROT-DIAG] renderVisiblePages', {
-            visibleRange,
-            renderStart,
-            renderEnd,
-            renderedPages: [...renderedPages],
-            pagesToRenderNow,
-            renderVersion: version,
-        });
-
         if (pagesToRenderNow.length === 0) {
             return;
         }
@@ -554,7 +545,6 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     }
 
     async function reRenderAllVisiblePages(getVisibleRange: () => IPageRange) {
-        console.log('[ROT-DIAG] reRenderAllVisiblePages called', new Error().stack);
         const version = bumpRenderVersion();
         const snapshot = captureScrollSnapshot();
 
@@ -591,7 +581,6 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     }
 
     function cleanupAllPages() {
-        console.log('[ROT-DIAG] cleanupAllPages called', new Error().stack);
         bumpRenderVersion();
 
         const pagesToCleanup = new Set<number>();
@@ -794,12 +783,10 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     );
 
     function invalidatePages(pages: number[]) {
-        const newVersion = bumpRenderVersion();
-        console.log('[ROT-DIAG] renderer.invalidatePages', pages, 'renderVersion now=', newVersion, 'renderedPages before=', [...renderedPages]);
+        bumpRenderVersion();
         for (const pageNumber of pages) {
             cleanupPage(pageNumber);
         }
-        console.log('[ROT-DIAG] renderer.invalidatePages done, renderedPages after=', [...renderedPages]);
     }
 
     return {
