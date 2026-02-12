@@ -516,6 +516,11 @@ async function loadFromSource(isReload = false) {
     const pageToRestore = isReload ? currentPage.value : 1;
     const pagesToInvalidate = pendingInvalidation;
     pendingInvalidation = null;
+    const isSelectiveReload = isReload && pagesToInvalidate !== null;
+
+    const savedBaseWidth = isSelectiveReload ? basePageWidth.value : null;
+    const savedBaseHeight = isSelectiveReload ? basePageHeight.value : null;
+    const savedVisibleRange = isSelectiveReload ? { ...visibleRange.value } : null;
 
     emit('update:document', null);
     if (!isReload) {
@@ -523,24 +528,28 @@ async function loadFromSource(isReload = false) {
     }
     emit('update:currentPage', pageToRestore);
 
-    if (isReload && pagesToInvalidate) {
+    if (isSelectiveReload) {
         invalidateRenderedPages(pagesToInvalidate);
     } else {
         cleanupRenderedPages();
+        resetScale();
+        resetInsets();
+        currentPage.value = pageToRestore;
+        visibleRange.value = {
+            start: pageToRestore,
+            end: pageToRestore,
+        };
     }
     lifecycle.destroyAnnotationEditor();
-    resetScale();
-    resetInsets();
-
-    currentPage.value = pageToRestore;
-    visibleRange.value = {
-        start: pageToRestore,
-        end: pageToRestore,
-    };
 
     const loaded = await loadPdf(src.value);
     if (!loaded) {
         return;
+    }
+
+    if (isSelectiveReload && savedBaseWidth !== null && savedBaseHeight !== null) {
+        basePageWidth.value = savedBaseWidth;
+        basePageHeight.value = savedBaseHeight;
     }
 
     emit('update:document', pdfDocument.value);
@@ -550,23 +559,29 @@ async function loadFromSource(isReload = false) {
     emit('update:totalPages', numPages.value);
     emit('update:currentPage', currentPage.value);
 
-    void (async () => {
-        try {
-            const firstPage = await getPage(1);
-            await computeSkeletonInsets(firstPage, loaded.version, getRenderVersion);
-        } catch (error) {
-            console.warn('Failed to compute PDF skeleton insets:', error);
-        }
-    })();
+    if (!isSelectiveReload) {
+        void (async () => {
+            try {
+                const firstPage = await getPage(1);
+                await computeSkeletonInsets(firstPage, loaded.version, getRenderVersion);
+            } catch (error) {
+                console.warn('Failed to compute PDF skeleton insets:', error);
+            }
+        })();
+    }
 
     await nextTick();
 
-    computeFitWidthScale(viewerContainer.value);
-    setupPagePlaceholders();
+    if (!isSelectiveReload) {
+        computeFitWidthScale(viewerContainer.value);
+        setupPagePlaceholders();
 
-    if (isReload && currentPage.value > 1) {
-        singlePageScroll.scrollToPage(currentPage.value);
-        await nextTick();
+        if (isReload && currentPage.value > 1) {
+            singlePageScroll.scrollToPage(currentPage.value);
+            await nextTick();
+        }
+    } else if (savedVisibleRange) {
+        visibleRange.value = savedVisibleRange;
     }
 
     updateVisibleRange(viewerContainer.value, numPages.value);
