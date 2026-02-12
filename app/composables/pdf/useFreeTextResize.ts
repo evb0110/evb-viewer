@@ -9,6 +9,8 @@ import { detectEditorSubtype } from '@app/composables/pdf/pdfAnnotationUtils';
 const FREE_TEXT_FONT_SIZE_MIN = 8;
 const FREE_TEXT_FONT_SIZE_MAX = 96;
 
+let globalDiagMoveListenerAttached = false;
+
 type TUiManagerSelectedEditor = Parameters<AnnotationEditorUIManager['setSelected']>[0];
 
 interface IUseFreeTextResizeOptions {
@@ -128,37 +130,204 @@ export function useFreeTextResize(options: IUseFreeTextResizeOptions) {
         }
     }
 
-    function patchFreeTextDrag(editor: IPdfjsEditor) {
-        const tagged = editor as IPdfjsEditor & { __evbDragPatched?: boolean };
-        if (tagged.__evbDragPatched) {
+    function patchFreeTextPreSelect(editor: IPdfjsEditor) {
+        const tagged = editor as IPdfjsEditor & { __evbPreSelectPatched?: boolean };
+        if (tagged.__evbPreSelectPatched) {
             return;
         }
-        tagged.__evbDragPatched = true;
+        tagged.__evbPreSelectPatched = true;
 
-        editor.drag = function (this: IPdfjsEditor, tx: number, ty: number) {
-            const pdims = this.parentDimensions;
-            const parentWidth = pdims?.[0] ?? 0;
-            const parentHeight = pdims?.[1] ?? 0;
-            if (!Number.isFinite(parentWidth) || parentWidth <= 0 || !Number.isFinite(parentHeight) || parentHeight <= 0) {
+        const div = editor.div;
+        if (!div) {
+            return;
+        }
+
+        div.addEventListener('pointerdown', (e: PointerEvent) => {
+            const target = e.target as HTMLElement | null;
+            const targetClasses = target?.className ?? '';
+            const isResizer = target?.classList?.contains('resizer') ?? false;
+            console.log(
+                `[EVB-DIAG] CAPTURE pointerdown on editor div | btn=${e.button}`
+                + ` | target=${target?.tagName}.${targetClasses}`
+                + ` | isResizer=${isResizer}`
+                + ` | _isDraggable=${editor._isDraggable}`
+                + ` | isSelected=${editor.isSelected}`
+                + ` | isInEditMode=${typeof editor.isInEditMode === 'function' ? editor.isInEditMode() : 'N/A'}`
+                + ` | x=${editor.x} y=${editor.y} w=${editor.width} h=${editor.height}`
+                + ` | div.classes=${div.className}`
+                + ` | defaultPrevented=${e.defaultPrevented}`
+                + ` | clientX=${e.clientX} clientY=${e.clientY}`,
+            );
+
+            if (e.button !== 0) {
                 return;
             }
-            this.x = (this.x ?? 0) + tx / parentWidth;
-            this.y = (this.y ?? 0) + ty / parentHeight;
-
-            let x = this.x ?? 0;
-            let y = this.y ?? 0;
-
-            if (typeof this.getBaseTranslation === 'function') {
-                const base = this.getBaseTranslation();
-                x += base[0] ?? 0;
-                y += base[1] ?? 0;
+            if (typeof editor.isInEditMode === 'function' && editor.isInEditMode()) {
+                return;
             }
-
-            if (this.div) {
-                this.div.style.left = `${(100 * x).toFixed(2)}%`;
-                this.div.style.top = `${(100 * y).toFixed(2)}%`;
+            if (!editor._isDraggable || editor.isSelected) {
+                console.log(`[EVB-DIAG] CAPTURE: skip pre-select (draggable=${editor._isDraggable}, selected=${editor.isSelected})`);
+                return;
             }
-        };
+            const uiManager = getAnnotationUiManager();
+            if (uiManager) {
+                console.log('[EVB-DIAG] CAPTURE: calling uiManager.setSelected for pre-select');
+                uiManager.setSelected(editor as TUiManagerSelectedEditor);
+                console.log(`[EVB-DIAG] CAPTURE: after pre-select → isSelected=${editor.isSelected}`);
+            }
+        }, { capture: true });
+
+        div.addEventListener('pointerdown', (e: PointerEvent) => {
+            console.log(
+                `[EVB-DIAG] BUBBLE pointerdown on editor div | btn=${e.button}`
+                + ` | _isDraggable=${editor._isDraggable}`
+                + ` | isSelected=${editor.isSelected}`
+                + ` | defaultPrevented=${e.defaultPrevented}`
+                + ' | propagationStopped (can\'t check, but event reached here)',
+            );
+        });
+    }
+
+    interface IPdfjsEditorDiag extends IPdfjsEditor {
+        __evbDiagPatched?: boolean;
+        drag?: (tx: number, ty: number) => void;
+        pointerdown?: (event: PointerEvent) => void;
+        pageDimensions?: number[];
+        parentDimensions?: number[];
+    }
+
+    function addDragResizeDiagnostics(editor: IPdfjsEditor) {
+        const diag = editor as IPdfjsEditorDiag;
+        if (diag.__evbDiagPatched) {
+            return;
+        }
+        diag.__evbDiagPatched = true;
+
+        const div = editor.div;
+        if (!div) {
+            return;
+        }
+
+        const origDrag = typeof diag.drag === 'function'
+            ? diag.drag.bind(editor)
+            : null;
+        if (origDrag) {
+            diag.drag = (tx: number, ty: number) => {
+                console.log(
+                    `[EVB-DIAG] editor.drag() called | tx=${tx} ty=${ty}`
+                    + ` | before: x=${editor.x} y=${editor.y}`
+                    + ` | parentDimensions=${JSON.stringify(diag.parentDimensions)}`
+                    + ` | pageDimensions=${JSON.stringify(diag.pageDimensions)}`,
+                );
+                origDrag(tx, ty);
+                console.log(
+                    `[EVB-DIAG] editor.drag() done | after: x=${editor.x} y=${editor.y}`
+                    + ` | style.left=${div.style.left} style.top=${div.style.top}`,
+                );
+            };
+        } else {
+            console.warn('[EVB-DIAG] editor.drag is NOT a function — cannot hook');
+        }
+
+        // NOTE: editor.pointerdown is bound via bindEvents() at render time,
+        // so instance-patching won't intercept the event listener. The
+        // capture/bubble listeners in patchFreeTextPreSelect cover this path.
+        // We log whether pointerdown exists for completeness.
+        console.log(`[EVB-DIAG] editor.pointerdown exists=${typeof diag.pointerdown === 'function'}`);
+
+        const resizers = div.querySelectorAll<HTMLElement>('.resizer');
+        console.log(`[EVB-DIAG] Found ${resizers.length} resizer elements on editor`);
+        for (const resizer of resizers) {
+            if (resizer.dataset.evbDiagBound === '1') {
+                continue;
+            }
+            resizer.dataset.evbDiagBound = '1';
+            resizer.addEventListener('pointerdown', (e: PointerEvent) => {
+                const resizerClasses = resizer.className;
+                const computedPE = getComputedStyle(resizer).pointerEvents;
+                const parentPE = getComputedStyle(div).pointerEvents;
+                const layerDiv = div.closest('.annotationEditorLayer') as HTMLElement | null;
+                const layerPE = layerDiv ? getComputedStyle(layerDiv).pointerEvents : 'N/A';
+                console.log(
+                    `[EVB-DIAG] RESIZER pointerdown | classes=${resizerClasses}`
+                    + ` | btn=${e.button}`
+                    + ` | computedPointerEvents: resizer=${computedPE}, editor=${parentPE}, layer=${layerPE}`
+                    + ` | clientX=${e.clientX} clientY=${e.clientY}`,
+                );
+            }, { capture: true });
+        }
+
+        if (!globalDiagMoveListenerAttached) {
+            globalDiagMoveListenerAttached = true;
+            let diagMoveCount = 0;
+            let diagMoveLogTimer: ReturnType<typeof setTimeout> | null = null;
+            window.addEventListener('pointermove', () => {
+                diagMoveCount += 1;
+                if (!diagMoveLogTimer) {
+                    diagMoveLogTimer = setTimeout(() => {
+                        if (diagMoveCount > 0) {
+                            console.log(`[EVB-DIAG] window pointermove events in last 500ms: ${diagMoveCount}`);
+                        }
+                        diagMoveCount = 0;
+                        diagMoveLogTimer = null;
+                    }, 500);
+                }
+            }, { passive: true });
+        }
+    }
+
+    function isActualNaN(value: unknown): boolean {
+        return typeof value === 'number' && Number.isNaN(value);
+    }
+
+    function recoverNaNPosition(editor: IPdfjsEditor) {
+        const div = editor.div;
+        if (!div) {
+            return;
+        }
+        const xBad = isActualNaN(editor.x);
+        const yBad = isActualNaN(editor.y);
+        if (!xBad && !yBad) {
+            return;
+        }
+        const left = parseFloat(div.style.left);
+        const top = parseFloat(div.style.top);
+        if (xBad && Number.isFinite(left)) {
+            editor.x = left / 100;
+            console.log(`[EVB-DIAG] recovered editor.x from style.left: ${editor.x}`);
+        }
+        if (yBad && Number.isFinite(top)) {
+            editor.y = top / 100;
+            console.log(`[EVB-DIAG] recovered editor.y from style.top: ${editor.y}`);
+        }
+    }
+
+    function recoverNaNDimensions(editor: IPdfjsEditor) {
+        const div = editor.div;
+        if (!div) {
+            return;
+        }
+        const wBad = isActualNaN(editor.width);
+        const hBad = isActualNaN(editor.height);
+        if (!wBad && !hBad) {
+            return;
+        }
+        const diag = editor as IPdfjsEditorDiag;
+        const parentDims = diag.parentDimensions;
+        if (!parentDims || parentDims.length < 2) {
+            return;
+        }
+        const parentW = parentDims[0] ?? 0;
+        const parentH = parentDims[1] ?? 0;
+        const rect = div.getBoundingClientRect();
+        if (wBad && rect.width > 0 && parentW > 0) {
+            editor.width = rect.width / parentW;
+            console.log(`[EVB-DIAG] recovered editor.width from rect: ${editor.width}`);
+        }
+        if (hBad && rect.height > 0 && parentH > 0) {
+            editor.height = rect.height / parentH;
+            console.log(`[EVB-DIAG] recovered editor.height from rect: ${editor.height}`);
+        }
     }
 
     function ensureFreeTextEditorInteractivity(editor: IPdfjsEditor) {
@@ -170,11 +339,13 @@ export function useFreeTextResize(options: IUseFreeTextResizeOptions) {
 
         const isEditing = typeof editor.isInEditMode === 'function' && editor.isInEditMode();
 
-        if (typeof tagged.makeResizable === 'function') {
-            tagged.makeResizable();
-        }
+        recoverNaNPosition(editor);
+        recoverNaNDimensions(editor);
 
         if (!isEditing) {
+            if (typeof tagged.makeResizable === 'function') {
+                tagged.makeResizable();
+            }
             editor._isDraggable = true;
             const overlay = div.querySelector<HTMLElement>('.overlay');
             if (overlay) {
@@ -182,7 +353,8 @@ export function useFreeTextResize(options: IUseFreeTextResizeOptions) {
             }
         }
 
-        patchFreeTextDrag(editor);
+        patchFreeTextPreSelect(editor);
+        addDragResizeDiagnostics(editor);
         updateFreeTextResizerSize(editor);
         addResizeCursorManagement(editor);
     }
@@ -201,8 +373,10 @@ export function useFreeTextResize(options: IUseFreeTextResizeOptions) {
         function captureRatio() {
             const fontSize = getFreeTextEditorFontSize(editor);
             const w = editor.width;
-            if (fontSize && fontSize > 0 && w && w > 0) {
+            console.log(`[EVB-DIAG] captureRatio: fontSize=${fontSize}, w=${w}`);
+            if (fontSize && fontSize > 0 && typeof w === 'number' && w > 0.01) {
                 tagged.__freeTextFontToWidthRatio = fontSize / w;
+                console.log(`[EVB-DIAG] captureRatio: ratio=${tagged.__freeTextFontToWidthRatio}`);
             }
         }
         captureRatio();
@@ -242,6 +416,10 @@ export function useFreeTextResize(options: IUseFreeTextResizeOptions) {
             originalOnResizing?.();
             const ratio = tagged.__freeTextFontToWidthRatio;
             const w = editor.width;
+            console.log(
+                `[EVB-DIAG] _onResizing fired | ratio=${ratio} | w=${w}`
+                + ` | x=${editor.x} y=${editor.y} h=${editor.height}`,
+            );
             if (!ratio || !w || w <= 0) {
                 return;
             }
@@ -252,6 +430,7 @@ export function useFreeTextResize(options: IUseFreeTextResizeOptions) {
             const internal = editor.div?.querySelector<HTMLElement>('.internal');
             if (internal) {
                 internal.style.fontSize = `calc(${targetFont}px * var(--total-scale-factor))`;
+                console.log(`[EVB-DIAG] _onResizing set fontSize=${targetFont}px`);
             }
             updateFreeTextResizerSize(editor);
         };
@@ -351,11 +530,14 @@ export function useFreeTextResize(options: IUseFreeTextResizeOptions) {
             makeResizable?: () => void;
         };
         if (tagged.__freeTextResizablePatched) {
-            if (!tagged.__freeTextFontToWidthRatio) {
-                const fontSize = getFreeTextEditorFontSize(editor);
-                const w = editor.width;
-                if (fontSize && fontSize > 0 && w && w > 0) {
-                    tagged.__freeTextFontToWidthRatio = fontSize / w;
+            const fontSize = getFreeTextEditorFontSize(editor);
+            const w = editor.width;
+            if (fontSize && fontSize > 0 && typeof w === 'number' && w > 0.01) {
+                const freshRatio = fontSize / w;
+                const existingRatio = tagged.__freeTextFontToWidthRatio;
+                if (!existingRatio || Math.abs(freshRatio - existingRatio) / freshRatio > 0.5) {
+                    tagged.__freeTextFontToWidthRatio = freshRatio;
+                    console.log(`[EVB-DIAG] updated ratio: ${freshRatio} (was ${existingRatio})`);
                 }
             }
             ensureFreeTextEditorInteractivity(editor);

@@ -136,6 +136,15 @@
     display: none !important;
 }
 
+/* Hide resizers when FreeText editor is in edit mode (text editing).
+   During edit mode, PDF.js removes the "enabled" class from .overlay.
+   Clicking resize handles while in edit mode causes NaN corruption
+   (null dimensions → division by zero → NaN cascades to x/y/w/h). */
+.pdfViewer .freeTextEditor:has(> .overlay:not(.enabled)) > .resizers,
+.pdf-viewer-container .freeTextEditor:has(> .overlay:not(.enabled)) > .resizers {
+    display: none !important;
+}
+
 /* Lock cursor to resize direction during FreeText corner resize drag.
    Without this, the cursor reverts when the pointer leaves the editor
    (PDF.js disables pointer-events on the layer during resize). */

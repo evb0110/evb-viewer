@@ -348,11 +348,62 @@ export function useAnnotationEditorLifecycle(options: IUseAnnotationEditorLifecy
 
         const originalSetSelected = uiManager.setSelected.bind(uiManager);
         uiManager.setSelected = (editor) => {
+            console.log(
+                '[EVB-DIAG] uiManager.setSelected() called'
+                + ` | editor=${editor ? 'yes' : 'null'}`
+                + ` | hasSelection_before=${uiManager.hasSelection}`,
+            );
             const result = originalSetSelected(editor);
+            console.log(
+                '[EVB-DIAG] uiManager.setSelected() done'
+                + ` | hasSelection_after=${uiManager.hasSelection}`,
+            );
             if (editor) {
                 freeTextResize.ensureFreeTextEditorCanResize(editor as IPdfjsEditor);
             }
             return result;
+        };
+
+        const origSetUpDragSession = uiManager.setUpDragSession.bind(uiManager);
+        uiManager.setUpDragSession = () => {
+            console.log(
+                '[EVB-DIAG] uiManager.setUpDragSession() called'
+                + ` | hasSelection=${uiManager.hasSelection}`,
+            );
+            const result = origSetUpDragSession();
+            console.log('[EVB-DIAG] uiManager.setUpDragSession() done');
+            return result;
+        };
+
+        let dragCallCount = 0;
+        const origDragSelected = uiManager.dragSelectedEditors.bind(uiManager);
+        uiManager.dragSelectedEditors = (tx: number, ty: number) => {
+            dragCallCount += 1;
+            if (dragCallCount <= 5 || dragCallCount % 20 === 0) {
+                console.log(
+                    `[EVB-DIAG] uiManager.dragSelectedEditors() #${dragCallCount}`
+                    + ` | tx=${tx} ty=${ty}`,
+                );
+            }
+            return origDragSelected(tx, ty);
+        };
+
+        const origEndDrag = uiManager.endDragSession.bind(uiManager);
+        uiManager.endDragSession = () => {
+            console.log('[EVB-DIAG] uiManager.endDragSession() called');
+            const result = origEndDrag();
+            console.log(`[EVB-DIAG] uiManager.endDragSession() result=${result}`);
+            dragCallCount = 0;
+            return result;
+        };
+
+        const origUnselectAll = uiManager.unselectAll.bind(uiManager);
+        uiManager.unselectAll = () => {
+            console.log(
+                '[EVB-DIAG] uiManager.unselectAll() called',
+                new Error().stack?.split('\n').slice(1, 5).join(' | '),
+            );
+            return origUnselectAll();
         };
 
         const originalUndo = uiManager.undo.bind(uiManager);
