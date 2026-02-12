@@ -28,41 +28,27 @@
         </div>
 
         <div class="page-controls-item">
-            <UPopover v-model:open="isOpen" mode="click" :disabled="disabled || totalPages === 0">
-                <button
-                    ref="pageDisplayButtonRef"
-                    class="page-controls-display"
-                    :disabled="disabled || totalPages === 0"
-                >
-                    <span class="page-controls-display-value">{{ pageLabel }}</span>
-                </button>
-
-                <template #content>
-                    <div class="page-dropdown">
-                        <div class="page-dropdown-goto">
-                            <span class="page-dropdown-goto-label">{{ t('pageDropdown.goToPage') }}</span>
-                            <div class="page-dropdown-goto-controls">
-                                <UInput
-                                    ref="pageInputRef"
-                                    v-model="pageInputValue"
-                                    class="page-dropdown-input"
-                                    type="text"
-                                    size="sm"
-                                    :placeholder="t('pageDropdown.pageInputPlaceholder')"
-                                    @keydown.enter.prevent="commitPageInput"
-                                />
-                                <UButton
-                                    icon="i-lucide-arrow-right"
-                                    size="sm"
-                                    variant="soft"
-                                    :aria-label="t('pageDropdown.goToPage')"
-                                    @click="commitPageInput"
-                                />
-                            </div>
-                        </div>
-                    </div>
-                </template>
-            </UPopover>
+            <button
+                v-if="!isEditing"
+                class="page-controls-display"
+                :disabled="disabled || totalPages === 0"
+                @click="startEditing"
+            >
+                <span class="page-controls-indicator">{{ pageIndicator }}</span>
+                <span class="page-controls-separator">&nbsp;/ {{ totalPages }}</span>
+            </button>
+            <div v-else class="page-controls-display is-editing">
+                <input
+                    ref="pageInputRef"
+                    v-model="pageInputValue"
+                    class="page-controls-inline-input"
+                    :style="{ width: inputWidth }"
+                    @keydown.enter.prevent="commitPageInput"
+                    @keydown.escape.prevent="cancelEditing"
+                    @blur="commitPageInput"
+                />
+                <span class="page-controls-separator">&nbsp;/ {{ totalPages }}</span>
+            </div>
         </div>
 
         <div class="page-controls-item">
@@ -123,10 +109,9 @@ const emit = defineEmits<{
     (e: 'open'): void;
 }>();
 
-const isOpen = ref(false);
+const isEditing = ref(false);
 const pageInputValue = ref(currentPage.toString());
-const pageInputRef = ref<{ $el: HTMLElement } | null>(null);
-const pageDisplayButtonRef = ref<HTMLButtonElement | null>(null);
+const pageInputRef = ref<HTMLInputElement | null>(null);
 
 const effectivePageLabels = computed(() => {
     if (pageLabels && pageLabels.length === totalPages) {
@@ -137,7 +122,7 @@ const effectivePageLabels = computed(() => {
 });
 
 function close() {
-    isOpen.value = false;
+    isEditing.value = false;
 }
 
 defineExpose({ close });
@@ -147,16 +132,9 @@ function getCurrentInputLabel() {
     return label.trim() || currentPage.toString();
 }
 
-watch(isOpen, (value) => {
-    if (value) {
-        emit('open');
-        pageInputValue.value = getCurrentInputLabel();
-        void nextTick(() => {
-            const input = pageInputRef.value?.$el?.querySelector('input') as HTMLInputElement | null;
-            input?.focus();
-            input?.select();
-        });
-    }
+const inputWidth = computed(() => {
+    const chars = Math.max(pageInputValue.value.length, 1);
+    return `${chars}ch`;
 });
 
 watch(
@@ -166,13 +144,30 @@ watch(
     },
 );
 
-const pageLabel = computed(() => {
+const pageIndicator = computed(() => {
     if (totalPages === 0) {
         return '';
     }
-    const indicator = formatPageIndicator(currentPage, effectivePageLabels.value);
-    return `${indicator} / ${totalPages}`;
+    return formatPageIndicator(currentPage, effectivePageLabels.value);
 });
+
+function startEditing() {
+    if (disabled || totalPages === 0) {
+        return;
+    }
+    emit('open');
+    isEditing.value = true;
+    pageInputValue.value = getCurrentInputLabel();
+    void nextTick(() => {
+        pageInputRef.value?.focus();
+        pageInputRef.value?.select();
+    });
+}
+
+function cancelEditing() {
+    isEditing.value = false;
+    pageInputValue.value = getCurrentInputLabel();
+}
 
 function goToFirst() {
     emit('update:modelValue', 1);
@@ -203,14 +198,15 @@ function goToLast() {
 }
 
 function commitPageInput() {
+    if (!isEditing.value) {
+        return;
+    }
     const page = findPageByPageLabelInput(pageInputValue.value, totalPages, effectivePageLabels.value);
     if (page !== null) {
         emit('update:modelValue', page);
         emit('goToPage', page);
-        close();
-        return;
     }
-    pageInputValue.value = getCurrentInputLabel();
+    isEditing.value = false;
 }
 
 function handleGlobalPointerDown(event: PointerEvent) {
@@ -289,45 +285,26 @@ onBeforeUnmount(() => {
     cursor: not-allowed;
 }
 
-.page-controls-display:hover:not(:disabled) {
+.page-controls-display:not(.is-editing):hover:not(:disabled) {
     background-color: var(--ui-bg-elevated);
 }
 
-.page-controls-display-value {
+.page-controls-indicator,
+.page-controls-inline-input,
+.page-controls-separator {
     font-size: 0.875rem;
     font-variant-numeric: tabular-nums;
     color: var(--ui-text);
     white-space: nowrap;
 }
 
-.page-dropdown {
-    padding: 0.375rem;
-    min-width: 9rem;
-}
-
-.page-dropdown-goto {
-    display: flex;
-    flex-direction: column;
-    gap: 0.375rem;
-    padding: 0.125rem 0.25rem;
-}
-
-.page-dropdown-goto-label {
-    font-size: 0.7rem;
-    font-weight: 500;
-    color: var(--ui-text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-}
-
-.page-dropdown-goto-controls {
-    display: flex;
-    align-items: center;
-    gap: 0.375rem;
-}
-
-.page-dropdown-input {
-    flex: 1;
-    min-width: 0;
+.page-controls-inline-input {
+    font-family: inherit;
+    background: transparent;
+    border: none;
+    outline: none;
+    text-align: right;
+    padding: 0;
+    min-width: 1ch;
 }
 </style>

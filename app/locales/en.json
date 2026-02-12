@@ -142,9 +142,7 @@
     "firstPage": "First Page",
     "previousPage": "Previous Page",
     "nextPage": "Next Page",
-    "lastPage": "Last Page",
-    "goToPage": "Go to page",
-    "pageInputPlaceholder": "Page # or label"
+    "lastPage": "Last Page"
   },
   "pageNumbering": {
     "numberPages": "Number Pages",
