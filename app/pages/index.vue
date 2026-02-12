@@ -161,11 +161,12 @@
                     @bookmarks-change="handleBookmarksChange"
                     @update:bookmark-edit-mode="bookmarkEditMode = $event"
                     @page-context-menu="showPageContextMenu"
-                    @page-rotate-cw="(pages) => pageOpsRotate(pages, 90)"
-                    @page-rotate-ccw="(pages) => pageOpsRotate(pages, 270)"
+                    @page-rotate-cw="(pages) => handlePageRotate(pages, 90)"
+                    @page-rotate-ccw="(pages) => handlePageRotate(pages, 270)"
                     @page-extract="(pages) => pageOpsExtract(pages)"
                     @page-delete="(pages) => pageOpsDelete(pages, totalPages)"
                     @page-reorder="(order) => pageOpsReorder(order)"
+                    @page-file-drop="handlePageFileDrop"
                 />
                 <div
                     class="sidebar-resizer"
@@ -632,11 +633,11 @@ onMounted(() => {
             }),
             window.electronAPI.onMenuRotateCw(() => {
                 const pages = sidebarRef.value?.selectedThumbnailPages ?? [];
-                if (pages.length > 0) void pageOpsRotate(pages, 90);
+                if (pages.length > 0) void handlePageRotate(pages, 90);
             }),
             window.electronAPI.onMenuRotateCcw(() => {
                 const pages = sidebarRef.value?.selectedThumbnailPages ?? [];
-                if (pages.length > 0) void pageOpsRotate(pages, 270);
+                if (pages.length > 0) void handlePageRotate(pages, 270);
             }),
             window.electronAPI.onMenuInsertPages(() => {
                 void pageOpsInsert(totalPages.value, totalPages.value);
@@ -697,6 +698,7 @@ const sidebarRef = ref<{
     focusSearch: () => void | Promise<void>;
     selectAllPages: () => void;
     invertPageSelection: () => void;
+    invalidateThumbnailPages: (pages: number[]) => void;
     selectedThumbnailPages: number[];
 } | null>(null);
 const pdfToolbarRef = ref<{ toolbarRef: HTMLElement | null } | null>(null);
@@ -1201,6 +1203,7 @@ const {
     extractPages: pageOpsExtract,
     rotatePages: pageOpsRotate,
     insertPages: pageOpsInsert,
+    insertFile: pageOpsInsertFile,
     reorderPages: pageOpsReorder,
 } = usePageOperations({
     workingCopyPath,
@@ -1221,16 +1224,21 @@ function handlePageContextMenuExtract() {
     void pageOpsExtract(pages);
 }
 
+function handlePageRotate(pages: number[], angle: 90 | 180 | 270) {
+    sidebarRef.value?.invalidateThumbnailPages([...pages]);
+    return pageOpsRotate(pages, angle);
+}
+
 function handlePageContextMenuRotateCw() {
     const pages = pageContextMenu.value.pages;
     closePageContextMenu();
-    void pageOpsRotate(pages, 90);
+    void handlePageRotate(pages, 90);
 }
 
 function handlePageContextMenuRotateCcw() {
     const pages = pageContextMenu.value.pages;
     closePageContextMenu();
-    void pageOpsRotate(pages, 270);
+    void handlePageRotate(pages, 270);
 }
 
 function handlePageContextMenuInsertBefore() {
@@ -1243,6 +1251,13 @@ function handlePageContextMenuInsertAfter() {
     const pages = pageContextMenu.value.pages;
     closePageContextMenu();
     void pageOpsInsert(totalPages.value, Math.max(...pages));
+}
+
+function handlePageFileDrop(payload: {
+    afterPage: number;
+    filePath: string 
+}) {
+    void pageOpsInsertFile(totalPages.value, payload.afterPage, payload.filePath);
 }
 
 function handlePageContextMenuSelectAll() {

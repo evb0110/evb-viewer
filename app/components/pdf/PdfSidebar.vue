@@ -55,6 +55,7 @@
                 />
                 <div class="pdf-sidebar-pages-thumbnails app-scrollbar">
                     <PdfThumbnails
+                        ref="thumbnailsRef"
                         :pdf-document="pdfDocument"
                         :current-page="currentPage"
                         :total-pages="totalPages"
@@ -64,6 +65,7 @@
                         @update:selected-pages="handleSelectedPagesUpdate"
                         @page-context-menu="emit('page-context-menu', $event)"
                         @reorder="emit('page-reorder', $event)"
+                        @file-drop="emit('page-file-drop', $event)"
                     />
                 </div>
 
@@ -339,6 +341,10 @@ const emit = defineEmits<{
     (e: 'page-extract', pages: number[]): void;
     (e: 'page-delete', pages: number[]): void;
     (e: 'page-reorder', newOrder: number[]): void;
+    (e: 'page-file-drop', payload: {
+        afterPage: number;
+        filePath: string 
+    }): void;
 }>();
 
 type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'bookmarks' | 'search';
@@ -362,6 +368,7 @@ const searchQueryProxy = computed({
 });
 
 const searchBarRef = ref<{ focus: () => void } | null>(null);
+const thumbnailsRef = ref<{ invalidatePages: (pages: number[]) => void } | null>(null);
 const isPageNumberingExpanded = ref(false);
 const ignoreRangeInputWatch = ref(false);
 const ignoreSelectionWatch = ref(false);
@@ -526,11 +533,16 @@ function invertPageSelection() {
     selectedThumbnailPages.value = inverted;
 }
 
+function invalidateThumbnailPages(pages: number[]) {
+    thumbnailsRef.value?.invalidatePages(pages);
+}
+
 defineExpose({
     focusSearch,
     selectAllPages,
     invertPageSelection,
-    selectedThumbnailPages, 
+    invalidateThumbnailPages,
+    selectedThumbnailPages,
 });
 
 function handleSelectedPagesUpdate(pages: number[]) {

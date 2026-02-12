@@ -9,6 +9,7 @@ interface IPageDragDropDeps {
     totalPages: Ref<number>;
     selectedPages: Ref<number[]>;
     onReorder: (newOrder: number[]) => void;
+    onExternalFileDrop?: (afterPage: number, filePath: string) => void;
 }
 
 export const usePageDragDrop = (deps: IPageDragDropDeps) => {
@@ -17,9 +18,11 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
         totalPages,
         selectedPages,
         onReorder,
+        onExternalFileDrop,
     } = deps;
 
     const isDragging = ref(false);
+    const isExternalDragOver = ref(false);
     const draggedPages = ref<number[]>([]);
     const dropInsertIndex = ref<number | null>(null);
 
@@ -177,6 +180,82 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
         return false;
     }
 
+    function hasPdfFile(dt: DataTransfer | null) {
+        if (!dt) {
+            return false;
+        }
+        for (let i = 0; i < dt.items.length; i++) {
+            const item = dt.items[i];
+            if (item && item.kind === 'file') {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    let dragEnterCounter = 0;
+
+    function handleDragEnter(e: DragEvent) {
+        if (!hasPdfFile(e.dataTransfer)) {
+            return;
+        }
+        e.preventDefault();
+        dragEnterCounter++;
+        isExternalDragOver.value = true;
+    }
+
+    function handleDragOver(e: DragEvent) {
+        if (!isExternalDragOver.value) {
+            return;
+        }
+        e.preventDefault();
+        if (e.dataTransfer) {
+            e.dataTransfer.dropEffect = 'copy';
+        }
+        dropInsertIndex.value = calcDropIndex(e.clientY);
+        updateAutoScroll(e.clientY);
+    }
+
+    function handleDragLeave(e: DragEvent) {
+        if (!isExternalDragOver.value) {
+            return;
+        }
+        e.preventDefault();
+        dragEnterCounter--;
+        if (dragEnterCounter <= 0) {
+            dragEnterCounter = 0;
+            isExternalDragOver.value = false;
+            dropInsertIndex.value = null;
+            clearAutoScroll();
+        }
+    }
+
+    function handleDrop(e: DragEvent) {
+        e.preventDefault();
+        clearAutoScroll();
+        const insertAt = dropInsertIndex.value ?? totalPages.value;
+        isExternalDragOver.value = false;
+        dropInsertIndex.value = null;
+        dragEnterCounter = 0;
+
+        if (!onExternalFileDrop || !e.dataTransfer) {
+            return;
+        }
+
+        const files = e.dataTransfer.files;
+        for (let i = 0; i < files.length; i++) {
+            const file = files[i];
+            if (!file) {
+                continue;
+            }
+            const filePath = (file as File & { path?: string }).path;
+            if (filePath && filePath.toLowerCase().endsWith('.pdf')) {
+                onExternalFileDrop(insertAt, filePath);
+                break;
+            }
+        }
+    }
+
     onUnmounted(() => {
         window.removeEventListener('mousemove', onMove);
         window.removeEventListener('mouseup', onUp);
@@ -187,9 +266,14 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
 
     return {
         isDragging,
+        isExternalDragOver,
         draggedPages,
         dropInsertIndex,
         handleMouseDown,
         consumeClickSkip,
+        handleDragEnter,
+        handleDragOver,
+        handleDragLeave,
+        handleDrop,
     };
 };

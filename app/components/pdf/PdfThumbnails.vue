@@ -2,7 +2,14 @@
     <div
         ref="containerRef"
         class="pdf-thumbnails"
-        :class="{ 'is-reorder-dragging': isDragging }"
+        :class="{
+            'is-reorder-dragging': isDragging,
+            'is-external-drag': isExternalDragOver,
+        }"
+        @dragenter="handleExternalDragEnter"
+        @dragover="handleExternalDragOver"
+        @dragleave="handleExternalDragLeave"
+        @drop="handleExternalDrop"
     >
         <div
             v-for="page in totalPages"
@@ -12,8 +19,8 @@
                 'is-active': page === currentPage,
                 'is-selected': isSelected(page),
                 'is-dragged': isDragging && draggedPages.includes(page),
-                'is-drop-before': isDragging && dropInsertIndex === page - 1,
-                'is-drop-after': isDragging && page === totalPages && dropInsertIndex === totalPages,
+                'is-drop-before': dropInsertIndex === page - 1,
+                'is-drop-after': page === totalPages && dropInsertIndex === totalPages,
             }"
             :data-page="page"
             @mousedown="handleDragMouseDown($event, page)"
@@ -61,6 +68,10 @@ const emit = defineEmits<{
         pages: number[]
     }): void;
     (e: 'reorder', newOrder: number[]): void;
+    (e: 'file-drop', payload: {
+        afterPage: number;
+        filePath: string 
+    }): void;
 }>();
 
 const containerRef = ref<HTMLElement | null>(null);
@@ -68,20 +79,30 @@ const renderedPages = new Set<number>();
 const renderingPages = new Set<number>();
 const renderTasks = new Map<number, RenderTask>();
 let renderRunId = 0;
+let pendingInvalidation: number[] | null = null;
 
 const multiSelection = useMultiSelection<number>();
 
 const {
     isDragging,
+    isExternalDragOver,
     draggedPages,
     dropInsertIndex,
     handleMouseDown: handleDragMouseDown,
     consumeClickSkip,
+    handleDragEnter: handleExternalDragEnter,
+    handleDragOver: handleExternalDragOver,
+    handleDragLeave: handleExternalDragLeave,
+    handleDrop: handleExternalDrop,
 } = usePageDragDrop({
     containerRef,
     totalPages: toRef(props, 'totalPages'),
     selectedPages: computed(() => props.selectedPages ?? []),
     onReorder: (newOrder) => emit('reorder', newOrder),
+    onExternalFileDrop: (afterPage, filePath) => emit('file-drop', {
+        afterPage,
+        filePath, 
+    }),
 });
 
 function normalizeSelectedPages(pages: number[]) {
@@ -305,15 +326,35 @@ watch(
             return;
         }
 
-        // Only clear if document changed (not just page count)
         if (doc !== oldDoc) {
-            clearRenderedState();
+            const pagesToInvalidate = pendingInvalidation;
+            pendingInvalidation = null;
+
+            if (pagesToInvalidate && pagesToInvalidate.length > 0) {
+                for (const page of pagesToInvalidate) {
+                    renderedPages.delete(page);
+                    renderingPages.delete(page);
+                    const task = renderTasks.get(page);
+                    if (task) {
+                        try { task.cancel(); } catch { /* */ }
+                        renderTasks.delete(page);
+                    }
+                }
+            } else {
+                clearRenderedState();
+            }
         }
 
         void renderAllThumbnails(doc, total, runId);
     },
     { immediate: true }, // Run on mount with current values
 );
+
+function invalidatePages(pages: number[]) {
+    pendingInvalidation = pages;
+}
+
+defineExpose({ invalidatePages });
 
 onBeforeUnmount(() => {
     cancelAllRenders();
@@ -410,5 +451,11 @@ onBeforeUnmount(() => {
 
 .pdf-thumbnails.is-reorder-dragging .pdf-thumbnail {
     cursor: grabbing;
+}
+
+.pdf-thumbnails.is-external-drag {
+    outline: 2px dashed var(--ui-primary);
+    outline-offset: -2px;
+    border-radius: 4px;
 }
 </style>

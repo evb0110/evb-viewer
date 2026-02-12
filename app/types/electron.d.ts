@@ -108,6 +108,7 @@ interface IPageOpsAPI {
     extract: (workingCopyPath: string, pages: number[]) => Promise<IPageOpsExtractResult>;
     reorder: (workingCopyPath: string, newOrder: number[]) => Promise<IPageOpsResult>;
     insert: (workingCopyPath: string, totalPages: number, afterPage: number) => Promise<IPageOpsInsertResult>;
+    insertFile: (workingCopyPath: string, totalPages: number, afterPage: number, sourcePath: string) => Promise<IPageOpsResult>;
     rotate: (workingCopyPath: string, pages: number[], angle: TPageOpsRotationAngle) => Promise<IPageOpsResult>;
 }
 

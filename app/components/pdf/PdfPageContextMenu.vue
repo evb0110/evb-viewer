@@ -25,7 +25,7 @@
             :disabled="isOperationInProgress"
             @click="emit('extract-pages')"
         >
-            <UIcon name="i-lucide-file-output" class="page-context-menu-icon" />
+            <UIcon name="i-lucide-file-output" class="page-context-menu-icon" style="transform: scaleX(-1)" />
             {{ t('pageOps.extractPages') }}
         </button>
 

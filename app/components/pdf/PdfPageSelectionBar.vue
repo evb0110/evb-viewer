@@ -37,7 +37,7 @@
                     :disabled="isOperationInProgress"
                     @click="emit('extract-pages')"
                 >
-                    <UIcon name="i-lucide-file-output" class="page-selection-bar-icon" />
+                    <UIcon name="i-lucide-file-output" class="page-selection-bar-icon" style="transform: scaleX(-1)" />
                 </button>
             </UTooltip>
 

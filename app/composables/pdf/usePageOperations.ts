@@ -140,6 +140,34 @@ export const usePageOperations = (deps: {
         }
     }
 
+    async function insertFile(totalPages: number, afterPage: number, sourcePath: string) {
+        if (!workingCopyPath.value) {
+            return false;
+        }
+
+        isOperationInProgress.value = true;
+        error.value = null;
+        try {
+            const api = getElectronAPI();
+            const result = await api.pageOps.insertFile(workingCopyPath.value, totalPages, afterPage, sourcePath);
+            if (result.success && result.pdfData) {
+                invalidateCaches();
+                await loadPdfFromData(new Uint8Array(result.pdfData), {
+                    pushHistory: true,
+                    persistWorkingCopy: false,
+                });
+                return true;
+            }
+            return false;
+        } catch (e) {
+            console.error('[pageOps] insertFile failed:', e);
+            error.value = e instanceof Error ? e.message : 'Failed to insert pages from file';
+            return false;
+        } finally {
+            isOperationInProgress.value = false;
+        }
+    }
+
     async function reorderPages(newOrder: number[]) {
         if (!workingCopyPath.value || newOrder.length === 0) {
             return false;
@@ -175,6 +203,7 @@ export const usePageOperations = (deps: {
         extractPages,
         rotatePages,
         insertPages,
+        insertFile,
         reorderPages,
     };
 };

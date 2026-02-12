@@ -416,6 +416,8 @@ if (!__preloadAlreadyInstalled) {
                 ipcRenderer.invoke('page-ops:reorder', workingCopyPath, newOrder),
             insert: (workingCopyPath: string, totalPages: number, afterPage: number) =>
                 ipcRenderer.invoke('page-ops:insert', workingCopyPath, totalPages, afterPage),
+            insertFile: (workingCopyPath: string, totalPages: number, afterPage: number, sourcePath: string) =>
+                ipcRenderer.invoke('page-ops:insert-file', workingCopyPath, totalPages, afterPage, sourcePath),
             rotate: (workingCopyPath: string, pages: number[], angle: number) =>
                 ipcRenderer.invoke('page-ops:rotate', workingCopyPath, pages, angle),
         },

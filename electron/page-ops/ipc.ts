@@ -273,10 +273,44 @@ async function handlePageOpsRotate(
     };
 }
 
+async function handlePageOpsInsertFile(
+    _event: Electron.IpcMainInvokeEvent,
+    workingCopyPath: string,
+    totalPages: number,
+    afterPage: number,
+    sourcePath: string,
+) {
+    validateWorkingCopyPath(workingCopyPath);
+
+    if (typeof totalPages !== 'number' || totalPages < 1) {
+        throw new Error('Invalid totalPages');
+    }
+    if (typeof afterPage !== 'number' || afterPage < 0) {
+        throw new Error('Invalid afterPage');
+    }
+    if (!sourcePath || typeof sourcePath !== 'string') {
+        throw new Error('Invalid source path');
+    }
+    if (!existsSync(sourcePath)) {
+        throw new Error(`Source file not found: ${sourcePath}`);
+    }
+    if (extname(sourcePath).toLowerCase() !== '.pdf') {
+        throw new Error('Source file must be a PDF');
+    }
+
+    await insertPagesFromSource(workingCopyPath, totalPages, sourcePath, afterPage);
+    const pdfData = await readModifiedPdf(workingCopyPath);
+    return {
+        success: true,
+        pdfData,
+    };
+}
+
 export function registerPageOpsHandlers() {
     ipcMain.handle('page-ops:delete', handlePageOpsDelete);
     ipcMain.handle('page-ops:extract', handlePageOpsExtract);
     ipcMain.handle('page-ops:reorder', handlePageOpsReorder);
     ipcMain.handle('page-ops:insert', handlePageOpsInsert);
+    ipcMain.handle('page-ops:insert-file', handlePageOpsInsertFile);
     ipcMain.handle('page-ops:rotate', handlePageOpsRotate);
 }
