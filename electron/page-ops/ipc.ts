@@ -30,6 +30,22 @@ function validateWorkingCopyPath(path: unknown): asserts path is string {
     }
 }
 
+function formatPageRange(pages: number[]) {
+    const sorted = [...pages].sort((a, b) => a - b);
+    const parts: string[] = [];
+    let i = 0;
+    while (i < sorted.length) {
+        const start = sorted[i]!;
+        let end = start;
+        while (i + 1 < sorted.length && sorted[i + 1] === end + 1) {
+            end = sorted[++i]!;
+        }
+        parts.push(start === end ? `${start}` : `${start}-${end}`);
+        i++;
+    }
+    return `p${parts.join(',')}`;
+}
+
 function validatePageNumbers(pages: unknown, label: string): asserts pages is number[] {
     if (!Array.isArray(pages) || pages.length === 0) {
         throw new Error(`${label}: must be a non-empty array of page numbers`);
@@ -76,7 +92,9 @@ async function handlePageOpsExtract(
     validateWorkingCopyPath(workingCopyPath);
     validatePageNumbers(pages, 'extractPages');
 
-    const suggestedName = `${basename(workingCopyPath, extname(workingCopyPath))}-extracted.pdf`;
+    const baseName = basename(workingCopyPath, extname(workingCopyPath));
+    const rangeLabel = formatPageRange(pages);
+    const suggestedName = `${baseName} (${rangeLabel}).pdf`;
     const parentWindow = BrowserWindow.getFocusedWindow();
     const dialogOptions = {
         title: 'Extract Pages',
