@@ -45,7 +45,7 @@ export const usePageOperations = (deps: {
         error.value = null;
         try {
             const api = getElectronAPI();
-            const result = await api.pageOps.delete(workingCopyPath.value, pages, totalPages);
+            const result = await api.pageOps.delete(workingCopyPath.value, [...pages], totalPages);
             if (result.success && result.pdfData) {
                 invalidateCaches();
                 await loadPdfFromData(new Uint8Array(result.pdfData), {
@@ -73,7 +73,7 @@ export const usePageOperations = (deps: {
         error.value = null;
         try {
             const api = getElectronAPI();
-            const result = await api.pageOps.extract(workingCopyPath.value, pages);
+            const result = await api.pageOps.extract(workingCopyPath.value, [...pages]);
             return result.success && !result.canceled;
         } catch (e) {
             console.error('[pageOps] extractPages failed:', e);
@@ -93,7 +93,7 @@ export const usePageOperations = (deps: {
         error.value = null;
         try {
             const api = getElectronAPI();
-            const result = await api.pageOps.rotate(workingCopyPath.value, pages, angle);
+            const result = await api.pageOps.rotate(workingCopyPath.value, [...pages], angle);
             if (result.success && result.pdfData) {
                 invalidateCaches();
                 await loadPdfFromData(new Uint8Array(result.pdfData), {
@@ -149,7 +149,7 @@ export const usePageOperations = (deps: {
         error.value = null;
         try {
             const api = getElectronAPI();
-            const result = await api.pageOps.reorder(workingCopyPath.value, newOrder);
+            const result = await api.pageOps.reorder(workingCopyPath.value, [...newOrder]);
             if (result.success && result.pdfData) {
                 invalidateCaches();
                 await loadPdfFromData(new Uint8Array(result.pdfData), {
