@@ -555,7 +555,7 @@ async function loadFromSource(isReload = false) {
     lifecycle.destroyAnnotationEditor();
 
     console.log('[ROT-DIAG] before loadPdf, basePageWidth=', basePageWidth.value, 'basePageHeight=', basePageHeight.value);
-    const loaded = await loadPdf(src.value);
+    const loaded = await loadPdf(src.value, isSelectiveReload ? { preservePageStructure: true } : undefined);
     if (!loaded) {
         console.log('[ROT-DIAG] loadPdf returned null, aborting');
         return;

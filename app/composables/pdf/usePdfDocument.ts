@@ -34,14 +34,26 @@ export const usePdfDocument = () => {
         return ++renderVersion;
     }
 
-    async function loadPdf(src: TPdfSource) {
+    async function loadPdf(src: TPdfSource, options?: { preservePageStructure?: boolean }) {
+        const savedNumPages = options?.preservePageStructure ? numPages.value : 0;
+        const savedBaseWidth = options?.preservePageStructure ? basePageWidth.value : null;
+        const savedBaseHeight = options?.preservePageStructure ? basePageHeight.value : null;
+
         // Cancel any in-progress load - latest wins
         cleanup();
 
+        if (options?.preservePageStructure) {
+            numPages.value = savedNumPages;
+            basePageWidth.value = savedBaseWidth;
+            basePageHeight.value = savedBaseHeight;
+        }
+
         const version = incrementRenderVersion();
         isLoading.value = true;
-        basePageWidth.value = null;
-        basePageHeight.value = null;
+        if (!options?.preservePageStructure) {
+            basePageWidth.value = null;
+            basePageHeight.value = null;
+        }
 
         if (src instanceof Blob) {
             objectUrl = URL.createObjectURL(src);
