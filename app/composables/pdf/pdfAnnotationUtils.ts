@@ -26,9 +26,15 @@ export interface IPdfjsEditor {
     y?: number;
     width?: number;
     height?: number;
+    isSelected?: boolean;
+    _isDraggable?: boolean;
     _onResized?: () => void;
     _onResizing?: () => void;
+    isInEditMode?: () => boolean;
     updateParams?: (type: number, value: unknown) => void;
+    drag?: (tx: number, ty: number) => void;
+    parentDimensions?: number[];
+    getBaseTranslation?: () => number[];
     setDims?: () => void;
     fixAndSetPosition?: () => void;
     parent?: { div?: HTMLElement };

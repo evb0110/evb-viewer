@@ -1,0 +1,150 @@
+/* Comment tooltips, popup editors, textarea, action buttons, and visibility states */
+
+/* ── Comment Tooltips ──────────────────────────────────────────────── */
+
+.pdfViewer .pdf-annotation-comment-tooltip {
+    position: absolute;
+    z-index: 5;
+    max-width: 260px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    background: var(--ui-bg);
+    color: var(--ui-text);
+    border: 1px solid var(--ui-border);
+    box-shadow:
+        0 6px 16px rgba(15, 23, 42, 0.12),
+        0 2px 6px rgba(15, 23, 42, 0.1);
+    font-size: 12px;
+    line-height: 1.4;
+    opacity: 0;
+    transform: translate3d(0, 4px, 0);
+    transition: opacity 0.12s ease, transform 0.12s ease;
+    pointer-events: none;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+}
+
+.pdfViewer .pdf-annotation-comment-tooltip.is-visible {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+}
+
+.pdfViewer .pdf-annotation-comment-tooltip::before {
+    content: '';
+    position: absolute;
+    left: 14px;
+    bottom: -6px;
+    width: 0;
+    height: 0;
+    border-left: 6px solid transparent;
+    border-right: 6px solid transparent;
+    border-top: 6px solid var(--ui-bg);
+    filter: drop-shadow(0 1px 1px rgba(15, 23, 42, 0.12));
+}
+
+.pdfViewer .pdf-annotation-comment-tooltip.is-below::before {
+    top: -6px;
+    bottom: auto;
+    border-top: none;
+    border-bottom: 6px solid var(--ui-bg);
+    filter: drop-shadow(0 -1px 1px rgba(15, 23, 42, 0.12));
+}
+
+/* ── Popup Comment Editors ─────────────────────────────────────────── */
+
+.pdfViewer .pdf-annotation-comment-popup {
+    position: absolute;
+    z-index: 6;
+    min-width: 180px;
+    max-width: 280px;
+    padding: 12px 14px;
+    border-radius: 8px;
+    background: var(--ui-bg);
+    color: var(--ui-text);
+    border: 1px solid var(--ui-border);
+    box-shadow: var(--shadow-popup);
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+    transition: opacity 0.12s ease, transform 0.12s ease;
+    pointer-events: auto;
+}
+
+.pdfViewer .pdf-annotation-comment-popup::before {
+    content: '';
+    position: absolute;
+    top: -8px;
+    left: 16px;
+    width: 0;
+    height: 0;
+    border-left: 8px solid transparent;
+    border-right: 8px solid transparent;
+    border-bottom: 8px solid var(--ui-bg);
+    filter: drop-shadow(0 -1px 1px rgba(15, 23, 42, 0.08));
+}
+
+.pdfViewer .pdf-annotation-comment-popup.is-hidden {
+    opacity: 0;
+    pointer-events: none;
+    transform: translate3d(0, 6px, 0);
+}
+
+.pdfViewer .pdf-annotation-comment-popup.is-editing .pdf-annotation-comment-popup__text {
+    display: none;
+}
+
+.pdfViewer .pdf-annotation-comment-popup:not(.is-editing) .pdf-annotation-comment-popup__textarea {
+    display: none;
+}
+
+.pdfViewer .pdf-annotation-comment-popup.is-editing .pdf-annotation-comment-popup__btn--edit,
+.pdfViewer .pdf-annotation-comment-popup.is-editing .pdf-annotation-comment-popup__btn--close {
+    display: none;
+}
+
+.pdfViewer .pdf-annotation-comment-popup:not(.is-editing) .pdf-annotation-comment-popup__btn--save,
+.pdfViewer .pdf-annotation-comment-popup:not(.is-editing) .pdf-annotation-comment-popup__btn--cancel {
+    display: none;
+}
+
+.pdfViewer .pdf-annotation-comment-popup__text {
+    font-size: 13px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+}
+
+.pdfViewer .pdf-annotation-comment-popup__textarea {
+    width: 100%;
+    min-height: 84px;
+    margin-top: 8px;
+    border-radius: 8px;
+    border: 1px solid var(--ui-border);
+    background: var(--ui-bg-muted);
+    color: inherit;
+    font-size: 12px;
+    line-height: 1.4;
+    padding: 6px 8px;
+    resize: vertical;
+}
+
+.pdfViewer .pdf-annotation-comment-popup__actions {
+    display: flex;
+    gap: 6px;
+    margin-top: 10px;
+    justify-content: flex-end;
+}
+
+.pdfViewer .pdf-annotation-comment-popup__btn {
+    border-radius: 4px;
+    border: 1px solid var(--ui-border);
+    background: var(--ui-bg-muted);
+    color: inherit;
+    font-size: 12px;
+    padding: 4px 10px;
+    min-height: 26px;
+    cursor: pointer;
+}
+
+.pdfViewer .pdf-annotation-comment-popup__btn:hover {
+    background: var(--ui-bg-accented);
+}

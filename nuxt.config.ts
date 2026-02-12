@@ -8,7 +8,15 @@ export default defineNuxtConfig({
         '@nuxtjs/i18n',
     ],
 
-    css: ['~/assets/css/main.css', '~/assets/css/pdfjs-overrides.css'],
+    css: [
+        '~/assets/css/main.css',
+        '~/assets/css/pdfjs-overrides.css',
+        '~/assets/css/pdf-comment-markers.css',
+        '~/assets/css/pdf-comment-ui.css',
+        '~/assets/css/pdf-search-highlights.css',
+        '~/assets/css/pdf-animations.css',
+        '~/assets/css/pdf-debug-overlays.css',
+    ],
 
     ssr: false,
 

@@ -122,21 +122,18 @@
     border: 1px solid var(--ui-border) !important;
 }
 
-/* CSS Custom Highlight API (global; works with Electron/Chromium). */
-::highlight(pdf-search-match) {
-    background-color: rgb(255 230 0 / 0.5);
+/* Hide the PDF.js edit toolbar on FreeText editors — the app provides
+   its own annotation toolbar and comment UI.  Also hide resizer handles
+   when the editor is not selected (PDF.js normally does this but the
+   timing can be off when our patches run). */
+.pdfViewer .freeTextEditor > .editToolbar,
+.pdf-viewer-container .freeTextEditor > .editToolbar {
+    display: none !important;
 }
 
-::highlight(pdf-search-current-match) {
-    background-color: rgb(255 150 0 / 0.7);
-}
-
-.pdf-viewer-container--dark ::highlight(pdf-search-match) {
-    background-color: rgb(255 230 0 / 0.6);
-}
-
-.pdf-viewer-container--dark ::highlight(pdf-search-current-match) {
-    background-color: rgb(255 150 0 / 0.8);
+.pdfViewer .freeTextEditor:not(.selectedEditor) > .resizers,
+.pdf-viewer-container .freeTextEditor:not(.selectedEditor) > .resizers {
+    display: none !important;
 }
 
 /* Lock cursor to resize direction during FreeText corner resize drag.

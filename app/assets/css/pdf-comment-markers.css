@@ -1,0 +1,188 @@
+/* Comment markers, cluster badges, anchor markers, and note target annotations */
+
+/* ── Comment Marker Layer ──────────────────────────────────────────── */
+
+.pdfViewer .pdf-comment-marker-layer {
+    position: absolute;
+    inset: 0;
+    z-index: 4;
+    pointer-events: none;
+}
+
+/* ── Sticky Note Markers ───────────────────────────────────────────── */
+
+.pdfViewer .pdf-inline-comment-marker {
+    position: absolute;
+    width: 22px;
+    height: 22px;
+    border: 1px solid rgb(150 129 33 / 0.78);
+    border-radius: 3px;
+    transform: translate(-50%, -50%);
+    background: linear-gradient(180deg, #fcf6c6 0%, #efe187 100%);
+    box-shadow:
+        0 2px 5px rgb(0 0 0 / 0.2),
+        inset 0 0 0 1px rgb(255 255 255 / 0.58);
+    cursor: pointer;
+    pointer-events: auto;
+}
+
+.pdfViewer .pdf-inline-comment-marker::before {
+    content: '';
+    position: absolute;
+    inset: 2px;
+    background-color: rgb(110 96 23 / 0.95);
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M4 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 5V5z'/%3E%3C/svg%3E");
+    mask-repeat: no-repeat;
+    mask-position: center;
+    mask-size: contain;
+}
+
+.pdfViewer .pdf-inline-comment-marker::after {
+    content: '';
+    position: absolute;
+    right: 2px;
+    top: 2px;
+    width: 5px;
+    height: 5px;
+    background: linear-gradient(135deg, rgb(255 255 255 / 0.88) 0%, rgb(235 224 145 / 0.95) 100%);
+    clip-path: polygon(0 0, 100% 0, 100% 100%);
+}
+
+.pdfViewer .pdf-inline-comment-marker.is-cluster::after {
+    content: attr(data-comment-count);
+    right: -9px;
+    top: -9px;
+    min-width: 17px;
+    height: 17px;
+    border-radius: 999px;
+    border: 1.5px solid rgb(120 80 10 / 0.75);
+    background: linear-gradient(180deg, #fff 0%, #fde68a 100%);
+    color: rgb(60 40 5);
+    clip-path: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 1;
+    padding: 0 3px;
+    font-variant-numeric: tabular-nums;
+    box-shadow: 0 1px 3px rgb(0 0 0 / 0.22);
+}
+
+.pdfViewer .pdf-inline-comment-marker.is-cluster:hover::after,
+.pdfViewer .pdf-inline-comment-marker.is-cluster.is-active::after {
+    border-color: rgb(100 65 5 / 0.9);
+    box-shadow: 0 1px 4px rgb(0 0 0 / 0.32);
+}
+
+.pdfViewer .pdf-inline-comment-marker:hover {
+    transform: translate(-50%, -50%) scale(1.08);
+}
+
+.pdfViewer .pdf-inline-comment-marker.is-active {
+    border-color: color-mix(in oklab, var(--ui-primary, #3b82f6) 44%, rgb(165 145 41));
+    box-shadow:
+        0 0 0 2px color-mix(in oklab, var(--ui-primary, #3b82f6) 28%, transparent),
+        0 2px 6px rgb(0 0 0 / 0.28),
+        inset 0 0 0 1px rgb(255 255 255 / 0.7);
+}
+
+.pdfViewer .pdf-inline-comment-marker.pdf-comment-focus-pulse {
+    animation: inline-comment-focus-pulse 0.9s ease-out;
+}
+
+/* ── Anchor Markers (on annotations) ───────────────────────────────── */
+
+.pdfViewer .pdf-inline-comment-anchor-marker {
+    position: absolute;
+    right: -13px;
+    top: -13px;
+    width: 22px;
+    height: 22px;
+    border: 1px solid rgb(150 129 33 / 0.78);
+    border-radius: 5px;
+    background: linear-gradient(180deg, #fcf6c6 0%, #efe187 100%);
+    box-shadow:
+        0 1px 4px rgb(0 0 0 / 0.18),
+        inset 0 0 0 1px rgb(255 255 255 / 0.54);
+    cursor: pointer !important;
+    z-index: 9999 !important;
+    pointer-events: auto !important;
+    padding: 0;
+}
+
+.pdfViewer .pdf-inline-comment-anchor-marker::before {
+    content: '';
+    position: absolute;
+    inset: 2px;
+    background-color: rgb(110 96 23 / 0.95);
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M4 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 5V5z'/%3E%3C/svg%3E");
+    mask-repeat: no-repeat;
+    mask-position: center;
+    mask-size: contain;
+}
+
+.pdfViewer .pdf-inline-comment-anchor-marker::after {
+    content: attr(data-comment-count);
+    position: absolute;
+    right: -9px;
+    top: -9px;
+    min-width: 17px;
+    height: 17px;
+    border-radius: 999px;
+    border: 1.5px solid rgb(120 80 10 / 0.75);
+    background: linear-gradient(180deg, #fff 0%, #fde68a 100%);
+    color: rgb(60 40 5);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1;
+    padding: 0 3px;
+    font-variant-numeric: tabular-nums;
+    box-shadow: 0 1px 3px rgb(0 0 0 / 0.22);
+}
+
+/* stylelint-disable-next-line no-descending-specificity -- different element than .pdf-inline-comment-marker */
+.pdfViewer .pdf-inline-comment-anchor-marker.is-cluster::after {
+    display: inline-flex;
+}
+
+.pdfViewer .pdf-inline-comment-anchor-marker:hover {
+    transform: scale(1.08);
+}
+
+.pdfViewer .pdf-inline-comment-anchor-marker.is-active {
+    border-color: color-mix(in oklab, var(--ui-primary, #3b82f6) 44%, rgb(165 145 41));
+    box-shadow:
+        0 0 0 1.5px color-mix(in oklab, var(--ui-primary, #3b82f6) 28%, transparent),
+        0 2px 6px rgb(0 0 0 / 0.24),
+        inset 0 0 0 1px rgb(255 255 255 / 0.68);
+}
+
+.pdfViewer .pdf-inline-comment-anchor-marker.pdf-comment-focus-pulse {
+    animation: inline-comment-focus-pulse 0.9s ease-out;
+}
+
+/* ── Note Target Annotations ───────────────────────────────────────── */
+
+.pdfViewer .pdf-annotation-has-note-target {
+    position: relative;
+    overflow: visible;
+    cursor: pointer;
+    pointer-events: auto !important;
+}
+
+.pdfViewer .pdf-annotation-has-note-target:hover {
+    filter: drop-shadow(0 0 2px rgba(59, 130, 246, 0.28));
+}
+
+.pdfViewer .pdf-annotation-has-note-target.pdf-comment-focus-pulse {
+    animation: inline-comment-focus-pulse 0.9s ease-out;
+}
+
+.pdfViewer .pdf-annotation-has-note-active {
+    filter: drop-shadow(0 0 4px color-mix(in oklab, var(--ui-primary, #3b82f6) 28%, transparent));
+}

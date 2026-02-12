@@ -348,10 +348,11 @@ export function useAnnotationEditorLifecycle(options: IUseAnnotationEditorLifecy
 
         const originalSetSelected = uiManager.setSelected.bind(uiManager);
         uiManager.setSelected = (editor) => {
+            const result = originalSetSelected(editor);
             if (editor) {
                 freeTextResize.ensureFreeTextEditorCanResize(editor as IPdfjsEditor);
             }
-            return originalSetSelected(editor);
+            return result;
         };
 
         const originalUndo = uiManager.undo.bind(uiManager);

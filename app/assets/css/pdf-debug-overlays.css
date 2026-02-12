@@ -1,0 +1,40 @@
+/* OCR word boxes and debug overlay layers */
+
+/* ── Word Boxes Layer ──────────────────────────────────────────────── */
+
+.pdfViewer .pdf-word-boxes-layer {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+}
+
+.pdfViewer .pdf-word-box {
+    position: absolute;
+    border: 1px solid rgba(0, 100, 255, 0.4);
+    background: rgba(0, 100, 255, 0.1);
+    pointer-events: none;
+    box-sizing: border-box;
+}
+
+.pdfViewer .pdf-word-box.pdf-word-box--current {
+    background: rgba(0, 150, 255, 0.25);
+    border-color: rgba(0, 150, 255, 0.8);
+}
+
+/* ── OCR Debug Layer ───────────────────────────────────────────────── */
+
+.pdfViewer .pdf-ocr-debug-layer {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 10;
+}
+
+.pdfViewer .pdf-ocr-debug-box {
+    position: absolute;
+    border: 1px solid rgba(255, 140, 0, 0.7);
+    background: rgba(255, 140, 0, 0.15);
+    pointer-events: none;
+    box-sizing: border-box;
+}

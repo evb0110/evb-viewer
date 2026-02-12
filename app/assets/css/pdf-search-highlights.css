@@ -1,0 +1,45 @@
+/* Search highlights: class-based (.pdf-search-highlight) and CSS Custom Highlight API (::highlight) */
+
+/* ── Class-Based Search Highlights ─────────────────────────────────── */
+
+.pdfViewer .pdf-search-highlight {
+    background-color: rgb(255 230 0 / 0.5);
+    color: transparent;
+    border-radius: 2px;
+    padding: 0;
+    margin: 0;
+}
+
+.pdfViewer .pdf-search-highlight--current {
+    background-color: rgb(255 150 0 / 0.6);
+    outline-offset: 0;
+}
+
+/* ── Dark Mode – Class-Based ───────────────────────────────────────── */
+
+.pdf-viewer-container--dark .pdfViewer .pdf-search-highlight {
+    background-color: rgb(255 230 0 / 0.6);
+}
+
+.pdf-viewer-container--dark .pdfViewer .pdf-search-highlight--current {
+    background-color: rgb(255 150 0 / 0.8);
+    outline: 2px solid rgb(255 100 0 / 0.9);
+}
+
+/* ── CSS Custom Highlight API (Electron/Chromium) ──────────────────── */
+
+::highlight(pdf-search-match) {
+    background-color: rgb(255 230 0 / 0.5);
+}
+
+::highlight(pdf-search-current-match) {
+    background-color: rgb(255 150 0 / 0.7);
+}
+
+.pdf-viewer-container--dark ::highlight(pdf-search-match) {
+    background-color: rgb(255 230 0 / 0.6);
+}
+
+.pdf-viewer-container--dark ::highlight(pdf-search-current-match) {
+    background-color: rgb(255 150 0 / 0.8);
+}

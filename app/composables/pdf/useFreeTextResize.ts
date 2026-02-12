@@ -128,6 +128,39 @@ export function useFreeTextResize(options: IUseFreeTextResizeOptions) {
         }
     }
 
+    function patchFreeTextDrag(editor: IPdfjsEditor) {
+        const tagged = editor as IPdfjsEditor & { __evbDragPatched?: boolean };
+        if (tagged.__evbDragPatched) {
+            return;
+        }
+        tagged.__evbDragPatched = true;
+
+        editor.drag = function (this: IPdfjsEditor, tx: number, ty: number) {
+            const pdims = this.parentDimensions;
+            const parentWidth = pdims?.[0] ?? 0;
+            const parentHeight = pdims?.[1] ?? 0;
+            if (!Number.isFinite(parentWidth) || parentWidth <= 0 || !Number.isFinite(parentHeight) || parentHeight <= 0) {
+                return;
+            }
+            this.x = (this.x ?? 0) + tx / parentWidth;
+            this.y = (this.y ?? 0) + ty / parentHeight;
+
+            let x = this.x ?? 0;
+            let y = this.y ?? 0;
+
+            if (typeof this.getBaseTranslation === 'function') {
+                const base = this.getBaseTranslation();
+                x += base[0] ?? 0;
+                y += base[1] ?? 0;
+            }
+
+            if (this.div) {
+                this.div.style.left = `${(100 * x).toFixed(2)}%`;
+                this.div.style.top = `${(100 * y).toFixed(2)}%`;
+            }
+        };
+    }
+
     function ensureFreeTextEditorInteractivity(editor: IPdfjsEditor) {
         const tagged = editor as IPdfjsEditor & { makeResizable?: () => void };
         const div = editor.div;
@@ -135,16 +168,21 @@ export function useFreeTextResize(options: IUseFreeTextResizeOptions) {
             return;
         }
 
+        const isEditing = typeof editor.isInEditMode === 'function' && editor.isInEditMode();
+
         if (typeof tagged.makeResizable === 'function') {
             tagged.makeResizable();
         }
 
-        div.classList.add('draggable');
-        const overlay = div.querySelector<HTMLElement>('.overlay');
-        if (overlay) {
-            overlay.classList.add('enabled');
+        if (!isEditing) {
+            editor._isDraggable = true;
+            const overlay = div.querySelector<HTMLElement>('.overlay');
+            if (overlay) {
+                overlay.classList.add('enabled');
+            }
         }
 
+        patchFreeTextDrag(editor);
         updateFreeTextResizerSize(editor);
         addResizeCursorManagement(editor);
     }

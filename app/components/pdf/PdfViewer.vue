@@ -785,483 +785,7 @@ defineExpose({
 });
 </script>
 
-<style lang="scss" scoped>
-/* ── Container & Viewer ────────────────────────────────────────────── */
-
-.pdfViewer {
-    position: relative;
-    width: 100%;
-    height: 100%;
-    overflow: auto;
-    background: var(--ui-bg-muted);
-    display: flex;
-    flex-direction: column;
-
-    &.is-placing-comment {
-        cursor: crosshair;
-    }
-
-    &.pdfViewer--fit-height {
-        overflow-x: auto;
-    }
-
-    &.pdfViewer--single-page {
-        scroll-snap-type: y mandatory;
-        scroll-snap-stop: always;
-
-        :deep(.page_container) {
-            scroll-snap-align: center;
-        }
-    }
-
-    &.pdfViewer--hidden {
-        opacity: 0;
-        pointer-events: none;
-    }
-
-    /* Hidden PDF.js UI — Okular-style workflow: comment editing is handled from side reviews + note window. */
-    /* stylelint-disable selector-id-pattern -- pdf.js internal element ID */
-    :deep(.editToolbar),
-    :deep(.annotationCommentButton),
-    :deep(.commentPopup),
-    :deep(#commentManagerDialog) {
-        display: none !important;
-    }
-    /* stylelint-enable selector-id-pattern */
-}
-
-/* ── Drag Mode Cursor Overrides ────────────────────────────────────── */
-
-.pdfViewer.drag-mode {
-    &.is-dragging {
-        cursor: grabbing !important;
-        user-select: none;
-    }
-
-    &:not(.is-dragging) {
-        cursor: grab !important;
-    }
-
-    *,
-    &.is-dragging * {
-        cursor: inherit !important;
-    }
-
-    :deep(.text-layer),
-    :deep(.text-layer span),
-    :deep(.text-layer br),
-    :deep(.annotation-layer a),
-    :deep(.annotation-editor-layer),
-    :deep(.annotationEditorLayer),
-    :deep(.page_container),
-    :deep(.page_container canvas),
-    :deep(.annotationLayer),
-    :deep(.annotationLayer *),
-    :deep(.canvasWrapper) {
-        cursor: inherit !important;
-        user-select: none !important;
-        pointer-events: none !important;
-    }
-}
-
-/* ── Comment Markers & Inline Indicators ───────────────────────────── */
-
-.pdfViewer :deep(.pdf-comment-marker-layer) {
-    position: absolute;
-    inset: 0;
-    z-index: 4;
-    pointer-events: none;
-}
-
-.pdfViewer :deep(.pdf-inline-comment-marker) {
-    position: absolute;
-    width: 22px;
-    height: 22px;
-    border: 1px solid rgb(150 129 33 / 0.78);
-    border-radius: 3px;
-    transform: translate(-50%, -50%);
-    background: linear-gradient(180deg, #fcf6c6 0%, #efe187 100%);
-    box-shadow:
-        0 2px 5px rgb(0 0 0 / 0.2),
-        inset 0 0 0 1px rgb(255 255 255 / 0.58);
-    cursor: pointer;
-    pointer-events: auto;
-
-    &::before {
-        content: '';
-        position: absolute;
-        inset: 2px;
-        background-color: rgb(110 96 23 / 0.95);
-        mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M4 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 5V5z'/%3E%3C/svg%3E");
-        mask-repeat: no-repeat;
-        mask-position: center;
-        mask-size: contain;
-    }
-
-    &::after {
-        content: '';
-        position: absolute;
-        right: 2px;
-        top: 2px;
-        width: 5px;
-        height: 5px;
-        background: linear-gradient(135deg, rgb(255 255 255 / 0.88) 0%, rgb(235 224 145 / 0.95) 100%);
-        clip-path: polygon(0 0, 100% 0, 100% 100%);
-    }
-
-    &.is-cluster::after {
-        content: attr(data-comment-count);
-        right: -9px;
-        top: -9px;
-        min-width: 17px;
-        height: 17px;
-        border-radius: 999px;
-        border: 1.5px solid rgb(120 80 10 / 0.75);
-        background: linear-gradient(180deg, #fff 0%, #fde68a 100%);
-        color: rgb(60 40 5);
-        clip-path: none;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 9px;
-        font-weight: 700;
-        line-height: 1;
-        padding: 0 3px;
-        font-variant-numeric: tabular-nums;
-        box-shadow: 0 1px 3px rgb(0 0 0 / 0.22);
-    }
-
-    &.is-cluster:hover::after,
-    &.is-cluster.is-active::after {
-        border-color: rgb(100 65 5 / 0.9);
-        box-shadow: 0 1px 4px rgb(0 0 0 / 0.32);
-    }
-
-    &:hover {
-        transform: translate(-50%, -50%) scale(1.08);
-    }
-
-    &.is-active {
-        border-color: color-mix(in oklab, var(--ui-primary, #3b82f6) 44%, rgb(165 145 41));
-        box-shadow:
-            0 0 0 2px color-mix(in oklab, var(--ui-primary, #3b82f6) 28%, transparent),
-            0 2px 6px rgb(0 0 0 / 0.28),
-            inset 0 0 0 1px rgb(255 255 255 / 0.7);
-    }
-
-    &.pdf-comment-focus-pulse {
-        animation: inline-comment-focus-pulse 0.9s ease-out;
-    }
-}
-
-.pdfViewer :deep(.pdf-inline-comment-anchor-marker) {
-    position: absolute;
-    right: -13px;
-    top: -13px;
-    width: 22px;
-    height: 22px;
-    border: 1px solid rgb(150 129 33 / 0.78);
-    border-radius: 5px;
-    background: linear-gradient(180deg, #fcf6c6 0%, #efe187 100%);
-    box-shadow:
-        0 1px 4px rgb(0 0 0 / 0.18),
-        inset 0 0 0 1px rgb(255 255 255 / 0.54);
-    cursor: pointer !important;
-    z-index: 9999 !important;
-    pointer-events: auto !important;
-    padding: 0;
-
-    &::before {
-        content: '';
-        position: absolute;
-        inset: 2px;
-        background-color: rgb(110 96 23 / 0.95);
-        mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M4 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 5V5z'/%3E%3C/svg%3E");
-        mask-repeat: no-repeat;
-        mask-position: center;
-        mask-size: contain;
-    }
-
-    &::after {
-        content: attr(data-comment-count);
-        position: absolute;
-        right: -9px;
-        top: -9px;
-        min-width: 17px;
-        height: 17px;
-        border-radius: 999px;
-        border: 1.5px solid rgb(120 80 10 / 0.75);
-        background: linear-gradient(180deg, #fff 0%, #fde68a 100%);
-        color: rgb(60 40 5);
-        display: none;
-        align-items: center;
-        justify-content: center;
-        font-size: 10px;
-        font-weight: 700;
-        line-height: 1;
-        padding: 0 3px;
-        font-variant-numeric: tabular-nums;
-        box-shadow: 0 1px 3px rgb(0 0 0 / 0.22);
-    }
-
-    /* stylelint-disable-next-line no-descending-specificity -- different element than .pdf-inline-comment-marker */
-    &.is-cluster::after {
-        display: inline-flex;
-    }
-
-    &:hover {
-        transform: scale(1.08);
-    }
-
-    &.is-active {
-        border-color: color-mix(in oklab, var(--ui-primary, #3b82f6) 44%, rgb(165 145 41));
-        box-shadow:
-            0 0 0 1.5px color-mix(in oklab, var(--ui-primary, #3b82f6) 28%, transparent),
-            0 2px 6px rgb(0 0 0 / 0.24),
-            inset 0 0 0 1px rgb(255 255 255 / 0.68);
-    }
-
-    &.pdf-comment-focus-pulse {
-        animation: inline-comment-focus-pulse 0.9s ease-out;
-    }
-}
-
-.pdfViewer :deep(.pdf-annotation-has-note-target) {
-    position: relative;
-    overflow: visible;
-    cursor: pointer;
-    pointer-events: auto !important;
-
-    &:hover {
-        filter: drop-shadow(0 0 2px rgba(59, 130, 246, 0.28));
-    }
-
-    &.pdf-comment-focus-pulse {
-        animation: inline-comment-focus-pulse 0.9s ease-out;
-    }
-}
-
-.pdfViewer :deep(.pdf-annotation-has-note-active) {
-    filter: drop-shadow(0 0 4px color-mix(in oklab, var(--ui-primary, #3b82f6) 28%, transparent));
-}
-
-/* ── Comment Tooltips & Popups ─────────────────────────────────────── */
-
-.pdfViewer :deep(.pdf-annotation-comment-tooltip) {
-    position: absolute;
-    z-index: 5;
-    max-width: 260px;
-    padding: 8px 12px;
-    border-radius: 6px;
-    background: var(--ui-bg);
-    color: var(--ui-text);
-    border: 1px solid var(--ui-border);
-    box-shadow:
-        0 6px 16px rgba(15, 23, 42, 0.12),
-        0 2px 6px rgba(15, 23, 42, 0.1);
-    font-size: 12px;
-    line-height: 1.4;
-    opacity: 0;
-    transform: translate3d(0, 4px, 0);
-    transition: opacity 0.12s ease, transform 0.12s ease;
-    pointer-events: none;
-    white-space: pre-wrap;
-    overflow-wrap: break-word;
-
-    &.is-visible {
-        opacity: 1;
-        transform: translate3d(0, 0, 0);
-    }
-
-    &::before {
-        content: '';
-        position: absolute;
-        left: 14px;
-        bottom: -6px;
-        width: 0;
-        height: 0;
-        border-left: 6px solid transparent;
-        border-right: 6px solid transparent;
-        border-top: 6px solid var(--ui-bg);
-        filter: drop-shadow(0 1px 1px rgba(15, 23, 42, 0.12));
-    }
-
-    &.is-below::before {
-        top: -6px;
-        bottom: auto;
-        border-top: none;
-        border-bottom: 6px solid var(--ui-bg);
-        filter: drop-shadow(0 -1px 1px rgba(15, 23, 42, 0.12));
-    }
-}
-
-.pdfViewer :deep(.pdf-annotation-comment-popup) {
-    position: absolute;
-    z-index: 6;
-    min-width: 180px;
-    max-width: 280px;
-    padding: 12px 14px;
-    border-radius: 8px;
-    background: var(--ui-bg);
-    color: var(--ui-text);
-    border: 1px solid var(--ui-border);
-    box-shadow: var(--shadow-popup);
-    opacity: 1;
-    transform: translate3d(0, 0, 0);
-    transition: opacity 0.12s ease, transform 0.12s ease;
-    pointer-events: auto;
-
-    &::before {
-        content: '';
-        position: absolute;
-        top: -8px;
-        left: 16px;
-        width: 0;
-        height: 0;
-        border-left: 8px solid transparent;
-        border-right: 8px solid transparent;
-        border-bottom: 8px solid var(--ui-bg);
-        filter: drop-shadow(0 -1px 1px rgba(15, 23, 42, 0.08));
-    }
-
-    &.is-hidden {
-        opacity: 0;
-        pointer-events: none;
-        transform: translate3d(0, 6px, 0);
-    }
-
-    &.is-editing .pdf-annotation-comment-popup__text {
-        display: none;
-    }
-
-    &:not(.is-editing) .pdf-annotation-comment-popup__textarea {
-        display: none;
-    }
-
-    &.is-editing .pdf-annotation-comment-popup__btn--edit,
-    &.is-editing .pdf-annotation-comment-popup__btn--close {
-        display: none;
-    }
-
-    &:not(.is-editing) .pdf-annotation-comment-popup__btn--save,
-    &:not(.is-editing) .pdf-annotation-comment-popup__btn--cancel {
-        display: none;
-    }
-}
-
-.pdfViewer :deep(.pdf-annotation-comment-popup__text) {
-    font-size: 13px;
-    line-height: 1.5;
-    white-space: pre-wrap;
-    overflow-wrap: break-word;
-}
-
-.pdfViewer :deep(.pdf-annotation-comment-popup__textarea) {
-    width: 100%;
-    min-height: 84px;
-    margin-top: 8px;
-    border-radius: 8px;
-    border: 1px solid var(--ui-border);
-    background: var(--ui-bg-muted);
-    color: inherit;
-    font-size: 12px;
-    line-height: 1.4;
-    padding: 6px 8px;
-    resize: vertical;
-}
-
-.pdfViewer :deep(.pdf-annotation-comment-popup__actions) {
-    display: flex;
-    gap: 6px;
-    margin-top: 10px;
-    justify-content: flex-end;
-}
-
-.pdfViewer :deep(.pdf-annotation-comment-popup__btn) {
-    border-radius: 4px;
-    border: 1px solid var(--ui-border);
-    background: var(--ui-bg-muted);
-    color: inherit;
-    font-size: 12px;
-    padding: 4px 10px;
-    min-height: 26px;
-    cursor: pointer;
-
-    &:hover {
-        background: var(--ui-bg-accented);
-    }
-}
-
-/* ── Markup Subtype Visual Overrides (underline / strikethrough) ──── */
-
-.pdfViewer :deep(.annotationEditorLayer .highlightEditor[class*='pdf-markup-subtype-underline'] .internal),
-.pdfViewer :deep(.annotation-editor-layer .highlightEditor[class*='pdf-markup-subtype-underline'] .internal),
-.pdfViewer :deep(.annotationEditorLayer .highlightEditor[class*='pdf-markup-subtype-strikeout'] .internal),
-.pdfViewer :deep(.annotation-editor-layer .highlightEditor[class*='pdf-markup-subtype-strikeout'] .internal) {
-    opacity: 0 !important;
-}
-
-.pdfViewer :deep(svg.highlight.pdf-markup-subtype-draw-underline),
-.pdfViewer :deep(svg.highlight.pdf-markup-subtype-draw-strikeout) {
-    fill: transparent !important;
-    fill-opacity: 0 !important;
-    mix-blend-mode: normal !important;
-}
-
-.pdfViewer :deep(.annotationEditorLayer .highlightEditor[class*='pdf-markup-subtype-underline']::after),
-.pdfViewer :deep(.annotation-editor-layer .highlightEditor[class*='pdf-markup-subtype-underline']::after) {
-    content: '';
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 7%;
-    border-bottom: max(1.5px, calc(var(--total-scale-factor, 1) * 1px)) solid var(--pdf-markup-subtype-color, #2563eb);
-    pointer-events: none;
-}
-
-.pdfViewer :deep(.annotationEditorLayer .highlightEditor[class*='pdf-markup-subtype-strikeout']::after),
-.pdfViewer :deep(.annotation-editor-layer .highlightEditor[class*='pdf-markup-subtype-strikeout']::after) {
-    content: '';
-    position: absolute;
-    left: 0;
-    right: 0;
-    top: 50%;
-    border-top: max(1.5px, calc(var(--total-scale-factor, 1) * 1px)) solid var(--pdf-markup-subtype-color, #dc2626);
-    pointer-events: none;
-}
-
-/* ── Animations ────────────────────────────────────────────────────── */
-
-@keyframes inline-comment-focus-pulse {
-    0% {
-        filter: drop-shadow(0 0 0 color-mix(in oklab, var(--ui-primary, #3b82f6) 0%, transparent));
-    }
-
-    30% {
-        filter: drop-shadow(0 0 6px color-mix(in oklab, var(--ui-primary, #3b82f6) 42%, transparent));
-    }
-
-    100% {
-        filter: drop-shadow(0 0 0 color-mix(in oklab, var(--ui-primary, #3b82f6) 0%, transparent));
-    }
-}
-
-.pdfViewer :deep(.annotation-focus-pulse) {
-    animation: annotation-focus-pulse 0.9s ease-out;
-    outline: 2px solid color-mix(in oklab, var(--ui-primary, #3b82f6) 80%, white 20%);
-    outline-offset: 2px;
-}
-
-@keyframes annotation-focus-pulse {
-    0% {
-        box-shadow: 0 0 0 0 color-mix(in oklab, var(--ui-primary, #3b82f6) 45%, transparent);
-    }
-
-    100% {
-        box-shadow: 0 0 0 14px transparent;
-    }
-}
-
+<style lang="scss">
 /* ── Page Container & Canvas ───────────────────────────────────────── */
 
 .page_container {
@@ -1285,7 +809,7 @@ defineExpose({
     }
 }
 
-.pdfViewer :deep(.page_container--rendered .pdf-page-skeleton) {
+.pdfViewer .page_container--rendered .pdf-page-skeleton {
     display: none;
 }
 
@@ -1301,7 +825,7 @@ defineExpose({
 
 /* ── Text Layer (PDF.js) ───────────────────────────────────────────── */
 
-.pdfViewer :deep(.text-layer) {
+.pdfViewer .text-layer {
     position: absolute;
     text-align: initial;
     inset: 0;
@@ -1366,24 +890,9 @@ defineExpose({
     }
 }
 
-/* ── Search Highlights ─────────────────────────────────────────────── */
-
-.pdfViewer :deep(.pdf-search-highlight) {
-    background-color: rgb(255 230 0 / 0.5);
-    color: transparent;
-    border-radius: 2px;
-    padding: 0;
-    margin: 0;
-}
-
-.pdfViewer :deep(.pdf-search-highlight--current) {
-    background-color: rgb(255 150 0 / 0.6);
-    outline-offset: 0;
-}
-
 /* ── Annotation Layers ─────────────────────────────────────────────── */
 
-.pdfViewer :deep(.annotation-layer) {
+.pdfViewer .annotation-layer {
     position: absolute;
     inset: 0;
     overflow: hidden;
@@ -1410,40 +919,153 @@ defineExpose({
     }
 }
 
-.pdfViewer :deep(.annotation-editor-layer),
-.pdfViewer :deep(.annotationEditorLayer) {
+.pdfViewer .annotation-editor-layer,
+.pdfViewer .annotationEditorLayer {
     position: absolute;
     inset: 0;
     z-index: 3;
 }
 
+/* ── Container & Viewer ────────────────────────────────────────────── */
+
+.pdfViewer {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    background: var(--ui-bg-muted);
+    display: flex;
+    flex-direction: column;
+
+    &.is-placing-comment {
+        cursor: crosshair;
+    }
+
+    &.pdfViewer--fit-height {
+        overflow-x: auto;
+    }
+
+    &.pdfViewer--single-page {
+        scroll-snap-type: y mandatory;
+        scroll-snap-stop: always;
+    }
+
+    &.pdfViewer--hidden {
+        opacity: 0;
+        pointer-events: none;
+    }
+
+    /* Hidden PDF.js UI — Okular-style workflow: comment editing is handled from side reviews + note window. */
+    /* stylelint-disable selector-id-pattern -- pdf.js internal element ID */
+    .editToolbar,
+    .annotationCommentButton,
+    .commentPopup,
+    #commentManagerDialog {
+        display: none !important;
+    }
+    /* stylelint-enable selector-id-pattern */
+}
+
+/* ── Drag Mode Cursor Overrides ────────────────────────────────────── */
+
+.pdfViewer.drag-mode {
+    &.is-dragging {
+        cursor: grabbing !important;
+        user-select: none;
+    }
+
+    &:not(.is-dragging) {
+        cursor: grab !important;
+    }
+
+    *,
+    &.is-dragging * {
+        cursor: inherit !important;
+    }
+
+    /* stylelint-disable no-descending-specificity -- drag mode uses !important on all props; specificity order is irrelevant */
+    .text-layer,
+    .text-layer span,
+    .text-layer br,
+    .annotation-layer a,
+    .annotation-editor-layer,
+    .annotationEditorLayer,
+    .page_container,
+    .page_container canvas,
+    .annotationLayer,
+    .annotationLayer *,
+    .canvasWrapper {
+        cursor: inherit !important;
+        user-select: none !important;
+        pointer-events: none !important;
+    }
+    /* stylelint-enable no-descending-specificity */
+}
+
+/* ── Markup Subtype Visual Overrides (underline / strikethrough) ──── */
+
+.pdfViewer .annotationEditorLayer .highlightEditor[class*='pdf-markup-subtype-underline'] .internal,
+.pdfViewer .annotation-editor-layer .highlightEditor[class*='pdf-markup-subtype-underline'] .internal,
+.pdfViewer .annotationEditorLayer .highlightEditor[class*='pdf-markup-subtype-strikeout'] .internal,
+.pdfViewer .annotation-editor-layer .highlightEditor[class*='pdf-markup-subtype-strikeout'] .internal {
+    opacity: 0 !important;
+}
+
+.pdfViewer svg.highlight.pdf-markup-subtype-draw-underline,
+.pdfViewer svg.highlight.pdf-markup-subtype-draw-strikeout {
+    fill: transparent !important;
+    fill-opacity: 0 !important;
+    mix-blend-mode: normal !important;
+}
+
+.pdfViewer .annotationEditorLayer .highlightEditor[class*='pdf-markup-subtype-underline']::after,
+.pdfViewer .annotation-editor-layer .highlightEditor[class*='pdf-markup-subtype-underline']::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 7%;
+    border-bottom: max(1.5px, calc(var(--total-scale-factor, 1) * 1px)) solid var(--pdf-markup-subtype-color, #2563eb);
+    pointer-events: none;
+}
+
+.pdfViewer .annotationEditorLayer .highlightEditor[class*='pdf-markup-subtype-strikeout']::after,
+.pdfViewer .annotation-editor-layer .highlightEditor[class*='pdf-markup-subtype-strikeout']::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 50%;
+    border-top: max(1.5px, calc(var(--total-scale-factor, 1) * 1px)) solid var(--pdf-markup-subtype-color, #dc2626);
+    pointer-events: none;
+}
+
 /* ── Dark Mode (Invert Colors) Overrides ───────────────────────────── */
 
 .pdf-viewer-container--dark {
-    :deep(.text-layer ::selection) {
+    .text-layer ::selection {
         background: rgb(255 200 0 / 0.35);
     }
 
-    :deep(.pdf-search-highlight) {
-        background-color: rgb(255 230 0 / 0.6);
-    }
-
-    :deep(.pdf-search-highlight--current) {
-        background-color: rgb(255 150 0 / 0.8);
-        outline: 2px solid rgb(255 100 0 / 0.9);
-    }
-
+    /* stylelint-disable no-descending-specificity -- dark mode filter targets different properties than drag mode */
     .page_container,
     .page_container canvas {
         filter: invert(1) hue-rotate(180deg) saturate(1.05);
     }
+    /* stylelint-enable no-descending-specificity */
 
     .pdfViewer {
         background: var(--color-neutral-900);
     }
 }
 
-:global(.page) {
+/* ── Single-Page Snap (after dark mode to satisfy specificity order) ── */
+
+.pdfViewer.pdfViewer--single-page .page_container {
+    scroll-snap-align: center;
+}
+
+.page {
     margin: 1px auto -3px !important;
     border: 1px dashed transparent !important;
     box-shadow: var(--pdf-page-shadow);
@@ -1452,46 +1074,9 @@ defineExpose({
     position: relative;
 }
 
-/* ── Debug Boxes (Word / OCR) ──────────────────────────────────────── */
-
-.pdfViewer :deep(.pdf-word-boxes-layer) {
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    z-index: 0;
-}
-
-.pdfViewer :deep(.pdf-word-box) {
-    position: absolute;
-    border: 1px solid rgba(0, 100, 255, 0.4);
-    background: rgba(0, 100, 255, 0.1);
-    pointer-events: none;
-    box-sizing: border-box;
-
-    &.pdf-word-box--current {
-        background: rgba(0, 150, 255, 0.25);
-        border-color: rgba(0, 150, 255, 0.8);
-    }
-}
-
-.pdfViewer :deep(.pdf-ocr-debug-layer) {
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    z-index: 10;
-}
-
-.pdfViewer :deep(.pdf-ocr-debug-box) {
-    position: absolute;
-    border: 1px solid rgba(255, 140, 0, 0.7);
-    background: rgba(255, 140, 0, 0.15);
-    pointer-events: none;
-    box-sizing: border-box;
-}
-
 /* ── FreeText Editor & Resize Handles ──────────────────────────────── */
 
-.pdfViewer :deep(.freeTextEditor) {
+.pdfViewer .freeTextEditor {
     --resizer-size: var(--evb-resizer-size, clamp(6px, calc(8px / var(--total-scale-factor, 1)), 10px));
     --resizer-shift: calc(
         0px - (var(--outline-width, 1px) + var(--resizer-size)) / 2 - var(--outline-around-width, 0px)
@@ -1544,17 +1129,17 @@ defineExpose({
     }
 }
 
-.pdfViewer :deep(.annotationEditorLayer.disabled.nonEditing .freeTextEditor),
-.pdfViewer :deep(.annotation-editor-layer.disabled.nonEditing .freeTextEditor) {
+.pdfViewer .annotationEditorLayer.disabled.nonEditing .freeTextEditor,
+.pdfViewer .annotation-editor-layer.disabled.nonEditing .freeTextEditor {
     pointer-events: auto !important;
 }
 
-.pdfViewer :deep(.annotationEditorLayer.disabled.nonEditing .freeTextEditor > .resizers),
-.pdfViewer :deep(.annotation-editor-layer.disabled.nonEditing .freeTextEditor > .resizers),
-.pdfViewer :deep(.annotationEditorLayer.disabled.nonEditing .freeTextEditor > .resizers > .resizer),
-.pdfViewer :deep(.annotation-editor-layer.disabled.nonEditing .freeTextEditor > .resizers > .resizer),
-.pdfViewer :deep(.annotationEditorLayer.disabled.nonEditing .freeTextEditor .overlay),
-.pdfViewer :deep(.annotation-editor-layer.disabled.nonEditing .freeTextEditor .overlay) {
+.pdfViewer .annotationEditorLayer.disabled.nonEditing .freeTextEditor > .resizers,
+.pdfViewer .annotation-editor-layer.disabled.nonEditing .freeTextEditor > .resizers,
+.pdfViewer .annotationEditorLayer.disabled.nonEditing .freeTextEditor > .resizers > .resizer,
+.pdfViewer .annotation-editor-layer.disabled.nonEditing .freeTextEditor > .resizers > .resizer,
+.pdfViewer .annotationEditorLayer.disabled.nonEditing .freeTextEditor .overlay,
+.pdfViewer .annotation-editor-layer.disabled.nonEditing .freeTextEditor .overlay {
     pointer-events: auto !important;
 }
 </style>

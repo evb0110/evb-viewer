@@ -1,0 +1,31 @@
+/* Focus pulse animations for comment markers and annotations */
+
+@keyframes inline-comment-focus-pulse {
+    0% {
+        filter: drop-shadow(0 0 0 color-mix(in oklab, var(--ui-primary, #3b82f6) 0%, transparent));
+    }
+
+    30% {
+        filter: drop-shadow(0 0 6px color-mix(in oklab, var(--ui-primary, #3b82f6) 42%, transparent));
+    }
+
+    100% {
+        filter: drop-shadow(0 0 0 color-mix(in oklab, var(--ui-primary, #3b82f6) 0%, transparent));
+    }
+}
+
+@keyframes annotation-focus-pulse {
+    0% {
+        box-shadow: 0 0 0 0 color-mix(in oklab, var(--ui-primary, #3b82f6) 45%, transparent);
+    }
+
+    100% {
+        box-shadow: 0 0 0 14px transparent;
+    }
+}
+
+.pdfViewer .annotation-focus-pulse {
+    animation: annotation-focus-pulse 0.9s ease-out;
+    outline: 2px solid color-mix(in oklab, var(--ui-primary, #3b82f6) 80%, white 20%);
+    outline-offset: 2px;
+}
