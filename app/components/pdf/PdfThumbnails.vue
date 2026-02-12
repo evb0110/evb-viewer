@@ -2,6 +2,7 @@
     <div
         ref="containerRef"
         class="pdf-thumbnails"
+        :class="{ 'is-reorder-dragging': isDragging }"
     >
         <div
             v-for="page in totalPages"
@@ -10,9 +11,14 @@
             :class="{
                 'is-active': page === currentPage,
                 'is-selected': isSelected(page),
+                'is-dragged': isDragging && draggedPages.includes(page),
+                'is-drop-before': isDragging && dropInsertIndex === page - 1,
+                'is-drop-after': isDragging && page === totalPages && dropInsertIndex === totalPages,
             }"
             :data-page="page"
+            @mousedown="handleDragMouseDown($event, page)"
             @click="handleThumbnailClick($event, page)"
+            @contextmenu.prevent="handleThumbnailContextMenu($event, page)"
         >
             <canvas class="pdf-thumbnail-canvas" />
             <span class="pdf-thumbnail-number">{{ getPageIndicator(page) }}</span>
@@ -34,6 +40,7 @@ import { isPdfDocumentUsable } from '@app/utils/pdf-document-guard';
 import { formatPageIndicator } from '@app/utils/pdf-page-labels';
 import { THUMBNAIL_WIDTH } from '@app/constants/pdf-layout';
 import { useMultiSelection } from '@app/composables/useMultiSelection';
+import { usePageDragDrop } from '@app/composables/pdf/usePageDragDrop';
 
 interface IProps {
     pdfDocument: PDFDocumentProxy | null;
@@ -48,6 +55,12 @@ const props = defineProps<IProps>();
 const emit = defineEmits<{
     (e: 'go-to-page', page: number): void;
     (e: 'update:selected-pages', pages: number[]): void;
+    (e: 'page-context-menu', payload: {
+        clientX: number;
+        clientY: number;
+        pages: number[]
+    }): void;
+    (e: 'reorder', newOrder: number[]): void;
 }>();
 
 const containerRef = ref<HTMLElement | null>(null);
@@ -57,6 +70,19 @@ const renderTasks = new Map<number, RenderTask>();
 let renderRunId = 0;
 
 const multiSelection = useMultiSelection<number>();
+
+const {
+    isDragging,
+    draggedPages,
+    dropInsertIndex,
+    handleMouseDown: handleDragMouseDown,
+    consumeClickSkip,
+} = usePageDragDrop({
+    containerRef,
+    totalPages: toRef(props, 'totalPages'),
+    selectedPages: computed(() => props.selectedPages ?? []),
+    onReorder: (newOrder) => emit('reorder', newOrder),
+});
 
 function normalizeSelectedPages(pages: number[]) {
     const unique = new Set<number>();
@@ -85,6 +111,10 @@ function isSelected(page: number) {
 }
 
 function handleThumbnailClick(event: MouseEvent, page: number) {
+    if (consumeClickSkip()) {
+        return;
+    }
+
     const allPages = Array.from({ length: props.totalPages }, (_, i) => i + 1);
     multiSelection.toggle(page, allPages, {
         shift: event.shiftKey,
@@ -93,6 +123,20 @@ function handleThumbnailClick(event: MouseEvent, page: number) {
     const normalized = normalizeSelectedPages(Array.from(multiSelection.selected.value));
     emit('update:selected-pages', normalized);
     emit('go-to-page', page);
+}
+
+function handleThumbnailContextMenu(event: MouseEvent, page: number) {
+    if (!isSelected(page)) {
+        multiSelection.selected.value = new Set([page]);
+        multiSelection.anchor.value = page;
+        emit('update:selected-pages', [page]);
+    }
+    const pages = normalizeSelectedPages(Array.from(multiSelection.selected.value));
+    emit('page-context-menu', {
+        clientX: event.clientX,
+        clientY: event.clientY,
+        pages,
+    });
 }
 
 function getCanvas(pageNum: number): HTMLCanvasElement | null {
@@ -287,6 +331,7 @@ onBeforeUnmount(() => {
 }
 
 .pdf-thumbnail {
+    position: relative;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -335,5 +380,35 @@ onBeforeUnmount(() => {
 
 .pdf-thumbnail.is-selected .pdf-thumbnail-number {
     color: var(--ui-primary);
+}
+
+.pdf-thumbnail.is-dragged {
+    opacity: 0.35;
+}
+
+.pdf-thumbnail.is-drop-before::before {
+    content: '';
+    position: absolute;
+    top: -5px;
+    left: 8px;
+    right: 8px;
+    height: 2px;
+    background: var(--ui-primary);
+    border-radius: 1px;
+}
+
+.pdf-thumbnail.is-drop-after::after {
+    content: '';
+    position: absolute;
+    bottom: -5px;
+    left: 8px;
+    right: 8px;
+    height: 2px;
+    background: var(--ui-primary);
+    border-radius: 1px;
+}
+
+.pdf-thumbnails.is-reorder-dragging .pdf-thumbnail {
+    cursor: grabbing;
 }
 </style>

@@ -136,6 +136,46 @@ function getEditMenu(): MenuItemConstructorOptions {
     };
 }
 
+function getPagesMenu(): MenuItemConstructorOptions {
+    return {
+        label: 'Pages',
+        submenu: [
+            {
+                label: 'Delete Selected Pages',
+                click: (_, window) => {
+                    sendToWindow(window, 'menu:deletePages');
+                },
+            },
+            {
+                label: 'Extract Selected Pages...',
+                click: (_, window) => {
+                    sendToWindow(window, 'menu:extractPages');
+                },
+            },
+            { type: 'separator' },
+            {
+                label: 'Rotate Clockwise',
+                click: (_, window) => {
+                    sendToWindow(window, 'menu:rotateCw');
+                },
+            },
+            {
+                label: 'Rotate Counterclockwise',
+                click: (_, window) => {
+                    sendToWindow(window, 'menu:rotateCcw');
+                },
+            },
+            { type: 'separator' },
+            {
+                label: 'Insert Pages...',
+                click: (_, window) => {
+                    sendToWindow(window, 'menu:insertPages');
+                },
+            },
+        ],
+    };
+}
+
 function getViewMenu(): MenuItemConstructorOptions {
     return {
         label: 'View',
@@ -230,6 +270,7 @@ function buildMenuTemplate(): MenuItemConstructorOptions[] {
     template.push(
         getFileMenu(),
         getEditMenu(),
+        getPagesMenu(),
         getViewMenu(),
         getWindowMenu(),
         getHelpMenu(),

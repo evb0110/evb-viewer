@@ -380,5 +380,45 @@ if (!__preloadAlreadyInstalled) {
             return () => ipcRenderer.removeListener('menu:openSettings', handler);
         },
 
+        onMenuDeletePages: (callback: IMenuEventCallback): IMenuEventUnsubscribe => {
+            const handler = (_event: IpcRendererEvent) => callback();
+            ipcRenderer.on('menu:deletePages', handler);
+            return () => ipcRenderer.removeListener('menu:deletePages', handler);
+        },
+        onMenuExtractPages: (callback: IMenuEventCallback): IMenuEventUnsubscribe => {
+            const handler = (_event: IpcRendererEvent) => callback();
+            ipcRenderer.on('menu:extractPages', handler);
+            return () => ipcRenderer.removeListener('menu:extractPages', handler);
+        },
+        onMenuRotateCw: (callback: IMenuEventCallback): IMenuEventUnsubscribe => {
+            const handler = (_event: IpcRendererEvent) => callback();
+            ipcRenderer.on('menu:rotateCw', handler);
+            return () => ipcRenderer.removeListener('menu:rotateCw', handler);
+        },
+        onMenuRotateCcw: (callback: IMenuEventCallback): IMenuEventUnsubscribe => {
+            const handler = (_event: IpcRendererEvent) => callback();
+            ipcRenderer.on('menu:rotateCcw', handler);
+            return () => ipcRenderer.removeListener('menu:rotateCcw', handler);
+        },
+        onMenuInsertPages: (callback: IMenuEventCallback): IMenuEventUnsubscribe => {
+            const handler = (_event: IpcRendererEvent) => callback();
+            ipcRenderer.on('menu:insertPages', handler);
+            return () => ipcRenderer.removeListener('menu:insertPages', handler);
+        },
+
+        // Page Operations API
+        pageOps: {
+            delete: (workingCopyPath: string, pages: number[], totalPages: number) =>
+                ipcRenderer.invoke('page-ops:delete', workingCopyPath, pages, totalPages),
+            extract: (workingCopyPath: string, pages: number[]) =>
+                ipcRenderer.invoke('page-ops:extract', workingCopyPath, pages),
+            reorder: (workingCopyPath: string, newOrder: number[]) =>
+                ipcRenderer.invoke('page-ops:reorder', workingCopyPath, newOrder),
+            insert: (workingCopyPath: string, totalPages: number, afterPage: number) =>
+                ipcRenderer.invoke('page-ops:insert', workingCopyPath, totalPages, afterPage),
+            rotate: (workingCopyPath: string, pages: number[], angle: number) =>
+                ipcRenderer.invoke('page-ops:rotate', workingCopyPath, pages, angle),
+        },
+
     });
 }

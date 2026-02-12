@@ -204,6 +204,19 @@
     "minutesAgo": "{count} мин. назад",
     "justNow": "Только что"
   },
+  "pageOps": {
+    "deletePages": "Удалить страницы",
+    "extractPages": "Извлечь в новый PDF",
+    "rotateCw": "Повернуть по часовой",
+    "rotateCcw": "Повернуть против часовой",
+    "insertBefore": "Вставить страницы перед",
+    "insertAfter": "Вставить страницы после",
+    "selectAll": "Выделить все",
+    "invertSelection": "Инвертировать выделение",
+    "pagesSelected": "{count} страница выбрана | {count} страницы выбрано | {count} страниц выбрано",
+    "deselect": "Снять выделение",
+    "operationInProgress": "Обработка страниц..."
+  },
   "settings": {
     "title": "Настройки",
     "author": "Имя автора",

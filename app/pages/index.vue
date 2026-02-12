@@ -142,6 +142,7 @@
                     :annotation-active-comment-stable-key="annotationActiveCommentStableKey"
                     :annotation-placing-page-note="annotationPlacingPageNote"
                     :bookmark-edit-mode="bookmarkEditMode"
+                    :is-page-operation-in-progress="isPageOperationInProgress"
                     @search="handleSearch"
                     @next="handleSearchNext"
                     @previous="handleSearchPrevious"
@@ -159,6 +160,12 @@
                     @annotation-delete-comment="handleDeleteAnnotationComment"
                     @bookmarks-change="handleBookmarksChange"
                     @update:bookmark-edit-mode="bookmarkEditMode = $event"
+                    @page-context-menu="showPageContextMenu"
+                    @page-rotate-cw="(pages) => pageOpsRotate(pages, 90)"
+                    @page-rotate-ccw="(pages) => pageOpsRotate(pages, 270)"
+                    @page-extract="(pages) => pageOpsExtract(pages)"
+                    @page-delete="(pages) => pageOpsDelete(pages, totalPages)"
+                    @page-reorder="(order) => pageOpsReorder(order)"
                 />
                 <div
                     class="sidebar-resizer"
@@ -251,6 +258,19 @@
             @create-free-note="createContextMenuFreeNote"
             @create-selection-note="createContextMenuSelectionNote"
         />
+        <PdfPageContextMenu
+            :menu="pageContextMenu"
+            :style="pageContextMenuStyle"
+            :is-operation-in-progress="isPageOperationInProgress"
+            @delete-pages="handlePageContextMenuDelete"
+            @extract-pages="handlePageContextMenuExtract"
+            @rotate-cw="handlePageContextMenuRotateCw"
+            @rotate-ccw="handlePageContextMenuRotateCcw"
+            @insert-before="handlePageContextMenuInsertBefore"
+            @insert-after="handlePageContextMenuInsertAfter"
+            @select-all="handlePageContextMenuSelectAll"
+            @invert-selection="handlePageContextMenuInvertSelection"
+        />
 
         <PdfAnnotationProperties
             :shape="selectedShapeForProperties"
@@ -291,6 +311,8 @@ import { formatBytes } from '@app/utils/formatters';
 import { waitUntilIdle } from '@app/utils/async-helpers';
 import { useSidebarResize } from '@app/composables/useSidebarResize';
 import { useAnnotationContextMenu } from '@app/composables/pdf/useAnnotationContextMenu';
+import { usePageContextMenu } from '@app/composables/pdf/usePageContextMenu';
+import { usePageOperations } from '@app/composables/pdf/usePageOperations';
 import { usePdfSerialization } from '@app/composables/pdf/usePdfSerialization';
 import { rewriteBookmarks } from '@app/composables/pdf/usePdfBookmarkSerialization';
 import { useAnnotationNoteWindows } from '@app/composables/pdf/useAnnotationNoteWindows';
@@ -470,6 +492,7 @@ function isTypingTarget(target: EventTarget | null) {
 function handleGlobalShortcut(event: KeyboardEvent) {
     if (event.key === 'Escape') {
         closeAnnotationContextMenu();
+        closePageContextMenu();
         closeShapeProperties();
         pdfViewerRef.value?.cancelCommentPlacement();
         annotationPlacingPageNote.value = false;
@@ -563,6 +586,12 @@ function handleGlobalPointerDown(event: PointerEvent) {
             closeAnnotationContextMenu();
         }
     }
+
+    if (pageContextMenu.value.visible) {
+        if (!target?.closest('.page-context-menu')) {
+            closePageContextMenu();
+        }
+    }
 }
 
 onMounted(() => {
@@ -592,6 +621,25 @@ onMounted(() => {
             }),
             window.electronAPI.onMenuOpenSettings(() => {
                 showSettings.value = true;
+            }),
+            window.electronAPI.onMenuDeletePages(() => {
+                const pages = sidebarRef.value?.selectedThumbnailPages ?? [];
+                if (pages.length > 0) void pageOpsDelete(pages, totalPages.value);
+            }),
+            window.electronAPI.onMenuExtractPages(() => {
+                const pages = sidebarRef.value?.selectedThumbnailPages ?? [];
+                if (pages.length > 0) void pageOpsExtract(pages);
+            }),
+            window.electronAPI.onMenuRotateCw(() => {
+                const pages = sidebarRef.value?.selectedThumbnailPages ?? [];
+                if (pages.length > 0) void pageOpsRotate(pages, 90);
+            }),
+            window.electronAPI.onMenuRotateCcw(() => {
+                const pages = sidebarRef.value?.selectedThumbnailPages ?? [];
+                if (pages.length > 0) void pageOpsRotate(pages, 270);
+            }),
+            window.electronAPI.onMenuInsertPages(() => {
+                void pageOpsInsert(totalPages.value, totalPages.value);
             }),
         );
 
@@ -645,7 +693,12 @@ const zoomDropdownRef = ref<{ close: () => void } | null>(null);
 const pageDropdownRef = ref<{ close: () => void } | null>(null);
 const ocrPopupRef = ref<IOcrPopupExpose | null>(null);
 const overflowMenuRef = ref<{ close: () => void } | null>(null);
-const sidebarRef = ref<{ focusSearch: () => void | Promise<void> } | null>(null);
+const sidebarRef = ref<{
+    focusSearch: () => void | Promise<void>;
+    selectAllPages: () => void;
+    invertPageSelection: () => void;
+    selectedThumbnailPages: number[];
+} | null>(null);
 const pdfToolbarRef = ref<{ toolbarRef: HTMLElement | null } | null>(null);
 
 const {
@@ -712,6 +765,12 @@ const {
     closeAnnotationContextMenu,
     showAnnotationContextMenu,
 } = useAnnotationContextMenu({ t });
+const {
+    pageContextMenu,
+    pageContextMenuStyle,
+    showPageContextMenu,
+    closePageContextMenu,
+} = usePageContextMenu();
 const annotationEditorState = ref<IAnnotationEditorState>({
     isEditing: false,
     isEmpty: true,
@@ -1129,12 +1188,72 @@ const {
     rewriteBookmarks: (data) => rewriteBookmarks(data, {
         bookmarksDirty,
         bookmarkItems,
-        totalPages, 
+        totalPages,
     }),
     persistAllAnnotationNotes,
     annotationNoteWindowsCount: computed(() => annotationNoteWindows.value.length),
     loadRecentFiles,
 });
+
+const {
+    isOperationInProgress: isPageOperationInProgress,
+    deletePages: pageOpsDelete,
+    extractPages: pageOpsExtract,
+    rotatePages: pageOpsRotate,
+    insertPages: pageOpsInsert,
+    reorderPages: pageOpsReorder,
+} = usePageOperations({
+    workingCopyPath,
+    loadPdfFromData,
+    clearOcrCache: (path: string) => clearOcrCache(path),
+    resetSearchCache,
+});
+
+function handlePageContextMenuDelete() {
+    const pages = pageContextMenu.value.pages;
+    closePageContextMenu();
+    void pageOpsDelete(pages, totalPages.value);
+}
+
+function handlePageContextMenuExtract() {
+    const pages = pageContextMenu.value.pages;
+    closePageContextMenu();
+    void pageOpsExtract(pages);
+}
+
+function handlePageContextMenuRotateCw() {
+    const pages = pageContextMenu.value.pages;
+    closePageContextMenu();
+    void pageOpsRotate(pages, 90);
+}
+
+function handlePageContextMenuRotateCcw() {
+    const pages = pageContextMenu.value.pages;
+    closePageContextMenu();
+    void pageOpsRotate(pages, 270);
+}
+
+function handlePageContextMenuInsertBefore() {
+    const pages = pageContextMenu.value.pages;
+    closePageContextMenu();
+    void pageOpsInsert(totalPages.value, Math.min(...pages) - 1);
+}
+
+function handlePageContextMenuInsertAfter() {
+    const pages = pageContextMenu.value.pages;
+    closePageContextMenu();
+    void pageOpsInsert(totalPages.value, Math.max(...pages));
+}
+
+function handlePageContextMenuSelectAll() {
+    closePageContextMenu();
+    sidebarRef.value?.selectAllPages();
+}
+
+function handlePageContextMenuInvertSelection() {
+    closePageContextMenu();
+    sidebarRef.value?.invertPageSelection();
+}
 
 async function handleCommentSelection() {
     if (!pdfViewerRef.value) {
@@ -1488,6 +1607,7 @@ watch(pdfSrc, (newSrc, oldSrc) => {
         bookmarksDirty.value = false;
         bookmarkEditMode.value = false;
         closeAnnotationContextMenu();
+        closePageContextMenu();
         void closeAllAnnotationNotes({ saveIfDirty: false });
     }
     if (!newSrc) {
@@ -1504,6 +1624,7 @@ watch(pdfSrc, (newSrc, oldSrc) => {
         bookmarkEditMode.value = false;
         pdfViewerRef.value?.clearShapes();
         closeAnnotationContextMenu();
+        closePageContextMenu();
         void closeAllAnnotationNotes({ saveIfDirty: false });
         resetAnnotationTracking();
         annotationEditorState.value = {

@@ -204,6 +204,19 @@
     "minutesAgo": "{count} minutes ago",
     "justNow": "Just now"
   },
+  "pageOps": {
+    "deletePages": "Delete Pages",
+    "extractPages": "Extract to New PDF",
+    "rotateCw": "Rotate Clockwise",
+    "rotateCcw": "Rotate Counterclockwise",
+    "insertBefore": "Insert Pages Before",
+    "insertAfter": "Insert Pages After",
+    "selectAll": "Select All",
+    "invertSelection": "Invert Selection",
+    "pagesSelected": "{count} page selected | {count} pages selected",
+    "deselect": "Deselect All",
+    "operationInProgress": "Processing pages..."
+  },
   "settings": {
     "title": "Settings",
     "author": "Author Name",

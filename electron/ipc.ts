@@ -28,6 +28,7 @@ import {
 } from 'path';
 import { registerOcrHandlers } from '@electron/ocr/ipc';
 import { registerSearchHandlers } from '@electron/search/ipc';
+import { registerPageOpsHandlers } from '@electron/page-ops/ipc';
 import type { ISettingsData } from '@app/types/shared';
 import {
     loadSettings,
@@ -114,6 +115,7 @@ export function registerIpcHandlers() {
 
     registerOcrHandlers();
     registerSearchHandlers();
+    registerPageOpsHandlers();
 }
 
 async function handleOpenPdfDirect(

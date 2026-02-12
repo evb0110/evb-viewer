@@ -44,6 +44,15 @@
                 v-show="activeTab === 'thumbnails'"
                 class="pdf-sidebar-pages"
             >
+                <PdfPageSelectionBar
+                    :selected-count="selectedThumbnailPages.length"
+                    :is-operation-in-progress="props.isPageOperationInProgress ?? false"
+                    @rotate-cw="emit('page-rotate-cw', selectedThumbnailPages)"
+                    @rotate-ccw="emit('page-rotate-ccw', selectedThumbnailPages)"
+                    @extract-pages="emit('page-extract', selectedThumbnailPages)"
+                    @delete-pages="emit('page-delete', selectedThumbnailPages)"
+                    @deselect="clearPageSelection"
+                />
                 <div class="pdf-sidebar-pages-thumbnails app-scrollbar">
                     <PdfThumbnails
                         :pdf-document="pdfDocument"
@@ -53,6 +62,8 @@
                         :selected-pages="selectedThumbnailPages"
                         @go-to-page="emit('goToPage', $event)"
                         @update:selected-pages="handleSelectedPagesUpdate"
+                        @page-context-menu="emit('page-context-menu', $event)"
+                        @reorder="emit('page-reorder', $event)"
                     />
                 </div>
 
@@ -277,6 +288,7 @@ interface IProps {
     annotationActiveCommentStableKey?: string | null;
     annotationPlacingPageNote?: boolean;
     bookmarkEditMode: boolean;
+    isPageOperationInProgress?: boolean;
 }
 
 const { t } = useI18n();
@@ -317,6 +329,16 @@ const emit = defineEmits<{
         bookmarks: IPdfBookmarkEntry[];
         dirty: boolean;
     }): void;
+    (e: 'page-context-menu', payload: {
+        clientX: number;
+        clientY: number;
+        pages: number[] 
+    }): void;
+    (e: 'page-rotate-cw', pages: number[]): void;
+    (e: 'page-rotate-ccw', pages: number[]): void;
+    (e: 'page-extract', pages: number[]): void;
+    (e: 'page-delete', pages: number[]): void;
+    (e: 'page-reorder', newOrder: number[]): void;
 }>();
 
 type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'bookmarks' | 'search';
@@ -482,11 +504,39 @@ async function focusSearch() {
     searchBarRef.value?.focus();
 }
 
-defineExpose({ focusSearch });
+function selectAllPages() {
+    if (props.totalPages <= 0) {
+        return;
+    }
+    const allPages = Array.from({ length: props.totalPages }, (_, i) => i + 1);
+    selectedThumbnailPages.value = allPages;
+}
+
+function invertPageSelection() {
+    if (props.totalPages <= 0) {
+        return;
+    }
+    const currentSet = new Set(selectedThumbnailPages.value);
+    const inverted: number[] = [];
+    for (let page = 1; page <= props.totalPages; page += 1) {
+        if (!currentSet.has(page)) {
+            inverted.push(page);
+        }
+    }
+    selectedThumbnailPages.value = inverted;
+}
+
+defineExpose({
+    focusSearch,
+    selectAllPages,
+    invertPageSelection,
+    selectedThumbnailPages, 
+});
 
 function handleSelectedPagesUpdate(pages: number[]) {
     selectedThumbnailPages.value = pages;
 }
+
 
 function clearPageSelection() {
     setSelectedPagesSilently([]);

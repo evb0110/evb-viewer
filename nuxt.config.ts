@@ -131,6 +131,10 @@ export default defineNuxtConfig({
             'lucide:stamp',
             'lucide:settings',
             'lucide:languages',
+            'lucide:file-output',
+            'lucide:file-plus',
+            'lucide:rotate-cw',
+            'lucide:rotate-ccw',
         ]},
     },
 

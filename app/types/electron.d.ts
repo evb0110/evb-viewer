@@ -83,6 +83,34 @@ interface IPreprocessPageResult {
     error?: string;
 }
 
+type TPageOpsRotationAngle = 90 | 180 | 270;
+
+interface IPageOpsResult {
+    success: boolean;
+    pageCount?: number;
+    pdfData?: Uint8Array;
+}
+
+interface IPageOpsExtractResult {
+    success: boolean;
+    canceled?: boolean;
+    destPath?: string;
+}
+
+interface IPageOpsInsertResult {
+    success: boolean;
+    canceled?: boolean;
+    pdfData?: Uint8Array;
+}
+
+interface IPageOpsAPI {
+    delete: (workingCopyPath: string, pages: number[], totalPages: number) => Promise<IPageOpsResult>;
+    extract: (workingCopyPath: string, pages: number[]) => Promise<IPageOpsExtractResult>;
+    reorder: (workingCopyPath: string, newOrder: number[]) => Promise<IPageOpsResult>;
+    insert: (workingCopyPath: string, totalPages: number, afterPage: number) => Promise<IPageOpsInsertResult>;
+    rotate: (workingCopyPath: string, pages: number[], angle: TPageOpsRotationAngle) => Promise<IPageOpsResult>;
+}
+
 interface IElectronAPI {
     openPdfDialog: () => Promise<string | null>;
     openPdfDirect: (path: string) => Promise<string | null>;
@@ -109,6 +137,11 @@ interface IElectronAPI {
     onMenuFitHeight: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuUndo: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuRedo: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
+    onMenuDeletePages: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
+    onMenuExtractPages: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
+    onMenuRotateCw: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
+    onMenuRotateCcw: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
+    onMenuInsertPages: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
 
     // OCR API
     ocrRecognize: (request: IOcrRecognizeRequest) => Promise<IOcrRecognizeResult>;
@@ -167,6 +200,9 @@ interface IElectronAPI {
         save: (settings: ISettingsData) => Promise<void>;
     };
     onMenuOpenSettings: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
+
+    // Page Operations API
+    pageOps: IPageOpsAPI;
 }
 
 declare global {
