@@ -79,7 +79,6 @@ const renderedPages = new Set<number>();
 const renderingPages = new Set<number>();
 const renderTasks = new Map<number, RenderTask>();
 let renderRunId = 0;
-let pendingInvalidation: number[] | null = null;
 
 const multiSelection = useMultiSelection<number>();
 
@@ -322,41 +321,18 @@ watch(
         const runId = renderRunId;
 
         if (!doc || total <= 0) {
-            if (!pendingInvalidation) {
-                clearRenderedState();
-            }
+            clearRenderedState();
             return;
         }
 
         if (doc !== oldDoc) {
-            const pagesToInvalidate = pendingInvalidation;
-            pendingInvalidation = null;
-
-            if (pagesToInvalidate && pagesToInvalidate.length > 0) {
-                for (const page of pagesToInvalidate) {
-                    renderedPages.delete(page);
-                    renderingPages.delete(page);
-                    const task = renderTasks.get(page);
-                    if (task) {
-                        try { task.cancel(); } catch { /* */ }
-                        renderTasks.delete(page);
-                    }
-                }
-            } else {
-                clearRenderedState();
-            }
+            clearRenderedState();
         }
 
         void renderAllThumbnails(doc, total, runId);
     },
     { immediate: true }, // Run on mount with current values
 );
-
-function invalidatePages(pages: number[]) {
-    pendingInvalidation = pages;
-}
-
-defineExpose({ invalidatePages });
 
 onBeforeUnmount(() => {
     cancelAllRenders();

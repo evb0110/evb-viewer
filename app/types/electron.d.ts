@@ -112,9 +112,14 @@ interface IPageOpsAPI {
     rotate: (workingCopyPath: string, pages: number[], angle: TPageOpsRotationAngle) => Promise<IPageOpsResult>;
 }
 
+interface IOpenPdfResult {
+    workingPath: string;
+    originalPath: string;
+}
+
 interface IElectronAPI {
-    openPdfDialog: () => Promise<string | null>;
-    openPdfDirect: (path: string) => Promise<string | null>;
+    openPdfDialog: () => Promise<IOpenPdfResult | null>;
+    openPdfDirect: (path: string) => Promise<IOpenPdfResult | null>;
     savePdfAs: (workingCopyPath: string) => Promise<string | null>;
     saveDocxAs: (workingCopyPath: string) => Promise<string | null>;
     readFile: (path: string) => Promise<Uint8Array>;

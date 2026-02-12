@@ -121,7 +121,10 @@ export function registerIpcHandlers() {
 async function handleOpenPdfDirect(
     _event: Electron.IpcMainInvokeEvent,
     filePath: string,
-): Promise<string | null> {
+): Promise<{
+    workingPath: string;
+    originalPath: string 
+} | null> {
     if (!filePath || filePath.trim() === '') {
         return null;
     }
@@ -137,12 +140,14 @@ async function handleOpenPdfDirect(
         return null;
     }
 
-    // Create working copy and return working path (not original)
     try {
         const workingPath = await createWorkingCopy(normalizedPath);
         await addRecentFile(normalizedPath);
         updateRecentFilesMenu();
-        return workingPath;
+        return {
+            workingPath,
+            originalPath: normalizedPath, 
+        };
     } catch (err) {
         console.error('Failed to create working copy:', err);
         return null;
@@ -156,7 +161,10 @@ function handleSetWindowTitle(event: Electron.IpcMainInvokeEvent, title: string)
     }
 }
 
-async function handleOpenPdfDialog(): Promise<string | null> {
+async function handleOpenPdfDialog(): Promise<{
+    workingPath: string;
+    originalPath: string 
+} | null> {
     const result = await dialog.showOpenDialog({
         title: 'Open PDF',
         filters: [{
@@ -175,12 +183,14 @@ async function handleOpenPdfDialog(): Promise<string | null> {
         return null;
     }
 
-    // Create working copy and return working path (not original)
     try {
         const workingPath = await createWorkingCopy(originalPath);
         await addRecentFile(originalPath);
         updateRecentFilesMenu();
-        return workingPath;
+        return {
+            workingPath,
+            originalPath, 
+        };
     } catch (err) {
         console.error('Failed to create working copy:', err);
         return null;

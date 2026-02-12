@@ -10,6 +10,7 @@ export const usePdfFile = () => {
     const pdfSrc = ref<TPdfSource | null>(null);
     const pdfData = ref<Uint8Array | null>(null);
     const workingCopyPath = ref<string | null>(null);
+    const originalPath = ref<string | null>(null);
     const error = ref<string | null>(null);
     const isDirty = ref(false);
     const history = ref<Uint8Array[]>([]);
@@ -26,11 +27,12 @@ export const usePdfFile = () => {
         error.value = null;
         try {
             const api = getElectronAPI();
-            const path = await api.openPdfDialog();
-            if (!path) {
+            const result = await api.openPdfDialog();
+            if (!result) {
                 return;
             }
-            await loadPdfFromPath(path);
+            originalPath.value = result.originalPath;
+            await loadPdfFromPath(result.workingPath);
         } catch (e) {
             error.value = e instanceof Error ? e.message : 'Failed to open file';
         }
@@ -40,12 +42,13 @@ export const usePdfFile = () => {
         error.value = null;
         try {
             const api = getElectronAPI();
-            const validPath = await api.openPdfDirect(path);
-            if (!validPath) {
+            const result = await api.openPdfDirect(path);
+            if (!result) {
                 error.value = 'Invalid or non-existent PDF file';
                 return;
             }
-            await loadPdfFromPath(validPath);
+            originalPath.value = result.originalPath;
+            await loadPdfFromPath(result.workingPath);
         } catch (e) {
             error.value = e instanceof Error ? e.message : 'Failed to open file';
         }
@@ -232,6 +235,7 @@ export const usePdfFile = () => {
         pdfSrc.value = null;
         pdfData.value = null;
         workingCopyPath.value = null;
+        originalPath.value = null;
         error.value = null;
         isDirty.value = false;
         resetHistory(null);
@@ -283,6 +287,7 @@ export const usePdfFile = () => {
         pdfSrc,
         pdfData,
         workingCopyPath,
+        originalPath,
         fileName,
         error,
         isDirty,

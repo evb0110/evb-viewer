@@ -55,7 +55,6 @@
                 />
                 <div class="pdf-sidebar-pages-thumbnails app-scrollbar">
                     <PdfThumbnails
-                        ref="thumbnailsRef"
                         :pdf-document="pdfDocument"
                         :current-page="currentPage"
                         :total-pages="totalPages"
@@ -368,7 +367,6 @@ const searchQueryProxy = computed({
 });
 
 const searchBarRef = ref<{ focus: () => void } | null>(null);
-const thumbnailsRef = ref<{ invalidatePages: (pages: number[]) => void } | null>(null);
 const isPageNumberingExpanded = ref(false);
 const ignoreRangeInputWatch = ref(false);
 const ignoreSelectionWatch = ref(false);
@@ -533,15 +531,10 @@ function invertPageSelection() {
     selectedThumbnailPages.value = inverted;
 }
 
-function invalidateThumbnailPages(pages: number[]) {
-    thumbnailsRef.value?.invalidatePages(pages);
-}
-
 defineExpose({
     focusSearch,
     selectAllPages,
     invertPageSelection,
-    invalidateThumbnailPages,
     selectedThumbnailPages,
 });
 
@@ -717,9 +710,6 @@ watch(
     () => props.totalPages,
     (totalPages) => {
         if (totalPages <= 0) {
-            isPageNumberingExpanded.value = false;
-            setSelectedPagesSilently([]);
-            setPageRangeInputSilently('');
             return;
         }
 
