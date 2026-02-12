@@ -12,9 +12,10 @@ import {
 } from 'path';
 import { app } from 'electron';
 import type { IRecentFile } from '@app/types/shared';
-
-const MAX_RECENT_FILES = 10;
-const CACHE_TTL_MS = 5000; // Cache valid for 5 seconds
+import {
+    CACHE_TTL_MS,
+    MAX_RECENT_FILES,
+} from '@electron/config/constants';
 
 // In-memory cache for synchronous access (needed for menu building)
 let recentFilesCache: IRecentFile[] = [];

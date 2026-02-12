@@ -1,11 +1,5 @@
 import { Mutex } from 'es-toolkit';
-import {
-    AnnotationLayer,
-    AnnotationEditorLayer,
-    DrawLayer,
-    TextLayer,
-} from 'pdfjs-dist';
-import type { IPDFLinkService } from 'pdfjs-dist/types/web/interfaces';
+import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import {
     nextTick,
     ref,
@@ -14,7 +8,6 @@ import {
     type MaybeRefOrGetter,
     type Ref,
 } from 'vue';
-import { BrowserLogger } from '@app/utils/browser-logger';
 import type {
     IPdfPageMatches,
     IPdfSearchMatch,
@@ -22,12 +15,11 @@ import type {
 } from '@app/types/pdf';
 import { chunk } from 'es-toolkit/array';
 import { range } from 'es-toolkit/math';
-import { usePdfSearchHighlight } from '@app/composables/usePdfSearchHighlight';
-import { useTextLayerSelection } from '@app/composables/useTextLayerSelection';
-import { usePdfWordBoxes } from '@app/composables/usePdfWordBoxes';
-import { useOcrTextContent } from '@app/composables/pdf/useOcrTextContent';
 import type { usePdfDocument } from '@app/composables/pdf/usePdfDocument';
-import type { AnnotationEditorUIManager } from 'pdfjs-dist';
+import { usePdfCanvasRenderer } from '@app/composables/pdf/usePdfCanvasRenderer';
+import { usePdfTextLayerRenderer } from '@app/composables/pdf/usePdfTextLayerRenderer';
+import { usePdfAnnotationLayerRenderer } from '@app/composables/pdf/usePdfAnnotationLayerRenderer';
+import { CONCURRENT_RENDERS } from '@app/constants/pdf-layout';
 
 interface IPageRange {
     start: number;
@@ -51,120 +43,10 @@ interface IUsePdfPageRendererOptions {
     searchPageMatches?: MaybeRefOrGetter<Map<number, IPdfPageMatches>>;
     currentSearchMatch?: MaybeRefOrGetter<IPdfSearchMatch | null>;
 
-    /**
-     * Path to the working copy of the PDF file.
-     * Used to look up OCR index data for OCR-derived text layers.
-     */
     workingCopyPath?: MaybeRefOrGetter<string | null>;
 }
 
-const CONCURRENT_RENDERS = 3;
-let annotationEditorLayerSafetyPatched = false;
-let destroyedEditorLayerFallbackDiv: HTMLDivElement | null = null;
-let textLayerFallbackDiv: HTMLDivElement | null = null;
-type TAnnotationEditorLayerProto = {
-    disable?: (...args: unknown[]) => unknown;
-    destroy?: (...args: unknown[]) => unknown;
-    __evbSafetyPatchApplied?: boolean;
-};
-function ensureAnnotationEditorLayerSafetyPatch() {
-    if (annotationEditorLayerSafetyPatched) {
-        return;
-    }
-
-    const proto = AnnotationEditorLayer.prototype as TAnnotationEditorLayerProto;
-    if (!proto || proto.__evbSafetyPatchApplied) {
-        annotationEditorLayerSafetyPatched = true;
-        return;
-    }
-
-    if (typeof document !== 'undefined') {
-        if (!destroyedEditorLayerFallbackDiv) {
-            destroyedEditorLayerFallbackDiv = document.createElement('div');
-            destroyedEditorLayerFallbackDiv.className = 'annotation-editor-layer-destroyed-fallback';
-            destroyedEditorLayerFallbackDiv.style.display = 'none';
-            destroyedEditorLayerFallbackDiv.setAttribute('aria-hidden', 'true');
-        }
-        if (!textLayerFallbackDiv) {
-            textLayerFallbackDiv = document.createElement('div');
-            textLayerFallbackDiv.className = 'annotation-editor-layer-text-fallback';
-            textLayerFallbackDiv.style.display = 'none';
-            textLayerFallbackDiv.setAttribute('aria-hidden', 'true');
-        }
-    }
-
-    const originalDisable = typeof proto.disable === 'function'
-        ? proto.disable
-        : null;
-    if (originalDisable) {
-        proto.disable = function patchedDisable(
-            this: {
-                div?: HTMLElement | null;
-                textLayer?: { div?: HTMLElement | null } | null;
-            },
-            ...args: unknown[]
-        ) {
-            if (!this) {
-                return undefined;
-            }
-            if (!this.div) {
-                this.div = destroyedEditorLayerFallbackDiv;
-            }
-            if (this.textLayer && !this.textLayer.div) {
-                this.textLayer.div = textLayerFallbackDiv;
-            }
-            return originalDisable.call(this, ...args);
-        };
-    }
-
-    const originalDestroy = typeof proto.destroy === 'function'
-        ? proto.destroy
-        : null;
-    if (originalDestroy) {
-        proto.destroy = function patchedDestroy(
-            this: {
-                div?: HTMLElement | null;
-                textLayer?: { div?: HTMLElement | null } | null;
-            },
-            ...args: unknown[]
-        ) {
-            if (this?.div == null) {
-                this.div = destroyedEditorLayerFallbackDiv;
-            }
-            const result = originalDestroy.call(this, ...args);
-            if (this?.div == null) {
-                this.div = destroyedEditorLayerFallbackDiv;
-            }
-            if (this?.textLayer && !this.textLayer.div) {
-                this.textLayer.div = textLayerFallbackDiv;
-            }
-            return result;
-        };
-    }
-
-    proto.__evbSafetyPatchApplied = true;
-    annotationEditorLayerSafetyPatched = true;
-}
-
 export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
-    ensureAnnotationEditorLayerSafetyPatch();
-
-    const { setupTextLayer } = useTextLayerSelection();
-    const {
-        clearHighlights,
-        highlightPage,
-        scrollToHighlight,
-        getCurrentMatchRanges,
-    } = usePdfSearchHighlight();
-    const {
-        renderPageWordBoxes,
-        clearWordBoxes,
-        isOcrDebugEnabled,
-        clearOcrDebugBoxes,
-        renderOcrDebugBoxes,
-    } = usePdfWordBoxes();
-    const { getOcrTextContent } = useOcrTextContent();
-
     const {
         pdfDocument,
         numPages,
@@ -182,6 +64,26 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     const currentSearchMatch = options.currentSearchMatch ?? null;
     const workingCopyPath = options.workingCopyPath ?? null;
 
+    const outputScale = options.outputScale
+        ?? (typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1);
+
+    const canvasRenderer = usePdfCanvasRenderer({ outputScale });
+    const textLayerRenderer = usePdfTextLayerRenderer({
+        searchPageMatches,
+        currentSearchMatch,
+        workingCopyPath,
+        effectiveScale: options.effectiveScale,
+    });
+    const annotationLayerRenderer = usePdfAnnotationLayerRenderer({
+        numPages,
+        currentPage: options.currentPage,
+        pdfDocument,
+        showAnnotations,
+        annotationUiManager: options.annotationUiManager ?? null,
+        annotationL10n: options.annotationL10n ?? null,
+        scrollToPage: options.scrollToPage,
+    });
+
     const renderMutex = new Mutex();
     let renderVersion = 0;
 
@@ -189,19 +91,12 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     const renderingPages = new Map<number, number>();
     const pageCanvases = new Map<number, HTMLCanvasElement>();
     const textLayerCleanupFns = new Map<number, () => void>();
-    const annotationEditorLayers = new Map<number, AnnotationEditorLayer>();
-    const drawLayers = new Map<number, DrawLayer>();
 
     const pendingScrollToMatchPageIndex = ref<number | null>(null);
     const RENDERED_CONTAINER_CLASS = 'page_container--rendered';
     const SCROLL_TARGET_CONTAINER_CLASS = 'page_container--scroll-target';
     let activeScrollTargetPageIndex: number | null = null;
     let scrollToMatchRequestId = 0;
-
-    const outputScale = options.outputScale
-        ?? (typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1);
-
-    let lastHighlightDebugKey: string | null = null;
 
     function isRenderingCancelledError(error: unknown) {
         if (!error) {
@@ -229,138 +124,6 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         return /rendering cancelled/i.test(message);
     }
 
-    function isHighlightDebugEnabled() {
-        if (typeof window === 'undefined') {
-            return false;
-        }
-
-        try {
-            return window.localStorage?.getItem('pdfHighlightDebug') === '1';
-        } catch {
-            return false;
-        }
-    }
-
-    function isHighlightDebugVerboseEnabled() {
-        if (typeof window === 'undefined') {
-            return false;
-        }
-
-        try {
-            return window.localStorage?.getItem('pdfHighlightDebugVerbose') === '1';
-        } catch {
-            return false;
-        }
-    }
-
-    function maybeLogHighlightDebug(
-        pageNumber: number,
-        pageMatchData: IPdfPageMatches | null,
-        canvas: HTMLCanvasElement,
-        textLayerDiv: HTMLElement,
-        debugInfo?: {
-            userUnit: number;
-            totalScaleFactor: number;
-            viewportWidth: number;
-            viewportHeight: number;
-            rawPageWidth: number;
-            rawPageHeight: number;
-            canvasPixelWidth: number;
-            canvasPixelHeight: number;
-            renderScaleX: number;
-            renderScaleY: number;
-        },
-    ) {
-        if (!isHighlightDebugEnabled()) {
-            return;
-        }
-
-        const current = toValue(currentSearchMatch);
-        if (!current || current.pageIndex !== pageNumber - 1) {
-            return;
-        }
-
-        const query = pageMatchData?.searchQuery ?? '';
-        const key = `${current.pageIndex}:${current.matchIndex}:${query}:${toValue(options.effectiveScale)}`;
-        if (key === lastHighlightDebugKey) {
-            return;
-        }
-        lastHighlightDebugKey = key;
-
-        const canvasRect = canvas.getBoundingClientRect();
-        const textRect = textLayerDiv.getBoundingClientRect();
-        const pageContainer = textLayerDiv.closest<HTMLElement>('.page_container');
-        const containerRect = pageContainer?.getBoundingClientRect() ?? null;
-        const canvasHostRect = pageContainer?.querySelector<HTMLElement>('.page_canvas')?.getBoundingClientRect() ?? null;
-        const computedTotalScaleFactor = typeof window !== 'undefined'
-            ? window.getComputedStyle(textLayerDiv).getPropertyValue('--total-scale-factor').trim()
-            : '';
-
-        const currentRange = getCurrentMatchRanges(textLayerDiv).at(0) ?? null;
-        const currentRangeRect = currentRange?.getBoundingClientRect() ?? null;
-        const currentMark = textLayerDiv.querySelector<HTMLElement>('.pdf-search-highlight--current');
-        const currentMarkRect = currentMark?.getBoundingClientRect() ?? null;
-        const highlightRect = currentRangeRect ?? currentMarkRect;
-
-        const verbose = isHighlightDebugVerboseEnabled();
-        let currentSpanInfo = '';
-        if (verbose && typeof window !== 'undefined') {
-            const span = currentMark?.closest('span');
-            if (span) {
-                const spanStyle = window.getComputedStyle(span);
-                const scaleX = spanStyle.getPropertyValue('--scale-x').trim();
-                const fontHeight = spanStyle.getPropertyValue('--font-height').trim();
-                currentSpanInfo = [
-                    `spanFont=${JSON.stringify(spanStyle.font)}`,
-                    `spanFamily=${JSON.stringify(spanStyle.fontFamily)}`,
-                    `spanWeight=${spanStyle.fontWeight}`,
-                    `spanSize=${spanStyle.fontSize}`,
-                    `spanTransform=${JSON.stringify(spanStyle.transform)}`,
-                    `spanScaleX=${JSON.stringify(scaleX)}`,
-                    `spanFontHeightVar=${JSON.stringify(fontHeight)}`,
-                    `spanText=${JSON.stringify(span.textContent?.slice(0, 60) ?? '')}`,
-                ].join(' ');
-            }
-        }
-
-        const scale = toValue(options.effectiveScale);
-        const dx = textRect.left - canvasRect.left;
-        const dy = textRect.top - canvasRect.top;
-        const dw = textRect.width - canvasRect.width;
-        const dh = textRect.height - canvasRect.height;
-
-        const fmtRect = (rect: DOMRect) =>
-            `${rect.left.toFixed(2)},${rect.top.toFixed(2)} ${rect.width.toFixed(2)}x${rect.height.toFixed(2)}`;
-
-        const msg = [
-            `page=${pageNumber}`,
-            `matchIndex=${current.matchIndex}`,
-            `scale=${scale}`,
-            `query=${JSON.stringify(query)}`,
-            debugInfo
-                ? `viewport=${debugInfo.viewportWidth.toFixed(2)}x${debugInfo.viewportHeight.toFixed(2)}`
-                : '',
-            debugInfo
-                ? `raw=${debugInfo.rawPageWidth.toFixed(2)}x${debugInfo.rawPageHeight.toFixed(2)} userUnit=${debugInfo.userUnit}`
-                : '',
-            debugInfo
-                ? `totalScale=${debugInfo.totalScaleFactor.toFixed(10)} cssVarTotal=${JSON.stringify(computedTotalScaleFactor)}`
-                : '',
-            debugInfo
-                ? `canvasPx=${debugInfo.canvasPixelWidth}x${debugInfo.canvasPixelHeight} renderScale=${debugInfo.renderScaleX.toFixed(6)}x${debugInfo.renderScaleY.toFixed(6)}`
-                : '',
-            containerRect ? `container=${fmtRect(containerRect)}` : '',
-            canvasHostRect ? `canvasHost=${fmtRect(canvasHostRect)}` : '',
-            `canvas=${fmtRect(canvasRect)}`,
-            `textLayer=${fmtRect(textRect)}`,
-            `delta=${dx.toFixed(2)},${dy.toFixed(2)} ${dw.toFixed(2)}x${dh.toFixed(2)}`,
-            highlightRect ? `currentHighlight=${fmtRect(highlightRect)}` : 'currentHighlight=null',
-            currentSpanInfo,
-        ].join(' ');
-
-        BrowserLogger.debug('PDF-HIGHLIGHT', msg);
-    }
-
     function bumpRenderVersion() {
         renderVersion += 1;
         return renderVersion;
@@ -376,7 +139,6 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             scrollWidth,
             scrollHeight,
         } = container;
-
         if (!scrollWidth || !scrollHeight) {
             return null;
         }
@@ -413,12 +175,6 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         container.scrollTop = Math.max(0, targetTop);
     }
 
-    function cleanupCanvas(canvas: HTMLCanvasElement) {
-        canvas.width = 0;
-        canvas.height = 0;
-        canvas.remove();
-    }
-
     function cleanupTextLayer(pageNumber: number) {
         const cleanup = textLayerCleanupFns.get(pageNumber);
         if (cleanup) {
@@ -434,24 +190,14 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
 
         const canvas = pageCanvases.get(pageNumber);
         if (canvas) {
-            cleanupCanvas(canvas);
+            canvasRenderer.cleanupCanvas(canvas);
             pageCanvases.delete(pageNumber);
         }
 
         renderedPages.delete(pageNumber);
         renderingPages.delete(pageNumber);
 
-        const editorLayer = annotationEditorLayers.get(pageNumber);
-        if (editorLayer) {
-            const annotationUiManager = toValue(options.annotationUiManager) ?? null;
-            try {
-                annotationUiManager?.removeLayer?.(editorLayer);
-            } catch {
-                // Layer might already be detached from UIManager during teardown.
-            }
-            editorLayer.destroy();
-            annotationEditorLayers.delete(pageNumber);
-        }
+        annotationLayerRenderer.cleanupEditorLayer(pageNumber);
 
         if (containerRoot) {
             const container = containerRoot.querySelector<HTMLElement>(
@@ -473,8 +219,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             }
 
             if (textLayerDiv) {
-                clearHighlights(textLayerDiv);
-                textLayerDiv.innerHTML = '';
+                textLayerRenderer.cleanupTextLayerDom(textLayerDiv);
             }
 
             if (annotationLayerDiv) {
@@ -485,16 +230,9 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                 annotationEditorLayerDiv.innerHTML = '';
             }
 
-            // Clear OCR debug boxes if they exist
             if (container) {
-                clearOcrDebugBoxes(container);
+                textLayerRenderer.clearOcrDebug(container);
             }
-        }
-
-        const drawLayer = drawLayers.get(pageNumber);
-        if (drawLayer) {
-            drawLayer.destroy();
-            drawLayers.delete(pageNumber);
         }
 
         try {
@@ -626,133 +364,42 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                             return;
                         }
 
-                        const viewport = pdfPage.getViewport({ scale });
-                        const userUnit = viewport.userUnit ?? 1;
-                        const totalScaleFactor = scale * userUnit;
-                        const rawDims = viewport.rawDims as {
-                            pageWidth: number;
-                            pageHeight: number;
-                        };
-
-                        // Keep the page container sized to the exact viewport dimensions (avoids
-                        // sub-pixel drift between canvas and text layer when `scale` produces
-                        // fractional page sizes).
-                        container.style.width = `${viewport.width}px`;
-                        container.style.height = `${viewport.height}px`;
-                        container.style.setProperty('--scale-factor', String(scale));
-                        container.style.setProperty('--user-unit', String(userUnit));
-                        container.style.setProperty('--total-scale-factor', String(totalScaleFactor));
-
-                        const canvas = document.createElement('canvas');
-                        const context = canvas.getContext('2d');
-                        if (!context) {
+                        const renderResult = await canvasRenderer.renderCanvas(pdfPage, scale);
+                        if (!renderResult) {
                             return;
                         }
-
-                        const cssWidth = viewport.width;
-                        const cssHeight = viewport.height;
-                        const pixelWidth = Math.max(1, Math.round(cssWidth * outputScale));
-                        const pixelHeight = Math.max(1, Math.round(cssHeight * outputScale));
-
-                        canvas.width = pixelWidth;
-                        canvas.height = pixelHeight;
-                        canvas.style.width = `${cssWidth}px`;
-                        canvas.style.height = `${cssHeight}px`;
-                        canvas.style.display = 'block';
-                        canvas.style.margin = '0';
-
-                        const sx = pixelWidth / cssWidth;
-                        const sy = pixelHeight / cssHeight;
-
-                        const transform = sx !== 1 || sy !== 1
-                            ? [
-                                sx,
-                                0,
-                                0,
-                                sy,
-                                0,
-                                0,
-                            ]
-                            : undefined;
-
-                        const renderContext = {
-                            canvasContext: context,
-                            canvas,
-                            transform,
-                            viewport,
-                        };
-
-                        await pdfPage.render(renderContext).promise;
 
                         if (renderVersion !== version) {
-                            cleanupCanvas(canvas);
+                            canvasRenderer.cleanupCanvas(renderResult.canvas);
                             return;
                         }
 
-                        canvasHost.innerHTML = '';
-                        canvasHost.appendChild(canvas);
-                        pageCanvases.set(pageNumber, canvas);
-                        container.classList.add(RENDERED_CONTAINER_CLASS);
+                        const {
+                            canvas,
+                            viewport,
+                            scaleX,
+                            scaleY,
+                            rawDims,
+                            userUnit,
+                            totalScaleFactor,
+                        } = renderResult;
 
-                        const skeleton = container.querySelector<HTMLElement>('.pdf-page-skeleton');
-                        if (skeleton) {
-                            skeleton.style.display = 'none';
-                        }
+                        canvasRenderer.applyContainerDimensions(container, viewport, scale, userUnit, totalScaleFactor);
+                        canvasRenderer.mountCanvas(canvasHost, canvas, container, RENDERED_CONTAINER_CLASS);
+                        pageCanvases.set(pageNumber, canvas);
 
                         const textLayerDiv = container.querySelector<HTMLElement>('.text-layer');
                         if (textLayerDiv) {
                             cleanupTextLayer(pageNumber);
-                            textLayerDiv.innerHTML = '';
-                            textLayerDiv.style.setProperty('--scale-factor', String(scale));
-                            textLayerDiv.style.setProperty('--user-unit', String(userUnit));
-                            textLayerDiv.style.setProperty('--total-scale-factor', String(totalScaleFactor));
 
-                            // Try OCR-derived text content first (if OCR index exists)
-                            const currentWorkingCopyPath = toValue(workingCopyPath);
-                            let textContent = null;
-
-                            if (currentWorkingCopyPath) {
-                                try {
-                                    const ocrTextContent = await getOcrTextContent(
-                                        currentWorkingCopyPath,
-                                        pageNumber,
-                                        viewport,
-                                    );
-                                    if (ocrTextContent) {
-                                        textContent = ocrTextContent;
-                                    }
-                                } catch (ocrError) {
-                                    // OCR text content failed, will fall back to PDF.js extraction
-                                    console.warn('[usePdfPageRenderer] OCR text content failed:', ocrError);
-                                }
-                            }
-
-                            // Fallback to PDF.js extraction if no OCR content
-                            if (!textContent) {
-                                textContent = await pdfPage.getTextContent({
-                                    includeMarkedContent: true,
-                                    disableNormalization: true,
-                                });
-                            }
-
-                            if (renderVersion !== version) {
-                                if (renderingPages.get(pageNumber) === version) {
-                                    cleanupPage(pageNumber);
-                                }
-                                return;
-                            }
-
-                            const textLayer = new TextLayer({
-                                textContentSource: textContent,
-                                container: textLayerDiv,
+                            await textLayerRenderer.renderTextLayer(
+                                pdfPage,
+                                textLayerDiv,
                                 viewport,
-                            });
-                            await textLayer.render();
-                            // PDF.js sizes the text layer via `setLayerDimensions` using CSS variables that
-                            // aren't always wired up in custom viewers. Rely on our absolute `inset: 0`
-                            // layout instead, so the text layer always matches the canvas container.
-                            textLayerDiv.style.width = '';
-                            textLayerDiv.style.height = '';
+                                scale,
+                                userUnit,
+                                totalScaleFactor,
+                            );
 
                             if (renderVersion !== version) {
                                 if (renderingPages.get(pageNumber) === version) {
@@ -761,22 +408,17 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                                 return;
                             }
 
-                            const cleanup = setupTextLayer(textLayerDiv);
+                            const cleanup = textLayerRenderer.setupTextLayerInteraction(textLayerDiv);
                             if (typeof cleanup === 'function') {
                                 textLayerCleanupFns.set(pageNumber, cleanup);
                             }
 
-                            const pageIndex = pageNumber - 1;
-
-                            const searchMatches = toValue(searchPageMatches);
-                            if (searchMatches && searchMatches.size > 0) {
-                                const pageMatchData = searchMatches.get(pageIndex) ?? null;
-                                const highlightResult = highlightPage(
-                                    textLayerDiv,
-                                    pageMatchData,
-                                    toValue(currentSearchMatch) ?? null,
-                                );
-                                maybeLogHighlightDebug(pageNumber, pageMatchData, canvas, textLayerDiv, {
+                            textLayerRenderer.applyPageSearchHighlights(
+                                container,
+                                textLayerDiv,
+                                pageNumber,
+                                canvas,
+                                {
                                     userUnit,
                                     totalScaleFactor,
                                     viewportWidth: viewport.width,
@@ -785,68 +427,19 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                                     rawPageHeight: rawDims.pageHeight,
                                     canvasPixelWidth: canvas.width,
                                     canvasPixelHeight: canvas.height,
-                                    renderScaleX: sx,
-                                    renderScaleY: sy,
-                                });
+                                    renderScaleX: scaleX,
+                                    renderScaleY: scaleY,
+                                },
+                            );
 
-                                const isCssHighlightMode = typeof window !== 'undefined'
-                                    ? window.localStorage?.getItem('pdfHighlightMode') === 'css'
-                                    : false;
-                                const hasInTextHighlights = isCssHighlightMode
-                                    || highlightResult.elements.length > 0
-                                    || highlightResult.currentMatchRanges.length > 0;
-
-                                // Render word boxes only when we cannot highlight directly in the text layer
-                                // (e.g. OCR-indexed PDFs where the PDF has no meaningful text layer).
-                                if (!hasInTextHighlights && pageMatchData && pageMatchData.matches.length > 0) {
-                                    const firstMatch = pageMatchData.matches.at(0);
-                                    const firstMatchWords = firstMatch?.words ?? [];
-
-                                    if (firstMatch && firstMatchWords.length > 0) {
-                                        const allWords: { [key: string]: typeof firstMatchWords[0] } = {};
-                                        pageMatchData.matches.forEach((match) => {
-                                            match.words?.forEach((word) => {
-                                                allWords[word.text] = word;
-                                            });
-                                        });
-
-                                        const currentMatch = toValue(currentSearchMatch);
-                                        const currentMatchWords = new Set<string>();
-                                        if (currentMatch && currentMatch.pageIndex === pageIndex && currentMatch.words) {
-                                            currentMatch.words.forEach((word) => {
-                                                currentMatchWords.add(word.text);
-                                            });
-                                        }
-
-                                        renderPageWordBoxes(
-                                            container,
-                                            Object.values(allWords),
-                                            firstMatch.pageWidth,
-                                            firstMatch.pageHeight,
-                                            currentMatchWords.size > 0 ? currentMatchWords : undefined,
-                                        );
-                                    } else {
-                                        clearWordBoxes(container);
-                                    }
-                                } else {
-                                    clearWordBoxes(container);
-                                }
-                            }
-
-                            if (pendingScrollToMatchPageIndex.value === pageIndex) {
+                            if (pendingScrollToMatchPageIndex.value === pageNumber - 1) {
                                 scrollToCurrentMatch();
                             }
                         }
 
                         const annotationLayerDiv = container.querySelector<HTMLElement>('.annotation-layer');
-                        let annotationLayerInstance: AnnotationLayer | null = null;
+                        let annotationLayerInstance = null;
                         if (annotationLayerDiv && toValue(showAnnotations)) {
-                            annotationLayerDiv.innerHTML = '';
-
-                            const annotations = await pdfPage.getAnnotations();
-                            const annotationStorage = pdfDocument.value?.annotationStorage;
-                            const annotationUiManager = toValue(options.annotationUiManager) ?? null;
-
                             if (renderVersion !== version) {
                                 if (renderingPages.get(pageNumber) === version) {
                                     cleanupPage(pageNumber);
@@ -854,116 +447,37 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                                 return;
                             }
 
-                            const simpleLinkService = {
-                                pagesCount: numPages.value,
-                                page: options.currentPage.value,
-                                rotation: 0,
-                                isInPresentationMode: false,
-                                externalLinkEnabled: true,
-                                goToDestination: async () => {},
-                                goToPage: (page: number) => options.scrollToPage?.(page),
-                                goToXY: () => {},
-                                addLinkAttributes: (
-                                    link: HTMLAnchorElement,
-                                    url: string,
-                                    newWindow?: boolean,
-                                ) => {
-                                    link.href = url;
-                                    if (newWindow) {
-                                        link.target = '_blank';
-                                        link.rel = 'noopener noreferrer';
-                                    }
-                                },
-                                getDestinationHash: () => '#',
-                                getAnchorUrl: () => '#',
-                                setHash: () => {},
-                                executeNamedAction: () => {},
-                                executeSetOCGState: () => {},
-                            } as IPDFLinkService;
-
-                            annotationLayerInstance = new AnnotationLayer({
-                                div: annotationLayerDiv as HTMLDivElement,
-                                page: pdfPage,
+                            annotationLayerInstance = await annotationLayerRenderer.renderAnnotationLayer(
+                                pdfPage,
+                                annotationLayerDiv,
                                 viewport,
-                                accessibilityManager: null,
-                                annotationCanvasMap: null,
-                                annotationEditorUIManager: annotationUiManager,
-                                structTreeLayer: null,
-                                commentManager: null,
-                                linkService: simpleLinkService,
-                                annotationStorage,
-                            });
+                                pageNumber,
+                            );
 
-                            await annotationLayerInstance.render({
-                                annotations,
-                                viewport,
-                                div: annotationLayerDiv as HTMLDivElement,
-                                page: pdfPage,
-                                linkService: simpleLinkService,
-                                renderForms: false,
-                                annotationStorage,
-                            });
+                            if (renderVersion !== version) {
+                                if (renderingPages.get(pageNumber) === version) {
+                                    cleanupPage(pageNumber);
+                                }
+                                return;
+                            }
                         }
 
                         const annotationEditorLayerDiv = container.querySelector<HTMLElement>('.annotation-editor-layer');
-                        const annotationUiManager = toValue(options.annotationUiManager) ?? null;
-                        if (annotationEditorLayerDiv && annotationUiManager) {
-                            const editorViewport = viewport.clone({ dontFlip: true });
-                            const editorLayer = annotationEditorLayers.get(pageNumber);
-                            const drawLayer = drawLayers.get(pageNumber) ?? new DrawLayer({ pageIndex: pageNumber - 1 });
-                             
-                            const textLayerShim = textLayerDiv
-                                ? ({ div: textLayerDiv } as any) // eslint-disable-line @typescript-eslint/no-explicit-any -- PDF.js expects TextLayer-like object
-                                : undefined;
-
-                            const canvasHost = container.querySelector<HTMLDivElement>('.page_canvas');
-                            if (canvasHost) {
-                                drawLayer.setParent(canvasHost);
-                            }
-                            drawLayers.set(pageNumber, drawLayer);
-
-                            if (!editorLayer) {
-                                annotationEditorLayerDiv.innerHTML = '';
-                                annotationEditorLayerDiv.dir = annotationUiManager.direction;
-                            }
-
-                            const l10n = toValue(options.annotationL10n) ?? null;
-                            const activeLayer = editorLayer ?? new AnnotationEditorLayer({
-                                mode: {},
-                                uiManager: annotationUiManager,
-                                div: annotationEditorLayerDiv as HTMLDivElement,
-                                structTreeLayer: null,
-                                enabled: true,
-                                accessibilityManager: undefined,
-                                pageIndex: pageNumber - 1,
-                                // eslint-disable-next-line @typescript-eslint/no-explicit-any -- GenericL10n type mismatch with AnnotationEditorLayer constructor
-                                l10n: l10n as any,
-                                viewport: editorViewport,
-                                annotationLayer: annotationLayerInstance ?? undefined,
-                                textLayer: textLayerShim,
-                                drawLayer,
-                            });
-
-                            if (!editorLayer) {
-                                annotationUiManager.addLayer(activeLayer);
-                                annotationEditorLayers.set(pageNumber, activeLayer);
-                            }
-
-                            if (editorLayer) {
-                                editorLayer.update({ viewport: editorViewport });
-                            } else {
-                                activeLayer.render({ viewport: editorViewport });
-                            }
-
-                            annotationEditorLayerDiv.hidden = activeLayer.isInvisible;
-                            activeLayer.pause(false);
+                        if (annotationEditorLayerDiv && toValue(options.annotationUiManager)) {
+                            annotationLayerRenderer.renderAnnotationEditorLayer(
+                                container,
+                                annotationEditorLayerDiv,
+                                textLayerDiv,
+                                viewport,
+                                pageNumber,
+                                annotationLayerInstance,
+                            );
                         }
 
-                        // Render OCR debug boxes if debug mode is enabled
-                        if (isOcrDebugEnabled()) {
+                        if (textLayerRenderer.isOcrDebugEnabled()) {
                             const wcPath = toValue(workingCopyPath);
                             if (wcPath) {
-                                void renderOcrDebugBoxes(
+                                void textLayerRenderer.renderOcrDebugBoxes(
                                     container,
                                     pageNumber,
                                     wcPath,
@@ -1059,8 +573,8 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                 return;
             }
 
-            const range = getVisibleRange();
-            await renderVisiblePages(range);
+            const visibleRange = getVisibleRange();
+            await renderVisiblePages(visibleRange);
         } finally {
             renderMutex.release();
         }
@@ -1080,15 +594,14 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         for (const [
             , canvas,
         ] of pageCanvases) {
-            cleanupCanvas(canvas);
+            canvasRenderer.cleanupCanvas(canvas);
         }
 
         pageCanvases.clear();
         renderedPages.clear();
         renderingPages.clear();
         textLayerCleanupFns.clear();
-        annotationEditorLayers.clear();
-        drawLayers.clear();
+        annotationLayerRenderer.clearAllLayers();
 
         pendingScrollToMatchPageIndex.value = null;
         setScrollTargetPage(null);
@@ -1105,119 +618,20 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         if (!containerRoot) {
             return;
         }
-
-        const pageContainers = containerRoot.querySelectorAll<HTMLElement>('.page_container');
-
-        const searchMatchesValue = toValue(searchPageMatches);
-        const currentMatchValue = toValue(currentSearchMatch);
-
-        pageContainers.forEach((container, index) => {
-            const pageIndex = index;
-            const textLayerDiv = container.querySelector<HTMLElement>('.text-layer');
-
-            if (!textLayerDiv) {
-                return;
-            }
-
-            if (!searchMatchesValue || searchMatchesValue.size === 0) {
-                clearHighlights(textLayerDiv);
-                clearWordBoxes(container);
-                return;
-            }
-
-            const pageMatches = searchMatchesValue.get(pageIndex) ?? null;
-            highlightPage(textLayerDiv, pageMatches, currentMatchValue ?? null);
-
-            // Also render word boxes if available
-            if (pageMatches && pageMatches.matches.length > 0) {
-                const firstMatch = pageMatches.matches.at(0);
-                const firstMatchWords = firstMatch?.words ?? [];
-                if (firstMatch && firstMatchWords.length > 0) {
-                    // Collect all unique words from all matches on this page
-                    const allWords: { [key: string]: typeof firstMatchWords[0] } = {};
-                    pageMatches.matches.forEach((match) => {
-                        match.words?.forEach((word) => {
-                            allWords[word.text] = word;
-                        });
-                    });
-
-                    // Determine which words are in the current match
-                    const currentMatchWords = new Set<string>();
-                    if (currentMatchValue && currentMatchValue.pageIndex === pageIndex && currentMatchValue.words) {
-                        currentMatchValue.words.forEach((word) => {
-                            currentMatchWords.add(word.text);
-                        });
-                    }
-
-                    renderPageWordBoxes(
-                        container,
-                        Object.values(allWords),
-                        firstMatch.pageWidth,
-                        firstMatch.pageHeight,
-                        currentMatchWords.size > 0 ? currentMatchWords : undefined,
-                    );
-                } else {
-                    clearWordBoxes(container);
-                }
-            } else {
-                clearWordBoxes(container);
-            }
-        });
+        textLayerRenderer.applyAllSearchHighlights(containerRoot);
     }
 
     function scrollToCurrentMatch(behavior: ScrollBehavior = 'auto') {
         const containerRoot = options.container.value;
-        const currentMatchValue = toValue(currentSearchMatch);
-        if (!containerRoot || !currentMatchValue) {
+        if (!containerRoot) {
             return false;
         }
 
-        const pageIndex = currentMatchValue.pageIndex;
-        const targetContainer = getPageContainer(containerRoot, pageIndex);
-
-        if (!targetContainer) {
-            return false;
-        }
-
-        const textLayerDiv = targetContainer.querySelector<HTMLElement>('.text-layer');
-        if (!textLayerDiv) {
-            return false;
-        }
-
-        const currentHighlight = textLayerDiv.querySelector<HTMLElement>('.pdf-search-highlight--current');
-        if (!currentHighlight) {
-            const currentRanges = getCurrentMatchRanges(textLayerDiv);
-            const range = currentRanges.at(0) ?? null;
-            if (!range) {
-                return false;
-            }
-
-            const rect = range.getBoundingClientRect();
-            if (rect.width === 0 && rect.height === 0) {
-                return false;
-            }
-
-            const containerRect = containerRoot.getBoundingClientRect();
-            const elementTop = rect.top - containerRect.top + containerRoot.scrollTop;
-            const elementCenter = elementTop - containerRoot.clientHeight / 2 + rect.height / 2;
-
+        const result = textLayerRenderer.scrollToCurrentMatch(containerRoot, behavior);
+        if (result) {
             pendingScrollToMatchPageIndex.value = null;
-            containerRoot.scrollTo({
-                top: Math.max(0, elementCenter),
-                behavior,
-            });
-
-            return true;
         }
-
-        const highlightRect = currentHighlight.getBoundingClientRect();
-        if (highlightRect.width === 0 && highlightRect.height === 0) {
-            return false;
-        }
-
-        pendingScrollToMatchPageIndex.value = null;
-        scrollToHighlight(currentHighlight, containerRoot, behavior);
-        return true;
+        return result;
     }
 
     function scheduleScrollCorrection(requestId: number) {
@@ -1248,7 +662,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
 
             const currentHighlight = textLayerDiv.querySelector<HTMLElement>('.pdf-search-highlight--current');
             const rect = currentHighlight?.getBoundingClientRect()
-                ?? getCurrentMatchRanges(textLayerDiv).at(0)?.getBoundingClientRect()
+                ?? textLayerRenderer.getCurrentMatchRanges(textLayerDiv).at(0)?.getBoundingClientRect()
                 ?? null;
 
             if (!rect || (rect.width === 0 && rect.height === 0)) {
@@ -1316,7 +730,6 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             );
 
             if (attempts >= maxAttempts) {
-                // Fallback: bring the page into view to ensure layout is measurable, then try again.
                 options.scrollToPage?.(matchPageIndex + 1);
                 requestAnimationFrame(() => {
                     if (requestId !== scrollToMatchRequestId) {

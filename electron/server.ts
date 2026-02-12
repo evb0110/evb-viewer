@@ -3,6 +3,12 @@ import {
     type ChildProcess,
 } from 'child_process';
 import { config } from '@electron/config';
+import {
+    SERVER_HEALTH_MAX_ATTEMPTS,
+    SERVER_HEALTH_RETRY_MS,
+    SERVER_POLL_INTERVAL_MS,
+    SERVER_READY_TIMEOUT_MS,
+} from '@electron/config/constants';
 
 let nuxtProcess: ChildProcess | null = null;
 let serverReady: Promise<void> | null = null;
@@ -99,13 +105,12 @@ export async function startServer() {
 
     // Fallback: don't rely solely on log output for readiness (Nuxt output format may change).
     void (async () => {
-        const POLL_INTERVAL_MS = 250;
         while (!readySettled && nuxtProcess && nuxtProcess.exitCode === null) {
             if (await isServerRunning()) {
                 resolveReady();
                 return;
             }
-            await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+            await new Promise((resolve) => setTimeout(resolve, SERVER_POLL_INTERVAL_MS));
         }
     })();
 
@@ -124,8 +129,6 @@ export async function startServer() {
 }
 
 export function waitForServer() {
-    const TIMEOUT_MS = 30000;
-
     if (!serverReady) {
         throw new Error('Server was not started');
     }
@@ -133,13 +136,12 @@ export function waitForServer() {
     let timeoutId: NodeJS.Timeout | null = null;
     const timeoutPromise = new Promise<never>((_, reject) => {
         timeoutId = setTimeout(() => {
-            reject(new Error(`Server failed to start within ${TIMEOUT_MS / 1000}s`));
-        }, TIMEOUT_MS);
+            reject(new Error(`Server failed to start within ${SERVER_READY_TIMEOUT_MS / 1000}s`));
+        }, SERVER_READY_TIMEOUT_MS);
     });
 
     const verifyHealth = async () => {
-        const maxAttempts = 10;
-        for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        for (let attempt = 1; attempt <= SERVER_HEALTH_MAX_ATTEMPTS; attempt += 1) {
             try {
                 const response = await fetch(config.server.url, { method: 'HEAD' });
                 if (response.ok) {
@@ -150,8 +152,8 @@ export function waitForServer() {
                 // Retry
             }
 
-            if (attempt < maxAttempts) {
-                await new Promise(resolve => setTimeout(resolve, 300));
+            if (attempt < SERVER_HEALTH_MAX_ATTEMPTS) {
+                await new Promise(resolve => setTimeout(resolve, SERVER_HEALTH_RETRY_MS));
             }
         }
         throw new Error('Server stdout detected but HTTP health check failed');

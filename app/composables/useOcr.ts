@@ -7,6 +7,7 @@ import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { IOcrLanguage } from '@app/types/shared';
 import { getElectronAPI } from '@app/utils/electron';
 import { createDocxFromText } from '@app/utils/docx';
+import { OCR_TIMEOUT_MS } from '@app/constants/timeouts';
 
 type TOcrPageRange = 'all' | 'current' | 'custom';
 
@@ -241,7 +242,7 @@ export const useOcr = () => {
                         timeoutId = null;
                         reject(new Error('OCR operation timed out after 30 minutes'));
                     }
-                }, 30 * 60 * 1000);
+                }, OCR_TIMEOUT_MS);
             });
 
             // Start the OCR job (returns immediately, doesn't block)

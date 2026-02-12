@@ -57,7 +57,7 @@
                         class="pdf-bookmarks-icon-button"
                         :title="t('bookmarks.addTopLevel')"
                         :aria-label="t('bookmarks.addTopLevel')"
-                        @click="addRootBookmark"
+                        @click="editing.addRootBookmark()"
                     >
                         <UIcon
                             name="i-lucide-plus"
@@ -90,7 +90,7 @@
                 type="button"
                 class="pdf-bookmarks-empty-action"
                 title="Add first bookmark"
-                @click="addRootBookmark"
+                @click="editing.addRootBookmark()"
             >
                 <UIcon
                     name="i-lucide-plus"
@@ -110,149 +110,45 @@
                 :key="item.id || index"
                 :item="item"
                 :pdf-document="pdfDocument"
-                :active-item-id="activeItemId"
-                :editing-item-id="editingItemId"
-                :display-mode="displayMode"
-                :expanded-bookmark-ids="expandedBookmarkIds"
-                :active-path-bookmark-ids="activePathBookmarkIds"
-                :is-edit-mode="isEditMode"
-                :selected-bookmark-ids="selectedBookmarkIds"
-                :dragging-item-ids="draggingBookmarkIds"
-                :drop-target="bookmarkDropTarget"
-                :style-range-start-id="styleRangeStartId"
                 @go-to-page="$emit('goToPage', $event)"
                 @activate="handleActivate"
                 @toggle-expand="toggleExpanded"
                 @open-actions="openBookmarkContextMenu"
-                @save-edit="renameBookmark"
-                @cancel-edit="cancelEditingBookmark"
-                @drag-start="handleBookmarkDragStart"
-                @drag-hover="handleBookmarkDragHover"
+                @save-edit="editing.renameBookmark($event)"
+                @cancel-edit="editing.cancelEditingBookmark()"
+                @drag-start="dragDrop.handleBookmarkDragStart($event)"
+                @drag-hover="dragDrop.handleBookmarkDragHover($event)"
                 @drop-bookmark="handleBookmarkDrop"
-                @drag-end="handleBookmarkDragEnd"
+                @drag-end="dragDrop.handleBookmarkDragEnd()"
             />
             <div
                 v-if="isEditMode"
                 class="pdf-bookmarks-drop-end"
-                :class="{ 'is-active': isRootAppendDropTarget }"
-                @dragover.prevent="handleTreeEndDragOver"
+                :class="{ 'is-active': dragDrop.isRootAppendDropTarget.value }"
+                @dragover.prevent="dragDrop.handleTreeEndDragOver()"
                 @drop.prevent="handleTreeEndDrop"
             />
         </div>
 
-        <div
-            v-if="bookmarkContextMenu.visible && selectedContextBookmark"
-            class="bookmarks-context-menu"
-            :style="bookmarkContextMenuStyle"
-            @click.stop
-        >
-            <button
-                type="button"
-                class="bookmarks-context-menu-action"
-                :title="t('bookmarks.editBookmark')"
-                @click="startEditingBookmark(selectedContextBookmark.id)"
-            >
-                {{ t('bookmarks.editBookmark') }}
-            </button>
-            <button
-                type="button"
-                class="bookmarks-context-menu-action"
-                :title="t('bookmarks.addSiblingAbove')"
-                @click="addSiblingAbove(selectedContextBookmark.id)"
-            >
-                {{ t('bookmarks.addSiblingAbove') }}
-            </button>
-            <button
-                type="button"
-                class="bookmarks-context-menu-action"
-                :title="t('bookmarks.addSiblingBelow')"
-                @click="addSiblingBelow(selectedContextBookmark.id)"
-            >
-                {{ t('bookmarks.addSiblingBelow') }}
-            </button>
-            <button
-                type="button"
-                class="bookmarks-context-menu-action"
-                :title="t('bookmarks.addChild')"
-                @click="addChildBookmark(selectedContextBookmark.id)"
-            >
-                {{ t('bookmarks.addChild') }}
-            </button>
-            <div class="bookmarks-context-menu-divider" />
-
-            <div class="bookmarks-context-menu-style-block">
-                <div class="bookmarks-context-menu-style-row">
-                    <button
-                        type="button"
-                        class="bookmarks-style-toggle"
-                        :class="{ 'is-active': selectedContextBookmark.bold }"
-                        :title="selectedContextBookmark.bold ? t('bookmarks.disableBold') : t('bookmarks.enableBold')"
-                        @click="toggleBookmarkBold(selectedContextBookmark.id)"
-                    >
-                        B
-                    </button>
-                    <button
-                        type="button"
-                        class="bookmarks-style-toggle"
-                        :class="{ 'is-active': selectedContextBookmark.italic }"
-                        :title="selectedContextBookmark.italic ? t('bookmarks.disableItalic') : t('bookmarks.enableItalic')"
-                        @click="toggleBookmarkItalic(selectedContextBookmark.id)"
-                    >
-                        I
-                    </button>
-                    <button
-                        type="button"
-                        class="bookmarks-style-toggle"
-                        :class="{ 'is-active': !selectedContextBookmark.color }"
-                        :title="t('bookmarks.defaultColor')"
-                        @click="setBookmarkColor(selectedContextBookmark.id, null)"
-                    >
-                        A
-                    </button>
-                </div>
-                <div class="bookmarks-context-menu-color-row">
-                    <button
-                        v-for="preset in bookmarkColorPresets"
-                        :key="preset"
-                        type="button"
-                        class="bookmarks-color-swatch"
-                        :class="{ 'is-active': selectedContextBookmark.color === preset }"
-                        :style="{ background: preset }"
-                        :title="`Set color ${preset}`"
-                        @click="setBookmarkColor(selectedContextBookmark.id, preset)"
-                    />
-                </div>
-            </div>
-
-            <div class="bookmarks-context-menu-divider" />
-            <button
-                type="button"
-                class="bookmarks-context-menu-action"
-                :title="t('bookmarks.setStyleStart')"
-                @click="setStyleRangeStart(selectedContextBookmark.id)"
-            >
-                {{ selectedContextBookmark.id === styleRangeStartId ? 'Range start set' : t('bookmarks.setStyleStart') }}
-            </button>
-            <button
-                type="button"
-                class="bookmarks-context-menu-action"
-                :disabled="!canApplyStyleRange"
-                :title="applyStyleRangeLabel"
-                @click="applyContextStyleToRange"
-            >
-                {{ applyStyleRangeLabel }}
-            </button>
-
-            <div class="bookmarks-context-menu-divider" />
-            <button
-                type="button"
-                class="bookmarks-context-menu-action is-danger"
-                :title="t('bookmarks.removeBookmark')"
-                @click="removeBookmark(selectedContextBookmark.id)"
-            >
-                {{ t('bookmarks.removeBookmark') }}
-            </button>
-        </div>
+        <PdfOutlineContextMenu
+            :visible="bookmarkContextMenu.visible"
+            :x="bookmarkContextMenu.x"
+            :y="bookmarkContextMenu.y"
+            :bookmark="selectedContextBookmark"
+            :style-range-start-id="styleRangeStartId"
+            :can-apply-style-range="canApplyStyleRange"
+            :apply-style-range-label="applyStyleRangeLabel"
+            @edit="editing.startEditingBookmark($event)"
+            @add-sibling-above="editing.addSiblingAbove($event)"
+            @add-sibling-below="editing.addSiblingBelow($event)"
+            @add-child="editing.addChildBookmark($event)"
+            @toggle-bold="editing.toggleBookmarkBold($event)"
+            @toggle-italic="editing.toggleBookmarkItalic($event)"
+            @set-color="editing.setBookmarkColor($event.id, $event.color)"
+            @set-style-range-start="setStyleRangeStart"
+            @apply-style-to-range="applyContextStyleToRange"
+            @remove="editing.removeBookmark($event)"
+        />
     </div>
 </template>
 
@@ -261,20 +157,35 @@ import {
     computed,
     onBeforeUnmount,
     onMounted,
+    provide,
     ref,
     watch,
 } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
+import type {
+    IBookmarkItem,
+    IBookmarkActivatePayload,
+    IBookmarkDropPayload,
+    IBookmarkMenuPayload,
+    TBookmarkDisplayMode,
+} from '@app/types/pdf-outline';
 import type { IPdfBookmarkEntry } from '@app/types/pdf';
 import { isPdfDocumentUsable } from '@app/utils/pdf-document-guard';
+import {
+    findBookmarkById,
+    findBookmarkLocation,
+    normalizeBookmarkColor,
+} from '@app/utils/pdf-outline-helpers';
+import { usePdfOutlineSelection } from '@app/composables/pdf/usePdfOutlineSelection';
+import { usePdfOutlineDragDrop } from '@app/composables/pdf/usePdfOutlineDragDrop';
+import { usePdfOutlineEditing } from '@app/composables/pdf/usePdfOutlineEditing';
+import { PDF_OUTLINE_TREE_KEY } from '@app/composables/pdf/usePdfOutlineKeys';
+import { useContextMenuPosition } from '@app/composables/useContextMenuPosition';
 
 interface IRefProxy {
     num: number;
     gen: number;
 }
-
-type TBookmarkDisplayMode = 'top-level' | 'all-expanded' | 'current-expanded';
-type TBookmarkDropPosition = 'before' | 'after' | 'child';
 
 interface IOutlineItemRaw {
     title: string;
@@ -285,52 +196,10 @@ interface IOutlineItemRaw {
     items?: IOutlineItemRaw[];
 }
 
-interface IBookmarkItem {
-    title: string;
-    dest: string | unknown[] | null;
-    id: string;
-    pageIndex: number | null;
-    bold: boolean;
-    italic: boolean;
-    color: string | null;
-    items: IBookmarkItem[];
-}
-
-interface IBookmarkLocation {
-    parent: IBookmarkItem | null;
-    list: IBookmarkItem[];
-    index: number;
-    item: IBookmarkItem;
-}
-
-interface IBookmarkMenuPayload {
-    id: string;
-    x: number;
-    y: number;
-}
-
 interface IBookmarkDisplayModeOption {
     id: TBookmarkDisplayMode;
     title: string;
     icon: string;
-}
-
-interface IBookmarkDropTarget {
-    id: string;
-    position: TBookmarkDropPosition;
-}
-
-interface IBookmarkActivatePayload {
-    id: string;
-    hasChildren: boolean;
-    wasActive: boolean;
-    multiSelect: boolean;
-    rangeSelect: boolean;
-}
-
-interface IBookmarkDropPayload {
-    targetId: string;
-    position: TBookmarkDropPosition;
 }
 
 interface IProps {
@@ -351,28 +220,14 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
-
-const bookmarkColorPresets = [
-    '#1f2937',
-    '#1d4ed8',
-    '#b91c1c',
-    '#047857',
-    '#7c3aed',
-    '#c2410c',
-] as const;
+const { clampToViewport } = useContextMenuPosition();
 
 const bookmarks = ref<IBookmarkItem[]>([]);
 const isLoading = ref(false);
 const activeItemId = ref<string | null>(null);
-const editingItemId = ref<string | null>(null);
-const selectedBookmarkIds = ref<Set<string>>(new Set());
-const selectionAnchorBookmarkId = ref<string | null>(null);
 const displayMode = ref<TBookmarkDisplayMode>('current-expanded');
 const expandedBookmarkIds = ref<Set<string>>(new Set());
 const styleRangeStartId = ref<string | null>(null);
-const draggingBookmarkIds = ref<Set<string>>(new Set());
-const bookmarkDropTarget = ref<IBookmarkDropTarget | null>(null);
-const isRootAppendDropTarget = ref(false);
 const bookmarkContextMenu = ref<{
     visible: boolean;
     x: number;
@@ -389,6 +244,8 @@ const isEditMode = computed({
     get: () => props.isEditMode,
     set: (value: boolean) => emit('update:isEditMode', value),
 });
+
+const currentPageRef = computed(() => props.currentPage);
 
 const displayModeOptions = [
     {
@@ -407,11 +264,6 @@ const displayModeOptions = [
         icon: 'i-lucide-eye',
     },
 ] satisfies IBookmarkDisplayModeOption[];
-
-const bookmarkContextMenuStyle = computed(() => ({
-    left: `${bookmarkContextMenu.value.x}px`,
-    top: `${bookmarkContextMenu.value.y}px`,
-}));
 
 const parentBookmarkIdMap = computed(() => {
     const map = new Map<string, string | null>();
@@ -440,6 +292,18 @@ const activePathBookmarkIds = computed(() => {
     return ids;
 });
 
+let bookmarkIdCounter = 0;
+
+function resetBookmarkIdCounter() {
+    bookmarkIdCounter = 0;
+}
+
+function createBookmarkId() {
+    const id = `bookmark-${bookmarkIdCounter}`;
+    bookmarkIdCounter += 1;
+    return id;
+}
+
 const flatBookmarks = computed(() => {
     const flattened: IBookmarkItem[] = [];
 
@@ -454,32 +318,6 @@ const flatBookmarks = computed(() => {
     return flattened;
 });
 
-function isBookmarkExpandedForVisibility(item: IBookmarkItem) {
-    if (displayMode.value === 'all-expanded') {
-        return true;
-    }
-    if (displayMode.value === 'current-expanded') {
-        return activePathBookmarkIds.value.has(item.id);
-    }
-    return expandedBookmarkIds.value.has(item.id);
-}
-
-const visibleBookmarkIds = computed(() => {
-    const ids: string[] = [];
-
-    function visit(items: IBookmarkItem[]) {
-        for (const item of items) {
-            ids.push(item.id);
-            if (item.items.length > 0 && isBookmarkExpandedForVisibility(item)) {
-                visit(item.items);
-            }
-        }
-    }
-
-    visit(bookmarks.value);
-    return ids;
-});
-
 const bookmarkOrderIndexMap = computed(() => {
     const map = new Map<string, number>();
     for (const [
@@ -489,6 +327,58 @@ const bookmarkOrderIndexMap = computed(() => {
         map.set(item.id, index);
     }
     return map;
+});
+
+const selection = usePdfOutlineSelection(
+    bookmarks,
+    activeItemId,
+    displayMode,
+    expandedBookmarkIds,
+    activePathBookmarkIds,
+);
+
+const dragDrop = usePdfOutlineDragDrop(
+    bookmarks,
+    expandedBookmarkIds,
+    isEditMode,
+    selection.selectedBookmarkIds,
+    parentBookmarkIdMap,
+    bookmarkOrderIndexMap,
+    selection.applySingleSelection,
+    closeBookmarkContextMenu,
+);
+
+const editing = usePdfOutlineEditing(
+    bookmarks,
+    activeItemId,
+    expandedBookmarkIds,
+    displayMode,
+    isEditMode,
+    parentBookmarkIdMap,
+    selection.selectedBookmarkIds,
+    selection.selectionAnchorBookmarkId,
+    styleRangeStartId,
+    dragDrop.draggingBookmarkIds,
+    selection.applySingleSelection,
+    closeBookmarkContextMenu,
+    dragDrop.resetDragState,
+    currentPageRef,
+    emitBookmarksChange,
+    createBookmarkId,
+    t,
+);
+
+provide(PDF_OUTLINE_TREE_KEY, {
+    expandedBookmarkIds,
+    activeItemId,
+    editingItemId: editing.editingItemId,
+    selectedBookmarkIds: selection.selectedBookmarkIds,
+    displayMode,
+    isEditMode,
+    draggingItemIds: dragDrop.draggingBookmarkIds,
+    dropTarget: dragDrop.bookmarkDropTarget,
+    styleRangeStartId,
+    activePathBookmarkIds,
 });
 
 const selectedContextBookmark = computed(() => {
@@ -534,40 +424,35 @@ const applyStyleRangeLabel = computed(() => {
 });
 
 let outlineRunId = 0;
-let bookmarkIdCounter = 0;
 const initialBookmarkSnapshot = ref('[]');
 
-function resetBookmarkIdCounter() {
-    bookmarkIdCounter = 0;
+function emitBookmarksChange() {
+    const persisted = editing.mapBookmarksForPersistence(bookmarks.value);
+    const snapshot = JSON.stringify(persisted);
+    emit('bookmarks-change', {
+        bookmarks: persisted,
+        dirty: snapshot !== initialBookmarkSnapshot.value,
+    });
 }
 
-function createBookmarkId() {
-    const id = `bookmark-${bookmarkIdCounter}`;
-    bookmarkIdCounter += 1;
-    return id;
+function setBookmarkBaseline() {
+    const persisted = editing.mapBookmarksForPersistence(bookmarks.value);
+    initialBookmarkSnapshot.value = JSON.stringify(persisted);
+    emit('bookmarks-change', {
+        bookmarks: persisted,
+        dirty: false,
+    });
 }
 
-function normalizeBookmarkColor(color: string | null | undefined): string | null {
-    if (typeof color !== 'string') {
-        return null;
-    }
-
-    const value = color.trim().toLowerCase();
-    const shortHexMatch = /^#([0-9a-f]{3})$/.exec(value);
-    if (shortHexMatch) {
-        const triple = shortHexMatch[1];
-        if (!triple) {
-            return null;
-        }
-        const [
-            r,
-            g,
-            b,
-        ] = triple.split('');
-        return `#${r}${r}${g}${g}${b}${b}`;
-    }
-
-    return /^#[0-9a-f]{6}$/.test(value) ? value : null;
+function isRefProxy(value: unknown): value is IRefProxy {
+    return (
+        typeof value === 'object'
+        && value !== null
+        && 'num' in value
+        && 'gen' in value
+        && typeof (value as IRefProxy).num === 'number'
+        && typeof (value as IRefProxy).gen === 'number'
+    );
 }
 
 function convertOutlineColorToHex(color: ArrayLike<number> | null | undefined): string | null {
@@ -590,50 +475,6 @@ function convertOutlineColorToHex(color: ArrayLike<number> | null | undefined): 
     });
 
     return `#${rgb.map(value => value.toString(16).padStart(2, '0')).join('')}`;
-}
-
-function mapBookmarksForPersistence(items: IBookmarkItem[]): IPdfBookmarkEntry[] {
-    return items.map((item) => {
-        const title = item.title.trim();
-        return {
-            title: title.length > 0 ? title : 'Untitled Bookmark',
-            pageIndex: typeof item.pageIndex === 'number' ? item.pageIndex : null,
-            namedDest: typeof item.dest === 'string' && item.dest.trim().length > 0 ? item.dest : null,
-            bold: item.bold,
-            italic: item.italic,
-            color: normalizeBookmarkColor(item.color),
-            items: mapBookmarksForPersistence(item.items),
-        };
-    });
-}
-
-function emitBookmarksChange() {
-    const persisted = mapBookmarksForPersistence(bookmarks.value);
-    const snapshot = JSON.stringify(persisted);
-    emit('bookmarks-change', {
-        bookmarks: persisted,
-        dirty: snapshot !== initialBookmarkSnapshot.value,
-    });
-}
-
-function setBookmarkBaseline() {
-    const persisted = mapBookmarksForPersistence(bookmarks.value);
-    initialBookmarkSnapshot.value = JSON.stringify(persisted);
-    emit('bookmarks-change', {
-        bookmarks: persisted,
-        dirty: false,
-    });
-}
-
-function isRefProxy(value: unknown): value is IRefProxy {
-    return (
-        typeof value === 'object'
-        && value !== null
-        && 'num' in value
-        && 'gen' in value
-        && typeof (value as IRefProxy).num === 'number'
-        && typeof (value as IRefProxy).gen === 'number'
-    );
 }
 
 async function resolvePageIndex(
@@ -749,10 +590,9 @@ function updateActiveItemFromCurrentPage() {
     activeItemId.value = active?.id ?? null;
     if (!isEditMode.value) {
         if (activeItemId.value) {
-            applySingleSelection(activeItemId.value);
+            selection.applySingleSelection(activeItemId.value);
         } else {
-            selectedBookmarkIds.value = new Set();
-            selectionAnchorBookmarkId.value = null;
+            selection.clearSelection();
         }
     }
 }
@@ -762,19 +602,17 @@ async function loadOutline() {
     outlineRunId += 1;
     const runId = outlineRunId;
     closeBookmarkContextMenu();
-    cancelEditingBookmark();
-    resetDragState();
+    editing.cancelEditingBookmark();
+    dragDrop.resetDragState();
     styleRangeStartId.value = null;
-    selectedBookmarkIds.value = new Set();
-    selectionAnchorBookmarkId.value = null;
+    selection.clearSelection();
     expandedBookmarkIds.value = new Set();
 
     if (!pdfDocument || !isPdfDocumentUsable(pdfDocument)) {
         isLoading.value = false;
         bookmarks.value = [];
         activeItemId.value = null;
-        selectedBookmarkIds.value = new Set();
-        selectionAnchorBookmarkId.value = null;
+        selection.clearSelection();
         setBookmarkBaseline();
         return;
     }
@@ -812,7 +650,7 @@ async function loadOutline() {
         bookmarks.value = resolved;
         updateActiveItemFromCurrentPage();
         if (activeItemId.value) {
-            applySingleSelection(activeItemId.value);
+            selection.applySingleSelection(activeItemId.value);
         }
         setBookmarkBaseline();
     } catch (error) {
@@ -826,8 +664,7 @@ async function loadOutline() {
         console.error('Failed to load bookmarks:', error);
         bookmarks.value = [];
         activeItemId.value = null;
-        selectedBookmarkIds.value = new Set();
-        selectionAnchorBookmarkId.value = null;
+        selection.clearSelection();
         setBookmarkBaseline();
     } finally {
         if (runId === outlineRunId) {
@@ -844,206 +681,17 @@ function setDisplayMode(mode: TBookmarkDisplayMode) {
     }
 }
 
-function createDraftBookmark(): IBookmarkItem {
-    return {
-        id: createBookmarkId(),
-        title: t('bookmarks.newBookmark'),
-        dest: null,
-        pageIndex: Math.max(0, (props.currentPage || 1) - 1),
-        bold: false,
-        italic: false,
-        color: null,
-        items: [],
-    };
-}
-
-function findBookmarkLocation(
-    items: IBookmarkItem[],
-    id: string,
-    parent: IBookmarkItem | null = null,
-): IBookmarkLocation | null {
-    for (const [
-        index,
-        item,
-    ] of items.entries()) {
-        if (item.id === id) {
-            return {
-                parent,
-                list: items,
-                index,
-                item,
-            };
-        }
-
-        const child = findBookmarkLocation(item.items, id, item);
-        if (child) {
-            return child;
-        }
-    }
-
-    return null;
-}
-
-function findBookmarkById(items: IBookmarkItem[], id: string): IBookmarkItem | null {
-    for (const item of items) {
-        if (item.id === id) {
-            return item;
-        }
-        const child = findBookmarkById(item.items, id);
-        if (child) {
-            return child;
-        }
-    }
-
-    return null;
-}
-
-function collectBookmarkIds(item: IBookmarkItem, ids: Set<string>) {
-    ids.add(item.id);
-    for (const child of item.items) {
-        collectBookmarkIds(child, ids);
-    }
-}
-
-function getSelectedRootIds(selection: Set<string>) {
-    const roots = new Set<string>();
-    for (const id of selection) {
-        let hasSelectedAncestor = false;
-        let cursor = parentBookmarkIdMap.value.get(id) ?? null;
-
-        while (cursor) {
-            if (selection.has(cursor)) {
-                hasSelectedAncestor = true;
-                break;
-            }
-            cursor = parentBookmarkIdMap.value.get(cursor) ?? null;
-        }
-
-        if (!hasSelectedAncestor) {
-            roots.add(id);
-        }
-    }
-
-    const order = bookmarkOrderIndexMap.value;
-    return [...roots].sort((left, right) => (order.get(left) ?? 0) - (order.get(right) ?? 0));
-}
-
-function applySingleSelection(id: string) {
-    selectedBookmarkIds.value = new Set([id]);
-    selectionAnchorBookmarkId.value = id;
-}
-
-function applyRangeSelection(id: string) {
-    const anchorId = selectionAnchorBookmarkId.value;
-    if (!anchorId) {
-        applySingleSelection(id);
-        return;
-    }
-
-    const visibleIds = visibleBookmarkIds.value;
-    const anchorIndex = visibleIds.indexOf(anchorId);
-    const targetIndex = visibleIds.indexOf(id);
-    if (anchorIndex < 0 || targetIndex < 0) {
-        applySingleSelection(id);
-        return;
-    }
-
-    const start = Math.min(anchorIndex, targetIndex);
-    const end = Math.max(anchorIndex, targetIndex);
-    const nextSelection = new Set<string>();
-    for (let index = start; index <= end; index += 1) {
-        const currentId = visibleIds[index];
-        if (currentId) {
-            nextSelection.add(currentId);
-        }
-    }
-    selectedBookmarkIds.value = nextSelection;
-}
-
-function pruneStaleState() {
-    const validIds = new Set<string>();
-    for (const item of flatBookmarks.value) {
-        validIds.add(item.id);
-    }
-
-    if (activeItemId.value && !validIds.has(activeItemId.value)) {
-        activeItemId.value = null;
-    }
-
-    if (editingItemId.value && !validIds.has(editingItemId.value)) {
-        editingItemId.value = null;
-    }
-
-    if (styleRangeStartId.value && !validIds.has(styleRangeStartId.value)) {
-        styleRangeStartId.value = null;
-    }
-
-    const nextSelected = new Set<string>();
-    for (const id of selectedBookmarkIds.value) {
-        if (validIds.has(id)) {
-            nextSelected.add(id);
-        }
-    }
-    selectedBookmarkIds.value = nextSelected;
-
-    if (selectionAnchorBookmarkId.value && !validIds.has(selectionAnchorBookmarkId.value)) {
-        selectionAnchorBookmarkId.value = null;
-    }
-
-    let hasInvalidDraggingId = false;
-    for (const id of draggingBookmarkIds.value) {
-        if (!validIds.has(id)) {
-            hasInvalidDraggingId = true;
-            break;
-        }
-    }
-    if (hasInvalidDraggingId) {
-        resetDragState();
-    }
-
-    const nextExpanded = new Set<string>();
-    for (const id of expandedBookmarkIds.value) {
-        if (validIds.has(id)) {
-            nextExpanded.add(id);
-        }
-    }
-    expandedBookmarkIds.value = nextExpanded;
-
-    if (bookmarkContextMenu.value.itemId && !validIds.has(bookmarkContextMenu.value.itemId)) {
-        closeBookmarkContextMenu();
-    }
-}
-
-function ensureBookmarkVisibleInTopLevelMode(id: string) {
-    if (displayMode.value !== 'top-level') {
-        return;
-    }
-
-    const parentId = parentBookmarkIdMap.value.get(id);
-    if (!parentId) {
-        return;
-    }
-
-    const nextExpanded = new Set(expandedBookmarkIds.value);
-    nextExpanded.add(parentId);
-    expandedBookmarkIds.value = nextExpanded;
-}
-
 function openBookmarkContextMenu(payload: IBookmarkMenuPayload) {
     if (!isEditMode.value) {
         return;
     }
 
-    const width = 228;
-    const height = 380;
-    const margin = 8;
-    const maxX = Math.max(margin, window.innerWidth - width - margin);
-    const maxY = Math.max(margin, window.innerHeight - height - margin);
+    const clamped = clampToViewport(payload.x, payload.y, 228, 380);
 
     bookmarkContextMenu.value = {
         visible: true,
-        x: Math.min(Math.max(margin, payload.x), maxX),
-        y: Math.min(Math.max(margin, payload.y), maxY),
+        x: clamped.x,
+        y: clamped.y,
         itemId: payload.id,
     };
 }
@@ -1065,21 +713,21 @@ function handleActivate(payload: IBookmarkActivatePayload) {
     activeItemId.value = payload.id;
     if (isEditMode.value) {
         if (payload.rangeSelect) {
-            applyRangeSelection(payload.id);
+            selection.applyRangeSelection(payload.id);
         } else if (payload.multiSelect) {
-            const nextSelection = new Set(selectedBookmarkIds.value);
+            const nextSelection = new Set(selection.selectedBookmarkIds.value);
             if (nextSelection.has(payload.id)) {
                 nextSelection.delete(payload.id);
             } else {
                 nextSelection.add(payload.id);
             }
-            selectedBookmarkIds.value = nextSelection;
-            selectionAnchorBookmarkId.value = payload.id;
+            selection.selectedBookmarkIds.value = nextSelection;
+            selection.selectionAnchorBookmarkId.value = payload.id;
         } else {
-            applySingleSelection(payload.id);
+            selection.applySingleSelection(payload.id);
         }
     } else {
-        applySingleSelection(payload.id);
+        selection.applySingleSelection(payload.id);
     }
 
     closeBookmarkContextMenu();
@@ -1097,178 +745,6 @@ function toggleExpanded(id: string) {
         nextExpanded.add(id);
     }
     expandedBookmarkIds.value = nextExpanded;
-}
-
-function startEditingBookmark(id: string) {
-    isEditMode.value = true;
-    activeItemId.value = id;
-    applySingleSelection(id);
-    editingItemId.value = id;
-    closeBookmarkContextMenu();
-}
-
-function cancelEditingBookmark() {
-    editingItemId.value = null;
-}
-
-function renameBookmark(payload: {
-    id: string;
-    title: string;
-}) {
-    const location = findBookmarkLocation(bookmarks.value, payload.id);
-    editingItemId.value = null;
-    if (!location) {
-        return;
-    }
-
-    const nextTitle = payload.title.trim();
-    if (nextTitle.length === 0) {
-        return;
-    }
-
-    if (location.item.title === nextTitle) {
-        return;
-    }
-
-    location.item.title = nextTitle;
-    emitBookmarksChange();
-}
-
-function focusNewBookmark(id: string) {
-    activeItemId.value = id;
-    editingItemId.value = id;
-    isEditMode.value = true;
-    applySingleSelection(id);
-    closeBookmarkContextMenu();
-}
-
-function addRootBookmark() {
-    const bookmark = createDraftBookmark();
-    bookmarks.value.push(bookmark);
-    focusNewBookmark(bookmark.id);
-    emitBookmarksChange();
-}
-
-function addSiblingAbove(id: string) {
-    const location = findBookmarkLocation(bookmarks.value, id);
-    if (!location) {
-        return;
-    }
-
-    const bookmark = createDraftBookmark();
-    location.list.splice(location.index, 0, bookmark);
-    focusNewBookmark(bookmark.id);
-    emitBookmarksChange();
-}
-
-function addSiblingBelow(id: string) {
-    const location = findBookmarkLocation(bookmarks.value, id);
-    if (!location) {
-        return;
-    }
-
-    const bookmark = createDraftBookmark();
-    location.list.splice(location.index + 1, 0, bookmark);
-    focusNewBookmark(bookmark.id);
-    emitBookmarksChange();
-}
-
-function addChildBookmark(id: string) {
-    const location = findBookmarkLocation(bookmarks.value, id);
-    if (!location) {
-        return;
-    }
-
-    const bookmark = createDraftBookmark();
-    location.item.items.push(bookmark);
-    ensureBookmarkVisibleInTopLevelMode(bookmark.id);
-    focusNewBookmark(bookmark.id);
-    emitBookmarksChange();
-}
-
-function removeBookmark(id: string) {
-    const location = findBookmarkLocation(bookmarks.value, id);
-    if (!location) {
-        return;
-    }
-
-    const removedIds = new Set<string>();
-    collectBookmarkIds(location.item, removedIds);
-    location.list.splice(location.index, 1);
-
-    const nextActive = location.list[location.index] ?? location.list[location.index - 1] ?? location.parent;
-    if (activeItemId.value && removedIds.has(activeItemId.value)) {
-        activeItemId.value = nextActive?.id ?? null;
-    }
-
-    if (editingItemId.value && removedIds.has(editingItemId.value)) {
-        editingItemId.value = null;
-    }
-
-    if (styleRangeStartId.value && removedIds.has(styleRangeStartId.value)) {
-        styleRangeStartId.value = null;
-    }
-
-    const nextExpanded = new Set<string>();
-    for (const expandedId of expandedBookmarkIds.value) {
-        if (!removedIds.has(expandedId)) {
-            nextExpanded.add(expandedId);
-        }
-    }
-    expandedBookmarkIds.value = nextExpanded;
-
-    closeBookmarkContextMenu();
-    pruneStaleState();
-    emitBookmarksChange();
-}
-
-function updateBookmarkStyle(
-    id: string,
-    updates: Partial<Pick<IBookmarkItem, 'bold' | 'italic' | 'color'>>,
-) {
-    const location = findBookmarkLocation(bookmarks.value, id);
-    if (!location) {
-        return;
-    }
-
-    const nextBold = typeof updates.bold === 'boolean' ? updates.bold : location.item.bold;
-    const nextItalic = typeof updates.italic === 'boolean' ? updates.italic : location.item.italic;
-    const nextColor = updates.color === undefined
-        ? location.item.color
-        : normalizeBookmarkColor(updates.color);
-
-    if (
-        location.item.bold === nextBold
-        && location.item.italic === nextItalic
-        && location.item.color === nextColor
-    ) {
-        return;
-    }
-
-    location.item.bold = nextBold;
-    location.item.italic = nextItalic;
-    location.item.color = nextColor;
-    emitBookmarksChange();
-}
-
-function toggleBookmarkBold(id: string) {
-    const bookmark = findBookmarkById(bookmarks.value, id);
-    if (!bookmark) {
-        return;
-    }
-    updateBookmarkStyle(id, { bold: !bookmark.bold });
-}
-
-function toggleBookmarkItalic(id: string) {
-    const bookmark = findBookmarkById(bookmarks.value, id);
-    if (!bookmark) {
-        return;
-    }
-    updateBookmarkStyle(id, { italic: !bookmark.italic });
-}
-
-function setBookmarkColor(id: string, color: string | null) {
-    updateBookmarkStyle(id, { color });
 }
 
 function setStyleRangeStart(id: string) {
@@ -1309,174 +785,12 @@ function applyContextStyleToRange() {
     }
 }
 
-function resetDragState() {
-    draggingBookmarkIds.value = new Set();
-    bookmarkDropTarget.value = null;
-    isRootAppendDropTarget.value = false;
-}
-
-function collectDraggedBranchIds(draggedRootIds: string[]) {
-    const ids = new Set<string>();
-    for (const id of draggedRootIds) {
-        const location = findBookmarkLocation(bookmarks.value, id);
-        if (!location) {
-            continue;
-        }
-        collectBookmarkIds(location.item, ids);
-    }
-    return ids;
-}
-
-function canDropBookmarks(draggedRootIds: string[], targetId: string) {
-    if (draggedRootIds.includes(targetId)) {
-        return false;
-    }
-
-    const draggedBranchIds = collectDraggedBranchIds(draggedRootIds);
-    return !draggedBranchIds.has(targetId);
-}
-
-function extractDraggedItems(draggedRootIds: string[]) {
-    const order = bookmarkOrderIndexMap.value;
-    const descendingIds = [...draggedRootIds].sort((left, right) => (
-        (order.get(right) ?? 0) - (order.get(left) ?? 0)
-    ));
-
-    const extracted = new Map<string, IBookmarkItem>();
-    for (const id of descendingIds) {
-        const location = findBookmarkLocation(bookmarks.value, id);
-        if (!location) {
-            continue;
-        }
-        location.list.splice(location.index, 1);
-        extracted.set(id, location.item);
-    }
-
-    return draggedRootIds
-        .map(id => extracted.get(id) ?? null)
-        .filter((item): item is IBookmarkItem => item !== null);
-}
-
-function moveBookmarksToTarget(
-    draggedRootIds: string[],
-    targetId: string,
-    position: TBookmarkDropPosition,
-) {
-    if (!canDropBookmarks(draggedRootIds, targetId)) {
-        return;
-    }
-
-    const targetLocationBeforeExtraction = findBookmarkLocation(bookmarks.value, targetId);
-    if (!targetLocationBeforeExtraction) {
-        return;
-    }
-
-    const draggedItems = extractDraggedItems(draggedRootIds);
-    if (draggedItems.length === 0) {
-        return;
-    }
-
-    const targetLocation = findBookmarkLocation(bookmarks.value, targetId);
-    if (!targetLocation) {
-        bookmarks.value.push(...draggedItems);
-        return;
-    }
-
-    if (position === 'child') {
-        targetLocation.item.items.push(...draggedItems);
-        const nextExpanded = new Set(expandedBookmarkIds.value);
-        nextExpanded.add(targetLocation.item.id);
-        expandedBookmarkIds.value = nextExpanded;
-        return;
-    }
-
-    const insertionIndex = position === 'before' ? targetLocation.index : targetLocation.index + 1;
-    targetLocation.list.splice(insertionIndex, 0, ...draggedItems);
-}
-
-function moveBookmarksToRootEnd(draggedRootIds: string[]) {
-    const draggedItems = extractDraggedItems(draggedRootIds);
-    if (draggedItems.length === 0) {
-        return;
-    }
-    bookmarks.value.push(...draggedItems);
-}
-
-function handleBookmarkDragStart(payload: { id: string }) {
-    if (!isEditMode.value) {
-        return;
-    }
-
-    if (!selectedBookmarkIds.value.has(payload.id)) {
-        applySingleSelection(payload.id);
-    }
-
-    const draggedRoots = getSelectedRootIds(selectedBookmarkIds.value);
-    draggingBookmarkIds.value = new Set(draggedRoots.length > 0 ? draggedRoots : [payload.id]);
-    bookmarkDropTarget.value = null;
-    isRootAppendDropTarget.value = false;
-    closeBookmarkContextMenu();
-}
-
-function handleBookmarkDragHover(payload: IBookmarkDropPayload) {
-    const draggingRoots = [...draggingBookmarkIds.value];
-    if (!isEditMode.value || draggingRoots.length === 0) {
-        return;
-    }
-
-    if (!canDropBookmarks(draggingRoots, payload.targetId)) {
-        bookmarkDropTarget.value = null;
-        isRootAppendDropTarget.value = false;
-        return;
-    }
-
-    bookmarkDropTarget.value = {
-        id: payload.targetId,
-        position: payload.position,
-    };
-    isRootAppendDropTarget.value = false;
-}
-
 function handleBookmarkDrop(payload: IBookmarkDropPayload) {
-    const draggingRoots = [...draggingBookmarkIds.value];
-    if (!isEditMode.value || draggingRoots.length === 0) {
-        return;
-    }
-
-    if (!canDropBookmarks(draggingRoots, payload.targetId)) {
-        resetDragState();
-        return;
-    }
-
-    moveBookmarksToTarget(draggingRoots, payload.targetId, payload.position);
-    activeItemId.value = draggingRoots[0] ?? null;
-    emitBookmarksChange();
-    resetDragState();
-}
-
-function handleTreeEndDragOver() {
-    if (!isEditMode.value || draggingBookmarkIds.value.size === 0) {
-        return;
-    }
-
-    bookmarkDropTarget.value = null;
-    isRootAppendDropTarget.value = true;
+    dragDrop.handleBookmarkDrop(payload, activeItemId, emitBookmarksChange);
 }
 
 function handleTreeEndDrop() {
-    const draggingRoots = [...draggingBookmarkIds.value];
-    if (!isEditMode.value || draggingRoots.length === 0) {
-        return;
-    }
-
-    moveBookmarksToRootEnd(draggingRoots);
-    activeItemId.value = draggingRoots[0] ?? null;
-    emitBookmarksChange();
-    resetDragState();
-}
-
-function handleBookmarkDragEnd() {
-    resetDragState();
+    dragDrop.handleTreeEndDrop(activeItemId, emitBookmarksChange);
 }
 
 function handleGlobalPointerDown(event: PointerEvent) {
@@ -1493,8 +807,8 @@ function handleGlobalPointerDown(event: PointerEvent) {
 function handleGlobalKeydown(event: KeyboardEvent) {
     if (event.key === 'Escape') {
         closeBookmarkContextMenu();
-        cancelEditingBookmark();
-        resetDragState();
+        editing.cancelEditingBookmark();
+        dragDrop.resetDragState();
     }
 }
 
@@ -1513,15 +827,14 @@ watch(
     () => isEditMode.value,
     (value) => {
         if (!value) {
-            cancelEditingBookmark();
+            editing.cancelEditingBookmark();
             closeBookmarkContextMenu();
-            resetDragState();
+            dragDrop.resetDragState();
             styleRangeStartId.value = null;
             if (activeItemId.value) {
-                applySingleSelection(activeItemId.value);
+                selection.applySingleSelection(activeItemId.value);
             } else {
-                selectedBookmarkIds.value = new Set();
-                selectionAnchorBookmarkId.value = null;
+                selection.clearSelection();
             }
         }
     },
@@ -1643,102 +956,6 @@ onBeforeUnmount(() => {
     box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--ui-primary) 72%, transparent 28%);
 }
 
-.bookmarks-context-menu {
-    position: fixed;
-    z-index: 1400;
-    min-width: 210px;
-    border: 1px solid var(--ui-border);
-    border-radius: 10px;
-    background: var(--ui-bg);
-    box-shadow: 0 14px 30px color-mix(in srgb, var(--ui-bg-inverted) 20%, transparent 80%);
-    padding: 5px;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-}
-
-.bookmarks-context-menu-action {
-    border: 1px solid transparent;
-    border-radius: 6px;
-    background: transparent;
-    color: var(--ui-text-highlighted);
-    font-size: 12px;
-    text-align: left;
-    padding: 6px 8px;
-    cursor: pointer;
-}
-
-.bookmarks-context-menu-action:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-}
-
-.bookmarks-context-menu-action:hover:not(:disabled) {
-    border-color: var(--ui-border);
-    background: color-mix(in srgb, var(--ui-bg-muted) 55%, var(--ui-bg) 45%);
-}
-
-.bookmarks-context-menu-action.is-danger {
-    color: color-mix(in srgb, var(--ui-error) 68%, var(--ui-text-highlighted) 32%);
-}
-
-.bookmarks-context-menu-divider {
-    height: 1px;
-    background: var(--ui-border);
-    margin: 3px 2px;
-}
-
-.bookmarks-context-menu-style-block {
-    padding: 3px 4px;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-}
-
-.bookmarks-context-menu-style-row {
-    display: flex;
-    gap: 6px;
-}
-
-.bookmarks-style-toggle {
-    width: 24px;
-    height: 24px;
-    border: 1px solid var(--ui-border);
-    border-radius: 5px;
-    background: var(--ui-bg);
-    color: var(--ui-text-muted);
-    font-size: 12px;
-    font-weight: 700;
-    cursor: pointer;
-}
-
-.bookmarks-style-toggle:nth-child(2) {
-    font-style: italic;
-}
-
-.bookmarks-style-toggle.is-active {
-    border-color: color-mix(in srgb, var(--ui-primary) 50%, var(--ui-border) 50%);
-    color: var(--ui-primary);
-    background: color-mix(in srgb, var(--ui-primary) 9%, var(--ui-bg) 91%);
-}
-
-.bookmarks-context-menu-color-row {
-    display: flex;
-    gap: 6px;
-}
-
-.bookmarks-color-swatch {
-    width: 18px;
-    height: 18px;
-    border-radius: 999px;
-    border: 1px solid color-mix(in srgb, var(--ui-bg-inverted) 16%, transparent 84%);
-    cursor: pointer;
-}
-
-.bookmarks-color-swatch.is-active {
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--ui-primary) 45%, transparent 55%);
-}
-
 @media (width <= 780px) {
     .pdf-bookmarks-toolbar {
         grid-template-columns: 1fr;
@@ -1749,7 +966,3 @@ onBeforeUnmount(() => {
     }
 }
 </style>
-const isEditMode = computed({
-    get: () => props.isEditMode,
-    set: (value: boolean) => emit('update:isEditMode', value),
-});

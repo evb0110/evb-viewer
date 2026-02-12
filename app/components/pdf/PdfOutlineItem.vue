@@ -14,7 +14,7 @@
             }"
             tabindex="0"
             role="button"
-            :draggable="isEditMode && !isEditing"
+            :draggable="treeContext.isEditMode.value && !isEditing"
             @click="handleClick"
             @keydown.enter.prevent="handleClick"
             @keydown.space.prevent="handleClick"
@@ -25,7 +25,7 @@
             @dragend="handleDragEnd"
         >
             <span
-                v-if="isEditMode"
+                v-if="treeContext.isEditMode.value"
                 class="pdf-bookmark-item-drag-handle"
                 aria-hidden="true"
             >
@@ -77,7 +77,7 @@
             </span>
 
             <UTooltip
-                v-if="isEditMode"
+                v-if="treeContext.isEditMode.value"
                 text="Bookmark actions"
                 :delay-duration="800"
             >
@@ -105,16 +105,6 @@
                 :key="child.id || index"
                 :item="child"
                 :pdf-document="pdfDocument"
-                :active-item-id="activeItemId"
-                :editing-item-id="editingItemId"
-                :display-mode="displayMode"
-                :expanded-bookmark-ids="expandedBookmarkIds"
-                :active-path-bookmark-ids="activePathBookmarkIds"
-                :is-edit-mode="isEditMode"
-                :selected-bookmark-ids="selectedBookmarkIds"
-                :dragging-item-ids="draggingItemIds"
-                :drop-target="dropTarget"
-                :style-range-start-id="styleRangeStartId"
                 @go-to-page="emit('go-to-page', $event)"
                 @activate="emit('activate', $event)"
                 @toggle-expand="emit('toggle-expand', $event)"
@@ -133,39 +123,23 @@
 <script setup lang="ts">
 import {
     computed,
+    inject,
     nextTick,
     ref,
     watch,
 } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
+import type {
+    IBookmarkItem,
+    IBookmarkMenuPayload,
+} from '@app/types/pdf-outline';
+import { PDF_OUTLINE_TREE_KEY } from '@app/composables/pdf/usePdfOutlineKeys';
+
+type TDropPosition = 'before' | 'after' | 'child';
 
 interface IRefProxy {
     num: number;
     gen: number;
-}
-
-type TDropPosition = 'before' | 'after' | 'child';
-
-interface IBookmarkItem {
-    title: string;
-    dest: string | unknown[] | null;
-    id: string;
-    pageIndex: number | null;
-    bold: boolean;
-    italic: boolean;
-    color: string | null;
-    items: IBookmarkItem[];
-}
-
-interface IBookmarkMenuPayload {
-    id: string;
-    x: number;
-    y: number;
-}
-
-interface IDropTarget {
-    id: string;
-    position: TDropPosition;
 }
 
 interface IDragHoverPayload {
@@ -176,16 +150,6 @@ interface IDragHoverPayload {
 interface IProps {
     item: IBookmarkItem;
     pdfDocument: PDFDocumentProxy | null;
-    activeItemId: string | null;
-    editingItemId: string | null;
-    displayMode: 'top-level' | 'all-expanded' | 'current-expanded';
-    expandedBookmarkIds: Set<string>;
-    activePathBookmarkIds: Set<string>;
-    isEditMode: boolean;
-    selectedBookmarkIds: Set<string>;
-    draggingItemIds: Set<string>;
-    dropTarget: IDropTarget | null;
-    styleRangeStartId: string | null;
 }
 
 const props = defineProps<IProps>();
@@ -212,27 +176,29 @@ const emit = defineEmits<{
     (e: 'drag-end'): void;
 }>();
 
+const treeContext = inject(PDF_OUTLINE_TREE_KEY)!;
+
 const editingTitle = ref('');
 const titleInputRef = ref<HTMLInputElement | null>(null);
 
 const hasChildren = computed(() => props.item.items.length > 0);
-const isActive = computed(() => props.item.id === props.activeItemId);
-const isSelected = computed(() => props.selectedBookmarkIds.has(props.item.id));
-const isEditing = computed(() => props.item.id === props.editingItemId);
-const isDragging = computed(() => props.draggingItemIds.has(props.item.id));
+const isActive = computed(() => props.item.id === treeContext.activeItemId.value);
+const isSelected = computed(() => treeContext.selectedBookmarkIds.value.has(props.item.id));
+const isEditing = computed(() => props.item.id === treeContext.editingItemId.value);
+const isDragging = computed(() => treeContext.draggingItemIds.value.has(props.item.id));
 const isDropTargetBefore = computed(() => (
-    props.dropTarget?.id === props.item.id
-    && props.dropTarget.position === 'before'
+    treeContext.dropTarget.value?.id === props.item.id
+    && treeContext.dropTarget.value.position === 'before'
 ));
 const isDropTargetAfter = computed(() => (
-    props.dropTarget?.id === props.item.id
-    && props.dropTarget.position === 'after'
+    treeContext.dropTarget.value?.id === props.item.id
+    && treeContext.dropTarget.value.position === 'after'
 ));
 const isDropTargetChild = computed(() => (
-    props.dropTarget?.id === props.item.id
-    && props.dropTarget.position === 'child'
+    treeContext.dropTarget.value?.id === props.item.id
+    && treeContext.dropTarget.value.position === 'child'
 ));
-const isStyleRangeStart = computed(() => props.styleRangeStartId === props.item.id);
+const isStyleRangeStart = computed(() => treeContext.styleRangeStartId.value === props.item.id);
 
 const bookmarkTitleStyle = computed(() => ({
     color: props.item.color ?? undefined,
@@ -245,15 +211,15 @@ const isExpanded = computed(() => {
         return false;
     }
 
-    if (props.displayMode === 'all-expanded') {
+    if (treeContext.displayMode.value === 'all-expanded') {
         return true;
     }
 
-    if (props.displayMode === 'current-expanded') {
-        return props.activePathBookmarkIds.has(props.item.id);
+    if (treeContext.displayMode.value === 'current-expanded') {
+        return treeContext.activePathBookmarkIds.value.has(props.item.id);
     }
 
-    return props.expandedBookmarkIds.has(props.item.id);
+    return treeContext.expandedBookmarkIds.value.has(props.item.id);
 });
 
 watch(
@@ -297,7 +263,7 @@ function openActions(payload: IBookmarkMenuPayload) {
 }
 
 function openActionsFromPointer(event: MouseEvent) {
-    if (!props.isEditMode) {
+    if (!treeContext.isEditMode.value) {
         return;
     }
 
@@ -350,7 +316,7 @@ function detectDropPosition(event: DragEvent): TDropPosition {
 }
 
 function handleDragStart(event: DragEvent) {
-    if (!props.isEditMode || isEditing.value) {
+    if (!treeContext.isEditMode.value || isEditing.value) {
         event.preventDefault();
         return;
     }
@@ -363,7 +329,7 @@ function handleDragStart(event: DragEvent) {
 }
 
 function handleDragOver(event: DragEvent) {
-    if (!props.isEditMode || props.draggingItemIds.size === 0) {
+    if (!treeContext.isEditMode.value || treeContext.draggingItemIds.value.size === 0) {
         return;
     }
 
@@ -378,7 +344,7 @@ function handleDragOver(event: DragEvent) {
 }
 
 function handleDrop(event: DragEvent) {
-    if (!props.isEditMode || props.draggingItemIds.size === 0) {
+    if (!treeContext.isEditMode.value || treeContext.draggingItemIds.value.size === 0) {
         return;
     }
 
@@ -390,7 +356,7 @@ function handleDrop(event: DragEvent) {
 }
 
 function handleDragEnd() {
-    if (!props.isEditMode) {
+    if (!treeContext.isEditMode.value) {
         return;
     }
     emit('drag-end');
@@ -417,7 +383,7 @@ async function handleClick(event?: MouseEvent | KeyboardEvent) {
         return;
     }
 
-    if (props.isEditMode && (multiSelect || rangeSelect)) {
+    if (treeContext.isEditMode.value && (multiSelect || rangeSelect)) {
         return;
     }
 

@@ -62,6 +62,7 @@ import {
     watch,
 } from 'vue';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
+import { NOTE_WINDOW } from '@app/constants/pdf-layout';
 
 interface IAnnotationNotePosition {
     x: number;
@@ -102,20 +103,14 @@ const noteInputRef = ref<HTMLTextAreaElement | null>(null);
 const noteWindowRef = ref<HTMLElement | null>(null);
 const offsetX = ref(14);
 const offsetY = ref(72);
-const width = ref(380);
-const height = ref(360);
+const width = ref(NOTE_WINDOW.DEFAULT_WIDTH);
+const height = ref(NOTE_WINDOW.DEFAULT_HEIGHT);
 const dragStartX = ref(0);
 const dragStartY = ref(0);
 const frameStartX = ref(0);
 const frameStartY = ref(0);
 const isDragging = ref(false);
 let resizeObserver: ResizeObserver | null = null;
-
-const WINDOW_MARGIN = 8;
-const WINDOW_MIN_WIDTH = 260;
-const WINDOW_MIN_HEIGHT = 240;
-const WINDOW_DEFAULT_WIDTH = 380;
-const WINDOW_DEFAULT_HEIGHT = 360;
 
 const timeFormatter = new Intl.DateTimeFormat(undefined, {
     dateStyle: 'medium',
@@ -143,8 +138,8 @@ const windowStyle = computed(() => ({
 
 function applyPosition(position: IAnnotationNotePosition | null) {
     const nextSize = clampSize(
-        position?.width ?? width.value ?? WINDOW_DEFAULT_WIDTH,
-        position?.height ?? height.value ?? WINDOW_DEFAULT_HEIGHT,
+        position?.width ?? width.value ?? NOTE_WINDOW.DEFAULT_WIDTH,
+        position?.height ?? height.value ?? NOTE_WINDOW.DEFAULT_HEIGHT,
     );
     width.value = nextSize.width;
     height.value = nextSize.height;
@@ -171,17 +166,17 @@ function emitPositionUpdate() {
 function clampSize(nextWidth: number, nextHeight: number) {
     if (typeof window === 'undefined') {
         return {
-            width: Math.max(WINDOW_MIN_WIDTH, Math.round(nextWidth)),
-            height: Math.max(WINDOW_MIN_HEIGHT, Math.round(nextHeight)),
+            width: Math.max(NOTE_WINDOW.MIN_WIDTH, Math.round(nextWidth)),
+            height: Math.max(NOTE_WINDOW.MIN_HEIGHT, Math.round(nextHeight)),
         };
     }
 
-    const maxWidth = Math.max(WINDOW_MIN_WIDTH, window.innerWidth - (WINDOW_MARGIN * 2));
-    const maxHeight = Math.max(WINDOW_MIN_HEIGHT, window.innerHeight - (WINDOW_MARGIN * 2));
+    const maxWidth = Math.max(NOTE_WINDOW.MIN_WIDTH, window.innerWidth - (NOTE_WINDOW.MARGIN * 2));
+    const maxHeight = Math.max(NOTE_WINDOW.MIN_HEIGHT, window.innerHeight - (NOTE_WINDOW.MARGIN * 2));
 
     return {
-        width: Math.max(WINDOW_MIN_WIDTH, Math.min(maxWidth, Math.round(nextWidth))),
-        height: Math.max(WINDOW_MIN_HEIGHT, Math.min(maxHeight, Math.round(nextHeight))),
+        width: Math.max(NOTE_WINDOW.MIN_WIDTH, Math.min(maxWidth, Math.round(nextWidth))),
+        height: Math.max(NOTE_WINDOW.MIN_HEIGHT, Math.min(maxHeight, Math.round(nextHeight))),
     };
 }
 
@@ -193,12 +188,12 @@ function clampPosition(x: number, y: number, nextWidth: number, nextHeight: numb
         };
     }
 
-    const maxX = Math.max(WINDOW_MARGIN, window.innerWidth - nextWidth - WINDOW_MARGIN);
-    const maxY = Math.max(WINDOW_MARGIN, window.innerHeight - nextHeight - WINDOW_MARGIN);
+    const maxX = Math.max(NOTE_WINDOW.MARGIN, window.innerWidth - nextWidth - NOTE_WINDOW.MARGIN);
+    const maxY = Math.max(NOTE_WINDOW.MARGIN, window.innerHeight - nextHeight - NOTE_WINDOW.MARGIN);
 
     return {
-        x: Math.round(Math.min(maxX, Math.max(WINDOW_MARGIN, x))),
-        y: Math.round(Math.min(maxY, Math.max(WINDOW_MARGIN, y))),
+        x: Math.round(Math.min(maxX, Math.max(NOTE_WINDOW.MARGIN, x))),
+        y: Math.round(Math.min(maxY, Math.max(NOTE_WINDOW.MARGIN, y))),
     };
 }
 

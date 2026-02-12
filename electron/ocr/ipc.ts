@@ -11,10 +11,6 @@ import {
     writeFile,
 } from 'fs/promises';
 import {
-    availableParallelism,
-    cpus,
-} from 'os';
-import {
     dirname,
     join,
 } from 'path';
@@ -31,6 +27,12 @@ import {
     validatePreprocessingSetup,
 } from '@electron/ocr/preprocessing';
 import { createLogger } from '@electron/utils/logger';
+import {
+    forEachConcurrent,
+    getOcrConcurrency,
+    getSequentialProgressPage,
+    getTesseractThreadLimit,
+} from '@electron/utils/concurrency';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -156,83 +158,6 @@ function handleWorkerMessage(
         }
         return;
     }
-}
-
-function parsePositiveInt(value: string | undefined): number | null {
-    if (!value) {
-        return null;
-    }
-
-    const parsed = parseInt(value, 10);
-    if (Number.isNaN(parsed) || parsed <= 0) {
-        return null;
-    }
-
-    return parsed;
-}
-
-function getCpuCount(): number {
-    const count = typeof availableParallelism === 'function'
-        ? availableParallelism()
-        : cpus().length;
-    return Math.max(1, count);
-}
-
-function getOcrConcurrency(targetCount: number): number {
-    const configured = parsePositiveInt(process.env.OCR_CONCURRENCY);
-    if (configured) {
-        return Math.max(1, Math.min(configured, targetCount));
-    }
-
-    const cpuCount = getCpuCount();
-    // Bound concurrency to avoid spawning too many heavy OCR processes (tessdata_best is memory-hungry).
-    const defaultConcurrency = Math.min(cpuCount, 8);
-    return Math.max(1, Math.min(defaultConcurrency, targetCount));
-}
-
-function getTesseractThreadLimit(concurrency: number): number {
-    const configured = parsePositiveInt(process.env.OCR_TESSERACT_THREADS);
-    if (configured) {
-        return configured;
-    }
-
-    const cpuCount = getCpuCount();
-    return Math.max(1, Math.floor(cpuCount / Math.max(1, concurrency)));
-}
-
-async function forEachConcurrent<T>(
-    items: T[],
-    concurrency: number,
-    fn: (item: T, index: number) => Promise<void>,
-): Promise<void> {
-    const workerCount = Math.max(1, Math.min(concurrency, items.length));
-    let nextIndex = 0;
-
-    const workers = Array.from({ length: workerCount }, async () => {
-        while (true) {
-            const index = nextIndex++;
-            if (index >= items.length) {
-                return;
-            }
-
-            await fn(items[index]!, index);
-        }
-    });
-
-    await Promise.all(workers);
-}
-
-function getSequentialProgressPage(
-    pages: Array<{ pageNumber: number }>,
-    processedCount: number,
-): number {
-    if (pages.length === 0) {
-        return 0;
-    }
-
-    // Keep UI page numbers monotonic even when work is done in parallel.
-    const index = Math.min(Math.max(processedCount, 0), pages.length - 1);
-    return pages[index]?.pageNumber ?? 0;
 }
 
 interface IOcrPageRequest {

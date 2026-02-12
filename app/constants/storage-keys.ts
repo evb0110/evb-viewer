@@ -1,0 +1,7 @@
+export const STORAGE_KEYS = {
+    ANNOTATION_KEEP_ACTIVE: 'pdf.annotations.keepActive',
+    HIGHLIGHT_MODE: 'pdfHighlightMode',
+    HIGHLIGHT_DEBUG: 'pdfHighlightDebug',
+    OCR_DEBUG_BOXES: 'pdfOcrDebugBoxes',
+    LOG_LEVEL: 'electron-nuxt:log-level',
+} as const;

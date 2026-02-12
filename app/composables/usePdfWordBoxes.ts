@@ -1,6 +1,7 @@
 import type { PageViewport } from 'pdfjs-dist';
 import type { IOcrWord } from '@app/types/pdf';
 import { getElectronAPI } from '@app/utils/electron';
+import { STORAGE_KEYS } from '@app/constants/storage-keys';
 
 export interface IWordBoxOverlay {
     x: number;
@@ -35,7 +36,7 @@ function isOcrDebugEnabled(): boolean {
     if (typeof localStorage === 'undefined') {
         return false;
     }
-    return localStorage.getItem('pdfOcrDebugBoxes') === '1';
+    return localStorage.getItem(STORAGE_KEYS.OCR_DEBUG_BOXES) === '1';
 }
 
 /**
@@ -400,7 +401,7 @@ export const usePdfWordBoxes = () => {
      * 2. Transforms word pixel coords to viewport screen coords
      * 3. Renders colored boxes (orange) to distinguish from regular word boxes (blue)
      *
-     * Enable with: localStorage.setItem('pdfOcrDebugBoxes', '1')
+     * Enable with: localStorage.setItem(STORAGE_KEYS.OCR_DEBUG_BOXES, '1')
      */
     async function renderOcrDebugBoxes(
         pageContainer: HTMLElement,

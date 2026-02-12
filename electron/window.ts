@@ -13,6 +13,7 @@ import {
     startServer,
     waitForServer,
 } from '@electron/server';
+import { setupContentSecurityPolicy } from '@electron/security/csp';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -22,35 +23,7 @@ const windowIconPath = !app.isPackaged && !config.isMac
 
 let mainWindow: BrowserWindow | null = null;
 let createWindowPromise: Promise<void> | null = null;
-let isCspConfigured = false;
 let isDevCacheCleared = false;
-
-function setupContentSecurityPolicy() {
-    if (isCspConfigured) {
-        return;
-    }
-    isCspConfigured = true;
-
-    const csp = [
-        'default-src \'self\'',
-        'script-src \'self\' \'unsafe-inline\' \'wasm-unsafe-eval\'',
-        'style-src \'self\' \'unsafe-inline\'',
-        'img-src \'self\' data: blob:',
-        'font-src \'self\' data:',
-        'connect-src \'self\' blob: data: ws:',
-        'worker-src \'self\' blob:',
-        'object-src \'none\'',
-        'base-uri \'self\'',
-        'form-action \'self\'',
-    ].join('; ');
-
-    session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
-        callback({responseHeaders: {
-            ...details.responseHeaders,
-            'Content-Security-Policy': [csp],
-        }});
-    });
-}
 
 export async function createWindow() {
     if (mainWindow) {

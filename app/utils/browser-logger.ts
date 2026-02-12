@@ -2,6 +2,7 @@
  * Browser-safe logging utility
  * Logs to console and can be easily grepped in browser devtools
  */
+import { STORAGE_KEYS } from '@app/constants/storage-keys';
 
 type TBrowserLogLevel = 'debug' | 'info' | 'warn' | 'error' | 'silent';
 type TLazyValue = unknown | (() => unknown);
@@ -41,7 +42,7 @@ const configuredLogLevel: TBrowserLogLevel = (() => {
     }
 
     try {
-        const fromStorage = normalizeLogLevel(window.localStorage.getItem('electron-nuxt:log-level'));
+        const fromStorage = normalizeLogLevel(window.localStorage.getItem(STORAGE_KEYS.LOG_LEVEL));
         if (fromStorage) {
             return fromStorage;
         }

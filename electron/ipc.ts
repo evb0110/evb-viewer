@@ -44,6 +44,7 @@ import {
     removeRecentFile,
     clearRecentFiles,
 } from '@electron/recent-files';
+import { MAX_CHUNK } from '@electron/config/constants';
 
 // Map to track working copy path → original path
 const workingCopyMap = new Map<string, string>();
@@ -333,8 +334,6 @@ async function handleFileReadRange(
         throw new Error('Invalid range: offset must be >=0 and length must be >0');
     }
 
-    // Hard cap to keep IPC memory usage bounded (PDF.js will request more ranges if needed).
-    const MAX_CHUNK = 8 * 1024 * 1024;
     const want = Math.min(len, MAX_CHUNK);
 
     const fh = await openFileHandle(normalizedPath, 'r');

@@ -22,7 +22,6 @@
 
 <script setup lang="ts">
 import {
-    ref,
     watch,
     nextTick,
     onBeforeUnmount,
@@ -33,6 +32,8 @@ import type {
 } from 'pdfjs-dist';
 import { isPdfDocumentUsable } from '@app/utils/pdf-document-guard';
 import { formatPageIndicator } from '@app/utils/pdf-page-labels';
+import { THUMBNAIL_WIDTH } from '@app/constants/pdf-layout';
+import { useMultiSelection } from '@app/composables/useMultiSelection';
 
 interface IProps {
     pdfDocument: PDFDocumentProxy | null;
@@ -53,9 +54,9 @@ const containerRef = ref<HTMLElement | null>(null);
 const renderedPages = new Set<number>();
 const renderingPages = new Set<number>();
 const renderTasks = new Map<number, RenderTask>();
-const THUMBNAIL_WIDTH = 150;
 let renderRunId = 0;
-const selectionAnchor = ref<number | null>(null);
+
+const multiSelection = useMultiSelection<number>();
 
 function normalizeSelectedPages(pages: number[]) {
     const unique = new Set<number>();
@@ -83,41 +84,14 @@ function isSelected(page: number) {
     return (props.selectedPages ?? []).includes(page);
 }
 
-function buildRangeSelection(start: number, end: number) {
-    const from = Math.min(start, end);
-    const to = Math.max(start, end);
-    const selected: number[] = [];
-    for (let page = from; page <= to; page += 1) {
-        selected.push(page);
-    }
-    return selected;
-}
-
-function commitSelection(pages: number[], anchor: number | null) {
-    const normalized = normalizeSelectedPages(pages);
-    emit('update:selected-pages', normalized);
-    selectionAnchor.value = anchor;
-}
-
 function handleThumbnailClick(event: MouseEvent, page: number) {
-    const toggleSelection = event.metaKey || event.ctrlKey;
-    const extendRange = event.shiftKey && selectionAnchor.value !== null;
-    const currentSelection = normalizeSelectedPages(props.selectedPages ?? []);
-
-    if (extendRange) {
-        commitSelection(buildRangeSelection(selectionAnchor.value ?? page, page), selectionAnchor.value);
-    } else if (toggleSelection) {
-        const nextSelection = new Set<number>(currentSelection);
-        if (nextSelection.has(page)) {
-            nextSelection.delete(page);
-        } else {
-            nextSelection.add(page);
-        }
-        commitSelection(Array.from(nextSelection.values()), page);
-    } else {
-        commitSelection([page], page);
-    }
-
+    const allPages = Array.from({ length: props.totalPages }, (_, i) => i + 1);
+    multiSelection.toggle(page, allPages, {
+        shift: event.shiftKey,
+        meta: event.metaKey || event.ctrlKey,
+    });
+    const normalized = normalizeSelectedPages(Array.from(multiSelection.selected.value));
+    emit('update:selected-pages', normalized);
     emit('go-to-page', page);
 }
 
@@ -142,13 +116,15 @@ watch(
             return;
         }
 
+        multiSelection.selected.value = new Set(normalized);
+
         if (normalized.length === 0) {
-            selectionAnchor.value = null;
+            multiSelection.anchor.value = null;
             return;
         }
 
-        if (selectionAnchor.value === null || !normalized.includes(selectionAnchor.value)) {
-            selectionAnchor.value = normalized[normalized.length - 1] ?? null;
+        if (multiSelection.anchor.value === null || !normalized.includes(multiSelection.anchor.value)) {
+            multiSelection.anchor.value = normalized[normalized.length - 1] ?? null;
         }
     },
     {

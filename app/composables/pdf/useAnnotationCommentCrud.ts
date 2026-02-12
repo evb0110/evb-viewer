@@ -29,6 +29,7 @@ import type { useAnnotationCommentSync } from '@app/composables/pdf/useAnnotatio
 import type { useInlineCommentIndicators } from '@app/composables/pdf/useInlineCommentIndicators';
 import type { useAnnotationToolManager } from '@app/composables/pdf/useAnnotationToolManager';
 import type { useAnnotationHighlight } from '@app/composables/pdf/useAnnotationHighlight';
+import { FOCUS_PULSE_MS } from '@app/constants/timeouts';
 
 type TFreeTextResize = ReturnType<typeof useFreeTextResize>;
 type TIdentity = ReturnType<typeof useAnnotationCommentIdentity>;
@@ -234,7 +235,7 @@ export function useAnnotationCommentCrud(options: IUseAnnotationCommentCrudOptio
         target.classList.add('annotation-focus-pulse');
         setTimeout(() => {
             target.classList.remove('annotation-focus-pulse');
-        }, 900);
+        }, FOCUS_PULSE_MS);
     }
 
     function updateAnnotationComment(comment: IAnnotationCommentSummary, text: string) {

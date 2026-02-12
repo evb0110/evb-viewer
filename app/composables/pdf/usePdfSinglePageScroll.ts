@@ -5,10 +5,10 @@ import {
 } from 'vue';
 import { useDebounceFn } from '@vueuse/core';
 import type { PDFDocumentProxy } from '@app/types/pdf';
+import { WHEEL_PAGE_LOCK_MS } from '@app/constants/timeouts';
 
 const WHEEL_LINE_DELTA_PX = 16;
 const WHEEL_PAGE_TRIGGER_DELTA = 70;
-const WHEEL_PAGE_LOCK_MS = 160;
 const PAGE_SCROLL_EDGE_EPSILON = 1;
 
 interface IUsePdfSinglePageScrollOptions {

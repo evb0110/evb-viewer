@@ -10,6 +10,10 @@ import {
     loadSearchIndex,
 } from '@electron/search/index-builder';
 import { createLogger } from '@electron/utils/logger';
+import {
+    EXCERPT_CONTEXT_CHARS,
+    SEARCH_RESULT_LIMIT,
+} from '@electron/config/constants';
 
 const log = createLogger('search-ipc');
 
@@ -69,9 +73,6 @@ function registerSenderCleanup(event: IpcMainInvokeEvent, senderId: number) {
         registeredSenderCleanup.delete(senderId);
     });
 }
-
-const SEARCH_RESULT_LIMIT = 500;
-const EXCERPT_CONTEXT_CHARS = 40;
 
 function getIndexPath(pdfPath: string) {
     return `${pdfPath}.index.json`;

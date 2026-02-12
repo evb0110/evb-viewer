@@ -3,14 +3,13 @@ import type {
     IPdfSearchMatch,
     ISearchExcerpt,
 } from '@app/types/pdf';
+import { STORAGE_KEYS } from '@app/constants/storage-keys';
 
 const HIGHLIGHT_CLASS = 'pdf-search-highlight';
 const HIGHLIGHT_CURRENT_CLASS = 'pdf-search-highlight--current';
 
 const HIGHLIGHT_API_NAME = 'pdf-search-match';
 const HIGHLIGHT_API_CURRENT_NAME = 'pdf-search-current-match';
-const HIGHLIGHT_MODE_STORAGE_KEY = 'pdfHighlightMode';
-const HIGHLIGHT_DEBUG_STORAGE_KEY = 'pdfHighlightDebug';
 
 const EXCERPT_CONTEXT_CHARS = 40;
 
@@ -65,7 +64,7 @@ export const usePdfSearchHighlight = () => {
         }
 
         try {
-            const stored = window.localStorage?.getItem(HIGHLIGHT_MODE_STORAGE_KEY);
+            const stored = window.localStorage?.getItem(STORAGE_KEYS.HIGHLIGHT_MODE);
             return stored === 'css' ? 'css' : 'dom';
         } catch {
             return 'dom';
@@ -78,7 +77,7 @@ export const usePdfSearchHighlight = () => {
         }
 
         try {
-            return window.localStorage?.getItem(HIGHLIGHT_DEBUG_STORAGE_KEY) === '1';
+            return window.localStorage?.getItem(STORAGE_KEYS.HIGHLIGHT_DEBUG) === '1';
         } catch {
             return false;
         }

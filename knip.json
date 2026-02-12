@@ -7,9 +7,10 @@
         "app/components/**/*.vue",
         "app/composables/**/*.ts",
         "app/utils/**/*.ts",
+        "app/constants/**/*.ts",
         "electron/main.ts",
         "electron/preload.ts",
-        "electron/ocr/ocr-worker.ts"
+        "electron/ocr/worker/main.ts"
     ],
     "project": [
         "app/**/*.{ts,vue}",

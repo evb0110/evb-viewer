@@ -9,6 +9,7 @@ import type {
 } from '@app/types/pdf';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { getElectronAPI } from '@app/utils/electron';
+import { SEARCH_DEBOUNCE_MS } from '@app/constants/timeouts';
 
 export type {
     IPdfPageMatches,
@@ -52,7 +53,6 @@ export const usePdfSearch = () => {
     let scheduledResolve: ((applied: boolean) => void) | null = null;
     let progressCleanup: (() => void) | null = null;
 
-    const SEARCH_DEBOUNCE_MS = 300;
     const MIN_QUERY_LENGTH = 2;
 
     const totalMatches = computed(() => results.value.length);

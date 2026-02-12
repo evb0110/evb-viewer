@@ -6,7 +6,7 @@
                     icon="i-lucide-minus"
                     variant="ghost"
                     color="neutral"
-                    :disabled="disabled || zoom <= 0.25"
+                    :disabled="disabled || zoom <= ZOOM.MIN"
                     class="zoom-controls-button"
                     aria-label="Zoom out"
                     @click="handleZoomOut"
@@ -131,7 +131,7 @@
                     icon="i-lucide-plus"
                     variant="ghost"
                     color="neutral"
-                    :disabled="disabled || zoom >= 5"
+                    :disabled="disabled || zoom >= ZOOM.MAX"
                     class="zoom-controls-button"
                     aria-label="Zoom in"
                     @click="handleZoomIn"
@@ -144,6 +144,7 @@
 <script setup lang="ts">
 import type { TFitMode } from '@app/types/shared';
 import { nextTick } from 'vue';
+import { ZOOM } from '@app/constants/pdf-layout';
 
 const { t } = useI18n();
 
@@ -199,48 +200,15 @@ function formatZoomValue(value: number) {
 
 const zoomDisplay = computed(() => `${Math.round(zoom * 100)}%`);
 
-const zoomPresets = [
-    {
-        value: 0.5,
-        label: '50%', 
-    },
-    {
-        value: 0.75,
-        label: '75%', 
-    },
-    {
-        value: 1,
-        label: '100%', 
-    },
-    {
-        value: 1.25,
-        label: '125%', 
-    },
-    {
-        value: 1.5,
-        label: '150%', 
-    },
-    {
-        value: 2,
-        label: '200%', 
-    },
-    {
-        value: 3,
-        label: '300%', 
-    },
-];
-
-const ZOOM_STEP = 0.25;
-const ZOOM_MIN = 0.25;
-const ZOOM_MAX = 5;
+const zoomPresets = ZOOM.PRESETS;
 
 function handleZoomIn() {
-    const newZoom = Math.min(zoom + ZOOM_STEP, ZOOM_MAX);
+    const newZoom = Math.min(zoom + ZOOM.STEP, ZOOM.MAX);
     emit('update:zoom', newZoom);
 }
 
 function handleZoomOut() {
-    const newZoom = Math.max(zoom - ZOOM_STEP, ZOOM_MIN);
+    const newZoom = Math.max(zoom - ZOOM.STEP, ZOOM.MIN);
     emit('update:zoom', newZoom);
 }
 
