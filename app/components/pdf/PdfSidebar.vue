@@ -15,7 +15,8 @@
                 root: 'gap-0',
                 list: 'p-0 mb-0 rounded-none bg-transparent border-b border-default',
                 indicator: 'bg-primary/60 rounded-none bottom-0',
-                trigger: 'flex-1 min-w-0 justify-center px-1 py-2 rounded-none text-[10.5px] font-semibold tracking-[0.02em] uppercase whitespace-nowrap overflow-hidden text-ellipsis data-[state=active]:text-default data-[state=inactive]:text-muted data-[state=inactive]:hover:bg-muted/40',
+                trigger: 'flex-1 min-w-0 justify-center px-1 py-2 rounded-none text-[10.5px] font-semibold tracking-[0.02em] uppercase whitespace-nowrap data-[state=active]:text-default data-[state=inactive]:text-muted data-[state=inactive]:hover:bg-muted/40',
+                leadingIcon: 'size-3.5 shrink-0',
             }"
             class="shrink-0"
         />
@@ -327,28 +328,36 @@ watch(
 interface IPdfSidebarTabItem {
     value: TPdfSidebarTab;
     label: string;
+    icon: string;
     title: string;
 }
+
+const COMPACT_THRESHOLD = 280;
+const isCompact = computed(() => (props.width ?? 240) < COMPACT_THRESHOLD);
 
 const tabs = computed<IPdfSidebarTabItem[]>(() => [
     {
         value: 'annotations',
-        label: t('sidebar.notes'),
+        label: isCompact.value ? '' : t('sidebar.notes'),
+        icon: 'i-lucide-sticky-note',
         title: t('sidebar.notes'),
     },
     {
         value: 'thumbnails',
-        label: t('sidebar.pages'),
+        label: isCompact.value ? '' : t('sidebar.pages'),
+        icon: 'i-lucide-file',
         title: t('sidebar.pages'),
     },
     {
         value: 'bookmarks',
-        label: t('sidebar.bookmarks'),
+        label: isCompact.value ? '' : t('sidebar.bookmarks'),
+        icon: 'i-lucide-bookmark',
         title: t('sidebar.bookmarks'),
     },
     {
         value: 'search',
-        label: t('sidebar.search'),
+        label: isCompact.value ? '' : t('sidebar.search'),
+        icon: 'i-lucide-search',
         title: t('sidebar.search'),
     },
 ]);
