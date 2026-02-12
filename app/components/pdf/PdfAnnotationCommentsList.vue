@@ -430,11 +430,12 @@ defineExpose({
 .notes-section {
     border: 1px solid var(--ui-border-muted);
     border-radius: 0.7rem;
-    background: color-mix(in srgb, var(--ui-bg) 94%, var(--ui-bg-muted) 6%);
+    background: var(--ui-bg);
     padding: 0.75rem;
     display: flex;
     flex-direction: column;
     gap: 0.6rem;
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.04);
 }
 
 .notes-section-title {

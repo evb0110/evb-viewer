@@ -1,7 +1,7 @@
 <template>
     <aside
         v-if="isOpen"
-        class="flex h-full flex-col overflow-hidden bg-[var(--ui-bg)]"
+        class="pdf-sidebar"
         :style="sidebarStyle"
     >
         <UTabs
@@ -14,8 +14,8 @@
             :ui="{
                 root: 'gap-0',
                 list: 'p-0 mb-0 rounded-none bg-transparent border-b border-default',
-                indicator: 'bg-primary/40 rounded-none bottom-0',
-                trigger: 'flex-1 min-w-0 justify-center px-1 py-1.5 rounded-none text-[10px] font-semibold tracking-normal whitespace-nowrap overflow-hidden text-ellipsis data-[state=active]:text-default data-[state=inactive]:text-muted data-[state=inactive]:hover:bg-muted/30',
+                indicator: 'bg-primary/60 rounded-none bottom-0',
+                trigger: 'flex-1 min-w-0 justify-center px-1 py-2 rounded-none text-[10.5px] font-semibold tracking-[0.02em] uppercase whitespace-nowrap overflow-hidden text-ellipsis data-[state=active]:text-default data-[state=inactive]:text-muted data-[state=inactive]:hover:bg-muted/40',
             }"
             class="shrink-0"
         />
@@ -192,7 +192,7 @@
                 v-show="activeTab === 'search'"
                 class="flex min-h-full flex-col"
             >
-                <div class="sticky top-0 z-[1] border-b border-[var(--ui-border)] bg-[var(--ui-bg)]">
+                <div class="sticky top-0 z-[1] border-b border-[var(--ui-border)] bg-inherit">
                     <PdfSearchBar
                         ref="searchBarRef"
                         v-model="searchQueryProxy"
@@ -705,6 +705,14 @@ const sidebarStyle = computed(() => {
 </script>
 
 <style scoped>
+.pdf-sidebar {
+    display: flex;
+    height: 100%;
+    flex-direction: column;
+    overflow: hidden;
+    background: color-mix(in oklab, var(--ui-bg) 92%, var(--ui-bg-muted) 8%);
+}
+
 .pdf-sidebar-pages {
     display: flex;
     flex-direction: column;
@@ -722,7 +730,7 @@ const sidebarStyle = computed(() => {
     flex-shrink: 0;
     border-top: 1px solid var(--ui-border);
     padding: 0.625rem 0.75rem;
-    background: var(--ui-bg);
+    background: inherit;
     display: flex;
     flex-direction: column;
     gap: 0.5rem;

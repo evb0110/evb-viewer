@@ -315,7 +315,12 @@ onBeforeUnmount(() => {
     max-width: 100%;
     border: 1px solid var(--ui-border);
     border-radius: 2px;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 1px 4px rgb(0 0 0 / 0.1), 0 0 1px rgb(0 0 0 / 0.06);
+    transition: box-shadow 0.15s ease;
+}
+
+.pdf-thumbnail.is-active .pdf-thumbnail-canvas {
+    box-shadow: 0 2px 8px rgb(0 0 0 / 0.14), 0 0 1px rgb(0 0 0 / 0.08);
 }
 
 .pdf-thumbnail-number {

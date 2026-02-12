@@ -1,7 +1,7 @@
 export default defineAppConfig({ui: {
     colors: {
         primary: 'brand',
-        neutral: 'slate',
+        neutral: 'zinc',
     },
     icons: {
         arrowDown: 'i-lucide-arrow-down',

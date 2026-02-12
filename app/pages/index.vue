@@ -1557,18 +1557,19 @@ watch(annotationComments, (comments) => {
 }
 
 .sidebar-resizer {
-    width: 8px;
+    width: 6px;
     cursor: col-resize;
     position: relative;
     flex-shrink: 0;
     user-select: none;
     touch-action: none;
-    background: color-mix(in oklab, var(--ui-bg) 80%, var(--ui-border) 20%);
-    transition: background-color 0.15s ease;
+    background: transparent;
+    border-left: 1px solid var(--ui-border);
+    transition: border-color 0.15s ease;
 }
 
 .sidebar-resizer:hover,
 .sidebar-resizer.is-active {
-    background: color-mix(in oklab, var(--ui-bg) 50%, var(--ui-primary) 50%);
+    border-left-color: var(--ui-primary);
 }
 </style>

@@ -39,56 +39,25 @@
 
                 <template #content>
                     <div class="page-dropdown">
-                        <div class="page-dropdown-section">
-                            <button
-                                class="page-dropdown-item"
-                                :disabled="currentPage <= 1"
-                                @click="goToFirst"
-                            >
-                                <UIcon
-                                    name="i-lucide-chevrons-left"
-                                    class="page-dropdown-icon size-5"
+                        <div class="page-dropdown-goto">
+                            <span class="page-dropdown-goto-label">{{ t('pageDropdown.goToPage') }}</span>
+                            <div class="page-dropdown-goto-controls">
+                                <UInput
+                                    ref="pageInputRef"
+                                    v-model="pageInputValue"
+                                    class="page-dropdown-input"
+                                    type="text"
+                                    size="sm"
+                                    :placeholder="t('pageDropdown.pageInputPlaceholder')"
+                                    @keydown.enter.prevent="commitPageInput"
                                 />
-                                <span class="page-dropdown-label">{{ t('pageDropdown.firstPage') }}</span>
-                            </button>
-                            <button
-                                class="page-dropdown-item"
-                                :disabled="currentPage >= totalPages"
-                                @click="goToLast"
-                            >
-                                <UIcon
-                                    name="i-lucide-chevrons-right"
-                                    class="page-dropdown-icon size-5"
+                                <UButton
+                                    icon="i-lucide-arrow-right"
+                                    size="sm"
+                                    variant="soft"
+                                    :aria-label="t('pageDropdown.goToPage')"
+                                    @click="commitPageInput"
                                 />
-                                <span class="page-dropdown-label">{{ t('pageDropdown.lastPage') }}</span>
-                            </button>
-                        </div>
-
-                        <div class="page-dropdown-divider" />
-
-                        <div class="page-dropdown-section">
-                            <div class="page-dropdown-goto">
-                                <span class="page-dropdown-goto-label">Go to page</span>
-                                <div class="page-dropdown-goto-controls">
-                                    <UInput
-                                        ref="pageInputRef"
-                                        v-model="pageInputValue"
-                                        class="page-dropdown-input"
-                                        type="text"
-                                        size="xs"
-                                        placeholder="Page # or label"
-                                        @keydown.enter.prevent="commitPageInput"
-                                    />
-                                    <UTooltip text="Go to Page" :delay-duration="1200">
-                                        <UButton
-                                            icon="i-lucide-arrow-right"
-                                            size="xs"
-                                            variant="soft"
-                                            aria-label="Go to page"
-                                            @click="commitPageInput"
-                                        />
-                                    </UTooltip>
-                                </div>
                             </div>
                         </div>
                     </div>
@@ -306,7 +275,7 @@ onBeforeUnmount(() => {
     align-items: center;
     justify-content: center;
     padding: 0 0.5rem;
-    min-width: 8rem;
+    min-width: 5.5rem;
     height: var(--toolbar-control-height, 2.25rem);
     background: transparent;
     border: none;
@@ -332,74 +301,33 @@ onBeforeUnmount(() => {
 }
 
 .page-dropdown {
-    padding: 0.25rem;
-    min-width: 16rem;
-    max-width: 18rem;
-}
-
-.page-dropdown-section {
-    display: flex;
-    flex-direction: column;
-}
-
-.page-dropdown-divider {
-    height: 1px;
-    background-color: var(--ui-border);
-    margin: 0.25rem 0;
-}
-
-.page-dropdown-item {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    width: 100%;
-    padding: 0.5rem 0.75rem;
-    border: none;
-    background: transparent;
-    cursor: pointer;
-    border-radius: 0.375rem;
-    color: var(--ui-text);
-    font-size: 0.875rem;
-    text-align: left;
-    transition: background-color 150ms ease;
-}
-
-.page-dropdown-item:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-}
-
-.page-dropdown-item:hover:not(:disabled) {
-    background-color: var(--ui-bg-elevated);
-}
-
-.page-dropdown-label {
-    flex: 1;
-}
-
-.page-dropdown-icon {
-    color: var(--ui-text-muted);
+    padding: 0.375rem;
+    min-width: 9rem;
 }
 
 .page-dropdown-goto {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
-    padding: 0.25rem 0.5rem;
+    gap: 0.375rem;
+    padding: 0.125rem 0.25rem;
 }
 
 .page-dropdown-goto-label {
-    font-size: 0.75rem;
+    font-size: 0.7rem;
+    font-weight: 500;
     color: var(--ui-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
 }
 
 .page-dropdown-goto-controls {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.375rem;
 }
 
 .page-dropdown-input {
     flex: 1;
+    min-width: 0;
 }
 </style>

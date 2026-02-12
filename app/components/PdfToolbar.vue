@@ -281,7 +281,7 @@ defineExpose({toolbarRef});
     gap: 0.25rem;
     padding: 0.5rem;
     border-bottom: 1px solid var(--ui-border);
-    box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.04), 0 1px 2px -1px rgb(0 0 0 / 0.04);
+    box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.08), 0 1px 2px -1px rgb(0 0 0 / 0.06);
     background: var(--ui-bg);
     white-space: nowrap;
     overflow: hidden;
@@ -294,12 +294,12 @@ defineExpose({toolbarRef});
 }
 
 .toolbar :deep(.u-button) {
-    border-radius: 0 !important;
+    border-radius: 3px !important;
 }
 
 .toolbar :deep(.u-button::before),
 .toolbar :deep(.u-button::after) {
-    border-radius: 0 !important;
+    border-radius: 3px !important;
 }
 
 .toolbar-section {
@@ -324,9 +324,10 @@ defineExpose({toolbarRef});
 
 .toolbar-separator {
     width: 1px;
-    height: 1rem;
-    background: var(--ui-border);
+    height: 0.875rem;
+    background: color-mix(in oklab, var(--ui-border) 45%, transparent 55%);
     flex-shrink: 0;
+    margin: 0 0.125rem;
 }
 
 .toolbar-separator:first-child,
@@ -362,7 +363,7 @@ defineExpose({toolbarRef});
     height: var(--toolbar-control-height);
     padding: 0.25rem;
     justify-content: center;
-    border-radius: 0 !important;
+    border-radius: 3px !important;
     font-size: var(--toolbar-icon-size);
     transition: background-color 0.1s ease, color 0.1s ease;
 }

@@ -342,7 +342,7 @@ watch(
     --note-delete-border: rgb(161 23 23 / 26%);
     --note-delete-bg: rgb(255 255 255 / 72%);
     --note-delete-color: #a61414;
-    --note-shadow: 0 14px 28px rgb(15 23 42 / 20%), 0 4px 10px rgb(15 23 42 / 12%);
+    --note-shadow: 0 14px 28px rgb(0 0 0 / 16%), 0 4px 10px rgb(0 0 0 / 8%);
 
     position: fixed;
     z-index: 55;

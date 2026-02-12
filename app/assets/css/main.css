@@ -2,19 +2,19 @@
 @import '@nuxt/ui';
 
 @theme {
-    --color-brand-50: oklch(97% 0.02 264);
-    --color-brand-100: oklch(93% 0.04 264);
-    --color-brand-200: oklch(87% 0.08 264);
-    --color-brand-300: oklch(78% 0.13 264);
-    --color-brand-400: oklch(65% 0.16 264);
-    --color-brand-500: oklch(52% 0.18 264);
-    --color-brand-600: oklch(45% 0.18 264);
-    --color-brand-700: oklch(38% 0.18 264);
-    --color-brand-800: oklch(32% 0.16 264);
-    --color-brand-900: oklch(26% 0.13 264);
-    --color-brand-950: oklch(20% 0.1 264);
+    --color-brand-50: oklch(97% 0.014 235);
+    --color-brand-100: oklch(93% 0.035 235);
+    --color-brand-200: oklch(87% 0.07 235);
+    --color-brand-300: oklch(78% 0.11 235);
+    --color-brand-400: oklch(66% 0.14 235);
+    --color-brand-500: oklch(54% 0.15 235);
+    --color-brand-600: oklch(46% 0.14 235);
+    --color-brand-700: oklch(39% 0.13 235);
+    --color-brand-800: oklch(33% 0.10 235);
+    --color-brand-900: oklch(27% 0.07 235);
+    --color-brand-950: oklch(21% 0.05 235);
 
-    --shadow-popup: 0 6px 18px rgb(15 23 42 / 0.15), 0 2px 6px rgb(15 23 42 / 0.08);
+    --shadow-popup: 0 6px 18px rgb(0 0 0 / 0.12), 0 2px 6px rgb(0 0 0 / 0.06);
 }
 
 :root {

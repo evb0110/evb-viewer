@@ -133,14 +133,14 @@ const { t } = useI18n();
     border: 1px solid var(--ui-border);
     background: var(--ui-border);
     box-shadow:
-        0 10px 24px rgb(15 23 42 / 20%),
-        0 3px 8px rgb(15 23 42 / 15%);
+        0 10px 24px rgb(0 0 0 / 15%),
+        0 3px 8px rgb(0 0 0 / 10%);
 }
 
 .annotation-context-menu-section-title {
     margin: 0;
     padding: 0.45rem 0.6rem 0.35rem;
-    background: color-mix(in oklab, var(--ui-bg, #fff) 94%, #e8eef8 6%);
+    background: var(--ui-bg-muted);
     color: var(--ui-text-dimmed);
     font-size: 0.64rem;
     letter-spacing: 0.08em;
@@ -162,7 +162,7 @@ const { t } = useI18n();
 
 .annotation-context-menu-divider {
     height: 1px;
-    background: color-mix(in oklab, var(--ui-border) 82%, #c7d2e6 18%);
+    background: var(--ui-border);
 }
 
 .annotation-context-menu-action {
@@ -182,7 +182,7 @@ const { t } = useI18n();
 .annotation-context-menu-action:disabled {
     color: var(--ui-text-dimmed);
     cursor: default;
-    background: color-mix(in oklab, var(--ui-bg, #fff) 96%, #f3f6fb 4%);
+    background: var(--ui-bg-muted);
 }
 
 .annotation-context-menu-action-danger {

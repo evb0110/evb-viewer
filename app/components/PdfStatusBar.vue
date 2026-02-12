@@ -58,7 +58,7 @@ const emit = defineEmits<{save: [];}>();
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    letter-spacing: 0.01em;
 }
 
 .status-bar-metrics {
@@ -109,7 +109,7 @@ const emit = defineEmits<{save: [];}>();
     height: 0.56rem;
     border-radius: 999px;
     background: color-mix(in oklab, var(--ui-text-dimmed) 72%, var(--ui-bg) 28%);
-    box-shadow: 0 0 0 1px color-mix(in oklab, var(--ui-bg) 36%, #94a3b8 64%);
+    box-shadow: 0 0 0 1px color-mix(in oklab, var(--ui-bg) 36%, #a1a1aa 64%);
     transition: transform 0.14s ease, background-color 0.14s ease, box-shadow 0.14s ease;
 }
 

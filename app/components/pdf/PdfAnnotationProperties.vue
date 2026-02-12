@@ -220,8 +220,23 @@ function toggleFill() {
 .annotation-properties-range {
     flex: 1;
     min-width: 60px;
+    appearance: none;
     height: 4px;
-    accent-color: var(--ui-primary);
+    border-radius: 2px;
+    background: var(--ui-border);
+    outline: none;
+    cursor: pointer;
+}
+
+.annotation-properties-range::-webkit-slider-thumb {
+    appearance: none;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--ui-primary);
+    border: 2px solid var(--ui-bg);
+    box-shadow: 0 1px 3px rgb(0 0 0 / 0.2);
+    cursor: pointer;
 }
 
 .annotation-properties-value {

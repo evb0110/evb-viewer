@@ -5,7 +5,7 @@
             class="recent-files"
         >
             <div class="recent-files-header">
-                <h3 class="text-sm font-medium text-neutral-600 dark:text-neutral-400">
+                <h3 class="text-sm font-medium text-[var(--ui-text-muted)]">
                     {{ t('emptyState.recentFiles') }}
                 </h3>
                 <UTooltip :text="t('emptyState.clearRecentFiles')" :delay-duration="1200">
@@ -14,7 +14,7 @@
                         variant="ghost"
                         size="xs"
                         color="neutral"
-                        class="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"
+                        class="text-[var(--ui-text-dimmed)] hover:text-[var(--ui-text-muted)]"
                         :aria-label="t('emptyState.clearRecentFiles')"
                         @click="emit('clear-recent')"
                     />
@@ -29,7 +29,7 @@
                 >
                     <UIcon
                         name="i-lucide-file-text"
-                        class="size-5 text-neutral-400 flex-shrink-0"
+                        class="size-5 text-[var(--ui-text-dimmed)] flex-shrink-0"
                     />
                     <div class="recent-file-info">
                         <span class="recent-file-name">{{ file.fileName }}</span>
@@ -51,7 +51,7 @@
             </ul>
         </div>
 
-        <p class="empty-state-hint text-sm text-neutral-500 dark:text-neutral-400">
+        <p class="empty-state-hint text-sm text-[var(--ui-text-muted)]">
             {{ recentFiles.length > 0 ? t('emptyState.openAnother') : t('emptyState.openPdf') }}
         </p>
         <UTooltip :text="t('toolbar.openPdf')" :delay-duration="1200">
@@ -62,7 +62,7 @@
             >
                 <UIcon
                     name="i-lucide-folder-open"
-                    class="size-8 text-neutral-400 group-hover:text-primary-500 transition-colors"
+                    class="size-8 text-[var(--ui-text-dimmed)] group-hover:text-[var(--ui-primary)] transition-colors"
                 />
             </button>
         </UTooltip>

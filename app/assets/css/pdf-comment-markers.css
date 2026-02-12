@@ -176,7 +176,7 @@
 }
 
 .pdfViewer .pdf-annotation-has-note-target:hover {
-    filter: drop-shadow(0 0 2px rgba(59, 130, 246, 0.28));
+    filter: drop-shadow(0 0 2px color-mix(in oklab, var(--ui-primary, #3b82f6) 28%, transparent));
 }
 
 .pdfViewer .pdf-annotation-has-note-target.pdf-comment-focus-pulse {

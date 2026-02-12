@@ -142,7 +142,9 @@
     "firstPage": "Первая страница",
     "previousPage": "Предыдущая страница",
     "nextPage": "Следующая страница",
-    "lastPage": "Последняя страница"
+    "lastPage": "Последняя страница",
+    "goToPage": "Перейти к странице",
+    "pageInputPlaceholder": "№ или метка"
   },
   "pageNumbering": {
     "numberPages": "Нумерация страниц",
