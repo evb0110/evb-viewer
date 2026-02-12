@@ -354,6 +354,7 @@ interface IPdfViewerExpose {
     updateShape: (id: string, updates: Partial<IShapeAnnotation>) => void;
     getSelectedShape: () => IShapeAnnotation | null;
     applyStampImage: (file: File) => void;
+    invalidatePages: (pages: number[]) => void;
 }
 
 interface IOcrPopupExpose {
@@ -1227,6 +1228,7 @@ function handlePageContextMenuExtract() {
 
 function handlePageRotate(pages: number[], angle: 90 | 180 | 270) {
     sidebarRef.value?.invalidateThumbnailPages([...pages]);
+    pdfViewerRef.value?.invalidatePages([...pages]);
     return pageOpsRotate(pages, angle);
 }
 

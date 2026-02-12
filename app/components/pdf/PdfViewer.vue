@@ -369,6 +369,7 @@ const {
     renderVisiblePages,
     reRenderAllVisiblePages,
     cleanupAllPages: cleanupRenderedPages,
+    invalidatePages: invalidateRenderedPages,
     applySearchHighlights,
     isPageRendered,
 } = usePdfPageRenderer({
@@ -497,6 +498,12 @@ async function recoverInitialRenderIfNeeded() {
     await renderVisiblePages(getVisibleRange());
 }
 
+let pendingInvalidation: number[] | null = null;
+
+function invalidatePages(pages: number[]) {
+    pendingInvalidation = pages;
+}
+
 async function loadFromSource(isReload = false) {
     if (!src.value) {
         commentSync.incrementSyncToken();
@@ -507,6 +514,8 @@ async function loadFromSource(isReload = false) {
     }
 
     const pageToRestore = isReload ? currentPage.value : 1;
+    const pagesToInvalidate = pendingInvalidation;
+    pendingInvalidation = null;
 
     emit('update:document', null);
     if (!isReload) {
@@ -514,7 +523,11 @@ async function loadFromSource(isReload = false) {
     }
     emit('update:currentPage', pageToRestore);
 
-    cleanupRenderedPages();
+    if (isReload && pagesToInvalidate) {
+        invalidateRenderedPages(pagesToInvalidate);
+    } else {
+        cleanupRenderedPages();
+    }
     lifecycle.destroyAnnotationEditor();
     resetScale();
     resetInsets();
@@ -791,6 +804,7 @@ defineExpose({
     updateShape,
     getSelectedShape,
     applyStampImage,
+    invalidatePages,
 });
 </script>
 

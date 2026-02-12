@@ -782,11 +782,19 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         { deep: true },
     );
 
+    function invalidatePages(pages: number[]) {
+        bumpRenderVersion();
+        for (const pageNumber of pages) {
+            cleanupPage(pageNumber);
+        }
+    }
+
     return {
         setupPagePlaceholders,
         renderVisiblePages,
         reRenderAllVisiblePages,
         cleanupAllPages,
+        invalidatePages,
         applySearchHighlights,
         isPageRendered: (pageNumber: number) => renderedPages.has(pageNumber),
     };
