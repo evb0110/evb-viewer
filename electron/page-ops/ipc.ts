@@ -1,4 +1,5 @@
 import {
+    BrowserWindow,
     ipcMain,
     dialog,
 } from 'electron';
@@ -76,14 +77,18 @@ async function handlePageOpsExtract(
     validatePageNumbers(pages, 'extractPages');
 
     const suggestedName = `${basename(workingCopyPath, extname(workingCopyPath))}-extracted.pdf`;
-    const result = await dialog.showSaveDialog({
+    const parentWindow = BrowserWindow.getFocusedWindow();
+    const dialogOptions = {
         title: 'Extract Pages',
         defaultPath: suggestedName,
         filters: [{
             name: 'PDF Files',
-            extensions: ['pdf'], 
+            extensions: ['pdf'],
         }],
-    });
+    };
+    const result = parentWindow
+        ? await dialog.showSaveDialog(parentWindow, dialogOptions)
+        : await dialog.showSaveDialog(dialogOptions);
 
     if (result.canceled || !result.filePath) {
         return {
@@ -136,14 +141,18 @@ async function handlePageOpsInsert(
         throw new Error('Invalid afterPage');
     }
 
-    const result = await dialog.showOpenDialog({
+    const parentWindow = BrowserWindow.getFocusedWindow();
+    const dialogOptions = {
         title: 'Insert Pages From PDF',
         filters: [{
             name: 'PDF Files',
-            extensions: ['pdf'], 
+            extensions: ['pdf'],
         }],
-        properties: ['openFile'],
-    });
+        properties: ['openFile'] as Array<'openFile'>,
+    };
+    const result = parentWindow
+        ? await dialog.showOpenDialog(parentWindow, dialogOptions)
+        : await dialog.showOpenDialog(dialogOptions);
 
     if (result.canceled || result.filePaths.length === 0) {
         return {

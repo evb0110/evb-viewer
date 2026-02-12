@@ -56,6 +56,7 @@ export const usePageOperations = (deps: {
             }
             return false;
         } catch (e) {
+            console.error('[pageOps] deletePages failed:', e);
             error.value = e instanceof Error ? e.message : 'Failed to delete pages';
             return false;
         } finally {
@@ -75,6 +76,7 @@ export const usePageOperations = (deps: {
             const result = await api.pageOps.extract(workingCopyPath.value, pages);
             return result.success && !result.canceled;
         } catch (e) {
+            console.error('[pageOps] extractPages failed:', e);
             error.value = e instanceof Error ? e.message : 'Failed to extract pages';
             return false;
         } finally {
@@ -102,6 +104,7 @@ export const usePageOperations = (deps: {
             }
             return false;
         } catch (e) {
+            console.error('[pageOps] rotatePages failed:', e);
             error.value = e instanceof Error ? e.message : 'Failed to rotate pages';
             return false;
         } finally {
@@ -129,6 +132,7 @@ export const usePageOperations = (deps: {
             }
             return false;
         } catch (e) {
+            console.error('[pageOps] insertPages failed:', e);
             error.value = e instanceof Error ? e.message : 'Failed to insert pages';
             return false;
         } finally {
@@ -156,6 +160,7 @@ export const usePageOperations = (deps: {
             }
             return false;
         } catch (e) {
+            console.error('[pageOps] reorderPages failed:', e);
             error.value = e instanceof Error ? e.message : 'Failed to reorder pages';
             return false;
         } finally {
