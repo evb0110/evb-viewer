@@ -1227,8 +1227,14 @@ function handlePageContextMenuExtract() {
 }
 
 function handlePageRotate(pages: number[], angle: 90 | 180 | 270) {
+    console.log('[ROT-DIAG] handlePageRotate called', {
+        pages,
+        angle, 
+    });
     sidebarRef.value?.invalidateThumbnailPages([...pages]);
+    console.log('[ROT-DIAG] invalidateThumbnailPages done');
     pdfViewerRef.value?.invalidatePages([...pages]);
+    console.log('[ROT-DIAG] pdfViewer.invalidatePages done');
     return pageOpsRotate(pages, angle);
 }
 

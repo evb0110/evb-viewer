@@ -60,6 +60,7 @@ export function usePdfSinglePageScroll(options: IUsePdfSinglePageScrollOptions) 
         if (isLoading.value || !pdfDocument.value) {
             return;
         }
+        console.log('[ROT-DIAG] debouncedRenderOnScroll → renderVisiblePages');
         void renderVisiblePages(visibleRange.value);
     }, 100);
 
@@ -275,6 +276,7 @@ export function usePdfSinglePageScroll(options: IUsePdfSinglePageScrollOptions) 
             if (isLoading.value || !pdfDocument.value) {
                 return;
             }
+            console.log('[ROT-DIAG] scrollToPage microtask → renderVisiblePages');
             updateVisibleRange(viewerContainer.value, numPages.value);
             void renderVisiblePages(visibleRange.value);
         });
