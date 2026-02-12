@@ -204,6 +204,9 @@ interface IElectronAPI {
 
     // Page Operations API
     pageOps: IPageOpsAPI;
+
+    // Electron webUtils
+    getPathForFile: (file: File) => string;
 }
 
 declare global {

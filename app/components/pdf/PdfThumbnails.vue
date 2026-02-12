@@ -322,7 +322,9 @@ watch(
         const runId = renderRunId;
 
         if (!doc || total <= 0) {
-            clearRenderedState();
+            if (!pendingInvalidation) {
+                clearRenderedState();
+            }
             return;
         }
 

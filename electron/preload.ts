@@ -2,6 +2,7 @@ import type {IpcRendererEvent} from 'electron';
 import {
     contextBridge,
     ipcRenderer,
+    webUtils,
 } from 'electron';
 import type {
     IMenuEventCallback,
@@ -421,6 +422,8 @@ if (!__preloadAlreadyInstalled) {
             rotate: (workingCopyPath: string, pages: number[], angle: number) =>
                 ipcRenderer.invoke('page-ops:rotate', workingCopyPath, pages, angle),
         },
+
+        getPathForFile: (file: File) => webUtils.getPathForFile(file),
 
     });
 }

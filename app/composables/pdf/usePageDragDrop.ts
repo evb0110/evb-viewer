@@ -248,7 +248,7 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
             if (!file) {
                 continue;
             }
-            const filePath = (file as File & { path?: string }).path;
+            const filePath = window.electronAPI.getPathForFile(file);
             if (filePath && filePath.toLowerCase().endsWith('.pdf')) {
                 onExternalFileDrop(insertAt, filePath);
                 break;
