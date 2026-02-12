@@ -497,7 +497,7 @@ async function recoverInitialRenderIfNeeded() {
     await renderVisiblePages(getVisibleRange());
 }
 
-async function loadFromSource() {
+async function loadFromSource(isReload = false) {
     if (!src.value) {
         commentSync.incrementSyncToken();
         annotationCommentsCache.value = [];
@@ -506,19 +506,23 @@ async function loadFromSource() {
         return;
     }
 
+    const pageToRestore = isReload ? currentPage.value : 1;
+
     emit('update:document', null);
-    emit('update:totalPages', 0);
-    emit('update:currentPage', 1);
+    if (!isReload) {
+        emit('update:totalPages', 0);
+    }
+    emit('update:currentPage', pageToRestore);
 
     cleanupRenderedPages();
     lifecycle.destroyAnnotationEditor();
     resetScale();
     resetInsets();
 
-    currentPage.value = 1;
+    currentPage.value = pageToRestore;
     visibleRange.value = {
-        start: 1,
-        end: 1,
+        start: pageToRestore,
+        end: pageToRestore,
     };
 
     const loaded = await loadPdf(src.value);
@@ -529,9 +533,9 @@ async function loadFromSource() {
     emit('update:document', pdfDocument.value);
     lifecycle.initAnnotationEditor();
 
-    currentPage.value = 1;
+    currentPage.value = Math.min(pageToRestore, numPages.value);
     emit('update:totalPages', numPages.value);
-    emit('update:currentPage', 1);
+    emit('update:currentPage', currentPage.value);
 
     void (async () => {
         try {
@@ -546,6 +550,11 @@ async function loadFromSource() {
 
     computeFitWidthScale(viewerContainer.value);
     setupPagePlaceholders();
+
+    if (isReload && currentPage.value > 1) {
+        singlePageScroll.scrollToPage(currentPage.value);
+        await nextTick();
+    }
 
     updateVisibleRange(viewerContainer.value, numPages.value);
     await renderVisiblePages(visibleRange.value);
@@ -652,7 +661,7 @@ watch(
                 activeCommentStableKey.value = null;
                 emit('annotation-comments', []);
             }
-            loadFromSource();
+            loadFromSource(!!oldSrc && !!newSrc);
         }
     },
 );

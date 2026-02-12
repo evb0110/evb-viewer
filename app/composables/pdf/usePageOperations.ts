@@ -8,20 +8,16 @@ type TPageOpsRotation = 90 | 180 | 270;
 
 export const usePageOperations = (deps: {
     workingCopyPath: Ref<string | null>;
-    currentPage: Ref<number>;
     loadPdfFromData: (data: Uint8Array, opts?: {
         pushHistory?: boolean;
         persistWorkingCopy?: boolean;
     }) => Promise<void>;
-    waitForPdfReload: (pageToRestore: number) => Promise<void>;
     clearOcrCache: (path: string) => void;
     resetSearchCache: () => void;
 }) => {
     const {
         workingCopyPath,
-        currentPage,
         loadPdfFromData,
-        waitForPdfReload,
         clearOcrCache,
         resetSearchCache,
     } = deps;
@@ -49,16 +45,13 @@ export const usePageOperations = (deps: {
         error.value = null;
         try {
             const api = getElectronAPI();
-            const pageToRestore = Math.min(currentPage.value, totalPages - pages.length);
             const result = await api.pageOps.delete(workingCopyPath.value, [...pages], totalPages);
             if (result.success && result.pdfData) {
                 invalidateCaches();
-                const restorePromise = waitForPdfReload(Math.max(1, pageToRestore));
                 await loadPdfFromData(new Uint8Array(result.pdfData), {
                     pushHistory: true,
                     persistWorkingCopy: false,
                 });
-                await restorePromise;
                 return true;
             }
             return false;
@@ -100,16 +93,13 @@ export const usePageOperations = (deps: {
         error.value = null;
         try {
             const api = getElectronAPI();
-            const pageToRestore = currentPage.value;
             const result = await api.pageOps.rotate(workingCopyPath.value, [...pages], angle);
             if (result.success && result.pdfData) {
                 invalidateCaches();
-                const restorePromise = waitForPdfReload(pageToRestore);
                 await loadPdfFromData(new Uint8Array(result.pdfData), {
                     pushHistory: true,
                     persistWorkingCopy: false,
                 });
-                await restorePromise;
                 return true;
             }
             return false;
@@ -131,16 +121,13 @@ export const usePageOperations = (deps: {
         error.value = null;
         try {
             const api = getElectronAPI();
-            const pageToRestore = currentPage.value;
             const result = await api.pageOps.insert(workingCopyPath.value, totalPages, afterPage);
             if (result.success && result.pdfData) {
                 invalidateCaches();
-                const restorePromise = waitForPdfReload(pageToRestore);
                 await loadPdfFromData(new Uint8Array(result.pdfData), {
                     pushHistory: true,
                     persistWorkingCopy: false,
                 });
-                await restorePromise;
                 return true;
             }
             return false;
@@ -162,16 +149,13 @@ export const usePageOperations = (deps: {
         error.value = null;
         try {
             const api = getElectronAPI();
-            const pageToRestore = currentPage.value;
             const result = await api.pageOps.insertFile(workingCopyPath.value, totalPages, afterPage, sourcePath);
             if (result.success && result.pdfData) {
                 invalidateCaches();
-                const restorePromise = waitForPdfReload(pageToRestore);
                 await loadPdfFromData(new Uint8Array(result.pdfData), {
                     pushHistory: true,
                     persistWorkingCopy: false,
                 });
-                await restorePromise;
                 return true;
             }
             return false;
@@ -193,16 +177,13 @@ export const usePageOperations = (deps: {
         error.value = null;
         try {
             const api = getElectronAPI();
-            const pageToRestore = currentPage.value;
             const result = await api.pageOps.reorder(workingCopyPath.value, [...newOrder]);
             if (result.success && result.pdfData) {
                 invalidateCaches();
-                const restorePromise = waitForPdfReload(pageToRestore);
                 await loadPdfFromData(new Uint8Array(result.pdfData), {
                     pushHistory: true,
                     persistWorkingCopy: false,
                 });
-                await restorePromise;
                 return true;
             }
             return false;

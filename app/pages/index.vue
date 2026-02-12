@@ -1207,9 +1207,7 @@ const {
     reorderPages: pageOpsReorder,
 } = usePageOperations({
     workingCopyPath,
-    currentPage,
     loadPdfFromData,
-    waitForPdfReload,
     clearOcrCache: (path: string) => clearOcrCache(path),
     resetSearchCache,
 });
