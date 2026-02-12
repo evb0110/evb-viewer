@@ -1,72 +1,12 @@
 <template>
     <div class="pdf-bookmarks">
-        <div class="pdf-bookmarks-toolbar">
-            <div
-                class="pdf-bookmarks-view-modes"
-                role="group"
-                aria-label="Bookmark controls"
-            >
-                <UTooltip
-                    v-for="option in displayModeOptions"
-                    :key="option.id"
-                    :text="option.title"
-                    :delay-duration="800"
-                >
-                    <button
-                        type="button"
-                        class="pdf-bookmarks-view-mode-button"
-                        :class="{ 'is-active': displayMode === option.id }"
-                        :title="option.title"
-                        :aria-label="option.title"
-                        @click="setDisplayMode(option.id)"
-                    >
-                        <UIcon
-                            :name="option.icon"
-                            class="size-4"
-                        />
-                    </button>
-                </UTooltip>
-                <UTooltip
-                    :text="isEditMode ? t('bookmarks.exitEditMode') : t('bookmarks.enterEditMode')"
-                    :delay-duration="800"
-                >
-                    <button
-                        type="button"
-                        class="pdf-bookmarks-view-mode-button"
-                        :class="{ 'is-active': isEditMode }"
-                        :title="isEditMode ? t('bookmarks.exitEditMode') : t('bookmarks.enterEditMode')"
-                        :aria-label="isEditMode ? t('bookmarks.exitEditMode') : t('bookmarks.enterEditMode')"
-                        @click="isEditMode = !isEditMode"
-                    >
-                        <UIcon
-                            :name="isEditMode ? 'i-lucide-square-pen' : 'i-lucide-pencil'"
-                            class="size-4"
-                        />
-                    </button>
-                </UTooltip>
-            </div>
-
-            <div class="pdf-bookmarks-toolbar-actions">
-                <UTooltip
-                    v-if="isEditMode"
-                    :text="t('bookmarks.addTopLevel')"
-                    :delay-duration="800"
-                >
-                    <button
-                        type="button"
-                        class="pdf-bookmarks-icon-button"
-                        :title="t('bookmarks.addTopLevel')"
-                        :aria-label="t('bookmarks.addTopLevel')"
-                        @click="editing.addRootBookmark()"
-                    >
-                        <UIcon
-                            name="i-lucide-plus"
-                            class="size-4"
-                        />
-                    </button>
-                </UTooltip>
-            </div>
-        </div>
+        <PdfOutlineToolbar
+            :display-mode="displayMode"
+            :is-edit-mode="isEditMode"
+            @set-display-mode="setDisplayMode"
+            @toggle-edit-mode="isEditMode = !isEditMode"
+            @add-root-bookmark="editing.addRootBookmark()"
+        />
 
         <div
             v-if="isLoading"
@@ -156,7 +96,6 @@
 import {
     computed,
     onBeforeUnmount,
-    onMounted,
     provide,
     ref,
     watch,
@@ -166,41 +105,17 @@ import type {
     IBookmarkItem,
     IBookmarkActivatePayload,
     IBookmarkDropPayload,
-    IBookmarkMenuPayload,
     TBookmarkDisplayMode,
 } from '@app/types/pdf-outline';
 import type { IPdfBookmarkEntry } from '@app/types/pdf';
 import { isPdfDocumentUsable } from '@app/utils/pdf-document-guard';
-import {
-    findBookmarkById,
-    findBookmarkLocation,
-    normalizeBookmarkColor,
-} from '@app/utils/pdf-outline-helpers';
+import { buildResolvedOutline } from '@app/utils/pdf-outline-helpers';
+import type { IOutlineItemRaw } from '@app/utils/pdf-outline-helpers';
 import { usePdfOutlineSelection } from '@app/composables/pdf/usePdfOutlineSelection';
 import { usePdfOutlineDragDrop } from '@app/composables/pdf/usePdfOutlineDragDrop';
 import { usePdfOutlineEditing } from '@app/composables/pdf/usePdfOutlineEditing';
+import { usePdfOutlineContextMenu } from '@app/composables/pdf/usePdfOutlineContextMenu';
 import { PDF_OUTLINE_TREE_KEY } from '@app/composables/pdf/usePdfOutlineKeys';
-import { useContextMenuPosition } from '@app/composables/useContextMenuPosition';
-
-interface IRefProxy {
-    num: number;
-    gen: number;
-}
-
-interface IOutlineItemRaw {
-    title: string;
-    dest: string | unknown[] | null;
-    bold?: boolean;
-    italic?: boolean;
-    color?: ArrayLike<number> | null;
-    items?: IOutlineItemRaw[];
-}
-
-interface IBookmarkDisplayModeOption {
-    id: TBookmarkDisplayMode;
-    title: string;
-    icon: string;
-}
 
 interface IProps {
     pdfDocument: PDFDocumentProxy | null;
@@ -220,7 +135,6 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
-const { clampToViewport } = useContextMenuPosition();
 
 const bookmarks = ref<IBookmarkItem[]>([]);
 const isLoading = ref(false);
@@ -228,17 +142,6 @@ const activeItemId = ref<string | null>(null);
 const displayMode = ref<TBookmarkDisplayMode>('current-expanded');
 const expandedBookmarkIds = ref<Set<string>>(new Set());
 const styleRangeStartId = ref<string | null>(null);
-const bookmarkContextMenu = ref<{
-    visible: boolean;
-    x: number;
-    y: number;
-    itemId: string | null;
-}>({
-    visible: false,
-    x: 0,
-    y: 0,
-    itemId: null,
-});
 
 const isEditMode = computed({
     get: () => props.isEditMode,
@@ -246,24 +149,6 @@ const isEditMode = computed({
 });
 
 const currentPageRef = computed(() => props.currentPage);
-
-const displayModeOptions = [
-    {
-        id: 'top-level',
-        title: 'Top level only',
-        icon: 'i-lucide-list',
-    },
-    {
-        id: 'all-expanded',
-        title: 'Expand all bookmarks',
-        icon: 'i-lucide-chevrons-down',
-    },
-    {
-        id: 'current-expanded',
-        title: 'Expand current bookmark path',
-        icon: 'i-lucide-eye',
-    },
-] satisfies IBookmarkDisplayModeOption[];
 
 const parentBookmarkIdMap = computed(() => {
     const map = new Map<string, string | null>();
@@ -337,6 +222,28 @@ const selection = usePdfOutlineSelection(
     activePathBookmarkIds,
 );
 
+const contextMenuApi = usePdfOutlineContextMenu(
+    bookmarks,
+    isEditMode,
+    styleRangeStartId,
+    () => emitBookmarksChange(),
+    () => {
+        editing.cancelEditingBookmark();
+        dragDrop.resetDragState();
+    },
+);
+
+const {
+    bookmarkContextMenu,
+    selectedContextBookmark,
+    canApplyStyleRange,
+    applyStyleRangeLabel,
+    openBookmarkContextMenu,
+    closeBookmarkContextMenu,
+    setStyleRangeStart,
+    applyContextStyleToRange,
+} = contextMenuApi;
+
 const dragDrop = usePdfOutlineDragDrop(
     bookmarks,
     expandedBookmarkIds,
@@ -381,48 +288,6 @@ provide(PDF_OUTLINE_TREE_KEY, {
     activePathBookmarkIds,
 });
 
-const selectedContextBookmark = computed(() => {
-    const id = bookmarkContextMenu.value.itemId;
-    if (!id) {
-        return null;
-    }
-
-    return findBookmarkById(bookmarks.value, id);
-});
-
-const styleRangeInfo = computed(() => {
-    const selected = selectedContextBookmark.value;
-    const startId = styleRangeStartId.value;
-    if (!selected || !startId) {
-        return null;
-    }
-
-    const startLocation = findBookmarkLocation(bookmarks.value, startId);
-    const endLocation = findBookmarkLocation(bookmarks.value, selected.id);
-    if (!startLocation || !endLocation || startLocation.list !== endLocation.list) {
-        return null;
-    }
-
-    const start = Math.min(startLocation.index, endLocation.index);
-    const end = Math.max(startLocation.index, endLocation.index);
-
-    return {
-        list: startLocation.list,
-        start,
-        end,
-        count: end - start + 1,
-    };
-});
-
-const canApplyStyleRange = computed(() => Boolean(styleRangeInfo.value));
-const applyStyleRangeLabel = computed(() => {
-    const info = styleRangeInfo.value;
-    if (!info) {
-        return 'Apply style to range';
-    }
-    return `Apply style to ${info.count} bookmarks`;
-});
-
 let outlineRunId = 0;
 const initialBookmarkSnapshot = ref('[]');
 
@@ -442,139 +307,6 @@ function setBookmarkBaseline() {
         bookmarks: persisted,
         dirty: false,
     });
-}
-
-function isRefProxy(value: unknown): value is IRefProxy {
-    return (
-        typeof value === 'object'
-        && value !== null
-        && 'num' in value
-        && 'gen' in value
-        && typeof (value as IRefProxy).num === 'number'
-        && typeof (value as IRefProxy).gen === 'number'
-    );
-}
-
-function convertOutlineColorToHex(color: ArrayLike<number> | null | undefined): string | null {
-    if (!color || typeof color.length !== 'number' || color.length < 3) {
-        return null;
-    }
-
-    const parts = [
-        color[0],
-        color[1],
-        color[2],
-    ];
-
-    const rgb = parts.map((value) => {
-        const numeric = Number(value);
-        if (!Number.isFinite(numeric)) {
-            return 0;
-        }
-        return Math.max(0, Math.min(255, Math.round(numeric)));
-    });
-
-    return `#${rgb.map(value => value.toString(16).padStart(2, '0')).join('')}`;
-}
-
-async function resolvePageIndex(
-    pdfDocument: PDFDocumentProxy,
-    dest: IOutlineItemRaw['dest'],
-    destinationCache: Map<string, unknown[] | null>,
-    refIndexCache: Map<string, number | null>,
-): Promise<number | null> {
-    if (!dest) {
-        return null;
-    }
-
-    let destinationArray: unknown[] | null = null;
-
-    if (typeof dest === 'string') {
-        if (destinationCache.has(dest)) {
-            destinationArray = destinationCache.get(dest) ?? null;
-        } else {
-            try {
-                destinationArray = await pdfDocument.getDestination(dest);
-            } catch {
-                destinationArray = null;
-            }
-            destinationCache.set(dest, destinationArray);
-        }
-    } else if (Array.isArray(dest)) {
-        destinationArray = dest;
-    }
-
-    if (!destinationArray || destinationArray.length === 0) {
-        return null;
-    }
-
-    const pageRef = destinationArray[0];
-
-    if (typeof pageRef === 'number' && Number.isFinite(pageRef)) {
-        const maybeIndex = Math.trunc(pageRef);
-        if (maybeIndex >= 0 && maybeIndex < pdfDocument.numPages) {
-            return maybeIndex;
-        }
-        if (maybeIndex > 0 && maybeIndex <= pdfDocument.numPages) {
-            return maybeIndex - 1;
-        }
-        return null;
-    }
-
-    if (!isRefProxy(pageRef)) {
-        return null;
-    }
-
-    const refKey = `${pageRef.num}:${pageRef.gen}`;
-    if (refIndexCache.has(refKey)) {
-        return refIndexCache.get(refKey) ?? null;
-    }
-
-    try {
-        const pageIndex = await pdfDocument.getPageIndex(pageRef);
-        refIndexCache.set(refKey, pageIndex);
-        return pageIndex;
-    } catch {
-        refIndexCache.set(refKey, null);
-        return null;
-    }
-}
-
-async function buildResolvedOutline(
-    items: IOutlineItemRaw[],
-    pdfDocument: PDFDocumentProxy,
-    destinationCache: Map<string, unknown[] | null>,
-    refIndexCache: Map<string, number | null>,
-): Promise<IBookmarkItem[]> {
-    return Promise.all(
-        items.map(async (item) => {
-            const pageIndex = await resolvePageIndex(
-                pdfDocument,
-                item.dest,
-                destinationCache,
-                refIndexCache,
-            );
-            const children = item.items?.length
-                ? await buildResolvedOutline(
-                    item.items,
-                    pdfDocument,
-                    destinationCache,
-                    refIndexCache,
-                )
-                : [];
-
-            return {
-                title: item.title,
-                dest: item.dest,
-                id: createBookmarkId(),
-                pageIndex,
-                bold: item.bold === true,
-                italic: item.italic === true,
-                color: convertOutlineColorToHex(item.color),
-                items: children,
-            };
-        }),
-    );
 }
 
 function updateActiveItemFromCurrentPage() {
@@ -638,6 +370,7 @@ async function loadOutline() {
             pdfDocument,
             destinationCache,
             refIndexCache,
+            createBookmarkId,
         );
         if (
             runId !== outlineRunId
@@ -681,34 +414,6 @@ function setDisplayMode(mode: TBookmarkDisplayMode) {
     }
 }
 
-function openBookmarkContextMenu(payload: IBookmarkMenuPayload) {
-    if (!isEditMode.value) {
-        return;
-    }
-
-    const clamped = clampToViewport(payload.x, payload.y, 228, 380);
-
-    bookmarkContextMenu.value = {
-        visible: true,
-        x: clamped.x,
-        y: clamped.y,
-        itemId: payload.id,
-    };
-}
-
-function closeBookmarkContextMenu() {
-    if (!bookmarkContextMenu.value.visible) {
-        return;
-    }
-
-    bookmarkContextMenu.value = {
-        visible: false,
-        x: 0,
-        y: 0,
-        itemId: null,
-    };
-}
-
 function handleActivate(payload: IBookmarkActivatePayload) {
     activeItemId.value = payload.id;
     if (isEditMode.value) {
@@ -747,69 +452,12 @@ function toggleExpanded(id: string) {
     expandedBookmarkIds.value = nextExpanded;
 }
 
-function setStyleRangeStart(id: string) {
-    styleRangeStartId.value = id;
-}
-
-function applyContextStyleToRange() {
-    const selected = selectedContextBookmark.value;
-    const range = styleRangeInfo.value;
-    if (!selected || !range) {
-        return;
-    }
-
-    let changed = false;
-    for (let index = range.start; index <= range.end; index += 1) {
-        const target = range.list[index];
-        if (!target) {
-            continue;
-        }
-
-        const nextColor = normalizeBookmarkColor(selected.color);
-        if (
-            target.bold === selected.bold
-            && target.italic === selected.italic
-            && target.color === nextColor
-        ) {
-            continue;
-        }
-
-        target.bold = selected.bold;
-        target.italic = selected.italic;
-        target.color = nextColor;
-        changed = true;
-    }
-
-    if (changed) {
-        emitBookmarksChange();
-    }
-}
-
 function handleBookmarkDrop(payload: IBookmarkDropPayload) {
     dragDrop.handleBookmarkDrop(payload, activeItemId, emitBookmarksChange);
 }
 
 function handleTreeEndDrop() {
     dragDrop.handleTreeEndDrop(activeItemId, emitBookmarksChange);
-}
-
-function handleGlobalPointerDown(event: PointerEvent) {
-    if (!bookmarkContextMenu.value.visible) {
-        return;
-    }
-
-    const target = event.target as HTMLElement | null;
-    if (!target?.closest('.bookmarks-context-menu')) {
-        closeBookmarkContextMenu();
-    }
-}
-
-function handleGlobalKeydown(event: KeyboardEvent) {
-    if (event.key === 'Escape') {
-        closeBookmarkContextMenu();
-        editing.cancelEditingBookmark();
-        dragDrop.resetDragState();
-    }
 }
 
 watch(
@@ -840,19 +488,8 @@ watch(
     },
 );
 
-onMounted(() => {
-    window.addEventListener('pointerdown', handleGlobalPointerDown, true);
-    window.addEventListener('keydown', handleGlobalKeydown);
-    window.addEventListener('resize', closeBookmarkContextMenu);
-    window.addEventListener('scroll', closeBookmarkContextMenu, true);
-});
-
 onBeforeUnmount(() => {
     outlineRunId += 1;
-    window.removeEventListener('pointerdown', handleGlobalPointerDown, true);
-    window.removeEventListener('keydown', handleGlobalKeydown);
-    window.removeEventListener('resize', closeBookmarkContextMenu);
-    window.removeEventListener('scroll', closeBookmarkContextMenu, true);
 });
 </script>
 
@@ -862,51 +499,6 @@ onBeforeUnmount(() => {
     display: flex;
     flex-direction: column;
     gap: 8px;
-}
-
-.pdf-bookmarks-toolbar {
-    display: grid;
-    grid-template-columns: 1fr auto;
-    align-items: center;
-    gap: 6px;
-}
-
-.pdf-bookmarks-view-modes {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    min-width: 0;
-}
-
-.pdf-bookmarks-view-mode-button,
-.pdf-bookmarks-icon-button {
-    border: 1px solid var(--ui-border);
-    border-radius: 6px;
-    background: var(--ui-bg);
-    color: var(--ui-text-muted);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 28px;
-    height: 28px;
-    cursor: pointer;
-}
-
-.pdf-bookmarks-view-mode-button:hover,
-.pdf-bookmarks-icon-button:hover {
-    background: var(--ui-bg-muted);
-    color: var(--ui-text-highlighted);
-}
-
-.pdf-bookmarks-view-mode-button.is-active {
-    border-color: color-mix(in srgb, var(--ui-primary) 45%, var(--ui-border) 55%);
-    color: var(--ui-primary);
-    background: color-mix(in srgb, var(--ui-primary) 8%, var(--ui-bg) 92%);
-}
-
-.pdf-bookmarks-toolbar-actions {
-    display: inline-flex;
-    gap: 4px;
 }
 
 .pdf-bookmarks-loading,
@@ -956,13 +548,4 @@ onBeforeUnmount(() => {
     box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--ui-primary) 72%, transparent 28%);
 }
 
-@media (width <= 780px) {
-    .pdf-bookmarks-toolbar {
-        grid-template-columns: 1fr;
-    }
-
-    .pdf-bookmarks-toolbar-actions {
-        justify-content: flex-end;
-    }
-}
 </style>

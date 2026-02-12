@@ -8,43 +8,28 @@ import type { IOcrLanguage } from '@app/types/shared';
 import { getElectronAPI } from '@app/utils/electron';
 import { createDocxFromText } from '@app/utils/docx';
 import { OCR_TIMEOUT_MS } from '@app/constants/timeouts';
+import {
+    parsePageRange,
+    type IOcrSettings,
+    type IOcrProgress,
+    type IOcrResults,
+} from '@app/composables/ocrLanguages';
+import {
+    loadOcrText,
+    extractPdfText,
+} from '@app/composables/ocrProcessing';
 
-type TOcrPageRange = 'all' | 'current' | 'custom';
-
-interface IOcrSettings {
-    pageRange: TOcrPageRange;
-    customRange: string;
-    selectedLanguages: string[];
-}
-
-interface IOcrProgress {
-    isRunning: boolean;
-    phase: 'preparing' | 'processing';
-    currentPage: number;
-    totalPages: number;
-    processedCount: number;
-}
-
-interface IOcrQualityMetrics {
-    totalWords: number;
-    avgConfidence: number;
-    lowConfidenceWords: number;
-    successRate: number; // percentage 0-100
-    pagesProcessed: number;
-    dpiUsed: number;
-    estimatedQuality: 'excellent' | 'good' | 'fair' | 'poor';
-    recommendedDpi?: number;
-    embedSuccess: boolean;
-    embedError?: string;
-}
-
-interface IOcrResults {
-    pages: Map<number, string>;
-    languages: string[];
-    completedAt: number | null;
-    searchablePdfData: Uint8Array | null;
-    metrics?: IOcrQualityMetrics;
-}
+export {
+    type TOcrPageRange,
+    type IOcrSettings,
+    type IOcrProgress,
+    type IOcrQualityMetrics,
+    type IOcrResults,
+    parsePageRange,
+} from '@app/composables/ocrLanguages';
+export {
+    loadOcrText, extractPdfText,
+} from '@app/composables/ocrProcessing';
 
 export const useOcr = () => {
     const availableLanguages = ref<IOcrLanguage[]>([]);
@@ -69,6 +54,8 @@ export const useOcr = () => {
     const error = ref<string | null>(null);
     const isExporting = ref(false);
 
+    const activeRequestId = ref<string | null>(null);
+
     let progressCleanup: (() => void) | null = null;
     let completeCleanup: (() => void) | null = null;
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -82,50 +69,6 @@ export const useOcr = () => {
         }
     }
 
-    function parsePageRange(
-        rangeType: TOcrPageRange,
-        customRange: string,
-        currentPage: number,
-        totalPages: number,
-    ): number[] {
-        if (rangeType === 'current') {
-            return [currentPage];
-        }
-
-        if (rangeType === 'all') {
-            return Array.from({ length: totalPages }, (_, i) => i + 1);
-        }
-
-        // Parse custom range: "1-5, 8, 10-12"
-        const pages = new Set<number>();
-        const parts = customRange.split(',').map(p => p.trim());
-
-        for (const part of parts) {
-            if (part.includes('-')) {
-                const parts = part.split('-');
-                const startStr = parts[0];
-                const endStr = parts[1];
-                if (startStr && endStr) {
-                    const start = parseInt(startStr.trim(), 10);
-                    const end = parseInt(endStr.trim(), 10);
-                    if (!isNaN(start) && !isNaN(end)) {
-                        for (let i = Math.max(1, start); i <= Math.min(totalPages, end); i++) {
-                            pages.add(i);
-                        }
-                    }
-                }
-            } else {
-                const num = parseInt(part, 10);
-                if (!isNaN(num) && num >= 1 && num <= totalPages) {
-                    pages.add(num);
-                }
-            }
-        }
-
-        return Array.from(pages).sort((a, b) => a - b);
-    }
-
-
     async function runOcr(
         pdfDocument: PDFDocumentProxy,
         originalPdfData: Uint8Array,
@@ -136,7 +79,7 @@ export const useOcr = () => {
         console.log('[useOcr] runOcr called', {
             currentPage,
             totalPages,
-            pdfDataLength: originalPdfData?.length, 
+            pdfDataLength: originalPdfData?.length,
         });
 
         if (progress.value.isRunning) {
@@ -167,11 +110,8 @@ export const useOcr = () => {
             processedCount: 0,
         };
 
-        // Force Vue to flush the UI update immediately so user sees feedback
         await nextTick();
 
-        // Double requestAnimationFrame ensures the browser has actually painted
-        // Single rAF only schedules, double rAF waits for paint to complete
         await new Promise<void>(resolve => {
             requestAnimationFrame(() => {
                 requestAnimationFrame(() => resolve());
@@ -179,12 +119,12 @@ export const useOcr = () => {
         });
 
         const requestId = `ocr-${crypto.randomUUID()}`;
+        activeRequestId.value = requestId;
         console.log('[useOcr] Request ID:', requestId);
 
         try {
             const api = getElectronAPI();
 
-            // Setup progress listener
             progressCleanup = api.onOcrProgress((p) => {
                 console.log('[useOcr] Progress update:', p);
                 if (p.requestId === requestId) {
@@ -194,8 +134,6 @@ export const useOcr = () => {
                 }
             });
 
-            // Build OCR request with page numbers and languages
-            // Backend will extract pages directly from the source PDF file
             const languages = [...settings.value.selectedLanguages];
             const pageRequests = pages.map(pageNum => ({
                 pageNumber: pageNum,
@@ -204,15 +142,12 @@ export const useOcr = () => {
 
             console.log('[useOcr] Sending to backend, pages:', pages, ', originalPdfData length:', originalPdfData.length);
 
-            // Create a promise that resolves when OCR completes
-            // The OCR worker runs in a separate thread and sends results via 'ocr:complete' event
             const ocrPromise = new Promise<{
                 success: boolean;
                 pdfData: number[] | null;
                 pdfPath?: string;
                 errors: string[];
             }>((resolve, reject) => {
-                // Defensive guard to ignore duplicate completions (e.g., from worker exit after terminate)
                 let didResolve = false;
 
                 completeCleanup = api.onOcrComplete((result) => {
@@ -227,7 +162,6 @@ export const useOcr = () => {
                             return;
                         }
                         didResolve = true;
-                        // Clear the timeout since OCR completed
                         if (timeoutId) {
                             clearTimeout(timeoutId);
                             timeoutId = null;
@@ -236,7 +170,6 @@ export const useOcr = () => {
                     }
                 });
 
-                // Timeout after 30 minutes (very long OCR jobs)
                 timeoutId = setTimeout(() => {
                     if (!didResolve) {
                         timeoutId = null;
@@ -245,7 +178,6 @@ export const useOcr = () => {
                 }, OCR_TIMEOUT_MS);
             });
 
-            // Start the OCR job (returns immediately, doesn't block)
             const startResult = await api.ocrCreateSearchablePdf(
                 originalPdfData,
                 pageRequests,
@@ -260,7 +192,6 @@ export const useOcr = () => {
                 throw new Error(startResult.error || 'Failed to start OCR job');
             }
 
-            // Wait for the OCR worker to complete
             const response = await ocrPromise;
 
             console.log('[useOcr] Backend response:', {
@@ -276,21 +207,17 @@ export const useOcr = () => {
                 let pdfBytes: Uint8Array;
 
                 if (response.pdfPath) {
-                    // Large PDF saved to temp file - read it back
                     console.log('[useOcr] OCR successful, reading from temp file:', response.pdfPath);
                     const fileData = await api.readFile(response.pdfPath);
                     pdfBytes = new Uint8Array(fileData);
                     console.log('[useOcr] PDF size:', pdfBytes.length);
 
-                    // Clean up the temp file after reading
                     try {
-                        await api.cleanupFile(response.pdfPath);
-                        console.log('[useOcr] Cleaned up temp file:', response.pdfPath);
+                        await api.cleanupOcrTemp(response.pdfPath);
                     } catch (cleanupErr) {
                         console.warn('[useOcr] Failed to cleanup temp file:', response.pdfPath, cleanupErr);
                     }
                 } else if (response.pdfData) {
-                    // Small PDF returned directly as array
                     console.log('[useOcr] OCR successful, PDF size:', response.pdfData.length);
                     pdfBytes = new Uint8Array(response.pdfData);
                 } else {
@@ -298,7 +225,7 @@ export const useOcr = () => {
                 }
 
                 results.value = {
-                    pages: new Map(), // Text stored in PDF, not separately
+                    pages: new Map(),
                     languages: [...settings.value.selectedLanguages],
                     completedAt: Date.now(),
                     searchablePdfData: pdfBytes,
@@ -313,6 +240,7 @@ export const useOcr = () => {
             if (errStack) console.error('[useOcr] Error stack:', errStack);
             error.value = errMsg;
         } finally {
+            activeRequestId.value = null;
             progress.value.isRunning = false;
             progressCleanup?.();
             progressCleanup = null;
@@ -326,6 +254,11 @@ export const useOcr = () => {
     }
 
     function cancelOcr() {
+        if (activeRequestId.value) {
+            const api = getElectronAPI();
+            api.ocrCancel(activeRequestId.value).catch(() => {});
+            activeRequestId.value = null;
+        }
         progress.value.isRunning = false;
         progressCleanup?.();
         progressCleanup = null;
@@ -362,7 +295,6 @@ export const useOcr = () => {
     const hasResults = computed(() => results.value.searchablePdfData !== null);
 
     const progressPercent = computed(() => {
-        // Return null during preparing phase to trigger indeterminate progress bar
         if (progress.value.phase === 'preparing') {
             return null;
         }
@@ -385,91 +317,6 @@ export const useOcr = () => {
     const rtlLanguages = computed(() =>
         availableLanguages.value.filter(l => l.script === 'rtl'),
     );
-
-    async function loadOcrText(workingCopyPath: string): Promise<string | null> {
-        try {
-            const api = getElectronAPI();
-            const manifestPath = `${workingCopyPath}.ocr/manifest.json`;
-            const exists = await api.fileExists(manifestPath);
-            if (exists) {
-                const manifestJson = await api.readTextFile(manifestPath);
-                const manifest = JSON.parse(manifestJson) as {pages: Record<number, { path: string }>;};
-
-                const pageEntries = Object.entries(manifest.pages ?? {})
-                    .map(([
-                        page,
-                        value,
-                    ]) => ({
-                        page: Number(page),
-                        path: value.path,
-                    }))
-                    .filter((entry) => Number.isFinite(entry.page) && entry.page > 0)
-                    .sort((a, b) => a.page - b.page);
-
-                const texts: string[] = [];
-
-                for (const entry of pageEntries) {
-                    const pagePath = `${workingCopyPath}.ocr/${entry.path}`;
-                    const pageJson = await api.readTextFile(pagePath);
-                    const pageData = JSON.parse(pageJson) as { text?: string };
-                    if (pageData?.text) {
-                        texts.push(pageData.text.trim());
-                    }
-                }
-
-                const merged = texts.filter(Boolean).join('\n\n');
-                return merged.length > 0 ? merged : null;
-            }
-
-            const legacyIndexPath = `${workingCopyPath}.index.json`;
-            const legacyExists = await api.fileExists(legacyIndexPath);
-            if (!legacyExists) {
-                return null;
-            }
-
-            const indexJson = await api.readTextFile(legacyIndexPath);
-            const index = JSON.parse(indexJson) as {pages?: Array<{ text?: string }>;};
-
-            const legacyTexts = (index.pages ?? [])
-                .map((page) => page?.text?.trim())
-                .filter((text): text is string => Boolean(text));
-
-            const merged = legacyTexts.join('\n\n');
-            return merged.length > 0 ? merged : null;
-        } catch (e) {
-            console.warn('[useOcr] Failed to load OCR text for DOCX export:', e);
-            return null;
-        }
-    }
-
-    async function extractPdfText(pdfDocument: PDFDocumentProxy): Promise<string | null> {
-        try {
-            const pageCount = pdfDocument.numPages ?? 0;
-            if (pageCount === 0) {
-                return null;
-            }
-
-            const pages: string[] = [];
-            for (let pageNumber = 1; pageNumber <= pageCount; pageNumber++) {
-                const page = await pdfDocument.getPage(pageNumber);
-                const content = await page.getTextContent();
-                const text = content.items
-                    .map((item) => (item as { str?: string }).str ?? '')
-                    .join(' ')
-                    .replace(/\s+/g, ' ')
-                    .trim();
-                if (text) {
-                    pages.push(text);
-                }
-            }
-
-            const merged = pages.join('\n\n');
-            return merged.length > 0 ? merged : null;
-        } catch (e) {
-            console.warn('[useOcr] Failed to extract PDF text for DOCX export:', e);
-            return null;
-        }
-    }
 
     async function exportDocx(
         workingCopyPath: string | null,

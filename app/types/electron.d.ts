@@ -131,6 +131,7 @@ interface IElectronAPI {
     writeDocxFile: (path: string, data: Uint8Array) => Promise<boolean>;
     saveFile: (path: string) => Promise<boolean>;
     cleanupFile: (path: string) => Promise<void>;
+    cleanupOcrTemp: (path: string) => Promise<void>;
     setWindowTitle: (title: string) => Promise<void>;
     onMenuOpenPdf: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuSave: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
@@ -158,6 +159,7 @@ interface IElectronAPI {
         results: Record<number, string>;
         errors: string[];
     }>;
+    ocrCancel: (requestId: string) => Promise<{ canceled: boolean }>;
     ocrGetLanguages: () => Promise<IOcrLanguage[]>;
     ocrCreateSearchablePdf: (
         originalPdfData: Uint8Array,  // Electron IPC transfers Uint8Array efficiently

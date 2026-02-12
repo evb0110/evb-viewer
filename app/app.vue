@@ -15,16 +15,20 @@ const {
 const { setLocale } = useI18n() as TI18nComposer;
 const colorMode = useColorMode();
 
-console.log('[SETUP] app.vue script setup executed');
+if (import.meta.dev) {
+    console.log('[SETUP] app.vue script setup executed');
+}
 
 onMounted(async () => {
     const mountTime = Date.now();
-    console.log('[HEALTH CHECK] App hydrated and ready', {
-        timestamp: mountTime,
-        windowReady: typeof window !== 'undefined',
-        electronAPI: typeof window.electronAPI !== 'undefined',
-    });
-    console.log('[HEALTH CHECK] window.__openFileDirect:', typeof window.__openFileDirect);
+    if (import.meta.dev) {
+        console.log('[HEALTH CHECK] App hydrated and ready', {
+            timestamp: mountTime,
+            windowReady: typeof window !== 'undefined',
+            electronAPI: typeof window.electronAPI !== 'undefined',
+        });
+        console.log('[HEALTH CHECK] window.__openFileDirect:', typeof window.__openFileDirect);
+    }
 
     // Load persisted settings and apply locale + theme
     await loadSettings();
@@ -45,7 +49,9 @@ onMounted(async () => {
             __appReady?: boolean;
             __appReadyAt?: number
         }).__appReadyAt = mountTime;
-        console.log('[SETUP] App mounted, __appReady set at', mountTime);
+        if (import.meta.dev) {
+            console.log('[SETUP] App mounted, __appReady set at', mountTime);
+        }
     }
 });
 </script>

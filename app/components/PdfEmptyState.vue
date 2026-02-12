@@ -102,7 +102,7 @@ function formatRelativeTimeLocalized(timestamp: number) {
 }
 
 function getParentFolder(filePath: string) {
-    const parts = filePath.split('/');
+    const parts = filePath.split(/[\\/]/);
     parts.pop();
     const folderParts = parts.slice(-2);
     return folderParts.join('/');

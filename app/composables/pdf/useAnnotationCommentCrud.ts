@@ -19,7 +19,6 @@ import type {
 import {
     getCommentText,
     hasEditorCommentPayload,
-    normalizeMarkerRect,
     escapeCssAttr,
     errorToLogText,
 } from '@app/composables/pdf/pdfAnnotationUtils';
@@ -30,6 +29,20 @@ import type { useInlineCommentIndicators } from '@app/composables/pdf/useInlineC
 import type { useAnnotationToolManager } from '@app/composables/pdf/useAnnotationToolManager';
 import type { useAnnotationHighlight } from '@app/composables/pdf/useAnnotationHighlight';
 import { FOCUS_PULSE_MS } from '@app/constants/timeouts';
+import {
+    getCommentCandidateIds,
+    findEditorForComment as findEditorForCommentHelper,
+    findEditorByAnnotationElementId as findEditorByAnnotationElementIdHelper,
+    findEditorFromTarget as findEditorFromTargetHelper,
+    findPdfAnnotationSummaryFromTarget,
+    findAnnotationSummaryFromPoint as findAnnotationSummaryFromPointHelper,
+} from '@app/composables/pdf/annotationCommentCrudHelpers';
+import type { IEditorTargetMatch } from '@app/composables/pdf/annotationCommentCrudHelpers';
+
+export type { IEditorTargetMatch } from '@app/composables/pdf/annotationCommentCrudHelpers';
+export {
+    getCommentCandidateIds, findPdfAnnotationSummaryFromTarget, 
+} from '@app/composables/pdf/annotationCommentCrudHelpers';
 
 type TFreeTextResize = ReturnType<typeof useFreeTextResize>;
 type TIdentity = ReturnType<typeof useAnnotationCommentIdentity>;
@@ -40,12 +53,6 @@ type THighlight = ReturnType<typeof useAnnotationHighlight>;
 
 type TUiManagerSelectedEditor = Parameters<AnnotationEditorUIManager['setSelected']>[0];
 
-interface IEditorTargetMatch {
-    editor: IPdfjsEditor;
-    pageIndex: number;
-    targetAnnotationId: string | null;
-}
-
 interface IUseAnnotationCommentCrudOptions {
     viewerContainer: Ref<HTMLElement | null>;
     pdfDocument: ShallowRef<PDFDocumentProxy | null>;
@@ -54,7 +61,7 @@ interface IUseAnnotationCommentCrudOptions {
     currentPage: Ref<number>;
     visibleRange: Ref<{
         start: number;
-        end: number 
+        end: number
     }>;
     annotationTool: Ref<TAnnotationTool>;
     identity: TIdentity;
@@ -66,7 +73,7 @@ interface IUseAnnotationCommentCrudOptions {
     scrollToPage: (pageNumber: number) => void;
     renderVisiblePages: (range: {
         start: number;
-        end: number 
+        end: number
     }, options?: { preserveRenderedPages?: boolean }) => Promise<void>;
     updateVisibleRange: (container: HTMLElement | null, numPages: number) => void;
     emitAnnotationModified: () => void;
@@ -106,72 +113,22 @@ export function useAnnotationCommentCrud(options: IUseAnnotationCommentCrudOptio
         inlineIndicators.debouncedSyncInlineCommentIndicators();
     }
 
-    function getCommentCandidateIds(comment: IAnnotationCommentSummary) {
-        return [
-            comment.uid,
-            comment.annotationId,
-            comment.id,
-        ]
-            .filter((id): id is string => typeof id === 'string' && id.length > 0)
-            .filter((id, index, arr) => arr.indexOf(id) === index);
-    }
-
     function findEditorForComment(comment: IAnnotationCommentSummary) {
-        const uiManager = annotationUiManager.value;
-        if (!uiManager || numPages.value <= 0) {
-            return null;
-        }
-
-        const candidateIds = getCommentCandidateIds(comment);
-        if (candidateIds.length === 0) {
-            return null;
-        }
-
-        const preferredPage = Math.max(0, Math.min(comment.pageIndex, numPages.value - 1));
-        const pageIndexes = [
-            preferredPage,
-            ...Array.from({ length: numPages.value }, (_, index) => index).filter(index => index !== preferredPage),
-        ];
-
-        for (const pageIndex of pageIndexes) {
-            for (const editor of uiManager.getEditors(pageIndex)) {
-                const editorIdentity = identity.getEditorIdentity(editor as IPdfjsEditor, pageIndex);
-                if (
-                    candidateIds.includes(editorIdentity)
-                    || (editor.uid && candidateIds.includes(editor.uid))
-                    || (editor.annotationElementId && candidateIds.includes(editor.annotationElementId))
-                    || (editor.id && candidateIds.includes(editor.id))
-                ) {
-                    return editor as IPdfjsEditor;
-                }
-            }
-        }
-
-        return null;
+        return findEditorForCommentHelper(
+            annotationUiManager.value,
+            numPages.value,
+            comment,
+            identity.getEditorIdentity,
+        );
     }
 
     function findEditorByAnnotationElementId(pageIndex: number, annotationId: string) {
-        const uiManager = annotationUiManager.value;
-        if (!uiManager || numPages.value <= 0) {
-            return null;
-        }
-
-        const preferredPage = Math.max(0, Math.min(pageIndex, numPages.value - 1));
-        const pageIndexes = [
-            preferredPage,
-            ...Array.from({ length: numPages.value }, (_, index) => index).filter(index => index !== preferredPage),
-        ];
-
-        for (const candidatePageIndex of pageIndexes) {
-            for (const editor of uiManager.getEditors(candidatePageIndex)) {
-                const normalizedEditor = editor as IPdfjsEditor;
-                if (normalizedEditor.annotationElementId === annotationId) {
-                    return normalizedEditor;
-                }
-            }
-        }
-
-        return null;
+        return findEditorByAnnotationElementIdHelper(
+            annotationUiManager.value,
+            numPages.value,
+            pageIndex,
+            annotationId,
+        );
     }
 
     async function focusAnnotationComment(comment: IAnnotationCommentSummary) {
@@ -399,44 +356,7 @@ export function useAnnotationCommentCrud(options: IUseAnnotationCommentCrudOptio
     }
 
     function findEditorFromTarget(target: HTMLElement): IEditorTargetMatch | null {
-        const uiManager = annotationUiManager.value;
-        if (!uiManager) {
-            return null;
-        }
-
-        const targetAnnotationId = target.closest<HTMLElement>('[data-annotation-id]')
-            ?.dataset.annotationId
-            ?? null;
-
-        const editorElement = target.closest<HTMLElement>(
-            '.annotation-editor-layer .highlightEditor, .annotation-editor-layer .freeTextEditor, .annotation-editor-layer .inkEditor, .annotationEditorLayer .highlightEditor, .annotationEditorLayer .freeTextEditor, .annotationEditorLayer .inkEditor',
-        );
-        if (!editorElement) {
-            return null;
-        }
-
-        const pageContainer = editorElement.closest<HTMLElement>('.page_container');
-        const pageNumber = pageContainer?.dataset.page
-            ? Number(pageContainer.dataset.page)
-            : currentPage.value;
-        const pageIndex = Math.max(0, pageNumber - 1);
-
-        for (const editor of uiManager.getEditors(pageIndex)) {
-            const normalizedEditor = editor as IPdfjsEditor;
-            const editorDiv = normalizedEditor.div;
-            if (!editorDiv) {
-                continue;
-            }
-            if (editorDiv === editorElement || editorDiv.contains(target)) {
-                return {
-                    editor: normalizedEditor,
-                    pageIndex,
-                    targetAnnotationId,
-                };
-            }
-        }
-
-        return null;
+        return findEditorFromTargetHelper(annotationUiManager.value, target, currentPage.value);
     }
 
     function findEditorSummaryFromTarget(target: HTMLElement) {
@@ -481,33 +401,11 @@ export function useAnnotationCommentCrud(options: IUseAnnotationCommentCrudOptio
         return cached ?? identity.hydrateSummaryFromMemory(normalizedSummary);
     }
 
-    function findPdfAnnotationSummaryFromTarget(target: HTMLElement) {
-        const annotationElement = target.closest<HTMLElement>(
-            '.annotationLayer [data-annotation-id], .annotation-layer [data-annotation-id]',
-        );
-        if (!annotationElement) {
-            return null;
-        }
-
-        const annotationId = annotationElement.dataset.annotationId ?? annotationElement.getAttribute('data-annotation-id');
-        if (!annotationId) {
-            return null;
-        }
-
-        const pageContainer = annotationElement.closest<HTMLElement>('.page_container');
-        const pageNumber = pageContainer?.dataset.page
-            ? Number(pageContainer.dataset.page)
-            : currentPage.value;
-        const pageIndex = Math.max(0, pageNumber - 1);
-
-        return commentSync.annotationCommentsCache.value.find(c => (
-            c.annotationId === annotationId && c.pageIndex === pageIndex
-        )) ?? commentSync.annotationCommentsCache.value.find(c => c.annotationId === annotationId) ?? null;
-    }
-
     function findAnnotationSummaryFromTarget(target: HTMLElement) {
         const editorSummary = findEditorSummaryFromTarget(target);
-        const pdfSummary = findPdfAnnotationSummaryFromTarget(target);
+        const pdfSummary = findPdfAnnotationSummaryFromTarget(
+            target, currentPage.value, commentSync.annotationCommentsCache.value,
+        );
 
         if (!editorSummary) {
             return pdfSummary;
@@ -528,63 +426,12 @@ export function useAnnotationCommentCrud(options: IUseAnnotationCommentCrudOptio
     }
 
     function findAnnotationSummaryFromPoint(target: HTMLElement, clientX: number, clientY: number) {
-        const pageContainer = target.closest<HTMLElement>('.page_container')
-            ?? highlight.findPageContainerFromClientPoint(clientX, clientY);
-        if (!pageContainer) {
-            return null;
-        }
-
-        const pageNumber = pageContainer.dataset.page
-            ? Number(pageContainer.dataset.page)
-            : currentPage.value;
-        if (!Number.isFinite(pageNumber) || pageNumber <= 0) {
-            return null;
-        }
-
-        const pageRect = pageContainer.getBoundingClientRect();
-        if (pageRect.width <= 0 || pageRect.height <= 0) {
-            return null;
-        }
-
-        const x = (clientX - pageRect.left) / pageRect.width;
-        const y = (clientY - pageRect.top) / pageRect.height;
-        const toleranceX = 14 / pageRect.width;
-        const toleranceY = 14 / pageRect.height;
-
-        let bestSummary: IAnnotationCommentSummary | null = null;
-        let bestScore = Number.POSITIVE_INFINITY;
-
-        commentSync.annotationCommentsCache.value.forEach((summary) => {
-            if (summary.pageNumber !== pageNumber) {
-                return;
-            }
-            const rect = normalizeMarkerRect(summary.markerRect);
-            if (!rect) {
-                return;
-            }
-
-            const left = rect.left - toleranceX;
-            const top = rect.top - toleranceY;
-            const right = rect.left + rect.width + toleranceX;
-            const bottom = rect.top + rect.height + toleranceY;
-
-            if (x < left || x > right || y < top || y > bottom) {
-                return;
-            }
-
-            const centerX = rect.left + rect.width / 2;
-            const centerY = rect.top + rect.height / 2;
-            const distanceScore = ((x - centerX) ** 2 + (y - centerY) ** 2) * 10000;
-            const areaScore = rect.width * rect.height;
-            const score = distanceScore + areaScore;
-
-            if (score < bestScore) {
-                bestScore = score;
-                bestSummary = summary;
-            }
-        });
-
-        return bestSummary;
+        return findAnnotationSummaryFromPointHelper(
+            target, clientX, clientY,
+            currentPage.value,
+            commentSync.annotationCommentsCache.value,
+            highlight.findPageContainerFromClientPoint,
+        );
     }
 
     async function ensureEditorInteractionModeFromTarget(target: HTMLElement) {

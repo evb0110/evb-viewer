@@ -11,7 +11,6 @@ import {
 import type {
     IPdfPageMatches,
     IPdfSearchMatch,
-    IScrollSnapshot,
 } from '@app/types/pdf';
 import { chunk } from 'es-toolkit/array';
 import { range } from 'es-toolkit/math';
@@ -20,11 +19,24 @@ import { usePdfCanvasRenderer } from '@app/composables/pdf/usePdfCanvasRenderer'
 import { usePdfTextLayerRenderer } from '@app/composables/pdf/usePdfTextLayerRenderer';
 import { usePdfAnnotationLayerRenderer } from '@app/composables/pdf/usePdfAnnotationLayerRenderer';
 import { CONCURRENT_RENDERS } from '@app/constants/pdf-layout';
+import {
+    isRenderingCancelledError,
+    captureScrollSnapshot,
+    restoreScrollFromSnapshot,
+    formatRenderError,
+} from '@app/composables/pdf/pdfPageRenderPipeline';
+import {
+    getPageContainer,
+    setupPagePlaceholderSizes,
+    type IPageRange,
+} from '@app/composables/pdf/pdfPageBufferManager';
 
-interface IPageRange {
-    start: number;
-    end: number;
-}
+export {
+    isRenderingCancelledError, captureScrollSnapshot, restoreScrollFromSnapshot, formatRenderError,
+} from '@app/composables/pdf/pdfPageRenderPipeline';
+export {
+    getPageContainer, setupPagePlaceholderSizes, computeVisibleRange, type IPageRange,
+} from '@app/composables/pdf/pdfPageBufferManager';
 
 interface IUsePdfPageRendererOptions {
     container: Ref<HTMLElement | null>;
@@ -98,81 +110,9 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     let activeScrollTargetPageIndex: number | null = null;
     let scrollToMatchRequestId = 0;
 
-    function isRenderingCancelledError(error: unknown) {
-        if (!error) {
-            return false;
-        }
-        if (
-            typeof error === 'object'
-            && 'name' in error
-            && (error as { name?: string }).name === 'RenderingCancelledException'
-        ) {
-            return true;
-        }
-
-        const message = typeof error === 'string'
-            ? error
-            : (
-                typeof error === 'object'
-                && error !== null
-                && 'message' in error
-                && typeof (error as { message?: unknown }).message === 'string'
-            )
-                ? (error as { message: string }).message
-                : '';
-
-        return /rendering cancelled/i.test(message);
-    }
-
     function bumpRenderVersion() {
         renderVersion += 1;
         return renderVersion;
-    }
-
-    function captureScrollSnapshot(): IScrollSnapshot | null {
-        const container = options.container.value;
-        if (!container) {
-            return null;
-        }
-
-        const {
-            scrollWidth,
-            scrollHeight,
-        } = container;
-        if (!scrollWidth || !scrollHeight) {
-            return null;
-        }
-
-        return {
-            width: scrollWidth,
-            height: scrollHeight,
-            centerX: container.scrollLeft + container.clientWidth / 2,
-            centerY: container.scrollTop + container.clientHeight / 2,
-        };
-    }
-
-    function restoreScrollFromSnapshot(snapshot: IScrollSnapshot | null) {
-        if (!snapshot) {
-            return;
-        }
-
-        const container = options.container.value;
-        if (!container) {
-            return;
-        }
-
-        const newWidth = container.scrollWidth;
-        const newHeight = container.scrollHeight;
-
-        if (!newWidth || !newHeight || !snapshot.width || !snapshot.height) {
-            return;
-        }
-
-        const targetLeft = (snapshot.centerX / snapshot.width) * newWidth - container.clientWidth / 2;
-        const targetTop = (snapshot.centerY / snapshot.height) * newHeight - container.clientHeight / 2;
-
-        container.scrollLeft = Math.max(0, targetLeft);
-        container.scrollTop = Math.max(0, targetTop);
     }
 
     function cleanupTextLayer(pageNumber: number) {
@@ -242,13 +182,6 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         }
     }
 
-    function getPageContainer(containerRoot: HTMLElement, pageIndex: number) {
-        const pageNumber = pageIndex + 1;
-        return containerRoot.querySelector<HTMLElement>(`.page_container[data-page="${pageNumber}"]`)
-            ?? containerRoot.querySelectorAll<HTMLElement>('.page_container')[pageIndex]
-            ?? null;
-    }
-
     function setScrollTargetPage(pageIndex: number | null) {
         const containerRoot = options.container.value;
         if (!containerRoot) {
@@ -279,14 +212,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         }
 
         const scale = toValue(options.effectiveScale);
-        const width = baseWidth * scale;
-        const height = baseHeight * scale;
-
-        const containers = containerRoot.querySelectorAll<HTMLDivElement>('.page_container');
-        containers.forEach((container) => {
-            container.style.width = `${width}px`;
-            container.style.height = `${height}px`;
-        });
+        setupPagePlaceholderSizes(containerRoot, baseWidth, baseHeight, scale);
     }
 
     async function renderVisiblePages(
@@ -513,24 +439,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                             return;
                         }
 
-                        const message = error instanceof Error
-                            ? error.message
-                            : typeof error === 'string'
-                                ? error
-                                : (() => {
-                                    try {
-                                        return JSON.stringify(error);
-                                    } catch {
-                                        return String(error);
-                                    }
-                                })();
-
-                        const stack = error instanceof Error ? error.stack ?? '' : '';
-                        const text = stack
-                            ? `Failed to render PDF page: ${pageNumber} ${message}\n${stack}`
-                            : `Failed to render PDF page: ${pageNumber} ${message}`;
-
-                        console.error(text);
+                        console.error(formatRenderError(error, pageNumber));
                         if (renderingPages.get(pageNumber) === version) {
                             cleanupPage(pageNumber);
                         }
@@ -546,7 +455,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
 
     async function reRenderAllVisiblePages(getVisibleRange: () => IPageRange) {
         const version = bumpRenderVersion();
-        const snapshot = captureScrollSnapshot();
+        const snapshot = captureScrollSnapshot(options.container.value);
 
         await renderMutex.acquire();
 
@@ -566,7 +475,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             setupPagePlaceholders();
 
             if (renderVersion === version) {
-                restoreScrollFromSnapshot(snapshot);
+                restoreScrollFromSnapshot(options.container.value, snapshot);
             }
 
             if (renderVersion !== version) {

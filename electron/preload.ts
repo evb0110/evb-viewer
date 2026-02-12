@@ -192,6 +192,7 @@ if (!__preloadAlreadyInstalled) {
         writeDocxFile: (path: string, data: Uint8Array) => ipcRenderer.invoke('file:writeDocx', path, data),
         saveFile: (path: string) => ipcRenderer.invoke('file:save', path),
         cleanupFile: (path: string) => ipcRenderer.invoke('file:cleanup', path),
+        cleanupOcrTemp: (path: string) => ipcRenderer.invoke('file:cleanupOcrTemp', path),
         setWindowTitle: (title: string) => ipcRenderer.invoke('window:setTitle', title),
 
         onMenuOpenPdf: (callback: IMenuEventCallback): IMenuEventUnsubscribe => {
@@ -265,6 +266,8 @@ if (!__preloadAlreadyInstalled) {
             }>,
             requestId: string,
         ) => ipcRenderer.invoke('ocr:recognizeBatch', pages, requestId),
+
+        ocrCancel: (requestId: string) => ipcRenderer.invoke('ocr:cancel', requestId),
 
         ocrGetLanguages: () => ipcRenderer.invoke('ocr:getLanguages'),
 

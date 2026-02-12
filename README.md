@@ -34,16 +34,16 @@ PDF viewer built with Nuxt (SPA) running inside Electron.
 
 ```bash
 # Install dependencies
-npm install
+pnpm install
 
 # Development (runs Nuxt dev server + Electron)
-npm run dev
+pnpm dev
 
 # Build for production
-npm run build
+pnpm build
 
 # Run production build
-npm start
+pnpm start
 ```
 
 ## Key Files

@@ -122,10 +122,9 @@
 
 <script setup lang="ts">
 import {
-    computed,
-    inject,
     nextTick,
     ref,
+    toRef,
     watch,
 } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
@@ -133,14 +132,10 @@ import type {
     IBookmarkItem,
     IBookmarkMenuPayload,
 } from '@app/types/pdf-outline';
-import { PDF_OUTLINE_TREE_KEY } from '@app/composables/pdf/usePdfOutlineKeys';
+import { resolveBookmarkDestinationPage } from '@app/utils/pdf-outline-helpers';
+import { usePdfOutlineItemState } from '@app/composables/pdf/usePdfOutlineItemState';
 
 type TDropPosition = 'before' | 'after' | 'child';
-
-interface IRefProxy {
-    num: number;
-    gen: number;
-}
 
 interface IDragHoverPayload {
     targetId: string;
@@ -176,51 +171,23 @@ const emit = defineEmits<{
     (e: 'drag-end'): void;
 }>();
 
-const treeContext = inject(PDF_OUTLINE_TREE_KEY)!;
+const {
+    treeContext,
+    hasChildren,
+    isActive,
+    isSelected,
+    isEditing,
+    isDragging,
+    isDropTargetBefore,
+    isDropTargetAfter,
+    isDropTargetChild,
+    isStyleRangeStart,
+    bookmarkTitleStyle,
+    isExpanded,
+} = usePdfOutlineItemState(toRef(props, 'item'));
 
 const editingTitle = ref('');
 const titleInputRef = ref<HTMLInputElement | null>(null);
-
-const hasChildren = computed(() => props.item.items.length > 0);
-const isActive = computed(() => props.item.id === treeContext.activeItemId.value);
-const isSelected = computed(() => treeContext.selectedBookmarkIds.value.has(props.item.id));
-const isEditing = computed(() => props.item.id === treeContext.editingItemId.value);
-const isDragging = computed(() => treeContext.draggingItemIds.value.has(props.item.id));
-const isDropTargetBefore = computed(() => (
-    treeContext.dropTarget.value?.id === props.item.id
-    && treeContext.dropTarget.value.position === 'before'
-));
-const isDropTargetAfter = computed(() => (
-    treeContext.dropTarget.value?.id === props.item.id
-    && treeContext.dropTarget.value.position === 'after'
-));
-const isDropTargetChild = computed(() => (
-    treeContext.dropTarget.value?.id === props.item.id
-    && treeContext.dropTarget.value.position === 'child'
-));
-const isStyleRangeStart = computed(() => treeContext.styleRangeStartId.value === props.item.id);
-
-const bookmarkTitleStyle = computed(() => ({
-    color: props.item.color ?? undefined,
-    fontWeight: props.item.bold ? '600' : '500',
-    fontStyle: props.item.italic ? 'italic' : 'normal',
-}));
-
-const isExpanded = computed(() => {
-    if (!hasChildren.value) {
-        return false;
-    }
-
-    if (treeContext.displayMode.value === 'all-expanded') {
-        return true;
-    }
-
-    if (treeContext.displayMode.value === 'current-expanded') {
-        return treeContext.activePathBookmarkIds.value.has(props.item.id);
-    }
-
-    return treeContext.expandedBookmarkIds.value.has(props.item.id);
-});
 
 watch(
     isEditing,
@@ -246,17 +213,6 @@ watch(
     },
     { immediate: true },
 );
-
-function isRefProxy(value: unknown): value is IRefProxy {
-    return (
-        typeof value === 'object'
-        && value !== null
-        && 'num' in value
-        && 'gen' in value
-        && typeof (value as IRefProxy).num === 'number'
-        && typeof (value as IRefProxy).gen === 'number'
-    );
-}
 
 function openActions(payload: IBookmarkMenuPayload) {
     emit('open-actions', payload);
@@ -402,38 +358,10 @@ async function handleClick(event?: MouseEvent | KeyboardEvent) {
     }
 
     try {
-        let dest: unknown[] | null = null;
-
-        if (typeof props.item.dest === 'string') {
-            dest = await props.pdfDocument.getDestination(props.item.dest);
-        } else if (Array.isArray(props.item.dest)) {
-            dest = props.item.dest;
+        const page = await resolveBookmarkDestinationPage(props.pdfDocument, props.item.dest);
+        if (page !== null) {
+            emit('go-to-page', page);
         }
-
-        if (!dest || dest.length === 0) {
-            return;
-        }
-
-        const pageRef = dest[0];
-        if (typeof pageRef === 'number' && Number.isFinite(pageRef)) {
-            const maybeIndex = Math.trunc(pageRef);
-            if (maybeIndex >= 0 && maybeIndex < props.pdfDocument.numPages) {
-                emit('go-to-page', maybeIndex + 1);
-                return;
-            }
-            if (maybeIndex > 0 && maybeIndex <= props.pdfDocument.numPages) {
-                emit('go-to-page', maybeIndex);
-                return;
-            }
-            return;
-        }
-
-        if (!isRefProxy(pageRef)) {
-            return;
-        }
-
-        const pageIndex = await props.pdfDocument.getPageIndex(pageRef);
-        emit('go-to-page', pageIndex + 1);
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         const isKnownPdfIssue =

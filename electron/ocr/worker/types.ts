@@ -4,8 +4,10 @@ export interface IWorkerPaths {
     tesseractBinary: string;
     tessdataPath: string;
     pdftoppmBinary: string;
+    pdftotextBinary: string;
     pdfimagesBinary?: string;
     qpdfBinary: string;
+    unpaperBinary?: string;
     tempDir: string;
 }
 

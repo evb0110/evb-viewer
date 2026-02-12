@@ -42,23 +42,12 @@
 <script setup lang="ts">
 import {
     computed,
-    nextTick,
-    onMounted,
-    onUnmounted,
     provide,
     ref,
     shallowRef,
-    watch,
 } from 'vue';
-import {
-    useDebounceFn,
-    useResizeObserver,
-} from '@vueuse/core';
-import type {AnnotationEditorUIManager} from 'pdfjs-dist';
-import {
-    AnnotationEditorParamsType,
-    PixelsPerInch,
-} from 'pdfjs-dist';
+import type { AnnotationEditorUIManager } from 'pdfjs-dist';
+import { AnnotationEditorParamsType } from 'pdfjs-dist';
 import type { GenericL10n } from 'pdfjs-dist/web/pdf_viewer.mjs';
 import PdfViewerPage from '@app/components/pdf/PdfViewerPage.vue';
 import { usePdfDocument } from '@app/composables/pdf/usePdfDocument';
@@ -72,18 +61,10 @@ import {
     isShapeTool,
 } from '@app/composables/pdf/useAnnotationShapes';
 import type { IShapeContextProvide } from '@app/composables/pdf/useAnnotationShapes';
-import { delay } from 'es-toolkit/promise';
 import { range } from 'es-toolkit/math';
-import { useFreeTextResize } from '@app/composables/pdf/useFreeTextResize';
-import { useAnnotationCommentIdentity } from '@app/composables/pdf/useAnnotationCommentIdentity';
-import { useAnnotationMarkupSubtype } from '@app/composables/pdf/useAnnotationMarkupSubtype';
-import { useAnnotationCommentSync } from '@app/composables/pdf/useAnnotationCommentSync';
-import { useInlineCommentIndicators } from '@app/composables/pdf/useInlineCommentIndicators';
-import { useAnnotationToolManager } from '@app/composables/pdf/useAnnotationToolManager';
-import { useAnnotationEditorLifecycle } from '@app/composables/pdf/useAnnotationEditorLifecycle';
-import { useAnnotationHighlight } from '@app/composables/pdf/useAnnotationHighlight';
-import { useAnnotationCommentCrud } from '@app/composables/pdf/useAnnotationCommentCrud';
 import { usePdfSinglePageScroll } from '@app/composables/pdf/usePdfSinglePageScroll';
+import { useAnnotationOrchestrator } from '@app/composables/pdf/useAnnotationOrchestrator';
+import { usePdfViewerCore } from '@app/composables/pdf/usePdfViewerCore';
 import type {
     IPdfPageMatches,
     IPdfSearchMatch,
@@ -173,7 +154,6 @@ const emit = defineEmits<{
 }>();
 
 const viewerContainer = ref<HTMLElement | null>(null);
-
 const annotationUiManager = shallowRef<AnnotationEditorUIManager | null>(null);
 const annotationL10n = shallowRef<GenericL10n | null>(null);
 const annotationCommentsCache = ref<IAnnotationCommentSummary[]>([]);
@@ -186,11 +166,7 @@ const {
     isLoading,
     basePageWidth,
     basePageHeight,
-    getRenderVersion,
-    loadPdf,
-    getPage,
     saveDocument,
-    cleanup: cleanupDocument,
 } = pdfDocumentResult;
 
 const {
@@ -201,14 +177,12 @@ const {
     updateCurrentPage,
     updateVisibleRange,
 } = usePdfScroll();
-
 const {
     isDragging,
     startDrag,
     onDrag,
     stopDrag,
 } = usePdfDrag(() => dragMode.value);
-
 const {
     containerStyle,
     scaledMargin,
@@ -216,14 +190,12 @@ const {
     effectiveScale,
     resetScale,
 } = usePdfScale(zoom, fitMode, basePageWidth, basePageHeight);
-
 const {
     computeSkeletonInsets,
     resetInsets,
 } = usePdfSkeletonInsets(basePageWidth, basePageHeight, effectiveScale);
 
 const shapeComposable = useAnnotationShapes();
-
 const isShapeToolActive = computed(() => isShapeTool(annotationTool.value));
 const activeShapeTool = computed<TShapeType | null>(() => isShapeTool(annotationTool.value) ? annotationTool.value : null);
 
@@ -256,9 +228,7 @@ provide<IShapeContextProvide>('shapeContext', {
     },
     handleFinishDrawing() {
         const shape = shapeComposable.finishDrawing();
-        if (shape) {
-            emit('annotation-modified');
-        }
+        if (shape) emit('annotation-modified');
     },
     handleSelectShape(id: string | null) {
         shapeComposable.selectShape(id);
@@ -266,102 +236,11 @@ provide<IShapeContextProvide>('shapeContext', {
     handleShapeContextMenu(payload: {
         shapeId: string;
         clientX: number;
-        clientY: number;
+        clientY: number
     }) {
         shapeComposable.selectShape(payload.shapeId);
         emit('shape-context-menu', payload);
     },
-});
-
-const identity = useAnnotationCommentIdentity(annotationCommentsCache);
-
-const markupSubtypeComposable = useAnnotationMarkupSubtype({
-    annotationUiManager,
-    annotationSettings,
-    numPages,
-    getEditorIdentity: identity.getEditorIdentity,
-});
-
-const freeTextResize = useFreeTextResize({
-    getAnnotationUiManager: () => annotationUiManager.value,
-    getNumPages: () => numPages.value,
-    emitAnnotationModified: () => emit('annotation-modified'),
-    emitAnnotationSetting: (payload) => emit('annotation-setting', payload),
-    scheduleAnnotationCommentsSync: () => commentSync.scheduleAnnotationCommentsSync(),
-});
-
-const commentSync = useAnnotationCommentSync({
-    pdfDocument,
-    numPages,
-    currentPage,
-    annotationUiManager,
-    authorName,
-    identity,
-    markupSubtype: markupSubtypeComposable,
-    annotationCommentsCache,
-    activeCommentStableKey,
-    emitAnnotationComments: (comments) => emit('annotation-comments', comments),
-    syncInlineCommentIndicators: () => inlineIndicators.syncInlineCommentIndicators(),
-});
-
-const toolManager = useAnnotationToolManager({
-    annotationUiManager,
-    currentPage,
-    annotationTool,
-    annotationCursorMode,
-    annotationKeepActive,
-    freeTextResize,
-    markupSubtype: markupSubtypeComposable,
-    emitAnnotationToolAutoReset: () => emit('annotation-tool-auto-reset'),
-});
-
-const highlightComposable = useAnnotationHighlight({
-    viewerContainer,
-    annotationUiManager,
-    numPages,
-    currentPage,
-    annotationTool,
-    identity,
-    markupSubtype: markupSubtypeComposable,
-    commentSync,
-    toolManager,
-    stopDrag,
-    emitAnnotationOpenNote: (comment) => emit('annotation-open-note', comment),
-    emitAnnotationNotePlacementChange: (active) => emit('annotation-note-placement-change', active),
-});
-
-const inlineIndicators = useInlineCommentIndicators({
-    viewerContainer,
-    numPages,
-    annotationUiManager,
-    annotationCommentsCache,
-    activeCommentStableKey,
-    setActiveCommentStableKey: (key) => commentSync.setActiveCommentStableKey(key),
-    identity,
-    commentSync,
-    emitAnnotationOpenNote: (comment) => emit('annotation-open-note', comment),
-    emitAnnotationContextMenu: (payload) => emit('annotation-context-menu', payload),
-    buildAnnotationContextMenuPayload: (comment, clientX, clientY) =>
-        highlightComposable.buildAnnotationContextMenuPayload(comment, clientX, clientY),
-});
-
-const lifecycle = useAnnotationEditorLifecycle({
-    viewerContainer,
-    pdfDocument,
-    numPages,
-    currentPage,
-    effectiveScale,
-    annotationTool,
-    annotationUiManager,
-    annotationL10n,
-    freeTextResize,
-    markupSubtype: markupSubtypeComposable,
-    commentSync,
-    toolManager,
-    identity,
-    emitAnnotationModified: () => emit('annotation-modified'),
-    emitAnnotationState: (state) => emit('annotation-state', state),
-    emitAnnotationOpenNote: (comment) => emit('annotation-open-note', comment),
 });
 
 const {
@@ -404,199 +283,90 @@ const singlePageScroll = usePdfSinglePageScroll({
     emitCurrentPage: (page) => emit('update:currentPage', page),
 });
 
-const commentCrud = useAnnotationCommentCrud({
+const annotations = useAnnotationOrchestrator({
     viewerContainer,
     pdfDocument,
-    annotationUiManager,
     numPages,
     currentPage,
+    effectiveScale,
     visibleRange,
     annotationTool,
-    identity,
-    commentSync,
-    freeTextResize,
-    toolManager,
-    inlineIndicators,
-    highlight: highlightComposable,
+    annotationCursorMode,
+    annotationKeepActive,
+    annotationSettings,
+    annotationUiManager,
+    annotationL10n,
+    annotationCommentsCache,
+    activeCommentStableKey,
+    authorName,
+    stopDrag,
     scrollToPage: (pageNumber) => singlePageScroll.scrollToPage(pageNumber),
     renderVisiblePages,
     updateVisibleRange,
     emitAnnotationModified: () => emit('annotation-modified'),
+    emitAnnotationState: (state) => emit('annotation-state', state),
+    emitAnnotationComments: (comments) => emit('annotation-comments', comments),
     emitAnnotationOpenNote: (comment) => emit('annotation-open-note', comment),
-    emitAnnotationCommentClick: (comment) => emit('annotation-comment-click', comment),
     emitAnnotationContextMenu: (payload) => emit('annotation-context-menu', payload),
+    emitAnnotationToolAutoReset: () => emit('annotation-tool-auto-reset'),
+    emitAnnotationSetting: (payload) => emit('annotation-setting', payload),
+    emitAnnotationCommentClick: (comment) => emit('annotation-comment-click', comment),
     emitAnnotationToolCancel: () => emit('annotation-tool-cancel'),
+    emitAnnotationNotePlacementChange: (active) => emit('annotation-note-placement-change', active),
+});
+
+const highlightComposable = annotations.highlight;
+const commentCrud = annotations.crud;
+
+const {
+    shouldShowSkeleton,
+    handleDragStart,
+    handleDragMove,
+    undoAnnotation,
+    redoAnnotation,
+    invalidatePages,
+} = usePdfViewerCore({
+    viewerContainer,
+    src,
+    zoom,
+    fitMode,
+    isResizing,
+    continuousScroll,
+    annotationTool,
+    annotationCursorMode,
+    annotationSettings,
+    annotationUiManager,
+    annotationCommentsCache,
+    activeCommentStableKey,
+    pdfDocumentResult,
+    annotations,
+    currentPage,
+    visibleRange,
+    effectiveScale,
+    basePageWidth,
+    basePageHeight,
+    computeFitWidthScale,
+    resetScale,
+    computeSkeletonInsets,
+    resetInsets,
+    setupPagePlaceholders,
+    renderVisiblePages,
+    reRenderAllVisiblePages,
+    cleanupRenderedPages,
+    invalidateRenderedPages,
+    applySearchHighlights,
+    isPageRendered,
+    getMostVisiblePage,
+    updateVisibleRange,
+    scrollToPage: (pageNumber) => singlePageScroll.scrollToPage(pageNumber),
+    resetContinuousScrollState: () => singlePageScroll.resetContinuousScrollState(),
+    startDrag,
+    onDrag,
+    stopDrag,
+    emit,
 });
 
 const pagesToRender = computed(() => range(1, numPages.value + 1));
-
-const SKELETON_BUFFER = 3;
-
-function isPageNearVisible(page: number) {
-    const start = Math.max(1, visibleRange.value.start - SKELETON_BUFFER);
-    const end = Math.min(numPages.value, visibleRange.value.end + SKELETON_BUFFER);
-    return page >= start && page <= end;
-}
-
-function shouldShowSkeleton(page: number) {
-    return isPageNearVisible(page) && !isPageRendered(page);
-}
-
-function handleDragStart(e: MouseEvent) {
-    startDrag(e, viewerContainer.value);
-}
-
-function handleDragMove(e: MouseEvent) {
-    onDrag(e, viewerContainer.value);
-}
-
-function getVisibleRange() {
-    updateVisibleRange(viewerContainer.value, numPages.value);
-    return visibleRange.value;
-}
-
-function hasRenderedPageCanvas() {
-    const container = viewerContainer.value;
-    if (!container) {
-        return false;
-    }
-    return Boolean(container.querySelector('.page_container .page_canvas canvas'));
-}
-
-function hasRenderedTextLayerContent() {
-    const container = viewerContainer.value;
-    if (!container) {
-        return false;
-    }
-    return Boolean(container.querySelector('.page_container .text-layer span, .page_container .textLayer span'));
-}
-
-async function recoverInitialRenderIfNeeded() {
-    if (!pdfDocument.value || isLoading.value || numPages.value <= 0) {
-        return;
-    }
-    if (hasRenderedPageCanvas() || hasRenderedTextLayerContent()) {
-        return;
-    }
-    await nextTick();
-    await delay(40);
-    if (hasRenderedPageCanvas() || hasRenderedTextLayerContent()) {
-        return;
-    }
-
-    updateVisibleRange(viewerContainer.value, numPages.value);
-    await reRenderAllVisiblePages(getVisibleRange);
-
-    await nextTick();
-    await delay(80);
-    if (hasRenderedPageCanvas() || hasRenderedTextLayerContent()) {
-        return;
-    }
-
-    updateVisibleRange(viewerContainer.value, numPages.value);
-    await renderVisiblePages(getVisibleRange());
-}
-
-let pendingInvalidation: number[] | null = null;
-
-function invalidatePages(pages: number[]) {
-    pendingInvalidation = pages;
-}
-
-async function loadFromSource(isReload = false) {
-    if (!src.value) {
-        commentSync.incrementSyncToken();
-        annotationCommentsCache.value = [];
-        activeCommentStableKey.value = null;
-        emit('annotation-comments', []);
-        return;
-    }
-
-    const pageToRestore = isReload ? currentPage.value : 1;
-    const pagesToInvalidate = pendingInvalidation;
-    pendingInvalidation = null;
-    const isSelectiveReload = isReload && pagesToInvalidate !== null;
-
-    const savedBaseWidth = isSelectiveReload ? basePageWidth.value : null;
-    const savedBaseHeight = isSelectiveReload ? basePageHeight.value : null;
-    const savedVisibleRange = isSelectiveReload ? { ...visibleRange.value } : null;
-
-    emit('update:document', null);
-    if (!isReload) {
-        emit('update:totalPages', 0);
-    }
-    emit('update:currentPage', pageToRestore);
-
-    if (isSelectiveReload) {
-        invalidateRenderedPages(pagesToInvalidate);
-    } else {
-        cleanupRenderedPages();
-        resetScale();
-        resetInsets();
-        currentPage.value = pageToRestore;
-        visibleRange.value = {
-            start: pageToRestore,
-            end: pageToRestore,
-        };
-    }
-    lifecycle.destroyAnnotationEditor();
-
-    const loaded = await loadPdf(src.value, isSelectiveReload ? { preservePageStructure: true } : undefined);
-    if (!loaded) {
-        return;
-    }
-
-    if (isSelectiveReload && savedBaseWidth !== null && savedBaseHeight !== null) {
-        basePageWidth.value = savedBaseWidth;
-        basePageHeight.value = savedBaseHeight;
-    }
-
-    emit('update:document', pdfDocument.value);
-    lifecycle.initAnnotationEditor();
-
-    currentPage.value = Math.min(pageToRestore, numPages.value);
-    emit('update:totalPages', numPages.value);
-    emit('update:currentPage', currentPage.value);
-
-    if (!isSelectiveReload) {
-        void (async () => {
-            try {
-                const firstPage = await getPage(1);
-                await computeSkeletonInsets(firstPage, loaded.version, getRenderVersion);
-            } catch (error) {
-                console.warn('Failed to compute PDF skeleton insets:', error);
-            }
-        })();
-    }
-
-    await nextTick();
-
-    if (!isSelectiveReload) {
-        computeFitWidthScale(viewerContainer.value);
-        setupPagePlaceholders();
-
-        if (isReload && currentPage.value > 1) {
-            singlePageScroll.scrollToPage(currentPage.value);
-            await nextTick();
-        }
-    } else if (savedVisibleRange) {
-        visibleRange.value = savedVisibleRange;
-    }
-
-    updateVisibleRange(viewerContainer.value, numPages.value);
-    await renderVisiblePages(visibleRange.value);
-    applySearchHighlights();
-    commentSync.scheduleAnnotationCommentsSync(true);
-    void recoverInitialRenderIfNeeded();
-}
-
-function undoAnnotation() {
-    annotationUiManager.value?.undo();
-}
-
-function redoAnnotation() {
-    annotationUiManager.value?.redo();
-}
 
 function applyStampImage(file: File) {
     const uiManager = annotationUiManager.value;
@@ -611,190 +381,13 @@ function getSelectedShape(): IShapeAnnotation | null {
     if (!id) {
         return null;
     }
-    const all = shapeComposable.getAllShapes();
-    return all.find(s => s.id === id) ?? null;
+    return shapeComposable.getAllShapes().find(s => s.id === id) ?? null;
 }
 
 function updateShape(id: string, updates: Partial<IShapeAnnotation>) {
     shapeComposable.updateShape(id, updates);
     emit('annotation-modified');
 }
-
-const debouncedRenderOnResize = useDebounceFn(() => {
-    if (isLoading.value || !pdfDocument.value) {
-        return;
-    }
-    void reRenderAllVisiblePages(getVisibleRange);
-}, 200);
-
-function handleResize() {
-    if (isLoading.value || isResizing.value) {
-        return;
-    }
-
-    const updated = computeFitWidthScale(viewerContainer.value);
-    if (updated && pdfDocument.value) {
-        debouncedRenderOnResize();
-    }
-}
-
-useResizeObserver(viewerContainer, handleResize);
-
-onMounted(() => {
-    document.addEventListener('selectionchange', highlightComposable.cacheCurrentTextSelection, { passive: true });
-    document.addEventListener('pointerup', highlightComposable.handleDocumentPointerUp, { passive: true });
-    inlineIndicators.attachInlineCommentMarkerObserver();
-    loadFromSource();
-});
-
-onUnmounted(() => {
-    document.removeEventListener('selectionchange', highlightComposable.cacheCurrentTextSelection);
-    document.removeEventListener('pointerup', highlightComposable.handleDocumentPointerUp);
-    inlineIndicators.cleanup();
-    highlightComposable.clearSelectionCache();
-    cleanupRenderedPages();
-    lifecycle.destroyAnnotationEditor();
-    cleanupDocument();
-    annotationCommentsCache.value = [];
-    activeCommentStableKey.value = null;
-    emit('annotation-comments', []);
-});
-
-watch(
-    fitMode,
-    async (mode) => {
-        const pageToSnapTo = mode === 'height'
-            ? getMostVisiblePage(viewerContainer.value, numPages.value)
-            : null;
-
-        const updated = computeFitWidthScale(viewerContainer.value);
-        if (updated && pdfDocument.value) {
-            await reRenderAllVisiblePages(getVisibleRange);
-            if (pageToSnapTo !== null) {
-                await nextTick();
-                singlePageScroll.scrollToPage(pageToSnapTo);
-            }
-        }
-    },
-);
-
-watch(
-    src,
-    (newSrc, oldSrc) => {
-        if (newSrc !== oldSrc) {
-            const isReload = !!oldSrc && !!newSrc;
-            if (!newSrc) {
-                emit('update:document', null);
-                annotationCommentsCache.value = [];
-                activeCommentStableKey.value = null;
-                emit('annotation-comments', []);
-            }
-            loadFromSource(isReload);
-        }
-    },
-);
-
-watch(
-    annotationCommentsCache,
-    (comments) => {
-        const activeKey = activeCommentStableKey.value;
-        if (!activeKey) {
-            return;
-        }
-        if (!comments.some(comment => comment.stableKey === activeKey)) {
-            activeCommentStableKey.value = null;
-        }
-    },
-    { deep: true },
-);
-
-watch(
-    () => continuousScroll.value,
-    () => {
-        singlePageScroll.resetContinuousScrollState();
-    },
-);
-
-watch(
-    zoom,
-    () => {
-        if (pdfDocument.value) {
-            void reRenderAllVisiblePages(getVisibleRange);
-        }
-    },
-);
-
-watch(
-    effectiveScale,
-    (scale) => {
-        annotationUiManager.value?.onScaleChanging({ scale: scale / PixelsPerInch.PDF_TO_CSS_UNITS });
-    },
-);
-
-watch(
-    currentPage,
-    (page) => {
-        annotationUiManager.value?.onPageChanging({ pageNumber: page });
-    },
-);
-
-watch(
-    annotationTool,
-    (tool) => {
-        if (tool !== 'none') {
-            highlightComposable.cancelCommentPlacement();
-        }
-        void toolManager.setAnnotationTool(tool);
-    },
-    { immediate: true },
-);
-
-watch(
-    annotationCursorMode,
-    () => {
-        if (annotationTool.value === 'none') {
-            void toolManager.setAnnotationTool('none');
-        }
-    },
-);
-
-watch(
-    annotationSettings,
-    (settings) => {
-        toolManager.applyAnnotationSettings(settings);
-    },
-    {
-        deep: true,
-        immediate: true,
-    },
-);
-
-watch(
-    isResizing,
-    async (value) => {
-        if (!value && pdfDocument.value && !isLoading.value) {
-            await nextTick();
-            await delay(20);
-            computeFitWidthScale(viewerContainer.value);
-            void reRenderAllVisiblePages(getVisibleRange);
-        }
-    },
-);
-
-const isEffectivelyLoading = computed(() => !!src.value && isLoading.value);
-
-watch(
-    isEffectivelyLoading,
-    async (value, oldValue) => {
-        if (oldValue === true && value === false) {
-            await nextTick();
-            void recoverInitialRenderIfNeeded();
-        }
-        emit('update:loading', value);
-        emit('loading', value);
-    },
-    { immediate: true },
-);
 
 defineExpose({
     scrollToPage: (pageNumber: number) => singlePageScroll.scrollToPage(pageNumber),
@@ -809,7 +402,7 @@ defineExpose({
     focusAnnotationComment: commentCrud.focusAnnotationComment,
     updateAnnotationComment: commentCrud.updateAnnotationComment,
     deleteAnnotationComment: commentCrud.deleteAnnotationComment,
-    getMarkupSubtypeOverrides: markupSubtypeComposable.getMarkupSubtypeOverrides,
+    getMarkupSubtypeOverrides: annotations.editor.getMarkupSubtypeOverrides,
     getAllShapes: shapeComposable.getAllShapes,
     loadShapes: shapeComposable.loadShapes,
     clearShapes: shapeComposable.clearShapes,

@@ -83,37 +83,15 @@
             </template>
         </UCollapsible>
 
-        <div
-            v-if="contextMenu.visible"
-            class="notes-context-menu"
-            :style="contextMenuStyle"
-            @click.stop
-        >
-            <button
-                type="button"
-                class="context-menu-action"
-                :disabled="!contextMenu.comment"
-                @click="openContextComment"
-            >
-                {{ t('annotations.openNote') }}
-            </button>
-            <button
-                type="button"
-                class="context-menu-action"
-                :disabled="!contextMenu.comment"
-                @click="copyContextComment"
-            >
-                {{ t('annotations.copyText') }}
-            </button>
-            <button
-                type="button"
-                class="context-menu-action is-danger"
-                :disabled="!contextMenu.comment"
-                @click="deleteContextComment"
-            >
-                {{ t('annotations.delete') }}
-            </button>
-        </div>
+        <PdfAnnotationCommentsContextMenu
+            :visible="contextMenu.visible"
+            :x="contextMenu.x"
+            :y="contextMenu.y"
+            :comment="contextMenu.comment"
+            @open="openContextComment"
+            @copy="copyContextComment"
+            @delete="deleteContextComment"
+        />
     </section>
 </template>
 
@@ -125,6 +103,11 @@ import {
 } from 'vue';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { useContextMenuPosition } from '@app/composables/useContextMenuPosition';
+import {
+    isTextNoteComment,
+    compareComments,
+    matchesCommentQuery,
+} from '@app/utils/pdf-annotation-comments';
 
 interface IProps {
     comments: IAnnotationCommentSummary[];
@@ -175,11 +158,6 @@ function closeContextMenu() {
     };
 }
 
-const contextMenuStyle = computed(() => ({
-    left: `${contextMenu.value.x}px`,
-    top: `${contextMenu.value.y}px`,
-}));
-
 watch(
     () => props.activeCommentStableKey,
     (stableKey) => {
@@ -187,57 +165,6 @@ watch(
     },
     { immediate: true },
 );
-
-function containsWord(text: string, word: string) {
-    return new RegExp(`\\b${word}\\b`, 'i').test(text);
-}
-
-function isTextNoteComment(comment: IAnnotationCommentSummary) {
-    if (comment.hasNote === true) {
-        return true;
-    }
-
-    const subtype = (comment.subtype ?? '').toLowerCase();
-    const label = (comment.kindLabel ?? '').toLowerCase();
-
-    return (
-        subtype.includes('popup')
-        || subtype.includes('text')
-        || subtype.includes('note')
-        || containsWord(label, 'note')
-        || containsWord(label, 'comment')
-        || containsWord(label, 'sticky')
-    );
-}
-
-function compareComments(left: IAnnotationCommentSummary, right: IAnnotationCommentSummary) {
-    if (left.pageIndex !== right.pageIndex) {
-        return left.pageIndex - right.pageIndex;
-    }
-
-    const leftSort = typeof left.sortIndex === 'number' ? left.sortIndex : null;
-    const rightSort = typeof right.sortIndex === 'number' ? right.sortIndex : null;
-
-    if (leftSort !== null && rightSort !== null && leftSort !== rightSort) {
-        return leftSort - rightSort;
-    }
-
-    if (leftSort !== null && rightSort === null) {
-        return -1;
-    }
-
-    if (leftSort === null && rightSort !== null) {
-        return 1;
-    }
-
-    const leftModified = left.modifiedAt ?? 0;
-    const rightModified = right.modifiedAt ?? 0;
-    if (leftModified !== rightModified) {
-        return rightModified - leftModified;
-    }
-
-    return left.stableKey.localeCompare(right.stableKey);
-}
 
 const sortedComments = computed(() => props.comments.slice().sort(compareComments));
 const noteComments = computed(() => sortedComments.value.filter(isTextNoteComment));
@@ -259,22 +186,9 @@ watch(
     { deep: true },
 );
 
-function matchesQuery(comment: IAnnotationCommentSummary, normalizedQuery: string) {
-    if (!normalizedQuery) {
-        return true;
-    }
-
-    return (
-        comment.text.toLowerCase().includes(normalizedQuery)
-        || (comment.kindLabel ?? '').toLowerCase().includes(normalizedQuery)
-        || (comment.author ?? '').toLowerCase().includes(normalizedQuery)
-        || `p${comment.pageNumber}`.includes(normalizedQuery)
-    );
-}
-
 const filteredComments = computed(() => {
     const normalizedQuery = query.value.trim().toLowerCase();
-    return noteComments.value.filter(comment => matchesQuery(comment, normalizedQuery));
+    return noteComments.value.filter(comment => matchesCommentQuery(comment, normalizedQuery));
 });
 
 function commentTypeLabel(comment: IAnnotationCommentSummary) {
@@ -594,44 +508,5 @@ defineExpose({
 
 .selection-action.is-danger {
     color: color-mix(in srgb, var(--ui-error) 65%, var(--ui-text-highlighted) 35%);
-}
-
-.notes-context-menu {
-    position: fixed;
-    z-index: 1400;
-    min-width: 10.5rem;
-    border: 1px solid var(--ui-border);
-    border-radius: 0.55rem;
-    background: var(--ui-bg);
-    box-shadow: 0 14px 30px color-mix(in srgb, var(--ui-bg-inverted) 20%, transparent 80%);
-    padding: 0.3rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.2rem;
-}
-
-.context-menu-action {
-    border: 1px solid transparent;
-    border-radius: 0.4rem;
-    background: transparent;
-    color: var(--ui-text-highlighted);
-    font-size: 0.77rem;
-    text-align: left;
-    padding: 0.35rem 0.45rem;
-    cursor: pointer;
-}
-
-.context-menu-action:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-}
-
-.context-menu-action:hover:not(:disabled) {
-    border-color: var(--ui-border);
-    background: color-mix(in srgb, var(--ui-bg-muted) 55%, var(--ui-bg) 45%);
-}
-
-.context-menu-action.is-danger {
-    color: color-mix(in srgb, var(--ui-error) 68%, var(--ui-text-highlighted) 32%);
 }
 </style>
