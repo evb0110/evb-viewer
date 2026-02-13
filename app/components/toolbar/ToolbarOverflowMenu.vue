@@ -24,6 +24,7 @@
                     </button>
                     <button
                         class="overflow-menu-item"
+                        :disabled="isDjvuMode"
                         @click="emit('open-ocr'); close()"
                     >
                         <UIcon name="i-lucide-scan-text" class="overflow-menu-icon" />
@@ -155,6 +156,7 @@ interface IProps {
     canExportDocx: boolean
     dragMode: boolean
     continuousScroll: boolean
+    isDjvuMode: boolean
     isFitWidthActive: boolean
     isFitHeightActive: boolean
 }
