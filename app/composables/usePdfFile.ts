@@ -18,6 +18,7 @@ export const usePdfFile = () => {
     const history = ref<Uint8Array[]>([]);
     const historyIndex = ref(0);
     const historyCleanIndex = ref(0);
+    const requiresSaveAsOnFirstSave = ref(false);
     const MAX_HISTORY = 20;
 
     const { clearCache: clearOcrCache } = useOcrTextContent();
@@ -41,6 +42,7 @@ export const usePdfFile = () => {
                 return;
             }
             originalPath.value = result.originalPath;
+            requiresSaveAsOnFirstSave.value = !!result.isGenerated;
             await loadPdfFromPath(result.workingPath, { markDirty: !!result.isGenerated });
         } catch (e) {
             error.value = e instanceof Error ? e.message : t('errors.file.open');
@@ -62,6 +64,7 @@ export const usePdfFile = () => {
                 return;
             }
             originalPath.value = result.originalPath;
+            requiresSaveAsOnFirstSave.value = !!result.isGenerated;
             await loadPdfFromPath(result.workingPath, { markDirty: !!result.isGenerated });
         } catch (e) {
             error.value = e instanceof Error ? e.message : t('errors.file.open');
@@ -183,6 +186,11 @@ export const usePdfFile = () => {
             return false;
         }
         try {
+            if (requiresSaveAsOnFirstSave.value) {
+                const savedPath = await saveWorkingCopyAs(data);
+                return Boolean(savedPath);
+            }
+
             const api = getElectronAPI();
             // First update the working copy with latest data
             await api.writeFile(workingCopyPath.value, data);
@@ -203,6 +211,11 @@ export const usePdfFile = () => {
             return false;
         }
         try {
+            if (requiresSaveAsOnFirstSave.value) {
+                const savedPath = await saveWorkingCopyAs();
+                return Boolean(savedPath);
+            }
+
             const api = getElectronAPI();
             await api.saveFile(workingCopyPath.value);
             isDirty.value = false;
@@ -226,6 +239,8 @@ export const usePdfFile = () => {
             }
             const savedPath = await api.savePdfAs(workingCopyPath.value);
             if (savedPath) {
+                originalPath.value = savedPath;
+                requiresSaveAsOnFirstSave.value = false;
                 isDirty.value = false;
                 historyCleanIndex.value = historyIndex.value;
                 syncDirtyFromHistory();
@@ -251,6 +266,7 @@ export const usePdfFile = () => {
         originalPath.value = null;
         error.value = null;
         isDirty.value = false;
+        requiresSaveAsOnFirstSave.value = false;
         resetHistory(null);
         if (pathToCleanup) {
             try {

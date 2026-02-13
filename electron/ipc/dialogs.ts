@@ -44,6 +44,10 @@ interface IOpenDjvuResult {
 
 type IOpenFileResult = IOpenPdfResult | IOpenDjvuResult;
 
+function toRecentDocumentPaths(paths: string[]) {
+    return paths.filter(path => isPdfPath(path) || isDjvuPath(path));
+}
+
 async function addRecentInputs(paths: string[]) {
     const uniquePaths = Array.from(new Set(paths));
     for (const path of uniquePaths) {
@@ -106,7 +110,10 @@ async function openInputPaths(paths: string[]): Promise<IOpenFileResult | null> 
         outputPath,
     );
 
-    await addRecentInputs(normalizedPaths);
+    const recentDocumentPaths = toRecentDocumentPaths(normalizedPaths);
+    if (recentDocumentPaths.length > 0) {
+        await addRecentInputs(recentDocumentPaths);
+    }
 
     return {
         kind: 'pdf',
