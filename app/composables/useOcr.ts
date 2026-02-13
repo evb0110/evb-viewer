@@ -22,6 +22,7 @@ import {
 
 export const useOcr = () => {
     const { t } = useI18n();
+    const REMOTE_METHOD_PREFIX_RE = /^Error invoking remote method '[^']+':\s*/u;
 
     const availableLanguages = ref<IOcrLanguage[]>([]);
     const settings = ref<IOcrSettings>({
@@ -51,12 +52,62 @@ export const useOcr = () => {
     let completeCleanup: (() => void) | null = null;
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
+    function normalizeErrorMessage(message: string): string {
+        return message.replace(REMOTE_METHOD_PREFIX_RE, '').trim();
+    }
+
+    function isKnownLocalizedOcrError(message: string): boolean {
+        return [
+            t('errors.file.invalid'),
+            t('errors.ocr.loadLanguages'),
+            t('errors.ocr.noValidPages'),
+            t('errors.ocr.timeout'),
+            t('errors.ocr.start'),
+            t('errors.ocr.noPdfData'),
+            t('errors.ocr.createSearchablePdf'),
+            t('errors.ocr.noText'),
+            t('errors.ocr.exportDocx'),
+        ].includes(message);
+    }
+
+    function localizeOcrError(errorValue: unknown, fallbackKey: string): string {
+        const rawMessage = typeof errorValue === 'string'
+            ? errorValue
+            : (errorValue instanceof Error ? errorValue.message : '');
+        if (!rawMessage) {
+            return t(fallbackKey);
+        }
+
+        const normalized = normalizeErrorMessage(rawMessage);
+        if (isKnownLocalizedOcrError(rawMessage)) {
+            return rawMessage;
+        }
+        if (isKnownLocalizedOcrError(normalized)) {
+            return normalized;
+        }
+
+        if (
+            normalized === 'Invalid file path'
+            || normalized === 'Invalid file path: path must be a non-empty string'
+        ) {
+            return t('errors.file.invalid');
+        }
+        if (
+            normalized === 'Invalid file path: reads only allowed within temp directory'
+            || normalized === 'Invalid file path: writes only allowed within temp directory'
+        ) {
+            return t(fallbackKey);
+        }
+
+        return t(fallbackKey);
+    }
+
     async function loadLanguages() {
         try {
             const api = getElectronAPI();
             availableLanguages.value = await api.ocrGetLanguages();
         } catch (e) {
-            error.value = e instanceof Error ? e.message : t('errors.ocr.loadLanguages');
+            error.value = localizeOcrError(e, 'errors.ocr.loadLanguages');
         }
     }
 
@@ -194,7 +245,7 @@ export const useOcr = () => {
             });
 
             if (!startResult.started) {
-                throw new Error(startResult.error || t('errors.ocr.start'));
+                throw new Error(localizeOcrError(startResult.error, 'errors.ocr.start'));
             }
 
             const response = await ocrPromise;
@@ -206,7 +257,10 @@ export const useOcr = () => {
             });
 
             if (response.errors.length > 0) {
-                error.value = response.errors.join('; ');
+                const localizedErrors = response.errors.map(err =>
+                    localizeOcrError(err, 'errors.ocr.createSearchablePdf'),
+                );
+                error.value = [...new Set(localizedErrors)].join('; ');
             }
 
             if (response.success && (response.pdfData || response.pdfPath)) {
@@ -265,7 +319,7 @@ export const useOcr = () => {
                     stack: errStack, 
                 });
             }
-            error.value = errMsg;
+            error.value = localizeOcrError(e, 'errors.ocr.createSearchablePdf');
         } finally {
             activeRequestId.value = null;
             progress.value.isRunning = false;
@@ -379,7 +433,7 @@ export const useOcr = () => {
             await api.writeDocxFile(outPath, docxBytes);
             return true;
         } catch (e) {
-            error.value = e instanceof Error ? e.message : t('errors.ocr.exportDocx');
+            error.value = localizeOcrError(e, 'errors.ocr.exportDocx');
             return false;
         } finally {
             isExporting.value = false;

@@ -99,7 +99,21 @@ export function useAnnotationEditorLifecycle(options: IUseAnnotationEditorLifecy
     function shouldIgnoreEditorEvent(event: Event) {
         const target = event.target;
         if (!(target instanceof HTMLElement)) {
+            const selection = document.getSelection();
+            if (selection && !selection.isCollapsed) {
+                const anchorParent = selection.anchorNode?.parentElement ?? null;
+                const focusParent = selection.focusNode?.parentElement ?? null;
+                if (
+                    anchorParent?.closest('.text-layer, .textLayer')
+                    || focusParent?.closest('.text-layer, .textLayer')
+                ) {
+                    return true;
+                }
+            }
             return false;
+        }
+        if (target.closest('.text-layer, .textLayer')) {
+            return true;
         }
         if (target.isContentEditable) {
             return true;

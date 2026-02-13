@@ -575,6 +575,16 @@ export function useAnnotationCommentCrud(options: IUseAnnotationCommentCrudOptio
             return;
         }
 
+        const selection = document.getSelection();
+        const hasTextLayerSelection = Boolean(
+            selection
+            && !selection.isCollapsed
+            && (
+                selection.anchorNode?.parentElement?.closest('.text-layer, .textLayer')
+                || selection.focusNode?.parentElement?.closest('.text-layer, .textLayer')
+            ),
+        );
+
         if (highlight.isPlacingComment.value) {
             event.preventDefault();
             return;
@@ -589,6 +599,13 @@ export function useAnnotationCommentCrud(options: IUseAnnotationCommentCrudOptio
         const summary = (inlineTarget ? inlineIndicators.findCommentFromInlineTarget(inlineTarget) : null)
             ?? findAnnotationSummaryFromTarget(event.target)
             ?? findAnnotationSummaryFromPoint(event.target, event.clientX, event.clientY);
+
+        // Keep native browser context menu for selected document text so copy works.
+        if (annotationTool.value === 'none' && hasTextLayerSelection && !summary) {
+            setActiveCommentAndSync(null);
+            return;
+        }
+
         event.preventDefault();
         if (summary) {
             setActiveCommentAndSync(summary.stableKey);
