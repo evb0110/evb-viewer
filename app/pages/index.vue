@@ -20,6 +20,7 @@
             :collapse-tier="collapseTier"
             :has-overflow-items="hasOverflowItems"
             :is-collapsed="isCollapsed"
+            :is-djvu-mode="isDjvuMode"
             @open-file="handleOpenFileFromUi"
             @open-settings="showSettings = true"
             @save="handleSave(); closeAllDropdowns()"
@@ -110,8 +111,18 @@
             </template>
         </PdfToolbar>
 
+        <DjvuBanner
+            v-if="isDjvuMode"
+            :visible="djvuShowBanner"
+            :is-loading-pages="djvuIsLoadingPages"
+            :loading-current="djvuLoadingProgress.current"
+            :loading-total="djvuLoadingProgress.total"
+            @convert="openConvertDialog"
+            @dismiss="djvuDismissBanner"
+        />
+
         <!-- Main -->
-        <main class="flex-1 overflow-hidden flex">
+        <main class="flex-1 overflow-hidden flex relative">
             <div
                 v-if="pdfSrc && showSidebar"
                 class="sidebar-wrapper"
@@ -143,6 +154,7 @@
                     :annotation-placing-page-note="annotationPlacingPageNote"
                     :bookmark-edit-mode="bookmarkEditMode"
                     :is-page-operation-in-progress="isPageOperationInProgress"
+                    :is-djvu-mode="isDjvuMode"
                     @search="handleSearch"
                     @next="handleSearchNext"
                     @previous="handleSearchPrevious"
@@ -263,6 +275,7 @@
             :menu="pageContextMenu"
             :style="pageContextMenuStyle"
             :is-operation-in-progress="isPageOperationInProgress"
+            :is-djvu-mode="isDjvuMode"
             @delete-pages="handlePageContextMenuDelete"
             @extract-pages="handlePageContextMenuExtract"
             @rotate-cw="handlePageContextMenuRotateCw"
@@ -282,6 +295,20 @@
         />
 
         <SettingsDialog v-if="showSettings" v-model:open="showSettings" />
+
+        <DjvuConversionOverlay
+            :is-converting="conversionState.isConverting && !djvuIsLoadingPages"
+            :phase="conversionState.phase"
+            :percent="conversionState.percent"
+            @cancel="handleDjvuCancel"
+        />
+
+        <DjvuConvertDialog
+            v-if="isDjvuMode"
+            v-model:open="showConvertDialog"
+            :djvu-path="djvuSourcePath"
+            @convert="handleDjvuConvert"
+        />
     </div>
 </template>
 
@@ -319,6 +346,7 @@ import { usePageStatusBar } from '@app/composables/usePageStatusBar';
 import { usePageOpsHandlers } from '@app/composables/usePageOpsHandlers';
 import { usePageFileOperations } from '@app/composables/usePageFileOperations';
 import { usePageShortcuts } from '@app/composables/usePageShortcuts';
+import { useDjvu } from '@app/composables/useDjvu';
 
 type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'bookmarks' | 'search';
 
@@ -370,8 +398,10 @@ const {
     isDirty,
     error: pdfError,
     isElectron,
+    pendingDjvu,
     openFile,
     openFileDirect,
+    loadPdfFromPath,
     loadPdfFromData,
     closeFile,
     saveFile,
@@ -383,6 +413,35 @@ const {
     undo,
     redo,
 } = usePdfFile();
+
+const {
+    isDjvuMode,
+    djvuSourcePath,
+    conversionState,
+    isLoadingPages: djvuIsLoadingPages,
+    loadingProgress: djvuLoadingProgress,
+    showBanner: djvuShowBanner,
+    showConvertDialog,
+    openDjvuFile,
+    convertToPdf: djvuConvertToPdf,
+    cleanupDjvuTemp,
+    exitDjvuMode,
+    openConvertDialog,
+    dismissBanner: djvuDismissBanner,
+} = useDjvu();
+
+watch(pendingDjvu, async (djvuPath) => {
+    if (!djvuPath) {
+        return;
+    }
+    pendingDjvu.value = null;
+    await openDjvuFile(
+        djvuPath,
+        loadPdfFromPath,
+        () => currentPage.value,
+        (page) => { pdfViewerRef.value?.scrollToPage(page); },
+    );
+});
 
 const {
     recentFiles,
@@ -798,7 +857,13 @@ const {
     handleSave,
     openFile,
     openFileDirect,
-    closeFile,
+    closeFile: async () => {
+        if (isDjvuMode.value) {
+            await cleanupDjvuTemp();
+            exitDjvuMode();
+        }
+        await closeFile();
+    },
     closeAllDropdowns,
 });
 
@@ -833,6 +898,17 @@ const {
     startSidebarResize,
     cleanupSidebarResizeListeners,
 } = useSidebarResize({ showSidebar });
+
+async function handleDjvuConvert(subsample: number, preserveBookmarks: boolean) {
+    await djvuConvertToPdf(subsample, preserveBookmarks, loadPdfFromPath);
+}
+
+function handleDjvuCancel() {
+    if (djvuSourcePath.value) {
+        window.electronAPI?.djvu.cancel(`djvu-view-${Date.now()}`);
+        window.electronAPI?.djvu.cancel(`djvu-convert-${Date.now()}`);
+    }
+}
 
 function hasAnnotationChanges() {
     if (pdfViewerRef.value?.hasShapes?.value) {
@@ -923,6 +999,11 @@ onMounted(() => {
             }),
             window.electronAPI.onMenuInsertPages(() => {
                 void pageOpsInsert(totalPages.value, totalPages.value);
+            }),
+            window.electronAPI.onMenuConvertToPdf(() => {
+                if (isDjvuMode.value) {
+                    openConvertDialog();
+                }
             }),
         );
 

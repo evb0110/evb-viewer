@@ -33,7 +33,7 @@
                             variant="ghost"
                             color="neutral"
                             class="toolbar-icon-button"
-                            :disabled="!canSave || isAnySaving || isHistoryBusy"
+                            :disabled="!canSave || isAnySaving || isHistoryBusy || isDjvuMode"
                             :loading="isSaving"
                             :aria-label="t('toolbar.save')"
                             @click="emit('save')"
@@ -45,7 +45,7 @@
                             variant="ghost"
                             color="neutral"
                             class="toolbar-icon-button"
-                            :disabled="isAnySaving || isHistoryBusy"
+                            :disabled="isAnySaving || isHistoryBusy || isDjvuMode"
                             :loading="isSavingAs"
                             :aria-label="t('toolbar.saveAs')"
                             @click="emit('save-as')"
@@ -75,7 +75,7 @@
                                 variant="ghost"
                                 color="neutral"
                                 class="toolbar-group-button"
-                                :disabled="!canUndo || isHistoryBusy || isAnySaving"
+                                :disabled="!canUndo || isHistoryBusy || isAnySaving || isDjvuMode"
                                 :aria-label="t('toolbar.undo')"
                                 @click="emit('undo')"
                             />
@@ -88,7 +88,7 @@
                                 variant="ghost"
                                 color="neutral"
                                 class="toolbar-group-button"
-                                :disabled="!canRedo || isHistoryBusy || isAnySaving"
+                                :disabled="!canRedo || isHistoryBusy || isAnySaving || isDjvuMode"
                                 :aria-label="t('toolbar.redo')"
                                 @click="emit('redo')"
                             />
@@ -248,6 +248,7 @@ defineProps<{
     collapseTier: number;
     hasOverflowItems: boolean;
     isCollapsed: (tier: number) => boolean;
+    isDjvuMode?: boolean;
 }>();
 
 const emit = defineEmits<{

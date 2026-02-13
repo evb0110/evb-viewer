@@ -182,6 +182,7 @@ if (!__preloadAlreadyInstalled) {
         openPdfDialog: () => ipcRenderer.invoke('dialog:openPdf'),
         openPdfDirect: (path: string) => ipcRenderer.invoke('dialog:openPdfDirect', path),
         savePdfAs: (workingPath: string) => ipcRenderer.invoke('dialog:savePdfAs', workingPath),
+        savePdfDialog: (suggestedName: string) => ipcRenderer.invoke('dialog:savePdfDialog', suggestedName),
         saveDocxAs: (workingPath: string) => ipcRenderer.invoke('dialog:saveDocxAs', workingPath),
         readFile: (path: string) => ipcRenderer.invoke('file:read', path),
         statFile: (path: string) => ipcRenderer.invoke('file:stat', path),
@@ -408,6 +409,64 @@ if (!__preloadAlreadyInstalled) {
             const handler = (_event: IpcRendererEvent) => callback();
             ipcRenderer.on('menu:insertPages', handler);
             return () => ipcRenderer.removeListener('menu:insertPages', handler);
+        },
+
+        // DjVu API
+        djvu: {
+            openForViewing: (djvuPath: string) =>
+                ipcRenderer.invoke('djvu:openForViewing', djvuPath),
+            convertToPdf: (djvuPath: string, outputPath: string, options: {
+                subsample?: number;
+                preserveBookmarks?: boolean 
+            }) =>
+                ipcRenderer.invoke('djvu:convertToPdf', djvuPath, outputPath, options),
+            cancel: (jobId: string) =>
+                ipcRenderer.invoke('djvu:cancel', jobId),
+            getInfo: (djvuPath: string) =>
+                ipcRenderer.invoke('djvu:getInfo', djvuPath),
+            estimateSizes: (djvuPath: string) =>
+                ipcRenderer.invoke('djvu:estimateSizes', djvuPath),
+            cleanupTemp: (tempPdfPath: string) =>
+                ipcRenderer.invoke('djvu:cleanupTemp', tempPdfPath),
+            onProgress: (callback: (progress: {
+                jobId: string;
+                phase: 'converting' | 'bookmarks' | 'loading';
+                current?: number;
+                total?: number;
+                percent: number;
+            }) => void): (() => void) => {
+                const handler = (_event: IpcRendererEvent, progress: {
+                    jobId: string;
+                    phase: 'converting' | 'bookmarks' | 'loading';
+                    current?: number;
+                    total?: number;
+                    percent: number;
+                }) => callback(progress);
+                ipcRenderer.on('djvu:progress', handler);
+                return () => ipcRenderer.removeListener('djvu:progress', handler);
+            },
+            onViewingReady: (callback: (data: {
+                pdfPath: string;
+                isPartial: boolean 
+            }) => void): (() => void) => {
+                const handler = (_event: IpcRendererEvent, data: {
+                    pdfPath: string;
+                    isPartial: boolean 
+                }) => callback(data);
+                ipcRenderer.on('djvu:viewingReady', handler);
+                return () => ipcRenderer.removeListener('djvu:viewingReady', handler);
+            },
+            onViewingError: (callback: (data: { error: string }) => void): (() => void) => {
+                const handler = (_event: IpcRendererEvent, data: { error: string }) => callback(data);
+                ipcRenderer.on('djvu:viewingError', handler);
+                return () => ipcRenderer.removeListener('djvu:viewingError', handler);
+            },
+        },
+
+        onMenuConvertToPdf: (callback: IMenuEventCallback): IMenuEventUnsubscribe => {
+            const handler = (_event: IpcRendererEvent) => callback();
+            ipcRenderer.on('menu:convertToPdf', handler);
+            return () => ipcRenderer.removeListener('menu:convertToPdf', handler);
         },
 
         // Page Operations API

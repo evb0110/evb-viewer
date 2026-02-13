@@ -12,7 +12,7 @@
         <button
             type="button"
             class="page-context-menu-action page-context-menu-action-danger"
-            :disabled="isOperationInProgress"
+            :disabled="isOperationInProgress || isDjvuMode"
             @click="emit('delete-pages')"
         >
             <UIcon name="i-lucide-trash-2" class="page-context-menu-icon" />
@@ -22,7 +22,7 @@
         <button
             type="button"
             class="page-context-menu-action"
-            :disabled="isOperationInProgress"
+            :disabled="isOperationInProgress || isDjvuMode"
             @click="emit('extract-pages')"
         >
             <UIcon name="i-lucide-file-output" class="page-context-menu-icon" style="transform: scaleX(-1)" />
@@ -34,7 +34,7 @@
         <button
             type="button"
             class="page-context-menu-action"
-            :disabled="isOperationInProgress"
+            :disabled="isOperationInProgress || isDjvuMode"
             @click="emit('rotate-cw')"
         >
             <UIcon name="i-lucide-rotate-cw" class="page-context-menu-icon" />
@@ -44,7 +44,7 @@
         <button
             type="button"
             class="page-context-menu-action"
-            :disabled="isOperationInProgress"
+            :disabled="isOperationInProgress || isDjvuMode"
             @click="emit('rotate-ccw')"
         >
             <UIcon name="i-lucide-rotate-ccw" class="page-context-menu-icon" />
@@ -56,7 +56,7 @@
         <button
             type="button"
             class="page-context-menu-action"
-            :disabled="isOperationInProgress"
+            :disabled="isOperationInProgress || isDjvuMode"
             @click="emit('insert-before')"
         >
             <UIcon name="i-lucide-file-plus" class="page-context-menu-icon" />
@@ -66,7 +66,7 @@
         <button
             type="button"
             class="page-context-menu-action"
-            :disabled="isOperationInProgress"
+            :disabled="isOperationInProgress || isDjvuMode"
             @click="emit('insert-after')"
         >
             <UIcon name="i-lucide-file-plus" class="page-context-menu-icon" />
@@ -103,6 +103,7 @@ defineProps<{
     menu: IPageContextMenuState;
     style: Record<string, string>;
     isOperationInProgress: boolean;
+    isDjvuMode?: boolean;
 }>();
 
 const emit = defineEmits<{

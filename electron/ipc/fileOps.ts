@@ -27,6 +27,11 @@ const ALLOWED_READ_EXTENSIONS = new Set([
     '.tsv',
 ]);
 
+const ALLOWED_BINARY_READ_EXTENSIONS = new Set([
+    '.pdf',
+    '.djvu',
+]);
+
 export async function handleFileRead(_event: Electron.IpcMainInvokeEvent, filePath: string): Promise<Uint8Array> {
     if (!filePath || filePath.trim() === '') {
         throw new Error('Invalid file path: path must be a non-empty string');
@@ -35,8 +40,8 @@ export async function handleFileRead(_event: Electron.IpcMainInvokeEvent, filePa
     const normalizedPath = filePath.trim();
     const extension = extname(normalizedPath).toLowerCase();
 
-    if (extension !== '.pdf') {
-        throw new Error('Invalid file type: only PDF files are allowed');
+    if (!ALLOWED_BINARY_READ_EXTENSIONS.has(extension)) {
+        throw new Error('Invalid file type: only PDF and DjVu files are allowed');
     }
 
     if (!existsSync(normalizedPath)) {

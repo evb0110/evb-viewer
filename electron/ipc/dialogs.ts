@@ -29,12 +29,27 @@ export async function handleOpenPdfDirect(
     const normalizedPath = filePath.trim();
     const extension = extname(normalizedPath).toLowerCase();
 
-    if (extension !== '.pdf') {
+    if (extension !== '.pdf' && extension !== '.djvu') {
         return null;
     }
 
     if (!existsSync(normalizedPath)) {
         return null;
+    }
+
+    // DjVu files don't use working copies — the temp PDF serves that role
+    if (extension === '.djvu') {
+        await addRecentFile(normalizedPath);
+        updateRecentFilesMenu();
+        return {
+            workingPath: '',
+            originalPath: normalizedPath,
+            isDjvu: true,
+        } as {
+            workingPath: string;
+            originalPath: string;
+            isDjvu?: boolean 
+        };
     }
 
     try {
@@ -63,10 +78,13 @@ export async function handleOpenPdfDialog(): Promise<{
     originalPath: string;
 } | null> {
     const result = await dialog.showOpenDialog({
-        title: 'Open PDF',
+        title: 'Open Document',
         filters: [{
-            name: 'PDF Files',
-            extensions: ['pdf'],
+            name: 'Documents',
+            extensions: [
+                'pdf',
+                'djvu',
+            ],
         }],
         properties: ['openFile'],
     });
@@ -78,6 +96,23 @@ export async function handleOpenPdfDialog(): Promise<{
     const originalPath = result.filePaths[0];
     if (!originalPath) {
         return null;
+    }
+
+    const extension = extname(originalPath).toLowerCase();
+
+    // DjVu files don't use working copies
+    if (extension === '.djvu') {
+        await addRecentFile(originalPath);
+        updateRecentFilesMenu();
+        return {
+            workingPath: '',
+            originalPath,
+            isDjvu: true,
+        } as {
+            workingPath: string;
+            originalPath: string;
+            isDjvu?: boolean 
+        };
     }
 
     try {
@@ -140,6 +175,31 @@ export async function handleSavePdfAs(
     workingCopyMap.set(normalizedWorkingPath, targetPath);
     await addRecentFile(targetPath);
     updateRecentFilesMenu();
+
+    return targetPath;
+}
+
+export async function handleSavePdfDialog(
+    _event: Electron.IpcMainInvokeEvent,
+    suggestedName: string,
+): Promise<string | null> {
+    const result = await dialog.showSaveDialog({
+        title: 'Save PDF',
+        defaultPath: suggestedName.endsWith('.pdf') ? suggestedName : `${suggestedName}.pdf`,
+        filters: [{
+            name: 'PDF Files',
+            extensions: ['pdf'],
+        }],
+    });
+
+    if (result.canceled || !result.filePath) {
+        return null;
+    }
+
+    let targetPath = result.filePath;
+    if (extname(targetPath).toLowerCase() !== '.pdf') {
+        targetPath += '.pdf';
+    }
 
     return targetPath;
 }

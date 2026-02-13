@@ -23,12 +23,23 @@ export const usePdfFile = () => {
     const fileName = computed(() => workingCopyPath.value?.split(/[\\/]/).pop() ?? null);
     const isElectron = computed(() => typeof window !== 'undefined' && !!window.electronAPI);
 
+    const pendingDjvu = ref<string | null>(null);
+
     async function openFile() {
         error.value = null;
+        pendingDjvu.value = null;
         try {
             const api = getElectronAPI();
-            const result = await api.openPdfDialog();
+            const result = await api.openPdfDialog() as {
+                workingPath: string;
+                originalPath: string;
+                isDjvu?: boolean 
+            } | null;
             if (!result) {
+                return;
+            }
+            if (result.isDjvu) {
+                pendingDjvu.value = result.originalPath;
                 return;
             }
             originalPath.value = result.originalPath;
@@ -40,11 +51,20 @@ export const usePdfFile = () => {
 
     async function openFileDirect(path: string) {
         error.value = null;
+        pendingDjvu.value = null;
         try {
             const api = getElectronAPI();
-            const result = await api.openPdfDirect(path);
+            const result = await api.openPdfDirect(path) as {
+                workingPath: string;
+                originalPath: string;
+                isDjvu?: boolean 
+            } | null;
             if (!result) {
-                error.value = 'Invalid or non-existent PDF file';
+                error.value = 'Invalid or non-existent file';
+                return;
+            }
+            if (result.isDjvu) {
+                pendingDjvu.value = result.originalPath;
                 return;
             }
             originalPath.value = result.originalPath;
@@ -292,6 +312,7 @@ export const usePdfFile = () => {
         error,
         isDirty,
         isElectron,
+        pendingDjvu,
         openFile,
         openFileDirect,
         loadPdfFromPath,

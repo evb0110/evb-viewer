@@ -112,6 +112,63 @@ interface IPageOpsAPI {
     rotate: (workingCopyPath: string, pages: number[], angle: TPageOpsRotationAngle) => Promise<IPageOpsResult>;
 }
 
+interface IDjvuProgress {
+    jobId: string;
+    phase: 'converting' | 'bookmarks' | 'loading';
+    current?: number;
+    total?: number;
+    percent: number;
+}
+
+interface IDjvuInfo {
+    pageCount: number;
+    sourceDpi: number;
+    hasBookmarks: boolean;
+    hasText: boolean;
+    metadata: Record<string, string>;
+}
+
+interface IDjvuSizeEstimate {
+    subsample: number;
+    label: string;
+    description: string;
+    resultingDpi: number;
+    estimatedBytes: number;
+}
+
+interface IDjvuConvertOptions {
+    subsample?: number;
+    preserveBookmarks?: boolean;
+}
+
+interface IDjvuOpenResult {
+    success: boolean;
+    pdfPath?: string;
+    pageCount?: number;
+    error?: string;
+}
+
+interface IDjvuConvertResult {
+    success: boolean;
+    pdfPath?: string;
+    error?: string;
+}
+
+interface IDjvuAPI {
+    openForViewing: (djvuPath: string) => Promise<IDjvuOpenResult>;
+    convertToPdf: (djvuPath: string, outputPath: string, options: IDjvuConvertOptions) => Promise<IDjvuConvertResult>;
+    cancel: (jobId: string) => Promise<{ canceled: boolean }>;
+    getInfo: (djvuPath: string) => Promise<IDjvuInfo>;
+    estimateSizes: (djvuPath: string) => Promise<IDjvuSizeEstimate[]>;
+    cleanupTemp: (tempPdfPath: string) => Promise<void>;
+    onProgress: (callback: (progress: IDjvuProgress) => void) => () => void;
+    onViewingReady: (callback: (data: {
+        pdfPath: string;
+        isPartial: boolean 
+    }) => void) => () => void;
+    onViewingError: (callback: (data: { error: string }) => void) => () => void;
+}
+
 interface IOpenPdfResult {
     workingPath: string;
     originalPath: string;
@@ -121,6 +178,7 @@ interface IElectronAPI {
     openPdfDialog: () => Promise<IOpenPdfResult | null>;
     openPdfDirect: (path: string) => Promise<IOpenPdfResult | null>;
     savePdfAs: (workingCopyPath: string) => Promise<string | null>;
+    savePdfDialog: (suggestedName: string) => Promise<string | null>;
     saveDocxAs: (workingCopyPath: string) => Promise<string | null>;
     readFile: (path: string) => Promise<Uint8Array>;
     statFile: (path: string) => Promise<{ size: number }>;
@@ -211,6 +269,11 @@ interface IElectronAPI {
 
     // Page Operations API
     pageOps: IPageOpsAPI;
+
+    // DjVu API
+    djvu: IDjvuAPI;
+
+    onMenuConvertToPdf: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
 
     // Electron webUtils
     getPathForFile: (file: File) => string;

@@ -1,6 +1,6 @@
 {
   "toolbar": {
-    "openPdf": "Open PDF",
+    "openPdf": "Open File",
     "save": "Save",
     "saveAs": "Save As\u2026",
     "exportDocx": "Export DOCX",
@@ -125,7 +125,7 @@
     "clearRecentFiles": "Clear Recent Files",
     "removeFromRecent": "Remove from Recent",
     "openAnother": "Or open another file...",
-    "openPdf": "Open a PDF file"
+    "openPdf": "Open a file"
   },
   "contextMenu": {
     "openPopUpNote": "Open Pop-up Note",

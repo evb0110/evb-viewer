@@ -171,6 +171,7 @@ interface IProps {
     annotationPlacingPageNote?: boolean;
     bookmarkEditMode: boolean;
     isPageOperationInProgress?: boolean;
+    isDjvuMode?: boolean;
 }
 
 const { t } = useI18n();
@@ -335,32 +336,44 @@ interface IPdfSidebarTabItem {
 const COMPACT_THRESHOLD = 280;
 const isCompact = computed(() => (props.width ?? 240) < COMPACT_THRESHOLD);
 
-const tabs = computed<IPdfSidebarTabItem[]>(() => [
+const allTabs: IPdfSidebarTabItem[] = [
     {
         value: 'annotations',
-        label: isCompact.value ? '' : t('sidebar.notes'),
+        label: '',
         icon: 'i-lucide-sticky-note',
-        title: t('sidebar.notes'),
+        title: '',
     },
     {
         value: 'thumbnails',
-        label: isCompact.value ? '' : t('sidebar.pages'),
+        label: '',
         icon: 'i-lucide-file',
-        title: t('sidebar.pages'),
+        title: '',
     },
     {
         value: 'bookmarks',
-        label: isCompact.value ? '' : t('sidebar.bookmarks'),
+        label: '',
         icon: 'i-lucide-bookmark',
-        title: t('sidebar.bookmarks'),
+        title: '',
     },
     {
         value: 'search',
-        label: isCompact.value ? '' : t('sidebar.search'),
+        label: '',
         icon: 'i-lucide-search',
-        title: t('sidebar.search'),
+        title: '',
     },
-]);
+];
+
+const tabs = computed<IPdfSidebarTabItem[]>(() => {
+    const items = props.isDjvuMode
+        ? allTabs.filter((tab) => tab.value !== 'annotations')
+        : allTabs;
+
+    return items.map((tab) => ({
+        ...tab,
+        label: isCompact.value ? '' : t(`sidebar.${tab.value === 'annotations' ? 'notes' : tab.value === 'thumbnails' ? 'pages' : tab.value}`),
+        title: t(`sidebar.${tab.value === 'annotations' ? 'notes' : tab.value === 'thumbnails' ? 'pages' : tab.value}`),
+    }));
+});
 
 const sidebarStyle = computed(() => {
     const width = props.width ?? 240;

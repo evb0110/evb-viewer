@@ -53,7 +53,7 @@ function getFileMenu(): MenuItemConstructorOptions {
         label: 'File',
         submenu: [
             {
-                label: 'Open PDF...',
+                label: 'Open File...',
                 accelerator: 'CmdOrCtrl+O',
                 click: (_, window) => {
                     sendToWindow(window, 'menu:openPdf');
@@ -82,6 +82,12 @@ function getFileMenu(): MenuItemConstructorOptions {
                 accelerator: 'CmdOrCtrl+Shift+E',
                 click: (_, window) => {
                     sendToWindow(window, 'menu:exportDocx');
+                },
+            },
+            {
+                label: 'Convert to PDF...',
+                click: (_, window) => {
+                    sendToWindow(window, 'menu:convertToPdf');
                 },
             },
             { type: 'separator' },

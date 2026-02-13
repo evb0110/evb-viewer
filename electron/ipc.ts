@@ -2,6 +2,7 @@ import { ipcMain } from 'electron';
 import { registerOcrHandlers } from '@electron/ocr/ipc';
 import { registerSearchHandlers } from '@electron/search/ipc';
 import { registerPageOpsHandlers } from '@electron/page-ops/ipc';
+import { registerDjvuHandlers } from '@electron/djvu/ipc';
 import type { ISettingsData } from '@app/types/shared';
 import {
     loadSettings,
@@ -28,6 +29,7 @@ import {
     handleOpenPdfDialog,
     handleOpenPdfDirect,
     handleSavePdfAs,
+    handleSavePdfDialog,
     handleSaveDocxAs,
     handleSetWindowTitle,
 } from '@electron/ipc/dialogs';
@@ -42,6 +44,7 @@ export function registerIpcHandlers() {
     ipcMain.handle('dialog:openPdf', handleOpenPdfDialog);
     ipcMain.handle('dialog:openPdfDirect', handleOpenPdfDirect);
     ipcMain.handle('dialog:savePdfAs', handleSavePdfAs);
+    ipcMain.handle('dialog:savePdfDialog', handleSavePdfDialog);
     ipcMain.handle('dialog:saveDocxAs', handleSaveDocxAs);
     ipcMain.handle('file:read', handleFileRead);
     ipcMain.handle('file:stat', handleFileStat);
@@ -80,4 +83,5 @@ export function registerIpcHandlers() {
     registerOcrHandlers();
     registerSearchHandlers();
     registerPageOpsHandlers();
+    registerDjvuHandlers();
 }
