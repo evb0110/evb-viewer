@@ -1,7 +1,4 @@
-import {
-    useMutationObserver,
-    useResizeObserver,
-} from '@vueuse/core';
+import {useResizeObserver} from '@vueuse/core';
 import { nextTick } from 'vue';
 
 const MAX_COLLAPSE_TIER = 3;
@@ -63,14 +60,6 @@ export const useToolbarOverflow = () => {
 
     useResizeObserver(toolbarRef, () => {
         scheduleRecalculation();
-    });
-
-    useMutationObserver(toolbarRef, () => {
-        scheduleRecalculation();
-    }, {
-        childList: true,
-        subtree: true,
-        characterData: true,
     });
 
     onMounted(() => {
