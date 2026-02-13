@@ -19,6 +19,7 @@ import {
     isAllowedWritePath,
     isAllowedReadPath,
 } from '@electron/utils/path-validator';
+import { consumeAllowedDocxWritePath } from '@electron/ipc/docxExportPaths';
 import { MAX_CHUNK } from '@electron/config/constants';
 import { createLogger } from '@electron/utils/logger';
 
@@ -163,15 +164,11 @@ export async function handleFileWriteDocx(
     }
 
     const normalizedPath = filePath.trim();
-    if (extname(normalizedPath).toLowerCase() !== '.docx') {
-        throw new Error('Invalid file type: only DOCX files are allowed');
+    if (!consumeAllowedDocxWritePath(normalizedPath)) {
+        throw new Error('Invalid file path: DOCX writes must use a path from Save dialog');
     }
 
-    if (!isAllowedWritePath(normalizedPath)) {
-        throw new Error('Invalid file path: writes only allowed within temp directory');
-    }
-
-    await writeFile(normalizedPath, data);
+    await writeFile(resolve(normalizedPath), data);
     return true;
 }
 

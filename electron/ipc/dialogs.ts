@@ -10,6 +10,7 @@ import {
 } from 'path';
 import { updateRecentFilesMenu } from '@electron/menu';
 import { addRecentFile } from '@electron/recent-files';
+import { allowDocxWritePath } from '@electron/ipc/docxExportPaths';
 import {
     createWorkingCopy,
     workingCopyMap,
@@ -237,6 +238,8 @@ export async function handleSaveDocxAs(
     if (extname(targetPath).toLowerCase() !== '.docx') {
         targetPath += '.docx';
     }
+
+    allowDocxWritePath(targetPath);
 
     return targetPath;
 }
