@@ -495,10 +495,10 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .pdf-bookmarks {
-    padding: 8px;
+    padding: 0.75rem;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 0.75rem;
 }
 
 .pdf-bookmarks-loading,

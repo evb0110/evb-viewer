@@ -225,8 +225,8 @@ const pagesWithNotes = computed<IPageAnnotationOverview[]>(() => {
 }
 
 .sticky-action.is-active {
-    border-color: color-mix(in srgb, var(--ui-primary) 70%, var(--ui-border) 30%);
-    background: color-mix(in srgb, var(--ui-primary) 20%, var(--ui-bg) 80%);
+    border-color: color-mix(in srgb, var(--ui-primary) 55%, var(--ui-border) 45%);
+    background: color-mix(in srgb, var(--ui-primary) 12%, var(--ui-bg) 88%);
 }
 
 .sticky-action-icon {

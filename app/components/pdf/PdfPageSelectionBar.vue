@@ -112,10 +112,10 @@ const { t } = useI18n();
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 1.5rem;
-    height: 1.5rem;
-    border: none;
-    border-radius: 0.25rem;
+    width: 1.75rem;
+    height: 1.75rem;
+    border: 1px solid color-mix(in srgb, var(--ui-border) 70%, transparent 30%);
+    border-radius: 0.375rem;
     background: transparent;
     color: var(--ui-text-muted);
     cursor: pointer;
@@ -137,8 +137,8 @@ const { t } = useI18n();
 }
 
 .page-selection-bar-icon {
-    width: 0.875rem;
-    height: 0.875rem;
+    width: 1rem;
+    height: 1rem;
 }
 
 .page-selection-bar-deselect {

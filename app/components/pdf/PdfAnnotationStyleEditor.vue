@@ -431,9 +431,9 @@ function applyDrawStyle(style: TDrawStyle) {
 }
 
 .draw-style-button.is-active {
-    border-color: color-mix(in srgb, var(--ui-primary) 65%, var(--ui-border) 35%);
+    border-color: color-mix(in srgb, var(--ui-primary) 55%, var(--ui-border) 45%);
     color: var(--ui-text-highlighted);
-    background: color-mix(in srgb, var(--ui-primary) 14%, var(--ui-bg) 86%);
+    background: color-mix(in srgb, var(--ui-primary) 12%, var(--ui-bg) 88%);
 }
 
 @media (width <= 860px) {

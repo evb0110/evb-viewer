@@ -115,6 +115,8 @@ const displayModeOptions = [
     grid-template-columns: 1fr auto;
     align-items: center;
     gap: 6px;
+    padding: 0.375rem 0.5rem;
+    border-bottom: 1px solid var(--ui-border);
 }
 
 .pdf-bookmarks-view-modes {
@@ -127,7 +129,7 @@ const displayModeOptions = [
 .pdf-bookmarks-view-mode-button,
 .pdf-bookmarks-icon-button {
     border: 1px solid var(--ui-border);
-    border-radius: 6px;
+    border-radius: 0.375rem;
     background: var(--ui-bg);
     color: var(--ui-text-muted);
     display: inline-flex;
@@ -145,9 +147,9 @@ const displayModeOptions = [
 }
 
 .pdf-bookmarks-view-mode-button.is-active {
-    border-color: color-mix(in srgb, var(--ui-primary) 45%, var(--ui-border) 55%);
+    border-color: color-mix(in srgb, var(--ui-primary) 55%, var(--ui-border) 45%);
     color: var(--ui-primary);
-    background: color-mix(in srgb, var(--ui-primary) 8%, var(--ui-bg) 92%);
+    background: color-mix(in srgb, var(--ui-primary) 12%, var(--ui-bg) 88%);
 }
 
 .pdf-bookmarks-toolbar-actions {
