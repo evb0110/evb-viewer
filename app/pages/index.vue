@@ -424,6 +424,7 @@ const {
     showConvertDialog,
     openDjvuFile,
     convertToPdf: djvuConvertToPdf,
+    cancelActiveJobs: cancelDjvuJobs,
     cleanupDjvuTemp,
     exitDjvuMode,
     openConvertDialog,
@@ -906,8 +907,7 @@ async function handleDjvuConvert(subsample: number, preserveBookmarks: boolean) 
 
 function handleDjvuCancel() {
     if (djvuSourcePath.value) {
-        window.electronAPI?.djvu.cancel(`djvu-view-${Date.now()}`);
-        window.electronAPI?.djvu.cancel(`djvu-convert-${Date.now()}`);
+        void cancelDjvuJobs();
     }
 }
 
@@ -955,7 +955,9 @@ function handleGoToPage(page: number) {
 const menuCleanups: Array<() => void> = [];
 
 onMounted(() => {
-    console.log('Electron API available:', isElectron.value);
+    if (import.meta.dev) {
+        console.log('Electron API available:', isElectron.value);
+    }
 
     if (window.electronAPI) {
         menuCleanups.push(

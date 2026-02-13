@@ -15,13 +15,24 @@ import {
     workingCopyMap,
 } from '@electron/ipc/workingCopy';
 
+interface IOpenPdfResult {
+    kind: 'pdf';
+    workingPath: string;
+    originalPath: string;
+}
+
+interface IOpenDjvuResult {
+    kind: 'djvu';
+    workingPath: '';
+    originalPath: string;
+}
+
+type IOpenFileResult = IOpenPdfResult | IOpenDjvuResult;
+
 export async function handleOpenPdfDirect(
     _event: Electron.IpcMainInvokeEvent,
     filePath: string,
-): Promise<{
-    workingPath: string;
-    originalPath: string;
-} | null> {
+): Promise<IOpenFileResult | null> {
     if (!filePath || filePath.trim() === '') {
         return null;
     }
@@ -42,13 +53,9 @@ export async function handleOpenPdfDirect(
         await addRecentFile(normalizedPath);
         updateRecentFilesMenu();
         return {
+            kind: 'djvu',
             workingPath: '',
             originalPath: normalizedPath,
-            isDjvu: true,
-        } as {
-            workingPath: string;
-            originalPath: string;
-            isDjvu?: boolean 
         };
     }
 
@@ -57,6 +64,7 @@ export async function handleOpenPdfDirect(
         await addRecentFile(normalizedPath);
         updateRecentFilesMenu();
         return {
+            kind: 'pdf',
             workingPath,
             originalPath: normalizedPath,
         };
@@ -73,10 +81,7 @@ export function handleSetWindowTitle(event: Electron.IpcMainInvokeEvent, title: 
     }
 }
 
-export async function handleOpenPdfDialog(): Promise<{
-    workingPath: string;
-    originalPath: string;
-} | null> {
+export async function handleOpenPdfDialog(): Promise<IOpenFileResult | null> {
     const result = await dialog.showOpenDialog({
         title: 'Open Document',
         filters: [{
@@ -105,13 +110,9 @@ export async function handleOpenPdfDialog(): Promise<{
         await addRecentFile(originalPath);
         updateRecentFilesMenu();
         return {
+            kind: 'djvu',
             workingPath: '',
             originalPath,
-            isDjvu: true,
-        } as {
-            workingPath: string;
-            originalPath: string;
-            isDjvu?: boolean 
         };
     }
 
@@ -120,6 +121,7 @@ export async function handleOpenPdfDialog(): Promise<{
         await addRecentFile(originalPath);
         updateRecentFilesMenu();
         return {
+            kind: 'pdf',
             workingPath,
             originalPath,
         };

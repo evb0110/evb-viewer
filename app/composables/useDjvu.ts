@@ -40,6 +40,9 @@ export const useDjvu = () => {
 
     const showBanner = ref(true);
     const showConvertDialog = ref(false);
+    const activeViewingJobId = ref<string | null>(null);
+    const activeConvertJobId = ref<string | null>(null);
+    const pendingConvertCancel = ref(false);
 
     let unsubProgress: (() => void) | null = null;
     let unsubViewingReady: (() => void) | null = null;
@@ -57,6 +60,12 @@ export const useDjvu = () => {
             const api = getElectronAPI();
             unsubProgress = api.djvu.onProgress((progress) => {
                 if (progress.phase === 'loading') {
+                    if (activeViewingJobId.value && progress.jobId !== activeViewingJobId.value) {
+                        return;
+                    }
+                    if (!activeViewingJobId.value) {
+                        activeViewingJobId.value = progress.jobId;
+                    }
                     if (isLoadingPages.value) {
                         loadingProgress.value = {
                             current: progress.current ?? 0,
@@ -64,11 +73,25 @@ export const useDjvu = () => {
                         };
                     }
                 } else {
+                    if (pendingConvertCancel.value) {
+                        activeConvertJobId.value = progress.jobId;
+                        pendingConvertCancel.value = false;
+                        void api.djvu.cancel(progress.jobId).catch(() => {});
+                    }
+                    if (activeConvertJobId.value && progress.jobId !== activeConvertJobId.value) {
+                        return;
+                    }
+                    if (!activeConvertJobId.value && conversionState.value.isConverting) {
+                        activeConvertJobId.value = progress.jobId;
+                    }
                     conversionState.value = {
                         isConverting: true,
                         phase: progress.phase,
                         percent: progress.percent,
                     };
+                    if (progress.percent >= 100) {
+                        activeConvertJobId.value = null;
+                    }
                 }
             });
         } catch {
@@ -84,6 +107,13 @@ export const useDjvu = () => {
         try {
             const api = getElectronAPI();
             unsubViewingReady = api.djvu.onViewingReady((event) => {
+                if (activeViewingJobId.value && event.jobId && event.jobId !== activeViewingJobId.value) {
+                    return;
+                }
+                if (!swapHandler) {
+                    activeViewingJobId.value = null;
+                    return;
+                }
                 if (swapHandler) {
                     swapHandler(event);
                 }
@@ -103,6 +133,9 @@ export const useDjvu = () => {
             unsubViewingReady = null;
         }
         swapHandler = null;
+        activeViewingJobId.value = null;
+        activeConvertJobId.value = null;
+        pendingConvertCancel.value = false;
     }
 
     setupProgressListener();
@@ -120,6 +153,8 @@ export const useDjvu = () => {
         const djvuFileName = djvuPath.split(/[\\/]/).pop() ?? 'DjVu';
 
         showBanner.value = true;
+        activeConvertJobId.value = null;
+        pendingConvertCancel.value = false;
 
         try {
             const result = await api.djvu.openForViewing(djvuPath);
@@ -130,6 +165,7 @@ export const useDjvu = () => {
 
             const initialPdfPath = result.pdfPath;
             const pageCount = result.pageCount ?? 0;
+            activeViewingJobId.value = result.jobId ?? null;
 
             // Set originalPath to DjVu source so the status bar shows
             // the real file location instead of the /var temp path
@@ -167,6 +203,7 @@ export const useDjvu = () => {
                                 api.djvu.cleanupTemp(oldPath).catch(() => {});
                             }
                         } finally {
+                            activeViewingJobId.value = null;
                             isLoadingPages.value = false;
                             loadingProgress.value = {
                                 current: 0,
@@ -178,6 +215,7 @@ export const useDjvu = () => {
                 };
             }
         } catch (e) {
+            activeViewingJobId.value = null;
             isLoadingPages.value = false;
             loadingProgress.value = {
                 current: 0,
@@ -210,6 +248,8 @@ export const useDjvu = () => {
             phase: 'converting',
             percent: 0,
         };
+        activeConvertJobId.value = null;
+        pendingConvertCancel.value = false;
 
         try {
             const result = await api.djvu.convertToPdf(
@@ -224,9 +264,11 @@ export const useDjvu = () => {
             if (!result.success || !result.pdfPath) {
                 throw new Error(result.error ?? 'Conversion failed');
             }
+            activeConvertJobId.value = result.jobId ?? null;
 
             const tempPath = djvuTempPdfPath.value;
             exitDjvuMode();
+            activeViewingJobId.value = null;
 
             if (tempPath) {
                 try {
@@ -237,17 +279,64 @@ export const useDjvu = () => {
             }
 
             const openResult = await api.openPdfDirect(result.pdfPath);
-            if (openResult) {
+            if (openResult && openResult.kind === 'pdf') {
                 await loadPdfFromPath(openResult.workingPath);
                 await api.setWindowTitle(result.pdfPath.split(/[\\/]/).pop() ?? 'PDF');
             }
         } finally {
+            activeConvertJobId.value = null;
+            pendingConvertCancel.value = false;
             conversionState.value = {
                 isConverting: false,
                 phase: null,
                 percent: 0,
             };
         }
+    }
+
+    async function cancelActiveJobs() {
+        const ids = new Set<string>();
+        if (activeViewingJobId.value) {
+            ids.add(activeViewingJobId.value);
+        }
+        if (activeConvertJobId.value) {
+            ids.add(activeConvertJobId.value);
+        }
+        if (ids.size === 0) {
+            if (conversionState.value.isConverting) {
+                pendingConvertCancel.value = true;
+                return true;
+            }
+            return false;
+        }
+
+        try {
+            const api = getElectronAPI();
+            await Promise.all(Array.from(ids, async (jobId) => {
+                try {
+                    await api.djvu.cancel(jobId);
+                } catch {
+                    // Ignore individual cancellation failures
+                }
+            }));
+        } catch {
+            return false;
+        }
+
+        activeViewingJobId.value = null;
+        activeConvertJobId.value = null;
+        pendingConvertCancel.value = false;
+        isLoadingPages.value = false;
+        loadingProgress.value = {
+            current: 0,
+            total: 0,
+        };
+        conversionState.value = {
+            isConverting: false,
+            phase: null,
+            percent: 0,
+        };
+        return true;
     }
 
     async function cleanupDjvuTemp() {
@@ -287,6 +376,7 @@ export const useDjvu = () => {
         isDjvuFeatureDisabled,
         openDjvuFile,
         convertToPdf,
+        cancelActiveJobs,
         cleanupDjvuTemp,
         exitDjvuMode,
         openConvertDialog,

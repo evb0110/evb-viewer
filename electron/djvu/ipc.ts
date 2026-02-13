@@ -192,6 +192,7 @@ async function handleDjvuOpenForViewing(
     success: boolean;
     pdfPath?: string;
     pageCount?: number;
+    jobId?: string;
     error?: string
 }> {
     const window = BrowserWindow.fromWebContents(event.sender);
@@ -239,7 +240,7 @@ async function handleDjvuOpenForViewing(
             });
         } else {
             initialPdfPath = tempPage1Path;
-            backgroundEmbedBookmarksAndSignal(window, djvuPath, tempPage1Path).catch(() => {
+            backgroundEmbedBookmarksAndSignal(window, djvuPath, tempPage1Path, jobId).catch(() => {
                 // Best effort for single-page files
             });
         }
@@ -248,6 +249,7 @@ async function handleDjvuOpenForViewing(
             success: true,
             pdfPath: initialPdfPath,
             pageCount,
+            jobId,
         };
     } catch (err) {
         return {
@@ -261,6 +263,7 @@ async function backgroundEmbedBookmarksAndSignal(
     window: BrowserWindow | null | undefined,
     djvuPath: string,
     pdfPath: string,
+    jobId: string,
 ) {
     try {
         const outlineSexp = await getDjvuOutline(djvuPath);
@@ -274,7 +277,8 @@ async function backgroundEmbedBookmarksAndSignal(
 
         safeSendToWindow(window, 'djvu:viewingReady', {
             pdfPath,
-            isPartial: false, 
+            isPartial: false,
+            jobId,
         });
     } catch (err) {
         safeSendToWindow(window, 'djvu:viewingError', {error: err instanceof Error ? err.message : String(err)});
@@ -456,6 +460,7 @@ async function backgroundConvertAll(
         safeSendToWindow(window, 'djvu:viewingReady', {
             pdfPath: fullPdfPath,
             isPartial: false,
+            jobId,
         });
     } catch (err) {
         safeSendToWindow(window, 'djvu:viewingError', { error: err instanceof Error ? err.message : String(err) });
@@ -483,6 +488,7 @@ async function handleDjvuConvertToPdf(
 ): Promise<{
     success: boolean;
     pdfPath?: string;
+    jobId?: string;
     error?: string
 }> {
     const window = BrowserWindow.fromWebContents(event.sender);
@@ -531,6 +537,7 @@ async function handleDjvuConvertToPdf(
         if (!imageResult.success) {
             return {
                 success: false,
+                jobId,
                 error: imageResult.error,
             };
         }
@@ -572,10 +579,12 @@ async function handleDjvuConvertToPdf(
         return {
             success: true,
             pdfPath: outputPath,
+            jobId,
         };
     } catch (err) {
         return {
             success: false,
+            jobId,
             error: err instanceof Error ? err.message : String(err),
         };
     } finally {

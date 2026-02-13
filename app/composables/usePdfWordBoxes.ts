@@ -9,15 +9,6 @@ import {
     type IOcrIndexV2Page,
 } from '@app/composables/pdfWordBoxGeometry';
 
-export {
-    type IWordBoxOverlay,
-    type IOcrIndexV2Page,
-    isOcrDebugEnabled,
-    transformWordBox,
-    transformOcrWordToViewport,
-    createWordBoxOverlays,
-} from '@app/composables/pdfWordBoxGeometry';
-
 export const usePdfWordBoxes = () => {
     function clearWordBoxes(container: HTMLElement) {
         const boxes = container.querySelectorAll('.pdf-word-box');

@@ -30,15 +30,11 @@ export const usePdfFile = () => {
         pendingDjvu.value = null;
         try {
             const api = getElectronAPI();
-            const result = await api.openPdfDialog() as {
-                workingPath: string;
-                originalPath: string;
-                isDjvu?: boolean 
-            } | null;
+            const result = await api.openPdfDialog();
             if (!result) {
                 return;
             }
-            if (result.isDjvu) {
+            if (result.kind === 'djvu') {
                 pendingDjvu.value = result.originalPath;
                 return;
             }
@@ -54,16 +50,12 @@ export const usePdfFile = () => {
         pendingDjvu.value = null;
         try {
             const api = getElectronAPI();
-            const result = await api.openPdfDirect(path) as {
-                workingPath: string;
-                originalPath: string;
-                isDjvu?: boolean 
-            } | null;
+            const result = await api.openPdfDirect(path);
             if (!result) {
                 error.value = 'Invalid or non-existent file';
                 return;
             }
-            if (result.isDjvu) {
+            if (result.kind === 'djvu') {
                 pendingDjvu.value = result.originalPath;
                 return;
             }

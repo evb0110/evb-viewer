@@ -8,6 +8,7 @@ import type { IOcrLanguage } from '@app/types/shared';
 import { getElectronAPI } from '@app/utils/electron';
 import { createDocxFromText } from '@app/utils/docx';
 import { OCR_TIMEOUT_MS } from '@app/constants/timeouts';
+import { BrowserLogger } from '@app/utils/browser-logger';
 import {
     parsePageRange,
     type IOcrSettings,
@@ -17,18 +18,6 @@ import {
 import {
     loadOcrText,
     extractPdfText,
-} from '@app/composables/ocrProcessing';
-
-export {
-    type TOcrPageRange,
-    type IOcrSettings,
-    type IOcrProgress,
-    type IOcrQualityMetrics,
-    type IOcrResults,
-    parsePageRange,
-} from '@app/composables/ocrLanguages';
-export {
-    loadOcrText, extractPdfText,
 } from '@app/composables/ocrProcessing';
 
 export const useOcr = () => {
@@ -76,14 +65,14 @@ export const useOcr = () => {
         totalPages: number,
         workingCopyPath: string | null = null,
     ) {
-        console.log('[useOcr] runOcr called', {
+        BrowserLogger.debug('OCR', 'runOcr called', {
             currentPage,
             totalPages,
             pdfDataLength: originalPdfData?.length,
         });
 
         if (progress.value.isRunning) {
-            console.log('[useOcr] Already running, returning');
+            BrowserLogger.debug('OCR', 'runOcr ignored; already running');
             return;
         }
 
@@ -95,7 +84,7 @@ export const useOcr = () => {
             totalPages,
         );
 
-        console.log('[useOcr] Pages to process:', pages);
+        BrowserLogger.debug('OCR', 'Pages selected', pages);
 
         if (pages.length === 0) {
             error.value = 'No valid pages selected';
@@ -120,13 +109,13 @@ export const useOcr = () => {
 
         const requestId = `ocr-${crypto.randomUUID()}`;
         activeRequestId.value = requestId;
-        console.log('[useOcr] Request ID:', requestId);
+        BrowserLogger.debug('OCR', `Request created: ${requestId}`);
 
         try {
             const api = getElectronAPI();
 
             progressCleanup = api.onOcrProgress((p) => {
-                console.log('[useOcr] Progress update:', p);
+                BrowserLogger.debug('OCR', 'Progress update', p);
                 if (p.requestId === requestId) {
                     progress.value.phase = 'processing';
                     progress.value.currentPage = p.currentPage;
@@ -140,7 +129,10 @@ export const useOcr = () => {
                 languages,
             }));
 
-            console.log('[useOcr] Sending to backend, pages:', pages, ', originalPdfData length:', originalPdfData.length);
+            BrowserLogger.debug('OCR', 'Starting backend job', {
+                pages,
+                pdfDataLength: originalPdfData.length,
+            });
 
             const ocrPromise = new Promise<{
                 success: boolean;
@@ -151,14 +143,14 @@ export const useOcr = () => {
                 let didResolve = false;
 
                 completeCleanup = api.onOcrComplete((result) => {
-                    console.log('[useOcr] OCR complete event:', {
+                    BrowserLogger.debug('OCR', 'Complete event received', {
                         requestId: result.requestId,
                         success: result.success,
                         didResolve,
                     });
                     if (result.requestId === requestId) {
                         if (didResolve) {
-                            console.log('[useOcr] Ignoring duplicate completion for requestId:', requestId);
+                            BrowserLogger.debug('OCR', `Ignoring duplicate completion for ${requestId}`);
                             return;
                         }
                         didResolve = true;
@@ -186,7 +178,7 @@ export const useOcr = () => {
                 undefined,
             );
 
-            console.log('[useOcr] OCR job started:', startResult);
+            BrowserLogger.debug('OCR', 'Job started', startResult);
 
             if (!startResult.started) {
                 throw new Error(startResult.error || 'Failed to start OCR job');
@@ -194,7 +186,7 @@ export const useOcr = () => {
 
             const response = await ocrPromise;
 
-            console.log('[useOcr] Backend response:', {
+            BrowserLogger.debug('OCR', 'Backend response', {
                 success: response.success,
                 errors: response.errors,
             });
@@ -207,18 +199,18 @@ export const useOcr = () => {
                 let pdfBytes: Uint8Array;
 
                 if (response.pdfPath) {
-                    console.log('[useOcr] OCR successful, reading from temp file:', response.pdfPath);
+                    BrowserLogger.debug('OCR', `Reading OCR PDF from temp path: ${response.pdfPath}`);
                     const fileData = await api.readFile(response.pdfPath);
                     pdfBytes = new Uint8Array(fileData);
-                    console.log('[useOcr] PDF size:', pdfBytes.length);
+                    BrowserLogger.debug('OCR', `Loaded OCR PDF (${pdfBytes.length} bytes)`);
 
                     try {
                         await api.cleanupOcrTemp(response.pdfPath);
                     } catch (cleanupErr) {
-                        console.warn('[useOcr] Failed to cleanup temp file:', response.pdfPath, cleanupErr);
+                        BrowserLogger.warn('OCR', `Failed to cleanup temp file: ${response.pdfPath}`, cleanupErr);
                     }
                 } else if (response.pdfData) {
-                    console.log('[useOcr] OCR successful, PDF size:', response.pdfData.length);
+                    BrowserLogger.debug('OCR', `OCR PDF ready in response (${response.pdfData.length} bytes)`);
                     pdfBytes = new Uint8Array(response.pdfData);
                 } else {
                     throw new Error('No PDF data or path in response');
@@ -236,8 +228,10 @@ export const useOcr = () => {
         } catch (e) {
             const errMsg = e instanceof Error ? e.message : String(e);
             const errStack = e instanceof Error ? e.stack : undefined;
-            console.error('[useOcr] Error message:', errMsg);
-            if (errStack) console.error('[useOcr] Error stack:', errStack);
+            BrowserLogger.error('OCR', `OCR run failed: ${errMsg}`);
+            if (errStack) {
+                BrowserLogger.error('OCR', 'OCR stack trace', errStack);
+            }
             error.value = errMsg;
         } finally {
             activeRequestId.value = null;

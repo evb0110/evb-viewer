@@ -20,26 +20,6 @@ import {
     clearHighlightAPIForLayer,
 } from '@app/composables/pdfSearchHighlightCss';
 
-export {
-    type TTextLayerRun,
-    buildTextLayerIndex,
-    highlightTextInSpan,
-    clearDomHighlights,
-    scrollToHighlight,
-} from '@app/composables/pdfSearchHighlightDom';
-export {
-    canUseHighlightAPI,
-    getHighlightMode,
-    isHighlightDebugEnabled,
-    createHighlightRangesInSpan,
-    createCssHighlightState,
-    updateHighlightAPI,
-    registerHighlightRange,
-    clearHighlightAPIForLayer,
-    type THighlightRange,
-    type ICssHighlightState,
-} from '@app/composables/pdfSearchHighlightCss';
-
 const HIGHLIGHT_CLASS = 'pdf-search-highlight';
 const HIGHLIGHT_CURRENT_CLASS = 'pdf-search-highlight--current';
 

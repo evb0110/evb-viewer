@@ -145,13 +145,21 @@ interface IDjvuOpenResult {
     success: boolean;
     pdfPath?: string;
     pageCount?: number;
+    jobId?: string;
     error?: string;
 }
 
 interface IDjvuConvertResult {
     success: boolean;
     pdfPath?: string;
+    jobId?: string;
     error?: string;
+}
+
+interface IDjvuViewingReadyEvent {
+    pdfPath: string;
+    isPartial: boolean;
+    jobId?: string;
 }
 
 interface IDjvuAPI {
@@ -162,21 +170,27 @@ interface IDjvuAPI {
     estimateSizes: (djvuPath: string) => Promise<IDjvuSizeEstimate[]>;
     cleanupTemp: (tempPdfPath: string) => Promise<void>;
     onProgress: (callback: (progress: IDjvuProgress) => void) => () => void;
-    onViewingReady: (callback: (data: {
-        pdfPath: string;
-        isPartial: boolean 
-    }) => void) => () => void;
+    onViewingReady: (callback: (data: IDjvuViewingReadyEvent) => void) => () => void;
     onViewingError: (callback: (data: { error: string }) => void) => () => void;
 }
 
 interface IOpenPdfResult {
+    kind: 'pdf';
     workingPath: string;
     originalPath: string;
 }
 
+interface IOpenDjvuResult {
+    kind: 'djvu';
+    workingPath: '';
+    originalPath: string;
+}
+
+type IOpenFileResult = IOpenPdfResult | IOpenDjvuResult;
+
 interface IElectronAPI {
-    openPdfDialog: () => Promise<IOpenPdfResult | null>;
-    openPdfDirect: (path: string) => Promise<IOpenPdfResult | null>;
+    openPdfDialog: () => Promise<IOpenFileResult | null>;
+    openPdfDirect: (path: string) => Promise<IOpenFileResult | null>;
     savePdfAs: (workingCopyPath: string) => Promise<string | null>;
     savePdfDialog: (suggestedName: string) => Promise<string | null>;
     saveDocxAs: (workingCopyPath: string) => Promise<string | null>;

@@ -44,6 +44,10 @@ export async function handleFileRead(_event: Electron.IpcMainInvokeEvent, filePa
         throw new Error('Invalid file type: only PDF and DjVu files are allowed');
     }
 
+    if (!isAllowedReadPath(normalizedPath)) {
+        throw new Error('Invalid file path: reads only allowed within temp directory');
+    }
+
     if (!existsSync(normalizedPath)) {
         throw new Error(`File not found: ${normalizedPath}`);
     }
@@ -65,6 +69,11 @@ export async function handleFileStat(
     if (extension !== '.pdf') {
         throw new Error('Invalid file type: only PDF files are allowed');
     }
+
+    if (!isAllowedReadPath(normalizedPath)) {
+        throw new Error('Invalid file path: reads only allowed within temp directory');
+    }
+
     if (!existsSync(normalizedPath)) {
         throw new Error(`File not found: ${normalizedPath}`);
     }
@@ -87,6 +96,11 @@ export async function handleFileReadRange(
     if (extension !== '.pdf') {
         throw new Error('Invalid file type: only PDF files are allowed');
     }
+
+    if (!isAllowedReadPath(normalizedPath)) {
+        throw new Error('Invalid file path: reads only allowed within temp directory');
+    }
+
     if (!existsSync(normalizedPath)) {
         throw new Error(`File not found: ${normalizedPath}`);
     }

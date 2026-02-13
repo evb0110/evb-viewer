@@ -447,11 +447,13 @@ if (!__preloadAlreadyInstalled) {
             },
             onViewingReady: (callback: (data: {
                 pdfPath: string;
-                isPartial: boolean 
+                isPartial: boolean;
+                jobId?: string;
             }) => void): (() => void) => {
                 const handler = (_event: IpcRendererEvent, data: {
                     pdfPath: string;
-                    isPartial: boolean 
+                    isPartial: boolean;
+                    jobId?: string;
                 }) => callback(data);
                 ipcRenderer.on('djvu:viewingReady', handler);
                 return () => ipcRenderer.removeListener('djvu:viewingReady', handler);
