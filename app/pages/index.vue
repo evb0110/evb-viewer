@@ -101,7 +101,7 @@ function workspaceHasPdf(workspace: IWorkspaceExpose | null | undefined) {
 
 function handleCloseTab(tabId: string) {
     const workspace = workspaceRefs.value.get(tabId);
-    if (workspaceHasPdf(workspace)) {
+    if (workspace && workspaceHasPdf(workspace)) {
         void workspace.handleCloseFileFromUi().then(() => {
             if (!workspaceHasPdf(workspace)) {
                 closeTab(tabId);
