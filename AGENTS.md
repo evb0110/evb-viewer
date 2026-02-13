@@ -12,7 +12,7 @@ CLAUDE.md contains project conventions for TypeScript, Vue, scoped styles, icon 
 
 ## Verification with Electron Puppeteer
 
-**Rule**: Verify all important UI-facing changes using the `electron-puppeteer` skill.
+**Rule**: Only if asked by user verify changes you made using the `electron-puppeteer` skill.
 Don't verify them piecemeal, only in large batches for speed
 
 The skill is located at `.claude/skills/electron-puppeteer/SKILL.md`. Read it to understand available commands.
