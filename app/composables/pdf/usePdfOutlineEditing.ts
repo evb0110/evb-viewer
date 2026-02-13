@@ -300,7 +300,7 @@ export const usePdfOutlineEditing = (
         return items.map((item) => {
             const title = item.title.trim();
             return {
-                title: title.length > 0 ? title : 'Untitled Bookmark',
+                title: title.length > 0 ? title : t('bookmarks.untitled'),
                 pageIndex: typeof item.pageIndex === 'number' ? item.pageIndex : null,
                 namedDest: typeof item.dest === 'string' && item.dest.trim().length > 0 ? item.dest : null,
                 bold: item.bold,

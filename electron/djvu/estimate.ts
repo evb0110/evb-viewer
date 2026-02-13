@@ -7,6 +7,7 @@ import {
 import { convertDjvuPageToImage } from '@electron/djvu/convert';
 import { getDjvuResolution } from '@electron/djvu/metadata';
 import { buildOptimizedPdf } from '@electron/djvu/pdf-builder';
+import { te } from '@electron/i18n';
 
 interface IDjvuSizeEstimate {
     subsample: number;
@@ -36,18 +37,18 @@ export async function estimateSizes(
     const presets = [
         {
             subsample: 1,
-            label: 'Full Quality',
-            description: 'Original',
+            label: te('djvu.convertDialog.fullQuality'),
+            description: te('djvu.convertDialog.original'),
         },
         {
             subsample: 2,
-            label: 'Good Quality',
-            description: 'Half resolution',
+            label: te('djvu.convertDialog.goodQuality'),
+            description: te('djvu.convertDialog.halfResolution'),
         },
         {
             subsample: 4,
-            label: 'Compact',
-            description: 'Quarter resolution',
+            label: te('djvu.convertDialog.compact'),
+            description: te('djvu.convertDialog.quarterResolution'),
         },
     ];
 

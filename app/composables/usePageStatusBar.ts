@@ -5,7 +5,7 @@ import {
 import { formatBytes } from '@app/utils/formatters';
 
 export interface IPageStatusBarDeps {
-    t: (key: string) => string;
+    t: (key: string, params?: Record<string, string | number>) => string;
     pdfSrc: Ref<unknown>;
     pdfData: Ref<Uint8Array | null>;
     originalPath: Ref<string | null>;
@@ -43,11 +43,11 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
     });
     const statusFileSizeLabel = computed(() => {
         if (statusFileSizeBytes.value === null) {
-            return 'Size: -';
+            return t('status.fileSizeUnknown');
         }
-        return `Size: ${formatBytes(statusFileSizeBytes.value)}`;
+        return t('status.fileSizeValue', { size: formatBytes(statusFileSizeBytes.value) });
     });
-    const statusZoomLabel = computed(() => `Zoom: ${Math.round(zoom.value * 100)}%`);
+    const statusZoomLabel = computed(() => t('status.zoomValue', { zoom: Math.round(zoom.value * 100) }));
     const statusSaveDotState = computed(() => {
         if (!pdfSrc.value) {
             return 'idle';

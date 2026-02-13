@@ -16,6 +16,7 @@ import type { IPdfBookmarkEntry } from '@app/types/pdf';
 export function normalizeBookmarkEntries(
     entries: IPdfBookmarkEntry[],
     totalPages: number,
+    untitledLabel: string,
 ): IPdfBookmarkEntry[] {
     if (totalPages <= 0) {
         return [] as IPdfBookmarkEntry[];
@@ -38,7 +39,7 @@ export function normalizeBookmarkEntries(
             : null;
 
         return {
-            title: title.length > 0 ? title : 'Untitled Bookmark',
+            title: title.length > 0 ? title : untitledLabel,
             pageIndex,
             namedDest,
             bold,
@@ -57,13 +58,18 @@ export async function rewriteBookmarks(
         bookmarksDirty: Ref<boolean>;
         bookmarkItems: Ref<IPdfBookmarkEntry[]>;
         totalPages: Ref<number>;
+        untitledLabel: string;
     },
 ): Promise<Uint8Array> {
     if (!deps.bookmarksDirty.value) {
         return data;
     }
 
-    const normalizedBookmarks = normalizeBookmarkEntries(deps.bookmarkItems.value, deps.totalPages.value);
+    const normalizedBookmarks = normalizeBookmarkEntries(
+        deps.bookmarkItems.value,
+        deps.totalPages.value,
+        deps.untitledLabel,
+    );
 
     let doc: PDFDocument;
     try {

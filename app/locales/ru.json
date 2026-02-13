@@ -1,4 +1,7 @@
 {
+  "app": {
+    "title": "EVB Viewer"
+  },
   "toolbar": {
     "openPdf": "Открыть PDF",
     "save": "Сохранить",
@@ -20,18 +23,28 @@
     "settings": "Настройки",
     "moreTools": "Ещё"
   },
+  "tabs": {
+    "newTab": "Новая вкладка",
+    "unsavedChanges": "Несохранённые изменения",
+    "closeTab": "Закрыть вкладку"
+  },
   "zoom": {
     "fitWidth": "По ширине",
     "fitHeight": "По высоте",
     "continuousScroll": "Непрерывная прокрутка",
     "handTool": "Рука",
-    "textSelect": "Выделение текста"
+    "textSelect": "Выделение текста",
+    "zoomOut": "Уменьшить",
+    "zoomIn": "Увеличить",
+    "apply": "Применить масштаб",
+    "custom": "Свой"
   },
   "sidebar": {
     "notes": "Заметки",
     "pages": "Страницы",
     "bookmarks": "Закладки",
-    "search": "Поиск"
+    "search": "Поиск",
+    "resize": "Изменить ширину боковой панели"
   },
   "annotations": {
     "create": "Создание",
@@ -85,12 +98,127 @@
     "squiggleLabel": "Волна",
     "inkLabel": "Чернила",
     "stickyNoteLabel": "Заметка",
+    "popUpNoteLabel": "Всплывающая заметка",
+    "inlineNoteLabel": "Встроенная заметка",
+    "freehandLineLabel": "Линия от руки",
     "rectangleLabel": "Прямоугольник",
     "circleLabel": "Круг",
     "lineLabel": "Линия",
     "arrowLabel": "Стрелка",
+    "polygonLabel": "Многоугольник",
     "decreaseWidth": "Уменьшить толщину",
-    "increaseWidth": "Увеличить толщину"
+    "increaseWidth": "Увеличить толщину",
+    "moreNotes": "+{count} заметка | +{count} заметки | +{count} заметок",
+    "openPopUpNote": "Открыть всплывающую заметку",
+    "openPopUpNoteCount": "Открыть всплывающую заметку ({count} заметка) | Открыть всплывающую заметку ({count} заметки) | Открыть всплывающую заметку ({count} заметок)"
+  },
+  "annotationProperties": {
+    "close": "Закрыть",
+    "color": "Цвет",
+    "fill": "Заливка",
+    "stroke": "Обводка",
+    "opacity": "Прозрачность",
+    "rectangle": "Прямоугольник",
+    "ellipse": "Эллипс",
+    "line": "Линия",
+    "arrow": "Стрелка",
+    "shape": "Фигура"
+  },
+  "ocr": {
+    "button": "OCR",
+    "runTitle": "Запустить OCR",
+    "pages": "Страницы",
+    "allPages": "Все страницы ({total})",
+    "currentPage": "Текущая страница ({page})",
+    "customRange": "Свой диапазон",
+    "customRangePlaceholder": "напр., 1-5, 8, 10-12",
+    "languages": "Языки",
+    "latinCyrillic": "Латиница / кириллица",
+    "greek": "Греческий",
+    "rtlScripts": "Письменности RTL",
+    "preparing": "Подготовка OCR...",
+    "processingPage": "Обработка страницы {page} ({processed}/{total})",
+    "complete": "OCR завершён — PDF теперь доступен для поиска",
+    "exportDocx": "Экспорт DOCX",
+    "start": "Запустить OCR",
+    "cancel": "Отменить OCR"
+  },
+  "djvu": {
+    "loadingPages": "Загрузка страниц... {current}/{total}",
+    "bannerHint": "Файл DjVu — конвертируйте в PDF для редактирования",
+    "convertToPdf": "Конвертировать в PDF...",
+    "overlayConverting": "Конвертация DjVu в PDF...",
+    "overlayBookmarks": "Обработка закладок...",
+    "overlayPreparing": "Подготовка...",
+    "fileFallback": "DjVu",
+    "documentFallback": "документ",
+    "pdfFallback": "PDF",
+    "convertDialog": {
+      "title": "Конвертация DjVu в PDF",
+      "file": "Файл",
+      "pages": "Страницы",
+      "sourceResolution": "Разрешение источника",
+      "quality": "Качество",
+      "estimating": "Оценка размера файла...",
+      "preserveBookmarks": "Сохранить закладки",
+      "fullQuality": "Максимальное качество",
+      "original": "Оригинал",
+      "goodQuality": "Хорошее качество",
+      "halfResolution": "Половинное разрешение",
+      "compact": "Компактный",
+      "quarterResolution": "Четверть разрешения"
+    }
+  },
+  "common": {
+    "cancel": "Отмена",
+    "convert": "Конвертировать",
+    "unitDpi": "DPI",
+    "unitByte": "Б",
+    "unitKilobyte": "КБ",
+    "unitMegabyte": "МБ"
+  },
+  "menu": {
+    "noRecentFiles": "Нет недавних файлов",
+    "clearRecentFiles": "Очистить недавние файлы",
+    "file": "Файл",
+    "openFile": "Открыть файл...",
+    "openRecent": "Открыть недавние",
+    "save": "Сохранить",
+    "saveAs": "Сохранить как...",
+    "exportDocx": "Экспорт DOCX...",
+    "convertToPdf": "Конвертировать в PDF...",
+    "newTab": "Новая вкладка",
+    "closeTab": "Закрыть вкладку",
+    "quit": "Выйти",
+    "actions": "Действия",
+    "undo": "Отменить",
+    "redo": "Повторить",
+    "copy": "Копировать",
+    "pages": "Страницы",
+    "deleteSelectedPages": "Удалить выбранные страницы",
+    "extractSelectedPages": "Извлечь выбранные страницы...",
+    "rotateClockwise": "Повернуть по часовой",
+    "rotateCounterclockwise": "Повернуть против часовой",
+    "insertPages": "Вставить страницы...",
+    "view": "Вид",
+    "zoomIn": "Увеличить",
+    "zoomOut": "Уменьшить",
+    "actualSize": "Реальный размер",
+    "fitWidth": "По ширине",
+    "fitHeight": "По высоте",
+    "window": "Окно",
+    "help": "Справка"
+  },
+  "dialogs": {
+    "openDocument": "Открыть документ",
+    "documentsFilter": "Документы",
+    "savePdfAs": "Сохранить PDF как",
+    "savePdf": "Сохранить PDF",
+    "pdfFiles": "PDF файлы",
+    "saveOcrTextAs": "Сохранить текст OCR как",
+    "wordDocuments": "Документы Word",
+    "extractPages": "Извлечь страницы",
+    "insertPagesFromPdf": "Вставить страницы из PDF"
   },
   "noteWindow": {
     "popUpNote": "Заметка : Стр. {page}",
@@ -118,7 +246,9 @@
     "noResults": "Ничего не найдено",
     "resultCount": "{count} результат | {count} результата | {count} результатов",
     "forQuery": "по запросу \u00ab{query}\u00bb",
-    "showingFirst": "Показаны первые {count} результатов \u2014 продолжайте набирать для уточнения"
+    "showingFirst": "Показаны первые {count} результатов \u2014 продолжайте набирать для уточнения",
+    "page": "Страница {page}",
+    "match": "Совпадение {index}"
   },
   "emptyState": {
     "recentFiles": "Недавние файлы",
@@ -166,23 +296,39 @@
     "targetSelectedPages": "Цель: выбранные страницы {range}.",
     "targetUnavailableNonContiguous": "Цель недоступна: выделение не последовательное.",
     "targetNone": "Цель: нет. Введите диапазон или выберите последовательные миниатюры.",
-    "pageWord": "страница | страницы | страниц"
+    "pageWord": "страница | страницы | страниц",
+    "rangePlaceholder": "напр. 1-12",
+    "prefixPlaceholder": "Раздел-"
   },
   "bookmarks": {
     "noBookmarks": "Нет доступных закладок",
+    "loading": "Загрузка закладок...",
     "enterEditMode": "Режим редактирования",
     "exitEditMode": "Выйти из редактирования",
+    "controls": "Управление закладками",
     "addTopLevel": "Добавить закладку",
+    "addFirst": "Добавить первую закладку",
     "editBookmark": "Редактировать закладку",
     "addSiblingAbove": "Добавить выше",
     "addSiblingBelow": "Добавить ниже",
     "addChild": "Добавить вложенную",
+    "collapse": "Свернуть закладку",
+    "expand": "Развернуть закладку",
+    "untitled": "Без названия",
+    "actions": "Действия с закладкой",
+    "topLevelOnly": "Только верхний уровень",
+    "expandAll": "Развернуть все закладки",
+    "expandCurrentPath": "Развернуть текущую ветку",
     "enableBold": "Включить жирный",
     "disableBold": "Выключить жирный",
     "enableItalic": "Включить курсив",
     "disableItalic": "Выключить курсив",
     "defaultColor": "Цвет по умолчанию",
+    "setColor": "Установить цвет {color}",
     "setStyleStart": "Начало диапазона стиля",
+    "rangeStartSet": "Начало диапазона задано",
+    "applyStyleRange": "Применить стиль к диапазону",
+    "applyStyleToCount": "Применить стиль к {count} закладке | Применить стиль к {count} закладкам | Применить стиль к {count} закладкам",
     "removeBookmark": "Удалить закладку",
     "newBookmark": "Новая закладка"
   },
@@ -191,7 +337,10 @@
     "unsavedChanges": "Несохранённые изменения \u2013 нажмите для сохранения",
     "allSaved": "Все изменения сохранены",
     "saveChanges": "Сохранить изменения",
-    "savingChanges": "Сохранение изменений"
+    "savingChanges": "Сохранение изменений",
+    "fileSizeUnknown": "Размер: -",
+    "fileSizeValue": "Размер: {size}",
+    "zoomValue": "Масштаб: {zoom}%"
   },
   "relativeTime": {
     "yesterday": "Вчера",
@@ -226,6 +375,48 @@
     "themeDescription": "Переключение между светлой и тёмной темой.",
     "language": "Язык",
     "languageDescription": "Выберите язык интерфейса.",
+    "languageEnglish": "Английский",
+    "languageRussian": "Русский",
     "close": "Закрыть"
+  },
+  "errors": {
+    "recent": {
+      "load": "Не удалось загрузить недавние файлы",
+      "remove": "Не удалось удалить файл",
+      "clear": "Не удалось очистить список недавних файлов"
+    },
+    "file": {
+      "open": "Не удалось открыть файл",
+      "invalid": "Файл недействителен или не существует",
+      "save": "Не удалось сохранить файл"
+    },
+    "ocr": {
+      "loadLanguages": "Не удалось загрузить языки",
+      "noValidPages": "Не выбраны корректные страницы",
+      "timeout": "Операция OCR превысила лимит 30 минут",
+      "start": "Не удалось запустить OCR",
+      "noPdfData": "В ответе нет PDF-данных или пути к PDF",
+      "createSearchablePdf": "Не удалось создать PDF с поиском",
+      "noText": "Текст OCR не найден. Сначала запустите OCR.",
+      "exportDocx": "Не удалось экспортировать DOCX"
+    },
+    "pageOps": {
+      "deleteAll": "Нельзя удалить все страницы документа",
+      "delete": "Не удалось удалить страницы",
+      "extract": "Не удалось извлечь страницы",
+      "rotate": "Не удалось повернуть страницы",
+      "insert": "Не удалось вставить страницы",
+      "insertFile": "Не удалось вставить страницы из файла",
+      "reorder": "Не удалось переупорядочить страницы"
+    },
+    "annotation": {
+      "delete": "Не удалось удалить эту аннотацию из текущего документа.",
+      "updateNote": "Не удалось обновить эту заметку.",
+      "saveBeforeClose": "Не удалось сохранить эту заметку перед закрытием."
+    },
+    "djvu": {
+      "open": "Не удалось выполнить конвертацию DjVu",
+      "convert": "Не удалось выполнить конвертацию"
+    }
   }
 }

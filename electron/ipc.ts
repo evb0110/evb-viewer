@@ -78,6 +78,7 @@ export function registerIpcHandlers() {
     ipcMain.handle('settings:get', () => loadSettings());
     ipcMain.handle('settings:save', async (_event, settings: ISettingsData) => {
         await saveSettings(settings);
+        updateRecentFilesMenu();
     });
 
     registerOcrHandlers();

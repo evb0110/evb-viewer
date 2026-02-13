@@ -14,6 +14,7 @@ import {
     createWorkingCopy,
     workingCopyMap,
 } from '@electron/ipc/workingCopy';
+import { te } from '@electron/i18n';
 
 interface IOpenPdfResult {
     kind: 'pdf';
@@ -77,15 +78,15 @@ export async function handleOpenPdfDirect(
 export function handleSetWindowTitle(event: Electron.IpcMainInvokeEvent, title: string) {
     const window = BrowserWindow.fromWebContents(event.sender);
     if (window) {
-        window.setTitle(title || 'EVB Viewer');
+        window.setTitle(title || te('app.title'));
     }
 }
 
 export async function handleOpenPdfDialog(): Promise<IOpenFileResult | null> {
     const result = await dialog.showOpenDialog({
-        title: 'Open Document',
+        title: te('dialogs.openDocument'),
         filters: [{
-            name: 'Documents',
+            name: te('dialogs.documentsFilter'),
             extensions: [
                 'pdf',
                 'djvu',
@@ -155,10 +156,10 @@ export async function handleSavePdfAs(
         : basename(normalizedWorkingPath);
 
     const result = await dialog.showSaveDialog({
-        title: 'Save PDF As',
+        title: te('dialogs.savePdfAs'),
         defaultPath: suggestedName.endsWith('.pdf') ? suggestedName : `${suggestedName}.pdf`,
         filters: [{
-            name: 'PDF Files',
+            name: te('dialogs.pdfFiles'),
             extensions: ['pdf'],
         }],
     });
@@ -186,10 +187,10 @@ export async function handleSavePdfDialog(
     suggestedName: string,
 ): Promise<string | null> {
     const result = await dialog.showSaveDialog({
-        title: 'Save PDF',
+        title: te('dialogs.savePdf'),
         defaultPath: suggestedName.endsWith('.pdf') ? suggestedName : `${suggestedName}.pdf`,
         filters: [{
-            name: 'PDF Files',
+            name: te('dialogs.pdfFiles'),
             extensions: ['pdf'],
         }],
     });
@@ -217,10 +218,10 @@ export async function handleSaveDocxAs(
         : 'ocr-text';
 
     const result = await dialog.showSaveDialog({
-        title: 'Save OCR Text As',
+        title: te('dialogs.saveOcrTextAs'),
         defaultPath: `${suggestedBase}.docx`,
         filters: [{
-            name: 'Word Documents',
+            name: te('dialogs.wordDocuments'),
             extensions: ['docx'],
         }],
     });

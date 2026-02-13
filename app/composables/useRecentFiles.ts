@@ -19,6 +19,7 @@ const error = ref<string | null>(null);
 let loadPromise: Promise<void> | null = null;
 
 export const useRecentFiles = () => {
+    const { t } = useI18n();
 
     async function loadRecentFiles() {
         if (!window.electronAPI) {
@@ -36,7 +37,7 @@ export const useRecentFiles = () => {
             try {
                 recentFiles.value = await window.electronAPI.recentFiles.get();
             } catch (e) {
-                error.value = e instanceof Error ? e.message : 'Failed to load recent files';
+                error.value = e instanceof Error ? e.message : t('errors.recent.load');
             } finally {
                 isLoading.value = false;
                 loadPromise = null;
@@ -55,7 +56,7 @@ export const useRecentFiles = () => {
         try {
             await window.electronAPI.openPdfDirect(file.originalPath);
         } catch (e) {
-            error.value = e instanceof Error ? e.message : 'Failed to open file';
+            error.value = e instanceof Error ? e.message : t('errors.file.open');
         }
     }
 
@@ -69,7 +70,7 @@ export const useRecentFiles = () => {
             await window.electronAPI.recentFiles.remove(file.originalPath);
             await loadRecentFiles();
         } catch (e) {
-            error.value = e instanceof Error ? e.message : 'Failed to remove file';
+            error.value = e instanceof Error ? e.message : t('errors.recent.remove');
         }
     }
 
@@ -83,7 +84,7 @@ export const useRecentFiles = () => {
             await window.electronAPI.recentFiles.clear();
             recentFiles.value = [];
         } catch (e) {
-            error.value = e instanceof Error ? e.message : 'Failed to clear recent files';
+            error.value = e instanceof Error ? e.message : t('errors.recent.clear');
         }
     }
 

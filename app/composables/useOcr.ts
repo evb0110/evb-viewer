@@ -21,6 +21,8 @@ import {
 } from '@app/composables/ocrProcessing';
 
 export const useOcr = () => {
+    const { t } = useI18n();
+
     const availableLanguages = ref<IOcrLanguage[]>([]);
     const settings = ref<IOcrSettings>({
         pageRange: 'current',
@@ -54,7 +56,7 @@ export const useOcr = () => {
             const api = getElectronAPI();
             availableLanguages.value = await api.ocrGetLanguages();
         } catch (e) {
-            error.value = e instanceof Error ? e.message : 'Failed to load languages';
+            error.value = e instanceof Error ? e.message : t('errors.ocr.loadLanguages');
         }
     }
 
@@ -87,7 +89,7 @@ export const useOcr = () => {
         BrowserLogger.debug('OCR', 'Pages selected', pages);
 
         if (pages.length === 0) {
-            error.value = 'No valid pages selected';
+            error.value = t('errors.ocr.noValidPages');
             return;
         }
 
@@ -165,7 +167,7 @@ export const useOcr = () => {
                 timeoutId = setTimeout(() => {
                     if (!didResolve) {
                         timeoutId = null;
-                        reject(new Error('OCR operation timed out after 30 minutes'));
+                        reject(new Error(t('errors.ocr.timeout')));
                     }
                 }, OCR_TIMEOUT_MS);
             });
@@ -181,7 +183,7 @@ export const useOcr = () => {
             BrowserLogger.debug('OCR', 'Job started', startResult);
 
             if (!startResult.started) {
-                throw new Error(startResult.error || 'Failed to start OCR job');
+                throw new Error(startResult.error || t('errors.ocr.start'));
             }
 
             const response = await ocrPromise;
@@ -213,7 +215,7 @@ export const useOcr = () => {
                     BrowserLogger.debug('OCR', `OCR PDF ready in response (${response.pdfData.length} bytes)`);
                     pdfBytes = new Uint8Array(response.pdfData);
                 } else {
-                    throw new Error('No PDF data or path in response');
+                    throw new Error(t('errors.ocr.noPdfData'));
                 }
 
                 results.value = {
@@ -223,7 +225,7 @@ export const useOcr = () => {
                     searchablePdfData: pdfBytes,
                 };
             } else if (!response.success) {
-                error.value = error.value || 'Failed to create searchable PDF';
+                error.value = error.value || t('errors.ocr.createSearchablePdf');
             }
         } catch (e) {
             const errMsg = e instanceof Error ? e.message : String(e);
@@ -331,7 +333,7 @@ export const useOcr = () => {
                 text = await extractPdfText(pdfDocument);
             }
             if (!text) {
-                error.value = 'No OCR text found. Run OCR first.';
+                error.value = t('errors.ocr.noText');
                 return false;
             }
 
@@ -345,7 +347,7 @@ export const useOcr = () => {
             await api.writeDocxFile(outPath, docxBytes);
             return true;
         } catch (e) {
-            error.value = e instanceof Error ? e.message : 'Failed to export DOCX';
+            error.value = e instanceof Error ? e.message : t('errors.ocr.exportDocx');
             return false;
         } finally {
             isExporting.value = false;

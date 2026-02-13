@@ -45,6 +45,8 @@ interface IUseAnnotationCommentSyncOptions {
 }
 
 export function useAnnotationCommentSync(options: IUseAnnotationCommentSyncOptions) {
+    const { t } = useI18n();
+
     const {
         pdfDocument,
         numPages,
@@ -103,7 +105,7 @@ export function useAnnotationCommentSync(options: IUseAnnotationCommentSyncOptio
             pageIndex,
             pageNumber: pageIndex + 1,
             text,
-            kindLabel: annotationKindLabelFromSubtype(resolvedSubtype),
+            kindLabel: annotationKindLabelFromSubtype(resolvedSubtype, t),
             subtype: resolvedSubtype,
             author: authorName.value?.trim() || null,
             modifiedAt: parsePdfDateTimestamp(data.modificationDate) ?? parsePdfDateTimestamp(data.creationDate),
@@ -225,7 +227,7 @@ export function useAnnotationCommentSync(options: IUseAnnotationCommentSyncOptio
                     pageIndex: pageNumber - 1,
                     pageNumber,
                     text,
-                    kindLabel: annotationKindLabelFromSubtype(subtype),
+                    kindLabel: annotationKindLabelFromSubtype(subtype, t),
                     subtype,
                     author: getAnnotationAuthor(annotation) ?? (popupAnnotation ? getAnnotationAuthor(popupAnnotation) : null),
                     modifiedAt: (() => {

@@ -3,7 +3,7 @@
         <div
             class="pdf-bookmarks-view-modes"
             role="group"
-            aria-label="Bookmark controls"
+            :aria-label="t('bookmarks.controls')"
         >
             <UTooltip
                 v-for="option in displayModeOptions"
@@ -86,27 +86,27 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 
-const displayModeOptions = [
+const displayModeOptions = computed<Array<{
+    id: TBookmarkDisplayMode;
+    title: string;
+    icon: string;
+}>>(() => [
     {
         id: 'top-level',
-        title: 'Top level only',
+        title: t('bookmarks.topLevelOnly'),
         icon: 'i-lucide-list',
     },
     {
         id: 'all-expanded',
-        title: 'Expand all bookmarks',
+        title: t('bookmarks.expandAll'),
         icon: 'i-lucide-chevrons-down',
     },
     {
         id: 'current-expanded',
-        title: 'Expand current bookmark path',
+        title: t('bookmarks.expandCurrentPath'),
         icon: 'i-lucide-eye',
     },
-] satisfies Array<{
-    id: TBookmarkDisplayMode;
-    title: string;
-    icon: string 
-}>;
+]);
 </script>
 
 <style scoped>

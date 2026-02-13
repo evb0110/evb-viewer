@@ -17,6 +17,7 @@ import {
     rotatePages,
 } from '@electron/page-ops/qpdf';
 import type { TRotationAngle } from '@electron/page-ops/qpdf';
+import { te } from '@electron/i18n';
 
 function validateWorkingCopyPath(path: unknown): asserts path is string {
     if (!path || typeof path !== 'string' || path.trim() === '') {
@@ -97,10 +98,10 @@ async function handlePageOpsExtract(
     const suggestedName = `${baseName} (${rangeLabel}).pdf`;
     const parentWindow = BrowserWindow.getFocusedWindow();
     const dialogOptions = {
-        title: 'Extract Pages',
+        title: te('dialogs.extractPages'),
         defaultPath: suggestedName,
         filters: [{
-            name: 'PDF Files',
+            name: te('dialogs.pdfFiles'),
             extensions: ['pdf'],
         }],
     };
@@ -161,9 +162,9 @@ async function handlePageOpsInsert(
 
     const parentWindow = BrowserWindow.getFocusedWindow();
     const dialogOptions = {
-        title: 'Insert Pages From PDF',
+        title: te('dialogs.insertPagesFromPdf'),
         filters: [{
-            name: 'PDF Files',
+            name: te('dialogs.pdfFiles'),
             extensions: ['pdf'],
         }],
         properties: ['openFile'] as Array<'openFile'>,

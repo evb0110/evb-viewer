@@ -13,14 +13,14 @@
                 variant="ghost"
                 color="neutral"
                 size="xs"
-                aria-label="Close"
+                :aria-label="t('annotationProperties.close')"
                 @click="emit('close')"
             />
         </div>
 
         <div class="annotation-properties-body">
             <label class="annotation-properties-field">
-                <span class="annotation-properties-label">Color</span>
+                <span class="annotation-properties-label">{{ t('annotationProperties.color') }}</span>
                 <input
                     type="color"
                     :value="shape.color"
@@ -30,7 +30,7 @@
             </label>
 
             <label v-if="shape.type === 'rectangle' || shape.type === 'circle'" class="annotation-properties-field">
-                <span class="annotation-properties-label">Fill</span>
+                <span class="annotation-properties-label">{{ t('annotationProperties.fill') }}</span>
                 <div class="annotation-properties-fill-row">
                     <input
                         type="color"
@@ -45,13 +45,13 @@
                             :checked="hasFill"
                             @change="toggleFill"
                         >
-                        Fill
+                        {{ t('annotationProperties.fill') }}
                     </label>
                 </div>
             </label>
 
             <label class="annotation-properties-field">
-                <span class="annotation-properties-label">Stroke</span>
+                <span class="annotation-properties-label">{{ t('annotationProperties.stroke') }}</span>
                 <input
                     type="range"
                     :value="shape.strokeWidth"
@@ -65,7 +65,7 @@
             </label>
 
             <label class="annotation-properties-field">
-                <span class="annotation-properties-label">Opacity</span>
+                <span class="annotation-properties-label">{{ t('annotationProperties.opacity') }}</span>
                 <input
                     type="range"
                     :value="shape.opacity"
@@ -85,6 +85,8 @@
 import { computed } from 'vue';
 import type { IShapeAnnotation } from '@app/types/annotations';
 
+const { t } = useI18n();
+
 interface IProps {
     shape: IShapeAnnotation | null;
     x: number;
@@ -100,11 +102,11 @@ const emit = defineEmits<{
 
 const shapeLabel = computed(() => {
     switch (props.shape?.type) {
-        case 'rectangle': return 'Rectangle';
-        case 'circle': return 'Ellipse';
-        case 'line': return 'Line';
-        case 'arrow': return 'Arrow';
-        default: return 'Shape';
+        case 'rectangle': return t('annotationProperties.rectangle');
+        case 'circle': return t('annotationProperties.ellipse');
+        case 'line': return t('annotationProperties.line');
+        case 'arrow': return t('annotationProperties.arrow');
+        default: return t('annotationProperties.shape');
     }
 });
 

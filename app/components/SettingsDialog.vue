@@ -100,11 +100,11 @@ const {
 
 const localeItems = computed(() => [
     {
-        label: 'English',
+        label: t('settings.languageEnglish'),
         value: 'en', 
     },
     {
-        label: 'Русский',
+        label: t('settings.languageRussian'),
         value: 'ru', 
     },
 ]);

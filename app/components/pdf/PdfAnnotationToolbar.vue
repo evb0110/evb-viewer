@@ -37,7 +37,6 @@ interface IToolItem {
     id: TAnnotationTool;
     label: string;
     icon: string;
-    hint: string;
 }
 
 interface IProps {
@@ -62,55 +61,46 @@ const toolItems = computed<IToolItem[]>(() => [
         id: 'draw',
         label: t('annotations.draw'),
         icon: 'i-lucide-pen-tool',
-        hint: 'Freehand pen or pencil drawing',
     },
     {
         id: 'text',
         label: t('annotations.text'),
         icon: 'i-lucide-type',
-        hint: 'Place free text on the page',
     },
     {
         id: 'highlight',
         label: t('annotations.highlight'),
         icon: 'i-lucide-highlighter',
-        hint: 'Highlight text selection',
     },
     {
         id: 'underline',
         label: t('annotations.underline'),
         icon: 'i-lucide-underline',
-        hint: 'Underline text selection',
     },
     {
         id: 'strikethrough',
         label: t('annotations.strikethrough'),
         icon: 'i-lucide-strikethrough',
-        hint: 'Cross out text selection',
     },
     {
         id: 'rectangle',
         label: t('annotations.rectangle'),
         icon: 'i-lucide-square',
-        hint: 'Draw rectangle shapes',
     },
     {
         id: 'circle',
         label: t('annotations.circle'),
         icon: 'i-lucide-circle',
-        hint: 'Draw circle shapes',
     },
     {
         id: 'line',
         label: t('annotations.line'),
         icon: 'i-lucide-minus',
-        hint: 'Draw straight lines',
     },
     {
         id: 'arrow',
         label: t('annotations.arrow'),
         icon: 'i-lucide-arrow-up-right',
-        hint: 'Draw arrows',
     },
 ]);
 </script>

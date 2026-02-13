@@ -17,6 +17,8 @@ interface IDjvuLoadingProgress {
 }
 
 export const useDjvu = () => {
+    const { t } = useI18n();
+
     const {
         isDjvuMode,
         djvuSourcePath,
@@ -150,7 +152,7 @@ export const useDjvu = () => {
         setOriginalPath?: (path: string | null) => void,
     ) {
         const api = getElectronAPI();
-        const djvuFileName = djvuPath.split(/[\\/]/).pop() ?? 'DjVu';
+        const djvuFileName = djvuPath.split(/[\\/]/).pop() ?? t('djvu.fileFallback');
 
         showBanner.value = true;
         activeConvertJobId.value = null;
@@ -160,7 +162,7 @@ export const useDjvu = () => {
             const result = await api.djvu.openForViewing(djvuPath);
 
             if (!result.success || !result.pdfPath) {
-                throw new Error(result.error ?? 'DjVu conversion failed');
+                throw new Error(result.error ?? t('errors.djvu.open'));
             }
 
             const initialPdfPath = result.pdfPath;
@@ -236,7 +238,7 @@ export const useDjvu = () => {
 
         const api = getElectronAPI();
 
-        const suggestedName = (djvuSourcePath.value.split(/[\\/]/).pop() ?? 'document')
+        const suggestedName = (djvuSourcePath.value.split(/[\\/]/).pop() ?? t('djvu.documentFallback'))
             .replace(/\.djvu$/i, '.pdf');
         const savePath = await api.savePdfDialog(suggestedName);
         if (!savePath) {
@@ -262,7 +264,7 @@ export const useDjvu = () => {
             );
 
             if (!result.success || !result.pdfPath) {
-                throw new Error(result.error ?? 'Conversion failed');
+                throw new Error(result.error ?? t('errors.djvu.convert'));
             }
             activeConvertJobId.value = result.jobId ?? null;
 
@@ -281,7 +283,7 @@ export const useDjvu = () => {
             const openResult = await api.openPdfDirect(result.pdfPath);
             if (openResult && openResult.kind === 'pdf') {
                 await loadPdfFromPath(openResult.workingPath);
-                await api.setWindowTitle(result.pdfPath.split(/[\\/]/).pop() ?? 'PDF');
+                await api.setWindowTitle(result.pdfPath.split(/[\\/]/).pop() ?? t('djvu.pdfFallback'));
             }
         } finally {
             activeConvertJobId.value = null;

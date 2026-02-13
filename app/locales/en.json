@@ -1,4 +1,7 @@
 {
+  "app": {
+    "title": "EVB Viewer"
+  },
   "toolbar": {
     "openPdf": "Open File",
     "save": "Save",
@@ -20,18 +23,28 @@
     "settings": "Settings",
     "moreTools": "More tools"
   },
+  "tabs": {
+    "newTab": "New Tab",
+    "unsavedChanges": "Unsaved changes",
+    "closeTab": "Close tab"
+  },
   "zoom": {
     "fitWidth": "Fit Width",
     "fitHeight": "Fit Height",
     "continuousScroll": "Continuous Scroll",
     "handTool": "Hand Tool",
-    "textSelect": "Text Select"
+    "textSelect": "Text Select",
+    "zoomOut": "Zoom Out",
+    "zoomIn": "Zoom In",
+    "apply": "Apply Zoom",
+    "custom": "Custom"
   },
   "sidebar": {
     "notes": "Notes",
     "pages": "Pages",
     "bookmarks": "Bookmarks",
-    "search": "Search"
+    "search": "Search",
+    "resize": "Resize sidebar"
   },
   "annotations": {
     "create": "Create",
@@ -85,12 +98,127 @@
     "squiggleLabel": "Squiggle",
     "inkLabel": "Ink",
     "stickyNoteLabel": "Sticky Note",
+    "popUpNoteLabel": "Pop-up Note",
+    "inlineNoteLabel": "Inline Note",
+    "freehandLineLabel": "Freehand Line",
     "rectangleLabel": "Rectangle",
     "circleLabel": "Circle",
     "lineLabel": "Line",
     "arrowLabel": "Arrow",
+    "polygonLabel": "Polygon",
     "decreaseWidth": "Decrease width",
-    "increaseWidth": "Increase width"
+    "increaseWidth": "Increase width",
+    "moreNotes": "+{count} more note | +{count} more notes",
+    "openPopUpNote": "Open pop-up note",
+    "openPopUpNoteCount": "Open pop-up note ({count} note) | Open pop-up note ({count} notes)"
+  },
+  "annotationProperties": {
+    "close": "Close",
+    "color": "Color",
+    "fill": "Fill",
+    "stroke": "Stroke",
+    "opacity": "Opacity",
+    "rectangle": "Rectangle",
+    "ellipse": "Ellipse",
+    "line": "Line",
+    "arrow": "Arrow",
+    "shape": "Shape"
+  },
+  "ocr": {
+    "button": "OCR",
+    "runTitle": "Run OCR",
+    "pages": "Pages",
+    "allPages": "All pages ({total})",
+    "currentPage": "Current page ({page})",
+    "customRange": "Custom range",
+    "customRangePlaceholder": "e.g., 1-5, 8, 10-12",
+    "languages": "Languages",
+    "latinCyrillic": "Latin / Cyrillic",
+    "greek": "Greek",
+    "rtlScripts": "RTL Scripts",
+    "preparing": "Preparing OCR...",
+    "processingPage": "Processing page {page} ({processed}/{total})",
+    "complete": "OCR complete - PDF is now searchable",
+    "exportDocx": "Export DOCX",
+    "start": "Start OCR",
+    "cancel": "Cancel OCR"
+  },
+  "djvu": {
+    "loadingPages": "Loading pages... {current}/{total}",
+    "bannerHint": "DjVu file - convert to PDF to enable editing features",
+    "convertToPdf": "Convert to PDF...",
+    "overlayConverting": "Converting DjVu to PDF...",
+    "overlayBookmarks": "Processing bookmarks...",
+    "overlayPreparing": "Preparing...",
+    "fileFallback": "DjVu",
+    "documentFallback": "document",
+    "pdfFallback": "PDF",
+    "convertDialog": {
+      "title": "Convert DjVu to PDF",
+      "file": "File",
+      "pages": "Pages",
+      "sourceResolution": "Source resolution",
+      "quality": "Quality",
+      "estimating": "Estimating file sizes...",
+      "preserveBookmarks": "Preserve bookmarks",
+      "fullQuality": "Full Quality",
+      "original": "Original",
+      "goodQuality": "Good Quality",
+      "halfResolution": "Half resolution",
+      "compact": "Compact",
+      "quarterResolution": "Quarter resolution"
+    }
+  },
+  "common": {
+    "cancel": "Cancel",
+    "convert": "Convert",
+    "unitDpi": "DPI",
+    "unitByte": "B",
+    "unitKilobyte": "KB",
+    "unitMegabyte": "MB"
+  },
+  "menu": {
+    "noRecentFiles": "No Recent Files",
+    "clearRecentFiles": "Clear Recent Files",
+    "file": "File",
+    "openFile": "Open File...",
+    "openRecent": "Open Recent",
+    "save": "Save",
+    "saveAs": "Save As...",
+    "exportDocx": "Export DOCX...",
+    "convertToPdf": "Convert to PDF...",
+    "newTab": "New Tab",
+    "closeTab": "Close Tab",
+    "quit": "Quit",
+    "actions": "Actions",
+    "undo": "Undo",
+    "redo": "Redo",
+    "copy": "Copy",
+    "pages": "Pages",
+    "deleteSelectedPages": "Delete Selected Pages",
+    "extractSelectedPages": "Extract Selected Pages...",
+    "rotateClockwise": "Rotate Clockwise",
+    "rotateCounterclockwise": "Rotate Counterclockwise",
+    "insertPages": "Insert Pages...",
+    "view": "View",
+    "zoomIn": "Zoom In",
+    "zoomOut": "Zoom Out",
+    "actualSize": "Actual Size",
+    "fitWidth": "Fit Width",
+    "fitHeight": "Fit Height",
+    "window": "Window",
+    "help": "Help"
+  },
+  "dialogs": {
+    "openDocument": "Open Document",
+    "documentsFilter": "Documents",
+    "savePdfAs": "Save PDF As",
+    "savePdf": "Save PDF",
+    "pdfFiles": "PDF Files",
+    "saveOcrTextAs": "Save OCR Text As",
+    "wordDocuments": "Word Documents",
+    "extractPages": "Extract Pages",
+    "insertPagesFromPdf": "Insert Pages From PDF"
   },
   "noteWindow": {
     "popUpNote": "Pop-up Note : Page {page}",
@@ -118,7 +246,9 @@
     "noResults": "No results found",
     "resultCount": "{count} result | {count} results",
     "forQuery": "for \u201c{query}\u201d",
-    "showingFirst": "Showing first {count} results \u2014 keep typing to narrow"
+    "showingFirst": "Showing first {count} results \u2014 keep typing to narrow",
+    "page": "Page {page}",
+    "match": "Match {index}"
   },
   "emptyState": {
     "recentFiles": "Recent Files",
@@ -166,23 +296,39 @@
     "targetSelectedPages": "Target: selected pages {range}.",
     "targetUnavailableNonContiguous": "Target unavailable: selection is not contiguous.",
     "targetNone": "Target: none. Enter a range or select contiguous thumbnails.",
-    "pageWord": "page | pages"
+    "pageWord": "page | pages",
+    "rangePlaceholder": "e.g. 1-12",
+    "prefixPlaceholder": "Section-"
   },
   "bookmarks": {
     "noBookmarks": "No bookmarks available",
+    "loading": "Loading bookmarks...",
     "enterEditMode": "Enter bookmark edit mode",
     "exitEditMode": "Exit bookmark edit mode",
+    "controls": "Bookmark controls",
     "addTopLevel": "Add top-level bookmark",
+    "addFirst": "Add first bookmark",
     "editBookmark": "Edit bookmark",
     "addSiblingAbove": "Add sibling above",
     "addSiblingBelow": "Add sibling below",
     "addChild": "Add child bookmark",
+    "collapse": "Collapse bookmark",
+    "expand": "Expand bookmark",
+    "untitled": "Untitled Bookmark",
+    "actions": "Bookmark actions",
+    "topLevelOnly": "Top level only",
+    "expandAll": "Expand all bookmarks",
+    "expandCurrentPath": "Expand current bookmark path",
     "enableBold": "Enable bold",
     "disableBold": "Disable bold",
     "enableItalic": "Enable italic",
     "disableItalic": "Disable italic",
     "defaultColor": "Use default text color",
+    "setColor": "Set color {color}",
     "setStyleStart": "Set style range start",
+    "rangeStartSet": "Range start set",
+    "applyStyleRange": "Apply style to range",
+    "applyStyleToCount": "Apply style to {count} bookmark | Apply style to {count} bookmarks",
     "removeBookmark": "Remove bookmark",
     "newBookmark": "New Bookmark"
   },
@@ -191,7 +337,10 @@
     "unsavedChanges": "Unsaved changes \u2013 click to save",
     "allSaved": "All changes saved",
     "saveChanges": "Save changes",
-    "savingChanges": "Saving changes"
+    "savingChanges": "Saving changes",
+    "fileSizeUnknown": "Size: -",
+    "fileSizeValue": "Size: {size}",
+    "zoomValue": "Zoom: {zoom}%"
   },
   "relativeTime": {
     "yesterday": "Yesterday",
@@ -226,6 +375,48 @@
     "themeDescription": "Switch between light and dark appearance.",
     "language": "Language",
     "languageDescription": "Choose the interface language.",
+    "languageEnglish": "English",
+    "languageRussian": "Russian",
     "close": "Close"
+  },
+  "errors": {
+    "recent": {
+      "load": "Failed to load recent files",
+      "remove": "Failed to remove file",
+      "clear": "Failed to clear recent files"
+    },
+    "file": {
+      "open": "Failed to open file",
+      "invalid": "Invalid or non-existent file",
+      "save": "Failed to save file"
+    },
+    "ocr": {
+      "loadLanguages": "Failed to load languages",
+      "noValidPages": "No valid pages selected",
+      "timeout": "OCR operation timed out after 30 minutes",
+      "start": "Failed to start OCR job",
+      "noPdfData": "No PDF data or path in response",
+      "createSearchablePdf": "Failed to create searchable PDF",
+      "noText": "No OCR text found. Run OCR first.",
+      "exportDocx": "Failed to export DOCX"
+    },
+    "pageOps": {
+      "deleteAll": "Cannot delete all pages from the document",
+      "delete": "Failed to delete pages",
+      "extract": "Failed to extract pages",
+      "rotate": "Failed to rotate pages",
+      "insert": "Failed to insert pages",
+      "insertFile": "Failed to insert pages from file",
+      "reorder": "Failed to reorder pages"
+    },
+    "annotation": {
+      "delete": "Unable to delete this annotation from the current document.",
+      "updateNote": "Unable to update this note.",
+      "saveBeforeClose": "Unable to save this note before closing."
+    },
+    "djvu": {
+      "open": "DjVu conversion failed",
+      "convert": "Conversion failed"
+    }
   }
 }

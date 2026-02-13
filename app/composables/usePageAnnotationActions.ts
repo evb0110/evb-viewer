@@ -78,6 +78,8 @@ export interface IPageAnnotationActionsDeps {
 }
 
 export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
+    const { t } = useI18n();
+
     const {
         pdfViewerRef,
         annotationTool,
@@ -393,7 +395,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
             }
         }
         if (!deleted) {
-            setAnnotationNoteWindowError(comment.stableKey, 'Unable to delete this annotation from the current document.');
+            setAnnotationNoteWindowError(comment.stableKey, t('errors.annotation.delete'));
             return;
         }
         annotationNoteWindows.value

@@ -15,6 +15,8 @@ export const usePageOperations = (deps: {
     clearOcrCache: (path: string) => void;
     resetSearchCache: () => void;
 }) => {
+    const { t } = useI18n();
+
     const {
         workingCopyPath,
         loadPdfFromData,
@@ -37,7 +39,7 @@ export const usePageOperations = (deps: {
             return false;
         }
         if (pages.length >= totalPages) {
-            error.value = 'Cannot delete all pages from the document';
+            error.value = t('errors.pageOps.deleteAll');
             return false;
         }
 
@@ -57,7 +59,7 @@ export const usePageOperations = (deps: {
             return false;
         } catch (e) {
             console.error('[pageOps] deletePages failed:', e);
-            error.value = e instanceof Error ? e.message : 'Failed to delete pages';
+            error.value = e instanceof Error ? e.message : t('errors.pageOps.delete');
             return false;
         } finally {
             isOperationInProgress.value = false;
@@ -77,7 +79,7 @@ export const usePageOperations = (deps: {
             return result.success && !result.canceled;
         } catch (e) {
             console.error('[pageOps] extractPages failed:', e);
-            error.value = e instanceof Error ? e.message : 'Failed to extract pages';
+            error.value = e instanceof Error ? e.message : t('errors.pageOps.extract');
             return false;
         } finally {
             isOperationInProgress.value = false;
@@ -105,7 +107,7 @@ export const usePageOperations = (deps: {
             return false;
         } catch (e) {
             console.error('[pageOps] rotatePages failed:', e);
-            error.value = e instanceof Error ? e.message : 'Failed to rotate pages';
+            error.value = e instanceof Error ? e.message : t('errors.pageOps.rotate');
             return false;
         } finally {
             isOperationInProgress.value = false;
@@ -133,7 +135,7 @@ export const usePageOperations = (deps: {
             return false;
         } catch (e) {
             console.error('[pageOps] insertPages failed:', e);
-            error.value = e instanceof Error ? e.message : 'Failed to insert pages';
+            error.value = e instanceof Error ? e.message : t('errors.pageOps.insert');
             return false;
         } finally {
             isOperationInProgress.value = false;
@@ -161,7 +163,7 @@ export const usePageOperations = (deps: {
             return false;
         } catch (e) {
             console.error('[pageOps] insertFile failed:', e);
-            error.value = e instanceof Error ? e.message : 'Failed to insert pages from file';
+            error.value = e instanceof Error ? e.message : t('errors.pageOps.insertFile');
             return false;
         } finally {
             isOperationInProgress.value = false;
@@ -189,7 +191,7 @@ export const usePageOperations = (deps: {
             return false;
         } catch (e) {
             console.error('[pageOps] reorderPages failed:', e);
-            error.value = e instanceof Error ? e.message : 'Failed to reorder pages';
+            error.value = e instanceof Error ? e.message : t('errors.pageOps.reorder');
             return false;
         } finally {
             isOperationInProgress.value = false;

@@ -1,14 +1,14 @@
 <template>
     <div class="zoom-controls">
         <div class="zoom-controls-item">
-            <UTooltip text="Zoom Out" :delay-duration="1200">
+            <UTooltip :text="t('zoom.zoomOut')" :delay-duration="1200">
                 <UButton
                     icon="i-lucide-minus"
                     variant="ghost"
                     color="neutral"
                     :disabled="disabled || zoom <= ZOOM.MIN"
                     class="zoom-controls-button"
-                    aria-label="Zoom out"
+                    :aria-label="t('zoom.zoomOut')"
                     @click="handleZoomOut"
                 />
             </UTooltip>
@@ -59,17 +59,17 @@
                                     min="25"
                                     max="500"
                                     step="1"
-                                    placeholder="Custom"
+                                    :placeholder="t('zoom.custom')"
                                     @keydown.enter.prevent="applyCustomZoom"
                                 >
                                     <template #trailing>%</template>
                                 </UInput>
-                                <UTooltip text="Apply Zoom" :delay-duration="1200">
+                                <UTooltip :text="t('zoom.apply')" :delay-duration="1200">
                                     <UButton
                                         icon="i-lucide-check"
                                         size="xs"
                                         variant="soft"
-                                        aria-label="Apply zoom"
+                                        :aria-label="t('zoom.apply')"
                                         @click="applyCustomZoom"
                                     />
                                 </UTooltip>
@@ -126,14 +126,14 @@
         </div>
 
         <div class="zoom-controls-item">
-            <UTooltip text="Zoom In" :delay-duration="1200">
+            <UTooltip :text="t('zoom.zoomIn')" :delay-duration="1200">
                 <UButton
                     icon="i-lucide-plus"
                     variant="ghost"
                     color="neutral"
                     :disabled="disabled || zoom >= ZOOM.MAX"
                     class="zoom-controls-button"
-                    aria-label="Zoom in"
+                    :aria-label="t('zoom.zoomIn')"
                     @click="handleZoomIn"
                 />
             </UTooltip>

@@ -4,8 +4,8 @@
         :class="{ 'is-active': isActive }"
     >
         <div class="pdf-search-result-meta">
-            <span class="pdf-search-result-page">Page {{ pageIndicator }}</span>
-            <span class="pdf-search-result-match">Match {{ result.matchIndex + 1 }}</span>
+            <span class="pdf-search-result-page">{{ t('searchResults.page', { page: pageIndicator }) }}</span>
+            <span class="pdf-search-result-match">{{ t('searchResults.match', { index: result.matchIndex + 1 }) }}</span>
         </div>
         <div
             v-if="result.excerpt"
@@ -37,6 +37,8 @@ import {
     unregisterSearchHighlight,
 } from '@app/composables/useSearchHighlight';
 import { formatPageIndicator } from '@app/utils/pdf-page-labels';
+
+const { t } = useI18n();
 
 interface IProps {
     result: IPdfSearchMatch;

@@ -36,13 +36,13 @@
             </span>
             <UTooltip
                 v-if="hasChildren"
-                :text="isExpanded ? 'Collapse bookmark' : 'Expand bookmark'"
+                :text="isExpanded ? t('bookmarks.collapse') : t('bookmarks.expand')"
                 :delay-duration="800"
             >
                 <button
                     type="button"
                     class="pdf-bookmark-item-toggle"
-                    :title="isExpanded ? 'Collapse bookmark' : 'Expand bookmark'"
+                    :title="isExpanded ? t('bookmarks.collapse') : t('bookmarks.expand')"
                     @click.stop="emit('toggle-expand', item.id)"
                 >
                     <UIcon
@@ -71,21 +71,21 @@
                 v-else
                 class="pdf-bookmark-item-title"
                 :style="bookmarkTitleStyle"
-                :title="item.title || 'Untitled Bookmark'"
+                :title="item.title || t('bookmarks.untitled')"
             >
-                {{ item.title || 'Untitled Bookmark' }}
+                {{ item.title || t('bookmarks.untitled') }}
             </span>
 
             <UTooltip
                 v-if="treeContext.isEditMode.value"
-                text="Bookmark actions"
+                :text="t('bookmarks.actions')"
                 :delay-duration="800"
             >
                 <button
                     type="button"
                     class="pdf-bookmark-item-actions-trigger"
-                    aria-label="Bookmark actions"
-                    title="Bookmark actions"
+                    :aria-label="t('bookmarks.actions')"
+                    :title="t('bookmarks.actions')"
                     @click.stop="openActionsFromButton"
                 >
                     <UIcon
@@ -134,6 +134,8 @@ import type {
 } from '@app/types/pdf-outline';
 import { resolveBookmarkDestinationPage } from '@app/utils/pdf-outline-helpers';
 import { usePdfOutlineItemState } from '@app/composables/pdf/usePdfOutlineItemState';
+
+const { t } = useI18n();
 
 type TDropPosition = 'before' | 'after' | 'child';
 

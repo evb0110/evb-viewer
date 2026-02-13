@@ -37,7 +37,7 @@
                                 class="pdf-sidebar-pages-input"
                                 type="text"
                                 inputmode="numeric"
-                                placeholder="e.g. 1-12"
+                                :placeholder="t('pageNumbering.rangePlaceholder')"
                             >
                         </div>
 
@@ -65,7 +65,7 @@
                                 v-model="pageLabelPrefix"
                                 class="pdf-sidebar-pages-input"
                                 type="text"
-                                placeholder="Section-"
+                                :placeholder="t('pageNumbering.prefixPlaceholder')"
                             >
                         </div>
 

@@ -65,6 +65,8 @@ export interface IPageSaveOrchestrationDeps {
 }
 
 export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
+    const { t } = useI18n();
+
     const {
         pdfData,
         pdfDocument,
@@ -140,6 +142,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
             bookmarksDirty,
             bookmarkItems,
             totalPages,
+            untitledLabel: t('bookmarks.untitled'),
         }),
         persistAllAnnotationNotes,
         annotationNoteWindowsCount,

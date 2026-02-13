@@ -27,6 +27,8 @@ interface ICommentMarkerInteractionDeps {
 }
 
 export const useCommentMarkerInteraction = (deps: ICommentMarkerInteractionDeps) => {
+    const { t } = useI18n();
+
     let inlineCommentFocusPulseTimeout: ReturnType<typeof setTimeout> | null = null;
 
     function resolveCommentFromIndicatorElement(indicator: HTMLElement) {
@@ -138,10 +140,10 @@ export const useCommentMarkerInteraction = (deps: ICommentMarkerInteractionDeps)
 
         const best = deps.pickBestCommentFromStableKeys(stableKeys);
         const base = best
-            ? commentPreviewText(best)
+            ? commentPreviewText(best, t('annotations.emptyNote'))
             : fallbackText;
         const preview = stableKeys.length > 1
-            ? `${base} (+${stableKeys.length - 1} more note${stableKeys.length > 2 ? 's' : ''})`
+            ? `${base} (${t('annotations.moreNotes', { count: stableKeys.length - 1 })})`
             : base;
         const summary = deps.pickBestCommentFromStableKeys(stableKeys);
         const marker = (
@@ -183,7 +185,12 @@ export const useCommentMarkerInteraction = (deps: ICommentMarkerInteractionDeps)
         marker.dataset.commentCount = String(stableKeys.length);
         marker.classList.toggle('is-active', stableKeys.some(stableKey => deps.isCommentActive(stableKey)));
         marker.classList.toggle('is-cluster', stableKeys.length > 1);
-        marker.setAttribute('aria-label', stableKeys.length > 1 ? `Open pop-up note (${stableKeys.length} notes)` : 'Open pop-up note');
+        marker.setAttribute(
+            'aria-label',
+            stableKeys.length > 1
+                ? t('annotations.openPopUpNoteCount', { count: stableKeys.length })
+                : t('annotations.openPopUpNote'),
+        );
         marker.setAttribute('title', preview);
         target.setAttribute('title', preview);
     }
@@ -201,9 +208,9 @@ export const useCommentMarkerInteraction = (deps: ICommentMarkerInteractionDeps)
             return null;
         }
         const noteCount = comments.length;
-        const trimmedPreview = commentPreviewText(primaryComment);
+        const trimmedPreview = commentPreviewText(primaryComment, t('annotations.emptyNote'));
         const preview = noteCount > 1
-            ? `${trimmedPreview} (+${noteCount - 1} more note${noteCount > 2 ? 's' : ''})`
+            ? `${trimmedPreview} (${t('annotations.moreNotes', { count: noteCount - 1 })})`
             : trimmedPreview;
 
         const marker = document.createElement('button');
@@ -226,8 +233,8 @@ export const useCommentMarkerInteraction = (deps: ICommentMarkerInteractionDeps)
         marker.setAttribute(
             'aria-label',
             noteCount > 1
-                ? `Open pop-up note (${noteCount} notes)`
-                : 'Open pop-up note',
+                ? t('annotations.openPopUpNoteCount', { count: noteCount })
+                : t('annotations.openPopUpNote'),
         );
         marker.addEventListener('click', (event) => {
             event.preventDefault();

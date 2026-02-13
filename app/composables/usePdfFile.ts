@@ -7,6 +7,8 @@ import { useOcrTextContent } from '@app/composables/pdf/useOcrTextContent';
 import type { TPdfSource } from '@app/types/pdf';
 
 export const usePdfFile = () => {
+    const { t } = useI18n();
+
     const pdfSrc = ref<TPdfSource | null>(null);
     const pdfData = ref<Uint8Array | null>(null);
     const workingCopyPath = ref<string | null>(null);
@@ -41,7 +43,7 @@ export const usePdfFile = () => {
             originalPath.value = result.originalPath;
             await loadPdfFromPath(result.workingPath);
         } catch (e) {
-            error.value = e instanceof Error ? e.message : 'Failed to open file';
+            error.value = e instanceof Error ? e.message : t('errors.file.open');
         }
     }
 
@@ -52,7 +54,7 @@ export const usePdfFile = () => {
             const api = getElectronAPI();
             const result = await api.openPdfDirect(path);
             if (!result) {
-                error.value = 'Invalid or non-existent file';
+                error.value = t('errors.file.invalid');
                 return;
             }
             if (result.kind === 'djvu') {
@@ -62,7 +64,7 @@ export const usePdfFile = () => {
             originalPath.value = result.originalPath;
             await loadPdfFromPath(result.workingPath);
         } catch (e) {
-            error.value = e instanceof Error ? e.message : 'Failed to open file';
+            error.value = e instanceof Error ? e.message : t('errors.file.open');
         }
     }
 
@@ -191,7 +193,7 @@ export const usePdfFile = () => {
             syncDirtyFromHistory();
             return true;
         } catch (e) {
-            error.value = e instanceof Error ? e.message : 'Failed to save file';
+            error.value = e instanceof Error ? e.message : t('errors.file.save');
             return false;
         }
     }
@@ -208,7 +210,7 @@ export const usePdfFile = () => {
             syncDirtyFromHistory();
             return true;
         } catch (e) {
-            error.value = e instanceof Error ? e.message : 'Failed to save file';
+            error.value = e instanceof Error ? e.message : t('errors.file.save');
             return false;
         }
     }
@@ -230,7 +232,7 @@ export const usePdfFile = () => {
             }
             return savedPath;
         } catch (e) {
-            error.value = e instanceof Error ? e.message : 'Failed to save file';
+            error.value = e instanceof Error ? e.message : t('errors.file.save');
             return null;
         }
     }

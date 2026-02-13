@@ -79,10 +79,10 @@ export function errorToLogText(error: unknown) {
         : message;
 }
 
-export function commentPreviewText(comment: IAnnotationCommentSummary) {
+export function commentPreviewText(comment: IAnnotationCommentSummary, emptyNoteLabel: string) {
     const raw = comment.text.trim();
     if (!raw) {
-        return 'Empty note';
+        return emptyNoteLabel;
     }
     if (raw.length > 120) {
         return `${raw.slice(0, 117)}...`;
@@ -90,10 +90,10 @@ export function commentPreviewText(comment: IAnnotationCommentSummary) {
     return raw;
 }
 
-export function commentPreviewFromRawText(text: string) {
+export function commentPreviewFromRawText(text: string, emptyNoteLabel: string) {
     const raw = text.trim();
     if (!raw) {
-        return 'Empty note';
+        return emptyNoteLabel;
     }
     if (raw.length > 120) {
         return `${raw.slice(0, 117)}...`;

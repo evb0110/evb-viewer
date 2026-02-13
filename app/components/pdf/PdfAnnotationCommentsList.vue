@@ -39,7 +39,7 @@
                         @contextmenu.prevent.stop="openItemContextMenu($event, comment)"
                     >
                         <span class="note-item-top">
-                            <span class="note-item-page">P{{ comment.pageNumber }}</span>
+                            <span class="note-item-page">{{ t('annotations.page') }} {{ comment.pageNumber }}</span>
                             <span class="note-item-type">{{ commentTypeLabel(comment) }}</span>
                         </span>
                         <span class="note-item-text">{{ notePreview(comment) }}</span>

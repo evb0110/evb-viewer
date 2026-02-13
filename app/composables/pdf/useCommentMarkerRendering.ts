@@ -13,6 +13,8 @@ export const useCommentMarkerRendering = (deps: {
     activeCommentStableKey: Ref<string | null>;
     identity: TIdentity;
 }) => {
+    const { t } = useI18n();
+
     function isCommentActive(stableKey: string) {
         return deps.activeCommentStableKey.value === stableKey;
     }
@@ -88,12 +90,12 @@ export const useCommentMarkerRendering = (deps: {
     function makeInlineMarkerPreview(stableKeys: string[], fallbackText: string) {
         const best = pickBestCommentFromStableKeys(stableKeys);
         const base = best
-            ? commentPreviewText(best)
-            : commentPreviewFromRawText(fallbackText);
+            ? commentPreviewText(best, t('annotations.emptyNote'))
+            : commentPreviewFromRawText(fallbackText, t('annotations.emptyNote'));
         if (stableKeys.length <= 1) {
             return base;
         }
-        return `${base} (+${stableKeys.length - 1} more note${stableKeys.length > 2 ? 's' : ''})`;
+        return `${base} (${t('annotations.moreNotes', { count: stableKeys.length - 1 })})`;
     }
 
     function markInlineCommentTarget(target: HTMLElement, text: string) {
@@ -105,7 +107,7 @@ export const useCommentMarkerRendering = (deps: {
                     ? `${normalizedText.slice(0, 277)}...`
                     : normalizedText
             )
-            : 'Empty note';
+            : t('annotations.emptyNote');
         target.setAttribute('data-comment-preview', preview);
         target.setAttribute('title', preview);
     }

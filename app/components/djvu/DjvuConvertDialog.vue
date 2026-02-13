@@ -23,7 +23,7 @@
                         class="convert-info-row"
                     >
                         <span class="convert-info-label">{{ t('djvu.convertDialog.sourceResolution') }}</span>
-                        <span class="convert-info-value">{{ info.sourceDpi }} DPI</span>
+                        <span class="convert-info-value">{{ info.sourceDpi }} {{ t('common.unitDpi') }}</span>
                     </div>
                 </div>
 
@@ -45,7 +45,7 @@
                         <div class="convert-preset-content">
                             <div class="convert-preset-label">
                                 {{ estimate.label }}
-                                <span class="convert-preset-dpi">{{ estimate.resultingDpi }} DPI</span>
+                                <span class="convert-preset-dpi">{{ estimate.resultingDpi }} {{ t('common.unitDpi') }}</span>
                             </div>
                             <div class="convert-preset-description">
                                 {{ estimate.description }}
@@ -139,12 +139,12 @@ const fileName = computed(() => props.djvuPath?.split(/[\\/]/).pop() ?? '');
 
 function formatBytes(bytes: number) {
     if (bytes < 1024) {
-        return `${bytes} B`;
+        return `${bytes} ${t('common.unitByte')}`;
     }
     if (bytes < 1024 * 1024) {
-        return `${(bytes / 1024).toFixed(1)} KB`;
+        return `${(bytes / 1024).toFixed(1)} ${t('common.unitKilobyte')}`;
     }
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} ${t('common.unitMegabyte')}`;
 }
 
 watch(open, async (isOpen) => {

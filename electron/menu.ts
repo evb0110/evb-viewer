@@ -10,8 +10,9 @@ import {
 import { basename } from 'path';
 import { config } from '@electron/config';
 import { getRecentFilesSync } from '@electron/recent-files';
+import { te } from '@electron/i18n';
 
-const appName = 'EVB Viewer';
+const appName = te('app.title');
 
 function sendToWindow(window: BaseWindow | undefined, channel: string, ...args: unknown[]) {
     if (window instanceof BrowserWindow) {
@@ -24,7 +25,7 @@ function buildRecentFilesSubmenu(): MenuItemConstructorOptions[] {
 
     if (recentFiles.length === 0) {
         return [{
-            label: 'No Recent Files',
+            label: te('menu.noRecentFiles'),
             enabled: false, 
         }];
     }
@@ -40,7 +41,7 @@ function buildRecentFilesSubmenu(): MenuItemConstructorOptions[] {
         ...fileItems,
         { type: 'separator' },
         {
-            label: 'Clear Recent Files',
+            label: te('menu.clearRecentFiles'),
             click: (_, window) => {
                 sendToWindow(window, 'menu:clearRecentFiles');
             },
@@ -50,56 +51,56 @@ function buildRecentFilesSubmenu(): MenuItemConstructorOptions[] {
 
 function getFileMenu(): MenuItemConstructorOptions {
     return {
-        label: 'File',
+        label: te('menu.file'),
         submenu: [
             {
-                label: 'Open File...',
+                label: te('menu.openFile'),
                 accelerator: 'CmdOrCtrl+O',
                 click: (_, window) => {
                     sendToWindow(window, 'menu:openPdf');
                 },
             },
             {
-                label: 'Open Recent',
+                label: te('menu.openRecent'),
                 submenu: buildRecentFilesSubmenu(),
             },
             {
-                label: 'Save',
+                label: te('menu.save'),
                 accelerator: 'CmdOrCtrl+S',
                 click: (_, window) => {
                     sendToWindow(window, 'menu:save');
                 },
             },
             {
-                label: 'Save As...',
+                label: te('menu.saveAs'),
                 accelerator: 'CmdOrCtrl+Shift+S',
                 click: (_, window) => {
                     sendToWindow(window, 'menu:saveAs');
                 },
             },
             {
-                label: 'Export DOCX...',
+                label: te('menu.exportDocx'),
                 accelerator: 'CmdOrCtrl+Shift+E',
                 click: (_, window) => {
                     sendToWindow(window, 'menu:exportDocx');
                 },
             },
             {
-                label: 'Convert to PDF...',
+                label: te('menu.convertToPdf'),
                 click: (_, window) => {
                     sendToWindow(window, 'menu:convertToPdf');
                 },
             },
             { type: 'separator' },
             {
-                label: 'New Tab',
+                label: te('menu.newTab'),
                 accelerator: 'CmdOrCtrl+T',
                 click: (_, window) => {
                     sendToWindow(window, 'menu:newTab');
                 },
             },
             {
-                label: 'Close Tab',
+                label: te('menu.closeTab'),
                 accelerator: 'CmdOrCtrl+W',
                 click: (_, window) => {
                     sendToWindow(window, 'menu:closeTab');
@@ -108,7 +109,7 @@ function getFileMenu(): MenuItemConstructorOptions {
             ...(config.isMac ? [] : [
                 { type: 'separator' as const },
                 {
-                    label: 'Quit',
+                    label: te('menu.quit'),
                     accelerator: 'CmdOrCtrl+Q',
                     click: () => {
                         app.quit();
@@ -121,17 +122,17 @@ function getFileMenu(): MenuItemConstructorOptions {
 
 function getEditMenu(): MenuItemConstructorOptions {
     return {
-        label: 'Actions',
+        label: te('menu.actions'),
         submenu: [
             {
-                label: 'Undo',
+                label: te('menu.undo'),
                 accelerator: 'CmdOrCtrl+Z',
                 click: (_, window) => {
                     sendToWindow(window, 'menu:undo');
                 },
             },
             {
-                label: 'Redo',
+                label: te('menu.redo'),
                 accelerator: 'CmdOrCtrl+Shift+Z',
                 click: (_, window) => {
                     sendToWindow(window, 'menu:redo');
@@ -139,7 +140,7 @@ function getEditMenu(): MenuItemConstructorOptions {
             },
             { type: 'separator' },
             {
-                label: 'Copy',
+                label: te('menu.copy'),
                 accelerator: 'CmdOrCtrl+C',
                 click: (_item, window) => {
                     (window as Electron.BrowserWindow | undefined)?.webContents.copy();
@@ -151,36 +152,36 @@ function getEditMenu(): MenuItemConstructorOptions {
 
 function getPagesMenu(): MenuItemConstructorOptions {
     return {
-        label: 'Pages',
+        label: te('menu.pages'),
         submenu: [
             {
-                label: 'Delete Selected Pages',
+                label: te('menu.deleteSelectedPages'),
                 click: (_, window) => {
                     sendToWindow(window, 'menu:deletePages');
                 },
             },
             {
-                label: 'Extract Selected Pages...',
+                label: te('menu.extractSelectedPages'),
                 click: (_, window) => {
                     sendToWindow(window, 'menu:extractPages');
                 },
             },
             { type: 'separator' },
             {
-                label: 'Rotate Clockwise',
+                label: te('menu.rotateClockwise'),
                 click: (_, window) => {
                     sendToWindow(window, 'menu:rotateCw');
                 },
             },
             {
-                label: 'Rotate Counterclockwise',
+                label: te('menu.rotateCounterclockwise'),
                 click: (_, window) => {
                     sendToWindow(window, 'menu:rotateCcw');
                 },
             },
             { type: 'separator' },
             {
-                label: 'Insert Pages...',
+                label: te('menu.insertPages'),
                 click: (_, window) => {
                     sendToWindow(window, 'menu:insertPages');
                 },
@@ -191,24 +192,24 @@ function getPagesMenu(): MenuItemConstructorOptions {
 
 function getViewMenu(): MenuItemConstructorOptions {
     return {
-        label: 'View',
+        label: te('menu.view'),
         submenu: [
             {
-                label: 'Zoom In',
+                label: te('menu.zoomIn'),
                 accelerator: 'CmdOrCtrl+Plus',
                 click: (_, window) => {
                     sendToWindow(window, 'menu:zoomIn');
                 },
             },
             {
-                label: 'Zoom Out',
+                label: te('menu.zoomOut'),
                 accelerator: 'CmdOrCtrl+-',
                 click: (_, window) => {
                     sendToWindow(window, 'menu:zoomOut');
                 },
             },
             {
-                label: 'Actual Size',
+                label: te('menu.actualSize'),
                 accelerator: 'CmdOrCtrl+0',
                 click: (_, window) => {
                     sendToWindow(window, 'menu:actualSize');
@@ -216,14 +217,14 @@ function getViewMenu(): MenuItemConstructorOptions {
             },
             { type: 'separator' },
             {
-                label: 'Fit Width',
+                label: te('menu.fitWidth'),
                 accelerator: 'CmdOrCtrl+1',
                 click: (_, window) => {
                     sendToWindow(window, 'menu:fitWidth');
                 },
             },
             {
-                label: 'Fit Height',
+                label: te('menu.fitHeight'),
                 accelerator: 'CmdOrCtrl+2',
                 click: (_, window) => {
                     sendToWindow(window, 'menu:fitHeight');
@@ -237,7 +238,7 @@ function getViewMenu(): MenuItemConstructorOptions {
 
 function getWindowMenu(): MenuItemConstructorOptions {
     return {
-        label: 'Window',
+        label: te('menu.window'),
         submenu: [
             { role: 'minimize' },
             { role: 'close' },
@@ -251,7 +252,7 @@ function getWindowMenu(): MenuItemConstructorOptions {
 
 function getHelpMenu(): MenuItemConstructorOptions {
     return {
-        label: 'Help',
+        label: te('menu.help'),
         submenu: [{ role: 'about' }],
     };
 }

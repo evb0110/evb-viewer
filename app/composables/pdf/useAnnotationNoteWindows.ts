@@ -50,6 +50,8 @@ export interface IAnnotationNoteWindowDeps {
 }
 
 export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
+    const { t } = useI18n();
+
     const {
         annotationComments,
         markAnnotationDirty,
@@ -266,7 +268,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
                 }
             }
             if (!saved) {
-                note.error = 'Unable to update this note.';
+                note.error = t('errors.annotation.updateNote');
                 return false;
             }
 
@@ -330,7 +332,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             }
             const saved = await persistAnnotationNote(stableKey, true);
             if (!saved) {
-                setAnnotationNoteWindowError(stableKey, 'Unable to save this note before closing.');
+                setAnnotationNoteWindowError(stableKey, t('errors.annotation.saveBeforeClose'));
                 return;
             }
         }

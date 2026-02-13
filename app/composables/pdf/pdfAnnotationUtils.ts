@@ -165,43 +165,54 @@ export function getAnnotationAuthor(annotation: {
     return direct || null;
 }
 
-export function annotationKindLabelFromSubtype(subtype: string | null | undefined) {
+type TTranslateLabel = (key: string) => string;
+
+export function annotationKindLabelFromSubtype(
+    subtype: string | null | undefined,
+    translate?: TTranslateLabel,
+) {
+    const label = (key: string, fallback: string) => (
+        typeof translate === 'function'
+            ? translate(key)
+            : fallback
+    );
+
     const normalized = (subtype ?? '').trim().toLowerCase();
     switch (normalized) {
         case 'highlight':
-            return 'Highlight';
+            return label('annotations.highlightLabel', 'Highlight');
         case 'underline':
-            return 'Underline';
+            return label('annotations.underlineLabel', 'Underline');
         case 'squiggly':
-            return 'Squiggle';
+            return label('annotations.squiggleLabel', 'Squiggle');
         case 'strikeout':
-            return 'Strike Out';
+            return label('annotations.strikeOutLabel', 'Strike Out');
         case 'text':
         case 'note-linked':
-            return 'Pop-up Note';
+            return label('annotations.popUpNoteLabel', 'Pop-up Note');
         case 'freetext':
         case 'typewriter':
         case 'note-inline':
-            return 'Inline Note';
+            return label('annotations.inlineNoteLabel', 'Inline Note');
         case 'ink':
-            return 'Freehand Line';
+            return label('annotations.freehandLineLabel', 'Freehand Line');
         case 'line':
         case 'straight-line':
-            return 'Line';
+            return label('annotations.lineLabel', 'Line');
         case 'square':
         case 'geomsquare':
         case 'rectangle':
-            return 'Rectangle';
+            return label('annotations.rectangleLabel', 'Rectangle');
         case 'circle':
         case 'geomcircle':
         case 'ellipse':
-            return 'Ellipse';
+            return label('annotations.circleLabel', 'Circle');
         case 'polygon':
-            return 'Polygon';
+            return label('annotations.polygonLabel', 'Polygon');
         case 'stamp':
-            return 'Stamp';
+            return label('annotations.stamp', 'Stamp');
         default:
-            return 'Annotation';
+            return label('annotations.annotationLabel', 'Annotation');
     }
 }
 

@@ -2,7 +2,10 @@ import {
     readFile,
     writeFile,
 } from 'fs/promises';
-import { existsSync } from 'fs';
+import {
+    existsSync,
+    readFileSync,
+} from 'fs';
 import { join } from 'path';
 import { app } from 'electron';
 import type { ISettingsData } from '@app/types/shared';
@@ -43,3 +46,22 @@ export async function saveSettings(settings: ISettingsData): Promise<void> {
     }
 }
 
+function loadSettingsSync(): ISettingsData {
+    const storagePath = getStoragePath();
+    if (!existsSync(storagePath)) {
+        return { ...DEFAULT_SETTINGS };
+    }
+
+    try {
+        const content = readFileSync(storagePath, 'utf-8');
+        return JSON.parse(content) as ISettingsData;
+    } catch (err) {
+        console.error('Failed to load settings:', err);
+        return { ...DEFAULT_SETTINGS };
+    }
+}
+
+export function getCurrentLocaleSync() {
+    const locale = loadSettingsSync().locale;
+    return locale === 'ru' ? 'ru' : 'en';
+}

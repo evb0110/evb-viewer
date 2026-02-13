@@ -23,6 +23,7 @@ export const usePdfOutlineContextMenu = (
     emitBookmarksChange: () => void,
     onEscape: () => void,
 ) => {
+    const { t } = useI18n();
     const { clampToViewport } = useContextMenuPosition();
 
     const bookmarkContextMenu = ref<{
@@ -75,9 +76,9 @@ export const usePdfOutlineContextMenu = (
     const applyStyleRangeLabel = computed(() => {
         const info = styleRangeInfo.value;
         if (!info) {
-            return 'Apply style to range';
+            return t('bookmarks.applyStyleRange');
         }
-        return `Apply style to ${info.count} bookmarks`;
+        return t('bookmarks.applyStyleToCount', { count: info.count });
     });
 
     function openBookmarkContextMenu(payload: IBookmarkMenuPayload) {

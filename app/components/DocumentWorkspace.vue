@@ -975,9 +975,9 @@ watch(
         }
         let title: string;
         if (isDjvuMode.value && djvuSourcePath.value) {
-            title = djvuSourcePath.value.split(/[\\/]/).pop() ?? 'EVB Viewer';
+            title = djvuSourcePath.value.split(/[\\/]/).pop() ?? t('app.title');
         } else {
-            title = fileName.value ?? 'EVB Viewer';
+            title = fileName.value ?? t('app.title');
         }
         void window.electronAPI.setWindowTitle(title);
     },

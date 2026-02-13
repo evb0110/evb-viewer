@@ -77,7 +77,7 @@
                     class="bookmarks-color-swatch"
                     :class="{ 'is-active': bookmark.color === preset }"
                     :style="{ background: preset }"
-                    :title="`Set color ${preset}`"
+                    :title="t('bookmarks.setColor', { color: preset })"
                     @click="emit('set-color', { id: bookmark.id, color: preset })"
                 />
             </div>
@@ -90,7 +90,7 @@
             :title="t('bookmarks.setStyleStart')"
             @click="emit('set-style-range-start', bookmark.id)"
         >
-            {{ bookmark.id === styleRangeStartId ? 'Range start set' : t('bookmarks.setStyleStart') }}
+            {{ bookmark.id === styleRangeStartId ? t('bookmarks.rangeStartSet') : t('bookmarks.setStyleStart') }}
         </button>
         <button
             type="button"
