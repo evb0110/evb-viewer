@@ -366,6 +366,7 @@
   },
   "settings": {
     "title": "Settings",
+    "dialogDescription": "Configure author name, theme, and interface language.",
     "author": "Author Name",
     "authorPlaceholder": "Your name for annotations",
     "authorDescription": "Shown as the author on sticky notes and comments.",

@@ -4,6 +4,12 @@
         :title="t('settings.title')"
         :ui="{ footer: 'justify-end' }"
     >
+        <template #description>
+            <span class="sr-only">
+                {{ t('settings.dialogDescription') }}
+            </span>
+        </template>
+
         <template #body>
             <div class="settings-body">
                 <div class="settings-field">
