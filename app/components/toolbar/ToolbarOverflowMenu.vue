@@ -42,6 +42,13 @@
                             class="overflow-menu-check"
                         />
                     </button>
+                    <button
+                        class="overflow-menu-item"
+                        @click="emit('open-settings'); close()"
+                    >
+                        <UIcon name="i-lucide-settings" class="overflow-menu-icon" />
+                        <span class="overflow-menu-label">{{ t('toolbar.settings') }}</span>
+                    </button>
                 </div>
 
                 <!-- Tier 2: FitW/FitH, Hand/TextSelect -->
@@ -175,6 +182,7 @@ const emit = defineEmits<{
     (e: 'enable-drag'): void
     (e: 'disable-drag'): void
     (e: 'toggle-continuous-scroll'): void
+    (e: 'open-settings'): void
 }>();
 
 const isOpen = ref(false);

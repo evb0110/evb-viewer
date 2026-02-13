@@ -285,6 +285,7 @@ defineExpose({toolbarRef});
 
 .toolbar-center {
     flex: 1;
+    min-width: 0;
     justify-content: center;
     gap: 0.25rem;
 }

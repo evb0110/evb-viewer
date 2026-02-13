@@ -108,6 +108,7 @@
                     @enable-drag="enableDragMode(); closeAllDropdowns()"
                     @disable-drag="dragMode = false; closeAllDropdowns()"
                     @toggle-continuous-scroll="continuousScroll = !continuousScroll; closeAllDropdowns()"
+                    @open-settings="emit('open-settings'); closeAllDropdowns()"
                 />
             </template>
         </PdfToolbar>
