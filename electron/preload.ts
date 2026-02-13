@@ -199,6 +199,7 @@ if (!__preloadAlreadyInstalled) {
         cleanupFile: (path: string) => ipcRenderer.invoke('file:cleanup', path),
         cleanupOcrTemp: (path: string) => ipcRenderer.invoke('file:cleanupOcrTemp', path),
         setWindowTitle: (title: string) => ipcRenderer.invoke('window:setTitle', title),
+        setMenuDocumentState: (hasDocument: boolean) => ipcRenderer.invoke('menu:setDocumentState', hasDocument),
 
         onMenuOpenPdf: (callback: IMenuEventCallback): IMenuEventUnsubscribe => {
             const handler = (_event: IpcRendererEvent) => callback();

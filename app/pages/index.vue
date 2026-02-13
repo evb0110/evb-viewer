@@ -35,6 +35,7 @@ import {
     onMounted,
     onUnmounted,
     ref,
+    watchEffect,
 } from 'vue';
 import { useTabManager } from '@app/composables/useTabManager';
 
@@ -94,11 +95,28 @@ const activeWorkspace = computed(() => {
     return workspaceRefs.value.get(activeTabId.value) ?? null;
 });
 
+let lastSyncedMenuDocumentState: boolean | null = null;
+
 function workspaceHasPdf(workspace: IWorkspaceExpose | null | undefined) {
     if (!workspace) {
         return false;
     }
     return typeof workspace.hasPdf === 'boolean' ? workspace.hasPdf : workspace.hasPdf.value;
+}
+
+function syncMenuDocumentState() {
+    if (typeof window === 'undefined') {
+        return;
+    }
+    if (!window.electronAPI) {
+        return;
+    }
+    const hasDocument = workspaceHasPdf(activeWorkspace.value);
+    if (lastSyncedMenuDocumentState === hasDocument) {
+        return;
+    }
+    lastSyncedMenuDocumentState = hasDocument;
+    void window.electronAPI.setMenuDocumentState(hasDocument);
 }
 
 function handleCloseTab(tabId: string) {
@@ -365,6 +383,10 @@ onMounted(() => {
             }),
         );
     }
+});
+
+watchEffect(() => {
+    syncMenuDocumentState();
 });
 
 onUnmounted(() => {

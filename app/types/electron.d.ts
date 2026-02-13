@@ -216,6 +216,7 @@ interface IElectronAPI {
     cleanupFile: (path: string) => Promise<void>;
     cleanupOcrTemp: (path: string) => Promise<void>;
     setWindowTitle: (title: string) => Promise<void>;
+    setMenuDocumentState: (hasDocument: boolean) => Promise<void>;
     onMenuOpenPdf: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuSave: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuSaveAs: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;

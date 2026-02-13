@@ -8,7 +8,10 @@ import {
     loadSettings,
     saveSettings,
 } from '@electron/settings';
-import { updateRecentFilesMenu } from '@electron/menu';
+import {
+    setMenuDocumentState,
+    updateRecentFilesMenu,
+} from '@electron/menu';
 import {
     addRecentFile,
     getRecentFiles,
@@ -66,6 +69,9 @@ export function registerIpcHandlers() {
     });
     ipcMain.handle('file:cleanupOcrTemp', handleCleanupOcrTemp);
     ipcMain.handle('window:setTitle', handleSetWindowTitle);
+    ipcMain.handle('menu:setDocumentState', (_event, hasDocument: boolean) => {
+        setMenuDocumentState(hasDocument);
+    });
 
     ipcMain.handle('recent-files:get', () => getRecentFiles());
     ipcMain.handle('recent-files:add', async (_event, originalPath: string) => {

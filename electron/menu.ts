@@ -13,6 +13,7 @@ import { getRecentFilesSync } from '@electron/recent-files';
 import { te } from '@electron/i18n';
 
 const appName = te('app.title');
+const menuState = {hasDocument: false};
 
 function sendToWindow(window: BaseWindow | undefined, channel: string, ...args: unknown[]) {
     if (window instanceof BrowserWindow) {
@@ -80,6 +81,7 @@ function getFileMenu(): MenuItemConstructorOptions {
             },
             {
                 label: te('menu.export'),
+                enabled: menuState.hasDocument,
                 submenu: [
                     {
                         label: te('menu.exportDocx'),
@@ -310,14 +312,25 @@ function buildMenuTemplate(): MenuItemConstructorOptions[] {
     return template;
 }
 
-export function setupMenu() {
+function rebuildMenu() {
     const template = buildMenuTemplate();
     const menu = Menu.buildFromTemplate(template);
     Menu.setApplicationMenu(menu);
 }
 
+export function setupMenu() {
+    rebuildMenu();
+}
+
 export function updateRecentFilesMenu() {
-    const template = buildMenuTemplate();
-    const menu = Menu.buildFromTemplate(template);
-    Menu.setApplicationMenu(menu);
+    rebuildMenu();
+}
+
+export function setMenuDocumentState(hasDocument: boolean) {
+    const normalized = Boolean(hasDocument);
+    if (menuState.hasDocument === normalized) {
+        return;
+    }
+    menuState.hasDocument = normalized;
+    rebuildMenu();
 }
