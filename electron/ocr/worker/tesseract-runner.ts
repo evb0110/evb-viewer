@@ -6,6 +6,7 @@ import {
 } from 'fs/promises';
 import type { IOcrWord } from '../../../app/types/shared';
 import type { IOcrFileResult } from '@electron/ocr/worker/types';
+import { resolveTesseractLanguageConfig } from '@electron/ocr/tesseract-language-config';
 
 const PNG_SIGNATURE = Buffer.from([
     0x89,
@@ -62,34 +63,18 @@ export async function runOcrFileBased(
     threads?: number,
 ): Promise<IOcrFileResult> {
     const outputBase = imagePath.replace(/\.png$/, '') + '-ocr';
+    const languageConfig = resolveTesseractLanguageConfig(languages);
 
     const args = [
         imagePath,
         outputBase,
         '-l',
-        languages.join('+'),
+        languageConfig.orderedLanguages.join('+'),
         '--tessdata-dir',
         tessdataPath,
         '--dpi',
         String(extractionDpi),
-        '-c',
-        'preserve_interword_spaces=1',
-        '-c',
-        'textord_words_default_minspace=0.3',
-        '-c',
-        'textord_words_min_minspace=0.2',
-        '-c',
-        'tosp_fuzzy_space_factor=0.5',
-        '-c',
-        'tosp_min_sane_kn_sp=1.2',
-        '-c',
-        'tosp_kern_gap_factor1=1.5',
-        '-c',
-        'tosp_kern_gap_factor2=1.0',
-        '-c',
-        'load_system_dawg=0',
-        '-c',
-        'load_freq_dawg=0',
+        ...languageConfig.extraConfigArgs,
         '-c',
         'tessedit_create_tsv=1',
         '-c',
@@ -261,4 +246,3 @@ function parseTsvText(tsvContent: string): string {
 
     return outputLines.join('\n').trim();
 }
-

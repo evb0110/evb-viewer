@@ -1,5 +1,6 @@
 import { spawn } from 'child_process';
 import { getOcrPaths } from '@electron/ocr/paths';
+import { resolveTesseractLanguageConfig } from '@electron/ocr/tesseract-language-config';
 
 type TTesseractSpawnOptions = {threads?: number;};
 
@@ -38,37 +39,16 @@ export async function runOcr(
         binary,
         tessdata,
     } = getOcrPaths();
+    const languageConfig = resolveTesseractLanguageConfig(languages);
 
     const args = [
         'stdin',
         'stdout',
         '-l',
-        languages.join('+'),
+        languageConfig.orderedLanguages.join('+'),
         '--tessdata-dir',
         tessdata,
-        // PSM 3 (default/auto) detects multi-column layouts and two-page spreads
-        '-c',
-        'preserve_interword_spaces=1',  // Maintain word boundaries
-        // Lower minimum space thresholds (more aggressive space detection)
-        '-c',
-        'textord_words_default_minspace=0.3',  // Default 0.6
-        '-c',
-        'textord_words_min_minspace=0.2',  // Default 0.3
-        // Fuzzy space parameters - more sensitive detection
-        '-c',
-        'tosp_fuzzy_space_factor=0.5',  // Default 0.6
-        '-c',
-        'tosp_min_sane_kn_sp=1.2',  // Default 1.5
-        // Kern gap factors - more likely to insert spaces
-        '-c',
-        'tosp_kern_gap_factor1=1.5',  // Default 2
-        '-c',
-        'tosp_kern_gap_factor2=1.0',  // Default 1.3
-        // Disable dictionary influence (prevents word merging)
-        '-c',
-        'load_system_dawg=0',
-        '-c',
-        'load_freq_dawg=0',
+        ...languageConfig.extraConfigArgs,
     ];
 
     return new Promise((resolve) => {
@@ -113,4 +93,3 @@ export async function runOcr(
         proc.stdin.end();
     });
 }
-

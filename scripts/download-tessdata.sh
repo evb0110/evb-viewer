@@ -1,5 +1,5 @@
 #!/bin/bash
-# Download Tesseract language data files from tessdata_fast
+# Download Tesseract language data files from tessdata_best
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -11,7 +11,7 @@ mkdir -p "$TESSDATA_DIR"
 # Languages to download
 LANGS="eng rus fra deu tur kmr ara heb syr"
 
-echo "Downloading tessdata_fast language files to $TESSDATA_DIR..."
+echo "Downloading tessdata_best language files to $TESSDATA_DIR..."
 
 for lang in $LANGS; do
   FILE="$TESSDATA_DIR/${lang}.traineddata"
@@ -20,7 +20,7 @@ for lang in $LANGS; do
   else
     echo "  $lang: downloading..."
     curl -sL -o "$FILE" \
-      "https://github.com/tesseract-ocr/tessdata_fast/raw/main/${lang}.traineddata"
+      "https://github.com/tesseract-ocr/tessdata_best/raw/main/${lang}.traineddata"
     echo "  $lang: done ($(du -h "$FILE" | cut -f1))"
   fi
 done
