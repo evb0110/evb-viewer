@@ -43,7 +43,10 @@ export const useDjvu = () => {
 
     let unsubProgress: (() => void) | null = null;
     let unsubViewingReady: (() => void) | null = null;
-    let pendingSwapCallback: ((pdfPath: string) => Promise<void>) | null = null;
+    let swapHandler: ((event: {
+        pdfPath: string;
+        isPartial: boolean 
+    }) => void) | null = null;
 
     function setupProgressListener() {
         if (unsubProgress) {
@@ -81,12 +84,8 @@ export const useDjvu = () => {
         try {
             const api = getElectronAPI();
             unsubViewingReady = api.djvu.onViewingReady((event) => {
-                if (pendingSwapCallback) {
-                    const callback = pendingSwapCallback;
-                    pendingSwapCallback = null;
-                    callback(event.pdfPath).catch(() => {
-                        // Error handled inside callback
-                    });
+                if (swapHandler) {
+                    swapHandler(event);
                 }
             });
         } catch {
@@ -103,7 +102,7 @@ export const useDjvu = () => {
             unsubViewingReady();
             unsubViewingReady = null;
         }
-        pendingSwapCallback = null;
+        swapHandler = null;
     }
 
     setupProgressListener();
@@ -127,11 +126,11 @@ export const useDjvu = () => {
                 throw new Error(result.error ?? 'DjVu conversion failed');
             }
 
-            const page1PdfPath = result.pdfPath;
+            const initialPdfPath = result.pdfPath;
             const pageCount = result.pageCount ?? 0;
 
-            enterDjvuMode(djvuPath, page1PdfPath);
-            await loadPdfFromPath(page1PdfPath);
+            enterDjvuMode(djvuPath, initialPdfPath);
+            await loadPdfFromPath(initialPdfPath);
             await api.setWindowTitle(djvuPath.split(/[\\/]/).pop() ?? 'DjVu');
 
             if (pageCount > 1) {
@@ -141,29 +140,60 @@ export const useDjvu = () => {
                     total: pageCount,
                 };
 
-                pendingSwapCallback = async (fullPdfPath: string) => {
+                // Serialized swap handler: processes multiple viewingReady events
+                // (partial for pages 2-3, then final for all pages) without
+                // overlapping swaps. Queues at most one event if a swap is in progress.
+                let swapInProgress = false;
+                let nextSwapEvent: {
+                    pdfPath: string;
+                    isPartial: boolean 
+                } | null = null;
+
+                async function executeSwap(event: {
+                    pdfPath: string;
+                    isPartial: boolean 
+                }) {
+                    swapInProgress = true;
                     try {
                         const savedPage = getCurrentPage?.() ?? 1;
+                        const oldPath = djvuTempPdfPath.value;
 
-                        enterDjvuMode(djvuPath, fullPdfPath);
-                        await loadPdfFromPath(fullPdfPath);
+                        enterDjvuMode(djvuPath, event.pdfPath);
+                        await loadPdfFromPath(event.pdfPath);
 
                         if (savedPage > 1 && setPage) {
                             setPage(savedPage);
                         }
 
-                        try {
-                            await api.djvu.cleanupTemp(page1PdfPath);
-                        } catch {
-                            // Ignore cleanup errors
+                        if (oldPath && oldPath !== event.pdfPath) {
+                            api.djvu.cleanupTemp(oldPath).catch(() => {});
+                        }
+
+                        if (!event.isPartial) {
+                            isLoadingPages.value = false;
+                            loadingProgress.value = {
+                                current: 0,
+                                total: 0, 
+                            };
+                            swapHandler = null;
                         }
                     } finally {
-                        isLoadingPages.value = false;
-                        loadingProgress.value = {
-                            current: 0,
-                            total: 0,
-                        };
+                        swapInProgress = false;
                     }
+
+                    if (nextSwapEvent) {
+                        const next = nextSwapEvent;
+                        nextSwapEvent = null;
+                        await executeSwap(next);
+                    }
+                }
+
+                swapHandler = (event) => {
+                    if (swapInProgress) {
+                        nextSwapEvent = event;
+                        return;
+                    }
+                    executeSwap(event).catch(() => {});
                 };
             }
         } catch (e) {

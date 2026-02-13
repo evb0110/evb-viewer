@@ -214,13 +214,22 @@ async function handleDjvuOpenForViewing(
             };
         }
 
-        // Phase 2: Fire-and-forget background conversion of all pages
+        // Phase 2: Build skeleton PDF or start background conversion
+        let initialPdfPath: string;
+
         if (pageCount > 1) {
+            // Build skeleton: page 1 content + (N-1) blank pages with correct dimensions.
+            // This gives pdf.js the correct page count immediately for scrollbar/thumbnails.
+            initialPdfPath = await buildSkeletonPdf(tempPage1Path, pageCount);
+
+            // Page 1 content is now embedded in the skeleton — clean up the original
+            unlink(tempPage1Path).catch(() => {});
+
             backgroundConvertAll(window, djvuPath, pageCount, jobId).catch(() => {
                 // Error handling is done inside backgroundConvertAll via viewingError event
             });
         } else {
-            // Single-page file: page 1 PDF is the full PDF, embed bookmarks and signal ready
+            initialPdfPath = tempPage1Path;
             backgroundEmbedBookmarksAndSignal(window, djvuPath, tempPage1Path).catch(() => {
                 // Best effort for single-page files
             });
@@ -228,7 +237,7 @@ async function handleDjvuOpenForViewing(
 
         return {
             success: true,
-            pdfPath: tempPage1Path,
+            pdfPath: initialPdfPath,
             pageCount,
         };
     } catch (err) {
@@ -254,10 +263,74 @@ async function backgroundEmbedBookmarksAndSignal(
             await writeFile(pdfPath, withBookmarks);
         }
 
-        safeSendToWindow(window, 'djvu:viewingReady', { pdfPath });
+        safeSendToWindow(window, 'djvu:viewingReady', {
+            pdfPath,
+            isPartial: false, 
+        });
     } catch (err) {
         safeSendToWindow(window, 'djvu:viewingError', {error: err instanceof Error ? err.message : String(err)});
     }
+}
+
+async function buildSkeletonPdf(
+    page1PdfPath: string,
+    pageCount: number,
+): Promise<string> {
+    const page1Data = await readFile(page1PdfPath);
+    const page1Doc = await PDFDocument.load(page1Data, { updateMetadata: false });
+    const page1 = page1Doc.getPage(0);
+    const {
+        width,
+        height,
+    } = page1.getSize();
+
+    const doc = await PDFDocument.create();
+    const [copiedPage1] = await doc.copyPages(page1Doc, [0]);
+    doc.addPage(copiedPage1!);
+
+    for (let i = 1; i < pageCount; i++) {
+        doc.addPage([
+            width,
+            height,
+        ]);
+    }
+
+    const skeletonPath = join(app.getPath('temp'), `djvu-skeleton-${Date.now()}.pdf`);
+    await writeFile(skeletonPath, new Uint8Array(await doc.save()));
+    return skeletonPath;
+}
+
+async function buildIntermediatePdf(
+    quickPdfPath: string,
+    pageCount: number,
+): Promise<string> {
+    const quickData = await readFile(quickPdfPath);
+    const quickDoc = await PDFDocument.load(quickData, { updateMetadata: false });
+
+    const doc = await PDFDocument.create();
+    const quickPages = await doc.copyPages(quickDoc, quickDoc.getPageIndices());
+
+    let width = 612;
+    let height = 792;
+
+    for (const page of quickPages) {
+        doc.addPage(page);
+        const size = page.getSize();
+        width = size.width;
+        height = size.height;
+    }
+
+    const pagesAdded = quickPages.length;
+    for (let i = pagesAdded; i < pageCount; i++) {
+        doc.addPage([
+            width,
+            height,
+        ]);
+    }
+
+    const intermediatePath = join(app.getPath('temp'), `djvu-intermediate-${Date.now()}.pdf`);
+    await writeFile(intermediatePath, new Uint8Array(await doc.save()));
+    return intermediatePath;
 }
 
 async function backgroundConvertAll(
@@ -267,6 +340,8 @@ async function backgroundConvertAll(
     jobId: string,
 ) {
     const rangeDir = join(app.getPath('temp'), `djvu-ranges-${Date.now()}`);
+    const quickPdfPath = join(app.getPath('temp'), `djvu-quick-${Date.now()}.pdf`);
+    let fullConversionDone = false;
 
     try {
         await mkdir(rangeDir, { recursive: true });
@@ -284,6 +359,34 @@ async function backgroundConvertAll(
             .then((sexp) => parseDjvuOutline(sexp))
             .catch(() => [] as IPdfBookmarkEntry[]);
 
+        // Quick phase: convert pages 1-3 for fast intermediate update.
+        // Runs concurrently with the full parallel conversion.
+        // Re-converts page 1 for simplicity (avoids passing temp files between phases).
+        const quickEndPage = Math.min(3, pageCount);
+        const quickJobId = `${jobId}-quick`;
+
+        const quickPromise = convertDjvuToPdf(djvuPath, quickPdfPath, quickJobId, {pages: `1-${quickEndPage}`}).then(async (quickResult) => {
+            if (!quickResult.success || fullConversionDone) {
+                return;
+            }
+
+            try {
+                const intermediatePath = await buildIntermediatePdf(quickPdfPath, pageCount);
+
+                if (!fullConversionDone) {
+                    safeSendToWindow(window, 'djvu:viewingReady', {
+                        pdfPath: intermediatePath,
+                        isPartial: true,
+                    });
+                }
+            } catch {
+                // Non-critical: intermediate PDF build failed, full conversion will handle it
+            }
+        }).catch(() => {
+            // Quick phase failure is non-critical
+        });
+
+        // Full phase: convert all pages in parallel
         const parallelResult = await convertAllPagesParallel(
             djvuPath,
             rangeDir,
@@ -299,6 +402,12 @@ async function backgroundConvertAll(
                 });
             }},
         );
+
+        // Prevent late partial swap after full conversion is ready
+        fullConversionDone = true;
+
+        // Wait for quick phase to settle (may still be building intermediate PDF)
+        await quickPromise;
 
         if (!parallelResult.success) {
             safeSendToWindow(window, 'djvu:viewingError', { error: parallelResult.error ?? 'Parallel conversion failed' });
@@ -345,14 +454,15 @@ async function backgroundConvertAll(
     } catch (err) {
         safeSendToWindow(window, 'djvu:viewingError', { error: err instanceof Error ? err.message : String(err) });
     } finally {
-        try {
-            await rm(rangeDir, {
+        // Clean up temp directories and quick phase files
+        const cleanups = [
+            rm(rangeDir, {
                 recursive: true,
-                force: true,
-            });
-        } catch {
-            // Ignore cleanup errors
-        }
+                force: true, 
+            }),
+            unlink(quickPdfPath).catch(() => {}),
+        ];
+        await Promise.allSettled(cleanups);
     }
 }
 
