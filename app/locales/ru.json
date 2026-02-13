@@ -5,7 +5,7 @@
   "toolbar": {
     "openPdf": "Открыть PDF",
     "save": "Сохранить",
-    "saveAs": "Сохранить как\u2026",
+    "saveAs": "Сохранить как…",
     "exportDocx": "Экспорт DOCX",
     "undo": "Отменить",
     "redo": "Повторить",
@@ -209,7 +209,8 @@
     "fitWidth": "По ширине",
     "fitHeight": "По высоте",
     "window": "Окно",
-    "help": "Справка"
+    "help": "Справка",
+    "export": "Экспорт"
   },
   "dialogs": {
     "openDocument": "Открыть документ",
@@ -232,7 +233,7 @@
     "unknownAuthor": "Неизвестный автор",
     "noDate": "Нет даты",
     "writeNote": "Введите текст заметки",
-    "saving": "Сохранение\u2026",
+    "saving": "Сохранение…",
     "deleteNote": "Удалить заметку",
     "closeNote": "Закрыть заметку"
   },
@@ -246,14 +247,14 @@
     "nextMatchLabel": "Следующее совпадение"
   },
   "searchResults": {
-    "searching": "Поиск\u2026",
+    "searching": "Поиск…",
     "pagesProgress": "{processed} из {total} страниц",
     "enterSearchTerm": "Введите поисковый запрос",
     "typeMinChars": "Введите не менее {count} символов",
     "noResults": "Ничего не найдено",
     "resultCount": "{count} результат | {count} результата | {count} результатов",
-    "forQuery": "по запросу \u00ab{query}\u00bb",
-    "showingFirst": "Показаны первые {count} результатов \u2014 продолжайте набирать для уточнения",
+    "forQuery": "по запросу «{query}»",
+    "showingFirst": "Показаны первые {count} результатов — продолжайте набирать для уточнения",
     "page": "Страница {page}",
     "match": "Совпадение {index}"
   },
@@ -341,7 +342,7 @@
   },
   "status": {
     "noFileOpen": "Файл не открыт",
-    "unsavedChanges": "Несохранённые изменения \u2013 нажмите для сохранения",
+    "unsavedChanges": "Несохранённые изменения – нажмите для сохранения",
     "allSaved": "Все изменения сохранены",
     "saveChanges": "Сохранить изменения",
     "savingChanges": "Сохранение изменений",
@@ -369,7 +370,8 @@
     "invertSelection": "Инвертировать выделение",
     "pagesSelected": "{count} страница выбрана | {count} страницы выбрано | {count} страниц выбрано",
     "deselect": "Снять выделение",
-    "operationInProgress": "Обработка страниц..."
+    "operationInProgress": "Обработка страниц...",
+    "exportPages": "Экспортировать страницы"
   },
   "settings": {
     "title": "Настройки",
@@ -432,5 +434,26 @@
       "open": "Не удалось выполнить конвертацию DjVu",
       "convert": "Не удалось выполнить конвертацию"
     }
+  },
+  "export": {
+    "scopeLabel": "Экспорт страниц",
+    "scopeAll": "Все страницы ({count})",
+    "scopeCurrent": "Текущая страница ({page})",
+    "scopeRange": "Диапазон страниц",
+    "scopeSelected": "Выбранные страницы ({count})",
+    "rangePlaceholder": "например, 3-12",
+    "invalidRange": "Введите корректный диапазон страниц.",
+    "targetInvalid": "Цель: некорректный диапазон страниц.",
+    "targetAll": "Цель: все страницы ({count}).",
+    "targetPages": "Цель: страниц ({count}).",
+    "exportImagesAction": "Экспорт изображений",
+    "exportTiffAction": "Экспорт TIFF",
+    "dialogDescription": "Выберите страницы для экспорта и нужный диапазон.",
+    "summaryAll": "Будут экспортированы все страницы ({count}).",
+    "summaryCurrent": "Будет экспортирована только текущая страница ({page}).",
+    "summarySelected": "Будут экспортированы выбранные страницы ({count}).",
+    "summaryRange": "Будут экспортированы страницы диапазона ({count}).",
+    "summaryRangeHint": "Введите полный диапазон, например 3-12, или одну страницу, например 7.",
+    "inProgress": "Идет экспорт..."
   }
 }

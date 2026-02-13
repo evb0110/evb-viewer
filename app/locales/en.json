@@ -5,7 +5,7 @@
   "toolbar": {
     "openPdf": "Open File",
     "save": "Save",
-    "saveAs": "Save As\u2026",
+    "saveAs": "Save As…",
     "exportDocx": "Export DOCX",
     "undo": "Undo",
     "redo": "Redo",
@@ -209,7 +209,8 @@
     "fitWidth": "Fit Width",
     "fitHeight": "Fit Height",
     "window": "Window",
-    "help": "Help"
+    "help": "Help",
+    "export": "Export"
   },
   "dialogs": {
     "openDocument": "Open Document",
@@ -232,7 +233,7 @@
     "unknownAuthor": "Unknown Author",
     "noDate": "No date",
     "writeNote": "Write annotation note",
-    "saving": "Saving\u2026",
+    "saving": "Saving…",
     "deleteNote": "Delete note",
     "closeNote": "Close note"
   },
@@ -246,14 +247,14 @@
     "nextMatchLabel": "Next match"
   },
   "searchResults": {
-    "searching": "Searching\u2026",
+    "searching": "Searching…",
     "pagesProgress": "{processed} of {total} pages",
     "enterSearchTerm": "Enter a search term",
     "typeMinChars": "Type at least {count} characters",
     "noResults": "No results found",
     "resultCount": "{count} result | {count} results",
-    "forQuery": "for \u201c{query}\u201d",
-    "showingFirst": "Showing first {count} results \u2014 keep typing to narrow",
+    "forQuery": "for “{query}”",
+    "showingFirst": "Showing first {count} results — keep typing to narrow",
     "page": "Page {page}",
     "match": "Match {index}"
   },
@@ -341,7 +342,7 @@
   },
   "status": {
     "noFileOpen": "No file open",
-    "unsavedChanges": "Unsaved changes \u2013 click to save",
+    "unsavedChanges": "Unsaved changes – click to save",
     "allSaved": "All changes saved",
     "saveChanges": "Save changes",
     "savingChanges": "Saving changes",
@@ -369,7 +370,8 @@
     "invertSelection": "Invert Selection",
     "pagesSelected": "{count} page selected | {count} pages selected",
     "deselect": "Deselect All",
-    "operationInProgress": "Processing pages..."
+    "operationInProgress": "Processing pages...",
+    "exportPages": "Export Pages"
   },
   "settings": {
     "title": "Settings",
@@ -432,5 +434,26 @@
       "open": "DjVu conversion failed",
       "convert": "Conversion failed"
     }
+  },
+  "export": {
+    "scopeLabel": "Export pages",
+    "scopeAll": "All pages ({count})",
+    "scopeCurrent": "Current page ({page})",
+    "scopeRange": "Page range",
+    "scopeSelected": "Selected pages ({count})",
+    "rangePlaceholder": "e.g. 3-12",
+    "invalidRange": "Enter a valid page range.",
+    "targetInvalid": "Target: invalid page range.",
+    "targetAll": "Target: all pages ({count}).",
+    "targetPages": "Target: pages ({count}).",
+    "exportImagesAction": "Export Images",
+    "exportTiffAction": "Export TIFF",
+    "dialogDescription": "Choose which pages to export and in what scope.",
+    "summaryAll": "All pages will be exported ({count}).",
+    "summaryCurrent": "Only current page ({page}) will be exported.",
+    "summarySelected": "Selected pages will be exported ({count}).",
+    "summaryRange": "Range pages will be exported ({count}).",
+    "summaryRangeHint": "Enter a full range like 3-12 or a single page like 7.",
+    "inProgress": "Export in progress..."
   }
 }

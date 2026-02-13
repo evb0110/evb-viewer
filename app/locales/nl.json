@@ -5,7 +5,7 @@
   "toolbar": {
     "openPdf": "Bestand openen",
     "save": "Opslaan",
-    "saveAs": "Opslaan als\u2026",
+    "saveAs": "Opslaan als…",
     "exportDocx": "DOCX exporteren",
     "undo": "Ongedaan maken",
     "redo": "Opnieuw",
@@ -41,7 +41,7 @@
   },
   "sidebar": {
     "notes": "Notities",
-    "pages": "Pagina\u0027s",
+    "pages": "Pagina's",
     "bookmarks": "Bladwijzers",
     "search": "Zoeken",
     "resize": "Zijbalk vergroten/verkleinen"
@@ -78,15 +78,15 @@
     "placeNoteOnPage": "Notitie op pagina plaatsen",
     "cancelPlaceMode": "Plaatsingsmodus annuleren",
     "placeHint": "Klik in het document om een plaknotitie te plaatsen.",
-    "defaultHint": "Gebruik \u201cNotitie op pagina plaatsen\u201d en klik waar de notitie moet komen.",
+    "defaultHint": "Gebruik “Notitie op pagina plaatsen” en klik waar de notitie moet komen.",
     "whereNotes": "Waar notities staan",
-    "whereNotesDescription": "Pagina\u0027s die tekstuele notities bevatten.",
+    "whereNotesDescription": "Pagina's die tekstuele notities bevatten.",
     "page": "Pagina",
     "noteCount": "{count} notitie | {count} notities",
     "notesList": "Notitielijst",
     "searchNotes": "Zoek notities, auteur, pagina...",
     "openNote": "Notitie openen",
-    "copyText": "Tekst kopi\u00ebren",
+    "copyText": "Tekst kopiëren",
     "delete": "Verwijderen",
     "noNotesFound": "Geen notities gevonden.",
     "unknownAuthor": "Onbekende auteur",
@@ -127,8 +127,8 @@
   "ocr": {
     "button": "OCR",
     "runTitle": "OCR uitvoeren",
-    "pages": "Pagina\u0027s",
-    "allPages": "Alle pagina\u0027s ({total})",
+    "pages": "Pagina's",
+    "allPages": "Alle pagina's ({total})",
     "currentPage": "Huidige pagina ({page})",
     "customRange": "Aangepast bereik",
     "customRangePlaceholder": "bijv. 1-5, 8, 10-12",
@@ -138,14 +138,14 @@
     "rtlScripts": "RTL-schriften",
     "preparing": "OCR voorbereiden...",
     "processingPage": "Pagina {page} verwerken ({processed}/{total})",
-    "complete": "OCR voltooid \u2013 PDF is nu doorzoekbaar",
+    "complete": "OCR voltooid – PDF is nu doorzoekbaar",
     "exportDocx": "DOCX exporteren",
     "start": "OCR starten",
     "cancel": "OCR annuleren"
   },
   "djvu": {
-    "loadingPages": "Pagina\u0027s laden... {current}/{total}",
-    "bannerHint": "DjVu-bestand \u2013 converteer naar PDF om bewerkingsfuncties in te schakelen",
+    "loadingPages": "Pagina's laden... {current}/{total}",
+    "bannerHint": "DjVu-bestand – converteer naar PDF om bewerkingsfuncties in te schakelen",
     "convertToPdf": "Converteren naar PDF...",
     "overlayConverting": "DjVu converteren naar PDF...",
     "overlayBookmarks": "Bladwijzers verwerken...",
@@ -156,7 +156,7 @@
     "convertDialog": {
       "title": "DjVu converteren naar PDF",
       "file": "Bestand",
-      "pages": "Pagina\u0027s",
+      "pages": "Pagina's",
       "sourceResolution": "Bronresolutie",
       "quality": "Kwaliteit",
       "estimating": "Bestandsgrootte schatten...",
@@ -195,13 +195,13 @@
     "actions": "Acties",
     "undo": "Ongedaan maken",
     "redo": "Opnieuw",
-    "copy": "Kopi\u00ebren",
-    "pages": "Pagina\u0027s",
-    "deleteSelectedPages": "Geselecteerde pagina\u0027s verwijderen",
-    "extractSelectedPages": "Geselecteerde pagina\u0027s extraheren...",
+    "copy": "Kopiëren",
+    "pages": "Pagina's",
+    "deleteSelectedPages": "Geselecteerde pagina's verwijderen",
+    "extractSelectedPages": "Geselecteerde pagina's extraheren...",
     "rotateClockwise": "Rechtsom draaien",
     "rotateCounterclockwise": "Linksom draaien",
-    "insertPages": "Pagina\u0027s invoegen...",
+    "insertPages": "Pagina's invoegen...",
     "view": "Weergave",
     "zoomIn": "Inzoomen",
     "zoomOut": "Uitzoomen",
@@ -209,7 +209,8 @@
     "fitWidth": "Breedte passend",
     "fitHeight": "Hoogte passend",
     "window": "Venster",
-    "help": "Help"
+    "help": "Help",
+    "export": "Export"
   },
   "dialogs": {
     "openDocument": "Document openen",
@@ -219,8 +220,8 @@
     "pdfFiles": "PDF-bestanden",
     "saveOcrTextAs": "OCR-tekst opslaan als",
     "wordDocuments": "Word-documenten",
-    "extractPages": "Pagina\u0027s extraheren",
-    "insertPagesFromPdf": "Pagina\u0027s invoegen vanuit bestand",
+    "extractPages": "Pagina's extraheren",
+    "insertPagesFromPdf": "Pagina's invoegen vanuit bestand",
     "exportImages": "Afbeeldingen exporteren",
     "exportMultiPageTiff": "Meerpagina-TIFF exporteren",
     "pngImages": "PNG-afbeeldingen",
@@ -232,7 +233,7 @@
     "unknownAuthor": "Onbekende auteur",
     "noDate": "Geen datum",
     "writeNote": "Annotatienotitie schrijven",
-    "saving": "Opslaan\u2026",
+    "saving": "Opslaan…",
     "deleteNote": "Notitie verwijderen",
     "closeNote": "Notitie sluiten"
   },
@@ -246,14 +247,14 @@
     "nextMatchLabel": "Volgende overeenkomst"
   },
   "searchResults": {
-    "searching": "Zoeken\u2026",
-    "pagesProgress": "{processed} van {total} pagina\u0027s",
+    "searching": "Zoeken…",
+    "pagesProgress": "{processed} van {total} pagina's",
     "enterSearchTerm": "Voer een zoekterm in",
     "typeMinChars": "Typ minstens {count} tekens",
     "noResults": "Geen resultaten gevonden",
     "resultCount": "{count} resultaat | {count} resultaten",
-    "forQuery": "voor \u201c{query}\u201d",
-    "showingFirst": "Eerste {count} resultaten weergegeven \u2014 typ verder om te verfijnen",
+    "forQuery": "voor “{query}”",
+    "showingFirst": "Eerste {count} resultaten weergegeven — typ verder om te verfijnen",
     "page": "Pagina {page}",
     "match": "Overeenkomst {index}"
   },
@@ -266,7 +267,7 @@
   },
   "contextMenu": {
     "openPopUpNote": "Pop-upnotitie openen",
-    "copyTextToClipboard": "Tekst naar klembord kopi\u00ebren",
+    "copyTextToClipboard": "Tekst naar klembord kopiëren",
     "markupSelection": "Selectie markeren",
     "highlight": "Markeren",
     "underline": "Onderstrepen",
@@ -282,7 +283,7 @@
     "lastPage": "Laatste pagina"
   },
   "pageNumbering": {
-    "numberPages": "Pagina\u0027s nummeren",
+    "numberPages": "Pagina's nummeren",
     "pageRange": "Paginabereik",
     "style": "Stijl",
     "prefix": "Voorvoegsel",
@@ -296,14 +297,14 @@
     "lettersUpper": "Letters (A, B)",
     "prefixOnly": "Alleen voorvoegsel",
     "none": "Geen",
-    "pagesNonContiguous": "{count} pagina\u0027s (niet-aaneengesloten)",
-    "rangeError": "Voer \u00e9\u00e9n pagina (7) of een bereik (7-14) in.",
-    "targetUnavailableRange": "Doel niet beschikbaar: voer \u00e9\u00e9n pagina (7) of een bereik (7-14) in.",
-    "targetPages": "Doel: pagina\u0027s {range}.",
-    "targetSelectedPages": "Doel: geselecteerde pagina\u0027s {range}.",
+    "pagesNonContiguous": "{count} pagina's (niet-aaneengesloten)",
+    "rangeError": "Voer één pagina (7) of een bereik (7-14) in.",
+    "targetUnavailableRange": "Doel niet beschikbaar: voer één pagina (7) of een bereik (7-14) in.",
+    "targetPages": "Doel: pagina's {range}.",
+    "targetSelectedPages": "Doel: geselecteerde pagina's {range}.",
     "targetUnavailableNonContiguous": "Doel niet beschikbaar: selectie is niet aaneengesloten.",
     "targetNone": "Doel: geen. Voer een bereik in of selecteer aaneengesloten miniaturen.",
-    "pageWord": "pagina | pagina\u0027s",
+    "pageWord": "pagina | pagina's",
     "rangePlaceholder": "bijv. 1-12",
     "prefixPlaceholder": "Sectie-"
   },
@@ -341,7 +342,7 @@
   },
   "status": {
     "noFileOpen": "Geen bestand geopend",
-    "unsavedChanges": "Niet-opgeslagen wijzigingen \u2013 klik om op te slaan",
+    "unsavedChanges": "Niet-opgeslagen wijzigingen – klik om op te slaan",
     "allSaved": "Alle wijzigingen opgeslagen",
     "saveChanges": "Wijzigingen opslaan",
     "savingChanges": "Wijzigingen opslaan",
@@ -359,17 +360,18 @@
     "justNow": "Zojuist"
   },
   "pageOps": {
-    "deletePages": "Pagina\u0027s verwijderen",
+    "deletePages": "Pagina's verwijderen",
     "extractPages": "Extraheren naar nieuwe PDF",
     "rotateCw": "Rechtsom draaien",
     "rotateCcw": "Linksom draaien",
-    "insertBefore": "Pagina\u0027s ervoor invoegen",
-    "insertAfter": "Pagina\u0027s erna invoegen",
+    "insertBefore": "Pagina's ervoor invoegen",
+    "insertAfter": "Pagina's erna invoegen",
     "selectAll": "Alles selecteren",
     "invertSelection": "Selectie omkeren",
-    "pagesSelected": "{count} pagina geselecteerd | {count} pagina\u0027s geselecteerd",
+    "pagesSelected": "{count} pagina geselecteerd | {count} pagina's geselecteerd",
     "deselect": "Alles deselecteren",
-    "operationInProgress": "Pagina\u0027s verwerken..."
+    "operationInProgress": "Pagina's verwerken...",
+    "exportPages": "Export Pages"
   },
   "settings": {
     "title": "Instellingen",
@@ -405,7 +407,7 @@
     },
     "ocr": {
       "loadLanguages": "Kan talen niet laden",
-      "noValidPages": "Geen geldige pagina\u0027s geselecteerd",
+      "noValidPages": "Geen geldige pagina's geselecteerd",
       "timeout": "OCR-bewerking verlopen na 30 minuten",
       "start": "Kan OCR-taak niet starten",
       "noPdfData": "Geen PDF-gegevens of -pad in antwoord",
@@ -414,13 +416,13 @@
       "exportDocx": "Kan DOCX niet exporteren"
     },
     "pageOps": {
-      "deleteAll": "Kan niet alle pagina\u0027s uit het document verwijderen",
-      "delete": "Kan pagina\u0027s niet verwijderen",
-      "extract": "Kan pagina\u0027s niet extraheren",
-      "rotate": "Kan pagina\u0027s niet draaien",
-      "insert": "Kan pagina\u0027s niet invoegen",
-      "insertFile": "Kan pagina\u0027s uit bestand niet invoegen",
-      "reorder": "Kan pagina\u0027s niet herordenen"
+      "deleteAll": "Kan niet alle pagina's uit het document verwijderen",
+      "delete": "Kan pagina's niet verwijderen",
+      "extract": "Kan pagina's niet extraheren",
+      "rotate": "Kan pagina's niet draaien",
+      "insert": "Kan pagina's niet invoegen",
+      "insertFile": "Kan pagina's uit bestand niet invoegen",
+      "reorder": "Kan pagina's niet herordenen"
     },
     "annotation": {
       "delete": "Kan deze annotatie niet uit het huidige document verwijderen.",
@@ -431,5 +433,26 @@
       "open": "DjVu-conversie mislukt",
       "convert": "Conversie mislukt"
     }
+  },
+  "export": {
+    "scopeLabel": "Export pages",
+    "scopeAll": "All pages ({count})",
+    "scopeCurrent": "Current page ({page})",
+    "scopeRange": "Page range",
+    "scopeSelected": "Selected pages ({count})",
+    "rangePlaceholder": "e.g. 3-12",
+    "invalidRange": "Enter a valid page range.",
+    "targetInvalid": "Target: invalid page range.",
+    "targetAll": "Target: all pages ({count}).",
+    "targetPages": "Target: pages ({count}).",
+    "exportImagesAction": "Export Images",
+    "exportTiffAction": "Export TIFF",
+    "dialogDescription": "Choose which pages to export and in what scope.",
+    "summaryAll": "All pages will be exported ({count}).",
+    "summaryCurrent": "Only current page ({page}) will be exported.",
+    "summarySelected": "Selected pages will be exported ({count}).",
+    "summaryRange": "Range pages will be exported ({count}).",
+    "summaryRangeHint": "Enter a full range like 3-12 or a single page like 7.",
+    "inProgress": "Export in progress..."
   }
 }

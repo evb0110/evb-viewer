@@ -20,6 +20,7 @@ export interface IPageOpsHandlersDeps {
         pages: number[] 
     }>;
     closePageContextMenu: () => void;
+    onExportPages: (pages: number[]) => void;
     loadPdfFromData: (data: Uint8Array, opts?: {
         pushHistory?: boolean;
         persistWorkingCopy?: boolean;
@@ -36,6 +37,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         pdfViewerRef,
         pageContextMenu,
         closePageContextMenu,
+        onExportPages,
         loadPdfFromData,
         clearOcrCache,
         resetSearchCache,
@@ -66,6 +68,12 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         const pages = pageContextMenu.value.pages;
         closePageContextMenu();
         void pageOpsExtract(pages);
+    }
+
+    function handlePageContextMenuExport() {
+        const pages = pageContextMenu.value.pages;
+        closePageContextMenu();
+        onExportPages([...pages]);
     }
 
     function handlePageRotate(pages: number[], angle: 90 | 180 | 270) {
@@ -123,6 +131,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         pageOpsReorder,
         handlePageContextMenuDelete,
         handlePageContextMenuExtract,
+        handlePageContextMenuExport,
         handlePageRotate,
         handlePageContextMenuRotateCw,
         handlePageContextMenuRotateCcw,

@@ -5,7 +5,7 @@
   "toolbar": {
     "openPdf": "Abrir Ficheiro",
     "save": "Guardar",
-    "saveAs": "Guardar Como\u2026",
+    "saveAs": "Guardar Como…",
     "exportDocx": "Exportar DOCX",
     "undo": "Desfazer",
     "redo": "Refazer",
@@ -187,7 +187,7 @@
     "saveAs": "Guardar Como...",
     "exportDocx": "Exportar DOCX...",
     "exportImages": "Exportar imagens...",
-    "exportMultiPageTiff": "Exportar TIFF multip\u00e1gina...",
+    "exportMultiPageTiff": "Exportar TIFF multipágina...",
     "convertToPdf": "Converter para PDF...",
     "newTab": "Novo Separador",
     "closeTab": "Fechar Separador",
@@ -209,7 +209,8 @@
     "fitWidth": "Ajustar à Largura",
     "fitHeight": "Ajustar à Altura",
     "window": "Janela",
-    "help": "Ajuda"
+    "help": "Ajuda",
+    "export": "Export"
   },
   "dialogs": {
     "openDocument": "Abrir Documento",
@@ -232,7 +233,7 @@
     "unknownAuthor": "Autor Desconhecido",
     "noDate": "Sem data",
     "writeNote": "Escrever nota de anotação",
-    "saving": "A guardar\u2026",
+    "saving": "A guardar…",
     "deleteNote": "Eliminar nota",
     "closeNote": "Fechar nota"
   },
@@ -246,14 +247,14 @@
     "nextMatchLabel": "Próxima correspondência"
   },
   "searchResults": {
-    "searching": "A pesquisar\u2026",
+    "searching": "A pesquisar…",
     "pagesProgress": "{processed} de {total} páginas",
     "enterSearchTerm": "Introduza um termo de pesquisa",
     "typeMinChars": "Escreva pelo menos {count} caracteres",
     "noResults": "Nenhum resultado encontrado",
     "resultCount": "{count} resultado | {count} resultados",
-    "forQuery": "para \u201c{query}\u201d",
-    "showingFirst": "A mostrar os primeiros {count} resultados \u2014 continue a escrever para refinar",
+    "forQuery": "para “{query}”",
+    "showingFirst": "A mostrar os primeiros {count} resultados — continue a escrever para refinar",
     "page": "Página {page}",
     "match": "Correspondência {index}"
   },
@@ -341,7 +342,7 @@
   },
   "status": {
     "noFileOpen": "Nenhum ficheiro aberto",
-    "unsavedChanges": "Alterações por guardar \u2013 clique para guardar",
+    "unsavedChanges": "Alterações por guardar – clique para guardar",
     "allSaved": "Todas as alterações guardadas",
     "saveChanges": "Guardar alterações",
     "savingChanges": "A guardar alterações",
@@ -369,7 +370,8 @@
     "invertSelection": "Inverter Seleção",
     "pagesSelected": "{count} página selecionada | {count} páginas selecionadas",
     "deselect": "Desselecionar Tudo",
-    "operationInProgress": "A processar páginas..."
+    "operationInProgress": "A processar páginas...",
+    "exportPages": "Export Pages"
   },
   "settings": {
     "title": "Definições",
@@ -431,5 +433,26 @@
       "open": "Falha na conversão de DjVu",
       "convert": "Falha na conversão"
     }
+  },
+  "export": {
+    "scopeLabel": "Export pages",
+    "scopeAll": "All pages ({count})",
+    "scopeCurrent": "Current page ({page})",
+    "scopeRange": "Page range",
+    "scopeSelected": "Selected pages ({count})",
+    "rangePlaceholder": "e.g. 3-12",
+    "invalidRange": "Enter a valid page range.",
+    "targetInvalid": "Target: invalid page range.",
+    "targetAll": "Target: all pages ({count}).",
+    "targetPages": "Target: pages ({count}).",
+    "exportImagesAction": "Export Images",
+    "exportTiffAction": "Export TIFF",
+    "dialogDescription": "Choose which pages to export and in what scope.",
+    "summaryAll": "All pages will be exported ({count}).",
+    "summaryCurrent": "Only current page ({page}) will be exported.",
+    "summarySelected": "Selected pages will be exported ({count}).",
+    "summaryRange": "Range pages will be exported ({count}).",
+    "summaryRangeHint": "Enter a full range like 3-12 or a single page like 7.",
+    "inProgress": "Export in progress..."
   }
 }

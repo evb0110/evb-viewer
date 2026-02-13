@@ -184,8 +184,10 @@ if (!__preloadAlreadyInstalled) {
         savePdfAs: (workingPath: string) => ipcRenderer.invoke('dialog:savePdfAs', workingPath),
         savePdfDialog: (suggestedName: string) => ipcRenderer.invoke('dialog:savePdfDialog', suggestedName),
         saveDocxAs: (workingPath: string) => ipcRenderer.invoke('dialog:saveDocxAs', workingPath),
-        exportPdfToImages: (workingPath: string) => ipcRenderer.invoke('pdf-export:images', workingPath),
-        exportPdfToMultiPageTiff: (workingPath: string) => ipcRenderer.invoke('pdf-export:multipage-tiff', workingPath),
+        exportPdfToImages: (workingPath: string, pageNumbers?: number[]) =>
+            ipcRenderer.invoke('pdf-export:images', workingPath, pageNumbers),
+        exportPdfToMultiPageTiff: (workingPath: string, pageNumbers?: number[]) =>
+            ipcRenderer.invoke('pdf-export:multipage-tiff', workingPath, pageNumbers),
         readFile: (path: string) => ipcRenderer.invoke('file:read', path),
         statFile: (path: string) => ipcRenderer.invoke('file:stat', path),
         readFileRange: (path: string, offset: number, length: number) => ipcRenderer.invoke('file:readRange', path, offset, length),

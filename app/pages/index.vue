@@ -179,7 +179,19 @@ function getDroppedDocumentPaths(dataTransfer: DataTransfer | null) {
     return paths;
 }
 
+function isSidebarDropArea(event: DragEvent) {
+    const target = event.target;
+    if (!(target instanceof Element)) {
+        return false;
+    }
+    return Boolean(target.closest('.pdf-sidebar-pages-thumbnails'));
+}
+
 function handleWindowDragOver(event: DragEvent) {
+    if (event.defaultPrevented || isSidebarDropArea(event)) {
+        return;
+    }
+
     if (!hasExternalFilePayload(event.dataTransfer)) {
         return;
     }
@@ -192,6 +204,10 @@ function handleWindowDragOver(event: DragEvent) {
 }
 
 function handleWindowDrop(event: DragEvent) {
+    if (event.defaultPrevented || isSidebarDropArea(event)) {
+        return;
+    }
+
     if (!hasExternalFilePayload(event.dataTransfer)) {
         return;
     }
@@ -266,8 +282,8 @@ onMounted(() => {
 
     if (typeof window !== 'undefined') {
         window.__openFileDirect = openPathInAppropriateTab;
-        window.addEventListener('dragover', handleWindowDragOver, true);
-        window.addEventListener('drop', handleWindowDrop, true);
+        window.addEventListener('dragover', handleWindowDragOver);
+        window.addEventListener('drop', handleWindowDrop);
     }
 
     if (window.electronAPI) {
@@ -354,7 +370,7 @@ onMounted(() => {
 onUnmounted(() => {
     menuCleanups.forEach(cleanup => cleanup());
     window.removeEventListener('keydown', handleTabKeyboardShortcut, true);
-    window.removeEventListener('dragover', handleWindowDragOver, true);
-    window.removeEventListener('drop', handleWindowDrop, true);
+    window.removeEventListener('dragover', handleWindowDragOver);
+    window.removeEventListener('drop', handleWindowDrop);
 });
 </script>

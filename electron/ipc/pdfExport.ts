@@ -30,6 +30,46 @@ function validateWorkingPdfPath(path: unknown): asserts path is string {
     }
 }
 
+function normalizeRequestedPageNumbers(pageNumbers: unknown): number[] | undefined {
+    if (!Array.isArray(pageNumbers)) {
+        return undefined;
+    }
+
+    const normalized = Array.from(new Set(pageNumbers))
+        .filter(page => typeof page === 'number' && Number.isInteger(page) && page > 0)
+        .sort((left, right) => left - right);
+
+    if (normalized.length === 0) {
+        throw new Error('At least one page number must be provided for scoped export');
+    }
+
+    return normalized;
+}
+
+function buildImageSuggestedName(pageNumbers: number[] | undefined): string {
+    if (!pageNumbers || pageNumbers.length === 0) {
+        return 'document-page.png';
+    }
+
+    if (pageNumbers.length === 1) {
+        return `document-page-${String(pageNumbers[0]).padStart(3, '0')}.png`;
+    }
+
+    return 'document-pages.png';
+}
+
+function buildMultiPageTiffSuggestedName(pageNumbers: number[] | undefined): string {
+    if (!pageNumbers || pageNumbers.length === 0) {
+        return 'document.tiff';
+    }
+
+    if (pageNumbers.length === 1) {
+        return `document-page-${String(pageNumbers[0]).padStart(3, '0')}.tiff`;
+    }
+
+    return 'document-pages.tiff';
+}
+
 async function showExportImageDialog(defaultName: string) {
     const parentWindow = BrowserWindow.getFocusedWindow();
     const dialogOptions = {
@@ -84,14 +124,16 @@ async function showMultiPageTiffDialog(defaultName: string) {
 export async function handlePdfExportImages(
     _event: Electron.IpcMainInvokeEvent,
     workingCopyPath: string,
+    pageNumbers?: number[],
 ): Promise<{
     success: boolean;
     canceled?: boolean;
     outputPaths?: string[];
 }> {
     validateWorkingPdfPath(workingCopyPath);
+    const normalizedPageNumbers = normalizeRequestedPageNumbers(pageNumbers);
 
-    const result = await showExportImageDialog('document-page.png');
+    const result = await showExportImageDialog(buildImageSuggestedName(normalizedPageNumbers));
     if (result.canceled || !result.filePath) {
         return {
             success: false,
@@ -100,7 +142,7 @@ export async function handlePdfExportImages(
     }
 
     const { normalizedPath } = normalizeImageExportPath(result.filePath, 'png');
-    const outputPaths = await exportPdfPagesAsImages(workingCopyPath, normalizedPath);
+    const outputPaths = await exportPdfPagesAsImages(workingCopyPath, normalizedPath, {pageNumbers: normalizedPageNumbers});
 
     return {
         success: true,
@@ -111,14 +153,16 @@ export async function handlePdfExportImages(
 export async function handlePdfExportMultiPageTiff(
     _event: Electron.IpcMainInvokeEvent,
     workingCopyPath: string,
+    pageNumbers?: number[],
 ): Promise<{
     success: boolean;
     canceled?: boolean;
     outputPath?: string;
 }> {
     validateWorkingPdfPath(workingCopyPath);
+    const normalizedPageNumbers = normalizeRequestedPageNumbers(pageNumbers);
 
-    const result = await showMultiPageTiffDialog('document.tiff');
+    const result = await showMultiPageTiffDialog(buildMultiPageTiffSuggestedName(normalizedPageNumbers));
     if (result.canceled || !result.filePath) {
         return {
             success: false,
@@ -126,7 +170,7 @@ export async function handlePdfExportMultiPageTiff(
         };
     }
 
-    const outputPath = await exportPdfAsMultiPageTiff(workingCopyPath, result.filePath);
+    const outputPath = await exportPdfAsMultiPageTiff(workingCopyPath, result.filePath, {pageNumbers: normalizedPageNumbers});
 
     return {
         success: true,

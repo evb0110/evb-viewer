@@ -79,23 +79,28 @@ function getFileMenu(): MenuItemConstructorOptions {
                 },
             },
             {
-                label: te('menu.exportDocx'),
-                accelerator: 'CmdOrCtrl+Shift+E',
-                click: (_, window) => {
-                    sendToWindow(window, 'menu:exportDocx');
-                },
-            },
-            {
-                label: te('menu.exportImages'),
-                click: (_, window) => {
-                    sendToWindow(window, 'menu:exportImages');
-                },
-            },
-            {
-                label: te('menu.exportMultiPageTiff'),
-                click: (_, window) => {
-                    sendToWindow(window, 'menu:exportMultiPageTiff');
-                },
+                label: te('menu.export'),
+                submenu: [
+                    {
+                        label: te('menu.exportDocx'),
+                        accelerator: 'CmdOrCtrl+Shift+E',
+                        click: (_, window) => {
+                            sendToWindow(window, 'menu:exportDocx');
+                        },
+                    },
+                    {
+                        label: te('menu.exportImages'),
+                        click: (_, window) => {
+                            sendToWindow(window, 'menu:exportImages');
+                        },
+                    },
+                    {
+                        label: te('menu.exportMultiPageTiff'),
+                        click: (_, window) => {
+                            sendToWindow(window, 'menu:exportMultiPageTiff');
+                        },
+                    },
+                ],
             },
             {
                 label: te('menu.convertToPdf'),

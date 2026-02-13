@@ -26,6 +26,13 @@ interface IRenderedPageFile {
     path: string;
 }
 
+interface IExportPdfOptions {pageNumbers?: number[];}
+
+interface IPreparedSourcePdf {
+    pdfPath: string;
+    cleanup: () => Promise<void>;
+}
+
 function resolveFormatExtension(format: TImageExportFormat): string {
     if (format === 'jpeg') {
         return '.jpg';
@@ -152,7 +159,73 @@ async function renderPdfToTempPages(pdfPath: string, format: TImageExportFormat)
     }
 }
 
-export async function exportPdfPagesAsImages(pdfPath: string, outputTemplatePath: string): Promise<string[]> {
+function normalizePageNumbers(pageNumbers: number[] | undefined): number[] | null {
+    if (!pageNumbers) {
+        return null;
+    }
+
+    const unique = Array.from(new Set(pageNumbers))
+        .filter(page => Number.isInteger(page) && page > 0)
+        .sort((left, right) => left - right);
+
+    if (unique.length === 0) {
+        throw new Error('At least one page number must be provided for scoped export');
+    }
+
+    return unique;
+}
+
+function formatPageList(pageNumbers: number[]): string {
+    return pageNumbers.join(',');
+}
+
+async function prepareSourcePdfForExport(pdfPath: string, options: IExportPdfOptions): Promise<IPreparedSourcePdf> {
+    const normalizedPages = normalizePageNumbers(options.pageNumbers);
+
+    if (!normalizedPages) {
+        return {
+            pdfPath,
+            cleanup: async () => {},
+        };
+    }
+
+    const tempDir = await mkdtemp(join(tmpdir(), 'pdf-export-scope-'));
+    const subsetPdfPath = join(tempDir, 'subset.pdf');
+    const qpdf = getOcrToolPaths().qpdf;
+
+    try {
+        await runCommand(qpdf, [
+            pdfPath,
+            '--pages',
+            pdfPath,
+            formatPageList(normalizedPages),
+            '--',
+            subsetPdfPath,
+        ]);
+
+        return {
+            pdfPath: subsetPdfPath,
+            cleanup: async () => {
+                await rm(tempDir, {
+                    recursive: true,
+                    force: true,
+                });
+            },
+        };
+    } catch (error) {
+        await rm(tempDir, {
+            recursive: true,
+            force: true,
+        });
+        throw error;
+    }
+}
+
+export async function exportPdfPagesAsImages(
+    pdfPath: string,
+    outputTemplatePath: string,
+    options: IExportPdfOptions = {},
+): Promise<string[]> {
     const {
         normalizedPath,
         format,
@@ -164,26 +237,39 @@ export async function exportPdfPagesAsImages(pdfPath: string, outputTemplatePath
 
     await mkdir(outputDirectory, { recursive: true });
 
-    const pageFiles = await renderPdfToTempPages(pdfPath, format);
+    const preparedSourcePdf = await prepareSourcePdfForExport(pdfPath, options);
 
     try {
-        const exportedPaths: string[] = [];
+        const pageFiles = await renderPdfToTempPages(preparedSourcePdf.pdfPath, format);
 
-        for (let index = 0; index < pageFiles.length; index += 1) {
-            const source = pageFiles[index]!;
-            const suffix = String(index + 1).padStart(3, '0');
-            const targetPath = join(outputDirectory, `${outputStem}-${suffix}${outputExtension}`);
-            await moveFile(source.path, targetPath);
-            exportedPaths.push(targetPath);
+        try {
+            const exportedPaths: string[] = [];
+            const isSinglePageExport = pageFiles.length === 1;
+
+            for (let index = 0; index < pageFiles.length; index += 1) {
+                const source = pageFiles[index]!;
+
+                const targetPath = isSinglePageExport
+                    ? normalizedPath
+                    : join(
+                        outputDirectory,
+                        `${outputStem}-${String(index + 1).padStart(3, '0')}${outputExtension}`,
+                    );
+
+                await moveFile(source.path, targetPath);
+                exportedPaths.push(targetPath);
+            }
+
+            return exportedPaths;
+        } finally {
+            const tempDir = dirname(pageFiles[0]!.path);
+            await rm(tempDir, {
+                recursive: true,
+                force: true,
+            });
         }
-
-        return exportedPaths;
     } finally {
-        const tempDir = dirname(pageFiles[0]!.path);
-        await rm(tempDir, {
-            recursive: true,
-            force: true,
-        });
+        await preparedSourcePdf.cleanup();
     }
 }
 
@@ -242,7 +328,11 @@ async function combinePagesIntoMultiPageTiff(pagePaths: string[], outputPath: st
     throw new Error('No available utility to create multi-page TIFF (tiffcp, tiffutil, or magick)');
 }
 
-export async function exportPdfAsMultiPageTiff(pdfPath: string, outputPath: string): Promise<string> {
+export async function exportPdfAsMultiPageTiff(
+    pdfPath: string,
+    outputPath: string,
+    options: IExportPdfOptions = {},
+): Promise<string> {
     const targetPath = outputPath.toLowerCase().endsWith('.tif') || outputPath.toLowerCase().endsWith('.tiff')
         ? outputPath
         : `${outputPath}.tiff`;
@@ -250,25 +340,31 @@ export async function exportPdfAsMultiPageTiff(pdfPath: string, outputPath: stri
     const outputDirectory = dirname(targetPath);
     await mkdir(outputDirectory, { recursive: true });
 
-    const pageFiles = await renderPdfToTempPages(pdfPath, 'tiff');
+    const preparedSourcePdf = await prepareSourcePdfForExport(pdfPath, options);
 
     try {
-        const orderedPagePaths = pageFiles
-            .sort((left, right) => left.page - right.page)
-            .map(pageFile => pageFile.path);
+        const pageFiles = await renderPdfToTempPages(preparedSourcePdf.pdfPath, 'tiff');
 
-        await combinePagesIntoMultiPageTiff(orderedPagePaths, targetPath);
+        try {
+            const orderedPagePaths = pageFiles
+                .sort((left, right) => left.page - right.page)
+                .map(pageFile => pageFile.path);
 
-        if (!existsSync(targetPath)) {
-            throw new Error('Multi-page TIFF export did not produce an output file');
+            await combinePagesIntoMultiPageTiff(orderedPagePaths, targetPath);
+
+            if (!existsSync(targetPath)) {
+                throw new Error('Multi-page TIFF export did not produce an output file');
+            }
+
+            return targetPath;
+        } finally {
+            const tempDir = dirname(pageFiles[0]!.path);
+            await rm(tempDir, {
+                recursive: true,
+                force: true,
+            });
         }
-
-        return targetPath;
     } finally {
-        const tempDir = dirname(pageFiles[0]!.path);
-        await rm(tempDir, {
-            recursive: true,
-            force: true,
-        });
+        await preparedSourcePdf.cleanup();
     }
 }

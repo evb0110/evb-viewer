@@ -29,6 +29,16 @@
             {{ t('pageOps.extractPages') }}
         </button>
 
+        <button
+            type="button"
+            class="page-context-menu-action"
+            :disabled="isOperationInProgress || isDjvuMode"
+            @click="emit('export-pages')"
+        >
+            <UIcon name="i-lucide-file-output" class="page-context-menu-icon" />
+            {{ t('pageOps.exportPages') }}
+        </button>
+
         <div class="page-context-menu-divider" />
 
         <button
@@ -109,6 +119,7 @@ defineProps<{
 const emit = defineEmits<{
     'delete-pages': [];
     'extract-pages': [];
+    'export-pages': [];
     'rotate-cw': [];
     'rotate-ccw': [];
     'insert-before': [];

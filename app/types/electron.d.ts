@@ -195,12 +195,12 @@ interface IElectronAPI {
     savePdfAs: (workingCopyPath: string) => Promise<string | null>;
     savePdfDialog: (suggestedName: string) => Promise<string | null>;
     saveDocxAs: (workingCopyPath: string) => Promise<string | null>;
-    exportPdfToImages: (workingCopyPath: string) => Promise<{
+    exportPdfToImages: (workingCopyPath: string, pageNumbers?: number[]) => Promise<{
         success: boolean;
         canceled?: boolean;
         outputPaths?: string[];
     }>;
-    exportPdfToMultiPageTiff: (workingCopyPath: string) => Promise<{
+    exportPdfToMultiPageTiff: (workingCopyPath: string, pageNumbers?: number[]) => Promise<{
         success: boolean;
         canceled?: boolean;
         outputPath?: string;

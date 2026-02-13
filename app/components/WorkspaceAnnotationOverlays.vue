@@ -35,6 +35,7 @@
         :is-djvu-mode="isDjvuMode"
         @delete-pages="$emit('page-delete')"
         @extract-pages="$emit('page-extract')"
+        @export-pages="$emit('page-export')"
         @rotate-cw="$emit('page-rotate-cw')"
         @rotate-ccw="$emit('page-rotate-ccw')"
         @insert-before="$emit('page-insert-before')"
@@ -117,6 +118,7 @@ defineEmits<{
     'context-create-selection-note': [];
     'page-delete': [];
     'page-extract': [];
+    'page-export': [];
     'page-rotate-cw': [];
     'page-rotate-ccw': [];
     'page-insert-before': [];

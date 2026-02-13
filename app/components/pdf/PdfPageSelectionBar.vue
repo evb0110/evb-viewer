@@ -41,6 +41,17 @@
                 </button>
             </UTooltip>
 
+            <UTooltip :text="t('pageOps.exportPages')" :delay-duration="400">
+                <button
+                    type="button"
+                    class="page-selection-bar-button"
+                    :disabled="isOperationInProgress"
+                    @click="emit('export-pages')"
+                >
+                    <UIcon name="i-lucide-file-output" class="page-selection-bar-icon" />
+                </button>
+            </UTooltip>
+
             <UTooltip :text="t('pageOps.deletePages')" :delay-duration="400">
                 <button
                     type="button"
@@ -73,6 +84,7 @@ const emit = defineEmits<{
     'rotate-cw': [];
     'rotate-ccw': [];
     'extract-pages': [];
+    'export-pages': [];
     'delete-pages': [];
     'deselect': [];
 }>();

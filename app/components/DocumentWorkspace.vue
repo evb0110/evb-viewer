@@ -177,6 +177,7 @@
                     @page-rotate-cw="(pages) => handlePageRotate(pages, 90)"
                     @page-rotate-ccw="(pages) => handlePageRotate(pages, 270)"
                     @page-extract="(pages) => pageOpsExtract(pages)"
+                    @page-export="(pages) => handleExportImages(pages)"
                     @page-delete="(pages) => pageOpsDelete(pages, totalPages)"
                     @page-reorder="(order) => pageOpsReorder(order)"
                     @page-file-drop="handlePageFileDrop"
@@ -233,6 +234,15 @@
                 />
             </div>
         </main>
+        <div
+            v-if="isExportInProgress"
+            class="pointer-events-none absolute bottom-12 right-4 z-50 flex items-center gap-2 rounded-md border border-default bg-default/95 px-3 py-2 text-xs text-default shadow-lg"
+            role="status"
+            aria-live="polite"
+        >
+            <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin" />
+            <span>{{ t('export.inProgress') }}</span>
+        </div>
         <PdfStatusBar
             :file-path="statusFilePath"
             :file-size-label="statusFileSizeLabel"
@@ -272,6 +282,7 @@
             @context-create-selection-note="createContextMenuSelectionNote"
             @page-delete="handlePageContextMenuDelete"
             @page-extract="handlePageContextMenuExtract"
+            @page-export="handlePageContextMenuExport"
             @page-rotate-cw="handlePageContextMenuRotateCw"
             @page-rotate-ccw="handlePageContextMenuRotateCcw"
             @page-insert-before="handlePageContextMenuInsertBefore"
@@ -287,6 +298,16 @@
             :phase="conversionState.phase"
             :percent="conversionState.percent"
             @cancel="handleDjvuCancel"
+        />
+
+        <PdfExportScopeDialog
+            v-model:open="exportScopeDialogOpen"
+            :mode="exportScopeDialogMode"
+            :total-pages="totalPages"
+            :current-page="currentPage"
+            :selected-pages="exportScopeDialogSelectedPages"
+            @submit="handleExportScopeDialogSubmit"
+            @update:open="handleExportScopeDialogOpenChange"
         />
 
         <DjvuConvertDialog
@@ -370,6 +391,10 @@ const {
     isSaving,
     isSavingAs,
     isHistoryBusy,
+    isExportInProgress,
+    exportScopeDialogOpen,
+    exportScopeDialogMode,
+    exportScopeDialogSelectedPages,
     pageLabels,
     pageLabelRanges,
     handlePageLabelRangesUpdate,
@@ -415,6 +440,8 @@ const {
     handleExportDocx,
     handleExportImages,
     handleExportMultiPageTiff,
+    handleExportScopeDialogSubmit,
+    handleExportScopeDialogOpenChange,
     handleOcrComplete,
     isAnySaving,
     isExportingDocx,
@@ -466,6 +493,7 @@ const {
     pageOpsReorder,
     handlePageContextMenuDelete,
     handlePageContextMenuExtract,
+    handlePageContextMenuExport,
     handlePageRotate,
     handlePageContextMenuRotateCw,
     handlePageContextMenuRotateCcw,
@@ -541,7 +569,9 @@ defineExpose({
     handleConvertToPdf: () => {
         if (isDjvuMode.value) {
             openConvertDialog();
+            return;
         }
+        void handleOpenFileFromUi();
     },
     closeAllDropdowns,
 });

@@ -51,6 +51,7 @@
                     @rotate-cw="emit('page-rotate-cw', selectedThumbnailPages)"
                     @rotate-ccw="emit('page-rotate-ccw', selectedThumbnailPages)"
                     @extract-pages="emit('page-extract', selectedThumbnailPages)"
+                    @export-pages="emit('page-export', selectedThumbnailPages)"
                     @delete-pages="emit('page-delete', selectedThumbnailPages)"
                     @deselect="clearPageSelection"
                 />
@@ -220,6 +221,7 @@ const emit = defineEmits<{
     (e: 'page-rotate-cw', pages: number[]): void;
     (e: 'page-rotate-ccw', pages: number[]): void;
     (e: 'page-extract', pages: number[]): void;
+    (e: 'page-export', pages: number[]): void;
     (e: 'page-delete', pages: number[]): void;
     (e: 'page-reorder', newOrder: number[]): void;
     (e: 'page-file-drop', payload: {

@@ -37,6 +37,7 @@ import type { TTabUpdate } from '@app/types/tabs';
 import { getElectronAPI } from '@app/utils/electron';
 
 type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'bookmarks' | 'search';
+type TExportDialogMode = 'images' | 'multipage-tiff';
 
 export interface IPdfViewerExpose {
     scrollToPage: (page: number) => void;
@@ -213,6 +214,11 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     const isSaving = ref(false);
     const isSavingAs = ref(false);
     const isHistoryBusy = ref(false);
+    const isExportInProgress = ref(false);
+    const exportScopeDialogOpen = ref(false);
+    const exportScopeDialogMode = ref<TExportDialogMode>('images');
+    const exportScopeDialogSelectedPages = ref<number[]>([]);
+    let exportScopeDialogResolver: ((selection: number[] | undefined | null) => void) | null = null;
 
     const {
         annotationContextMenu,
@@ -531,6 +537,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         pageOpsReorder,
         handlePageContextMenuDelete,
         handlePageContextMenuExtract,
+        handlePageContextMenuExport,
         handlePageRotate,
         handlePageContextMenuRotateCw,
         handlePageContextMenuRotateCcw,
@@ -546,6 +553,9 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         pdfViewerRef,
         pageContextMenu,
         closePageContextMenu,
+        onExportPages: (pages: number[]) => {
+            void handleExportImages(pages);
+        },
         loadPdfFromData,
         clearOcrCache: (path: string) => clearOcrCache(path),
         resetSearchCache,
@@ -759,30 +769,111 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         pdfViewerRef.value?.scrollToPage(page);
     }
 
-    async function handleExportImages() {
-        if (!workingCopyPath.value) {
-            return;
-        }
+    function normalizeExportSelectedPages(selectedPages: number[]) {
+        return Array.from(new Set(selectedPages))
+            .filter(page => Number.isInteger(page) && page >= 1 && page <= totalPages.value)
+            .sort((left, right) => left - right);
+    }
 
-        try {
-            const api = getElectronAPI();
-            await api.exportPdfToImages(workingCopyPath.value);
-        } catch (error) {
-            BrowserLogger.error('workspace', 'export images failed', error);
+    function resolveExportScopeDialog(selection: number[] | undefined | null) {
+        const resolver = exportScopeDialogResolver;
+        exportScopeDialogResolver = null;
+        exportScopeDialogOpen.value = false;
+        if (resolver) {
+            resolver(selection);
         }
     }
 
-    async function handleExportMultiPageTiff() {
+    function openExportScopeDialog(
+        mode: TExportDialogMode,
+        selectedPages: number[] = [],
+    ): Promise<number[] | undefined | null> {
+        if (exportScopeDialogResolver) {
+            resolveExportScopeDialog(null);
+        }
+
+        exportScopeDialogMode.value = mode;
+        exportScopeDialogSelectedPages.value = normalizeExportSelectedPages(selectedPages);
+        exportScopeDialogOpen.value = true;
+
+        return new Promise((resolve) => {
+            exportScopeDialogResolver = resolve;
+        });
+    }
+
+    function handleExportScopeDialogSubmit(payload: { pageNumbers?: number[] }) {
+        resolveExportScopeDialog(payload.pageNumbers);
+    }
+
+    function handleExportScopeDialogOpenChange(isOpen: boolean) {
+        if (isOpen) {
+            return;
+        }
+        if (exportScopeDialogResolver) {
+            resolveExportScopeDialog(null);
+        } else {
+            exportScopeDialogOpen.value = false;
+        }
+    }
+
+    async function runImageExport(pageNumbers?: number[]) {
         if (!workingCopyPath.value) {
             return;
         }
+        if (isExportInProgress.value) {
+            return;
+        }
 
+        isExportInProgress.value = true;
         try {
             const api = getElectronAPI();
-            await api.exportPdfToMultiPageTiff(workingCopyPath.value);
+            await api.exportPdfToImages(workingCopyPath.value, pageNumbers);
+        } catch (error) {
+            BrowserLogger.error('workspace', 'export images failed', error);
+        } finally {
+            isExportInProgress.value = false;
+        }
+    }
+
+    async function runMultiPageTiffExport(pageNumbers?: number[]) {
+        if (!workingCopyPath.value) {
+            return;
+        }
+        if (isExportInProgress.value) {
+            return;
+        }
+
+        isExportInProgress.value = true;
+        try {
+            const api = getElectronAPI();
+            await api.exportPdfToMultiPageTiff(workingCopyPath.value, pageNumbers);
         } catch (error) {
             BrowserLogger.error('workspace', 'export multi-page tiff failed', error);
+        } finally {
+            isExportInProgress.value = false;
         }
+    }
+
+    async function handleExportImages(selectedPages: number[] = []) {
+        if (!workingCopyPath.value) {
+            return;
+        }
+        const pageNumbers = await openExportScopeDialog('images', selectedPages);
+        if (pageNumbers === null) {
+            return;
+        }
+        await runImageExport(pageNumbers);
+    }
+
+    async function handleExportMultiPageTiff(selectedPages: number[] = []) {
+        if (!workingCopyPath.value) {
+            return;
+        }
+        const pageNumbers = await openExportScopeDialog('multipage-tiff', selectedPages);
+        if (pageNumbers === null) {
+            return;
+        }
+        await runMultiPageTiffExport(pageNumbers);
     }
 
     function initFromStorage() {
@@ -855,6 +946,10 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         isSaving,
         isSavingAs,
         isHistoryBusy,
+        isExportInProgress,
+        exportScopeDialogOpen,
+        exportScopeDialogMode,
+        exportScopeDialogSelectedPages,
 
         pageLabels,
         pageLabelRanges,
@@ -906,6 +1001,8 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         handleExportDocx,
         handleExportImages,
         handleExportMultiPageTiff,
+        handleExportScopeDialogSubmit,
+        handleExportScopeDialogOpenChange,
         handleOcrComplete,
         isAnySaving,
         isExportingDocx,
@@ -962,6 +1059,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         pageOpsReorder,
         handlePageContextMenuDelete,
         handlePageContextMenuExtract,
+        handlePageContextMenuExport,
         handlePageRotate,
         handlePageContextMenuRotateCw,
         handlePageContextMenuRotateCcw,

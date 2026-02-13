@@ -5,7 +5,7 @@
   "toolbar": {
     "openPdf": "Apri file",
     "save": "Salva",
-    "saveAs": "Salva con nome\u2026",
+    "saveAs": "Salva con nome…",
     "exportDocx": "Esporta DOCX",
     "undo": "Annulla",
     "redo": "Ripristina",
@@ -30,7 +30,7 @@
   },
   "zoom": {
     "fitWidth": "Adatta alla larghezza",
-    "fitHeight": "Adatta all\u2019altezza",
+    "fitHeight": "Adatta all’altezza",
     "continuousScroll": "Scorrimento continuo",
     "handTool": "Strumento mano",
     "textSelect": "Selezione testo",
@@ -117,7 +117,7 @@
     "color": "Colore",
     "fill": "Riempimento",
     "stroke": "Tratto",
-    "opacity": "Opacit\u00e0",
+    "opacity": "Opacità",
     "rectangle": "Rettangolo",
     "ellipse": "Ellisse",
     "line": "Linea",
@@ -138,14 +138,14 @@
     "rtlScripts": "Scritture da destra a sinistra",
     "preparing": "Preparazione OCR...",
     "processingPage": "Elaborazione pagina {page} ({processed}/{total})",
-    "complete": "OCR completato \u2013 il PDF \u00e8 ora ricercabile",
+    "complete": "OCR completato – il PDF è ora ricercabile",
     "exportDocx": "Esporta DOCX",
     "start": "Avvia OCR",
     "cancel": "Annulla OCR"
   },
   "djvu": {
     "loadingPages": "Caricamento pagine... {current}/{total}",
-    "bannerHint": "File DjVu \u2013 converti in PDF per abilitare le funzioni di modifica",
+    "bannerHint": "File DjVu – converti in PDF per abilitare le funzioni di modifica",
     "convertToPdf": "Converti in PDF...",
     "overlayConverting": "Conversione DjVu in PDF...",
     "overlayBookmarks": "Elaborazione segnalibri...",
@@ -158,13 +158,13 @@
       "file": "File",
       "pages": "Pagine",
       "sourceResolution": "Risoluzione sorgente",
-      "quality": "Qualit\u00e0",
+      "quality": "Qualità",
       "estimating": "Stima delle dimensioni del file...",
       "preserveBookmarks": "Mantieni segnalibri",
-      "fullQuality": "Qualit\u00e0 massima",
+      "fullQuality": "Qualità massima",
       "original": "Originale",
-      "goodQuality": "Buona qualit\u00e0",
-      "halfResolution": "Met\u00e0 risoluzione",
+      "goodQuality": "Buona qualità",
+      "halfResolution": "Metà risoluzione",
       "compact": "Compatto",
       "quarterResolution": "Un quarto della risoluzione"
     }
@@ -207,9 +207,10 @@
     "zoomOut": "Riduci zoom",
     "actualSize": "Dimensione reale",
     "fitWidth": "Adatta alla larghezza",
-    "fitHeight": "Adatta all\u2019altezza",
+    "fitHeight": "Adatta all’altezza",
     "window": "Finestra",
-    "help": "Aiuto"
+    "help": "Aiuto",
+    "export": "Export"
   },
   "dialogs": {
     "openDocument": "Apri documento",
@@ -232,7 +233,7 @@
     "unknownAuthor": "Autore sconosciuto",
     "noDate": "Nessuna data",
     "writeNote": "Scrivi nota di annotazione",
-    "saving": "Salvataggio\u2026",
+    "saving": "Salvataggio…",
     "deleteNote": "Elimina nota",
     "closeNote": "Chiudi nota"
   },
@@ -246,14 +247,14 @@
     "nextMatchLabel": "Corrispondenza successiva"
   },
   "searchResults": {
-    "searching": "Ricerca\u2026",
+    "searching": "Ricerca…",
     "pagesProgress": "{processed} di {total} pagine",
     "enterSearchTerm": "Inserisci un termine di ricerca",
     "typeMinChars": "Digita almeno {count} caratteri",
     "noResults": "Nessun risultato trovato",
     "resultCount": "{count} risultato | {count} risultati",
-    "forQuery": "per \u201c{query}\u201d",
-    "showingFirst": "Primi {count} risultati mostrati \u2014 continua a digitare per affinare",
+    "forQuery": "per “{query}”",
+    "showingFirst": "Primi {count} risultati mostrati — continua a digitare per affinare",
     "page": "Pagina {page}",
     "match": "Corrispondenza {index}"
   },
@@ -301,7 +302,7 @@
     "targetUnavailableRange": "Destinazione non disponibile: inserisci una pagina (7) o un intervallo (7-14).",
     "targetPages": "Destinazione: pagine {range}.",
     "targetSelectedPages": "Destinazione: pagine selezionate {range}.",
-    "targetUnavailableNonContiguous": "Destinazione non disponibile: la selezione non \u00e8 contigua.",
+    "targetUnavailableNonContiguous": "Destinazione non disponibile: la selezione non è contigua.",
     "targetNone": "Destinazione: nessuna. Inserisci un intervallo o seleziona miniature contigue.",
     "pageWord": "pagina | pagine",
     "rangePlaceholder": "es. 1-12",
@@ -310,8 +311,8 @@
   "bookmarks": {
     "noBookmarks": "Nessun segnalibro disponibile",
     "loading": "Caricamento segnalibri...",
-    "enterEditMode": "Entra in modalit\u00e0 modifica segnalibri",
-    "exitEditMode": "Esci dalla modalit\u00e0 modifica segnalibri",
+    "enterEditMode": "Entra in modalità modifica segnalibri",
+    "exitEditMode": "Esci dalla modalità modifica segnalibri",
     "controls": "Controlli segnalibri",
     "addTopLevel": "Aggiungi segnalibro al primo livello",
     "addFirst": "Aggiungi primo segnalibro",
@@ -334,14 +335,14 @@
     "setColor": "Imposta colore {color}",
     "setStyleStart": "Imposta inizio intervallo stile",
     "rangeStartSet": "Inizio intervallo impostato",
-    "applyStyleRange": "Applica stile all\u2019intervallo",
+    "applyStyleRange": "Applica stile all’intervallo",
     "applyStyleToCount": "Applica stile a {count} segnalibro | Applica stile a {count} segnalibri",
     "removeBookmark": "Rimuovi segnalibro",
     "newBookmark": "Nuovo segnalibro"
   },
   "status": {
     "noFileOpen": "Nessun file aperto",
-    "unsavedChanges": "Modifiche non salvate \u2013 fai clic per salvare",
+    "unsavedChanges": "Modifiche non salvate – fai clic per salvare",
     "allSaved": "Tutte le modifiche salvate",
     "saveChanges": "Salva modifiche",
     "savingChanges": "Salvataggio modifiche",
@@ -369,7 +370,8 @@
     "invertSelection": "Inverti selezione",
     "pagesSelected": "{count} pagina selezionata | {count} pagine selezionate",
     "deselect": "Deseleziona tutto",
-    "operationInProgress": "Elaborazione pagine..."
+    "operationInProgress": "Elaborazione pagine...",
+    "exportPages": "Export Pages"
   },
   "settings": {
     "title": "Impostazioni",
@@ -381,7 +383,7 @@
     "themeDark": "Scuro",
     "themeDescription": "Alterna tra aspetto chiaro e scuro.",
     "language": "Lingua",
-    "languageDescription": "Scegli la lingua dell\u2019interfaccia.",
+    "languageDescription": "Scegli la lingua dell’interfaccia.",
     "languageEnglish": "Inglese",
     "languageRussian": "Russo",
     "languageFrench": "Francese",
@@ -410,7 +412,7 @@
       "start": "Impossibile avviare il processo OCR",
       "noPdfData": "Nessun dato PDF o percorso nella risposta",
       "createSearchablePdf": "Impossibile creare il PDF ricercabile",
-      "noText": "Nessun testo OCR trovato. Esegui prima l\u2019OCR.",
+      "noText": "Nessun testo OCR trovato. Esegui prima l’OCR.",
       "exportDocx": "Impossibile esportare il DOCX"
     },
     "pageOps": {
@@ -431,5 +433,26 @@
       "open": "Conversione DjVu non riuscita",
       "convert": "Conversione non riuscita"
     }
+  },
+  "export": {
+    "scopeLabel": "Export pages",
+    "scopeAll": "All pages ({count})",
+    "scopeCurrent": "Current page ({page})",
+    "scopeRange": "Page range",
+    "scopeSelected": "Selected pages ({count})",
+    "rangePlaceholder": "e.g. 3-12",
+    "invalidRange": "Enter a valid page range.",
+    "targetInvalid": "Target: invalid page range.",
+    "targetAll": "Target: all pages ({count}).",
+    "targetPages": "Target: pages ({count}).",
+    "exportImagesAction": "Export Images",
+    "exportTiffAction": "Export TIFF",
+    "dialogDescription": "Choose which pages to export and in what scope.",
+    "summaryAll": "All pages will be exported ({count}).",
+    "summaryCurrent": "Only current page ({page}) will be exported.",
+    "summarySelected": "Selected pages will be exported ({count}).",
+    "summaryRange": "Range pages will be exported ({count}).",
+    "summaryRangeHint": "Enter a full range like 3-12 or a single page like 7.",
+    "inProgress": "Export in progress..."
   }
 }
