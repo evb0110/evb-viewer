@@ -18,6 +18,7 @@ import {
     PDFName,
     PDFNumber,
     PDFHexString,
+    rgb,
 } from 'pdf-lib';
 import type {
     PDFDict,
@@ -272,6 +273,73 @@ async function backgroundEmbedBookmarksAndSignal(
     }
 }
 
+function addSkeletonPage(doc: PDFDocument, width: number, height: number) {
+    const page = doc.addPage([
+        width,
+        height,
+    ]);
+
+    const bgColor = rgb(0.96, 0.96, 0.96);
+    const barColor = rgb(0.88, 0.88, 0.88);
+
+    page.drawRectangle({
+        x: 0,
+        y: 0,
+        width,
+        height,
+        color: bgColor,
+    });
+
+    const margin = Math.min(width * 0.12, 72);
+    const contentWidth = width - 2 * margin;
+    const barHeight = Math.max(4, height * 0.008);
+    const lineGap = Math.max(8, height * 0.016);
+    const paragraphGap = lineGap * 2.5;
+
+    let y = height - margin * 1.5;
+
+    const paragraphs = [
+        4,
+        6,
+        5,
+        4,
+        6,
+        5,
+        3,
+        5,
+        4,
+    ];
+    const widthPattern = [
+        1.0,
+        0.95,
+        1.0,
+        0.85,
+        0.92,
+        0.78,
+    ];
+
+    for (const lineCount of paragraphs) {
+        if (y < margin) break;
+
+        for (let j = 0; j < lineCount; j++) {
+            if (y < margin) break;
+
+            const fraction = widthPattern[j % widthPattern.length]!;
+            page.drawRectangle({
+                x: margin,
+                y,
+                width: contentWidth * fraction,
+                height: barHeight,
+                color: barColor,
+            });
+
+            y -= lineGap;
+        }
+
+        y -= paragraphGap - lineGap;
+    }
+}
+
 async function buildSkeletonPdf(
     page1PdfPath: string,
     pageCount: number,
@@ -289,10 +357,7 @@ async function buildSkeletonPdf(
     doc.addPage(copiedPage1!);
 
     for (let i = 1; i < pageCount; i++) {
-        doc.addPage([
-            width,
-            height,
-        ]);
+        addSkeletonPage(doc, width, height);
     }
 
     const skeletonPath = join(app.getPath('temp'), `djvu-skeleton-${Date.now()}.pdf`);
@@ -322,10 +387,7 @@ async function buildIntermediatePdf(
 
     const pagesAdded = quickPages.length;
     for (let i = pagesAdded; i < pageCount; i++) {
-        doc.addPage([
-            width,
-            height,
-        ]);
+        addSkeletonPage(doc, width, height);
     }
 
     const intermediatePath = join(app.getPath('temp'), `djvu-intermediate-${Date.now()}.pdf`);
