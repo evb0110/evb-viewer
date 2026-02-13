@@ -108,7 +108,8 @@ export const usePdfSearch = () => {
 
             // Call backend search API
             const api = getElectronAPI();
-            const requestId = `${runId}`;
+            const searchId = `search-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+            const requestId = searchId;
 
             progressCleanup = api.onPdfSearchProgress((progress: IBackendSearchProgress) => {
                 if (runId !== searchRunId) {
@@ -136,7 +137,10 @@ export const usePdfSearch = () => {
             const mergedResults: IPdfSearchMatch[] = [];
             const matchesMap = new Map<number, IPdfPageMatches>();
 
-            BrowserLogger.info('PDF-SEARCH', `Processing ${response.results.length} backend search results, query="${query}"`);
+            BrowserLogger.info('pdf-search', `Processing ${response.results.length} results`, {
+                searchId,
+                query, 
+            });
 
             response.results.forEach((result, idx) => {
                 mergedResults.push({
@@ -160,7 +164,7 @@ export const usePdfSearch = () => {
 
                     matchesMap.set(pageIndex, pageMatches);
 
-                    BrowserLogger.debug('PDF-SEARCH', `Created pageMatches for page ${result.pageNumber}`);
+                    BrowserLogger.debug('pdf-search', `Created pageMatches for page ${result.pageNumber}`, { searchId });
                 }
 
                 const pageMatch = matchesMap.get(pageIndex)!;
@@ -171,7 +175,8 @@ export const usePdfSearch = () => {
                 });
 
                 if (idx < 3) {
-                    BrowserLogger.debug('PDF-SEARCH', `Result ${idx}:`, {
+                    BrowserLogger.debug('pdf-search', `Result ${idx}`, {
+                        searchId,
                         page: result.pageNumber,
                         startOffset: result.startOffset,
                         endOffset: result.endOffset,
@@ -179,10 +184,10 @@ export const usePdfSearch = () => {
                 }
             });
 
-            BrowserLogger.info('PDF-SEARCH', `Created ${matchesMap.size} pageMatches entries`);
+            BrowserLogger.info('pdf-search', `Created ${matchesMap.size} pageMatches entries`, { searchId });
             BrowserLogger.debug(
-                'PDF-SEARCH',
-                'pageMatches map:',
+                'pdf-search',
+                'pageMatches map',
                 () => Object.fromEntries(
                     Array.from(matchesMap.entries()).map((entry) => {
                         const [

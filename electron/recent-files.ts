@@ -16,6 +16,9 @@ import {
     CACHE_TTL_MS,
     MAX_RECENT_FILES,
 } from '@electron/config/constants';
+import { createLogger } from '@electron/utils/logger';
+
+const logger = createLogger('recent-files');
 
 // In-memory cache for synchronous access (needed for menu building)
 let recentFilesCache: IRecentFile[] = [];
@@ -43,7 +46,7 @@ async function loadRecentFilesData(): Promise<IRecentFilesData> {
         const content = await readFile(storagePath, 'utf-8');
         return JSON.parse(content);
     } catch (err) {
-        console.error('Failed to load recent files:', err);
+        logger.error(`Failed to load recent files: ${err instanceof Error ? err.message : String(err)}`);
         return {
             version: 1,
             files: [],
@@ -56,7 +59,7 @@ async function saveRecentFilesData(data: IRecentFilesData): Promise<void> {
     try {
         await writeFile(storagePath, JSON.stringify(data, null, 2), 'utf-8');
     } catch (err) {
-        console.error('Failed to save recent files:', err);
+        logger.error(`Failed to save recent files: ${err instanceof Error ? err.message : String(err)}`);
         throw err;
     }
 }

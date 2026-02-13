@@ -15,6 +15,9 @@ import {
     workingCopyMap,
 } from '@electron/ipc/workingCopy';
 import { te } from '@electron/i18n';
+import { createLogger } from '@electron/utils/logger';
+
+const logger = createLogger('dialogs');
 
 interface IOpenPdfResult {
     kind: 'pdf';
@@ -70,7 +73,7 @@ export async function handleOpenPdfDirect(
             originalPath: normalizedPath,
         };
     } catch (err) {
-        console.error('Failed to create working copy:', err);
+        logger.error(`Failed to create working copy: ${err instanceof Error ? err.message : String(err)}`);
         return null;
     }
 }
@@ -127,7 +130,7 @@ export async function handleOpenPdfDialog(): Promise<IOpenFileResult | null> {
             originalPath,
         };
     } catch (err) {
-        console.error('Failed to create working copy:', err);
+        logger.error(`Failed to create working copy: ${err instanceof Error ? err.message : String(err)}`);
         return null;
     }
 }

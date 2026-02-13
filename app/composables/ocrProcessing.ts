@@ -1,5 +1,6 @@
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { getElectronAPI } from '@app/utils/electron';
+import { BrowserLogger } from '@app/utils/browser-logger';
 
 export async function loadOcrText(workingCopyPath: string): Promise<string | null> {
     try {
@@ -52,7 +53,7 @@ export async function loadOcrText(workingCopyPath: string): Promise<string | nul
         const merged = legacyTexts.join('\n\n');
         return merged.length > 0 ? merged : null;
     } catch (e) {
-        console.warn('[useOcr] Failed to load OCR text for DOCX export:', e);
+        BrowserLogger.warn('ocr', 'Failed to load OCR text for DOCX export', e);
         return null;
     }
 }
@@ -81,7 +82,7 @@ export async function extractPdfText(pdfDocument: PDFDocumentProxy): Promise<str
         const merged = pages.join('\n\n');
         return merged.length > 0 ? merged : null;
     } catch (e) {
-        console.warn('[useOcr] Failed to extract PDF text for DOCX export:', e);
+        BrowserLogger.warn('ocr', 'Failed to extract PDF text for DOCX export', e);
         return null;
     }
 }

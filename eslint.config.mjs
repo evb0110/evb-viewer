@@ -93,6 +93,7 @@ export default withNuxt(
             'eslint.config.mjs',
             'nuxt.config.ts',
             'electron/**',
+            'tests/**',
             '**/*.d.ts',
         ],
         languageOptions: {parserOptions: {projectService: true}},

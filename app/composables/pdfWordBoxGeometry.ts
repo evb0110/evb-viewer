@@ -1,6 +1,7 @@
 import type { PageViewport } from 'pdfjs-dist';
 import type { IOcrWord } from '@app/types/pdf';
 import { STORAGE_KEYS } from '@app/constants/storage-keys';
+import { BrowserLogger } from '@app/utils/browser-logger';
 
 export interface IWordBoxOverlay {
     x: number;
@@ -41,7 +42,7 @@ export function transformWordBox(
     renderedPageHeight: number,
 ): IWordBoxOverlay {
     if (!imageDimensionWidth || !imageDimensionHeight) {
-        console.warn('[transformWordBox] Missing dimensions:', {
+        BrowserLogger.warn('word-box', 'Missing dimensions', {
             imageDimensionWidth,
             imageDimensionHeight,
             renderedPageWidth,
@@ -62,7 +63,7 @@ export function transformWordBox(
 
     const scale = Math.min(scaleX, scaleY);
     if (Math.abs(scaleX - scaleY) > 0.05) {
-        console.warn('[transformWordBox] ASYMMETRIC SCALES DETECTED - using uniform scaling', {
+        BrowserLogger.warn('word-box', 'Asymmetric scales detected - using uniform scaling', {
             scaleX: scaleX.toFixed(3),
             scaleY: scaleY.toFixed(3),
             usingUniformScale: scale.toFixed(3),
@@ -75,7 +76,7 @@ export function transformWordBox(
     const height = word.height * scale;
 
     if (y > renderedPageHeight || width > renderedPageWidth || height > renderedPageHeight) {
-        console.error('[transformWordBox] BOX OUT OF BOUNDS:', {
+        BrowserLogger.error('word-box', 'Box out of bounds', {
             word: word.text,
             wordCoords: {
                 x: word.x,

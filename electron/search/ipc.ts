@@ -176,7 +176,7 @@ async function ensureSearchIndex(
 
     let entry = await loadCachedIndex(pdfPath);
     if (!entry) {
-        log.debug(`No index found for ${pdfPath}, building base index`);
+        log.info(`No index found for ${pdfPath}, building base index`);
         entry = cacheBuiltIndex(
             pdfPath,
             await buildSearchIndex(pdfPath, [], { pageCount: expectedCount }),
@@ -228,7 +228,7 @@ async function handlePdfSearch(
     // Register cleanup listener to remove latestSearchBySender entry when webContents is destroyed
     registerSenderCleanup(event, senderId);
 
-    log.debug(`Search requested: pdfPath=${pdfPath}, query="${query}", requestId=${requestId}`);
+    log.info(`[${requestId}] Search requested: query="${query}", pdfPath=${pdfPath}`);
 
     if (!pdfPath || !existsSync(pdfPath)) {
         throw new Error(`PDF not found: ${pdfPath}`);
@@ -256,12 +256,12 @@ async function handlePdfSearch(
             ? pageCount
             : (indexEntry.index.pageCount ?? indexEntry.index.pages.length);
 
-        log.debug(`Searching ${totalPages} pages for "${query}"`);
+        log.info(`[${requestId}] Searching ${totalPages} pages`);
 
         sendProgress(event, {
             requestId,
             processed: 0,
-            total: totalPages, 
+            total: totalPages,
         });
 
         const results: ISearchMatch[] = [];
@@ -271,7 +271,7 @@ async function handlePdfSearch(
 
         for (let pageIdx = 0; pageIdx < indexEntry.index.pages.length; pageIdx += 1) {
             if (shouldCancel()) {
-                log.debug(`Search canceled: requestId=${requestId}`);
+                log.info(`[${requestId}] Search cancelled`);
                 return {
                     results: [],
                     truncated: false,
@@ -337,14 +337,14 @@ async function handlePdfSearch(
             });
         }
 
-        log.debug(`Total matches found: ${results.length}${truncated ? ' (truncated)' : ''}`);
+        log.info(`[${requestId}] Total matches found: ${results.length}${truncated ? ' (truncated)' : ''}`);
         return {
             results,
             truncated,
         };
     } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
-        log.debug(`Search error: ${errMsg}`);
+        log.error(`[${requestId}] Search error: ${errMsg}`);
         throw new Error(`Search failed: ${errMsg}`);
     }
 }

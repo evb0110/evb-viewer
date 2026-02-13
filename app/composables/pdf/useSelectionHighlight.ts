@@ -21,6 +21,7 @@ import type { useAnnotationCommentIdentity } from '@app/composables/pdf/useAnnot
 import type { useAnnotationMarkupSubtype } from '@app/composables/pdf/useAnnotationMarkupSubtype';
 import type { useAnnotationCommentSync } from '@app/composables/pdf/useAnnotationCommentSync';
 import type { useAnnotationToolManager } from '@app/composables/pdf/useAnnotationToolManager';
+import { BrowserLogger } from '@app/utils/browser-logger';
 
 type TIdentity = ReturnType<typeof useAnnotationCommentIdentity>;
 type TMarkupSubtypeComposable = ReturnType<typeof useAnnotationMarkupSubtype>;
@@ -291,7 +292,7 @@ export const useSelectionHighlight = (deps: {
                 }
             }
         } catch (error) {
-            console.warn(`Failed to highlight selection: ${errorToLogText(error)}`);
+            BrowserLogger.warn('annotations', `Failed to highlight selection: ${errorToLogText(error)}`);
         }
 
         if (createdAnnotation) {
@@ -300,7 +301,7 @@ export const useSelectionHighlight = (deps: {
 
         const restoreModeError = await deps.toolManager.updateModeWithRetry(uiManager, previousMode, pageNumber);
         if (restoreModeError) {
-            console.warn('Failed to restore annotation mode:', restoreModeError);
+            BrowserLogger.warn('annotations', 'Failed to restore annotation mode', restoreModeError);
         }
 
         return createdAnnotation;

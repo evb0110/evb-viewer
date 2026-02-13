@@ -9,6 +9,9 @@ import {
 import { join } from 'path';
 import { app } from 'electron';
 import type { ISettingsData } from '@app/types/shared';
+import { createLogger } from '@electron/utils/logger';
+
+const logger = createLogger('settings');
 
 const DEFAULT_SETTINGS: ISettingsData = {
     version: 1,
@@ -31,7 +34,7 @@ export async function loadSettings(): Promise<ISettingsData> {
         const content = await readFile(storagePath, 'utf-8');
         return JSON.parse(content) as ISettingsData;
     } catch (err) {
-        console.error('Failed to load settings:', err);
+        logger.error(`Failed to load settings: ${err instanceof Error ? err.message : String(err)}`);
         return { ...DEFAULT_SETTINGS };
     }
 }
@@ -41,7 +44,7 @@ export async function saveSettings(settings: ISettingsData): Promise<void> {
     try {
         await writeFile(storagePath, JSON.stringify(settings, null, 2), 'utf-8');
     } catch (err) {
-        console.error('Failed to save settings:', err);
+        logger.error(`Failed to save settings: ${err instanceof Error ? err.message : String(err)}`);
         throw err;
     }
 }
@@ -56,7 +59,7 @@ function loadSettingsSync(): ISettingsData {
         const content = readFileSync(storagePath, 'utf-8');
         return JSON.parse(content) as ISettingsData;
     } catch (err) {
-        console.error('Failed to load settings:', err);
+        logger.error(`Failed to load settings: ${err instanceof Error ? err.message : String(err)}`);
         return { ...DEFAULT_SETTINGS };
     }
 }

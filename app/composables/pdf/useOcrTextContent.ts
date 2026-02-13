@@ -2,6 +2,7 @@ import type { PageViewport } from 'pdfjs-dist';
 import type { IPdfRawDims } from '@app/types/pdf';
 import { getElectronAPI } from '@app/utils/electron';
 import type { IOcrWord } from '@app/types/shared';
+import { BrowserLogger } from '@app/utils/browser-logger';
 
 /**
  * OCR index v2 manifest schema
@@ -129,7 +130,7 @@ export const useOcrTextContent = () => {
             manifestCache.set(cacheKey, manifest);
             return manifest;
         } catch (err) {
-            console.warn('[OCR] Failed to load manifest:', err);
+            BrowserLogger.warn('ocr', 'Failed to load manifest', err);
             manifestCache.set(cacheKey, null);
             return null;
         }
@@ -162,7 +163,7 @@ export const useOcrTextContent = () => {
             pageCache.set(cacheKey, pageData);
             return pageData;
         } catch (err) {
-            console.warn(`[OCR] Failed to load page ${pageNumber}:`, err);
+            BrowserLogger.warn('ocr', `Failed to load page ${pageNumber}`, err);
             return null;
         }
     }

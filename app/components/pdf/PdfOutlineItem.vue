@@ -134,6 +134,7 @@ import type {
 } from '@app/types/pdf-outline';
 import { resolveBookmarkDestinationPage } from '@app/utils/pdf-outline-helpers';
 import { usePdfOutlineItemState } from '@app/composables/pdf/usePdfOutlineItemState';
+import { BrowserLogger } from '@app/utils/browser-logger';
 
 const { t } = useI18n();
 
@@ -371,7 +372,7 @@ async function handleClick(event?: MouseEvent | KeyboardEvent) {
             || message.includes('page must be a reference');
 
         if (!isKnownPdfIssue) {
-            console.error('Failed to navigate to bookmark destination:', error);
+            BrowserLogger.error('pdf-outline', 'Failed to navigate to bookmark destination', error);
         }
     }
 }

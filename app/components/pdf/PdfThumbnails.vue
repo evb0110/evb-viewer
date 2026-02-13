@@ -48,6 +48,7 @@ import { formatPageIndicator } from '@app/utils/pdf-page-labels';
 import { THUMBNAIL_WIDTH } from '@app/constants/pdf-layout';
 import { useMultiSelection } from '@app/composables/useMultiSelection';
 import { usePageDragDrop } from '@app/composables/pdf/usePageDragDrop';
+import { BrowserLogger } from '@app/utils/browser-logger';
 
 interface IProps {
     pdfDocument: PDFDocumentProxy | null;
@@ -270,7 +271,7 @@ async function renderThumbnail(
         if (runId !== renderRunId || !isPdfDocumentUsable(pdfDocument)) {
             return;
         }
-        console.error(`Failed to render thumbnail for page ${pageNum}:`, error);
+        BrowserLogger.error('pdf-thumbnails', `Failed to render thumbnail for page ${pageNum}`, error);
     } finally {
         renderingPages.delete(pageNum);
     }

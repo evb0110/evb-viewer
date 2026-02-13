@@ -197,7 +197,7 @@ export const usePdfTextLayerRenderer = (deps: {
                     textContent = ocrTextContent;
                 }
             } catch (ocrError) {
-                console.warn('[usePdfTextLayerRenderer] OCR text content failed:', ocrError);
+                BrowserLogger.warn('pdf-text-layer', 'OCR text content failed', ocrError);
             }
         }
 

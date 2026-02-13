@@ -16,6 +16,7 @@ import {
     createWindow,
     hasWindows,
 } from '@electron/window';
+import { createLogger } from '@electron/utils/logger';
 
 app.setName('EVB Viewer');
 if (process.platform === 'win32') {
@@ -25,6 +26,8 @@ if (process.platform === 'win32') {
 // Explicitly set userData path to ensure it uses our app name
 // This fixes a race condition where imports above may cache the default "Electron" path
 app.setPath('userData', join(app.getPath('appData'), app.name));
+
+const logger = createLogger('main');
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const devDockIconPath = join(__dirname, '..', 'resources', 'icon.png');
@@ -37,7 +40,7 @@ async function init() {
         try {
             app.dock?.setIcon(devDockIconPath);
         } catch (err) {
-            console.warn('[Electron] Failed to set dock icon:', err);
+            logger.warn(`Failed to set dock icon: ${err instanceof Error ? err.message : String(err)}`);
         }
     }
     registerIpcHandlers();

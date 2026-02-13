@@ -9,6 +9,7 @@ import type {
 } from 'pdfjs-dist';
 import { getElectronAPI } from '@app/utils/electron';
 import type { TPdfSource } from '@app/types/pdf';
+import { BrowserLogger } from '@app/utils/browser-logger';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf/pdf.worker.min.mjs';
 
@@ -139,7 +140,7 @@ export const usePdfDocument = () => {
             if (version !== renderVersion) {
                 return null;
             }
-            console.error('Failed to load PDF:', error);
+            BrowserLogger.error('pdf-document', 'Failed to load PDF', error);
             return null;
         } finally {
             // Only clear loading state if this is still the current load
@@ -204,7 +205,7 @@ export const usePdfDocument = () => {
             try {
                 void loadingTask.destroy();
             } catch (error) {
-                console.error('Failed to destroy PDF loading task:', error);
+                BrowserLogger.error('pdf-document', 'Failed to destroy PDF loading task', error);
             } finally {
                 loadingTask = null;
             }
@@ -214,7 +215,7 @@ export const usePdfDocument = () => {
             try {
                 pdfDocument.value.destroy();
             } catch (error) {
-                console.error('Failed to destroy PDF document:', error);
+                BrowserLogger.error('pdf-document', 'Failed to destroy PDF document', error);
             }
             pdfDocument.value = null;
         }

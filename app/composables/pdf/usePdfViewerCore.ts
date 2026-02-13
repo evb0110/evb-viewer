@@ -13,6 +13,7 @@ import {
     useResizeObserver,
 } from '@vueuse/core';
 import { PixelsPerInch } from 'pdfjs-dist';
+import { BrowserLogger } from '@app/utils/browser-logger';
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import { delay } from 'es-toolkit/promise';
 import type {
@@ -272,7 +273,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
                     const firstPage = await getPage(1);
                     await computeSkeletonInsets(firstPage, loaded.version, getRenderVersion);
                 } catch (error) {
-                    console.warn('Failed to compute PDF skeleton insets:', error);
+                    BrowserLogger.warn('pdf-viewer', 'Failed to compute PDF skeleton insets', error);
                 }
             })();
         }

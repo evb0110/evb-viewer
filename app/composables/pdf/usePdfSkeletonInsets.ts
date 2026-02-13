@@ -8,6 +8,7 @@ import {
     type InjectionKey,
     type ComputedRef,
 } from 'vue';
+import { BrowserLogger } from '@app/utils/browser-logger';
 import type {
     IContentInsets,
     PDFPageProxy,
@@ -208,7 +209,7 @@ export const usePdfSkeletonInsets = (
             if (getCurrentVersion() !== renderVersion) {
                 return;
             }
-            console.warn('Failed to derive PDF content bounds, using fallback.', error);
+            BrowserLogger.warn('pdf-skeleton', 'Failed to derive PDF content bounds, using fallback', error);
             skeletonContentInsets.value = fallback;
         }
     }

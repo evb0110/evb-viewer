@@ -3,6 +3,7 @@ import type {
     IPdfSearchMatch,
     ISearchExcerpt,
 } from '@app/types/pdf';
+import { BrowserLogger } from '@app/utils/browser-logger';
 import {
     buildTextLayerIndex,
     highlightTextInSpan,
@@ -179,7 +180,7 @@ export const usePdfSearchHighlight = () => {
         if (currentMatch && currentMatch.pageMatchIndex !== undefined && currentMatch.pageIndex === pageMatches.pageIndex) {
             currentIndexOnPage = currentMatch.pageMatchIndex;
             if (isHighlightDebugEnabled()) {
-                console.log('[PDF-HIGHLIGHT] Using pageMatchIndex:', currentMatch.pageMatchIndex);
+                BrowserLogger.debug('pdf-highlight', 'Using pageMatchIndex', currentMatch.pageMatchIndex);
             }
         } else if (backendIndexOnPage !== -1 && currentMatch?.excerpt) {
             const expectedIndex = backendIndexOnPage;
@@ -227,7 +228,7 @@ export const usePdfSearchHighlight = () => {
         }));
 
         if (isHighlightDebugEnabled() && matchRanges.length !== pageMatches.matches.length && backendIndexOnPage !== -1) {
-            console.warn('[PDF-HIGHLIGHT] Text-layer match count differs from backend results', {
+            BrowserLogger.warn('pdf-highlight', 'Text-layer match count differs from backend results', {
                 pageIndex: pageMatches.pageIndex,
                 query,
                 backendCount: pageMatches.matches.length,

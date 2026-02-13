@@ -27,6 +27,7 @@ import type { useAnnotationCommentIdentity } from '@app/composables/pdf/useAnnot
 import type { useAnnotationCommentSync } from '@app/composables/pdf/useAnnotationCommentSync';
 import type { useInlineCommentIndicators } from '@app/composables/pdf/useInlineCommentIndicators';
 import type { useAnnotationToolManager } from '@app/composables/pdf/useAnnotationToolManager';
+import { BrowserLogger } from '@app/utils/browser-logger';
 import type { useAnnotationHighlight } from '@app/composables/pdf/useAnnotationHighlight';
 import { FOCUS_PULSE_MS } from '@app/constants/timeouts';
 import {
@@ -461,7 +462,7 @@ export function useAnnotationCommentCrud(options: IUseAnnotationCommentCrudOptio
             : AnnotationEditorType.POPUP;
         const modeError = await toolManager.updateModeWithRetry(uiManager, mode, match.pageIndex + 1);
         if (modeError) {
-            console.warn(`Failed to enable editor interaction mode: ${errorToLogText(modeError)}`);
+            BrowserLogger.warn('annotations', `Failed to enable editor interaction mode: ${errorToLogText(modeError)}`);
             return false;
         }
 

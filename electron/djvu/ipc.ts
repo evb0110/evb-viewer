@@ -41,6 +41,9 @@ import {
 import { parseDjvuOutline } from '@electron/djvu/bookmarks';
 import { estimateSizes } from '@electron/djvu/estimate';
 import type { IPdfBookmarkEntry } from '@app/types/pdf';
+import { createLogger } from '@electron/utils/logger';
+
+const logger = createLogger('djvu-ipc');
 
 function safeSendToWindow(
     window: BrowserWindow | null | undefined,
@@ -204,6 +207,7 @@ async function handleDjvuOpenForViewing(
     }
 
     const jobId = `djvu-view-${Date.now()}`;
+    logger.info(`[${jobId}] Opening DjVu for viewing: ${djvuPath}`);
 
     try {
         const pageCount = await getDjvuPageCount(djvuPath);
@@ -245,6 +249,7 @@ async function handleDjvuOpenForViewing(
             });
         }
 
+        logger.info(`[${jobId}] Viewing ready: pageCount=${pageCount}, pdfPath=${initialPdfPath}`);
         return {
             success: true,
             pdfPath: initialPdfPath,
@@ -252,6 +257,7 @@ async function handleDjvuOpenForViewing(
             jobId,
         };
     } catch (err) {
+        logger.error(`[${jobId}] Open failed: ${err instanceof Error ? err.message : String(err)}`);
         return {
             success: false,
             error: err instanceof Error ? err.message : String(err),
@@ -386,6 +392,7 @@ async function backgroundConvertAll(
     jobId: string,
 ) {
     const rangeDir = join(app.getPath('temp'), `djvu-ranges-${Date.now()}`);
+    logger.info(`[${jobId}] Background conversion starting: ${pageCount} pages`);
 
     try {
         await mkdir(rangeDir, { recursive: true });
@@ -457,12 +464,14 @@ async function backgroundConvertAll(
             percent: 100,
         });
 
+        logger.info(`[${jobId}] Background conversion complete, signaling renderer`);
         safeSendToWindow(window, 'djvu:viewingReady', {
             pdfPath: fullPdfPath,
             isPartial: false,
             jobId,
         });
     } catch (err) {
+        logger.error(`[${jobId}] Background conversion failed: ${err instanceof Error ? err.message : String(err)}`);
         safeSendToWindow(window, 'djvu:viewingError', { error: err instanceof Error ? err.message : String(err) });
     } finally {
         activeViewingJobId = null;
@@ -494,6 +503,7 @@ async function handleDjvuConvertToPdf(
     const window = BrowserWindow.fromWebContents(event.sender);
     const jobId = `djvu-convert-${Date.now()}`;
     const imageDir = join(app.getPath('temp'), `djvu-images-${Date.now()}`);
+    logger.info(`[${jobId}] Converting DjVu to PDF: ${djvuPath} -> ${outputPath}`);
 
     try {
         const [
@@ -576,12 +586,14 @@ async function handleDjvuConvertToPdf(
             percent: 100,
         });
 
+        logger.info(`[${jobId}] Conversion to PDF complete: ${outputPath}`);
         return {
             success: true,
             pdfPath: outputPath,
             jobId,
         };
     } catch (err) {
+        logger.error(`[${jobId}] Conversion failed: ${err instanceof Error ? err.message : String(err)}`);
         return {
             success: false,
             jobId,
@@ -603,7 +615,10 @@ function handleDjvuCancel(
     _event: IpcMainInvokeEvent,
     jobId: string,
 ): { canceled: boolean } {
-    return { canceled: cancelConversion(jobId) };
+    logger.info(`[${jobId}] Cancel requested`);
+    const canceled = cancelConversion(jobId);
+    logger.info(`[${jobId}] Cancel result: ${canceled}`);
+    return { canceled };
 }
 
 async function handleDjvuGetInfo(

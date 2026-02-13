@@ -230,8 +230,10 @@ export function handleOcrCancel(
     _event: IpcMainInvokeEvent,
     requestId: string,
 ): { canceled: boolean } {
+    log.info(`[${requestId}] Cancel requested`);
     const job = activeJobs.get(requestId);
     if (!job) {
+        log.info(`[${requestId}] No active job found for cancel`);
         return { canceled: false };
     }
 
@@ -239,5 +241,6 @@ export function handleOcrCancel(
     job.terminatedByUs = true;
     job.worker.terminate();
     activeJobs.delete(requestId);
+    log.info(`[${requestId}] Job cancelled and worker terminated`);
     return { canceled: true };
 }

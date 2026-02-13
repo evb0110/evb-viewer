@@ -4,6 +4,7 @@ import {
 } from 'vue';
 import { getElectronAPI } from '@app/utils/electron';
 import { useDjvuMode } from '@app/composables/useDjvuMode';
+import { BrowserLogger } from '@app/utils/browser-logger';
 
 interface IDjvuConversionState {
     isConverting: boolean;
@@ -159,15 +160,21 @@ export const useDjvu = () => {
         pendingConvertCancel.value = false;
 
         try {
+            BrowserLogger.info('djvu', `Opening DjVu for viewing: ${djvuFileName}`);
             const result = await api.djvu.openForViewing(djvuPath);
 
             if (!result.success || !result.pdfPath) {
+                BrowserLogger.error('djvu', 'Open failed', result.error);
                 throw new Error(result.error ?? t('errors.djvu.open'));
             }
 
             const initialPdfPath = result.pdfPath;
             const pageCount = result.pageCount ?? 0;
             activeViewingJobId.value = result.jobId ?? null;
+            BrowserLogger.info('djvu', 'Viewing ready', {
+                jobId: result.jobId,
+                pageCount, 
+            });
 
             // Set originalPath to DjVu source so the status bar shows
             // the real file location instead of the /var temp path
@@ -189,6 +196,10 @@ export const useDjvu = () => {
 
                 swapHandler = (event) => {
                     (async () => {
+                        BrowserLogger.info('djvu', 'Full PDF swap received', {
+                            jobId: activeViewingJobId.value,
+                            isPartial: event.isPartial, 
+                        });
                         try {
                             const savedPage = getCurrentPage?.() ?? 1;
                             const oldPath = djvuTempPdfPath.value;
@@ -253,6 +264,11 @@ export const useDjvu = () => {
         activeConvertJobId.value = null;
         pendingConvertCancel.value = false;
 
+        BrowserLogger.info('djvu', 'Starting conversion to PDF', {
+            subsample,
+            preserveBookmarks, 
+        });
+
         try {
             const result = await api.djvu.convertToPdf(
                 djvuSourcePath.value,
@@ -264,9 +280,14 @@ export const useDjvu = () => {
             );
 
             if (!result.success || !result.pdfPath) {
+                BrowserLogger.error('djvu', 'Conversion failed', result.error);
                 throw new Error(result.error ?? t('errors.djvu.convert'));
             }
             activeConvertJobId.value = result.jobId ?? null;
+            BrowserLogger.info('djvu', 'Conversion completed', {
+                jobId: result.jobId,
+                pdfPath: result.pdfPath, 
+            });
 
             const tempPath = djvuTempPdfPath.value;
             exitDjvuMode();
@@ -304,6 +325,7 @@ export const useDjvu = () => {
         if (activeConvertJobId.value) {
             ids.add(activeConvertJobId.value);
         }
+        BrowserLogger.info('djvu', 'Cancelling active jobs', { jobIds: [...ids] });
         if (ids.size === 0) {
             if (conversionState.value.isConverting) {
                 pendingConvertCancel.value = true;

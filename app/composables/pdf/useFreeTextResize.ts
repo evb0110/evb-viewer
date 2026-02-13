@@ -5,6 +5,7 @@ import {
 import type { IAnnotationSettings } from '@app/types/annotations';
 import type { IPdfjsEditor } from '@app/composables/pdf/pdfAnnotationUtils';
 import { detectEditorSubtype } from '@app/composables/pdf/pdfAnnotationUtils';
+import { BrowserLogger } from '@app/utils/browser-logger';
 
 const FREE_TEXT_FONT_SIZE_MIN = 8;
 const FREE_TEXT_FONT_SIZE_MAX = 96;
@@ -382,7 +383,7 @@ export function useFreeTextResize(options: IUseFreeTextResizeOptions) {
             emitAnnotationModified();
             scheduleAnnotationCommentsSync();
         } catch (error) {
-            console.warn('[PdfViewer] Failed to sync FreeText font size:', error);
+            BrowserLogger.warn('pdf-viewer', 'Failed to sync FreeText font size', error);
         }
     }
 

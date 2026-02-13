@@ -14,6 +14,9 @@ import {
     sep,
     isAbsolute,
 } from 'path';
+import { createLogger } from '@electron/utils/logger';
+
+const logger = createLogger('working-copy');
 
 export const workingCopyMap = new Map<string, string>();
 
@@ -92,7 +95,7 @@ function cleanupWorkingCopyDirectory(workingPath: string) {
             }
         }
     } catch (err) {
-        console.warn('[cleanup] Failed to delete working directory:', err);
+        logger.warn(`Failed to delete working directory: ${err instanceof Error ? err.message : String(err)}`);
     }
 }
 

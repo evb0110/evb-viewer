@@ -31,6 +31,7 @@ import type { useAnnotationMarkupSubtype } from '@app/composables/pdf/useAnnotat
 import type { useAnnotationCommentSync } from '@app/composables/pdf/useAnnotationCommentSync';
 import type { useAnnotationToolManager } from '@app/composables/pdf/useAnnotationToolManager';
 import type { useAnnotationCommentIdentity } from '@app/composables/pdf/useAnnotationCommentIdentity';
+import { BrowserLogger } from '@app/utils/browser-logger';
 
 type TFreeTextResize = ReturnType<typeof useFreeTextResize>;
 type TMarkupSubtypeComposable = ReturnType<typeof useAnnotationMarkupSubtype>;
@@ -390,7 +391,7 @@ export function useAnnotationEditorLifecycle(options: IUseAnnotationEditorLifecy
                 freeTextResize.patchResizableFreeTextEditors(uiManager);
             };
         } catch (error) {
-            console.warn('Failed to attach annotation modified handler:', error);
+            BrowserLogger.warn('annotations', 'Failed to attach annotation modified handler', error);
         }
 
         uiManager.addEditListeners();

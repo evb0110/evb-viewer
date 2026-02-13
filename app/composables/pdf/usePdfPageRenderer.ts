@@ -30,6 +30,7 @@ import {
     setupPagePlaceholderSizes,
     type IPageRange,
 } from '@app/composables/pdf/pdfPageBufferManager';
+import { BrowserLogger } from '@app/utils/browser-logger';
 
 export {
     isRenderingCancelledError, captureScrollSnapshot, restoreScrollFromSnapshot, formatRenderError,
@@ -178,7 +179,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         try {
             evictPage(pageNumber);
         } catch (error) {
-            console.error('Failed to evict cached PDF page:', error);
+            BrowserLogger.error('pdf-renderer', 'Failed to evict cached PDF page', error);
         }
     }
 
@@ -439,7 +440,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                             return;
                         }
 
-                        console.error(formatRenderError(error, pageNumber));
+                        BrowserLogger.error('pdf-renderer', formatRenderError(error, pageNumber));
                         if (renderingPages.get(pageNumber) === version) {
                             cleanupPage(pageNumber);
                         }
@@ -518,7 +519,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         try {
             cleanupPageCache();
         } catch (error) {
-            console.error('Failed to clean up PDF page cache:', error);
+            BrowserLogger.error('pdf-renderer', 'Failed to clean up PDF page cache', error);
         }
     }
 

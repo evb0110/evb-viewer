@@ -3,6 +3,7 @@ import {
     toRaw,
 } from 'vue';
 import type { ISettingsData } from '@app/types/shared';
+import { BrowserLogger } from '@app/utils/browser-logger';
 
 // Vite HMR types (not exposed by Nuxt's type system)
 declare global {
@@ -44,7 +45,7 @@ export const useSettings = () => {
                 settings.value = await window.electronAPI.settings.get();
                 isLoaded.value = true;
             } catch (e) {
-                console.error('Failed to load settings:', e);
+                BrowserLogger.error('settings', 'Failed to load settings', e);
             } finally {
                 loadPromise = null;
             }
@@ -68,7 +69,7 @@ export const useSettings = () => {
             };
             await window.electronAPI.settings.save(payload);
         } catch (e) {
-            console.error('Failed to save settings:', e);
+            BrowserLogger.error('settings', 'Failed to save settings', e);
         }
     }
 

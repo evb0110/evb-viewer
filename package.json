@@ -24,6 +24,9 @@
     "lint": "eslint . --fix && stylelint \"app/**/*.{vue,scss}\"",
     "knip": "knip",
     "validate": "pnpm run typecheck && pnpm run lint && pnpm run build && pnpm run knip",
+    "test": "vitest run",
+    "test:unit": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration",
     "electron:run": "tsx scripts/electron-run.ts"
   },
   "dependencies": {
@@ -59,6 +62,7 @@
     "tailwindcss": "^4.1.18",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",
+    "vitest": "^4.0.18",
     "wait-on": "^9.0.3"
   },
   "packageManager": "pnpm@9.15.0"

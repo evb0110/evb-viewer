@@ -14,12 +14,15 @@ import {
     waitForServer,
 } from '@electron/server';
 import { setupContentSecurityPolicy } from '@electron/security/csp';
+import { createLogger } from '@electron/utils/logger';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const windowIconPath = !app.isPackaged && !config.isMac
     ? join(__dirname, '..', 'resources', process.platform === 'win32' ? 'icon.ico' : 'icon.png')
     : undefined;
+
+const logger = createLogger('window');
 
 let mainWindow: BrowserWindow | null = null;
 let createWindowPromise: Promise<void> | null = null;
@@ -35,8 +38,8 @@ export async function createWindow() {
 
     createWindowPromise = (async () => {
         const preloadPath = join(__dirname, 'preload.js');
-        console.log('[Electron] __dirname:', __dirname);
-        console.log('[Electron] preload path:', preloadPath);
+        logger.debug(`__dirname: ${__dirname}`);
+        logger.debug(`preload path: ${preloadPath}`);
 
         setupContentSecurityPolicy();
 
@@ -46,7 +49,7 @@ export async function createWindow() {
                 // Prevent stale HTML/asset caching from causing Vite 504 "Outdated Optimize Dep" errors.
                 await session.defaultSession.clearCache();
             } catch (err) {
-                console.warn('[Electron] Failed to clear HTTP cache:', err);
+                logger.warn(`Failed to clear HTTP cache: ${err instanceof Error ? err.message : String(err)}`);
             }
         }
 
@@ -83,14 +86,15 @@ export async function createWindow() {
 
         const logNavEvent = (event: string, details?: Record<string, unknown>) => {
             if (config.isDev) {
-                console.log(`[Window] ${event}`, {
+                const info = {
                     timestamp: Date.now(),
                     hasShownWindow,
                     hasOpenedDevTools,
                     pendingShowTimeout: !!pendingShowTimeout,
                     stabilityCheckTimeout: !!stabilityCheckTimeout,
                     ...details,
-                });
+                };
+                logger.debug(`${event} ${JSON.stringify(info)}`);
             }
         };
 
@@ -270,7 +274,7 @@ export async function createWindow() {
         };
 
         const onFailLoad = (_event: unknown, errorCode: number, errorDescription: string, validatedURL: string) => {
-            console.error('[Electron] Failed to load URL:', validatedURL, errorCode, errorDescription);
+            logger.error(`Failed to load URL: ${validatedURL} (code=${errorCode}, desc=${errorDescription})`);
             showWindowNow();
             openDevToolsOnce();
         };

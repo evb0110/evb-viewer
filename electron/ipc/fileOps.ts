@@ -20,6 +20,9 @@ import {
     isAllowedReadPath,
 } from '@electron/utils/path-validator';
 import { MAX_CHUNK } from '@electron/config/constants';
+import { createLogger } from '@electron/utils/logger';
+
+const logger = createLogger('file-ops');
 
 const ALLOWED_READ_EXTENSIONS = new Set([
     '.json',
@@ -251,6 +254,6 @@ export async function handleCleanupOcrTemp(
             await unlink(absolutePath);
         }
     } catch (err) {
-        console.warn('[cleanup] Failed to delete OCR temp file:', err);
+        logger.warn(`Failed to delete OCR temp file: ${err instanceof Error ? err.message : String(err)}`);
     }
 }

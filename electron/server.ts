@@ -9,6 +9,9 @@ import {
     SERVER_POLL_INTERVAL_MS,
     SERVER_READY_TIMEOUT_MS,
 } from '@electron/config/constants';
+import { createLogger } from '@electron/utils/logger';
+
+const logger = createLogger('server');
 
 let nuxtProcess: ChildProcess | null = null;
 let serverReady: Promise<void> | null = null;
@@ -38,13 +41,13 @@ export async function startServer() {
     }
 
     if (await isServerRunning()) {
-        console.log('[Electron] Nuxt server already running, connecting...');
+        logger.info('Nuxt server already running, connecting...');
         usingExternalServer = true;
         serverReady = Promise.resolve();
         return;
     }
 
-    console.log('[Electron] Starting Nuxt server...');
+    logger.info('Starting Nuxt server...');
     usingExternalServer = false;
     // Use definite assignment assertion - resolveReady is guaranteed to be assigned
     // by the Promise constructor before any code that uses it can execute
@@ -115,7 +118,7 @@ export async function startServer() {
     })();
 
     nuxtProcess.on('error', (err) => {
-        console.error('Failed to start Nuxt server:', err);
+        logger.error(`Failed to start Nuxt server: ${err instanceof Error ? err.message : String(err)}`);
         rejectReady(err instanceof Error ? err : new Error(String(err)));
     });
 
@@ -145,7 +148,7 @@ export function waitForServer() {
             try {
                 const response = await fetch(config.server.url, { method: 'HEAD' });
                 if (response.ok) {
-                    console.log('[Electron] Server verified ready');
+                    logger.info('Server verified ready');
                     return;
                 }
             } catch {

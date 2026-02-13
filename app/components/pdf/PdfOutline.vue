@@ -112,6 +112,7 @@ import { isPdfDocumentUsable } from '@app/utils/pdf-document-guard';
 import { buildResolvedOutline } from '@app/utils/pdf-outline-helpers';
 import type { IOutlineItemRaw } from '@app/utils/pdf-outline-helpers';
 import { usePdfOutlineSelection } from '@app/composables/pdf/usePdfOutlineSelection';
+import { BrowserLogger } from '@app/utils/browser-logger';
 import { usePdfOutlineDragDrop } from '@app/composables/pdf/usePdfOutlineDragDrop';
 import { usePdfOutlineEditing } from '@app/composables/pdf/usePdfOutlineEditing';
 import { usePdfOutlineContextMenu } from '@app/composables/pdf/usePdfOutlineContextMenu';
@@ -394,7 +395,7 @@ async function loadOutline() {
         ) {
             return;
         }
-        console.error('Failed to load bookmarks:', error);
+        BrowserLogger.error('pdf-outline', 'Failed to load bookmarks', error);
         bookmarks.value = [];
         activeItemId.value = null;
         selection.clearSelection();

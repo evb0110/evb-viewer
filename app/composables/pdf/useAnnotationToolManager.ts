@@ -14,6 +14,7 @@ import type {
     TAnnotationTool,
 } from '@app/types/annotations';
 import { errorToLogText } from '@app/composables/pdf/pdfAnnotationUtils';
+import { BrowserLogger } from '@app/utils/browser-logger';
 import type { useAnnotationMarkupSubtype } from '@app/composables/pdf/useAnnotationMarkupSubtype';
 import type { useFreeTextResize } from '@app/composables/pdf/useFreeTextResize';
 
@@ -139,7 +140,7 @@ export function useAnnotationToolManager(options: IUseAnnotationToolManagerOptio
 
             const modeError = await updateModeWithRetry(uiManager, mode, currentPage.value);
             if (modeError) {
-                console.warn(`Failed to update annotation tool mode: ${errorToLogText(modeError)}`);
+                BrowserLogger.warn('annotations', `Failed to update annotation tool mode: ${errorToLogText(modeError)}`);
                 return;
             }
 
@@ -150,7 +151,7 @@ export function useAnnotationToolManager(options: IUseAnnotationToolManagerOptio
             applyAnnotationSettings(settings);
             freeTextResize.patchResizableFreeTextEditors(uiManager);
         }).catch((error: unknown) => {
-            console.warn('Failed to apply annotation tool update:', error);
+            BrowserLogger.warn('annotations', 'Failed to apply annotation tool update', error);
         });
 
         await annotationToolUpdatePromise;

@@ -8,6 +8,7 @@ import {
     createWordBoxOverlays,
     type IOcrIndexV2Page,
 } from '@app/composables/pdfWordBoxGeometry';
+import { BrowserLogger } from '@app/utils/browser-logger';
 
 export const usePdfWordBoxes = () => {
     function clearWordBoxes(container: HTMLElement) {
@@ -35,7 +36,7 @@ export const usePdfWordBoxes = () => {
             const scaleY = renderedPageHeight / pdfPageHeight;
             const diff = Math.abs(scaleX - scaleY);
             if (diff >= 0.01) {
-                console.warn('[WordBoxes] COORDINATE SPACE MISMATCH', {
+                BrowserLogger.warn('word-boxes', 'Coordinate space mismatch', {
                     pdfPageDimensions: {
                         width: pdfPageWidth,
                         height: pdfPageHeight,
@@ -106,7 +107,7 @@ export const usePdfWordBoxes = () => {
             const content = await api.readTextFile(pagePath);
             return JSON.parse(content) as IOcrIndexV2Page;
         } catch (error) {
-            console.warn('[OcrDebug] Failed to load OCR page data:', error);
+            BrowserLogger.warn('ocr-debug', 'Failed to load OCR page data', error);
             return null;
         }
     }
@@ -124,7 +125,7 @@ export const usePdfWordBoxes = () => {
         }
 
         if (!workingCopyPath) {
-            console.log('[OcrDebug] No working copy path, skipping debug boxes');
+            BrowserLogger.debug('ocr-debug', 'No working copy path, skipping debug boxes');
             return;
         }
 
@@ -133,17 +134,17 @@ export const usePdfWordBoxes = () => {
         const ocrPageData = await loadOcrPageData(workingCopyPath, pageNumber);
 
         if (!ocrPageData) {
-            console.log(`[OcrDebug] No OCR index found for page ${pageNumber}`);
+            BrowserLogger.debug('ocr-debug', `No OCR index found for page ${pageNumber}`);
             return;
         }
 
         const words = ocrPageData.words;
         if (!words || words.length === 0) {
-            console.log(`[OcrDebug] OCR index found but no words for page ${pageNumber}`);
+            BrowserLogger.debug('ocr-debug', `OCR index found but no words for page ${pageNumber}`);
             return;
         }
 
-        console.log(`[OcrDebug] Rendering ${words.length} OCR debug boxes for page ${pageNumber}`, {
+        BrowserLogger.debug('ocr-debug', `Rendering ${words.length} OCR debug boxes for page ${pageNumber}`, {
             imagePx: ocrPageData.render.imagePx,
             dpi: ocrPageData.render.dpi,
             rotation: ocrPageData.rotation,
@@ -201,7 +202,7 @@ export const usePdfWordBoxes = () => {
         }
 
         const renderedCount = words.length - transformErrors;
-        console.log(`[OcrDebug] Page ${pageNumber}: rendered ${renderedCount}/${words.length} boxes`, {
+        BrowserLogger.debug('ocr-debug', `Page ${pageNumber}: rendered ${renderedCount}/${words.length} boxes`, {
             transformErrors,
             sampleWord: words[0] ? {
                 text: words[0].text,

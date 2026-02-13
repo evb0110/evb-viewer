@@ -3,6 +3,7 @@ import {
     type Ref,
 } from 'vue';
 import { getElectronAPI } from '@app/utils/electron';
+import { BrowserLogger } from '@app/utils/browser-logger';
 
 type TPageOpsRotation = 90 | 180 | 270;
 
@@ -58,7 +59,7 @@ export const usePageOperations = (deps: {
             }
             return false;
         } catch (e) {
-            console.error('[pageOps] deletePages failed:', e);
+            BrowserLogger.error('page-ops', 'deletePages failed', e);
             error.value = e instanceof Error ? e.message : t('errors.pageOps.delete');
             return false;
         } finally {
@@ -78,7 +79,7 @@ export const usePageOperations = (deps: {
             const result = await api.pageOps.extract(workingCopyPath.value, [...pages]);
             return result.success && !result.canceled;
         } catch (e) {
-            console.error('[pageOps] extractPages failed:', e);
+            BrowserLogger.error('page-ops', 'extractPages failed', e);
             error.value = e instanceof Error ? e.message : t('errors.pageOps.extract');
             return false;
         } finally {
@@ -106,7 +107,7 @@ export const usePageOperations = (deps: {
             }
             return false;
         } catch (e) {
-            console.error('[pageOps] rotatePages failed:', e);
+            BrowserLogger.error('page-ops', 'rotatePages failed', e);
             error.value = e instanceof Error ? e.message : t('errors.pageOps.rotate');
             return false;
         } finally {
@@ -134,7 +135,7 @@ export const usePageOperations = (deps: {
             }
             return false;
         } catch (e) {
-            console.error('[pageOps] insertPages failed:', e);
+            BrowserLogger.error('page-ops', 'insertPages failed', e);
             error.value = e instanceof Error ? e.message : t('errors.pageOps.insert');
             return false;
         } finally {
@@ -162,7 +163,7 @@ export const usePageOperations = (deps: {
             }
             return false;
         } catch (e) {
-            console.error('[pageOps] insertFile failed:', e);
+            BrowserLogger.error('page-ops', 'insertFile failed', e);
             error.value = e instanceof Error ? e.message : t('errors.pageOps.insertFile');
             return false;
         } finally {
@@ -190,7 +191,7 @@ export const usePageOperations = (deps: {
             }
             return false;
         } catch (e) {
-            console.error('[pageOps] reorderPages failed:', e);
+            BrowserLogger.error('page-ops', 'reorderPages failed', e);
             error.value = e instanceof Error ? e.message : t('errors.pageOps.reorder');
             return false;
         } finally {
