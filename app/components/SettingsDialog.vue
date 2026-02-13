@@ -107,6 +107,30 @@ const localeItems = computed(() => [
         label: t('settings.languageRussian'),
         value: 'ru', 
     },
+    {
+        label: t('settings.languageFrench'),
+        value: 'fr', 
+    },
+    {
+        label: t('settings.languageGerman'),
+        value: 'de', 
+    },
+    {
+        label: t('settings.languageSpanish'),
+        value: 'es', 
+    },
+    {
+        label: t('settings.languageItalian'),
+        value: 'it', 
+    },
+    {
+        label: t('settings.languagePortuguese'),
+        value: 'pt', 
+    },
+    {
+        label: t('settings.languageDutch'),
+        value: 'nl', 
+    },
 ]);
 
 function applyTheme(theme: TAppTheme) {

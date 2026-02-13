@@ -1,13 +1,25 @@
 import en from '@app/locales/en.json';
 import ru from '@app/locales/ru.json';
+import fr from '@app/locales/fr.json';
+import de from '@app/locales/de.json';
+import es from '@app/locales/es.json';
+import it from '@app/locales/it.json';
+import pt from '@app/locales/pt.json';
+import nl from '@app/locales/nl.json';
 import { getCurrentLocaleSync } from '@electron/settings';
 
-type TLocale = 'en' | 'ru';
+type TLocale = 'en' | 'ru' | 'fr' | 'de' | 'es' | 'it' | 'pt' | 'nl';
 type TMessageParams = Record<string, string | number>;
 
 const MESSAGES = {
     en,
     ru,
+    fr,
+    de,
+    es,
+    it,
+    pt,
+    nl,
 } as const;
 
 function getNestedMessage(messages: object, path: string): string | null {

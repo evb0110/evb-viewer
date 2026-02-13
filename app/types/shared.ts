@@ -22,7 +22,7 @@ export interface IOcrWord {
 export type TFitMode = 'width' | 'height';
 
 export type TAppTheme = 'light' | 'dark';
-export type TAppLocale = 'en' | 'ru';
+export type TAppLocale = 'en' | 'ru' | 'fr' | 'de' | 'es' | 'it' | 'pt' | 'nl';
 
 export interface ISettingsData {
     version: number;

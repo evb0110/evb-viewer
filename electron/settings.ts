@@ -63,5 +63,17 @@ function loadSettingsSync(): ISettingsData {
 
 export function getCurrentLocaleSync() {
     const locale = loadSettingsSync().locale;
-    return locale === 'ru' ? 'ru' : 'en';
+    const supported = [
+        'en',
+        'ru',
+        'fr',
+        'de',
+        'es',
+        'it',
+        'pt',
+        'nl',
+    ] as const;
+    return supported.includes(locale as typeof supported[number])
+        ? locale as typeof supported[number]
+        : 'en';
 }

@@ -377,6 +377,12 @@
     "languageDescription": "Выберите язык интерфейса.",
     "languageEnglish": "Английский",
     "languageRussian": "Русский",
+    "languageFrench": "Французский",
+    "languageGerman": "Немецкий",
+    "languageSpanish": "Испанский",
+    "languageItalian": "Итальянский",
+    "languagePortuguese": "Португальский",
+    "languageDutch": "Нидерландский",
     "close": "Закрыть"
   },
   "errors": {
