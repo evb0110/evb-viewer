@@ -440,6 +440,7 @@ watch(pendingDjvu, async (djvuPath) => {
         loadPdfFromPath,
         () => currentPage.value,
         (page) => { pdfViewerRef.value?.scrollToPage(page); },
+        (path) => { originalPath.value = path; },
     );
 });
 

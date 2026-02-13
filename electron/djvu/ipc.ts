@@ -195,6 +195,13 @@ async function handleDjvuOpenForViewing(
     error?: string
 }> {
     const window = BrowserWindow.fromWebContents(event.sender);
+
+    // Cancel any active viewing conversion from a previously opened DjVu file
+    if (activeViewingJobId) {
+        cancelConversion(activeViewingJobId);
+        activeViewingJobId = null;
+    }
+
     const jobId = `djvu-view-${Date.now()}`;
 
     try {
@@ -226,6 +233,7 @@ async function handleDjvuOpenForViewing(
             // Page 1 content is now embedded in the skeleton — clean up the original
             unlink(tempPage1Path).catch(() => {});
 
+            activeViewingJobId = jobId;
             backgroundConvertAll(window, djvuPath, pageCount, jobId).catch(() => {
                 // Error handling is done inside backgroundConvertAll via viewingError event
             });
@@ -365,35 +373,7 @@ async function buildSkeletonPdf(
     return skeletonPath;
 }
 
-async function buildIntermediatePdf(
-    quickPdfPath: string,
-    pageCount: number,
-): Promise<string> {
-    const quickData = await readFile(quickPdfPath);
-    const quickDoc = await PDFDocument.load(quickData, { updateMetadata: false });
-
-    const doc = await PDFDocument.create();
-    const quickPages = await doc.copyPages(quickDoc, quickDoc.getPageIndices());
-
-    let width = 612;
-    let height = 792;
-
-    for (const page of quickPages) {
-        doc.addPage(page);
-        const size = page.getSize();
-        width = size.width;
-        height = size.height;
-    }
-
-    const pagesAdded = quickPages.length;
-    for (let i = pagesAdded; i < pageCount; i++) {
-        addSkeletonPage(doc, width, height);
-    }
-
-    const intermediatePath = join(app.getPath('temp'), `djvu-intermediate-${Date.now()}.pdf`);
-    await writeFile(intermediatePath, new Uint8Array(await doc.save()));
-    return intermediatePath;
-}
+let activeViewingJobId: string | null = null;
 
 async function backgroundConvertAll(
     window: BrowserWindow | null | undefined,
@@ -402,8 +382,6 @@ async function backgroundConvertAll(
     jobId: string,
 ) {
     const rangeDir = join(app.getPath('temp'), `djvu-ranges-${Date.now()}`);
-    const quickPdfPath = join(app.getPath('temp'), `djvu-quick-${Date.now()}.pdf`);
-    let fullConversionDone = false;
 
     try {
         await mkdir(rangeDir, { recursive: true });
@@ -421,34 +399,6 @@ async function backgroundConvertAll(
             .then((sexp) => parseDjvuOutline(sexp))
             .catch(() => [] as IPdfBookmarkEntry[]);
 
-        // Quick phase: convert pages 1-3 for fast intermediate update.
-        // Runs concurrently with the full parallel conversion.
-        // Re-converts page 1 for simplicity (avoids passing temp files between phases).
-        const quickEndPage = Math.min(3, pageCount);
-        const quickJobId = `${jobId}-quick`;
-
-        const quickPromise = convertDjvuToPdf(djvuPath, quickPdfPath, quickJobId, {pages: `1-${quickEndPage}`}).then(async (quickResult) => {
-            if (!quickResult.success || fullConversionDone) {
-                return;
-            }
-
-            try {
-                const intermediatePath = await buildIntermediatePdf(quickPdfPath, pageCount);
-
-                if (!fullConversionDone) {
-                    safeSendToWindow(window, 'djvu:viewingReady', {
-                        pdfPath: intermediatePath,
-                        isPartial: true,
-                    });
-                }
-            } catch {
-                // Non-critical: intermediate PDF build failed, full conversion will handle it
-            }
-        }).catch(() => {
-            // Quick phase failure is non-critical
-        });
-
-        // Full phase: convert all pages in parallel
         const parallelResult = await convertAllPagesParallel(
             djvuPath,
             rangeDir,
@@ -464,12 +414,6 @@ async function backgroundConvertAll(
                 });
             }},
         );
-
-        // Prevent late partial swap after full conversion is ready
-        fullConversionDone = true;
-
-        // Wait for quick phase to settle (may still be building intermediate PDF)
-        await quickPromise;
 
         if (!parallelResult.success) {
             safeSendToWindow(window, 'djvu:viewingError', { error: parallelResult.error ?? 'Parallel conversion failed' });
@@ -516,15 +460,15 @@ async function backgroundConvertAll(
     } catch (err) {
         safeSendToWindow(window, 'djvu:viewingError', { error: err instanceof Error ? err.message : String(err) });
     } finally {
-        // Clean up temp directories and quick phase files
-        const cleanups = [
-            rm(rangeDir, {
+        activeViewingJobId = null;
+        try {
+            await rm(rangeDir, {
                 recursive: true,
-                force: true, 
-            }),
-            unlink(quickPdfPath).catch(() => {}),
-        ];
-        await Promise.allSettled(cleanups);
+                force: true,
+            });
+        } catch {
+            // Ignore cleanup errors
+        }
     }
 }
 
@@ -700,6 +644,12 @@ async function handleDjvuCleanupTemp(
     _event: IpcMainInvokeEvent,
     tempPdfPath: string,
 ) {
+    // Cancel any active viewing conversion when the file is being closed
+    if (activeViewingJobId) {
+        cancelConversion(activeViewingJobId);
+        activeViewingJobId = null;
+    }
+
     if (!tempPdfPath) {
         return;
     }

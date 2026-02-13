@@ -114,8 +114,10 @@ export const useDjvu = () => {
         loadPdfFromPath: (path: string) => Promise<void>,
         getCurrentPage?: () => number,
         setPage?: (page: number) => void,
+        setOriginalPath?: (path: string | null) => void,
     ) {
         const api = getElectronAPI();
+        const djvuFileName = djvuPath.split(/[\\/]/).pop() ?? 'DjVu';
 
         showBanner.value = true;
 
@@ -129,9 +131,16 @@ export const useDjvu = () => {
             const initialPdfPath = result.pdfPath;
             const pageCount = result.pageCount ?? 0;
 
+            // Set originalPath to DjVu source so the status bar shows
+            // the real file location instead of the /var temp path
+            setOriginalPath?.(djvuPath);
+
             enterDjvuMode(djvuPath, initialPdfPath);
             await loadPdfFromPath(initialPdfPath);
-            await api.setWindowTitle(djvuPath.split(/[\\/]/).pop() ?? 'DjVu');
+
+            // loadPdfFromPath overwrites the window title with the temp filename;
+            // restore it to the DjVu source filename
+            await api.setWindowTitle(djvuFileName);
 
             if (pageCount > 1) {
                 isLoadingPages.value = true;
@@ -140,36 +149,24 @@ export const useDjvu = () => {
                     total: pageCount,
                 };
 
-                // Serialized swap handler: processes multiple viewingReady events
-                // (partial for pages 2-3, then final for all pages) without
-                // overlapping swaps. Queues at most one event if a swap is in progress.
-                let swapInProgress = false;
-                let nextSwapEvent: {
-                    pdfPath: string;
-                    isPartial: boolean 
-                } | null = null;
+                swapHandler = (event) => {
+                    (async () => {
+                        try {
+                            const savedPage = getCurrentPage?.() ?? 1;
+                            const oldPath = djvuTempPdfPath.value;
 
-                async function executeSwap(event: {
-                    pdfPath: string;
-                    isPartial: boolean 
-                }) {
-                    swapInProgress = true;
-                    try {
-                        const savedPage = getCurrentPage?.() ?? 1;
-                        const oldPath = djvuTempPdfPath.value;
+                            enterDjvuMode(djvuPath, event.pdfPath);
+                            await loadPdfFromPath(event.pdfPath);
+                            await api.setWindowTitle(djvuFileName);
 
-                        enterDjvuMode(djvuPath, event.pdfPath);
-                        await loadPdfFromPath(event.pdfPath);
+                            if (savedPage > 1 && setPage) {
+                                setPage(savedPage);
+                            }
 
-                        if (savedPage > 1 && setPage) {
-                            setPage(savedPage);
-                        }
-
-                        if (oldPath && oldPath !== event.pdfPath) {
-                            api.djvu.cleanupTemp(oldPath).catch(() => {});
-                        }
-
-                        if (!event.isPartial) {
+                            if (oldPath && oldPath !== event.pdfPath) {
+                                api.djvu.cleanupTemp(oldPath).catch(() => {});
+                            }
+                        } finally {
                             isLoadingPages.value = false;
                             loadingProgress.value = {
                                 current: 0,
@@ -177,23 +174,7 @@ export const useDjvu = () => {
                             };
                             swapHandler = null;
                         }
-                    } finally {
-                        swapInProgress = false;
-                    }
-
-                    if (nextSwapEvent) {
-                        const next = nextSwapEvent;
-                        nextSwapEvent = null;
-                        await executeSwap(next);
-                    }
-                }
-
-                swapHandler = (event) => {
-                    if (swapInProgress) {
-                        nextSwapEvent = event;
-                        return;
-                    }
-                    executeSwap(event).catch(() => {});
+                    })().catch(() => {});
                 };
             }
         } catch (e) {
