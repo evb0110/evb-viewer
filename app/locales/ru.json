@@ -186,6 +186,8 @@
     "save": "Сохранить",
     "saveAs": "Сохранить как...",
     "exportDocx": "Экспорт DOCX...",
+    "exportImages": "Экспорт изображений...",
+    "exportMultiPageTiff": "Экспорт многостраничного TIFF...",
     "convertToPdf": "Конвертировать в PDF...",
     "newTab": "Новая вкладка",
     "closeTab": "Закрыть вкладку",
@@ -218,7 +220,12 @@
     "saveOcrTextAs": "Сохранить текст OCR как",
     "wordDocuments": "Документы Word",
     "extractPages": "Извлечь страницы",
-    "insertPagesFromPdf": "Вставить страницы из PDF"
+    "insertPagesFromPdf": "Вставить страницы из файла",
+    "exportImages": "Экспорт изображений",
+    "exportMultiPageTiff": "Экспорт многостраничного TIFF",
+    "pngImages": "PNG изображения",
+    "jpegImages": "JPEG изображения",
+    "tiffImages": "TIFF изображения"
   },
   "noteWindow": {
     "popUpNote": "Заметка : Стр. {page}",

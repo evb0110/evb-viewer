@@ -71,7 +71,7 @@ const emit = defineEmits<{
     (e: 'reorder', newOrder: number[]): void;
     (e: 'file-drop', payload: {
         afterPage: number;
-        filePath: string 
+        filePaths: string[];
     }): void;
 }>();
 
@@ -101,9 +101,9 @@ const {
     totalPages: toRef(props, 'totalPages'),
     selectedPages: computed(() => props.selectedPages ?? []),
     onReorder: (newOrder) => emit('reorder', newOrder),
-    onExternalFileDrop: (afterPage, filePath) => emit('file-drop', {
+    onExternalFileDrop: (afterPage, filePaths) => emit('file-drop', {
         afterPage,
-        filePath, 
+        filePaths,
     }),
 });
 

@@ -8,11 +8,20 @@ import {
     extname,
     basename,
 } from 'path';
+import {
+    buildCombinedPdfOutputPath,
+    createPdfFromInputPaths,
+    isDjvuPath,
+    isPdfPath,
+    isSupportedOpenPath,
+    SUPPORTED_IMAGE_EXTENSIONS,
+} from '@electron/image/pdf-conversion';
 import { updateRecentFilesMenu } from '@electron/menu';
 import { addRecentFile } from '@electron/recent-files';
 import { allowDocxWritePath } from '@electron/ipc/docxExportPaths';
 import {
     createWorkingCopy,
+    createWorkingCopyFromData,
     workingCopyMap,
 } from '@electron/ipc/workingCopy';
 import { te } from '@electron/i18n';
@@ -24,6 +33,7 @@ interface IOpenPdfResult {
     kind: 'pdf';
     workingPath: string;
     originalPath: string;
+    isGenerated?: boolean;
 }
 
 interface IOpenDjvuResult {
@@ -34,6 +44,78 @@ interface IOpenDjvuResult {
 
 type IOpenFileResult = IOpenPdfResult | IOpenDjvuResult;
 
+async function addRecentInputs(paths: string[]) {
+    const uniquePaths = Array.from(new Set(paths));
+    for (const path of uniquePaths) {
+        await addRecentFile(path);
+    }
+    updateRecentFilesMenu();
+}
+
+function normalizeInputPaths(paths: string[]) {
+    return paths
+        .map(path => path.trim())
+        .filter(path => path.length > 0);
+}
+
+async function openInputPaths(paths: string[]): Promise<IOpenFileResult | null> {
+    const normalizedPaths = normalizeInputPaths(paths);
+    if (normalizedPaths.length === 0) {
+        return null;
+    }
+
+    if (normalizedPaths.some(path => !existsSync(path))) {
+        return null;
+    }
+
+    if (normalizedPaths.some(path => !isSupportedOpenPath(path))) {
+        return null;
+    }
+
+    const djvuPaths = normalizedPaths.filter(path => isDjvuPath(path));
+    if (djvuPaths.length > 0) {
+        if (normalizedPaths.length !== 1 || djvuPaths.length !== 1) {
+            return null;
+        }
+
+        const djvuPath = djvuPaths[0]!;
+        await addRecentInputs([djvuPath]);
+        return {
+            kind: 'djvu',
+            workingPath: '',
+            originalPath: djvuPath,
+        };
+    }
+
+    if (normalizedPaths.length === 1 && isPdfPath(normalizedPaths[0]!)) {
+        const originalPath = normalizedPaths[0]!;
+        const workingPath = await createWorkingCopy(originalPath);
+        await addRecentInputs([originalPath]);
+        return {
+            kind: 'pdf',
+            workingPath,
+            originalPath,
+        };
+    }
+
+    const mergedPdf = await createPdfFromInputPaths(normalizedPaths);
+    const outputPath = buildCombinedPdfOutputPath(normalizedPaths);
+    const workingPath = await createWorkingCopyFromData(
+        basename(outputPath),
+        mergedPdf,
+        outputPath,
+    );
+
+    await addRecentInputs(normalizedPaths);
+
+    return {
+        kind: 'pdf',
+        workingPath,
+        originalPath: outputPath,
+        isGenerated: true,
+    };
+}
+
 export async function handleOpenPdfDirect(
     _event: Electron.IpcMainInvokeEvent,
     filePath: string,
@@ -42,37 +124,8 @@ export async function handleOpenPdfDirect(
         return null;
     }
 
-    const normalizedPath = filePath.trim();
-    const extension = extname(normalizedPath).toLowerCase();
-
-    if (extension !== '.pdf' && extension !== '.djvu') {
-        return null;
-    }
-
-    if (!existsSync(normalizedPath)) {
-        return null;
-    }
-
-    // DjVu files don't use working copies — the temp PDF serves that role
-    if (extension === '.djvu') {
-        await addRecentFile(normalizedPath);
-        updateRecentFilesMenu();
-        return {
-            kind: 'djvu',
-            workingPath: '',
-            originalPath: normalizedPath,
-        };
-    }
-
     try {
-        const workingPath = await createWorkingCopy(normalizedPath);
-        await addRecentFile(normalizedPath);
-        updateRecentFilesMenu();
-        return {
-            kind: 'pdf',
-            workingPath,
-            originalPath: normalizedPath,
-        };
+        return await openInputPaths([filePath]);
     } catch (err) {
         logger.error(`Failed to create working copy: ${err instanceof Error ? err.message : String(err)}`);
         return null;
@@ -94,42 +147,21 @@ export async function handleOpenPdfDialog(): Promise<IOpenFileResult | null> {
             extensions: [
                 'pdf',
                 'djvu',
+                ...SUPPORTED_IMAGE_EXTENSIONS.map(ext => ext.slice(1)),
             ],
         }],
-        properties: ['openFile'],
+        properties: [
+            'openFile',
+            'multiSelections',
+        ],
     });
 
     if (result.canceled || result.filePaths.length === 0) {
         return null;
     }
 
-    const originalPath = result.filePaths[0];
-    if (!originalPath) {
-        return null;
-    }
-
-    const extension = extname(originalPath).toLowerCase();
-
-    // DjVu files don't use working copies
-    if (extension === '.djvu') {
-        await addRecentFile(originalPath);
-        updateRecentFilesMenu();
-        return {
-            kind: 'djvu',
-            workingPath: '',
-            originalPath,
-        };
-    }
-
     try {
-        const workingPath = await createWorkingCopy(originalPath);
-        await addRecentFile(originalPath);
-        updateRecentFilesMenu();
-        return {
-            kind: 'pdf',
-            workingPath,
-            originalPath,
-        };
+        return await openInputPaths(result.filePaths);
     } catch (err) {
         logger.error(`Failed to create working copy: ${err instanceof Error ? err.message : String(err)}`);
         return null;

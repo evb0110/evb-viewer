@@ -4,7 +4,10 @@ import {
     mkdirSync,
     rmSync,
 } from 'fs';
-import { copyFile } from 'fs/promises';
+import {
+    copyFile,
+    writeFile,
+} from 'fs/promises';
 import {
     join,
     basename,
@@ -20,18 +23,42 @@ const logger = createLogger('working-copy');
 
 export const workingCopyMap = new Map<string, string>();
 
-export async function createWorkingCopy(originalPath: string): Promise<string> {
+function createWorkingDirectory() {
     const tempDir = app.getPath('temp');
     const sessionId = `pdf-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const workDir = join(tempDir, `pdf-work-${sessionId}`);
-
     mkdirSync(workDir, { recursive: true });
+    return workDir;
+}
+
+export async function createWorkingCopy(originalPath: string): Promise<string> {
+    const workDir = createWorkingDirectory();
 
     const fileName = basename(originalPath);
     const workingPath = join(workDir, fileName);
     await copyFile(originalPath, workingPath);
 
     workingCopyMap.set(workingPath, originalPath);
+
+    return workingPath;
+}
+
+export async function createWorkingCopyFromData(
+    fileName: string,
+    data: Uint8Array,
+    originalPath?: string,
+): Promise<string> {
+    const workDir = createWorkingDirectory();
+    const normalizedName = basename(fileName).toLowerCase().endsWith('.pdf')
+        ? basename(fileName)
+        : `${basename(fileName)}.pdf`;
+    const workingPath = join(workDir, normalizedName);
+
+    await writeFile(workingPath, data);
+
+    if (originalPath) {
+        workingCopyMap.set(workingPath, originalPath);
+    }
 
     return workingPath;
 }

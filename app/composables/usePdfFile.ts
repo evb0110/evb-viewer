@@ -41,7 +41,7 @@ export const usePdfFile = () => {
                 return;
             }
             originalPath.value = result.originalPath;
-            await loadPdfFromPath(result.workingPath);
+            await loadPdfFromPath(result.workingPath, { markDirty: !!result.isGenerated });
         } catch (e) {
             error.value = e instanceof Error ? e.message : t('errors.file.open');
         }
@@ -62,7 +62,7 @@ export const usePdfFile = () => {
                 return;
             }
             originalPath.value = result.originalPath;
-            await loadPdfFromPath(result.workingPath);
+            await loadPdfFromPath(result.workingPath, { markDirty: !!result.isGenerated });
         } catch (e) {
             error.value = e instanceof Error ? e.message : t('errors.file.open');
         }

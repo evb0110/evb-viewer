@@ -186,6 +186,8 @@
     "save": "Speichern",
     "saveAs": "Speichern unter...",
     "exportDocx": "DOCX exportieren...",
+    "exportImages": "Bilder exportieren...",
+    "exportMultiPageTiff": "Mehrseitiges TIFF exportieren...",
     "convertToPdf": "In PDF konvertieren...",
     "newTab": "Neuer Tab",
     "closeTab": "Tab schlie\u00dfen",
@@ -218,7 +220,12 @@
     "saveOcrTextAs": "OCR-Text speichern unter",
     "wordDocuments": "Word-Dokumente",
     "extractPages": "Seiten extrahieren",
-    "insertPagesFromPdf": "Seiten aus PDF einf\u00fcgen"
+    "insertPagesFromPdf": "Seiten aus Datei einf\u00fcgen",
+    "exportImages": "Bilder exportieren",
+    "exportMultiPageTiff": "Mehrseitiges TIFF exportieren",
+    "pngImages": "PNG-Bilder",
+    "jpegImages": "JPEG-Bilder",
+    "tiffImages": "TIFF-Bilder"
   },
   "noteWindow": {
     "popUpNote": "Popup-Notiz : Seite {page}",

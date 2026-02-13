@@ -184,6 +184,8 @@ if (!__preloadAlreadyInstalled) {
         savePdfAs: (workingPath: string) => ipcRenderer.invoke('dialog:savePdfAs', workingPath),
         savePdfDialog: (suggestedName: string) => ipcRenderer.invoke('dialog:savePdfDialog', suggestedName),
         saveDocxAs: (workingPath: string) => ipcRenderer.invoke('dialog:saveDocxAs', workingPath),
+        exportPdfToImages: (workingPath: string) => ipcRenderer.invoke('pdf-export:images', workingPath),
+        exportPdfToMultiPageTiff: (workingPath: string) => ipcRenderer.invoke('pdf-export:multipage-tiff', workingPath),
         readFile: (path: string) => ipcRenderer.invoke('file:read', path),
         statFile: (path: string) => ipcRenderer.invoke('file:stat', path),
         readFileRange: (path: string, offset: number, length: number) => ipcRenderer.invoke('file:readRange', path, offset, length),
@@ -215,6 +217,16 @@ if (!__preloadAlreadyInstalled) {
             const handler = (_event: IpcRendererEvent) => callback();
             ipcRenderer.on('menu:exportDocx', handler);
             return () => ipcRenderer.removeListener('menu:exportDocx', handler);
+        },
+        onMenuExportImages: (callback: IMenuEventCallback): IMenuEventUnsubscribe => {
+            const handler = (_event: IpcRendererEvent) => callback();
+            ipcRenderer.on('menu:exportImages', handler);
+            return () => ipcRenderer.removeListener('menu:exportImages', handler);
+        },
+        onMenuExportMultiPageTiff: (callback: IMenuEventCallback): IMenuEventUnsubscribe => {
+            const handler = (_event: IpcRendererEvent) => callback();
+            ipcRenderer.on('menu:exportMultiPageTiff', handler);
+            return () => ipcRenderer.removeListener('menu:exportMultiPageTiff', handler);
         },
         onMenuZoomIn: (callback: IMenuEventCallback): IMenuEventUnsubscribe => {
             const handler = (_event: IpcRendererEvent) => callback();
@@ -492,8 +504,8 @@ if (!__preloadAlreadyInstalled) {
                 ipcRenderer.invoke('page-ops:reorder', workingCopyPath, newOrder),
             insert: (workingCopyPath: string, totalPages: number, afterPage: number) =>
                 ipcRenderer.invoke('page-ops:insert', workingCopyPath, totalPages, afterPage),
-            insertFile: (workingCopyPath: string, totalPages: number, afterPage: number, sourcePath: string) =>
-                ipcRenderer.invoke('page-ops:insert-file', workingCopyPath, totalPages, afterPage, sourcePath),
+            insertFile: (workingCopyPath: string, totalPages: number, afterPage: number, sourcePaths: string[]) =>
+                ipcRenderer.invoke('page-ops:insert-file', workingCopyPath, totalPages, afterPage, sourcePaths),
             rotate: (workingCopyPath: string, pages: number[], angle: number) =>
                 ipcRenderer.invoke('page-ops:rotate', workingCopyPath, pages, angle),
         },

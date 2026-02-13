@@ -186,6 +186,8 @@
     "save": "Enregistrer",
     "saveAs": "Enregistrer sous...",
     "exportDocx": "Exporter DOCX...",
+    "exportImages": "Exporter des images...",
+    "exportMultiPageTiff": "Exporter en TIFF multipage...",
     "convertToPdf": "Convertir en PDF...",
     "newTab": "Nouvel onglet",
     "closeTab": "Fermer l\u2019onglet",
@@ -218,7 +220,12 @@
     "saveOcrTextAs": "Enregistrer le texte OCR sous",
     "wordDocuments": "Documents Word",
     "extractPages": "Extraire des pages",
-    "insertPagesFromPdf": "Ins\u00e9rer des pages depuis un PDF"
+    "insertPagesFromPdf": "Ins\u00e9rer des pages depuis un fichier",
+    "exportImages": "Exporter des images",
+    "exportMultiPageTiff": "Exporter en TIFF multipage",
+    "pngImages": "Images PNG",
+    "jpegImages": "Images JPEG",
+    "tiffImages": "Images TIFF"
   },
   "noteWindow": {
     "popUpNote": "Note contextuelle : Page {page}",

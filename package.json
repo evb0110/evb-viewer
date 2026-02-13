@@ -35,9 +35,11 @@
     "@nuxtjs/i18n": "^10.2.3",
     "@vueuse/core": "^14.1.0",
     "es-toolkit": "^1.43.0",
+    "fast-png": "^8.0.0",
     "nuxt": "^4.0.0",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^5.4.530",
+    "utif": "^3.1.0",
     "vue": "^3.5.0"
   },
   "devDependencies": {

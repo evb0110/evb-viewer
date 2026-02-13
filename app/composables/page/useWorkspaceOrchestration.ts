@@ -34,6 +34,7 @@ import { usePageShortcuts } from '@app/composables/usePageShortcuts';
 import { useDjvu } from '@app/composables/useDjvu';
 import { useDocumentTransitions } from '@app/composables/page/useDocumentTransitions';
 import type { TTabUpdate } from '@app/types/tabs';
+import { getElectronAPI } from '@app/utils/electron';
 
 type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'bookmarks' | 'search';
 
@@ -758,6 +759,32 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         pdfViewerRef.value?.scrollToPage(page);
     }
 
+    async function handleExportImages() {
+        if (!workingCopyPath.value) {
+            return;
+        }
+
+        try {
+            const api = getElectronAPI();
+            await api.exportPdfToImages(workingCopyPath.value);
+        } catch (error) {
+            BrowserLogger.error('workspace', 'export images failed', error);
+        }
+    }
+
+    async function handleExportMultiPageTiff() {
+        if (!workingCopyPath.value) {
+            return;
+        }
+
+        try {
+            const api = getElectronAPI();
+            await api.exportPdfToMultiPageTiff(workingCopyPath.value);
+        } catch (error) {
+            BrowserLogger.error('workspace', 'export multi-page tiff failed', error);
+        }
+    }
+
     function initFromStorage() {
         if (import.meta.dev) {
             BrowserLogger.debug('workspace', 'Electron API available', isElectron.value);
@@ -877,6 +904,8 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         handleSave,
         handleSaveAs,
         handleExportDocx,
+        handleExportImages,
+        handleExportMultiPageTiff,
         handleOcrComplete,
         isAnySaving,
         isExportingDocx,

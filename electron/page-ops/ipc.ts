@@ -8,7 +8,13 @@ import { readFile } from 'fs/promises';
 import {
     basename,
     extname,
+    join,
 } from 'path';
+import {
+    createPdfFromInputPaths,
+    isPdfOrImagePath,
+    SUPPORTED_IMAGE_EXTENSIONS,
+} from '@electron/image/pdf-conversion';
 import { isAllowedWritePath } from '@electron/utils/path-validator';
 import {
     deletePages,
@@ -164,10 +170,16 @@ async function handlePageOpsInsert(
     const dialogOptions = {
         title: te('dialogs.insertPagesFromPdf'),
         filters: [{
-            name: te('dialogs.pdfFiles'),
-            extensions: ['pdf'],
+            name: te('dialogs.documentsFilter'),
+            extensions: [
+                'pdf',
+                ...SUPPORTED_IMAGE_EXTENSIONS.map(ext => ext.slice(1)),
+            ],
         }],
-        properties: ['openFile'] as Array<'openFile'>,
+        properties: [
+            'openFile',
+            'multiSelections',
+        ] as Array<'openFile' | 'multiSelections'>,
     };
     const result = parentWindow
         ? await dialog.showOpenDialog(parentWindow, dialogOptions)
@@ -180,15 +192,7 @@ async function handlePageOpsInsert(
         };
     }
 
-    const sourcePath = result.filePaths[0];
-    if (!sourcePath) {
-        return {
-            success: false,
-            canceled: true, 
-        };
-    }
-
-    await insertPagesFromSource(workingCopyPath, totalPages, sourcePath, afterPage);
+    await insertPagesFromSourcePaths(workingCopyPath, totalPages, result.filePaths, afterPage);
     const pdfData = await readModifiedPdf(workingCopyPath);
     return {
         success: true,
@@ -196,15 +200,67 @@ async function handlePageOpsInsert(
     };
 }
 
-async function insertPagesFromSource(
+async function prepareInsertionSourcePdf(
+    workingCopyPath: string,
+    sourcePaths: string[],
+) {
+    const normalizedPaths = sourcePaths
+        .filter((path): path is string => typeof path === 'string')
+        .map(path => path.trim())
+        .filter(path => path.length > 0);
+
+    if (normalizedPaths.length === 0) {
+        throw new Error('At least one source file is required');
+    }
+
+    for (const sourcePath of normalizedPaths) {
+        if (!existsSync(sourcePath)) {
+            throw new Error(`Source file not found: ${sourcePath}`);
+        }
+        if (!isPdfOrImagePath(sourcePath)) {
+            throw new Error(`Unsupported source file type: ${sourcePath}`);
+        }
+    }
+
+    if (normalizedPaths.length === 1 && extname(normalizedPaths[0]!).toLowerCase() === '.pdf') {
+        return {
+            sourcePdfPath: normalizedPaths[0]!,
+            cleanup: async () => {},
+        };
+    }
+
+    const mergedPdf = await createPdfFromInputPaths(normalizedPaths);
+    const tempSourcePdfPath = join(
+        workingCopyPath,
+        '..',
+        `insert-source-${Date.now()}-${Math.random().toString(36).slice(2)}.pdf`,
+    );
+    const { writeFile } = await import('fs/promises');
+    await writeFile(tempSourcePdfPath, mergedPdf);
+
+    return {
+        sourcePdfPath: tempSourcePdfPath,
+        cleanup: async () => {
+            try {
+                if (existsSync(tempSourcePdfPath)) {
+                    const { unlink } = await import('fs/promises');
+                    await unlink(tempSourcePdfPath);
+                }
+            } catch {
+                // best-effort
+            }
+        },
+    };
+}
+
+async function insertPagesFromSourcePaths(
     workingCopyPath: string,
     totalPages: number,
-    sourcePath: string,
+    sourcePaths: string[],
     afterPage: number,
 ) {
     const { runCommand } = await import('@electron/ocr/worker/run-command');
     const { getOcrToolPaths } = await import('@electron/ocr/paths');
-    const { join } = await import('path');
     const {
         rename,
         unlink,
@@ -215,6 +271,11 @@ async function insertPagesFromSource(
     const id = `tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const tempPath = join(dir, `${id}.pdf`);
 
+    const {
+        sourcePdfPath,
+        cleanup,
+    } = await prepareInsertionSourcePdf(workingCopyPath, sourcePaths);
+
     try {
         const pagesArgs: string[] = [];
 
@@ -222,7 +283,7 @@ async function insertPagesFromSource(
             pagesArgs.push(workingCopyPath, `1-${afterPage}`);
         }
 
-        pagesArgs.push(sourcePath, '1-z');
+        pagesArgs.push(sourcePdfPath, '1-z');
 
         if (afterPage < totalPages) {
             pagesArgs.push(workingCopyPath, `${afterPage + 1}-${totalPages}`);
@@ -246,6 +307,8 @@ async function insertPagesFromSource(
             // best-effort
         }
         throw err;
+    } finally {
+        await cleanup();
     }
 }
 
@@ -279,7 +342,7 @@ async function handlePageOpsInsertFile(
     workingCopyPath: string,
     totalPages: number,
     afterPage: number,
-    sourcePath: string,
+    sourcePaths: string[],
 ) {
     validateWorkingCopyPath(workingCopyPath);
 
@@ -289,17 +352,11 @@ async function handlePageOpsInsertFile(
     if (typeof afterPage !== 'number' || afterPage < 0) {
         throw new Error('Invalid afterPage');
     }
-    if (!sourcePath || typeof sourcePath !== 'string') {
-        throw new Error('Invalid source path');
-    }
-    if (!existsSync(sourcePath)) {
-        throw new Error(`Source file not found: ${sourcePath}`);
-    }
-    if (extname(sourcePath).toLowerCase() !== '.pdf') {
-        throw new Error('Source file must be a PDF');
+    if (!Array.isArray(sourcePaths) || sourcePaths.length === 0) {
+        throw new Error('Invalid source paths');
     }
 
-    await insertPagesFromSource(workingCopyPath, totalPages, sourcePath, afterPage);
+    await insertPagesFromSourcePaths(workingCopyPath, totalPages, sourcePaths, afterPage);
     const pdfData = await readModifiedPdf(workingCopyPath);
     return {
         success: true,

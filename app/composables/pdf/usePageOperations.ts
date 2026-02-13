@@ -143,7 +143,7 @@ export const usePageOperations = (deps: {
         }
     }
 
-    async function insertFile(totalPages: number, afterPage: number, sourcePath: string) {
+    async function insertFile(totalPages: number, afterPage: number, sourcePaths: string[]) {
         if (!workingCopyPath.value) {
             return false;
         }
@@ -152,7 +152,7 @@ export const usePageOperations = (deps: {
         error.value = null;
         try {
             const api = getElectronAPI();
-            const result = await api.pageOps.insertFile(workingCopyPath.value, totalPages, afterPage, sourcePath);
+            const result = await api.pageOps.insertFile(workingCopyPath.value, totalPages, afterPage, sourcePaths);
             if (result.success && result.pdfData) {
                 invalidateCaches();
                 await loadPdfFromData(new Uint8Array(result.pdfData), {

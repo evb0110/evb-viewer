@@ -9,7 +9,7 @@ interface IPageDragDropDeps {
     totalPages: Ref<number>;
     selectedPages: Ref<number[]>;
     onReorder: (newOrder: number[]) => void;
-    onExternalFileDrop?: (afterPage: number, filePath: string) => void;
+    onExternalFileDrop?: (afterPage: number, filePaths: string[]) => void;
 }
 
 export const usePageDragDrop = (deps: IPageDragDropDeps) => {
@@ -193,6 +193,19 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
         return false;
     }
 
+    function isSupportedFilePath(filePath: string) {
+        const lowerPath = filePath.toLowerCase();
+        return lowerPath.endsWith('.pdf')
+            || lowerPath.endsWith('.png')
+            || lowerPath.endsWith('.jpg')
+            || lowerPath.endsWith('.jpeg')
+            || lowerPath.endsWith('.tif')
+            || lowerPath.endsWith('.tiff')
+            || lowerPath.endsWith('.bmp')
+            || lowerPath.endsWith('.webp')
+            || lowerPath.endsWith('.gif');
+    }
+
     let dragEnterCounter = 0;
 
     function handleDragEnter(e: DragEvent) {
@@ -243,16 +256,26 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
         }
 
         const files = e.dataTransfer.files;
+        const droppedPaths: string[] = [];
+        const seen = new Set<string>();
+
         for (let i = 0; i < files.length; i++) {
             const file = files[i];
             if (!file) {
                 continue;
             }
+
             const filePath = window.electronAPI.getPathForFile(file);
-            if (filePath && filePath.toLowerCase().endsWith('.pdf')) {
-                onExternalFileDrop(insertAt, filePath);
-                break;
+            if (!filePath || seen.has(filePath) || !isSupportedFilePath(filePath)) {
+                continue;
             }
+
+            seen.add(filePath);
+            droppedPaths.push(filePath);
+        }
+
+        if (droppedPaths.length > 0) {
+            onExternalFileDrop(insertAt, droppedPaths);
         }
     }
 

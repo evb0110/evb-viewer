@@ -186,6 +186,8 @@
     "save": "Guardar",
     "saveAs": "Guardar como...",
     "exportDocx": "Exportar DOCX...",
+    "exportImages": "Exportar im\u00e1genes...",
+    "exportMultiPageTiff": "Exportar TIFF multip\u00e1gina...",
     "convertToPdf": "Convertir a PDF...",
     "newTab": "Nueva pesta\u00f1a",
     "closeTab": "Cerrar pesta\u00f1a",
@@ -218,7 +220,12 @@
     "saveOcrTextAs": "Guardar texto OCR como",
     "wordDocuments": "Documentos Word",
     "extractPages": "Extraer p\u00e1ginas",
-    "insertPagesFromPdf": "Insertar p\u00e1ginas desde PDF"
+    "insertPagesFromPdf": "Insertar p\u00e1ginas desde archivo",
+    "exportImages": "Exportar im\u00e1genes",
+    "exportMultiPageTiff": "Exportar TIFF multip\u00e1gina",
+    "pngImages": "Im\u00e1genes PNG",
+    "jpegImages": "Im\u00e1genes JPEG",
+    "tiffImages": "Im\u00e1genes TIFF"
   },
   "noteWindow": {
     "popUpNote": "Nota emergente : P\u00e1gina {page}",

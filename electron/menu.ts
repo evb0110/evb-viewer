@@ -86,6 +86,18 @@ function getFileMenu(): MenuItemConstructorOptions {
                 },
             },
             {
+                label: te('menu.exportImages'),
+                click: (_, window) => {
+                    sendToWindow(window, 'menu:exportImages');
+                },
+            },
+            {
+                label: te('menu.exportMultiPageTiff'),
+                click: (_, window) => {
+                    sendToWindow(window, 'menu:exportMultiPageTiff');
+                },
+            },
+            {
                 label: te('menu.convertToPdf'),
                 click: (_, window) => {
                     sendToWindow(window, 'menu:convertToPdf');

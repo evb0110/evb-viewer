@@ -186,6 +186,8 @@
     "save": "Salva",
     "saveAs": "Salva con nome...",
     "exportDocx": "Esporta DOCX...",
+    "exportImages": "Esporta immagini...",
+    "exportMultiPageTiff": "Esporta TIFF multipagina...",
     "convertToPdf": "Converti in PDF...",
     "newTab": "Nuova scheda",
     "closeTab": "Chiudi scheda",
@@ -218,7 +220,12 @@
     "saveOcrTextAs": "Salva testo OCR con nome",
     "wordDocuments": "Documenti Word",
     "extractPages": "Estrai pagine",
-    "insertPagesFromPdf": "Inserisci pagine da PDF"
+    "insertPagesFromPdf": "Inserisci pagine da file",
+    "exportImages": "Esporta immagini",
+    "exportMultiPageTiff": "Esporta TIFF multipagina",
+    "pngImages": "Immagini PNG",
+    "jpegImages": "Immagini JPEG",
+    "tiffImages": "Immagini TIFF"
   },
   "noteWindow": {
     "popUpNote": "Nota a comparsa : Pagina {page}",

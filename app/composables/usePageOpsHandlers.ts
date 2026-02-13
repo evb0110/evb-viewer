@@ -100,9 +100,9 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
 
     function handlePageFileDrop(payload: {
         afterPage: number;
-        filePath: string
+        filePaths: string[];
     }) {
-        void pageOpsInsertFile(totalPages.value, payload.afterPage, payload.filePath);
+        void pageOpsInsertFile(totalPages.value, payload.afterPage, payload.filePaths);
     }
 
     function handlePageContextMenuSelectAll() {

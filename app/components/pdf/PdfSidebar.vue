@@ -224,7 +224,7 @@ const emit = defineEmits<{
     (e: 'page-reorder', newOrder: number[]): void;
     (e: 'page-file-drop', payload: {
         afterPage: number;
-        filePath: string
+        filePaths: string[];
     }): void;
 }>();
 

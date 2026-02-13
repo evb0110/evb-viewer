@@ -47,6 +47,8 @@ interface IWorkspaceExpose {
     handleOpenFileDirectWithPersist: (path: string) => Promise<void>;
     handleCloseFileFromUi: () => Promise<void>;
     handleExportDocx: () => Promise<void>;
+    handleExportImages: () => Promise<void>;
+    handleExportMultiPageTiff: () => Promise<void>;
     hasPdf: { value: boolean } | boolean;
     handleZoomIn: () => void;
     handleZoomOut: () => void;
@@ -157,7 +159,18 @@ function getDroppedDocumentPaths(dataTransfer: DataTransfer | null) {
         }
 
         const lowerPath = path.toLowerCase();
-        if (lowerPath.endsWith('.pdf') || lowerPath.endsWith('.djvu')) {
+        if (
+            lowerPath.endsWith('.pdf')
+            || lowerPath.endsWith('.djvu')
+            || lowerPath.endsWith('.png')
+            || lowerPath.endsWith('.jpg')
+            || lowerPath.endsWith('.jpeg')
+            || lowerPath.endsWith('.tif')
+            || lowerPath.endsWith('.tiff')
+            || lowerPath.endsWith('.bmp')
+            || lowerPath.endsWith('.webp')
+            || lowerPath.endsWith('.gif')
+        ) {
             seen.add(path);
             paths.push(path);
         }
@@ -270,6 +283,12 @@ onMounted(() => {
             }),
             window.electronAPI.onMenuExportDocx(() => {
                 void activeWorkspace.value?.handleExportDocx();
+            }),
+            window.electronAPI.onMenuExportImages(() => {
+                void activeWorkspace.value?.handleExportImages();
+            }),
+            window.electronAPI.onMenuExportMultiPageTiff(() => {
+                void activeWorkspace.value?.handleExportMultiPageTiff();
             }),
             window.electronAPI.onMenuUndo(() => {
                 activeWorkspace.value?.handleUndo();

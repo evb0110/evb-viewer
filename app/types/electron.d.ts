@@ -108,7 +108,7 @@ interface IPageOpsAPI {
     extract: (workingCopyPath: string, pages: number[]) => Promise<IPageOpsExtractResult>;
     reorder: (workingCopyPath: string, newOrder: number[]) => Promise<IPageOpsResult>;
     insert: (workingCopyPath: string, totalPages: number, afterPage: number) => Promise<IPageOpsInsertResult>;
-    insertFile: (workingCopyPath: string, totalPages: number, afterPage: number, sourcePath: string) => Promise<IPageOpsResult>;
+    insertFile: (workingCopyPath: string, totalPages: number, afterPage: number, sourcePaths: string[]) => Promise<IPageOpsResult>;
     rotate: (workingCopyPath: string, pages: number[], angle: TPageOpsRotationAngle) => Promise<IPageOpsResult>;
 }
 
@@ -178,6 +178,7 @@ interface IOpenPdfResult {
     kind: 'pdf';
     workingPath: string;
     originalPath: string;
+    isGenerated?: boolean;
 }
 
 interface IOpenDjvuResult {
@@ -194,6 +195,16 @@ interface IElectronAPI {
     savePdfAs: (workingCopyPath: string) => Promise<string | null>;
     savePdfDialog: (suggestedName: string) => Promise<string | null>;
     saveDocxAs: (workingCopyPath: string) => Promise<string | null>;
+    exportPdfToImages: (workingCopyPath: string) => Promise<{
+        success: boolean;
+        canceled?: boolean;
+        outputPaths?: string[];
+    }>;
+    exportPdfToMultiPageTiff: (workingCopyPath: string) => Promise<{
+        success: boolean;
+        canceled?: boolean;
+        outputPath?: string;
+    }>;
     readFile: (path: string) => Promise<Uint8Array>;
     statFile: (path: string) => Promise<{ size: number }>;
     readFileRange: (path: string, offset: number, length: number) => Promise<Uint8Array>;
@@ -209,6 +220,8 @@ interface IElectronAPI {
     onMenuSave: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuSaveAs: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuExportDocx: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
+    onMenuExportImages: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
+    onMenuExportMultiPageTiff: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuZoomIn: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuZoomOut: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuActualSize: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;

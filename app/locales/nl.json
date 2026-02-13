@@ -186,6 +186,8 @@
     "save": "Opslaan",
     "saveAs": "Opslaan als...",
     "exportDocx": "DOCX exporteren...",
+    "exportImages": "Afbeeldingen exporteren...",
+    "exportMultiPageTiff": "Meerpagina-TIFF exporteren...",
     "convertToPdf": "Converteren naar PDF...",
     "newTab": "Nieuw tabblad",
     "closeTab": "Tabblad sluiten",
@@ -218,7 +220,12 @@
     "saveOcrTextAs": "OCR-tekst opslaan als",
     "wordDocuments": "Word-documenten",
     "extractPages": "Pagina\u0027s extraheren",
-    "insertPagesFromPdf": "Pagina\u0027s invoegen vanuit PDF"
+    "insertPagesFromPdf": "Pagina\u0027s invoegen vanuit bestand",
+    "exportImages": "Afbeeldingen exporteren",
+    "exportMultiPageTiff": "Meerpagina-TIFF exporteren",
+    "pngImages": "PNG-afbeeldingen",
+    "jpegImages": "JPEG-afbeeldingen",
+    "tiffImages": "TIFF-afbeeldingen"
   },
   "noteWindow": {
     "popUpNote": "Pop-upnotitie : Pagina {page}",

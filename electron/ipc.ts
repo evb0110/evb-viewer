@@ -34,6 +34,10 @@ import {
     handleSetWindowTitle,
 } from '@electron/ipc/dialogs';
 import {
+    handlePdfExportImages,
+    handlePdfExportMultiPageTiff,
+} from '@electron/ipc/pdfExport';
+import {
     handleFileSave,
     cleanupWorkingCopy,
 } from '@electron/ipc/workingCopy';
@@ -46,6 +50,8 @@ export function registerIpcHandlers() {
     ipcMain.handle('dialog:savePdfAs', handleSavePdfAs);
     ipcMain.handle('dialog:savePdfDialog', handleSavePdfDialog);
     ipcMain.handle('dialog:saveDocxAs', handleSaveDocxAs);
+    ipcMain.handle('pdf-export:images', handlePdfExportImages);
+    ipcMain.handle('pdf-export:multipage-tiff', handlePdfExportMultiPageTiff);
     ipcMain.handle('file:read', handleFileRead);
     ipcMain.handle('file:stat', handleFileStat);
     ipcMain.handle('file:readRange', handleFileReadRange);
