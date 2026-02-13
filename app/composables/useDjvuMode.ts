@@ -28,11 +28,10 @@ const DJVU_DISABLED_FEATURES = new Set<TDjvuDisabledFeature>([
     'redo',
 ]);
 
-const isDjvuMode = ref(false);
-const djvuSourcePath = ref<string | null>(null);
-const djvuTempPdfPath = ref<string | null>(null);
-
 export const useDjvuMode = () => {
+    const isDjvuMode = ref(false);
+    const djvuSourcePath = ref<string | null>(null);
+    const djvuTempPdfPath = ref<string | null>(null);
     const djvuDisabledFeatures = computed(() => DJVU_DISABLED_FEATURES);
 
     function isDjvuFeatureDisabled(feature: TDjvuDisabledFeature) {

@@ -10,15 +10,18 @@
         />
         <span class="djvu-banner-text">
             <template v-if="isLoadingPages">
-                Loading pages... {{ loadingCurrent }}/{{ loadingTotal }}
+                {{ t('djvu.loadingPages', {
+                    current: loadingCurrent,
+                    total: loadingTotal,
+                }) }}
             </template>
             <template v-else>
-                DjVu file — convert to PDF to enable editing features
+                {{ t('djvu.bannerHint') }}
             </template>
         </span>
         <UButton
             v-if="!isLoadingPages"
-            label="Convert to PDF..."
+            :label="t('djvu.convertToPdf')"
             variant="soft"
             color="primary"
             size="xs"
@@ -36,6 +39,8 @@
 </template>
 
 <script setup lang="ts">
+const { t } = useI18n();
+
 defineProps<{
     visible: boolean;
     isLoadingPages?: boolean;

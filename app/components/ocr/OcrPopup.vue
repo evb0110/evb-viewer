@@ -1,26 +1,26 @@
 <template>
     <UPopover v-model:open="isOpen" mode="click" :disabled="disabled">
-        <UTooltip text="OCR" :delay-duration="1200">
+        <UTooltip :text="t('ocr.button')" :delay-duration="1200">
             <UButton
                 icon="i-lucide-scan-text"
                 variant="ghost"
                 color="neutral"
                 :disabled="disabled"
-                aria-label="OCR"
+                :aria-label="t('ocr.button')"
             />
         </UTooltip>
 
         <template #content>
             <div class="ocr-popup">
                 <div class="ocr-popup__header">
-                    <span class="ocr-popup__title">Run OCR</span>
+                    <span class="ocr-popup__title">{{ t('ocr.runTitle') }}</span>
                 </div>
 
                 <div class="ocr-popup__divider" />
 
                 <!-- Page Range Selection -->
                 <div class="ocr-popup__section">
-                    <div class="ocr-popup__label">Pages</div>
+                    <div class="ocr-popup__label">{{ t('ocr.pages') }}</div>
                     <div class="ocr-popup__radios">
                         <label class="ocr-popup__radio">
                             <input
@@ -29,7 +29,7 @@
                                 name="pageRange"
                                 value="all"
                             >
-                            <span>All pages ({{ totalPages }})</span>
+                            <span>{{ t('ocr.allPages', { total: totalPages }) }}</span>
                         </label>
                         <label class="ocr-popup__radio">
                             <input
@@ -38,7 +38,7 @@
                                 name="pageRange"
                                 value="current"
                             >
-                            <span>Current page ({{ currentPage }})</span>
+                            <span>{{ t('ocr.currentPage', { page: currentPage }) }}</span>
                         </label>
                         <label class="ocr-popup__radio">
                             <input
@@ -47,13 +47,13 @@
                                 name="pageRange"
                                 value="custom"
                             >
-                            <span>Custom range</span>
+                            <span>{{ t('ocr.customRange') }}</span>
                         </label>
                     </div>
                     <UInput
                         v-if="settings.pageRange === 'custom'"
                         v-model="settings.customRange"
-                        placeholder="e.g., 1-5, 8, 10-12"
+                        :placeholder="t('ocr.customRangePlaceholder')"
                         size="sm"
                         class="ocr-popup__custom-input"
                     />
@@ -61,15 +61,13 @@
 
                 <!-- Language Selection -->
                 <div class="ocr-popup__section">
-                    <div class="ocr-popup__label">Languages</div>
+                    <div class="ocr-popup__label">{{ t('ocr.languages') }}</div>
                     <div class="ocr-popup__languages">
                         <div
                             v-if="latinCyrillicLanguages.length > 0"
                             class="ocr-popup__lang-group"
                         >
-                            <span class="ocr-popup__group-label"
-                                >Latin / Cyrillic</span
-                            >
+                            <span class="ocr-popup__group-label">{{ t('ocr.latinCyrillic') }}</span>
                             <div class="ocr-popup__checkboxes">
                                 <label
                                     v-for="lang in latinCyrillicLanguages"
@@ -99,7 +97,7 @@
                             v-if="greekLanguages.length > 0"
                             class="ocr-popup__lang-group"
                         >
-                            <span class="ocr-popup__group-label">Greek</span>
+                            <span class="ocr-popup__group-label">{{ t('ocr.greek') }}</span>
                             <div class="ocr-popup__checkboxes">
                                 <label
                                     v-for="lang in greekLanguages"
@@ -129,9 +127,7 @@
                             v-if="rtlLanguages.length > 0"
                             class="ocr-popup__lang-group"
                         >
-                            <span class="ocr-popup__group-label"
-                                >RTL Scripts</span
-                            >
+                            <span class="ocr-popup__group-label">{{ t('ocr.rtlScripts') }}</span>
                             <div class="ocr-popup__checkboxes">
                                 <label
                                     v-for="lang in rtlLanguages"
@@ -167,12 +163,16 @@
                         <UProgress :value="progressPercent" />
                         <span class="ocr-popup__progress-text">
                             <template v-if="progress.phase === 'preparing'">
-                                Preparing OCR...
+                                {{ t('ocr.preparing') }}
                             </template>
                             <template v-else>
-                                Processing page {{ progress.currentPage }} ({{
-                                    progress.processedCount
-                                }}/{{ progress.totalPages }})
+                                {{
+                                    t('ocr.processingPage', {
+                                        page: progress.currentPage,
+                                        processed: progress.processedCount,
+                                        total: progress.totalPages,
+                                    })
+                                }}
                             </template>
                         </span>
                     </div>
@@ -192,7 +192,7 @@
                     <div class="ocr-popup__divider" />
                     <div class="ocr-popup__results">
                         <UIcon name="i-lucide-check-circle" class="size-4" />
-                        <span>OCR complete - PDF is now searchable</span>
+                        <span>{{ t('ocr.complete') }}</span>
                     </div>
                 </template>
 
@@ -200,7 +200,7 @@
 
                 <!-- Actions -->
                 <div class="ocr-popup__actions">
-                    <UTooltip text="Export DOCX" :delay-duration="1200">
+                    <UTooltip :text="t('ocr.exportDocx')" :delay-duration="1200">
                         <UButton
                             icon="i-lucide-file-text"
                             variant="ghost"
@@ -208,13 +208,13 @@
                             size="sm"
                             :loading="isExporting"
                             :disabled="isExporting || progress.isRunning || !workingCopyPath"
-                            aria-label="Export DOCX"
+                            :aria-label="t('ocr.exportDocx')"
                             @click="handleExportDocx"
                         />
                     </UTooltip>
                     <UTooltip
                         v-if="!progress.isRunning"
-                        text="Start OCR"
+                        :text="t('ocr.start')"
                         :delay-duration="1200"
                     >
                         <UButton
@@ -222,13 +222,13 @@
                             color="primary"
                             size="sm"
                             :disabled="settings.selectedLanguages.length === 0"
-                            aria-label="Start OCR"
+                            :aria-label="t('ocr.start')"
                             @click="handleRunOcr"
                         />
                     </UTooltip>
                     <UTooltip
                         v-else
-                        text="Cancel OCR"
+                        :text="t('ocr.cancel')"
                         :delay-duration="1200"
                     >
                         <UButton
@@ -236,7 +236,7 @@
                             color="neutral"
                             variant="soft"
                             size="sm"
-                            aria-label="Cancel OCR"
+                            :aria-label="t('ocr.cancel')"
                             @click="handleCancel"
                         />
                     </UTooltip>
@@ -248,6 +248,8 @@
 
 <script setup lang="ts">
 import type { PDFDocumentProxy } from 'pdfjs-dist';
+
+const { t } = useI18n();
 
 interface IProps {
     pdfDocument: PDFDocumentProxy | null;

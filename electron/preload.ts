@@ -471,6 +471,17 @@ if (!__preloadAlreadyInstalled) {
             return () => ipcRenderer.removeListener('menu:convertToPdf', handler);
         },
 
+        onMenuNewTab: (callback: IMenuEventCallback): IMenuEventUnsubscribe => {
+            const handler = (_event: IpcRendererEvent) => callback();
+            ipcRenderer.on('menu:newTab', handler);
+            return () => ipcRenderer.removeListener('menu:newTab', handler);
+        },
+        onMenuCloseTab: (callback: IMenuEventCallback): IMenuEventUnsubscribe => {
+            const handler = (_event: IpcRendererEvent) => callback();
+            ipcRenderer.on('menu:closeTab', handler);
+            return () => ipcRenderer.removeListener('menu:closeTab', handler);
+        },
+
         // Page Operations API
         pageOps: {
             delete: (workingCopyPath: string, pages: number[], totalPages: number) =>

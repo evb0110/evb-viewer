@@ -27,6 +27,43 @@ When adding new language support to the OCR system:
 
 The "best" models use float LSTM weights and provide significantly better accuracy for complex scripts (Arabic, Hebrew, CJK) with contextual letter forms.
 
+## Design System
+
+**Rule**: Follow design system principles. Never hardcode CSS values — use design tokens.
+
+All visual values (colors, shadows, spacing, radii, etc.) must reference design tokens defined in `app/assets/css/main.css`. When a new visual value is needed:
+
+1. Add a CSS custom property to the appropriate section in `main.css`:
+   - Brand palette → `@theme` block (Tailwind v4 theme tokens)
+   - Semantic/app-level tokens → `:root` block (with `.dark` override if needed)
+2. Reference the token in component styles via `var(--token-name)` or the corresponding Tailwind utility
+3. Never use raw color values (`#fff`, `oklch(...)`, `rgb(...)`) or magic numbers directly in component `<style>` blocks or inline styles
+
+**Adding a new token:**
+```css
+/* In main.css — @theme for Tailwind-integrated tokens */
+@theme {
+    --color-brand-new: oklch(...);
+}
+
+/* In main.css — :root for semantic app tokens */
+:root {
+    --app-new-surface: var(--color-brand-200);
+}
+.dark {
+    --app-new-surface: var(--color-brand-800);
+}
+```
+
+**In components — always reference tokens:**
+```scss
+/* GOOD */
+.panel { background: var(--app-chrome); }
+
+/* BAD — hardcoded value */
+.panel { background: oklch(95% 0.01 235); }
+```
+
 ## Icon Bundling
 
 **Rule**: When adding or changing icons, always verify they are included in the client bundle.

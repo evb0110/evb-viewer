@@ -289,6 +289,9 @@ interface IElectronAPI {
 
     onMenuConvertToPdf: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
 
+    onMenuNewTab: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
+    onMenuCloseTab: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
+
     // Electron webUtils
     getPathForFile: (file: File) => string;
 }

@@ -27,7 +27,7 @@
                         @click="emit('open-ocr'); close()"
                     >
                         <UIcon name="i-lucide-scan-text" class="overflow-menu-icon" />
-                        <span class="overflow-menu-label">OCR</span>
+                        <span class="overflow-menu-label">{{ t('ocr.button') }}</span>
                     </button>
                     <button
                         :class="['overflow-menu-item', { 'is-active': continuousScroll }]"
@@ -227,7 +227,7 @@ defineExpose({ close });
 }
 
 .overflow-menu-item.is-active {
-    color: var(--ui-primary);
+    color: var(--ui-text);
 }
 
 .overflow-menu-icon {
@@ -238,7 +238,7 @@ defineExpose({ close });
 }
 
 .overflow-menu-item.is-active .overflow-menu-icon {
-    color: var(--ui-primary);
+    color: var(--ui-text);
 }
 
 .overflow-menu-label {
@@ -248,7 +248,7 @@ defineExpose({ close });
 .overflow-menu-check {
     width: 1rem;
     height: 1rem;
-    color: var(--ui-primary);
+    color: var(--ui-text);
     flex-shrink: 0;
 }
 </style>

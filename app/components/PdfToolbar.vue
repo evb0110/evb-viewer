@@ -98,16 +98,12 @@
 
                 <div class="toolbar-separator" />
 
-                <UTooltip :text="t('toolbar.toggleSidebar')" :delay-duration="1200">
-                    <UButton
-                        icon="i-lucide-panel-left"
-                        :variant="showSidebar ? 'soft' : 'ghost'"
-                        :color="showSidebar ? 'primary' : 'neutral'"
-                        class="toolbar-icon-button"
-                        :aria-label="t('toolbar.toggleSidebar')"
-                        @click="emit('toggle-sidebar')"
-                    />
-                </UTooltip>
+                <ToolbarToggleButton
+                    icon="lucide:panel-left"
+                    :active="showSidebar"
+                    :tooltip="t('toolbar.toggleSidebar')"
+                    @click="emit('toggle-sidebar')"
+                />
             </div>
 
             <div class="toolbar-separator" />
@@ -125,40 +121,31 @@
 
                 <div v-if="!isCollapsed(2)" class="toolbar-button-group">
                     <div class="toolbar-group-item">
-                        <UTooltip :text="t('zoom.fitWidth')" :delay-duration="1200">
-                            <UButton
-                                icon="i-lucide-move-horizontal"
-                                :variant="isFitWidthActive ? 'soft' : 'ghost'"
-                                :color="isFitWidthActive ? 'primary' : 'neutral'"
-                                class="toolbar-group-button"
-                                :aria-label="t('zoom.fitWidth')"
-                                @click="emit('fit-width')"
-                            />
-                        </UTooltip>
+                        <ToolbarToggleButton
+                            icon="lucide:move-horizontal"
+                            :active="isFitWidthActive"
+                            :tooltip="t('zoom.fitWidth')"
+                            grouped
+                            @click="emit('fit-width')"
+                        />
                     </div>
                     <div class="toolbar-group-item">
-                        <UTooltip :text="t('zoom.fitHeight')" :delay-duration="1200">
-                            <UButton
-                                icon="i-lucide-move-vertical"
-                                :variant="isFitHeightActive ? 'soft' : 'ghost'"
-                                :color="isFitHeightActive ? 'primary' : 'neutral'"
-                                class="toolbar-group-button"
-                                :aria-label="t('zoom.fitHeight')"
-                                @click="emit('fit-height')"
-                            />
-                        </UTooltip>
+                        <ToolbarToggleButton
+                            icon="lucide:move-vertical"
+                            :active="isFitHeightActive"
+                            :tooltip="t('zoom.fitHeight')"
+                            grouped
+                            @click="emit('fit-height')"
+                        />
                     </div>
                     <div v-if="!isCollapsed(1)" class="toolbar-group-item">
-                        <UTooltip :text="t('zoom.continuousScroll')" :delay-duration="1200">
-                            <UButton
-                                icon="i-lucide-scroll"
-                                :variant="continuousScroll ? 'soft' : 'ghost'"
-                                :color="continuousScroll ? 'primary' : 'neutral'"
-                                class="toolbar-group-button"
-                                :aria-label="t('zoom.continuousScroll')"
-                                @click="emit('toggle-continuous-scroll')"
-                            />
-                        </UTooltip>
+                        <ToolbarToggleButton
+                            icon="lucide:scroll"
+                            :active="continuousScroll"
+                            :tooltip="t('zoom.continuousScroll')"
+                            grouped
+                            @click="emit('toggle-continuous-scroll')"
+                        />
                     </div>
                 </div>
 
@@ -172,28 +159,22 @@
 
                 <div v-if="!isCollapsed(2)" class="toolbar-button-group">
                     <div class="toolbar-group-item">
-                        <UTooltip :text="t('zoom.handTool')" :delay-duration="1200">
-                            <UButton
-                                icon="i-lucide-hand"
-                                :variant="dragMode ? 'soft' : 'ghost'"
-                                :color="dragMode ? 'primary' : 'neutral'"
-                                class="toolbar-group-button"
-                                :aria-label="t('zoom.handTool')"
-                                @click="emit('enable-drag')"
-                            />
-                        </UTooltip>
+                        <ToolbarToggleButton
+                            icon="lucide:hand"
+                            :active="dragMode"
+                            :tooltip="t('zoom.handTool')"
+                            grouped
+                            @click="emit('enable-drag')"
+                        />
                     </div>
                     <div class="toolbar-group-item">
-                        <UTooltip :text="t('zoom.textSelect')" :delay-duration="1200">
-                            <UButton
-                                icon="i-lucide-text-cursor"
-                                :variant="!dragMode ? 'soft' : 'ghost'"
-                                :color="!dragMode ? 'primary' : 'neutral'"
-                                class="toolbar-group-button"
-                                :aria-label="t('zoom.textSelect')"
-                                @click="emit('disable-drag')"
-                            />
-                        </UTooltip>
+                        <ToolbarToggleButton
+                            icon="lucide:text-cursor"
+                            :active="!dragMode"
+                            :tooltip="t('zoom.textSelect')"
+                            grouped
+                            @click="emit('disable-drag')"
+                        />
                     </div>
                 </div>
 
@@ -211,16 +192,6 @@
                         class="toolbar-icon-button"
                         :aria-label="t('toolbar.settings')"
                         @click="emit('open-settings')"
-                    />
-                </UTooltip>
-                <UTooltip :text="t('toolbar.closeFile')" :delay-duration="1200">
-                    <UButton
-                        icon="i-lucide-x"
-                        variant="ghost"
-                        color="neutral"
-                        class="toolbar-icon-button"
-                        :aria-label="t('toolbar.closeFile')"
-                        @click="emit('close-file')"
                     />
                 </UTooltip>
             </div>
@@ -259,7 +230,6 @@ const emit = defineEmits<{
     'export-docx': [];
     'undo': [];
     'redo': [];
-    'close-file': [];
     'toggle-sidebar': [];
     'fit-width': [];
     'fit-height': [];
@@ -283,7 +253,7 @@ defineExpose({toolbarRef});
     padding: 0.5rem;
     border-bottom: 1px solid var(--ui-border);
     box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.08), 0 1px 2px -1px rgb(0 0 0 / 0.06);
-    background: var(--ui-bg);
+    background: var(--app-chrome);
     white-space: nowrap;
     overflow: hidden;
     position: relative;
@@ -389,4 +359,5 @@ defineExpose({toolbarRef});
     align-items: center;
     gap: 0.25rem;
 }
+
 </style>

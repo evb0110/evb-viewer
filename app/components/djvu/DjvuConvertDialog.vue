@@ -1,34 +1,34 @@
 <template>
     <UModal
         v-model:open="open"
-        title="Convert DjVu to PDF"
+        :title="t('djvu.convertDialog.title')"
         :ui="{ footer: 'justify-end' }"
     >
         <template #body>
             <div class="convert-body">
                 <div class="convert-info">
                     <div class="convert-info-row">
-                        <span class="convert-info-label">File</span>
+                        <span class="convert-info-label">{{ t('djvu.convertDialog.file') }}</span>
                         <span class="convert-info-value">{{ fileName }}</span>
                     </div>
                     <div
                         v-if="info"
                         class="convert-info-row"
                     >
-                        <span class="convert-info-label">Pages</span>
+                        <span class="convert-info-label">{{ t('djvu.convertDialog.pages') }}</span>
                         <span class="convert-info-value">{{ info.pageCount }}</span>
                     </div>
                     <div
                         v-if="info"
                         class="convert-info-row"
                     >
-                        <span class="convert-info-label">Source resolution</span>
+                        <span class="convert-info-label">{{ t('djvu.convertDialog.sourceResolution') }}</span>
                         <span class="convert-info-value">{{ info.sourceDpi }} DPI</span>
                     </div>
                 </div>
 
                 <div class="convert-presets">
-                    <label class="convert-presets-title">Quality</label>
+                    <label class="convert-presets-title">{{ t('djvu.convertDialog.quality') }}</label>
                     <div
                         v-for="estimate in estimates"
                         :key="estimate.subsample"
@@ -63,7 +63,7 @@
                             name="i-lucide-loader-circle"
                             class="convert-loading-spinner"
                         />
-                        Estimating file sizes...
+                        {{ t('djvu.convertDialog.estimating') }}
                     </div>
                 </div>
 
@@ -76,7 +76,7 @@
                             v-model="preserveBookmarks"
                             type="checkbox"
                         >
-                        Preserve bookmarks
+                        {{ t('djvu.convertDialog.preserveBookmarks') }}
                     </label>
                 </div>
             </div>
@@ -84,13 +84,13 @@
 
         <template #footer="{ close }">
             <UButton
-                label="Cancel"
+                :label="t('common.cancel')"
                 color="neutral"
                 variant="outline"
                 @click="close"
             />
             <UButton
-                label="Convert"
+                :label="t('common.convert')"
                 color="primary"
                 :disabled="estimatesLoading"
                 @click="handleConvert"
@@ -106,6 +106,8 @@ import {
     watch,
 } from 'vue';
 import { getElectronAPI } from '@app/utils/electron';
+
+const { t } = useI18n();
 
 const props = defineProps<{djvuPath: string | null;}>();
 

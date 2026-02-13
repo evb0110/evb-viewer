@@ -16,7 +16,7 @@
                 name="i-lucide-loader-circle"
                 class="animate-spin"
             />
-            <span>Loading bookmarks...</span>
+            <span>{{ t('bookmarks.loading') }}</span>
         </div>
 
         <div
@@ -29,14 +29,14 @@
                 v-if="isEditMode"
                 type="button"
                 class="pdf-bookmarks-empty-action"
-                title="Add first bookmark"
+                :title="t('bookmarks.addFirst')"
                 @click="editing.addRootBookmark()"
             >
                 <UIcon
                     name="i-lucide-plus"
                     class="size-4"
                 />
-                <span>Add first bookmark</span>
+                <span>{{ t('bookmarks.addFirst') }}</span>
             </button>
         </div>
 

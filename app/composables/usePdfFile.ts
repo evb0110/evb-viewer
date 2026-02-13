@@ -127,7 +127,6 @@ export const usePdfFile = () => {
         }
 
         isDirty.value = !!opts?.markDirty;
-        await api.setWindowTitle(fileName.value || 'EVB Viewer');
     }
 
     function pushHistorySnapshot(snapshot: Uint8Array) {
@@ -251,14 +250,13 @@ export const usePdfFile = () => {
         error.value = null;
         isDirty.value = false;
         resetHistory(null);
-        try {
-            const api = getElectronAPI();
-            if (pathToCleanup) {
+        if (pathToCleanup) {
+            try {
+                const api = getElectronAPI();
                 await api.cleanupFile(pathToCleanup);
+            } catch {
+                // Ignore errors when not in Electron
             }
-            await api.setWindowTitle('EVB Viewer');
-        } catch {
-            // Ignore errors when not in Electron
         }
     }
 

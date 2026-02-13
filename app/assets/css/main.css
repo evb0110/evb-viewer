@@ -19,6 +19,12 @@
 
 :root {
     --ui-primary: var(--color-brand-700);
+
+    /* Chrome surfaces (tab bar, toolbar) */
+    --app-chrome: color-mix(in oklab, var(--ui-bg) 35%, var(--ui-border) 65%);
+    --app-chrome-hover: color-mix(in oklab, var(--ui-bg) 55%, var(--ui-border) 45%);
+    --app-chrome-subtle-hover: color-mix(in oklab, var(--ui-border) 45%, transparent);
+
     --app-scrollbar-size: 12px;
     --app-scrollbar-track: transparent;
     --app-scrollbar-thumb: color-mix(in oklab, var(--ui-border) 55%, var(--ui-text-muted) 45%);

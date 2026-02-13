@@ -9,9 +9,9 @@
                 class="djvu-overlay-spinner"
             />
             <div class="djvu-overlay-text">
-                <span v-if="phase === 'converting'">Converting DjVu to PDF...</span>
-                <span v-else-if="phase === 'bookmarks'">Processing bookmarks...</span>
-                <span v-else>Preparing...</span>
+                <span v-if="phase === 'converting'">{{ t('djvu.overlayConverting') }}</span>
+                <span v-else-if="phase === 'bookmarks'">{{ t('djvu.overlayBookmarks') }}</span>
+                <span v-else>{{ t('djvu.overlayPreparing') }}</span>
             </div>
             <div class="djvu-overlay-progress">
                 <div
@@ -23,7 +23,7 @@
                 {{ percent }}%
             </div>
             <UButton
-                label="Cancel"
+                :label="t('common.cancel')"
                 variant="ghost"
                 color="neutral"
                 size="sm"
@@ -34,6 +34,8 @@
 </template>
 
 <script setup lang="ts">
+const { t } = useI18n();
+
 defineProps<{
     isConverting: boolean;
     phase: 'converting' | 'bookmarks' | null;

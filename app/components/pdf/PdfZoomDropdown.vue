@@ -341,7 +341,7 @@ function applyCustomZoom() {
 }
 
 .zoom-dropdown-item.is-active {
-    color: var(--ui-primary);
+    color: var(--ui-text);
 }
 
 .zoom-dropdown-label {
@@ -353,11 +353,11 @@ function applyCustomZoom() {
 }
 
 .zoom-dropdown-item.is-active .zoom-dropdown-icon {
-    color: var(--ui-primary);
+    color: var(--ui-text);
 }
 
 .zoom-dropdown-check {
-    color: var(--ui-primary);
+    color: var(--ui-text);
 }
 
 .zoom-dropdown-custom {

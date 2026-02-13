@@ -92,10 +92,17 @@ function getFileMenu(): MenuItemConstructorOptions {
             },
             { type: 'separator' },
             {
-                label: 'Close',
+                label: 'New Tab',
+                accelerator: 'CmdOrCtrl+T',
+                click: (_, window) => {
+                    sendToWindow(window, 'menu:newTab');
+                },
+            },
+            {
+                label: 'Close Tab',
                 accelerator: 'CmdOrCtrl+W',
                 click: (_, window) => {
-                    window?.close();
+                    sendToWindow(window, 'menu:closeTab');
                 },
             },
             ...(config.isMac ? [] : [
