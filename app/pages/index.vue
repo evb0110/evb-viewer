@@ -47,7 +47,7 @@ interface IWorkspaceExpose {
     handleOpenFileDirectWithPersist: (path: string) => Promise<void>;
     handleCloseFileFromUi: () => Promise<void>;
     handleExportDocx: () => Promise<void>;
-    hasPdf: { value: boolean };
+    hasPdf: { value: boolean } | boolean;
     handleZoomIn: () => void;
     handleZoomOut: () => void;
     handleFitWidth: () => void;
@@ -92,11 +92,18 @@ const activeWorkspace = computed(() => {
     return workspaceRefs.value.get(activeTabId.value) ?? null;
 });
 
+function workspaceHasPdf(workspace: IWorkspaceExpose | null | undefined) {
+    if (!workspace) {
+        return false;
+    }
+    return typeof workspace.hasPdf === 'boolean' ? workspace.hasPdf : workspace.hasPdf.value;
+}
+
 function handleCloseTab(tabId: string) {
     const workspace = workspaceRefs.value.get(tabId);
-    if (workspace?.hasPdf.value) {
+    if (workspaceHasPdf(workspace)) {
         void workspace.handleCloseFileFromUi().then(() => {
-            if (!workspace.hasPdf.value) {
+            if (!workspaceHasPdf(workspace)) {
                 closeTab(tabId);
             }
         });
@@ -105,14 +112,90 @@ function handleCloseTab(tabId: string) {
     }
 }
 
-function handleOpenInNewTab(path: string) {
+async function handleOpenInNewTab(path: string) {
     const tab = createTab();
-    void nextTick().then(() => {
-        const ws = workspaceRefs.value.get(tab.id);
-        if (ws) {
-            void ws.handleOpenFileDirectWithPersist(path);
+    await nextTick();
+    const ws = workspaceRefs.value.get(tab.id);
+    if (ws) {
+        await ws.handleOpenFileDirectWithPersist(path);
+    }
+}
+
+async function openPathInAppropriateTab(path: string) {
+    const ws = activeWorkspace.value;
+    if (ws && !workspaceHasPdf(ws)) {
+        await ws.handleOpenFileDirectWithPersist(path);
+        return;
+    }
+    await handleOpenInNewTab(path);
+}
+
+function hasExternalFilePayload(dataTransfer: DataTransfer | null) {
+    if (!dataTransfer) {
+        return false;
+    }
+    return Array.from(dataTransfer.types).includes('Files');
+}
+
+function getDroppedDocumentPaths(dataTransfer: DataTransfer | null) {
+    if (!dataTransfer || !window.electronAPI) {
+        return [];
+    }
+
+    const paths: string[] = [];
+    const seen = new Set<string>();
+
+    for (let i = 0; i < dataTransfer.files.length; i++) {
+        const file = dataTransfer.files[i];
+        if (!file) {
+            continue;
         }
-    });
+
+        const path = window.electronAPI.getPathForFile(file);
+        if (!path || seen.has(path)) {
+            continue;
+        }
+
+        const lowerPath = path.toLowerCase();
+        if (lowerPath.endsWith('.pdf') || lowerPath.endsWith('.djvu')) {
+            seen.add(path);
+            paths.push(path);
+        }
+    }
+
+    return paths;
+}
+
+function handleWindowDragOver(event: DragEvent) {
+    if (!hasExternalFilePayload(event.dataTransfer)) {
+        return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = 'copy';
+    }
+}
+
+function handleWindowDrop(event: DragEvent) {
+    if (!hasExternalFilePayload(event.dataTransfer)) {
+        return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const paths = getDroppedDocumentPaths(event.dataTransfer);
+    if (paths.length === 0) {
+        return;
+    }
+
+    void (async () => {
+        for (const path of paths) {
+            await openPathInAppropriateTab(path);
+        }
+    })();
 }
 
 const {
@@ -169,14 +252,9 @@ onMounted(() => {
     window.addEventListener('keydown', handleTabKeyboardShortcut, true);
 
     if (typeof window !== 'undefined') {
-        window.__openFileDirect = async (path: string) => {
-            const ws = activeWorkspace.value;
-            if (ws && !ws.hasPdf.value) {
-                await ws.handleOpenFileDirectWithPersist(path);
-            } else {
-                handleOpenInNewTab(path);
-            }
-        };
+        window.__openFileDirect = openPathInAppropriateTab;
+        window.addEventListener('dragover', handleWindowDragOver, true);
+        window.addEventListener('drop', handleWindowDrop, true);
     }
 
     if (window.electronAPI) {
@@ -215,12 +293,7 @@ onMounted(() => {
                 activeWorkspace.value?.handleFitHeight();
             }),
             window.electronAPI.onMenuOpenRecentFile((path: string) => {
-                const ws = activeWorkspace.value;
-                if (ws && !ws.hasPdf.value) {
-                    void ws.handleOpenFileDirectWithPersist(path);
-                } else {
-                    handleOpenInNewTab(path);
-                }
+                void openPathInAppropriateTab(path);
             }),
             window.electronAPI.onMenuClearRecentFiles(() => {
                 clearRecentFiles();
@@ -262,5 +335,7 @@ onMounted(() => {
 onUnmounted(() => {
     menuCleanups.forEach(cleanup => cleanup());
     window.removeEventListener('keydown', handleTabKeyboardShortcut, true);
+    window.removeEventListener('dragover', handleWindowDragOver, true);
+    window.removeEventListener('drop', handleWindowDrop, true);
 });
 </script>
