@@ -66,6 +66,7 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           brew install tesseract poppler qpdf djvulibre ffmpeg meson pkg-config
+          pip3 install sphinx --break-system-packages
           bash scripts/bundle-tesseract-macos.sh
           bash scripts/bundle-leptonica-unpaper-macos.sh
           bash scripts/bundle-pdf-tools-macos.sh

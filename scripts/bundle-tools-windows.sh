@@ -23,11 +23,12 @@ mkdir -p "$TEMP_DIR"
 # ==========================================
 # Version configuration
 # ==========================================
-TESSERACT_VERSION="5.5.1"
-TESSERACT_DATE="20250401"
-POPPLER_VERSION="25.02.0"
-QPDF_VERSION="11.10.1"
-DJVULIBRE_VERSION="3.5.28"
+TESSERACT_TAG="v5.4.0.20240606"
+TESSERACT_INSTALLER="tesseract-ocr-w64-setup-5.4.0.20240606.exe"
+POPPLER_VERSION="25.12.0"
+QPDF_VERSION="12.3.2"
+DJVULIBRE_INSTALLER="DjVuLibre-3.5.28_DjView-4.12_Setup.exe"
+DJVULIBRE_SF_PATH="DjVuLibre_Windows/3.5.28%2B4.12"
 
 # ==========================================
 # Helper functions
@@ -44,31 +45,27 @@ download() {
 # ==========================================
 echo ""
 echo "=========================================="
-echo "1. Bundling Tesseract ${TESSERACT_VERSION}..."
+echo "1. Bundling Tesseract (${TESSERACT_TAG})..."
 echo "=========================================="
 
 TESSERACT_DIR="$RESOURCES_DIR/tesseract/$PLATFORM_ARCH"
 mkdir -p "$TESSERACT_DIR/bin"
 
-TESSERACT_ZIP="tesseract-ocr-w64-setup-${TESSERACT_VERSION}.${TESSERACT_DATE}.exe"
-TESSERACT_URL="https://github.com/UB-Mannheim/tesseract/releases/download/v${TESSERACT_VERSION}/tesseract-ocr-w64-v${TESSERACT_VERSION}.${TESSERACT_DATE}.zip"
+TESSERACT_URL="https://github.com/UB-Mannheim/tesseract/releases/download/${TESSERACT_TAG}/${TESSERACT_INSTALLER}"
+download "$TESSERACT_URL" "$TEMP_DIR/tesseract-setup.exe"
 
-download "$TESSERACT_URL" "$TEMP_DIR/tesseract.zip"
+echo "  Extracting with 7z..."
+7z x -y "$TEMP_DIR/tesseract-setup.exe" -o"$TEMP_DIR/tesseract" > /dev/null 2>&1 || true
 
-echo "  Extracting..."
-unzip -qo "$TEMP_DIR/tesseract.zip" -d "$TEMP_DIR/tesseract"
-
-# Find the extracted directory (may vary by release)
+# Find the extracted directory (Inno Setup extracts to {app}/ or similar)
 TESSERACT_EXTRACTED="$(find "$TEMP_DIR/tesseract" -name 'tesseract.exe' -print -quit | xargs dirname 2>/dev/null || true)"
 
 if [ -z "$TESSERACT_EXTRACTED" ]; then
-  # Try alternative structure
   TESSERACT_EXTRACTED="$TEMP_DIR/tesseract"
 fi
 
 echo "  Copying binaries and DLLs..."
 cp "$TESSERACT_EXTRACTED/tesseract.exe" "$TESSERACT_DIR/bin/" 2>/dev/null || true
-# Copy all DLLs from the tesseract directory
 find "$TESSERACT_EXTRACTED" -maxdepth 2 -name '*.dll' -exec cp {} "$TESSERACT_DIR/bin/" \; 2>/dev/null || true
 
 echo "  Tesseract: $(ls "$TESSERACT_DIR/bin/"*.exe 2>/dev/null | wc -l) exe, $(ls "$TESSERACT_DIR/bin/"*.dll 2>/dev/null | wc -l) dlls"
@@ -84,7 +81,7 @@ echo "=========================================="
 POPPLER_DIR="$RESOURCES_DIR/poppler/$PLATFORM_ARCH"
 mkdir -p "$POPPLER_DIR/bin"
 
-POPPLER_URL="https://github.com/oschwartz10612/poppler-windows/releases/download/v${POPPLER_VERSION}/Release-${POPPLER_VERSION}-0.zip"
+POPPLER_URL="https://github.com/oschwartz10612/poppler-windows/releases/download/v${POPPLER_VERSION}-0/Release-${POPPLER_VERSION}-0.zip"
 download "$POPPLER_URL" "$TEMP_DIR/poppler.zip"
 
 echo "  Extracting..."
@@ -108,7 +105,7 @@ echo "  Poppler: $(ls "$POPPLER_DIR/bin/"*.exe 2>/dev/null | wc -l) exe, $(ls "$
 # ==========================================
 echo ""
 echo "=========================================="
-echo "3. Bundling qpdf ${QPDF_VERSION}..."
+echo "3. Bundling qpdf v${QPDF_VERSION}..."
 echo "=========================================="
 
 QPDF_DIR="$RESOURCES_DIR/qpdf/$PLATFORM_ARCH"
@@ -129,21 +126,21 @@ cp "$QPDF_BIN/"*.dll "$QPDF_DIR/bin/" 2>/dev/null || true
 echo "  qpdf: $(ls "$QPDF_DIR/bin/"*.exe 2>/dev/null | wc -l) exe, $(ls "$QPDF_DIR/bin/"*.dll 2>/dev/null | wc -l) dlls"
 
 # ==========================================
-# 4. DjVuLibre
+# 4. DjVuLibre (SourceForge)
 # ==========================================
 echo ""
 echo "=========================================="
-echo "4. Bundling DjVuLibre ${DJVULIBRE_VERSION}..."
+echo "4. Bundling DjVuLibre..."
 echo "=========================================="
 
 DJVU_DIR="$RESOURCES_DIR/djvulibre/$PLATFORM_ARCH"
 mkdir -p "$DJVU_DIR/bin" "$DJVU_DIR/lib"
 
-DJVULIBRE_URL="https://github.com/ArtifexSoftware/djvulibre/releases/download/release.${DJVULIBRE_VERSION}/djvulibre-${DJVULIBRE_VERSION}-win64.zip"
-download "$DJVULIBRE_URL" "$TEMP_DIR/djvulibre.zip"
+DJVULIBRE_URL="https://sourceforge.net/projects/djvu/files/${DJVULIBRE_SF_PATH}/${DJVULIBRE_INSTALLER}/download"
+download "$DJVULIBRE_URL" "$TEMP_DIR/djvulibre-setup.exe"
 
-echo "  Extracting..."
-unzip -qo "$TEMP_DIR/djvulibre.zip" -d "$TEMP_DIR/djvulibre"
+echo "  Extracting with 7z..."
+7z x -y "$TEMP_DIR/djvulibre-setup.exe" -o"$TEMP_DIR/djvulibre" > /dev/null 2>&1 || true
 
 # Find the extracted binaries
 DJVU_EXTRACTED="$(find "$TEMP_DIR/djvulibre" -name 'ddjvu.exe' -print -quit | xargs dirname 2>/dev/null || true)"
@@ -153,11 +150,9 @@ if [ -n "$DJVU_EXTRACTED" ]; then
   cp "$DJVU_EXTRACTED/ddjvu.exe" "$DJVU_DIR/bin/" 2>/dev/null || true
   cp "$DJVU_EXTRACTED/djvused.exe" "$DJVU_DIR/bin/" 2>/dev/null || true
   cp "$DJVU_EXTRACTED/"*.dll "$DJVU_DIR/bin/" 2>/dev/null || true
-  # Also check parent/sibling directories for DLLs
   find "$(dirname "$DJVU_EXTRACTED")" -name '*.dll' -exec cp {} "$DJVU_DIR/bin/" \; 2>/dev/null || true
 else
   echo "  Warning: Could not locate DjVuLibre binaries in extracted archive"
-  echo "  You may need to adjust DJVULIBRE_URL or extract manually"
 fi
 
 echo "  DjVuLibre: $(ls "$DJVU_DIR/bin/"*.exe 2>/dev/null | wc -l) exe, $(ls "$DJVU_DIR/bin/"*.dll 2>/dev/null | wc -l) dlls"
