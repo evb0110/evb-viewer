@@ -51,7 +51,13 @@ bundle_tool() {
   cp "$binary_path" "$dest_dir/bin/"
 
   # Find and copy non-system .so dependencies
-  ldd "$binary_path" 2>/dev/null | grep "=> /" | awk '{print $3}' | while read -r lib; do
+  # Collect into variable first — piping into while creates a subshell that
+  # interacts badly with set -euo pipefail (silent exit on transient failures).
+  local deps
+  deps="$(ldd "$binary_path" 2>/dev/null | grep "=> /" | awk '{print $3}')" || true
+
+  local lib
+  for lib in $deps; do
     local lib_name
     lib_name="$(basename "$lib")"
 
@@ -105,7 +111,11 @@ bundle_lib_deps() {
       if [ ! -f "$lib" ]; then
         continue
       fi
-      ldd "$lib" 2>/dev/null | grep "=> /" | awk '{print $3}' | while read -r dep; do
+      local lib_deps
+      lib_deps="$(ldd "$lib" 2>/dev/null | grep "=> /" | awk '{print $3}')" || true
+
+      local dep
+      for dep in $lib_deps; do
         local dep_name
         dep_name="$(basename "$dep")"
         if echo "$dep_name" | grep -qE "$EXCLUDE_PATTERN"; then
@@ -224,7 +234,6 @@ echo ""
 echo "Library counts:"
 for dir in "$TESSERACT_DIR" "$POPPLER_DIR" "$QPDF_DIR" "$DJVU_DIR"; do
   if [ -d "$dir/lib" ]; then
-    local count
     count="$(find "$dir/lib" -name '*.so*' | wc -l)"
     echo "  $(basename "$(dirname "$dir")"): $count .so files"
   fi

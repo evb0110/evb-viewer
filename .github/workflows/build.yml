@@ -51,6 +51,13 @@ jobs:
           node-version: 22
           cache: pnpm
 
+      # Windows: pnpm postinstall uses Unix commands (mkdir -p, cp) that
+      # require bash. Configure pnpm to use Git Bash for lifecycle scripts.
+      - name: Configure pnpm script shell (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: pnpm config set script-shell "C:\Program Files\Git\bin\bash.exe"
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -58,7 +65,7 @@ jobs:
       - name: Bundle native tools (macOS)
         if: runner.os == 'macOS'
         run: |
-          brew install tesseract poppler qpdf djvulibre meson pkg-config
+          brew install tesseract poppler qpdf djvulibre ffmpeg meson pkg-config
           bash scripts/bundle-tesseract-macos.sh
           bash scripts/bundle-leptonica-unpaper-macos.sh
           bash scripts/bundle-pdf-tools-macos.sh
