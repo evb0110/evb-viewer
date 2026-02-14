@@ -93,6 +93,28 @@ function getResourcesBase(): string {
     return join(__dirname, '..', 'resources');
 }
 
+function findOnSystemPath(name: string): string {
+    const ext = process.platform === 'win32' ? '.exe' : '';
+    const fullName = `${name}${ext}`;
+
+    if (process.platform === 'darwin') {
+        // macOS apps launched from Finder don't inherit shell PATH,
+        // so Homebrew binaries aren't found via bare name lookup.
+        // Check common Homebrew locations explicitly.
+        const brewPaths = [
+            join('/opt/homebrew/bin', fullName),  // Apple Silicon
+            join('/usr/local/bin', fullName),      // Intel
+        ];
+        for (const p of brewPaths) {
+            if (existsSync(p)) {
+                return p;
+            }
+        }
+    }
+
+    return fullName;
+}
+
 function getBinaryPath(dir: string, name: string, optional = false): string {
     const ext = process.platform === 'win32' ? '.exe' : '';
     const binPath = join(dir, 'bin', `${name}${ext}`);
@@ -105,8 +127,7 @@ function getBinaryPath(dir: string, name: string, optional = false): string {
         return '';
     }
 
-    // Fall back to system PATH - return just the name
-    return name;
+    return findOnSystemPath(name);
 }
 
 function getToolVersion(path: string, versionFlag = '--version'): string | undefined {
