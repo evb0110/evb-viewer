@@ -327,3 +327,7 @@ export async function createWindow() {
 export function hasWindows() {
     return BrowserWindow.getAllWindows().length > 0;
 }
+
+export function getMainWindow() {
+    return mainWindow;
+}

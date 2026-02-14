@@ -129,10 +129,13 @@ function escapeXml(text: string) {
         .replace(/'/g, '&apos;');
 }
 
-function buildDocumentXml(text: string) {
+function buildDocumentXml(text: string, isRtl?: boolean) {
     const lines = text.replace(/\r\n/g, '\n').split('\n');
     const paragraphs = lines.map((line) => {
         const safe = escapeXml(line);
+        if (isRtl) {
+            return `<w:p><w:pPr><w:bidi/></w:pPr><w:r><w:rPr><w:rtl/></w:rPr><w:t xml:space="preserve">${safe}</w:t></w:r></w:p>`;
+        }
         return `<w:p><w:r><w:t xml:space="preserve">${safe}</w:t></w:r></w:p>`;
     }).join('');
 
@@ -148,7 +151,7 @@ function buildDocumentXml(text: string) {
         '</w:document>';
 }
 
-export function createDocxFromText(text: string) {
+export function createDocxFromText(text: string, isRtl?: boolean) {
     const contentTypes = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
         '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
         '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
@@ -164,7 +167,7 @@ export function createDocxFromText(text: string) {
     const docRels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
         '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>';
 
-    const docXml = buildDocumentXml(text);
+    const docXml = buildDocumentXml(text, isRtl);
 
     return createZip([
         {

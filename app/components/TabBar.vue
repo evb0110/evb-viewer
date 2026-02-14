@@ -1,16 +1,29 @@
 <template>
-    <div class="tab-bar">
-        <div class="tab-list" role="tablist">
+    <div ref="tabBarRef" class="tab-bar">
+        <TransitionGroup
+            tag="div"
+            name="tab-reorder"
+            class="tab-list"
+            role="tablist"
+        >
             <button
-                v-for="tab in tabs"
+                v-for="(tab, index) in tabs"
                 :key="tab.id"
+                :data-tab-id="tab.id"
                 role="tab"
                 class="tab"
-                :class="{ 'is-active': tab.id === activeTabId }"
+                :class="{
+                    'is-active': tab.id === activeTabId,
+                    'is-dragging': isDragging && dragIndex === index,
+                }"
+                :style="isDragging && dragIndex === index
+                    ? { transform: `translateX(${dragTranslateX}px)`, transition: 'none' }
+                    : undefined"
                 :aria-selected="tab.id === activeTabId"
                 :title="tab.originalPath ?? tab.fileName ?? t('tabs.newTab')"
-                @click="emit('activate', tab.id)"
+                @click="handleTabClick(tab.id)"
                 @auxclick.prevent="handleAuxClick($event, tab.id)"
+                @pointerdown="onPointerDown($event, index)"
             >
                 <span class="tab-label">{{ tab.fileName ?? t('tabs.newTab') }}</span>
                 <span
@@ -27,19 +40,20 @@
                     <Icon name="lucide:x" size="14" />
                 </button>
             </button>
-            <button
-                class="tab-new"
-                :aria-label="t('tabs.newTab')"
-                @click="emit('new-tab')"
-            >
-                <Icon name="lucide:plus" size="14" />
-            </button>
-        </div>
+        </TransitionGroup>
+        <button
+            class="tab-new"
+            :aria-label="t('tabs.newTab')"
+            @click="emit('new-tab')"
+        >
+            <Icon name="lucide:plus" size="14" />
+        </button>
     </div>
 </template>
 
 <script setup lang="ts">
 import type { ITab } from '@app/types/tabs';
+import { useTabDragReorder } from '@app/composables/useTabDragReorder';
 
 const { t } = useI18n();
 
@@ -54,6 +68,26 @@ const emit = defineEmits<{
     'new-tab': [];
     reorder: [fromIndex: number, toIndex: number];
 }>();
+
+const tabBarRef = useTemplateRef<HTMLElement>('tabBarRef');
+
+const {
+    isDragging,
+    dragIndex,
+    dragTranslateX,
+    onPointerDown,
+    shouldSuppressClick,
+} = useTabDragReorder(
+    tabBarRef,
+    (from, to) => emit('reorder', from, to),
+);
+
+function handleTabClick(tabId: string) {
+    if (shouldSuppressClick()) {
+        return;
+    }
+    emit('activate', tabId);
+}
 
 function handleAuxClick(event: MouseEvent, tabId: string) {
     if (event.button === 1) {
@@ -101,6 +135,7 @@ function handleAuxClick(event: MouseEvent, tabId: string) {
     font-size: 12px;
     cursor: pointer;
     position: relative;
+    touch-action: none;
     -webkit-app-region: no-drag;
     transition: background-color 0.1s ease, color 0.1s ease;
 }
@@ -177,5 +212,16 @@ function handleAuxClick(event: MouseEvent, tabId: string) {
 .tab-new:hover {
     background: var(--app-chrome-hover);
     color: var(--ui-text);
+}
+
+.tab.is-dragging {
+    z-index: 10;
+    opacity: 0.85;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    transition: none;
+}
+
+.tab-reorder-move {
+    transition: transform 200ms ease;
 }
 </style>

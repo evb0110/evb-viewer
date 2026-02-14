@@ -9,7 +9,7 @@ TESSDATA_DIR="$PROJECT_ROOT/resources/tesseract/tessdata"
 mkdir -p "$TESSDATA_DIR"
 
 # Languages to download
-LANGS="eng rus fra deu tur kmr ara heb syr"
+LANGS="eng rus fra deu tur kmr heb syr"
 
 echo "Downloading tessdata_best language files to $TESSDATA_DIR..."
 

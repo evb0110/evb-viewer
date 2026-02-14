@@ -1,5 +1,4 @@
 const RTL_LANGUAGE_CODES = new Set([
-    'ara',
     'heb',
     'syr',
 ]);
@@ -24,6 +23,8 @@ const LATIN_WORD_BOUNDARY_CONFIG: string[] = [
     '-c',
     'load_freq_dawg=0',
 ];
+
+const RTL_CONFIG: string[] = [];
 
 interface ITesseractLanguageConfig {
     orderedLanguages: string[];
@@ -69,7 +70,7 @@ export function resolveTesseractLanguageConfig(languages: string[]): ITesseractL
 
     return {
         orderedLanguages: rtlFirst,
-        extraConfigArgs: [],
+        extraConfigArgs: [...RTL_CONFIG],
         hasRtl: true,
     };
 }

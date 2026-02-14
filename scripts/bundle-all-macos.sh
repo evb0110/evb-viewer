@@ -11,15 +11,23 @@ echo "=============================================="
 echo ""
 
 # Step 1: Bundle PDF tools (Poppler + qpdf)
-echo "Step 1/2: Bundling PDF tools (Poppler, qpdf)..."
+echo "Step 1/3: Bundling PDF tools (Poppler, qpdf)..."
 echo ""
 "$SCRIPT_DIR/bundle-pdf-tools-macos.sh"
 
 echo ""
 echo ""
 
-# Step 2: Bundle Python page-processor
-echo "Step 2/2: Bundling Python page-processor..."
+# Step 2: Bundle DjVuLibre tools
+echo "Step 2/3: Bundling DjVuLibre (ddjvu, djvused)..."
+echo ""
+"$SCRIPT_DIR/bundle-djvu-macos.sh"
+
+echo ""
+echo ""
+
+# Step 3: Bundle Python page-processor
+echo "Step 3/3: Bundling Python page-processor..."
 echo ""
 "$SCRIPT_DIR/bundle-page-processor-macos.sh"
 

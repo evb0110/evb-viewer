@@ -1,13 +1,104 @@
+appId: com.evb.viewer
+productName: EVB Viewer
+
+asar: false
+npmRebuild: false
+afterPack: ./scripts/afterPack.cjs
+
 files:
+  - dist-electron/
+  - .output/
+  - package.json
   - "!.devkit/**/*"
   - "!.devkit"
 
-# Icon configuration per platform
+extraResources:
+  - from: resources/tesseract/tessdata
+    to: tesseract/tessdata
+
 mac:
   icon: resources/icon.icns
+  entitlementsInherit: build/entitlements.mac.plist
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+    - target: zip
+      arch:
+        - arm64
+        - x64
+  extraResources:
+    - from: resources/tesseract/darwin-${arch}
+      to: tesseract/darwin-${arch}
+    - from: resources/poppler/darwin-${arch}
+      to: poppler/darwin-${arch}
+    - from: resources/qpdf/darwin-${arch}
+      to: qpdf/darwin-${arch}
+    - from: resources/djvulibre/darwin-${arch}
+      to: djvulibre/darwin-${arch}
 
 win:
   icon: resources/icon.ico
+  target:
+    - target: nsis
+      arch:
+        - x64
+  extraResources:
+    - from: resources/tesseract/win32-${arch}
+      to: tesseract/win32-${arch}
+    - from: resources/poppler/win32-${arch}
+      to: poppler/win32-${arch}
+    - from: resources/qpdf/win32-${arch}
+      to: qpdf/win32-${arch}
+    - from: resources/djvulibre/win32-${arch}
+      to: djvulibre/win32-${arch}
 
 linux:
   icon: resources/icon.png
+  target:
+    - target: AppImage
+      arch:
+        - x64
+    - target: deb
+      arch:
+        - x64
+  extraResources:
+    - from: resources/tesseract/linux-${arch}
+      to: tesseract/linux-${arch}
+    - from: resources/poppler/linux-${arch}
+      to: poppler/linux-${arch}
+    - from: resources/qpdf/linux-${arch}
+      to: qpdf/linux-${arch}
+    - from: resources/djvulibre/linux-${arch}
+      to: djvulibre/linux-${arch}
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  perMachine: false
+
+fileAssociations:
+  - ext: pdf
+    mimeType: application/pdf
+    role: Viewer
+  - ext: djvu
+    mimeType: image/vnd.djvu
+    role: Viewer
+  - ext: djv
+    mimeType: image/vnd.djvu
+    role: Viewer
+
+dmg:
+  window:
+    width: 540
+    height: 380
+  contents:
+    - x: 140
+      y: 190
+    - x: 400
+      y: 190
+      type: link
+      path: /Applications
+
+publish: null

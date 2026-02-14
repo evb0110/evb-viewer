@@ -27,7 +27,11 @@
     "test": "vitest run",
     "test:unit": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",
-    "electron:run": "tsx scripts/electron-run.ts"
+    "electron:run": "tsx scripts/electron-run.ts",
+    "dist": "pnpm run build && electron-builder",
+    "dist:mac": "pnpm run build && electron-builder --mac",
+    "dist:win": "pnpm run build && electron-builder --win",
+    "dist:linux": "pnpm run build && electron-builder --linux"
   },
   "dependencies": {
     "@nuxt/icon": "^2.1.1",
@@ -50,6 +54,7 @@
     "@types/node": "^25.0.3",
     "concurrently": "^9.2.1",
     "electron": "^39.2.7",
+    "electron-builder": "^25.1.8",
     "esbuild": "^0.27.0",
     "eslint": "^9.39.2",
     "eslint-import-resolver-typescript": "^4.4.4",

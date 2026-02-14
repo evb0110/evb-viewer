@@ -25,6 +25,7 @@ function runDjvused(args: string[]): Promise<IRunResult> {
             env: {
                 ...process.env,
                 DYLD_LIBRARY_PATH: libDir,
+                LD_LIBRARY_PATH: libDir,
             },
         });
 

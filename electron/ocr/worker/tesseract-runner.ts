@@ -107,7 +107,14 @@ export async function runOcrFileBased(
                 const tsvPath = `${outputBase}.tsv`;
                 const tsvContent = await readFile(tsvPath, 'utf-8');
                 const words = parseTsvOutput(tsvContent.trim());
-                const pageText = parseTsvText(tsvContent.trim());
+                let pageText = parseTsvText(tsvContent.trim());
+
+                if (languages.includes('ell')) {
+                    for (const word of words) {
+                        word.text = word.text.replace(/\u00B5/g, '\u03BC');
+                    }
+                    pageText = pageText.replace(/\u00B5/g, '\u03BC');
+                }
 
                 const pdfPath = `${outputBase}.pdf`;
                 try {

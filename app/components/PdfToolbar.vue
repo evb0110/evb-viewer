@@ -275,8 +275,8 @@ defineExpose({toolbarRef});
 .toolbar :deep(.page-controls-button) {
     border: 1px solid transparent !important;
     background: transparent !important;
-    color: var(--ui-text-dimmed) !important;
-    transition: background-color 0.1s ease, color 0.1s ease, box-shadow 0.1s ease;
+    color: var(--ui-text) !important;
+    transition: background-color 0.1s ease, color 0.1s ease, box-shadow 0.1s ease, opacity 0.1s ease;
 }
 
 .toolbar :deep(.toolbar-icon-button:hover:not(:disabled)),
@@ -285,6 +285,14 @@ defineExpose({toolbarRef});
 .toolbar :deep(.page-controls-button:hover:not(:disabled)) {
     background: var(--app-toolbar-control-hover-bg) !important;
     color: var(--ui-text) !important;
+}
+
+.toolbar :deep(.toolbar-icon-button:disabled),
+.toolbar :deep(.toolbar-group-button:disabled),
+.toolbar :deep(.zoom-controls-button:disabled),
+.toolbar :deep(.page-controls-button:disabled) {
+    opacity: 0.4 !important;
+    cursor: not-allowed !important;
 }
 
 .toolbar :deep(.toolbar-icon-button:focus),

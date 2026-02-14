@@ -64,18 +64,13 @@ const AVAILABLE_LANGUAGES: IOcrLanguage[] = [
     },
     {
         code: 'kmr',
-        name: 'Kurdish (Kurmanji)',
+        name: 'Kurmanji',
         script: 'latin',
     },
     {
         code: 'rus',
         name: 'Russian',
         script: 'cyrillic',
-    },
-    {
-        code: 'ara',
-        name: 'Arabic',
-        script: 'rtl',
     },
     {
         code: 'heb',

@@ -4,6 +4,11 @@ import { getElectronAPI } from '@app/utils/electron';
 import type { IOcrWord } from '@app/types/shared';
 import { BrowserLogger } from '@app/utils/browser-logger';
 
+const RTL_OCR_LANGUAGES = new Set([
+    'heb',
+    'syr',
+]);
+
 /**
  * OCR index v2 manifest schema
  */
@@ -186,6 +191,7 @@ export const useOcrTextContent = () => {
         ocrPage: IOcrPageData,
         viewport: PageViewport,
         isLastInLine: boolean,
+        textDir: string,
     ): ITextItem {
         const { render } = ocrPage;
         const ascentRatio = getAscentRatio();
@@ -225,7 +231,7 @@ export const useOcrTextContent = () => {
         // PDF.js uses transform[0] and transform[3] to compute font height
         return {
             str: word.text + ' ', // Add trailing space for copy/paste word separation
-            dir: 'ltr',
+            dir: textDir,
             transform: [
                 pdfH,
                 0,
@@ -279,6 +285,9 @@ export const useOcrTextContent = () => {
             return null;
         }
 
+        const isRtl = manifest.ocr.languages.some(lang => RTL_OCR_LANGUAGES.has(lang));
+        const textDir = isRtl ? 'rtl' : 'ltr';
+
         const pageData = await loadPageData(workingCopyPath, pageNumber, manifest);
         if (!pageData || !pageData.words || pageData.words.length === 0) {
             return null;
@@ -293,6 +302,7 @@ export const useOcrTextContent = () => {
                 pageData,
                 viewport,
                 isLastWordInLine(pageData.words, idx),
+                textDir,
             ),
         );
 
@@ -304,7 +314,7 @@ export const useOcrTextContent = () => {
                 descent: 1 - ascentRatio,
                 vertical: false,
             }},
-            lang: null,
+            lang: manifest.ocr.languages[0] ?? null,
         };
     }
 

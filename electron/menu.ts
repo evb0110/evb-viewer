@@ -15,7 +15,7 @@ import { te } from '@electron/i18n';
 const appName = te('app.title');
 const menuState = {hasDocument: false};
 
-function sendToWindow(window: BaseWindow | undefined, channel: string, ...args: unknown[]) {
+export function sendToWindow(window: BaseWindow | undefined, channel: string, ...args: unknown[]) {
     if (window instanceof BrowserWindow) {
         window.webContents.send(channel, ...args);
     }

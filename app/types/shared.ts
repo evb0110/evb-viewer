@@ -29,4 +29,5 @@ export interface ISettingsData {
     authorName: string;
     theme: TAppTheme;
     locale: TAppLocale;
+    suppressDefaultViewerPrompt?: boolean;
 }

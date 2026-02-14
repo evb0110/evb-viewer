@@ -228,7 +228,17 @@
     "exportMultiPageTiff": "Export Multi-page TIFF",
     "pngImages": "PNG Images",
     "jpegImages": "JPEG Images",
-    "tiffImages": "TIFF Images"
+    "tiffImages": "TIFF Images",
+    "defaultViewer": {
+      "title": "Default Viewer",
+      "message": "Would you like to set EVB Viewer as the default application for PDF and DjVu files?",
+      "setDefault": "Set as Default",
+      "notNow": "Not Now",
+      "dontAskAgain": "Don't Ask Again",
+      "instructionsTitle": "How to Set as Default",
+      "instructionsMac": "1. Right-click any PDF file in Finder\n2. Select \"Get Info\"\n3. Under \"Open with\", select EVB Viewer\n4. Click \"Change All\"\n\nRepeat for .djvu files if needed.",
+      "instructionsLinux": "Run in a terminal:\n\nxdg-mime default evb-viewer.desktop application/pdf\nxdg-mime default evb-viewer.desktop image/vnd.djvu"
+    }
   },
   "noteWindow": {
     "popUpNote": "Pop-up Note : Page {page}",

@@ -228,7 +228,17 @@
     "exportMultiPageTiff": "Meerpagina-TIFF exporteren",
     "pngImages": "PNG-afbeeldingen",
     "jpegImages": "JPEG-afbeeldingen",
-    "tiffImages": "TIFF-afbeeldingen"
+    "tiffImages": "TIFF-afbeeldingen",
+    "defaultViewer": {
+      "title": "Standaardviewer",
+      "message": "Wilt u EVB Viewer instellen als standaardtoepassing voor PDF- en DjVu-bestanden?",
+      "setDefault": "Als standaard instellen",
+      "notNow": "Niet nu",
+      "dontAskAgain": "Niet meer vragen",
+      "instructionsTitle": "Hoe in te stellen als standaard",
+      "instructionsMac": "1. Klik met de rechtermuisknop op een PDF-bestand in Finder\n2. Selecteer \"Toon info\"\n3. Onder \"Open met\" selecteer EVB Viewer\n4. Klik op \"Wijzig alles\"\n\nHerhaal indien nodig voor .djvu-bestanden.",
+      "instructionsLinux": "Voer uit in de terminal:\n\nxdg-mime default evb-viewer.desktop application/pdf\nxdg-mime default evb-viewer.desktop image/vnd.djvu"
+    }
   },
   "noteWindow": {
     "popUpNote": "Pop-upnotitie : Pagina {page}",

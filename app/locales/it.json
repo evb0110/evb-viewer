@@ -228,7 +228,17 @@
     "exportMultiPageTiff": "Esporta TIFF multipagina",
     "pngImages": "Immagini PNG",
     "jpegImages": "Immagini JPEG",
-    "tiffImages": "Immagini TIFF"
+    "tiffImages": "Immagini TIFF",
+    "defaultViewer": {
+      "title": "Visualizzatore predefinito",
+      "message": "Vuoi impostare EVB Viewer come applicazione predefinita per i file PDF e DjVu?",
+      "setDefault": "Imposta",
+      "notNow": "Non ora",
+      "dontAskAgain": "Non chiedere più",
+      "instructionsTitle": "Come impostare come predefinito",
+      "instructionsMac": "1. Fare clic destro su un file PDF nel Finder\n2. Selezionare \"Ottieni informazioni\"\n3. In \"Apri con\", selezionare EVB Viewer\n4. Fare clic su \"Modifica tutti\"\n\nRipetere per i file .djvu se necessario.",
+      "instructionsLinux": "Eseguire nel terminale:\n\nxdg-mime default evb-viewer.desktop application/pdf\nxdg-mime default evb-viewer.desktop image/vnd.djvu"
+    }
   },
   "noteWindow": {
     "popUpNote": "Nota a comparsa : Pagina {page}",

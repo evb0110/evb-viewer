@@ -65,6 +65,7 @@ export async function convertDjvuToPdf(
             env: {
                 ...process.env,
                 DYLD_LIBRARY_PATH: libDir,
+                LD_LIBRARY_PATH: libDir,
             },
         });
 
@@ -171,6 +172,7 @@ function convertDjvuPageRange(
             env: {
                 ...process.env,
                 DYLD_LIBRARY_PATH: libDir,
+                LD_LIBRARY_PATH: libDir,
             },
         });
 
@@ -361,6 +363,7 @@ export function convertDjvuPageToImage(
             env: {
                 ...process.env,
                 DYLD_LIBRARY_PATH: libDir,
+                LD_LIBRARY_PATH: libDir,
             },
         });
 

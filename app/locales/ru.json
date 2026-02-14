@@ -228,7 +228,17 @@
     "exportMultiPageTiff": "Экспорт многостраничного TIFF",
     "pngImages": "PNG изображения",
     "jpegImages": "JPEG изображения",
-    "tiffImages": "TIFF изображения"
+    "tiffImages": "TIFF изображения",
+    "defaultViewer": {
+      "title": "Программа по умолчанию",
+      "message": "Хотите установить EVB Viewer как программу по умолчанию для файлов PDF и DjVu?",
+      "setDefault": "Установить",
+      "notNow": "Не сейчас",
+      "dontAskAgain": "Больше не спрашивать",
+      "instructionsTitle": "Как установить по умолчанию",
+      "instructionsMac": "1. Нажмите правой кнопкой на любой PDF-файл в Finder\n2. Выберите «Свойства»\n3. В разделе «Открывать в программе» выберите EVB Viewer\n4. Нажмите «Настроить для всех»\n\nПовторите для файлов .djvu при необходимости.",
+      "instructionsLinux": "Выполните в терминале:\n\nxdg-mime default evb-viewer.desktop application/pdf\nxdg-mime default evb-viewer.desktop image/vnd.djvu"
+    }
   },
   "noteWindow": {
     "popUpNote": "Заметка : Стр. {page}",

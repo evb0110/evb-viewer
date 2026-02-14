@@ -127,7 +127,7 @@ export const usePdfSearchHighlight = () => {
             const beforeNormalized = beforeRaw.replace(/\s+/g, ' ').trimStart();
             const afterNormalized = afterRaw.replace(/\s+/g, ' ').trimEnd();
 
-            const isWordChar = (ch: string) => /[0-9A-Za-z]/.test(ch);
+            const isWordChar = (ch: string) => /[\p{L}\p{N}]/u.test(ch);
             const matchLen = match.length;
 
             let before = beforeNormalized;

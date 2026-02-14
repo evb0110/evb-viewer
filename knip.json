@@ -27,6 +27,7 @@
     "ignoreDependencies": [
         "@iconify-json/lucide",
         "@playwright/test",
+        "electron-builder",
         "playwright",
         "sass-embedded",
         "tailwindcss"

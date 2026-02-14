@@ -25,17 +25,17 @@ describe('resolveTesseractLanguageConfig', () => {
         expect(config.extraConfigArgs).toContain('preserve_interword_spaces=1');
     });
 
-    it('moves rtl languages before latin languages and disables latin spacing config', () => {
+    it('moves rtl languages before latin languages and skips latin config', () => {
         const config = resolveTesseractLanguageConfig([
             'eng',
-            'ara',
-            'fra',
             'heb',
+            'fra',
+            'syr',
         ]);
 
         expect(config.orderedLanguages).toEqual([
-            'ara',
             'heb',
+            'syr',
             'eng',
             'fra',
         ]);
@@ -43,17 +43,24 @@ describe('resolveTesseractLanguageConfig', () => {
         expect(config.extraConfigArgs).toEqual([]);
     });
 
+    it('uses empty config for rtl-only languages', () => {
+        const config = resolveTesseractLanguageConfig(['heb']);
+
+        expect(config.hasRtl).toBe(true);
+        expect(config.extraConfigArgs).toEqual([]);
+    });
+
     it('deduplicates languages while preserving relative order within groups', () => {
         const config = resolveTesseractLanguageConfig([
             'eng',
-            'ara',
+            'heb',
             'eng',
-            'ara',
+            'heb',
             'deu',
         ]);
 
         expect(config.orderedLanguages).toEqual([
-            'ara',
+            'heb',
             'eng',
             'deu',
         ]);
@@ -62,9 +69,9 @@ describe('resolveTesseractLanguageConfig', () => {
 
 describe('isRtlOcrLanguage', () => {
     it('returns true for rtl language codes and false otherwise', () => {
-        expect(isRtlOcrLanguage('ara')).toBe(true);
         expect(isRtlOcrLanguage('heb')).toBe(true);
         expect(isRtlOcrLanguage('syr')).toBe(true);
         expect(isRtlOcrLanguage('eng')).toBe(false);
+        expect(isRtlOcrLanguage('ara')).toBe(false);
     });
 });

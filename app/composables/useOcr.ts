@@ -20,6 +20,11 @@ import {
     extractPdfText,
 } from '@app/composables/ocrProcessing';
 
+const RTL_OCR_LANGUAGES = new Set([
+    'heb',
+    'syr',
+]);
+
 export const useOcr = () => {
     const { t } = useI18n();
     const REMOTE_METHOD_PREFIX_RE = /^Error invoking remote method '[^']+':\s*/u;
@@ -429,7 +434,8 @@ export const useOcr = () => {
                 return false;
             }
 
-            const docxBytes = createDocxFromText(text);
+            const hasRtl = settings.value.selectedLanguages.some(lang => RTL_OCR_LANGUAGES.has(lang));
+            const docxBytes = createDocxFromText(text, hasRtl);
             await api.writeDocxFile(outPath, docxBytes);
             return true;
         } catch (e) {
