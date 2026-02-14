@@ -295,7 +295,7 @@ function open() {
     isOpen.value = true;
 }
 
-async function exportDocxFromToolbar() {
+function exportDocxFromToolbar() {
     return exportDocx(props.workingCopyPath, props.pdfDocument);
 }
 

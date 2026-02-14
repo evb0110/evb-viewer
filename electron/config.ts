@@ -25,5 +25,6 @@ export const config = {
         width: 900,
         height: 700,
         title: 'EVB Viewer',
+        backgroundColor: '#ffffff',
     },
 } as const;

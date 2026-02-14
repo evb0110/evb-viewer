@@ -62,7 +62,7 @@ export async function createWindow() {
             title: config.window.title,
             ...(windowIconPath ? { icon: windowIconPath } : {}),
             show: false,
-            backgroundColor: '#f5f5f5',
+            backgroundColor: config.window.backgroundColor,
             webPreferences: {
                 nodeIntegration: false,
                 contextIsolation: true,

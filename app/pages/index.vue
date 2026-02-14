@@ -1,5 +1,5 @@
 <template>
-    <div class="h-screen flex flex-col bg-neutral-100 dark:bg-neutral-900">
+    <div class="h-screen flex flex-col bg-[var(--app-window-bg)]">
         <TabBar
             :tabs="tabs"
             :active-tab-id="activeTabId"
