@@ -84,9 +84,10 @@ export async function startServer() {
             ],
         });
     } else {
-        nuxtProcess = spawn('node', [config.server.entryPath], {
+        nuxtProcess = spawn(process.execPath, [config.server.entryPath], {
             env: {
                 ...process.env,
+                ELECTRON_RUN_AS_NODE: '1',
                 PORT: String(config.server.port),
             },
             stdio: [
