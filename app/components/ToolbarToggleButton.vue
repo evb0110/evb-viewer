@@ -36,13 +36,12 @@ const emit = defineEmits<{click: [];}>();
     border: 1px solid transparent;
     border-radius: 3px;
     background: transparent;
-    color: var(--ui-text);
+    color: var(--app-toolbar-control-inactive-fg);
     cursor: pointer;
-    transition: background-color 0.1s ease, color 0.1s ease, box-shadow 0.1s ease;
+    transition: background-color 0.1s ease, color 0.1s ease, box-shadow 0.1s ease, opacity 0.1s ease;
 }
 
 .toolbar-toggle.is-grouped {
-    color: var(--ui-text-dimmed);
     border-radius: 0;
     min-width: var(--toolbar-control-height);
     width: auto;
@@ -50,12 +49,12 @@ const emit = defineEmits<{click: [];}>();
 
 .toolbar-toggle:hover {
     background: var(--app-toolbar-control-hover-bg);
-    color: var(--ui-text);
+    color: var(--app-toolbar-control-hover-fg);
 }
 
 .toolbar-toggle.is-active {
     background: var(--app-toolbar-control-active-bg);
-    color: var(--ui-text);
+    color: var(--app-toolbar-control-hover-fg);
 }
 
 .toolbar-toggle.is-active:hover {
@@ -73,13 +72,14 @@ const emit = defineEmits<{click: [];}>();
 }
 
 .toolbar-toggle:disabled {
-    opacity: 0.5;
+    opacity: var(--app-toolbar-control-disabled-opacity);
+    color: var(--app-toolbar-control-disabled-fg);
     cursor: not-allowed;
 }
 
 .toolbar-toggle:disabled:hover {
     background: transparent;
-    color: var(--ui-text-dimmed);
+    color: var(--app-toolbar-control-disabled-fg);
 }
 
 .toolbar-toggle :deep(svg) {

@@ -291,7 +291,8 @@ defineExpose({toolbarRef});
 .toolbar :deep(.toolbar-group-button:disabled),
 .toolbar :deep(.zoom-controls-button:disabled),
 .toolbar :deep(.page-controls-button:disabled) {
-    opacity: 0.4 !important;
+    opacity: var(--app-toolbar-control-disabled-opacity) !important;
+    color: var(--app-toolbar-control-disabled-fg) !important;
     cursor: not-allowed !important;
 }
 

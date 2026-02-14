@@ -28,6 +28,10 @@
     --app-toolbar-control-hover-bg: var(--app-chrome-hover);
     --app-toolbar-control-active-bg: color-mix(in oklab, var(--ui-bg) 88%, var(--ui-text) 12%);
     --app-toolbar-control-active-hover-bg: color-mix(in oklab, var(--ui-bg) 84%, var(--ui-text) 16%);
+    --app-toolbar-control-inactive-fg: color-mix(in oklab, var(--ui-text) 88%, var(--ui-text-muted) 12%);
+    --app-toolbar-control-hover-fg: var(--ui-text);
+    --app-toolbar-control-disabled-fg: color-mix(in oklab, var(--ui-text-muted) 88%, var(--ui-border) 12%);
+    --app-toolbar-control-disabled-opacity: 0.4;
     --app-toolbar-group-border: var(--ui-border);
     --app-toolbar-focus-ring: color-mix(in oklab, var(--ui-border) 68%, var(--ui-text) 32%);
     --app-pdf-viewer-bg: var(--ui-bg-muted);
@@ -57,6 +61,10 @@
     --app-toolbar-control-hover-bg: color-mix(in oklab, var(--ui-bg) 60%, var(--ui-border) 40%);
     --app-toolbar-control-active-bg: color-mix(in oklab, var(--ui-bg) 82%, var(--ui-text) 18%);
     --app-toolbar-control-active-hover-bg: color-mix(in oklab, var(--ui-bg) 78%, var(--ui-text) 22%);
+    --app-toolbar-control-inactive-fg: color-mix(in oklab, var(--ui-text) 84%, var(--ui-text-muted) 16%);
+    --app-toolbar-control-hover-fg: var(--ui-text);
+    --app-toolbar-control-disabled-fg: color-mix(in oklab, var(--ui-text-muted) 86%, var(--ui-border) 14%);
+    --app-toolbar-control-disabled-opacity: 0.38;
     --app-toolbar-group-border: color-mix(in oklab, var(--ui-border) 72%, var(--ui-text-muted) 28%);
     --app-toolbar-focus-ring: color-mix(in oklab, var(--ui-border) 58%, var(--ui-text) 42%);
     --app-pdf-viewer-bg: color-mix(in oklab, var(--ui-bg-muted) 88%, var(--ui-text) 12%);
