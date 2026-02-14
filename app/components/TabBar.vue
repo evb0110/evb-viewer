@@ -1,11 +1,6 @@
 <template>
     <div ref="tabBarRef" class="tab-bar">
-        <TransitionGroup
-            tag="div"
-            name="tab-reorder"
-            class="tab-list"
-            role="tablist"
-        >
+        <div class="tab-list" role="tablist">
             <button
                 v-for="(tab, index) in tabs"
                 :key="tab.id"
@@ -16,9 +11,6 @@
                     'is-active': tab.id === activeTabId,
                     'is-dragging': isDragging && dragIndex === index,
                 }"
-                :style="isDragging && dragIndex === index
-                    ? { transform: `translateX(${dragTranslateX}px)`, transition: 'none' }
-                    : undefined"
                 :aria-selected="tab.id === activeTabId"
                 :title="tab.originalPath ?? tab.fileName ?? t('tabs.newTab')"
                 @click="handleTabClick(tab.id)"
@@ -40,14 +32,14 @@
                     <Icon name="lucide:x" size="14" />
                 </button>
             </button>
-        </TransitionGroup>
-        <button
-            class="tab-new"
-            :aria-label="t('tabs.newTab')"
-            @click="emit('new-tab')"
-        >
-            <Icon name="lucide:plus" size="14" />
-        </button>
+            <button
+                class="tab-new"
+                :aria-label="t('tabs.newTab')"
+                @click="emit('new-tab')"
+            >
+                <Icon name="lucide:plus" size="14" />
+            </button>
+        </div>
     </div>
 </template>
 
@@ -57,7 +49,7 @@ import { useTabDragReorder } from '@app/composables/useTabDragReorder';
 
 const { t } = useI18n();
 
-defineProps<{
+const props = defineProps<{
     tabs: ITab[];
     activeTabId: string | null;
 }>();
@@ -74,12 +66,15 @@ const tabBarRef = useTemplateRef<HTMLElement>('tabBarRef');
 const {
     isDragging,
     dragIndex,
-    dragTranslateX,
     onPointerDown,
     shouldSuppressClick,
 } = useTabDragReorder(
     tabBarRef,
     (from, to) => emit('reorder', from, to),
+    (index) => {
+        const tab = props.tabs[index];
+        if (tab) emit('activate', tab.id);
+    },
 );
 
 function handleTabClick(tabId: string) {
@@ -214,14 +209,13 @@ function handleAuxClick(event: MouseEvent, tabId: string) {
     color: var(--ui-text);
 }
 
+.tab-bar:has(.is-dragging) .tab-list {
+    overflow: visible;
+}
+
 .tab.is-dragging {
     z-index: 10;
     opacity: 0.85;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-    transition: none;
-}
-
-.tab-reorder-move {
-    transition: transform 200ms ease;
 }
 </style>

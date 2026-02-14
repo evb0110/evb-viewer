@@ -1,65 +1,147 @@
 import {
     ref,
     readonly,
-    nextTick,
     onUnmounted,
     type Ref,
 } from 'vue';
 
-interface ICachedRect {
+interface ISlot {
     left: number;
     width: number;
-    mid: number;
+    centerX: number;
 }
+
+const THRESHOLD = 5;
+const CLICK_SUPPRESS_MS = 300;
 
 export const useTabDragReorder = (
     containerRef: Ref<HTMLElement | null>,
     onReorder: (fromIndex: number, toIndex: number) => void,
+    onDragStart?: (index: number) => void,
 ) => {
     const isDragging = ref(false);
     const dragIndex = ref(-1);
-    const dragTranslateX = ref(0);
 
-    let startX = 0;
-    let cachedRects: ICachedRect[] = [];
-    let clickSkip = false;
+    let slots: ISlot[] = [];
+    let targetIndex = -1;
+    let pointerStartX = 0;
+    let tabElements: HTMLElement[] = [];
     let activeElement: HTMLElement | null = null;
+    let lastDragEndTime = 0;
 
-    const THRESHOLD = 5;
-
-    function cacheTabRects() {
+    function captureSlots() {
         const el = containerRef.value;
         if (!el) {
-            cachedRects = [];
+            tabElements = [];
+            slots = [];
             return;
         }
-
-        const tabs = el.querySelectorAll<HTMLElement>('[data-tab-id]');
-        cachedRects = Array.from(tabs).map((tab) => {
+        tabElements = Array.from(el.querySelectorAll<HTMLElement>('[data-tab-id]'));
+        slots = tabElements.map((tab) => {
             const rect = tab.getBoundingClientRect();
             return {
                 left: rect.left,
                 width: rect.width,
-                mid: rect.left + rect.width / 2,
+                centerX: rect.left + rect.width / 2,
             };
         });
     }
 
-    function calcDropIndex(clientX: number) {
-        for (let i = 0; i < cachedRects.length; i++) {
-            if (clientX < cachedRects[i]!.mid) {
-                return i;
-            }
+    function isBetween(i: number, from: number, to: number) {
+        if (from < to) {
+            return i > from && i <= to;
         }
-        return Math.max(0, cachedRects.length - 1);
+        if (from > to) {
+            return i >= to && i < from;
+        }
+        return false;
     }
 
-    function cleanup() {
-        isDragging.value = false;
-        dragIndex.value = -1;
-        dragTranslateX.value = 0;
-        document.body.style.cursor = '';
+    function calcTargetIndex(deltaX: number) {
+        const dragSlot = slots[dragIndex.value];
+        if (!dragSlot) {
+            return dragIndex.value;
+        }
 
+        const visualLeft = dragSlot.left + deltaX;
+        const visualRight = visualLeft + dragSlot.width;
+
+        if (deltaX > 0) {
+            let target = dragIndex.value;
+            for (let i = dragIndex.value + 1; i < slots.length; i++) {
+                if (visualRight > slots[i]!.centerX) {
+                    target = i;
+                }
+            }
+            return target;
+        }
+
+        if (deltaX < 0) {
+            let target = dragIndex.value;
+            for (let i = dragIndex.value - 1; i >= 0; i--) {
+                if (visualLeft < slots[i]!.centerX) {
+                    target = i;
+                }
+            }
+            return target;
+        }
+
+        return dragIndex.value;
+    }
+
+    function applyShifts() {
+        const dragSlot = slots[dragIndex.value];
+        if (!dragSlot) {
+            return;
+        }
+
+        for (let i = 0; i < tabElements.length; i++) {
+            if (i === dragIndex.value) continue;
+
+            const el = tabElements[i]!;
+            if (isBetween(i, dragIndex.value, targetIndex)) {
+                const direction = targetIndex > dragIndex.value ? -1 : 1;
+                el.style.transform = `translateX(${direction * dragSlot.width}px)`;
+                el.style.transition = 'transform 200ms ease';
+            } else {
+                el.style.transition = 'transform 200ms ease';
+                el.style.transform = '';
+            }
+        }
+    }
+
+    function onPointerMove(e: PointerEvent) {
+        const deltaX = e.clientX - pointerStartX;
+
+        if (!isDragging.value) {
+            if (Math.abs(deltaX) < THRESHOLD) {
+                return;
+            }
+            isDragging.value = true;
+            onDragStart?.(dragIndex.value);
+            document.body.style.cursor = 'grabbing';
+        }
+
+        const draggedEl = tabElements[dragIndex.value];
+        if (draggedEl) {
+            draggedEl.style.transform = `translateX(${deltaX}px)`;
+        }
+
+        const newTarget = calcTargetIndex(deltaX);
+        if (newTarget !== targetIndex) {
+            targetIndex = newTarget;
+            applyShifts();
+        }
+    }
+
+    function clearAllTransforms() {
+        for (const el of tabElements) {
+            el.style.transform = '';
+            el.style.transition = '';
+        }
+    }
+
+    function detachListeners() {
         if (activeElement) {
             activeElement.removeEventListener('pointermove', onPointerMove);
             activeElement.removeEventListener('pointerup', onPointerUp);
@@ -68,55 +150,38 @@ export const useTabDragReorder = (
         }
     }
 
-    function onPointerMove(e: PointerEvent) {
-        const deltaX = e.clientX - startX;
+    function finishDrag() {
+        const wasDragging = isDragging.value;
+        const from = dragIndex.value;
+        const to = targetIndex;
 
-        if (!isDragging.value) {
-            if (Math.abs(deltaX) < THRESHOLD) {
-                return;
-            }
-            isDragging.value = true;
-            document.body.style.cursor = 'grabbing';
-        }
+        clearAllTransforms();
+        isDragging.value = false;
+        dragIndex.value = -1;
+        targetIndex = -1;
+        document.body.style.cursor = '';
+        tabElements = [];
+        slots = [];
+        detachListeners();
 
-        dragTranslateX.value = deltaX;
-
-        const newIndex = calcDropIndex(e.clientX);
-        if (newIndex !== dragIndex.value) {
-            const oldIndex = dragIndex.value;
-            const displacedRect = cachedRects[newIndex];
-            if (!displacedRect) {
-                return;
-            }
-
-            onReorder(oldIndex, newIndex);
-            dragIndex.value = newIndex;
-
-            if (newIndex > oldIndex) {
-                startX += displacedRect.width;
-            } else {
-                startX -= displacedRect.width;
-            }
-            dragTranslateX.value = e.clientX - startX;
-
-            nextTick(() => {
-                cacheTabRects();
-            });
+        if (wasDragging && from !== to && from >= 0 && to >= 0) {
+            lastDragEndTime = Date.now();
+            onReorder(from, to);
         }
     }
 
     function onPointerUp() {
         if (isDragging.value) {
-            clickSkip = true;
+            lastDragEndTime = Date.now();
         }
-        cleanup();
+        finishDrag();
     }
 
     function onLostCapture() {
         if (isDragging.value) {
-            clickSkip = true;
+            lastDragEndTime = Date.now();
         }
-        cleanup();
+        finishDrag();
     }
 
     function onPointerDown(e: PointerEvent, index: number) {
@@ -128,10 +193,11 @@ export const useTabDragReorder = (
         el.setPointerCapture(e.pointerId);
 
         activeElement = el;
-        startX = e.clientX;
+        pointerStartX = e.clientX;
         dragIndex.value = index;
+        targetIndex = index;
 
-        cacheTabRects();
+        captureSlots();
 
         el.addEventListener('pointermove', onPointerMove);
         el.addEventListener('pointerup', onPointerUp);
@@ -139,21 +205,18 @@ export const useTabDragReorder = (
     }
 
     function shouldSuppressClick() {
-        if (clickSkip) {
-            clickSkip = false;
-            return true;
-        }
-        return false;
+        return Date.now() - lastDragEndTime < CLICK_SUPPRESS_MS;
     }
 
     onUnmounted(() => {
-        cleanup();
+        clearAllTransforms();
+        detachListeners();
+        document.body.style.cursor = '';
     });
 
     return {
         isDragging: readonly(isDragging),
         dragIndex: readonly(dragIndex),
-        dragTranslateX: readonly(dragTranslateX),
         onPointerDown,
         shouldSuppressClick,
     };
