@@ -12,10 +12,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # macOS ARM (Intel build is a separate slower workflow)
+          # macOS
           - os: macos-14
             platform: mac
             arch: arm64
+          - os: macos-15-intel
+            platform: mac
+            arch: x64
 
           # Linux — native runners for each arch
           - os: ubuntu-latest
@@ -121,6 +124,10 @@ jobs:
       - name: Package installer (Windows)
         if: runner.os == 'Windows'
         run: pnpm exec electron-builder --win --${{ matrix.arch }}
+
+      - name: Verify packaged native tools
+        shell: bash
+        run: bash scripts/verify-packaged-native-tools.sh "${{ matrix.platform }}" "${{ matrix.arch }}"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

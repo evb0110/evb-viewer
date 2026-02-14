@@ -1,6 +1,6 @@
 #!/bin/bash
 # Bundle Poppler and qpdf binaries for macOS
-# These are required for PDF rendering and manipulation
+# Copies from Homebrew, recursively resolves dylib deps, fixes paths, codesigns
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -33,166 +33,263 @@ echo ""
 echo "Installing/updating poppler and qpdf via Homebrew..."
 brew install poppler qpdf || brew upgrade poppler qpdf || true
 
-# Get Homebrew prefix (handles both Intel and Apple Silicon)
 BREW_PREFIX="$(brew --prefix)"
 
+# ==========================================
+# Shared helpers
+# ==========================================
+
+# Recursively copy all non-system dylib dependencies into dest/lib
+copy_deps_recursive() {
+    local dest_lib="$1"
+    shift
+    local files=("$@")
+
+    local added=1
+    while [ "$added" -gt 0 ]; do
+        added=0
+        for file in "${files[@]}"; do
+            [ -f "$file" ] || continue
+            local deps
+            deps="$(otool -L "$file" | grep "$BREW_PREFIX" | awk '{print $1}')" || true
+            for dep in $deps; do
+                local dep_name
+                dep_name="$(basename "$dep")"
+                if [ ! -f "$dest_lib/$dep_name" ]; then
+                    if [ -f "$dep" ]; then
+                        # Copy resolved file contents even when the source is a symlink.
+                        cp -L "$dep" "$dest_lib/$dep_name"
+                        echo "    Copied: $dep_name"
+                        files+=("$dest_lib/$dep_name")
+                        added=1
+                    fi
+                fi
+            done
+        done
+    done
+}
+
+# Fix all Homebrew and @rpath references in a library to use @loader_path
+fix_lib_paths() {
+    local lib="$1"
+    local lib_name
+    lib_name="$(basename "$lib")"
+
+    # Set the library's own ID
+    install_name_tool -id "@loader_path/$lib_name" "$lib" 2>/dev/null || true
+
+    # Fix Homebrew references
+    local brew_deps
+    brew_deps="$(otool -L "$lib" | grep "$BREW_PREFIX" | awk '{print $1}')" || true
+    for dep in $brew_deps; do
+        local dep_name
+        dep_name="$(basename "$dep")"
+        install_name_tool -change "$dep" "@loader_path/$dep_name" "$lib" 2>/dev/null || true
+    done
+
+    # Fix @rpath references
+    local rpath_deps
+    rpath_deps="$(otool -L "$lib" | grep "@rpath" | awk '{print $1}')" || true
+    for dep in $rpath_deps; do
+        local dep_name
+        dep_name="$(basename "$dep")"
+        install_name_tool -change "$dep" "@loader_path/$dep_name" "$lib" 2>/dev/null || true
+    done
+}
+
+# Fix all Homebrew and @rpath references in a binary to use @executable_path/../lib
+fix_bin_paths() {
+    local bin="$1"
+
+    local brew_deps
+    brew_deps="$(otool -L "$bin" | grep "$BREW_PREFIX" | awk '{print $1}')" || true
+    for dep in $brew_deps; do
+        local dep_name
+        dep_name="$(basename "$dep")"
+        install_name_tool -change "$dep" "@executable_path/../lib/$dep_name" "$bin" 2>/dev/null || true
+    done
+
+    local rpath_deps
+    rpath_deps="$(otool -L "$bin" | grep "@rpath" | awk '{print $1}')" || true
+    for dep in $rpath_deps; do
+        local dep_name
+        dep_name="$(basename "$dep")"
+        install_name_tool -change "$dep" "@executable_path/../lib/$dep_name" "$bin" 2>/dev/null || true
+    done
+}
+
+# ==========================================
+# Poppler
+# ==========================================
 echo ""
 echo "=========================================="
 echo "Bundling Poppler binaries..."
 echo "=========================================="
 
-mkdir -p "$POPPLER_DIR/bin"
-mkdir -p "$POPPLER_DIR/lib"
-
-# Find poppler binaries
-POPPLER_BIN="$BREW_PREFIX/bin"
-POPPLER_LIB="$BREW_PREFIX/lib"
+# Clean previous build
+rm -rf "$POPPLER_DIR"
+mkdir -p "$POPPLER_DIR/bin" "$POPPLER_DIR/lib"
 
 # Copy binaries
+echo ""
+echo "Copying binaries..."
 for tool in pdftoppm pdftotext pdfinfo pdfimages; do
-    if [ -f "$POPPLER_BIN/$tool" ]; then
-        echo "  Copying $tool..."
-        cp "$POPPLER_BIN/$tool" "$POPPLER_DIR/bin/"
+    if [ -f "$BREW_PREFIX/bin/$tool" ]; then
+        cp "$BREW_PREFIX/bin/$tool" "$POPPLER_DIR/bin/"
+        echo "  Copied $tool"
     else
         echo "  Warning: $tool not found"
     fi
 done
 
-# Copy required libraries for Poppler
+# Copy core poppler library
 echo ""
-echo "Copying Poppler libraries..."
-
-# Function to copy library and its dependencies
-copy_lib_with_deps() {
-    local lib="$1"
-    local dest="$2"
-    local lib_name
+echo "Copying libraries..."
+POPPLER_OPT="$BREW_PREFIX/opt/poppler/lib"
+for lib in "$POPPLER_OPT"/libpoppler.*.dylib; do
+    [ -f "$lib" ] || continue
     lib_name="$(basename "$lib")"
-
-    if [ ! -f "$dest/$lib_name" ] && [ -f "$lib" ]; then
-        cp "$lib" "$dest/"
+    if [ ! -f "$POPPLER_DIR/lib/$lib_name" ]; then
+        cp "$lib" "$POPPLER_DIR/lib/"
         echo "    Copied: $lib_name"
     fi
-}
-
-# Core poppler library
-for lib in "$POPPLER_LIB"/libpoppler*.dylib; do
-    [ -f "$lib" ] && copy_lib_with_deps "$lib" "$POPPLER_DIR/lib"
 done
 
-# Dependencies
-DEPS=(
-    "libfreetype.6.dylib"
-    "libfontconfig.1.dylib"
-    "libjpeg.8.dylib"
-    "libpng16.16.dylib"
-    "libtiff.6.dylib"
-    "liblcms2.2.dylib"
-    "libopenjp2.7.dylib"
-    "libnss3.dylib"
-    "libnspr4.dylib"
-    "libexpat.1.dylib"
-    "libiconv.2.dylib"
-    "libintl.8.dylib"
-)
+# Recursively discover and copy all dependencies
+echo ""
+echo "Resolving transitive dependencies..."
+all_files=("$POPPLER_DIR/bin"/* "$POPPLER_DIR/lib"/*.dylib)
+copy_deps_recursive "$POPPLER_DIR/lib" "${all_files[@]}"
 
-for dep in "${DEPS[@]}"; do
-    lib_path="$POPPLER_LIB/$dep"
-    if [ -f "$lib_path" ]; then
-        copy_lib_with_deps "$lib_path" "$POPPLER_DIR/lib"
-    fi
-done
-
-# Fix library paths using install_name_tool
+# Fix paths in all libraries
 echo ""
 echo "Fixing library paths..."
-for bin in "$POPPLER_DIR/bin"/*; do
-    if [ -f "$bin" ]; then
-        # Change rpath to look in ../lib
-        install_name_tool -add_rpath "@executable_path/../lib" "$bin" 2>/dev/null || true
-
-        # Update library references
-        for lib in "$POPPLER_DIR/lib"/*.dylib; do
-            lib_name="$(basename "$lib")"
-            install_name_tool -change "$POPPLER_LIB/$lib_name" "@rpath/$lib_name" "$bin" 2>/dev/null || true
-            install_name_tool -change "$BREW_PREFIX/opt/poppler/lib/$lib_name" "@rpath/$lib_name" "$bin" 2>/dev/null || true
-        done
-    fi
+for lib in "$POPPLER_DIR/lib"/*.dylib; do
+    [ -f "$lib" ] || continue
+    fix_lib_paths "$lib"
+    echo "  Fixed $(basename "$lib")"
 done
 
+# Fix paths in binaries
+echo ""
+echo "Fixing binary paths..."
+for bin in "$POPPLER_DIR/bin"/*; do
+    [ -f "$bin" ] || continue
+    fix_bin_paths "$bin"
+    echo "  Fixed $(basename "$bin")"
+done
+
+# Codesign
+echo ""
+echo "Codesigning (ad-hoc)..."
+codesign --force --sign - "$POPPLER_DIR/bin"/* "$POPPLER_DIR/lib"/*.dylib
+echo "  Done"
+
+# ==========================================
+# qpdf
+# ==========================================
 echo ""
 echo "=========================================="
 echo "Bundling qpdf..."
 echo "=========================================="
 
-mkdir -p "$QPDF_DIR/bin"
-mkdir -p "$QPDF_DIR/lib"
+# Clean previous build
+rm -rf "$QPDF_DIR"
+mkdir -p "$QPDF_DIR/bin" "$QPDF_DIR/lib"
 
 # Copy qpdf binary
 if [ -f "$BREW_PREFIX/bin/qpdf" ]; then
-    echo "  Copying qpdf..."
     cp "$BREW_PREFIX/bin/qpdf" "$QPDF_DIR/bin/"
+    echo "  Copied qpdf"
 else
     echo "Error: qpdf not found"
     exit 1
 fi
 
-# Copy qpdf libraries
-for lib in "$POPPLER_LIB"/libqpdf*.dylib; do
-    [ -f "$lib" ] && copy_lib_with_deps "$lib" "$QPDF_DIR/lib"
-done
-
-# qpdf dependencies
-QPDF_DEPS=(
-    "libjpeg.8.dylib"
-    "libz.1.dylib"
-    "libssl.3.dylib"
-    "libcrypto.3.dylib"
-)
-
-for dep in "${QPDF_DEPS[@]}"; do
-    lib_path="$POPPLER_LIB/$dep"
-    if [ -f "$lib_path" ]; then
-        copy_lib_with_deps "$lib_path" "$QPDF_DIR/lib"
-    fi
-done
-
-# Fix qpdf library paths
+# Copy core qpdf library
 echo ""
-echo "Fixing qpdf library paths..."
-for bin in "$QPDF_DIR/bin"/*; do
-    if [ -f "$bin" ]; then
-        install_name_tool -add_rpath "@executable_path/../lib" "$bin" 2>/dev/null || true
-
-        for lib in "$QPDF_DIR/lib"/*.dylib; do
-            lib_name="$(basename "$lib")"
-            install_name_tool -change "$POPPLER_LIB/$lib_name" "@rpath/$lib_name" "$bin" 2>/dev/null || true
-            install_name_tool -change "$BREW_PREFIX/opt/qpdf/lib/$lib_name" "@rpath/$lib_name" "$bin" 2>/dev/null || true
-        done
+echo "Copying libraries..."
+QPDF_OPT="$BREW_PREFIX/opt/qpdf/lib"
+for lib in "$QPDF_OPT"/libqpdf*.dylib; do
+    [ -f "$lib" ] || continue
+    lib_name="$(basename "$lib")"
+    if [ ! -f "$QPDF_DIR/lib/$lib_name" ]; then
+        cp "$lib" "$QPDF_DIR/lib/"
+        echo "    Copied: $lib_name"
     fi
 done
 
+# Recursively discover and copy all dependencies
+echo ""
+echo "Resolving transitive dependencies..."
+all_files=("$QPDF_DIR/bin"/* "$QPDF_DIR/lib"/*.dylib)
+copy_deps_recursive "$QPDF_DIR/lib" "${all_files[@]}"
+
+# Fix paths in all libraries
+echo ""
+echo "Fixing library paths..."
+for lib in "$QPDF_DIR/lib"/*.dylib; do
+    [ -f "$lib" ] || continue
+    fix_lib_paths "$lib"
+    echo "  Fixed $(basename "$lib")"
+done
+
+# Fix paths in binaries
+echo ""
+echo "Fixing binary paths..."
+for bin in "$QPDF_DIR/bin"/*; do
+    [ -f "$bin" ] || continue
+    fix_bin_paths "$bin"
+    echo "  Fixed $(basename "$bin")"
+done
+
+# Codesign
+echo ""
+echo "Codesigning (ad-hoc)..."
+codesign --force --sign - "$QPDF_DIR/bin"/* "$QPDF_DIR/lib"/*.dylib
+echo "  Done"
+
+# ==========================================
+# Verification
+# ==========================================
 echo ""
 echo "=========================================="
 echo "Verifying bundles..."
 echo "=========================================="
 
 echo ""
-echo "Poppler:"
-for tool in pdftoppm pdftotext; do
+echo "Poppler binaries:"
+for tool in pdftoppm pdftotext pdfinfo pdfimages; do
     if [ -f "$POPPLER_DIR/bin/$tool" ]; then
-        echo "  ✓ $tool ($(du -h "$POPPLER_DIR/bin/$tool" | awk '{print $1}'))"
+        echo "  OK  $tool ($(du -h "$POPPLER_DIR/bin/$tool" | awk '{print $1}'))"
     else
-        echo "  ✗ $tool NOT FOUND"
+        echo "  MISSING  $tool"
     fi
 done
 
 echo ""
 echo "qpdf:"
 if [ -f "$QPDF_DIR/bin/qpdf" ]; then
-    echo "  ✓ qpdf ($(du -h "$QPDF_DIR/bin/qpdf" | awk '{print $1}'))"
+    echo "  OK  qpdf ($(du -h "$QPDF_DIR/bin/qpdf" | awk '{print $1}'))"
 else
-    echo "  ✗ qpdf NOT FOUND"
+    echo "  MISSING  qpdf"
+fi
+
+# Check for leftover Homebrew references
+echo ""
+echo "Checking for unresolved Homebrew references..."
+FOUND_ISSUES=0
+for file in "$POPPLER_DIR/bin"/* "$POPPLER_DIR/lib"/*.dylib "$QPDF_DIR/bin"/* "$QPDF_DIR/lib"/*.dylib; do
+    [ -f "$file" ] || continue
+    refs="$(otool -L "$file" | grep "$BREW_PREFIX" || true)"
+    if [ -n "$refs" ]; then
+        echo "  WARNING: $(basename "$file") still has Homebrew refs:"
+        echo "$refs" | sed 's/^/    /'
+        FOUND_ISSUES=1
+    fi
+done
+if [ "$FOUND_ISSUES" -eq 0 ]; then
+    echo "  All references resolved"
 fi
 
 echo ""

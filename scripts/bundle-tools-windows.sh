@@ -40,6 +40,23 @@ download() {
   curl -fSL --retry 3 --retry-delay 5 -o "$dest" "$url"
 }
 
+require_file() {
+  local path="$1"
+  local label="$2"
+  if [ ! -f "$path" ]; then
+    echo "Error: Missing $label at $path"
+    exit 1
+  fi
+}
+
+copy_required_tool() {
+  local source="$1"
+  local dest_dir="$2"
+  local label="$3"
+  require_file "$source" "$label"
+  cp "$source" "$dest_dir/"
+}
+
 # ==========================================
 # 1. Tesseract (UB-Mannheim)
 # ==========================================
@@ -55,18 +72,18 @@ TESSERACT_URL="https://github.com/UB-Mannheim/tesseract/releases/download/${TESS
 download "$TESSERACT_URL" "$TEMP_DIR/tesseract-setup.exe"
 
 echo "  Extracting with 7z..."
-7z x -y "$TEMP_DIR/tesseract-setup.exe" -o"$TEMP_DIR/tesseract" > /dev/null 2>&1 || true
+7z x -y "$TEMP_DIR/tesseract-setup.exe" -o"$TEMP_DIR/tesseract" > /dev/null 2>&1
 
-# Find the extracted directory (Inno Setup extracts to {app}/ or similar)
-TESSERACT_EXTRACTED="$(find "$TEMP_DIR/tesseract" -name 'tesseract.exe' -print -quit | xargs dirname 2>/dev/null || true)"
-
-if [ -z "$TESSERACT_EXTRACTED" ]; then
-  TESSERACT_EXTRACTED="$TEMP_DIR/tesseract"
+TESSERACT_EXE="$(find "$TEMP_DIR/tesseract" -name 'tesseract.exe' -print -quit)"
+if [ -z "$TESSERACT_EXE" ]; then
+  echo "Error: Failed to locate extracted tesseract.exe"
+  exit 1
 fi
+TESSERACT_EXTRACTED="$(dirname "$TESSERACT_EXE")"
 
 echo "  Copying binaries and DLLs..."
-cp "$TESSERACT_EXTRACTED/tesseract.exe" "$TESSERACT_DIR/bin/" 2>/dev/null || true
-find "$TESSERACT_EXTRACTED" -maxdepth 2 -name '*.dll' -exec cp {} "$TESSERACT_DIR/bin/" \; 2>/dev/null || true
+copy_required_tool "$TESSERACT_EXTRACTED/tesseract.exe" "$TESSERACT_DIR/bin" "tesseract.exe"
+find "$TEMP_DIR/tesseract" -maxdepth 4 -name '*.dll' -exec cp {} "$TESSERACT_DIR/bin/" \; 2>/dev/null || true
 
 echo "  Tesseract: $(ls "$TESSERACT_DIR/bin/"*.exe 2>/dev/null | wc -l) exe, $(ls "$TESSERACT_DIR/bin/"*.dll 2>/dev/null | wc -l) dlls"
 
@@ -87,12 +104,21 @@ download "$POPPLER_URL" "$TEMP_DIR/poppler.zip"
 echo "  Extracting..."
 unzip -qo "$TEMP_DIR/poppler.zip" -d "$TEMP_DIR/poppler"
 
-POPPLER_BIN="$(find "$TEMP_DIR/poppler" -name 'pdftoppm.exe' -print -quit | xargs dirname 2>/dev/null || echo "$TEMP_DIR/poppler/poppler-${POPPLER_VERSION}/Library/bin")"
+POPPLER_PDFTOPPM="$(find "$TEMP_DIR/poppler" -name 'pdftoppm.exe' -print -quit)"
+if [ -z "$POPPLER_PDFTOPPM" ]; then
+  echo "Error: Failed to locate extracted pdftoppm.exe"
+  exit 1
+fi
+POPPLER_BIN="$(dirname "$POPPLER_PDFTOPPM")"
 
 echo "  Copying binaries and DLLs..."
-for tool in pdftoppm.exe pdftotext.exe pdfinfo.exe pdfimages.exe; do
-  cp "$POPPLER_BIN/$tool" "$POPPLER_DIR/bin/" 2>/dev/null || echo "  Warning: $tool not found"
+for tool in pdftoppm.exe pdftotext.exe pdfimages.exe; do
+  copy_required_tool "$POPPLER_BIN/$tool" "$POPPLER_DIR/bin" "$tool"
 done
+# Optional utility
+if [ -f "$POPPLER_BIN/pdfinfo.exe" ]; then
+  cp "$POPPLER_BIN/pdfinfo.exe" "$POPPLER_DIR/bin/"
+fi
 # Copy all DLLs
 find "$(dirname "$POPPLER_BIN")" -name '*.dll' -exec cp {} "$POPPLER_DIR/bin/" \; 2>/dev/null || true
 # Also check directly in bin dir
@@ -117,10 +143,15 @@ download "$QPDF_URL" "$TEMP_DIR/qpdf.zip"
 echo "  Extracting..."
 unzip -qo "$TEMP_DIR/qpdf.zip" -d "$TEMP_DIR/qpdf"
 
-QPDF_BIN="$(find "$TEMP_DIR/qpdf" -name 'qpdf.exe' -print -quit | xargs dirname 2>/dev/null || echo "$TEMP_DIR/qpdf/qpdf-${QPDF_VERSION}/bin")"
+QPDF_EXE="$(find "$TEMP_DIR/qpdf" -name 'qpdf.exe' -print -quit)"
+if [ -z "$QPDF_EXE" ]; then
+  echo "Error: Failed to locate extracted qpdf.exe"
+  exit 1
+fi
+QPDF_BIN="$(dirname "$QPDF_EXE")"
 
 echo "  Copying binaries and DLLs..."
-cp "$QPDF_BIN/qpdf.exe" "$QPDF_DIR/bin/" 2>/dev/null || true
+copy_required_tool "$QPDF_BIN/qpdf.exe" "$QPDF_DIR/bin" "qpdf.exe"
 cp "$QPDF_BIN/"*.dll "$QPDF_DIR/bin/" 2>/dev/null || true
 
 echo "  qpdf: $(ls "$QPDF_DIR/bin/"*.exe 2>/dev/null | wc -l) exe, $(ls "$QPDF_DIR/bin/"*.dll 2>/dev/null | wc -l) dlls"
@@ -140,28 +171,28 @@ DJVULIBRE_URL="https://sourceforge.net/projects/djvu/files/${DJVULIBRE_SF_PATH}/
 download "$DJVULIBRE_URL" "$TEMP_DIR/djvulibre-setup.exe"
 
 echo "  Extracting with 7z..."
-7z x -y "$TEMP_DIR/djvulibre-setup.exe" -o"$TEMP_DIR/djvulibre" > /dev/null 2>&1 || true
+7z x -y "$TEMP_DIR/djvulibre-setup.exe" -o"$TEMP_DIR/djvulibre" > /dev/null 2>&1
 
-# Find the extracted binaries
-DJVU_EXTRACTED="$(find "$TEMP_DIR/djvulibre" -name 'ddjvu.exe' -print -quit | xargs dirname 2>/dev/null || true)"
-
-if [ -n "$DJVU_EXTRACTED" ]; then
-  echo "  Copying binaries and DLLs..."
-  cp "$DJVU_EXTRACTED/ddjvu.exe" "$DJVU_DIR/bin/" 2>/dev/null || true
-  cp "$DJVU_EXTRACTED/djvused.exe" "$DJVU_DIR/bin/" 2>/dev/null || true
-  cp "$DJVU_EXTRACTED/"*.dll "$DJVU_DIR/bin/" 2>/dev/null || true
-  find "$(dirname "$DJVU_EXTRACTED")" -name '*.dll' -exec cp {} "$DJVU_DIR/bin/" \; 2>/dev/null || true
-else
-  echo "  Warning: Could not locate DjVuLibre binaries in extracted archive"
+DJVU_DDJVU_EXE="$(find "$TEMP_DIR/djvulibre" -name 'ddjvu.exe' -print -quit)"
+if [ -z "$DJVU_DDJVU_EXE" ]; then
+  echo "Error: Failed to locate extracted ddjvu.exe"
+  exit 1
 fi
+DJVU_EXTRACTED="$(dirname "$DJVU_DDJVU_EXE")"
+
+echo "  Copying binaries and DLLs..."
+copy_required_tool "$DJVU_EXTRACTED/ddjvu.exe" "$DJVU_DIR/bin" "ddjvu.exe"
+copy_required_tool "$DJVU_EXTRACTED/djvused.exe" "$DJVU_DIR/bin" "djvused.exe"
+cp "$DJVU_EXTRACTED/"*.dll "$DJVU_DIR/bin/" 2>/dev/null || true
+find "$(dirname "$DJVU_EXTRACTED")" -name '*.dll' -exec cp {} "$DJVU_DIR/bin/" \; 2>/dev/null || true
 
 echo "  DjVuLibre: $(ls "$DJVU_DIR/bin/"*.exe 2>/dev/null | wc -l) exe, $(ls "$DJVU_DIR/bin/"*.dll 2>/dev/null | wc -l) dlls"
 
 # ==========================================
-# Note: Unpaper is not available on Windows
+# Note: Unpaper is currently not bundled on Windows
 # ==========================================
 echo ""
-echo "Note: Unpaper is not available on Windows — falls back to system PATH"
+echo "Note: Unpaper is currently not bundled on Windows."
 
 # ==========================================
 # Verification
@@ -180,8 +211,11 @@ verify_tool() {
     echo "  OK  $name ($size)"
   else
     echo "  MISSING  $name"
+    missing_count=$((missing_count + 1))
   fi
 }
+
+missing_count=0
 
 verify_tool "$TESSERACT_DIR/bin/tesseract.exe" "tesseract"
 verify_tool "$POPPLER_DIR/bin/pdftoppm.exe" "pdftoppm"
@@ -190,6 +224,12 @@ verify_tool "$POPPLER_DIR/bin/pdfimages.exe" "pdfimages"
 verify_tool "$QPDF_DIR/bin/qpdf.exe" "qpdf"
 verify_tool "$DJVU_DIR/bin/ddjvu.exe" "ddjvu"
 verify_tool "$DJVU_DIR/bin/djvused.exe" "djvused"
+
+if [ "$missing_count" -gt 0 ]; then
+  echo ""
+  echo "Error: Bundle verification failed ($missing_count required files missing)"
+  exit 1
+fi
 
 echo ""
 echo "Total bundle size:"

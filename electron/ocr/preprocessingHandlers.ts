@@ -41,9 +41,9 @@ export async function handlePreprocessPage(
         const validation = validatePreprocessingSetup();
         if (!validation.valid) {
             return {
-                success: false,
+                success: true,
                 imageData,
-                error: 'Preprocessing requires unpaper binary. Build with: ./scripts/bundle-leptonica-unpaper-macos.sh',
+                message: 'Preprocessing unavailable on this platform/architecture; using original image.',
             };
         }
 
@@ -62,9 +62,9 @@ export async function handlePreprocessPage(
             if (!result.success) {
                 log.debug(`Preprocessing failed: ${result.error}`);
                 return {
-                    success: false,
+                    success: true,
                     imageData,
-                    error: result.error || 'Preprocessing failed',
+                    message: 'Preprocessing failed; using original image.',
                 };
             }
 

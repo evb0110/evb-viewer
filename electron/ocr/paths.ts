@@ -127,6 +127,11 @@ function getBinaryPath(dir: string, name: string, optional = false): string {
         return '';
     }
 
+    // Packaged app must rely on bundled binaries only.
+    if (app.isPackaged) {
+        return binPath;
+    }
+
     return findOnSystemPath(name);
 }
 

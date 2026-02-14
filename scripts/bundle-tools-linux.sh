@@ -124,11 +124,10 @@ bundle_lib_deps() {
         if [ ! -f "$lib_dir/$dep_name" ]; then
           cp "$dep" "$lib_dir/"
           echo "    Added transitive dep: $dep_name"
+          added=1
         fi
       done
     done
-    # Check if any new files were added (simplified: run once more)
-    added=0
   done
 }
 

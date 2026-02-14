@@ -52,6 +52,11 @@ function getBinaryPath(dir: string, name: string): string {
         return binPath;
     }
 
+    // Packaged app must rely on bundled binaries only.
+    if (app.isPackaged) {
+        return binPath;
+    }
+
     return name;
 }
 
@@ -71,4 +76,3 @@ export function getDjvuLibDir(): string {
     const resourcesBase = getResourcesBase();
     return join(resourcesBase, 'djvulibre', platformArch, 'lib');
 }
-

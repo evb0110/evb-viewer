@@ -1,4 +1,7 @@
-import { spawn } from 'child_process';
+import {
+    spawn,
+    spawnSync,
+} from 'child_process';
 import { existsSync } from 'fs';
 import {
     dirname,
@@ -47,11 +50,27 @@ function getPreprocessingBinaries(): IPreprocessingBinaries {
     }
 
     const tesseractDir = join(resourcesBase, 'tesseract');
+    const mappedArch = process.arch === 'arm64'
+        ? 'arm64'
+        : process.arch === 'x64'
+            ? 'x64'
+            : null;
+
+    if (!mappedArch) {
+        throw new Error(`Unsupported architecture for preprocessing: ${process.arch}`);
+    }
+
     const arch = process.platform === 'win32'
-        ? 'win32-x64'
+        ? `win32-${mappedArch}`
         : process.platform === 'darwin'
-            ? process.arch === 'arm64' ? 'darwin-arm64' : 'darwin-x64'
-            : 'linux-x64';
+            ? `darwin-${mappedArch}`
+            : process.platform === 'linux'
+                ? `linux-${mappedArch}`
+                : null;
+
+    if (!arch) {
+        throw new Error(`Unsupported platform for preprocessing: ${process.platform}`);
+    }
 
     const binDir = join(tesseractDir, arch, 'bin');
     const ext = process.platform === 'win32' ? '.exe' : '';
@@ -68,6 +87,22 @@ function getPreprocessingBinaries(): IPreprocessingBinaries {
         leptonica: existsSync(leptonica) ? leptonica : null,
         unpaper: existsSync(unpaper) ? unpaper : null,
     };
+}
+
+function isBinaryRunnable(binaryPath: string): boolean {
+    if (!existsSync(binaryPath)) {
+        return false;
+    }
+
+    try {
+        const result = spawnSync(binaryPath, ['--version'], {
+            timeout: 3000,
+            stdio: 'ignore',
+        });
+        return result.status === 0 && !result.error;
+    } catch {
+        return false;
+    }
 }
 
 /**
@@ -169,7 +204,7 @@ async function cleanScannedPageWithUnpaper(
     if (!bins.unpaper) {
         return {
             success: false,
-            error: 'Unpaper binary not found. Build with: ./scripts/bundle-leptonica-unpaper-macos.sh',
+            error: 'Unpaper preprocessing binary is not bundled for this platform/arch.',
         };
     }
 
@@ -224,10 +259,11 @@ export function validatePreprocessingSetup(): {
     missing: string[];
 } {
     const bins = getPreprocessingBinaries();
+    const unpaperRunnable = bins.unpaper ? isBinaryRunnable(bins.unpaper) : false;
     const available: string[] = [];
     const missing: string[] = [];
 
-    if (bins.unpaper) {
+    if (unpaperRunnable) {
         available.push('unpaper');
     } else {
         missing.push('unpaper');
@@ -246,4 +282,3 @@ export function validatePreprocessingSetup(): {
         missing,
     };
 }
-

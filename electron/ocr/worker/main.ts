@@ -169,18 +169,7 @@ async function processOcrJob(
                     imageWidth = dims.width;
                     imageHeight = dims.height;
                 } else {
-                    const identifyResult = await runCommand('identify', [
-                        '-format',
-                        '%wx%h',
-                        pageImagePath,
-                    ]);
-                    const identifyOutput = (identifyResult.stdout ?? '').trim();
-                    const [
-                        widthStr,
-                        heightStr,
-                    ] = identifyOutput.split('x');
-                    imageWidth = parseInt(widthStr ?? '0', 10);
-                    imageHeight = parseInt(heightStr ?? '0', 10);
+                    throw new Error('Failed to determine PNG dimensions from pdftoppm output');
                 }
 
                 if (imageWidth <= 0 || imageHeight <= 0) {
