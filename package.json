@@ -1,7 +1,8 @@
 {
   "name": "evb-viewer",
   "productName": "EVB Viewer",
-  "version": "2.0.0",
+  "version": "0.1.0",
+  "author": "Eugene Barsky",
   "description": "Electron + Nuxt 4 SSR example",
   "type": "module",
   "main": "dist-electron/main.js",

@@ -1,5 +1,6 @@
 appId: com.evb.viewer
 productName: EVB Viewer
+copyright: Copyright © 2026 Eugene Barsky
 
 asar: false
 npmRebuild: false
@@ -15,6 +16,8 @@ files:
 extraResources:
   - from: resources/tesseract/tessdata
     to: tesseract/tessdata
+  - from: resources/icon.png
+    to: icon.png
 
 mac:
   icon: resources/icon.icns

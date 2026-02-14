@@ -272,7 +272,12 @@ function getWindowMenu(): MenuItemConstructorOptions {
 function getHelpMenu(): MenuItemConstructorOptions {
     return {
         label: te('menu.help'),
-        submenu: [{ role: 'about' }],
+        submenu: [config.isMac
+            ? { role: 'about' }
+            : {
+                label: te('menu.about'),
+                click: () => { app.showAboutPanel(); },
+            }],
     };
 }
 

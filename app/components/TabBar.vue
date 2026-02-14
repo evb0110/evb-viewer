@@ -27,6 +27,7 @@
                     class="tab-close"
                     :class="{ 'is-visible': tab.id === activeTabId }"
                     :aria-label="t('tabs.closeTab')"
+                    @pointerdown.stop
                     @click.stop="emit('close', tab.id)"
                 >
                     <Icon name="lucide:x" size="14" />

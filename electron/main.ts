@@ -37,6 +37,9 @@ const logger = createLogger('main');
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const devDockIconPath = join(__dirname, '..', 'resources', 'icon.png');
+const aboutIconPath = app.isPackaged
+    ? join(process.resourcesPath, 'icon.png')
+    : devDockIconPath;
 
 const SUPPORTED_EXTENSIONS = new Set([
     '.pdf',
@@ -94,6 +97,14 @@ async function init() {
             logger.warn(`Failed to set dock icon: ${err instanceof Error ? err.message : String(err)}`);
         }
     }
+    app.setAboutPanelOptions({
+        applicationName: 'EVB Viewer',
+        applicationVersion: app.getVersion(),
+        copyright: 'Copyright \u00A9 2026 Eugene Barsky',
+        iconPath: aboutIconPath,
+        authors: ['Eugene Barsky'],
+    });
+
     registerIpcHandlers();
     await initRecentFilesCache();
     setupMenu();
