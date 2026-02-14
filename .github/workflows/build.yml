@@ -12,13 +12,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # macOS — native runners for each arch
+          # macOS ARM (Intel build is a separate slower workflow)
           - os: macos-14
             platform: mac
             arch: arm64
-          - os: macos-15-intel
-            platform: mac
-            arch: x64
 
           # Linux — native runners for each arch
           - os: ubuntu-latest
