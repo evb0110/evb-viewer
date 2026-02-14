@@ -38,7 +38,7 @@ import {
 } from '@app/composables/useSearchHighlight';
 import { formatPageIndicator } from '@app/utils/pdf-page-labels';
 
-const { t } = useI18n();
+const { t } = useTypedI18n();
 
 interface IProps {
     result: IPdfSearchMatch;

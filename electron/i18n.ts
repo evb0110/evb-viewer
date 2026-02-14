@@ -1,28 +1,18 @@
-import en from '@app/locales/en.json';
-import ru from '@app/locales/ru.json';
-import fr from '@app/locales/fr.json';
-import de from '@app/locales/de.json';
-import es from '@app/locales/es.json';
-import it from '@app/locales/it.json';
-import pt from '@app/locales/pt.json';
-import nl from '@app/locales/nl.json';
+import {
+    DEFAULT_LOCALE,
+    LOCALE_MESSAGES,
+    type TLocale,
+    type TTranslationKey,
+    type TTranslationParams,
+} from '@app/i18n/locales';
 import { getCurrentLocaleSync } from '@electron/settings';
 
-type TLocale = 'en' | 'ru' | 'fr' | 'de' | 'es' | 'it' | 'pt' | 'nl';
 type TMessageParams = Record<string, string | number>;
+type TTeArgs<TKey extends TTranslationKey> = TTranslationParams<TKey> extends undefined
+    ? [params?: undefined]
+    : [params: TTranslationParams<TKey>];
 
-const MESSAGES = {
-    en,
-    ru,
-    fr,
-    de,
-    es,
-    it,
-    pt,
-    nl,
-} as const;
-
-function getNestedMessage(messages: object, path: string): string | null {
+function getNestedMessage(messages: Record<string, unknown>, path: TTranslationKey): string | null {
     const parts = path.split('.');
     let current: unknown = messages;
 
@@ -59,7 +49,7 @@ function selectPluralForm(template: string, count: number, locale: TLocale): str
         : (forms[1] ?? forms[0] ?? template);
 }
 
-function interpolate(template: string, params?: TMessageParams, locale: TLocale = 'en'): string {
+function interpolate(template: string, params?: TMessageParams, locale: TLocale = DEFAULT_LOCALE): string {
     const count = typeof params?.count === 'number' ? params.count : null;
     const withPlural = count === null
         ? template
@@ -73,10 +63,18 @@ function interpolate(template: string, params?: TMessageParams, locale: TLocale 
     });
 }
 
-export function te(path: string, params?: TMessageParams): string {
+function resolveLocale(locale: string): TLocale {
+    return locale in LOCALE_MESSAGES
+        ? locale as TLocale
+        : DEFAULT_LOCALE;
+}
+
+export function te<TKey extends TTranslationKey>(path: TKey, ...args: TTeArgs<TKey>): string {
+    const params = args[0] as TMessageParams | undefined;
     const locale = getCurrentLocaleSync();
-    const primary = getNestedMessage(MESSAGES[locale], path);
-    const fallback = getNestedMessage(MESSAGES.en, path);
+    const resolvedLocale = resolveLocale(locale);
+    const primary = getNestedMessage(LOCALE_MESSAGES[resolvedLocale], path);
+    const fallback = getNestedMessage(LOCALE_MESSAGES[DEFAULT_LOCALE], path);
     const template = primary ?? fallback ?? path;
-    return interpolate(template, params, locale);
+    return interpolate(template, params, resolvedLocale);
 }

@@ -13,7 +13,7 @@ export const useCommentMarkerRendering = (deps: {
     activeCommentStableKey: Ref<string | null>;
     identity: TIdentity;
 }) => {
-    const { t } = useI18n();
+    const { t } = useTypedI18n();
 
     function isCommentActive(stableKey: string) {
         return deps.activeCommentStableKey.value === stableKey;

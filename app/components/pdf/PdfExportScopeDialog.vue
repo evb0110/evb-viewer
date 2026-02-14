@@ -115,7 +115,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{submit: [payload: { pageNumbers?: number[] }];}>();
 
-const { t } = useI18n();
+const { t } = useTypedI18n();
 
 const scope = ref<TExportScope>('all');
 const rangeInput = ref('');

@@ -97,7 +97,7 @@ const open = defineModel<boolean>('open', { required: true });
 const {
     t,
     setLocale,
-} = useI18n() as TI18nComposer;
+} = useTypedI18n() as TI18nComposer;
 const colorMode = useColorMode();
 const {
     settings,

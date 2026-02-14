@@ -51,7 +51,7 @@ const emit = defineEmits<{
     (e: 'delete'): void;
 }>();
 
-const { t } = useI18n();
+const { t } = useTypedI18n();
 
 const menuStyle = computed(() => ({
     left: `${props.x}px`,

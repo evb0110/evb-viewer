@@ -7,7 +7,7 @@ import { useOcrTextContent } from '@app/composables/pdf/useOcrTextContent';
 import type { TPdfSource } from '@app/types/pdf';
 
 export const usePdfFile = () => {
-    const { t } = useI18n();
+    const { t } = useTypedI18n();
 
     const pdfSrc = ref<TPdfSource | null>(null);
     const pdfData = ref<Uint8Array | null>(null);

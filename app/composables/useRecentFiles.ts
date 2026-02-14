@@ -19,7 +19,7 @@ const error = ref<string | null>(null);
 let loadPromise: Promise<void> | null = null;
 
 export const useRecentFiles = () => {
-    const { t } = useI18n();
+    const { t } = useTypedI18n();
 
     async function loadRecentFiles() {
         if (!window.electronAPI) {

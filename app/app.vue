@@ -13,7 +13,7 @@ const {
     load: loadSettings,
     settings,
 } = useSettings();
-const { setLocale } = useI18n() as TI18nComposer;
+const { setLocale } = useTypedI18n() as TI18nComposer;
 const colorMode = useColorMode();
 
 if (import.meta.dev) {

@@ -89,7 +89,7 @@ const emit = defineEmits<{
     'deselect': [];
 }>();
 
-const { t } = useI18n();
+const { t } = useTypedI18n();
 </script>
 
 <style scoped>

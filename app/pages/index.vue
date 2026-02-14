@@ -107,7 +107,7 @@ const {
     ensureAtLeastOneTab,
 } = useTabManager();
 
-const { t } = useI18n();
+const { t } = useTypedI18n();
 const showSettings = ref(false);
 const dirtyTabCloseDialogOpen = ref(false);
 const dirtyTabCloseTargetId = ref<string | null>(null);

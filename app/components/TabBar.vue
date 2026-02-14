@@ -48,7 +48,7 @@
 import type { ITab } from '@app/types/tabs';
 import { useTabDragReorder } from '@app/composables/useTabDragReorder';
 
-const { t } = useI18n();
+const { t } = useTypedI18n();
 
 const props = defineProps<{
     tabs: ITab[];

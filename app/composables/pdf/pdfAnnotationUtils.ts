@@ -1,5 +1,9 @@
 import { PDFDateString } from 'pdfjs-dist';
 import type { IAnnotationMarkerRect } from '@app/types/annotations';
+import type {
+    TTranslateFn,
+    TTranslationKey,
+} from '@app/i18n/locales';
 import { normalizeMarkerRect } from '@app/composables/pdf/annotationGeometry';
 
 export {
@@ -165,13 +169,13 @@ export function getAnnotationAuthor(annotation: {
     return direct || null;
 }
 
-type TTranslateLabel = (key: string) => string;
+type TTranslateLabel = TTranslateFn;
 
 export function annotationKindLabelFromSubtype(
     subtype: string | null | undefined,
     translate?: TTranslateLabel,
 ) {
-    const label = (key: string, fallback: string) => (
+    const label = (key: TTranslationKey, fallback: string) => (
         typeof translate === 'function'
             ? translate(key)
             : fallback

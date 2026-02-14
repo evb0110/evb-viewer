@@ -252,7 +252,7 @@
 <script setup lang="ts">
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 
-const { t } = useI18n();
+const { t } = useTypedI18n();
 
 interface IProps {
     pdfDocument: PDFDocumentProxy | null;

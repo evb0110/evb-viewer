@@ -157,7 +157,7 @@ const emit = defineEmits<{
     (e: 'clear'): void;
 }>();
 
-const { t } = useI18n();
+const { t } = useTypedI18n();
 
 const isExpanded = ref(false);
 const ignoreRangeInputWatch = ref(false);

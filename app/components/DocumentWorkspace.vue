@@ -330,7 +330,7 @@ const emit = defineEmits<{
     'open-settings': [];
 }>();
 
-const { t } = useI18n();
+const { t } = useTypedI18n();
 
 const w = useWorkspaceOrchestration({
     isActive: toRef(props, 'isActive'),

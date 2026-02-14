@@ -45,7 +45,7 @@ interface IUseAnnotationCommentSyncOptions {
 }
 
 export function useAnnotationCommentSync(options: IUseAnnotationCommentSyncOptions) {
-    const { t } = useI18n();
+    const { t } = useTypedI18n();
 
     const {
         pdfDocument,

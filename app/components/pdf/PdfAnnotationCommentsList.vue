@@ -115,7 +115,7 @@ interface IProps {
     authorName?: string | null;
 }
 
-const { t } = useI18n();
+const { t } = useTypedI18n();
 const { clampToViewport } = useContextMenuPosition();
 
 const props = defineProps<IProps>();

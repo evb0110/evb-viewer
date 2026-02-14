@@ -234,7 +234,7 @@ const emit = defineEmits<{
     'disable-drag': [];
 }>();
 
-const { t } = useI18n();
+const { t } = useTypedI18n();
 
 const toolbarRef = ref<HTMLElement | null>(null);
 

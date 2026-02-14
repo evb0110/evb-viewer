@@ -146,7 +146,7 @@ import type { TFitMode } from '@app/types/shared';
 import { nextTick } from 'vue';
 import { ZOOM } from '@app/constants/pdf-layout';
 
-const { t } = useI18n();
+const { t } = useTypedI18n();
 
 interface IProps {
     zoom: number;

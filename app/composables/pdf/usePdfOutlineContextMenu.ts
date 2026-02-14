@@ -23,7 +23,7 @@ export const usePdfOutlineContextMenu = (
     emitBookmarksChange: () => void,
     onEscape: () => void,
 ) => {
-    const { t } = useI18n();
+    const { t } = useTypedI18n();
     const { clampToViewport } = useContextMenuPosition();
 
     const bookmarkContextMenu = ref<{

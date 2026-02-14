@@ -97,7 +97,7 @@ const emit = defineEmits<{
     (e: 'focus'): void;
 }>();
 
-const { t } = useI18n();
+const { t } = useTypedI18n();
 
 const noteInputRef = ref<HTMLTextAreaElement | null>(null);
 const noteWindowRef = ref<HTMLElement | null>(null);

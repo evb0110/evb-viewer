@@ -44,7 +44,7 @@ interface IProps {
     keepActive: boolean;
 }
 
-const { t } = useI18n();
+const { t } = useTypedI18n();
 
 const props = defineProps<IProps>();
 

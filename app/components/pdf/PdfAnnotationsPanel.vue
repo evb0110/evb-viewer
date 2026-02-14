@@ -106,7 +106,7 @@ interface IPageAnnotationOverview {
     noteCount: number;
 }
 
-const { t } = useI18n();
+const { t } = useTypedI18n();
 const { settings: appSettings } = useSettings();
 
 const props = defineProps<IProps>();

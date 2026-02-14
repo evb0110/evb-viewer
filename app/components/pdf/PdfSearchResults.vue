@@ -63,7 +63,7 @@ import { computed } from 'vue';
 import type { IPdfSearchMatch } from '@app/types/pdf';
 import PdfSearchResultItem from '@app/components/pdf/PdfSearchResultItem.vue';
 
-const { t } = useI18n();
+const { t } = useTypedI18n();
 
 interface IProps {
     results: IPdfSearchMatch[];

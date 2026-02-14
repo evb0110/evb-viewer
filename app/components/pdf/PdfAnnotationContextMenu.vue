@@ -120,7 +120,7 @@ const emit = defineEmits<{
     'create-selection-note': [];
 }>();
 
-const { t } = useI18n();
+const { t } = useTypedI18n();
 </script>
 
 <style scoped>

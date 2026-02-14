@@ -92,7 +92,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         isActive,
         emit,
     } = deps;
-    const { t } = useI18n();
+    const { t } = useTypedI18n();
 
     const {
         pdfSrc,

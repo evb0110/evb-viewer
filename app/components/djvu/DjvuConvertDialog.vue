@@ -107,7 +107,7 @@ import {
 } from 'vue';
 import { getElectronAPI } from '@app/utils/electron';
 
-const { t } = useI18n();
+const { t } = useTypedI18n();
 
 const props = defineProps<{djvuPath: string | null;}>();
 

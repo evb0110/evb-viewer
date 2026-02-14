@@ -10,6 +10,7 @@ import {
     collectBookmarkIds,
     normalizeBookmarkColor,
 } from '@app/utils/pdf-outline-helpers';
+import type { TTranslateFn } from '@app/i18n/locales';
 
 export const usePdfOutlineEditing = (
     bookmarks: Ref<IBookmarkItem[]>,
@@ -28,7 +29,7 @@ export const usePdfOutlineEditing = (
     currentPage: Ref<number>,
     emitBookmarksChange: () => void,
     createBookmarkId: () => string,
-    t: (key: string) => string,
+    t: TTranslateFn,
 ) => {
     const editingItemId = ref<string | null>(null);
 

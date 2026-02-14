@@ -85,7 +85,7 @@
 import { computed } from 'vue';
 import type { IShapeAnnotation } from '@app/types/annotations';
 
-const { t } = useI18n();
+const { t } = useTypedI18n();
 
 interface IProps {
     shape: IShapeAnnotation | null;

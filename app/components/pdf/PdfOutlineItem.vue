@@ -136,7 +136,7 @@ import { resolveBookmarkDestinationPage } from '@app/utils/pdf-outline-helpers';
 import { usePdfOutlineItemState } from '@app/composables/pdf/usePdfOutlineItemState';
 import { BrowserLogger } from '@app/utils/browser-logger';
 
-const { t } = useI18n();
+const { t } = useTypedI18n();
 
 type TDropPosition = 'before' | 'after' | 'child';
 

@@ -65,7 +65,7 @@ export interface IPageSaveOrchestrationDeps {
 }
 
 export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
-    const { t } = useI18n();
+    const { t } = useTypedI18n();
 
     const {
         pdfData,

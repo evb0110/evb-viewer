@@ -27,7 +27,7 @@ interface ICommentMarkerInteractionDeps {
 }
 
 export const useCommentMarkerInteraction = (deps: ICommentMarkerInteractionDeps) => {
-    const { t } = useI18n();
+    const { t } = useTypedI18n();
 
     let inlineCommentFocusPulseTimeout: ReturnType<typeof setTimeout> | null = null;
 

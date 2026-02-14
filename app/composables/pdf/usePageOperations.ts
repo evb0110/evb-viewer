@@ -16,7 +16,7 @@ export const usePageOperations = (deps: {
     clearOcrCache: (path: string) => void;
     resetSearchCache: () => void;
 }) => {
-    const { t } = useI18n();
+    const { t } = useTypedI18n();
 
     const {
         workingCopyPath,

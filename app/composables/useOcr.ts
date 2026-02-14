@@ -9,6 +9,7 @@ import { getElectronAPI } from '@app/utils/electron';
 import { createDocxFromText } from '@app/utils/docx';
 import { OCR_TIMEOUT_MS } from '@app/constants/timeouts';
 import { BrowserLogger } from '@app/utils/browser-logger';
+import type { TTranslationKey } from '@app/i18n/locales';
 import {
     parsePageRange,
     type IOcrSettings,
@@ -26,7 +27,7 @@ const RTL_OCR_LANGUAGES = new Set([
 ]);
 
 export const useOcr = () => {
-    const { t } = useI18n();
+    const { t } = useTypedI18n();
     const REMOTE_METHOD_PREFIX_RE = /^Error invoking remote method '[^']+':\s*/u;
 
     const availableLanguages = ref<IOcrLanguage[]>([]);
@@ -75,7 +76,7 @@ export const useOcr = () => {
         ].includes(message);
     }
 
-    function localizeOcrError(errorValue: unknown, fallbackKey: string): string {
+    function localizeOcrError(errorValue: unknown, fallbackKey: TTranslationKey): string {
         const rawMessage = typeof errorValue === 'string'
             ? errorValue
             : (errorValue instanceof Error ? errorValue.message : '');

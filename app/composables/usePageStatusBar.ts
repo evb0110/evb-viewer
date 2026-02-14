@@ -2,10 +2,11 @@ import {
     computed,
     type Ref,
 } from 'vue';
+import type { TTranslateFn } from '@app/i18n/locales';
 import { formatBytes } from '@app/utils/formatters';
 
 export interface IPageStatusBarDeps {
-    t: (key: string, params?: Record<string, string | number>) => string;
+    t: TTranslateFn;
     pdfSrc: Ref<unknown>;
     pdfData: Ref<Uint8Array | null>;
     originalPath: Ref<string | null>;

@@ -135,7 +135,7 @@ const emit = defineEmits<{
     (e: 'update:isEditMode', value: boolean): void;
 }>();
 
-const { t } = useI18n();
+const { t } = useTypedI18n();
 
 const bookmarks = ref<IBookmarkItem[]>([]);
 const isLoading = ref(false);

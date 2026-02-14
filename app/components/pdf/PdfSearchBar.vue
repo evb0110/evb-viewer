@@ -60,7 +60,7 @@ import {
     ref,
 } from 'vue';
 
-const { t } = useI18n();
+const { t } = useTypedI18n();
 
 interface IProps {
     modelValue: string;

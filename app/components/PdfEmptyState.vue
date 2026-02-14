@@ -87,7 +87,7 @@ const emit = defineEmits<{
     'clear-recent': [];
 }>();
 
-const { t } = useI18n();
+const { t } = useTypedI18n();
 
 function formatRelativeTimeLocalized(timestamp: number) {
     return formatRelativeTime(timestamp, {

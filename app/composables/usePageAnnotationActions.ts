@@ -78,7 +78,7 @@ export interface IPageAnnotationActionsDeps {
 }
 
 export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
-    const { t } = useI18n();
+    const { t } = useTypedI18n();
 
     const {
         pdfViewerRef,

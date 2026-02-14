@@ -68,10 +68,10 @@ All visual values (colors, shadows, spacing, radii, etc.) must reference design 
 
 **Rule**: Never hardcode UI-facing text. Always use `t()` and add translations for all available languages.
 
-Every user-visible string — labels, tooltips, placeholders, error messages, confirmations, aria-labels — must go through the i18n system. Locale files live in `app/locales/` with translations for **English (`en.json`)** and **Russian (`ru.json`)**.
+Every user-visible string — labels, tooltips, placeholders, error messages, confirmations, aria-labels — must go through the i18n system. Locale files live in `app/locales/` with translations for **English (`en.ts`)** and **Russian (`ru.ts`)**.
 
 **When adding new UI text:**
-1. Add the key to **both** `app/locales/en.json` and `app/locales/ru.json`
+1. Add the key to **both** `app/locales/en.ts` and `app/locales/ru.ts`
 2. Use the existing nested namespace structure (e.g., `toolbar.save`, `search.placeholder`)
 3. Access in components via `const { t } = useI18n()` and `t('namespace.key')`
 4. For plurals, use the pipe syntax: `"noteCount": "{count} note | {count} notes"` (English) and provide all required plural forms for Russian (3 forms)

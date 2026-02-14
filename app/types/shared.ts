@@ -1,3 +1,5 @@
+import type { TLocale } from '@app/i18n/locales';
+
 export interface IRecentFile {
     originalPath: string;
     fileName: string;
@@ -22,7 +24,7 @@ export interface IOcrWord {
 export type TFitMode = 'width' | 'height';
 
 export type TAppTheme = 'light' | 'dark';
-export type TAppLocale = 'en' | 'ru' | 'fr' | 'de' | 'es' | 'it' | 'pt' | 'nl';
+export type TAppLocale = TLocale;
 
 export interface ISettingsData {
     version: number;

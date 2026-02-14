@@ -147,7 +147,7 @@ const emit = defineEmits<{
     (e: 'remove', id: string): void;
 }>();
 
-const { t } = useI18n();
+const { t } = useTypedI18n();
 
 const colorPresets = BOOKMARK_COLOR_PRESETS;
 

@@ -50,7 +50,7 @@ export interface IAnnotationNoteWindowDeps {
 }
 
 export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
-    const { t } = useI18n();
+    const { t } = useTypedI18n();
 
     const {
         annotationComments,

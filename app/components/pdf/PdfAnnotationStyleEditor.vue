@@ -110,7 +110,7 @@ interface IProps {
     settings: IAnnotationSettings;
 }
 
-const { t } = useI18n();
+const { t } = useTypedI18n();
 
 const props = defineProps<IProps>();
 

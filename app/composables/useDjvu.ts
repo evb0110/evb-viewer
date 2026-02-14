@@ -18,7 +18,7 @@ interface IDjvuLoadingProgress {
 }
 
 export const useDjvu = () => {
-    const { t } = useI18n();
+    const { t } = useTypedI18n();
 
     const {
         isDjvuMode,

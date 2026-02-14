@@ -128,7 +128,7 @@ const emit = defineEmits<{
     'invert-selection': [];
 }>();
 
-const { t } = useI18n();
+const { t } = useTypedI18n();
 </script>
 
 <style scoped>

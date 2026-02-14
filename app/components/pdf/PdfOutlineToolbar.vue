@@ -84,7 +84,7 @@ const emit = defineEmits<{
     (e: 'add-root-bookmark'): void;
 }>();
 
-const { t } = useI18n();
+const { t } = useTypedI18n();
 
 const displayModeOptions = computed<Array<{
     id: TBookmarkDisplayMode;
