@@ -142,7 +142,9 @@ fix_binary() {
   echo "Processing $binary_name..."
 
   # Get all dependencies from Homebrew
-  otool -L "$binary" 2>/dev/null | grep "$BREW" | awk '{print $1}' | while read dep; do
+  local brew_deps
+  brew_deps="$(otool -L "$binary" 2>/dev/null | grep "$BREW" | awk '{print $1}')" || true
+  for dep in $brew_deps; do
     if [ -z "$dep" ]; then
       continue
     fi
@@ -175,7 +177,8 @@ echo "Checking for new library dependencies..."
 echo "=========================================="
 
 NEW_LIBS=0
-otool -L "$DEST/bin/unpaper" 2>/dev/null | grep "$BREW" | awk '{print $1}' | while read lib; do
+UNPAPER_BREW_DEPS="$(otool -L "$DEST/bin/unpaper" 2>/dev/null | grep "$BREW" | awk '{print $1}')" || true
+for lib in $UNPAPER_BREW_DEPS; do
   if [ -z "$lib" ]; then
     continue
   fi
@@ -203,7 +206,8 @@ if [ $NEW_LIBS -gt 0 ]; then
       install_name_tool -id "@loader_path/$lib_name" "$lib" 2>/dev/null || true
 
       # Fix dependencies within this library
-      otool -L "$lib" 2>/dev/null | grep "$BREW" | awk '{print $1}' | while read dep; do
+      lib_brew_deps="$(otool -L "$lib" 2>/dev/null | grep "$BREW" | awk '{print $1}')" || true
+      for dep in $lib_brew_deps; do
         if [ -n "$dep" ]; then
           dep_name="$(basename "$dep")"
           install_name_tool -change "$dep" "@loader_path/$dep_name" "$lib" 2>/dev/null || true

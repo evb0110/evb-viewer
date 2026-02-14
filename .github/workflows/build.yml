@@ -16,7 +16,7 @@ jobs:
           - os: macos-14
             platform: mac
             arch: arm64
-          - os: macos-13
+          - os: macos-15-intel
             platform: mac
             arch: x64
 
@@ -94,8 +94,20 @@ jobs:
         if: runner.os == 'macOS'
         run: pnpm exec electron-builder --mac --${{ matrix.arch }}
 
+      # Linux arm64: app-builder-bin may lose exec permission via pnpm,
+      # and the bundled fpm is x86-only — install a native fpm instead.
+      - name: Fix electron-builder for Linux arm64
+        if: runner.os == 'Linux' && matrix.arch == 'arm64'
+        run: |
+          chmod +x node_modules/app-builder-bin/linux/arm64/app-builder
+          sudo apt-get update
+          sudo apt-get install -y ruby-dev build-essential
+          sudo gem install fpm
+
       - name: Package installer (Linux)
         if: runner.os == 'Linux'
+        env:
+          USE_SYSTEM_FPM: ${{ matrix.arch == 'arm64' && 'true' || '' }}
         run: pnpm exec electron-builder --linux --${{ matrix.arch }}
 
       - name: Package installer (Windows)

@@ -101,13 +101,15 @@ for lib in "$DEST/lib/"*.dylib; do
   install_name_tool -id "@loader_path/$lib_name" "$lib" 2>/dev/null || true
 
   # Fix Homebrew dependencies to use @loader_path
-  otool -L "$lib" | grep "$BREW_PREFIX" | awk '{print $1}' | while read dep; do
+  brew_deps="$(otool -L "$lib" | grep "$BREW_PREFIX" | awk '{print $1}')" || true
+  for dep in $brew_deps; do
     dep_name="$(basename "$dep")"
     install_name_tool -change "$dep" "@loader_path/$dep_name" "$lib" 2>/dev/null || true
   done
 
   # Fix @rpath references
-  otool -L "$lib" | grep "@rpath" | awk '{print $1}' | while read dep; do
+  rpath_deps="$(otool -L "$lib" | grep "@rpath" | awk '{print $1}')" || true
+  for dep in $rpath_deps; do
     dep_name="$(basename "$dep")"
     install_name_tool -change "$dep" "@loader_path/$dep_name" "$lib" 2>/dev/null || true
   done
@@ -121,12 +123,14 @@ echo "Fixing binary paths..."
 for bin in "$DEST/bin/"*; do
   bin_name="$(basename "$bin")"
 
-  otool -L "$bin" | grep "$BREW_PREFIX" | awk '{print $1}' | while read dep; do
+  brew_deps="$(otool -L "$bin" | grep "$BREW_PREFIX" | awk '{print $1}')" || true
+  for dep in $brew_deps; do
     dep_name="$(basename "$dep")"
     install_name_tool -change "$dep" "@executable_path/../lib/$dep_name" "$bin"
   done
 
-  otool -L "$bin" | grep "@rpath" | awk '{print $1}' | while read dep; do
+  rpath_deps="$(otool -L "$bin" | grep "@rpath" | awk '{print $1}')" || true
+  for dep in $rpath_deps; do
     dep_name="$(basename "$dep")"
     install_name_tool -change "$dep" "@executable_path/../lib/$dep_name" "$bin"
   done

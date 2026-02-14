@@ -62,13 +62,17 @@ fix_lib() {
   install_name_tool -id "@loader_path/$lib_name" "$lib" 2>/dev/null || true
 
   # Fix all Homebrew dependencies to use @loader_path
-  otool -L "$lib" | grep "$BREW" | awk '{print $1}' | while read dep; do
+  local brew_deps
+  brew_deps="$(otool -L "$lib" | grep "$BREW" | awk '{print $1}')" || true
+  for dep in $brew_deps; do
     local dep_name="$(basename "$dep")"
     install_name_tool -change "$dep" "@loader_path/$dep_name" "$lib" 2>/dev/null || true
   done
 
   # Fix @rpath references to use @loader_path
-  otool -L "$lib" | grep "@rpath" | awk '{print $1}' | while read dep; do
+  local rpath_deps
+  rpath_deps="$(otool -L "$lib" | grep "@rpath" | awk '{print $1}')" || true
+  for dep in $rpath_deps; do
     local dep_name="$(basename "$dep")"
     install_name_tool -change "$dep" "@loader_path/$dep_name" "$lib" 2>/dev/null || true
   done
@@ -83,7 +87,8 @@ done
 echo "Fixing tesseract binary..."
 
 # Fix the tesseract binary to use @executable_path/../lib/
-otool -L "$DEST/bin/tesseract" | grep "$BREW" | awk '{print $1}' | while read dep; do
+TESS_DEPS="$(otool -L "$DEST/bin/tesseract" | grep "$BREW" | awk '{print $1}')" || true
+for dep in $TESS_DEPS; do
   dep_name="$(basename "$dep")"
   install_name_tool -change "$dep" "@executable_path/../lib/$dep_name" "$DEST/bin/tesseract"
 done
