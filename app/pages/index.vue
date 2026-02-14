@@ -331,13 +331,15 @@ const {
 function handleTabKeyboardShortcut(event: KeyboardEvent) {
     const mod = event.metaKey || event.ctrlKey;
 
-    if (mod && event.key.toLowerCase() === 't' && !event.shiftKey) {
+    // In Electron these accelerators are handled by the app menu.
+    // Keep renderer-level handlers only as a non-Electron fallback.
+    if (!window.electronAPI && mod && event.key.toLowerCase() === 't' && !event.shiftKey) {
         event.preventDefault();
         createTab();
         return;
     }
 
-    if (mod && event.key.toLowerCase() === 'w' && !event.shiftKey) {
+    if (!window.electronAPI && mod && event.key.toLowerCase() === 'w' && !event.shiftKey) {
         event.preventDefault();
         if (activeTabId.value) {
             void handleCloseTab(activeTabId.value);
