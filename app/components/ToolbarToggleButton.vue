@@ -33,32 +33,43 @@ const emit = defineEmits<{click: [];}>();
     width: var(--toolbar-control-height);
     height: var(--toolbar-control-height);
     padding: 0.25rem;
-    border: none;
+    border: 1px solid transparent;
     border-radius: 3px;
     background: transparent;
-    color: var(--ui-text-dimmed);
+    color: var(--ui-text);
     cursor: pointer;
-    transition: background-color 0.1s ease, color 0.1s ease;
+    transition: background-color 0.1s ease, color 0.1s ease, box-shadow 0.1s ease;
 }
 
 .toolbar-toggle.is-grouped {
+    color: var(--ui-text-dimmed);
     border-radius: 0;
     min-width: var(--toolbar-control-height);
     width: auto;
 }
 
 .toolbar-toggle:hover {
-    background: var(--app-chrome-hover);
+    background: var(--app-toolbar-control-hover-bg);
     color: var(--ui-text);
 }
 
 .toolbar-toggle.is-active {
-    background: var(--ui-bg);
+    background: var(--app-toolbar-control-active-bg);
     color: var(--ui-text);
 }
 
 .toolbar-toggle.is-active:hover {
-    background: var(--app-chrome-hover);
+    background: var(--app-toolbar-control-active-hover-bg);
+}
+
+.toolbar-toggle:focus {
+    outline: none;
+}
+
+.toolbar-toggle:focus-visible {
+    box-shadow: inset 0 0 0 1px var(--app-toolbar-focus-ring);
+    position: relative;
+    z-index: 1;
 }
 
 .toolbar-toggle:disabled {

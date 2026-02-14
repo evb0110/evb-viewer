@@ -235,7 +235,7 @@ onBeforeUnmount(() => {
     display: flex;
     align-items: center;
     gap: 0;
-    border: 1px solid var(--ui-border);
+    border: 1px solid var(--app-toolbar-group-border);
     border-radius: 0.375rem;
     overflow: hidden;
 }
@@ -250,7 +250,7 @@ onBeforeUnmount(() => {
 }
 
 .page-controls-item + .page-controls-item {
-    border-left: 1px solid var(--ui-border);
+    border-left: 1px solid var(--app-toolbar-group-border);
 }
 
 .page-controls-button {
@@ -277,7 +277,7 @@ onBeforeUnmount(() => {
     border: none;
     border-radius: 0;
     cursor: pointer;
-    transition: background-color 150ms ease;
+    transition: background-color 0.1s ease, box-shadow 0.1s ease;
 }
 
 .page-controls-display:disabled {
@@ -285,8 +285,16 @@ onBeforeUnmount(() => {
     cursor: not-allowed;
 }
 
+.page-controls-display:focus {
+    outline: none;
+}
+
+.page-controls-display:focus-visible {
+    box-shadow: inset 0 0 0 1px var(--app-toolbar-focus-ring);
+}
+
 .page-controls-display:not(.is-editing):hover:not(:disabled) {
-    background-color: var(--ui-bg-elevated);
+    background-color: var(--app-toolbar-control-hover-bg);
 }
 
 .page-controls-indicator,

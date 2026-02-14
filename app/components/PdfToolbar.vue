@@ -26,6 +26,17 @@
 
         <template v-if="hasPdf">
             <div class="toolbar-section toolbar-left">
+                <ToolbarToggleButton
+                    icon="lucide:panel-left"
+                    :active="showSidebar"
+                    :tooltip="t('toolbar.toggleSidebar')"
+                    @click="emit('toggle-sidebar')"
+                />
+
+                <slot name="ocr" />
+
+                <div class="toolbar-separator" />
+
                 <template v-if="!isCollapsed(3)">
                     <UTooltip :text="t('toolbar.save')" :delay-duration="1200">
                         <UButton
@@ -67,52 +78,37 @@
 
                 <div class="toolbar-separator" />
 
-                <div v-if="!isCollapsed(3)" class="toolbar-button-group">
-                    <div class="toolbar-group-item">
-                        <UTooltip :text="t('toolbar.undo')" :delay-duration="1200">
-                            <UButton
-                                icon="i-lucide-undo-2"
-                                variant="ghost"
-                                color="neutral"
-                                class="toolbar-group-button"
-                                :disabled="!canUndo || isHistoryBusy || isAnySaving || isDjvuMode"
-                                :aria-label="t('toolbar.undo')"
-                                @click="emit('undo')"
-                            />
-                        </UTooltip>
-                    </div>
-                    <div class="toolbar-group-item">
-                        <UTooltip :text="t('toolbar.redo')" :delay-duration="1200">
-                            <UButton
-                                icon="i-lucide-redo-2"
-                                variant="ghost"
-                                color="neutral"
-                                class="toolbar-group-button"
-                                :disabled="!canRedo || isHistoryBusy || isAnySaving || isDjvuMode"
-                                :aria-label="t('toolbar.redo')"
-                                @click="emit('redo')"
-                            />
-                        </UTooltip>
-                    </div>
-                </div>
+                <template v-if="!isCollapsed(3)">
+                    <UTooltip :text="t('toolbar.undo')" :delay-duration="1200">
+                        <UButton
+                            icon="i-lucide-undo-2"
+                            variant="ghost"
+                            color="neutral"
+                            class="toolbar-icon-button"
+                            :disabled="!canUndo || isHistoryBusy || isAnySaving || isDjvuMode"
+                            :aria-label="t('toolbar.undo')"
+                            @click="emit('undo')"
+                        />
+                    </UTooltip>
+                    <UTooltip :text="t('toolbar.redo')" :delay-duration="1200">
+                        <UButton
+                            icon="i-lucide-redo-2"
+                            variant="ghost"
+                            color="neutral"
+                            class="toolbar-icon-button"
+                            :disabled="!canRedo || isHistoryBusy || isAnySaving || isDjvuMode"
+                            :aria-label="t('toolbar.redo')"
+                            @click="emit('redo')"
+                        />
+                    </UTooltip>
+                </template>
 
                 <div class="toolbar-separator" />
-
-                <ToolbarToggleButton
-                    icon="lucide:panel-left"
-                    :active="showSidebar"
-                    :tooltip="t('toolbar.toggleSidebar')"
-                    @click="emit('toggle-sidebar')"
-                />
             </div>
 
             <div class="toolbar-separator" />
 
-            <div class="toolbar-section toolbar-center">
-                <slot name="ocr" />
-
-                <div class="toolbar-separator" />
-
+            <div :class="['toolbar-section', 'toolbar-center', { 'toolbar-center-collapsed': hasOverflowItems }]">
                 <div class="toolbar-inline-group">
                     <slot name="zoom-dropdown" />
                 </div>
@@ -178,12 +174,12 @@
                     </div>
                 </div>
 
-                <slot name="overflow-menu" />
             </div>
 
             <div class="toolbar-separator" />
 
             <div class="toolbar-section toolbar-right">
+                <slot name="overflow-menu" />
                 <UTooltip :text="t('toolbar.settings')" :delay-duration="1200">
                     <UButton
                         icon="i-lucide-settings"
@@ -273,6 +269,38 @@ defineExpose({toolbarRef});
     border-radius: 3px !important;
 }
 
+.toolbar :deep(.toolbar-icon-button),
+.toolbar :deep(.toolbar-group-button),
+.toolbar :deep(.zoom-controls-button),
+.toolbar :deep(.page-controls-button) {
+    border: 1px solid transparent !important;
+    background: transparent !important;
+    color: var(--ui-text-dimmed) !important;
+    transition: background-color 0.1s ease, color 0.1s ease, box-shadow 0.1s ease;
+}
+
+.toolbar :deep(.toolbar-icon-button:hover:not(:disabled)),
+.toolbar :deep(.toolbar-group-button:hover:not(:disabled)),
+.toolbar :deep(.zoom-controls-button:hover:not(:disabled)),
+.toolbar :deep(.page-controls-button:hover:not(:disabled)) {
+    background: var(--app-toolbar-control-hover-bg) !important;
+    color: var(--ui-text) !important;
+}
+
+.toolbar :deep(.toolbar-icon-button:focus),
+.toolbar :deep(.toolbar-group-button:focus),
+.toolbar :deep(.zoom-controls-button:focus),
+.toolbar :deep(.page-controls-button:focus) {
+    outline: none;
+}
+
+.toolbar :deep(.toolbar-icon-button:focus-visible),
+.toolbar :deep(.toolbar-group-button:focus-visible),
+.toolbar :deep(.zoom-controls-button:focus-visible),
+.toolbar :deep(.page-controls-button:focus-visible) {
+    box-shadow: inset 0 0 0 1px var(--app-toolbar-focus-ring) !important;
+}
+
 .toolbar-section {
     display: flex;
     align-items: center;
@@ -288,6 +316,10 @@ defineExpose({toolbarRef});
     min-width: 0;
     justify-content: center;
     gap: 0.25rem;
+}
+
+.toolbar-center-collapsed {
+    justify-content: flex-start;
 }
 
 .toolbar-right {
@@ -311,9 +343,11 @@ defineExpose({toolbarRef});
 .toolbar-button-group {
     display: flex;
     align-items: center;
-    border: 1px solid var(--ui-border);
+    border: 1px solid var(--app-toolbar-group-border);
     border-radius: 0.375rem;
     overflow: hidden;
+    flex-shrink: 0;
+    min-width: max-content;
 }
 
 .toolbar-group-item {
@@ -322,7 +356,7 @@ defineExpose({toolbarRef});
 }
 
 .toolbar-group-item + .toolbar-group-item {
-    border-left: 1px solid var(--ui-border);
+    border-left: 1px solid var(--app-toolbar-group-border);
 }
 
 .toolbar-button-group :deep(button),
@@ -337,7 +371,7 @@ defineExpose({toolbarRef});
     justify-content: center;
     border-radius: 3px !important;
     font-size: var(--toolbar-icon-size);
-    transition: background-color 0.1s ease, color 0.1s ease;
+    transition: background-color 0.1s ease, color 0.1s ease, box-shadow 0.1s ease;
 }
 
 .toolbar-group-button {
@@ -359,6 +393,8 @@ defineExpose({toolbarRef});
     display: flex;
     align-items: center;
     gap: 0.25rem;
+    flex-shrink: 0;
+    min-width: max-content;
 }
 
 </style>

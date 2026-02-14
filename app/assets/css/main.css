@@ -25,6 +25,12 @@
     --app-chrome: color-mix(in oklab, var(--ui-bg) 35%, var(--ui-border) 65%);
     --app-chrome-hover: color-mix(in oklab, var(--ui-bg) 55%, var(--ui-border) 45%);
     --app-chrome-subtle-hover: color-mix(in oklab, var(--ui-border) 45%, transparent);
+    --app-toolbar-control-hover-bg: var(--app-chrome-hover);
+    --app-toolbar-control-active-bg: color-mix(in oklab, var(--ui-bg) 88%, var(--ui-text) 12%);
+    --app-toolbar-control-active-hover-bg: color-mix(in oklab, var(--ui-bg) 84%, var(--ui-text) 16%);
+    --app-toolbar-group-border: var(--ui-border);
+    --app-toolbar-focus-ring: color-mix(in oklab, var(--ui-border) 68%, var(--ui-text) 32%);
+    --app-pdf-viewer-bg: var(--ui-bg-muted);
 
     --app-scrollbar-size: 12px;
     --app-scrollbar-track: transparent;
@@ -48,6 +54,12 @@
     --app-window-bg: var(--ui-bg, #18181b);
     --app-scrollbar-thumb: color-mix(in oklab, var(--ui-border) 35%, var(--ui-text-muted) 65%);
     --app-scrollbar-thumb-hover: color-mix(in oklab, var(--ui-border) 20%, var(--ui-text-muted) 80%);
+    --app-toolbar-control-hover-bg: color-mix(in oklab, var(--ui-bg) 60%, var(--ui-border) 40%);
+    --app-toolbar-control-active-bg: color-mix(in oklab, var(--ui-bg) 82%, var(--ui-text) 18%);
+    --app-toolbar-control-active-hover-bg: color-mix(in oklab, var(--ui-bg) 78%, var(--ui-text) 22%);
+    --app-toolbar-group-border: color-mix(in oklab, var(--ui-border) 72%, var(--ui-text-muted) 28%);
+    --app-toolbar-focus-ring: color-mix(in oklab, var(--ui-border) 58%, var(--ui-text) 42%);
+    --app-pdf-viewer-bg: color-mix(in oklab, var(--ui-bg-muted) 88%, var(--ui-text) 12%);
 }
 
 .app-scrollbar {

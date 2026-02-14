@@ -564,7 +564,7 @@ defineExpose({
     width: 100%;
     height: 100%;
     overflow: auto;
-    background: var(--ui-bg-muted);
+    background: var(--app-pdf-viewer-bg);
     display: flex;
     flex-direction: column;
 
@@ -686,7 +686,7 @@ defineExpose({
     /* stylelint-enable no-descending-specificity */
 
     .pdfViewer {
-        background: var(--color-neutral-900);
+        background: var(--app-pdf-viewer-bg);
     }
 }
 
