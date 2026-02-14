@@ -94,20 +94,31 @@ jobs:
         if: runner.os == 'macOS'
         run: pnpm exec electron-builder --mac --${{ matrix.arch }}
 
-      # Linux arm64: app-builder-bin may lose exec permission via pnpm,
-      # and the bundled fpm is x86-only — install a native fpm instead.
-      - name: Fix electron-builder for Linux arm64
-        if: runner.os == 'Linux' && matrix.arch == 'arm64'
+      # electron-builder v25 downloads fpm at build time, which is unreliable
+      # (x86-only binary on arm64, download failures on x64). Install system fpm.
+      - name: Install system fpm (Linux)
+        if: runner.os == 'Linux'
         run: |
-          chmod +x node_modules/app-builder-bin/linux/arm64/app-builder
           sudo apt-get update
           sudo apt-get install -y ruby-dev build-essential
           sudo gem install fpm
 
+      # pnpm may lose exec permission on the app-builder binary (pnpm/pnpm#8546)
+      - name: Fix app-builder-bin permissions (Linux arm64)
+        if: runner.os == 'Linux' && matrix.arch == 'arm64'
+        run: |
+          APP_BUILDER="$(find node_modules -path '*/app-builder-bin/linux/arm64/app-builder' -type f 2>/dev/null | head -1)"
+          if [ -n "$APP_BUILDER" ]; then
+            chmod +x "$APP_BUILDER"
+            echo "Fixed permissions: $APP_BUILDER"
+          else
+            echo "Warning: app-builder binary not found"
+          fi
+
       - name: Package installer (Linux)
         if: runner.os == 'Linux'
         env:
-          USE_SYSTEM_FPM: ${{ matrix.arch == 'arm64' && 'true' || '' }}
+          USE_SYSTEM_FPM: "true"
         run: pnpm exec electron-builder --linux --${{ matrix.arch }}
 
       - name: Package installer (Windows)
