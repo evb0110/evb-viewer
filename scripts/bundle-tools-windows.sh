@@ -1,6 +1,7 @@
 #!/bin/bash
-# Bundle all required native tools for Windows x64
+# Bundle all required native tools for Windows (x64 and arm64)
 # Runs in Git Bash on CI — downloads pre-built release ZIPs
+# Set TARGET_ARCH=arm64 to cross-bundle for Windows ARM (uses x64 binaries via WoW64)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -8,7 +9,10 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 RESOURCES_DIR="$PROJECT_ROOT/resources"
 TEMP_DIR="/tmp/win-bundle-$$"
 
-PLATFORM_ARCH="win32-x64"
+# TARGET_ARCH can be set by CI for cross-compilation (e.g., arm64 on x64 runner).
+# Native arm64 Windows builds don't exist for most tools, so arm64 bundles
+# contain x64 binaries that run via WoW64 emulation on Windows ARM devices.
+PLATFORM_ARCH="win32-${TARGET_ARCH:-x64}"
 
 echo "=========================================="
 echo "Bundling native tools for $PLATFORM_ARCH"

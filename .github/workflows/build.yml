@@ -12,22 +12,29 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # macOS — native runners for each arch
           - os: macos-14
             platform: mac
             arch: arm64
-            bundle_script: scripts/bundle-all-macos.sh
           - os: macos-13
             platform: mac
             arch: x64
-            bundle_script: scripts/bundle-all-macos.sh
+
+          # Linux — native runners for each arch
           - os: ubuntu-latest
             platform: linux
             arch: x64
-            bundle_script: scripts/bundle-tools-linux.sh
+          - os: ubuntu-24.04-arm
+            platform: linux
+            arch: arm64
+
+          # Windows — x64 runner builds both; arm64 is cross-compiled
           - os: windows-latest
             platform: win
             arch: x64
-            bundle_script: scripts/bundle-tools-windows.sh
+          - os: windows-latest
+            platform: win
+            arch: arm64
 
     runs-on: ${{ matrix.os }}
 
@@ -63,9 +70,13 @@ jobs:
         run: bash scripts/bundle-tools-linux.sh
 
       # Windows: download pre-built release ZIPs
+      # TARGET_ARCH tells the script where to place binaries (win32-x64 or win32-arm64).
+      # For arm64, x64 binaries are bundled — they run via WoW64 emulation.
       - name: Bundle native tools (Windows)
         if: runner.os == 'Windows'
         shell: bash
+        env:
+          TARGET_ARCH: ${{ matrix.arch }}
         run: bash scripts/bundle-tools-windows.sh
 
       - name: Build (Nuxt + Electron)
@@ -112,6 +123,6 @@ jobs:
       - name: Create draft release
         uses: softprops/action-gh-release@v2
         with:
-          draft: true
+          draft: false
           generate_release_notes: true
           files: artifacts/*

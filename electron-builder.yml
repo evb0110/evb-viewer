@@ -47,6 +47,7 @@ win:
     - target: nsis
       arch:
         - x64
+        - arm64
   extraResources:
     - from: resources/tesseract/win32-${arch}
       to: tesseract/win32-${arch}
@@ -63,9 +64,11 @@ linux:
     - target: AppImage
       arch:
         - x64
+        - arm64
     - target: deb
       arch:
         - x64
+        - arm64
   extraResources:
     - from: resources/tesseract/linux-${arch}
       to: tesseract/linux-${arch}

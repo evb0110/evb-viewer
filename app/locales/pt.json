@@ -388,6 +388,7 @@
   },
   "settings": {
     "title": "Definições",
+    "dialogDescription": "Configure o nome do autor, o tema e o idioma da interface.",
     "author": "Nome do Autor",
     "authorPlaceholder": "O seu nome para anotações",
     "authorDescription": "Apresentado como autor em notas adesivas e comentários.",

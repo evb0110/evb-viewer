@@ -63,7 +63,7 @@
                         :model-value="settings.locale"
                         :items="localeItems"
                         value-key="value"
-                        icon="i-lucide-languages"
+                        :icon="selectedFlagIcon"
                         :search-input="false"
                         @update:model-value="applyLocale"
                     />
@@ -104,38 +104,59 @@ const {
     updateSetting,
 } = useSettings();
 
+const LOCALE_FLAGS: Record<string, string> = {
+    en: 'i-circle-flags-gb',
+    ru: 'i-circle-flags-ru',
+    fr: 'i-circle-flags-fr',
+    de: 'i-circle-flags-de',
+    es: 'i-circle-flags-es',
+    it: 'i-circle-flags-it',
+    pt: 'i-circle-flags-pt',
+    nl: 'i-circle-flags-nl',
+};
+
+const selectedFlagIcon = computed(() => LOCALE_FLAGS[settings.value.locale] ?? LOCALE_FLAGS.en);
+
 const localeItems = computed(() => [
     {
         label: t('settings.languageEnglish'),
-        value: 'en', 
+        value: 'en',
+        icon: LOCALE_FLAGS.en, 
     },
     {
         label: t('settings.languageRussian'),
-        value: 'ru', 
+        value: 'ru',
+        icon: LOCALE_FLAGS.ru, 
     },
     {
         label: t('settings.languageFrench'),
-        value: 'fr', 
+        value: 'fr',
+        icon: LOCALE_FLAGS.fr, 
     },
     {
         label: t('settings.languageGerman'),
-        value: 'de', 
+        value: 'de',
+        icon: LOCALE_FLAGS.de, 
     },
     {
         label: t('settings.languageSpanish'),
-        value: 'es', 
+        value: 'es',
+        icon: LOCALE_FLAGS.es, 
     },
     {
         label: t('settings.languageItalian'),
-        value: 'it', 
+        value: 'it',
+        icon: LOCALE_FLAGS.it, 
     },
     {
         label: t('settings.languagePortuguese'),
-        value: 'pt', 
+        value: 'pt',
+        icon: LOCALE_FLAGS.pt, 
     },
     {
         label: t('settings.languageDutch'),
-        value: 'nl', 
+        value: 'nl',
+        icon: LOCALE_FLAGS.nl, 
     },
 ]);
 

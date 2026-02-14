@@ -388,6 +388,7 @@
   },
   "settings": {
     "title": "Paramètres",
+    "dialogDescription": "Configurez le nom d'auteur, le thème et la langue de l'interface.",
     "author": "Nom de l’auteur",
     "authorPlaceholder": "Votre nom pour les annotations",
     "authorDescription": "Affiché comme auteur des notes et commentaires.",

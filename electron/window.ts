@@ -74,7 +74,6 @@ export async function createWindow() {
         // which can cause a white flash and DevTools console to appear to "load twice".
         // Debounce showing the window until navigation settles.
         let hasShownWindow = false;
-        let hasOpenedDevTools = false;
         let pendingShowTimeout: NodeJS.Timeout | null = null;
         let forceShowTimeout: NodeJS.Timeout | null = null;
 
@@ -89,7 +88,6 @@ export async function createWindow() {
                 const info = {
                     timestamp: Date.now(),
                     hasShownWindow,
-                    hasOpenedDevTools,
                     pendingShowTimeout: !!pendingShowTimeout,
                     stabilityCheckTimeout: !!stabilityCheckTimeout,
                     ...details,
@@ -137,13 +135,6 @@ export async function createWindow() {
             }
         };
 
-        const openDevToolsOnce = () => {
-            if (!config.isDev || hasOpenedDevTools) {
-                return;
-            }
-            hasOpenedDevTools = true;
-            mainWindow?.webContents.openDevTools();
-        };
 
         const cleanupShowHandlers = () => {
             if (!mainWindow || mainWindow.isDestroyed()) {
@@ -184,14 +175,14 @@ export async function createWindow() {
                 }
 
                 if (!mainWindow.isVisible()) {
-                    mainWindow.show();
+                    mainWindow.maximize();
                 }
                 // Ensure window comes to front on macOS (needed when spawned from background)
                 mainWindow.focus();
                 if (process.platform === 'darwin') {
                     app.focus({ steal: true });
                 }
-                openDevToolsOnce();
+
 
                 // M6.2: Add navigation timeline to window for debugging
                 try {
@@ -200,7 +191,6 @@ export async function createWindow() {
                         window.__navigationTimeline.push({
                             event: 'window-shown',
                             timestamp: ${Date.now()},
-                            hasDevTools: ${hasOpenedDevTools},
                         });
                     `);
                 } catch {
@@ -208,7 +198,7 @@ export async function createWindow() {
                 }
             } else {
                 if (!mainWindow.isVisible()) {
-                    mainWindow.show();
+                    mainWindow.maximize();
                 }
                 // Ensure window comes to front on macOS (needed when spawned from background)
                 mainWindow.focus();
@@ -276,25 +266,12 @@ export async function createWindow() {
         const onFailLoad = (_event: unknown, errorCode: number, errorDescription: string, validatedURL: string) => {
             logger.error(`Failed to load URL: ${validatedURL} (code=${errorCode}, desc=${errorDescription})`);
             showWindowNow();
-            openDevToolsOnce();
         };
 
         mainWindow.webContents.on('did-start-navigation', onStartNavigation);
         mainWindow.webContents.on('did-finish-load', onFinishLoad);
         mainWindow.webContents.on('did-fail-load', onFailLoad);
 
-        // M3.2: Handle DevTools reopening after navigation (e.g., hot reload)
-        mainWindow.webContents.on('did-navigate', () => {
-            if (config.isDev) {
-                logNavEvent('navigation-complete-checking-devtools');
-                setTimeout(() => {
-                    if (!mainWindow?.webContents.isDevToolsOpened()) {
-                        logNavEvent('reopening-devtools-after-navigation');
-                        mainWindow?.webContents.openDevTools();
-                    }
-                }, 500);
-            }
-        });
 
         forceShowTimeout = setTimeout(showWindowNow, FORCE_SHOW_MS);
 

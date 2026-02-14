@@ -388,6 +388,7 @@
   },
   "settings": {
     "title": "Einstellungen",
+    "dialogDescription": "Autorenname, Design und Oberflächensprache konfigurieren.",
     "author": "Autorenname",
     "authorPlaceholder": "Ihr Name für Anmerkungen",
     "authorDescription": "Wird als Autor bei Haftnotizen und Kommentaren angezeigt.",

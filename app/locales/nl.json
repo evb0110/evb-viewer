@@ -388,6 +388,7 @@
   },
   "settings": {
     "title": "Instellingen",
+    "dialogDescription": "Configureer auteursnaam, thema en interfacetaal.",
     "author": "Auteursnaam",
     "authorPlaceholder": "Uw naam voor annotaties",
     "authorDescription": "Wordt weergegeven als auteur bij plaknotities en opmerkingen.",
