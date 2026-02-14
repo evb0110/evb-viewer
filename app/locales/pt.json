@@ -26,7 +26,9 @@
   "tabs": {
     "newTab": "Novo Separador",
     "unsavedChanges": "Alterações por guardar",
-    "closeTab": "Fechar separador"
+    "closeTab": "Fechar separador",
+    "confirmCloseDirtyTitle": "Fechar separador com alterações por guardar?",
+    "confirmCloseDirtyDescription": "\"{name}\" tem alterações por guardar. As alterações serão guardadas antes de fechar."
   },
   "zoom": {
     "fitWidth": "Ajustar à Largura",

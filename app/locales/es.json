@@ -26,7 +26,9 @@
   "tabs": {
     "newTab": "Nueva pestaña",
     "unsavedChanges": "Cambios sin guardar",
-    "closeTab": "Cerrar pestaña"
+    "closeTab": "Cerrar pestaña",
+    "confirmCloseDirtyTitle": "¿Cerrar pestaña con cambios sin guardar?",
+    "confirmCloseDirtyDescription": "\"{name}\" tiene cambios sin guardar. Los cambios se guardarán antes de cerrar."
   },
   "zoom": {
     "fitWidth": "Ajustar al ancho",

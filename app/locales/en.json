@@ -26,7 +26,9 @@
   "tabs": {
     "newTab": "New Tab",
     "unsavedChanges": "Unsaved changes",
-    "closeTab": "Close tab"
+    "closeTab": "Close tab",
+    "confirmCloseDirtyTitle": "Close tab with unsaved changes?",
+    "confirmCloseDirtyDescription": "\"{name}\" has unsaved changes. Changes will be saved before closing."
   },
   "zoom": {
     "fitWidth": "Fit Width",

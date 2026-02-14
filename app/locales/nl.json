@@ -26,7 +26,9 @@
   "tabs": {
     "newTab": "Nieuw tabblad",
     "unsavedChanges": "Niet-opgeslagen wijzigingen",
-    "closeTab": "Tabblad sluiten"
+    "closeTab": "Tabblad sluiten",
+    "confirmCloseDirtyTitle": "Tabblad sluiten met niet-opgeslagen wijzigingen?",
+    "confirmCloseDirtyDescription": "\"{name}\" heeft niet-opgeslagen wijzigingen. Wijzigingen worden opgeslagen voordat het tabblad sluit."
   },
   "zoom": {
     "fitWidth": "Breedte passend",

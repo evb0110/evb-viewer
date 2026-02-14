@@ -25,6 +25,36 @@
             />
         </div>
         <SettingsDialog v-if="showSettings" v-model:open="showSettings" />
+        <UModal
+            v-model:open="dirtyTabCloseDialogOpen"
+            :title="t('tabs.confirmCloseDirtyTitle')"
+            :ui="{ footer: 'justify-end' }"
+        >
+            <template #description>
+                <span class="sr-only">
+                    {{ t('tabs.confirmCloseDirtyDescription', { name: dirtyTabCloseTargetName }) }}
+                </span>
+            </template>
+
+            <template #body>
+                <p class="text-sm text-muted">
+                    {{ t('tabs.confirmCloseDirtyDescription', { name: dirtyTabCloseTargetName }) }}
+                </p>
+            </template>
+
+            <template #footer="{ close }">
+                <UButton
+                    :label="t('common.cancel')"
+                    color="neutral"
+                    variant="outline"
+                    @click="close"
+                />
+                <UButton
+                    :label="t('tabs.closeTab')"
+                    @click="confirmDirtyTabClose"
+                />
+            </template>
+        </UModal>
     </div>
 </template>
 
@@ -35,6 +65,7 @@ import {
     onMounted,
     onUnmounted,
     ref,
+    watch,
     watchEffect,
 } from 'vue';
 import { useTabManager } from '@app/composables/useTabManager';
@@ -76,7 +107,11 @@ const {
     ensureAtLeastOneTab,
 } = useTabManager();
 
+const { t } = useI18n();
 const showSettings = ref(false);
+const dirtyTabCloseDialogOpen = ref(false);
+const dirtyTabCloseTargetId = ref<string | null>(null);
+let dirtyTabCloseDialogResolver: ((confirmed: boolean) => void) | null = null;
 
 const workspaceRefs = ref<Map<string, IWorkspaceExpose>>(new Map());
 
@@ -119,14 +154,57 @@ function syncMenuDocumentState() {
     void window.electronAPI.setMenuDocumentState(hasDocument);
 }
 
-function handleCloseTab(tabId: string) {
+const dirtyTabCloseTargetName = computed(() => {
+    const tab = dirtyTabCloseTargetId.value
+        ? tabs.value.find(candidate => candidate.id === dirtyTabCloseTargetId.value)
+        : null;
+    return tab?.fileName ?? t('tabs.newTab');
+});
+
+function resolveDirtyTabCloseDialog(confirmed: boolean) {
+    const resolver = dirtyTabCloseDialogResolver;
+    dirtyTabCloseDialogResolver = null;
+    dirtyTabCloseTargetId.value = null;
+    dirtyTabCloseDialogOpen.value = false;
+    if (resolver) {
+        resolver(confirmed);
+    }
+}
+
+function confirmDirtyTabClose() {
+    resolveDirtyTabCloseDialog(true);
+}
+
+function requestDirtyTabCloseConfirmation(tabId: string) {
+    if (dirtyTabCloseDialogResolver) {
+        resolveDirtyTabCloseDialog(false);
+    }
+    dirtyTabCloseTargetId.value = tabId;
+    dirtyTabCloseDialogOpen.value = true;
+    return new Promise<boolean>((resolve) => {
+        dirtyTabCloseDialogResolver = resolve;
+    });
+}
+
+async function handleCloseTab(tabId: string) {
+    const tab = tabs.value.find(candidate => candidate.id === tabId);
+    if (!tab) {
+        return;
+    }
+
+    if (tab.isDirty) {
+        const confirmed = await requestDirtyTabCloseConfirmation(tabId);
+        if (!confirmed) {
+            return;
+        }
+    }
+
     const workspace = workspaceRefs.value.get(tabId);
     if (workspace && workspaceHasPdf(workspace)) {
-        void workspace.handleCloseFileFromUi().then(() => {
-            if (!workspaceHasPdf(workspace)) {
-                closeTab(tabId);
-            }
-        });
+        await workspace.handleCloseFileFromUi();
+        if (!workspaceHasPdf(workspace)) {
+            closeTab(tabId);
+        }
     } else {
         closeTab(tabId);
     }
@@ -262,7 +340,7 @@ function handleTabKeyboardShortcut(event: KeyboardEvent) {
     if (mod && event.key.toLowerCase() === 'w' && !event.shiftKey) {
         event.preventDefault();
         if (activeTabId.value) {
-            handleCloseTab(activeTabId.value);
+            void handleCloseTab(activeTabId.value);
         }
         return;
     }
@@ -378,7 +456,7 @@ onMounted(() => {
             }),
             window.electronAPI.onMenuCloseTab(() => {
                 if (activeTabId.value) {
-                    handleCloseTab(activeTabId.value);
+                    void handleCloseTab(activeTabId.value);
                 }
             }),
         );
@@ -387,6 +465,12 @@ onMounted(() => {
 
 watchEffect(() => {
     syncMenuDocumentState();
+});
+
+watch(dirtyTabCloseDialogOpen, (isOpen) => {
+    if (!isOpen && dirtyTabCloseDialogResolver) {
+        resolveDirtyTabCloseDialog(false);
+    }
 });
 
 onUnmounted(() => {

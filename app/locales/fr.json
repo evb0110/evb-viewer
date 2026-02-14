@@ -26,7 +26,9 @@
   "tabs": {
     "newTab": "Nouvel onglet",
     "unsavedChanges": "Modifications non enregistrées",
-    "closeTab": "Fermer l’onglet"
+    "closeTab": "Fermer l’onglet",
+    "confirmCloseDirtyTitle": "Fermer l’onglet avec des modifications non enregistrées ?",
+    "confirmCloseDirtyDescription": "\"{name}\" contient des modifications non enregistrées. Les modifications seront enregistrées avant la fermeture."
   },
   "zoom": {
     "fitWidth": "Ajuster à la largeur",

@@ -26,7 +26,9 @@
   "tabs": {
     "newTab": "Nuova scheda",
     "unsavedChanges": "Modifiche non salvate",
-    "closeTab": "Chiudi scheda"
+    "closeTab": "Chiudi scheda",
+    "confirmCloseDirtyTitle": "Chiudere la scheda con modifiche non salvate?",
+    "confirmCloseDirtyDescription": "\"{name}\" ha modifiche non salvate. Le modifiche verranno salvate prima della chiusura."
   },
   "zoom": {
     "fitWidth": "Adatta alla larghezza",

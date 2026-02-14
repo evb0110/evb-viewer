@@ -19,7 +19,6 @@
                     :aria-label="t('tabs.unsavedChanges')"
                 />
                 <button
-                    v-else
                     class="tab-close"
                     :class="{ 'is-visible': tab.id === activeTabId }"
                     :aria-label="t('tabs.closeTab')"

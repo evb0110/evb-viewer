@@ -26,7 +26,9 @@
   "tabs": {
     "newTab": "Neuer Tab",
     "unsavedChanges": "Ungespeicherte Änderungen",
-    "closeTab": "Tab schließen"
+    "closeTab": "Tab schließen",
+    "confirmCloseDirtyTitle": "Tab mit ungespeicherten Änderungen schließen?",
+    "confirmCloseDirtyDescription": "\"{name}\" enthält ungespeicherte Änderungen. Änderungen werden vor dem Schließen gespeichert."
   },
   "zoom": {
     "fitWidth": "Breite anpassen",
