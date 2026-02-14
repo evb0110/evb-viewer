@@ -5,3 +5,5 @@ dist-electron/
 dist/
 .devkit/
 .idea/
+
+.DS_Store
