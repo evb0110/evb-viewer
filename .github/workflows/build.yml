@@ -12,13 +12,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # macOS
+          # macOS (fast lane)
           - os: macos-14
             platform: mac
             arch: arm64
-          - os: macos-15-intel
-            platform: mac
-            arch: x64
 
           # Linux — native runners for each arch
           - os: ubuntu-latest
@@ -161,3 +158,61 @@ jobs:
           draft: false
           generate_release_notes: true
           files: artifacts/*
+
+  build_mac_intel:
+    name: Build macOS Intel (non-blocking)
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: release
+    runs-on: macos-15-intel
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Bundle native tools (macOS Intel)
+        run: |
+          brew install tesseract poppler qpdf djvulibre ffmpeg meson pkg-config
+          pip3 install sphinx --break-system-packages
+          bash scripts/bundle-tesseract-macos.sh
+          bash scripts/bundle-leptonica-unpaper-macos.sh
+          bash scripts/bundle-pdf-tools-macos.sh
+          bash scripts/bundle-djvu-macos.sh
+
+      - name: Build (Nuxt + Electron)
+        run: pnpm run build
+
+      - name: Package installer (macOS Intel)
+        run: pnpm exec electron-builder --mac --x64
+
+      - name: Verify packaged native tools
+        run: bash scripts/verify-packaged-native-tools.sh mac x64
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-mac-x64
+          path: |
+            dist/*.dmg
+            dist/*.zip
+          if-no-files-found: error
+
+      - name: Append to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.dmg
+            dist/*.zip
