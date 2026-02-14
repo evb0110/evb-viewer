@@ -23,14 +23,8 @@ mac:
   icon: resources/icon.icns
   entitlementsInherit: build/entitlements.mac.plist
   target:
-    - target: dmg
-      arch:
-        - arm64
-        - x64
-    - target: zip
-      arch:
-        - arm64
-        - x64
+    - dmg
+    - zip
   extraResources:
     - from: resources/tesseract/darwin-${arch}
       to: tesseract/darwin-${arch}
@@ -44,10 +38,7 @@ mac:
 win:
   icon: resources/icon.ico
   target:
-    - target: nsis
-      arch:
-        - x64
-        - arm64
+    - nsis
   extraResources:
     - from: resources/tesseract/win32-${arch}
       to: tesseract/win32-${arch}
@@ -61,14 +52,8 @@ win:
 linux:
   icon: resources/icon.png
   target:
-    - target: AppImage
-      arch:
-        - x64
-        - arm64
-    - target: deb
-      arch:
-        - x64
-        - arm64
+    - AppImage
+    - deb
   extraResources:
     - from: resources/tesseract/linux-${arch}
       to: tesseract/linux-${arch}
