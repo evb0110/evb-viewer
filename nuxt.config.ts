@@ -178,5 +178,9 @@ export default defineNuxtConfig({
         server: {watch: {usePolling: false}},
     },
 
+    nitro: {
+        output: { dir: 'nuxt-output' },
+    },
+
     compatibilityDate: '2025-01-01',
 });

@@ -8,7 +8,7 @@ afterPack: ./scripts/afterPack.cjs
 
 files:
   - dist-electron/
-  - .output/
+  - nuxt-output/
   - package.json
   - "!.devkit/**/*"
   - "!.devkit"

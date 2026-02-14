@@ -17,7 +17,7 @@ export const config = {
             return `http://localhost:${this.port}`;
         },
         get entryPath() {
-            return join(__dirname, '../.output/server/index.mjs');
+            return join(__dirname, '../nuxt-output/server/index.mjs');
         },
     },
 

@@ -13,7 +13,7 @@
     "dev:nuxt": "nuxt dev",
     "dev:quick": "pnpm run build:electron && tsx scripts/electron-run.ts start",
     "dev:fast": "pnpm run build:electron && concurrently -k \"nuxt dev\" \"wait-on http://localhost:3235 && electron .\"",
-    "clean:cache": "rm -rf node_modules/.vite node_modules/.cache .nuxt .output",
+    "clean:cache": "rm -rf node_modules/.vite node_modules/.cache .nuxt nuxt-output",
     "build": "nuxt build && pnpm run build:electron",
     "build:icons": "bash scripts/build-icons.sh",
     "build:electron": "esbuild electron/main.ts --bundle --platform=node --format=esm --outfile=dist-electron/main.js --external:electron && esbuild electron/preload.ts --bundle --platform=node --format=cjs --outfile=dist-electron/preload.js --external:electron && esbuild electron/ocr/worker/main.ts --bundle --platform=node --format=esm --outfile=dist-electron/ocr-worker.js --external:electron",
