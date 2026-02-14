@@ -1,19 +1,27 @@
 import {
     useEventListener,
+    useMutationObserver,
     useResizeObserver,
 } from '@vueuse/core';
 import { nextTick } from 'vue';
 
-const MAX_COLLAPSE_TIER = 3;
+const MAX_COLLAPSE_TIER = 5;
+const LIVE_RESIZE_MAX_TIER = 3;
 const OVERFLOW_TOLERANCE_PX = 0.5;
 const RESIZE_SETTLE_MS = 160;
+const EXPAND_RETRY_WIDTH_DELTA_PX = 8;
 
 export const useToolbarOverflow = () => {
     const toolbarRef = ref<HTMLElement | null>(null);
     const collapseTier = ref(0);
-    let recalcToken = 0;
+
     let frameId: number | null = null;
     let settleTimerId: number | null = null;
+    let isRecalculating = false;
+    let needsRecalculation = false;
+    let suppressMutationEvents = false;
+    let failedExpandTier: number | null = null;
+    let failedExpandWidth = 0;
 
     function isElementOverflowing(el: HTMLElement) {
         return (el.scrollWidth - el.clientWidth) > OVERFLOW_TOLERANCE_PX;
@@ -40,12 +48,12 @@ export const useToolbarOverflow = () => {
         });
     }
 
-    function isOverflowing(el: HTMLElement) {
-        if (isElementOverflowing(el) || hasOutOfBoundsChildren(el)) {
+    function isOverflowing(toolbar: HTMLElement) {
+        if (isElementOverflowing(toolbar) || hasOutOfBoundsChildren(toolbar)) {
             return true;
         }
 
-        const centerSection = el.querySelector<HTMLElement>('.toolbar-center');
+        const centerSection = toolbar.querySelector<HTMLElement>('.toolbar-center');
         if (!centerSection) {
             return false;
         }
@@ -66,69 +74,106 @@ export const useToolbarOverflow = () => {
         });
     }
 
-    async function recalculateCollapseTier(options: { allowExpand: boolean }) {
-        const token = ++recalcToken;
-        if (!toolbarRef.value) {
+    async function recalculateCollapseTier(allowExpand: boolean) {
+        suppressMutationEvents = true;
+        const toolbar = toolbarRef.value;
+        if (!toolbar) {
             collapseTier.value = 0;
+            suppressMutationEvents = false;
             return;
         }
 
-        let tier = Math.max(0, Math.min(collapseTier.value, MAX_COLLAPSE_TIER));
-        collapseTier.value = tier;
-        await waitForLayout();
-
-        if (token !== recalcToken) {
-            return;
-        }
-
-        let el = toolbarRef.value;
-        if (!el) {
-            return;
-        }
-
-        if (isOverflowing(el)) {
-            while (tier < MAX_COLLAPSE_TIER) {
-                tier += 1;
-                collapseTier.value = tier;
-                await waitForLayout();
-
-                if (token !== recalcToken) {
-                    return;
-                }
-
-                el = toolbarRef.value;
-                if (!el || !isOverflowing(el)) {
-                    return;
-                }
-            }
-            return;
-        }
-
-        if (!options.allowExpand) {
-            return;
-        }
-
-        while (tier > 0) {
-            const nextTier = tier - 1;
-            collapseTier.value = nextTier;
+        try {
+            let tier = Math.max(0, Math.min(collapseTier.value, MAX_COLLAPSE_TIER));
+            collapseTier.value = tier;
             await waitForLayout();
 
-            if (token !== recalcToken) {
+            let currentToolbar = toolbarRef.value;
+            if (!currentToolbar) {
                 return;
             }
 
-            el = toolbarRef.value;
-            if (!el || isOverflowing(el)) {
+            let collapsedDuringPass = false;
+            const maxTierForPass = allowExpand ? MAX_COLLAPSE_TIER : LIVE_RESIZE_MAX_TIER;
+
+            while (tier < maxTierForPass && isOverflowing(currentToolbar)) {
+                tier += 1;
                 collapseTier.value = tier;
+                collapsedDuringPass = true;
+                await waitForLayout();
+
+                currentToolbar = toolbarRef.value;
+                if (!currentToolbar) {
+                    return;
+                }
+            }
+
+            if (collapsedDuringPass) {
+                failedExpandTier = null;
+            }
+
+            if (!allowExpand) {
                 return;
             }
 
-            tier = nextTier;
+            while (tier > 0) {
+                currentToolbar = toolbarRef.value;
+                if (!currentToolbar) {
+                    return;
+                }
+
+                if (
+                    failedExpandTier === tier
+                    && currentToolbar.clientWidth <= (failedExpandWidth + EXPAND_RETRY_WIDTH_DELTA_PX)
+                ) {
+                    return;
+                }
+
+                const candidateTier = tier - 1;
+                collapseTier.value = candidateTier;
+                await waitForLayout();
+
+                currentToolbar = toolbarRef.value;
+                if (!currentToolbar || isOverflowing(currentToolbar)) {
+                    collapseTier.value = tier;
+                    failedExpandTier = tier;
+                    failedExpandWidth = currentToolbar?.clientWidth ?? failedExpandWidth;
+                    return;
+                }
+
+                failedExpandTier = null;
+                tier = candidateTier;
+            }
+        } finally {
+            suppressMutationEvents = false;
+        }
+    }
+
+    async function runRecalculation(allowExpand: boolean) {
+        if (isRecalculating) {
+            needsRecalculation = true;
+            return;
+        }
+
+        isRecalculating = true;
+        try {
+            await recalculateCollapseTier(allowExpand);
+        } finally {
+            isRecalculating = false;
+            if (needsRecalculation) {
+                needsRecalculation = false;
+                scheduleRecalculation();
+            }
         }
     }
 
     function scheduleRecalculation() {
         if (typeof window === 'undefined') {
+            return;
+        }
+
+        if (isRecalculating) {
+            needsRecalculation = true;
             return;
         }
 
@@ -138,7 +183,7 @@ export const useToolbarOverflow = () => {
 
         frameId = window.requestAnimationFrame(() => {
             frameId = null;
-            void recalculateCollapseTier({ allowExpand: false });
+            void runRecalculation(false);
         });
 
         if (settleTimerId !== null) {
@@ -147,7 +192,7 @@ export const useToolbarOverflow = () => {
 
         settleTimerId = window.setTimeout(() => {
             settleTimerId = null;
-            void recalculateCollapseTier({ allowExpand: true });
+            void runRecalculation(true);
         }, RESIZE_SETTLE_MS);
     }
 
@@ -159,7 +204,19 @@ export const useToolbarOverflow = () => {
         scheduleRecalculation();
     });
 
-    useEventListener(window, 'resize', () => {
+    useMutationObserver(toolbarRef, () => {
+        if (suppressMutationEvents) {
+            needsRecalculation = true;
+            return;
+        }
+        scheduleRecalculation();
+    }, {
+        subtree: true,
+        childList: true,
+        characterData: true,
+    });
+
+    useEventListener(typeof window !== 'undefined' ? window : undefined, 'resize', () => {
         scheduleRecalculation();
     });
 

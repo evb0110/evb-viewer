@@ -1,6 +1,6 @@
 <template>
-    <div class="page-controls">
-        <div class="page-controls-item">
+    <div :class="['page-controls', `page-controls--compact-${effectiveCompactLevel}`]">
+        <div v-if="showEdgeButtons" class="page-controls-item">
             <UTooltip :text="t('pageDropdown.firstPage')" :delay-duration="1200">
                 <UButton
                     icon="i-lucide-chevrons-left"
@@ -13,7 +13,7 @@
                 />
             </UTooltip>
         </div>
-        <div class="page-controls-item">
+        <div v-if="showStepButtons" class="page-controls-item">
             <UTooltip :text="t('pageDropdown.previousPage')" :delay-duration="1200">
                 <UButton
                     icon="i-lucide-chevron-left"
@@ -35,7 +35,7 @@
                 @click="startEditing"
             >
                 <span class="page-controls-indicator">{{ pageIndicator }}</span>
-                <span class="page-controls-separator">&nbsp;/ {{ totalPages }}</span>
+                <span v-if="showTotalInDisplay" class="page-controls-separator">&nbsp;/ {{ totalPages }}</span>
             </button>
             <div v-else class="page-controls-display is-editing">
                 <input
@@ -47,11 +47,11 @@
                     @keydown.escape.prevent="cancelEditing"
                     @blur="commitPageInput"
                 />
-                <span class="page-controls-separator">&nbsp;/ {{ totalPages }}</span>
+                <span v-if="showTotalInDisplay" class="page-controls-separator">&nbsp;/ {{ totalPages }}</span>
             </div>
         </div>
 
-        <div class="page-controls-item">
+        <div v-if="showStepButtons" class="page-controls-item">
             <UTooltip :text="t('pageDropdown.nextPage')" :delay-duration="1200">
                 <UButton
                     icon="i-lucide-chevron-right"
@@ -64,7 +64,7 @@
                 />
             </UTooltip>
         </div>
-        <div class="page-controls-item">
+        <div v-if="showEdgeButtons" class="page-controls-item">
             <UTooltip :text="t('pageDropdown.lastPage')" :delay-duration="1200">
                 <UButton
                     icon="i-lucide-chevrons-right"
@@ -94,6 +94,7 @@ interface IProps {
     totalPages: number;
     pageLabels?: string[] | null;
     disabled?: boolean;
+    compactLevel?: number;
 }
 
 const {
@@ -101,6 +102,7 @@ const {
     totalPages,
     pageLabels = null,
     disabled = false,
+    compactLevel = 0,
 } = defineProps<IProps>();
 
 const emit = defineEmits<{
@@ -112,6 +114,14 @@ const emit = defineEmits<{
 const isEditing = ref(false);
 const pageInputValue = ref(currentPage.toString());
 const pageInputRef = ref<HTMLInputElement | null>(null);
+
+const effectiveCompactLevel = computed(() => {
+    return Math.max(0, Math.min(compactLevel, 2));
+});
+
+const showEdgeButtons = computed(() => effectiveCompactLevel.value < 1);
+const showStepButtons = computed(() => effectiveCompactLevel.value < 3);
+const showTotalInDisplay = computed(() => effectiveCompactLevel.value < 2);
 
 const effectivePageLabels = computed(() => {
     if (pageLabels && pageLabels.length === totalPages) {
@@ -278,6 +288,11 @@ onBeforeUnmount(() => {
     border-radius: 0;
     cursor: pointer;
     transition: background-color 0.1s ease, box-shadow 0.1s ease;
+}
+
+.page-controls--compact-2 .page-controls-display {
+    min-width: 4rem;
+    padding: 0 0.375rem;
 }
 
 .page-controls-display:disabled {

@@ -1,6 +1,6 @@
 <template>
-    <div class="zoom-controls">
-        <div class="zoom-controls-item">
+    <div :class="['zoom-controls', `zoom-controls--compact-${effectiveCompactLevel}`]">
+        <div v-if="showStepButtons" class="zoom-controls-item">
             <UTooltip :text="t('zoom.zoomOut')" :delay-duration="1200">
                 <UButton
                     icon="i-lucide-minus"
@@ -125,7 +125,7 @@
             </UPopover>
         </div>
 
-        <div class="zoom-controls-item">
+        <div v-if="showStepButtons" class="zoom-controls-item">
             <UTooltip :text="t('zoom.zoomIn')" :delay-duration="1200">
                 <UButton
                     icon="i-lucide-plus"
@@ -152,12 +152,14 @@ interface IProps {
     zoom: number;
     fitMode: TFitMode;
     disabled?: boolean;
+    compactLevel?: number;
 }
 
 const {
     zoom,
     fitMode,
     disabled = false,
+    compactLevel = 0,
 } = defineProps<IProps>();
 
 const emit = defineEmits<{
@@ -169,6 +171,12 @@ const emit = defineEmits<{
 const isOpen = ref(false);
 const customZoomValue = ref(formatZoomValue(zoom));
 const customZoomInputRef = ref<{ $el: HTMLElement } | null>(null);
+
+const effectiveCompactLevel = computed(() => {
+    return Math.max(0, Math.min(compactLevel, 2));
+});
+
+const showStepButtons = computed(() => effectiveCompactLevel.value < 1);
 
 function close() {
     isOpen.value = false;
@@ -288,6 +296,11 @@ function applyCustomZoom() {
     cursor: pointer;
     color: var(--ui-text);
     transition: background-color 0.1s ease, box-shadow 0.1s ease;
+}
+
+.zoom-controls--compact-2 .zoom-controls-display {
+    min-width: 3.5rem;
+    padding: 0 0.375rem;
 }
 
 .zoom-controls-display:disabled {

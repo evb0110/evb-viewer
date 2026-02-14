@@ -313,6 +313,7 @@ defineExpose({toolbarRef});
     display: flex;
     align-items: center;
     gap: 0.25rem;
+    min-width: 0;
 }
 
 .toolbar-left {
@@ -324,6 +325,7 @@ defineExpose({toolbarRef});
     min-width: 0;
     justify-content: center;
     gap: 0.25rem;
+    overflow: hidden;
 }
 
 .toolbar-center-collapsed {

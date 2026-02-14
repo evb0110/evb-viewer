@@ -37,7 +37,6 @@
         >
             <template #ocr>
                 <OcrPopup
-                    v-if="!isCollapsed(1)"
                     ref="ocrPopupRef"
                     :pdf-document="pdfDocument"
                     :pdf-data="pdfData"
@@ -45,19 +44,7 @@
                     :total-pages="totalPages"
                     :working-copy-path="workingCopyPath"
                     :disabled="isDjvuMode"
-                    @open="closeOtherDropdowns('ocr')"
-                    @ocr-complete="handleOcrComplete"
-                />
-                <OcrPopup
-                    v-else
-                    ref="ocrPopupRef"
-                    :pdf-document="pdfDocument"
-                    :pdf-data="pdfData"
-                    :current-page="currentPage"
-                    :total-pages="totalPages"
-                    :working-copy-path="workingCopyPath"
-                    :disabled="isDjvuMode"
-                    class="toolbar-hidden-ocr"
+                    :hide-trigger="isCollapsed(1)"
                     @open="closeOtherDropdowns('ocr')"
                     @ocr-complete="handleOcrComplete"
                 />
@@ -67,6 +54,7 @@
                     ref="zoomDropdownRef"
                     v-model:zoom="zoom"
                     v-model:fit-mode="fitMode"
+                    :compact-level="0"
                     @open="pageDropdownRef?.close()"
                 />
             </template>
@@ -76,6 +64,7 @@
                     v-model="currentPage"
                     :total-pages="totalPages"
                     :page-labels="pageLabels"
+                    :compact-level="collapseTier >= 5 ? 2 : collapseTier >= 4 ? 1 : 0"
                     @go-to-page="handleGoToPage"
                     @open="zoomDropdownRef?.close()"
                 />
@@ -579,15 +568,6 @@ defineExpose({
 </script>
 
 <style scoped>
-.toolbar-hidden-ocr {
-    position: absolute;
-    width: 0;
-    height: 0;
-    overflow: hidden;
-    pointer-events: none;
-    opacity: 0;
-}
-
 .sidebar-wrapper {
     display: flex;
     height: 100%;

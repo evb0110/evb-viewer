@@ -1,14 +1,17 @@
 <template>
     <UPopover v-model:open="isOpen" mode="click" :disabled="disabled">
-        <UTooltip :text="t('ocr.button')" :delay-duration="1200">
-            <UButton
-                icon="i-lucide-scan-text"
-                variant="ghost"
-                color="neutral"
-                :disabled="disabled"
-                :aria-label="t('ocr.button')"
-            />
-        </UTooltip>
+        <template v-if="!hideTrigger">
+            <UTooltip :text="t('ocr.button')" :delay-duration="1200">
+                <UButton
+                    icon="i-lucide-scan-text"
+                    variant="ghost"
+                    color="neutral"
+                    :disabled="disabled"
+                    :aria-label="t('ocr.button')"
+                />
+            </UTooltip>
+        </template>
+        <span v-else class="ocr-popup__hidden-trigger" aria-hidden="true" />
 
         <template #content>
             <div class="ocr-popup">
@@ -258,6 +261,7 @@ interface IProps {
     totalPages: number;
     workingCopyPath: string | null;
     disabled?: boolean;
+    hideTrigger?: boolean;
 }
 
 const props = defineProps<IProps>();
@@ -341,6 +345,14 @@ watch(() => results.value.searchablePdfData, (pdfData) => {
     padding: 0.25rem;
     min-width: 16rem;
     max-width: 20rem;
+}
+
+.ocr-popup__hidden-trigger {
+    display: block;
+    width: 0;
+    height: 0;
+    overflow: hidden;
+    pointer-events: none;
 }
 
 .ocr-popup__header {
