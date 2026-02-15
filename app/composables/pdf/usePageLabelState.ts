@@ -10,6 +10,7 @@ import {
     derivePageLabelRangesFromLabels,
     normalizePageLabelRanges,
 } from '@app/utils/pdf-page-labels';
+import { BrowserLogger } from '@app/utils/browser-logger';
 
 export const usePageLabelState = (deps: {
     pdfDocument: Ref<PDFDocumentProxy | null>;
@@ -38,7 +39,8 @@ export const usePageLabelState = (deps: {
         try {
             const raw = await doc.getPageLabels();
             labels = raw && raw.length === doc.numPages ? raw : null;
-        } catch {
+        } catch (error) {
+            BrowserLogger.debug('page-labels', 'Failed to read page labels from PDF document', error);
             labels = null;
         }
 
