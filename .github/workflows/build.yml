@@ -196,7 +196,10 @@ jobs:
         run: pnpm run build
 
       - name: Package installer (macOS Intel)
-        run: pnpm exec electron-builder --mac --x64
+        # On macos-15-intel runners, DMG creation intermittently fails while
+        # detaching the mounted image (hdiutil exit code 16: resource busy).
+        # Build ZIP only in this supplemental lane to keep x64 artifacts flowing.
+        run: pnpm exec electron-builder --mac zip --x64
 
       - name: Verify packaged native tools
         run: bash scripts/verify-packaged-native-tools.sh mac x64
@@ -206,7 +209,6 @@ jobs:
         with:
           name: dist-mac-x64
           path: |
-            dist/*.dmg
             dist/*.zip
           if-no-files-found: error
 
@@ -214,5 +216,4 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/*.dmg
             dist/*.zip
