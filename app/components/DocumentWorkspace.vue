@@ -21,6 +21,7 @@
             :has-overflow-items="hasOverflowItems"
             :is-collapsed="isCollapsed"
             :is-djvu-mode="isDjvuMode"
+            :is-capturing-region="isCapturingRegion"
             @open-file="handleOpenFileFromUi"
             @open-settings="emit('open-settings')"
             @save="handleSave(); closeAllDropdowns()"
@@ -457,6 +458,7 @@ const {
     handleUndo,
     handleRedo,
     handleCaptureRegion,
+    isCapturingRegion,
     annotationNotePositions,
     sortedAnnotationNoteWindows,
     updateAnnotationNoteText,

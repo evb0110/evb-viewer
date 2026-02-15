@@ -102,16 +102,12 @@
                         />
                     </UTooltip>
                 </template>
-                <UTooltip :text="t('toolbar.captureRegion')" :delay-duration="1200">
-                    <UButton
-                        icon="i-lucide-crop"
-                        variant="ghost"
-                        color="neutral"
-                        class="toolbar-icon-button"
-                        :aria-label="t('toolbar.captureRegion')"
-                        @click="emit('capture-region')"
-                    />
-                </UTooltip>
+                <ToolbarToggleButton
+                    icon="lucide:scan"
+                    :active="isCapturingRegion"
+                    :tooltip="t('toolbar.captureRegion')"
+                    @click="emit('capture-region')"
+                />
 
                 <div class="toolbar-separator" />
             </div>
@@ -221,6 +217,7 @@ defineProps<{
     isFitHeightActive: boolean;
     showSidebar: boolean;
     dragMode: boolean;
+    isCapturingRegion: boolean;
     continuousScroll: boolean;
     collapseTier: number;
     hasOverflowItems: boolean;

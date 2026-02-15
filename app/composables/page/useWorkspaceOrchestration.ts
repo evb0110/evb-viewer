@@ -52,6 +52,7 @@ type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'bookmarks' | 'search';
 export interface IPdfViewerExpose {
     scrollToPage: (page: number) => void;
     captureRegionToClipboard: () => Promise<boolean>;
+    isCapturingRegion: { value: boolean };
     saveDocument: () => Promise<Uint8Array | null>;
     highlightSelection: () => Promise<boolean>;
     commentSelection: () => Promise<boolean>;
@@ -692,6 +693,8 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         }
     }
 
+    const isCapturingRegion = computed(() => pdfViewerRef.value?.isCapturingRegion.value ?? false);
+
     function handleCaptureRegion() {
         if (!pdfViewerRef.value) {
             return;
@@ -835,6 +838,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         handleUndo,
         handleRedo,
         handleCaptureRegion,
+        isCapturingRegion,
 
         annotationNotePositions,
         sortedAnnotationNoteWindows,

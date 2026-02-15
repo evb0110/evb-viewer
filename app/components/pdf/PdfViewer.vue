@@ -538,6 +538,7 @@ defineExpose({
     applyStampImage,
     invalidatePages,
     captureRegionToClipboard: regionSnip.startCaptureSession,
+    isCapturingRegion: regionSnip.isActive,
 });
 </script>
 

@@ -64,7 +64,7 @@ export default defineNuxtConfig({
             'lucide:circle-check',
             'lucide:circle-stop',
             'lucide:circle-x',
-            'lucide:crop',
+            'lucide:scan',
             'lucide:copy',
             'lucide:ellipsis',
             'lucide:external-link',
