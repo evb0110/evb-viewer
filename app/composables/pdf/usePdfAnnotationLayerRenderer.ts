@@ -1,6 +1,7 @@
 import {
     AnnotationLayer,
     AnnotationEditorLayer,
+    AnnotationEditorType,
     DrawLayer,
 } from 'pdfjs-dist';
 import type {
@@ -323,8 +324,15 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                 activeLayer.render({ viewport: editorViewport });
             }
 
-            annotationEditorLayerDiv.hidden = activeLayer.isInvisible;
-            activeLayer.pause(false);
+            const currentMode =
+                typeof annotationUiManager.getMode === 'function'
+                    ? annotationUiManager.getMode()
+                    : AnnotationEditorType.NONE;
+            const shouldHideLayer =
+                currentMode === AnnotationEditorType.NONE && activeLayer.isInvisible;
+
+            annotationEditorLayerDiv.hidden = shouldHideLayer;
+            activeLayer.pause(shouldHideLayer);
             return true;
         } catch (error) {
             disableAnnotationEditorLayerForCurrentDocument(error, pageNumber);

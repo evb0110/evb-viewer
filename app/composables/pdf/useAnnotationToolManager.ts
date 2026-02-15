@@ -118,6 +118,23 @@ export function useAnnotationToolManager(options: IUseAnnotationToolManagerOptio
         }
     }
 
+    function syncAnnotationEditorLayerVisibility(
+        mode: Parameters<AnnotationEditorUIManager['updateMode']>[0],
+    ) {
+        if (typeof document === 'undefined' || mode === AnnotationEditorType.NONE) {
+            return;
+        }
+
+        const layers = document.querySelectorAll<HTMLElement>(
+            '.annotation-editor-layer, .annotationEditorLayer',
+        );
+        layers.forEach((layer) => {
+            if (layer.hidden) {
+                layer.hidden = false;
+            }
+        });
+    }
+
     async function setAnnotationTool(tool: TAnnotationTool) {
         pendingAnnotationTool.value = tool;
         const uiManager = annotationUiManager.value;
@@ -144,6 +161,8 @@ export function useAnnotationToolManager(options: IUseAnnotationToolManagerOptio
                 BrowserLogger.warn('annotations', `Failed to update annotation tool mode: ${errorToLogText(modeError)}`);
                 return;
             }
+
+            syncAnnotationEditorLayerVisibility(mode);
 
             if (annotationToolUpdateToken !== localToken || !settings) {
                 return;

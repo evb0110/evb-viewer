@@ -29,26 +29,9 @@ export interface IPageShortcutsDeps {
     handleAnnotationToolChange: (tool: TAnnotationTool) => void;
 }
 
-function isTypingTarget(target: EventTarget | null) {
-    if (!(target instanceof HTMLElement)) {
-        return false;
-    }
-    if (target.isContentEditable) {
-        return true;
-    }
-    const tag = target.tagName;
-    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
-        return true;
-    }
-    return Boolean(target.closest('[contenteditable="true"], [contenteditable=""]'));
-}
-
 export const usePageShortcuts = (deps: IPageShortcutsDeps) => {
     const {
         pdfSrc,
-        showSettings,
-        annotationPlacingPageNote,
-        pdfViewerRef,
         sidebarRef,
         shapePropertiesPopoverVisible,
         annotationContextMenuVisible,
@@ -57,91 +40,14 @@ export const usePageShortcuts = (deps: IPageShortcutsDeps) => {
         closePageContextMenu,
         closeShapeProperties,
         openSearch,
-        openAnnotations,
-        handleAnnotationToolChange,
     } = deps;
     const shortcutListenerCleanups: Array<() => void> = [];
 
     function handleGlobalShortcut(event: KeyboardEvent) {
-        if (event.key === 'Escape') {
-            closeAnnotationContextMenu();
-            closePageContextMenu();
-            closeShapeProperties();
-            pdfViewerRef.value?.cancelCommentPlacement();
-            annotationPlacingPageNote.value = false;
-        }
-
-        if ((event.metaKey || event.ctrlKey) && event.key === ',') {
-            event.preventDefault();
-            showSettings.value = true;
-            return;
-        }
-
         if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'f' && pdfSrc.value) {
             event.preventDefault();
             openSearch();
             nextTick(() => sidebarRef.value?.focusSearch());
-            return;
-        }
-
-        if (!pdfSrc.value) {
-            return;
-        }
-
-        if (event.metaKey || event.ctrlKey || event.altKey || isTypingTarget(event.target)) {
-            return;
-        }
-
-        const key = event.key.toLowerCase();
-        switch (key) {
-            case 'v':
-                handleAnnotationToolChange('none');
-                return;
-            case 'h':
-                openAnnotations();
-                handleAnnotationToolChange('highlight');
-                return;
-            case 'u':
-                openAnnotations();
-                handleAnnotationToolChange('underline');
-                return;
-            case 's':
-                openAnnotations();
-                handleAnnotationToolChange('strikethrough');
-                return;
-            case 'i':
-                openAnnotations();
-                handleAnnotationToolChange('draw');
-                return;
-            case 't':
-                openAnnotations();
-                handleAnnotationToolChange('text');
-                return;
-            case 'r':
-                openAnnotations();
-                handleAnnotationToolChange('rectangle');
-                return;
-            case 'c':
-                openAnnotations();
-                handleAnnotationToolChange('circle');
-                return;
-            case 'l':
-                openAnnotations();
-                handleAnnotationToolChange('line');
-                return;
-            case 'a':
-                openAnnotations();
-                handleAnnotationToolChange('arrow');
-                return;
-            case 'escape':
-                handleAnnotationToolChange('none');
-                return;
-            case 'delete':
-            case 'backspace':
-                pdfViewerRef.value?.deleteSelectedShape();
-                return;
-            default:
-                return;
         }
     }
 
