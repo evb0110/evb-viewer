@@ -6,14 +6,13 @@
 
 <script setup lang="ts">
 import { onMounted } from 'vue';
-import type { TI18nComposer } from '@app/types/i18n';
 import { BrowserLogger } from '@app/utils/browser-logger';
 
 const {
     load: loadSettings,
     settings,
 } = useSettings();
-const { setLocale } = useTypedI18n() as TI18nComposer;
+const { setLocale } = useTypedI18n();
 const colorMode = useColorMode();
 
 if (import.meta.dev) {

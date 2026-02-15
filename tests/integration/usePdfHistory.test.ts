@@ -219,4 +219,22 @@ describe('usePdfHistory', () => {
 
         expect(deps.clearOcrCache).not.toHaveBeenCalled();
     });
+
+    it('does not wait for reload when undo is a no-op', async () => {
+        const deps = createMockDeps({ undo: vi.fn(async () => false) });
+        const { handleUndo } = usePdfHistory(deps);
+
+        await handleUndo();
+
+        expect(deps.isHistoryBusy.value).toBe(false);
+    });
+
+    it('does not wait for reload when redo is a no-op', async () => {
+        const deps = createMockDeps({ redo: vi.fn(async () => false) });
+        const { handleRedo } = usePdfHistory(deps);
+
+        await handleRedo();
+
+        expect(deps.isHistoryBusy.value).toBe(false);
+    });
 });

@@ -2,6 +2,11 @@ import {
     ref,
     toRaw,
 } from 'vue';
+import {
+    DEFAULT_LOCALE,
+    LOCALE_CODES,
+    type TLocale,
+} from '@app/i18n/locales';
 import type { ISettingsData } from '@app/types/shared';
 import { BrowserLogger } from '@app/utils/browser-logger';
 
@@ -18,8 +23,37 @@ const DEFAULT_SETTINGS: ISettingsData = {
     version: 1,
     authorName: '',
     theme: 'light',
-    locale: 'en',
+    locale: DEFAULT_LOCALE,
 };
+
+const SUPPORTED_LOCALES = new Set<string>(LOCALE_CODES);
+
+function isLocale(locale: string): locale is TLocale {
+    return SUPPORTED_LOCALES.has(locale);
+}
+
+function sanitizeTheme(theme: unknown): ISettingsData['theme'] {
+    return theme === 'dark' ? 'dark' : 'light';
+}
+
+function sanitizeLocale(locale: unknown): TLocale {
+    if (typeof locale !== 'string') {
+        return DEFAULT_LOCALE;
+    }
+    return isLocale(locale) ? locale : DEFAULT_LOCALE;
+}
+
+function sanitizeSettings(raw: Partial<ISettingsData> | null | undefined): ISettingsData {
+    return {
+        version: typeof raw?.version === 'number' ? raw.version : DEFAULT_SETTINGS.version,
+        authorName: typeof raw?.authorName === 'string' ? raw.authorName : DEFAULT_SETTINGS.authorName,
+        theme: sanitizeTheme(raw?.theme),
+        locale: sanitizeLocale(raw?.locale),
+        suppressDefaultViewerPrompt: typeof raw?.suppressDefaultViewerPrompt === 'boolean'
+            ? raw.suppressDefaultViewerPrompt
+            : undefined,
+    };
+}
 
 // Shared state across all composable instances
 const settings = ref<ISettingsData>({ ...DEFAULT_SETTINGS });
@@ -42,7 +76,8 @@ export const useSettings = () => {
 
         loadPromise = (async () => {
             try {
-                settings.value = await window.electronAPI.settings.get();
+                const loadedSettings = await window.electronAPI.settings.get();
+                settings.value = sanitizeSettings(loadedSettings);
                 isLoaded.value = true;
             } catch (e) {
                 BrowserLogger.error('settings', 'Failed to load settings', e);
@@ -60,13 +95,7 @@ export const useSettings = () => {
         }
 
         try {
-            const raw = toRaw(settings.value);
-            const payload: ISettingsData = {
-                version: typeof raw.version === 'number' ? raw.version : DEFAULT_SETTINGS.version,
-                authorName: typeof raw.authorName === 'string' ? raw.authorName : DEFAULT_SETTINGS.authorName,
-                theme: raw.theme === 'dark' ? 'dark' : 'light',
-                locale: raw.locale === 'ru' ? 'ru' : 'en',
-            };
+            const payload = sanitizeSettings(toRaw(settings.value));
             await window.electronAPI.settings.save(payload);
         } catch (e) {
             BrowserLogger.error('settings', 'Failed to save settings', e);

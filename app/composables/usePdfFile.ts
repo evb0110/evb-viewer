@@ -5,6 +5,7 @@ import {
 import { getElectronAPI } from '@app/utils/electron';
 import { useOcrTextContent } from '@app/composables/pdf/useOcrTextContent';
 import type { TPdfSource } from '@app/types/pdf';
+import { BrowserLogger } from '@app/utils/browser-logger';
 
 export const usePdfFile = () => {
     const { t } = useTypedI18n();
@@ -123,8 +124,11 @@ export const usePdfFile = () => {
             clearOcrCache(prevPath);
             try {
                 await api.cleanupFile(prevPath);
-            } catch {
-                // Ignore cleanup errors - old directory may already be gone
+            } catch (cleanupError) {
+                BrowserLogger.warn('pdf-file', 'Failed to cleanup previous working copy', {
+                    path: prevPath,
+                    error: cleanupError,
+                });
             }
         }
 

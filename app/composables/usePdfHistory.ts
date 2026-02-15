@@ -42,18 +42,27 @@ export const usePdfHistory = (deps: {
         redo,
     } = deps;
 
-    function waitForPdfReload(pageToRestore: number) {
-        return new Promise<void>((resolve) => {
-            const initialDoc = pdfDocument.value;
-            let settled = false;
-            let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    /**
+     * Starts watching for a PDF document instance swap and resolves when
+     * the reload completes (or times out). A cancel path is exposed so
+     * undo/redo no-op operations can tear the watcher down immediately.
+     */
+    function createPdfReloadWaiter(pageToRestore: number) {
+        const initialDoc = pdfDocument.value;
+        let settled = false;
+        let timeoutId: ReturnType<typeof setTimeout> | null = null;
+        let unwatch: (() => void) | null = null;
 
+        const promise = new Promise<void>((resolve) => {
             const finish = (onDone?: () => void) => {
                 if (settled) {
                     return;
                 }
                 settled = true;
-                unwatch();
+                if (unwatch) {
+                    unwatch();
+                    unwatch = null;
+                }
                 if (timeoutId) {
                     clearTimeout(timeoutId);
                     timeoutId = null;
@@ -65,7 +74,7 @@ export const usePdfHistory = (deps: {
                 }
             };
 
-            const unwatch = watch(pdfDocument, (doc) => {
+            unwatch = watch(pdfDocument, (doc) => {
                 if (!doc || doc === initialDoc) {
                     return;
                 }
@@ -82,6 +91,28 @@ export const usePdfHistory = (deps: {
                 finish();
             }, PDF_RELOAD_TIMEOUT_MS);
         });
+
+        return {
+            promise,
+            cancel: () => {
+                if (settled) {
+                    return;
+                }
+                settled = true;
+                if (unwatch) {
+                    unwatch();
+                    unwatch = null;
+                }
+                if (timeoutId) {
+                    clearTimeout(timeoutId);
+                    timeoutId = null;
+                }
+            },
+        };
+    }
+
+    function waitForPdfReload(pageToRestore: number) {
+        return createPdfReloadWaiter(pageToRestore).promise;
     }
 
     async function handleUndo() {
@@ -101,10 +132,12 @@ export const usePdfHistory = (deps: {
                 clearOcrCache(workingCopyPath.value);
             }
             const pageToRestore = currentPage.value;
-            const restorePromise = waitForPdfReload(pageToRestore);
+            const reloadWaiter = createPdfReloadWaiter(pageToRestore);
             const didUndo = await undo();
             if (didUndo) {
-                await restorePromise;
+                await reloadWaiter.promise;
+            } else {
+                reloadWaiter.cancel();
             }
         } finally {
             isHistoryBusy.value = false;
@@ -128,10 +161,12 @@ export const usePdfHistory = (deps: {
                 clearOcrCache(workingCopyPath.value);
             }
             const pageToRestore = currentPage.value;
-            const restorePromise = waitForPdfReload(pageToRestore);
+            const reloadWaiter = createPdfReloadWaiter(pageToRestore);
             const didRedo = await redo();
             if (didRedo) {
-                await restorePromise;
+                await reloadWaiter.promise;
+            } else {
+                reloadWaiter.cancel();
             }
         } finally {
             isHistoryBusy.value = false;

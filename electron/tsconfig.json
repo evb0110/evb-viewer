@@ -8,6 +8,8 @@
         "strict": true,
         "skipLibCheck": true,
         "noEmit": true,
+        "noImplicitReturns": true,
+        "noFallthroughCasesInSwitch": true,
         "noUncheckedIndexedAccess": true,
         "forceConsistentCasingInFileNames": true,
         "baseUrl": "..",

@@ -86,7 +86,6 @@
 </template>
 
 <script setup lang="ts">
-import type { TI18nComposer } from '@app/types/i18n';
 import type {
     TAppLocale,
     TAppTheme,
@@ -97,7 +96,7 @@ const open = defineModel<boolean>('open', { required: true });
 const {
     t,
     setLocale,
-} = useTypedI18n() as TI18nComposer;
+} = useTypedI18n();
 const colorMode = useColorMode();
 const {
     settings,

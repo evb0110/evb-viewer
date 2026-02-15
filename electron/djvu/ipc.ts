@@ -6,6 +6,7 @@ import type { IpcMainInvokeEvent } from 'electron';
 import { existsSync } from 'fs';
 import { unlink } from 'fs/promises';
 import { estimateSizes } from '@electron/djvu/estimate';
+import { isAllowedDjvuTempPdfPath } from '@electron/djvu/temp-path';
 import {
     getDjvuHasText,
     getDjvuMetadata,
@@ -18,10 +19,13 @@ import {
     handleDjvuCancel,
     handleDjvuConvertToPdf,
 } from '@electron/djvu/conversion';
+import { createLogger } from '@electron/utils/logger';
 import {
     cancelActiveViewingJob,
     handleDjvuOpenForViewing,
 } from '@electron/djvu/viewing';
+
+const logger = createLogger('djvu-ipc');
 
 async function handleDjvuGetInfo(
     _event: IpcMainInvokeEvent,
@@ -78,18 +82,15 @@ async function handleDjvuCleanupTemp(
 
     try {
         const tempDir = app.getPath('temp');
-        if (!tempPdfPath.startsWith(tempDir)) {
-            return;
-        }
-        if (!tempPdfPath.includes('djvu-')) {
+        if (!isAllowedDjvuTempPdfPath(tempPdfPath, tempDir)) {
             return;
         }
 
         if (existsSync(tempPdfPath)) {
             await unlink(tempPdfPath);
         }
-    } catch {
-        // Ignore cleanup errors
+    } catch (error) {
+        logger.warn(`Failed to cleanup temporary DjVu PDF: ${String(error)}`);
     }
 }
 

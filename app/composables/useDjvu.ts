@@ -54,6 +54,10 @@ export const useDjvu = () => {
         isPartial: boolean 
     }) => void) | null = null;
 
+    function logSuppressedError(action: string, error: unknown) {
+        BrowserLogger.warn('djvu', action, error);
+    }
+
     function setupProgressListener() {
         if (unsubProgress) {
             return;
@@ -79,7 +83,9 @@ export const useDjvu = () => {
                     if (pendingConvertCancel.value) {
                         activeConvertJobId.value = progress.jobId;
                         pendingConvertCancel.value = false;
-                        void api.djvu.cancel(progress.jobId).catch(() => {});
+                        void api.djvu.cancel(progress.jobId).catch((cancelError: unknown) => {
+                            logSuppressedError('Failed to cancel DjVu conversion job', cancelError);
+                        });
                     }
                     if (activeConvertJobId.value && progress.jobId !== activeConvertJobId.value) {
                         return;
@@ -97,8 +103,8 @@ export const useDjvu = () => {
                     }
                 }
             });
-        } catch {
-            // Not in Electron
+        } catch (error) {
+            logSuppressedError('DjVu progress listener unavailable', error);
         }
     }
 
@@ -121,8 +127,8 @@ export const useDjvu = () => {
                     swapHandler(event);
                 }
             });
-        } catch {
-            // Not in Electron
+        } catch (error) {
+            logSuppressedError('DjVu viewing-ready listener unavailable', error);
         }
     }
 
@@ -213,7 +219,9 @@ export const useDjvu = () => {
                             }
 
                             if (oldPath && oldPath !== event.pdfPath) {
-                                api.djvu.cleanupTemp(oldPath).catch(() => {});
+                                api.djvu.cleanupTemp(oldPath).catch((cleanupError: unknown) => {
+                                    logSuppressedError('Failed to cleanup old DjVu temp PDF', cleanupError);
+                                });
                             }
                         } finally {
                             activeViewingJobId.value = null;
@@ -224,7 +232,9 @@ export const useDjvu = () => {
                             };
                             swapHandler = null;
                         }
-                    })().catch(() => {});
+                    })().catch((swapError: unknown) => {
+                        logSuppressedError('Failed to swap DjVu full PDF', swapError);
+                    });
                 };
             }
         } catch (e) {
@@ -296,8 +306,8 @@ export const useDjvu = () => {
             if (tempPath) {
                 try {
                     await api.djvu.cleanupTemp(tempPath);
-                } catch {
-                    // Ignore cleanup errors
+                } catch (cleanupError) {
+                    logSuppressedError('Failed to cleanup DjVu temp PDF after conversion', cleanupError);
                 }
             }
 
@@ -339,11 +349,12 @@ export const useDjvu = () => {
             await Promise.all(Array.from(ids, async (jobId) => {
                 try {
                     await api.djvu.cancel(jobId);
-                } catch {
-                    // Ignore individual cancellation failures
+                } catch (cancelError) {
+                    logSuppressedError(`Failed to cancel DjVu job ${jobId}`, cancelError);
                 }
             }));
-        } catch {
+        } catch (error) {
+            logSuppressedError('Failed to cancel active DjVu jobs', error);
             return false;
         }
 
@@ -371,8 +382,8 @@ export const useDjvu = () => {
         try {
             const api = getElectronAPI();
             await api.djvu.cleanupTemp(djvuTempPdfPath.value);
-        } catch {
-            // Ignore cleanup errors
+        } catch (cleanupError) {
+            logSuppressedError('Failed to cleanup DjVu temp PDF', cleanupError);
         }
     }
 

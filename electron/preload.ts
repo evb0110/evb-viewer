@@ -8,6 +8,7 @@ import type {
     IMenuEventCallback,
     IMenuEventUnsubscribe,
 } from 'electron/ipc-types';
+import type { ISettingsData } from '@app/types/shared';
 
 // M1.4: Improved preload guard - skip duplicate installation without throwing
 const __preloadAlreadyInstalled = (globalThis as Record<string, unknown>).__preloadInstalled === true;
@@ -398,7 +399,7 @@ if (!__preloadAlreadyInstalled) {
         // Settings API
         settings: {
             get: () => ipcRenderer.invoke('settings:get'),
-            save: (settings: unknown) => ipcRenderer.invoke('settings:save', settings),
+            save: (settings: ISettingsData) => ipcRenderer.invoke('settings:save', settings),
         },
 
         onMenuOpenSettings: (callback: IMenuEventCallback): IMenuEventUnsubscribe => {

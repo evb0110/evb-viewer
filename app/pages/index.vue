@@ -68,6 +68,7 @@ import {
     watch,
     watchEffect,
 } from 'vue';
+import { BrowserLogger } from '@app/utils/browser-logger';
 import { useTabManager } from '@app/composables/useTabManager';
 
 interface IWorkspaceExpose {
@@ -116,12 +117,58 @@ let dirtyTabCloseDialogResolver: ((confirmed: boolean) => void) | null = null;
 
 const workspaceRefs = ref<Map<string, IWorkspaceExpose>>(new Map());
 
-function setWorkspaceRef(tabId: string, el: unknown) {
-    if (el) {
-        workspaceRefs.value.set(tabId, el as IWorkspaceExpose);
-    } else {
-        workspaceRefs.value.delete(tabId);
+const REQUIRED_WORKSPACE_METHODS: Array<keyof Omit<IWorkspaceExpose, 'hasPdf'>> = [
+    'handleSave',
+    'handleSaveAs',
+    'handleUndo',
+    'handleRedo',
+    'handleOpenFileFromUi',
+    'handleOpenFileDirectWithPersist',
+    'handleOpenFileDirectBatchWithPersist',
+    'handleCloseFileFromUi',
+    'handleExportDocx',
+    'handleExportImages',
+    'handleExportMultiPageTiff',
+    'handleZoomIn',
+    'handleZoomOut',
+    'handleFitWidth',
+    'handleFitHeight',
+    'handleActualSize',
+    'handleDeletePages',
+    'handleExtractPages',
+    'handleRotateCw',
+    'handleRotateCcw',
+    'handleInsertPages',
+    'handleConvertToPdf',
+    'closeAllDropdowns',
+];
+
+function isWorkspaceExpose(value: unknown): value is IWorkspaceExpose {
+    if (!value || typeof value !== 'object') {
+        return false;
     }
+
+    const candidate = value as Record<string, unknown>;
+    if (!('hasPdf' in candidate)) {
+        return false;
+    }
+
+    return REQUIRED_WORKSPACE_METHODS.every(methodName => typeof candidate[methodName] === 'function');
+}
+
+function setWorkspaceRef(tabId: string, el: unknown) {
+    if (isWorkspaceExpose(el)) {
+        workspaceRefs.value.set(tabId, el);
+        return;
+    }
+
+    if (el) {
+        BrowserLogger.warn('tabs', 'Ignoring workspace ref with unexpected shape', {
+            tabId,
+            receivedType: typeof el,
+        });
+    }
+    workspaceRefs.value.delete(tabId);
 }
 
 const activeWorkspace = computed(() => {
