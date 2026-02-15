@@ -2,7 +2,10 @@ import {
     computed,
     ref,
 } from 'vue';
-import { getElectronAPI } from '@app/utils/electron';
+import {
+    getElectronAPI,
+    hasElectronAPI,
+} from '@app/utils/electron';
 import { useOcrTextContent } from '@app/composables/pdf/useOcrTextContent';
 import type { TPdfSource } from '@app/types/pdf';
 import { BrowserLogger } from '@app/utils/browser-logger';
@@ -25,7 +28,7 @@ export const usePdfFile = () => {
     const { clearCache: clearOcrCache } = useOcrTextContent();
 
     const fileName = computed(() => workingCopyPath.value?.split(/[\\/]/).pop() ?? null);
-    const isElectron = computed(() => typeof window !== 'undefined' && !!window.electronAPI);
+    const isElectron = computed(() => hasElectronAPI());
 
     const pendingDjvu = ref<string | null>(null);
 
@@ -294,12 +297,15 @@ export const usePdfFile = () => {
         isDirty.value = false;
         requiresSaveAsOnFirstSave.value = false;
         resetHistory(null);
-        if (pathToCleanup) {
+        if (pathToCleanup && hasElectronAPI()) {
+            const api = getElectronAPI();
             try {
-                const api = getElectronAPI();
                 await api.cleanupFile(pathToCleanup);
-            } catch {
-                // Ignore errors when not in Electron
+            } catch (cleanupError) {
+                BrowserLogger.warn('pdf-file', 'Failed to cleanup closed working copy', {
+                    path: pathToCleanup,
+                    error: cleanupError,
+                });
             }
         }
     }

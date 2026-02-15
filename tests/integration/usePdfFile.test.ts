@@ -16,8 +16,12 @@ const mockElectronAPI = {
     statFile: vi.fn(),
     cleanupFile: vi.fn(),
 };
+const mockHasElectronAPI = vi.fn(() => true);
 
-vi.mock('@app/utils/electron', () => ({getElectronAPI: () => mockElectronAPI}));
+vi.mock('@app/utils/electron', () => ({
+    getElectronAPI: () => mockElectronAPI,
+    hasElectronAPI: () => mockHasElectronAPI(),
+}));
 
 vi.mock('@app/composables/pdf/useOcrTextContent', () => ({useOcrTextContent: () => ({clearCache: vi.fn()})}));
 
@@ -34,6 +38,7 @@ const { usePdfFile } = await import('@app/composables/usePdfFile');
 describe('usePdfFile', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        mockHasElectronAPI.mockReturnValue(true);
     });
 
     describe('initial state', () => {
@@ -193,6 +198,24 @@ describe('usePdfFile', () => {
             await file.closeFile();
 
             expect(mockElectronAPI.cleanupFile).toHaveBeenCalledWith('/tmp/a.pdf');
+        });
+
+        it('skips cleanupFile when Electron API is unavailable', async () => {
+            const pdfBytes = new Uint8Array([1]);
+            mockElectronAPI.openPdfDialog.mockResolvedValue({
+                kind: 'pdf',
+                originalPath: '/a.pdf',
+                workingPath: '/tmp/a.pdf',
+            });
+            mockElectronAPI.statFile.mockResolvedValue({ size: 1 });
+            mockElectronAPI.readFile.mockResolvedValue(pdfBytes.buffer);
+            mockHasElectronAPI.mockReturnValue(false);
+
+            const file = usePdfFile();
+            await file.openFile();
+            await file.closeFile();
+
+            expect(mockElectronAPI.cleanupFile).not.toHaveBeenCalled();
         });
     });
 

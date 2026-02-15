@@ -106,6 +106,7 @@ import {
     watch,
 } from 'vue';
 import { getElectronAPI } from '@app/utils/electron';
+import { BrowserLogger } from '@app/utils/browser-logger';
 
 const { t } = useTypedI18n();
 
@@ -154,6 +155,8 @@ watch(open, async (isOpen) => {
 
     selectedSubsample.value = 1;
     preserveBookmarks.value = true;
+    info.value = null;
+    estimates.value = [];
 
     try {
         const api = getElectronAPI();
@@ -164,8 +167,11 @@ watch(open, async (isOpen) => {
         estimatesLoading.value = true;
         const sizeEstimates = await api.djvu.estimateSizes(props.djvuPath);
         estimates.value = sizeEstimates;
-    } catch {
-        // Silently handle errors
+    } catch (error) {
+        BrowserLogger.warn('djvu-convert-dialog', 'Failed to load DjVu conversion estimates', {
+            path: props.djvuPath,
+            error,
+        });
     } finally {
         estimatesLoading.value = false;
     }
