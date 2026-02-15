@@ -85,7 +85,6 @@ export default defineNuxtConfig({
             'lucide:menu',
             'lucide:message-circle',
             'lucide:message-square',
-            'lucide:minus',
             'lucide:monitor',
             'lucide:moon',
             'lucide:move-horizontal',
@@ -151,7 +150,18 @@ export default defineNuxtConfig({
 
     vite: {
         resolve: {alias: {'@app': fileURLToPath(new URL('./app', import.meta.url))}},
-        build: {rollupOptions: {output: {manualChunks: {'vendor-pdfjs': ['pdfjs-dist']}}}},
+        build: {
+            // Electron desktop bundle tolerates larger chunks, but still split heavy vendors to keep rebuilds snappier.
+            chunkSizeWarningLimit: 1400,
+            rollupOptions: {output: {manualChunks: {
+                'vendor-pdfjs': [
+                    'pdfjs-dist',
+                    'pdfjs-dist/web/pdf_viewer.mjs',
+                ],
+                'vendor-pdf-lib': ['pdf-lib'],
+                'vendor-vueuse': ['@vueuse/core'],
+            }}},
+        },
         optimizeDeps: {
             include: [
                 '@vueuse/core',

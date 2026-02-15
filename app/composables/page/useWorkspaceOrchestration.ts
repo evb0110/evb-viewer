@@ -6,6 +6,7 @@ import {
     watchEffect,
     type Ref,
 } from 'vue';
+import { useStorage } from '@vueuse/core';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { TFitMode } from '@app/types/shared';
 import { useOcrTextContent } from '@app/composables/pdf/useOcrTextContent';
@@ -35,6 +36,11 @@ import { useDjvu } from '@app/composables/useDjvu';
 import { useDocumentTransitions } from '@app/composables/page/useDocumentTransitions';
 import { useWorkspaceExport } from '@app/composables/page/useWorkspaceExport';
 import { useWorkspaceFileSwitch } from '@app/composables/page/useWorkspaceFileSwitch';
+import { setupWorkspaceUiSyncWatchers } from '@app/composables/page/workspace-ui-sync';
+import {
+    createSerializeCurrentPdfForEmbeddedFallback,
+    hasAnnotationChanges as detectAnnotationChanges,
+} from '@app/composables/page/workspace-annotation-utils';
 import type { TTabUpdate } from '@app/types/tabs';
 
 type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'bookmarks' | 'search';
@@ -272,6 +278,27 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         closeAnnotationContextMenu,
     });
 
+    const annotationKeepActiveStorage = useStorage<string>(
+        STORAGE_KEYS.ANNOTATION_KEEP_ACTIVE,
+        '0',
+        undefined,
+        { initOnMounted: true },
+    );
+
+    watch(annotationKeepActiveStorage, (stored) => {
+        const resolved = stored === '1';
+        if (annotationKeepActive.value !== resolved) {
+            annotationKeepActive.value = resolved;
+        }
+    }, { immediate: true });
+
+    watch(annotationKeepActive, (value) => {
+        const next = value ? '1' : '0';
+        if (annotationKeepActiveStorage.value !== next) {
+            annotationKeepActiveStorage.value = next;
+        }
+    });
+
     const {
         searchQuery,
         results,
@@ -402,23 +429,13 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         redo,
     });
 
-    async function serializeCurrentPdfForEmbeddedFallback() {
-        if (!pdfViewerRef.value) {
-            return false;
-        }
-        const rawData = await pdfViewerRef.value.saveDocument();
-        if (!rawData) {
-            return false;
-        }
-        const pageToRestore = currentPage.value;
-        const restorePromise = waitForPdfReload(pageToRestore);
-        await loadPdfFromData(rawData, {
-            pushHistory: true,
-            persistWorkingCopy: !!workingCopyPath.value,
-        });
-        await restorePromise;
-        return true;
-    }
+    const serializeCurrentPdfForEmbeddedFallback = createSerializeCurrentPdfForEmbeddedFallback({
+        pdfViewerRef,
+        currentPage,
+        workingCopyPath,
+        waitForPdfReload,
+        loadPdfFromData,
+    });
 
     const {
         annotationNoteWindows,
@@ -448,27 +465,10 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     });
 
     function hasAnnotationChanges() {
-        if (pdfViewerRef.value?.hasShapes?.value) {
-            return true;
-        }
-        const doc = pdfDocument.value;
-        if (!doc) {
-            return false;
-        }
-        try {
-            const storage = doc.annotationStorage;
-            if (!storage) {
-                return false;
-            }
-            const modifiedIds = storage.modifiedIds?.ids;
-            if (modifiedIds && typeof modifiedIds.size === 'number') {
-                return modifiedIds.size > 0;
-            }
-            return false;
-        } catch (error) {
-            BrowserLogger.debug('workspace', 'Failed to inspect annotation storage dirty state', error);
-            return false;
-        }
+        return detectAnnotationChanges({
+            pdfViewerRef,
+            pdfDocument,
+        });
     }
 
     const {
@@ -642,76 +642,22 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         cleanupSidebarResizeListeners,
     } = useSidebarResize({ showSidebar });
 
-    // --- Watchers ---
-
-    watch(pendingDjvu, async (djvuPath) => {
-        if (!djvuPath) {
-            return;
-        }
-        pendingDjvu.value = null;
-        await openDjvuFile(
-            djvuPath,
-            loadPdfFromPath,
-            () => currentPage.value,
-            (page) => { pdfViewerRef.value?.scrollToPage(page); },
-            (path) => { originalPath.value = path; },
-        );
-    });
-
-    watch(
-        [
-            isActive,
-            fileName,
-            isDjvuMode,
-            djvuSourcePath,
-        ],
-        ([active]) => {
-            if (!active || typeof window === 'undefined' || !window.electronAPI) {
-                return;
-            }
-            let title: string;
-            if (isDjvuMode.value && djvuSourcePath.value) {
-                title = djvuSourcePath.value.split(/[\\/]/).pop() ?? t('app.title');
-            } else {
-                title = fileName.value ?? t('app.title');
-            }
-            void window.electronAPI.setWindowTitle(title);
-        },
-        { immediate: true },
-    );
-
-    watch(
-        [
-            fileName,
-            originalPath,
-            isDirty,
-            isDjvuMode,
-            djvuSourcePath,
-        ],
-        ([
-            newFileName,
-            newOriginalPath,
-            newIsDirty,
-            newIsDjvu,
-            newDjvuSourcePath,
-        ]) => {
-            const displayName = newIsDjvu && newDjvuSourcePath
-                ? newDjvuSourcePath.split(/[\\/]/).pop() ?? newFileName
-                : newFileName;
-            emit('update-tab', {
-                fileName: displayName,
-                originalPath: newIsDjvu && newDjvuSourcePath ? newDjvuSourcePath : newOriginalPath,
-                isDirty: newIsDirty,
-                isDjvu: newIsDjvu,
-            });
-        },
-    );
-
-    watch(showSettings, (v) => {
-        if (v) {
-            emit('open-settings');
-            showSettings.value = false;
-        }
+    setupWorkspaceUiSyncWatchers({
+        pendingDjvu,
+        openDjvuFile,
+        loadPdfFromPath,
+        currentPage,
+        pdfViewerRef,
+        originalPath,
+        isActive,
+        fileName,
+        isDirty,
+        isDjvuMode,
+        djvuSourcePath,
+        showSettings,
+        t,
+        emitUpdateTab: (updates) => emit('update-tab', updates),
+        emitOpenSettings: () => emit('open-settings'),
     });
 
     useDocumentTransitions({
@@ -721,7 +667,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         dragMode,
         showSidebar,
         sidebarTab,
-        annotationKeepActive,
         annotationTool,
         annotationComments,
         annotationActiveCommentStableKey,
@@ -779,10 +724,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         }
         if (window.electronAPI) {
             loadRecentFiles();
-        }
-        const storedKeepActive = window.localStorage.getItem(STORAGE_KEYS.ANNOTATION_KEEP_ACTIVE);
-        if (storedKeepActive !== null) {
-            annotationKeepActive.value = storedKeepActive === '1';
         }
     }
 

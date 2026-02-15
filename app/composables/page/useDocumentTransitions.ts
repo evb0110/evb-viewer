@@ -8,7 +8,6 @@ import type {
     TAnnotationTool,
 } from '@app/types/annotations';
 import type { TPdfSource } from '@app/types/pdf';
-import { STORAGE_KEYS } from '@app/constants/storage-keys';
 import { BrowserLogger } from '@app/utils/browser-logger';
 
 type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'bookmarks' | 'search';
@@ -20,7 +19,6 @@ export interface IDocumentTransitionDeps {
     dragMode: Ref<boolean>;
     showSidebar: Ref<boolean>;
     sidebarTab: Ref<TPdfSidebarTab>;
-    annotationKeepActive: Ref<boolean>;
     annotationTool: Ref<TAnnotationTool>;
     annotationComments: Ref<IAnnotationCommentSummary[]>;
     annotationActiveCommentStableKey: Ref<string | null>;
@@ -53,7 +51,6 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
         dragMode,
         showSidebar,
         sidebarTab,
-        annotationKeepActive,
         annotationTool,
         annotationComments,
         annotationActiveCommentStableKey,
@@ -79,13 +76,6 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
         if (err) {
             BrowserLogger.error('pdf', 'PDF Error', err);
         }
-    });
-
-    watch(annotationKeepActive, (value) => {
-        if (typeof window === 'undefined') {
-            return;
-        }
-        window.localStorage.setItem(STORAGE_KEYS.ANNOTATION_KEEP_ACTIVE, value ? '1' : '0');
     });
 
     watch(

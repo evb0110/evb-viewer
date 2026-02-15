@@ -2,6 +2,7 @@ import type { PageViewport } from 'pdfjs-dist';
 import type { IOcrWord } from '@app/types/pdf';
 import { STORAGE_KEYS } from '@app/constants/storage-keys';
 import { BrowserLogger } from '@app/utils/browser-logger';
+import { safeGetLocalStorageItem } from '@app/utils/local-storage';
 
 export interface IWordBoxOverlay {
     x: number;
@@ -28,10 +29,7 @@ interface IOcrIndexV2Page {
 export type { IOcrIndexV2Page };
 
 export function isOcrDebugEnabled(): boolean {
-    if (typeof localStorage === 'undefined') {
-        return false;
-    }
-    return localStorage.getItem(STORAGE_KEYS.OCR_DEBUG_BOXES) === '1';
+    return safeGetLocalStorageItem(STORAGE_KEYS.OCR_DEBUG_BOXES) === '1';
 }
 
 export function transformWordBox(

@@ -1,4 +1,5 @@
 import {
+    afterEach,
     describe,
     expect,
     it,
@@ -104,7 +105,26 @@ describe('transformWordBox', () => {
 });
 
 describe('isOcrDebugEnabled', () => {
-    it('returns false when localStorage is undefined', () => {
+    const globalObject = globalThis as {window?: unknown;};
+    const originalWindow = globalObject.window;
+
+    afterEach(() => {
+        globalObject.window = originalWindow;
+    });
+
+    it('returns false when window is undefined', () => {
+        globalObject.window = undefined;
         expect(isOcrDebugEnabled()).toBe(false);
+    });
+
+    it('returns false when localStorage.getItem is missing', () => {
+        globalObject.window = { localStorage: {} };
+        expect(isOcrDebugEnabled()).toBe(false);
+    });
+
+    it('returns true when debug flag is enabled in localStorage', () => {
+        globalObject.window = {localStorage: {getItem: (key: string) => (key === 'pdfOcrDebugBoxes' ? '1' : null)}};
+
+        expect(isOcrDebugEnabled()).toBe(true);
     });
 });
