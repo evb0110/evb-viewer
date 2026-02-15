@@ -35,6 +35,27 @@
     --app-toolbar-group-border: var(--ui-border);
     --app-toolbar-focus-ring: color-mix(in oklab, var(--ui-border) 68%, var(--ui-text) 32%);
     --app-pdf-viewer-bg: var(--ui-bg-muted);
+    --app-snip-cutout-fill: color-mix(in oklab, var(--ui-bg) 62%, transparent);
+    --app-snip-selection-border: color-mix(in oklab, var(--ui-primary) 90%, var(--ui-bg) 10%);
+    --app-snip-selection-border-width: 1.5px;
+    --app-snip-selection-radius: 2px;
+    --app-snip-flash-border: var(--ui-primary);
+    --app-snip-flash-fill: color-mix(in oklab, var(--ui-bg) 60%, var(--ui-primary) 40%);
+    --app-snip-flash-glow: color-mix(in oklab, var(--ui-primary) 36%, transparent);
+    --app-snip-badge-bg: color-mix(in oklab, var(--ui-bg) 78%, var(--ui-primary) 22%);
+    --app-snip-badge-fg: var(--ui-text-highlighted);
+    --app-snip-badge-border: color-mix(in oklab, var(--ui-primary) 45%, var(--ui-border) 55%);
+    --app-snip-badge-shadow: var(--shadow-popup);
+    --app-snip-badge-padding: 0.35rem 0.6rem;
+    --app-snip-badge-radius: 999px;
+    --app-snip-badge-font-size: 0.74rem;
+    --app-snip-hint-bg: color-mix(in oklab, var(--ui-bg) 88%, var(--ui-border) 12%);
+    --app-snip-hint-fg: var(--ui-text-muted);
+    --app-snip-hint-border: var(--ui-border);
+    --app-snip-hint-padding: 0.33rem 0.55rem;
+    --app-snip-hint-radius: 999px;
+    --app-snip-hint-font-size: 0.7rem;
+    --app-snip-hint-offset-top: 0.65rem;
 
     --app-scrollbar-size: 12px;
     --app-scrollbar-track: transparent;
@@ -68,6 +89,15 @@
     --app-toolbar-group-border: color-mix(in oklab, var(--ui-border) 72%, var(--ui-text-muted) 28%);
     --app-toolbar-focus-ring: color-mix(in oklab, var(--ui-border) 58%, var(--ui-text) 42%);
     --app-pdf-viewer-bg: color-mix(in oklab, var(--ui-bg-muted) 88%, var(--ui-text) 12%);
+    --app-snip-cutout-fill: color-mix(in oklab, var(--ui-bg) 55%, transparent);
+    --app-snip-flash-fill: color-mix(in oklab, var(--ui-bg-elevated) 45%, var(--ui-primary) 55%);
+    --app-snip-flash-glow: color-mix(in oklab, var(--ui-primary) 44%, transparent);
+    --app-snip-badge-bg: color-mix(in oklab, var(--ui-bg-elevated) 74%, var(--ui-primary) 26%);
+    --app-snip-badge-fg: var(--ui-text-highlighted);
+    --app-snip-badge-border: color-mix(in oklab, var(--ui-primary) 52%, var(--ui-border) 48%);
+    --app-snip-hint-bg: color-mix(in oklab, var(--ui-bg-elevated) 86%, var(--ui-border) 14%);
+    --app-snip-hint-fg: var(--ui-text);
+    --app-snip-hint-border: color-mix(in oklab, var(--ui-border) 80%, var(--ui-text-muted) 20%);
 }
 
 .app-scrollbar {

@@ -1,6 +1,9 @@
 import type { Ref } from 'vue';
 import type { TFitMode } from '@app/types/shared';
-import type { IWorkspaceExpose } from '@app/types/workspace-expose';
+import type {
+    ICloseFileFromUiOptions,
+    IWorkspaceExpose,
+} from '@app/types/workspace-expose';
 
 interface ICreateWorkspaceExposeDeps {
     handleSave: () => Promise<void>;
@@ -10,7 +13,7 @@ interface ICreateWorkspaceExposeDeps {
     handleOpenFileFromUi: () => Promise<void>;
     handleOpenFileDirectWithPersist: (path: string) => Promise<void>;
     handleOpenFileDirectBatchWithPersist: (paths: string[]) => Promise<void>;
-    handleCloseFileFromUi: () => Promise<void>;
+    handleCloseFileFromUi: (options?: ICloseFileFromUiOptions) => Promise<void>;
     handleExportDocx: () => Promise<void>;
     handleExportImages: () => Promise<void>;
     handleExportMultiPageTiff: () => Promise<void>;

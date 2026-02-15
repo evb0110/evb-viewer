@@ -20,13 +20,16 @@ export default {
         'closeFile': 'Bestand sluiten',
         'settings': 'Instellingen',
         'moreTools': 'Meer gereedschap',
+        'captureRegion': 'Gebied vastleggen',
+        'captureHint': 'Sleep om een PDF-gebied vast te leggen. Esc om te annuleren.',
+        'captureCopied': 'Gekopieerd',
     },
     'tabs': {
         'newTab': 'Nieuw tabblad',
         'unsavedChanges': 'Niet-opgeslagen wijzigingen',
         'closeTab': 'Tabblad sluiten',
         'confirmCloseDirtyTitle': 'Tabblad sluiten met niet-opgeslagen wijzigingen?',
-        'confirmCloseDirtyDescription': '"{name}" heeft niet-opgeslagen wijzigingen. Wijzigingen worden opgeslagen voordat het tabblad sluit.',
+        'confirmCloseDirtyDescription': '"{name}" heeft niet-opgeslagen wijzigingen. Wijzigingen worden verworpen bij het sluiten.',
     },
     'zoom': {
         'fitWidth': 'Breedte passend',

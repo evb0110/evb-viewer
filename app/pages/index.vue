@@ -215,16 +215,18 @@ async function handleCloseTab(tabId: string) {
         return;
     }
 
+    let shouldPersistBeforeClose = true;
     if (tab.isDirty) {
         const confirmed = await requestDirtyTabCloseConfirmation(tabId);
         if (!confirmed) {
             return;
         }
+        shouldPersistBeforeClose = false;
     }
 
     const workspace = workspaceRefs.value.get(tabId);
     if (workspace && workspaceHasPdf(workspace)) {
-        await workspace.handleCloseFileFromUi();
+        await workspace.handleCloseFileFromUi({ persist: shouldPersistBeforeClose });
         if (!workspaceHasPdf(workspace)) {
             closeTab(tabId);
         }

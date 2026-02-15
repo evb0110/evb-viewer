@@ -20,13 +20,16 @@ export default {
         'closeFile': 'Закрыть файл',
         'settings': 'Настройки',
         'moreTools': 'Ещё',
+        'captureRegion': 'Снимок области',
+        'captureHint': 'Выделите область PDF. Esc для отмены.',
+        'captureCopied': 'Скопировано',
     },
     'tabs': {
         'newTab': 'Новая вкладка',
         'unsavedChanges': 'Несохранённые изменения',
         'closeTab': 'Закрыть вкладку',
         'confirmCloseDirtyTitle': 'Закрыть вкладку с несохранёнными изменениями?',
-        'confirmCloseDirtyDescription': 'В "{name}" есть несохранённые изменения. Перед закрытием изменения будут сохранены.',
+        'confirmCloseDirtyDescription': 'В "{name}" есть несохранённые изменения. При закрытии изменения будут отброшены.',
     },
     'zoom': {
         'fitWidth': 'По ширине',

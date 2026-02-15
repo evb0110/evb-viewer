@@ -34,6 +34,7 @@
             @toggle-continuous-scroll="continuousScroll = !continuousScroll; closeAllDropdowns()"
             @enable-drag="enableDragMode(); closeAllDropdowns()"
             @disable-drag="dragMode = false; closeAllDropdowns()"
+            @capture-region="handleCaptureRegion(); closeAllDropdowns()"
         >
             <template #ocr>
                 <OcrPopup
@@ -455,6 +456,7 @@ const {
     canRedo,
     handleUndo,
     handleRedo,
+    handleCaptureRegion,
     annotationNotePositions,
     sortedAnnotationNoteWindows,
     updateAnnotationNoteText,

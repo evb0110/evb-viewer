@@ -20,13 +20,16 @@ export default {
         'closeFile': 'Datei schließen',
         'settings': 'Einstellungen',
         'moreTools': 'Weitere Werkzeuge',
+        'captureRegion': 'Bereich aufnehmen',
+        'captureHint': 'Zum Erfassen eines PDF-Bereichs ziehen. Esc zum Abbrechen.',
+        'captureCopied': 'Kopiert',
     },
     'tabs': {
         'newTab': 'Neuer Tab',
         'unsavedChanges': 'Ungespeicherte Änderungen',
         'closeTab': 'Tab schließen',
         'confirmCloseDirtyTitle': 'Tab mit ungespeicherten Änderungen schließen?',
-        'confirmCloseDirtyDescription': '"{name}" enthält ungespeicherte Änderungen. Änderungen werden vor dem Schließen gespeichert.',
+        'confirmCloseDirtyDescription': '"{name}" enthält ungespeicherte Änderungen. Änderungen werden beim Schließen verworfen.',
     },
     'zoom': {
         'fitWidth': 'Breite anpassen',

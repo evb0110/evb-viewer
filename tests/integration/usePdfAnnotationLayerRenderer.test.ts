@@ -92,6 +92,7 @@ class MockAnnotationEditorLayer {
 vi.mock('pdfjs-dist', () => ({
     AnnotationLayer: MockAnnotationLayer,
     AnnotationEditorLayer: MockAnnotationEditorLayer,
+    AnnotationEditorType: {NONE: 0},
     DrawLayer: MockDrawLayer,
 }));
 

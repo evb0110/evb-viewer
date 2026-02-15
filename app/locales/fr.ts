@@ -20,13 +20,16 @@ export default {
         'closeFile': 'Fermer le fichier',
         'settings': 'Paramètres',
         'moreTools': 'Plus d’outils',
+        'captureRegion': 'Capturer une zone',
+        'captureHint': 'Glissez pour capturer une zone PDF. Échap pour annuler.',
+        'captureCopied': 'Copié',
     },
     'tabs': {
         'newTab': 'Nouvel onglet',
         'unsavedChanges': 'Modifications non enregistrées',
         'closeTab': 'Fermer l’onglet',
         'confirmCloseDirtyTitle': 'Fermer l’onglet avec des modifications non enregistrées ?',
-        'confirmCloseDirtyDescription': '"{name}" contient des modifications non enregistrées. Les modifications seront enregistrées avant la fermeture.',
+        'confirmCloseDirtyDescription': '"{name}" contient des modifications non enregistrées. Les modifications seront abandonnées à la fermeture.',
     },
     'zoom': {
         'fitWidth': 'Ajuster à la largeur',

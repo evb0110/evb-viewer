@@ -20,13 +20,16 @@ export default {
         'closeFile': 'Chiudi file',
         'settings': 'Impostazioni',
         'moreTools': 'Altri strumenti',
+        'captureRegion': 'Cattura area',
+        'captureHint': 'Trascina per catturare un’area PDF. Esc per annullare.',
+        'captureCopied': 'Copiato',
     },
     'tabs': {
         'newTab': 'Nuova scheda',
         'unsavedChanges': 'Modifiche non salvate',
         'closeTab': 'Chiudi scheda',
         'confirmCloseDirtyTitle': 'Chiudere la scheda con modifiche non salvate?',
-        'confirmCloseDirtyDescription': '"{name}" ha modifiche non salvate. Le modifiche verranno salvate prima della chiusura.',
+        'confirmCloseDirtyDescription': '"{name}" ha modifiche non salvate. Le modifiche verranno scartate alla chiusura.',
     },
     'zoom': {
         'fitWidth': 'Adatta alla larghezza',

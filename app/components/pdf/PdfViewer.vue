@@ -1,5 +1,6 @@
 <template>
     <div
+        ref="viewerHost"
         class="relative h-full w-full"
         :class="{ 'pdf-viewer-container--dark': invertColors }"
     >
@@ -20,14 +21,14 @@
             }"
             :style="containerStyle"
             @scroll.passive="singlePageScroll.handleScroll"
-            @wheel="singlePageScroll.handleWheel"
-            @mousedown="handleDragStart"
-            @mousemove="handleDragMove"
-            @mouseup="highlightComposable.handleViewerMouseUp"
-            @mouseleave="stopDrag"
-            @click="commentCrud.handleAnnotationCommentClick"
-            @dblclick="commentCrud.handleAnnotationEditorDblClick"
-            @contextmenu="commentCrud.handleAnnotationCommentContextMenu"
+            @wheel="handleViewerWheel"
+            @mousedown="handleViewerMouseDown"
+            @mousemove="handleViewerMouseMove"
+            @mouseup="handleViewerMouseUp"
+            @mouseleave="handleViewerMouseLeave"
+            @click="handleViewerClick"
+            @dblclick="handleViewerDblClick"
+            @contextmenu="handleViewerContextMenu"
         >
             <PdfViewerPage
                 v-for="page in pagesToRender"
@@ -36,6 +37,18 @@
                 :show-skeleton="shouldShowSkeleton(page)"
             />
         </div>
+        <PdfRegionSnipOverlay
+            :active="regionSnip.isActive.value"
+            :selection-rect="regionSnip.selectionRect.value"
+            :flash-rect="regionSnip.flashRect.value"
+            :badge-position="regionSnip.badgePosition.value"
+            :hint-label="t('toolbar.captureHint')"
+            :copied-label="t('toolbar.captureCopied')"
+            @pointer-start="regionSnip.onPointerStart"
+            @pointer-move="regionSnip.onPointerMove"
+            @pointer-end="regionSnip.onPointerEnd"
+            @cancel="regionSnip.cancelCapture"
+        />
     </div>
 </template>
 
@@ -49,6 +62,7 @@ import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import { AnnotationEditorParamsType } from 'pdfjs-dist';
 import type { GenericL10n } from 'pdfjs-dist/web/pdf_viewer.mjs';
 import PdfViewerPage from '@app/components/pdf/PdfViewerPage.vue';
+import PdfRegionSnipOverlay from '@app/components/pdf/PdfRegionSnipOverlay.vue';
 import { usePdfDocument } from '@app/composables/pdf/usePdfDocument';
 import { usePdfDrag } from '@app/composables/pdf/usePdfDrag';
 import { usePdfPageRenderer } from '@app/composables/pdf/usePdfPageRenderer';
@@ -61,6 +75,7 @@ import { usePdfSinglePageScroll } from '@app/composables/pdf/usePdfSinglePageScr
 import { useAnnotationOrchestrator } from '@app/composables/pdf/useAnnotationOrchestrator';
 import { usePdfViewerCore } from '@app/composables/pdf/usePdfViewerCore';
 import { usePdfShapeContext } from '@app/composables/pdf/usePdfShapeContext';
+import { usePdfRegionSnip } from '@app/composables/pdf/usePdfRegionSnip';
 import type {
     IPdfPageMatches,
     IPdfSearchMatch,
@@ -119,6 +134,7 @@ const currentSearchMatch = computed(() => props.currentSearchMatch ?? null);
 const workingCopyPath = computed(() => props.workingCopyPath ?? null);
 const continuousScroll = computed(() => props.continuousScroll ?? true);
 const authorName = computed(() => props.authorName);
+const { t } = useTypedI18n();
 
 const emit = defineEmits<{
     (e: 'update:zoom', value: number): void;
@@ -147,11 +163,13 @@ const emit = defineEmits<{
     }): void;
 }>();
 
+const viewerHost = ref<HTMLElement | null>(null);
 const viewerContainer = ref<HTMLElement | null>(null);
 const annotationUiManager = shallowRef<AnnotationEditorUIManager | null>(null);
 const annotationL10n = shallowRef<GenericL10n | null>(null);
 const annotationCommentsCache = ref<IAnnotationCommentSummary[]>([]);
 const activeCommentStableKey = ref<string | null>(null);
+const regionSnip = usePdfRegionSnip({ viewerContainer });
 
 const pdfDocumentResult = usePdfDocument();
 const {
@@ -352,6 +370,68 @@ const {
 
 const pagesToRender = computed(() => range(1, numPages.value + 1));
 
+function isSnipActive() {
+    return regionSnip.isActive.value;
+}
+
+function handleViewerWheel(event: WheelEvent) {
+    if (isSnipActive()) {
+        event.preventDefault();
+        return;
+    }
+    singlePageScroll.handleWheel(event);
+}
+
+function handleViewerMouseDown(event: MouseEvent) {
+    if (isSnipActive()) {
+        return;
+    }
+    handleDragStart(event);
+}
+
+function handleViewerMouseMove(event: MouseEvent) {
+    if (isSnipActive()) {
+        return;
+    }
+    handleDragMove(event);
+}
+
+function handleViewerMouseUp() {
+    if (isSnipActive()) {
+        return;
+    }
+    highlightComposable.handleViewerMouseUp();
+}
+
+function handleViewerMouseLeave() {
+    if (isSnipActive()) {
+        return;
+    }
+    stopDrag();
+}
+
+function handleViewerClick(event: MouseEvent) {
+    if (isSnipActive()) {
+        return;
+    }
+    commentCrud.handleAnnotationCommentClick(event);
+}
+
+function handleViewerDblClick(event: MouseEvent) {
+    if (isSnipActive()) {
+        return;
+    }
+    commentCrud.handleAnnotationEditorDblClick(event);
+}
+
+function handleViewerContextMenu(event: MouseEvent) {
+    if (isSnipActive()) {
+        event.preventDefault();
+        return;
+    }
+    commentCrud.handleAnnotationCommentContextMenu(event);
+}
+
 function applyStampImage(file: File) {
     const uiManager = annotationUiManager.value;
     if (!uiManager) {
@@ -457,6 +537,7 @@ defineExpose({
     getSelectedShape,
     applyStampImage,
     invalidatePages,
+    captureRegionToClipboard: regionSnip.startCaptureSession,
 });
 </script>
 

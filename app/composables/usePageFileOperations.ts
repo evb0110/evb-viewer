@@ -1,5 +1,6 @@
 import type { Ref } from 'vue';
 import type { IAnnotationNoteWindowState } from '@app/composables/pdf/useAnnotationNoteWindows';
+import type { ICloseFileFromUiOptions } from '@app/types/workspace-expose';
 import { waitUntilIdle } from '@app/utils/async-helpers';
 
 export interface IPageFileOperationsDeps {
@@ -117,11 +118,21 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         closeAllDropdowns();
     }
 
-    async function handleCloseFileFromUi() {
-        const canProceed = await ensureCurrentDocumentPersistedBeforeSwitch();
-        if (!canProceed) {
-            return;
+    async function handleCloseFileFromUi(options: ICloseFileFromUiOptions = {}) {
+        const shouldPersist = options.persist ?? true;
+
+        if (shouldPersist) {
+            const canProceed = await ensureCurrentDocumentPersistedBeforeSwitch();
+            if (!canProceed) {
+                return;
+            }
+        } else {
+            await waitUntilAllIdle();
+            if (isAnySaving.value || isHistoryBusy.value || isExportingDocx.value || isAnyAnnotationNoteSaving.value) {
+                return;
+            }
         }
+
         await closeFile();
         closeAllDropdowns();
     }

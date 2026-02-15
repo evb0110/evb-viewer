@@ -85,3 +85,12 @@ When you finish a stage:
 - Fixing lint/type errors introduced by your changes
 - Choosing between equivalent implementation approaches
 - Deciding the order of subtasks within a clear overall goal
+
+## Dirty Repo Handling
+
+**Rule**: If unrelated changes are already present (dirty worktree), continue working.
+
+- Do not modify unrelated files
+- Do not stage unrelated files
+- Do not revert unrelated changes
+- Only touch files required for the current task

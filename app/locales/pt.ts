@@ -20,13 +20,16 @@ export default {
         'closeFile': 'Fechar Ficheiro',
         'settings': 'Definições',
         'moreTools': 'Mais ferramentas',
+        'captureRegion': 'Capturar região',
+        'captureHint': 'Arraste para capturar uma região do PDF. Esc para cancelar.',
+        'captureCopied': 'Copiado',
     },
     'tabs': {
         'newTab': 'Novo Separador',
         'unsavedChanges': 'Alterações por guardar',
         'closeTab': 'Fechar separador',
         'confirmCloseDirtyTitle': 'Fechar separador com alterações por guardar?',
-        'confirmCloseDirtyDescription': '"{name}" tem alterações por guardar. As alterações serão guardadas antes de fechar.',
+        'confirmCloseDirtyDescription': '"{name}" tem alterações por guardar. As alterações serão descartadas ao fechar.',
     },
     'zoom': {
         'fitWidth': 'Ajustar à Largura',

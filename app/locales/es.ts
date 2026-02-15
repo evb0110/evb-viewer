@@ -20,13 +20,16 @@ export default {
         'closeFile': 'Cerrar archivo',
         'settings': 'Ajustes',
         'moreTools': 'Más herramientas',
+        'captureRegion': 'Capturar región',
+        'captureHint': 'Arrastre para capturar una región del PDF. Esc para cancelar.',
+        'captureCopied': 'Copiado',
     },
     'tabs': {
         'newTab': 'Nueva pestaña',
         'unsavedChanges': 'Cambios sin guardar',
         'closeTab': 'Cerrar pestaña',
         'confirmCloseDirtyTitle': '¿Cerrar pestaña con cambios sin guardar?',
-        'confirmCloseDirtyDescription': '"{name}" tiene cambios sin guardar. Los cambios se guardarán antes de cerrar.',
+        'confirmCloseDirtyDescription': '"{name}" tiene cambios sin guardar. Los cambios se descartarán al cerrar.',
     },
     'zoom': {
         'fitWidth': 'Ajustar al ancho',

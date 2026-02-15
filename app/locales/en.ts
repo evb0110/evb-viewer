@@ -20,13 +20,16 @@ export default {
         'closeFile': 'Close File',
         'settings': 'Settings',
         'moreTools': 'More tools',
+        'captureRegion': 'Capture Region',
+        'captureHint': 'Drag to capture a PDF region. Esc to cancel.',
+        'captureCopied': 'Copied',
     },
     'tabs': {
         'newTab': 'New Tab',
         'unsavedChanges': 'Unsaved changes',
         'closeTab': 'Close tab',
         'confirmCloseDirtyTitle': 'Close tab with unsaved changes?',
-        'confirmCloseDirtyDescription': '"{name}" has unsaved changes. Changes will be saved before closing.',
+        'confirmCloseDirtyDescription': '"{name}" has unsaved changes. Changes will be discarded when closing.',
     },
     'zoom': {
         'fitWidth': 'Fit Width',

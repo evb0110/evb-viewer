@@ -102,6 +102,16 @@
                         />
                     </UTooltip>
                 </template>
+                <UTooltip :text="t('toolbar.captureRegion')" :delay-duration="1200">
+                    <UButton
+                        icon="i-lucide-crop"
+                        variant="ghost"
+                        color="neutral"
+                        class="toolbar-icon-button"
+                        :aria-label="t('toolbar.captureRegion')"
+                        @click="emit('capture-region')"
+                    />
+                </UTooltip>
 
                 <div class="toolbar-separator" />
             </div>
@@ -232,6 +242,7 @@ const emit = defineEmits<{
     'toggle-continuous-scroll': [];
     'enable-drag': [];
     'disable-drag': [];
+    'capture-region': [];
 }>();
 
 const { t } = useTypedI18n();
