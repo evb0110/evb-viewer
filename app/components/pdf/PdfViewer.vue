@@ -55,7 +55,7 @@ import { usePdfPageRenderer } from '@app/composables/pdf/usePdfPageRenderer';
 import { usePdfScale } from '@app/composables/pdf/usePdfScale';
 import { usePdfScroll } from '@app/composables/pdf/usePdfScroll';
 import { usePdfSkeletonInsets } from '@app/composables/pdf/usePdfSkeletonInsets';
-import {useAnnotationShapes} from '@app/composables/pdf/useAnnotationShapes';
+import { useAnnotationShapes } from '@app/composables/pdf/useAnnotationShapes';
 import { range } from 'es-toolkit/math';
 import { usePdfSinglePageScroll } from '@app/composables/pdf/usePdfSinglePageScroll';
 import { useAnnotationOrchestrator } from '@app/composables/pdf/useAnnotationOrchestrator';
@@ -190,13 +190,38 @@ const {
 } = usePdfSkeletonInsets(basePageWidth, basePageHeight, effectiveScale);
 
 const shapeComposable = useAnnotationShapes();
+
+function registerShapeHistoryCommand(command: {
+    cmd: () => void;
+    undo: () => void;
+}) {
+    annotationUiManager.value?.addCommands({
+        ...command,
+        mustExec: false,
+    });
+}
+
+function handleShapeCreated(shape: IShapeAnnotation) {
+    emit('annotation-modified');
+
+    registerShapeHistoryCommand({
+        cmd: () => {
+            shapeComposable.addShape(shape);
+            shapeComposable.selectShape(shape.id);
+            emit('annotation-modified');
+        },
+        undo: () => {
+            shapeComposable.deleteShape(shape.id);
+            emit('annotation-modified');
+        },
+    });
+}
+
 usePdfShapeContext({
     shapeComposable,
     annotationTool,
     annotationSettings,
-    onAnnotationModified: () => {
-        emit('annotation-modified');
-    },
+    onShapeCreated: handleShapeCreated,
     onShapeContextMenu: (payload) => {
         emit('shape-context-menu', payload);
     },
@@ -340,12 +365,72 @@ function getSelectedShape(): IShapeAnnotation | null {
     if (!id) {
         return null;
     }
-    return shapeComposable.getAllShapes().find(s => s.id === id) ?? null;
+    return shapeComposable.getShapeById(id);
 }
 
 function updateShape(id: string, updates: Partial<IShapeAnnotation>) {
+    const previousShape = shapeComposable.getShapeById(id);
+    if (!previousShape) {
+        return;
+    }
+
+    const hasChanges = Object.entries(updates).some(
+        ([
+            key,
+            value,
+        ]) => previousShape[key as keyof IShapeAnnotation] !== value,
+    );
+    if (!hasChanges) {
+        return;
+    }
+
+    const nextShape: IShapeAnnotation = {
+        ...previousShape,
+        ...updates,
+    };
+
     shapeComposable.updateShape(id, updates);
     emit('annotation-modified');
+
+    registerShapeHistoryCommand({
+        cmd: () => {
+            shapeComposable.updateShape(id, nextShape);
+            shapeComposable.selectShape(id);
+            emit('annotation-modified');
+        },
+        undo: () => {
+            shapeComposable.updateShape(id, previousShape);
+            shapeComposable.selectShape(id);
+            emit('annotation-modified');
+        },
+    });
+}
+
+function deleteSelectedShape() {
+    const id = shapeComposable.selectedShapeId.value;
+    if (!id) {
+        return;
+    }
+
+    const deletedShape = shapeComposable.getShapeById(id);
+    if (!deletedShape) {
+        return;
+    }
+
+    shapeComposable.deleteShape(id);
+    emit('annotation-modified');
+
+    registerShapeHistoryCommand({
+        cmd: () => {
+            shapeComposable.deleteShape(id);
+            emit('annotation-modified');
+        },
+        undo: () => {
+            shapeComposable.addShape(deletedShape);
+            shapeComposable.selectShape(id);
+            emit('annotation-modified');
+        },
+    });
 }
 
 defineExpose({
@@ -365,7 +450,7 @@ defineExpose({
     getAllShapes: shapeComposable.getAllShapes,
     loadShapes: shapeComposable.loadShapes,
     clearShapes: shapeComposable.clearShapes,
-    deleteSelectedShape: shapeComposable.deleteSelectedShape,
+    deleteSelectedShape,
     hasShapes: shapeComposable.hasShapes,
     selectedShapeId: shapeComposable.selectedShapeId,
     updateShape,

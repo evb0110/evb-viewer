@@ -5,6 +5,7 @@ import {
 } from 'vue';
 import type {
     IAnnotationSettings,
+    IShapeAnnotation,
     TAnnotationTool,
     TShapeType,
 } from '@app/types/annotations';
@@ -25,7 +26,7 @@ interface IUsePdfShapeContextDeps {
     shapeComposable: TUseAnnotationShapesReturn;
     annotationTool: ComputedRef<TAnnotationTool>;
     annotationSettings: ComputedRef<IAnnotationSettings | null>;
-    onAnnotationModified: () => void;
+    onShapeCreated: (shape: IShapeAnnotation) => void;
     onShapeContextMenu: (payload: IShapeContextMenuPayload) => void;
 }
 
@@ -34,7 +35,7 @@ export const usePdfShapeContext = (deps: IUsePdfShapeContextDeps) => {
         shapeComposable,
         annotationTool,
         annotationSettings,
-        onAnnotationModified,
+        onShapeCreated,
         onShapeContextMenu,
     } = deps;
 
@@ -71,7 +72,7 @@ export const usePdfShapeContext = (deps: IUsePdfShapeContextDeps) => {
         handleFinishDrawing() {
             const shape = shapeComposable.finishDrawing();
             if (shape) {
-                onAnnotationModified();
+                onShapeCreated(shape);
             }
         },
         handleSelectShape(id: string | null) {

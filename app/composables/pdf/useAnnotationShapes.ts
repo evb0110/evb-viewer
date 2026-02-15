@@ -70,6 +70,16 @@ export const useAnnotationShapes = () => {
         return all;
     }
 
+    function getShapeById(id: string) {
+        for (const pageShapes of shapes.value.values()) {
+            const shape = pageShapes.find(s => s.id === id);
+            if (shape) {
+                return shape;
+            }
+        }
+        return null;
+    }
+
     function addShape(shape: IShapeAnnotation) {
         const pageShapes = shapes.value.get(shape.pageIndex) ?? [];
         pageShapes.push(shape);
@@ -252,6 +262,7 @@ export const useAnnotationShapes = () => {
         isShapeTool,
         getShapesForPage,
         getAllShapes,
+        getShapeById,
         addShape,
         updateShape,
         deleteShape,
