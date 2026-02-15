@@ -26,9 +26,17 @@ import {
 } from '@app/composables/pdf/pdfAnnotationUtils';
 import type { useAnnotationCommentIdentity } from '@app/composables/pdf/useAnnotationCommentIdentity';
 import type { useAnnotationMarkupSubtype } from '@app/composables/pdf/useAnnotationMarkupSubtype';
+import { BrowserLogger } from '@app/utils/browser-logger';
 
 type TIdentity = ReturnType<typeof useAnnotationCommentIdentity>;
 type TMarkupSubtypeComposable = ReturnType<typeof useAnnotationMarkupSubtype>;
+
+function isMarkupSubtype(value: unknown): value is TMarkupSubtype {
+    return value === 'Highlight'
+        || value === 'Underline'
+        || value === 'StrikeOut'
+        || value === 'Squiggly';
+}
 
 interface IUseAnnotationCommentSyncOptions {
     pdfDocument: ShallowRef<PDFDocumentProxy | null>;
@@ -73,7 +81,8 @@ export function useAnnotationCommentSync(options: IUseAnnotationCommentSyncOptio
         let data: ReturnType<NonNullable<IPdfjsEditor['getData']>> = {};
         try {
             data = editor.getData?.() ?? {};
-        } catch {
+        } catch (error) {
+            BrowserLogger.debug('annotations', 'Failed to read annotation editor data payload', error);
             data = {};
         }
         const text = typeof textOverride === 'string'
@@ -176,7 +185,8 @@ export function useAnnotationCommentSync(options: IUseAnnotationCommentSyncOptio
                 const page = await doc.getPage(pageNumber);
                 pageAnnotations = await page.getAnnotations();
                 pageView = ((page as { view?: number[] }).view ?? null);
-            } catch {
+            } catch (error) {
+                BrowserLogger.debug('annotations', `Failed to collect annotations for page ${pageNumber}`, error);
                 continue;
             }
 
@@ -264,8 +274,9 @@ export function useAnnotationCommentSync(options: IUseAnnotationCommentSyncOptio
                 if (
                     annotationId
                     && (normalizedSubtype === 'underline' || normalizedSubtype === 'strikeout' || normalizedSubtype === 'squiggly')
+                    && isMarkupSubtype(subtype)
                 ) {
-                    markupSubtype.markupSubtypeOverrides.set(annotationId, subtype as TMarkupSubtype);
+                    markupSubtype.markupSubtypeOverrides.set(annotationId, subtype);
                 }
                 sourceOrder += 1;
                 const hydratedSummary = identity.hydrateSummaryFromMemory(summary);
