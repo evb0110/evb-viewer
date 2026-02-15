@@ -87,9 +87,75 @@ jobs:
       - name: Build (Nuxt + Electron)
         run: pnpm run build
 
+      - name: Configure optional macOS signing and notarization
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          echo "MAC_CSC_LINK=" >> "$GITHUB_ENV"
+          echo "MAC_CSC_KEY_PASSWORD=" >> "$GITHUB_ENV"
+          echo "MAC_EXPECT_DEVELOPER_ID=false" >> "$GITHUB_ENV"
+          echo "APPLE_API_KEY_PATH=" >> "$GITHUB_ENV"
+          echo "APPLE_API_KEY_ID_ENV=" >> "$GITHUB_ENV"
+          echo "APPLE_API_ISSUER_ENV=" >> "$GITHUB_ENV"
+
+          if [ -n "$CSC_LINK" ] && [ -n "$CSC_KEY_PASSWORD" ]; then
+            echo "MAC_CSC_LINK=$CSC_LINK" >> "$GITHUB_ENV"
+            echo "MAC_CSC_KEY_PASSWORD=$CSC_KEY_PASSWORD" >> "$GITHUB_ENV"
+            echo "MAC_EXPECT_DEVELOPER_ID=true" >> "$GITHUB_ENV"
+          elif [ -n "$CSC_LINK" ] || [ -n "$CSC_KEY_PASSWORD" ]; then
+            echo "::warning::Partial macOS signing credentials detected; building unsigned ad-hoc app"
+          else
+            echo "::warning::No macOS signing certificate configured; building unsigned ad-hoc app"
+          fi
+
+          if [ -n "$APPLE_API_KEY" ] && [ -n "$APPLE_API_KEY_ID" ] && [ -n "$APPLE_API_ISSUER" ]; then
+            API_KEY_PATH="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID}.p8"
+            printf '%s' "$APPLE_API_KEY" > "$API_KEY_PATH"
+            chmod 600 "$API_KEY_PATH"
+            echo "APPLE_API_KEY_PATH=$API_KEY_PATH" >> "$GITHUB_ENV"
+            echo "APPLE_API_KEY_ID_ENV=$APPLE_API_KEY_ID" >> "$GITHUB_ENV"
+            echo "APPLE_API_ISSUER_ENV=$APPLE_API_ISSUER" >> "$GITHUB_ENV"
+          elif [ -n "$APPLE_API_KEY" ] || [ -n "$APPLE_API_KEY_ID" ] || [ -n "$APPLE_API_ISSUER" ]; then
+            echo "::warning::Partial APPLE_API_* secrets detected; notarization disabled"
+          fi
+
       - name: Package installer (macOS)
         if: runner.os == 'macOS'
+        env:
+          CSC_LINK: ${{ env.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ env.MAC_CSC_KEY_PASSWORD }}
+          APPLE_API_KEY: ${{ env.APPLE_API_KEY_PATH }}
+          APPLE_API_KEY_ID: ${{ env.APPLE_API_KEY_ID_ENV }}
+          APPLE_API_ISSUER: ${{ env.APPLE_API_ISSUER_ENV }}
         run: pnpm exec electron-builder --mac --${{ matrix.arch }}
+
+      - name: Verify macOS signature
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          MAC_EXPECT_DEVELOPER_ID: ${{ env.MAC_EXPECT_DEVELOPER_ID }}
+        run: |
+          APP_PATH="$(find dist -maxdepth 3 -type d -name '*.app' | head -n 1)"
+          if [ -z "$APP_PATH" ]; then
+            echo "::error::No .app bundle found in dist/"
+            exit 1
+          fi
+          SIGN_INFO="$(codesign -dv --verbose=4 "$APP_PATH" 2>&1 || true)"
+          echo "$SIGN_INFO"
+          if ! codesign --verify --deep --strict --verbose=2 "$APP_PATH"; then
+            echo "::error::App bundle signature is invalid"
+            exit 1
+          fi
+          if [ "$MAC_EXPECT_DEVELOPER_ID" = "true" ] && echo "$SIGN_INFO" | grep -q "TeamIdentifier=not set"; then
+            echo "::error::App bundle is not signed with a Developer ID certificate"
+            exit 1
+          fi
 
       # electron-builder v25 downloads fpm at build time, which is unreliable
       # (x86-only binary on arm64, download failures on x64). Install system fpm.
@@ -118,9 +184,54 @@ jobs:
           USE_SYSTEM_FPM: "true"
         run: pnpm exec electron-builder --linux --${{ matrix.arch }}
 
+      - name: Configure optional Windows signing
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: |
+          echo "WIN_CSC_LINK_ENV=" >> "$GITHUB_ENV"
+          echo "WIN_CSC_KEY_PASSWORD_ENV=" >> "$GITHUB_ENV"
+          echo "WIN_EXPECT_SIGNATURE=false" >> "$GITHUB_ENV"
+
+          if [ -n "$WIN_CSC_LINK" ] && [ -n "$WIN_CSC_KEY_PASSWORD" ]; then
+            echo "WIN_CSC_LINK_ENV=$WIN_CSC_LINK" >> "$GITHUB_ENV"
+            echo "WIN_CSC_KEY_PASSWORD_ENV=$WIN_CSC_KEY_PASSWORD" >> "$GITHUB_ENV"
+            echo "WIN_EXPECT_SIGNATURE=true" >> "$GITHUB_ENV"
+          elif [ -n "$WIN_CSC_LINK" ] || [ -n "$WIN_CSC_KEY_PASSWORD" ]; then
+            echo "::warning::Partial WIN_CSC_* secrets detected; building unsigned Windows installer"
+          else
+            echo "::warning::No Windows signing certificate configured; building unsigned Windows installer"
+          fi
+
       - name: Package installer (Windows)
         if: runner.os == 'Windows'
+        env:
+          WIN_CSC_LINK: ${{ env.WIN_CSC_LINK_ENV }}
+          WIN_CSC_KEY_PASSWORD: ${{ env.WIN_CSC_KEY_PASSWORD_ENV }}
         run: pnpm exec electron-builder --win --${{ matrix.arch }}
+
+      - name: Verify Windows signature
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          WIN_EXPECT_SIGNATURE: ${{ env.WIN_EXPECT_SIGNATURE }}
+        run: |
+          $exe = Get-ChildItem -Path dist -Filter *.exe | Select-Object -First 1
+          if (-not $exe) {
+            Write-Error "No .exe artifact found in dist/"
+            exit 1
+          }
+
+          $sig = Get-AuthenticodeSignature -FilePath $exe.FullName
+          Write-Host "Installer: $($exe.Name)"
+          Write-Host "Authenticode status: $($sig.Status)"
+
+          if ($env:WIN_EXPECT_SIGNATURE -eq "true" -and $sig.Status -ne "Valid") {
+            Write-Error "Windows installer is not validly signed"
+            exit 1
+          }
 
       - name: Verify packaged native tools
         shell: bash
@@ -195,11 +306,75 @@ jobs:
       - name: Build (Nuxt + Electron)
         run: pnpm run build
 
+      - name: Configure optional macOS signing and notarization
+        shell: bash
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          echo "MAC_CSC_LINK=" >> "$GITHUB_ENV"
+          echo "MAC_CSC_KEY_PASSWORD=" >> "$GITHUB_ENV"
+          echo "MAC_EXPECT_DEVELOPER_ID=false" >> "$GITHUB_ENV"
+          echo "APPLE_API_KEY_PATH=" >> "$GITHUB_ENV"
+          echo "APPLE_API_KEY_ID_ENV=" >> "$GITHUB_ENV"
+          echo "APPLE_API_ISSUER_ENV=" >> "$GITHUB_ENV"
+
+          if [ -n "$CSC_LINK" ] && [ -n "$CSC_KEY_PASSWORD" ]; then
+            echo "MAC_CSC_LINK=$CSC_LINK" >> "$GITHUB_ENV"
+            echo "MAC_CSC_KEY_PASSWORD=$CSC_KEY_PASSWORD" >> "$GITHUB_ENV"
+            echo "MAC_EXPECT_DEVELOPER_ID=true" >> "$GITHUB_ENV"
+          elif [ -n "$CSC_LINK" ] || [ -n "$CSC_KEY_PASSWORD" ]; then
+            echo "::warning::Partial macOS signing credentials detected; building unsigned ad-hoc app"
+          else
+            echo "::warning::No macOS signing certificate configured; building unsigned ad-hoc app"
+          fi
+
+          if [ -n "$APPLE_API_KEY" ] && [ -n "$APPLE_API_KEY_ID" ] && [ -n "$APPLE_API_ISSUER" ]; then
+            API_KEY_PATH="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID}.p8"
+            printf '%s' "$APPLE_API_KEY" > "$API_KEY_PATH"
+            chmod 600 "$API_KEY_PATH"
+            echo "APPLE_API_KEY_PATH=$API_KEY_PATH" >> "$GITHUB_ENV"
+            echo "APPLE_API_KEY_ID_ENV=$APPLE_API_KEY_ID" >> "$GITHUB_ENV"
+            echo "APPLE_API_ISSUER_ENV=$APPLE_API_ISSUER" >> "$GITHUB_ENV"
+          elif [ -n "$APPLE_API_KEY" ] || [ -n "$APPLE_API_KEY_ID" ] || [ -n "$APPLE_API_ISSUER" ]; then
+            echo "::warning::Partial APPLE_API_* secrets detected; notarization disabled"
+          fi
+
       - name: Package installer (macOS Intel)
         # On macos-15-intel runners, DMG creation intermittently fails while
         # detaching the mounted image (hdiutil exit code 16: resource busy).
         # Build ZIP only in this supplemental lane to keep x64 artifacts flowing.
+        env:
+          CSC_LINK: ${{ env.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ env.MAC_CSC_KEY_PASSWORD }}
+          APPLE_API_KEY: ${{ env.APPLE_API_KEY_PATH }}
+          APPLE_API_KEY_ID: ${{ env.APPLE_API_KEY_ID_ENV }}
+          APPLE_API_ISSUER: ${{ env.APPLE_API_ISSUER_ENV }}
         run: pnpm exec electron-builder --mac zip --x64
+
+      - name: Verify macOS signature
+        shell: bash
+        env:
+          MAC_EXPECT_DEVELOPER_ID: ${{ env.MAC_EXPECT_DEVELOPER_ID }}
+        run: |
+          APP_PATH="$(find dist -maxdepth 3 -type d -name '*.app' | head -n 1)"
+          if [ -z "$APP_PATH" ]; then
+            echo "::error::No .app bundle found in dist/"
+            exit 1
+          fi
+          SIGN_INFO="$(codesign -dv --verbose=4 "$APP_PATH" 2>&1 || true)"
+          echo "$SIGN_INFO"
+          if ! codesign --verify --deep --strict --verbose=2 "$APP_PATH"; then
+            echo "::error::App bundle signature is invalid"
+            exit 1
+          fi
+          if [ "$MAC_EXPECT_DEVELOPER_ID" = "true" ] && echo "$SIGN_INFO" | grep -q "TeamIdentifier=not set"; then
+            echo "::error::App bundle is not signed with a Developer ID certificate"
+            exit 1
+          fi
 
       - name: Verify packaged native tools
         run: bash scripts/verify-packaged-native-tools.sh mac x64

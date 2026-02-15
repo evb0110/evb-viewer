@@ -5,6 +5,7 @@ copyright: Copyright © 2026 Eugene Barsky
 asar: false
 npmRebuild: false
 afterPack: ./scripts/afterPack.cjs
+afterSign: ./scripts/afterSign.cjs
 
 files:
   - dist-electron/
