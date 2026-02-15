@@ -465,7 +465,8 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
                 return modifiedIds.size > 0;
             }
             return false;
-        } catch {
+        } catch (error) {
+            BrowserLogger.debug('workspace', 'Failed to inspect annotation storage dirty state', error);
             return false;
         }
     }

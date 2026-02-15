@@ -10,6 +10,7 @@ import type {
     IShapeAnnotation,
     TAnnotationTool,
 } from '@app/types/annotations';
+import { BrowserLogger } from '@app/utils/browser-logger';
 
 type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'bookmarks' | 'search';
 
@@ -351,8 +352,8 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         }
         try {
             await navigator.clipboard.writeText(text);
-        } catch {
-            // Ignore clipboard errors in non-secure contexts.
+        } catch (error) {
+            BrowserLogger.debug('annotations', 'Failed to copy annotation comment text to clipboard', error);
         }
     }
 
