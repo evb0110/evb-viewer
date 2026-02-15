@@ -265,3 +265,5 @@ export const useAnnotationShapes = () => {
         cancelDrawing,
     };
 };
+
+export type TUseAnnotationShapesReturn = ReturnType<typeof useAnnotationShapes>;

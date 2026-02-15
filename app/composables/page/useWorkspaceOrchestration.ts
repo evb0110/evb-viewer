@@ -34,6 +34,7 @@ import { usePageShortcuts } from '@app/composables/usePageShortcuts';
 import { useDjvu } from '@app/composables/useDjvu';
 import { useDocumentTransitions } from '@app/composables/page/useDocumentTransitions';
 import { useWorkspaceExport } from '@app/composables/page/useWorkspaceExport';
+import { useWorkspaceFileSwitch } from '@app/composables/page/useWorkspaceFileSwitch';
 import type { TTabUpdate } from '@app/types/tabs';
 
 type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'bookmarks' | 'search';
@@ -569,32 +570,21 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         resetSearchCache,
     });
 
-    async function openFileWithDjvuCleanup() {
-        const oldPath = workingCopyPath.value;
-        await openFile();
-        if (isDjvuMode.value && workingCopyPath.value !== oldPath) {
-            await cleanupDjvuTemp();
-            exitDjvuMode();
-        }
-    }
-
-    async function openFileDirectWithDjvuCleanup(path: string) {
-        const oldPath = workingCopyPath.value;
-        await openFileDirect(path);
-        if (isDjvuMode.value && workingCopyPath.value !== oldPath) {
-            await cleanupDjvuTemp();
-            exitDjvuMode();
-        }
-    }
-
-    async function openFileDirectBatchWithDjvuCleanup(paths: string[]) {
-        const oldPath = workingCopyPath.value;
-        await openFileDirectBatch(paths);
-        if (isDjvuMode.value && workingCopyPath.value !== oldPath) {
-            await cleanupDjvuTemp();
-            exitDjvuMode();
-        }
-    }
+    const {
+        openFileWithDjvuCleanup,
+        openFileDirectWithDjvuCleanup,
+        openFileDirectBatchWithDjvuCleanup,
+        closeFileWithDjvuCleanup,
+    } = useWorkspaceFileSwitch({
+        workingCopyPath,
+        isDjvuMode,
+        cleanupDjvuTemp,
+        exitDjvuMode,
+        openFile,
+        openFileDirect,
+        openFileDirectBatch,
+        closeFile,
+    });
 
     const {
         handleOpenFileFromUi,
@@ -619,13 +609,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         openFile: openFileWithDjvuCleanup,
         openFileDirect: openFileDirectWithDjvuCleanup,
         openFileDirectBatch: openFileDirectBatchWithDjvuCleanup,
-        closeFile: async () => {
-            if (isDjvuMode.value) {
-                await cleanupDjvuTemp();
-                exitDjvuMode();
-            }
-            await closeFile();
-        },
+        closeFile: closeFileWithDjvuCleanup,
         closeAllDropdowns,
     });
 

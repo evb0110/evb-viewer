@@ -42,7 +42,6 @@
 <script setup lang="ts">
 import {
     computed,
-    provide,
     ref,
     shallowRef,
 } from 'vue';
@@ -56,15 +55,12 @@ import { usePdfPageRenderer } from '@app/composables/pdf/usePdfPageRenderer';
 import { usePdfScale } from '@app/composables/pdf/usePdfScale';
 import { usePdfScroll } from '@app/composables/pdf/usePdfScroll';
 import { usePdfSkeletonInsets } from '@app/composables/pdf/usePdfSkeletonInsets';
-import {
-    useAnnotationShapes,
-    isShapeTool,
-} from '@app/composables/pdf/useAnnotationShapes';
-import type { IShapeContextProvide } from '@app/composables/pdf/useAnnotationShapes';
+import {useAnnotationShapes} from '@app/composables/pdf/useAnnotationShapes';
 import { range } from 'es-toolkit/math';
 import { usePdfSinglePageScroll } from '@app/composables/pdf/usePdfSinglePageScroll';
 import { useAnnotationOrchestrator } from '@app/composables/pdf/useAnnotationOrchestrator';
 import { usePdfViewerCore } from '@app/composables/pdf/usePdfViewerCore';
+import { usePdfShapeContext } from '@app/composables/pdf/usePdfShapeContext';
 import type {
     IPdfPageMatches,
     IPdfSearchMatch,
@@ -78,10 +74,8 @@ import type {
     IAnnotationSettings,
     IShapeAnnotation,
     TAnnotationTool,
-    TShapeType,
 } from '@app/types/annotations';
 import type { IAnnotationContextMenuPayload } from '@app/composables/pdf/pdfAnnotationUtils';
-import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotation-defaults';
 
 import 'pdfjs-dist/web/pdf_viewer.css';
 
@@ -196,49 +190,14 @@ const {
 } = usePdfSkeletonInsets(basePageWidth, basePageHeight, effectiveScale);
 
 const shapeComposable = useAnnotationShapes();
-const isShapeToolActive = computed(() => isShapeTool(annotationTool.value));
-const activeShapeTool = computed<TShapeType | null>(() => isShapeTool(annotationTool.value) ? annotationTool.value : null);
-
-provide<IShapeContextProvide>('shapeContext', {
-    selectedShapeId: shapeComposable.selectedShapeId,
-    drawingShape: shapeComposable.drawingShape,
-    isShapeToolActive,
-    activeShapeTool,
-    settings: computed(() => annotationSettings.value ?? DEFAULT_ANNOTATION_SETTINGS),
-    getShapesForPage: shapeComposable.getShapesForPage,
-    handleStartDrawing(pageIndex: number, coords: {
-        x: number;
-        y: number
-    }) {
-        const tool = activeShapeTool.value;
-        if (!tool) {
-            return;
-        }
-        const settings = annotationSettings.value;
-        if (!settings) {
-            return;
-        }
-        shapeComposable.startDrawing(pageIndex, tool, coords.x, coords.y, settings);
+usePdfShapeContext({
+    shapeComposable,
+    annotationTool,
+    annotationSettings,
+    onAnnotationModified: () => {
+        emit('annotation-modified');
     },
-    handleContinueDrawing(coords: {
-        x: number;
-        y: number
-    }) {
-        shapeComposable.continueDrawing(coords.x, coords.y);
-    },
-    handleFinishDrawing() {
-        const shape = shapeComposable.finishDrawing();
-        if (shape) emit('annotation-modified');
-    },
-    handleSelectShape(id: string | null) {
-        shapeComposable.selectShape(id);
-    },
-    handleShapeContextMenu(payload: {
-        shapeId: string;
-        clientX: number;
-        clientY: number
-    }) {
-        shapeComposable.selectShape(payload.shapeId);
+    onShapeContextMenu: (payload) => {
         emit('shape-context-menu', payload);
     },
 });
