@@ -1,4 +1,7 @@
-import { app } from 'electron';
+import {
+    app,
+    ipcMain,
+} from 'electron';
 import {
     dirname,
     extname,
@@ -46,45 +49,131 @@ const SUPPORTED_EXTENSIONS = new Set([
     '.djvu',
     '.djv',
 ]);
-const pendingFilePaths: string[] = [];
+const pendingOpenRequests: string[][] = [];
+let rendererReady = false;
+let defaultViewerPromptShown = false;
 
 function isSupportedFile(filePath: string) {
     return SUPPORTED_EXTENSIONS.has(extname(filePath).toLowerCase());
 }
 
-function flushPendingFiles() {
+function normalizeCommandLineArg(arg: string): string | null {
+    let normalized = arg.trim();
+    if (!normalized || normalized.startsWith('-')) {
+        return null;
+    }
+
+    if (
+        (normalized.startsWith('"') && normalized.endsWith('"'))
+        || (normalized.startsWith('\'') && normalized.endsWith('\''))
+    ) {
+        normalized = normalized.slice(1, -1);
+    }
+
+    if (!normalized) {
+        return null;
+    }
+
+    if (normalized.startsWith('file://')) {
+        try {
+            return fileURLToPath(normalized);
+        } catch {
+            return null;
+        }
+    }
+
+    return normalized;
+}
+
+function collectSupportedPathsFromArgs(args: string[]): string[] {
+    const files: string[] = [];
+    for (const arg of args) {
+        const normalized = normalizeCommandLineArg(arg);
+        if (normalized && isSupportedFile(normalized)) {
+            files.push(normalized);
+        }
+    }
+    return files;
+}
+
+function queueOpenRequest(paths: string[]) {
+    const normalizedPaths = paths
+        .map(path => path.trim())
+        .filter(path => path.length > 0);
+    if (normalizedPaths.length === 0) {
+        return;
+    }
+    pendingOpenRequests.push(normalizedPaths);
+}
+
+function queueOpenRequestFromArgs(args: string[]) {
+    queueOpenRequest(collectSupportedPathsFromArgs(args));
+}
+
+function focusMainWindow() {
     const window = getMainWindow();
     if (!window) {
         return;
     }
 
-    while (pendingFilePaths.length > 0) {
-        const filePath = pendingFilePaths.shift()!;
-        sendToWindow(window, 'menu:openRecentFile', filePath);
+    if (window.isMinimized()) {
+        window.restore();
     }
+    window.focus();
+}
+
+function flushPendingFiles() {
+    if (!rendererReady) {
+        return;
+    }
+
+    const window = getMainWindow();
+    if (!window) {
+        return;
+    }
+
+    while (pendingOpenRequests.length > 0) {
+        const paths = pendingOpenRequests.shift()!;
+        sendToWindow(window, 'menu:openExternalPaths', paths);
+    }
+}
+
+function maybePromptForDefaultViewer() {
+    if (defaultViewerPromptShown) {
+        return;
+    }
+    const window = getMainWindow();
+    if (!window) {
+        return;
+    }
+    defaultViewerPromptShown = true;
+    void promptSetDefaultViewer(window);
+}
+
+const singleInstanceLock = app.requestSingleInstanceLock();
+if (!singleInstanceLock) {
+    app.quit();
+    process.exit(0);
 }
 
 // macOS: open-file fires when a file is double-clicked while the app is running or launching.
 // Must register before app.whenReady() because macOS sends it early during launch.
 app.on('open-file', (event, filePath) => {
     event.preventDefault();
-
-    const window = getMainWindow();
-    if (window) {
-        sendToWindow(window, 'menu:openRecentFile', filePath);
-    } else {
-        pendingFilePaths.push(filePath);
-    }
+    queueOpenRequest([filePath]);
+    flushPendingFiles();
 });
 
 // Windows/Linux: the OS passes the file path as a command-line argument
 if (process.platform !== 'darwin') {
-    for (const arg of process.argv.slice(1)) {
-        if (isSupportedFile(arg)) {
-            pendingFilePaths.push(arg);
-        }
-    }
+    queueOpenRequestFromArgs(process.argv.slice(1));
 }
+
+app.on('second-instance', (_event, commandLine) => {
+    queueOpenRequestFromArgs(commandLine.slice(1));
+    focusMainWindow();
+    flushPendingFiles();
+});
 
 async function init() {
     await app.whenReady();
@@ -108,6 +197,11 @@ async function init() {
     registerIpcHandlers();
     await initRecentFilesCache();
     setupMenu();
+    ipcMain.on('app:rendererReady', () => {
+        rendererReady = true;
+        flushPendingFiles();
+        maybePromptForDefaultViewer();
+    });
 
     app.on('window-all-closed', () => {
         stopServer();
@@ -119,21 +213,13 @@ async function init() {
 
     app.on('activate', () => {
         if (!hasWindows()) {
+            rendererReady = false;
             void createWindow();
         }
     });
 
+    rendererReady = false;
     await createWindow();
-
-    // Give the renderer time to initialize before sending file paths or showing prompts
-    setTimeout(() => {
-        flushPendingFiles();
-
-        const window = getMainWindow();
-        if (window) {
-            void promptSetDefaultViewer(window);
-        }
-    }, 2000);
 }
 
 void init();

@@ -71,6 +71,28 @@ export const usePdfFile = () => {
         }
     }
 
+    async function openFileDirectBatch(paths: string[]) {
+        error.value = null;
+        pendingDjvu.value = null;
+        try {
+            const api = getElectronAPI();
+            const result = await api.openPdfDirectBatch(paths);
+            if (!result) {
+                error.value = t('errors.file.invalid');
+                return;
+            }
+            if (result.kind === 'djvu') {
+                pendingDjvu.value = result.originalPath;
+                return;
+            }
+            originalPath.value = result.originalPath;
+            requiresSaveAsOnFirstSave.value = !!result.isGenerated;
+            await loadPdfFromPath(result.workingPath, { markDirty: !!result.isGenerated });
+        } catch (e) {
+            error.value = e instanceof Error ? e.message : t('errors.file.open');
+        }
+    }
+
     const MAX_IN_MEMORY_PDF_BYTES = 256 * 1024 * 1024;
 
     function resetHistory(snapshot: Uint8Array | null) {
@@ -323,6 +345,7 @@ export const usePdfFile = () => {
         pendingDjvu,
         openFile,
         openFileDirect,
+        openFileDirectBatch,
         loadPdfFromPath,
         loadPdfFromData,
         saveFile,

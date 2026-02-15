@@ -181,6 +181,7 @@ if (!__preloadAlreadyInstalled) {
     contextBridge.exposeInMainWorld('electronAPI', {
         openPdfDialog: () => ipcRenderer.invoke('dialog:openPdf'),
         openPdfDirect: (path: string) => ipcRenderer.invoke('dialog:openPdfDirect', path),
+        openPdfDirectBatch: (paths: string[]) => ipcRenderer.invoke('dialog:openPdfDirectBatch', paths),
         savePdfAs: (workingPath: string) => ipcRenderer.invoke('dialog:savePdfAs', workingPath),
         savePdfDialog: (suggestedName: string) => ipcRenderer.invoke('dialog:savePdfDialog', suggestedName),
         saveDocxAs: (workingPath: string) => ipcRenderer.invoke('dialog:saveDocxAs', workingPath),
@@ -200,6 +201,7 @@ if (!__preloadAlreadyInstalled) {
         cleanupOcrTemp: (path: string) => ipcRenderer.invoke('file:cleanupOcrTemp', path),
         setWindowTitle: (title: string) => ipcRenderer.invoke('window:setTitle', title),
         setMenuDocumentState: (hasDocument: boolean) => ipcRenderer.invoke('menu:setDocumentState', hasDocument),
+        notifyRendererReady: () => ipcRenderer.send('app:rendererReady'),
 
         onMenuOpenPdf: (callback: IMenuEventCallback): IMenuEventUnsubscribe => {
             const handler = (_event: IpcRendererEvent) => callback();
@@ -386,6 +388,11 @@ if (!__preloadAlreadyInstalled) {
             const handler = (_event: IpcRendererEvent, filePath: string) => callback(filePath);
             ipcRenderer.on('menu:openRecentFile', handler);
             return () => ipcRenderer.removeListener('menu:openRecentFile', handler);
+        },
+        onMenuOpenExternalPaths: (callback: (paths: string[]) => void): IMenuEventUnsubscribe => {
+            const handler = (_event: IpcRendererEvent, paths: string[]) => callback(paths);
+            ipcRenderer.on('menu:openExternalPaths', handler);
+            return () => ipcRenderer.removeListener('menu:openExternalPaths', handler);
         },
 
         // Settings API

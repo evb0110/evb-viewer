@@ -77,6 +77,7 @@ interface IWorkspaceExpose {
     handleRedo: () => void;
     handleOpenFileFromUi: () => Promise<void>;
     handleOpenFileDirectWithPersist: (path: string) => Promise<void>;
+    handleOpenFileDirectBatchWithPersist: (paths: string[]) => Promise<void>;
     handleCloseFileFromUi: () => Promise<void>;
     handleExportDocx: () => Promise<void>;
     handleExportImages: () => Promise<void>;
@@ -228,6 +229,32 @@ async function openPathInAppropriateTab(path: string) {
     await handleOpenInNewTab(path);
 }
 
+async function openPathsInAppropriateTab(paths: string[]) {
+    const normalizedPaths = paths
+        .map(path => path.trim())
+        .filter(path => path.length > 0);
+    if (normalizedPaths.length === 0) {
+        return;
+    }
+
+    if (normalizedPaths.length === 1) {
+        await openPathInAppropriateTab(normalizedPaths[0]!);
+        return;
+    }
+
+    let ws = activeWorkspace.value;
+    if (!ws || workspaceHasPdf(ws)) {
+        const tab = createTab();
+        await nextTick();
+        ws = workspaceRefs.value.get(tab.id) ?? null;
+    }
+    if (!ws) {
+        return;
+    }
+
+    await ws.handleOpenFileDirectBatchWithPersist(normalizedPaths);
+}
+
 function hasExternalFilePayload(dataTransfer: DataTransfer | null) {
     if (!dataTransfer) {
         return false;
@@ -258,6 +285,7 @@ function getDroppedDocumentPaths(dataTransfer: DataTransfer | null) {
         if (
             lowerPath.endsWith('.pdf')
             || lowerPath.endsWith('.djvu')
+            || lowerPath.endsWith('.djv')
             || lowerPath.endsWith('.png')
             || lowerPath.endsWith('.jpg')
             || lowerPath.endsWith('.jpeg')
@@ -428,6 +456,9 @@ onMounted(() => {
             window.electronAPI.onMenuOpenRecentFile((path: string) => {
                 void openPathInAppropriateTab(path);
             }),
+            window.electronAPI.onMenuOpenExternalPaths((paths: string[]) => {
+                void openPathsInAppropriateTab(paths);
+            }),
             window.electronAPI.onMenuClearRecentFiles(() => {
                 clearRecentFiles();
                 loadRecentFiles();
@@ -462,6 +493,9 @@ onMounted(() => {
                 }
             }),
         );
+        void nextTick(() => {
+            window.electronAPI.notifyRendererReady();
+        });
     }
 });
 

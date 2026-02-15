@@ -18,6 +18,7 @@ export interface IPageFileOperationsDeps {
     handleSave: () => Promise<void>;
     openFile: () => Promise<void>;
     openFileDirect: (path: string) => Promise<void>;
+    openFileDirectBatch: (paths: string[]) => Promise<void>;
     closeFile: () => Promise<void>;
     closeAllDropdowns: () => void;
 }
@@ -39,6 +40,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         handleSave,
         openFile,
         openFileDirect,
+        openFileDirectBatch,
         closeFile,
         closeAllDropdowns,
     } = deps;
@@ -106,6 +108,15 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         closeAllDropdowns();
     }
 
+    async function handleOpenFileDirectBatchWithPersist(paths: string[]) {
+        const canProceed = await ensureCurrentDocumentPersistedBeforeSwitch();
+        if (!canProceed) {
+            return;
+        }
+        await openFileDirectBatch(paths);
+        closeAllDropdowns();
+    }
+
     async function handleCloseFileFromUi() {
         const canProceed = await ensureCurrentDocumentPersistedBeforeSwitch();
         if (!canProceed) {
@@ -122,6 +133,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
     return {
         handleOpenFileFromUi,
         handleOpenFileDirectWithPersist,
+        handleOpenFileDirectBatchWithPersist,
         handleCloseFileFromUi,
         openRecentFile,
     };

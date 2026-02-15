@@ -139,6 +139,22 @@ export async function handleOpenPdfDirect(
     }
 }
 
+export async function handleOpenPdfDirectBatch(
+    _event: Electron.IpcMainInvokeEvent,
+    filePaths: string[],
+): Promise<IOpenFileResult | null> {
+    if (!Array.isArray(filePaths) || filePaths.length === 0) {
+        return null;
+    }
+
+    try {
+        return await openInputPaths(filePaths);
+    } catch (err) {
+        logger.error(`Failed to create working copy from batch: ${err instanceof Error ? err.message : String(err)}`);
+        return null;
+    }
+}
+
 export function handleSetWindowTitle(event: Electron.IpcMainInvokeEvent, title: string) {
     const window = BrowserWindow.fromWebContents(event.sender);
     if (window) {
@@ -154,6 +170,7 @@ export async function handleOpenPdfDialog(): Promise<IOpenFileResult | null> {
             extensions: [
                 'pdf',
                 'djvu',
+                'djv',
                 ...SUPPORTED_IMAGE_EXTENSIONS.map(ext => ext.slice(1)),
             ],
         }],

@@ -16,6 +16,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 function getPlatformArch(): string {
     const archMap: Record<string, string> = {
         arm64: 'arm64',
+        ia32: 'ia32',
         x64: 'x64',
     };
     const platformMap: Record<string, string> = {

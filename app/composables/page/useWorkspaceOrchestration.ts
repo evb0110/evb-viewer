@@ -106,6 +106,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         pendingDjvu,
         openFile,
         openFileDirect,
+        openFileDirectBatch,
         loadPdfFromPath,
         loadPdfFromData,
         closeFile,
@@ -579,9 +580,19 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         }
     }
 
+    async function openFileDirectBatchWithDjvuCleanup(paths: string[]) {
+        const oldPath = workingCopyPath.value;
+        await openFileDirectBatch(paths);
+        if (isDjvuMode.value && workingCopyPath.value !== oldPath) {
+            await cleanupDjvuTemp();
+            exitDjvuMode();
+        }
+    }
+
     const {
         handleOpenFileFromUi,
         handleOpenFileDirectWithPersist,
+        handleOpenFileDirectBatchWithPersist,
         handleCloseFileFromUi,
         openRecentFile,
     } = usePageFileOperations({
@@ -600,6 +611,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         handleSave,
         openFile: openFileWithDjvuCleanup,
         openFileDirect: openFileDirectWithDjvuCleanup,
+        openFileDirectBatch: openFileDirectBatchWithDjvuCleanup,
         closeFile: async () => {
             if (isDjvuMode.value) {
                 await cleanupDjvuTemp();
@@ -1071,6 +1083,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
 
         handleOpenFileFromUi,
         handleOpenFileDirectWithPersist,
+        handleOpenFileDirectBatchWithPersist,
         handleCloseFileFromUi,
         openRecentFile,
 

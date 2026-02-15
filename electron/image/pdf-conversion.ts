@@ -55,7 +55,8 @@ export function isPdfPath(filePath: string): boolean {
 }
 
 export function isDjvuPath(filePath: string): boolean {
-    return extname(filePath).toLowerCase() === '.djvu';
+    const extension = extname(filePath).toLowerCase();
+    return extension === '.djvu' || extension === '.djv';
 }
 
 export function isPdfOrImagePath(filePath: string): boolean {

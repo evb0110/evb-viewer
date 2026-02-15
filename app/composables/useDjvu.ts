@@ -250,7 +250,7 @@ export const useDjvu = () => {
         const api = getElectronAPI();
 
         const suggestedName = (djvuSourcePath.value.split(/[\\/]/).pop() ?? t('djvu.documentFallback'))
-            .replace(/\.djvu$/i, '.pdf');
+            .replace(/\.djvu?$/i, '.pdf');
         const savePath = await api.savePdfDialog(suggestedName);
         if (!savePath) {
             return;

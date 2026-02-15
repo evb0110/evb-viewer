@@ -31,6 +31,7 @@ import {
 import {
     handleOpenPdfDialog,
     handleOpenPdfDirect,
+    handleOpenPdfDirectBatch,
     handleSavePdfAs,
     handleSavePdfDialog,
     handleSaveDocxAs,
@@ -50,6 +51,7 @@ export { clearAllWorkingCopies } from '@electron/ipc/workingCopy';
 export function registerIpcHandlers() {
     ipcMain.handle('dialog:openPdf', handleOpenPdfDialog);
     ipcMain.handle('dialog:openPdfDirect', handleOpenPdfDirect);
+    ipcMain.handle('dialog:openPdfDirectBatch', handleOpenPdfDirectBatch);
     ipcMain.handle('dialog:savePdfAs', handleSavePdfAs);
     ipcMain.handle('dialog:savePdfDialog', handleSavePdfDialog);
     ipcMain.handle('dialog:saveDocxAs', handleSaveDocxAs);

@@ -63,6 +63,7 @@ function getPlatformArch(): string {
     // Map Node.js arch names to our directory names
     const archMap: Record<string, string> = {
         arm64: 'arm64',
+        ia32: 'ia32',
         x64: 'x64',
     };
 

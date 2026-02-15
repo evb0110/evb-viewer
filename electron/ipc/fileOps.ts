@@ -34,6 +34,7 @@ const ALLOWED_READ_EXTENSIONS = new Set([
 const ALLOWED_BINARY_READ_EXTENSIONS = new Set([
     '.pdf',
     '.djvu',
+    '.djv',
 ]);
 
 export async function handleFileRead(_event: Electron.IpcMainInvokeEvent, filePath: string): Promise<Uint8Array> {

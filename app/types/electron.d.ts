@@ -192,6 +192,7 @@ type IOpenFileResult = IOpenPdfResult | IOpenDjvuResult;
 interface IElectronAPI {
     openPdfDialog: () => Promise<IOpenFileResult | null>;
     openPdfDirect: (path: string) => Promise<IOpenFileResult | null>;
+    openPdfDirectBatch: (paths: string[]) => Promise<IOpenFileResult | null>;
     savePdfAs: (workingCopyPath: string) => Promise<string | null>;
     savePdfDialog: (suggestedName: string) => Promise<string | null>;
     saveDocxAs: (workingCopyPath: string) => Promise<string | null>;
@@ -217,6 +218,7 @@ interface IElectronAPI {
     cleanupOcrTemp: (path: string) => Promise<void>;
     setWindowTitle: (title: string) => Promise<void>;
     setMenuDocumentState: (hasDocument: boolean) => Promise<void>;
+    notifyRendererReady: () => void;
     onMenuOpenPdf: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuSave: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuSaveAs: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
@@ -286,6 +288,7 @@ interface IElectronAPI {
         clear: () => Promise<void>;
     };
     onMenuOpenRecentFile: (callback: (path: string) => void) => IMenuEventUnsubscribe;
+    onMenuOpenExternalPaths: (callback: (paths: string[]) => void) => IMenuEventUnsubscribe;
     onMenuClearRecentFiles: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
 
     // Settings API
