@@ -4,6 +4,7 @@ import {
 } from 'vue';
 import * as pdfjsLib from 'pdfjs-dist';
 import type {
+    PDFDataRangeTransport,
     PDFDocumentProxy,
     PDFPageProxy,
 } from 'pdfjs-dist';
@@ -12,6 +13,9 @@ import type { TPdfSource } from '@app/types/pdf';
 import { BrowserLogger } from '@app/utils/browser-logger';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf/pdf.worker.min.mjs';
+
+type TPdfDataRangeTransportCtor = new (length: number, initialData: Uint8Array) => PDFDataRangeTransport;
+type TPdfDataRangeTransport = PDFDataRangeTransport & { onError?: (error: unknown) => void };
 
 export const usePdfDocument = () => {
     const pdfDocument = shallowRef<PDFDocumentProxy | null>(null);
@@ -24,8 +28,7 @@ export const usePdfDocument = () => {
     const pdfPageCache = new Map<number, PDFPageProxy>();
     let objectUrl: string | null = null;
     let loadingTask: ReturnType<typeof pdfjsLib.getDocument> | null = null;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- PDFDataRangeTransport is not exported by pdfjs-dist
-    let rangeTransport: any | null = null;
+    let rangeTransport: TPdfDataRangeTransport | null = null;
 
     function getRenderVersion() {
         return renderVersion;
@@ -76,32 +79,34 @@ export const usePdfDocument = () => {
             const initialLen = Math.min(1024 * 1024, length);
             const initialData = await api.readFileRange(src.path, 0, initialLen);
 
-            // pdfjs-dist doesn't export a typed constructor here, so use `any`.
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- PDFDataRangeTransport not in public types
-            const TransportCtor = (pdfjsLib as any).PDFDataRangeTransport;
-            rangeTransport = new TransportCtor(length, initialData);
+            const TransportCtor = (pdfjsLib as typeof pdfjsLib & { PDFDataRangeTransport?: TPdfDataRangeTransportCtor }).PDFDataRangeTransport;
+            if (!TransportCtor) {
+                throw new Error('PDF.js range transport API is unavailable');
+            }
+            rangeTransport = new TransportCtor(length, initialData) as TPdfDataRangeTransport;
+            const activeRangeTransport = rangeTransport;
 
             // PDF.js will call this to request additional chunks.
-            rangeTransport.requestDataRange = async (begin: number, end: number) => {
+            activeRangeTransport.requestDataRange = async (begin: number, end: number) => {
                 try {
                     // Drop stale reads if a newer load has started.
                     if (version !== renderVersion) {
                         return;
                     }
                     const chunk = await api.readFileRange(src.path, begin, end - begin);
-                    rangeTransport.onDataRange(begin, chunk);
+                    activeRangeTransport.onDataRange(begin, chunk);
                 } catch (error) {
                     // Best-effort: surface the error to PDF.js if supported.
                     try {
-                        rangeTransport.onError?.(error);
-                    } catch {
-                        // ignore
+                        activeRangeTransport.onError?.(error);
+                    } catch (forwardError) {
+                        BrowserLogger.debug('pdf-document', 'Failed to forward range read error to PDF.js', forwardError);
                     }
                 }
             };
 
             loadingTask = pdfjsLib.getDocument({
-                range: rangeTransport,
+                range: activeRangeTransport,
                 length,
                 rangeChunkSize: 1024 * 1024,
                 verbosity: pdfjsLib.VerbosityLevel.ERRORS,
@@ -194,8 +199,8 @@ export const usePdfDocument = () => {
         if (rangeTransport) {
             try {
                 rangeTransport.abort();
-            } catch {
-                // ignore
+            } catch (error) {
+                BrowserLogger.debug('pdf-document', 'Failed to abort PDF range transport', error);
             } finally {
                 rangeTransport = null;
             }

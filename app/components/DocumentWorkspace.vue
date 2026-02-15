@@ -324,8 +324,10 @@ import {
     onUnmounted,
     toRef,
 } from 'vue';
+import { createWorkspaceExpose } from '@app/composables/page/createWorkspaceExpose';
 import { useWorkspaceOrchestration } from '@app/composables/page/useWorkspaceOrchestration';
 import type { TTabUpdate } from '@app/types/tabs';
+import type { IWorkspaceExpose } from '@app/types/workspace-expose';
 
 const props = defineProps<{
     tabId: string;
@@ -531,7 +533,7 @@ onUnmounted(() => {
     cleanupShortcuts();
 });
 
-defineExpose({
+const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
     handleSave,
     handleSaveAs,
     handleUndo,
@@ -544,39 +546,20 @@ defineExpose({
     handleExportImages,
     handleExportMultiPageTiff,
     hasPdf,
-    handleZoomIn: () => { zoom.value = Math.min(zoom.value + 0.25, 5); },
-    handleZoomOut: () => { zoom.value = Math.max(zoom.value - 0.25, 0.25); },
-    handleFitWidth: () => { handleFitMode('width'); },
-    handleFitHeight: () => { handleFitMode('height'); },
-    handleActualSize: () => { zoom.value = 1; },
-    handleDeletePages: () => {
-        const pages = sidebarRef.value?.selectedThumbnailPages ?? [];
-        if (pages.length > 0) void pageOpsDelete(pages, totalPages.value);
-    },
-    handleExtractPages: () => {
-        const pages = sidebarRef.value?.selectedThumbnailPages ?? [];
-        if (pages.length > 0) void pageOpsExtract(pages);
-    },
-    handleRotateCw: () => {
-        const pages = sidebarRef.value?.selectedThumbnailPages ?? [];
-        if (pages.length > 0) void handlePageRotate(pages, 90);
-    },
-    handleRotateCcw: () => {
-        const pages = sidebarRef.value?.selectedThumbnailPages ?? [];
-        if (pages.length > 0) void handlePageRotate(pages, 270);
-    },
-    handleInsertPages: () => {
-        void pageOpsInsert(totalPages.value, totalPages.value);
-    },
-    handleConvertToPdf: () => {
-        if (isDjvuMode.value) {
-            openConvertDialog();
-            return;
-        }
-        void handleOpenFileFromUi();
-    },
     closeAllDropdowns,
+    zoom,
+    handleFitMode,
+    sidebarRef,
+    pageOpsDelete,
+    pageOpsExtract,
+    handlePageRotate,
+    pageOpsInsert,
+    totalPages,
+    isDjvuMode,
+    openConvertDialog,
 });
+
+defineExpose(workspaceExpose);
 </script>
 
 <style scoped>
