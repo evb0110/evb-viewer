@@ -12,6 +12,19 @@ import {
 } from 'pdf-lib';
 import type { Ref } from 'vue';
 import type { IPdfBookmarkEntry } from '@app/types/pdf';
+import { BrowserLogger } from '@app/utils/browser-logger';
+
+const BOOKMARK_SERIALIZATION_LOG_SECTION = 'pdf-bookmarks';
+
+function normalizeBookmarkColor(value: unknown) {
+    if (typeof value !== 'string') {
+        return null;
+    }
+    const normalized = value.trim().toLowerCase();
+    return /^#[0-9a-f]{6}$/.test(normalized)
+        ? normalized
+        : null;
+}
 
 export function normalizeBookmarkEntries(
     entries: IPdfBookmarkEntry[],
@@ -19,7 +32,7 @@ export function normalizeBookmarkEntries(
     untitledLabel: string,
 ): IPdfBookmarkEntry[] {
     if (totalPages <= 0) {
-        return [] as IPdfBookmarkEntry[];
+        return [];
     }
 
     const maxPageIndex = totalPages - 1;
@@ -34,9 +47,7 @@ export function normalizeBookmarkEntries(
             : null;
         const bold = item.bold === true;
         const italic = item.italic === true;
-        const color = typeof item.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(item.color.trim())
-            ? item.color.trim().toLowerCase()
-            : null;
+        const color = normalizeBookmarkColor(item.color);
 
         return {
             title: title.length > 0 ? title : untitledLabel,
@@ -74,7 +85,8 @@ export async function rewriteBookmarks(
     let doc: PDFDocument;
     try {
         doc = await PDFDocument.load(data, { updateMetadata: false });
-    } catch {
+    } catch (error) {
+        BrowserLogger.warn(BOOKMARK_SERIALIZATION_LOG_SECTION, 'Failed to load PDF for bookmark rewrite', error);
         return data;
     }
 
