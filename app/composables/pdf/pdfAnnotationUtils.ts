@@ -62,20 +62,24 @@ export interface IAnnotationContextMenuPayload {
     pageY: number | null;
 }
 
+function getEditorComment(editor: IPdfjsEditor) {
+    try {
+        return editor.comment;
+    } catch {
+        return null;
+    }
+}
+
 export function getCommentText(editor: IPdfjsEditor | null | undefined) {
     if (!editor) {
         return '';
     }
-    try {
-        const comment = editor.comment;
-        if (typeof comment === 'string') {
-            return comment;
-        }
-        if (comment && typeof comment.text === 'string') {
-            return comment.text;
-        }
-    } catch {
-        return '';
+    const comment = getEditorComment(editor);
+    if (typeof comment === 'string') {
+        return comment;
+    }
+    if (comment && typeof comment.text === 'string') {
+        return comment.text;
     }
     return '';
 }
@@ -84,20 +88,16 @@ export function hasEditorCommentPayload(editor: IPdfjsEditor | null | undefined)
     if (!editor) {
         return false;
     }
-    try {
-        const comment = editor.comment;
-        if (typeof comment === 'string') {
-            return comment.trim().length > 0;
-        }
-        if (comment && typeof comment === 'object') {
-            const text = typeof comment.text === 'string'
-                ? comment.text.trim()
-                : '';
-            const deleted = comment.deleted === true;
-            return !deleted && text.length > 0;
-        }
-    } catch {
-        return false;
+    const comment = getEditorComment(editor);
+    if (typeof comment === 'string') {
+        return comment.trim().length > 0;
+    }
+    if (comment && typeof comment === 'object') {
+        const text = typeof comment.text === 'string'
+            ? comment.text.trim()
+            : '';
+        const deleted = comment.deleted === true;
+        return !deleted && text.length > 0;
     }
     return false;
 }

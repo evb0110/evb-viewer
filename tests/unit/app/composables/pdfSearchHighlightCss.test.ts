@@ -1,4 +1,5 @@
 import {
+    beforeEach,
     describe,
     expect,
     it,
@@ -18,6 +19,15 @@ const {
     isHighlightDebugEnabled,
     isHighlightDebugVerboseEnabled,
 } = await import('@app/composables/pdfSearchHighlightCss');
+
+beforeEach(() => {
+    vi.unstubAllGlobals();
+});
+
+function stubHighlightApi() {
+    vi.stubGlobal('CSS', {highlights: new Map()});
+    vi.stubGlobal('Highlight', vi.fn(() => ({enabled: true})));
+}
 
 describe('createCssHighlightState', () => {
     it('creates an empty state with all maps initialized', () => {
@@ -88,16 +98,60 @@ describe('getHighlightMode', () => {
     it('returns dom when window is undefined', () => {
         expect(getHighlightMode()).toBe('dom');
     });
+
+    it('returns css when highlight API and storage flag are available', () => {
+        stubHighlightApi();
+        vi.stubGlobal('window', { localStorage: {getItem: vi.fn((key: string) => key === 'pdfHighlightMode' ? 'css' : null)} });
+
+        expect(getHighlightMode()).toBe('css');
+    });
+
+    it('falls back to dom when reading highlight mode throws', () => {
+        stubHighlightApi();
+        vi.stubGlobal('window', { localStorage: {getItem: vi.fn(() => {
+            throw new Error('storage blocked');
+        })} });
+
+        expect(getHighlightMode()).toBe('dom');
+    });
 });
 
 describe('isHighlightDebugEnabled', () => {
     it('returns false when window is undefined', () => {
         expect(isHighlightDebugEnabled()).toBe(false);
     });
+
+    it('returns true when debug flag is enabled in storage', () => {
+        vi.stubGlobal('window', { localStorage: {getItem: vi.fn((key: string) => key === 'pdfHighlightDebug' ? '1' : null)} });
+
+        expect(isHighlightDebugEnabled()).toBe(true);
+    });
+
+    it('returns false when debug storage read throws', () => {
+        vi.stubGlobal('window', { localStorage: {getItem: vi.fn(() => {
+            throw new Error('storage blocked');
+        })} });
+
+        expect(isHighlightDebugEnabled()).toBe(false);
+    });
 });
 
 describe('isHighlightDebugVerboseEnabled', () => {
     it('returns false when window is undefined', () => {
+        expect(isHighlightDebugVerboseEnabled()).toBe(false);
+    });
+
+    it('returns true when verbose debug flag is enabled in storage', () => {
+        vi.stubGlobal('window', { localStorage: {getItem: vi.fn((key: string) => key === 'pdfHighlightDebugVerbose' ? '1' : null)} });
+
+        expect(isHighlightDebugVerboseEnabled()).toBe(true);
+    });
+
+    it('returns false when verbose debug storage read throws', () => {
+        vi.stubGlobal('window', { localStorage: {getItem: vi.fn(() => {
+            throw new Error('storage blocked');
+        })} });
+
         expect(isHighlightDebugVerboseEnabled()).toBe(false);
     });
 });

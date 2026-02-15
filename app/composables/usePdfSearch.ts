@@ -8,7 +8,10 @@ import type {
     TSearchDirection,
 } from '@app/types/pdf';
 import { BrowserLogger } from '@app/utils/browser-logger';
-import { getElectronAPI } from '@app/utils/electron';
+import {
+    getElectronAPI,
+    hasElectronAPI,
+} from '@app/utils/electron';
 import { SEARCH_DEBOUNCE_MS } from '@app/constants/timeouts';
 
 export type {
@@ -307,11 +310,9 @@ export const usePdfSearch = () => {
 
     function resetSearchCache() {
         clearSearch();
-        try {
+        if (hasElectronAPI()) {
             const api = getElectronAPI();
             void api.pdfSearchResetCache();
-        } catch {
-            // Ignore when not in Electron
         }
     }
 

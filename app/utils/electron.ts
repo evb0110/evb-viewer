@@ -1,5 +1,9 @@
+export function hasElectronAPI() {
+    return typeof window !== 'undefined' && Boolean(window.electronAPI);
+}
+
 export function getElectronAPI() {
-    if (typeof window === 'undefined' || !window.electronAPI) {
+    if (!hasElectronAPI()) {
         throw new Error('Electron API not available');
     }
     return window.electronAPI;

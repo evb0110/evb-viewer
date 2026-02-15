@@ -13,45 +13,33 @@ export function canUseHighlightAPI() {
         && typeof Highlight !== 'undefined';
 }
 
+function readHighlightStorageValue(key: string) {
+    if (typeof window === 'undefined') {
+        return null;
+    }
+
+    try {
+        return window.localStorage?.getItem(key) ?? null;
+    } catch {
+        return null;
+    }
+}
+
 export function getHighlightMode(): TPdfHighlightMode {
     if (!canUseHighlightAPI()) {
         return 'dom';
     }
 
-    if (typeof window === 'undefined') {
-        return 'dom';
-    }
-
-    try {
-        const stored = window.localStorage?.getItem(STORAGE_KEYS.HIGHLIGHT_MODE);
-        return stored === 'css' ? 'css' : 'dom';
-    } catch {
-        return 'dom';
-    }
+    const stored = readHighlightStorageValue(STORAGE_KEYS.HIGHLIGHT_MODE);
+    return stored === 'css' ? 'css' : 'dom';
 }
 
 export function isHighlightDebugEnabled() {
-    if (typeof window === 'undefined') {
-        return false;
-    }
-
-    try {
-        return window.localStorage?.getItem(STORAGE_KEYS.HIGHLIGHT_DEBUG) === '1';
-    } catch {
-        return false;
-    }
+    return readHighlightStorageValue(STORAGE_KEYS.HIGHLIGHT_DEBUG) === '1';
 }
 
 export function isHighlightDebugVerboseEnabled() {
-    if (typeof window === 'undefined') {
-        return false;
-    }
-
-    try {
-        return window.localStorage?.getItem(STORAGE_KEYS.HIGHLIGHT_DEBUG_VERBOSE) === '1';
-    } catch {
-        return false;
-    }
+    return readHighlightStorageValue(STORAGE_KEYS.HIGHLIGHT_DEBUG_VERBOSE) === '1';
 }
 
 export function createHighlightRangesInSpan(
