@@ -27,6 +27,7 @@ import {
 import type { useAnnotationCommentIdentity } from '@app/composables/pdf/useAnnotationCommentIdentity';
 import type { useAnnotationMarkupSubtype } from '@app/composables/pdf/useAnnotationMarkupSubtype';
 import { BrowserLogger } from '@app/utils/browser-logger';
+import { runGuardedTask } from '@app/utils/async-guard';
 
 type TIdentity = ReturnType<typeof useAnnotationCommentIdentity>;
 type TMarkupSubtypeComposable = ReturnType<typeof useAnnotationMarkupSubtype>;
@@ -376,12 +377,18 @@ export function useAnnotationCommentSync(
     }
 
     const debouncedSyncAnnotationComments = useDebounceFn(() => {
-        void syncAnnotationComments();
+        runGuardedTask(() => syncAnnotationComments(), {
+            scope: 'annotations',
+            message: 'Failed to synchronize annotation comments',
+        });
     }, 140);
 
     function scheduleAnnotationCommentsSync(immediate = false) {
         if (immediate) {
-            void syncAnnotationComments();
+            runGuardedTask(() => syncAnnotationComments(), {
+                scope: 'annotations',
+                message: 'Failed to synchronize annotation comments',
+            });
             return;
         }
         debouncedSyncAnnotationComments();

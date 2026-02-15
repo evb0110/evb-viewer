@@ -6,7 +6,7 @@ import {
 import { useDebounceFn } from '@vueuse/core';
 import type { PDFDocumentProxy } from '@app/types/pdf';
 import { WHEEL_PAGE_LOCK_MS } from '@app/constants/timeouts';
-import { BrowserLogger } from '@app/utils/browser-logger';
+import { runGuardedTask } from '@app/utils/async-guard';
 
 const WHEEL_LINE_DELTA_PX = 16;
 const WHEEL_PAGE_TRIGGER_DELTA = 70;
@@ -20,22 +20,35 @@ interface IUsePdfSinglePageScrollOptions {
     continuousScroll: Ref<boolean>;
     isLoading: Ref<boolean>;
     pdfDocument: ShallowRef<PDFDocumentProxy | null>;
-    getMostVisiblePage: (container: HTMLElement | null, numPages: number) => number;
-    scrollToPageInternal: (container: HTMLElement, page: number, total: number, margin: number) => void;
+    getMostVisiblePage: (
+        container: HTMLElement | null,
+        numPages: number,
+    ) => number;
+    scrollToPageInternal: (
+        container: HTMLElement,
+        page: number,
+        total: number,
+        margin: number,
+    ) => void;
     updateVisibleRange: (container: HTMLElement | null, numPages: number) => void;
-    updateCurrentPage: (container: HTMLElement | null, numPages: number) => number;
+    updateCurrentPage: (
+        container: HTMLElement | null,
+        numPages: number,
+    ) => number;
     renderVisiblePages: (range: {
         start: number;
         end: number 
     }) => Promise<void>;
     visibleRange: Ref<{
         start: number;
-        end: number 
+        end: number;
     }>;
     emitCurrentPage: (page: number) => void;
 }
 
-export function usePdfSinglePageScroll(options: IUsePdfSinglePageScrollOptions) {
+export function usePdfSinglePageScroll(
+    options: IUsePdfSinglePageScrollOptions,
+) {
     const {
         viewerContainer,
         numPages,
@@ -61,12 +74,17 @@ export function usePdfSinglePageScroll(options: IUsePdfSinglePageScrollOptions) 
         if (isLoading.value || !pdfDocument.value) {
             return;
         }
-        void renderVisiblePages(visibleRange.value).catch((error) => {
-            BrowserLogger.error('pdf-single-page-scroll', 'Failed to render visible pages on scroll', error);
+        runGuardedTask(() => renderVisiblePages(visibleRange.value), {
+            scope: 'pdf-single-page-scroll',
+            message: 'Failed to render visible pages on scroll',
         });
     }, 100);
 
-    function normalizeWheelDelta(delta: number, mode: number, container: HTMLElement) {
+    function normalizeWheelDelta(
+        delta: number,
+        mode: number,
+        container: HTMLElement,
+    ) {
         if (mode === 1) {
             return delta * WHEEL_LINE_DELTA_PX;
         }
@@ -84,13 +102,16 @@ export function usePdfSinglePageScroll(options: IUsePdfSinglePageScrollOptions) 
 
         const targetPage = Math.max(1, Math.min(pageNumber, numPages.value));
         const pageContainers = container.querySelectorAll('.page_container');
-        const pageElement = pageContainers[targetPage - 1] as HTMLElement | undefined;
+        const pageElement = pageContainers[targetPage - 1] as
+      | HTMLElement
+      | undefined;
         if (!pageElement) {
             return null;
         }
 
         const min = Math.max(0, pageElement.offsetTop - scaledMargin.value);
-        const max = min + Math.max(0, pageElement.offsetHeight - container.clientHeight);
+        const max =
+            min + Math.max(0, pageElement.offsetHeight - container.clientHeight);
 
         return {
             min,
@@ -110,8 +131,10 @@ export function usePdfSinglePageScroll(options: IUsePdfSinglePageScrollOptions) 
         }
 
         const top = container.scrollTop;
-        return top > bounds.min + PAGE_SCROLL_EDGE_EPSILON
-            && top < bounds.max - PAGE_SCROLL_EDGE_EPSILON;
+        return (
+            top > bounds.min + PAGE_SCROLL_EDGE_EPSILON &&
+      top < bounds.max - PAGE_SCROLL_EDGE_EPSILON
+        );
     }
 
     function isTallPage(pageNumber: number) {
@@ -128,7 +151,8 @@ export function usePdfSinglePageScroll(options: IUsePdfSinglePageScrollOptions) 
         }
 
         const targetPage = Math.max(1, Math.min(pageNumber, numPages.value));
-        const pageContainers = viewerContainer.value.querySelectorAll('.page_container');
+        const pageContainers =
+            viewerContainer.value.querySelectorAll('.page_container');
         const targetEl = pageContainers[targetPage - 1] as HTMLElement | undefined;
         if (!targetEl) {
             return;
@@ -152,7 +176,12 @@ export function usePdfSinglePageScroll(options: IUsePdfSinglePageScrollOptions) 
     }
 
     const debouncedSnapToPage = useDebounceFn(() => {
-        if (isLoading.value || !pdfDocument.value || continuousScroll.value || isSnapping.value) {
+        if (
+            isLoading.value ||
+      !pdfDocument.value ||
+      continuousScroll.value ||
+      isSnapping.value
+        ) {
             return;
         }
         const page = getMostVisiblePage(viewerContainer.value, numPages.value);
@@ -167,13 +196,13 @@ export function usePdfSinglePageScroll(options: IUsePdfSinglePageScrollOptions) 
 
     function handleWheel(event: WheelEvent) {
         if (
-            continuousScroll.value
-            || isLoading.value
-            || !pdfDocument.value
-            || !viewerContainer.value
-            || numPages.value === 0
-            || event.ctrlKey
-            || event.metaKey
+            continuousScroll.value ||
+      isLoading.value ||
+      !pdfDocument.value ||
+      !viewerContainer.value ||
+      numPages.value === 0 ||
+      event.ctrlKey ||
+      event.metaKey
         ) {
             return;
         }
@@ -183,11 +212,7 @@ export function usePdfSinglePageScroll(options: IUsePdfSinglePageScrollOptions) 
         }
 
         const container = viewerContainer.value;
-        const delta = normalizeWheelDelta(
-            event.deltaY,
-            event.deltaMode,
-            container,
-        );
+        const delta = normalizeWheelDelta(event.deltaY, event.deltaMode, container);
         if (Math.abs(delta) < 0.01) {
             return;
         }
@@ -198,16 +223,18 @@ export function usePdfSinglePageScroll(options: IUsePdfSinglePageScrollOptions) 
         const bounds = getPageScrollBounds(activePage);
 
         if (bounds) {
-            const canScrollWithinPage = direction > 0
-                ? container.scrollTop < bounds.max - PAGE_SCROLL_EDGE_EPSILON
-                : container.scrollTop > bounds.min + PAGE_SCROLL_EDGE_EPSILON;
+            const canScrollWithinPage =
+                direction > 0
+                    ? container.scrollTop < bounds.max - PAGE_SCROLL_EDGE_EPSILON
+                    : container.scrollTop > bounds.min + PAGE_SCROLL_EDGE_EPSILON;
 
             if (canScrollWithinPage) {
                 wheelScrollDelta.value = 0;
                 isWheelPageSnapLocked.value = false;
-                const nextTop = direction > 0
-                    ? Math.min(bounds.max, container.scrollTop + delta)
-                    : Math.max(bounds.min, container.scrollTop + delta);
+                const nextTop =
+                    direction > 0
+                        ? Math.min(bounds.max, container.scrollTop + delta)
+                        : Math.max(bounds.min, container.scrollTop + delta);
                 container.scrollTop = nextTop;
                 return;
             }
@@ -225,7 +252,10 @@ export function usePdfSinglePageScroll(options: IUsePdfSinglePageScrollOptions) 
 
         wheelScrollDelta.value = 0;
 
-        const targetPage = Math.max(1, Math.min(numPages.value, activePage + direction));
+        const targetPage = Math.max(
+            1,
+            Math.min(numPages.value, activePage + direction),
+        );
         if (targetPage === activePage) {
             return;
         }
@@ -279,8 +309,9 @@ export function usePdfSinglePageScroll(options: IUsePdfSinglePageScrollOptions) 
                 return;
             }
             updateVisibleRange(viewerContainer.value, numPages.value);
-            void renderVisiblePages(visibleRange.value).catch((error) => {
-                BrowserLogger.error('pdf-single-page-scroll', 'Failed to render visible pages after scrollToPage', error);
+            runGuardedTask(() => renderVisiblePages(visibleRange.value), {
+                scope: 'pdf-single-page-scroll',
+                message: 'Failed to render visible pages after scrollToPage',
             });
         });
     }

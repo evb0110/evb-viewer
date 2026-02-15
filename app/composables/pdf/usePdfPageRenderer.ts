@@ -1,5 +1,8 @@
 import { Mutex } from 'es-toolkit';
-import type { AnnotationEditorUIManager } from 'pdfjs-dist';
+import type {
+    AnnotationEditorUIManager,
+    PDFPageProxy,
+} from 'pdfjs-dist';
 import type { IL10n } from 'pdfjs-dist/types/web/interfaces';
 import {
     nextTick,
@@ -32,12 +35,22 @@ import {
     type IPageRange,
 } from '@app/composables/pdf/pdfPageBufferManager';
 import { BrowserLogger } from '@app/utils/browser-logger';
+import {
+    guardAsync,
+    runGuardedTask,
+} from '@app/utils/async-guard';
 
 export {
-    isRenderingCancelledError, captureScrollSnapshot, restoreScrollFromSnapshot, formatRenderError,
+    isRenderingCancelledError,
+    captureScrollSnapshot,
+    restoreScrollFromSnapshot,
+    formatRenderError,
 } from '@app/composables/pdf/pdfPageRenderPipeline';
 export {
-    getPageContainer, setupPagePlaceholderSizes, computeVisibleRange, type IPageRange,
+    getPageContainer,
+    setupPagePlaceholderSizes,
+    computeVisibleRange,
+    type IPageRange,
 } from '@app/composables/pdf/pdfPageBufferManager';
 
 interface IUsePdfPageRendererOptions {
@@ -74,12 +87,14 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
 
     const bufferPages = options.bufferPages ?? 2;
     const showAnnotations = options.showAnnotations ?? true;
-    const searchPageMatches = options.searchPageMatches ?? new Map<number, IPdfPageMatches>();
+    const searchPageMatches =
+        options.searchPageMatches ?? new Map<number, IPdfPageMatches>();
     const currentSearchMatch = options.currentSearchMatch ?? null;
     const workingCopyPath = options.workingCopyPath ?? null;
 
-    const outputScale = options.outputScale
-        ?? (typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1);
+    const outputScale =
+        options.outputScale ??
+    (typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1);
 
     const canvasRenderer = usePdfCanvasRenderer({ outputScale });
     const textLayerRenderer = usePdfTextLayerRenderer({
@@ -122,7 +137,11 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         stage: string,
         error: unknown,
     ) {
-        BrowserLogger.error('pdf-renderer', `Failed to render ${stage} for page ${pageNumber}`, error);
+        BrowserLogger.error(
+            'pdf-renderer',
+            `Failed to render ${stage} for page ${pageNumber}`,
+            error,
+        );
     }
 
     function scheduleRenderForSinglePage(
@@ -132,14 +151,50 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             bufferOverride?: number;
         },
     ) {
-        void renderVisiblePages(
+        runGuardedTask(
+            () =>
+                renderVisiblePages(
+                    {
+                        start: pageNumber,
+                        end: pageNumber,
+                    },
+                    optionsOverride,
+                ),
             {
-                start: pageNumber,
-                end: pageNumber,
+                scope: 'pdf-renderer',
+                message: `Failed to schedule follow-up render for page ${pageNumber}`,
             },
-            optionsOverride,
-        ).catch((error) => {
-            BrowserLogger.error('pdf-renderer', `Failed to schedule follow-up render for page ${pageNumber}`, error);
+        );
+    }
+
+    function scheduleRenderOcrDebugBoxes(
+        container: HTMLElement,
+        pageNumber: number,
+        wcPath: string,
+        viewport: ReturnType<PDFPageProxy['getViewport']>,
+        rawPageWidth: number,
+        rawPageHeight: number,
+    ) {
+        guardAsync(
+            textLayerRenderer.renderOcrDebugBoxes(
+                container,
+                pageNumber,
+                wcPath,
+                viewport,
+                rawPageWidth,
+                rawPageHeight,
+            ),
+            {
+                scope: 'pdf-renderer',
+                message: `Failed to render OCR debug overlays for page ${pageNumber}`,
+            },
+        );
+    }
+
+    function scheduleScrollToCurrentMatch() {
+        runGuardedTask(() => Promise.resolve(scrollToCurrentMatch()), {
+            scope: 'pdf-renderer',
+            message: 'Failed to scroll to current match',
         });
     }
 
@@ -172,11 +227,17 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                 `.page_container[data-page="${pageNumber}"]`,
             );
             container?.classList.remove(RENDERED_CONTAINER_CLASS);
-            const skeleton = container?.querySelector<HTMLElement>('.pdf-page-skeleton');
-            const canvasHost = container?.querySelector<HTMLDivElement>('.page_canvas');
-            const textLayerDiv = container?.querySelector<HTMLDivElement>('.text-layer');
-            const annotationLayerDiv = container?.querySelector<HTMLElement>('.annotation-layer');
-            const annotationEditorLayerDiv = container?.querySelector<HTMLElement>('.annotation-editor-layer');
+            const skeleton =
+                container?.querySelector<HTMLElement>('.pdf-page-skeleton');
+            const canvasHost =
+                container?.querySelector<HTMLDivElement>('.page_canvas');
+            const textLayerDiv =
+                container?.querySelector<HTMLDivElement>('.text-layer');
+            const annotationLayerDiv =
+                container?.querySelector<HTMLElement>('.annotation-layer');
+            const annotationEditorLayerDiv = container?.querySelector<HTMLElement>(
+                '.annotation-editor-layer',
+            );
 
             if (canvasHost) {
                 canvasHost.innerHTML = '';
@@ -206,7 +267,11 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         try {
             evictPage(pageNumber);
         } catch (error) {
-            BrowserLogger.error('pdf-renderer', 'Failed to evict cached PDF page', error);
+            BrowserLogger.error(
+                'pdf-renderer',
+                'Failed to evict cached PDF page',
+                error,
+            );
         }
     }
 
@@ -219,13 +284,19 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
 
         const previous = activeScrollTargetPageIndex;
         if (previous !== null && previous !== pageIndex) {
-            getPageContainer(containerRoot, previous)?.classList.remove(SCROLL_TARGET_CONTAINER_CLASS);
+            getPageContainer(containerRoot, previous)?.classList.remove(
+                SCROLL_TARGET_CONTAINER_CLASS,
+            );
         }
 
         if (pageIndex !== null) {
-            getPageContainer(containerRoot, pageIndex)?.classList.add(SCROLL_TARGET_CONTAINER_CLASS);
+            getPageContainer(containerRoot, pageIndex)?.classList.add(
+                SCROLL_TARGET_CONTAINER_CLASS,
+            );
         } else if (previous !== null) {
-            getPageContainer(containerRoot, previous)?.classList.remove(SCROLL_TARGET_CONTAINER_CLASS);
+            getPageContainer(containerRoot, previous)?.classList.remove(
+                SCROLL_TARGET_CONTAINER_CLASS,
+            );
         }
 
         activeScrollTargetPageIndex = pageIndex;
@@ -273,7 +344,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         }
 
         const pagesToRenderNow = range(renderStart, renderEnd + 1).filter(
-            i => !renderedPages.has(i),
+            (i) => !renderedPages.has(i),
         );
 
         if (pagesToRenderNow.length === 0) {
@@ -281,7 +352,8 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         }
 
         const scale = toValue(options.effectiveScale);
-        const containers = containerRoot.querySelectorAll<HTMLDivElement>('.page_container');
+        const containers =
+            containerRoot.querySelectorAll<HTMLDivElement>('.page_container');
 
         for (const batch of chunk(pagesToRenderNow, CONCURRENT_RENDERS)) {
             await Promise.all(
@@ -308,7 +380,8 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                             return;
                         }
 
-                        const canvasHost = container.querySelector<HTMLDivElement>('.page_canvas');
+                        const canvasHost =
+                            container.querySelector<HTMLDivElement>('.page_canvas');
                         if (!canvasHost) {
                             return;
                         }
@@ -318,7 +391,10 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                             return;
                         }
 
-                        const renderResult = await canvasRenderer.renderCanvas(pdfPage, scale);
+                        const renderResult = await canvasRenderer.renderCanvas(
+                            pdfPage,
+                            scale,
+                        );
                         if (!renderResult) {
                             return;
                         }
@@ -338,11 +414,23 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                             totalScaleFactor,
                         } = renderResult;
 
-                        canvasRenderer.applyContainerDimensions(container, viewport, scale, userUnit, totalScaleFactor);
-                        canvasRenderer.mountCanvas(canvasHost, canvas, container, RENDERED_CONTAINER_CLASS);
+                        canvasRenderer.applyContainerDimensions(
+                            container,
+                            viewport,
+                            scale,
+                            userUnit,
+                            totalScaleFactor,
+                        );
+                        canvasRenderer.mountCanvas(
+                            canvasHost,
+                            canvas,
+                            container,
+                            RENDERED_CONTAINER_CLASS,
+                        );
                         pageCanvases.set(pageNumber, canvas);
 
-                        const textLayerDiv = container.querySelector<HTMLDivElement>('.text-layer');
+                        const textLayerDiv =
+                            container.querySelector<HTMLDivElement>('.text-layer');
                         if (textLayerDiv) {
                             cleanupTextLayer(pageNumber);
                             let isTextLayerRendered = false;
@@ -358,7 +446,11 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                                 );
                                 isTextLayerRendered = true;
                             } catch (textLayerError) {
-                                logNonCriticalStageError(pageNumber, 'text layer', textLayerError);
+                                logNonCriticalStageError(
+                                    pageNumber,
+                                    'text layer',
+                                    textLayerError,
+                                );
                                 textLayerRenderer.cleanupTextLayerDom(textLayerDiv);
                             }
 
@@ -371,12 +463,17 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
 
                             if (isTextLayerRendered) {
                                 try {
-                                    const cleanup = textLayerRenderer.setupTextLayerInteraction(textLayerDiv);
+                                    const cleanup =
+                                        textLayerRenderer.setupTextLayerInteraction(textLayerDiv);
                                     if (typeof cleanup === 'function') {
                                         textLayerCleanupFns.set(pageNumber, cleanup);
                                     }
                                 } catch (textLayerInteractionError) {
-                                    logNonCriticalStageError(pageNumber, 'text layer interaction', textLayerInteractionError);
+                                    logNonCriticalStageError(
+                                        pageNumber,
+                                        'text layer interaction',
+                                        textLayerInteractionError,
+                                    );
                                 }
 
                                 try {
@@ -399,20 +496,29 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                                         },
                                     );
                                 } catch (searchHighlightError) {
-                                    logNonCriticalStageError(pageNumber, 'search highlights', searchHighlightError);
+                                    logNonCriticalStageError(
+                                        pageNumber,
+                                        'search highlights',
+                                        searchHighlightError,
+                                    );
                                 }
 
                                 if (pendingScrollToMatchPageIndex.value === pageNumber - 1) {
                                     try {
                                         scrollToCurrentMatch();
                                     } catch (scrollToMatchError) {
-                                        logNonCriticalStageError(pageNumber, 'scroll to current match', scrollToMatchError);
+                                        logNonCriticalStageError(
+                                            pageNumber,
+                                            'scroll to current match',
+                                            scrollToMatchError,
+                                        );
                                     }
                                 }
                             }
                         }
 
-                        const annotationLayerDiv = container.querySelector<HTMLElement>('.annotation-layer');
+                        const annotationLayerDiv =
+                            container.querySelector<HTMLElement>('.annotation-layer');
                         let annotationLayerInstance = null;
                         if (annotationLayerDiv && toValue(showAnnotations)) {
                             if (renderVersion !== version) {
@@ -423,14 +529,19 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                             }
 
                             try {
-                                annotationLayerInstance = await annotationLayerRenderer.renderAnnotationLayer(
-                                    pdfPage,
-                                    annotationLayerDiv,
-                                    viewport,
-                                    pageNumber,
-                                );
+                                annotationLayerInstance =
+                                    await annotationLayerRenderer.renderAnnotationLayer(
+                                        pdfPage,
+                                        annotationLayerDiv,
+                                        viewport,
+                                        pageNumber,
+                                    );
                             } catch (annotationError) {
-                                logNonCriticalStageError(pageNumber, 'annotation layer', annotationError);
+                                logNonCriticalStageError(
+                                    pageNumber,
+                                    'annotation layer',
+                                    annotationError,
+                                );
                             }
 
                             if (renderVersion !== version) {
@@ -441,8 +552,12 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                             }
                         }
 
-                        const annotationEditorLayerDiv = container.querySelector<HTMLElement>('.annotation-editor-layer');
-                        if (annotationEditorLayerDiv && toValue(options.annotationUiManager)) {
+                        const annotationEditorLayerDiv =
+                            container.querySelector<HTMLElement>('.annotation-editor-layer');
+                        if (
+                            annotationEditorLayerDiv &&
+              toValue(options.annotationUiManager)
+                        ) {
                             try {
                                 annotationLayerRenderer.renderAnnotationEditorLayer(
                                     container,
@@ -453,23 +568,25 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                                     annotationLayerInstance,
                                 );
                             } catch (annotationEditorError) {
-                                logNonCriticalStageError(pageNumber, 'annotation editor layer', annotationEditorError);
+                                logNonCriticalStageError(
+                                    pageNumber,
+                                    'annotation editor layer',
+                                    annotationEditorError,
+                                );
                             }
                         }
 
                         if (textLayerRenderer.isOcrDebugEnabled()) {
                             const wcPath = toValue(workingCopyPath);
                             if (wcPath) {
-                                void textLayerRenderer.renderOcrDebugBoxes(
+                                scheduleRenderOcrDebugBoxes(
                                     container,
                                     pageNumber,
                                     wcPath,
                                     viewport,
                                     rawDims.pageWidth,
                                     rawDims.pageHeight,
-                                ).catch((ocrDebugError) => {
-                                    logNonCriticalStageError(pageNumber, 'OCR debug overlays', ocrDebugError);
-                                });
+                                );
                             }
                         }
 
@@ -492,7 +609,10 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                             return;
                         }
 
-                        BrowserLogger.error('pdf-renderer', formatRenderError(error, pageNumber));
+                        BrowserLogger.error(
+                            'pdf-renderer',
+                            formatRenderError(error, pageNumber),
+                        );
                         if (renderingPages.get(pageNumber) === version) {
                             cleanupPage(pageNumber);
                         }
@@ -571,7 +691,11 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         try {
             cleanupPageCache();
         } catch (error) {
-            BrowserLogger.error('pdf-renderer', 'Failed to clean up PDF page cache', error);
+            BrowserLogger.error(
+                'pdf-renderer',
+                'Failed to clean up PDF page cache',
+                error,
+            );
         }
     }
 
@@ -583,7 +707,11 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         try {
             textLayerRenderer.applyAllSearchHighlights(containerRoot);
         } catch (error) {
-            BrowserLogger.error('pdf-renderer', 'Failed to apply search highlights', error);
+            BrowserLogger.error(
+                'pdf-renderer',
+                'Failed to apply search highlights',
+                error,
+            );
         }
     }
 
@@ -597,7 +725,11 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         try {
             result = textLayerRenderer.scrollToCurrentMatch(containerRoot, behavior);
         } catch (error) {
-            BrowserLogger.error('pdf-renderer', 'Failed to scroll to current match', error);
+            BrowserLogger.error(
+                'pdf-renderer',
+                'Failed to scroll to current match',
+                error,
+            );
             return false;
         }
         if (result) {
@@ -622,34 +754,49 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                 return;
             }
 
-            const targetContainer = getPageContainer(containerRoot, currentMatchValue.pageIndex);
+            const targetContainer = getPageContainer(
+                containerRoot,
+                currentMatchValue.pageIndex,
+            );
             if (!targetContainer) {
                 return;
             }
 
-            const textLayerDiv = targetContainer.querySelector<HTMLElement>('.text-layer');
+            const textLayerDiv =
+                targetContainer.querySelector<HTMLElement>('.text-layer');
             if (!textLayerDiv) {
                 return;
             }
 
-            const currentHighlight = textLayerDiv.querySelector<HTMLElement>('.pdf-search-highlight--current');
-            const rect = currentHighlight?.getBoundingClientRect()
-                ?? textLayerRenderer.getCurrentMatchRanges(textLayerDiv).at(0)?.getBoundingClientRect()
-                ?? null;
+            const currentHighlight = textLayerDiv.querySelector<HTMLElement>(
+                '.pdf-search-highlight--current',
+            );
+            const rect =
+                currentHighlight?.getBoundingClientRect() ??
+        textLayerRenderer
+            .getCurrentMatchRanges(textLayerDiv)
+            .at(0)
+            ?.getBoundingClientRect() ??
+        null;
 
             if (!rect || (rect.width === 0 && rect.height === 0)) {
                 return;
             }
 
             const containerRect = containerRoot.getBoundingClientRect();
-            const centerDelta = (rect.top + rect.height / 2) - (containerRect.top + containerRect.height / 2);
-            const isVisible = rect.bottom > containerRect.top + 16 && rect.top < containerRect.bottom - 16;
+            const centerDelta =
+                rect.top +
+        rect.height / 2 -
+        (containerRect.top + containerRect.height / 2);
+            const isVisible =
+                rect.bottom > containerRect.top + 16 &&
+        rect.top < containerRect.bottom - 16;
             const isCentered = Math.abs(centerDelta) < 8;
             if (isVisible && isCentered) {
                 return;
             }
 
-            void scrollToCurrentMatch();
+            scheduleScrollToCurrentMatch();
         };
 
         requestAnimationFrame(() => {
@@ -701,9 +848,17 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                     if (requestId !== scrollToMatchRequestId) {
                         return;
                     }
-                    void nextTick(() => {
-                        void scrollToCurrentMatch();
-                    });
+                    runGuardedTask(
+                        async () => {
+                            await nextTick();
+                            scrollToCurrentMatch();
+                        },
+                        {
+                            scope: 'pdf-renderer',
+                            message:
+                'Failed to retry scroll to current match after page jump',
+                        },
+                    );
                 });
                 return;
             }
@@ -717,11 +872,12 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     }
 
     watch(
-        () => [
-            isLoading.value,
-            toValue(searchPageMatches),
-            toValue(currentSearchMatch),
-        ] as const,
+        () =>
+            [
+                isLoading.value,
+                toValue(searchPageMatches),
+                toValue(currentSearchMatch),
+            ] as const,
         () => {
             if (isLoading.value) {
                 return;

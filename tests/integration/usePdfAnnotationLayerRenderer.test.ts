@@ -6,7 +6,10 @@ import {
     vi,
 } from 'vitest';
 import { ref } from 'vue';
-import type { PDFPageProxy } from 'pdfjs-dist';
+import type {
+    PDFDocumentProxy,
+    PDFPageProxy,
+} from 'pdfjs-dist';
 
 const loggerWarn = vi.fn();
 const loggerDebug = vi.fn();
@@ -65,10 +68,14 @@ class MockAnnotationEditorLayer {
     }
 
     disable() {
-        const textLayer = this.textLayer as { div?: { addEventListener?: (...args: unknown[]) => unknown } } | undefined;
+        const textLayer = this.textLayer as
+      | { div?: { addEventListener?: (...args: unknown[]) => unknown } }
+      | undefined;
         textLayer?.div?.addEventListener?.('pointerdown', () => {});
         if (!textLayer?.div) {
-            throw new TypeError('Cannot read properties of undefined (reading addEventListener)');
+            throw new TypeError(
+                'Cannot read properties of undefined (reading addEventListener)',
+            );
         }
     }
 
@@ -88,7 +95,8 @@ vi.mock('pdfjs-dist', () => ({
     DrawLayer: MockDrawLayer,
 }));
 
-const { usePdfAnnotationLayerRenderer } = await import('@app/composables/pdf/usePdfAnnotationLayerRenderer');
+const { usePdfAnnotationLayerRenderer } =
+    await import('@app/composables/pdf/usePdfAnnotationLayerRenderer');
 
 interface IFakeDivElement {
     innerHTML: string;
@@ -182,7 +190,7 @@ describe('usePdfAnnotationLayerRenderer', () => {
 
         expect(result).toBe(true);
         expect(annotationEditorLayerCtor).toHaveBeenCalledTimes(1);
-        const ctorArg = annotationEditorLayerCtor.mock.calls[0][0] as { textLayer?: { div?: HTMLDivElement } };
+        const ctorArg = annotationEditorLayerCtor.mock.calls[0][0] as {textLayer?: { div?: HTMLDivElement };};
         expect(ctorArg.textLayer?.div).toBe(textLayerDiv);
         expect(uiManager.addLayer).toHaveBeenCalledTimes(1);
         expect(loggerWarn).not.toHaveBeenCalled();
@@ -201,12 +209,15 @@ describe('usePdfAnnotationLayerRenderer', () => {
         expect(editorLayerInstances[0]?.update).toHaveBeenCalledTimes(1);
     });
 
-    it('disables the annotation editor layer for the session after a render crash', () => {
+    it('disables the annotation editor layer for the current document after a render crash', () => {
+        const firstDocument = { annotationStorage: {} } as PDFDocumentProxy;
+        const secondDocument = { annotationStorage: {} } as PDFDocumentProxy;
+        const pdfDocument = ref<PDFDocumentProxy | null>(firstDocument);
         const uiManager = createUiManager(false);
         const renderer = usePdfAnnotationLayerRenderer({
             numPages: ref(1),
             currentPage: ref(1),
-            pdfDocument: ref(null),
+            pdfDocument,
             showAnnotations: ref(true),
             annotationUiManager: ref(uiManager),
             annotationL10n: ref(null),
@@ -242,5 +253,20 @@ describe('usePdfAnnotationLayerRenderer', () => {
         expect(secondResult).toBe(false);
         expect(annotationEditorLayerCtor).toHaveBeenCalledTimes(1);
         expect(annotationEditorLayerDiv.hidden).toBe(true);
+
+        pdfDocument.value = secondDocument;
+
+        const thirdResult = renderer.renderAnnotationEditorLayer(
+            container,
+            annotationEditorLayerDiv,
+            createDiv(),
+            createViewport(),
+            1,
+            null,
+        );
+
+        expect(thirdResult).toBe(true);
+        expect(loggerWarn).toHaveBeenCalledTimes(1);
+        expect(annotationEditorLayerCtor).toHaveBeenCalledTimes(2);
     });
 });

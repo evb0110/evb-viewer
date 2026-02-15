@@ -12,7 +12,7 @@ import {
     annotationCommentsMatch,
     selectPreferredAnnotationComment,
 } from '@app/composables/pdf/annotationNoteWindowHelpers';
-import { BrowserLogger } from '@app/utils/browser-logger';
+import { runGuardedTask } from '@app/utils/async-guard';
 
 export {
     annotationCommentsMatch,
@@ -214,12 +214,9 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             return existing;
         }
         const saver = useDebounceFn(() => {
-            void persistAnnotationNote(stableKey, false).catch((error) => {
-                BrowserLogger.error(
-                    'annotations',
-                    `Failed to persist annotation note for ${stableKey}`,
-                    error,
-                );
+            runGuardedTask(() => persistAnnotationNote(stableKey, false), {
+                scope: 'annotations',
+                message: `Failed to persist annotation note for ${stableKey}`,
             });
         }, ANNOTATION_NOTE_SAVE_DEBOUNCE_MS);
         annotationNoteDebouncers.set(stableKey, saver);

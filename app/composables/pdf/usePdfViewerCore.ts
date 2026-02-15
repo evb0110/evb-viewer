@@ -30,6 +30,7 @@ import type {
 } from '@app/types/pdf';
 import type { usePdfDocument } from '@app/composables/pdf/usePdfDocument';
 import type { useAnnotationOrchestrator } from '@app/composables/pdf/useAnnotationOrchestrator';
+import { runGuardedTask } from '@app/utils/async-guard';
 
 type TPdfDocumentResult = ReturnType<typeof usePdfDocument>;
 type TAnnotationOrchestrator = ReturnType<typeof useAnnotationOrchestrator>;
@@ -214,26 +215,30 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
     }
 
     function scheduleRecoverInitialRender() {
-        void recoverInitialRenderIfNeeded().catch((error) => {
-            logAsyncStageError('recover initial PDF render', error);
+        runGuardedTask(() => recoverInitialRenderIfNeeded(), {
+            scope: 'pdf-viewer',
+            message: 'Failed to recover initial PDF render',
         });
     }
 
     function scheduleReRenderVisiblePages(stage: string) {
-        void reRenderAllVisiblePages(getVisibleRange).catch((error) => {
-            logAsyncStageError(stage, error);
+        runGuardedTask(() => reRenderAllVisiblePages(getVisibleRange), {
+            scope: 'pdf-viewer',
+            message: `Failed to ${stage}`,
         });
     }
 
     function scheduleLoadFromSource(isReload = false) {
-        void loadFromSource(isReload).catch((error) => {
-            logAsyncStageError('load PDF source', error);
+        runGuardedTask(() => loadFromSource(isReload), {
+            scope: 'pdf-viewer',
+            message: 'Failed to load PDF source',
         });
     }
 
     function scheduleSetAnnotationTool(tool: TAnnotationTool, stage: string) {
-        void editor.setAnnotationTool(tool).catch((error) => {
-            logAsyncStageError(stage, error);
+        runGuardedTask(() => editor.setAnnotationTool(tool), {
+            scope: 'pdf-viewer',
+            message: `Failed to ${stage}`,
         });
     }
 
@@ -342,22 +347,20 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         emit('update:currentPage', currentPage.value);
 
         if (!isSelectiveReload) {
-            void (async () => {
-                try {
+            runGuardedTask(
+                async () => {
                     const firstPage = await getPage(1);
                     await computeSkeletonInsets(
                         firstPage,
                         loaded.version,
                         getRenderVersion,
                     );
-                } catch (error) {
-                    BrowserLogger.warn(
-                        'pdf-viewer',
-                        'Failed to compute PDF skeleton insets',
-                        error,
-                    );
-                }
-            })();
+                },
+                {
+                    scope: 'pdf-viewer',
+                    message: 'Failed to compute PDF skeleton insets',
+                },
+            );
         }
 
         await nextTick();

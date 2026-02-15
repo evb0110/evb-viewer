@@ -48,7 +48,7 @@ import { formatPageIndicator } from '@app/utils/pdf-page-labels';
 import { THUMBNAIL_WIDTH } from '@app/constants/pdf-layout';
 import { useMultiSelection } from '@app/composables/useMultiSelection';
 import { usePageDragDrop } from '@app/composables/pdf/usePageDragDrop';
-import { BrowserLogger } from '@app/utils/browser-logger';
+import { runGuardedTask } from '@app/utils/async-guard';
 
 interface IProps {
     pdfDocument: PDFDocumentProxy | null;
@@ -371,12 +371,9 @@ watch(
             }
         }
 
-        void renderAllThumbnails(doc, total, runId).catch((error) => {
-            BrowserLogger.error(
-                'pdf-thumbnails',
-                'Failed to render thumbnail list',
-                error,
-            );
+        runGuardedTask(() => renderAllThumbnails(doc, total, runId), {
+            scope: 'pdf-thumbnails',
+            message: 'Failed to render thumbnail list',
         });
     },
     { immediate: true }, // Run on mount with current values

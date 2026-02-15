@@ -33,6 +33,7 @@ import type { useAnnotationCommentSync } from '@app/composables/pdf/useAnnotatio
 import type { useAnnotationToolManager } from '@app/composables/pdf/useAnnotationToolManager';
 import type { useAnnotationCommentIdentity } from '@app/composables/pdf/useAnnotationCommentIdentity';
 import { BrowserLogger } from '@app/utils/browser-logger';
+import { runGuardedTask } from '@app/utils/async-guard';
 
 type TFreeTextResize = ReturnType<typeof useFreeTextResize>;
 type TMarkupSubtypeComposable = ReturnType<typeof useAnnotationMarkupSubtype>;
@@ -470,15 +471,14 @@ export function useAnnotationEditorLifecycle(
         toolManager.applyAnnotationSettings(
             toolManager.pendingAnnotationSettings.value,
         );
-        void toolManager
-            .setAnnotationTool(toolManager.pendingAnnotationTool.value)
-            .catch((error) => {
-                BrowserLogger.error(
-                    'annotations',
-                    'Failed to restore pending annotation tool',
-                    error,
-                );
-            });
+        runGuardedTask(
+            () =>
+                toolManager.setAnnotationTool(toolManager.pendingAnnotationTool.value),
+            {
+                scope: 'annotations',
+                message: 'Failed to restore pending annotation tool',
+            },
+        );
         emitAnnotationState(annotationState.value);
         commentSync.scheduleAnnotationCommentsSync(true);
     }

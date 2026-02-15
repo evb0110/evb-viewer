@@ -11,6 +11,7 @@ import {
     normalizePageLabelRanges,
 } from '@app/utils/pdf-page-labels';
 import { BrowserLogger } from '@app/utils/browser-logger';
+import { runGuardedTask } from '@app/utils/async-guard';
 
 export const usePageLabelState = (deps: {
     pdfDocument: Ref<PDFDocumentProxy | null>;
@@ -82,12 +83,9 @@ export const usePageLabelState = (deps: {
     }
 
     function scheduleSyncPageLabelsFromDocument(doc: PDFDocumentProxy | null) {
-        void syncPageLabelsFromDocument(doc).catch((error) => {
-            BrowserLogger.error(
-                'page-labels',
-                'Failed to synchronize page labels from PDF document',
-                error,
-            );
+        runGuardedTask(() => syncPageLabelsFromDocument(doc), {
+            scope: 'page-labels',
+            message: 'Failed to synchronize page labels from PDF document',
         });
     }
 

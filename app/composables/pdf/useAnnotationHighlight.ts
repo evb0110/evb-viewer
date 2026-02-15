@@ -14,7 +14,7 @@ import type { useAnnotationCommentSync } from '@app/composables/pdf/useAnnotatio
 import type { useAnnotationToolManager } from '@app/composables/pdf/useAnnotationToolManager';
 import { useSelectionHighlight } from '@app/composables/pdf/useSelectionHighlight';
 import { useAnnotationNotePlacement } from '@app/composables/pdf/useAnnotationNotePlacement';
-import { BrowserLogger } from '@app/utils/browser-logger';
+import { runGuardedTask } from '@app/utils/async-guard';
 
 type TIdentity = ReturnType<typeof useAnnotationCommentIdentity>;
 type TMarkupSubtypeComposable = ReturnType<typeof useAnnotationMarkupSubtype>;
@@ -87,12 +87,9 @@ export function useAnnotationHighlight(
         if (event.button !== 0) {
             return;
         }
-        void selectionHighlight.maybeApplySelectionMarkup().catch((error) => {
-            BrowserLogger.error(
-                'annotations',
-                'Failed to apply selection markup on pointer up',
-                error,
-            );
+        runGuardedTask(() => selectionHighlight.maybeApplySelectionMarkup(), {
+            scope: 'annotations',
+            message: 'Failed to apply selection markup on pointer up',
         });
     }
 

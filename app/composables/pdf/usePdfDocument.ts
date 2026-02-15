@@ -11,6 +11,7 @@ import type {
 import { getElectronAPI } from '@app/utils/electron';
 import type { TPdfSource } from '@app/types/pdf';
 import { BrowserLogger } from '@app/utils/browser-logger';
+import { guardAsync } from '@app/utils/async-guard';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf/pdf.worker.min.mjs';
 
@@ -242,12 +243,16 @@ export const usePdfDocument = () => {
 
         if (loadingTask) {
             try {
-                void loadingTask.destroy().catch((error) => {
-                    BrowserLogger.debug(
-                        'pdf-document',
-                        'PDF loading task destroy rejected',
-                        error,
-                    );
+                guardAsync(loadingTask.destroy(), {
+                    scope: 'pdf-document',
+                    message: 'PDF loading task destroy rejected',
+                    onError: (error) => {
+                        BrowserLogger.debug(
+                            'pdf-document',
+                            'PDF loading task destroy rejected',
+                            error,
+                        );
+                    },
                 });
             } catch (error) {
                 BrowserLogger.error(

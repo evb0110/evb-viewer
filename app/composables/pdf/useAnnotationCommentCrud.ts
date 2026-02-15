@@ -39,6 +39,7 @@ import {
     findAnnotationSummaryFromPoint as findAnnotationSummaryFromPointHelper,
 } from '@app/composables/pdf/annotationCommentCrudHelpers';
 import type { IEditorTargetMatch } from '@app/composables/pdf/annotationCommentCrudHelpers';
+import { runGuardedTask } from '@app/utils/async-guard';
 
 export type { IEditorTargetMatch } from '@app/composables/pdf/annotationCommentCrudHelpers';
 export {
@@ -655,15 +656,13 @@ export function useAnnotationCommentCrud(
         }
 
         if (highlight.isPlacingComment.value) {
-            void highlight
-                .placeCommentAtClientPoint(event.clientX, event.clientY)
-                .catch((error) => {
-                    BrowserLogger.error(
-                        'annotations',
-                        'Failed to place annotation comment at pointer location',
-                        error,
-                    );
-                });
+            runGuardedTask(
+                () => highlight.placeCommentAtClientPoint(event.clientX, event.clientY),
+                {
+                    scope: 'annotations',
+                    message: 'Failed to place annotation comment at pointer location',
+                },
+            );
             return;
         }
 
