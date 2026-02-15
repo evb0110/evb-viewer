@@ -1,4 +1,5 @@
 import type { PDFPageProxy } from 'pdfjs-dist';
+import { BrowserLogger } from '@app/utils/browser-logger';
 
 interface ICanvasRenderResult {
     canvas: HTMLCanvasElement;
@@ -7,13 +8,13 @@ interface ICanvasRenderResult {
     scaleY: number;
     rawDims: {
         pageWidth: number;
-        pageHeight: number 
+        pageHeight: number;
     };
     userUnit: number;
     totalScaleFactor: number;
 }
 
-export const usePdfCanvasRenderer = (deps: {outputScale: number;}) => {
+export const usePdfCanvasRenderer = (deps: { outputScale: number }) => {
     const { outputScale } = deps;
 
     function cleanupCanvas(canvas: HTMLCanvasElement) {
@@ -31,7 +32,7 @@ export const usePdfCanvasRenderer = (deps: {outputScale: number;}) => {
         const totalScaleFactor = scale * userUnit;
         const rawDims = viewport.rawDims as {
             pageWidth: number;
-            pageHeight: number 
+            pageHeight: number;
         };
 
         const canvas = document.createElement('canvas');
@@ -42,6 +43,18 @@ export const usePdfCanvasRenderer = (deps: {outputScale: number;}) => {
 
         const cssWidth = viewport.width;
         const cssHeight = viewport.height;
+        if (
+            !Number.isFinite(cssWidth) ||
+      !Number.isFinite(cssHeight) ||
+      cssWidth <= 0 ||
+      cssHeight <= 0
+        ) {
+            BrowserLogger.warn(
+                'pdf-renderer',
+                `Skipping page ${pdfPage.pageNumber} render due to invalid viewport size ${cssWidth}x${cssHeight}`,
+            );
+            return null;
+        }
         const pixelWidth = Math.max(1, Math.round(cssWidth * outputScale));
         const pixelHeight = Math.max(1, Math.round(cssHeight * outputScale));
 
@@ -54,17 +67,22 @@ export const usePdfCanvasRenderer = (deps: {outputScale: number;}) => {
 
         const sx = pixelWidth / cssWidth;
         const sy = pixelHeight / cssHeight;
+        if (!Number.isFinite(sx) || !Number.isFinite(sy) || sx <= 0 || sy <= 0) {
+            BrowserLogger.warn(
+                'pdf-renderer',
+                `Skipping page ${pdfPage.pageNumber} render due to invalid canvas scale ${sx}x${sy}`,
+            );
+            return null;
+        }
 
-        const transform = sx !== 1 || sy !== 1
-            ? [
-                sx,
-                0,
-                0,
-                sy,
-                0,
-                0,
-            ]
-            : undefined;
+        const transform = sx !== 1 || sy !== 1 ? [
+            sx,
+            0,
+            0,
+            sy,
+            0,
+            0,
+        ] : undefined;
 
         const renderContext = {
             canvasContext: context,
@@ -97,7 +115,10 @@ export const usePdfCanvasRenderer = (deps: {outputScale: number;}) => {
         container.style.height = `${viewport.height}px`;
         container.style.setProperty('--scale-factor', String(scale));
         container.style.setProperty('--user-unit', String(userUnit));
-        container.style.setProperty('--total-scale-factor', String(totalScaleFactor));
+        container.style.setProperty(
+            '--total-scale-factor',
+            String(totalScaleFactor),
+        );
     }
 
     function mountCanvas(

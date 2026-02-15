@@ -6,6 +6,7 @@ import {
 import { useDebounceFn } from '@vueuse/core';
 import type { PDFDocumentProxy } from '@app/types/pdf';
 import { WHEEL_PAGE_LOCK_MS } from '@app/constants/timeouts';
+import { BrowserLogger } from '@app/utils/browser-logger';
 
 const WHEEL_LINE_DELTA_PX = 16;
 const WHEEL_PAGE_TRIGGER_DELTA = 70;
@@ -60,7 +61,9 @@ export function usePdfSinglePageScroll(options: IUsePdfSinglePageScrollOptions) 
         if (isLoading.value || !pdfDocument.value) {
             return;
         }
-        void renderVisiblePages(visibleRange.value);
+        void renderVisiblePages(visibleRange.value).catch((error) => {
+            BrowserLogger.error('pdf-single-page-scroll', 'Failed to render visible pages on scroll', error);
+        });
     }, 100);
 
     function normalizeWheelDelta(delta: number, mode: number, container: HTMLElement) {
@@ -276,7 +279,9 @@ export function usePdfSinglePageScroll(options: IUsePdfSinglePageScrollOptions) 
                 return;
             }
             updateVisibleRange(viewerContainer.value, numPages.value);
-            void renderVisiblePages(visibleRange.value);
+            void renderVisiblePages(visibleRange.value).catch((error) => {
+                BrowserLogger.error('pdf-single-page-scroll', 'Failed to render visible pages after scrollToPage', error);
+            });
         });
     }
 

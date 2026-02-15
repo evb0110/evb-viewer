@@ -1,4 +1,4 @@
-import type {AnnotationEditorUIManager} from 'pdfjs-dist';
+import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type {
     Ref,
     ShallowRef,
@@ -14,6 +14,7 @@ import type { useAnnotationCommentSync } from '@app/composables/pdf/useAnnotatio
 import type { useAnnotationToolManager } from '@app/composables/pdf/useAnnotationToolManager';
 import { useSelectionHighlight } from '@app/composables/pdf/useSelectionHighlight';
 import { useAnnotationNotePlacement } from '@app/composables/pdf/useAnnotationNotePlacement';
+import { BrowserLogger } from '@app/utils/browser-logger';
 
 type TIdentity = ReturnType<typeof useAnnotationCommentIdentity>;
 type TMarkupSubtypeComposable = ReturnType<typeof useAnnotationMarkupSubtype>;
@@ -35,7 +36,9 @@ interface IUseAnnotationHighlightOptions {
     emitAnnotationNotePlacementChange: (active: boolean) => void;
 }
 
-export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) {
+export function useAnnotationHighlight(
+    options: IUseAnnotationHighlightOptions,
+) {
     const {
         viewerContainer,
         annotationUiManager,
@@ -84,7 +87,13 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
         if (event.button !== 0) {
             return;
         }
-        void selectionHighlight.maybeApplySelectionMarkup();
+        void selectionHighlight.maybeApplySelectionMarkup().catch((error) => {
+            BrowserLogger.error(
+                'annotations',
+                'Failed to apply selection markup on pointer up',
+                error,
+            );
+        });
     }
 
     function buildAnnotationContextMenuPayload(
@@ -97,7 +106,9 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
             comment,
             clientX,
             clientY,
-            hasSelection: Boolean(selectionHighlight.getSelectionRangeForCommentAction()),
+            hasSelection: Boolean(
+                selectionHighlight.getSelectionRangeForCommentAction(),
+            ),
             pageNumber: target?.pageNumber ?? null,
             pageX: target?.pageX ?? null,
             pageY: target?.pageY ?? null,
@@ -118,7 +129,8 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
         maybeApplySelectionMarkup: selectionHighlight.maybeApplySelectionMarkup,
         buildAnnotationContextMenuPayload,
         resolvePagePointTarget: notePlacement.resolvePagePointTarget,
-        findPageContainerFromClientPoint: notePlacement.findPageContainerFromClientPoint,
+        findPageContainerFromClientPoint:
+      notePlacement.findPageContainerFromClientPoint,
         clearSelectionCache: selectionHighlight.clearSelectionCache,
     };
 }

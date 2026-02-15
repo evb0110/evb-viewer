@@ -12,9 +12,12 @@ import {
     annotationCommentsMatch,
     selectPreferredAnnotationComment,
 } from '@app/composables/pdf/annotationNoteWindowHelpers';
+import { BrowserLogger } from '@app/utils/browser-logger';
 
 export {
-    annotationCommentsMatch, annotationCommentEditScore, selectPreferredAnnotationComment, 
+    annotationCommentsMatch,
+    annotationCommentEditScore,
+    selectPreferredAnnotationComment,
 } from '@app/composables/pdf/annotationNoteWindowHelpers';
 
 export interface IAnnotationNotePosition {
@@ -37,13 +40,22 @@ export interface IAnnotationNoteWindowState {
 export interface IAnnotationNoteWindowDeps {
     annotationComments: Ref<IAnnotationCommentSummary[]>;
     markAnnotationDirty: () => void;
-    updateAnnotationCommentInViewer: (comment: IAnnotationCommentSummary, text: string) => boolean;
-    updateEmbeddedAnnotationByRef: (comment: IAnnotationCommentSummary, text: string) => Promise<Uint8Array | false>;
+    updateAnnotationCommentInViewer: (
+        comment: IAnnotationCommentSummary,
+        text: string,
+    ) => boolean;
+    updateEmbeddedAnnotationByRef: (
+        comment: IAnnotationCommentSummary,
+        text: string,
+    ) => Promise<Uint8Array | false>;
     serializeCurrentPdfForEmbeddedFallback: () => Promise<boolean>;
-    loadPdfFromData: (data: Uint8Array, options: {
-        pushHistory: boolean;
-        persistWorkingCopy: boolean 
-    }) => Promise<void>;
+    loadPdfFromData: (
+        data: Uint8Array,
+        options: {
+            pushHistory: boolean;
+            persistWorkingCopy: boolean;
+        },
+    ) => Promise<void>;
     workingCopyPath: Ref<string | null>;
     currentPage: Ref<number>;
     waitForPdfReload: (page: number) => Promise<void>;
@@ -65,17 +77,29 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
     } = deps;
 
     const annotationNoteWindows = ref<IAnnotationNoteWindowState[]>([]);
-    const annotationNotePositions = shallowRef<Record<string, IAnnotationNotePosition>>({});
-    const annotationNoteDebouncers = new Map<string, ReturnType<typeof useDebounceFn>>();
+    const annotationNotePositions = shallowRef<
+        Record<string, IAnnotationNotePosition>
+    >({});
+    const annotationNoteDebouncers = new Map<
+        string,
+        ReturnType<typeof useDebounceFn>
+    >();
     let annotationNoteOrderCounter = 0;
 
     const sortedAnnotationNoteWindows = computed(() =>
-        [...annotationNoteWindows.value].sort((left, right) => left.order - right.order));
+        [...annotationNoteWindows.value].sort(
+            (left, right) => left.order - right.order,
+        ),
+    );
 
-    const isAnyAnnotationNoteSaving = computed(() => annotationNoteWindows.value.some(note => note.saving));
+    const isAnyAnnotationNoteSaving = computed(() =>
+        annotationNoteWindows.value.some((note) => note.saving),
+    );
 
     function findAnnotationNoteWindowIndex(stableKey: string) {
-        return annotationNoteWindows.value.findIndex(note => note.comment.stableKey === stableKey);
+        return annotationNoteWindows.value.findIndex(
+            (note) => note.comment.stableKey === stableKey,
+        );
     }
 
     function findAnnotationNoteWindow(stableKey: string) {
@@ -111,10 +135,15 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
     }
 
     function findMatchingAnnotationComment(comment: IAnnotationCommentSummary) {
-        return annotationComments.value.find(candidate => annotationCommentsMatch(candidate, comment));
+        return annotationComments.value.find((candidate) =>
+            annotationCommentsMatch(candidate, comment),
+        );
     }
 
-    function isSameAnnotationComment(left: IAnnotationCommentSummary, right: IAnnotationCommentSummary) {
+    function isSameAnnotationComment(
+        left: IAnnotationCommentSummary,
+        right: IAnnotationCommentSummary,
+    ) {
         return annotationCommentsMatch(left, right);
     }
 
@@ -123,7 +152,10 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         const existing = findAnnotationNoteWindow(key);
         if (existing) {
             const hasUnsavedLocalChanges = existing.text !== existing.lastSavedText;
-            existing.comment = selectPreferredAnnotationComment(existing.comment, comment);
+            existing.comment = selectPreferredAnnotationComment(
+                existing.comment,
+                comment,
+            );
             existing.error = null;
             if (!hasUnsavedLocalChanges) {
                 const nextText = comment.text || '';
@@ -153,15 +185,22 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
 
     function removeAnnotationNoteWindow(stableKey: string) {
         const before = annotationNoteWindows.value.length;
-        annotationNoteWindows.value = annotationNoteWindows.value.filter(note => note.comment.stableKey !== stableKey);
+        annotationNoteWindows.value = annotationNoteWindows.value.filter(
+            (note) => note.comment.stableKey !== stableKey,
+        );
         if (annotationNoteWindows.value.length !== before) {
-            const debounced = annotationNoteDebouncers.get(stableKey) as ({ cancel?: () => void } & (() => void)) | undefined;
+            const debounced = annotationNoteDebouncers.get(stableKey) as
+        | ({ cancel?: () => void } & (() => void))
+        | undefined;
             debounced?.cancel?.();
             annotationNoteDebouncers.delete(stableKey);
         }
     }
 
-    function setAnnotationNoteWindowError(stableKey: string, message: string | null) {
+    function setAnnotationNoteWindowError(
+        stableKey: string,
+        message: string | null,
+    ) {
         const note = findAnnotationNoteWindow(stableKey);
         if (!note) {
             return;
@@ -175,7 +214,13 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             return existing;
         }
         const saver = useDebounceFn(() => {
-            void persistAnnotationNote(stableKey, false);
+            void persistAnnotationNote(stableKey, false).catch((error) => {
+                BrowserLogger.error(
+                    'annotations',
+                    `Failed to persist annotation note for ${stableKey}`,
+                    error,
+                );
+            });
         }, ANNOTATION_NOTE_SAVE_DEBOUNCE_MS);
         annotationNoteDebouncers.set(stableKey, saver);
         return saver;
@@ -198,14 +243,23 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         schedulePersistAnnotationNote(stableKey);
     }
 
-    function updateAnnotationNotePosition(stableKey: string, position: IAnnotationNotePosition) {
+    function updateAnnotationNotePosition(
+        stableKey: string,
+        position: IAnnotationNotePosition,
+    ) {
         annotationNotePositions.value = {
             ...annotationNotePositions.value,
             [stableKey]: {
                 x: Math.round(position.x),
                 y: Math.round(position.y),
-                width: typeof position.width === 'number' ? Math.round(position.width) : undefined,
-                height: typeof position.height === 'number' ? Math.round(position.height) : undefined,
+                width:
+          typeof position.width === 'number'
+              ? Math.round(position.width)
+              : undefined,
+                height:
+          typeof position.height === 'number'
+              ? Math.round(position.height)
+              : undefined,
             },
         };
     }
@@ -272,9 +326,8 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
                 return false;
             }
 
-            note.saveMode = saved && note.saveMode === 'embedded'
-                ? 'embedded'
-                : 'auto';
+            note.saveMode =
+                saved && note.saveMode === 'embedded' ? 'embedded' : 'auto';
 
             const localUpdated: IAnnotationCommentSummary = {
                 ...current,
@@ -315,7 +368,10 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         return true;
     }
 
-    async function closeAnnotationNote(stableKey: string, options: { saveIfDirty?: boolean } = {}) {
+    async function closeAnnotationNote(
+        stableKey: string,
+        options: { saveIfDirty?: boolean } = {},
+    ) {
         const saveIfDirty = options.saveIfDirty ?? true;
         const note = findAnnotationNoteWindow(stableKey);
         if (!note) {
@@ -326,13 +382,16 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             if (note.saving) {
                 let attempts = 0;
                 while (note.saving && attempts < 20) {
-                    await new Promise(resolve => setTimeout(resolve, 25));
+                    await new Promise((resolve) => setTimeout(resolve, 25));
                     attempts += 1;
                 }
             }
             const saved = await persistAnnotationNote(stableKey, true);
             if (!saved) {
-                setAnnotationNoteWindowError(stableKey, t('errors.annotation.saveBeforeClose'));
+                setAnnotationNoteWindowError(
+                    stableKey,
+                    t('errors.annotation.saveBeforeClose'),
+                );
                 return;
             }
         }
@@ -340,7 +399,9 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         removeAnnotationNoteWindow(stableKey);
     }
 
-    async function closeAllAnnotationNotes(options: { saveIfDirty?: boolean } = {}) {
+    async function closeAllAnnotationNotes(
+        options: { saveIfDirty?: boolean } = {},
+    ) {
         const saveIfDirty = options.saveIfDirty ?? true;
         if (saveIfDirty) {
             const saved = await persistAllAnnotationNotes(true);
@@ -350,7 +411,9 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         }
 
         annotationNoteWindows.value.forEach((note) => {
-            const debounced = annotationNoteDebouncers.get(note.comment.stableKey) as ({ cancel?: () => void } & (() => void)) | undefined;
+            const debounced = annotationNoteDebouncers.get(note.comment.stableKey) as
+        | ({ cancel?: () => void } & (() => void))
+        | undefined;
             debounced?.cancel?.();
             annotationNoteDebouncers.delete(note.comment.stableKey);
         });
@@ -361,7 +424,9 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
     function handleOpenAnnotationNote(comment: IAnnotationCommentSummary) {
         const matched = findMatchingAnnotationComment(comment);
         if (matched) {
-            upsertAnnotationNoteWindow(selectPreferredAnnotationComment(comment, matched));
+            upsertAnnotationNoteWindow(
+                selectPreferredAnnotationComment(comment, matched),
+            );
         } else {
             upsertAnnotationNoteWindow(comment);
         }
@@ -382,12 +447,18 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
                 byStableKey.set(comment.stableKey, comment);
             }
             if (comment.annotationId) {
-                byAnnotationIdPage.set(`${comment.annotationId}:${comment.pageIndex}`, comment);
+                byAnnotationIdPage.set(
+                    `${comment.annotationId}:${comment.pageIndex}`,
+                    comment,
+                );
             }
             if (comment.uid) {
                 byUidPage.set(`${comment.uid}:${comment.pageIndex}`, comment);
             }
-            byIdPageSource.set(`${comment.id}:${comment.pageIndex}:${comment.source}`, comment);
+            byIdPageSource.set(
+                `${comment.id}:${comment.pageIndex}:${comment.source}`,
+                comment,
+            );
         }
 
         function findUpdatedComment(noteComment: IAnnotationCommentSummary) {
@@ -398,18 +469,26 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
                 }
             }
             if (noteComment.annotationId) {
-                const match = byAnnotationIdPage.get(`${noteComment.annotationId}:${noteComment.pageIndex}`);
+                const match = byAnnotationIdPage.get(
+                    `${noteComment.annotationId}:${noteComment.pageIndex}`,
+                );
                 if (match) {
                     return match;
                 }
             }
             if (noteComment.uid) {
-                const match = byUidPage.get(`${noteComment.uid}:${noteComment.pageIndex}`);
+                const match = byUidPage.get(
+                    `${noteComment.uid}:${noteComment.pageIndex}`,
+                );
                 if (match) {
                     return match;
                 }
             }
-            return byIdPageSource.get(`${noteComment.id}:${noteComment.pageIndex}:${noteComment.source}`) ?? null;
+            return (
+                byIdPageSource.get(
+                    `${noteComment.id}:${noteComment.pageIndex}:${noteComment.source}`,
+                ) ?? null
+            );
         }
 
         annotationNoteWindows.value.forEach((note) => {
@@ -423,12 +502,11 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             const updatedText = updated.text.trim();
             const currentTimestamp = note.comment.modifiedAt ?? 0;
             const updatedTimestamp = updated.modifiedAt ?? 0;
-            const staleEmptySync = (
-                !note.saving
-                && savedText.length > 0
-                && updatedText.length === 0
-                && updatedTimestamp <= currentTimestamp
-            );
+            const staleEmptySync =
+                !note.saving &&
+        savedText.length > 0 &&
+        updatedText.length === 0 &&
+        updatedTimestamp <= currentTimestamp;
 
             if (staleEmptySync) {
                 note.comment = {

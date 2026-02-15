@@ -1,36 +1,36 @@
 <template>
+  <div
+    ref="containerRef"
+    class="pdf-thumbnails"
+    :class="{
+      'is-reorder-dragging': isDragging,
+      'is-external-drag': isExternalDragOver,
+    }"
+    @dragenter="handleExternalDragEnter"
+    @dragover="handleExternalDragOver"
+    @dragleave="handleExternalDragLeave"
+    @drop="handleExternalDrop"
+  >
     <div
-        ref="containerRef"
-        class="pdf-thumbnails"
-        :class="{
-            'is-reorder-dragging': isDragging,
-            'is-external-drag': isExternalDragOver,
-        }"
-        @dragenter="handleExternalDragEnter"
-        @dragover="handleExternalDragOver"
-        @dragleave="handleExternalDragLeave"
-        @drop="handleExternalDrop"
+      v-for="page in totalPages"
+      :key="page"
+      class="pdf-thumbnail"
+      :class="{
+        'is-active': page === currentPage,
+        'is-selected': isSelected(page),
+        'is-dragged': isDragging && draggedPages.includes(page),
+        'is-drop-before': dropInsertIndex === page - 1,
+        'is-drop-after': page === totalPages && dropInsertIndex === totalPages,
+      }"
+      :data-page="page"
+      @mousedown="handleDragMouseDown($event, page)"
+      @click="handleThumbnailClick($event, page)"
+      @contextmenu.prevent="handleThumbnailContextMenu($event, page)"
     >
-        <div
-            v-for="page in totalPages"
-            :key="page"
-            class="pdf-thumbnail"
-            :class="{
-                'is-active': page === currentPage,
-                'is-selected': isSelected(page),
-                'is-dragged': isDragging && draggedPages.includes(page),
-                'is-drop-before': dropInsertIndex === page - 1,
-                'is-drop-after': page === totalPages && dropInsertIndex === totalPages,
-            }"
-            :data-page="page"
-            @mousedown="handleDragMouseDown($event, page)"
-            @click="handleThumbnailClick($event, page)"
-            @contextmenu.prevent="handleThumbnailContextMenu($event, page)"
-        >
-            <canvas class="pdf-thumbnail-canvas" />
-            <span class="pdf-thumbnail-number">{{ getPageIndicator(page) }}</span>
-        </div>
+      <canvas class="pdf-thumbnail-canvas" />
+      <span class="pdf-thumbnail-number">{{ getPageIndicator(page) }}</span>
     </div>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -63,16 +63,22 @@ const props = defineProps<IProps>();
 const emit = defineEmits<{
     (e: 'go-to-page', page: number): void;
     (e: 'update:selected-pages', pages: number[]): void;
-    (e: 'page-context-menu', payload: {
-        clientX: number;
-        clientY: number;
-        pages: number[]
-    }): void;
+    (
+        e: 'page-context-menu',
+        payload: {
+            clientX: number;
+            clientY: number;
+            pages: number[];
+        },
+    ): void;
     (e: 'reorder', newOrder: number[]): void;
-    (e: 'file-drop', payload: {
-        afterPage: number;
-        filePaths: string[];
-    }): void;
+    (
+        e: 'file-drop',
+        payload: {
+            afterPage: number;
+            filePaths: string[];
+        },
+    ): void;
 }>();
 
 const containerRef = ref<HTMLElement | null>(null);
@@ -101,10 +107,11 @@ const {
     totalPages: toRef(props, 'totalPages'),
     selectedPages: computed(() => props.selectedPages ?? []),
     onReorder: (newOrder) => emit('reorder', newOrder),
-    onExternalFileDrop: (afterPage, filePaths) => emit('file-drop', {
-        afterPage,
-        filePaths,
-    }),
+    onExternalFileDrop: (afterPage, filePaths) =>
+        emit('file-drop', {
+            afterPage,
+            filePaths,
+        }),
 });
 
 function normalizeSelectedPages(pages: number[]) {
@@ -143,7 +150,9 @@ function handleThumbnailClick(event: MouseEvent, page: number) {
         shift: event.shiftKey,
         meta: event.metaKey || event.ctrlKey,
     });
-    const normalized = normalizeSelectedPages(Array.from(multiSelection.selected.value));
+    const normalized = normalizeSelectedPages(
+        Array.from(multiSelection.selected.value),
+    );
     emit('update:selected-pages', normalized);
     emit('go-to-page', page);
 }
@@ -154,7 +163,9 @@ function handleThumbnailContextMenu(event: MouseEvent, page: number) {
         multiSelection.anchor.value = page;
         emit('update:selected-pages', [page]);
     }
-    const pages = normalizeSelectedPages(Array.from(multiSelection.selected.value));
+    const pages = normalizeSelectedPages(
+        Array.from(multiSelection.selected.value),
+    );
     emit('page-context-menu', {
         clientX: event.clientX,
         clientY: event.clientY,
@@ -166,7 +177,9 @@ function getCanvas(pageNum: number): HTMLCanvasElement | null {
     if (!containerRef.value) {
         return null;
     }
-    const thumbnail = containerRef.value.querySelector(`[data-page="${pageNum}"]`);
+    const thumbnail = containerRef.value.querySelector(
+        `[data-page="${pageNum}"]`,
+    );
     return thumbnail?.querySelector('canvas') ?? null;
 }
 
@@ -190,7 +203,10 @@ watch(
             return;
         }
 
-        if (multiSelection.anchor.value === null || !normalized.includes(multiSelection.anchor.value)) {
+        if (
+            multiSelection.anchor.value === null ||
+      !normalized.includes(multiSelection.anchor.value)
+        ) {
             multiSelection.anchor.value = normalized[normalized.length - 1] ?? null;
         }
     },
@@ -265,13 +281,20 @@ async function renderThumbnail(
         renderedPages.add(pageNum);
     } catch (error) {
         renderTasks.delete(pageNum);
-        if (error instanceof Error && error.name === 'RenderingCancelledException') {
+        if (
+            error instanceof Error &&
+      error.name === 'RenderingCancelledException'
+        ) {
             return;
         }
         if (runId !== renderRunId || !isPdfDocumentUsable(pdfDocument)) {
             return;
         }
-        BrowserLogger.error('pdf-thumbnails', `Failed to render thumbnail for page ${pageNum}`, error);
+        BrowserLogger.error(
+            'pdf-thumbnails',
+            `Failed to render thumbnail for page ${pageNum}`,
+            error,
+        );
     } finally {
         renderingPages.delete(pageNum);
     }
@@ -348,7 +371,13 @@ watch(
             }
         }
 
-        void renderAllThumbnails(doc, total, runId);
+        void renderAllThumbnails(doc, total, runId).catch((error) => {
+            BrowserLogger.error(
+                'pdf-thumbnails',
+                'Failed to render thumbnail list',
+                error,
+            );
+        });
     },
     { immediate: true }, // Run on mount with current values
 );
@@ -368,97 +397,103 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .pdf-thumbnails {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
 }
 
 .pdf-thumbnail {
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 4px;
-    padding: 4px;
-    border-radius: 4px;
-    border: 1px solid transparent;
-    cursor: pointer;
-    transition: background-color 0.15s, border-color 0.15s;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition:
+    background-color 0.15s,
+    border-color 0.15s;
 }
 
 .pdf-thumbnail:hover {
-    background: var(--ui-bg-muted);
+  background: var(--ui-bg-muted);
 }
 
 .pdf-thumbnail.is-active {
-    background: var(--ui-bg-accented);
+  background: var(--ui-bg-accented);
 }
 
 .pdf-thumbnail.is-selected {
-    border-color: var(--ui-primary);
-    background: var(--ui-bg-elevated);
+  border-color: var(--ui-primary);
+  background: var(--ui-bg-elevated);
 }
 
 .pdf-thumbnail-canvas {
-    max-width: 100%;
-    border: 1px solid var(--ui-border);
-    border-radius: 2px;
-    box-shadow: 0 1px 4px rgb(0 0 0 / 0.1), 0 0 1px rgb(0 0 0 / 0.06);
-    transition: box-shadow 0.15s ease;
+  max-width: 100%;
+  border: 1px solid var(--ui-border);
+  border-radius: 2px;
+  box-shadow:
+    0 1px 4px rgb(0 0 0 / 0.1),
+    0 0 1px rgb(0 0 0 / 0.06);
+  transition: box-shadow 0.15s ease;
 }
 
 .pdf-thumbnail.is-active .pdf-thumbnail-canvas {
-    box-shadow: 0 2px 8px rgb(0 0 0 / 0.14), 0 0 1px rgb(0 0 0 / 0.08);
+  box-shadow:
+    0 2px 8px rgb(0 0 0 / 0.14),
+    0 0 1px rgb(0 0 0 / 0.08);
 }
 
 .pdf-thumbnail-number {
-    font-size: 12px;
-    color: var(--ui-text-muted);
+  font-size: 12px;
+  color: var(--ui-text-muted);
 }
 
 .pdf-thumbnail.is-active .pdf-thumbnail-number {
-    color: var(--ui-primary);
-    font-weight: 600;
+  color: var(--ui-primary);
+  font-weight: 600;
 }
 
 .pdf-thumbnail.is-selected .pdf-thumbnail-number {
-    color: var(--ui-primary);
+  color: var(--ui-primary);
 }
 
 .pdf-thumbnail.is-dragged {
-    opacity: 0.35;
+  opacity: 0.35;
 }
 
 .pdf-thumbnail.is-drop-before::before {
-    content: '';
-    position: absolute;
-    top: -5px;
-    left: 8px;
-    right: 8px;
-    height: 2px;
-    background: var(--ui-primary);
-    border-radius: 1px;
+  content: "";
+  position: absolute;
+  top: -5px;
+  left: 8px;
+  right: 8px;
+  height: 2px;
+  background: var(--ui-primary);
+  border-radius: 1px;
 }
 
 .pdf-thumbnail.is-drop-after::after {
-    content: '';
-    position: absolute;
-    bottom: -5px;
-    left: 8px;
-    right: 8px;
-    height: 2px;
-    background: var(--ui-primary);
-    border-radius: 1px;
+  content: "";
+  position: absolute;
+  bottom: -5px;
+  left: 8px;
+  right: 8px;
+  height: 2px;
+  background: var(--ui-primary);
+  border-radius: 1px;
 }
 
 .pdf-thumbnails.is-reorder-dragging .pdf-thumbnail {
-    cursor: grabbing;
+  cursor: grabbing;
 }
 
 .pdf-thumbnails.is-external-drag {
-    outline: 2px dashed var(--ui-primary);
-    outline-offset: -2px;
-    border-radius: 4px;
+  outline: 2px dashed var(--ui-primary);
+  outline-offset: -2px;
+  border-radius: 4px;
 }
 </style>

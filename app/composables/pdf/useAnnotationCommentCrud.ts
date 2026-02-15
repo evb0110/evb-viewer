@@ -42,7 +42,8 @@ import type { IEditorTargetMatch } from '@app/composables/pdf/annotationCommentC
 
 export type { IEditorTargetMatch } from '@app/composables/pdf/annotationCommentCrudHelpers';
 export {
-    getCommentCandidateIds, findPdfAnnotationSummaryFromTarget, 
+    getCommentCandidateIds,
+    findPdfAnnotationSummaryFromTarget,
 } from '@app/composables/pdf/annotationCommentCrudHelpers';
 
 type TFreeTextResize = ReturnType<typeof useFreeTextResize>;
@@ -52,7 +53,9 @@ type TInlineIndicators = ReturnType<typeof useInlineCommentIndicators>;
 type TToolManager = ReturnType<typeof useAnnotationToolManager>;
 type THighlight = ReturnType<typeof useAnnotationHighlight>;
 
-type TUiManagerSelectedEditor = Parameters<AnnotationEditorUIManager['setSelected']>[0];
+type TUiManagerSelectedEditor = Parameters<
+    AnnotationEditorUIManager['setSelected']
+>[0];
 
 interface IUseAnnotationCommentCrudOptions {
     viewerContainer: Ref<HTMLElement | null>;
@@ -62,7 +65,7 @@ interface IUseAnnotationCommentCrudOptions {
     currentPage: Ref<number>;
     visibleRange: Ref<{
         start: number;
-        end: number
+        end: number;
     }>;
     annotationTool: Ref<TAnnotationTool>;
     identity: TIdentity;
@@ -72,10 +75,13 @@ interface IUseAnnotationCommentCrudOptions {
     inlineIndicators: TInlineIndicators;
     highlight: THighlight;
     scrollToPage: (pageNumber: number) => void;
-    renderVisiblePages: (range: {
-        start: number;
-        end: number
-    }, options?: { preserveRenderedPages?: boolean }) => Promise<void>;
+    renderVisiblePages: (
+        range: {
+            start: number;
+            end: number;
+        },
+        options?: { preserveRenderedPages?: boolean },
+    ) => Promise<void>;
     updateVisibleRange: (container: HTMLElement | null, numPages: number) => void;
     emitAnnotationModified: () => void;
     emitAnnotationOpenNote: (comment: IAnnotationCommentSummary) => void;
@@ -84,7 +90,9 @@ interface IUseAnnotationCommentCrudOptions {
     emitAnnotationToolCancel: () => void;
 }
 
-export function useAnnotationCommentCrud(options: IUseAnnotationCommentCrudOptions) {
+export function useAnnotationCommentCrud(
+    options: IUseAnnotationCommentCrudOptions,
+) {
     const {
         viewerContainer,
         pdfDocument,
@@ -127,7 +135,10 @@ export function useAnnotationCommentCrud(options: IUseAnnotationCommentCrudOptio
         );
     }
 
-    function findEditorByAnnotationElementId(pageIndex: number, annotationId: string) {
+    function findEditorByAnnotationElementId(
+        pageIndex: number,
+        annotationId: string,
+    ) {
         return findEditorByAnnotationElementIdHelper(
             annotationUiManager.value,
             numPages.value,
@@ -142,27 +153,45 @@ export function useAnnotationCommentCrud(options: IUseAnnotationCommentCrudOptio
         }
         setActiveCommentAndSync(comment.stableKey);
 
-        const pageNumber = Math.max(1, Math.min(comment.pageNumber, numPages.value));
+        const pageNumber = Math.max(
+            1,
+            Math.min(comment.pageNumber, numPages.value),
+        );
         scrollToPage(pageNumber);
 
         await nextTick();
         updateVisibleRange(viewerContainer.value, numPages.value);
-        await renderVisiblePages(visibleRange.value, { preserveRenderedPages: true });
+        try {
+            await renderVisiblePages(visibleRange.value, {preserveRenderedPages: true});
+        } catch (error) {
+            BrowserLogger.warn(
+                'annotations',
+                `Failed to render page ${pageNumber} while focusing annotation comment`,
+                error,
+            );
+        }
         inlineIndicators.syncInlineCommentIndicators();
         await nextTick();
         inlineIndicators.pulseCommentIndicator(comment.stableKey);
 
-        const uiManager = annotationUiManager.value as (AnnotationEditorUIManager & {
-            getLayer?: (pageIndex: number) => { getEditorByUID?: (uid: string) => IPdfjsEditor | null } | null;
-            selectComment?: (pageIndex: number, uid: string) => void;
-        }) | null;
+        const uiManager = annotationUiManager.value as
+      | (AnnotationEditorUIManager & {
+          getLayer?: (
+              pageIndex: number,
+          ) => { getEditorByUID?: (uid: string) => IPdfjsEditor | null } | null;
+          selectComment?: (pageIndex: number, uid: string) => void;
+      })
+      | null;
         const pageIndex = pageNumber - 1;
 
         if (uiManager) {
             try {
                 await uiManager.waitForEditorsRendered(pageNumber);
             } catch (waitError) {
-                logCrudDebug('Timed out waiting for editors during comment focus', waitError);
+                logCrudDebug(
+                    'Timed out waiting for editors during comment focus',
+                    waitError,
+                );
             }
 
             const layer = uiManager.getLayer?.(pageIndex) ?? null;
@@ -200,9 +229,14 @@ export function useAnnotationCommentCrud(options: IUseAnnotationCommentCrudOptio
         }, FOCUS_PULSE_MS);
     }
 
-    function updateAnnotationComment(comment: IAnnotationCommentSummary, text: string) {
-        const resolvedComment = identity.resolveCommentFromCache(comment) ?? comment;
-        const editor = findEditorForComment(resolvedComment) ?? findEditorForComment(comment);
+    function updateAnnotationComment(
+        comment: IAnnotationCommentSummary,
+        text: string,
+    ) {
+        const resolvedComment =
+            identity.resolveCommentFromCache(comment) ?? comment;
+        const editor =
+            findEditorForComment(resolvedComment) ?? findEditorForComment(comment);
         if (!editor) {
             return false;
         }
@@ -212,14 +246,14 @@ export function useAnnotationCommentCrud(options: IUseAnnotationCommentCrudOptio
         const previousText = getCommentText(editor);
         const previousTrimmed = previousText.trim();
         const editorPageIndex = Number.isFinite(editor.parentPageIndex)
-            ? editor.parentPageIndex as number
+            ? (editor.parentPageIndex as number)
             : resolvedComment.pageIndex;
         const pendingKey = identity.getEditorPendingKey(editor, editorPageIndex);
         const hadExplicitNote = Boolean(
-            resolvedComment.hasNote
-            || commentSync.pendingCommentEditorKeys.has(pendingKey)
-            || hasEditorCommentPayload(editor)
-            || previousTrimmed.length > 0,
+            resolvedComment.hasNote ||
+      commentSync.pendingCommentEditorKeys.has(pendingKey) ||
+      hasEditorCommentPayload(editor) ||
+      previousTrimmed.length > 0,
         );
         if (nextText === previousText) {
             return true;
@@ -256,22 +290,33 @@ export function useAnnotationCommentCrud(options: IUseAnnotationCommentCrudOptio
         if (!uiManager) {
             return false;
         }
-        const resolvedComment = identity.resolveCommentFromCache(comment) ?? comment;
+        const resolvedComment =
+            identity.resolveCommentFromCache(comment) ?? comment;
 
-        const pageNumber = Math.max(1, Math.min(resolvedComment.pageNumber, numPages.value));
+        const pageNumber = Math.max(
+            1,
+            Math.min(resolvedComment.pageNumber, numPages.value),
+        );
         const pageIndex = Math.max(0, pageNumber - 1);
         const candidateIds = getCommentCandidateIds(resolvedComment);
-        const managerWithCommentSelection = uiManager as AnnotationEditorUIManager & {
-            selectComment?: (candidatePageIndex: number, uid: string) => void;
-            getLayer?: (candidatePageIndex: number) => { getEditorByUID?: (uid: string) => IPdfjsEditor | null } | null;
-        };
+        const managerWithCommentSelection =
+            uiManager as AnnotationEditorUIManager & {
+                selectComment?: (candidatePageIndex: number, uid: string) => void;
+                getLayer?: (
+                    candidatePageIndex: number,
+                ) => { getEditorByUID?: (uid: string) => IPdfjsEditor | null } | null;
+            };
 
         let editor = findEditorForComment(resolvedComment);
         let switchedToPopupMode = false;
         const previousMode = uiManager.getMode();
 
         if (!editor && previousMode === AnnotationEditorType.NONE) {
-            const switchError = await toolManager.updateModeWithRetry(uiManager, AnnotationEditorType.POPUP, pageNumber);
+            const switchError = await toolManager.updateModeWithRetry(
+                uiManager,
+                AnnotationEditorType.POPUP,
+                pageNumber,
+            );
             if (!switchError) {
                 switchedToPopupMode = true;
             }
@@ -281,14 +326,20 @@ export function useAnnotationCommentCrud(options: IUseAnnotationCommentCrudOptio
             try {
                 await uiManager.waitForEditorsRendered(pageNumber);
             } catch (waitError) {
-                logCrudDebug('Timed out waiting for editors before comment delete', waitError);
+                logCrudDebug(
+                    'Timed out waiting for editors before comment delete',
+                    waitError,
+                );
             }
-            editor = findEditorForComment(resolvedComment) ?? findEditorForComment(comment);
+            editor =
+                findEditorForComment(resolvedComment) ?? findEditorForComment(comment);
         }
 
         if (!editor && candidateIds.length > 0) {
             for (const id of candidateIds) {
-                const fromLayer = managerWithCommentSelection.getLayer?.(pageIndex)?.getEditorByUID?.(id);
+                const fromLayer = managerWithCommentSelection
+                    .getLayer?.(pageIndex)
+                    ?.getEditorByUID?.(id);
                 if (fromLayer) {
                     editor = fromLayer;
                     break;
@@ -296,7 +347,11 @@ export function useAnnotationCommentCrud(options: IUseAnnotationCommentCrudOptio
             }
         }
 
-        if (!editor && candidateIds.length > 0 && typeof managerWithCommentSelection.selectComment === 'function') {
+        if (
+            !editor &&
+      candidateIds.length > 0 &&
+      typeof managerWithCommentSelection.selectComment === 'function'
+        ) {
             for (const id of candidateIds) {
                 managerWithCommentSelection.selectComment(pageIndex, id);
             }
@@ -305,24 +360,36 @@ export function useAnnotationCommentCrud(options: IUseAnnotationCommentCrudOptio
         }
 
         if (!editor && resolvedComment.annotationId) {
-            const annotationStorage = pdfDocument.value?.annotationStorage as { getEditor?: (annotationElementId: string) => IPdfjsEditor | null } | undefined;
-            editor = annotationStorage?.getEditor?.(resolvedComment.annotationId) ?? null;
+            const annotationStorage = pdfDocument.value?.annotationStorage as
+        | { getEditor?: (annotationElementId: string) => IPdfjsEditor | null }
+        | undefined;
+            editor =
+                annotationStorage?.getEditor?.(resolvedComment.annotationId) ?? null;
         }
 
         if (!editor && resolvedComment.annotationId) {
-            editor = findEditorByAnnotationElementId(pageIndex, resolvedComment.annotationId);
+            editor = findEditorByAnnotationElementId(
+                pageIndex,
+                resolvedComment.annotationId,
+            );
         }
 
         if (!editor) {
             if (switchedToPopupMode) {
-                await toolManager.updateModeWithRetry(uiManager, previousMode, pageNumber);
+                await toolManager.updateModeWithRetry(
+                    uiManager,
+                    previousMode,
+                    pageNumber,
+                );
             }
             return false;
         }
 
         const pendingKey = identity.getEditorPendingKey(
             editor,
-            Number.isFinite(editor.parentPageIndex) ? (editor.parentPageIndex as number) : resolvedComment.pageIndex,
+            Number.isFinite(editor.parentPageIndex)
+                ? (editor.parentPageIndex as number)
+                : resolvedComment.pageIndex,
         );
         let deleted = false;
 
@@ -331,23 +398,36 @@ export function useAnnotationCommentCrud(options: IUseAnnotationCommentCrudOptio
             uiManager.delete();
             deleted = true;
         } catch (deleteError) {
-            logCrudDebug('uiManager.delete failed for annotation comment', deleteError);
+            logCrudDebug(
+                'uiManager.delete failed for annotation comment',
+                deleteError,
+            );
             try {
                 editor.remove?.();
                 deleted = true;
             } catch (removeError) {
-                logCrudDebug('editor.remove failed for annotation comment', removeError);
+                logCrudDebug(
+                    'editor.remove failed for annotation comment',
+                    removeError,
+                );
                 try {
                     editor.delete?.();
                     deleted = true;
                 } catch (legacyDeleteError) {
-                    logCrudDebug('editor.delete fallback failed for annotation comment', legacyDeleteError);
+                    logCrudDebug(
+                        'editor.delete fallback failed for annotation comment',
+                        legacyDeleteError,
+                    );
                     deleted = false;
                 }
             }
         } finally {
             if (switchedToPopupMode) {
-                await toolManager.updateModeWithRetry(uiManager, previousMode, pageNumber);
+                await toolManager.updateModeWithRetry(
+                    uiManager,
+                    previousMode,
+                    pageNumber,
+                );
             }
         }
 
@@ -363,8 +443,14 @@ export function useAnnotationCommentCrud(options: IUseAnnotationCommentCrudOptio
         return true;
     }
 
-    function findEditorFromTarget(target: HTMLElement): IEditorTargetMatch | null {
-        return findEditorFromTargetHelper(annotationUiManager.value, target, currentPage.value);
+    function findEditorFromTarget(
+        target: HTMLElement,
+    ): IEditorTargetMatch | null {
+        return findEditorFromTargetHelper(
+            annotationUiManager.value,
+            target,
+            currentPage.value,
+        );
     }
 
     function findEditorSummaryFromTarget(target: HTMLElement) {
@@ -373,7 +459,11 @@ export function useAnnotationCommentCrud(options: IUseAnnotationCommentCrudOptio
             return null;
         }
 
-        const summary = commentSync.toEditorSummary(match.editor, match.pageIndex, getCommentText(match.editor));
+        const summary = commentSync.toEditorSummary(
+            match.editor,
+            match.pageIndex,
+            getCommentText(match.editor),
+        );
         const normalizedSummary = {
             ...identity.hydrateSummaryFromMemory(summary),
             annotationId: summary.annotationId ?? match.targetAnnotationId,
@@ -393,18 +483,21 @@ export function useAnnotationCommentCrud(options: IUseAnnotationCommentCrudOptio
             .filter((id): id is string => typeof id === 'string' && id.length > 0)
             .filter((id, index, arr) => arr.indexOf(id) === index);
 
-        const cached = commentSync.annotationCommentsCache.value.find((c) => (
-            c.pageIndex === match.pageIndex
-            && (
-                candidateIds.includes(c.annotationId ?? '')
-                || candidateIds.includes(c.uid ?? '')
-                || candidateIds.includes(c.id)
-            )
-        )) ?? commentSync.annotationCommentsCache.value.find((c) => (
-            candidateIds.includes(c.annotationId ?? '')
-            || candidateIds.includes(c.uid ?? '')
-            || candidateIds.includes(c.id)
-        )) ?? null;
+        const cached =
+            commentSync.annotationCommentsCache.value.find(
+                (c) =>
+                    c.pageIndex === match.pageIndex &&
+          (candidateIds.includes(c.annotationId ?? '') ||
+            candidateIds.includes(c.uid ?? '') ||
+            candidateIds.includes(c.id)),
+            ) ??
+      commentSync.annotationCommentsCache.value.find(
+          (c) =>
+              candidateIds.includes(c.annotationId ?? '') ||
+          candidateIds.includes(c.uid ?? '') ||
+          candidateIds.includes(c.id),
+      ) ??
+      null;
 
         return cached ?? identity.hydrateSummaryFromMemory(normalizedSummary);
     }
@@ -412,7 +505,9 @@ export function useAnnotationCommentCrud(options: IUseAnnotationCommentCrudOptio
     function findAnnotationSummaryFromTarget(target: HTMLElement) {
         const editorSummary = findEditorSummaryFromTarget(target);
         const pdfSummary = findPdfAnnotationSummaryFromTarget(
-            target, currentPage.value, commentSync.annotationCommentsCache.value,
+            target,
+            currentPage.value,
+            commentSync.annotationCommentsCache.value,
         );
 
         if (!editorSummary) {
@@ -433,9 +528,15 @@ export function useAnnotationCommentCrud(options: IUseAnnotationCommentCrudOptio
         return editorSummary;
     }
 
-    function findAnnotationSummaryFromPoint(target: HTMLElement, clientX: number, clientY: number) {
+    function findAnnotationSummaryFromPoint(
+        target: HTMLElement,
+        clientX: number,
+        clientY: number,
+    ) {
         return findAnnotationSummaryFromPointHelper(
-            target, clientX, clientY,
+            target,
+            clientX,
+            clientY,
             currentPage.value,
             commentSync.annotationCommentsCache.value,
             highlight.findPageContainerFromClientPoint,
@@ -457,19 +558,29 @@ export function useAnnotationCommentCrud(options: IUseAnnotationCommentCrudOptio
             return false;
         }
 
-        const layerClass = match.editor.div?.closest<HTMLElement>('.annotationEditorLayer, .annotation-editor-layer')
-            ?.className ?? '';
+        const layerClass =
+            match.editor.div?.closest<HTMLElement>(
+                '.annotationEditorLayer, .annotation-editor-layer',
+            )?.className ?? '';
         const isNonEditing = layerClass.includes('nonEditing');
         if (!isNonEditing) {
             return false;
         }
 
-        const mode = activeTool === 'text'
-            ? AnnotationEditorType.FREETEXT
-            : AnnotationEditorType.POPUP;
-        const modeError = await toolManager.updateModeWithRetry(uiManager, mode, match.pageIndex + 1);
+        const mode =
+            activeTool === 'text'
+                ? AnnotationEditorType.FREETEXT
+                : AnnotationEditorType.POPUP;
+        const modeError = await toolManager.updateModeWithRetry(
+            uiManager,
+            mode,
+            match.pageIndex + 1,
+        );
         if (modeError) {
-            BrowserLogger.warn('annotations', `Failed to enable editor interaction mode: ${errorToLogText(modeError)}`);
+            BrowserLogger.warn(
+                'annotations',
+                `Failed to enable editor interaction mode: ${errorToLogText(modeError)}`,
+            );
             return false;
         }
 
@@ -478,23 +589,35 @@ export function useAnnotationCommentCrud(options: IUseAnnotationCommentCrudOptio
         return true;
     }
 
-    function resolveCommentFromIndicatorClickTarget(target: HTMLElement, clientX: number, clientY: number) {
-        const customIndicator = target.closest<HTMLElement>('.pdf-inline-comment-anchor-marker, .pdf-inline-comment-marker');
+    function resolveCommentFromIndicatorClickTarget(
+        target: HTMLElement,
+        clientX: number,
+        clientY: number,
+    ) {
+        const customIndicator = target.closest<HTMLElement>(
+            '.pdf-inline-comment-anchor-marker, .pdf-inline-comment-marker',
+        );
         if (customIndicator) {
-            const inlineTarget = customIndicator.closest<HTMLElement>('.pdf-annotation-has-note-target, .pdf-annotation-has-comment');
+            const inlineTarget = customIndicator.closest<HTMLElement>(
+                '.pdf-annotation-has-note-target, .pdf-annotation-has-comment',
+            );
             return (
-                inlineIndicators.resolveCommentFromIndicatorElement(customIndicator)
-                ?? (inlineTarget ? inlineIndicators.findCommentFromInlineTarget(inlineTarget) : null)
-                ?? findAnnotationSummaryFromTarget(customIndicator)
-                ?? findAnnotationSummaryFromPoint(customIndicator, clientX, clientY)
+                inlineIndicators.resolveCommentFromIndicatorElement(customIndicator) ??
+        (inlineTarget
+            ? inlineIndicators.findCommentFromInlineTarget(inlineTarget)
+            : null) ??
+        findAnnotationSummaryFromTarget(customIndicator) ??
+        findAnnotationSummaryFromPoint(customIndicator, clientX, clientY)
             );
         }
 
-        const popupTrigger = target.closest<HTMLElement>('.annotationLayer .popupTriggerArea, .annotation-layer .popupTriggerArea');
+        const popupTrigger = target.closest<HTMLElement>(
+            '.annotationLayer .popupTriggerArea, .annotation-layer .popupTriggerArea',
+        );
         if (popupTrigger) {
             return (
-                findAnnotationSummaryFromTarget(popupTrigger)
-                ?? findAnnotationSummaryFromPoint(popupTrigger, clientX, clientY)
+                findAnnotationSummaryFromTarget(popupTrigger) ??
+        findAnnotationSummaryFromPoint(popupTrigger, clientX, clientY)
             );
         }
 
@@ -513,8 +636,13 @@ export function useAnnotationCommentCrud(options: IUseAnnotationCommentCrudOptio
             return;
         }
 
-        const summary = findAnnotationSummaryFromTarget(explicitCommentTrigger)
-            ?? findAnnotationSummaryFromPoint(explicitCommentTrigger, event.clientX, event.clientY);
+        const summary =
+            findAnnotationSummaryFromTarget(explicitCommentTrigger) ??
+      findAnnotationSummaryFromPoint(
+          explicitCommentTrigger,
+          event.clientX,
+          event.clientY,
+      );
         if (summary) {
             setActiveCommentAndSync(summary.stableKey);
             emitAnnotationOpenNote(summary);
@@ -527,11 +655,23 @@ export function useAnnotationCommentCrud(options: IUseAnnotationCommentCrudOptio
         }
 
         if (highlight.isPlacingComment.value) {
-            void highlight.placeCommentAtClientPoint(event.clientX, event.clientY);
+            void highlight
+                .placeCommentAtClientPoint(event.clientX, event.clientY)
+                .catch((error) => {
+                    BrowserLogger.error(
+                        'annotations',
+                        'Failed to place annotation comment at pointer location',
+                        error,
+                    );
+                });
             return;
         }
 
-        const indicatorSummary = resolveCommentFromIndicatorClickTarget(event.target, event.clientX, event.clientY);
+        const indicatorSummary = resolveCommentFromIndicatorClickTarget(
+            event.target,
+            event.clientX,
+            event.clientY,
+        );
         if (indicatorSummary) {
             setActiveCommentAndSync(indicatorSummary.stableKey);
             inlineIndicators.pulseCommentIndicator(indicatorSummary.stableKey);
@@ -545,7 +685,11 @@ export function useAnnotationCommentCrud(options: IUseAnnotationCommentCrudOptio
             }
             return;
         }
-        if (event.target.closest('.pdf-annotation-comment-popup, #commentPopup, #commentManagerDialog')) {
+        if (
+            event.target.closest(
+                '.pdf-annotation-comment-popup, #commentPopup, #commentManagerDialog',
+            )
+        ) {
             return;
         }
 
@@ -556,9 +700,12 @@ export function useAnnotationCommentCrud(options: IUseAnnotationCommentCrudOptio
 
         await ensureEditorInteractionModeFromTarget(event.target);
 
-        const inlineTarget = event.target.closest<HTMLElement>('.pdf-annotation-has-note-target, .pdf-annotation-has-comment');
+        const inlineTarget = event.target.closest<HTMLElement>(
+            '.pdf-annotation-has-note-target, .pdf-annotation-has-comment',
+        );
         if (inlineTarget) {
-            const summary = inlineIndicators.findCommentFromInlineTarget(inlineTarget);
+            const summary =
+                inlineIndicators.findCommentFromInlineTarget(inlineTarget);
             if (summary) {
                 setActiveCommentAndSync(summary.stableKey);
                 inlineIndicators.pulseCommentIndicator(summary.stableKey);
@@ -567,8 +714,13 @@ export function useAnnotationCommentCrud(options: IUseAnnotationCommentCrudOptio
             }
         }
 
-        const summary = findAnnotationSummaryFromTarget(event.target)
-            ?? findAnnotationSummaryFromPoint(event.target, event.clientX, event.clientY);
+        const summary =
+            findAnnotationSummaryFromTarget(event.target) ??
+      findAnnotationSummaryFromPoint(
+          event.target,
+          event.clientX,
+          event.clientY,
+      );
         if (!summary) {
             return;
         }
@@ -584,12 +736,12 @@ export function useAnnotationCommentCrud(options: IUseAnnotationCommentCrudOptio
 
         const selection = document.getSelection();
         const hasTextLayerSelection = Boolean(
-            selection
-            && !selection.isCollapsed
-            && (
-                selection.anchorNode?.parentElement?.closest('.text-layer, .textLayer')
-                || selection.focusNode?.parentElement?.closest('.text-layer, .textLayer')
-            ),
+            selection &&
+      !selection.isCollapsed &&
+      (selection.anchorNode?.parentElement?.closest(
+          '.text-layer, .textLayer',
+      ) ||
+        selection.focusNode?.parentElement?.closest('.text-layer, .textLayer')),
         );
 
         if (highlight.isPlacingComment.value) {
@@ -602,10 +754,19 @@ export function useAnnotationCommentCrud(options: IUseAnnotationCommentCrudOptio
             emitAnnotationToolCancel();
         }
 
-        const inlineTarget = event.target.closest<HTMLElement>('.pdf-annotation-has-note-target, .pdf-annotation-has-comment');
-        const summary = (inlineTarget ? inlineIndicators.findCommentFromInlineTarget(inlineTarget) : null)
-            ?? findAnnotationSummaryFromTarget(event.target)
-            ?? findAnnotationSummaryFromPoint(event.target, event.clientX, event.clientY);
+        const inlineTarget = event.target.closest<HTMLElement>(
+            '.pdf-annotation-has-note-target, .pdf-annotation-has-comment',
+        );
+        const summary =
+            (inlineTarget
+                ? inlineIndicators.findCommentFromInlineTarget(inlineTarget)
+                : null) ??
+      findAnnotationSummaryFromTarget(event.target) ??
+      findAnnotationSummaryFromPoint(
+          event.target,
+          event.clientX,
+          event.clientY,
+      );
 
         // Keep native browser context menu for selected document text so copy works.
         if (annotationTool.value === 'none' && hasTextLayerSelection && !summary) {
@@ -620,7 +781,13 @@ export function useAnnotationCommentCrud(options: IUseAnnotationCommentCrudOptio
         } else {
             setActiveCommentAndSync(null);
         }
-        emitAnnotationContextMenu(highlight.buildAnnotationContextMenuPayload(summary, event.clientX, event.clientY));
+        emitAnnotationContextMenu(
+            highlight.buildAnnotationContextMenuPayload(
+                summary,
+                event.clientX,
+                event.clientY,
+            ),
+        );
     }
 
     return {

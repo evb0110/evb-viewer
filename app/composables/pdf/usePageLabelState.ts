@@ -40,12 +40,19 @@ export const usePageLabelState = (deps: {
             const raw = await doc.getPageLabels();
             labels = raw && raw.length === doc.numPages ? raw : null;
         } catch (error) {
-            BrowserLogger.debug('page-labels', 'Failed to read page labels from PDF document', error);
+            BrowserLogger.debug(
+                'page-labels',
+                'Failed to read page labels from PDF document',
+                error,
+            );
             labels = null;
         }
 
         pageLabels.value = labels;
-        pageLabelRanges.value = derivePageLabelRangesFromLabels(labels, doc.numPages);
+        pageLabelRanges.value = derivePageLabelRangesFromLabels(
+            labels,
+            doc.numPages,
+        );
         pageLabelsDirty.value = false;
     }
 
@@ -59,8 +66,12 @@ export const usePageLabelState = (deps: {
         }
 
         const normalized = normalizePageLabelRanges(ranges, totalPages.value);
-        const currentNormalized = normalizePageLabelRanges(pageLabelRanges.value, totalPages.value);
-        const unchanged = JSON.stringify(normalized) === JSON.stringify(currentNormalized);
+        const currentNormalized = normalizePageLabelRanges(
+            pageLabelRanges.value,
+            totalPages.value,
+        );
+        const unchanged =
+            JSON.stringify(normalized) === JSON.stringify(currentNormalized);
         if (unchanged) {
             return;
         }
@@ -70,10 +81,20 @@ export const usePageLabelState = (deps: {
         markDirty();
     }
 
+    function scheduleSyncPageLabelsFromDocument(doc: PDFDocumentProxy | null) {
+        void syncPageLabelsFromDocument(doc).catch((error) => {
+            BrowserLogger.error(
+                'page-labels',
+                'Failed to synchronize page labels from PDF document',
+                error,
+            );
+        });
+    }
+
     watch(
         pdfDocument,
         (doc) => {
-            void syncPageLabelsFromDocument(doc);
+            scheduleSyncPageLabelsFromDocument(doc);
         },
         { immediate: true },
     );

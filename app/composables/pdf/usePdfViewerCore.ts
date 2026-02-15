@@ -10,6 +10,7 @@ import {
 } from 'vue';
 import {
     useDebounceFn,
+    useEventListener,
     useResizeObserver,
 } from '@vueuse/core';
 import { PixelsPerInch } from 'pdfjs-dist';
@@ -56,23 +57,33 @@ interface IUsePdfViewerCoreOptions {
     currentPage: Ref<number>;
     visibleRange: Ref<{
         start: number;
-        end: number 
+        end: number;
     }>;
     effectiveScale: Ref<number>;
     basePageWidth: Ref<number | null>;
     basePageHeight: Ref<number | null>;
     computeFitWidthScale: (container: HTMLElement | null) => boolean;
     resetScale: () => void;
-    computeSkeletonInsets: (pdfPage: PDFPageProxy, renderVersion: number, getCurrentVersion: () => number) => Promise<void>;
+    computeSkeletonInsets: (
+        pdfPage: PDFPageProxy,
+        renderVersion: number,
+        getCurrentVersion: () => number,
+    ) => Promise<void>;
     resetInsets: () => void;
     setupPagePlaceholders: () => void;
-    renderVisiblePages: (range: IPageRange, options?: { preserveRenderedPages?: boolean }) => Promise<void>;
+    renderVisiblePages: (
+        range: IPageRange,
+        options?: { preserveRenderedPages?: boolean },
+    ) => Promise<void>;
     reRenderAllVisiblePages: (getVisibleRange: () => IPageRange) => Promise<void>;
     cleanupRenderedPages: () => void;
     invalidateRenderedPages: (pages: number[]) => void;
     applySearchHighlights: () => void;
     isPageRendered: (page: number) => boolean;
-    getMostVisiblePage: (container: HTMLElement | null, numPages: number) => number;
+    getMostVisiblePage: (
+        container: HTMLElement | null,
+        numPages: number,
+    ) => number;
     updateVisibleRange: (container: HTMLElement | null, numPages: number) => void;
     scrollToPage: (pageNumber: number) => void;
     resetContinuousScrollState: () => void;
@@ -153,7 +164,10 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
 
     function isPageNearVisible(page: number) {
         const start = Math.max(1, visibleRange.value.start - SKELETON_BUFFER);
-        const end = Math.min(numPages.value, visibleRange.value.end + SKELETON_BUFFER);
+        const end = Math.min(
+            numPages.value,
+            visibleRange.value.end + SKELETON_BUFFER,
+        );
         return page >= start && page <= end;
     }
 
@@ -161,8 +175,12 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         return isPageNearVisible(page) && !isPageRendered(page);
     }
 
-    function handleDragStart(e: MouseEvent) { startDrag(e, viewerContainer.value); }
-    function handleDragMove(e: MouseEvent) { onDrag(e, viewerContainer.value); }
+    function handleDragStart(e: MouseEvent) {
+        startDrag(e, viewerContainer.value);
+    }
+    function handleDragMove(e: MouseEvent) {
+        onDrag(e, viewerContainer.value);
+    }
 
     function getVisibleRange() {
         updateVisibleRange(viewerContainer.value, numPages.value);
@@ -174,7 +192,9 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         if (!container) {
             return false;
         }
-        return Boolean(container.querySelector('.page_container .page_canvas canvas'));
+        return Boolean(
+            container.querySelector('.page_container .page_canvas canvas'),
+        );
     }
 
     function hasRenderedTextLayerContent() {
@@ -182,7 +202,39 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         if (!container) {
             return false;
         }
-        return Boolean(container.querySelector('.page_container .text-layer span, .page_container .textLayer span'));
+        return Boolean(
+            container.querySelector(
+                '.page_container .text-layer span, .page_container .textLayer span',
+            ),
+        );
+    }
+
+    function logAsyncStageError(stage: string, error: unknown) {
+        BrowserLogger.error('pdf-viewer', `Failed to ${stage}`, error);
+    }
+
+    function scheduleRecoverInitialRender() {
+        void recoverInitialRenderIfNeeded().catch((error) => {
+            logAsyncStageError('recover initial PDF render', error);
+        });
+    }
+
+    function scheduleReRenderVisiblePages(stage: string) {
+        void reRenderAllVisiblePages(getVisibleRange).catch((error) => {
+            logAsyncStageError(stage, error);
+        });
+    }
+
+    function scheduleLoadFromSource(isReload = false) {
+        void loadFromSource(isReload).catch((error) => {
+            logAsyncStageError('load PDF source', error);
+        });
+    }
+
+    function scheduleSetAnnotationTool(tool: TAnnotationTool, stage: string) {
+        void editor.setAnnotationTool(tool).catch((error) => {
+            logAsyncStageError(stage, error);
+        });
     }
 
     async function recoverInitialRenderIfNeeded() {
@@ -199,7 +251,14 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         }
 
         updateVisibleRange(viewerContainer.value, numPages.value);
-        await reRenderAllVisiblePages(getVisibleRange);
+        try {
+            await reRenderAllVisiblePages(getVisibleRange);
+        } catch (error) {
+            logAsyncStageError(
+                're-render visible pages during initial recovery',
+                error,
+            );
+        }
 
         await nextTick();
         await delay(80);
@@ -208,11 +267,17 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         }
 
         updateVisibleRange(viewerContainer.value, numPages.value);
-        await renderVisiblePages(getVisibleRange());
+        try {
+            await renderVisiblePages(getVisibleRange());
+        } catch (error) {
+            logAsyncStageError('render visible pages during initial recovery', error);
+        }
     }
 
     let pendingInvalidation: number[] | null = null;
-    function invalidatePages(pages: number[]) { pendingInvalidation = pages; }
+    function invalidatePages(pages: number[]) {
+        pendingInvalidation = pages;
+    }
 
     async function loadFromSource(isReload = false) {
         if (!src.value) {
@@ -230,7 +295,9 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
 
         const savedBaseWidth = isSelectiveReload ? basePageWidth.value : null;
         const savedBaseHeight = isSelectiveReload ? basePageHeight.value : null;
-        const savedVisibleRange = isSelectiveReload ? { ...visibleRange.value } : null;
+        const savedVisibleRange = isSelectiveReload
+            ? { ...visibleRange.value }
+            : null;
 
         emit('update:document', null);
         if (!isReload) emit('update:totalPages', 0);
@@ -250,12 +317,19 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         }
         editor.destroyAnnotationEditor();
 
-        const loaded = await loadPdf(src.value, isSelectiveReload ? { preservePageStructure: true } : undefined);
+        const loaded = await loadPdf(
+            src.value,
+            isSelectiveReload ? { preservePageStructure: true } : undefined,
+        );
         if (!loaded) {
             return;
         }
 
-        if (isSelectiveReload && savedBaseWidth !== null && savedBaseHeight !== null) {
+        if (
+            isSelectiveReload &&
+      savedBaseWidth !== null &&
+      savedBaseHeight !== null
+        ) {
             basePageWidth.value = savedBaseWidth;
             basePageHeight.value = savedBaseHeight;
         }
@@ -271,9 +345,17 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
             void (async () => {
                 try {
                     const firstPage = await getPage(1);
-                    await computeSkeletonInsets(firstPage, loaded.version, getRenderVersion);
+                    await computeSkeletonInsets(
+                        firstPage,
+                        loaded.version,
+                        getRenderVersion,
+                    );
                 } catch (error) {
-                    BrowserLogger.warn('pdf-viewer', 'Failed to compute PDF skeleton insets', error);
+                    BrowserLogger.warn(
+                        'pdf-viewer',
+                        'Failed to compute PDF skeleton insets',
+                        error,
+                    );
                 }
             })();
         }
@@ -292,20 +374,28 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         }
 
         updateVisibleRange(viewerContainer.value, numPages.value);
-        await renderVisiblePages(visibleRange.value);
+        try {
+            await renderVisiblePages(visibleRange.value);
+        } catch (error) {
+            logAsyncStageError('render visible pages after source load', error);
+        }
         applySearchHighlights();
         commentSync.scheduleAnnotationCommentsSync(true);
-        void recoverInitialRenderIfNeeded();
+        scheduleRecoverInitialRender();
     }
 
-    function undoAnnotation() { annotationUiManager.value?.undo(); }
-    function redoAnnotation() { annotationUiManager.value?.redo(); }
+    function undoAnnotation() {
+        annotationUiManager.value?.undo();
+    }
+    function redoAnnotation() {
+        annotationUiManager.value?.redo();
+    }
 
     const debouncedRenderOnResize = useDebounceFn(() => {
         if (isLoading.value || !pdfDocument.value) {
             return;
         }
-        void reRenderAllVisiblePages(getVisibleRange);
+        scheduleReRenderVisiblePages('re-render visible pages after resize');
     }, 200);
 
     function handleResize() {
@@ -318,16 +408,26 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
 
     useResizeObserver(viewerContainer, handleResize);
 
+    const documentTarget = typeof document !== 'undefined' ? document : null;
+    useEventListener(
+        documentTarget,
+        'selectionchange',
+        highlight.cacheCurrentTextSelection,
+        { passive: true },
+    );
+    useEventListener(
+        documentTarget,
+        'pointerup',
+        highlight.handleDocumentPointerUp,
+        { passive: true },
+    );
+
     onMounted(() => {
-        document.addEventListener('selectionchange', highlight.cacheCurrentTextSelection, { passive: true });
-        document.addEventListener('pointerup', highlight.handleDocumentPointerUp, { passive: true });
         inlineIndicators.attachInlineCommentMarkerObserver();
-        loadFromSource();
+        scheduleLoadFromSource();
     });
 
     onUnmounted(() => {
-        document.removeEventListener('selectionchange', highlight.cacheCurrentTextSelection);
-        document.removeEventListener('pointerup', highlight.handleDocumentPointerUp);
         inlineIndicators.cleanup();
         highlight.clearSelectionCache();
         cleanupRenderedPages();
@@ -339,7 +439,10 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
     });
 
     watch(fitMode, async (mode) => {
-        const pageToSnapTo = mode === 'height' ? getMostVisiblePage(viewerContainer.value, numPages.value) : null;
+        const pageToSnapTo =
+            mode === 'height'
+                ? getMostVisiblePage(viewerContainer.value, numPages.value)
+                : null;
         const updated = computeFitWidthScale(viewerContainer.value);
         if (updated && pdfDocument.value) {
             await reRenderAllVisiblePages(getVisibleRange);
@@ -359,63 +462,96 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
                 activeCommentStableKey.value = null;
                 emit('annotation-comments', []);
             }
-            loadFromSource(isReload);
+            scheduleLoadFromSource(isReload);
         }
     });
 
-    watch(annotationCommentsCache, (comments) => {
-        const activeKey = activeCommentStableKey.value;
-        if (!activeKey) {
-            return;
-        }
-        if (!comments.some(comment => comment.stableKey === activeKey)) {
-            activeCommentStableKey.value = null;
-        }
-    }, { deep: true });
+    watch(
+        annotationCommentsCache,
+        (comments) => {
+            const activeKey = activeCommentStableKey.value;
+            if (!activeKey) {
+                return;
+            }
+            if (!comments.some((comment) => comment.stableKey === activeKey)) {
+                activeCommentStableKey.value = null;
+            }
+        },
+        { deep: true },
+    );
 
-    watch(() => continuousScroll.value, () => { resetContinuousScrollState(); });
+    watch(
+        () => continuousScroll.value,
+        () => {
+            resetContinuousScrollState();
+        },
+    );
 
-    watch(zoom, () => { if (pdfDocument.value) void reRenderAllVisiblePages(getVisibleRange); });
+    watch(zoom, () => {
+        if (pdfDocument.value) {
+            scheduleReRenderVisiblePages('re-render visible pages after zoom change');
+        }
+    });
 
     watch(effectiveScale, (scale) => {
-        annotationUiManager.value?.onScaleChanging({ scale: scale / PixelsPerInch.PDF_TO_CSS_UNITS });
+        annotationUiManager.value?.onScaleChanging({scale: scale / PixelsPerInch.PDF_TO_CSS_UNITS});
     });
 
-    watch(currentPage, (page) => { annotationUiManager.value?.onPageChanging({ pageNumber: page }); });
+    watch(currentPage, (page) => {
+        annotationUiManager.value?.onPageChanging({ pageNumber: page });
+    });
 
-    watch(annotationTool, (tool) => {
-        if (tool !== 'none') highlight.cancelCommentPlacement();
-        void editor.setAnnotationTool(tool);
-    }, { immediate: true });
+    watch(
+        annotationTool,
+        (tool) => {
+            if (tool !== 'none') highlight.cancelCommentPlacement();
+            scheduleSetAnnotationTool(tool, `apply annotation tool "${tool}"`);
+        },
+        { immediate: true },
+    );
 
     watch(annotationCursorMode, () => {
-        if (annotationTool.value === 'none') void editor.setAnnotationTool('none');
+        if (annotationTool.value === 'none') {
+            scheduleSetAnnotationTool('none', 're-apply annotation cursor mode');
+        }
     });
 
-    watch(annotationSettings, (settings) => { editor.applyAnnotationSettings(settings); }, {
-        deep: true,
-        immediate: true,
-    });
+    watch(
+        annotationSettings,
+        (settings) => {
+            editor.applyAnnotationSettings(settings);
+        },
+        {
+            deep: true,
+            immediate: true,
+        },
+    );
 
     watch(isResizing, async (value) => {
         if (!value && pdfDocument.value && !isLoading.value) {
             await nextTick();
             await delay(20);
             computeFitWidthScale(viewerContainer.value);
-            void reRenderAllVisiblePages(getVisibleRange);
+            scheduleReRenderVisiblePages(
+                're-render visible pages after resize settle',
+            );
         }
     });
 
     const isEffectivelyLoading = computed(() => !!src.value && isLoading.value);
 
-    watch(isEffectivelyLoading, async (value, oldValue) => {
-        if (oldValue === true && value === false) {
-            await nextTick();
-            void recoverInitialRenderIfNeeded();
-        }
-        emit('update:loading', value);
-        emit('loading', value);
-    }, { immediate: true });
+    watch(
+        isEffectivelyLoading,
+        async (value, oldValue) => {
+            if (oldValue === true && value === false) {
+                await nextTick();
+                scheduleRecoverInitialRender();
+            }
+            emit('update:loading', value);
+            emit('loading', value);
+        },
+        { immediate: true },
+    );
 
     return {
         shouldShowSkeleton,

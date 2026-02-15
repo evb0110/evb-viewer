@@ -117,6 +117,32 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         return renderVersion;
     }
 
+    function logNonCriticalStageError(
+        pageNumber: number,
+        stage: string,
+        error: unknown,
+    ) {
+        BrowserLogger.error('pdf-renderer', `Failed to render ${stage} for page ${pageNumber}`, error);
+    }
+
+    function scheduleRenderForSinglePage(
+        pageNumber: number,
+        optionsOverride: {
+            preserveRenderedPages?: boolean;
+            bufferOverride?: number;
+        },
+    ) {
+        void renderVisiblePages(
+            {
+                start: pageNumber,
+                end: pageNumber,
+            },
+            optionsOverride,
+        ).catch((error) => {
+            BrowserLogger.error('pdf-renderer', `Failed to schedule follow-up render for page ${pageNumber}`, error);
+        });
+    }
+
     function cleanupTextLayer(pageNumber: number) {
         const cleanup = textLayerCleanupFns.get(pageNumber);
         if (cleanup) {
@@ -319,15 +345,22 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                         const textLayerDiv = container.querySelector<HTMLDivElement>('.text-layer');
                         if (textLayerDiv) {
                             cleanupTextLayer(pageNumber);
+                            let isTextLayerRendered = false;
 
-                            await textLayerRenderer.renderTextLayer(
-                                pdfPage,
-                                textLayerDiv,
-                                viewport,
-                                scale,
-                                userUnit,
-                                totalScaleFactor,
-                            );
+                            try {
+                                await textLayerRenderer.renderTextLayer(
+                                    pdfPage,
+                                    textLayerDiv,
+                                    viewport,
+                                    scale,
+                                    userUnit,
+                                    totalScaleFactor,
+                                );
+                                isTextLayerRendered = true;
+                            } catch (textLayerError) {
+                                logNonCriticalStageError(pageNumber, 'text layer', textLayerError);
+                                textLayerRenderer.cleanupTextLayerDom(textLayerDiv);
+                            }
 
                             if (renderVersion !== version) {
                                 if (renderingPages.get(pageNumber) === version) {
@@ -336,32 +369,46 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                                 return;
                             }
 
-                            const cleanup = textLayerRenderer.setupTextLayerInteraction(textLayerDiv);
-                            if (typeof cleanup === 'function') {
-                                textLayerCleanupFns.set(pageNumber, cleanup);
-                            }
+                            if (isTextLayerRendered) {
+                                try {
+                                    const cleanup = textLayerRenderer.setupTextLayerInteraction(textLayerDiv);
+                                    if (typeof cleanup === 'function') {
+                                        textLayerCleanupFns.set(pageNumber, cleanup);
+                                    }
+                                } catch (textLayerInteractionError) {
+                                    logNonCriticalStageError(pageNumber, 'text layer interaction', textLayerInteractionError);
+                                }
 
-                            textLayerRenderer.applyPageSearchHighlights(
-                                container,
-                                textLayerDiv,
-                                pageNumber,
-                                canvas,
-                                {
-                                    userUnit,
-                                    totalScaleFactor,
-                                    viewportWidth: viewport.width,
-                                    viewportHeight: viewport.height,
-                                    rawPageWidth: rawDims.pageWidth,
-                                    rawPageHeight: rawDims.pageHeight,
-                                    canvasPixelWidth: canvas.width,
-                                    canvasPixelHeight: canvas.height,
-                                    renderScaleX: scaleX,
-                                    renderScaleY: scaleY,
-                                },
-                            );
+                                try {
+                                    textLayerRenderer.applyPageSearchHighlights(
+                                        container,
+                                        textLayerDiv,
+                                        pageNumber,
+                                        canvas,
+                                        {
+                                            userUnit,
+                                            totalScaleFactor,
+                                            viewportWidth: viewport.width,
+                                            viewportHeight: viewport.height,
+                                            rawPageWidth: rawDims.pageWidth,
+                                            rawPageHeight: rawDims.pageHeight,
+                                            canvasPixelWidth: canvas.width,
+                                            canvasPixelHeight: canvas.height,
+                                            renderScaleX: scaleX,
+                                            renderScaleY: scaleY,
+                                        },
+                                    );
+                                } catch (searchHighlightError) {
+                                    logNonCriticalStageError(pageNumber, 'search highlights', searchHighlightError);
+                                }
 
-                            if (pendingScrollToMatchPageIndex.value === pageNumber - 1) {
-                                scrollToCurrentMatch();
+                                if (pendingScrollToMatchPageIndex.value === pageNumber - 1) {
+                                    try {
+                                        scrollToCurrentMatch();
+                                    } catch (scrollToMatchError) {
+                                        logNonCriticalStageError(pageNumber, 'scroll to current match', scrollToMatchError);
+                                    }
+                                }
                             }
                         }
 
@@ -375,12 +422,16 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                                 return;
                             }
 
-                            annotationLayerInstance = await annotationLayerRenderer.renderAnnotationLayer(
-                                pdfPage,
-                                annotationLayerDiv,
-                                viewport,
-                                pageNumber,
-                            );
+                            try {
+                                annotationLayerInstance = await annotationLayerRenderer.renderAnnotationLayer(
+                                    pdfPage,
+                                    annotationLayerDiv,
+                                    viewport,
+                                    pageNumber,
+                                );
+                            } catch (annotationError) {
+                                logNonCriticalStageError(pageNumber, 'annotation layer', annotationError);
+                            }
 
                             if (renderVersion !== version) {
                                 if (renderingPages.get(pageNumber) === version) {
@@ -392,14 +443,18 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
 
                         const annotationEditorLayerDiv = container.querySelector<HTMLElement>('.annotation-editor-layer');
                         if (annotationEditorLayerDiv && toValue(options.annotationUiManager)) {
-                            annotationLayerRenderer.renderAnnotationEditorLayer(
-                                container,
-                                annotationEditorLayerDiv,
-                                textLayerDiv,
-                                viewport,
-                                pageNumber,
-                                annotationLayerInstance,
-                            );
+                            try {
+                                annotationLayerRenderer.renderAnnotationEditorLayer(
+                                    container,
+                                    annotationEditorLayerDiv,
+                                    textLayerDiv,
+                                    viewport,
+                                    pageNumber,
+                                    annotationLayerInstance,
+                                );
+                            } catch (annotationEditorError) {
+                                logNonCriticalStageError(pageNumber, 'annotation editor layer', annotationEditorError);
+                            }
                         }
 
                         if (textLayerRenderer.isOcrDebugEnabled()) {
@@ -412,7 +467,9 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                                     viewport,
                                     rawDims.pageWidth,
                                     rawDims.pageHeight,
-                                );
+                                ).catch((ocrDebugError) => {
+                                    logNonCriticalStageError(pageNumber, 'OCR debug overlays', ocrDebugError);
+                                });
                             }
                         }
 
@@ -426,16 +483,10 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                                     if (renderVersion !== version) {
                                         return;
                                     }
-                                    void renderVisiblePages(
-                                        {
-                                            start: pageNumber,
-                                            end: pageNumber,
-                                        },
-                                        {
-                                            preserveRenderedPages: true,
-                                            bufferOverride: 0,
-                                        },
-                                    );
+                                    scheduleRenderForSinglePage(pageNumber, {
+                                        preserveRenderedPages: true,
+                                        bufferOverride: 0,
+                                    });
                                 }, 0);
                             }
                             return;
@@ -529,7 +580,11 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         if (!containerRoot) {
             return;
         }
-        textLayerRenderer.applyAllSearchHighlights(containerRoot);
+        try {
+            textLayerRenderer.applyAllSearchHighlights(containerRoot);
+        } catch (error) {
+            BrowserLogger.error('pdf-renderer', 'Failed to apply search highlights', error);
+        }
     }
 
     function scrollToCurrentMatch(behavior: ScrollBehavior = 'auto') {
@@ -538,7 +593,13 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             return false;
         }
 
-        const result = textLayerRenderer.scrollToCurrentMatch(containerRoot, behavior);
+        let result = false;
+        try {
+            result = textLayerRenderer.scrollToCurrentMatch(containerRoot, behavior);
+        } catch (error) {
+            BrowserLogger.error('pdf-renderer', 'Failed to scroll to current match', error);
+            return false;
+        }
         if (result) {
             pendingScrollToMatchPageIndex.value = null;
         }
@@ -629,16 +690,10 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
 
             attempts += 1;
 
-            void renderVisiblePages(
-                {
-                    start: matchPageIndex + 1,
-                    end: matchPageIndex + 1,
-                },
-                {
-                    preserveRenderedPages: true,
-                    bufferOverride: 0,
-                },
-            );
+            scheduleRenderForSinglePage(matchPageIndex + 1, {
+                preserveRenderedPages: true,
+                bufferOverride: 0,
+            });
 
             if (attempts >= maxAttempts) {
                 options.scrollToPage?.(matchPageIndex + 1);

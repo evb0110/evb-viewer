@@ -32,10 +32,12 @@ type TIdentity = ReturnType<typeof useAnnotationCommentIdentity>;
 type TMarkupSubtypeComposable = ReturnType<typeof useAnnotationMarkupSubtype>;
 
 function isMarkupSubtype(value: unknown): value is TMarkupSubtype {
-    return value === 'Highlight'
-        || value === 'Underline'
-        || value === 'StrikeOut'
-        || value === 'Squiggly';
+    return (
+        value === 'Highlight' ||
+    value === 'Underline' ||
+    value === 'StrikeOut' ||
+    value === 'Squiggly'
+    );
 }
 
 interface IUseAnnotationCommentSyncOptions {
@@ -52,7 +54,9 @@ interface IUseAnnotationCommentSyncOptions {
     syncInlineCommentIndicators: () => void;
 }
 
-export function useAnnotationCommentSync(options: IUseAnnotationCommentSyncOptions) {
+export function useAnnotationCommentSync(
+    options: IUseAnnotationCommentSyncOptions,
+) {
     const { t } = useTypedI18n();
 
     const {
@@ -82,24 +86,46 @@ export function useAnnotationCommentSync(options: IUseAnnotationCommentSyncOptio
         try {
             data = editor.getData?.() ?? {};
         } catch (error) {
-            BrowserLogger.debug('annotations', 'Failed to read annotation editor data payload', error);
+            BrowserLogger.debug(
+                'annotations',
+                'Failed to read annotation editor data payload',
+                error,
+            );
             data = {};
         }
-        const text = typeof textOverride === 'string'
-            ? textOverride
-            : getCommentText(editor).trim();
-        const resolvedSubtype = markupSubtype.resolveEditorMarkupSubtypeOverride(editor, pageIndex) ?? detectEditorSubtype(editor);
+        const text =
+            typeof textOverride === 'string'
+                ? textOverride
+                : getCommentText(editor).trim();
+        const resolvedSubtype =
+            markupSubtype.resolveEditorMarkupSubtypeOverride(editor, pageIndex) ??
+      detectEditorSubtype(editor);
         const uid = editor.uid ?? null;
         const annotationId = editor.annotationElementId ?? null;
-        if (annotationId && resolvedSubtype && resolvedSubtype !== 'Highlight' && resolvedSubtype !== 'Ink' && resolvedSubtype !== 'Typewriter') {
+        if (
+            annotationId &&
+      resolvedSubtype &&
+      resolvedSubtype !== 'Highlight' &&
+      resolvedSubtype !== 'Ink' &&
+      resolvedSubtype !== 'Typewriter'
+        ) {
             const normalized = resolvedSubtype.toLowerCase();
-            if (normalized === 'underline' || normalized === 'strikeout' || normalized === 'squiggly') {
-                markupSubtype.markupSubtypeOverrides.set(annotationId, resolvedSubtype as TMarkupSubtype);
+            if (
+                normalized === 'underline' ||
+        normalized === 'strikeout' ||
+        normalized === 'squiggly'
+            ) {
+                markupSubtype.markupSubtypeOverrides.set(
+                    annotationId,
+                    resolvedSubtype as TMarkupSubtype,
+                );
             }
         }
         const id = identity.getEditorIdentity(editor, pageIndex);
         const pendingKey = identity.getEditorPendingKey(editor, pageIndex);
-        const hasNote = hasEditorCommentPayload(editor) || pendingCommentEditorKeys.has(pendingKey);
+        const hasNote =
+            hasEditorCommentPayload(editor) ||
+      pendingCommentEditorKeys.has(pendingKey);
 
         return {
             id,
@@ -117,8 +143,13 @@ export function useAnnotationCommentSync(options: IUseAnnotationCommentSyncOptio
             kindLabel: annotationKindLabelFromSubtype(resolvedSubtype, t),
             subtype: resolvedSubtype,
             author: authorName.value?.trim() || null,
-            modifiedAt: parsePdfDateTimestamp(data.modificationDate) ?? parsePdfDateTimestamp(data.creationDate),
-            color: toCssColor(data.color ?? editor.color, data.opacity ?? editor.opacity ?? 1),
+            modifiedAt:
+        parsePdfDateTimestamp(data.modificationDate) ??
+        parsePdfDateTimestamp(data.creationDate),
+            color: toCssColor(
+                data.color ?? editor.color,
+                data.opacity ?? editor.opacity ?? 1,
+            ),
             uid,
             annotationId,
             source: 'editor',
@@ -128,181 +159,220 @@ export function useAnnotationCommentSync(options: IUseAnnotationCommentSyncOptio
     }
 
     async function syncAnnotationComments() {
-        const doc = pdfDocument.value;
-        if (!doc || numPages.value <= 0) {
-            identity.clearMemory();
-            markupSubtype.clearOverrides();
-            annotationCommentsCache.value = [];
-            emitAnnotationComments([]);
-            syncInlineCommentIndicators();
-            return;
-        }
+        try {
+            const doc = pdfDocument.value;
+            if (!doc || numPages.value <= 0) {
+                identity.clearMemory();
+                markupSubtype.clearOverrides();
+                annotationCommentsCache.value = [];
+                emitAnnotationComments([]);
+                syncInlineCommentIndicators();
+                return;
+            }
 
-        const localToken = ++annotationCommentsSyncToken;
-        const commentsByKey = new Map<string, IAnnotationCommentSummary>();
-        let sourceOrder = 0;
+            const localToken = ++annotationCommentsSyncToken;
+            const commentsByKey = new Map<string, IAnnotationCommentSummary>();
+            let sourceOrder = 0;
 
-        const uiManager = annotationUiManager.value;
-        const managerWithDeletedLookup = uiManager as (AnnotationEditorUIManager & { isDeletedAnnotationElement?: (annotationElementId: string) => boolean }) | null;
-        if (uiManager) {
-            for (let pageIndex = 0; pageIndex < numPages.value; pageIndex += 1) {
-                for (const editor of uiManager.getEditors(pageIndex)) {
-                    const normalizedEditor = editor as IPdfjsEditor;
-                    const text = getCommentText(normalizedEditor).trim();
+            const uiManager = annotationUiManager.value;
+            const managerWithDeletedLookup = uiManager as
+        | (AnnotationEditorUIManager & {isDeletedAnnotationElement?: (
+            annotationElementId: string,
+        ) => boolean;})
+        | null;
+            if (uiManager) {
+                for (let pageIndex = 0; pageIndex < numPages.value; pageIndex += 1) {
+                    for (const editor of uiManager.getEditors(pageIndex)) {
+                        const normalizedEditor = editor as IPdfjsEditor;
+                        const text = getCommentText(normalizedEditor).trim();
 
-                    const summary = toEditorSummary(normalizedEditor, pageIndex, text, sourceOrder);
-                    sourceOrder += 1;
-                    const hydrated = identity.hydrateSummaryFromMemory(summary);
-                    commentsByKey.set(identity.toSummaryKey(hydrated), hydrated);
+                        const summary = toEditorSummary(
+                            normalizedEditor,
+                            pageIndex,
+                            text,
+                            sourceOrder,
+                        );
+                        sourceOrder += 1;
+                        const hydrated = identity.hydrateSummaryFromMemory(summary);
+                        commentsByKey.set(identity.toSummaryKey(hydrated), hydrated);
+                    }
                 }
             }
-        }
 
-        for (let pageNumber = 1; pageNumber <= numPages.value; pageNumber += 1) {
+            for (let pageNumber = 1; pageNumber <= numPages.value; pageNumber += 1) {
+                if (localToken !== annotationCommentsSyncToken) {
+                    return;
+                }
+
+                let pageAnnotations: Array<{
+                    id?: string;
+                    pageIndex?: number;
+                    rect?: number[];
+                    contents?: string;
+                    contentsObj?: { str?: string | null };
+                    richText?: { str?: string | null };
+                    title?: string;
+                    titleObj?: { str?: string | null };
+                    color?: number[] | string | null;
+                    opacity?: number;
+                    modificationDate?: string | null;
+                    creationDate?: string | null;
+                    subtype?: string;
+                    popupRef?: string | null;
+                }> = [];
+                let pageView: number[] | null = null;
+
+                try {
+                    const page = await doc.getPage(pageNumber);
+                    pageAnnotations = await page.getAnnotations();
+                    pageView = (page as { view?: number[] }).view ?? null;
+                } catch (error) {
+                    BrowserLogger.debug(
+                        'annotations',
+                        `Failed to collect annotations for page ${pageNumber}`,
+                        error,
+                    );
+                    continue;
+                }
+
+                const popupById = new Map<string, (typeof pageAnnotations)[number]>();
+                pageAnnotations.forEach((annotation) => {
+                    if (
+                        annotation.id &&
+            managerWithDeletedLookup?.isDeletedAnnotationElement?.(
+                annotation.id,
+            )
+                    ) {
+                        return;
+                    }
+                    if (!isPopupSubtype(annotation.subtype)) {
+                        return;
+                    }
+                    if (!annotation.id) {
+                        return;
+                    }
+                    popupById.set(annotation.id, annotation);
+                });
+
+                pageAnnotations.forEach((annotation, annotationIndex) => {
+                    if (
+                        annotation.id &&
+            managerWithDeletedLookup?.isDeletedAnnotationElement?.(
+                annotation.id,
+            )
+                    ) {
+                        return;
+                    }
+                    if (isPopupSubtype(annotation.subtype)) {
+                        return;
+                    }
+
+                    const popupAnnotation = annotation.popupRef
+                        ? (popupById.get(annotation.popupRef) ?? null)
+                        : null;
+                    const annotationText = getAnnotationCommentText(annotation);
+                    const popupText = popupAnnotation
+                        ? getAnnotationCommentText(popupAnnotation)
+                        : '';
+                    const text = annotationText || popupText;
+                    const subtype = annotation.subtype ?? null;
+                    const id = annotation.id ?? `pdf-${pageNumber}-${annotationIndex}`;
+                    const annotationId = annotation.id ?? null;
+                    const hasLinkedPopup =
+                        Boolean(annotation.popupRef) || Boolean(popupAnnotation);
+                    const summaryKey = identity.computeSummaryStableKey({
+                        id,
+                        pageIndex: pageNumber - 1,
+                        source: 'pdf',
+                        uid: null,
+                        annotationId,
+                    });
+
+                    const summary: IAnnotationCommentSummary = {
+                        id,
+                        stableKey: summaryKey,
+                        sortIndex: sourceOrder,
+                        pageIndex: pageNumber - 1,
+                        pageNumber,
+                        text,
+                        kindLabel: annotationKindLabelFromSubtype(subtype, t),
+                        subtype,
+                        author:
+              getAnnotationAuthor(annotation) ??
+              (popupAnnotation ? getAnnotationAuthor(popupAnnotation) : null),
+                        modifiedAt: (() => {
+                            const own =
+                                parsePdfDateTimestamp(annotation.modificationDate) ??
+                parsePdfDateTimestamp(annotation.creationDate);
+                            const popup = popupAnnotation
+                                ? (parsePdfDateTimestamp(popupAnnotation.modificationDate) ??
+                  parsePdfDateTimestamp(popupAnnotation.creationDate))
+                                : null;
+                            if (own && popup) {
+                                return Math.max(own, popup);
+                            }
+                            return own ?? popup;
+                        })(),
+                        color: toCssColor(
+                            annotation.color ?? popupAnnotation?.color ?? null,
+                            annotation.opacity ?? popupAnnotation?.opacity ?? 1,
+                        ),
+                        uid: null,
+                        annotationId,
+                        source: 'pdf',
+                        hasNote: Boolean(isTextMarkupSubtype(subtype) && hasLinkedPopup),
+                        markerRect: toMarkerRectFromPdfRect(
+                            annotation.rect ?? popupAnnotation?.rect,
+                            pageView,
+                        ),
+                    };
+                    const normalizedSubtype = (subtype ?? '').trim().toLowerCase();
+                    if (
+                        annotationId &&
+            (normalizedSubtype === 'underline' ||
+              normalizedSubtype === 'strikeout' ||
+              normalizedSubtype === 'squiggly') &&
+            isMarkupSubtype(subtype)
+                    ) {
+                        markupSubtype.markupSubtypeOverrides.set(annotationId, subtype);
+                    }
+                    sourceOrder += 1;
+                    const hydratedSummary = identity.hydrateSummaryFromMemory(summary);
+
+                    const key = summaryKey;
+                    const existing = commentsByKey.get(key);
+                    if (!existing) {
+                        commentsByKey.set(key, hydratedSummary);
+                        return;
+                    }
+                    commentsByKey.set(
+                        key,
+                        identity.mergeCommentSummaries(existing, hydratedSummary),
+                    );
+                });
+            }
+
             if (localToken !== annotationCommentsSyncToken) {
                 return;
             }
 
-            let pageAnnotations: Array<{
-                id?: string;
-                pageIndex?: number;
-                rect?: number[];
-                contents?: string;
-                contentsObj?: { str?: string | null };
-                richText?: { str?: string | null };
-                title?: string;
-                titleObj?: { str?: string | null };
-                color?: number[] | string | null;
-                opacity?: number;
-                modificationDate?: string | null;
-                creationDate?: string | null;
-                subtype?: string;
-                popupRef?: string | null;
-            }> = [];
-            let pageView: number[] | null = null;
-
-            try {
-                const page = await doc.getPage(pageNumber);
-                pageAnnotations = await page.getAnnotations();
-                pageView = ((page as { view?: number[] }).view ?? null);
-            } catch (error) {
-                BrowserLogger.debug('annotations', `Failed to collect annotations for page ${pageNumber}`, error);
-                continue;
-            }
-
-            const popupById = new Map<string, (typeof pageAnnotations)[number]>();
-            pageAnnotations.forEach((annotation) => {
-                if (annotation.id && managerWithDeletedLookup?.isDeletedAnnotationElement?.(annotation.id)) {
-                    return;
-                }
-                if (!isPopupSubtype(annotation.subtype)) {
-                    return;
-                }
-                if (!annotation.id) {
-                    return;
-                }
-                popupById.set(annotation.id, annotation);
+            const comments = identity.dedupeAnnotationCommentSummaries(
+                Array.from(commentsByKey.values()),
+            );
+            comments.forEach((comment) => {
+                identity.rememberSummaryText(comment);
             });
-
-            pageAnnotations.forEach((annotation, annotationIndex) => {
-                if (annotation.id && managerWithDeletedLookup?.isDeletedAnnotationElement?.(annotation.id)) {
-                    return;
-                }
-                if (isPopupSubtype(annotation.subtype)) {
-                    return;
-                }
-
-                const popupAnnotation = annotation.popupRef
-                    ? popupById.get(annotation.popupRef) ?? null
-                    : null;
-                const annotationText = getAnnotationCommentText(annotation);
-                const popupText = popupAnnotation ? getAnnotationCommentText(popupAnnotation) : '';
-                const text = annotationText || popupText;
-                const subtype = annotation.subtype ?? null;
-                const id = annotation.id ?? `pdf-${pageNumber}-${annotationIndex}`;
-                const annotationId = annotation.id ?? null;
-                const hasLinkedPopup = Boolean(annotation.popupRef) || Boolean(popupAnnotation);
-                const summaryKey = identity.computeSummaryStableKey({
-                    id,
-                    pageIndex: pageNumber - 1,
-                    source: 'pdf',
-                    uid: null,
-                    annotationId,
-                });
-
-                const summary: IAnnotationCommentSummary = {
-                    id,
-                    stableKey: summaryKey,
-                    sortIndex: sourceOrder,
-                    pageIndex: pageNumber - 1,
-                    pageNumber,
-                    text,
-                    kindLabel: annotationKindLabelFromSubtype(subtype, t),
-                    subtype,
-                    author: getAnnotationAuthor(annotation) ?? (popupAnnotation ? getAnnotationAuthor(popupAnnotation) : null),
-                    modifiedAt: (() => {
-                        const own = parsePdfDateTimestamp(annotation.modificationDate)
-                            ?? parsePdfDateTimestamp(annotation.creationDate);
-                        const popup = popupAnnotation
-                            ? (
-                                parsePdfDateTimestamp(popupAnnotation.modificationDate)
-                                ?? parsePdfDateTimestamp(popupAnnotation.creationDate)
-                            )
-                            : null;
-                        if (own && popup) {
-                            return Math.max(own, popup);
-                        }
-                        return own ?? popup;
-                    })(),
-                    color: toCssColor(
-                        annotation.color ?? popupAnnotation?.color ?? null,
-                        annotation.opacity ?? popupAnnotation?.opacity ?? 1,
-                    ),
-                    uid: null,
-                    annotationId,
-                    source: 'pdf',
-                    hasNote: Boolean(
-                        isTextMarkupSubtype(subtype)
-                        && hasLinkedPopup,
-                    ),
-                    markerRect: toMarkerRectFromPdfRect(
-                        annotation.rect ?? popupAnnotation?.rect,
-                        pageView,
-                    ),
-                };
-                const normalizedSubtype = (subtype ?? '').trim().toLowerCase();
-                if (
-                    annotationId
-                    && (normalizedSubtype === 'underline' || normalizedSubtype === 'strikeout' || normalizedSubtype === 'squiggly')
-                    && isMarkupSubtype(subtype)
-                ) {
-                    markupSubtype.markupSubtypeOverrides.set(annotationId, subtype);
-                }
-                sourceOrder += 1;
-                const hydratedSummary = identity.hydrateSummaryFromMemory(summary);
-
-                const key = summaryKey;
-                const existing = commentsByKey.get(key);
-                if (!existing) {
-                    commentsByKey.set(key, hydratedSummary);
-                    return;
-                }
-                commentsByKey.set(key, identity.mergeCommentSummaries(existing, hydratedSummary));
-            });
+            annotationCommentsCache.value = comments;
+            emitAnnotationComments(comments);
+            markupSubtype.syncMarkupSubtypePresentationForEditors();
+            syncInlineCommentIndicators();
+        } catch (error) {
+            BrowserLogger.error(
+                'annotations',
+                'Failed to synchronize annotation comments',
+                error,
+            );
         }
-
-        if (localToken !== annotationCommentsSyncToken) {
-            return;
-        }
-
-        const comments = identity.dedupeAnnotationCommentSummaries(Array.from(commentsByKey.values()));
-        comments.forEach((comment) => {
-            identity.rememberSummaryText(comment);
-        });
-        annotationCommentsCache.value = comments;
-        emitAnnotationComments(comments);
-        markupSubtype.syncMarkupSubtypePresentationForEditors();
-        syncInlineCommentIndicators();
     }
 
     const debouncedSyncAnnotationComments = useDebounceFn(() => {
