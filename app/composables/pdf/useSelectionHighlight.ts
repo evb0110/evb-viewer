@@ -137,8 +137,8 @@ export const useSelectionHighlight = (deps: {
             selection = document.getSelection();
             selection?.removeAllRanges();
             selection?.addRange(activeRange.cloneRange());
-        } catch {
-            // Ignore selection restoration failure and continue with available data.
+        } catch (error) {
+            BrowserLogger.debug('annotations', `Failed to restore current text selection: ${errorToLogText(error)}`);
         }
 
         const {
@@ -209,8 +209,8 @@ export const useSelectionHighlight = (deps: {
 
             try {
                 await uiManager.waitForEditorsRendered(pageNumber);
-            } catch {
-                // Ignore and continue with best-effort lookup.
+            } catch (error) {
+                BrowserLogger.debug('annotations', `Editor render wait failed while resolving created highlight: ${errorToLogText(error)}`);
             }
             await nextTick();
             return pickCreatedEditorCandidate();

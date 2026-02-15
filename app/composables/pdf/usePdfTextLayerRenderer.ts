@@ -12,6 +12,10 @@ import { usePdfSearchHighlight } from '@app/composables/usePdfSearchHighlight';
 import { useTextLayerSelection } from '@app/composables/useTextLayerSelection';
 import { usePdfWordBoxes } from '@app/composables/usePdfWordBoxes';
 import { useOcrTextContent } from '@app/composables/pdf/useOcrTextContent';
+import {
+    getHighlightMode,
+    isHighlightDebugEnabled as isHighlightDebugEnabledFromStorage,
+} from '@app/composables/pdfSearchHighlightCss';
 import { BrowserLogger } from '@app/utils/browser-logger';
 
 interface IHighlightDebugInfo {
@@ -52,14 +56,7 @@ export const usePdfTextLayerRenderer = (deps: {
     let lastHighlightDebugKey: string | null = null;
 
     function isHighlightDebugEnabled() {
-        if (typeof window === 'undefined') {
-            return false;
-        }
-        try {
-            return window.localStorage?.getItem('pdfHighlightDebug') === '1';
-        } catch {
-            return false;
-        }
+        return isHighlightDebugEnabledFromStorage();
     }
 
     function isHighlightDebugVerboseEnabled() {
@@ -243,9 +240,7 @@ export const usePdfTextLayerRenderer = (deps: {
         );
         maybeLogHighlightDebug(pageNumber, pageMatchData, canvas, textLayerDiv, debugInfo);
 
-        const isCssHighlightMode = typeof window !== 'undefined'
-            ? window.localStorage?.getItem('pdfHighlightMode') === 'css'
-            : false;
+        const isCssHighlightMode = getHighlightMode() === 'css';
         const hasInTextHighlights = isCssHighlightMode
             || highlightResult.elements.length > 0
             || highlightResult.currentMatchRanges.length > 0;
