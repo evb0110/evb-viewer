@@ -2,6 +2,7 @@ import {
     nextTick,
     type Ref,
 } from 'vue';
+import { useEventListener } from '@vueuse/core';
 import type { TAnnotationTool } from '@app/types/annotations';
 
 interface IPdfViewerForShortcuts {
@@ -59,6 +60,7 @@ export const usePageShortcuts = (deps: IPageShortcutsDeps) => {
         openAnnotations,
         handleAnnotationToolChange,
     } = deps;
+    const shortcutListenerCleanups: Array<() => void> = [];
 
     function handleGlobalShortcut(event: KeyboardEvent) {
         if (event.key === 'Escape') {
@@ -166,13 +168,15 @@ export const usePageShortcuts = (deps: IPageShortcutsDeps) => {
     }
 
     function setupShortcuts() {
-        window.addEventListener('keydown', handleGlobalShortcut);
-        window.addEventListener('pointerdown', handleGlobalPointerDown);
+        shortcutListenerCleanups.push(useEventListener(window, 'keydown', handleGlobalShortcut));
+        shortcutListenerCleanups.push(useEventListener(window, 'pointerdown', handleGlobalPointerDown));
     }
 
     function cleanupShortcuts() {
-        window.removeEventListener('keydown', handleGlobalShortcut);
-        window.removeEventListener('pointerdown', handleGlobalPointerDown);
+        while (shortcutListenerCleanups.length > 0) {
+            const cleanup = shortcutListenerCleanups.pop();
+            cleanup?.();
+        }
     }
 
     return {

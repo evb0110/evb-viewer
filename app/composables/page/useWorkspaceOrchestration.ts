@@ -42,6 +42,8 @@ import {
     hasAnnotationChanges as detectAnnotationChanges,
 } from '@app/composables/page/workspace-annotation-utils';
 import type { TTabUpdate } from '@app/types/tabs';
+import { hasElectronAPI } from '@app/utils/electron';
+import { useWorkspaceViewState } from '@app/composables/page/workspace-view-state';
 
 type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'bookmarks' | 'search';
 
@@ -382,32 +384,29 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         waitForPdfReload: (page: number) => waitForPdfReload(page),
     });
 
-    const isFitWidthActive = computed(() => fitMode.value === 'width' && Math.abs(zoom.value - 1) < 0.01);
-    const isFitHeightActive = computed(() => fitMode.value === 'height' && Math.abs(zoom.value - 1) < 0.01);
-    const isAnnotationUndoContext = computed(() =>
-        annotationTool.value !== 'none'
-        || annotationEditorState.value.hasSomethingToUndo
-        || annotationEditorState.value.hasSomethingToRedo,
-    );
-    const isAnnotationPanelOpen = computed(() => showSidebar.value && sidebarTab.value === 'annotations');
-    const annotationCursorMode = computed(() => {
-        if (dragMode.value) {
-            return false;
-        }
-        return isAnnotationPanelOpen.value
-            || annotationTool.value !== 'none'
-            || annotationEditorState.value.hasSelectedEditor;
+    const {
+        isFitWidthActive,
+        isFitHeightActive,
+        isAnnotationUndoContext,
+        annotationCursorMode,
+        canUndo,
+        canRedo,
+        handleFitMode,
+        enableDragMode,
+        handleGoToPage,
+    } = useWorkspaceViewState({
+        fitMode,
+        zoom,
+        dragMode,
+        showSidebar,
+        sidebarTab,
+        annotationTool,
+        annotationPlacingPageNote,
+        annotationEditorState,
+        canUndoFile,
+        canRedoFile,
+        pdfViewerRef,
     });
-    const canUndo = computed(() => (
-        isAnnotationUndoContext.value
-            ? annotationEditorState.value.hasSomethingToUndo
-            : canUndoFile.value
-    ));
-    const canRedo = computed(() => (
-        isAnnotationUndoContext.value
-            ? annotationEditorState.value.hasSomethingToRedo
-            : canRedoFile.value
-    ));
 
     const {
         waitForPdfReload,
@@ -700,29 +699,11 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         }
     }
 
-    function handleFitMode(mode: TFitMode) {
-        zoom.value = 1;
-        fitMode.value = mode;
-    }
-
-    function enableDragMode() {
-        dragMode.value = true;
-        pdfViewerRef.value?.cancelCommentPlacement();
-        annotationPlacingPageNote.value = false;
-        if (annotationTool.value !== 'none') {
-            annotationTool.value = 'none';
-        }
-    }
-
-    function handleGoToPage(page: number) {
-        pdfViewerRef.value?.scrollToPage(page);
-    }
-
     function initFromStorage() {
         if (import.meta.dev) {
             BrowserLogger.debug('workspace', 'Electron API available', isElectron.value);
         }
-        if (window.electronAPI) {
+        if (hasElectronAPI()) {
             loadRecentFiles();
         }
     }

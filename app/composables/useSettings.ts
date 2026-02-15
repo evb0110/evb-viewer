@@ -9,6 +9,10 @@ import {
 } from '@app/i18n/locales';
 import type { ISettingsData } from '@app/types/shared';
 import { BrowserLogger } from '@app/utils/browser-logger';
+import {
+    getElectronAPI,
+    hasElectronAPI,
+} from '@app/utils/electron';
 
 // Vite HMR types (not exposed by Nuxt's type system)
 declare global {
@@ -65,7 +69,7 @@ let loadPromise: Promise<void> | null = null;
 export const useSettings = () => {
 
     async function load() {
-        if (!window.electronAPI) {
+        if (!hasElectronAPI()) {
             return;
         }
 
@@ -76,7 +80,7 @@ export const useSettings = () => {
 
         loadPromise = (async () => {
             try {
-                const loadedSettings = await window.electronAPI.settings.get();
+                const loadedSettings = await getElectronAPI().settings.get();
                 settings.value = sanitizeSettings(loadedSettings);
                 isLoaded.value = true;
             } catch (e) {
@@ -90,13 +94,13 @@ export const useSettings = () => {
     }
 
     async function save() {
-        if (!window.electronAPI) {
+        if (!hasElectronAPI()) {
             return;
         }
 
         try {
             const payload = sanitizeSettings(toRaw(settings.value));
-            await window.electronAPI.settings.save(payload);
+            await getElectronAPI().settings.save(payload);
         } catch (e) {
             BrowserLogger.error('settings', 'Failed to save settings', e);
         }

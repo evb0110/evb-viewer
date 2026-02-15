@@ -1,5 +1,9 @@
 import { ref } from 'vue';
 import type { IRecentFile } from '@app/types/shared';
+import {
+    getElectronAPI,
+    hasElectronAPI,
+} from '@app/utils/electron';
 
 // Vite HMR types (not exposed by Nuxt's type system)
 declare global {
@@ -22,7 +26,7 @@ export const useRecentFiles = () => {
     const { t } = useTypedI18n();
 
     async function loadRecentFiles() {
-        if (!window.electronAPI) {
+        if (!hasElectronAPI()) {
             return;
         }
 
@@ -35,7 +39,7 @@ export const useRecentFiles = () => {
             isLoading.value = true;
             error.value = null;
             try {
-                recentFiles.value = await window.electronAPI.recentFiles.get();
+                recentFiles.value = await getElectronAPI().recentFiles.get();
             } catch (e) {
                 error.value = e instanceof Error ? e.message : t('errors.recent.load');
             } finally {
@@ -48,26 +52,26 @@ export const useRecentFiles = () => {
     }
 
     async function openRecentFile(file: IRecentFile) {
-        if (!window.electronAPI) {
+        if (!hasElectronAPI()) {
             return;
         }
 
         error.value = null;
         try {
-            await window.electronAPI.openPdfDirect(file.originalPath);
+            await getElectronAPI().openPdfDirect(file.originalPath);
         } catch (e) {
             error.value = e instanceof Error ? e.message : t('errors.file.open');
         }
     }
 
     async function removeRecentFile(file: IRecentFile) {
-        if (!window.electronAPI) {
+        if (!hasElectronAPI()) {
             return;
         }
 
         error.value = null;
         try {
-            await window.electronAPI.recentFiles.remove(file.originalPath);
+            await getElectronAPI().recentFiles.remove(file.originalPath);
             await loadRecentFiles();
         } catch (e) {
             error.value = e instanceof Error ? e.message : t('errors.recent.remove');
@@ -75,13 +79,13 @@ export const useRecentFiles = () => {
     }
 
     async function clearRecentFiles() {
-        if (!window.electronAPI) {
+        if (!hasElectronAPI()) {
             return;
         }
 
         error.value = null;
         try {
-            await window.electronAPI.recentFiles.clear();
+            await getElectronAPI().recentFiles.clear();
             recentFiles.value = [];
         } catch (e) {
             error.value = e instanceof Error ? e.message : t('errors.recent.clear');

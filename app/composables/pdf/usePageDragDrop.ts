@@ -3,6 +3,10 @@ import {
     onUnmounted,
     type Ref,
 } from 'vue';
+import {
+    getElectronAPI,
+    hasElectronAPI,
+} from '@app/utils/electron';
 
 interface IPageDragDropDeps {
     containerRef: Ref<HTMLElement | null>;
@@ -251,10 +255,11 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
         dropInsertIndex.value = null;
         dragEnterCounter = 0;
 
-        if (!onExternalFileDrop || !e.dataTransfer) {
+        if (!onExternalFileDrop || !e.dataTransfer || !hasElectronAPI()) {
             return;
         }
 
+        const electronApi = getElectronAPI();
         const files = e.dataTransfer.files;
         const droppedPaths: string[] = [];
         const seen = new Set<string>();
@@ -265,7 +270,7 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
                 continue;
             }
 
-            const filePath = window.electronAPI.getPathForFile(file);
+            const filePath = electronApi.getPathForFile(file);
             if (!filePath || seen.has(filePath) || !isSupportedFilePath(filePath)) {
                 continue;
             }

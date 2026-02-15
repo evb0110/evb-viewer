@@ -39,6 +39,7 @@ import {
     guardAsync,
     runGuardedTask,
 } from '@app/utils/async-guard';
+import { createPdfSearchMatchScroller } from '@app/composables/pdf/pdfSearchMatchScroller';
 
 export {
     isRenderingCancelledError,
@@ -125,7 +126,6 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     const RENDERED_CONTAINER_CLASS = 'page_container--rendered';
     const SCROLL_TARGET_CONTAINER_CLASS = 'page_container--scroll-target';
     let activeScrollTargetPageIndex: number | null = null;
-    let scrollToMatchRequestId = 0;
 
     function bumpRenderVersion() {
         renderVersion += 1;
@@ -191,12 +191,39 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         );
     }
 
-    function scheduleScrollToCurrentMatch() {
-        runGuardedTask(() => Promise.resolve(scrollToCurrentMatch()), {
-            scope: 'pdf-renderer',
-            message: 'Failed to scroll to current match',
-        });
-    }
+    const searchMatchScroller = createPdfSearchMatchScroller({
+        getContainer: () => options.container.value,
+        getCurrentSearchMatch: () => toValue(currentSearchMatch),
+        getCurrentMatchRangeRect: (textLayerDiv) => {
+            const currentHighlight =
+                textLayerDiv.querySelector<HTMLElement>('.pdf-search-highlight--current');
+            return (
+                currentHighlight?.getBoundingClientRect()
+                ?? textLayerRenderer.getCurrentMatchRanges(textLayerDiv).at(0)?.getBoundingClientRect()
+                ?? null
+            );
+        },
+        scrollToCurrentMatch,
+        scheduleRenderForSinglePage: (pageNumber) => {
+            scheduleRenderForSinglePage(pageNumber, {
+                preserveRenderedPages: true,
+                bufferOverride: 0,
+            });
+        },
+        scrollToPage: options.scrollToPage,
+        runDeferredScrollToCurrentMatch: () => {
+            runGuardedTask(
+                async () => {
+                    await nextTick();
+                    scrollToCurrentMatch();
+                },
+                {
+                    scope: 'pdf-renderer',
+                    message: 'Failed to retry scroll to current match after page jump',
+                },
+            );
+        },
+    });
 
     function cleanupTextLayer(pageNumber: number) {
         const cleanup = textLayerCleanupFns.get(pageNumber);
@@ -687,6 +714,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
 
         pendingScrollToMatchPageIndex.value = null;
         setScrollTargetPage(null);
+        searchMatchScroller.invalidatePendingRequests();
 
         try {
             cleanupPageCache();
@@ -738,139 +766,6 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         return result;
     }
 
-    function scheduleScrollCorrection(requestId: number) {
-        if (typeof window === 'undefined') {
-            return;
-        }
-
-        const correctIfNeeded = () => {
-            if (requestId !== scrollToMatchRequestId) {
-                return;
-            }
-
-            const containerRoot = options.container.value;
-            const currentMatchValue = toValue(currentSearchMatch);
-            if (!containerRoot || !currentMatchValue) {
-                return;
-            }
-
-            const targetContainer = getPageContainer(
-                containerRoot,
-                currentMatchValue.pageIndex,
-            );
-            if (!targetContainer) {
-                return;
-            }
-
-            const textLayerDiv =
-                targetContainer.querySelector<HTMLElement>('.text-layer');
-            if (!textLayerDiv) {
-                return;
-            }
-
-            const currentHighlight = textLayerDiv.querySelector<HTMLElement>(
-                '.pdf-search-highlight--current',
-            );
-            const rect =
-                currentHighlight?.getBoundingClientRect() ??
-        textLayerRenderer
-            .getCurrentMatchRanges(textLayerDiv)
-            .at(0)
-            ?.getBoundingClientRect() ??
-        null;
-
-            if (!rect || (rect.width === 0 && rect.height === 0)) {
-                return;
-            }
-
-            const containerRect = containerRoot.getBoundingClientRect();
-            const centerDelta =
-                rect.top +
-        rect.height / 2 -
-        (containerRect.top + containerRect.height / 2);
-            const isVisible =
-                rect.bottom > containerRect.top + 16 &&
-        rect.top < containerRect.bottom - 16;
-            const isCentered = Math.abs(centerDelta) < 8;
-            if (isVisible && isCentered) {
-                return;
-            }
-
-            scheduleScrollToCurrentMatch();
-        };
-
-        requestAnimationFrame(() => {
-            correctIfNeeded();
-            requestAnimationFrame(() => {
-                correctIfNeeded();
-            });
-        });
-        setTimeout(correctIfNeeded, 120);
-        setTimeout(correctIfNeeded, 350);
-        setTimeout(correctIfNeeded, 800);
-    }
-
-    function requestScrollToMatch(matchPageIndex: number | null) {
-        const requestId = ++scrollToMatchRequestId;
-
-        if (matchPageIndex === null) {
-            return;
-        }
-
-        if (typeof window === 'undefined') {
-            return;
-        }
-
-        const maxAttempts = 8;
-        let attempts = 0;
-
-        const tryScroll = () => {
-            if (requestId !== scrollToMatchRequestId) {
-                return;
-            }
-
-            const didScroll = scrollToCurrentMatch();
-            if (didScroll) {
-                scheduleScrollCorrection(requestId);
-                return;
-            }
-
-            attempts += 1;
-
-            scheduleRenderForSinglePage(matchPageIndex + 1, {
-                preserveRenderedPages: true,
-                bufferOverride: 0,
-            });
-
-            if (attempts >= maxAttempts) {
-                options.scrollToPage?.(matchPageIndex + 1);
-                requestAnimationFrame(() => {
-                    if (requestId !== scrollToMatchRequestId) {
-                        return;
-                    }
-                    runGuardedTask(
-                        async () => {
-                            await nextTick();
-                            scrollToCurrentMatch();
-                        },
-                        {
-                            scope: 'pdf-renderer',
-                            message:
-                'Failed to retry scroll to current match after page jump',
-                        },
-                    );
-                });
-                return;
-            }
-
-            requestAnimationFrame(tryScroll);
-        };
-
-        nextTick(() => {
-            tryScroll();
-        });
-    }
-
     watch(
         () =>
             [
@@ -898,7 +793,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                     return;
                 }
 
-                requestScrollToMatch(matchPageIndex);
+                searchMatchScroller.requestScrollToMatch(matchPageIndex);
             });
         },
         { deep: true },

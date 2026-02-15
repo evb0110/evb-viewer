@@ -1,3 +1,8 @@
+import {
+    getElectronAPI,
+    hasElectronAPI,
+} from '@app/utils/electron';
+
 interface IUseExternalFileDropOptions {openPathInAppropriateTab: (path: string) => Promise<void>;}
 
 function hasExternalFilePayload(dataTransfer: DataTransfer | null) {
@@ -19,10 +24,11 @@ function isSidebarDropArea(event: DragEvent) {
 }
 
 function getDroppedDocumentPaths(dataTransfer: DataTransfer | null) {
-    if (!dataTransfer || !window.electronAPI) {
+    if (!dataTransfer || !hasElectronAPI()) {
         return [];
     }
 
+    const electronApi = getElectronAPI();
     const paths: string[] = [];
     const seen = new Set<string>();
 
@@ -32,7 +38,7 @@ function getDroppedDocumentPaths(dataTransfer: DataTransfer | null) {
             continue;
         }
 
-        const path = window.electronAPI.getPathForFile(file);
+        const path = electronApi.getPathForFile(file);
         if (!path || seen.has(path)) {
             continue;
         }

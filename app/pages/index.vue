@@ -67,6 +67,10 @@ import {
     watchEffect,
 } from 'vue';
 import { BrowserLogger } from '@app/utils/browser-logger';
+import {
+    getElectronAPI,
+    hasElectronAPI,
+} from '@app/utils/electron';
 import { useExternalFileDrop } from '@app/composables/page/useExternalFileDrop';
 import { useTabsShellBindings } from '@app/composables/page/useTabsShellBindings';
 import { useTabManager } from '@app/composables/useTabManager';
@@ -162,10 +166,7 @@ function workspaceHasPdf(workspace: IWorkspaceExpose | null | undefined) {
 }
 
 function syncMenuDocumentState() {
-    if (typeof window === 'undefined') {
-        return;
-    }
-    if (!window.electronAPI) {
+    if (!hasElectronAPI()) {
         return;
     }
     const hasDocument = workspaceHasPdf(activeWorkspace.value);
@@ -173,7 +174,7 @@ function syncMenuDocumentState() {
         return;
     }
     lastSyncedMenuDocumentState = hasDocument;
-    void window.electronAPI.setMenuDocumentState(hasDocument);
+    void getElectronAPI().setMenuDocumentState(hasDocument);
 }
 
 const dirtyTabCloseTargetName = computed(() => {

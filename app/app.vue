@@ -7,6 +7,7 @@
 <script setup lang="ts">
 import { onMounted } from 'vue';
 import { BrowserLogger } from '@app/utils/browser-logger';
+import { hasElectronAPI } from '@app/utils/electron';
 
 const {
     load: loadSettings,
@@ -25,7 +26,7 @@ onMounted(async () => {
         BrowserLogger.debug('health-check', 'App hydrated and ready', {
             timestamp: mountTime,
             windowReady: typeof window !== 'undefined',
-            electronAPI: typeof window.electronAPI !== 'undefined',
+            electronAPI: hasElectronAPI(),
         });
         BrowserLogger.debug('health-check', 'window.__openFileDirect', typeof window.__openFileDirect);
     }

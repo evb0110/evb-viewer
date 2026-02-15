@@ -4,6 +4,10 @@ import {
 } from 'vue';
 import type { TTranslationKey } from '@app/i18n/locales';
 import type { TTabUpdate } from '@app/types/tabs';
+import {
+    getElectronAPI,
+    hasElectronAPI,
+} from '@app/utils/electron';
 
 interface IWorkspaceWindowTitleState {
     isDjvuMode: boolean;
@@ -99,7 +103,7 @@ export function setupWorkspaceUiSyncWatchers(deps: IWorkspaceUiSyncDeps) {
             deps.djvuSourcePath,
         ],
         ([active]) => {
-            if (!active || typeof window === 'undefined' || !window.electronAPI) {
+            if (!active || !hasElectronAPI()) {
                 return;
             }
 
@@ -110,7 +114,7 @@ export function setupWorkspaceUiSyncWatchers(deps: IWorkspaceUiSyncDeps) {
                 fallbackTitle: deps.t('app.title'),
             });
 
-            void window.electronAPI.setWindowTitle(title);
+            void getElectronAPI().setWindowTitle(title);
         },
         { immediate: true },
     );

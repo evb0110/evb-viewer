@@ -32,6 +32,10 @@ import {
     groupMarkupSubtypeHintsByPage,
 } from '@app/composables/pdf/pdfSerializationSubtypeHints';
 import { BrowserLogger } from '@app/utils/browser-logger';
+import {
+    getElectronAPI,
+    hasElectronAPI,
+} from '@app/utils/electron';
 
 export {
     getPdfPopupDict, parsePdfJsAnnotationRef, resolveCommentPdfRefInDocument,
@@ -87,9 +91,9 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
 
     async function getSourcePdfData() {
         let sourceData = pdfData.value ? pdfData.value.slice() : null;
-        if (!sourceData && workingCopyPath.value && window.electronAPI) {
+        if (!sourceData && workingCopyPath.value && hasElectronAPI()) {
             try {
-                const buffer = await window.electronAPI.readFile(workingCopyPath.value);
+                const buffer = await getElectronAPI().readFile(workingCopyPath.value);
                 sourceData = new Uint8Array(buffer);
             } catch (error) {
                 BrowserLogger.debug(PDF_SERIALIZATION_LOG_SECTION, 'Failed to read working copy for serialization', {
