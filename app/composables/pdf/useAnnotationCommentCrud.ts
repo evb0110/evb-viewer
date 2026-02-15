@@ -109,6 +109,10 @@ export function useAnnotationCommentCrud(options: IUseAnnotationCommentCrudOptio
         emitAnnotationToolCancel,
     } = options;
 
+    function logCrudDebug(message: string, error: unknown) {
+        BrowserLogger.debug('annotations', `${message}: ${errorToLogText(error)}`);
+    }
+
     function setActiveCommentAndSync(stableKey: string | null) {
         commentSync.setActiveCommentStableKey(stableKey);
         inlineIndicators.debouncedSyncInlineCommentIndicators();
@@ -157,8 +161,8 @@ export function useAnnotationCommentCrud(options: IUseAnnotationCommentCrudOptio
         if (uiManager) {
             try {
                 await uiManager.waitForEditorsRendered(pageNumber);
-            } catch {
-                // ignore
+            } catch (waitError) {
+                logCrudDebug('Timed out waiting for editors during comment focus', waitError);
             }
 
             const layer = uiManager.getLayer?.(pageIndex) ?? null;
@@ -276,8 +280,8 @@ export function useAnnotationCommentCrud(options: IUseAnnotationCommentCrudOptio
         if (!editor) {
             try {
                 await uiManager.waitForEditorsRendered(pageNumber);
-            } catch {
-                // Ignore and continue with best effort lookup.
+            } catch (waitError) {
+                logCrudDebug('Timed out waiting for editors before comment delete', waitError);
             }
             editor = findEditorForComment(resolvedComment) ?? findEditorForComment(comment);
         }
@@ -326,15 +330,18 @@ export function useAnnotationCommentCrud(options: IUseAnnotationCommentCrudOptio
             uiManager.setSelected(editor as TUiManagerSelectedEditor);
             uiManager.delete();
             deleted = true;
-        } catch {
+        } catch (deleteError) {
+            logCrudDebug('uiManager.delete failed for annotation comment', deleteError);
             try {
                 editor.remove?.();
                 deleted = true;
-            } catch {
+            } catch (removeError) {
+                logCrudDebug('editor.remove failed for annotation comment', removeError);
                 try {
                     editor.delete?.();
                     deleted = true;
-                } catch {
+                } catch (legacyDeleteError) {
+                    logCrudDebug('editor.delete fallback failed for annotation comment', legacyDeleteError);
                     deleted = false;
                 }
             }

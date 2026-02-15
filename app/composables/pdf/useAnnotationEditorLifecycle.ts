@@ -25,6 +25,7 @@ import {
     getCommentText,
     toCssColor,
     detectEditorSubtype,
+    errorToLogText,
 } from '@app/composables/pdf/pdfAnnotationUtils';
 import type { useFreeTextResize } from '@app/composables/pdf/useFreeTextResize';
 import type { useAnnotationMarkupSubtype } from '@app/composables/pdf/useAnnotationMarkupSubtype';
@@ -194,8 +195,8 @@ export function useAnnotationEditorLifecycle(options: IUseAnnotationEditorLifecy
         constructors.forEach((ctor) => {
             try {
                 ctor.updateDefaultParams?.(type, value);
-            } catch {
-                // Ignore PDF.js internal constructor mismatches.
+            } catch (error) {
+                BrowserLogger.debug('annotations', `Failed to sync editor default params: ${errorToLogText(error)}`);
             }
         });
     }

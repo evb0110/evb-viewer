@@ -1,5 +1,6 @@
 import { Mutex } from 'es-toolkit';
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
+import type { IL10n } from 'pdfjs-dist/types/web/interfaces';
 import {
     nextTick,
     ref,
@@ -51,7 +52,7 @@ interface IUsePdfPageRendererOptions {
     outputScale?: number;
 
     annotationUiManager?: MaybeRefOrGetter<AnnotationEditorUIManager | null>;
-    annotationL10n?: MaybeRefOrGetter<unknown>;
+    annotationL10n?: MaybeRefOrGetter<IL10n | null>;
 
     searchPageMatches?: MaybeRefOrGetter<Map<number, IPdfPageMatches>>;
     currentSearchMatch?: MaybeRefOrGetter<IPdfSearchMatch | null>;
@@ -147,7 +148,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             container?.classList.remove(RENDERED_CONTAINER_CLASS);
             const skeleton = container?.querySelector<HTMLElement>('.pdf-page-skeleton');
             const canvasHost = container?.querySelector<HTMLDivElement>('.page_canvas');
-            const textLayerDiv = container?.querySelector<HTMLElement>('.text-layer');
+            const textLayerDiv = container?.querySelector<HTMLDivElement>('.text-layer');
             const annotationLayerDiv = container?.querySelector<HTMLElement>('.annotation-layer');
             const annotationEditorLayerDiv = container?.querySelector<HTMLElement>('.annotation-editor-layer');
 
@@ -315,7 +316,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                         canvasRenderer.mountCanvas(canvasHost, canvas, container, RENDERED_CONTAINER_CLASS);
                         pageCanvases.set(pageNumber, canvas);
 
-                        const textLayerDiv = container.querySelector<HTMLElement>('.text-layer');
+                        const textLayerDiv = container.querySelector<HTMLDivElement>('.text-layer');
                         if (textLayerDiv) {
                             cleanupTextLayer(pageNumber);
 

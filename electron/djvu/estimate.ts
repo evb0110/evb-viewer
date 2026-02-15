@@ -8,6 +8,7 @@ import { convertDjvuPageToImage } from '@electron/djvu/convert';
 import { getDjvuResolution } from '@electron/djvu/metadata';
 import { buildOptimizedPdf } from '@electron/djvu/pdf-builder';
 import { te } from '@electron/i18n';
+import { createLogger } from '@electron/utils/logger';
 
 interface IDjvuSizeEstimate {
     subsample: number;
@@ -18,6 +19,7 @@ interface IDjvuSizeEstimate {
 }
 
 const estimateCache = new Map<string, IDjvuSizeEstimate[]>();
+const logger = createLogger('djvu-estimate');
 
 export async function estimateSizes(
     djvuPath: string,
@@ -93,7 +95,8 @@ export async function estimateSizes(
                         estimatedBytes: 0,
                     });
                 }
-            } catch {
+            } catch (error) {
+                logger.debug(`Failed to estimate DjVu size (subsample=${preset.subsample}) for ${djvuPath}: ${String(error)}`);
                 estimates.push({
                     subsample: preset.subsample,
                     label: preset.label,
@@ -109,8 +112,8 @@ export async function estimateSizes(
                 recursive: true,
                 force: true,
             });
-        } catch {
-            // Ignore cleanup errors
+        } catch (cleanupError) {
+            logger.debug(`Failed to cleanup DjVu estimate temp dir ${tempDir}: ${String(cleanupError)}`);
         }
     }
 

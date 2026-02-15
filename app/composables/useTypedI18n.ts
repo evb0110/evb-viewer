@@ -1,17 +1,33 @@
-import type { TTranslationKey } from '@app/i18n/locales';
-import type { TI18nComposer } from '@app/types/i18n';
+import type {
+    TLocale,
+    TTranslationKey,
+} from '@app/i18n/locales';
 
 type TTypedTranslate = <TKey extends TTranslationKey>(
     key: TKey,
     params?: Record<string, string | number | undefined> | number,
 ) => string;
 
-type TTypedComposer = Omit<TI18nComposer, 't'> & {t: TTypedTranslate;};
+interface ILocaleComposerMethods {
+    setLocale: (locale: TLocale) => Promise<void>;
+    loadLocaleMessages: (locale: TLocale) => Promise<void>;
+}
 
-export function useTypedI18n(): TTypedComposer {
-    const composer = useI18n() as TI18nComposer;
+interface ITypedI18nComposer extends ILocaleComposerMethods {t: TTypedTranslate;}
+
+export function useTypedI18n(): ITypedI18nComposer {
+    const composer = useI18n();
+    const localeComposer = composer as Partial<ILocaleComposerMethods>;
+    const setLocale = async (locale: TLocale) => {
+        await localeComposer.setLocale?.(locale);
+    };
+    const loadLocaleMessages = async (locale: TLocale) => {
+        await localeComposer.loadLocaleMessages?.(locale);
+    };
     return {
         ...composer,
         t: composer.t as TTypedTranslate,
+        setLocale,
+        loadLocaleMessages,
     };
 }

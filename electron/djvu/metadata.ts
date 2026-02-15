@@ -3,6 +3,9 @@ import {
     getDjvuToolPaths,
     getDjvuLibDir,
 } from '@electron/djvu/paths';
+import { createLogger } from '@electron/utils/logger';
+
+const logger = createLogger('djvu-metadata');
 
 interface IRunResult {
     stdout: string;
@@ -80,7 +83,8 @@ export async function getDjvuOutline(filePath: string): Promise<string> {
             'print-outline',
         ]);
         return result.stdout.trim();
-    } catch {
+    } catch (error) {
+        logger.debug(`Failed to read DjVu outline for ${filePath}: ${String(error)}`);
         return '';
     }
 }
@@ -101,7 +105,8 @@ export async function getDjvuMetadata(filePath: string): Promise<Record<string, 
             }
         }
         return metadata;
-    } catch {
+    } catch (error) {
+        logger.debug(`Failed to read DjVu metadata for ${filePath}: ${String(error)}`);
         return {};
     }
 }
@@ -115,7 +120,8 @@ export async function getDjvuResolution(filePath: string): Promise<number> {
         ]);
         const dpi = parseInt(result.stdout.trim(), 10);
         return Number.isFinite(dpi) && dpi > 0 ? dpi : 300;
-    } catch {
+    } catch (error) {
+        logger.debug(`Failed to read DjVu resolution for ${filePath}: ${String(error)}`);
         return 300;
     }
 }
@@ -128,7 +134,8 @@ export async function getDjvuHasText(filePath: string): Promise<boolean> {
             'select 1; print-txt',
         ]);
         return result.stdout.trim().length > 0;
-    } catch {
+    } catch (error) {
+        logger.debug(`Failed to detect DjVu text layer for ${filePath}: ${String(error)}`);
         return false;
     }
 }

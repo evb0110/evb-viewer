@@ -3,7 +3,10 @@ import {
     AnnotationEditorLayer,
     DrawLayer,
 } from 'pdfjs-dist';
-import type { IPDFLinkService } from 'pdfjs-dist/types/web/interfaces';
+import type {
+    IL10n,
+    IPDFLinkService,
+} from 'pdfjs-dist/types/web/interfaces';
 import type {
     PDFPageProxy,
     AnnotationEditorUIManager,
@@ -14,6 +17,7 @@ import {
     type MaybeRefOrGetter,
     type Ref,
 } from 'vue';
+import { BrowserLogger } from '@app/utils/browser-logger';
 
 type TAnnotationEditorLayerProto = {
     disable?: (...args: unknown[]) => unknown;
@@ -110,13 +114,29 @@ export const usePdfAnnotationLayerRenderer = (deps: {
     pdfDocument: Ref<PDFDocumentProxy | null>;
     showAnnotations: MaybeRefOrGetter<boolean>;
     annotationUiManager: MaybeRefOrGetter<AnnotationEditorUIManager | null>;
-    annotationL10n: MaybeRefOrGetter<unknown>;
+    annotationL10n: MaybeRefOrGetter<IL10n | null>;
     scrollToPage?: (pageNumber: number) => void;
 }) => {
     ensureAnnotationEditorLayerSafetyPatch();
 
     const annotationEditorLayers = new Map<number, AnnotationEditorLayer>();
     const drawLayers = new Map<number, DrawLayer>();
+    const fallbackL10n: IL10n = {
+        getLanguage: () => 'en',
+        getDirection: () => 'ltr',
+        get: (ids, _args, fallback) => {
+            if (typeof fallback === 'string') {
+                return Promise.resolve(fallback);
+            }
+            if (Array.isArray(ids) && ids.length > 0 && typeof ids[0] === 'string') {
+                return Promise.resolve(ids[0]);
+            }
+            return Promise.resolve(typeof ids === 'string' ? ids : '');
+        },
+        translate: () => Promise.resolve(),
+        pause: () => {},
+        resume: () => {},
+    };
 
     async function renderAnnotationLayer(
         pdfPage: PDFPageProxy,
@@ -186,7 +206,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
     function renderAnnotationEditorLayer(
         container: HTMLElement,
         annotationEditorLayerDiv: HTMLElement,
-        textLayerDiv: HTMLElement | null,
+        textLayerDiv: HTMLDivElement | null,
         viewport: ReturnType<PDFPageProxy['getViewport']>,
         pageNumber: number,
         annotationLayerInstance: AnnotationLayer | null,
@@ -200,10 +220,6 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         const editorLayer = annotationEditorLayers.get(pageNumber);
         const drawLayer = drawLayers.get(pageNumber) ?? new DrawLayer({ pageIndex: pageNumber - 1 });
 
-        const textLayerShim = textLayerDiv
-            ? ({ div: textLayerDiv } as any) // eslint-disable-line @typescript-eslint/no-explicit-any -- PDF.js expects TextLayer-like object
-            : undefined;
-
         const canvasHost = container.querySelector<HTMLDivElement>('.page_canvas');
         if (canvasHost) {
             drawLayer.setParent(canvasHost);
@@ -215,7 +231,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
             annotationEditorLayerDiv.dir = annotationUiManager.direction;
         }
 
-        const l10n = toValue(deps.annotationL10n) ?? null;
+        const l10n = toValue(deps.annotationL10n) ?? fallbackL10n;
         const activeLayer = editorLayer ?? new AnnotationEditorLayer({
             mode: {},
             uiManager: annotationUiManager,
@@ -224,11 +240,10 @@ export const usePdfAnnotationLayerRenderer = (deps: {
             enabled: true,
             accessibilityManager: undefined,
             pageIndex: pageNumber - 1,
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- GenericL10n type mismatch with AnnotationEditorLayer constructor
-            l10n: l10n as any,
+            l10n,
             viewport: editorViewport,
             annotationLayer: annotationLayerInstance ?? undefined,
-            textLayer: textLayerShim,
+            textLayer: textLayerDiv ?? undefined,
             drawLayer,
         });
 
@@ -253,8 +268,8 @@ export const usePdfAnnotationLayerRenderer = (deps: {
             const annotationUiManager = toValue(deps.annotationUiManager) ?? null;
             try {
                 annotationUiManager?.removeLayer?.(editorLayer);
-            } catch {
-                // Layer might already be detached from UIManager during teardown.
+            } catch (error) {
+                BrowserLogger.debug('pdf-annotation-layer', 'Failed to detach editor layer from UI manager', error);
             }
             editorLayer.destroy();
             annotationEditorLayers.delete(pageNumber);
