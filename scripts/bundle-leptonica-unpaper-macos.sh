@@ -122,100 +122,125 @@ cp "$UNPAPER_INSTALL_DIR/bin/unpaper" "$DEST/bin/"
 chmod +x "$DEST/bin/unpaper"
 echo "✓ Unpaper binary copied to $DEST/bin/unpaper"
 
-# Step 3: Check Unpaper dependencies
-echo ""
-echo "Analyzing Unpaper dependencies..."
-UNPAPER_DEPS=$(otool -L "$DEST/bin/unpaper" | grep -v ":" | tail -n +2 | awk '{print $1}' | sort)
-echo "Found dependencies:"
-echo "$UNPAPER_DEPS" | sed 's/^/  /'
-
-# Step 4: Fix dylib paths
+# Step 3: Resolve and bundle dependencies recursively
 echo ""
 echo "=========================================="
-echo "Fixing dylib paths..."
+echo "Resolving and fixing dylib dependencies..."
 echo "=========================================="
 
-fix_binary() {
-  local binary="$1"
-  local binary_name="$(basename "$binary")"
+copy_deps_recursive() {
+  local dest_lib="$1"
+  shift
+  local files=("$@")
+  local added=1
 
-  echo "Processing $binary_name..."
+  while [ "$added" -gt 0 ]; do
+    added=0
+    for file in "${files[@]}"; do
+      [ -f "$file" ] || continue
+      local deps
+      deps="$(otool -L "$file" 2>/dev/null | awk 'NR > 1 {print $1}' || true)"
+      for dep in $deps; do
+        case "$dep" in
+          /usr/lib/*|/System/*)
+            continue
+            ;;
+        esac
 
-  # Get all dependencies from Homebrew
-  local brew_deps
-  brew_deps="$(otool -L "$binary" 2>/dev/null | grep "$BREW" | awk '{print $1}')" || true
-  for dep in $brew_deps; do
-    if [ -z "$dep" ]; then
-      continue
-    fi
+        local dep_name
+        dep_name="$(basename "$dep")"
 
-    local dep_name="$(basename "$dep")"
+        local dep_source=""
+        if [[ "$dep" == "$BREW/"* ]] && [ -f "$dep" ]; then
+          dep_source="$dep"
+        else
+          dep_source="$(find "$BREW" -type f -name "$dep_name" -print -quit 2>/dev/null || true)"
+        fi
 
-    # Check if dependency is in our lib directory
-    if [ -f "$DEST/lib/$dep_name" ]; then
-      # Use @executable_path for binaries, @loader_path for libraries
-      local ref="@executable_path/../lib/$dep_name"
-      echo "  Fixing: $dep_name -> $ref"
-      install_name_tool -change "$dep" "$ref" "$binary" 2>/dev/null || true
-    else
-      echo "  Warning: Not found in bundle: $dep_name (will try system fallback)"
-    fi
+        if [ -z "$dep_source" ]; then
+          continue
+        fi
+
+        if [ ! -f "$dest_lib/$dep_name" ]; then
+          cp -L "$dep_source" "$dest_lib/$dep_name"
+          echo "  Added dependency: $dep_name"
+          files+=("$dest_lib/$dep_name")
+          added=1
+        fi
+      done
+    done
   done
 }
 
-fix_binary "$DEST/bin/unpaper"
-
-# Verify
-echo ""
-echo "Verification:"
-otool -L "$DEST/bin/unpaper" | head -5
-
-# Step 5: Copy any new dylib dependencies
-echo ""
-echo "=========================================="
-echo "Checking for new library dependencies..."
-echo "=========================================="
-
-NEW_LIBS=0
-UNPAPER_BREW_DEPS="$(otool -L "$DEST/bin/unpaper" 2>/dev/null | grep "$BREW" | awk '{print $1}')" || true
-for lib in $UNPAPER_BREW_DEPS; do
-  if [ -z "$lib" ]; then
-    continue
-  fi
-
+fix_lib_paths() {
+  local lib="$1"
+  local lib_name
   lib_name="$(basename "$lib")"
-  lib_path="$BREW/opt/$(echo "$lib_name" | sed 's/\.[0-9]*\.dylib$//')/lib/$lib_name"
 
-  # Try to find library in common Homebrew locations
-  if [ -f "$lib_path" ] && [ ! -f "$DEST/lib/$lib_name" ]; then
-    echo "Adding new dependency: $lib_name"
-    cp "$lib_path" "$DEST/lib/" 2>/dev/null || true
-    NEW_LIBS=$((NEW_LIBS + 1))
-  fi
-done
+  install_name_tool -id "@loader_path/$lib_name" "$lib" 2>/dev/null || true
 
-if [ $NEW_LIBS -gt 0 ]; then
-  echo "✓ Added $NEW_LIBS new libraries"
-
-  # Fix paths in new libraries
-  for lib in "$DEST/lib/"*.dylib; do
-    if [ -f "$lib" ]; then
-      lib_name="$(basename "$lib")"
-
-      # Set library's own ID
-      install_name_tool -id "@loader_path/$lib_name" "$lib" 2>/dev/null || true
-
-      # Fix dependencies within this library
-      lib_brew_deps="$(otool -L "$lib" 2>/dev/null | grep "$BREW" | awk '{print $1}')" || true
-      for dep in $lib_brew_deps; do
-        if [ -n "$dep" ]; then
-          dep_name="$(basename "$dep")"
-          install_name_tool -change "$dep" "@loader_path/$dep_name" "$lib" 2>/dev/null || true
-        fi
-      done
-    fi
+  local brew_deps
+  brew_deps="$(otool -L "$lib" 2>/dev/null | grep "$BREW/" | awk '{print $1}' || true)"
+  for dep in $brew_deps; do
+    local dep_name
+    dep_name="$(basename "$dep")"
+    install_name_tool -change "$dep" "@loader_path/$dep_name" "$lib" 2>/dev/null || true
   done
+
+  local rpath_deps
+  rpath_deps="$(otool -L "$lib" 2>/dev/null | grep "@rpath" | awk '{print $1}' || true)"
+  for dep in $rpath_deps; do
+    local dep_name
+    dep_name="$(basename "$dep")"
+    install_name_tool -change "$dep" "@loader_path/$dep_name" "$lib" 2>/dev/null || true
+  done
+}
+
+fix_bin_paths() {
+  local bin="$1"
+
+  local brew_deps
+  brew_deps="$(otool -L "$bin" 2>/dev/null | grep "$BREW/" | awk '{print $1}' || true)"
+  for dep in $brew_deps; do
+    local dep_name
+    dep_name="$(basename "$dep")"
+    install_name_tool -change "$dep" "@executable_path/../lib/$dep_name" "$bin" 2>/dev/null || true
+  done
+
+  local rpath_deps
+  rpath_deps="$(otool -L "$bin" 2>/dev/null | grep "@rpath" | awk '{print $1}' || true)"
+  for dep in $rpath_deps; do
+    local dep_name
+    dep_name="$(basename "$dep")"
+    install_name_tool -change "$dep" "@executable_path/../lib/$dep_name" "$bin" 2>/dev/null || true
+  done
+}
+
+copy_deps_recursive "$DEST/lib" "$DEST/bin/unpaper" "$DEST/lib/"*.dylib
+
+for lib in "$DEST/lib/"*.dylib; do
+  [ -f "$lib" ] || continue
+  fix_lib_paths "$lib"
+done
+fix_bin_paths "$DEST/bin/unpaper"
+
+# Run one more pass after rewriting to catch newly-visible deps.
+copy_deps_recursive "$DEST/lib" "$DEST/bin/unpaper" "$DEST/lib/"*.dylib
+
+for lib in "$DEST/lib/"*.dylib; do
+  [ -f "$lib" ] || continue
+  fix_lib_paths "$lib"
+done
+fix_bin_paths "$DEST/bin/unpaper"
+
+unresolved="$(otool -L "$DEST/bin/unpaper" 2>/dev/null | grep "$BREW/" || true)"
+if [ -n "$unresolved" ]; then
+  echo "Error: Unresolved Homebrew references remain in unpaper:"
+  echo "$unresolved" | sed 's/^/  /'
+  exit 1
 fi
+
+echo "✓ All unpaper dependencies are bundled and relinked"
 
 # Step 6: Codesign binaries
 echo ""
@@ -223,7 +248,7 @@ echo "=========================================="
 echo "Codesigning for local testing..."
 echo "=========================================="
 
-codesign --force --sign - "$DEST/bin/unpaper" 2>/dev/null || echo "Note: Codesigning not available in this environment"
+codesign --force --sign - "$DEST/lib/"*.dylib "$DEST/bin/unpaper" 2>/dev/null || echo "Note: Codesigning not available in this environment"
 echo "✓ Unpaper codesigned"
 
 # Step 7: Test execution

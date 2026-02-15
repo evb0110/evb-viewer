@@ -38,7 +38,8 @@
     "release:patch": "pnpm version patch && git push && git push --tags",
     "release:minor": "pnpm version minor && git push && git push --tags",
     "release:major": "pnpm version major && git push && git push --tags",
-    "check:resources:matrix": "bash scripts/check-native-tools-source-matrix.sh"
+    "check:resources:matrix": "bash scripts/check-native-tools-source-matrix.sh",
+    "check:resources:matrix:all": "bash scripts/check-native-tools-source-matrix.sh --all"
   },
   "dependencies": {
     "@nuxt/icon": "^2.1.1",

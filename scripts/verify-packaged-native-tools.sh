@@ -70,6 +70,23 @@ check_file "$resource_root/qpdf/$platform_arch/bin/qpdf$exe_suffix" "qpdf binary
 check_file "$resource_root/djvulibre/$platform_arch/bin/ddjvu$exe_suffix" "ddjvu binary"
 check_file "$resource_root/djvulibre/$platform_arch/bin/djvused$exe_suffix" "djvused binary"
 
+find_tool_files() {
+  local tag="$1"
+  local kind="$2"
+  local dirs=(
+    "$resource_root/tesseract/$tag/$kind"
+    "$resource_root/poppler/$tag/$kind"
+    "$resource_root/qpdf/$tag/$kind"
+    "$resource_root/djvulibre/$tag/$kind"
+  )
+
+  for dir in "${dirs[@]}"; do
+    if [ -d "$dir" ]; then
+      find "$dir" -type f
+    fi
+  done
+}
+
 if [ "$platform" = "mac" ]; then
   unresolved=0
   while IFS= read -r file; do
@@ -79,16 +96,79 @@ if [ "$platform" = "mac" ]; then
       echo "$refs" | sed 's/^/  /'
       unresolved=1
     fi
-  done < <(find \
-    "$resource_root/tesseract/$platform_arch/bin/tesseract" \
-    "$resource_root/tesseract/$platform_arch/lib" \
-    "$resource_root/poppler/$platform_arch/bin" \
-    "$resource_root/poppler/$platform_arch/lib" \
-    "$resource_root/qpdf/$platform_arch/bin" \
-    "$resource_root/qpdf/$platform_arch/lib" \
-    "$resource_root/djvulibre/$platform_arch/bin" \
-    "$resource_root/djvulibre/$platform_arch/lib" \
-    -type f)
+  done < <(
+    if [ -f "$resource_root/tesseract/$platform_arch/bin/tesseract" ]; then
+      echo "$resource_root/tesseract/$platform_arch/bin/tesseract"
+    fi
+    find_tool_files "$platform_arch" "bin"
+    find_tool_files "$platform_arch" "lib"
+  )
+
+  if [ "$unresolved" -ne 0 ]; then
+    exit 1
+  fi
+fi
+
+if [ "$platform" = "linux" ]; then
+  if ! command -v ldd >/dev/null 2>&1; then
+    echo "Error: ldd is required for linux dependency verification"
+    exit 1
+  fi
+
+  unresolved=0
+  while IFS= read -r file; do
+    if ! file "$file" 2>/dev/null | grep -q 'ELF'; then
+      continue
+    fi
+
+    refs="$(ldd "$file" 2>/dev/null || true)"
+    if echo "$refs" | grep -q 'not found'; then
+      echo "Error: Missing shared library dependency in $file"
+      echo "$refs" | sed 's/^/  /'
+      unresolved=1
+    fi
+  done < <(
+    find_tool_files "$platform_arch" "bin"
+    find_tool_files "$platform_arch" "lib"
+  )
+
+  if [ "$unresolved" -ne 0 ]; then
+    exit 1
+  fi
+fi
+
+if [ "$platform" = "win" ]; then
+  if ! command -v objdump >/dev/null 2>&1; then
+    echo "Error: objdump is required for windows dependency verification"
+    exit 1
+  fi
+
+  system_dll_pattern='^(api-ms-win-.*\.dll|ext-ms-.*\.dll|kernel32\.dll|kernelbase\.dll|user32\.dll|gdi32\.dll|advapi32\.dll|shell32\.dll|ole32\.dll|oleaut32\.dll|ws2_32\.dll|comdlg32\.dll|comctl32\.dll|shlwapi\.dll|crypt32\.dll|secur32\.dll|rpcrt4\.dll|imm32\.dll|version\.dll|bcrypt\.dll|bcryptprimitives\.dll|ntdll\.dll|dbghelp\.dll|iphlpapi\.dll|winmm\.dll|setupapi\.dll|wldap32\.dll|normaliz\.dll|powrprof\.dll|cfgmgr32\.dll|winspool\.drv|netapi32\.dll|userenv\.dll|wintrust\.dll|dnsapi\.dll|msasn1\.dll|cryptbase\.dll|uxtheme\.dll)$'
+
+  bundled_dlls_file="$(mktemp)"
+  trap 'rm -f "$bundled_dlls_file"' EXIT
+
+  while IFS= read -r file; do
+    basename "$file" | tr '[:upper:]' '[:lower:]' >> "$bundled_dlls_file"
+  done < <(find_tool_files "$platform_arch" "bin" | grep -i '\.dll$' || true)
+  sort -u -o "$bundled_dlls_file" "$bundled_dlls_file"
+
+  unresolved=0
+  while IFS= read -r file; do
+    while IFS= read -r dep; do
+      dep_lc="$(printf '%s' "$dep" | tr '[:upper:]' '[:lower:]')"
+      if [[ "$dep_lc" =~ $system_dll_pattern ]]; then
+        continue
+      fi
+      if ! grep -Fxq "$dep_lc" "$bundled_dlls_file"; then
+        echo "Error: Missing bundled DLL dependency \"$dep\" for $file"
+        unresolved=1
+      fi
+    done < <(objdump -p "$file" 2>/dev/null | awk '/DLL Name:/{print $3}')
+  done < <(find_tool_files "$platform_arch" "bin" | grep -Ei '\.(exe|dll)$' || true)
+
+  rm -f "$bundled_dlls_file"
+  trap - EXIT
 
   if [ "$unresolved" -ne 0 ]; then
     exit 1
