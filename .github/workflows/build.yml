@@ -127,13 +127,35 @@ jobs:
 
       - name: Package installer (macOS)
         if: runner.os == 'macOS'
-        env:
-          CSC_LINK: ${{ env.MAC_CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ env.MAC_CSC_KEY_PASSWORD }}
-          APPLE_API_KEY: ${{ env.APPLE_API_KEY_PATH }}
-          APPLE_API_KEY_ID: ${{ env.APPLE_API_KEY_ID_ENV }}
-          APPLE_API_ISSUER: ${{ env.APPLE_API_ISSUER_ENV }}
-        run: pnpm exec electron-builder --mac --${{ matrix.arch }}
+        shell: bash
+        run: |
+          if [ -n "${MAC_CSC_LINK:-}" ] && [ -n "${MAC_CSC_KEY_PASSWORD:-}" ]; then
+            export CSC_LINK="$MAC_CSC_LINK"
+            export CSC_KEY_PASSWORD="$MAC_CSC_KEY_PASSWORD"
+          else
+            unset CSC_LINK CSC_KEY_PASSWORD
+          fi
+
+          if [ -n "${APPLE_API_KEY_PATH:-}" ] && [ -n "${APPLE_API_KEY_ID_ENV:-}" ] && [ -n "${APPLE_API_ISSUER_ENV:-}" ]; then
+            export APPLE_API_KEY="$APPLE_API_KEY_PATH"
+            export APPLE_API_KEY_ID="$APPLE_API_KEY_ID_ENV"
+            export APPLE_API_ISSUER="$APPLE_API_ISSUER_ENV"
+          else
+            unset APPLE_API_KEY APPLE_API_KEY_ID APPLE_API_ISSUER
+          fi
+
+          ATTEMPTS=3
+          for attempt in $(seq 1 $ATTEMPTS); do
+            if pnpm exec electron-builder --mac --${{ matrix.arch }}; then
+              exit 0
+            fi
+            if [ "$attempt" -lt "$ATTEMPTS" ]; then
+              echo "::warning::macOS packaging attempt $attempt failed, retrying in 20s..."
+              sleep 20
+            fi
+          done
+          echo "::error::macOS packaging failed after $ATTEMPTS attempts"
+          exit 1
 
       - name: Verify macOS signature
         if: runner.os == 'macOS'
@@ -207,10 +229,27 @@ jobs:
 
       - name: Package installer (Windows)
         if: runner.os == 'Windows'
-        env:
-          WIN_CSC_LINK: ${{ env.WIN_CSC_LINK_ENV }}
-          WIN_CSC_KEY_PASSWORD: ${{ env.WIN_CSC_KEY_PASSWORD_ENV }}
-        run: pnpm exec electron-builder --win --${{ matrix.arch }}
+        shell: bash
+        run: |
+          if [ -n "${WIN_CSC_LINK_ENV:-}" ] && [ -n "${WIN_CSC_KEY_PASSWORD_ENV:-}" ]; then
+            export WIN_CSC_LINK="$WIN_CSC_LINK_ENV"
+            export WIN_CSC_KEY_PASSWORD="$WIN_CSC_KEY_PASSWORD_ENV"
+          else
+            unset WIN_CSC_LINK WIN_CSC_KEY_PASSWORD
+          fi
+
+          ATTEMPTS=3
+          for attempt in $(seq 1 $ATTEMPTS); do
+            if pnpm exec electron-builder --win --${{ matrix.arch }}; then
+              exit 0
+            fi
+            if [ "$attempt" -lt "$ATTEMPTS" ]; then
+              echo "::warning::Windows packaging attempt $attempt failed, retrying in 20s..."
+              sleep 20
+            fi
+          done
+          echo "::error::Windows packaging failed after $ATTEMPTS attempts"
+          exit 1
 
       - name: Verify Windows signature
         if: runner.os == 'Windows'
@@ -347,13 +386,35 @@ jobs:
         # On macos-15-intel runners, DMG creation intermittently fails while
         # detaching the mounted image (hdiutil exit code 16: resource busy).
         # Build ZIP only in this supplemental lane to keep x64 artifacts flowing.
-        env:
-          CSC_LINK: ${{ env.MAC_CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ env.MAC_CSC_KEY_PASSWORD }}
-          APPLE_API_KEY: ${{ env.APPLE_API_KEY_PATH }}
-          APPLE_API_KEY_ID: ${{ env.APPLE_API_KEY_ID_ENV }}
-          APPLE_API_ISSUER: ${{ env.APPLE_API_ISSUER_ENV }}
-        run: pnpm exec electron-builder --mac zip --x64
+        shell: bash
+        run: |
+          if [ -n "${MAC_CSC_LINK:-}" ] && [ -n "${MAC_CSC_KEY_PASSWORD:-}" ]; then
+            export CSC_LINK="$MAC_CSC_LINK"
+            export CSC_KEY_PASSWORD="$MAC_CSC_KEY_PASSWORD"
+          else
+            unset CSC_LINK CSC_KEY_PASSWORD
+          fi
+
+          if [ -n "${APPLE_API_KEY_PATH:-}" ] && [ -n "${APPLE_API_KEY_ID_ENV:-}" ] && [ -n "${APPLE_API_ISSUER_ENV:-}" ]; then
+            export APPLE_API_KEY="$APPLE_API_KEY_PATH"
+            export APPLE_API_KEY_ID="$APPLE_API_KEY_ID_ENV"
+            export APPLE_API_ISSUER="$APPLE_API_ISSUER_ENV"
+          else
+            unset APPLE_API_KEY APPLE_API_KEY_ID APPLE_API_ISSUER
+          fi
+
+          ATTEMPTS=3
+          for attempt in $(seq 1 $ATTEMPTS); do
+            if pnpm exec electron-builder --mac zip --x64; then
+              exit 0
+            fi
+            if [ "$attempt" -lt "$ATTEMPTS" ]; then
+              echo "::warning::macOS Intel packaging attempt $attempt failed, retrying in 20s..."
+              sleep 20
+            fi
+          done
+          echo "::error::macOS Intel packaging failed after $ATTEMPTS attempts"
+          exit 1
 
       - name: Verify macOS signature
         shell: bash
