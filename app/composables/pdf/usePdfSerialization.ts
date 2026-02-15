@@ -27,6 +27,11 @@ import {
     removeAnnotationRefsFromPages,
 } from '@app/composables/pdf/pdfSerializationComments';
 import { serializeShapeAnnotationsToDoc } from '@app/composables/pdf/pdfSerializationShapes';
+import {
+    collectMarkupSubtypeHints,
+    groupMarkupSubtypeHintsByPage,
+} from '@app/composables/pdf/pdfSerializationSubtypeHints';
+import { BrowserLogger } from '@app/utils/browser-logger';
 
 export {
     getPdfPopupDict, parsePdfJsAnnotationRef, resolveCommentPdfRefInDocument,
@@ -42,6 +47,8 @@ const MARKUP_SUBTYPE_TO_PDF_NAME: Record<TMarkupSubtype, string> = {
     StrikeOut: 'StrikeOut',
     Squiggly: 'Squiggly',
 };
+
+const PDF_SERIALIZATION_LOG_SECTION = 'pdf-serialization';
 
 export interface IPdfSerializationDeps {
     pdfData: Ref<Uint8Array | null>;
@@ -66,13 +73,29 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
         getAllShapes,
     } = deps;
 
+    async function loadPdfDocument(
+        data: Uint8Array,
+        operation: string,
+    ): Promise<PDFDocument | null> {
+        try {
+            return await PDFDocument.load(data, { updateMetadata: false });
+        } catch (error) {
+            BrowserLogger.warn(PDF_SERIALIZATION_LOG_SECTION, `Failed to load PDF while ${operation}`, error);
+            return null;
+        }
+    }
+
     async function getSourcePdfData() {
         let sourceData = pdfData.value ? pdfData.value.slice() : null;
         if (!sourceData && workingCopyPath.value && window.electronAPI) {
             try {
                 const buffer = await window.electronAPI.readFile(workingCopyPath.value);
                 sourceData = new Uint8Array(buffer);
-            } catch {
+            } catch (error) {
+                BrowserLogger.debug(PDF_SERIALIZATION_LOG_SECTION, 'Failed to read working copy for serialization', {
+                    path: workingCopyPath.value,
+                    error,
+                });
                 sourceData = null;
             }
         }
@@ -81,34 +104,17 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
 
     async function rewriteMarkupSubtypes(data: Uint8Array): Promise<Uint8Array> {
         const overrides = getMarkupSubtypeOverrides();
-        const subtypeHints = annotationComments.value
-            .filter(comment => (
-                comment.source === 'editor'
-                && (comment.subtype === 'Underline' || comment.subtype === 'StrikeOut')
-                && comment.markerRect
-            ))
-            .map(comment => ({
-                subtype: comment.subtype as TMarkupSubtype,
-                pageIndex: comment.pageIndex,
-                markerRect: comment.markerRect as {
-                    left: number;
-                    top: number;
-                    width: number;
-                    height: number;
-                },
-                consumed: false,
-            }));
+        const subtypeHints = collectMarkupSubtypeHints(annotationComments.value);
 
         if ((!overrides || overrides.size === 0) && subtypeHints.length === 0) {
             return data;
         }
 
-        let doc: PDFDocument;
-        try {
-            doc = await PDFDocument.load(data, { updateMetadata: false });
-        } catch {
+        const doc = await loadPdfDocument(data, 'rewriting annotation subtypes');
+        if (!doc) {
             return data;
         }
+        const subtypeHintsByPage = groupMarkupSubtypeHintsByPage(subtypeHints);
 
         const subtypeName = PDFName.of('Subtype');
         const highlightName = PDFName.of('Highlight');
@@ -119,7 +125,7 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
             pageIndex,
             page,
         ] of pages.entries()) {
-            const pageHints = subtypeHints.filter(hint => !hint.consumed && hint.pageIndex === pageIndex);
+            const pageHints = subtypeHintsByPage.get(pageIndex) ?? [];
             const {
                 width: pageWidth,
                 height: pageHeight,
@@ -154,6 +160,8 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
                         score: number;
                         hint: (typeof pageHints)[number];
                     } | null = null;
+                    // Hints originate from editor-space rectangles; IoU matching
+                    // tolerates small coordinate drift after save/restore.
                     for (const hint of pageHints) {
                         if (hint.consumed) {
                             continue;
@@ -203,10 +211,8 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
             return false;
         }
 
-        let document: PDFDocument;
-        try {
-            document = await PDFDocument.load(sourceData, { updateMetadata: false });
-        } catch {
+        const document = await loadPdfDocument(sourceData, 'updating embedded annotation');
+        if (!document) {
             return false;
         }
 
@@ -229,10 +235,8 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
             return null;
         }
 
-        let document: PDFDocument;
-        try {
-            document = await PDFDocument.load(sourceData, { updateMetadata: false });
-        } catch {
+        const document = await loadPdfDocument(sourceData, 'deleting embedded annotation');
+        if (!document) {
             return null;
         }
 
@@ -255,10 +259,8 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
             return data;
         }
 
-        let doc: PDFDocument;
-        try {
-            doc = await PDFDocument.load(data, { updateMetadata: false });
-        } catch {
+        const doc = await loadPdfDocument(data, 'rewriting page labels');
+        if (!doc) {
             return data;
         }
 

@@ -100,11 +100,12 @@ export function useAnnotationToolManager(options: IUseAnnotationToolManagerOptio
         try {
             await uiManager.updateMode(mode);
             return null;
-        } catch {
+        } catch (initialError) {
+            BrowserLogger.debug('annotations', `Annotation mode switch will retry: ${errorToLogText(initialError)}`);
             try {
                 await uiManager.waitForEditorsRendered(Math.max(1, pageNumber));
-            } catch {
-                // Ignore and retry mode switch once.
+            } catch (waitError) {
+                BrowserLogger.debug('annotations', `Failed to wait for editor render before mode retry: ${errorToLogText(waitError)}`);
             }
             await nextTick();
         }
