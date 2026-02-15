@@ -13,18 +13,9 @@ import {
 import type { Ref } from 'vue';
 import type { IPdfBookmarkEntry } from '@app/types/pdf';
 import { BrowserLogger } from '@app/utils/browser-logger';
+import { normalizeBookmarkColor } from '@app/utils/pdf-outline-helpers';
 
 const BOOKMARK_SERIALIZATION_LOG_SECTION = 'pdf-bookmarks';
-
-function normalizeBookmarkColor(value: unknown) {
-    if (typeof value !== 'string') {
-        return null;
-    }
-    const normalized = value.trim().toLowerCase();
-    return /^#[0-9a-f]{6}$/.test(normalized)
-        ? normalized
-        : null;
-}
 
 export function normalizeBookmarkEntries(
     entries: IPdfBookmarkEntry[],

@@ -3,11 +3,14 @@ import type {
     IBookmarkItem,
     IBookmarkLocation,
 } from '@app/types/pdf-outline';
+import { BrowserLogger } from '@app/utils/browser-logger';
 
 interface IRefProxy {
     num: number;
     gen: number;
 }
+
+const OUTLINE_LOG_SECTION = 'pdf-outline';
 
 export interface IOutlineItemRaw {
     title: string;
@@ -53,6 +56,47 @@ export function convertOutlineColorToHex(color: ArrayLike<number> | null | undef
     return `#${rgb.map(value => value.toString(16).padStart(2, '0')).join('')}`;
 }
 
+function normalizeDestinationPageIndex(rawPageRef: number, numPages: number) {
+    const maybeIndex = Math.trunc(rawPageRef);
+    if (maybeIndex >= 0 && maybeIndex < numPages) {
+        return maybeIndex;
+    }
+    if (maybeIndex > 0 && maybeIndex <= numPages) {
+        return maybeIndex - 1;
+    }
+    return null;
+}
+
+async function resolveDestinationArray(
+    pdfDocument: PDFDocumentProxy,
+    dest: IOutlineItemRaw['dest'],
+    destinationCache?: Map<string, unknown[] | null>,
+): Promise<unknown[] | null> {
+    if (!dest) {
+        return null;
+    }
+    if (Array.isArray(dest)) {
+        return dest;
+    }
+    if (typeof dest !== 'string') {
+        return null;
+    }
+
+    if (destinationCache?.has(dest)) {
+        return destinationCache.get(dest) ?? null;
+    }
+
+    try {
+        const resolved = await pdfDocument.getDestination(dest);
+        destinationCache?.set(dest, resolved);
+        return resolved;
+    } catch (error) {
+        BrowserLogger.debug(OUTLINE_LOG_SECTION, `Failed to resolve named destination: ${dest}`, error);
+        destinationCache?.set(dest, null);
+        return null;
+    }
+}
+
 export async function resolvePageIndex(
     pdfDocument: PDFDocumentProxy,
     dest: IOutlineItemRaw['dest'],
@@ -63,22 +107,7 @@ export async function resolvePageIndex(
         return null;
     }
 
-    let destinationArray: unknown[] | null = null;
-
-    if (typeof dest === 'string') {
-        if (destinationCache.has(dest)) {
-            destinationArray = destinationCache.get(dest) ?? null;
-        } else {
-            try {
-                destinationArray = await pdfDocument.getDestination(dest);
-            } catch {
-                destinationArray = null;
-            }
-            destinationCache.set(dest, destinationArray);
-        }
-    } else if (Array.isArray(dest)) {
-        destinationArray = dest;
-    }
+    const destinationArray = await resolveDestinationArray(pdfDocument, dest, destinationCache);
 
     if (!destinationArray || destinationArray.length === 0) {
         return null;
@@ -87,14 +116,7 @@ export async function resolvePageIndex(
     const pageRef = destinationArray[0];
 
     if (typeof pageRef === 'number' && Number.isFinite(pageRef)) {
-        const maybeIndex = Math.trunc(pageRef);
-        if (maybeIndex >= 0 && maybeIndex < pdfDocument.numPages) {
-            return maybeIndex;
-        }
-        if (maybeIndex > 0 && maybeIndex <= pdfDocument.numPages) {
-            return maybeIndex - 1;
-        }
-        return null;
+        return normalizeDestinationPageIndex(pageRef, pdfDocument.numPages);
     }
 
     if (!isRefProxy(pageRef)) {
@@ -110,7 +132,8 @@ export async function resolvePageIndex(
         const pageIndex = await pdfDocument.getPageIndex(pageRef);
         refIndexCache.set(refKey, pageIndex);
         return pageIndex;
-    } catch {
+    } catch (error) {
+        BrowserLogger.debug(OUTLINE_LOG_SECTION, `Failed to resolve page index by reference: ${refKey}`, error);
         refIndexCache.set(refKey, null);
         return null;
     }
@@ -163,17 +186,7 @@ export async function resolveBookmarkDestinationPage(
         return null;
     }
 
-    let destinationArray: unknown[] | null = null;
-
-    if (typeof dest === 'string') {
-        try {
-            destinationArray = await pdfDocument.getDestination(dest);
-        } catch {
-            return null;
-        }
-    } else if (Array.isArray(dest)) {
-        destinationArray = dest;
-    }
+    const destinationArray = await resolveDestinationArray(pdfDocument, dest);
 
     if (!destinationArray || destinationArray.length === 0) {
         return null;
@@ -182,14 +195,8 @@ export async function resolveBookmarkDestinationPage(
     const pageRef = destinationArray[0];
 
     if (typeof pageRef === 'number' && Number.isFinite(pageRef)) {
-        const maybeIndex = Math.trunc(pageRef);
-        if (maybeIndex >= 0 && maybeIndex < pdfDocument.numPages) {
-            return maybeIndex + 1;
-        }
-        if (maybeIndex > 0 && maybeIndex <= pdfDocument.numPages) {
-            return maybeIndex;
-        }
-        return null;
+        const zeroBasedIndex = normalizeDestinationPageIndex(pageRef, pdfDocument.numPages);
+        return zeroBasedIndex === null ? null : zeroBasedIndex + 1;
     }
 
     if (!isRefProxy(pageRef)) {
@@ -199,7 +206,8 @@ export async function resolveBookmarkDestinationPage(
     try {
         const pageIndex = await pdfDocument.getPageIndex(pageRef);
         return pageIndex + 1;
-    } catch {
+    } catch (error) {
+        BrowserLogger.debug(OUTLINE_LOG_SECTION, 'Failed to resolve bookmark destination page by reference', error);
         return null;
     }
 }

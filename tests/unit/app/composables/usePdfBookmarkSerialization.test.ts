@@ -30,7 +30,7 @@ describe('normalizeBookmarkEntries', () => {
             pageIndex: 99,
             namedDest: '   ',
             bold: true,
-            color: '  #AABBCC ',
+            color: '#abc',
             items: [createBookmark({
                 title: ' Child ',
                 pageIndex: -3,
