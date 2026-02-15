@@ -276,7 +276,7 @@ export default {
         'recentFiles': 'Zuletzt verwendete Dateien',
         'clearRecentFiles': 'Zuletzt verwendete Dateien löschen',
         'removeFromRecent': 'Aus zuletzt verwendet entfernen',
-        'openAnother': 'Oder eine andere Datei öffnen...',
+        'openAnother': 'Andere Datei öffnen...',
         'openPdf': 'Datei öffnen',
     },
     'contextMenu': {

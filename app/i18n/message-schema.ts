@@ -276,7 +276,7 @@ export const EN_MESSAGE_SCHEMA = {
         'recentFiles': 'Recent Files',
         'clearRecentFiles': 'Clear Recent Files',
         'removeFromRecent': 'Remove from Recent',
-        'openAnother': 'Or open another file...',
+        'openAnother': 'Open another file...',
         'openPdf': 'Open a file',
     },
     'contextMenu': {

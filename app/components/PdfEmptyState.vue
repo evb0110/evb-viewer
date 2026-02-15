@@ -1,71 +1,87 @@
 <template>
     <div class="empty-state">
-        <div
-            v-if="recentFiles.length > 0"
-            class="recent-files"
-        >
-            <div class="recent-files-header">
-                <h3 class="text-sm font-medium text-[var(--ui-text-muted)]">
-                    {{ t('emptyState.recentFiles') }}
-                </h3>
-                <UTooltip :text="t('emptyState.clearRecentFiles')" :delay-duration="1200">
-                    <UButton
-                        icon="i-lucide-trash-2"
-                        variant="ghost"
-                        size="xs"
-                        color="neutral"
-                        class="text-[var(--ui-text-dimmed)] hover:text-[var(--ui-text-muted)]"
-                        :aria-label="t('emptyState.clearRecentFiles')"
-                        @click="emit('clear-recent')"
-                    />
+        <div class="empty-state-content">
+            <!-- No recent files: centered standalone prompt -->
+            <div v-if="recentFiles.length === 0" class="open-file-section">
+                <UTooltip :text="t('toolbar.openPdf')" :delay-duration="1200">
+                    <button
+                        class="open-file-action group"
+                        :aria-label="t('toolbar.openPdf')"
+                        @click="emit('open-file')"
+                    >
+                        <UIcon
+                            name="i-lucide-folder-open"
+                            class="open-file-icon text-[var(--ui-text-dimmed)] group-hover:text-[var(--ui-primary)] transition-colors"
+                        />
+                    </button>
                 </UTooltip>
+                <p class="empty-state-hint text-[var(--ui-text-muted)]">
+                    {{ t('emptyState.openPdf') }}
+                </p>
             </div>
-            <ul class="recent-files-list">
-                <li
-                    v-for="file in recentFiles"
-                    :key="file.originalPath"
-                    class="recent-file-item"
-                    @click="emit('open-recent', file)"
-                >
-                    <UIcon
-                        name="i-lucide-file-text"
-                        class="size-5 text-[var(--ui-text-dimmed)] flex-shrink-0"
-                    />
-                    <div class="recent-file-info">
-                        <span class="recent-file-name">{{ file.fileName }}</span>
-                        <span class="recent-file-path">{{ getParentFolder(file.originalPath) }}</span>
-                    </div>
-                    <span class="recent-file-time">{{ formatRelativeTimeLocalized(file.timestamp) }}</span>
-                    <UTooltip :text="t('emptyState.removeFromRecent')" :delay-duration="1200">
+
+            <!-- Recent files: unified block with open-file integrated as last row -->
+            <div v-else class="recent-files">
+                <div class="recent-files-header">
+                    <h3 class="text-sm font-medium text-[var(--ui-text-muted)]">
+                        {{ t('emptyState.recentFiles') }}
+                    </h3>
+                    <UTooltip :text="t('emptyState.clearRecentFiles')" :delay-duration="1200">
                         <UButton
-                            icon="i-lucide-x"
-                            size="xs"
+                            icon="i-lucide-trash-2"
                             variant="ghost"
+                            size="xs"
                             color="neutral"
-                            class="recent-file-remove"
-                            :aria-label="t('emptyState.removeFromRecent')"
-                            @click.stop="emit('remove-recent', file)"
+                            class="text-[var(--ui-text-dimmed)] hover:text-[var(--ui-text-muted)]"
+                            :aria-label="t('emptyState.clearRecentFiles')"
+                            @click="emit('clear-recent')"
                         />
                     </UTooltip>
-                </li>
-            </ul>
+                </div>
+                <ul class="recent-files-list">
+                    <li
+                        v-for="file in recentFiles"
+                        :key="file.originalPath"
+                        class="recent-file-item"
+                        @click="emit('open-recent', file)"
+                    >
+                        <UIcon
+                            name="i-lucide-file-text"
+                            class="size-5 text-[var(--ui-text-dimmed)] flex-shrink-0"
+                        />
+                        <div class="recent-file-info">
+                            <span class="recent-file-name">{{ file.fileName }}</span>
+                            <span class="recent-file-path">{{ getParentFolder(file.originalPath) }}</span>
+                        </div>
+                        <span class="recent-file-time">{{ formatRelativeTimeLocalized(file.timestamp) }}</span>
+                        <UTooltip :text="t('emptyState.removeFromRecent')" :delay-duration="1200">
+                            <UButton
+                                icon="i-lucide-x"
+                                size="xs"
+                                variant="ghost"
+                                color="neutral"
+                                class="recent-file-remove"
+                                :aria-label="t('emptyState.removeFromRecent')"
+                                @click.stop="emit('remove-recent', file)"
+                            />
+                        </UTooltip>
+                    </li>
+                </ul>
+                <button
+                    class="open-file-row group"
+                    :aria-label="t('toolbar.openPdf')"
+                    @click="emit('open-file')"
+                >
+                    <UIcon
+                        name="i-lucide-folder-open"
+                        class="size-5 text-[var(--ui-text-dimmed)] group-hover:text-[var(--ui-primary)] flex-shrink-0 transition-colors"
+                    />
+                    <span class="open-file-row-label group-hover:text-[var(--ui-primary)] transition-colors">
+                        {{ t('emptyState.openAnother') }}
+                    </span>
+                </button>
+            </div>
         </div>
-
-        <p class="empty-state-hint text-sm text-[var(--ui-text-muted)]">
-            {{ recentFiles.length > 0 ? t('emptyState.openAnother') : t('emptyState.openPdf') }}
-        </p>
-        <UTooltip :text="t('toolbar.openPdf')" :delay-duration="1200">
-            <button
-                class="open-file-action group"
-                :aria-label="t('toolbar.openPdf')"
-                @click="emit('open-file')"
-            >
-                <UIcon
-                    name="i-lucide-folder-open"
-                    class="size-8 text-[var(--ui-text-dimmed)] group-hover:text-[var(--ui-primary)] transition-colors"
-                />
-            </button>
-        </UTooltip>
     </div>
 </template>
 
@@ -114,31 +130,49 @@ function getParentFolder(filePath: string) {
     width: 100%;
     height: 100%;
     display: flex;
-    flex-direction: column;
-    align-items: stretch;
-    justify-content: flex-start;
-    gap: 1rem;
-    padding: clamp(1rem, 2.6vh, 1.8rem) clamp(1rem, 2.2vw, 2rem);
+    align-items: center;
+    justify-content: center;
+    padding: clamp(1.5rem, 3vh, 2.5rem) clamp(1rem, 2.2vw, 2rem);
     overflow: auto;
+}
+
+.empty-state-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: min(100%, 640px);
+}
+
+/* Standalone open-file prompt (no recent files) */
+
+.open-file-section {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
 }
 
 .empty-state-hint {
     margin: 0;
     text-align: center;
+    font-size: 0.8125rem;
 }
 
 .open-file-action {
     display: flex;
-    flex-direction: column;
     align-items: center;
-    gap: 0.5rem;
-    margin: 0 auto;
-    padding: 1rem 1.5rem;
-    border-radius: 0.5rem;
+    justify-content: center;
+    padding: 1.25rem 1.75rem;
+    border-radius: 0.75rem;
     border: 1px dashed var(--ui-border);
     background: transparent;
     cursor: pointer;
     transition: all 0.15s ease;
+}
+
+.open-file-icon {
+    width: 2rem;
+    height: 2rem;
 }
 
 .open-file-action:hover {
@@ -146,17 +180,14 @@ function getParentFolder(filePath: string) {
     background: color-mix(in oklab, var(--ui-bg) 95%, var(--ui-primary) 5%);
 }
 
-.open-file-action:hover :deep(.iconify) {
-    color: var(--ui-primary);
+.open-file-action:active {
+    transform: scale(0.97);
 }
 
-.open-file-action:active {
-    transform: scale(0.98);
-}
+/* Recent files block */
 
 .recent-files {
-    width: min(100%, 640px);
-    margin: 0 auto;
+    width: 100%;
     min-height: 0;
 }
 
@@ -175,7 +206,7 @@ function getParentFolder(filePath: string) {
     display: flex;
     flex-direction: column;
     gap: 2px;
-    max-height: min(60vh, 34rem);
+    max-height: min(50vh, 28rem);
     overflow-y: auto;
 }
 
@@ -231,5 +262,35 @@ function getParentFolder(filePath: string) {
 
 .recent-file-item:hover .recent-file-remove {
     opacity: 1;
+}
+
+/* Open-file row integrated into the list */
+
+.open-file-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    width: 100%;
+    padding: 0.625rem 0.75rem;
+    margin-top: 2px;
+    border: none;
+    border-top: 1px dashed var(--ui-border);
+    border-radius: 0 0 0.375rem 0.375rem;
+    background: transparent;
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+}
+
+.open-file-row:hover {
+    background: var(--ui-bg-elevated);
+}
+
+.open-file-row:active {
+    transform: scale(0.995);
+}
+
+.open-file-row-label {
+    font-size: 0.875rem;
+    color: var(--ui-text-muted);
 }
 </style>

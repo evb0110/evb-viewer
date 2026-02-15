@@ -276,7 +276,7 @@ export default {
         'recentFiles': 'Ficheiros Recentes',
         'clearRecentFiles': 'Limpar Ficheiros Recentes',
         'removeFromRecent': 'Remover dos Recentes',
-        'openAnother': 'Ou abra outro ficheiro...',
+        'openAnother': 'Abrir outro ficheiro...',
         'openPdf': 'Abrir um ficheiro',
     },
     'contextMenu': {

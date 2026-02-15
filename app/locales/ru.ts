@@ -276,7 +276,7 @@ export default {
         'recentFiles': 'Недавние файлы',
         'clearRecentFiles': 'Очистить список',
         'removeFromRecent': 'Удалить из недавних',
-        'openAnother': 'Или откройте другой файл...',
+        'openAnother': 'Открыть другой файл...',
         'openPdf': 'Откройте файл PDF',
     },
     'contextMenu': {

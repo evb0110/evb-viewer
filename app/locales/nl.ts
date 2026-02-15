@@ -276,7 +276,7 @@ export default {
         'recentFiles': 'Recente bestanden',
         'clearRecentFiles': 'Recente bestanden wissen',
         'removeFromRecent': 'Uit recente bestanden verwijderen',
-        'openAnother': 'Of open een ander bestand...',
+        'openAnother': 'Een ander bestand openen...',
         'openPdf': 'Een bestand openen',
     },
     'contextMenu': {
