@@ -15,10 +15,35 @@ import { te } from '@electron/i18n';
 const appName = te('app.title');
 const menuState = {hasDocument: false};
 
+interface IWindowMenuActionOptions {
+    label: string;
+    channel: string;
+    accelerator?: string;
+    enabled?: boolean;
+}
+
 export function sendToWindow(window: BaseWindow | undefined, channel: string, ...args: unknown[]) {
     if (window instanceof BrowserWindow) {
         window.webContents.send(channel, ...args);
     }
+}
+
+function createWindowMenuAction(options: IWindowMenuActionOptions): MenuItemConstructorOptions {
+    const {
+        label,
+        channel,
+        accelerator,
+        enabled = true,
+    } = options;
+
+    return {
+        label,
+        ...(accelerator ? { accelerator } : {}),
+        enabled,
+        click: (_item, window) => {
+            sendToWindow(window, channel);
+        },
+    };
 }
 
 function buildRecentFilesSubmenu(): MenuItemConstructorOptions[] {
@@ -27,7 +52,7 @@ function buildRecentFilesSubmenu(): MenuItemConstructorOptions[] {
     if (recentFiles.length === 0) {
         return [{
             label: te('menu.noRecentFiles'),
-            enabled: false, 
+            enabled: false,
         }];
     }
 
@@ -51,80 +76,66 @@ function buildRecentFilesSubmenu(): MenuItemConstructorOptions[] {
 }
 
 function getFileMenu(): MenuItemConstructorOptions {
+    const documentActionsEnabled = menuState.hasDocument;
+
     return {
         label: te('menu.file'),
         submenu: [
-            {
+            createWindowMenuAction({
                 label: te('menu.openFile'),
                 accelerator: 'CmdOrCtrl+O',
-                click: (_, window) => {
-                    sendToWindow(window, 'menu:openPdf');
-                },
-            },
+                channel: 'menu:openPdf',
+            }),
             {
                 label: te('menu.openRecent'),
                 submenu: buildRecentFilesSubmenu(),
             },
-            {
+            createWindowMenuAction({
                 label: te('menu.save'),
                 accelerator: 'CmdOrCtrl+S',
-                click: (_, window) => {
-                    sendToWindow(window, 'menu:save');
-                },
-            },
-            {
+                enabled: documentActionsEnabled,
+                channel: 'menu:save',
+            }),
+            createWindowMenuAction({
                 label: te('menu.saveAs'),
                 accelerator: 'CmdOrCtrl+Shift+S',
-                click: (_, window) => {
-                    sendToWindow(window, 'menu:saveAs');
-                },
-            },
+                enabled: documentActionsEnabled,
+                channel: 'menu:saveAs',
+            }),
             {
                 label: te('menu.export'),
-                enabled: menuState.hasDocument,
+                enabled: documentActionsEnabled,
                 submenu: [
-                    {
+                    createWindowMenuAction({
                         label: te('menu.exportDocx'),
                         accelerator: 'CmdOrCtrl+Shift+E',
-                        click: (_, window) => {
-                            sendToWindow(window, 'menu:exportDocx');
-                        },
-                    },
-                    {
+                        channel: 'menu:exportDocx',
+                    }),
+                    createWindowMenuAction({
                         label: te('menu.exportImages'),
-                        click: (_, window) => {
-                            sendToWindow(window, 'menu:exportImages');
-                        },
-                    },
-                    {
+                        channel: 'menu:exportImages',
+                    }),
+                    createWindowMenuAction({
                         label: te('menu.exportMultiPageTiff'),
-                        click: (_, window) => {
-                            sendToWindow(window, 'menu:exportMultiPageTiff');
-                        },
-                    },
+                        channel: 'menu:exportMultiPageTiff',
+                    }),
                 ],
             },
-            {
+            createWindowMenuAction({
                 label: te('menu.convertToPdf'),
-                click: (_, window) => {
-                    sendToWindow(window, 'menu:convertToPdf');
-                },
-            },
+                channel: 'menu:convertToPdf',
+            }),
             { type: 'separator' },
-            {
+            createWindowMenuAction({
                 label: te('menu.newTab'),
                 accelerator: 'CmdOrCtrl+T',
-                click: (_, window) => {
-                    sendToWindow(window, 'menu:newTab');
-                },
-            },
-            {
+                channel: 'menu:newTab',
+            }),
+            createWindowMenuAction({
                 label: te('menu.closeTab'),
                 accelerator: 'CmdOrCtrl+W',
-                click: (_, window) => {
-                    sendToWindow(window, 'menu:closeTab');
-                },
-            },
+                channel: 'menu:closeTab',
+            }),
             ...(config.isMac ? [] : [
                 { type: 'separator' as const },
                 {
@@ -140,23 +151,23 @@ function getFileMenu(): MenuItemConstructorOptions {
 }
 
 function getEditMenu(): MenuItemConstructorOptions {
+    const documentActionsEnabled = menuState.hasDocument;
+
     return {
         label: te('menu.actions'),
         submenu: [
-            {
+            createWindowMenuAction({
                 label: te('menu.undo'),
                 accelerator: 'CmdOrCtrl+Z',
-                click: (_, window) => {
-                    sendToWindow(window, 'menu:undo');
-                },
-            },
-            {
+                enabled: documentActionsEnabled,
+                channel: 'menu:undo',
+            }),
+            createWindowMenuAction({
                 label: te('menu.redo'),
-                accelerator: 'CmdOrCtrl+Shift+Z',
-                click: (_, window) => {
-                    sendToWindow(window, 'menu:redo');
-                },
-            },
+                accelerator: config.isMac ? 'Cmd+Shift+Z' : 'Ctrl+Y',
+                enabled: documentActionsEnabled,
+                channel: 'menu:redo',
+            }),
             { type: 'separator' },
             {
                 label: te('menu.copy'),
@@ -172,83 +183,71 @@ function getEditMenu(): MenuItemConstructorOptions {
 function getPagesMenu(): MenuItemConstructorOptions {
     return {
         label: te('menu.pages'),
+        enabled: menuState.hasDocument,
         submenu: [
-            {
+            createWindowMenuAction({
                 label: te('menu.deleteSelectedPages'),
-                click: (_, window) => {
-                    sendToWindow(window, 'menu:deletePages');
-                },
-            },
-            {
+                channel: 'menu:deletePages',
+            }),
+            createWindowMenuAction({
                 label: te('menu.extractSelectedPages'),
-                click: (_, window) => {
-                    sendToWindow(window, 'menu:extractPages');
-                },
-            },
+                channel: 'menu:extractPages',
+            }),
             { type: 'separator' },
-            {
+            createWindowMenuAction({
                 label: te('menu.rotateClockwise'),
-                click: (_, window) => {
-                    sendToWindow(window, 'menu:rotateCw');
-                },
-            },
-            {
+                channel: 'menu:rotateCw',
+            }),
+            createWindowMenuAction({
                 label: te('menu.rotateCounterclockwise'),
-                click: (_, window) => {
-                    sendToWindow(window, 'menu:rotateCcw');
-                },
-            },
+                channel: 'menu:rotateCcw',
+            }),
             { type: 'separator' },
-            {
+            createWindowMenuAction({
                 label: te('menu.insertPages'),
-                click: (_, window) => {
-                    sendToWindow(window, 'menu:insertPages');
-                },
-            },
+                channel: 'menu:insertPages',
+            }),
         ],
     };
 }
 
 function getViewMenu(): MenuItemConstructorOptions {
+    const documentActionsEnabled = menuState.hasDocument;
+
     return {
         label: te('menu.view'),
         submenu: [
-            {
+            createWindowMenuAction({
                 label: te('menu.zoomIn'),
-                accelerator: 'CmdOrCtrl+Plus',
-                click: (_, window) => {
-                    sendToWindow(window, 'menu:zoomIn');
-                },
-            },
-            {
+                accelerator: 'CmdOrCtrl+=',
+                enabled: documentActionsEnabled,
+                channel: 'menu:zoomIn',
+            }),
+            createWindowMenuAction({
                 label: te('menu.zoomOut'),
                 accelerator: 'CmdOrCtrl+-',
-                click: (_, window) => {
-                    sendToWindow(window, 'menu:zoomOut');
-                },
-            },
-            {
+                enabled: documentActionsEnabled,
+                channel: 'menu:zoomOut',
+            }),
+            createWindowMenuAction({
                 label: te('menu.actualSize'),
                 accelerator: 'CmdOrCtrl+0',
-                click: (_, window) => {
-                    sendToWindow(window, 'menu:actualSize');
-                },
-            },
+                enabled: documentActionsEnabled,
+                channel: 'menu:actualSize',
+            }),
             { type: 'separator' },
-            {
+            createWindowMenuAction({
                 label: te('menu.fitWidth'),
                 accelerator: 'CmdOrCtrl+1',
-                click: (_, window) => {
-                    sendToWindow(window, 'menu:fitWidth');
-                },
-            },
-            {
+                enabled: documentActionsEnabled,
+                channel: 'menu:fitWidth',
+            }),
+            createWindowMenuAction({
                 label: te('menu.fitHeight'),
                 accelerator: 'CmdOrCtrl+2',
-                click: (_, window) => {
-                    sendToWindow(window, 'menu:fitHeight');
-                },
-            },
+                enabled: documentActionsEnabled,
+                channel: 'menu:fitHeight',
+            }),
             { type: 'separator' },
             { role: 'toggleDevTools' },
         ],
