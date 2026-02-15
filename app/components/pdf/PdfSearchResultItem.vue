@@ -72,14 +72,18 @@ function applyHighlight() {
         return;
     }
 
-    try {
-        const range = new Range();
-        range.setStart(textNode, matchStart.value);
-        range.setEnd(textNode, matchEnd.value);
-        registerSearchHighlight(highlightId, range);
-    } catch {
-        // Range may be invalid if text changed
+    const textLength = textNode.textContent?.length ?? 0;
+    const start = Math.max(0, Math.min(matchStart.value, textLength));
+    const end = Math.max(start, Math.min(matchEnd.value, textLength));
+
+    if (start === end) {
+        return;
     }
+
+    const range = new Range();
+    range.setStart(textNode, start);
+    range.setEnd(textNode, end);
+    registerSearchHighlight(highlightId, range);
 }
 
 function clearHighlight() {
