@@ -1,13 +1,14 @@
-import { spawnSync } from 'child_process';
 import { existsSync } from 'fs';
 import {
     copyFile,
     mkdir,
     mkdtemp,
     readdir,
+    readFile,
     rename,
     rm,
     unlink,
+    writeFile,
 } from 'fs/promises';
 import { tmpdir } from 'os';
 import {
@@ -17,6 +18,7 @@ import {
     join,
 } from 'path';
 import { uniq } from 'es-toolkit/array';
+import * as utifModule from 'utif';
 import { getOcrToolPaths } from '@electron/ocr/paths';
 import { runCommand } from '@electron/ocr/worker/run-command';
 
@@ -33,6 +35,27 @@ interface IPreparedSourcePdf {
     pdfPath: string;
     cleanup: () => Promise<void>;
 }
+
+interface IUtifFrame {
+    width?: number;
+    height?: number;
+    [key: string]: unknown;
+}
+
+interface IUtifModule {
+    decode(input: Uint8Array | ArrayBuffer): IUtifFrame[];
+    decodeImage(input: Uint8Array | ArrayBuffer, frame: IUtifFrame): void;
+    toRGBA8(frame: IUtifFrame): Uint8Array;
+    encode(ifds: Record<string, unknown>[]): ArrayBuffer;
+}
+
+interface ITiffPageRgba {
+    width: number;
+    height: number;
+    rgba: Uint8Array;
+}
+
+const UTIF = utifModule as IUtifModule;
 
 function resolveFormatExtension(format: TImageExportFormat): string {
     if (format === 'jpeg') {
@@ -274,59 +297,131 @@ export async function exportPdfPagesAsImages(
     }
 }
 
-function findExecutable(command: string): string | null {
-    const lookupCommand = process.platform === 'win32' ? 'where' : 'which';
-    const result = spawnSync(lookupCommand, [command], {
-        encoding: 'utf-8',
-        stdio: [
-            'ignore',
-            'pipe',
-            'ignore',
-        ],
-    });
+function decodeSinglePageTiff(tiffBytes: Uint8Array): ITiffPageRgba {
+    const ifds = UTIF.decode(tiffBytes);
 
-    if (result.status !== 0) {
-        return null;
+    for (const ifd of ifds) {
+        UTIF.decodeImage(tiffBytes, ifd);
+
+        const width = typeof ifd.width === 'number' ? ifd.width : 0;
+        const height = typeof ifd.height === 'number' ? ifd.height : 0;
+        if (width <= 0 || height <= 0) {
+            continue;
+        }
+
+        const rgba = UTIF.toRGBA8(ifd);
+        if (!rgba || rgba.length !== width * height * 4) {
+            continue;
+        }
+
+        return {
+            width,
+            height,
+            rgba,
+        };
     }
 
-    const firstLine = (result.stdout ?? '')
-        .split(/\r?\n/)
-        .map(line => line.trim())
-        .find(line => line.length > 0);
+    throw new Error('Failed to decode TIFF page data');
+}
 
-    return firstLine ?? null;
+function alignOffset(offset: number, alignment: number): number {
+    if (alignment <= 1) {
+        return offset;
+    }
+    const remainder = offset % alignment;
+    return remainder === 0 ? offset : offset + (alignment - remainder);
+}
+
+function buildTiffIfd(
+    page: ITiffPageRgba,
+    dataOffset: number,
+): Record<string, unknown> {
+    return {
+        t256: [page.width],
+        t257: [page.height],
+        t258: [
+            8,
+            8,
+            8,
+            8,
+        ],
+        t259: [1],
+        t262: [2],
+        t273: [dataOffset],
+        t277: [4],
+        t278: [page.height],
+        t279: [page.rgba.length],
+        t282: [1],
+        t283: [1],
+        t284: [1],
+        t286: [0],
+        t287: [0],
+        t296: [1],
+        t305: ['EVB Viewer'],
+        t338: [1],
+    };
+}
+
+function resolvePageDataOffsets(
+    pages: ITiffPageRgba[],
+    firstDataOffset: number,
+): number[] {
+    const offsets: number[] = [];
+    let cursor = firstDataOffset;
+
+    for (const page of pages) {
+        offsets.push(cursor);
+        cursor += page.rgba.length;
+    }
+
+    return offsets;
 }
 
 async function combinePagesIntoMultiPageTiff(pagePaths: string[], outputPath: string) {
-    const tiffcp = findExecutable('tiffcp');
-    if (tiffcp) {
-        await runCommand(tiffcp, [
-            ...pagePaths,
-            outputPath,
-        ]);
-        return;
+    if (pagePaths.length === 0) {
+        throw new Error('No pages available for TIFF export');
     }
 
-    if (process.platform === 'darwin') {
-        await runCommand('/usr/bin/tiffutil', [
-            '-cat',
-            ...pagePaths,
-            '-out',
-            outputPath,
-        ]);
-        return;
+    const pages: ITiffPageRgba[] = [];
+
+    for (const pagePath of pagePaths) {
+        const tiffBytes = await readFile(pagePath);
+        pages.push(decodeSinglePageTiff(tiffBytes));
     }
 
-    const magick = findExecutable('magick');
-    if (magick) {
-        await runCommand(magick, [
-            ...pagePaths,
-            outputPath,
-        ]);
-        return;
+    // UTIF encodes IFDs only; pixel data must be appended at explicit offsets.
+    let firstDataOffset = 0;
+    let header = new Uint8Array();
+    let pageOffsets: number[] = [];
+
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+        pageOffsets = resolvePageDataOffsets(pages, firstDataOffset);
+        const ifds = pages.map((page, index) => buildTiffIfd(page, pageOffsets[index]!));
+        header = new Uint8Array(UTIF.encode(ifds));
+        const nextFirstDataOffset = alignOffset(header.length, 8);
+        if (nextFirstDataOffset === firstDataOffset) {
+            break;
+        }
+        firstDataOffset = nextFirstDataOffset;
     }
 
-    throw new Error('No available utility to create multi-page TIFF (tiffcp, tiffutil, or magick)');
+    pageOffsets = resolvePageDataOffsets(pages, alignOffset(header.length, 8));
+    const finalIfds = pages.map((page, index) => buildTiffIfd(page, pageOffsets[index]!));
+    header = new Uint8Array(UTIF.encode(finalIfds));
+
+    const finalFirstDataOffset = alignOffset(header.length, 8);
+    pageOffsets = resolvePageDataOffsets(pages, finalFirstDataOffset);
+
+    const lastPage = pages[pages.length - 1]!;
+    const lastOffset = pageOffsets[pageOffsets.length - 1]!;
+    const output = new Uint8Array(lastOffset + lastPage.rgba.length);
+    output.set(header, 0);
+
+    for (let index = 0; index < pages.length; index += 1) {
+        output.set(pages[index]!.rgba, pageOffsets[index]!);
+    }
+
+    await writeFile(outputPath, output);
 }
 
 export async function exportPdfAsMultiPageTiff(
