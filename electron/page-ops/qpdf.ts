@@ -6,6 +6,9 @@ import {
 import { existsSync } from 'fs';
 import { runCommand } from '@electron/ocr/worker/run-command';
 import { getOcrToolPaths } from '@electron/ocr/paths';
+import { createLogger } from '@electron/utils/logger';
+
+const log = createLogger('page-ops-qpdf');
 
 function getQpdfBinary() {
     return getOcrToolPaths().qpdf;
@@ -41,8 +44,10 @@ async function cleanupTemp(tempPath: string) {
         if (existsSync(tempPath)) {
             await unlink(tempPath);
         }
-    } catch {
-        // best-effort cleanup
+    } catch (cleanupError) {
+        log.debug(`Failed to cleanup qpdf temp file "${tempPath}": ${
+            cleanupError instanceof Error ? cleanupError.message : String(cleanupError)
+        }`);
     }
 }
 

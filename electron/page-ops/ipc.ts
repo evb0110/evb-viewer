@@ -23,7 +23,10 @@ import {
     rotatePages,
 } from '@electron/page-ops/qpdf';
 import type { TRotationAngle } from '@electron/page-ops/qpdf';
+import { createLogger } from '@electron/utils/logger';
 import { te } from '@electron/i18n';
+
+const log = createLogger('page-ops-ipc');
 
 function validateWorkingCopyPath(path: unknown): asserts path is string {
     if (!path || typeof path !== 'string' || path.trim() === '') {
@@ -246,8 +249,10 @@ async function prepareInsertionSourcePdf(
                     const { unlink } = await import('fs/promises');
                     await unlink(tempSourcePdfPath);
                 }
-            } catch {
-                // best-effort
+            } catch (cleanupError) {
+                log.debug(`Failed to cleanup insertion source PDF "${tempSourcePdfPath}": ${
+                    cleanupError instanceof Error ? cleanupError.message : String(cleanupError)
+                }`);
             }
         },
     };
@@ -303,8 +308,10 @@ async function insertPagesFromSourcePaths(
             if (existsSync(tempPath)) {
                 await unlink(tempPath);
             }
-        } catch {
-            // best-effort
+        } catch (cleanupError) {
+            log.debug(`Failed to cleanup temporary insert output "${tempPath}": ${
+                cleanupError instanceof Error ? cleanupError.message : String(cleanupError)
+            }`);
         }
         throw err;
     } finally {
