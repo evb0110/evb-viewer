@@ -102,6 +102,15 @@
             </template>
         </PdfToolbar>
 
+        <UAlert
+            v-if="pdfError"
+            color="error"
+            variant="soft"
+            class="mx-3 mt-2"
+            :description="String(pdfError)"
+            :ui="{ title: 'sr-only' }"
+        />
+
         <DjvuBanner
             v-if="isDjvuMode"
             :visible="djvuShowBanner"
@@ -339,6 +348,7 @@ const w = useWorkspaceOrchestration({
 
 const {
     pdfSrc,
+    pdfError,
     pdfData,
     workingCopyPath,
     pdfDocument,

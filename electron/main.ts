@@ -48,6 +48,14 @@ const SUPPORTED_EXTENSIONS = new Set([
     '.pdf',
     '.djvu',
     '.djv',
+    '.png',
+    '.jpg',
+    '.jpeg',
+    '.tif',
+    '.tiff',
+    '.bmp',
+    '.webp',
+    '.gif',
 ]);
 const pendingOpenRequests: string[][] = [];
 let rendererReady = false;
@@ -74,6 +82,10 @@ function normalizeCommandLineArg(arg: string): string | null {
         return null;
     }
 
+    if (process.platform === 'win32' && normalized.startsWith('/')) {
+        return null;
+    }
+
     if (normalized.startsWith('file://')) {
         try {
             return fileURLToPath(normalized);
@@ -87,19 +99,50 @@ function normalizeCommandLineArg(arg: string): string | null {
 
 function collectSupportedPathsFromArgs(args: string[]): string[] {
     const files: string[] = [];
-    for (const arg of args) {
-        const normalized = normalizeCommandLineArg(arg);
-        if (normalized && isSupportedFile(normalized)) {
+    for (let i = 0; i < args.length; i++) {
+        const normalized = normalizeCommandLineArg(args[i] ?? '');
+        if (!normalized) {
+            continue;
+        }
+
+        if (isSupportedFile(normalized)) {
             files.push(normalized);
+            continue;
+        }
+
+        // Some shell verbs can emit unquoted multi-token paths (e.g., from %*).
+        // Reconstruct path candidates by joining subsequent tokens with spaces.
+        let candidate = normalized;
+        for (let j = i + 1; j < args.length && j <= i + 7; j++) {
+            const nextToken = normalizeCommandLineArg(args[j] ?? '');
+            if (!nextToken) {
+                break;
+            }
+            candidate = `${candidate} ${nextToken}`;
+            if (isSupportedFile(candidate)) {
+                files.push(candidate);
+                i = j;
+                break;
+            }
         }
     }
     return files;
 }
 
 function queueOpenRequest(paths: string[]) {
+    const seen = new Set<string>();
     const normalizedPaths = paths
         .map(path => path.trim())
-        .filter(path => path.length > 0);
+        .filter((path) => {
+            if (path.length === 0) {
+                return false;
+            }
+            if (seen.has(path)) {
+                return false;
+            }
+            seen.add(path);
+            return true;
+        });
     if (normalizedPaths.length === 0) {
         return;
     }
@@ -107,7 +150,11 @@ function queueOpenRequest(paths: string[]) {
 }
 
 function queueOpenRequestFromArgs(args: string[]) {
-    queueOpenRequest(collectSupportedPathsFromArgs(args));
+    const parsedPaths = collectSupportedPathsFromArgs(args);
+    if (parsedPaths.length > 0) {
+        logger.info(`Parsed external open paths (${parsedPaths.length}): ${parsedPaths.join(' | ')}`);
+    }
+    queueOpenRequest(parsedPaths);
 }
 
 function focusMainWindow() {

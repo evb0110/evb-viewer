@@ -62,6 +62,14 @@ export const useOcr = () => {
         return message.replace(REMOTE_METHOD_PREFIX_RE, '').trim();
     }
 
+    function truncateErrorDetails(message: string) {
+        const trimmed = message.trim();
+        if (trimmed.length <= 240) {
+            return trimmed;
+        }
+        return `${trimmed.slice(0, 237)}...`;
+    }
+
     function isKnownLocalizedOcrError(message: string): boolean {
         return [
             t('errors.file.invalid'),
@@ -105,7 +113,7 @@ export const useOcr = () => {
             return t(fallbackKey);
         }
 
-        return t(fallbackKey);
+        return `${t(fallbackKey)}: ${truncateErrorDetails(normalized)}`;
     }
 
     async function loadLanguages() {

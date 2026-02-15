@@ -62,6 +62,14 @@ function normalizeInputPaths(paths: string[]) {
         .filter(path => path.length > 0);
 }
 
+function errorWithDetails(fallbackMessage: string, details: unknown): Error {
+    const detailText = details instanceof Error ? details.message : String(details ?? '').trim();
+    if (!detailText) {
+        return new Error(fallbackMessage);
+    }
+    return new Error(`${fallbackMessage}: ${detailText}`);
+}
+
 async function openInputPaths(paths: string[]): Promise<IOpenFileResult | null> {
     const normalizedPaths = normalizeInputPaths(paths);
     if (normalizedPaths.length === 0) {
@@ -69,17 +77,17 @@ async function openInputPaths(paths: string[]): Promise<IOpenFileResult | null> 
     }
 
     if (normalizedPaths.some(path => !existsSync(path))) {
-        return null;
+        throw new Error(te('errors.file.invalid'));
     }
 
     if (normalizedPaths.some(path => !isSupportedOpenPath(path))) {
-        return null;
+        throw new Error(te('errors.file.invalid'));
     }
 
     const djvuPaths = normalizedPaths.filter(path => isDjvuPath(path));
     if (djvuPaths.length > 0) {
         if (normalizedPaths.length !== 1 || djvuPaths.length !== 1) {
-            return null;
+            throw new Error(te('errors.file.invalid'));
         }
 
         const djvuPath = djvuPaths[0]!;
@@ -135,7 +143,7 @@ export async function handleOpenPdfDirect(
         return await openInputPaths([filePath]);
     } catch (err) {
         logger.error(`Failed to create working copy: ${err instanceof Error ? err.message : String(err)}`);
-        return null;
+        throw errorWithDetails(te('errors.file.open'), err);
     }
 }
 
@@ -151,7 +159,7 @@ export async function handleOpenPdfDirectBatch(
         return await openInputPaths(filePaths);
     } catch (err) {
         logger.error(`Failed to create working copy from batch: ${err instanceof Error ? err.message : String(err)}`);
-        return null;
+        throw errorWithDetails(te('errors.file.open'), err);
     }
 }
 
@@ -188,7 +196,7 @@ export async function handleOpenPdfDialog(): Promise<IOpenFileResult | null> {
         return await openInputPaths(result.filePaths);
     } catch (err) {
         logger.error(`Failed to create working copy: ${err instanceof Error ? err.message : String(err)}`);
-        return null;
+        throw errorWithDetails(te('errors.file.open'), err);
     }
 }
 
