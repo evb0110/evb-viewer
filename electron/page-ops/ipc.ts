@@ -4,7 +4,12 @@ import {
     dialog,
 } from 'electron';
 import { existsSync } from 'fs';
-import { readFile } from 'fs/promises';
+import {
+    readFile,
+    rename,
+    unlink,
+    writeFile,
+} from 'fs/promises';
 import {
     basename,
     extname,
@@ -25,6 +30,8 @@ import {
 import type { TRotationAngle } from '@electron/page-ops/qpdf';
 import { createLogger } from '@electron/utils/logger';
 import { te } from '@electron/i18n';
+import { runCommand } from '@electron/ocr/worker/run-command';
+import { getOcrToolPaths } from '@electron/ocr/paths';
 
 const log = createLogger('page-ops-ipc');
 
@@ -238,7 +245,6 @@ async function prepareInsertionSourcePdf(
         '..',
         `insert-source-${Date.now()}-${Math.random().toString(36).slice(2)}.pdf`,
     );
-    const { writeFile } = await import('fs/promises');
     await writeFile(tempSourcePdfPath, mergedPdf);
 
     return {
@@ -246,7 +252,6 @@ async function prepareInsertionSourcePdf(
         cleanup: async () => {
             try {
                 if (existsSync(tempSourcePdfPath)) {
-                    const { unlink } = await import('fs/promises');
                     await unlink(tempSourcePdfPath);
                 }
             } catch (cleanupError) {
@@ -264,13 +269,6 @@ async function insertPagesFromSourcePaths(
     sourcePaths: string[],
     afterPage: number,
 ) {
-    const { runCommand } = await import('@electron/ocr/worker/run-command');
-    const { getOcrToolPaths } = await import('@electron/ocr/paths');
-    const {
-        rename,
-        unlink,
-    } = await import('fs/promises');
-
     const qpdf = getOcrToolPaths().qpdf;
     const dir = join(workingCopyPath, '..');
     const id = `tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`;

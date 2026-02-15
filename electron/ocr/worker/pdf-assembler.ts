@@ -3,6 +3,7 @@ import {
     writeFile,
 } from 'fs/promises';
 import { join } from 'path';
+import { PDFDocument } from 'pdf-lib';
 import type { TWorkerLog } from '@electron/ocr/worker/types';
 import { runCommand } from '@electron/ocr/worker/run-command';
 
@@ -38,7 +39,6 @@ export async function assembleSearchablePdf(
 ): Promise<string> {
     log('debug', `Overlaying ${ocrPdfMap.size} text layers onto original PDF`);
 
-    const { PDFDocument } = await import('pdf-lib');
     const overlayDoc = await PDFDocument.create();
 
     for (let pageNum = 1; pageNum <= pageCount; pageNum++) {

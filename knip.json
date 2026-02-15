@@ -10,6 +10,7 @@
         "app/constants/**/*.ts",
         "electron/main.ts",
         "electron/preload.ts",
+        "electron/image/pdf-combine-worker.ts",
         "electron/ocr/worker/main.ts",
         "scripts/electron-run/**/*.ts"
     ],
@@ -24,6 +25,7 @@
     },
     "ignore": [
         "app/types/*.d.ts",
+        "electron/types/utif.d.ts",
         ".nuxt/**"
     ],
     "ignoreDependencies": [

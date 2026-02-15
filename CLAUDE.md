@@ -135,6 +135,21 @@ pnpm lint && pnpm typecheck
 
 Both must exit with zero errors. Fix any issues introduced by your changes before reporting completion. This applies to all code changes — features, bug fixes, refactors, and style updates.
 
+## Cross-Arch Packaging Safety
+
+**Rule**: For Electron/runtime, native-tool, or packaging changes, verify architecture safety explicitly.
+
+Required checks:
+1. Run baseline checks: `pnpm lint && pnpm typecheck`
+2. Run source matrix check: `pnpm run check:resources:matrix`
+3. If you built a distributable, verify packaged resources for each produced target with:
+   - `scripts/verify-packaged-native-tools.sh mac <x64|arm64>`
+   - `scripts/verify-packaged-native-tools.sh win <x64|arm64>`
+   - `scripts/verify-packaged-native-tools.sh linux <x64|arm64>`
+
+Implementation rule for Electron code:
+- Do not use `eval` workers or runtime package-resolution tricks for production paths; prefer bundled worker files and static imports.
+
 ## Dead Code Detection (Knip)
 
 **Rule**: Run `pnpm validate` (which includes `pnpm knip`) after major changes — refactors, feature completions, or dependency changes. Do not run it after every small step or individual stage.

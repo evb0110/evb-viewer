@@ -53,6 +53,17 @@ After confirming a change works and introduces no regressions:
 
 Do NOT batch multiple unrelated changes into a single commit. Each commit should represent one logical unit of work.
 
+## Cross-Arch Checks
+
+**Rule**: If your change touches Electron runtime, native binaries/tools, OCR/DjVu paths, workers, or packaging, run architecture checks before finishing.
+
+Required commands:
+1. `pnpm lint && pnpm typecheck`
+2. `pnpm run check:resources:matrix`
+3. If a packaged build exists for a target, run `scripts/verify-packaged-native-tools.sh <mac|win|linux> <x64|arm64>` for that target/arch.
+
+Do not ship Electron changes that rely on `eval` workers or runtime package lookup in production paths.
+
 ## Autonomous Continuation
 
 **Rule**: Continue to the next stage of work autonomously after completing the current one.

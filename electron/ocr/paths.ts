@@ -9,6 +9,7 @@ import {
     join,
 } from 'path';
 import { fileURLToPath } from 'url';
+import { resolvePlatformArchTag } from '@electron/utils/platform-arch';
 
 interface IOcrPaths {
     binary: string;
@@ -55,37 +56,6 @@ interface IToolValidationResult {
 }
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-
-function getPlatformArch(): string {
-    const platform = process.platform;
-    const arch = process.arch;
-
-    // Map Node.js arch names to our directory names
-    const archMap: Record<string, string> = {
-        arm64: 'arm64',
-        ia32: 'ia32',
-        x64: 'x64',
-    };
-
-    const mappedArch = archMap[arch];
-    if (!mappedArch) {
-        throw new Error(`Unsupported architecture: ${arch}`);
-    }
-
-    // Map Node.js platform names to our directory names
-    const platformMap: Record<string, string> = {
-        darwin: 'darwin',
-        win32: 'win32',
-        linux: 'linux',
-    };
-
-    const mappedPlatform = platformMap[platform];
-    if (!mappedPlatform) {
-        throw new Error(`Unsupported platform: ${platform}`);
-    }
-
-    return `${mappedPlatform}-${mappedArch}`;
-}
 
 function getResourcesBase(): string {
     if (app.isPackaged) {
@@ -159,7 +129,7 @@ function getToolVersion(path: string, versionFlag = '--version'): string | undef
 }
 
 export function getOcrPaths(): IOcrPaths {
-    const platformArch = getPlatformArch();
+    const platformArch = resolvePlatformArchTag();
     const resourcesBase = getResourcesBase();
 
     const tesseractDir = join(resourcesBase, 'tesseract');
@@ -178,7 +148,7 @@ export function getOcrPaths(): IOcrPaths {
 }
 
 export function getOcrToolPaths(): IOcrToolPaths {
-    const platformArch = getPlatformArch();
+    const platformArch = resolvePlatformArchTag();
     const resourcesBase = getResourcesBase();
 
     // Tesseract paths

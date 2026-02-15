@@ -1,15 +1,16 @@
 import { nativeImage } from 'electron';
 import { readFile } from 'fs/promises';
-import { createRequire } from 'module';
 import {
     basename,
     dirname,
     extname,
     join,
 } from 'path';
+import { fileURLToPath } from 'url';
 import { Worker } from 'worker_threads';
 import { encode } from 'fast-png';
 import { PDFDocument } from 'pdf-lib';
+import * as utifModule from 'utif';
 import { createLogger } from '@electron/utils/logger';
 
 interface IUtifFrame {
@@ -24,9 +25,16 @@ interface IUtifModule {
     toRGBA8(frame: IUtifFrame): Uint8Array;
 }
 
-const require = createRequire(import.meta.url);
-const UTIF = require('utif') as IUtifModule;
+interface ICombineWorkerPayload {
+    ok?: boolean;
+    error?: string;
+    data?: unknown;
+}
+
+const UTIF = utifModule as IUtifModule;
 const logger = createLogger('pdf-conversion');
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const COMBINE_WORKER_FILENAME = 'pdf-combine-worker.js';
 const WORKER_SUPPORTED_IMAGE_EXTENSIONS = new Set<string>([
     '.png',
     '.jpg',
@@ -245,172 +253,42 @@ function canCombineInWorker(inputPaths: string[]): boolean {
     });
 }
 
-const COMBINE_WORKER_SCRIPT = `
-import { parentPort, workerData } from 'worker_threads';
-import { readFile } from 'fs/promises';
-import { createRequire } from 'module';
-import { extname } from 'path';
-import { PDFDocument } from 'pdf-lib';
-import { encode } from 'fast-png';
-
-const require = createRequire(import.meta.url);
-const UTIF = require('utif');
-
-async function appendPdfPages(targetPdf, sourcePath) {
-    const sourceBytes = await readFile(sourcePath);
-    const sourcePdf = await PDFDocument.load(sourceBytes);
-    const pageIndices = sourcePdf.getPageIndices();
-
-    if (pageIndices.length === 0) {
-        return 0;
-    }
-
-    const copiedPages = await targetPdf.copyPages(sourcePdf, pageIndices);
-    for (const page of copiedPages) {
-        targetPdf.addPage(page);
-    }
-    return copiedPages.length;
+function getCombineWorkerPath(): string {
+    return join(__dirname, COMBINE_WORKER_FILENAME);
 }
 
-async function appendPngOrJpegPage(targetPdf, sourcePath, extension) {
-    const imageBytes = await readFile(sourcePath);
-    const embeddedImage = extension === '.jpg' || extension === '.jpeg'
-        ? await targetPdf.embedJpg(imageBytes)
-        : await targetPdf.embedPng(imageBytes);
-
-    const page = targetPdf.addPage([embeddedImage.width, embeddedImage.height]);
-    page.drawImage(embeddedImage, {
-        x: 0,
-        y: 0,
-        width: embeddedImage.width,
-        height: embeddedImage.height,
-    });
-
-    return 1;
+function decodeWorkerPdfBytes(data: unknown): Uint8Array | null {
+    if (data instanceof Uint8Array) {
+        return data;
+    }
+    if (data instanceof ArrayBuffer) {
+        return new Uint8Array(data);
+    }
+    if (ArrayBuffer.isView(data)) {
+        return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+    }
+    return null;
 }
-
-async function appendTiffPages(targetPdf, sourcePath) {
-    const tiffBytes = await readFile(sourcePath);
-    const ifds = UTIF.decode(tiffBytes);
-    let addedPages = 0;
-
-    for (const ifd of ifds) {
-        UTIF.decodeImage(tiffBytes, ifd);
-        const width = typeof ifd.width === 'number' ? ifd.width : 0;
-        const height = typeof ifd.height === 'number' ? ifd.height : 0;
-
-        if (width <= 0 || height <= 0) {
-            continue;
-        }
-
-        const rgba = UTIF.toRGBA8(ifd);
-        if (!rgba || rgba.length === 0) {
-            continue;
-        }
-
-        const pngBytes = encode({
-            width,
-            height,
-            data: rgba,
-            channels: 4,
-        });
-
-        const embeddedImage = await targetPdf.embedPng(pngBytes);
-        const page = targetPdf.addPage([embeddedImage.width, embeddedImage.height]);
-        page.drawImage(embeddedImage, {
-            x: 0,
-            y: 0,
-            width: embeddedImage.width,
-            height: embeddedImage.height,
-        });
-        addedPages += 1;
-    }
-
-    if (addedPages === 0) {
-        throw new Error('No decodable TIFF pages found in ' + sourcePath);
-    }
-
-    return addedPages;
-}
-
-async function createCombinedPdf(inputPaths) {
-    const normalizedPaths = inputPaths
-        .map(path => String(path).trim())
-        .filter(path => path.length > 0);
-
-    if (normalizedPaths.length === 0) {
-        throw new Error('No input files were provided');
-    }
-
-    const targetPdf = await PDFDocument.create();
-    let pageCount = 0;
-
-    for (const sourcePath of normalizedPaths) {
-        const extension = extname(sourcePath).toLowerCase();
-
-        if (extension === '.pdf') {
-            pageCount += await appendPdfPages(targetPdf, sourcePath);
-            continue;
-        }
-
-        if (extension === '.png' || extension === '.jpg' || extension === '.jpeg') {
-            pageCount += await appendPngOrJpegPage(targetPdf, sourcePath, extension);
-            continue;
-        }
-
-        if (extension === '.tif' || extension === '.tiff') {
-            pageCount += await appendTiffPages(targetPdf, sourcePath);
-            continue;
-        }
-
-        throw new Error('Unsupported file type for worker combine: ' + sourcePath);
-    }
-
-    if (pageCount === 0) {
-        throw new Error('No pages were generated from the input files');
-    }
-
-    return targetPdf.save();
-}
-
-try {
-    const inputPaths = Array.isArray(workerData?.inputPaths) ? workerData.inputPaths : [];
-    const output = await createCombinedPdf(inputPaths);
-    parentPort?.postMessage({ ok: true, data: output }, [output.buffer]);
-} catch (error) {
-    parentPort?.postMessage({
-        ok: false,
-        error: error instanceof Error ? error.message : String(error),
-    });
-}
-`;
 
 function createPdfFromInputPathsWorker(
     inputPaths: string[],
 ): Promise<Uint8Array> {
     return new Promise((resolve, reject) => {
-        const worker = new Worker(COMBINE_WORKER_SCRIPT, {
-            eval: true,
-            workerData: { inputPaths },
-        });
+        const worker = new Worker(getCombineWorkerPath(), {workerData: { inputPaths }});
 
         let settled = false;
 
         worker.once('message', (message: unknown) => {
             settled = true;
-            const payload = message as {
-                ok?: boolean;
-                error?: string;
-                data?: Uint8Array;
-            };
+            const payload = message as ICombineWorkerPayload;
 
             if (!payload.ok) {
                 reject(new Error(payload.error || 'Image combine worker failed'));
                 return;
             }
 
-            const data = payload.data;
-            if (!data || !(data instanceof Uint8Array)) {
+            const data = decodeWorkerPdfBytes(payload.data);
+            if (!data) {
                 reject(new Error('Image combine worker returned invalid PDF data'));
                 return;
             }

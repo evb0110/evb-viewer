@@ -5,6 +5,7 @@ import {
     join,
 } from 'path';
 import { fileURLToPath } from 'url';
+import { resolvePlatformArchTag } from '@electron/utils/platform-arch';
 
 interface IDjvuToolPaths {
     ddjvu: string;
@@ -12,31 +13,6 @@ interface IDjvuToolPaths {
 }
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-
-function getPlatformArch(): string {
-    const archMap: Record<string, string> = {
-        arm64: 'arm64',
-        ia32: 'ia32',
-        x64: 'x64',
-    };
-    const platformMap: Record<string, string> = {
-        darwin: 'darwin',
-        win32: 'win32',
-        linux: 'linux',
-    };
-
-    const mappedArch = archMap[process.arch];
-    if (!mappedArch) {
-        throw new Error(`Unsupported architecture: ${process.arch}`);
-    }
-
-    const mappedPlatform = platformMap[process.platform];
-    if (!mappedPlatform) {
-        throw new Error(`Unsupported platform: ${process.platform}`);
-    }
-
-    return `${mappedPlatform}-${mappedArch}`;
-}
 
 function getResourcesBase(): string {
     if (app.isPackaged) {
@@ -62,7 +38,7 @@ function getBinaryPath(dir: string, name: string): string {
 }
 
 export function getDjvuToolPaths(): IDjvuToolPaths {
-    const platformArch = getPlatformArch();
+    const platformArch = resolvePlatformArchTag();
     const resourcesBase = getResourcesBase();
     const djvuDir = join(resourcesBase, 'djvulibre', platformArch);
 
@@ -73,7 +49,7 @@ export function getDjvuToolPaths(): IDjvuToolPaths {
 }
 
 export function getDjvuLibDir(): string {
-    const platformArch = getPlatformArch();
+    const platformArch = resolvePlatformArchTag();
     const resourcesBase = getResourcesBase();
     return join(resourcesBase, 'djvulibre', platformArch, 'lib');
 }

@@ -10,6 +10,7 @@ import {
 import { fileURLToPath } from 'url';
 import { app } from 'electron';
 import { createLogger } from '@electron/utils/logger';
+import { resolvePlatformArchTag } from '@electron/utils/platform-arch';
 
 const log = createLogger('preprocessing');
 
@@ -50,27 +51,7 @@ function getPreprocessingBinaries(): IPreprocessingBinaries {
     }
 
     const tesseractDir = join(resourcesBase, 'tesseract');
-    const mappedArch = process.arch === 'arm64'
-        ? 'arm64'
-        : process.arch === 'x64'
-            ? 'x64'
-            : null;
-
-    if (!mappedArch) {
-        throw new Error(`Unsupported architecture for preprocessing: ${process.arch}`);
-    }
-
-    const arch = process.platform === 'win32'
-        ? `win32-${mappedArch}`
-        : process.platform === 'darwin'
-            ? `darwin-${mappedArch}`
-            : process.platform === 'linux'
-                ? `linux-${mappedArch}`
-                : null;
-
-    if (!arch) {
-        throw new Error(`Unsupported platform for preprocessing: ${process.platform}`);
-    }
+    const arch = resolvePlatformArchTag();
 
     const binDir = join(tesseractDir, arch, 'bin');
     const ext = process.platform === 'win32' ? '.exe' : '';

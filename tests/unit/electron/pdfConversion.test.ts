@@ -105,6 +105,14 @@ describe('createPdfFromInputPaths worker fallback', () => {
             9,
         ]);
         expect(mocks.workerCtor).toHaveBeenCalledTimes(1);
+        const workerScript = mocks.workerCtor.mock.calls[0]?.[0] as string;
+        const workerOptions = mocks.workerCtor.mock.calls[0]?.[1] as {
+            eval?: boolean;
+            workerData?: { inputPaths?: string[] };
+        };
+        expect(workerScript).toContain('pdf-combine-worker');
+        expect(workerOptions.eval).toBeUndefined();
+        expect(workerOptions.workerData?.inputPaths).toEqual(['/tmp/input.pdf']);
         expect(mocks.create).toHaveBeenCalledTimes(1);
         expect(mocks.load).toHaveBeenCalledTimes(1);
         expect(mocks.loggerWarn).toHaveBeenCalledTimes(1);
