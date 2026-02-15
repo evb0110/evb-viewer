@@ -8,6 +8,7 @@ import {
 vi.mock('@app/constants/storage-keys', () => ({STORAGE_KEYS: {
     HIGHLIGHT_MODE: 'pdfHighlightMode',
     HIGHLIGHT_DEBUG: 'pdfHighlightDebug',
+    HIGHLIGHT_DEBUG_VERBOSE: 'pdfHighlightDebugVerbose',
 }}));
 
 const {
@@ -15,6 +16,7 @@ const {
     registerHighlightRange,
     getHighlightMode,
     isHighlightDebugEnabled,
+    isHighlightDebugVerboseEnabled,
 } = await import('@app/composables/pdfSearchHighlightCss');
 
 describe('createCssHighlightState', () => {
@@ -91,5 +93,11 @@ describe('getHighlightMode', () => {
 describe('isHighlightDebugEnabled', () => {
     it('returns false when window is undefined', () => {
         expect(isHighlightDebugEnabled()).toBe(false);
+    });
+});
+
+describe('isHighlightDebugVerboseEnabled', () => {
+    it('returns false when window is undefined', () => {
+        expect(isHighlightDebugVerboseEnabled()).toBe(false);
     });
 });

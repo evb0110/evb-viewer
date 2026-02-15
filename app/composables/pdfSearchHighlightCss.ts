@@ -42,6 +42,18 @@ export function isHighlightDebugEnabled() {
     }
 }
 
+export function isHighlightDebugVerboseEnabled() {
+    if (typeof window === 'undefined') {
+        return false;
+    }
+
+    try {
+        return window.localStorage?.getItem(STORAGE_KEYS.HIGHLIGHT_DEBUG_VERBOSE) === '1';
+    } catch {
+        return false;
+    }
+}
+
 export function createHighlightRangesInSpan(
     textNode: Text,
     spanStartOffset: number,

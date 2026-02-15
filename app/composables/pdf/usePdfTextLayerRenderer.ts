@@ -15,6 +15,7 @@ import { useOcrTextContent } from '@app/composables/pdf/useOcrTextContent';
 import {
     getHighlightMode,
     isHighlightDebugEnabled as isHighlightDebugEnabledFromStorage,
+    isHighlightDebugVerboseEnabled as isHighlightDebugVerboseEnabledFromStorage,
 } from '@app/composables/pdfSearchHighlightCss';
 import { BrowserLogger } from '@app/utils/browser-logger';
 
@@ -60,14 +61,7 @@ export const usePdfTextLayerRenderer = (deps: {
     }
 
     function isHighlightDebugVerboseEnabled() {
-        if (typeof window === 'undefined') {
-            return false;
-        }
-        try {
-            return window.localStorage?.getItem('pdfHighlightDebugVerbose') === '1';
-        } catch {
-            return false;
-        }
+        return isHighlightDebugVerboseEnabledFromStorage();
     }
 
     function maybeLogHighlightDebug(
