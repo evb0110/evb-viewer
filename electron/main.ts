@@ -60,6 +60,8 @@ const SUPPORTED_EXTENSIONS = new Set([
 const pendingOpenRequests: string[][] = [];
 let rendererReady = false;
 let defaultViewerPromptShown = false;
+let flushPendingFilesTimer: ReturnType<typeof setTimeout> | null = null;
+const EXTERNAL_OPEN_BATCH_WINDOW_MS = 250;
 
 function isSupportedFile(filePath: string) {
     return SUPPORTED_EXTENSIONS.has(extname(filePath).toLowerCase());
@@ -149,6 +151,28 @@ function queueOpenRequest(paths: string[]) {
     pendingOpenRequests.push(normalizedPaths);
 }
 
+function collectMergedPendingPaths() {
+    if (pendingOpenRequests.length === 0) {
+        return [];
+    }
+
+    const seen = new Set<string>();
+    const mergedPaths: string[] = [];
+
+    while (pendingOpenRequests.length > 0) {
+        const batch = pendingOpenRequests.shift()!;
+        for (const path of batch) {
+            if (seen.has(path)) {
+                continue;
+            }
+            seen.add(path);
+            mergedPaths.push(path);
+        }
+    }
+
+    return mergedPaths;
+}
+
 function queueOpenRequestFromArgs(args: string[]) {
     const parsedPaths = collectSupportedPathsFromArgs(args);
     if (parsedPaths.length > 0) {
@@ -170,6 +194,11 @@ function focusMainWindow() {
 }
 
 function flushPendingFiles() {
+    if (flushPendingFilesTimer) {
+        clearTimeout(flushPendingFilesTimer);
+        flushPendingFilesTimer = null;
+    }
+
     if (!rendererReady) {
         return;
     }
@@ -179,10 +208,20 @@ function flushPendingFiles() {
         return;
     }
 
-    while (pendingOpenRequests.length > 0) {
-        const paths = pendingOpenRequests.shift()!;
+    const paths = collectMergedPendingPaths();
+    if (paths.length > 0) {
         sendToWindow(window, 'menu:openExternalPaths', paths);
     }
+}
+
+function scheduleFlushPendingFiles() {
+    if (!rendererReady || flushPendingFilesTimer) {
+        return;
+    }
+
+    flushPendingFilesTimer = setTimeout(() => {
+        flushPendingFiles();
+    }, EXTERNAL_OPEN_BATCH_WINDOW_MS);
 }
 
 function maybePromptForDefaultViewer() {
@@ -208,7 +247,7 @@ if (!singleInstanceLock) {
 app.on('open-file', (event, filePath) => {
     event.preventDefault();
     queueOpenRequest([filePath]);
-    flushPendingFiles();
+    scheduleFlushPendingFiles();
 });
 
 // Windows/Linux: the OS passes the file path as a command-line argument
@@ -219,7 +258,7 @@ if (process.platform !== 'darwin') {
 app.on('second-instance', (_event, commandLine) => {
     queueOpenRequestFromArgs(commandLine.slice(1));
     focusMainWindow();
-    flushPendingFiles();
+    scheduleFlushPendingFiles();
 });
 
 async function init() {
@@ -246,7 +285,7 @@ async function init() {
     setupMenu();
     ipcMain.on('app:rendererReady', () => {
         rendererReady = true;
-        flushPendingFiles();
+        scheduleFlushPendingFiles();
         maybePromptForDefaultViewer();
     });
 
