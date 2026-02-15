@@ -10,6 +10,7 @@ import {
 import { Worker } from 'worker_threads';
 import { encode } from 'fast-png';
 import { PDFDocument } from 'pdf-lib';
+import { createLogger } from '@electron/utils/logger';
 
 interface IUtifFrame {
     width?: number;
@@ -25,6 +26,7 @@ interface IUtifModule {
 
 const require = createRequire(import.meta.url);
 const UTIF = require('utif') as IUtifModule;
+const logger = createLogger('pdf-conversion');
 const WORKER_SUPPORTED_IMAGE_EXTENSIONS = new Set<string>([
     '.png',
     '.jpg',
@@ -44,7 +46,9 @@ export const SUPPORTED_IMAGE_EXTENSIONS = [
     '.gif',
 ] as const;
 
-const SUPPORTED_IMAGE_EXTENSION_SET = new Set<string>(SUPPORTED_IMAGE_EXTENSIONS);
+const SUPPORTED_IMAGE_EXTENSION_SET = new Set<string>(
+    SUPPORTED_IMAGE_EXTENSIONS,
+);
 
 function isImagePath(filePath: string): boolean {
     return SUPPORTED_IMAGE_EXTENSION_SET.has(extname(filePath).toLowerCase());
@@ -75,14 +79,16 @@ export function buildCombinedPdfOutputPath(inputPaths: string[]): string {
     const firstPath = inputPaths[0]!;
     const dir = dirname(firstPath);
     const stem = basename(firstPath, extname(firstPath));
-    const outputName = inputPaths.length === 1
-        ? `${stem}.pdf`
-        : `${stem}-combined.pdf`;
+    const outputName =
+        inputPaths.length === 1 ? `${stem}.pdf` : `${stem}-combined.pdf`;
 
     return join(dir, outputName);
 }
 
-async function appendPdfPages(targetPdf: PDFDocument, sourcePath: string): Promise<number> {
+async function appendPdfPages(
+    targetPdf: PDFDocument,
+    sourcePath: string,
+): Promise<number> {
     const sourceBytes = await readFile(sourcePath);
     const sourcePdf = await PDFDocument.load(sourceBytes);
     const pageIndices = sourcePdf.getPageIndices();
@@ -99,7 +105,10 @@ async function appendPdfPages(targetPdf: PDFDocument, sourcePath: string): Promi
     return copiedPages.length;
 }
 
-async function appendBitmapPage(targetPdf: PDFDocument, sourcePath: string): Promise<number> {
+async function appendBitmapPage(
+    targetPdf: PDFDocument,
+    sourcePath: string,
+): Promise<number> {
     const image = nativeImage.createFromPath(sourcePath);
     if (image.isEmpty()) {
         throw new Error(`Unsupported or unreadable image: ${sourcePath}`);
@@ -125,7 +134,10 @@ async function appendBitmapPage(targetPdf: PDFDocument, sourcePath: string): Pro
     return 1;
 }
 
-async function appendTiffPages(targetPdf: PDFDocument, sourcePath: string): Promise<number> {
+async function appendTiffPages(
+    targetPdf: PDFDocument,
+    sourcePath: string,
+): Promise<number> {
     const tiffBytes = await readFile(sourcePath);
     const ifds = UTIF.decode(tiffBytes);
 
@@ -176,7 +188,10 @@ async function appendTiffPages(targetPdf: PDFDocument, sourcePath: string): Prom
     return addedPages;
 }
 
-async function appendImagePages(targetPdf: PDFDocument, sourcePath: string): Promise<number> {
+async function appendImagePages(
+    targetPdf: PDFDocument,
+    sourcePath: string,
+): Promise<number> {
     const extension = extname(sourcePath).toLowerCase();
 
     if (extension === '.tif' || extension === '.tiff') {
@@ -186,10 +201,12 @@ async function appendImagePages(targetPdf: PDFDocument, sourcePath: string): Pro
     return appendBitmapPage(targetPdf, sourcePath);
 }
 
-async function createPdfFromInputPathsLocal(inputPaths: string[]): Promise<Uint8Array> {
+async function createPdfFromInputPathsLocal(
+    inputPaths: string[],
+): Promise<Uint8Array> {
     const normalizedPaths = inputPaths
-        .map(path => path.trim())
-        .filter(path => path.length > 0);
+        .map((path) => path.trim())
+        .filter((path) => path.length > 0);
 
     if (normalizedPaths.length === 0) {
         throw new Error('No input files were provided');
@@ -222,7 +239,9 @@ async function createPdfFromInputPathsLocal(inputPaths: string[]): Promise<Uint8
 function canCombineInWorker(inputPaths: string[]): boolean {
     return inputPaths.every((sourcePath) => {
         const extension = extname(sourcePath).toLowerCase();
-        return extension === '.pdf' || WORKER_SUPPORTED_IMAGE_EXTENSIONS.has(extension);
+        return (
+            extension === '.pdf' || WORKER_SUPPORTED_IMAGE_EXTENSIONS.has(extension)
+        );
     });
 }
 
@@ -366,7 +385,9 @@ try {
 }
 `;
 
-function createPdfFromInputPathsWorker(inputPaths: string[]): Promise<Uint8Array> {
+function createPdfFromInputPathsWorker(
+    inputPaths: string[],
+): Promise<Uint8Array> {
     return new Promise((resolve, reject) => {
         const worker = new Worker(COMBINE_WORKER_SCRIPT, {
             eval: true,
@@ -411,10 +432,12 @@ function createPdfFromInputPathsWorker(inputPaths: string[]): Promise<Uint8Array
     });
 }
 
-export async function createPdfFromInputPaths(inputPaths: string[]): Promise<Uint8Array> {
+export async function createPdfFromInputPaths(
+    inputPaths: string[],
+): Promise<Uint8Array> {
     const normalizedPaths = inputPaths
-        .map(path => path.trim())
-        .filter(path => path.length > 0);
+        .map((path) => path.trim())
+        .filter((path) => path.length > 0);
 
     if (normalizedPaths.length === 0) {
         throw new Error('No input files were provided');
@@ -424,5 +447,12 @@ export async function createPdfFromInputPaths(inputPaths: string[]): Promise<Uin
         return createPdfFromInputPathsLocal(normalizedPaths);
     }
 
-    return createPdfFromInputPathsWorker(normalizedPaths);
+    try {
+        return await createPdfFromInputPathsWorker(normalizedPaths);
+    } catch (workerError) {
+        logger.warn(
+            `Image combine worker failed, falling back to in-process conversion: ${workerError instanceof Error ? workerError.message : String(workerError)}`,
+        );
+        return createPdfFromInputPathsLocal(normalizedPaths);
+    }
 }
