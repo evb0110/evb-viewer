@@ -2,6 +2,7 @@ import {
     ref,
     type Ref,
 } from 'vue';
+import { uniq } from 'es-toolkit/array';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { getElectronAPI } from '@app/utils/electron';
 
@@ -25,7 +26,7 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
     let exportScopeDialogResolver: ((selection: number[] | undefined | null) => void) | null = null;
 
     function normalizeExportSelectedPages(selectedPages: number[]) {
-        return Array.from(new Set(selectedPages))
+        return uniq(selectedPages)
             .filter(page => Number.isInteger(page) && page >= 1 && page <= totalPages.value)
             .sort((left, right) => left - right);
     }

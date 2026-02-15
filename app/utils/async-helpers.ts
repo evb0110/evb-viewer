@@ -1,3 +1,5 @@
+import { delay } from 'es-toolkit/promise';
+
 interface IWaitUntilIdleOptions {
     delayMs?: number;
     maxAttempts?: number;
@@ -13,7 +15,7 @@ export async function waitUntilIdle(
     } = options;
     let attempts = 0;
     while (isBusy() && attempts < maxAttempts) {
-        await new Promise<void>(resolve => setTimeout(resolve, delayMs));
+        await delay(delayMs);
         attempts += 1;
     }
 }

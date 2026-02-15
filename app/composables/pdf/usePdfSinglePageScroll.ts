@@ -3,7 +3,10 @@ import {
     type Ref,
     type ShallowRef,
 } from 'vue';
-import { useDebounceFn } from '@vueuse/core';
+import {
+    useDebounceFn,
+    useTimeoutFn,
+} from '@vueuse/core';
 import type { PDFDocumentProxy } from '@app/types/pdf';
 import { WHEEL_PAGE_LOCK_MS } from '@app/constants/timeouts';
 import { runGuardedTask } from '@app/utils/async-guard';
@@ -69,6 +72,12 @@ export function usePdfSinglePageScroll(
     const isSnapping = ref(false);
     const wheelScrollDelta = ref(0);
     const isWheelPageSnapLocked = ref(false);
+    const {
+        start: startWheelUnlockTimeout,
+        stop: stopWheelUnlockTimeout,
+    } = useTimeoutFn(() => {
+        isWheelPageSnapLocked.value = false;
+    }, WHEEL_PAGE_LOCK_MS, { immediate: false });
 
     const debouncedRenderOnScroll = useDebounceFn(() => {
         if (isLoading.value || !pdfDocument.value) {
@@ -231,6 +240,7 @@ export function usePdfSinglePageScroll(
             if (canScrollWithinPage) {
                 wheelScrollDelta.value = 0;
                 isWheelPageSnapLocked.value = false;
+                stopWheelUnlockTimeout();
                 const nextTop =
                     direction > 0
                         ? Math.min(bounds.max, container.scrollTop + delta)
@@ -262,10 +272,7 @@ export function usePdfSinglePageScroll(
 
         isWheelPageSnapLocked.value = true;
         snapToPage(targetPage);
-
-        window.setTimeout(() => {
-            isWheelPageSnapLocked.value = false;
-        }, WHEEL_PAGE_LOCK_MS);
+        startWheelUnlockTimeout();
     }
 
     function handleScroll() {
@@ -319,6 +326,7 @@ export function usePdfSinglePageScroll(
     function resetContinuousScrollState() {
         wheelScrollDelta.value = 0;
         isWheelPageSnapLocked.value = false;
+        stopWheelUnlockTimeout();
     }
 
     return {

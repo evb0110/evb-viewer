@@ -4,6 +4,10 @@ import {
     type Ref,
 } from 'vue';
 import {
+    useEventListener,
+    useIntervalFn,
+} from '@vueuse/core';
+import {
     getElectronAPI,
     hasElectronAPI,
 } from '@app/utils/electron';
@@ -34,11 +38,27 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
     let startY = 0;
     let startPage = 0;
     let clickSkip = false;
-    let scrollTimer: ReturnType<typeof setInterval> | null = null;
+    let stopMouseMoveListener: (() => void) | null = null;
+    let stopMouseUpListener: (() => void) | null = null;
+    const autoScrollContainer = ref<HTMLElement | null>(null);
+    const autoScrollStep = ref(0);
 
     const THRESHOLD = 5;
     const SCROLL_ZONE = 40;
     const SCROLL_SPEED = 6;
+    const AUTO_SCROLL_INTERVAL_MS = 16;
+
+    const {
+        isActive: isAutoScrollActive,
+        pause: pauseAutoScroll,
+        resume: resumeAutoScroll,
+    } = useIntervalFn(() => {
+        const container = autoScrollContainer.value;
+        if (!container || autoScrollStep.value === 0) {
+            return;
+        }
+        container.scrollTop += autoScrollStep.value;
+    }, AUTO_SCROLL_INTERVAL_MS, { immediate: false });
 
     function getDragPages(page: number) {
         if (selectedPages.value.includes(page)) {
@@ -97,25 +117,49 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
     }
 
     function updateAutoScroll(clientY: number) {
-        clearAutoScroll();
         const sc = findScrollContainer();
         if (!sc) {
+            clearAutoScroll();
             return;
         }
 
         const r = sc.getBoundingClientRect();
+        let nextScrollStep = 0;
         if (clientY - r.top < SCROLL_ZONE) {
-            scrollTimer = setInterval(() => { sc.scrollTop -= SCROLL_SPEED; }, 16);
+            nextScrollStep = -SCROLL_SPEED;
         } else if (r.bottom - clientY < SCROLL_ZONE) {
-            scrollTimer = setInterval(() => { sc.scrollTop += SCROLL_SPEED; }, 16);
+            nextScrollStep = SCROLL_SPEED;
         }
+
+        if (nextScrollStep === 0) {
+            clearAutoScroll();
+            return;
+        }
+
+        if (
+            isAutoScrollActive.value
+            && autoScrollContainer.value === sc
+            && autoScrollStep.value === nextScrollStep
+        ) {
+            return;
+        }
+
+        autoScrollContainer.value = sc;
+        autoScrollStep.value = nextScrollStep;
+        resumeAutoScroll();
     }
 
     function clearAutoScroll() {
-        if (scrollTimer !== null) {
-            clearInterval(scrollTimer);
-            scrollTimer = null;
-        }
+        autoScrollContainer.value = null;
+        autoScrollStep.value = 0;
+        pauseAutoScroll();
+    }
+
+    function cleanupWindowDragListeners() {
+        stopMouseMoveListener?.();
+        stopMouseMoveListener = null;
+        stopMouseUpListener?.();
+        stopMouseUpListener = null;
     }
 
     function onMove(e: MouseEvent) {
@@ -139,8 +183,7 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
     }
 
     function onUp() {
-        window.removeEventListener('mousemove', onMove);
-        window.removeEventListener('mouseup', onUp);
+        cleanupWindowDragListeners();
         clearAutoScroll();
 
         if (!isDragging.value) {
@@ -172,8 +215,9 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
         startX = e.clientX;
         startY = e.clientY;
         startPage = page;
-        window.addEventListener('mousemove', onMove);
-        window.addEventListener('mouseup', onUp);
+        cleanupWindowDragListeners();
+        stopMouseMoveListener = useEventListener(window, 'mousemove', onMove);
+        stopMouseUpListener = useEventListener(window, 'mouseup', onUp);
     }
 
     function consumeClickSkip() {
@@ -285,8 +329,7 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
     }
 
     onUnmounted(() => {
-        window.removeEventListener('mousemove', onMove);
-        window.removeEventListener('mouseup', onUp);
+        cleanupWindowDragListeners();
         clearAutoScroll();
         document.body.style.cursor = '';
         document.body.style.userSelect = '';

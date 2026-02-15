@@ -6,6 +6,7 @@ import {
     type Ref,
 } from 'vue';
 import { useDebounceFn } from '@vueuse/core';
+import { delay } from 'es-toolkit/promise';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { ANNOTATION_NOTE_SAVE_DEBOUNCE_MS } from '@app/constants/timeouts';
 import {
@@ -379,7 +380,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             if (note.saving) {
                 let attempts = 0;
                 while (note.saving && attempts < 20) {
-                    await new Promise((resolve) => setTimeout(resolve, 25));
+                    await delay(25);
                     attempts += 1;
                 }
             }

@@ -1,8 +1,9 @@
 import {
-    watch,
     nextTick,
+    ref,
     type Ref,
 } from 'vue';
+import { until } from '@vueuse/core';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 
 const PDF_RELOAD_TIMEOUT_MS = 8000;
@@ -49,64 +50,33 @@ export const usePdfHistory = (deps: {
      */
     function createPdfReloadWaiter(pageToRestore: number) {
         const initialDoc = pdfDocument.value;
-        let settled = false;
-        let timeoutId: ReturnType<typeof setTimeout> | null = null;
-        let unwatch: (() => void) | null = null;
+        const isCancelled = ref(false);
 
-        const promise = new Promise<void>((resolve) => {
-            const finish = (onDone?: () => void) => {
-                if (settled) {
+        const promise = until(() => ({
+            doc: pdfDocument.value,
+            cancelled: isCancelled.value,
+        }))
+            .toMatch(({
+                doc,
+                cancelled,
+            }) => cancelled || Boolean(doc && doc !== initialDoc), {timeout: PDF_RELOAD_TIMEOUT_MS})
+            .then(async ({
+                doc,
+                cancelled,
+            }) => {
+                if (cancelled || !doc || doc === initialDoc) {
                     return;
                 }
-                settled = true;
-                if (unwatch) {
-                    unwatch();
-                    unwatch = null;
-                }
-                if (timeoutId) {
-                    clearTimeout(timeoutId);
-                    timeoutId = null;
-                }
-                if (onDone) {
-                    onDone();
-                } else {
-                    resolve();
-                }
-            };
 
-            unwatch = watch(pdfDocument, (doc) => {
-                if (!doc || doc === initialDoc) {
-                    return;
-                }
-                finish(() => {
-                    resetSearchCache();
-                    void nextTick(() => {
-                        pdfViewerRef.value?.scrollToPage(pageToRestore);
-                        resolve();
-                    });
-                });
+                resetSearchCache();
+                await nextTick();
+                pdfViewerRef.value?.scrollToPage(pageToRestore);
             });
-
-            timeoutId = setTimeout(() => {
-                finish();
-            }, PDF_RELOAD_TIMEOUT_MS);
-        });
 
         return {
             promise,
             cancel: () => {
-                if (settled) {
-                    return;
-                }
-                settled = true;
-                if (unwatch) {
-                    unwatch();
-                    unwatch = null;
-                }
-                if (timeoutId) {
-                    clearTimeout(timeoutId);
-                    timeoutId = null;
-                }
+                isCancelled.value = true;
             },
         };
     }

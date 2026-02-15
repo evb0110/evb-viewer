@@ -4,6 +4,7 @@ import {
     watch,
     type Ref,
 } from 'vue';
+import { useEventListener } from '@vueuse/core';
 import { SIDEBAR } from '@app/constants/pdf-layout';
 
 export const useSidebarResize = (deps: {showSidebar: Ref<boolean>;}) => {
@@ -15,6 +16,9 @@ export const useSidebarResize = (deps: {showSidebar: Ref<boolean>;}) => {
 
     let resizeStartX = 0;
     let resizeStartWidth = 0;
+    let stopResizeMoveListener: (() => void) | null = null;
+    let stopResizeUpListener: (() => void) | null = null;
+    let stopResizeCancelListener: (() => void) | null = null;
 
     const sidebarWrapperStyle = computed(() => ({
         width: `${sidebarWidth.value + SIDEBAR.RESIZER_WIDTH}px`,
@@ -22,9 +26,12 @@ export const useSidebarResize = (deps: {showSidebar: Ref<boolean>;}) => {
     }));
 
     function cleanupSidebarResizeListeners() {
-        window.removeEventListener('pointermove', handleSidebarResize);
-        window.removeEventListener('pointerup', stopSidebarResize);
-        window.removeEventListener('pointercancel', stopSidebarResize);
+        stopResizeMoveListener?.();
+        stopResizeMoveListener = null;
+        stopResizeUpListener?.();
+        stopResizeUpListener = null;
+        stopResizeCancelListener?.();
+        stopResizeCancelListener = null;
     }
 
     function handleSidebarResize(event: PointerEvent) {
@@ -69,9 +76,10 @@ export const useSidebarResize = (deps: {showSidebar: Ref<boolean>;}) => {
         resizeStartX = event.clientX;
         resizeStartWidth = sidebarWidth.value;
 
-        window.addEventListener('pointermove', handleSidebarResize);
-        window.addEventListener('pointerup', stopSidebarResize);
-        window.addEventListener('pointercancel', stopSidebarResize);
+        cleanupSidebarResizeListeners();
+        stopResizeMoveListener = useEventListener(window, 'pointermove', handleSidebarResize);
+        stopResizeUpListener = useEventListener(window, 'pointerup', stopSidebarResize);
+        stopResizeCancelListener = useEventListener(window, 'pointercancel', stopSidebarResize);
     }
 
     watch(showSidebar, (isOpen) => {

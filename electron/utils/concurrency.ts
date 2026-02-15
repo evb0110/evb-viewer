@@ -2,6 +2,7 @@ import {
     availableParallelism,
     cpus,
 } from 'os';
+import { clamp } from 'es-toolkit/math';
 
 function parsePositiveInt(value: string | undefined): number | null {
     if (!value) {
@@ -68,6 +69,6 @@ export function getSequentialProgressPage(
     if (pages.length === 0) {
         return 0;
     }
-    const index = Math.min(Math.max(processedCount, 0), pages.length - 1);
+    const index = clamp(processedCount, 0, pages.length - 1);
     return pages[index]?.pageNumber ?? 0;
 }

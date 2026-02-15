@@ -16,6 +16,7 @@ import {
     extname,
     join,
 } from 'path';
+import { uniq } from 'es-toolkit/array';
 import { getOcrToolPaths } from '@electron/ocr/paths';
 import { runCommand } from '@electron/ocr/worker/run-command';
 
@@ -164,7 +165,7 @@ function normalizePageNumbers(pageNumbers: number[] | undefined): number[] | nul
         return null;
     }
 
-    const unique = Array.from(new Set(pageNumbers))
+    const unique = uniq(pageNumbers)
         .filter(page => Number.isInteger(page) && page > 0)
         .sort((left, right) => left - right);
 

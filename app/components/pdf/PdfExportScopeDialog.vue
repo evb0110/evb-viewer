@@ -99,6 +99,7 @@ import {
     ref,
     watch,
 } from 'vue';
+import { uniq } from 'es-toolkit/array';
 import { parsePageRangeInput } from '@app/utils/pdf-page-labels';
 
 type TExportScope = 'all' | 'current' | 'range' | 'selected';
@@ -121,7 +122,7 @@ const scope = ref<TExportScope>('all');
 const rangeInput = ref('');
 const rangeTouched = ref(false);
 
-const normalizedSelectedPages = computed(() => Array.from(new Set(props.selectedPages))
+const normalizedSelectedPages = computed(() => uniq(props.selectedPages)
     .filter(page => Number.isInteger(page) && page >= 1 && page <= props.totalPages)
     .sort((left, right) => left - right));
 

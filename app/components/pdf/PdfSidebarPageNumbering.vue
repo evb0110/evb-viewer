@@ -128,6 +128,7 @@ import {
     ref,
     watch,
 } from 'vue';
+import { uniq } from 'es-toolkit/array';
 import type {
     IPdfPageLabelRange,
     IPdfPageRange,
@@ -216,7 +217,7 @@ function deriveContiguousSelectionRange(pages: number[]): IPdfPageRange | null {
         return null;
     }
 
-    const sorted = Array.from(new Set(pages))
+    const sorted = uniq(pages)
         .filter(page => Number.isInteger(page) && page >= 1 && page <= props.totalPages)
         .sort((left, right) => left - right);
 

@@ -4,6 +4,7 @@ import {
     nextTick,
     type Ref,
 } from 'vue';
+import { clamp } from 'es-toolkit/math';
 import type {
     IAnnotationCommentSummary,
     IAnnotationSettings,
@@ -226,8 +227,8 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
 
         shapePropertiesPopover.value = {
             visible: true,
-            x: Math.min(Math.max(margin, payload.clientX), maxX),
-            y: Math.min(Math.max(margin, payload.clientY), maxY),
+            x: clamp(payload.clientX, margin, maxX),
+            y: clamp(payload.clientY, margin, maxY),
         };
     }
 

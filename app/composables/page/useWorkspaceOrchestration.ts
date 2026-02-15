@@ -2,11 +2,13 @@ import {
     ref,
     shallowRef,
     computed,
-    watch,
     watchEffect,
     type Ref,
 } from 'vue';
-import { useStorage } from '@vueuse/core';
+import {
+    syncRef,
+    useStorage,
+} from '@vueuse/core';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { TFitMode } from '@app/types/shared';
 import { useOcrTextContent } from '@app/composables/pdf/useOcrTextContent';
@@ -286,20 +288,10 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         undefined,
         { initOnMounted: true },
     );
-
-    watch(annotationKeepActiveStorage, (stored) => {
-        const resolved = stored === '1';
-        if (annotationKeepActive.value !== resolved) {
-            annotationKeepActive.value = resolved;
-        }
-    }, { immediate: true });
-
-    watch(annotationKeepActive, (value) => {
-        const next = value ? '1' : '0';
-        if (annotationKeepActiveStorage.value !== next) {
-            annotationKeepActiveStorage.value = next;
-        }
-    });
+    syncRef(annotationKeepActive, annotationKeepActiveStorage, {transform: {
+        ltr: value => (value ? '1' : '0'),
+        rtl: stored => stored === '1',
+    }});
 
     const {
         searchQuery,

@@ -4,6 +4,7 @@ import {
 } from 'electron';
 import { existsSync } from 'fs';
 import { extname } from 'path';
+import { uniq } from 'es-toolkit/array';
 import { isAllowedWritePath } from '@electron/utils/path-validator';
 import {
     exportPdfAsMultiPageTiff,
@@ -35,7 +36,7 @@ function normalizeRequestedPageNumbers(pageNumbers: unknown): number[] | undefin
         return undefined;
     }
 
-    const normalized = Array.from(new Set(pageNumbers))
+    const normalized = uniq(pageNumbers)
         .filter(page => typeof page === 'number' && Number.isInteger(page) && page > 0)
         .sort((left, right) => left - right);
 

@@ -1,10 +1,12 @@
 import {
     computed,
-    onBeforeUnmount,
-    onMounted,
     ref,
     type Ref,
 } from 'vue';
+import {
+    onClickOutside,
+    useEventListener,
+} from '@vueuse/core';
 import type {
     IBookmarkItem,
     IBookmarkMenuPayload,
@@ -25,6 +27,7 @@ export const usePdfOutlineContextMenu = (
 ) => {
     const { t } = useTypedI18n();
     const { clampToViewport } = useContextMenuPosition();
+    const windowTarget = typeof window === 'undefined' ? undefined : window;
 
     const bookmarkContextMenu = ref<{
         visible: boolean;
@@ -72,6 +75,11 @@ export const usePdfOutlineContextMenu = (
     });
 
     const canApplyStyleRange = computed(() => Boolean(styleRangeInfo.value));
+    const contextMenuElement = computed(() => (
+        typeof window === 'undefined'
+            ? null
+            : document.querySelector<HTMLElement>('.bookmarks-context-menu')
+    ));
 
     const applyStyleRangeLabel = computed(() => {
         const info = styleRangeInfo.value;
@@ -147,37 +155,21 @@ export const usePdfOutlineContextMenu = (
         }
     }
 
-    function handleGlobalPointerDown(event: PointerEvent) {
-        if (!bookmarkContextMenu.value.visible) {
-            return;
-        }
-
-        const target = event.target as HTMLElement | null;
-        if (!target?.closest('.bookmarks-context-menu')) {
-            closeBookmarkContextMenu();
-        }
-    }
-
     function handleGlobalKeydown(event: KeyboardEvent) {
         if (event.key === 'Escape') {
             closeBookmarkContextMenu();
             onEscape();
         }
     }
-
-    onMounted(() => {
-        window.addEventListener('pointerdown', handleGlobalPointerDown, true);
-        window.addEventListener('keydown', handleGlobalKeydown);
-        window.addEventListener('resize', closeBookmarkContextMenu);
-        window.addEventListener('scroll', closeBookmarkContextMenu, true);
-    });
-
-    onBeforeUnmount(() => {
-        window.removeEventListener('pointerdown', handleGlobalPointerDown, true);
-        window.removeEventListener('keydown', handleGlobalKeydown);
-        window.removeEventListener('resize', closeBookmarkContextMenu);
-        window.removeEventListener('scroll', closeBookmarkContextMenu, true);
-    });
+    onClickOutside(contextMenuElement, () => {
+        if (!bookmarkContextMenu.value.visible) {
+            return;
+        }
+        closeBookmarkContextMenu();
+    }, { capture: true });
+    useEventListener(windowTarget, 'keydown', handleGlobalKeydown);
+    useEventListener(windowTarget, 'resize', closeBookmarkContextMenu);
+    useEventListener(windowTarget, 'scroll', closeBookmarkContextMenu, { capture: true });
 
     return {
         bookmarkContextMenu,

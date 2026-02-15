@@ -1,4 +1,5 @@
 import type { Ref } from 'vue';
+import { uniq } from 'es-toolkit/array';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import {
     normalizeMarkerRect,
@@ -49,7 +50,7 @@ export const useCommentMarkerRendering = (deps: {
     }
 
     function setInlineTargetStableKeys(target: HTMLElement, stableKeys: string[]) {
-        const deduped = Array.from(new Set(stableKeys.filter(Boolean)));
+        const deduped = uniq(stableKeys.filter(Boolean));
         if (deduped.length === 0) {
             target.removeAttribute('data-comment-stable-keys');
             target.removeAttribute('data-comment-count');
@@ -120,10 +121,10 @@ export const useCommentMarkerRendering = (deps: {
         upsertAnchorMarkerFn: (target: HTMLElement, stableKeys: string[], fallbackText: string) => void,
     ) {
         markInlineCommentTarget(target, text);
-        const nextStableKeys = Array.from(new Set([
+        const nextStableKeys = uniq([
             ...getInlineTargetStableKeys(target),
             stableKey,
-        ]));
+        ]);
         setInlineTargetStableKeys(target, nextStableKeys);
 
         const activeKey = deps.activeCommentStableKey.value;

@@ -3,6 +3,7 @@ import {
     watch,
     type Ref,
 } from 'vue';
+import { isEqual } from 'es-toolkit/predicate';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { IPdfPageLabelRange } from '@app/types/pdf';
 import {
@@ -71,8 +72,7 @@ export const usePageLabelState = (deps: {
             pageLabelRanges.value,
             totalPages.value,
         );
-        const unchanged =
-            JSON.stringify(normalized) === JSON.stringify(currentNormalized);
+        const unchanged = isEqual(normalized, currentNormalized);
         if (unchanged) {
             return;
         }

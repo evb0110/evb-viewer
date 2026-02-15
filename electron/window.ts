@@ -8,6 +8,7 @@ import {
     join,
 } from 'path';
 import { fileURLToPath } from 'url';
+import { delay } from 'es-toolkit/promise';
 import { config } from '@electron/config';
 import {
     startServer,
@@ -110,7 +111,7 @@ export async function createWindow() {
                 } catch {
                     // Page navigating
                 }
-                await new Promise(r => setTimeout(r, 100));
+                await delay(100);
             }
             return false;
         }

@@ -1,5 +1,5 @@
 <template>
-    <div :class="['page-controls', `page-controls--compact-${effectiveCompactLevel}`]">
+    <div ref="pageControlsRef" :class="['page-controls', `page-controls--compact-${effectiveCompactLevel}`]">
         <div v-if="showEdgeButtons" class="page-controls-item">
             <UTooltip :text="t('pageDropdown.firstPage')" :delay-duration="1200">
                 <UButton
@@ -82,6 +82,7 @@
 
 <script setup lang="ts">
 import { nextTick } from 'vue';
+import { onClickOutside } from '@vueuse/core';
 import {
     findPageByPageLabelInput,
     formatPageIndicator,
@@ -114,6 +115,7 @@ const emit = defineEmits<{
 const isEditing = ref(false);
 const pageInputValue = ref(currentPage.toString());
 const pageInputRef = ref<HTMLInputElement | null>(null);
+const pageControlsRef = ref<HTMLElement | null>(null);
 
 const effectiveCompactLevel = computed(() => {
     return Math.max(0, Math.min(compactLevel, 2));
@@ -219,25 +221,12 @@ function commitPageInput() {
     isEditing.value = false;
 }
 
-function handleGlobalPointerDown(event: PointerEvent) {
-    const target = event.target as HTMLElement | null;
-    if (target?.closest('.page-controls')) {
-        return;
-    }
-
+onClickOutside(pageControlsRef, () => {
     const activeElement = document.activeElement as HTMLElement | null;
     if (activeElement?.closest('.page-controls')) {
         activeElement.blur();
     }
-}
-
-onMounted(() => {
-    window.addEventListener('pointerdown', handleGlobalPointerDown, true);
-});
-
-onBeforeUnmount(() => {
-    window.removeEventListener('pointerdown', handleGlobalPointerDown, true);
-});
+}, { capture: true });
 </script>
 
 <style scoped>

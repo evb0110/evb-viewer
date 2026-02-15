@@ -8,6 +8,7 @@ import {
     extname,
     basename,
 } from 'path';
+import { uniq } from 'es-toolkit/array';
 import {
     buildCombinedPdfOutputPath,
     createPdfFromInputPaths,
@@ -49,7 +50,7 @@ function toRecentDocumentPaths(paths: string[]) {
 }
 
 async function addRecentInputs(paths: string[]) {
-    const uniquePaths = Array.from(new Set(paths));
+    const uniquePaths = uniq(paths);
     for (const path of uniquePaths) {
         await addRecentFile(path);
     }

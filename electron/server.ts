@@ -2,6 +2,11 @@ import {
     spawn,
     type ChildProcess,
 } from 'child_process';
+import { retry } from 'es-toolkit/function';
+import {
+    delay,
+    withTimeout,
+} from 'es-toolkit/promise';
 import { config } from '@electron/config';
 import {
     SERVER_HEALTH_MAX_ATTEMPTS,
@@ -114,7 +119,7 @@ export async function startServer() {
                 resolveReady();
                 return;
             }
-            await new Promise((resolve) => setTimeout(resolve, SERVER_POLL_INTERVAL_MS));
+            await delay(SERVER_POLL_INTERVAL_MS);
         }
     })();
 
@@ -136,52 +141,55 @@ export function waitForServer() {
     if (!serverReady) {
         throw new Error('Server was not started');
     }
-
-    let timeoutId: NodeJS.Timeout | null = null;
-    const timeoutPromise = new Promise<never>((_, reject) => {
-        timeoutId = setTimeout(() => {
-            reject(new Error(`Server failed to start within ${SERVER_READY_TIMEOUT_MS / 1000}s`));
-        }, SERVER_READY_TIMEOUT_MS);
-    });
+    const readyPromise = serverReady;
 
     const verifyHealth = async () => {
-        for (let attempt = 1; attempt <= SERVER_HEALTH_MAX_ATTEMPTS; attempt += 1) {
-            try {
-                const response = await fetch(config.server.url, { method: 'HEAD' });
-                if (response.ok) {
-                    logger.info('Server verified ready');
-                    return;
+        let attempt = 0;
+        try {
+            await retry(async () => {
+                attempt += 1;
+                try {
+                    const response = await fetch(config.server.url, { method: 'HEAD' });
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}`);
+                    }
+                } catch (error) {
+                    logger.debug(`Server health check attempt ${attempt}/${SERVER_HEALTH_MAX_ATTEMPTS} failed: ${
+                        error instanceof Error ? error.message : String(error)
+                    }`);
+                    throw error;
                 }
-            } catch (error) {
-                logger.debug(`Server health check attempt ${attempt}/${SERVER_HEALTH_MAX_ATTEMPTS} failed: ${
-                    error instanceof Error ? error.message : String(error)
-                }`);
-            }
-
-            if (attempt < SERVER_HEALTH_MAX_ATTEMPTS) {
-                await new Promise(resolve => setTimeout(resolve, SERVER_HEALTH_RETRY_MS));
-            }
+            }, {
+                retries: SERVER_HEALTH_MAX_ATTEMPTS,
+                delay: (retryAttempt) => (
+                    retryAttempt + 1 < SERVER_HEALTH_MAX_ATTEMPTS
+                        ? SERVER_HEALTH_RETRY_MS
+                        : 0
+                ),
+            });
+            logger.info('Server verified ready');
+            return;
+        } catch {
+            // fall through
         }
+
         throw new Error('Server stdout detected but HTTP health check failed');
     };
 
     return (async () => {
         try {
-            await Promise.race([
-                serverReady,
-                timeoutPromise,
-            ]);
-            if (timeoutId) {
-                clearTimeout(timeoutId);
-                timeoutId = null;
+            try {
+                await withTimeout(async () => {
+                    await readyPromise;
+                }, SERVER_READY_TIMEOUT_MS);
+            } catch (error) {
+                if (error instanceof Error && error.name === 'TimeoutError') {
+                    throw new Error(`Server failed to start within ${SERVER_READY_TIMEOUT_MS / 1000}s`);
+                }
+                throw error;
             }
             await verifyHealth();
         } catch (err) {
-            if (timeoutId) {
-                clearTimeout(timeoutId);
-                timeoutId = null;
-            }
-
             if (nuxtProcess && !usingExternalServer) {
                 nuxtProcess.kill();
                 nuxtProcess = null;

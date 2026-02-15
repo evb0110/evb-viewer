@@ -1,4 +1,6 @@
 import type { Ref } from 'vue';
+import { useTimeoutFn } from '@vueuse/core';
+import { uniq } from 'es-toolkit/array';
 import type {IAnnotationCommentSummary} from '@app/types/annotations';
 import {
     escapeCssAttr,
@@ -28,8 +30,18 @@ interface ICommentMarkerInteractionDeps {
 
 export const useCommentMarkerInteraction = (deps: ICommentMarkerInteractionDeps) => {
     const { t } = useTypedI18n();
-
-    let inlineCommentFocusPulseTimeout: ReturnType<typeof setTimeout> | null = null;
+    const {
+        start: startInlineCommentFocusPulseTimeout,
+        stop: stopInlineCommentFocusPulseTimeout,
+    } = useTimeoutFn(() => {
+        const container = deps.viewerContainer.value;
+        if (!container) {
+            return;
+        }
+        container.querySelectorAll<HTMLElement>('.pdf-comment-focus-pulse').forEach((element) => {
+            element.classList.remove('pdf-comment-focus-pulse');
+        });
+    }, FOCUS_PULSE_MS, { immediate: false });
 
     function resolveCommentFromIndicatorElement(indicator: HTMLElement) {
         const stableKeys = deps.parseStableKeysAttr(indicator.getAttribute('data-comment-stable-keys'));
@@ -92,10 +104,7 @@ export const useCommentMarkerInteraction = (deps: ICommentMarkerInteractionDeps)
         if (!container) {
             return;
         }
-        if (inlineCommentFocusPulseTimeout) {
-            clearTimeout(inlineCommentFocusPulseTimeout);
-            inlineCommentFocusPulseTimeout = null;
-        }
+        stopInlineCommentFocusPulseTimeout();
 
         container.querySelectorAll<HTMLElement>('.pdf-comment-focus-pulse').forEach((element) => {
             element.classList.remove('pdf-comment-focus-pulse');
@@ -110,11 +119,11 @@ export const useCommentMarkerInteraction = (deps: ICommentMarkerInteractionDeps)
             .from(container.querySelectorAll<HTMLElement>('.pdf-inline-comment-marker, .pdf-inline-comment-anchor-marker'))
             .filter(marker => deps.markerIncludesStableKey(marker, stableKey));
 
-        const pulseTargets = Array.from(new Set([
+        const pulseTargets = uniq([
             ...inlineTargets,
             ...multiTargets,
             ...markers,
-        ]));
+        ]);
         if (pulseTargets.length === 0) {
             return;
         }
@@ -122,12 +131,7 @@ export const useCommentMarkerInteraction = (deps: ICommentMarkerInteractionDeps)
         pulseTargets.forEach((target) => {
             target.classList.add('pdf-comment-focus-pulse');
         });
-        inlineCommentFocusPulseTimeout = setTimeout(() => {
-            container.querySelectorAll<HTMLElement>('.pdf-comment-focus-pulse').forEach((element) => {
-                element.classList.remove('pdf-comment-focus-pulse');
-            });
-            inlineCommentFocusPulseTimeout = null;
-        }, FOCUS_PULSE_MS);
+        startInlineCommentFocusPulseTimeout();
     }
 
     function upsertInlineCommentAnchorMarker(target: HTMLElement, stableKeys: string[], fallbackText: string) {
@@ -260,10 +264,7 @@ export const useCommentMarkerInteraction = (deps: ICommentMarkerInteractionDeps)
     }
 
     function clearPulseTimeout() {
-        if (inlineCommentFocusPulseTimeout) {
-            clearTimeout(inlineCommentFocusPulseTimeout);
-            inlineCommentFocusPulseTimeout = null;
-        }
+        stopInlineCommentFocusPulseTimeout();
     }
 
     return {

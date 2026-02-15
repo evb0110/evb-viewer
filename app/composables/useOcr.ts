@@ -4,6 +4,7 @@ import {
     ref,
 } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
+import { uniq } from 'es-toolkit/array';
 import type { IOcrLanguage } from '@app/types/shared';
 import { getElectronAPI } from '@app/utils/electron';
 import { createDocxFromText } from '@app/utils/docx';
@@ -216,7 +217,7 @@ export const useOcr = () => {
                 const localizedErrors = response.errors.map(err =>
                     localizeOcrError(err, 'errors.ocr.createSearchablePdf'),
                 );
-                error.value = [...new Set(localizedErrors)].join('; ');
+                error.value = uniq(localizedErrors).join('; ');
             }
 
             if (response.success && (response.pdfData || response.pdfPath)) {

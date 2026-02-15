@@ -22,6 +22,7 @@ import {
     writeFile,
 } from 'fs/promises';
 import { join } from 'path';
+import { uniq } from 'es-toolkit/array';
 import {
     forEachConcurrent,
     getOcrConcurrency,
@@ -274,7 +275,7 @@ async function processOcrJob(
         }
 
         const mergedPdfBuffer = await readFile(mergedPdfPath);
-        const allLanguages = [...new Set(targetPages.flatMap(p => p.languages))];
+        const allLanguages = uniq(targetPages.flatMap(p => p.languages));
 
         if (workingCopyPath) {
             try {

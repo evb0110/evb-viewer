@@ -1,3 +1,5 @@
+import { clamp } from 'es-toolkit/math';
+
 export const useContextMenuPosition = () => {
     function clampToViewport(
         x: number,
@@ -9,8 +11,8 @@ export const useContextMenuPosition = () => {
         const maxX = Math.max(margin, window.innerWidth - menuWidth - margin);
         const maxY = Math.max(margin, window.innerHeight - menuHeight - margin);
         return {
-            x: Math.min(Math.max(margin, x), maxX),
-            y: Math.min(Math.max(margin, y), maxY),
+            x: clamp(x, margin, maxX),
+            y: clamp(y, margin, maxY),
         };
     }
 
