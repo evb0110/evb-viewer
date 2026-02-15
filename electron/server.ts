@@ -152,8 +152,10 @@ export function waitForServer() {
                     logger.info('Server verified ready');
                     return;
                 }
-            } catch {
-                // Retry
+            } catch (error) {
+                logger.debug(`Server health check attempt ${attempt}/${SERVER_HEALTH_MAX_ATTEMPTS} failed: ${
+                    error instanceof Error ? error.message : String(error)
+                }`);
             }
 
             if (attempt < SERVER_HEALTH_MAX_ATTEMPTS) {
