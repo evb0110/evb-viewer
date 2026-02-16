@@ -19,7 +19,10 @@ import {
     isSupportedOpenPath,
     SUPPORTED_IMAGE_EXTENSIONS,
 } from '@electron/image/pdf-conversion';
-import { updateRecentFilesMenu } from '@electron/menu';
+import {
+    refreshMenu,
+    updateRecentFilesMenu,
+} from '@electron/menu';
 import { addRecentFile } from '@electron/recent-files';
 import { allowDocxWritePath } from '@electron/ipc/docxExportPaths';
 import {
@@ -220,6 +223,7 @@ export function handleSetWindowTitle(event: Electron.IpcMainInvokeEvent, title: 
     const window = BrowserWindow.fromWebContents(event.sender);
     if (window) {
         window.setTitle(title || te('app.title'));
+        refreshMenu();
     }
 }
 

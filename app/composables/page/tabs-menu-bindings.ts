@@ -2,6 +2,7 @@ import type { IElectronAPI } from '@app/types/electron-api';
 import type { Ref } from 'vue';
 import type { TGroupDirection } from '@app/types/editor-groups';
 import type { IWorkspaceExpose } from '@app/types/workspace-expose';
+import type { TWindowTabsAction } from '@app/types/window-tab-transfer';
 
 interface ITabsMenuBindingDeps {
     activeWorkspace: Ref<IWorkspaceExpose | null>;
@@ -17,6 +18,7 @@ interface ITabsMenuBindingDeps {
     focusGroup: (direction: TGroupDirection) => void;
     moveActiveTab: (direction: TGroupDirection) => Promise<void> | void;
     copyActiveTab: (direction: TGroupDirection) => Promise<void> | void;
+    handleWindowTabsAction: (action: TWindowTabsAction) => Promise<void> | void;
 }
 
 /**
@@ -125,6 +127,9 @@ export function registerTabsMenuBindings(
         }),
         electronApi.onMenuCopyTabToGroup((direction) => {
             void deps.copyActiveTab(direction);
+        }),
+        electronApi.tabs.onWindowAction((action) => {
+            void deps.handleWindowTabsAction(action);
         }),
     ];
 }

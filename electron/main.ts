@@ -1,5 +1,6 @@
 import {
     app,
+    BrowserWindow,
     ipcMain,
 } from 'electron';
 import {
@@ -24,6 +25,10 @@ import {
     getMainWindow,
     hasWindows,
 } from '@electron/window';
+import {
+    markWindowTabTransferReady,
+    markWindowTabTransferWindowClosed,
+} from '@electron/window-tab-transfer';
 import { promptSetDefaultViewer } from '@electron/default-viewer';
 import { createLogger } from '@electron/utils/logger';
 
@@ -58,12 +63,21 @@ const SUPPORTED_EXTENSIONS = new Set([
     '.gif',
 ]);
 const pendingOpenRequests: string[][] = [];
-let rendererReady = false;
+const readyWindowIds = new Set<number>();
 let defaultViewerPromptShown = false;
 let flushPendingFilesTimer: ReturnType<typeof setTimeout> | null = null;
 let batchWindowStartTime: number | null = null;
 const EXTERNAL_OPEN_BATCH_WINDOW_MS = 800;
 const EXTERNAL_OPEN_MAX_BATCH_WAIT_MS = 10_000;
+
+function isMainWindowRendererReady() {
+    const mainWindow = getMainWindow();
+    if (!mainWindow) {
+        return false;
+    }
+
+    return readyWindowIds.has(mainWindow.id);
+}
 
 function isSupportedFile(filePath: string) {
     return SUPPORTED_EXTENSIONS.has(extname(filePath).toLowerCase());
@@ -202,7 +216,7 @@ function flushPendingFiles() {
     }
     batchWindowStartTime = null;
 
-    if (!rendererReady) {
+    if (!isMainWindowRendererReady()) {
         return;
     }
 
@@ -219,7 +233,7 @@ function flushPendingFiles() {
 }
 
 function scheduleFlushPendingFiles() {
-    if (!rendererReady) {
+    if (!isMainWindowRendererReady()) {
         return;
     }
 
@@ -301,10 +315,26 @@ async function init() {
     registerIpcHandlers();
     await initRecentFilesCache();
     setupMenu();
-    ipcMain.on('app:rendererReady', () => {
-        rendererReady = true;
+    ipcMain.on('app:rendererReady', (event) => {
+        const window = BrowserWindow.fromWebContents(event.sender);
+        if (!window) {
+            return;
+        }
+
+        readyWindowIds.add(window.id);
+        markWindowTabTransferReady(window.id);
+
         scheduleFlushPendingFiles();
-        maybePromptForDefaultViewer();
+        if (window.id === getMainWindow()?.id) {
+            maybePromptForDefaultViewer();
+        }
+    });
+
+    app.on('browser-window-created', (_event, window) => {
+        window.on('closed', () => {
+            readyWindowIds.delete(window.id);
+            markWindowTabTransferWindowClosed(window.id);
+        });
     });
 
     app.on('window-all-closed', () => {
@@ -317,12 +347,12 @@ async function init() {
 
     app.on('activate', () => {
         if (!hasWindows()) {
-            rendererReady = false;
+            readyWindowIds.clear();
             void createWindow();
         }
     });
 
-    rendererReady = false;
+    readyWindowIds.clear();
     await createWindow();
 }
 

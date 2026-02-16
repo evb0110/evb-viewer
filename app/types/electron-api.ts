@@ -8,6 +8,13 @@ import type {
     IRecentFile,
     ISettingsData,
 } from '@app/types/shared';
+import type {
+    IWindowTabIncomingTransfer,
+    IWindowTabTransferAck,
+    IWindowTabTransferRequest,
+    IWindowTabTransferResult,
+    TWindowTabsAction,
+} from '@app/types/window-tab-transfer';
 
 interface IOcrRecognizeRequest {
     pageNumber: number;
@@ -172,6 +179,14 @@ interface IDjvuViewingReadyEvent {
     jobId?: string;
 }
 
+interface IWindowTabsApi {
+    transfer: (request: IWindowTabTransferRequest) => Promise<IWindowTabTransferResult>;
+    transferAck: (ack: IWindowTabTransferAck) => Promise<boolean>;
+    showContextMenu: (tabId: string) => Promise<void>;
+    onIncomingTransfer: (callback: (transfer: IWindowTabIncomingTransfer) => void) => IMenuEventUnsubscribe;
+    onWindowAction: (callback: (action: TWindowTabsAction) => void) => IMenuEventUnsubscribe;
+}
+
 interface IDjvuAPI {
     openForViewing: (djvuPath: string) => Promise<IDjvuOpenResult>;
     convertToPdf: (djvuPath: string, outputPath: string, options: IDjvuConvertOptions) => Promise<IDjvuConvertResult>;
@@ -230,6 +245,7 @@ export interface IElectronAPI {
     setWindowTitle: (title: string) => Promise<void>;
     showItemInFolder: (path: string) => Promise<boolean>;
     setMenuDocumentState: (hasDocument: boolean) => Promise<void>;
+    closeCurrentWindow: () => Promise<boolean>;
     notifyRendererReady: () => void;
     onMenuOpenPdf: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuSave: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
@@ -323,4 +339,6 @@ export interface IElectronAPI {
     onMenuCopyTabToGroup: (callback: (direction: TGroupDirection) => void) => IMenuEventUnsubscribe;
 
     getPathForFile: (file: File) => string;
+
+    tabs: IWindowTabsApi;
 }

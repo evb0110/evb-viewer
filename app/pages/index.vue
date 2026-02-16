@@ -17,6 +17,7 @@
                 @reorder-tab="moveTabWithinGroup"
                 @move-tab-direction="handleTabMoveDirection"
                 @tab-context-command="handleTabContextCommand"
+                @tab-context-request="handleTabContextRequest"
                 @set-workspace-ref="setWorkspaceRef"
                 @update-tab="updateTab"
                 @open-in-new-tab="handleOpenInNewTab"
@@ -67,6 +68,7 @@ import {
     computed,
     nextTick,
     onMounted,
+    onUnmounted,
     ref,
     watch,
     watchEffect,
@@ -81,9 +83,13 @@ import { useTabsShellBindings } from '@app/composables/page/useTabsShellBindings
 import { useEditorGroupsManager } from '@app/composables/useEditorGroupsManager';
 import { useWorkspaceRestoreTracker } from '@app/composables/useWorkspaceRestoreTracker';
 import { useWorkspaceSplitCache } from '@app/composables/useWorkspaceSplitCache';
+import {
+    collectMergeTabOrder,
+    shouldCloseSourceWindowAfterTransfer,
+} from '@app/composables/page/window-tab-transfer-orchestration';
 import type { TOpenFileResult } from '@app/types/electron-api';
 import type { ITab } from '@app/types/tabs';
-import type { TGroupDirection } from '@app/types/editor-groups';
+import type {TGroupDirection} from '@app/types/editor-groups';
 import type { IWorkspaceExpose } from '@app/types/workspace-expose';
 import type { TSplitPayload } from '@app/types/split-payload';
 import type {
@@ -91,6 +97,12 @@ import type {
     TDirectionalCommandAvailability,
     TTabContextCommand,
 } from '@app/types/tab-context-menu';
+import type {
+    ITransferredTabState,
+    IWindowTabIncomingTransfer,
+    TWindowTabTransferTarget,
+    TWindowTabsAction,
+} from '@app/types/window-tab-transfer';
 
 const {
     groups,
@@ -136,6 +148,7 @@ const DIRECTION_ORDER: TGroupDirection[] = [
 ];
 const activeTabTransitions = ref(0);
 let tabTransitionQueue: Promise<void> = Promise.resolve();
+let incomingTabTransferCleanup: (() => void) | null = null;
 
 const REQUIRED_WORKSPACE_METHODS: Array<keyof Omit<IWorkspaceExpose, 'hasPdf'>> = [
     'handleSave',
@@ -266,6 +279,37 @@ function cleanupEmptyGroups() {
             closeGroup(group.id);
         }
     }
+}
+
+function buildTransferredTabState(tab: ITab): ITransferredTabState {
+    return {
+        fileName: tab.fileName,
+        originalPath: tab.originalPath,
+        isDirty: tab.isDirty,
+        isDjvu: tab.isDjvu,
+    };
+}
+
+function resolveTabForAction(tabId: string | undefined) {
+    const resolvedTabId = tabId ?? activeTabId.value ?? undefined;
+    if (!resolvedTabId) {
+        return null;
+    }
+
+    const tab = getTabById(resolvedTabId);
+    if (!tab) {
+        return null;
+    }
+
+    const group = getGroupByTabId(resolvedTabId);
+    if (!group) {
+        return null;
+    }
+
+    return {
+        tab,
+        group,
+    };
 }
 
 const activeWorkspace = computed(() => {
@@ -547,6 +591,208 @@ async function restoreWorkspacePayload(tabId: string, payload: TSplitPayload | n
     }
 }
 
+type TSourceTransferOutcome = 'success' | 'failed' | 'window-closed';
+
+async function closeSourceWorkspaceWithoutPersist(tabId: string) {
+    const workspace = workspaceRefs.value.get(tabId);
+    if (!workspace || !workspaceHasPdf(workspace)) {
+        return true;
+    }
+
+    workspaceRestoreTracker.start(tabId);
+    try {
+        await workspace.handleCloseFileFromUi({persist: false});
+        return true;
+    } catch (error) {
+        BrowserLogger.error('tabs', 'Failed to close source workspace after transfer', {
+            tabId,
+            error,
+        });
+        return false;
+    } finally {
+        workspaceRestoreTracker.finish(tabId);
+    }
+}
+
+async function finalizeTransferredSourceTab(groupId: string, tabId: string): Promise<TSourceTransferOutcome> {
+    const sourceCloseSucceeded = await closeSourceWorkspaceWithoutPersist(tabId);
+    if (!sourceCloseSucceeded) {
+        return 'failed';
+    }
+
+    if (shouldCloseSourceWindowAfterTransfer(tabs.value.length, hasElectronAPI())) {
+        const closed = await getElectronAPI().closeCurrentWindow();
+        if (closed) {
+            return 'window-closed';
+        }
+    }
+
+    closeTabInState(groupId, tabId);
+    cleanupEmptyGroups();
+    return 'success';
+}
+
+async function transferTabToTarget(tabId: string, target: TWindowTabTransferTarget): Promise<TSourceTransferOutcome> {
+    if (!hasElectronAPI()) {
+        return 'failed';
+    }
+
+    const tab = getTabById(tabId);
+    const sourceGroup = getGroupByTabId(tabId);
+    if (!tab || !sourceGroup) {
+        return 'failed';
+    }
+
+    const payload = await captureWorkspacePayload(tab.id);
+    if (!payload) {
+        return 'failed';
+    }
+
+    const transferResult = await getElectronAPI().tabs.transfer({
+        target,
+        tab: buildTransferredTabState(tab),
+        payload,
+    });
+
+    if (!transferResult.success) {
+        BrowserLogger.warn('tabs', 'Cross-window transfer failed', {
+            tabId,
+            target,
+            error: transferResult.error,
+        });
+        return 'failed';
+    }
+
+    return finalizeTransferredSourceTab(sourceGroup.id, tab.id);
+}
+
+async function moveTabToNewWindow(tabId?: string) {
+    const resolved = resolveTabForAction(tabId);
+    if (!resolved) {
+        return;
+    }
+
+    await transferTabToTarget(resolved.tab.id, {kind: 'new-window'});
+}
+
+async function moveTabToWindow(targetWindowId: number, tabId?: string) {
+    const resolved = resolveTabForAction(tabId);
+    if (!resolved) {
+        return;
+    }
+
+    await transferTabToTarget(resolved.tab.id, {
+        kind: 'window',
+        windowId: targetWindowId,
+    });
+}
+
+async function mergeWindowInto(targetWindowId: number) {
+    const orderedTabIds = collectMergeTabOrder(layout.value, groups.value, tabs.value);
+    for (const tabId of orderedTabIds) {
+        if (!getTabById(tabId)) {
+            continue;
+        }
+
+        const result = await transferTabToTarget(tabId, {
+            kind: 'window',
+            windowId: targetWindowId,
+        });
+
+        if (result === 'failed' || result === 'window-closed') {
+            return;
+        }
+    }
+}
+
+async function handleIncomingTabTransfer(transfer: IWindowTabIncomingTransfer) {
+    if (!hasElectronAPI()) {
+        return;
+    }
+
+    const ackFailure = async (error: string) => {
+        await getElectronAPI().tabs.transferAck({
+            transferId: transfer.transferId,
+            success: false,
+            error,
+        });
+    };
+
+    try {
+        const targetGroup = getGroupById(activeGroupId.value) ?? groups.value[0] ?? null;
+        if (!targetGroup) {
+            await ackFailure('No target group is available in the destination window.');
+            return;
+        }
+
+        const incomingTab = createTab({
+            groupId: targetGroup.id,
+            activate: true,
+            initial: transfer.tab,
+        });
+
+        const restored = await restoreWorkspacePayload(incomingTab.id, transfer.payload);
+        if (!restored) {
+            removeTabFromState(incomingTab.id);
+            await ackFailure('Failed to restore transferred tab state.');
+            return;
+        }
+
+        activateGroup(targetGroup.id);
+        activateTab(targetGroup.id, incomingTab.id);
+
+        await getElectronAPI().tabs.transferAck({
+            transferId: transfer.transferId,
+            success: true,
+        });
+    } catch (error) {
+        BrowserLogger.error('tabs', 'Unhandled incoming tab transfer failure', {
+            transferId: transfer.transferId,
+            error,
+        });
+
+        await getElectronAPI().tabs.transferAck({
+            transferId: transfer.transferId,
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+        });
+    }
+}
+
+function handleTabContextRequest(groupId: string, tabId: string) {
+    const group = getGroupById(groupId);
+    if (!group || !group.tabIds.includes(tabId) || !hasElectronAPI()) {
+        return;
+    }
+
+    activateGroup(groupId);
+    activateTab(groupId, tabId);
+    void getElectronAPI().tabs.showContextMenu(tabId);
+}
+
+async function handleWindowTabsAction(action: TWindowTabsAction) {
+    if (action.kind === 'close-tab') {
+        const resolved = resolveTabForAction(action.tabId);
+        if (!resolved) {
+            return;
+        }
+        await handleCloseTab(resolved.group.id, resolved.tab.id);
+        return;
+    }
+
+    if (action.kind === 'move-tab-to-new-window') {
+        await moveTabToNewWindow(action.tabId);
+        return;
+    }
+
+    if (action.kind === 'move-tab-to-window') {
+        await moveTabToWindow(action.targetWindowId, action.tabId);
+        return;
+    }
+
+    await mergeWindowInto(action.targetWindowId);
+}
+
 function closeTabInState(groupId: string, tabId: string) {
     closeTab(groupId, tabId);
     workspaceSplitCache.clear(tabId);
@@ -778,11 +1024,23 @@ useTabsShellBindings({
     focusGroup: focusEditorGroup,
     moveActiveTab,
     copyActiveTab,
+    handleWindowTabsAction,
 });
 
 onMounted(() => {
     chromeHostsReady.value = true;
     cleanupEmptyGroups();
+
+    if (hasElectronAPI()) {
+        incomingTabTransferCleanup = getElectronAPI().tabs.onIncomingTransfer((transfer) => {
+            void handleIncomingTabTransfer(transfer);
+        });
+    }
+});
+
+onUnmounted(() => {
+    incomingTabTransferCleanup?.();
+    incomingTabTransferCleanup = null;
 });
 
 watchEffect(() => {

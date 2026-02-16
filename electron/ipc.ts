@@ -1,52 +1,64 @@
-import { ipcMain } from 'electron';
-import { registerOcrHandlers } from '@electron/ocr/ipc';
-import { registerSearchHandlers } from '@electron/search/ipc';
-import { registerPageOpsHandlers } from '@electron/page-ops/ipc';
-import { registerDjvuHandlers } from '@electron/djvu/ipc';
-import type { ISettingsData } from '@app/types/shared';
 import {
-    loadSettings,
-    saveSettings,
-} from '@electron/settings';
+    BrowserWindow,
+    ipcMain,
+} from 'electron';
+import type { ISettingsData } from '@app/types/shared';
+import type {
+    IWindowTabTransferAck,
+    IWindowTabTransferRequest,
+} from '@app/types/window-tab-transfer';
+import { registerDjvuHandlers } from '@electron/djvu/ipc';
 import {
     setMenuDocumentState,
+    showTabContextMenu,
     updateRecentFilesMenu,
 } from '@electron/menu';
 import {
-    addRecentFile,
-    getRecentFiles,
-    removeRecentFile,
-    clearRecentFiles,
-} from '@electron/recent-files';
+    acknowledgeWindowTabTransfer,
+    requestWindowTabTransfer,
+} from '@electron/window-tab-transfer';
 import {
+    handleCleanupOcrTemp,
+    handleFileExists,
     handleFileRead,
-    handleFileStat,
     handleFileReadRange,
     handleFileReadText,
-    handleFileExists,
+    handleFileStat,
     handleFileWrite,
     handleFileWriteDocx,
-    handleCleanupOcrTemp,
 } from '@electron/ipc/fileOps';
 import {
+    handleCreateWorkingCopyFromData,
     handleOpenPdfDialog,
     handleOpenPdfDirect,
     handleOpenPdfDirectBatch,
-    handleCreateWorkingCopyFromData,
+    handleSaveDocxAs,
     handleSavePdfAs,
     handleSavePdfDialog,
-    handleSaveDocxAs,
     handleSetWindowTitle,
     handleShowItemInFolder,
 } from '@electron/ipc/dialogs';
 import {
+    cleanupWorkingCopy,
+    handleFileSave,
+} from '@electron/ipc/workingCopy';
+import {
     handlePdfExportImages,
     handlePdfExportMultiPageTiff,
 } from '@electron/ipc/pdfExport';
+import { registerOcrHandlers } from '@electron/ocr/ipc';
+import { registerPageOpsHandlers } from '@electron/page-ops/ipc';
 import {
-    handleFileSave,
-    cleanupWorkingCopy,
-} from '@electron/ipc/workingCopy';
+    addRecentFile,
+    clearRecentFiles,
+    getRecentFiles,
+    removeRecentFile,
+} from '@electron/recent-files';
+import { registerSearchHandlers } from '@electron/search/ipc';
+import {
+    loadSettings,
+    saveSettings,
+} from '@electron/settings';
 
 export { clearAllWorkingCopies } from '@electron/ipc/workingCopy';
 
@@ -75,8 +87,55 @@ export function registerIpcHandlers() {
     ipcMain.handle('file:cleanupOcrTemp', handleCleanupOcrTemp);
     ipcMain.handle('window:setTitle', handleSetWindowTitle);
     ipcMain.handle('shell:showItemInFolder', handleShowItemInFolder);
-    ipcMain.handle('menu:setDocumentState', (_event, hasDocument: boolean) => {
-        setMenuDocumentState(hasDocument);
+    ipcMain.handle('menu:setDocumentState', (event, hasDocument: boolean) => {
+        const window = BrowserWindow.fromWebContents(event.sender);
+        if (!window) {
+            return;
+        }
+
+        setMenuDocumentState(window.id, hasDocument);
+    });
+
+    ipcMain.handle('tabs:transfer', async (event, request: IWindowTabTransferRequest) => {
+        const sourceWindow = BrowserWindow.fromWebContents(event.sender);
+        if (!sourceWindow) {
+            return {
+                transferId: '',
+                success: false,
+                targetWindowId: request.target.kind === 'window' ? request.target.windowId : -1,
+                error: 'Source window is not available.',
+            };
+        }
+
+        return requestWindowTabTransfer(sourceWindow.id, request);
+    });
+
+    ipcMain.handle('tabs:transferAck', (event, ack: IWindowTabTransferAck) => {
+        const window = BrowserWindow.fromWebContents(event.sender);
+        if (!window) {
+            return false;
+        }
+
+        return acknowledgeWindowTabTransfer(window.id, ack);
+    });
+
+    ipcMain.handle('tabs:showContextMenu', (event, tabId: string) => {
+        const window = BrowserWindow.fromWebContents(event.sender);
+        if (!window) {
+            return;
+        }
+
+        showTabContextMenu(window, tabId);
+    });
+
+    ipcMain.handle('window:closeCurrent', (event) => {
+        const window = BrowserWindow.fromWebContents(event.sender);
+        if (!window || window.isDestroyed()) {
+            return false;
+        }
+
+        window.close();
+        return true;
     });
 
     ipcMain.handle('recent-files:get', () => getRecentFiles());

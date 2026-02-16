@@ -6,6 +6,12 @@ import type {
 import type { ISettingsData } from '@app/types/shared';
 import type { IElectronAPI } from '@app/types/electron-api';
 import type {
+    IWindowTabIncomingTransfer,
+    IWindowTabTransferAck,
+    IWindowTabTransferRequest,
+    TWindowTabsAction,
+} from '@app/types/window-tab-transfer';
+import type {
     IMenuEventCallback,
     IMenuEventUnsubscribe,
 } from 'electron/ipc-types';
@@ -53,6 +59,7 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
         setWindowTitle: (title: string) => ipcRenderer.invoke('window:setTitle', title),
         showItemInFolder: (path: string) => ipcRenderer.invoke('shell:showItemInFolder', path),
         setMenuDocumentState: (hasDocument: boolean) => ipcRenderer.invoke('menu:setDocumentState', hasDocument),
+        closeCurrentWindow: () => ipcRenderer.invoke('window:closeCurrent'),
         notifyRendererReady: () => ipcRenderer.send('app:rendererReady'),
 
         onMenuOpenPdf: (callback: IMenuEventCallback): IMenuEventUnsubscribe => onNoArgEvent(ipcRenderer, 'menu:openPdf', callback),
@@ -289,6 +296,19 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
                 ipcRenderer.invoke('page-ops:insert-file', workingCopyPath, totalPages, afterPage, sourcePaths),
             rotate: (workingCopyPath: string, pages: number[], angle: number) =>
                 ipcRenderer.invoke('page-ops:rotate', workingCopyPath, pages, angle),
+        },
+
+        tabs: {
+            transfer: (request: IWindowTabTransferRequest) =>
+                ipcRenderer.invoke('tabs:transfer', request),
+            transferAck: (ack: IWindowTabTransferAck) =>
+                ipcRenderer.invoke('tabs:transferAck', ack),
+            showContextMenu: (tabId: string) =>
+                ipcRenderer.invoke('tabs:showContextMenu', tabId),
+            onIncomingTransfer: (callback: (transfer: IWindowTabIncomingTransfer) => void): IMenuEventUnsubscribe =>
+                onSingleArgEvent(ipcRenderer, 'tabs:incomingTransfer', callback),
+            onWindowAction: (callback: (action: TWindowTabsAction) => void): IMenuEventUnsubscribe =>
+                onSingleArgEvent(ipcRenderer, 'menu:windowTabsAction', callback),
         },
 
         getPathForFile: (file: File) => electronWebUtils.getPathForFile(file),

@@ -16,7 +16,7 @@
                 @click="handleTabClick(tab.id)"
                 @auxclick.prevent="handleAuxClick($event, tab.id)"
                 @pointerdown="onPointerDown($event, index)"
-                @contextmenu.prevent.stop="openTabContextMenu($event, tab.id)"
+                @contextmenu.prevent.stop="handleTabContextMenu($event, tab.id)"
             >
                 <span class="tab-label">{{ tab.fileName ?? t('tabs.newTab') }}</span>
                 <span
@@ -228,6 +228,7 @@ import type {
     ITabContextAvailability,
     TTabContextCommand,
 } from '@app/types/tab-context-menu';
+import { hasElectronAPI } from '@app/utils/electron';
 
 const { t } = useTypedI18n();
 const { clampToViewport } = useContextMenuPosition();
@@ -245,6 +246,7 @@ const emit = defineEmits<{
     reorder: [fromIndex: number, toIndex: number];
     'move-direction': [tabId: string, direction: 'left' | 'right'];
     'tab-context-command': [tabId: string, command: TTabContextCommand];
+    'tab-context-request': [tabId: string];
 }>();
 
 const tabBarRef = useTemplateRef<HTMLElement>('tabBarRef');
@@ -356,6 +358,16 @@ function openTabContextMenu(event: MouseEvent, tabId: string) {
         }
         positionContextMenu(event.clientX, event.clientY);
     });
+}
+
+function handleTabContextMenu(event: MouseEvent, tabId: string) {
+    if (hasElectronAPI()) {
+        closeTabContextMenu();
+        emit('tab-context-request', tabId);
+        return;
+    }
+
+    openTabContextMenu(event, tabId);
 }
 
 function runContextCommand(command: TTabContextCommand) {

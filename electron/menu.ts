@@ -8,12 +8,20 @@ import {
     Menu,
 } from 'electron';
 import { basename } from 'path';
+import type { TWindowTabsAction } from '@app/types/window-tab-transfer';
 import { config } from '@electron/config';
 import { getRecentFilesSync } from '@electron/recent-files';
 import { te } from '@electron/i18n';
+import {
+    getAllAppWindows,
+    getWindowById,
+} from '@electron/window';
 
 const appName = te('app.title');
-const menuState = {hasDocument: false};
+const WINDOW_TABS_ACTION_CHANNEL = 'menu:windowTabsAction';
+const menuDocumentStateByWindow = new Map<number, boolean>();
+const trackedWindowIds = new Set<number>();
+let listenersRegistered = false;
 
 interface IWindowMenuActionOptions {
     label: string;
@@ -23,8 +31,119 @@ interface IWindowMenuActionOptions {
     args?: unknown[];
 }
 
-export function sendToWindow(window: BaseWindow | undefined, channel: string, ...args: unknown[]) {
-    if (window instanceof BrowserWindow) {
+function getFocusedAppWindow() {
+    const focusedWindow = BrowserWindow.getFocusedWindow();
+    if (focusedWindow && !focusedWindow.isDestroyed()) {
+        return focusedWindow;
+    }
+
+    const windows = getAllAppWindows();
+    return windows[0] ?? null;
+}
+
+function resolveWindowFromMenuContext(window: BaseWindow | undefined) {
+    if (window instanceof BrowserWindow && !window.isDestroyed()) {
+        return window;
+    }
+
+    return getFocusedAppWindow();
+}
+
+function getWindowDocumentState(window: BrowserWindow | null) {
+    if (!window) {
+        return false;
+    }
+
+    return menuDocumentStateByWindow.get(window.id) ?? false;
+}
+
+function getWindowDisplayLabel(window: BrowserWindow, duplicateCountByTitle: Map<string, number>) {
+    const title = (window.getTitle() || te('app.title')).trim() || te('app.title');
+    const duplicateCount = duplicateCountByTitle.get(title) ?? 0;
+    if (duplicateCount <= 1) {
+        return title;
+    }
+
+    return `${title} (${window.id})`;
+}
+
+function getOtherWindows(sourceWindowId: number) {
+    const windows = getAllAppWindows().filter(window => window.id !== sourceWindowId);
+    windows.sort((left, right) => left.id - right.id);
+    return windows;
+}
+
+function buildDuplicateWindowTitleMap(windows: BrowserWindow[]) {
+    const counts = new Map<string, number>();
+    for (const window of windows) {
+        const title = (window.getTitle() || te('app.title')).trim() || te('app.title');
+        counts.set(title, (counts.get(title) ?? 0) + 1);
+    }
+    return counts;
+}
+
+function sendWindowTabsAction(sourceWindowId: number | null, action: TWindowTabsAction) {
+    const sourceWindow = sourceWindowId === null
+        ? getFocusedAppWindow()
+        : (getWindowById(sourceWindowId) ?? getFocusedAppWindow());
+
+    if (!sourceWindow) {
+        return;
+    }
+
+    sendToWindow(sourceWindow, WINDOW_TABS_ACTION_CHANNEL, action);
+}
+
+function buildMoveToWindowSubmenu(
+    sourceWindowId: number,
+    tabId: string | undefined,
+): MenuItemConstructorOptions[] {
+    const otherWindows = getOtherWindows(sourceWindowId);
+    if (otherWindows.length === 0) {
+        return [{
+            label: te('menu.noOtherWindows'),
+            enabled: false,
+        }];
+    }
+
+    const duplicateCounts = buildDuplicateWindowTitleMap(otherWindows);
+
+    return otherWindows.map((window) => ({
+        label: getWindowDisplayLabel(window, duplicateCounts),
+        click: () => {
+            sendWindowTabsAction(sourceWindowId, {
+                kind: 'move-tab-to-window',
+                targetWindowId: window.id,
+                ...(tabId ? { tabId } : {}),
+            });
+        },
+    }));
+}
+
+function buildMergeWindowSubmenu(sourceWindowId: number): MenuItemConstructorOptions[] {
+    const otherWindows = getOtherWindows(sourceWindowId);
+    if (otherWindows.length === 0) {
+        return [{
+            label: te('menu.noOtherWindows'),
+            enabled: false,
+        }];
+    }
+
+    const duplicateCounts = buildDuplicateWindowTitleMap(otherWindows);
+
+    return otherWindows.map((window) => ({
+        label: getWindowDisplayLabel(window, duplicateCounts),
+        click: () => {
+            sendWindowTabsAction(sourceWindowId, {
+                kind: 'merge-window-into',
+                targetWindowId: window.id,
+            });
+        },
+    }));
+}
+
+export function sendToWindow(window: BaseWindow | undefined | null, channel: string, ...args: unknown[]) {
+    if (window instanceof BrowserWindow && !window.isDestroyed()) {
         window.webContents.send(channel, ...args);
     }
 }
@@ -43,7 +162,7 @@ function createWindowMenuAction(options: IWindowMenuActionOptions): MenuItemCons
         ...(accelerator ? { accelerator } : {}),
         enabled,
         click: (_item, window) => {
-            sendToWindow(window, channel, ...args);
+            sendToWindow(resolveWindowFromMenuContext(window), channel, ...args);
         },
     };
 }
@@ -61,7 +180,7 @@ function buildRecentFilesSubmenu(): MenuItemConstructorOptions[] {
     const fileItems: MenuItemConstructorOptions[] = recentFiles.map((filePath) => ({
         label: basename(filePath),
         click: (_, window) => {
-            sendToWindow(window, 'menu:openRecentFile', filePath);
+            sendToWindow(resolveWindowFromMenuContext(window), 'menu:openRecentFile', filePath);
         },
     }));
 
@@ -71,15 +190,13 @@ function buildRecentFilesSubmenu(): MenuItemConstructorOptions[] {
         {
             label: te('menu.clearRecentFiles'),
             click: (_, window) => {
-                sendToWindow(window, 'menu:clearRecentFiles');
+                sendToWindow(resolveWindowFromMenuContext(window), 'menu:clearRecentFiles');
             },
         },
     ];
 }
 
-function getFileMenu(): MenuItemConstructorOptions {
-    const documentActionsEnabled = menuState.hasDocument;
-
+function getFileMenu(documentActionsEnabled: boolean): MenuItemConstructorOptions {
     return {
         label: te('menu.file'),
         submenu: [
@@ -152,9 +269,7 @@ function getFileMenu(): MenuItemConstructorOptions {
     };
 }
 
-function getEditMenu(): MenuItemConstructorOptions {
-    const documentActionsEnabled = menuState.hasDocument;
-
+function getEditMenu(documentActionsEnabled: boolean): MenuItemConstructorOptions {
     return {
         label: te('menu.actions'),
         submenu: [
@@ -175,17 +290,17 @@ function getEditMenu(): MenuItemConstructorOptions {
                 label: te('menu.copy'),
                 accelerator: 'CmdOrCtrl+C',
                 click: (_item, window) => {
-                    (window as Electron.BrowserWindow | undefined)?.webContents.copy();
+                    (resolveWindowFromMenuContext(window) as Electron.BrowserWindow | null)?.webContents.copy();
                 },
             },
         ],
     };
 }
 
-function getPagesMenu(): MenuItemConstructorOptions {
+function getPagesMenu(documentActionsEnabled: boolean): MenuItemConstructorOptions {
     return {
         label: te('menu.pages'),
-        enabled: menuState.hasDocument,
+        enabled: documentActionsEnabled,
         submenu: [
             createWindowMenuAction({
                 label: te('menu.deleteSelectedPages'),
@@ -213,9 +328,7 @@ function getPagesMenu(): MenuItemConstructorOptions {
     };
 }
 
-function getViewMenu(): MenuItemConstructorOptions {
-    const documentActionsEnabled = menuState.hasDocument;
-
+function getViewMenu(documentActionsEnabled: boolean): MenuItemConstructorOptions {
     return {
         label: te('menu.view'),
         submenu: [
@@ -379,12 +492,45 @@ function getViewMenu(): MenuItemConstructorOptions {
     };
 }
 
-function getWindowMenu(): MenuItemConstructorOptions {
+function getWindowMenu(activeWindow: BrowserWindow | null): MenuItemConstructorOptions {
+    const sourceWindowId = activeWindow?.id ?? null;
+    const hasTargets = sourceWindowId === null
+        ? false
+        : getOtherWindows(sourceWindowId).length > 0;
+
     return {
         label: te('menu.window'),
         submenu: [
             { role: 'minimize' },
             { role: 'close' },
+            { type: 'separator' },
+            {
+                label: te('menu.moveActiveTabToNewWindow'),
+                enabled: sourceWindowId !== null,
+                click: () => {
+                    sendWindowTabsAction(sourceWindowId, {kind: 'move-tab-to-new-window'});
+                },
+            },
+            {
+                label: te('menu.moveActiveTabToWindow'),
+                enabled: sourceWindowId !== null && hasTargets,
+                submenu: sourceWindowId === null
+                    ? [{
+                        label: te('menu.noOtherWindows'),
+                        enabled: false,
+                    }]
+                    : buildMoveToWindowSubmenu(sourceWindowId, undefined),
+            },
+            {
+                label: te('menu.mergeWindowInto'),
+                enabled: sourceWindowId !== null && hasTargets,
+                submenu: sourceWindowId === null
+                    ? [{
+                        label: te('menu.noOtherWindows'),
+                        enabled: false,
+                    }]
+                    : buildMergeWindowSubmenu(sourceWindowId),
+            },
             ...(config.isMac ? [
                 { type: 'separator' as const },
                 { role: 'front' as const },
@@ -422,19 +568,20 @@ function getMacAppMenu(): MenuItemConstructorOptions {
     };
 }
 
-function buildMenuTemplate(): MenuItemConstructorOptions[] {
+function buildMenuTemplate(activeWindow: BrowserWindow | null): MenuItemConstructorOptions[] {
     const template: MenuItemConstructorOptions[] = [];
+    const documentActionsEnabled = getWindowDocumentState(activeWindow);
 
     if (config.isMac) {
         template.push(getMacAppMenu());
     }
 
     template.push(
-        getFileMenu(),
-        getEditMenu(),
-        getPagesMenu(),
-        getViewMenu(),
-        getWindowMenu(),
+        getFileMenu(documentActionsEnabled),
+        getEditMenu(documentActionsEnabled),
+        getPagesMenu(documentActionsEnabled),
+        getViewMenu(documentActionsEnabled),
+        getWindowMenu(activeWindow),
         getHelpMenu(),
     );
 
@@ -442,12 +589,57 @@ function buildMenuTemplate(): MenuItemConstructorOptions[] {
 }
 
 function rebuildMenu() {
-    const template = buildMenuTemplate();
+    const activeWindow = getFocusedAppWindow();
+    const template = buildMenuTemplate(activeWindow);
     const menu = Menu.buildFromTemplate(template);
     Menu.setApplicationMenu(menu);
 }
 
+function trackWindowForMenu(window: BrowserWindow) {
+    if (trackedWindowIds.has(window.id)) {
+        return;
+    }
+
+    trackedWindowIds.add(window.id);
+
+    window.on('page-title-updated', () => {
+        rebuildMenu();
+    });
+
+    window.on('closed', () => {
+        trackedWindowIds.delete(window.id);
+        menuDocumentStateByWindow.delete(window.id);
+        rebuildMenu();
+    });
+}
+
+function registerMenuListeners() {
+    if (listenersRegistered) {
+        return;
+    }
+
+    listenersRegistered = true;
+
+    app.on('browser-window-focus', () => {
+        rebuildMenu();
+    });
+
+    app.on('browser-window-blur', () => {
+        rebuildMenu();
+    });
+
+    app.on('browser-window-created', (_event, window) => {
+        trackWindowForMenu(window);
+        rebuildMenu();
+    });
+
+}
+
 export function setupMenu() {
+    registerMenuListeners();
+    for (const window of getAllAppWindows()) {
+        trackWindowForMenu(window);
+    }
     rebuildMenu();
 }
 
@@ -455,11 +647,64 @@ export function updateRecentFilesMenu() {
     rebuildMenu();
 }
 
-export function setMenuDocumentState(hasDocument: boolean) {
+export function refreshMenu() {
+    rebuildMenu();
+}
+
+export function setMenuDocumentState(windowId: number, hasDocument: boolean) {
     const normalized = Boolean(hasDocument);
-    if (menuState.hasDocument === normalized) {
+    if (menuDocumentStateByWindow.get(windowId) === normalized) {
         return;
     }
-    menuState.hasDocument = normalized;
+
+    menuDocumentStateByWindow.set(windowId, normalized);
     rebuildMenu();
+}
+
+export function clearMenuDocumentState(windowId: number) {
+    if (!menuDocumentStateByWindow.has(windowId)) {
+        return;
+    }
+
+    menuDocumentStateByWindow.delete(windowId);
+    rebuildMenu();
+}
+
+export function showTabContextMenu(window: BrowserWindow, tabId: string) {
+    const normalizedTabId = tabId.trim();
+    if (!normalizedTabId || window.isDestroyed()) {
+        return;
+    }
+
+    const sourceWindowId = window.id;
+    const hasTargets = getOtherWindows(sourceWindowId).length > 0;
+
+    const menu = Menu.buildFromTemplate([
+        {
+            label: te('menu.closeTab'),
+            click: () => {
+                sendWindowTabsAction(sourceWindowId, {
+                    kind: 'close-tab',
+                    tabId: normalizedTabId,
+                });
+            },
+        },
+        { type: 'separator' },
+        {
+            label: te('menu.moveTabToNewWindow'),
+            click: () => {
+                sendWindowTabsAction(sourceWindowId, {
+                    kind: 'move-tab-to-new-window',
+                    tabId: normalizedTabId,
+                });
+            },
+        },
+        {
+            label: te('menu.moveTabToWindow'),
+            enabled: hasTargets,
+            submenu: buildMoveToWindowSubmenu(sourceWindowId, normalizedTabId),
+        },
+    ]);
+
+    menu.popup({ window });
 }
