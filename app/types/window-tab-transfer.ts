@@ -42,6 +42,11 @@ export interface IWindowTabTransferResult {
     error?: string;
 }
 
+export interface IWindowTabTargetWindow {
+    windowId: number;
+    label: string;
+}
+
 export type TWindowTabsAction =
     | {
         kind: 'close-tab';

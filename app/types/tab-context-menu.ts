@@ -14,6 +14,11 @@ export interface ITabContextAvailability {
 export type TTabContextCommand =
     | { kind: 'new-tab' }
     | { kind: 'close-tab' }
+    | { kind: 'move-to-new-window'; }
+    | {
+        kind: 'move-to-window';
+        targetWindowId: number;
+    }
     | {
         kind: 'split';
         direction: TGroupDirection 

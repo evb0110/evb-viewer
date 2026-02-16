@@ -10,6 +10,7 @@ import type {
 } from '@app/types/shared';
 import type {
     IWindowTabIncomingTransfer,
+    IWindowTabTargetWindow,
     IWindowTabTransferAck,
     IWindowTabTransferRequest,
     IWindowTabTransferResult,
@@ -182,6 +183,7 @@ interface IDjvuViewingReadyEvent {
 interface IWindowTabsApi {
     transfer: (request: IWindowTabTransferRequest) => Promise<IWindowTabTransferResult>;
     transferAck: (ack: IWindowTabTransferAck) => Promise<boolean>;
+    listTargetWindows: () => Promise<IWindowTabTargetWindow[]>;
     showContextMenu: (tabId: string) => Promise<void>;
     onIncomingTransfer: (callback: (transfer: IWindowTabIncomingTransfer) => void) => IMenuEventUnsubscribe;
     onWindowAction: (callback: (action: TWindowTabsAction) => void) => IMenuEventUnsubscribe;

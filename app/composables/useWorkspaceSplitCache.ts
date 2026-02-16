@@ -1,3 +1,4 @@
+import { ref } from 'vue';
 import type { TSplitPayload } from '@app/types/split-payload';
 
 interface IWorkspaceSplitCacheEntry {
@@ -8,6 +9,11 @@ interface IWorkspaceSplitCacheEntry {
 const CACHE_TTL_MS = 2 * 60 * 1000;
 const MAX_CACHE_ENTRIES = 256;
 const splitPayloadCache = new Map<string, IWorkspaceSplitCacheEntry>();
+const splitPayloadCacheRevision = ref(0);
+
+function bumpCacheRevision() {
+    splitPayloadCacheRevision.value += 1;
+}
 
 function clonePayload(payload: TSplitPayload): TSplitPayload {
     if (payload.kind === 'empty') {
@@ -31,16 +37,22 @@ function clonePayload(payload: TSplitPayload): TSplitPayload {
 }
 
 function pruneCache(now = Date.now()) {
+    let changed = false;
+
     for (const [
         tabId,
         entry,
     ] of splitPayloadCache) {
         if (now - entry.createdAt > CACHE_TTL_MS) {
             splitPayloadCache.delete(tabId);
+            changed = true;
         }
     }
 
     if (splitPayloadCache.size <= MAX_CACHE_ENTRIES) {
+        if (changed) {
+            bumpCacheRevision();
+        }
         return;
     }
 
@@ -54,13 +66,22 @@ function pruneCache(now = Date.now()) {
             break;
         }
         splitPayloadCache.delete(item[0]);
+        changed = true;
+    }
+
+    if (changed) {
+        bumpCacheRevision();
     }
 }
 
 export function useWorkspaceSplitCache() {
     function set(tabId: string, payload: TSplitPayload | null | undefined) {
         if (!payload || payload.kind === 'empty') {
+            const hadEntry = splitPayloadCache.has(tabId);
             splitPayloadCache.delete(tabId);
+            if (hadEntry) {
+                bumpCacheRevision();
+            }
             return;
         }
 
@@ -68,6 +89,7 @@ export function useWorkspaceSplitCache() {
             payload: clonePayload(payload),
             createdAt: Date.now(),
         });
+        bumpCacheRevision();
         pruneCache();
     }
 
@@ -75,7 +97,10 @@ export function useWorkspaceSplitCache() {
         pruneCache();
 
         const entry = splitPayloadCache.get(tabId);
-        splitPayloadCache.delete(tabId);
+        if (entry) {
+            splitPayloadCache.delete(tabId);
+            bumpCacheRevision();
+        }
 
         if (!entry) {
             return null;
@@ -85,12 +110,17 @@ export function useWorkspaceSplitCache() {
     }
 
     function has(tabId: string) {
+        void splitPayloadCacheRevision.value;
         pruneCache();
         return splitPayloadCache.has(tabId);
     }
 
     function clear(tabId: string) {
+        const hadEntry = splitPayloadCache.has(tabId);
         splitPayloadCache.delete(tabId);
+        if (hadEntry) {
+            bumpCacheRevision();
+        }
     }
 
     return {

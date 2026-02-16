@@ -6,13 +6,16 @@ import type { ISettingsData } from '@app/types/shared';
 import type {
     IWindowTabTransferAck,
     IWindowTabTransferRequest,
+    IWindowTabTargetWindow,
 } from '@app/types/window-tab-transfer';
 import { registerDjvuHandlers } from '@electron/djvu/ipc';
+import { te } from '@electron/i18n';
 import {
     setMenuDocumentState,
     showTabContextMenu,
     updateRecentFilesMenu,
 } from '@electron/menu';
+import { getAllAppWindows } from '@electron/window';
 import {
     acknowledgeWindowTabTransfer,
     requestWindowTabTransfer,
@@ -61,6 +64,27 @@ import {
 } from '@electron/settings';
 
 export { clearAllWorkingCopies } from '@electron/ipc/workingCopy';
+
+function buildTabTransferTargetLabels(sourceWindowId: number): IWindowTabTargetWindow[] {
+    const otherWindows = getAllAppWindows()
+        .filter(window => window.id !== sourceWindowId)
+        .sort((left, right) => left.id - right.id);
+
+    const titleCountByLabel = new Map<string, number>();
+    for (const window of otherWindows) {
+        const title = (window.getTitle() || te('app.title')).trim() || te('app.title');
+        titleCountByLabel.set(title, (titleCountByLabel.get(title) ?? 0) + 1);
+    }
+
+    return otherWindows.map((window) => {
+        const title = (window.getTitle() || te('app.title')).trim() || te('app.title');
+        const duplicateCount = titleCountByLabel.get(title) ?? 0;
+        return {
+            windowId: window.id,
+            label: duplicateCount > 1 ? `${title} (${window.id})` : title,
+        };
+    });
+}
 
 export function registerIpcHandlers() {
     ipcMain.handle('dialog:openPdf', handleOpenPdfDialog);
@@ -117,6 +141,15 @@ export function registerIpcHandlers() {
         }
 
         return acknowledgeWindowTabTransfer(window.id, ack);
+    });
+
+    ipcMain.handle('tabs:listTargets', (event): IWindowTabTargetWindow[] => {
+        const sourceWindow = BrowserWindow.fromWebContents(event.sender);
+        if (!sourceWindow) {
+            return [];
+        }
+
+        return buildTabTransferTargetLabels(sourceWindow.id);
     });
 
     ipcMain.handle('tabs:showContextMenu', (event, tabId: string) => {

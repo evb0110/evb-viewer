@@ -303,6 +303,8 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
                 ipcRenderer.invoke('tabs:transfer', request),
             transferAck: (ack: IWindowTabTransferAck) =>
                 ipcRenderer.invoke('tabs:transferAck', ack),
+            listTargetWindows: () =>
+                ipcRenderer.invoke('tabs:listTargets'),
             showContextMenu: (tabId: string) =>
                 ipcRenderer.invoke('tabs:showContextMenu', tabId),
             onIncomingTransfer: (callback: (transfer: IWindowTabIncomingTransfer) => void): IMenuEventUnsubscribe =>

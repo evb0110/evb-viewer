@@ -17,7 +17,6 @@
                 @reorder-tab="moveTabWithinGroup"
                 @move-tab-direction="handleTabMoveDirection"
                 @tab-context-command="handleTabContextCommand"
-                @tab-context-request="handleTabContextRequest"
                 @set-workspace-ref="setWorkspaceRef"
                 @update-tab="updateTab"
                 @open-in-new-tab="handleOpenInNewTab"
@@ -759,17 +758,6 @@ async function handleIncomingTabTransfer(transfer: IWindowTabIncomingTransfer) {
     }
 }
 
-function handleTabContextRequest(groupId: string, tabId: string) {
-    const group = getGroupById(groupId);
-    if (!group || !group.tabIds.includes(tabId) || !hasElectronAPI()) {
-        return;
-    }
-
-    activateGroup(groupId);
-    activateTab(groupId, tabId);
-    void getElectronAPI().tabs.showContextMenu(tabId);
-}
-
 async function handleWindowTabsAction(action: TWindowTabsAction) {
     if (action.kind === 'close-tab') {
         const resolved = resolveTabForAction(action.tabId);
@@ -946,6 +934,16 @@ async function handleTabContextCommand(
 
     if (command.kind === 'close-tab') {
         await handleCloseTab(groupId, tabId);
+        return;
+    }
+
+    if (command.kind === 'move-to-new-window') {
+        await moveTabToNewWindow(tabId);
+        return;
+    }
+
+    if (command.kind === 'move-to-window') {
+        await moveTabToWindow(command.targetWindowId, tabId);
         return;
     }
 

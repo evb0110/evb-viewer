@@ -19,7 +19,6 @@
                 @reorder="(fromIndex, toIndex) => emit('reorder-tab', groupForLeaf!.id, fromIndex, toIndex)"
                 @move-direction="(tabId, direction) => emit('move-tab-direction', groupForLeaf!.id, tabId, direction)"
                 @tab-context-command="(tabId, command) => emit('tab-context-command', groupForLeaf!.id, tabId, command)"
-                @tab-context-request="(tabId) => emit('tab-context-request', groupForLeaf!.id, tabId)"
             />
             <div class="editor-group-content">
                 <DocumentWorkspace
@@ -59,7 +58,6 @@
                 @reorder-tab="(groupId, fromIndex, toIndex) => emit('reorder-tab', groupId, fromIndex, toIndex)"
                 @move-tab-direction="(groupId, tabId, direction) => emit('move-tab-direction', groupId, tabId, direction)"
                 @tab-context-command="(groupId, tabId, command) => emit('tab-context-command', groupId, tabId, command)"
-                @tab-context-request="(groupId, tabId) => emit('tab-context-request', groupId, tabId)"
                 @set-workspace-ref="(tabId, el) => emit('set-workspace-ref', tabId, el)"
                 @update-tab="(tabId, updates) => emit('update-tab', tabId, updates)"
                 @open-in-new-tab="(result, groupId) => emit('open-in-new-tab', result, groupId)"
@@ -91,7 +89,6 @@
                 @reorder-tab="(groupId, fromIndex, toIndex) => emit('reorder-tab', groupId, fromIndex, toIndex)"
                 @move-tab-direction="(groupId, tabId, direction) => emit('move-tab-direction', groupId, tabId, direction)"
                 @tab-context-command="(groupId, tabId, command) => emit('tab-context-command', groupId, tabId, command)"
-                @tab-context-request="(groupId, tabId) => emit('tab-context-request', groupId, tabId)"
                 @set-workspace-ref="(tabId, el) => emit('set-workspace-ref', tabId, el)"
                 @update-tab="(tabId, updates) => emit('update-tab', tabId, updates)"
                 @open-in-new-tab="(result, groupId) => emit('open-in-new-tab', result, groupId)"
@@ -142,7 +139,6 @@ const emit = defineEmits<{
     'reorder-tab': [groupId: string, fromIndex: number, toIndex: number];
     'move-tab-direction': [groupId: string, tabId: string, direction: 'left' | 'right'];
     'tab-context-command': [groupId: string, tabId: string, command: TTabContextCommand];
-    'tab-context-request': [groupId: string, tabId: string];
     'set-workspace-ref': [tabId: string, el: unknown];
     'update-tab': [tabId: string, updates: TTabUpdate];
     'open-in-new-tab': [result: string | import('@app/types/electron-api').TOpenFileResult, groupId: string];

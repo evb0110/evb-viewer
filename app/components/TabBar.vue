@@ -16,7 +16,7 @@
                 @click="handleTabClick(tab.id)"
                 @auxclick.prevent="handleAuxClick($event, tab.id)"
                 @pointerdown="onPointerDown($event, index)"
-                @contextmenu.prevent.stop="handleTabContextMenu($event, tab.id)"
+                @contextmenu.prevent.stop="openTabContextMenu($event, tab.id)"
             >
                 <span class="tab-label">{{ tab.fileName ?? t('tabs.newTab') }}</span>
                 <span
@@ -69,6 +69,37 @@
             >
                 {{ t('tabs.closeTab') }}
             </button>
+            <template v-if="hasElectronBridge">
+                <div class="tab-context-menu-divider" />
+                <p class="tab-context-menu-section">{{ t('menu.window') }}</p>
+                <button
+                    type="button"
+                    class="tab-context-menu-action"
+                    @click="runContextCommand({ kind: 'move-to-new-window' })"
+                >
+                    {{ t('menu.moveTabToNewWindow') }}
+                </button>
+                <button
+                    v-if="windowTransferTargets.length === 0"
+                    type="button"
+                    class="tab-context-menu-action"
+                    disabled
+                >
+                    {{ t('menu.noOtherWindows') }}
+                </button>
+                <button
+                    v-for="targetWindow in windowTransferTargets"
+                    :key="targetWindow.windowId"
+                    type="button"
+                    class="tab-context-menu-action"
+                    @click="runContextCommand({
+                        kind: 'move-to-window',
+                        targetWindowId: targetWindow.windowId,
+                    })"
+                >
+                    {{ `${t('menu.moveTabToWindow')}: ${targetWindow.label}` }}
+                </button>
+            </template>
 
             <div class="tab-context-menu-divider" />
             <p class="tab-context-menu-section">{{ t('menu.splitEditor') }}</p>
@@ -228,10 +259,15 @@ import type {
     ITabContextAvailability,
     TTabContextCommand,
 } from '@app/types/tab-context-menu';
-import { hasElectronAPI } from '@app/utils/electron';
+import type { IWindowTabTargetWindow } from '@app/types/window-tab-transfer';
+import {
+    getElectronAPI,
+    hasElectronAPI,
+} from '@app/utils/electron';
 
 const { t } = useTypedI18n();
 const { clampToViewport } = useContextMenuPosition();
+const hasElectronBridge = hasElectronAPI();
 
 const props = defineProps<{
     tabs: ITab[];
@@ -246,7 +282,6 @@ const emit = defineEmits<{
     reorder: [fromIndex: number, toIndex: number];
     'move-direction': [tabId: string, direction: 'left' | 'right'];
     'tab-context-command': [tabId: string, command: TTabContextCommand];
-    'tab-context-request': [tabId: string];
 }>();
 
 const tabBarRef = useTemplateRef<HTMLElement>('tabBarRef');
@@ -262,6 +297,7 @@ const contextMenu = ref<{
     y: 0,
     tabId: null,
 });
+const windowTransferTargets = ref<IWindowTabTargetWindow[]>([]);
 const contextMenuStyle = computed(() => ({
     left: `${contextMenu.value.x}px`,
     top: `${contextMenu.value.y}px`,
@@ -281,6 +317,10 @@ function isCommandEnabled(command: TTabContextCommand) {
 
     if (command.kind === 'close-tab') {
         return props.contextAvailability?.canClose ?? true;
+    }
+
+    if (command.kind === 'move-to-new-window' || command.kind === 'move-to-window') {
+        return true;
     }
 
     return isDirectionEnabled(command.kind, command.direction);
@@ -346,11 +386,26 @@ function positionContextMenu(x: number, y: number) {
     contextMenu.value.y = clamped.y;
 }
 
+async function loadWindowTransferTargets() {
+    if (!hasElectronAPI()) {
+        windowTransferTargets.value = [];
+        return;
+    }
+
+    try {
+        windowTransferTargets.value = await getElectronAPI().tabs.listTargetWindows();
+    } catch {
+        windowTransferTargets.value = [];
+    }
+}
+
 function openTabContextMenu(event: MouseEvent, tabId: string) {
     contextMenu.value.visible = true;
     contextMenu.value.tabId = tabId;
     contextMenu.value.x = event.clientX;
     contextMenu.value.y = event.clientY;
+
+    void loadWindowTransferTargets();
 
     void nextTick(() => {
         if (!contextMenu.value.visible) {
@@ -358,16 +413,6 @@ function openTabContextMenu(event: MouseEvent, tabId: string) {
         }
         positionContextMenu(event.clientX, event.clientY);
     });
-}
-
-function handleTabContextMenu(event: MouseEvent, tabId: string) {
-    if (hasElectronAPI()) {
-        closeTabContextMenu();
-        emit('tab-context-request', tabId);
-        return;
-    }
-
-    openTabContextMenu(event, tabId);
 }
 
 function runContextCommand(command: TTabContextCommand) {
