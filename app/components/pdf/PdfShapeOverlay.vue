@@ -56,8 +56,8 @@
                 v-if="shape.type === 'arrow'"
                 :x1="shape.x"
                 :y1="shape.y"
-                :x2="shape.x2 ?? shape.x"
-                :y2="shape.y2 ?? shape.y"
+                :x2="arrowLineEnd(shape).x"
+                :y2="arrowLineEnd(shape).y"
                 :stroke="shape.color"
                 :opacity="shape.opacity"
                 :stroke-width="strokeWidthNorm(shape.strokeWidth)"
@@ -123,8 +123,8 @@
                 v-if="drawingShape.type === 'arrow'"
                 :x1="drawingShape.x"
                 :y1="drawingShape.y"
-                :x2="drawingShape.x2 ?? drawingShape.x"
-                :y2="drawingShape.y2 ?? drawingShape.y"
+                :x2="arrowLineEnd(drawingShape).x"
+                :y2="arrowLineEnd(drawingShape).y"
                 :stroke="drawingShape.color"
                 :opacity="drawingShape.opacity"
                 :stroke-width="strokeWidthNorm(drawingShape.strokeWidth)"
@@ -222,7 +222,7 @@ function strokeWidthNorm(px: number) {
     return px;
 }
 
-function arrowHeadPoints(shape: IShapeAnnotation) {
+function arrowGeometry(shape: IShapeAnnotation) {
     const x1 = shape.x;
     const y1 = shape.y;
     const x2 = shape.x2 ?? shape.x;
@@ -250,7 +250,21 @@ function arrowHeadPoints(shape: IShapeAnnotation) {
     const rightX = baseCenterNX - perpNX;
     const rightY = baseCenterNY - perpNY;
 
-    return `${x2},${y2} ${leftX},${leftY} ${rightX},${rightY}`;
+    return {
+        headPoints: `${x2},${y2} ${leftX},${leftY} ${rightX},${rightY}`,
+        lineEnd: {
+            x: baseCenterNX,
+            y: baseCenterNY, 
+        },
+    };
+}
+
+function arrowHeadPoints(shape: IShapeAnnotation) {
+    return arrowGeometry(shape).headPoints;
+}
+
+function arrowLineEnd(shape: IShapeAnnotation) {
+    return arrowGeometry(shape).lineEnd;
 }
 
 function getNormalizedCoords(event: PointerEvent) {
