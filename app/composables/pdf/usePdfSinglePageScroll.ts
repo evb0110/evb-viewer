@@ -3,17 +3,105 @@ import {
     type Ref,
     type ShallowRef,
 } from 'vue';
-import {
-    useDebounceFn,
-    useTimeoutFn,
-} from '@vueuse/core';
+import { useDebounceFn } from '@vueuse/core';
 import type { PDFDocumentProxy } from '@app/types/pdf';
-import { WHEEL_PAGE_LOCK_MS } from '@app/constants/timeouts';
 import { runGuardedTask } from '@app/utils/async-guard';
 
 const WHEEL_LINE_DELTA_PX = 16;
-const WHEEL_PAGE_TRIGGER_DELTA = 70;
+const PAGE_FLIP_STEP_DELTA_PX = 120;
+const MIN_COARSE_PAGE_FLIP_STEP_DELTA_PX = 40;
+const WHEEL_IDLE_RESET_MS = 140;
+const MAX_PAGE_FLIPS_PER_EVENT = 3;
+const HORIZONTAL_INTENT_REJECT_RATIO = 2.5;
 const PAGE_SCROLL_EDGE_EPSILON = 1;
+const WHEEL_DELTA_EPSILON = 0.01;
+
+export type TPageSnapAnchor = 'center' | 'top' | 'bottom';
+export type TWheelDirection = -1 | 1;
+
+interface IWheelPageAccumulatorState {
+    delta: number;
+    direction: TWheelDirection | 0;
+    lastEventTimeMs: number;
+}
+
+interface IWheelPageAccumulatorResult {
+    stepsToFlip: number;
+    state: IWheelPageAccumulatorState;
+}
+
+interface IAccumulateWheelForPageFlipsInput {
+    state: IWheelPageAccumulatorState;
+    delta: number;
+    direction: TWheelDirection;
+    eventTimeMs: number;
+    stepDelta: number;
+}
+
+export function resolveSnapAnchorForWheelDirection(
+    direction: TWheelDirection,
+): TPageSnapAnchor {
+    return direction > 0 ? 'top' : 'bottom';
+}
+
+export function accumulateWheelForPageFlips(
+    input: IAccumulateWheelForPageFlipsInput,
+): IWheelPageAccumulatorResult {
+    const {
+        delta,
+        direction,
+        eventTimeMs,
+        stepDelta,
+    } = input;
+
+    let accumulatedDelta = input.state.delta;
+    const isDirectionChanged =
+        input.state.direction !== 0 && input.state.direction !== direction;
+    const isStale =
+        input.state.lastEventTimeMs > 0 &&
+        eventTimeMs - input.state.lastEventTimeMs > WHEEL_IDLE_RESET_MS;
+
+    if (isDirectionChanged || isStale) {
+        accumulatedDelta = 0;
+    }
+
+    accumulatedDelta += delta;
+
+    const safeStepDelta = Math.max(stepDelta, WHEEL_DELTA_EPSILON);
+    const rawSteps = Math.floor(Math.abs(accumulatedDelta) / safeStepDelta);
+    const stepsToFlip = Math.min(rawSteps, MAX_PAGE_FLIPS_PER_EVENT);
+    const consumedDelta = direction * stepsToFlip * safeStepDelta;
+
+    return {
+        stepsToFlip,
+        state: {
+            delta: accumulatedDelta - consumedDelta,
+            direction,
+            lastEventTimeMs: eventTimeMs,
+        },
+    };
+}
+
+export function resolveWheelPageFlipStepDelta(
+    event: Pick<WheelEvent, 'deltaMode'>,
+    normalizedDelta: number,
+) {
+    const magnitude = Math.abs(normalizedDelta);
+    if (magnitude < WHEEL_DELTA_EPSILON) {
+        return PAGE_FLIP_STEP_DELTA_PX;
+    }
+
+    if (event.deltaMode === 1 || event.deltaMode === 2) {
+        // Line/page deltas are already wheel-step-oriented; treat each event
+        // as one meaningful edge-flip step.
+        return magnitude;
+    }
+
+    return Math.max(
+        MIN_COARSE_PAGE_FLIP_STEP_DELTA_PX,
+        Math.min(PAGE_FLIP_STEP_DELTA_PX, magnitude),
+    );
+}
 
 interface IUsePdfSinglePageScrollOptions {
     viewerContainer: Ref<HTMLElement | null>;
@@ -70,14 +158,11 @@ export function usePdfSinglePageScroll(
     } = options;
 
     const isSnapping = ref(false);
-    const wheelScrollDelta = ref(0);
-    const isWheelPageSnapLocked = ref(false);
-    const {
-        start: startWheelUnlockTimeout,
-        stop: stopWheelUnlockTimeout,
-    } = useTimeoutFn(() => {
-        isWheelPageSnapLocked.value = false;
-    }, WHEEL_PAGE_LOCK_MS, { immediate: false });
+    const wheelAccumulator = ref<IWheelPageAccumulatorState>({
+        delta: 0,
+        direction: 0,
+        lastEventTimeMs: 0,
+    });
 
     const debouncedRenderOnScroll = useDebounceFn(() => {
         if (isLoading.value || !pdfDocument.value) {
@@ -101,6 +186,14 @@ export function usePdfSinglePageScroll(
             return delta * container.clientHeight;
         }
         return delta;
+    }
+
+    function clearWheelAccumulator() {
+        wheelAccumulator.value = {
+            delta: 0,
+            direction: 0,
+            lastEventTimeMs: 0,
+        };
     }
 
     function getPageScrollBounds(pageNumber: number) {
@@ -154,7 +247,7 @@ export function usePdfSinglePageScroll(
         return bounds.max - bounds.min > PAGE_SCROLL_EDGE_EPSILON;
     }
 
-    function snapToPage(pageNumber: number) {
+    function snapToPage(pageNumber: number, anchor: TPageSnapAnchor = 'center') {
         if (!viewerContainer.value || numPages.value === 0) {
             return;
         }
@@ -171,9 +264,19 @@ export function usePdfSinglePageScroll(
         const containerHeight = container.clientHeight;
         const targetHeight = targetEl.offsetHeight;
         const baseTop = targetEl.offsetTop - scaledMargin.value;
-        const centerOffset = Math.max(0, (containerHeight - targetHeight) / 2);
         const maxTop = Math.max(0, container.scrollHeight - containerHeight);
-        const targetTop = Math.min(maxTop, Math.max(0, baseTop - centerOffset));
+        const topTarget = Math.min(maxTop, Math.max(0, baseTop));
+        const centerOffset = Math.max(0, (containerHeight - targetHeight) / 2);
+        const centerTarget = Math.min(maxTop, Math.max(0, baseTop - centerOffset));
+        const bottomTarget = Math.min(
+            maxTop,
+            Math.max(0, baseTop + targetHeight - containerHeight),
+        );
+        const targetTop = anchor === 'top'
+            ? topTarget
+            : anchor === 'bottom'
+                ? bottomTarget
+                : centerTarget;
         isSnapping.value = true;
         container.scrollTop = targetTop;
         currentPage.value = targetPage;
@@ -200,7 +303,7 @@ export function usePdfSinglePageScroll(
         if (page === currentPage.value && isTallPage(page)) {
             return;
         }
-        snapToPage(page);
+        snapToPage(page, 'center');
     }, 120);
 
     function handleWheel(event: WheelEvent) {
@@ -216,18 +319,25 @@ export function usePdfSinglePageScroll(
             return;
         }
 
-        if (Math.abs(event.deltaX) > Math.abs(event.deltaY) || event.deltaY === 0) {
+        if (event.deltaY === 0) {
+            return;
+        }
+
+        if (
+            Math.abs(event.deltaX) >
+            Math.abs(event.deltaY) * HORIZONTAL_INTENT_REJECT_RATIO
+        ) {
             return;
         }
 
         const container = viewerContainer.value;
         const delta = normalizeWheelDelta(event.deltaY, event.deltaMode, container);
-        if (Math.abs(delta) < 0.01) {
+        if (Math.abs(delta) < WHEEL_DELTA_EPSILON) {
             return;
         }
 
         event.preventDefault();
-        const direction = delta > 0 ? 1 : -1;
+        const direction: TWheelDirection = delta > 0 ? 1 : -1;
         const activePage = getMostVisiblePage(container, numPages.value);
         const bounds = getPageScrollBounds(activePage);
 
@@ -238,9 +348,7 @@ export function usePdfSinglePageScroll(
                     : container.scrollTop > bounds.min + PAGE_SCROLL_EDGE_EPSILON;
 
             if (canScrollWithinPage) {
-                wheelScrollDelta.value = 0;
-                isWheelPageSnapLocked.value = false;
-                stopWheelUnlockTimeout();
+                clearWheelAccumulator();
                 const nextTop =
                     direction > 0
                         ? Math.min(bounds.max, container.scrollTop + delta)
@@ -250,29 +358,28 @@ export function usePdfSinglePageScroll(
             }
         }
 
-        if (isWheelPageSnapLocked.value) {
+        const accumulationResult = accumulateWheelForPageFlips({
+            state: wheelAccumulator.value,
+            delta,
+            direction,
+            eventTimeMs: event.timeStamp,
+            stepDelta: resolveWheelPageFlipStepDelta(event, delta),
+        });
+        wheelAccumulator.value = accumulationResult.state;
+        if (accumulationResult.stepsToFlip === 0) {
             return;
         }
-
-        wheelScrollDelta.value += delta;
-
-        if (Math.abs(wheelScrollDelta.value) < WHEEL_PAGE_TRIGGER_DELTA) {
-            return;
-        }
-
-        wheelScrollDelta.value = 0;
 
         const targetPage = Math.max(
             1,
             Math.min(numPages.value, activePage + direction),
         );
         if (targetPage === activePage) {
+            clearWheelAccumulator();
             return;
         }
 
-        isWheelPageSnapLocked.value = true;
-        snapToPage(targetPage);
-        startWheelUnlockTimeout();
+        snapToPage(targetPage, resolveSnapAnchorForWheelDirection(direction));
     }
 
     function handleScroll() {
@@ -308,7 +415,7 @@ export function usePdfSinglePageScroll(
             );
             emitCurrentPage(currentPage.value);
         } else {
-            snapToPage(pageNumber);
+            snapToPage(pageNumber, 'center');
         }
 
         queueMicrotask(() => {
@@ -324,9 +431,7 @@ export function usePdfSinglePageScroll(
     }
 
     function resetContinuousScrollState() {
-        wheelScrollDelta.value = 0;
-        isWheelPageSnapLocked.value = false;
-        stopWheelUnlockTimeout();
+        clearWheelAccumulator();
     }
 
     return {
