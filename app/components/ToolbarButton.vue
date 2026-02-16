@@ -1,32 +1,48 @@
 <template>
     <UTooltip :text="tooltip" :delay-duration="1200">
         <button
-            class="toolbar-toggle"
-            :class="{ 'is-grouped': grouped, 'is-active': active }"
-            :disabled="disabled"
+            class="toolbar-btn"
+            :class="{
+                'is-toggle': active != null,
+                'is-active': active,
+                'is-grouped': grouped,
+                'is-loading': loading,
+            }"
+            :disabled="disabled || loading"
             :aria-label="tooltip"
             :aria-pressed="active"
             @click="emit('click')"
         >
-            <Icon :name="icon" class="size-5" />
+            <Icon v-if="!loading" :name="icon" :class="iconClass" />
+            <Icon v-else name="lucide:loader-2" :class="[iconClass, 'animate-spin']" />
         </button>
     </UTooltip>
 </template>
 
 <script setup lang="ts">
-defineProps<{
+const {
+    icon,
+    tooltip,
+    active = undefined,
+    disabled = false,
+    loading = false,
+    grouped = false,
+    iconClass = 'size-5',
+} = defineProps<{
     icon: string;
-    active: boolean;
     tooltip: string;
+    active?: boolean;
     disabled?: boolean;
+    loading?: boolean;
     grouped?: boolean;
+    iconClass?: string;
 }>();
 
-const emit = defineEmits<{click: [];}>();
+const emit = defineEmits<{ click: [] }>();
 </script>
 
 <style scoped>
-.toolbar-toggle {
+.toolbar-btn {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -36,50 +52,61 @@ const emit = defineEmits<{click: [];}>();
     border: 1px solid transparent;
     border-radius: 3px;
     background: transparent;
-    color: var(--app-toolbar-control-inactive-fg);
+    color: var(--ui-text);
     cursor: pointer;
     transition: background-color 0.1s ease, color 0.1s ease, box-shadow 0.1s ease, opacity 0.1s ease;
 }
 
-/* Grouped buttons: only override border-radius, not width.
-   Using the same fixed width as standalone ensures identical hover/active areas. */
-.toolbar-toggle.is-grouped {
+.toolbar-btn.is-toggle {
+    color: var(--app-toolbar-control-inactive-fg);
+}
+
+.toolbar-btn.is-grouped {
     border-radius: 0;
 }
 
-.toolbar-toggle:hover {
+.toolbar-btn:hover {
     background: var(--app-toolbar-control-hover-bg);
+    color: var(--ui-text);
+}
+
+.toolbar-btn.is-toggle:hover {
     color: var(--app-toolbar-control-hover-fg);
 }
 
-.toolbar-toggle.is-active {
+.toolbar-btn.is-active {
     background: var(--app-toolbar-control-active-bg);
     color: var(--app-toolbar-control-hover-fg);
 }
 
-.toolbar-toggle.is-active:hover {
+.toolbar-btn.is-active:hover {
     background: var(--app-toolbar-control-active-hover-bg);
 }
 
-.toolbar-toggle:focus {
+.toolbar-btn:focus {
     outline: none;
 }
 
-.toolbar-toggle:focus-visible {
+.toolbar-btn:focus-visible {
     box-shadow: inset 0 0 0 1px var(--app-toolbar-focus-ring);
     position: relative;
     z-index: 1;
 }
 
-.toolbar-toggle:disabled {
+.toolbar-btn:disabled {
     opacity: var(--app-toolbar-control-disabled-opacity);
     color: var(--app-toolbar-control-disabled-fg);
     cursor: not-allowed;
 }
 
-.toolbar-toggle:disabled:hover {
+.toolbar-btn:disabled:hover {
     background: transparent;
     color: var(--app-toolbar-control-disabled-fg);
 }
 
+.toolbar-btn:disabled.is-loading {
+    opacity: 1;
+    color: var(--ui-text-muted);
+    cursor: wait;
+}
 </style>

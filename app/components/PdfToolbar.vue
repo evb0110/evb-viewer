@@ -1,32 +1,22 @@
 <template>
     <header ref="toolbarRef" class="toolbar">
         <template v-if="!hasPdf">
-            <UTooltip :text="t('toolbar.openPdf')" :delay-duration="1200">
-                <UButton
-                    icon="i-lucide-folder-open"
-                    variant="ghost"
-                    color="neutral"
-                    class="toolbar-icon-button"
-                    :aria-label="t('toolbar.openPdf')"
-                    @click="emit('open-file')"
-                />
-            </UTooltip>
+            <ToolbarButton
+                icon="lucide:folder-open"
+                :tooltip="t('toolbar.openPdf')"
+                @click="emit('open-file')"
+            />
             <div class="flex-1" />
-            <UTooltip :text="t('toolbar.settings')" :delay-duration="1200">
-                <UButton
-                    icon="i-lucide-settings"
-                    variant="ghost"
-                    color="neutral"
-                    class="toolbar-icon-button"
-                    :aria-label="t('toolbar.settings')"
-                    @click="emit('open-settings')"
-                />
-            </UTooltip>
+            <ToolbarButton
+                icon="lucide:settings"
+                :tooltip="t('toolbar.settings')"
+                @click="emit('open-settings')"
+            />
         </template>
 
         <template v-if="hasPdf">
             <div class="toolbar-section toolbar-left">
-                <ToolbarToggleButton
+                <ToolbarButton
                     icon="lucide:panel-left"
                     :active="showSidebar"
                     :tooltip="t('toolbar.toggleSidebar')"
@@ -38,71 +28,47 @@
                 <div class="toolbar-separator" />
 
                 <template v-if="!isCollapsed(3)">
-                    <UTooltip :text="t('toolbar.save')" :delay-duration="1200">
-                        <UButton
-                            icon="i-lucide-save"
-                            variant="ghost"
-                            color="neutral"
-                            class="toolbar-icon-button"
-                            :disabled="!canSave || isAnySaving || isHistoryBusy || isDjvuMode"
-                            :loading="isSaving"
-                            :aria-label="t('toolbar.save')"
-                            @click="emit('save')"
-                        />
-                    </UTooltip>
-                    <UTooltip :text="t('toolbar.saveAs')" :delay-duration="1200">
-                        <UButton
-                            icon="i-lucide-save-all"
-                            variant="ghost"
-                            color="neutral"
-                            class="toolbar-icon-button"
-                            :disabled="isAnySaving || isHistoryBusy || isDjvuMode"
-                            :loading="isSavingAs"
-                            :aria-label="t('toolbar.saveAs')"
-                            @click="emit('save-as')"
-                        />
-                    </UTooltip>
-                </template>
-                <UTooltip v-if="!isCollapsed(1)" :text="t('toolbar.exportDocx')" :delay-duration="1200">
-                    <UButton
-                        icon="i-lucide-file-text"
-                        variant="ghost"
-                        color="neutral"
-                        class="toolbar-icon-button"
-                        :disabled="!canExportDocx || isAnySaving || isHistoryBusy || isExportingDocx"
-                        :loading="isExportingDocx"
-                        :aria-label="t('toolbar.exportDocx')"
-                        @click="emit('export-docx')"
+                    <ToolbarButton
+                        icon="lucide:save"
+                        :tooltip="t('toolbar.save')"
+                        :disabled="!canSave || isAnySaving || isHistoryBusy || isDjvuMode"
+                        :loading="isSaving"
+                        @click="emit('save')"
                     />
-                </UTooltip>
+                    <ToolbarButton
+                        icon="lucide:save-all"
+                        :tooltip="t('toolbar.saveAs')"
+                        :disabled="isAnySaving || isHistoryBusy || isDjvuMode"
+                        :loading="isSavingAs"
+                        @click="emit('save-as')"
+                    />
+                </template>
+                <ToolbarButton
+                    v-if="!isCollapsed(1)"
+                    icon="lucide:file-text"
+                    :tooltip="t('toolbar.exportDocx')"
+                    :disabled="!canExportDocx || isAnySaving || isHistoryBusy || isExportingDocx"
+                    :loading="isExportingDocx"
+                    @click="emit('export-docx')"
+                />
 
                 <div class="toolbar-separator" />
 
                 <template v-if="!isCollapsed(3)">
-                    <UTooltip :text="t('toolbar.undo')" :delay-duration="1200">
-                        <UButton
-                            icon="i-lucide-undo-2"
-                            variant="ghost"
-                            color="neutral"
-                            class="toolbar-icon-button"
-                            :disabled="!canUndo || isHistoryBusy || isAnySaving || isDjvuMode"
-                            :aria-label="t('toolbar.undo')"
-                            @click="emit('undo')"
-                        />
-                    </UTooltip>
-                    <UTooltip :text="t('toolbar.redo')" :delay-duration="1200">
-                        <UButton
-                            icon="i-lucide-redo-2"
-                            variant="ghost"
-                            color="neutral"
-                            class="toolbar-icon-button"
-                            :disabled="!canRedo || isHistoryBusy || isAnySaving || isDjvuMode"
-                            :aria-label="t('toolbar.redo')"
-                            @click="emit('redo')"
-                        />
-                    </UTooltip>
+                    <ToolbarButton
+                        icon="lucide:undo-2"
+                        :tooltip="t('toolbar.undo')"
+                        :disabled="!canUndo || isHistoryBusy || isAnySaving || isDjvuMode"
+                        @click="emit('undo')"
+                    />
+                    <ToolbarButton
+                        icon="lucide:redo-2"
+                        :tooltip="t('toolbar.redo')"
+                        :disabled="!canRedo || isHistoryBusy || isAnySaving || isDjvuMode"
+                        @click="emit('redo')"
+                    />
                 </template>
-                <ToolbarToggleButton
+                <ToolbarButton
                     icon="lucide:scan"
                     :active="isCapturingRegion"
                     :tooltip="t('toolbar.captureRegion')"
@@ -123,7 +89,7 @@
 
                 <div v-if="!isCollapsed(2)" class="toolbar-button-group">
                     <div class="toolbar-group-item">
-                        <ToolbarToggleButton
+                        <ToolbarButton
                             icon="lucide:move-horizontal"
                             :active="isFitWidthActive"
                             :tooltip="t('zoom.fitWidth')"
@@ -132,7 +98,7 @@
                         />
                     </div>
                     <div class="toolbar-group-item">
-                        <ToolbarToggleButton
+                        <ToolbarButton
                             icon="lucide:move-vertical"
                             :active="isFitHeightActive"
                             :tooltip="t('zoom.fitHeight')"
@@ -141,7 +107,7 @@
                         />
                     </div>
                     <div v-if="!isCollapsed(1)" class="toolbar-group-item">
-                        <ToolbarToggleButton
+                        <ToolbarButton
                             icon="lucide:scroll"
                             :active="continuousScroll"
                             :tooltip="t('zoom.continuousScroll')"
@@ -161,7 +127,7 @@
 
                 <div v-if="!isCollapsed(2)" class="toolbar-button-group">
                     <div class="toolbar-group-item">
-                        <ToolbarToggleButton
+                        <ToolbarButton
                             icon="lucide:hand"
                             :active="dragMode"
                             :tooltip="t('zoom.handTool')"
@@ -170,7 +136,7 @@
                         />
                     </div>
                     <div class="toolbar-group-item">
-                        <ToolbarToggleButton
+                        <ToolbarButton
                             icon="lucide:text-cursor"
                             :active="!dragMode"
                             :tooltip="t('zoom.textSelect')"
@@ -186,16 +152,11 @@
 
             <div class="toolbar-section toolbar-right">
                 <slot name="overflow-menu" />
-                <UTooltip :text="t('toolbar.settings')" :delay-duration="1200">
-                    <UButton
-                        icon="i-lucide-settings"
-                        variant="ghost"
-                        color="neutral"
-                        class="toolbar-icon-button"
-                        :aria-label="t('toolbar.settings')"
-                        @click="emit('open-settings')"
-                    />
-                </UTooltip>
+                <ToolbarButton
+                    icon="lucide:settings"
+                    :tooltip="t('toolbar.settings')"
+                    @click="emit('open-settings')"
+                />
             </div>
         </template>
     </header>
@@ -251,23 +212,15 @@ defineExpose({toolbarRef});
 
 <style scoped>
 /*
- * Toolbar sizing architecture
- * ───────────────────────────
- * All interactive toolbar controls share the same height (--toolbar-control-height: 2.25rem / 36px).
+ * Toolbar layout
+ * ──────────────
+ * All interactive controls share --toolbar-control-height (2.25rem / 36px).
  *
- * Three button types coexist, each owning its own sizing:
- *   1. UButton (.toolbar-icon-button)  — Nuxt UI buttons. The .toolbar-icon-button class
- *      overrides Nuxt UI's padding/font-size. Icon SVG size comes from the Nuxt UI theme
- *      (leadingIcon: "size-5" for md buttons = 1.25rem / 20px).
- *   2. ToolbarToggleButton             — custom <button>; sizes itself via --toolbar-control-height.
- *      Icon SVG size is set by the size-5 Tailwind class on the <Icon> component.
- *      Grouped vs standalone is controlled by the `grouped` prop (no :deep from parent).
- *   3. Zoom/Page controls              — UButtons in their own scoped components, using
- *      the same --toolbar-control-height variable. They use slightly smaller icons (1.1rem)
- *      for visual balance with simpler glyph shapes (plus, minus, chevrons).
- *
- * The :deep() rules below are only used for UButton state overrides (hover, disabled, focus)
- * because Nuxt UI's internal styles require !important to override from a parent component.
+ * Two button types:
+ *   1. ToolbarButton  — native <button> with <Icon>. Handles sizing, hover, disabled,
+ *      focus, toggle (active), loading, and grouped states internally via scoped CSS.
+ *   2. Zoom/Page controls — composite widgets in their own components, using
+ *      ToolbarButton for icon buttons and native elements for displays/inputs.
  */
 .toolbar {
     display: flex;
@@ -285,51 +238,6 @@ defineExpose({toolbarRef});
 
     --toolbar-control-height: 2.25rem;
     --toolbar-icon-size: 18px;
-}
-
-.toolbar :deep(.u-button) {
-    border-radius: 3px !important;
-}
-
-.toolbar :deep(.u-button::before),
-.toolbar :deep(.u-button::after) {
-    border-radius: 3px !important;
-}
-
-.toolbar :deep(.toolbar-icon-button),
-.toolbar :deep(.zoom-controls-button),
-.toolbar :deep(.page-controls-button) {
-    border: 1px solid transparent !important;
-    background: transparent !important;
-    color: var(--ui-text) !important;
-    transition: background-color 0.1s ease, color 0.1s ease, box-shadow 0.1s ease, opacity 0.1s ease;
-}
-
-.toolbar :deep(.toolbar-icon-button:hover:not(:disabled)),
-.toolbar :deep(.zoom-controls-button:hover:not(:disabled)),
-.toolbar :deep(.page-controls-button:hover:not(:disabled)) {
-    background: var(--app-toolbar-control-hover-bg) !important;
-    color: var(--ui-text) !important;
-}
-
-.toolbar :deep(.toolbar-icon-button:disabled),
-.toolbar :deep(.zoom-controls-button:disabled),
-.toolbar :deep(.page-controls-button:disabled) {
-    opacity: var(--app-toolbar-control-disabled-opacity) !important;
-    color: var(--app-toolbar-control-disabled-fg) !important;
-    cursor: not-allowed !important;
-}
-
-.toolbar :deep(.toolbar-icon-button:focus),
-.toolbar :deep(.zoom-controls-button:focus),
-.toolbar :deep(.page-controls-button:focus) {
-    outline: none;
-}
-
-.toolbar :deep(.toolbar-icon-button:focus-visible),
-.toolbar :deep(.zoom-controls-button:focus-visible),
-.toolbar :deep(.page-controls-button:focus-visible) {
-    box-shadow: inset 0 0 0 1px var(--app-toolbar-focus-ring) !important;
 }
 
 .toolbar-section {
@@ -392,16 +300,6 @@ defineExpose({toolbarRef});
     border-left: 1px solid var(--app-toolbar-group-border);
 }
 
-.toolbar-icon-button {
-    width: var(--toolbar-control-height);
-    height: var(--toolbar-control-height);
-    padding: 0.25rem;
-    justify-content: center;
-    border-radius: 3px !important;
-    font-size: var(--toolbar-icon-size);
-    transition: background-color 0.1s ease, color 0.1s ease, box-shadow 0.1s ease;
-}
-
 .toolbar-inline-group {
     display: flex;
     align-items: center;
@@ -409,5 +307,4 @@ defineExpose({toolbarRef});
     flex-shrink: 0;
     min-width: max-content;
 }
-
 </style>

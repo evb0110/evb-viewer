@@ -109,7 +109,8 @@
                             size="xs"
                             variant="soft"
                             color="primary"
-                            class="pdf-sidebar-pages-button pdf-sidebar-pages-primary-button"
+                            class="pdf-sidebar-pages-primary-button"
+                            :ui="{ base: 'justify-center text-center whitespace-nowrap' }"
                             :disabled="applyTargetRange === null"
                             @click="applyToTargetRange"
                         >
@@ -584,26 +585,11 @@ defineExpose({ isExpanded });
     justify-content: center;
 }
 
-.pdf-sidebar-pages-button {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 0;
-    text-align: center;
-    flex: 1;
-}
-
-:deep(.pdf-sidebar-pages-button) {
-    justify-content: center !important;
-    text-align: center !important;
-    white-space: nowrap !important;
-}
-
-:deep(.pdf-sidebar-pages-button span) {
+.pdf-sidebar-pages-button-label {
     display: block;
     width: 100%;
     text-align: center;
-    white-space: nowrap !important;
+    white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }

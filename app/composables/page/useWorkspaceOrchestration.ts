@@ -282,6 +282,10 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         dragMode,
         markDirty,
         closeAnnotationContextMenu,
+        hasAnnotationChanges: () => detectAnnotationChanges({
+            pdfViewerRef,
+            pdfDocument, 
+        }),
     });
 
     const annotationKeepActiveStorage = useStorage<string>(

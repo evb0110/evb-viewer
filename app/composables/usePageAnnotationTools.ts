@@ -22,6 +22,7 @@ export interface IPageAnnotationToolsDeps {
     dragMode: Ref<boolean>;
     markDirty: () => void;
     closeAnnotationContextMenu: () => void;
+    hasAnnotationChanges: () => boolean;
 }
 
 export const usePageAnnotationTools = (deps: IPageAnnotationToolsDeps) => {
@@ -30,6 +31,7 @@ export const usePageAnnotationTools = (deps: IPageAnnotationToolsDeps) => {
         dragMode,
         markDirty,
         closeAnnotationContextMenu,
+        hasAnnotationChanges,
     } = deps;
 
     const annotationTool = ref<TAnnotationTool>('none');
@@ -117,6 +119,9 @@ export const usePageAnnotationTools = (deps: IPageAnnotationToolsDeps) => {
         if (!hadUndo && annotationEditorState.value.hasSomethingToUndo) {
             markAnnotationDirty();
         }
+        if (hadUndo && !annotationEditorState.value.hasSomethingToUndo && !hasAnnotationChanges()) {
+            syncAnnotationClean();
+        }
     }
 
     function handleAnnotationModified() {
@@ -126,6 +131,10 @@ export const usePageAnnotationTools = (deps: IPageAnnotationToolsDeps) => {
     function markAnnotationDirty() {
         annotationRevision.value += 1;
         markDirty();
+    }
+
+    function syncAnnotationClean() {
+        annotationRevision.value = annotationSavedRevision.value;
     }
 
     function markAnnotationSaved() {

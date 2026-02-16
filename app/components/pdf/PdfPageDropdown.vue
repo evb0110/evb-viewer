@@ -1,30 +1,24 @@
 <template>
     <div ref="pageControlsRef" :class="['page-controls', `page-controls--compact-${effectiveCompactLevel}`]">
         <div v-if="showEdgeButtons" class="page-controls-item">
-            <UTooltip :text="t('pageDropdown.firstPage')" :delay-duration="1200">
-                <UButton
-                    icon="i-lucide-chevrons-left"
-                    variant="ghost"
-                    color="neutral"
-                    :disabled="disabled || totalPages === 0 || currentPage <= 1"
-                    class="page-controls-button"
-                    :aria-label="t('pageDropdown.firstPage')"
-                    @click="goToFirst"
-                />
-            </UTooltip>
+            <ToolbarButton
+                icon="lucide:chevrons-left"
+                :tooltip="t('pageDropdown.firstPage')"
+                :disabled="disabled || totalPages === 0 || currentPage <= 1"
+                grouped
+                icon-class="size-[1.1rem]"
+                @click="goToFirst"
+            />
         </div>
         <div v-if="showStepButtons" class="page-controls-item">
-            <UTooltip :text="t('pageDropdown.previousPage')" :delay-duration="1200">
-                <UButton
-                    icon="i-lucide-chevron-left"
-                    variant="ghost"
-                    color="neutral"
-                    :disabled="disabled || totalPages === 0 || currentPage <= 1"
-                    class="page-controls-button"
-                    :aria-label="t('pageDropdown.previousPage')"
-                    @click="goToPrevious"
-                />
-            </UTooltip>
+            <ToolbarButton
+                icon="lucide:chevron-left"
+                :tooltip="t('pageDropdown.previousPage')"
+                :disabled="disabled || totalPages === 0 || currentPage <= 1"
+                grouped
+                icon-class="size-[1.1rem]"
+                @click="goToPrevious"
+            />
         </div>
 
         <div class="page-controls-item">
@@ -52,30 +46,24 @@
         </div>
 
         <div v-if="showStepButtons" class="page-controls-item">
-            <UTooltip :text="t('pageDropdown.nextPage')" :delay-duration="1200">
-                <UButton
-                    icon="i-lucide-chevron-right"
-                    variant="ghost"
-                    color="neutral"
-                    :disabled="disabled || totalPages === 0 || currentPage >= totalPages"
-                    class="page-controls-button"
-                    :aria-label="t('pageDropdown.nextPage')"
-                    @click="goToNext"
-                />
-            </UTooltip>
+            <ToolbarButton
+                icon="lucide:chevron-right"
+                :tooltip="t('pageDropdown.nextPage')"
+                :disabled="disabled || totalPages === 0 || currentPage >= totalPages"
+                grouped
+                icon-class="size-[1.1rem]"
+                @click="goToNext"
+            />
         </div>
         <div v-if="showEdgeButtons" class="page-controls-item">
-            <UTooltip :text="t('pageDropdown.lastPage')" :delay-duration="1200">
-                <UButton
-                    icon="i-lucide-chevrons-right"
-                    variant="ghost"
-                    color="neutral"
-                    :disabled="disabled || totalPages === 0 || currentPage >= totalPages"
-                    class="page-controls-button"
-                    :aria-label="t('pageDropdown.lastPage')"
-                    @click="goToLast"
-                />
-            </UTooltip>
+            <ToolbarButton
+                icon="lucide:chevrons-right"
+                :tooltip="t('pageDropdown.lastPage')"
+                :disabled="disabled || totalPages === 0 || currentPage >= totalPages"
+                grouped
+                icon-class="size-[1.1rem]"
+                @click="goToLast"
+            />
         </div>
     </div>
 </template>
@@ -244,25 +232,8 @@ onClickOutside(pageControlsRef, () => {
     border-radius: 0;
 }
 
-.page-controls-item :deep(> *) {
-    display: flex;
-}
-
 .page-controls-item + .page-controls-item {
     border-left: 1px solid var(--app-toolbar-group-border);
-}
-
-.page-controls-button {
-    border-radius: 0 !important;
-    height: var(--toolbar-control-height, 2.25rem);
-    min-width: var(--toolbar-control-height, 2.25rem);
-    padding: 0.25rem;
-    font-size: var(--toolbar-icon-size, 18px);
-}
-
-.page-controls-button :deep(svg) {
-    width: 1.1rem;
-    height: 1.1rem;
 }
 
 .page-controls-display {

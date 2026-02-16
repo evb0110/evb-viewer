@@ -1,17 +1,14 @@
 <template>
     <div :class="['zoom-controls', `zoom-controls--compact-${effectiveCompactLevel}`]">
         <div v-if="showStepButtons" class="zoom-controls-item">
-            <UTooltip :text="t('zoom.zoomOut')" :delay-duration="1200">
-                <UButton
-                    icon="i-lucide-minus"
-                    variant="ghost"
-                    color="neutral"
-                    :disabled="disabled || zoom <= ZOOM.MIN"
-                    class="zoom-controls-button"
-                    :aria-label="t('zoom.zoomOut')"
-                    @click="handleZoomOut"
-                />
-            </UTooltip>
+            <ToolbarButton
+                icon="lucide:minus"
+                :tooltip="t('zoom.zoomOut')"
+                :disabled="disabled || zoom <= ZOOM.MIN"
+                grouped
+                icon-class="size-[1.1rem]"
+                @click="handleZoomOut"
+            />
         </div>
 
         <div class="zoom-controls-item">
@@ -60,6 +57,7 @@
                                     max="500"
                                     step="1"
                                     :placeholder="t('zoom.custom')"
+                                    :ui="{ base: 'text-center pe-7', trailing: 'pointer-events-none' }"
                                     @keydown.enter.prevent="applyCustomZoom"
                                 >
                                     <template #trailing>%</template>
@@ -126,17 +124,14 @@
         </div>
 
         <div v-if="showStepButtons" class="zoom-controls-item">
-            <UTooltip :text="t('zoom.zoomIn')" :delay-duration="1200">
-                <UButton
-                    icon="i-lucide-plus"
-                    variant="ghost"
-                    color="neutral"
-                    :disabled="disabled || zoom >= ZOOM.MAX"
-                    class="zoom-controls-button"
-                    :aria-label="t('zoom.zoomIn')"
-                    @click="handleZoomIn"
-                />
-            </UTooltip>
+            <ToolbarButton
+                icon="lucide:plus"
+                :tooltip="t('zoom.zoomIn')"
+                :disabled="disabled || zoom >= ZOOM.MAX"
+                grouped
+                icon-class="size-[1.1rem]"
+                @click="handleZoomIn"
+            />
         </div>
     </div>
 </template>
@@ -270,19 +265,6 @@ function applyCustomZoom() {
     border-left: 1px solid var(--app-toolbar-group-border);
 }
 
-.zoom-controls-button {
-    border-radius: 0 !important;
-    height: var(--toolbar-control-height, 2.25rem);
-    min-width: var(--toolbar-control-height, 2.25rem);
-    padding: 0.25rem;
-    font-size: var(--toolbar-icon-size, 18px);
-}
-
-.zoom-controls-button :deep(svg) {
-    width: 1.1rem;
-    height: 1.1rem;
-}
-
 .zoom-controls-display {
     display: flex;
     align-items: center;
@@ -393,12 +375,4 @@ function applyCustomZoom() {
     flex: 1;
 }
 
-.zoom-dropdown-input :deep(input) {
-    text-align: center;
-    padding-right: 1.75rem;
-}
-
-.zoom-dropdown-input :deep([data-slot='trailing']) {
-    pointer-events: none;
-}
 </style>
