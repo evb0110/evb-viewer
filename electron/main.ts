@@ -27,7 +27,7 @@ import {
 import { promptSetDefaultViewer } from '@electron/default-viewer';
 import { createLogger } from '@electron/utils/logger';
 
-app.setName('EVB Viewer');
+app.setName(app.isPackaged ? 'EVB Viewer' : 'EVB Viewer Dev');
 if (process.platform === 'win32') {
     app.setAppUserModelId('com.evb.viewer');
 }

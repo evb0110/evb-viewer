@@ -84,14 +84,16 @@ fileAssociations:
     role: Viewer
 
 dmg:
+  background: resources/dmg-background.png
+  iconSize: 128
   window:
-    width: 540
-    height: 380
+    width: 600
+    height: 400
   contents:
-    - x: 140
-      y: 190
-    - x: 400
-      y: 190
+    - x: 170
+      y: 195
+    - x: 430
+      y: 195
       type: link
       path: /Applications
 

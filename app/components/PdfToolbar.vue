@@ -403,9 +403,11 @@ defineExpose({toolbarRef});
 }
 
 .toolbar :deep(.toolbar-icon-button svg),
-.toolbar :deep(.toolbar-group-button svg) {
-    width: 1.1rem;
-    height: 1.1rem;
+.toolbar :deep(.toolbar-icon-button .iconify),
+.toolbar :deep(.toolbar-group-button svg),
+.toolbar :deep(.toolbar-group-button .iconify) {
+    width: 1em;
+    height: 1em;
 }
 
 .toolbar-inline-group {

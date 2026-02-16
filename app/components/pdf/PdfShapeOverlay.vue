@@ -1,6 +1,7 @@
 <template>
     <svg
         v-if="isActive || shapes.length > 0 || drawingShape"
+        ref="svgRef"
         class="pdf-shape-overlay"
         :viewBox="`0 0 1 1`"
         preserveAspectRatio="none"
@@ -9,31 +10,6 @@
         @pointerup="handlePointerUp"
         @pointerleave="handlePointerUp"
     >
-        <defs>
-            <marker
-                id="arrowhead-closed"
-                markerWidth="10"
-                markerHeight="7"
-                refX="10"
-                refY="3.5"
-                orient="auto"
-                markerUnits="strokeWidth"
-            >
-                <polygon points="0 0, 10 3.5, 0 7" fill="context-stroke" />
-            </marker>
-            <marker
-                id="arrowhead-open"
-                markerWidth="10"
-                markerHeight="7"
-                refX="10"
-                refY="3.5"
-                orient="auto"
-                markerUnits="strokeWidth"
-            >
-                <polyline points="0 0, 10 3.5, 0 7" fill="none" stroke="context-stroke" stroke-width="1" />
-            </marker>
-        </defs>
-
         <g
             v-for="shape in shapes"
             :key="shape.id"
@@ -86,8 +62,21 @@
                 :opacity="shape.opacity"
                 :stroke-width="strokeWidthNorm(shape.strokeWidth)"
                 vector-effect="non-scaling-stroke"
-                :marker-end="arrowMarker(shape.lineEndStyle)"
-                :style="{ color: shape.color }"
+            />
+            <polygon
+                v-if="shape.type === 'arrow' && shape.lineEndStyle !== 'openArrow'"
+                :points="arrowHeadPoints(shape)"
+                :fill="shape.color"
+                :opacity="shape.opacity"
+            />
+            <polyline
+                v-if="shape.type === 'arrow' && shape.lineEndStyle === 'openArrow'"
+                :points="arrowHeadPoints(shape)"
+                fill="none"
+                :stroke="shape.color"
+                :opacity="shape.opacity"
+                :stroke-width="strokeWidthNorm(shape.strokeWidth)"
+                vector-effect="non-scaling-stroke"
             />
         </g>
 
@@ -141,8 +130,21 @@
                 :stroke-width="strokeWidthNorm(drawingShape.strokeWidth)"
                 stroke-dasharray="0.01 0.005"
                 vector-effect="non-scaling-stroke"
-                :marker-end="arrowMarker(drawingShape.lineEndStyle)"
-                :style="{ color: drawingShape.color }"
+            />
+            <polygon
+                v-if="drawingShape.type === 'arrow' && drawingShape.lineEndStyle !== 'openArrow'"
+                :points="arrowHeadPoints(drawingShape)"
+                :fill="drawingShape.color"
+                :opacity="drawingShape.opacity"
+            />
+            <polyline
+                v-if="drawingShape.type === 'arrow' && drawingShape.lineEndStyle === 'openArrow'"
+                :points="arrowHeadPoints(drawingShape)"
+                fill="none"
+                :stroke="drawingShape.color"
+                :opacity="drawingShape.opacity"
+                :stroke-width="strokeWidthNorm(drawingShape.strokeWidth)"
+                vector-effect="non-scaling-stroke"
             />
         </g>
 
@@ -163,12 +165,15 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import {
+    ref,
+    computed,
+} from 'vue';
+import { useResizeObserver } from '@vueuse/core';
 import type {
     IShapeAnnotation,
     TShapeType,
     IAnnotationSettings,
-    TLineEndStyle,
 } from '@app/types/annotations';
 
 interface IProps {
@@ -201,18 +206,51 @@ const emit = defineEmits<{
     }): void;
 }>();
 
+const svgRef = ref<SVGSVGElement | null>(null);
+const svgWidth = ref(1);
+const svgHeight = ref(1);
+
+useResizeObserver(svgRef, (entries) => {
+    const entry = entries[0];
+    if (entry) {
+        svgWidth.value = entry.contentRect.width || 1;
+        svgHeight.value = entry.contentRect.height || 1;
+    }
+});
+
 function strokeWidthNorm(px: number) {
     return px;
 }
 
-function arrowMarker(style: TLineEndStyle | undefined) {
-    if (style === 'closedArrow') {
-        return 'url(#arrowhead-closed)';
-    }
-    if (style === 'openArrow') {
-        return 'url(#arrowhead-open)';
-    }
-    return undefined;
+function arrowHeadPoints(shape: IShapeAnnotation) {
+    const x1 = shape.x;
+    const y1 = shape.y;
+    const x2 = shape.x2 ?? shape.x;
+    const y2 = shape.y2 ?? shape.y;
+    const w = svgWidth.value;
+    const h = svgHeight.value;
+
+    const dxPx = (x2 - x1) * w;
+    const dyPx = (y2 - y1) * h;
+    const angle = Math.atan2(dyPx, dxPx);
+    const cosA = Math.cos(angle);
+    const sinA = Math.sin(angle);
+
+    const headLength = 10 * shape.strokeWidth;
+    const headHalfWidth = 3.5 * shape.strokeWidth;
+
+    const baseCenterNX = x2 - (headLength * cosA) / w;
+    const baseCenterNY = y2 - (headLength * sinA) / h;
+
+    const perpNX = (-sinA * headHalfWidth) / w;
+    const perpNY = (cosA * headHalfWidth) / h;
+
+    const leftX = baseCenterNX + perpNX;
+    const leftY = baseCenterNY + perpNY;
+    const rightX = baseCenterNX - perpNX;
+    const rightY = baseCenterNY - perpNY;
+
+    return `${x2},${y2} ${leftX},${leftY} ${rightX},${rightY}`;
 }
 
 function getNormalizedCoords(event: PointerEvent) {

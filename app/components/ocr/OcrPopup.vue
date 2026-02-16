@@ -6,6 +6,7 @@
                     icon="i-lucide-scan-text"
                     variant="ghost"
                     color="neutral"
+                    class="toolbar-icon-button"
                     :disabled="disabled"
                     :aria-label="t('ocr.button')"
                 />
