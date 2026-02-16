@@ -26,13 +26,14 @@ KNOWN_SYSTEM_DLLS=(
   imm32.dll
   version.dll
 
-  # Networking
+  # Networking / internet
   ws2_32.dll
   iphlpapi.dll
   dnsapi.dll
   mswsock.dll
   wldap32.dll
   normaliz.dll
+  wininet.dll
 
   # Security / crypto
   crypt32.dll
@@ -61,6 +62,7 @@ KNOWN_SYSTEM_DLLS=(
   # Graphics / display
   dwmapi.dll
   dwrite.dll
+  msimg32.dll
   d2d1.dll
   d3d11.dll
   d3d9.dll
