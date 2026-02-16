@@ -83,7 +83,10 @@
                             :class="['overflow-menu-item', { 'is-active': viewMode === 'facing-first-single' }]"
                             @click="emit('set-view-mode', 'facing-first-single'); close()"
                         >
-                            <UIcon name="i-lucide-layout-grid" class="overflow-menu-icon" />
+                            <span class="overflow-menu-icon overflow-menu-icon--facing-first-single">
+                                <UIcon name="i-lucide-book-open" class="size-[1.125rem]" />
+                                <span class="overflow-menu-icon-badge">1</span>
+                            </span>
                             <span class="overflow-menu-label">{{ t('zoom.facingWithFirstSingle') }}</span>
                             <UIcon
                                 v-if="viewMode === 'facing-first-single'"
@@ -292,6 +295,33 @@ function close() {
 }
 
 .overflow-menu-item.is-active .overflow-menu-icon {
+    color: var(--ui-text);
+}
+
+.overflow-menu-icon--facing-first-single {
+    position: relative;
+}
+
+.overflow-menu-icon-badge {
+    position: absolute;
+    top: -0.125rem;
+    right: -0.3125rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 0.75rem;
+    height: 0.75rem;
+    padding: 0 0.125rem;
+    border-radius: 999px;
+    border: 1px solid var(--ui-border);
+    background: var(--ui-bg);
+    color: var(--ui-text-muted);
+    font-size: 0.5625rem;
+    line-height: 1;
+    font-weight: 700;
+}
+
+.overflow-menu-item.is-active .overflow-menu-icon-badge {
     color: var(--ui-text);
 }
 

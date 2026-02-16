@@ -171,10 +171,13 @@
                                 ]"
                                 @click="handleSetViewMode('facing-first-single')"
                             >
-                                <UIcon
-                                    name="i-lucide-layout-grid"
-                                    class="zoom-dropdown-icon size-5"
-                                />
+                                <span class="zoom-dropdown-icon zoom-dropdown-icon--facing-first-single">
+                                    <UIcon
+                                        name="i-lucide-book-open"
+                                        class="size-5"
+                                    />
+                                    <span class="zoom-dropdown-icon-badge">1</span>
+                                </span>
                                 <span class="zoom-dropdown-label">{{ t('zoom.facingWithFirstSingle') }}</span>
                                 <UIcon
                                     v-if="isViewModeActive('facing-first-single')"
@@ -439,6 +442,33 @@ function applyCustomZoom() {
 }
 
 .zoom-dropdown-item.is-active .zoom-dropdown-icon {
+    color: var(--ui-text);
+}
+
+.zoom-dropdown-icon--facing-first-single {
+    position: relative;
+}
+
+.zoom-dropdown-icon-badge {
+    position: absolute;
+    top: -0.125rem;
+    right: -0.3125rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 0.75rem;
+    height: 0.75rem;
+    padding: 0 0.125rem;
+    border-radius: 999px;
+    border: 1px solid var(--ui-border);
+    background: var(--ui-bg);
+    color: var(--ui-text-muted);
+    font-size: 0.5625rem;
+    line-height: 1;
+    font-weight: 700;
+}
+
+.zoom-dropdown-item.is-active .zoom-dropdown-icon-badge {
     color: var(--ui-text);
 }
 
