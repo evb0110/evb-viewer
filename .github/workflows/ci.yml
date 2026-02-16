@@ -33,6 +33,9 @@ jobs:
       - name: Typecheck
         run: pnpm run typecheck
 
+      - name: Build Electron bundles
+        run: pnpm run build:electron
+
       - name: Test
         run: pnpm test
 

@@ -74,6 +74,7 @@ import {
 import { useExternalFileDrop } from '@app/composables/page/useExternalFileDrop';
 import { useTabsShellBindings } from '@app/composables/page/useTabsShellBindings';
 import { useTabManager } from '@app/composables/useTabManager';
+import type { TOpenFileResult } from '@app/types/electron-api';
 import type { IWorkspaceExpose } from '@app/types/workspace-expose';
 
 const {
@@ -103,6 +104,7 @@ const REQUIRED_WORKSPACE_METHODS: Array<keyof Omit<IWorkspaceExpose, 'hasPdf'>> 
     'handleOpenFileFromUi',
     'handleOpenFileDirectWithPersist',
     'handleOpenFileDirectBatchWithPersist',
+    'handleOpenFileWithResult',
     'handleCloseFileFromUi',
     'handleExportDocx',
     'handleExportImages',
@@ -235,12 +237,17 @@ async function handleCloseTab(tabId: string) {
     }
 }
 
-async function handleOpenInNewTab(path: string) {
+async function handleOpenInNewTab(pathOrResult: string | TOpenFileResult) {
     const tab = createTab();
     await nextTick();
     const ws = workspaceRefs.value.get(tab.id);
-    if (ws) {
-        await ws.handleOpenFileDirectWithPersist(path);
+    if (!ws) {
+        return;
+    }
+    if (typeof pathOrResult === 'string') {
+        await ws.handleOpenFileDirectWithPersist(pathOrResult);
+    } else {
+        await ws.handleOpenFileWithResult(pathOrResult);
     }
 }
 

@@ -8,6 +8,7 @@ import {
 } from '@app/utils/electron';
 import { useOcrTextContent } from '@app/composables/pdf/useOcrTextContent';
 import type { TPdfSource } from '@app/types/pdf';
+import type { TOpenFileResult } from '@app/types/electron-api';
 import { BrowserLogger } from '@app/utils/browser-logger';
 
 export const usePdfFile = () => {
@@ -32,12 +33,16 @@ export const usePdfFile = () => {
 
     const pendingDjvu = ref<string | null>(null);
 
-    async function openFile() {
+    async function pickFileToOpen() {
+        const api = getElectronAPI();
+        return api.openPdfDialog();
+    }
+
+    async function openFile(preSelected?: TOpenFileResult) {
         error.value = null;
         pendingDjvu.value = null;
         try {
-            const api = getElectronAPI();
-            const result = await api.openPdfDialog();
+            const result = preSelected ?? await pickFileToOpen();
             if (!result) {
                 return;
             }
@@ -353,6 +358,7 @@ export const usePdfFile = () => {
         isDirty,
         isElectron,
         pendingDjvu,
+        pickFileToOpen,
         openFile,
         openFileDirect,
         openFileDirectBatch,

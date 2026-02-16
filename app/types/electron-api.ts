@@ -187,7 +187,7 @@ interface IOpenDjvuResult {
     originalPath: string;
 }
 
-type TOpenFileResult = IOpenPdfResult | IOpenDjvuResult;
+export type TOpenFileResult = IOpenPdfResult | IOpenDjvuResult;
 
 export interface IElectronAPI {
     openPdfDialog: () => Promise<TOpenFileResult | null>;

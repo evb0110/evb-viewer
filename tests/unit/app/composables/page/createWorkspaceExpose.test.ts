@@ -16,6 +16,7 @@ function createDeps(overrides: Partial<Parameters<typeof createWorkspaceExpose>[
         handleOpenFileFromUi: vi.fn(async () => {}),
         handleOpenFileDirectWithPersist: vi.fn(async (_path: string) => {}),
         handleOpenFileDirectBatchWithPersist: vi.fn(async (_paths: string[]) => {}),
+        handleOpenFileWithResult: vi.fn(async () => {}),
         handleCloseFileFromUi: vi.fn(async () => {}),
         handleExportDocx: vi.fn(async () => {}),
         handleExportImages: vi.fn(async () => {}),

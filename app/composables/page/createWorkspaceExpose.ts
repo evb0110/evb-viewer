@@ -1,4 +1,5 @@
 import type { Ref } from 'vue';
+import type { TOpenFileResult } from '@app/types/electron-api';
 import type { TFitMode } from '@app/types/shared';
 import type {
     ICloseFileFromUiOptions,
@@ -13,6 +14,7 @@ interface ICreateWorkspaceExposeDeps {
     handleOpenFileFromUi: () => Promise<void>;
     handleOpenFileDirectWithPersist: (path: string) => Promise<void>;
     handleOpenFileDirectBatchWithPersist: (paths: string[]) => Promise<void>;
+    handleOpenFileWithResult: (result: TOpenFileResult) => Promise<void>;
     handleCloseFileFromUi: (options?: ICloseFileFromUiOptions) => Promise<void>;
     handleExportDocx: () => Promise<void>;
     handleExportImages: () => Promise<void>;
@@ -48,6 +50,7 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
         handleOpenFileFromUi: deps.handleOpenFileFromUi,
         handleOpenFileDirectWithPersist: deps.handleOpenFileDirectWithPersist,
         handleOpenFileDirectBatchWithPersist: deps.handleOpenFileDirectBatchWithPersist,
+        handleOpenFileWithResult: deps.handleOpenFileWithResult,
         handleCloseFileFromUi: deps.handleCloseFileFromUi,
         handleExportDocx: deps.handleExportDocx,
         handleExportImages: deps.handleExportImages,

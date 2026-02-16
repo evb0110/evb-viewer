@@ -43,6 +43,7 @@ import {
     createSerializeCurrentPdfForEmbeddedFallback,
     hasAnnotationChanges as detectAnnotationChanges,
 } from '@app/composables/page/workspace-annotation-utils';
+import type { TOpenFileResult } from '@app/types/electron-api';
 import type { TTabUpdate } from '@app/types/tabs';
 import { hasElectronAPI } from '@app/utils/electron';
 import { useWorkspaceViewState } from '@app/composables/page/workspace-view-state';
@@ -93,7 +94,7 @@ export interface IWorkspaceOrchestrationDeps {
     isActive: Ref<boolean>;
     emit: {
         (e: 'update-tab', updates: TTabUpdate): void;
-        (e: 'open-in-new-tab', path: string): void;
+        (e: 'open-in-new-tab', result: TOpenFileResult): void;
         (e: 'request-close-tab'): void;
         (e: 'open-settings'): void;
     };
@@ -116,6 +117,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         error: pdfError,
         isElectron,
         pendingDjvu,
+        pickFileToOpen,
         openFile,
         openFileDirect,
         openFileDirectBatch,
@@ -569,6 +571,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     });
 
     const {
+        pickFileToOpenWithDjvuCleanup,
         openFileWithDjvuCleanup,
         openFileDirectWithDjvuCleanup,
         openFileDirectBatchWithDjvuCleanup,
@@ -578,6 +581,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         isDjvuMode,
         cleanupDjvuTemp,
         exitDjvuMode,
+        pickFileToOpen,
         openFile,
         openFileDirect,
         openFileDirectBatch,
@@ -588,6 +592,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         handleOpenFileFromUi,
         handleOpenFileDirectWithPersist,
         handleOpenFileDirectBatchWithPersist,
+        handleOpenFileWithResult,
         handleCloseFileFromUi,
         openRecentFile,
     } = usePageFileOperations({
@@ -604,11 +609,13 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         hasAnnotationChanges,
         persistAllAnnotationNotes,
         handleSave,
+        pickFileToOpen: pickFileToOpenWithDjvuCleanup,
         openFile: openFileWithDjvuCleanup,
         openFileDirect: openFileDirectWithDjvuCleanup,
         openFileDirectBatch: openFileDirectBatchWithDjvuCleanup,
         closeFile: closeFileWithDjvuCleanup,
         closeAllDropdowns,
+        emitOpenInNewTab: (result: TOpenFileResult) => emit('open-in-new-tab', result),
     });
 
     const {
@@ -900,6 +907,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         handleOpenFileFromUi,
         handleOpenFileDirectWithPersist,
         handleOpenFileDirectBatchWithPersist,
+        handleOpenFileWithResult,
         handleCloseFileFromUi,
         openRecentFile,
 

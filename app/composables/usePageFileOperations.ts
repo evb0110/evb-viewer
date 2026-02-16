@@ -1,5 +1,6 @@
 import type { Ref } from 'vue';
 import type { IAnnotationNoteWindowState } from '@app/composables/pdf/useAnnotationNoteWindows';
+import type { TOpenFileResult } from '@app/types/electron-api';
 import type { ICloseFileFromUiOptions } from '@app/types/workspace-expose';
 import { waitUntilIdle } from '@app/utils/async-helpers';
 
@@ -17,11 +18,13 @@ export interface IPageFileOperationsDeps {
     hasAnnotationChanges: () => boolean;
     persistAllAnnotationNotes: (force: boolean) => Promise<boolean>;
     handleSave: () => Promise<void>;
-    openFile: () => Promise<void>;
+    pickFileToOpen: () => Promise<TOpenFileResult | null>;
+    openFile: (preSelected?: TOpenFileResult) => Promise<void>;
     openFileDirect: (path: string) => Promise<void>;
     openFileDirectBatch: (paths: string[]) => Promise<void>;
     closeFile: () => Promise<void>;
     closeAllDropdowns: () => void;
+    emitOpenInNewTab: (result: TOpenFileResult) => void;
 }
 
 export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
@@ -39,11 +42,13 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         hasAnnotationChanges,
         persistAllAnnotationNotes,
         handleSave,
+        pickFileToOpen,
         openFile,
         openFileDirect,
         openFileDirectBatch,
         closeFile,
         closeAllDropdowns,
+        emitOpenInNewTab,
     } = deps;
 
     async function waitUntilAllIdle() {
@@ -96,7 +101,19 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         if (!canProceed) {
             return;
         }
-        await openFile();
+
+        const result = await pickFileToOpen();
+        if (!result) {
+            return;
+        }
+
+        if (result.kind === 'pdf' && result.isGenerated && pdfSrc.value) {
+            emitOpenInNewTab(result);
+            closeAllDropdowns();
+            return;
+        }
+
+        await openFile(result);
         closeAllDropdowns();
     }
 
@@ -106,6 +123,15 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
             return;
         }
         await openFileDirect(path);
+        closeAllDropdowns();
+    }
+
+    async function handleOpenFileWithResult(result: TOpenFileResult) {
+        const canProceed = await ensureCurrentDocumentPersistedBeforeSwitch();
+        if (!canProceed) {
+            return;
+        }
+        await openFile(result);
         closeAllDropdowns();
     }
 
@@ -145,6 +171,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         handleOpenFileFromUi,
         handleOpenFileDirectWithPersist,
         handleOpenFileDirectBatchWithPersist,
+        handleOpenFileWithResult,
         handleCloseFileFromUi,
         openRecentFile,
     };

@@ -1,3 +1,5 @@
+import type { TOpenFileResult } from '@app/types/electron-api';
+
 export interface ICloseFileFromUiOptions {persist?: boolean;}
 
 export interface IWorkspaceExpose {
@@ -8,6 +10,7 @@ export interface IWorkspaceExpose {
     handleOpenFileFromUi: () => Promise<void>;
     handleOpenFileDirectWithPersist: (path: string) => Promise<void>;
     handleOpenFileDirectBatchWithPersist: (paths: string[]) => Promise<void>;
+    handleOpenFileWithResult: (result: TOpenFileResult) => Promise<void>;
     handleCloseFileFromUi: (options?: ICloseFileFromUiOptions) => Promise<void>;
     handleExportDocx: () => Promise<void>;
     handleExportImages: () => Promise<void>;

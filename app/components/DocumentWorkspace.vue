@@ -328,6 +328,7 @@ import {
 } from 'vue';
 import { createWorkspaceExpose } from '@app/composables/page/createWorkspaceExpose';
 import { useWorkspaceOrchestration } from '@app/composables/page/useWorkspaceOrchestration';
+import type { TOpenFileResult } from '@app/types/electron-api';
 import type { TTabUpdate } from '@app/types/tabs';
 import type { IWorkspaceExpose } from '@app/types/workspace-expose';
 
@@ -338,7 +339,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
     'update-tab': [updates: TTabUpdate];
-    'open-in-new-tab': [path: string];
+    'open-in-new-tab': [result: TOpenFileResult];
     'request-close-tab': [];
     'open-settings': [];
 }>();
@@ -511,6 +512,7 @@ const {
     handleOpenFileFromUi,
     handleOpenFileDirectWithPersist,
     handleOpenFileDirectBatchWithPersist,
+    handleOpenFileWithResult,
     handleCloseFileFromUi,
     openRecentFile,
     setupShortcuts,
@@ -545,6 +547,7 @@ const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
     handleOpenFileFromUi,
     handleOpenFileDirectWithPersist,
     handleOpenFileDirectBatchWithPersist,
+    handleOpenFileWithResult,
     handleCloseFileFromUi,
     handleExportDocx,
     handleExportImages,
