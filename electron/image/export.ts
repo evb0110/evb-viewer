@@ -20,7 +20,12 @@ import {
 import { uniq } from 'es-toolkit/array';
 import * as utifModule from 'utif';
 import { getOcrToolPaths } from '@electron/ocr/paths';
+import {
+    detectSourceDpi,
+    clampDpi,
+} from '@electron/ocr/worker/dpi-detection';
 import { runCommand } from '@electron/ocr/worker/run-command';
+import { createLogger } from '@electron/utils/logger';
 
 type TImageExportFormat = 'png' | 'jpeg' | 'tiff';
 
@@ -56,6 +61,7 @@ interface ITiffPageRgba {
 }
 
 const UTIF = utifModule as IUtifModule;
+const logger = createLogger('image-export');
 
 function resolveFormatExtension(format: TImageExportFormat): string {
     if (format === 'jpeg') {
@@ -150,11 +156,20 @@ async function moveFile(sourcePath: string, targetPath: string) {
 async function renderPdfToTempPages(pdfPath: string, format: TImageExportFormat): Promise<IRenderedPageFile[]> {
     const tempDir = await mkdtemp(join(tmpdir(), 'pdf-export-'));
     const prefix = join(tempDir, 'page');
-    const pdftoppm = getOcrToolPaths().pdftoppm;
+    const paths = getOcrToolPaths();
+
+    const detectedDpi = await detectSourceDpi(
+        pdfPath,
+        paths.pdfimages,
+        (level, message) => logger[level === 'error' ? 'error' : 'debug'](message),
+    );
+    const renderDpi = clampDpi(detectedDpi ?? 300);
 
     try {
-        await runCommand(pdftoppm, [
+        await runCommand(paths.pdftoppm, [
             toPdftoppmFormatArg(format),
+            '-r',
+            String(renderDpi),
             pdfPath,
             prefix,
         ]);

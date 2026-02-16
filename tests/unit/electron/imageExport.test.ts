@@ -42,6 +42,13 @@ vi.mock('@electron/ocr/paths', () => ({getOcrToolPaths: () => ({
 
 vi.mock('@electron/ocr/worker/run-command', () => ({runCommand: mocks.runCommand}));
 
+vi.mock('@electron/utils/logger', () => ({createLogger: () => ({
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+})}));
+
 const { exportPdfAsMultiPageTiff } = await import('@electron/image/export');
 
 const UTIF = utifModule as IUtifModule;
@@ -57,7 +64,7 @@ describe('exportPdfAsMultiPageTiff', () => {
                 throw new Error(`Unexpected command: ${command}`);
             }
 
-            const prefix = args[2];
+            const prefix = args[args.length - 1];
             if (typeof prefix !== 'string') {
                 throw new Error('Expected pdftoppm output prefix');
             }

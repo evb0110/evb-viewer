@@ -7,6 +7,11 @@ import {
 import { encode } from 'fast-png';
 import { PDFDocument } from 'pdf-lib';
 import * as utifModule from 'utif';
+import {
+    pixelsToPdfPoints,
+    readImageDpi,
+    readTiffFrameDpi,
+} from '@electron/image/image-dpi';
 
 interface IUtifFrame {
     width?: number;
@@ -50,19 +55,23 @@ async function appendPngOrJpegPage(
     extension: string,
 ): Promise<number> {
     const imageBytes = await readFile(sourcePath);
+    const dpi = readImageDpi(imageBytes, extension);
     const embeddedImage = extension === '.jpg' || extension === '.jpeg'
         ? await targetPdf.embedJpg(imageBytes)
         : await targetPdf.embedPng(imageBytes);
 
+    const pageWidth = pixelsToPdfPoints(embeddedImage.width, dpi);
+    const pageHeight = pixelsToPdfPoints(embeddedImage.height, dpi);
+
     const page = targetPdf.addPage([
-        embeddedImage.width,
-        embeddedImage.height,
+        pageWidth,
+        pageHeight,
     ]);
     page.drawImage(embeddedImage, {
         x: 0,
         y: 0,
-        width: embeddedImage.width,
-        height: embeddedImage.height,
+        width: pageWidth,
+        height: pageHeight,
     });
 
     return 1;
@@ -90,6 +99,8 @@ async function appendTiffPages(
             continue;
         }
 
+        const dpi = readTiffFrameDpi(ifd as Record<string, unknown>) ?? 72;
+
         const pngBytes = encode({
             width,
             height,
@@ -98,15 +109,18 @@ async function appendTiffPages(
         });
 
         const embeddedImage = await targetPdf.embedPng(pngBytes);
+        const pageWidth = pixelsToPdfPoints(embeddedImage.width, dpi);
+        const pageHeight = pixelsToPdfPoints(embeddedImage.height, dpi);
+
         const page = targetPdf.addPage([
-            embeddedImage.width,
-            embeddedImage.height,
+            pageWidth,
+            pageHeight,
         ]);
         page.drawImage(embeddedImage, {
             x: 0,
             y: 0,
-            width: embeddedImage.width,
-            height: embeddedImage.height,
+            width: pageWidth,
+            height: pageHeight,
         });
 
         addedPages += 1;

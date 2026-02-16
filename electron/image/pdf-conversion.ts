@@ -12,6 +12,11 @@ import { encode } from 'fast-png';
 import { PDFDocument } from 'pdf-lib';
 import * as utifModule from 'utif';
 import { createLogger } from '@electron/utils/logger';
+import {
+    pixelsToPdfPoints,
+    readImageDpi,
+    readTiffFrameDpi,
+} from '@electron/image/image-dpi';
 
 interface IUtifFrame {
     width?: number;
@@ -117,26 +122,36 @@ async function appendBitmapPage(
     targetPdf: PDFDocument,
     sourcePath: string,
 ): Promise<number> {
-    const image = nativeImage.createFromPath(sourcePath);
-    if (image.isEmpty()) {
-        throw new Error(`Unsupported or unreadable image: ${sourcePath}`);
+    const originalBytes = await readFile(sourcePath);
+    const extension = extname(sourcePath).toLowerCase();
+    const dpi = readImageDpi(originalBytes, extension);
+
+    let embeddedImage;
+    if (extension === '.png') {
+        embeddedImage = await targetPdf.embedPng(originalBytes);
+    } else if (extension === '.jpg' || extension === '.jpeg') {
+        embeddedImage = await targetPdf.embedJpg(originalBytes);
+    } else {
+        const image = nativeImage.createFromPath(sourcePath);
+        if (image.isEmpty()) {
+            throw new Error(`Unsupported or unreadable image: ${sourcePath}`);
+        }
+        embeddedImage = await targetPdf.embedPng(image.toPNG());
     }
 
-    const imageBytes = image.toPNG();
-    const embeddedImage = await targetPdf.embedPng(imageBytes);
-    const width = embeddedImage.width;
-    const height = embeddedImage.height;
+    const pageWidth = pixelsToPdfPoints(embeddedImage.width, dpi);
+    const pageHeight = pixelsToPdfPoints(embeddedImage.height, dpi);
 
     const page = targetPdf.addPage([
-        width,
-        height,
+        pageWidth,
+        pageHeight,
     ]);
 
     page.drawImage(embeddedImage, {
         x: 0,
         y: 0,
-        width,
-        height,
+        width: pageWidth,
+        height: pageHeight,
     });
 
     return 1;
@@ -166,6 +181,8 @@ async function appendTiffPages(
             continue;
         }
 
+        const dpi = readTiffFrameDpi(ifd as Record<string, unknown>) ?? 72;
+
         const pngBytes = encode({
             width,
             height,
@@ -174,16 +191,19 @@ async function appendTiffPages(
         });
         const embeddedImage = await targetPdf.embedPng(pngBytes);
 
+        const pageWidth = pixelsToPdfPoints(embeddedImage.width, dpi);
+        const pageHeight = pixelsToPdfPoints(embeddedImage.height, dpi);
+
         const page = targetPdf.addPage([
-            embeddedImage.width,
-            embeddedImage.height,
+            pageWidth,
+            pageHeight,
         ]);
 
         page.drawImage(embeddedImage, {
             x: 0,
             y: 0,
-            width: embeddedImage.width,
-            height: embeddedImage.height,
+            width: pageWidth,
+            height: pageHeight,
         });
 
         addedPages += 1;
