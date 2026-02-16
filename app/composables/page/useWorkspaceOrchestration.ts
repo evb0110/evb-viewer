@@ -117,6 +117,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         error: pdfError,
         isElectron,
         pendingDjvu,
+        openBatchProgress,
         pickFileToOpen,
         openFile,
         openFileDirect,
@@ -658,6 +659,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         isDirty,
         isDjvuMode,
         djvuSourcePath,
+        openBatchProgress,
         showSettings,
         t,
         emitUpdateTab: (updates) => emit('update-tab', updates),
@@ -733,6 +735,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         isDirty,
         pdfError,
         isElectron,
+        openBatchProgress,
         loadPdfFromData,
 
         isDjvuMode,

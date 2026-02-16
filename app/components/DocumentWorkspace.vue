@@ -228,6 +228,7 @@
                 <PdfEmptyState
                     v-else
                     :recent-files="recentFiles"
+                    :open-batch-progress="openBatchProgress"
                     @open-file="handleOpenFileFromUi"
                     @open-recent="openRecentFile"
                     @remove-recent="removeRecentFile"
@@ -368,6 +369,7 @@ const {
     djvuDismissBanner,
     handleDjvuConvert,
     handleDjvuCancel,
+    openBatchProgress,
     recentFiles,
     removeRecentFile,
     clearRecentFiles,

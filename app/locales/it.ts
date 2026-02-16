@@ -28,6 +28,7 @@ export default {
         'newTab': 'Nuova scheda',
         'unsavedChanges': 'Modifiche non salvate',
         'closeTab': 'Chiudi scheda',
+        'preparingBatch': 'Preparazione {processed}/{total}',
         'confirmCloseDirtyTitle': 'Chiudere la scheda con modifiche non salvate?',
         'confirmCloseDirtyDescription': '"{name}" ha modifiche non salvate. Le modifiche verranno scartate alla chiusura.',
     },
@@ -278,6 +279,9 @@ export default {
         'removeFromRecent': 'Rimuovi dai recenti',
         'openAnother': 'Apri un altro file...',
         'openPdf': 'Apri un file',
+        'preparingBatch': 'Preparazione del documento...',
+        'preparingBatchProgress': 'File di origine elaborati: {processed}/{total}',
+        'preparingBatchEta': 'Tempo rimanente stimato: {eta}',
     },
     'contextMenu': {
         'openPopUpNote': 'Apri nota a comparsa',

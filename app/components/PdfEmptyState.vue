@@ -1,6 +1,28 @@
 <template>
     <div class="empty-state">
         <div class="empty-state-content">
+            <div
+                v-if="props.openBatchProgress"
+                class="w-full mb-4 rounded-lg border border-[var(--ui-border)] bg-[var(--ui-bg-elevated)] px-4 py-3"
+                role="status"
+                aria-live="polite"
+            >
+                <div class="flex items-center gap-2 text-sm text-[var(--ui-text)]">
+                    <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin" />
+                    <span>{{ t('emptyState.preparingBatch') }}</span>
+                </div>
+                <p class="mt-2 text-xs text-[var(--ui-text-muted)]">
+                    {{ t('emptyState.preparingBatchProgress', {
+                        processed: displayProcessedCount(props.openBatchProgress.processed, props.openBatchProgress.total),
+                        total: props.openBatchProgress.total,
+                    }) }}
+                </p>
+                <UProgress :value="props.openBatchProgress.percent" class="mt-2" />
+                <p v-if="batchEtaText" class="mt-2 text-xs text-[var(--ui-text-dimmed)]">
+                    {{ t('emptyState.preparingBatchEta', { eta: batchEtaText }) }}
+                </p>
+            </div>
+
             <!-- No recent files: centered standalone prompt -->
             <div v-if="recentFiles.length === 0" class="open-file-section">
                 <UTooltip :text="t('toolbar.openPdf')" :delay-duration="1200">
@@ -94,7 +116,17 @@ interface IRecentFile {
     timestamp: number;
 }
 
-defineProps<{recentFiles: IRecentFile[];}>();
+interface IOpenBatchProgress {
+    processed: number;
+    total: number;
+    percent: number;
+    estimatedRemainingMs: number | null;
+}
+
+const props = defineProps<{
+    recentFiles: IRecentFile[];
+    openBatchProgress?: IOpenBatchProgress | null;
+}>();
 
 const emit = defineEmits<{
     'open-file': [];
@@ -104,6 +136,8 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useTypedI18n();
+
+const batchEtaText = computed(() => formatEtaDuration(props.openBatchProgress?.estimatedRemainingMs ?? null));
 
 function formatRelativeTimeLocalized(timestamp: number) {
     return formatRelativeTime(timestamp, {
@@ -122,6 +156,30 @@ function getParentFolder(filePath: string) {
     parts.pop();
     const folderParts = parts.slice(-2);
     return folderParts.join('/');
+}
+
+function displayProcessedCount(processed: number, total: number) {
+    if (total <= 0) {
+        return 0;
+    }
+
+    return Math.min(Math.max(0, Math.round(processed)), total);
+}
+
+function formatEtaDuration(etaMs: number | null) {
+    if (!Number.isFinite(etaMs) || etaMs === null || etaMs <= 0) {
+        return null;
+    }
+
+    const totalSeconds = Math.max(1, Math.round(etaMs / 1000));
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+
+    if (minutes > 0) {
+        return `${minutes}:${String(seconds).padStart(2, '0')}`;
+    }
+
+    return `0:${String(seconds).padStart(2, '0')}`;
 }
 </script>
 

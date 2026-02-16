@@ -13,15 +13,22 @@ interface IWorkspaceWindowTitleState {
     isDjvuMode: boolean;
     djvuSourcePath: string | null;
     fileName: string | null;
+    pendingOpenDisplayName: string | null;
     fallbackTitle: string;
 }
 
 interface IWorkspaceTabState {
     fileName: string | null;
+    pendingOpenDisplayName: string | null;
     originalPath: string | null;
     isDirty: boolean;
     isDjvuMode: boolean;
     djvuSourcePath: string | null;
+}
+
+interface IOpenBatchProgressState {
+    processed: number;
+    total: number;
 }
 
 interface IWorkspaceUiSyncDeps {
@@ -37,13 +44,14 @@ interface IWorkspaceUiSyncDeps {
     currentPage: Ref<number>;
     pdfViewerRef: Ref<{ scrollToPage: (page: number) => void } | null>;
     originalPath: Ref<string | null>;
+    openBatchProgress: Ref<IOpenBatchProgressState | null>;
     isActive: Ref<boolean>;
     fileName: Ref<string | null>;
     isDirty: Ref<boolean>;
     isDjvuMode: Ref<boolean>;
     djvuSourcePath: Ref<string | null>;
     showSettings: Ref<boolean>;
-    t: (key: TTranslationKey) => string;
+    t: (key: TTranslationKey, params?: Record<string, string | number>) => string;
     emitUpdateTab: (updates: TTabUpdate) => void;
     emitOpenSettings: () => void;
 }
@@ -56,6 +64,10 @@ function getBaseName(path: string | null) {
 }
 
 export function resolveWorkspaceWindowTitle(state: IWorkspaceWindowTitleState) {
+    if (state.pendingOpenDisplayName) {
+        return state.pendingOpenDisplayName;
+    }
+
     if (state.isDjvuMode && state.djvuSourcePath) {
         return getBaseName(state.djvuSourcePath) ?? state.fallbackTitle;
     }
@@ -64,9 +76,10 @@ export function resolveWorkspaceWindowTitle(state: IWorkspaceWindowTitleState) {
 }
 
 export function resolveWorkspaceTabUpdate(state: IWorkspaceTabState): TTabUpdate {
-    const displayName = state.isDjvuMode && state.djvuSourcePath
-        ? (getBaseName(state.djvuSourcePath) ?? state.fileName)
-        : state.fileName;
+    const displayName = state.pendingOpenDisplayName
+        ?? (state.isDjvuMode && state.djvuSourcePath
+            ? (getBaseName(state.djvuSourcePath) ?? state.fileName)
+            : state.fileName);
 
     return {
         fileName: displayName,
@@ -74,6 +87,20 @@ export function resolveWorkspaceTabUpdate(state: IWorkspaceTabState): TTabUpdate
         isDirty: state.isDirty,
         isDjvu: state.isDjvuMode,
     };
+}
+
+function resolvePendingOpenDisplayName(
+    progress: IOpenBatchProgressState | null,
+    t: (key: TTranslationKey, params?: Record<string, string | number>) => string,
+) {
+    if (!progress || progress.total <= 0) {
+        return null;
+    }
+
+    return t('tabs.preparingBatch', {
+        processed: Math.min(Math.max(0, progress.processed), progress.total),
+        total: progress.total,
+    });
 }
 
 export function setupWorkspaceUiSyncWatchers(deps: IWorkspaceUiSyncDeps) {
@@ -101,6 +128,7 @@ export function setupWorkspaceUiSyncWatchers(deps: IWorkspaceUiSyncDeps) {
             deps.fileName,
             deps.isDjvuMode,
             deps.djvuSourcePath,
+            deps.openBatchProgress,
         ],
         ([active]) => {
             if (!active || !hasElectronAPI()) {
@@ -111,6 +139,7 @@ export function setupWorkspaceUiSyncWatchers(deps: IWorkspaceUiSyncDeps) {
                 isDjvuMode: deps.isDjvuMode.value,
                 djvuSourcePath: deps.djvuSourcePath.value,
                 fileName: deps.fileName.value,
+                pendingOpenDisplayName: resolvePendingOpenDisplayName(deps.openBatchProgress.value, deps.t),
                 fallbackTitle: deps.t('app.title'),
             });
 
@@ -126,10 +155,12 @@ export function setupWorkspaceUiSyncWatchers(deps: IWorkspaceUiSyncDeps) {
             deps.isDirty,
             deps.isDjvuMode,
             deps.djvuSourcePath,
+            deps.openBatchProgress,
         ],
         () => {
             deps.emitUpdateTab(resolveWorkspaceTabUpdate({
                 fileName: deps.fileName.value,
+                pendingOpenDisplayName: resolvePendingOpenDisplayName(deps.openBatchProgress.value, deps.t),
                 originalPath: deps.originalPath.value,
                 isDirty: deps.isDirty.value,
                 isDjvuMode: deps.isDjvuMode.value,

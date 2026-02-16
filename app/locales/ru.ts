@@ -28,6 +28,7 @@ export default {
         'newTab': 'Новая вкладка',
         'unsavedChanges': 'Несохранённые изменения',
         'closeTab': 'Закрыть вкладку',
+        'preparingBatch': 'Подготовка {processed}/{total}',
         'confirmCloseDirtyTitle': 'Закрыть вкладку с несохранёнными изменениями?',
         'confirmCloseDirtyDescription': 'В "{name}" есть несохранённые изменения. При закрытии изменения будут отброшены.',
     },
@@ -278,6 +279,9 @@ export default {
         'removeFromRecent': 'Удалить из недавних',
         'openAnother': 'Открыть другой файл...',
         'openPdf': 'Откройте файл PDF',
+        'preparingBatch': 'Подготавливаем документ...',
+        'preparingBatchProgress': 'Обработано исходных файлов: {processed}/{total}',
+        'preparingBatchEta': 'Осталось примерно: {eta}',
     },
     'contextMenu': {
         'openPopUpNote': 'Открыть заметку',

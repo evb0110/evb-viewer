@@ -11,6 +11,14 @@ import type { TPdfSource } from '@app/types/pdf';
 import type { TOpenFileResult } from '@app/types/electron-api';
 import { BrowserLogger } from '@app/utils/browser-logger';
 
+interface IOpenBatchProgressState {
+    processed: number;
+    total: number;
+    percent: number;
+    elapsedMs: number;
+    estimatedRemainingMs: number | null;
+}
+
 export const usePdfFile = () => {
     const { t } = useTypedI18n();
 
@@ -32,6 +40,7 @@ export const usePdfFile = () => {
     const isElectron = computed(() => hasElectronAPI());
 
     const pendingDjvu = ref<string | null>(null);
+    const openBatchProgress = ref<IOpenBatchProgressState | null>(null);
 
     async function pickFileToOpen() {
         const api = getElectronAPI();
@@ -41,6 +50,7 @@ export const usePdfFile = () => {
     async function openFile(preSelected?: TOpenFileResult) {
         error.value = null;
         pendingDjvu.value = null;
+        openBatchProgress.value = null;
         try {
             const result = preSelected ?? await pickFileToOpen();
             if (!result) {
@@ -61,6 +71,7 @@ export const usePdfFile = () => {
     async function openFileDirect(path: string) {
         error.value = null;
         pendingDjvu.value = null;
+        openBatchProgress.value = null;
         try {
             const api = getElectronAPI();
             const result = await api.openPdfDirect(path);
@@ -83,21 +94,66 @@ export const usePdfFile = () => {
     async function openFileDirectBatch(paths: string[]) {
         error.value = null;
         pendingDjvu.value = null;
+        openBatchProgress.value = null;
         try {
             const api = getElectronAPI();
-            const result = await api.openPdfDirectBatch(paths);
+            const normalizedPaths = paths
+                .map(path => path.trim())
+                .filter(path => path.length > 0);
+
+            if (normalizedPaths.length === 0) {
+                error.value = t('errors.file.invalid');
+                return;
+            }
+
+            const requestId = crypto.randomUUID();
+            openBatchProgress.value = {
+                processed: 0,
+                total: normalizedPaths.length,
+                percent: 0,
+                elapsedMs: 0,
+                estimatedRemainingMs: null,
+            };
+
+            const stopProgress = api.onOpenPdfDirectBatchProgress((progress) => {
+                if (progress.requestId !== requestId) {
+                    return;
+                }
+
+                openBatchProgress.value = {
+                    processed: Math.max(0, progress.processed),
+                    total: Math.max(0, progress.total),
+                    percent: Math.max(0, Math.min(100, progress.percent)),
+                    elapsedMs: Math.max(0, progress.elapsedMs),
+                    estimatedRemainingMs: typeof progress.estimatedRemainingMs === 'number'
+                        ? Math.max(0, progress.estimatedRemainingMs)
+                        : null,
+                };
+            });
+
+            let result: TOpenFileResult | null = null;
+            try {
+                result = await api.openPdfDirectBatch(normalizedPaths, requestId);
+            } finally {
+                stopProgress();
+            }
+
             if (!result) {
+                openBatchProgress.value = null;
                 error.value = t('errors.file.invalid');
                 return;
             }
             if (result.kind === 'djvu') {
+                openBatchProgress.value = null;
                 pendingDjvu.value = result.originalPath;
                 return;
             }
             originalPath.value = result.originalPath;
             requiresSaveAsOnFirstSave.value = !!result.isGenerated;
             await loadPdfFromPath(result.workingPath, { markDirty: !!result.isGenerated });
+            openBatchProgress.value = null;
         } catch (e) {
+            openBatchProgress.value = null;
             error.value = e instanceof Error ? e.message : t('errors.file.open');
         }
     }
@@ -300,6 +356,8 @@ export const usePdfFile = () => {
         originalPath.value = null;
         error.value = null;
         isDirty.value = false;
+        pendingDjvu.value = null;
+        openBatchProgress.value = null;
         requiresSaveAsOnFirstSave.value = false;
         resetHistory(null);
         if (pathToCleanup && hasElectronAPI()) {
@@ -358,6 +416,7 @@ export const usePdfFile = () => {
         isDirty,
         isElectron,
         pendingDjvu,
+        openBatchProgress,
         pickFileToOpen,
         openFile,
         openFileDirect,

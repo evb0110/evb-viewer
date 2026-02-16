@@ -28,6 +28,7 @@ export default {
         'newTab': 'Novo Separador',
         'unsavedChanges': 'Alterações por guardar',
         'closeTab': 'Fechar separador',
+        'preparingBatch': 'A preparar {processed}/{total}',
         'confirmCloseDirtyTitle': 'Fechar separador com alterações por guardar?',
         'confirmCloseDirtyDescription': '"{name}" tem alterações por guardar. As alterações serão descartadas ao fechar.',
     },
@@ -278,6 +279,9 @@ export default {
         'removeFromRecent': 'Remover dos Recentes',
         'openAnother': 'Abrir outro ficheiro...',
         'openPdf': 'Abrir um ficheiro',
+        'preparingBatch': 'A preparar documento...',
+        'preparingBatchProgress': 'Ficheiros de origem processados: {processed}/{total}',
+        'preparingBatchEta': 'Tempo restante estimado: {eta}',
     },
     'contextMenu': {
         'openPopUpNote': 'Abrir Nota Pop-up',

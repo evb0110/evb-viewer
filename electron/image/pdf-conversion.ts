@@ -31,10 +31,26 @@ interface IUtifModule {
 }
 
 interface ICombineWorkerPayload {
+    type?: string;
     ok?: boolean;
     error?: string;
     data?: unknown;
+    processed?: number;
+    total?: number;
+    percent?: number;
+    elapsedMs?: number;
+    estimatedRemainingMs?: number | null;
 }
+
+export interface ICreatePdfFromInputPathsProgress {
+    processed: number;
+    total: number;
+    percent: number;
+    elapsedMs: number;
+    estimatedRemainingMs: number | null;
+}
+
+interface ICreatePdfFromInputPathsOptions {onProgress?: (progress: ICreatePdfFromInputPathsProgress) => void;}
 
 const UTIF = utifModule as IUtifModule;
 const logger = createLogger('pdf-conversion');
@@ -96,6 +112,15 @@ export function buildCombinedPdfOutputPath(inputPaths: string[]): string {
         inputPaths.length === 1 ? `${stem}.pdf` : `${stem}-combined.pdf`;
 
     return join(dir, outputName);
+}
+
+function estimateRemainingMs(elapsedMs: number, processed: number, total: number) {
+    if (processed <= 0 || total <= processed) {
+        return 0;
+    }
+    const averagePerItem = elapsedMs / processed;
+    const remainingItems = total - processed;
+    return Math.max(0, Math.round(averagePerItem * remainingItems));
 }
 
 async function appendPdfPages(
@@ -231,6 +256,7 @@ async function appendImagePages(
 
 async function createPdfFromInputPathsLocal(
     inputPaths: string[],
+    options?: ICreatePdfFromInputPathsOptions,
 ): Promise<Uint8Array> {
     const normalizedPaths = inputPaths
         .map((path) => path.trim())
@@ -242,19 +268,30 @@ async function createPdfFromInputPathsLocal(
 
     const targetPdf = await PDFDocument.create();
     let pageCount = 0;
+    const startedAt = Date.now();
 
-    for (const sourcePath of normalizedPaths) {
+    for (let index = 0; index < normalizedPaths.length; index++) {
+        const sourcePath = normalizedPaths[index]!;
         if (isPdfPath(sourcePath)) {
             pageCount += await appendPdfPages(targetPdf, sourcePath);
-            continue;
-        }
-
-        if (isImagePath(sourcePath)) {
+        } else if (isImagePath(sourcePath)) {
             pageCount += await appendImagePages(targetPdf, sourcePath);
-            continue;
+        } else {
+            throw new Error(`Unsupported file type: ${sourcePath}`);
         }
 
-        throw new Error(`Unsupported file type: ${sourcePath}`);
+        if (options?.onProgress) {
+            const processed = index + 1;
+            const total = normalizedPaths.length;
+            const elapsedMs = Math.max(0, Date.now() - startedAt);
+            options.onProgress({
+                processed,
+                total,
+                percent: Math.round((processed / total) * 100),
+                elapsedMs,
+                estimatedRemainingMs: estimateRemainingMs(elapsedMs, processed, total),
+            });
+        }
     }
 
     if (pageCount === 0) {
@@ -292,17 +329,52 @@ function decodeWorkerPdfBytes(data: unknown): Uint8Array | null {
 
 function createPdfFromInputPathsWorker(
     inputPaths: string[],
+    options?: ICreatePdfFromInputPathsOptions,
 ): Promise<Uint8Array> {
     return new Promise((resolve, reject) => {
         const worker = new Worker(getCombineWorkerPath(), {workerData: { inputPaths }});
 
         let settled = false;
 
-        worker.once('message', (message: unknown) => {
-            settled = true;
+        worker.on('message', (message: unknown) => {
             const payload = message as ICombineWorkerPayload;
 
-            if (!payload.ok) {
+            if (payload.type === 'progress') {
+                if (
+                    options?.onProgress
+                    && Number.isFinite(payload.processed)
+                    && Number.isFinite(payload.total)
+                    && Number.isFinite(payload.percent)
+                    && Number.isFinite(payload.elapsedMs)
+                ) {
+                    options.onProgress({
+                        processed: Number(payload.processed),
+                        total: Number(payload.total),
+                        percent: Number(payload.percent),
+                        elapsedMs: Number(payload.elapsedMs),
+                        estimatedRemainingMs:
+                            typeof payload.estimatedRemainingMs === 'number'
+                                ? payload.estimatedRemainingMs
+                                : null,
+                    });
+                }
+                return;
+            }
+
+            if (settled) {
+                return;
+            }
+            settled = true;
+
+            if (payload.type === 'result' && !payload.ok) {
+                reject(new Error(payload.error || 'Image combine worker failed'));
+                return;
+            }
+            if (payload.type === 'result' && payload.ok !== true) {
+                reject(new Error(payload.error || 'Image combine worker failed'));
+                return;
+            }
+            if (payload.type !== 'result' && payload.ok !== true) {
                 reject(new Error(payload.error || 'Image combine worker failed'));
                 return;
             }
@@ -313,6 +385,7 @@ function createPdfFromInputPathsWorker(
                 return;
             }
 
+            worker.removeAllListeners('message');
             resolve(data);
         });
 
@@ -332,6 +405,7 @@ function createPdfFromInputPathsWorker(
 
 export async function createPdfFromInputPaths(
     inputPaths: string[],
+    options?: ICreatePdfFromInputPathsOptions,
 ): Promise<Uint8Array> {
     const normalizedPaths = inputPaths
         .map((path) => path.trim())
@@ -342,15 +416,15 @@ export async function createPdfFromInputPaths(
     }
 
     if (!canCombineInWorker(normalizedPaths)) {
-        return createPdfFromInputPathsLocal(normalizedPaths);
+        return createPdfFromInputPathsLocal(normalizedPaths, options);
     }
 
     try {
-        return await createPdfFromInputPathsWorker(normalizedPaths);
+        return await createPdfFromInputPathsWorker(normalizedPaths, options);
     } catch (workerError) {
         logger.warn(
             `Image combine worker failed, falling back to in-process conversion: ${workerError instanceof Error ? workerError.message : String(workerError)}`,
         );
-        return createPdfFromInputPathsLocal(normalizedPaths);
+        return createPdfFromInputPathsLocal(normalizedPaths, options);
     }
 }

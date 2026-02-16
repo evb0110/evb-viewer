@@ -70,6 +70,15 @@ interface IPdfSearchProgress {
     total: number;
 }
 
+interface IOpenPdfDirectBatchProgress {
+    requestId: string;
+    processed: number;
+    total: number;
+    percent: number;
+    elapsedMs: number;
+    estimatedRemainingMs: number | null;
+}
+
 interface IPreprocessingValidationResult {
     valid: boolean;
     available: string[];
@@ -192,7 +201,7 @@ export type TOpenFileResult = IOpenPdfResult | IOpenDjvuResult;
 export interface IElectronAPI {
     openPdfDialog: () => Promise<TOpenFileResult | null>;
     openPdfDirect: (path: string) => Promise<TOpenFileResult | null>;
-    openPdfDirectBatch: (paths: string[]) => Promise<TOpenFileResult | null>;
+    openPdfDirectBatch: (paths: string[], requestId?: string) => Promise<TOpenFileResult | null>;
     savePdfAs: (workingCopyPath: string) => Promise<string | null>;
     savePdfDialog: (suggestedName: string) => Promise<string | null>;
     saveDocxAs: (workingCopyPath: string) => Promise<string | null>;
@@ -286,6 +295,7 @@ export interface IElectronAPI {
     onMenuOpenRecentFile: (callback: (path: string) => void) => IMenuEventUnsubscribe;
     onMenuOpenExternalPaths: (callback: (paths: string[]) => void) => IMenuEventUnsubscribe;
     onMenuClearRecentFiles: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
+    onOpenPdfDirectBatchProgress: (callback: (progress: IOpenPdfDirectBatchProgress) => void) => IMenuEventUnsubscribe;
 
     settings: {
         get: () => Promise<ISettingsData>;

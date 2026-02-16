@@ -47,6 +47,10 @@ vi.mock('worker_threads', () => ({Worker: class {
         mocks.workerCtor(script, options);
     }
 
+    on(event: string, callback: (arg: unknown) => void) {
+        return this.once(event, callback);
+    }
+
     once(event: string, callback: (arg: unknown) => void) {
         if (mocks.workerState.mode === 'success' && event === 'message') {
             setTimeout(() => {
@@ -64,6 +68,10 @@ vi.mock('worker_threads', () => ({Worker: class {
                 callback(new Error('Cannot find package pdf-lib from [eval1]'));
             }, 0);
         }
+        return this;
+    }
+
+    removeAllListeners() {
         return this;
     }
 }}));

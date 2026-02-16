@@ -28,6 +28,7 @@ export default {
         'newTab': 'Nueva pestaña',
         'unsavedChanges': 'Cambios sin guardar',
         'closeTab': 'Cerrar pestaña',
+        'preparingBatch': 'Preparando {processed}/{total}',
         'confirmCloseDirtyTitle': '¿Cerrar pestaña con cambios sin guardar?',
         'confirmCloseDirtyDescription': '"{name}" tiene cambios sin guardar. Los cambios se descartarán al cerrar.',
     },
@@ -278,6 +279,9 @@ export default {
         'removeFromRecent': 'Quitar de recientes',
         'openAnother': 'Abrir otro archivo...',
         'openPdf': 'Abrir un archivo',
+        'preparingBatch': 'Preparando documento...',
+        'preparingBatchProgress': 'Archivos de origen procesados: {processed}/{total}',
+        'preparingBatchEta': 'Tiempo restante estimado: {eta}',
     },
     'contextMenu': {
         'openPopUpNote': 'Abrir nota emergente',

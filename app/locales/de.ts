@@ -28,6 +28,7 @@ export default {
         'newTab': 'Neuer Tab',
         'unsavedChanges': 'Ungespeicherte Änderungen',
         'closeTab': 'Tab schließen',
+        'preparingBatch': 'Vorbereitung {processed}/{total}',
         'confirmCloseDirtyTitle': 'Tab mit ungespeicherten Änderungen schließen?',
         'confirmCloseDirtyDescription': '"{name}" enthält ungespeicherte Änderungen. Änderungen werden beim Schließen verworfen.',
     },
@@ -278,6 +279,9 @@ export default {
         'removeFromRecent': 'Aus zuletzt verwendet entfernen',
         'openAnother': 'Andere Datei öffnen...',
         'openPdf': 'Datei öffnen',
+        'preparingBatch': 'Dokument wird vorbereitet...',
+        'preparingBatchProgress': 'Verarbeitete Quelldateien: {processed}/{total}',
+        'preparingBatchEta': 'Geschätzte Restzeit: {eta}',
     },
     'contextMenu': {
         'openPopUpNote': 'Popup-Notiz öffnen',

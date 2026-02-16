@@ -30,7 +30,7 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
     const api = {
         openPdfDialog: () => ipcRenderer.invoke('dialog:openPdf'),
         openPdfDirect: (path: string) => ipcRenderer.invoke('dialog:openPdfDirect', path),
-        openPdfDirectBatch: (paths: string[]) => ipcRenderer.invoke('dialog:openPdfDirectBatch', paths),
+        openPdfDirectBatch: (paths: string[], requestId?: string) => ipcRenderer.invoke('dialog:openPdfDirectBatch', paths, requestId),
         savePdfAs: (workingPath: string) => ipcRenderer.invoke('dialog:savePdfAs', workingPath),
         savePdfDialog: (suggestedName: string) => ipcRenderer.invoke('dialog:savePdfDialog', suggestedName),
         saveDocxAs: (workingPath: string) => ipcRenderer.invoke('dialog:saveDocxAs', workingPath),
@@ -178,6 +178,18 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
             onSingleArgEvent(ipcRenderer, 'menu:openRecentFile', callback),
         onMenuOpenExternalPaths: (callback: (paths: string[]) => void): IMenuEventUnsubscribe =>
             onSingleArgEvent(ipcRenderer, 'menu:openExternalPaths', callback),
+        onOpenPdfDirectBatchProgress: (callback: (progress: {
+            requestId: string;
+            processed: number;
+            total: number;
+            percent: number;
+            elapsedMs: number;
+            estimatedRemainingMs: number | null;
+        }) => void): IMenuEventUnsubscribe => onSingleArgEvent(
+            ipcRenderer,
+            'dialog:openPdfDirectBatch:progress',
+            callback,
+        ),
 
         settings: {
             get: () => ipcRenderer.invoke('settings:get'),

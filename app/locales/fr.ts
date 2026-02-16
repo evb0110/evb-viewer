@@ -28,6 +28,7 @@ export default {
         'newTab': 'Nouvel onglet',
         'unsavedChanges': 'Modifications non enregistrées',
         'closeTab': 'Fermer l’onglet',
+        'preparingBatch': 'Préparation {processed}/{total}',
         'confirmCloseDirtyTitle': 'Fermer l’onglet avec des modifications non enregistrées ?',
         'confirmCloseDirtyDescription': '"{name}" contient des modifications non enregistrées. Les modifications seront abandonnées à la fermeture.',
     },
@@ -278,6 +279,9 @@ export default {
         'removeFromRecent': 'Retirer des fichiers récents',
         'openAnother': 'Ouvrir un autre fichier...',
         'openPdf': 'Ouvrir un fichier',
+        'preparingBatch': 'Préparation du document...',
+        'preparingBatchProgress': 'Fichiers source traités : {processed}/{total}',
+        'preparingBatchEta': 'Temps restant estimé : {eta}',
     },
     'contextMenu': {
         'openPopUpNote': 'Ouvrir la note contextuelle',

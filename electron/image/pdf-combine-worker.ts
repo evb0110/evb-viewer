@@ -26,6 +26,22 @@ interface IUtifModule {
 }
 
 interface ICombineWorkerData {inputPaths?: unknown;}
+interface ICombineWorkerProgress {
+    processed: number;
+    total: number;
+    percent: number;
+    elapsedMs: number;
+    estimatedRemainingMs: number | null;
+}
+
+interface ICombineWorkerProgressPayload extends ICombineWorkerProgress {type: 'progress';}
+
+interface ICombineWorkerResultPayload {
+    type: 'result';
+    ok: boolean;
+    error?: string;
+    data?: Uint8Array;
+}
 
 const UTIF = utifModule as IUtifModule;
 
@@ -133,7 +149,19 @@ async function appendTiffPages(
     return addedPages;
 }
 
-async function createCombinedPdf(inputPaths: string[]): Promise<Uint8Array> {
+function estimateRemainingMs(elapsedMs: number, processed: number, total: number) {
+    if (processed <= 0 || total <= processed) {
+        return 0;
+    }
+    const averagePerItem = elapsedMs / processed;
+    const remainingItems = total - processed;
+    return Math.max(0, Math.round(averagePerItem * remainingItems));
+}
+
+async function createCombinedPdf(
+    inputPaths: string[],
+    onProgress?: (progress: ICombineWorkerProgress) => void,
+): Promise<Uint8Array> {
     const normalizedPaths = inputPaths
         .map((path) => path.trim())
         .filter((path) => path.length > 0);
@@ -144,26 +172,34 @@ async function createCombinedPdf(inputPaths: string[]): Promise<Uint8Array> {
 
     const targetPdf = await PDFDocument.create();
     let pageCount = 0;
+    const startedAt = Date.now();
 
-    for (const sourcePath of normalizedPaths) {
+    for (let index = 0; index < normalizedPaths.length; index++) {
+        const sourcePath = normalizedPaths[index]!;
         const extension = extname(sourcePath).toLowerCase();
 
         if (extension === '.pdf') {
             pageCount += await appendPdfPages(targetPdf, sourcePath);
-            continue;
-        }
-
-        if (extension === '.png' || extension === '.jpg' || extension === '.jpeg') {
+        } else if (extension === '.png' || extension === '.jpg' || extension === '.jpeg') {
             pageCount += await appendPngOrJpegPage(targetPdf, sourcePath, extension);
-            continue;
-        }
-
-        if (extension === '.tif' || extension === '.tiff') {
+        } else if (extension === '.tif' || extension === '.tiff') {
             pageCount += await appendTiffPages(targetPdf, sourcePath);
-            continue;
+        } else {
+            throw new Error(`Unsupported file type for worker combine: ${sourcePath}`);
         }
 
-        throw new Error(`Unsupported file type for worker combine: ${sourcePath}`);
+        if (onProgress) {
+            const processed = index + 1;
+            const total = normalizedPaths.length;
+            const elapsedMs = Math.max(0, Date.now() - startedAt);
+            onProgress({
+                processed,
+                total,
+                percent: Math.round((processed / total) * 100),
+                elapsedMs,
+                estimatedRemainingMs: estimateRemainingMs(elapsedMs, processed, total),
+            });
+        }
     }
 
     if (pageCount === 0) {
@@ -186,19 +222,30 @@ async function runCombineWorker() {
     if (!parentPort) {
         throw new Error('Image combine worker started without a parentPort');
     }
+    const port = parentPort;
 
     try {
         const inputPaths = resolveWorkerInputPaths();
-        const output = await createCombinedPdf(inputPaths);
-        parentPort.postMessage({
+        const output = await createCombinedPdf(inputPaths, (progress) => {
+            const progressPayload: ICombineWorkerProgressPayload = {
+                type: 'progress',
+                ...progress,
+            };
+            port.postMessage(progressPayload);
+        });
+        const payload: ICombineWorkerResultPayload = {
+            type: 'result',
             ok: true,
             data: output,
-        });
+        };
+        port.postMessage(payload);
     } catch (error) {
-        parentPort.postMessage({
+        const payload: ICombineWorkerResultPayload = {
+            type: 'result',
             ok: false,
             error: error instanceof Error ? error.message : String(error),
-        });
+        };
+        port.postMessage(payload);
     }
 }
 

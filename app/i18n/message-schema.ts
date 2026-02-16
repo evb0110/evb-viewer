@@ -28,6 +28,7 @@ export const EN_MESSAGE_SCHEMA = {
         'newTab': 'New Tab',
         'unsavedChanges': 'Unsaved changes',
         'closeTab': 'Close tab',
+        'preparingBatch': 'Preparing {processed}/{total}',
         'confirmCloseDirtyTitle': 'Close tab with unsaved changes?',
         'confirmCloseDirtyDescription': '"{name}" has unsaved changes. Changes will be discarded when closing.',
     },
@@ -278,6 +279,9 @@ export const EN_MESSAGE_SCHEMA = {
         'removeFromRecent': 'Remove from Recent',
         'openAnother': 'Open another file...',
         'openPdf': 'Open a file',
+        'preparingBatch': 'Preparing document...',
+        'preparingBatchProgress': 'Processed {processed}/{total} source files',
+        'preparingBatchEta': 'Estimated time left: {eta}',
     },
     'contextMenu': {
         'openPopUpNote': 'Open Pop-up Note',

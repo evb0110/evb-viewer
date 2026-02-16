@@ -12,6 +12,7 @@ import { uniq } from 'es-toolkit/array';
 import {
     buildCombinedPdfOutputPath,
     createPdfFromInputPaths,
+    type ICreatePdfFromInputPathsProgress,
     isDjvuPath,
     isPdfPath,
     isSupportedOpenPath,
@@ -44,6 +45,8 @@ interface IOpenDjvuResult {
 }
 
 type IOpenFileResult = IOpenPdfResult | IOpenDjvuResult;
+type TOpenBatchProgressPayload = ICreatePdfFromInputPathsProgress & {requestId: string;};
+const OPEN_PDF_DIRECT_BATCH_PROGRESS_CHANNEL = 'dialog:openPdfDirectBatch:progress';
 
 function toRecentDocumentPaths(paths: string[]) {
     return paths.filter(path => isPdfPath(path) || isDjvuPath(path));
@@ -55,6 +58,17 @@ async function addRecentInputs(paths: string[]) {
         await addRecentFile(path);
     }
     updateRecentFilesMenu();
+}
+
+function sendOpenBatchProgress(
+    event: Electron.IpcMainInvokeEvent,
+    payload: TOpenBatchProgressPayload,
+) {
+    try {
+        event.sender.send(OPEN_PDF_DIRECT_BATCH_PROGRESS_CHANNEL, payload);
+    } catch (error) {
+        logger.debug(`Failed to send open-batch progress update: ${String(error)}`);
+    }
 }
 
 function normalizeInputPaths(paths: string[]) {
@@ -71,7 +85,12 @@ function errorWithDetails(fallbackMessage: string, details: unknown): Error {
     return new Error(`${fallbackMessage}: ${detailText}`);
 }
 
-async function openInputPaths(paths: string[]): Promise<IOpenFileResult | null> {
+interface IOpenInputPathsOptions {onCombineProgress?: (progress: ICreatePdfFromInputPathsProgress) => void;}
+
+async function openInputPaths(
+    paths: string[],
+    options: IOpenInputPathsOptions = {},
+): Promise<IOpenFileResult | null> {
     const normalizedPaths = normalizeInputPaths(paths);
     if (normalizedPaths.length === 0) {
         return null;
@@ -111,7 +130,7 @@ async function openInputPaths(paths: string[]): Promise<IOpenFileResult | null> 
         };
     }
 
-    const mergedPdf = await createPdfFromInputPaths(normalizedPaths);
+    const mergedPdf = await createPdfFromInputPaths(normalizedPaths, {onProgress: options.onCombineProgress});
     const outputPath = buildCombinedPdfOutputPath(normalizedPaths);
     const workingPath = await createWorkingCopyFromData(
         basename(outputPath),
@@ -149,15 +168,24 @@ export async function handleOpenPdfDirect(
 }
 
 export async function handleOpenPdfDirectBatch(
-    _event: Electron.IpcMainInvokeEvent,
+    event: Electron.IpcMainInvokeEvent,
     filePaths: string[],
+    requestId?: string,
 ): Promise<IOpenFileResult | null> {
     if (!Array.isArray(filePaths) || filePaths.length === 0) {
         return null;
     }
 
     try {
-        return await openInputPaths(filePaths);
+        const normalizedRequestId = typeof requestId === 'string' ? requestId.trim() : '';
+        return await openInputPaths(filePaths, {onCombineProgress: normalizedRequestId
+            ? (progress) => {
+                sendOpenBatchProgress(event, {
+                    requestId: normalizedRequestId,
+                    ...progress,
+                });
+            }
+            : undefined});
     } catch (err) {
         logger.error(`Failed to create working copy from batch: ${err instanceof Error ? err.message : String(err)}`);
         throw errorWithDetails(te('errors.file.open'), err);

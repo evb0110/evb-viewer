@@ -28,6 +28,7 @@ export default {
         'newTab': 'Nieuw tabblad',
         'unsavedChanges': 'Niet-opgeslagen wijzigingen',
         'closeTab': 'Tabblad sluiten',
+        'preparingBatch': 'Voorbereiden {processed}/{total}',
         'confirmCloseDirtyTitle': 'Tabblad sluiten met niet-opgeslagen wijzigingen?',
         'confirmCloseDirtyDescription': '"{name}" heeft niet-opgeslagen wijzigingen. Wijzigingen worden verworpen bij het sluiten.',
     },
@@ -278,6 +279,9 @@ export default {
         'removeFromRecent': 'Uit recente bestanden verwijderen',
         'openAnother': 'Een ander bestand openen...',
         'openPdf': 'Een bestand openen',
+        'preparingBatch': 'Document voorbereiden...',
+        'preparingBatchProgress': 'Verwerkte bronbestanden: {processed}/{total}',
+        'preparingBatchEta': 'Geschatte resterende tijd: {eta}',
     },
     'contextMenu': {
         'openPopUpNote': 'Pop-upnotitie openen',
