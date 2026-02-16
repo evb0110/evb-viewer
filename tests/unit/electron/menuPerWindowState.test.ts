@@ -121,6 +121,7 @@ vi.mock('@electron/config', () => ({config: {isMac: false}}));
 const {
     setupMenu,
     setMenuDocumentState,
+    setMenuTabCount,
     refreshMenu,
 } = await import('@electron/menu');
 
@@ -134,6 +135,13 @@ function isSaveEnabled(template: IMenuItemLike[]) {
     const submenu = Array.isArray(fileMenu?.submenu) ? fileMenu.submenu : [];
     const saveItem = submenu.find(item => item.label === 'menu.save');
     return Boolean(saveItem?.enabled);
+}
+
+function isMoveToNewWindowEnabled(template: IMenuItemLike[]) {
+    const windowMenu = template.find(item => item.label === 'menu.window');
+    const submenu = Array.isArray(windowMenu?.submenu) ? windowMenu.submenu : [];
+    const moveItem = submenu.find(item => item.label === 'menu.moveActiveTabToNewWindow');
+    return Boolean(moveItem?.enabled);
 }
 
 describe('menu per-window document state', () => {
@@ -176,5 +184,27 @@ describe('menu per-window document state', () => {
 
         template = getLastMenuTemplate();
         expect(isSaveEnabled(template)).toBe(true);
+    });
+
+    it('disables move-to-new-window when focused window has one tab', () => {
+        const firstWindow = mocks.createWindow(1, 'First Window');
+        const secondWindow = mocks.createWindow(2, 'Second Window');
+
+        mocks.windows.push(
+            firstWindow,
+            secondWindow,
+        );
+
+        mocks.focusWindow(firstWindow);
+        setupMenu();
+
+        setMenuTabCount(1, 1);
+
+        let template = getLastMenuTemplate();
+        expect(isMoveToNewWindowEnabled(template)).toBe(false);
+
+        setMenuTabCount(1, 2);
+        template = getLastMenuTemplate();
+        expect(isMoveToNewWindowEnabled(template)).toBe(true);
     });
 });

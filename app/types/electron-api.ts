@@ -247,6 +247,7 @@ export interface IElectronAPI {
     setWindowTitle: (title: string) => Promise<void>;
     showItemInFolder: (path: string) => Promise<boolean>;
     setMenuDocumentState: (hasDocument: boolean) => Promise<void>;
+    setMenuTabCount: (tabCount: number) => Promise<void>;
     closeCurrentWindow: () => Promise<boolean>;
     notifyRendererReady: () => void;
     onMenuOpenPdf: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;

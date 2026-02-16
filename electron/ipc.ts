@@ -12,6 +12,7 @@ import { registerDjvuHandlers } from '@electron/djvu/ipc';
 import { te } from '@electron/i18n';
 import {
     setMenuDocumentState,
+    setMenuTabCount,
     showTabContextMenu,
     updateRecentFilesMenu,
 } from '@electron/menu';
@@ -118,6 +119,14 @@ export function registerIpcHandlers() {
         }
 
         setMenuDocumentState(window.id, hasDocument);
+    });
+    ipcMain.handle('menu:setTabCount', (event, tabCount: number) => {
+        const window = BrowserWindow.fromWebContents(event.sender);
+        if (!window) {
+            return;
+        }
+
+        setMenuTabCount(window.id, tabCount);
     });
 
     ipcMain.handle('tabs:transfer', async (event, request: IWindowTabTransferRequest) => {

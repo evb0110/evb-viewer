@@ -20,6 +20,7 @@ import {
 const appName = te('app.title');
 const WINDOW_TABS_ACTION_CHANNEL = 'menu:windowTabsAction';
 const menuDocumentStateByWindow = new Map<number, boolean>();
+const menuTabCountByWindow = new Map<number, number>();
 const trackedWindowIds = new Set<number>();
 let listenersRegistered = false;
 
@@ -55,6 +56,14 @@ function getWindowDocumentState(window: BrowserWindow | null) {
     }
 
     return menuDocumentStateByWindow.get(window.id) ?? false;
+}
+
+function getWindowTabCount(window: BrowserWindow | null) {
+    if (!window) {
+        return 0;
+    }
+
+    return menuTabCountByWindow.get(window.id) ?? 0;
 }
 
 function getWindowDisplayLabel(window: BrowserWindow, duplicateCountByTitle: Map<string, number>) {
@@ -497,6 +506,7 @@ function getWindowMenu(activeWindow: BrowserWindow | null): MenuItemConstructorO
     const hasTargets = sourceWindowId === null
         ? false
         : getOtherWindows(sourceWindowId).length > 0;
+    const canMoveActiveTabToNewWindow = getWindowTabCount(activeWindow) > 1;
 
     return {
         label: te('menu.window'),
@@ -506,7 +516,7 @@ function getWindowMenu(activeWindow: BrowserWindow | null): MenuItemConstructorO
             { type: 'separator' },
             {
                 label: te('menu.moveActiveTabToNewWindow'),
-                enabled: sourceWindowId !== null,
+                enabled: sourceWindowId !== null && canMoveActiveTabToNewWindow,
                 click: () => {
                     sendWindowTabsAction(sourceWindowId, {kind: 'move-tab-to-new-window'});
                 },
@@ -609,6 +619,7 @@ function trackWindowForMenu(window: BrowserWindow) {
     window.on('closed', () => {
         trackedWindowIds.delete(window.id);
         menuDocumentStateByWindow.delete(window.id);
+        menuTabCountByWindow.delete(window.id);
         rebuildMenu();
     });
 }
@@ -670,6 +681,18 @@ export function clearMenuDocumentState(windowId: number) {
     rebuildMenu();
 }
 
+export function setMenuTabCount(windowId: number, tabCount: number) {
+    const normalized = Number.isFinite(tabCount)
+        ? Math.max(0, Math.floor(tabCount))
+        : 0;
+    if (menuTabCountByWindow.get(windowId) === normalized) {
+        return;
+    }
+
+    menuTabCountByWindow.set(windowId, normalized);
+    rebuildMenu();
+}
+
 export function showTabContextMenu(window: BrowserWindow, tabId: string) {
     const normalizedTabId = tabId.trim();
     if (!normalizedTabId || window.isDestroyed()) {
@@ -678,6 +701,7 @@ export function showTabContextMenu(window: BrowserWindow, tabId: string) {
 
     const sourceWindowId = window.id;
     const hasTargets = getOtherWindows(sourceWindowId).length > 0;
+    const canMoveToNewWindow = getWindowTabCount(window) > 1;
 
     const menu = Menu.buildFromTemplate([
         {
@@ -692,6 +716,7 @@ export function showTabContextMenu(window: BrowserWindow, tabId: string) {
         { type: 'separator' },
         {
             label: te('menu.moveTabToNewWindow'),
+            enabled: canMoveToNewWindow,
             click: () => {
                 sendWindowTabsAction(sourceWindowId, {
                     kind: 'move-tab-to-new-window',

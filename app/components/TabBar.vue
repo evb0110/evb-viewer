@@ -53,193 +53,20 @@
             @click.stop
             @contextmenu.prevent
         >
-            <button
-                type="button"
-                class="tab-context-menu-action"
-                :disabled="!isCommandEnabled({ kind: 'new-tab' })"
-                @click="runContextCommand({ kind: 'new-tab' })"
-            >
-                {{ t('tabs.newTab') }}
-            </button>
-            <button
-                type="button"
-                class="tab-context-menu-action"
-                :disabled="!isCommandEnabled({ kind: 'close-tab' })"
-                @click="runContextCommand({ kind: 'close-tab' })"
-            >
-                {{ t('tabs.closeTab') }}
-            </button>
-            <template v-if="hasElectronBridge">
-                <div class="tab-context-menu-divider" />
-                <p class="tab-context-menu-section">{{ t('menu.window') }}</p>
+            <template v-for="(section, sectionIndex) in menuSections" :key="section.key">
+                <div v-if="sectionIndex > 0" class="tab-context-menu-divider" />
+                <p v-if="section.title" class="tab-context-menu-section">{{ section.title }}</p>
                 <button
+                    v-for="action in section.actions"
+                    :key="action.key"
                     type="button"
                     class="tab-context-menu-action"
-                    @click="runContextCommand({ kind: 'move-to-new-window' })"
+                    :title="action.label"
+                    @click="runContextCommand(action.command)"
                 >
-                    {{ t('menu.moveTabToNewWindow') }}
-                </button>
-                <button
-                    v-if="windowTransferTargets.length === 0"
-                    type="button"
-                    class="tab-context-menu-action"
-                    disabled
-                >
-                    {{ t('menu.noOtherWindows') }}
-                </button>
-                <button
-                    v-for="targetWindow in windowTransferTargets"
-                    :key="targetWindow.windowId"
-                    type="button"
-                    class="tab-context-menu-action"
-                    @click="runContextCommand({
-                        kind: 'move-to-window',
-                        targetWindowId: targetWindow.windowId,
-                    })"
-                >
-                    {{ `${t('menu.moveTabToWindow')}: ${targetWindow.label}` }}
+                    {{ action.label }}
                 </button>
             </template>
-
-            <div class="tab-context-menu-divider" />
-            <p class="tab-context-menu-section">{{ t('menu.splitEditor') }}</p>
-            <button
-                type="button"
-                class="tab-context-menu-action"
-                :disabled="!isCommandEnabled({ kind: 'split', direction: 'right' })"
-                @click="runContextCommand({ kind: 'split', direction: 'right' })"
-            >
-                {{ t('menu.splitEditorRight') }}
-            </button>
-            <button
-                type="button"
-                class="tab-context-menu-action"
-                :disabled="!isCommandEnabled({ kind: 'split', direction: 'left' })"
-                @click="runContextCommand({ kind: 'split', direction: 'left' })"
-            >
-                {{ t('menu.splitEditorLeft') }}
-            </button>
-            <button
-                type="button"
-                class="tab-context-menu-action"
-                :disabled="!isCommandEnabled({ kind: 'split', direction: 'up' })"
-                @click="runContextCommand({ kind: 'split', direction: 'up' })"
-            >
-                {{ t('menu.splitEditorUp') }}
-            </button>
-            <button
-                type="button"
-                class="tab-context-menu-action"
-                :disabled="!isCommandEnabled({ kind: 'split', direction: 'down' })"
-                @click="runContextCommand({ kind: 'split', direction: 'down' })"
-            >
-                {{ t('menu.splitEditorDown') }}
-            </button>
-
-            <div class="tab-context-menu-divider" />
-            <p class="tab-context-menu-section">{{ t('menu.focusEditorGroup') }}</p>
-            <button
-                type="button"
-                class="tab-context-menu-action"
-                :disabled="!isCommandEnabled({ kind: 'focus', direction: 'right' })"
-                @click="runContextCommand({ kind: 'focus', direction: 'right' })"
-            >
-                {{ t('menu.focusGroupRight') }}
-            </button>
-            <button
-                type="button"
-                class="tab-context-menu-action"
-                :disabled="!isCommandEnabled({ kind: 'focus', direction: 'left' })"
-                @click="runContextCommand({ kind: 'focus', direction: 'left' })"
-            >
-                {{ t('menu.focusGroupLeft') }}
-            </button>
-            <button
-                type="button"
-                class="tab-context-menu-action"
-                :disabled="!isCommandEnabled({ kind: 'focus', direction: 'up' })"
-                @click="runContextCommand({ kind: 'focus', direction: 'up' })"
-            >
-                {{ t('menu.focusGroupUp') }}
-            </button>
-            <button
-                type="button"
-                class="tab-context-menu-action"
-                :disabled="!isCommandEnabled({ kind: 'focus', direction: 'down' })"
-                @click="runContextCommand({ kind: 'focus', direction: 'down' })"
-            >
-                {{ t('menu.focusGroupDown') }}
-            </button>
-
-            <div class="tab-context-menu-divider" />
-            <p class="tab-context-menu-section">{{ t('menu.moveTabToGroup') }}</p>
-            <button
-                type="button"
-                class="tab-context-menu-action"
-                :disabled="!isCommandEnabled({ kind: 'move', direction: 'right' })"
-                @click="runContextCommand({ kind: 'move', direction: 'right' })"
-            >
-                {{ t('menu.moveTabRight') }}
-            </button>
-            <button
-                type="button"
-                class="tab-context-menu-action"
-                :disabled="!isCommandEnabled({ kind: 'move', direction: 'left' })"
-                @click="runContextCommand({ kind: 'move', direction: 'left' })"
-            >
-                {{ t('menu.moveTabLeft') }}
-            </button>
-            <button
-                type="button"
-                class="tab-context-menu-action"
-                :disabled="!isCommandEnabled({ kind: 'move', direction: 'up' })"
-                @click="runContextCommand({ kind: 'move', direction: 'up' })"
-            >
-                {{ t('menu.moveTabUp') }}
-            </button>
-            <button
-                type="button"
-                class="tab-context-menu-action"
-                :disabled="!isCommandEnabled({ kind: 'move', direction: 'down' })"
-                @click="runContextCommand({ kind: 'move', direction: 'down' })"
-            >
-                {{ t('menu.moveTabDown') }}
-            </button>
-
-            <div class="tab-context-menu-divider" />
-            <p class="tab-context-menu-section">{{ t('menu.copyTabToGroup') }}</p>
-            <button
-                type="button"
-                class="tab-context-menu-action"
-                :disabled="!isCommandEnabled({ kind: 'copy', direction: 'right' })"
-                @click="runContextCommand({ kind: 'copy', direction: 'right' })"
-            >
-                {{ t('menu.copyTabRight') }}
-            </button>
-            <button
-                type="button"
-                class="tab-context-menu-action"
-                :disabled="!isCommandEnabled({ kind: 'copy', direction: 'left' })"
-                @click="runContextCommand({ kind: 'copy', direction: 'left' })"
-            >
-                {{ t('menu.copyTabLeft') }}
-            </button>
-            <button
-                type="button"
-                class="tab-context-menu-action"
-                :disabled="!isCommandEnabled({ kind: 'copy', direction: 'up' })"
-                @click="runContextCommand({ kind: 'copy', direction: 'up' })"
-            >
-                {{ t('menu.copyTabUp') }}
-            </button>
-            <button
-                type="button"
-                class="tab-context-menu-action"
-                :disabled="!isCommandEnabled({ kind: 'copy', direction: 'down' })"
-                @click="runContextCommand({ kind: 'copy', direction: 'down' })"
-            >
-                {{ t('menu.copyTabDown') }}
-            </button>
         </div>
     </Teleport>
 </template>
@@ -268,6 +95,24 @@ import {
 const { t } = useTypedI18n();
 const { clampToViewport } = useContextMenuPosition();
 const hasElectronBridge = hasElectronAPI();
+const DIRECTION_ORDER: TGroupDirection[] = [
+    'right',
+    'left',
+    'up',
+    'down',
+];
+
+interface IContextMenuAction {
+    key: string;
+    label: string;
+    command: TTabContextCommand;
+}
+
+interface IContextMenuSection {
+    key: string;
+    title?: string;
+    actions: IContextMenuAction[];
+}
 
 const props = defineProps<{
     tabs: ITab[];
@@ -319,12 +164,156 @@ function isCommandEnabled(command: TTabContextCommand) {
         return props.contextAvailability?.canClose ?? true;
     }
 
-    if (command.kind === 'move-to-new-window' || command.kind === 'move-to-window') {
+    if (command.kind === 'move-to-new-window') {
+        return props.contextAvailability?.canMoveToNewWindow ?? props.tabs.length > 1;
+    }
+
+    if (command.kind === 'move-to-window') {
         return true;
     }
 
     return isDirectionEnabled(command.kind, command.direction);
 }
+
+function buildDirectionalActions(
+    kind: 'split' | 'focus' | 'move' | 'copy',
+    labels: Record<TGroupDirection, string>,
+) {
+    return DIRECTION_ORDER.flatMap((direction) => {
+        const command: TTabContextCommand = {
+            kind,
+            direction,
+        };
+        if (!isCommandEnabled(command)) {
+            return [];
+        }
+
+        return [{
+            key: `${kind}-${direction}`,
+            label: labels[direction],
+            command,
+        } satisfies IContextMenuAction];
+    });
+}
+
+const primaryActions = computed<IContextMenuAction[]>(() => {
+    const actions: IContextMenuAction[] = [];
+    if (isCommandEnabled({kind: 'new-tab'})) {
+        actions.push({
+            key: 'new-tab',
+            label: t('tabs.newTab'),
+            command: {kind: 'new-tab'},
+        });
+    }
+    if (isCommandEnabled({kind: 'close-tab'})) {
+        actions.push({
+            key: 'close-tab',
+            label: t('tabs.closeTab'),
+            command: {kind: 'close-tab'},
+        });
+    }
+    return actions;
+});
+
+const windowActions = computed<IContextMenuAction[]>(() => {
+    if (!hasElectronBridge) {
+        return [];
+    }
+
+    const actions: IContextMenuAction[] = [];
+    if (isCommandEnabled({kind: 'move-to-new-window'})) {
+        actions.push({
+            key: 'move-to-new-window',
+            label: t('menu.moveTabToNewWindow'),
+            command: {kind: 'move-to-new-window'},
+        });
+    }
+
+    actions.push(...windowTransferTargets.value.map(targetWindow => ({
+        key: `move-to-window-${targetWindow.windowId}`,
+        label: `${t('menu.moveTabToWindow')}: ${targetWindow.label}`,
+        command: {
+            kind: 'move-to-window',
+            targetWindowId: targetWindow.windowId,
+        } as const,
+    })));
+
+    return actions;
+});
+
+const splitActions = computed(() => buildDirectionalActions('split', {
+    right: t('menu.splitEditorRight'),
+    left: t('menu.splitEditorLeft'),
+    up: t('menu.splitEditorUp'),
+    down: t('menu.splitEditorDown'),
+}));
+
+const focusActions = computed(() => buildDirectionalActions('focus', {
+    right: t('menu.focusGroupRight'),
+    left: t('menu.focusGroupLeft'),
+    up: t('menu.focusGroupUp'),
+    down: t('menu.focusGroupDown'),
+}));
+
+const moveActions = computed(() => buildDirectionalActions('move', {
+    right: t('menu.moveTabRight'),
+    left: t('menu.moveTabLeft'),
+    up: t('menu.moveTabUp'),
+    down: t('menu.moveTabDown'),
+}));
+
+const copyActions = computed(() => buildDirectionalActions('copy', {
+    right: t('menu.copyTabRight'),
+    left: t('menu.copyTabLeft'),
+    up: t('menu.copyTabUp'),
+    down: t('menu.copyTabDown'),
+}));
+
+const menuSections = computed<IContextMenuSection[]>(() => {
+    const sections: IContextMenuSection[] = [];
+    if (primaryActions.value.length > 0) {
+        sections.push({
+            key: 'primary',
+            actions: primaryActions.value,
+        });
+    }
+    if (windowActions.value.length > 0) {
+        sections.push({
+            key: 'window',
+            title: t('menu.window'),
+            actions: windowActions.value,
+        });
+    }
+    if (splitActions.value.length > 0) {
+        sections.push({
+            key: 'split',
+            title: t('menu.splitEditor'),
+            actions: splitActions.value,
+        });
+    }
+    if (focusActions.value.length > 0) {
+        sections.push({
+            key: 'focus',
+            title: t('menu.focusEditorGroup'),
+            actions: focusActions.value,
+        });
+    }
+    if (moveActions.value.length > 0) {
+        sections.push({
+            key: 'move',
+            title: t('menu.moveTabToGroup'),
+            actions: moveActions.value,
+        });
+    }
+    if (copyActions.value.length > 0) {
+        sections.push({
+            key: 'copy',
+            title: t('menu.copyTabToGroup'),
+            actions: copyActions.value,
+        });
+    }
+    return sections;
+});
 
 const {
     isDragging,
@@ -387,7 +376,7 @@ function positionContextMenu(x: number, y: number) {
 }
 
 async function loadWindowTransferTargets() {
-    if (!hasElectronAPI()) {
+    if (!hasElectronBridge) {
         windowTransferTargets.value = [];
         return;
     }
@@ -397,6 +386,12 @@ async function loadWindowTransferTargets() {
     } catch {
         windowTransferTargets.value = [];
     }
+
+    if (!contextMenu.value.visible) {
+        return;
+    }
+    await nextTick();
+    positionContextMenu(contextMenu.value.x, contextMenu.value.y);
 }
 
 function openTabContextMenu(event: MouseEvent, tabId: string) {
@@ -592,6 +587,7 @@ useEventListener(window, 'pointerdown', (event) => {
     position: fixed;
     z-index: 1400;
     min-width: 210px;
+    max-width: min(560px, calc(100vw - 16px));
     display: grid;
     gap: 1px;
     border: 1px solid var(--ui-border);
@@ -620,6 +616,11 @@ useEventListener(window, 'pointerdown', (event) => {
 .tab-context-menu-action {
     display: flex;
     align-items: center;
+    width: 100%;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
     text-align: left;
     border: none;
     background: var(--ui-bg);

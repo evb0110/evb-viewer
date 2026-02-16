@@ -59,6 +59,7 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
         setWindowTitle: (title: string) => ipcRenderer.invoke('window:setTitle', title),
         showItemInFolder: (path: string) => ipcRenderer.invoke('shell:showItemInFolder', path),
         setMenuDocumentState: (hasDocument: boolean) => ipcRenderer.invoke('menu:setDocumentState', hasDocument),
+        setMenuTabCount: (tabCount: number) => ipcRenderer.invoke('menu:setTabCount', tabCount),
         closeCurrentWindow: () => ipcRenderer.invoke('window:closeCurrent'),
         notifyRendererReady: () => ipcRenderer.send('app:rendererReady'),
 

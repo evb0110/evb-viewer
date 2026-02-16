@@ -289,6 +289,55 @@ function buildTransferredTabState(tab: ITab): ITransferredTabState {
     };
 }
 
+function isPlaceholderTab(tab: ITab) {
+    return tab.fileName === null
+        && tab.originalPath === null
+        && !tab.isDirty
+        && !tab.isDjvu;
+}
+
+function resolveIncomingTransferTargetTab(
+    targetGroupId: string,
+): {
+    tabId: string;
+    created: boolean;
+} | null {
+    const targetGroup = getGroupById(targetGroupId);
+    if (!targetGroup) {
+        return null;
+    }
+
+    const existingTabId = targetGroup.tabIds[0] ?? null;
+    const existingTab = getTabById(existingTabId);
+    const existingWorkspace = existingTabId ? workspaceRefs.value.get(existingTabId) ?? null : null;
+    const existingHasDocument = workspaceHasPdf(existingWorkspace);
+
+    if (
+        existingTab
+        && targetGroup.tabIds.length === 1
+        && tabs.value.length === 1
+        && isPlaceholderTab(existingTab)
+        && !existingHasDocument
+    ) {
+        activateGroup(targetGroup.id);
+        activateTab(targetGroup.id, existingTab.id);
+        return {
+            tabId: existingTab.id,
+            created: false,
+        };
+    }
+
+    const createdTab = createTab({
+        groupId: targetGroup.id,
+        activate: true,
+    });
+
+    return {
+        tabId: createdTab.id,
+        created: true,
+    };
+}
+
 function resolveTabForAction(tabId: string | undefined) {
     const resolvedTabId = tabId ?? activeTabId.value ?? undefined;
     if (!resolvedTabId) {
@@ -359,6 +408,7 @@ const tabContextAvailabilityByGroup = computed<Record<string, ITabContextAvailab
             copy,
             canClose: hasActiveTab && !transitionsBusy,
             canCreate: !transitionsBusy,
+            canMoveToNewWindow: tabs.value.length > 1 && !transitionsBusy,
         };
     }
 
@@ -366,6 +416,7 @@ const tabContextAvailabilityByGroup = computed<Record<string, ITabContextAvailab
 });
 
 let lastSyncedMenuDocumentState: boolean | null = null;
+let lastSyncedMenuTabCount: number | null = null;
 
 function workspaceHasPdf(workspace: IWorkspaceExpose | null | undefined) {
     if (!workspace) {
@@ -384,6 +435,20 @@ function syncMenuDocumentState() {
     }
     lastSyncedMenuDocumentState = hasDocument;
     void getElectronAPI().setMenuDocumentState(hasDocument);
+}
+
+function syncMenuTabCount() {
+    if (!hasElectronAPI()) {
+        return;
+    }
+
+    const tabCount = tabs.value.length;
+    if (lastSyncedMenuTabCount === tabCount) {
+        return;
+    }
+
+    lastSyncedMenuTabCount = tabCount;
+    void getElectronAPI().setMenuTabCount(tabCount);
 }
 
 const dirtyTabCloseTargetName = computed(() => {
@@ -724,21 +789,24 @@ async function handleIncomingTabTransfer(transfer: IWindowTabIncomingTransfer) {
             return;
         }
 
-        const incomingTab = createTab({
-            groupId: targetGroup.id,
-            activate: true,
-            initial: transfer.tab,
-        });
+        const targetTab = resolveIncomingTransferTargetTab(targetGroup.id);
+        if (!targetTab) {
+            await ackFailure('No target tab is available in the destination window.');
+            return;
+        }
 
-        const restored = await restoreWorkspacePayload(incomingTab.id, transfer.payload);
+        const restored = await restoreWorkspacePayload(targetTab.tabId, transfer.payload);
         if (!restored) {
-            removeTabFromState(incomingTab.id);
+            if (targetTab.created) {
+                removeTabFromState(targetTab.tabId);
+            }
             await ackFailure('Failed to restore transferred tab state.');
             return;
         }
 
+        updateTab(targetTab.tabId, transfer.tab);
         activateGroup(targetGroup.id);
-        activateTab(targetGroup.id, incomingTab.id);
+        activateTab(targetGroup.id, targetTab.tabId);
 
         await getElectronAPI().tabs.transferAck({
             transferId: transfer.transferId,
@@ -1043,6 +1111,7 @@ onUnmounted(() => {
 
 watchEffect(() => {
     syncMenuDocumentState();
+    syncMenuTabCount();
 });
 
 watch(dirtyTabCloseDialogOpen, (isOpen) => {

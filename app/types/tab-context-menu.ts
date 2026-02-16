@@ -9,6 +9,7 @@ export interface ITabContextAvailability {
     copy: TDirectionalCommandAvailability;
     canClose: boolean;
     canCreate: boolean;
+    canMoveToNewWindow: boolean;
 }
 
 export type TTabContextCommand =
