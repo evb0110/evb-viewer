@@ -60,9 +60,9 @@ export const usePdfFile = () => {
                 pendingDjvu.value = result.originalPath;
                 return;
             }
+            await loadPdfFromPath(result.workingPath, { markDirty: !!result.isGenerated });
             originalPath.value = result.originalPath;
             requiresSaveAsOnFirstSave.value = !!result.isGenerated;
-            await loadPdfFromPath(result.workingPath, { markDirty: !!result.isGenerated });
         } catch (e) {
             error.value = e instanceof Error ? e.message : t('errors.file.open');
         }
@@ -83,9 +83,9 @@ export const usePdfFile = () => {
                 pendingDjvu.value = result.originalPath;
                 return;
             }
+            await loadPdfFromPath(result.workingPath, { markDirty: !!result.isGenerated });
             originalPath.value = result.originalPath;
             requiresSaveAsOnFirstSave.value = !!result.isGenerated;
-            await loadPdfFromPath(result.workingPath, { markDirty: !!result.isGenerated });
         } catch (e) {
             error.value = e instanceof Error ? e.message : t('errors.file.open');
         }
@@ -148,9 +148,9 @@ export const usePdfFile = () => {
                 pendingDjvu.value = result.originalPath;
                 return;
             }
+            await loadPdfFromPath(result.workingPath, { markDirty: !!result.isGenerated });
             originalPath.value = result.originalPath;
             requiresSaveAsOnFirstSave.value = !!result.isGenerated;
-            await loadPdfFromPath(result.workingPath, { markDirty: !!result.isGenerated });
             openBatchProgress.value = null;
         } catch (e) {
             openBatchProgress.value = null;
@@ -184,7 +184,6 @@ export const usePdfFile = () => {
         // Cleanup previous working copy if opening a different file
         const prevPath = workingCopyPath.value;
         if (prevPath && prevPath !== path) {
-            // M4.3: Clear OCR cache for the previous file before cleanup
             clearOcrCache(prevPath);
             try {
                 await api.cleanupFile(prevPath);
@@ -196,26 +195,36 @@ export const usePdfFile = () => {
             }
         }
 
-        workingCopyPath.value = path;  // Path from backend is already the working copy path
+        // Verify and read file BEFORE committing any reactive state.
+        // This prevents an inconsistent UI where the tab shows metadata
+        // (filename, dirty dot) but the content area shows the empty state
+        // because pdfSrc was never set due to a failed read.
         const { size } = await api.statFile(path);
 
+        let newPdfData: Uint8Array | null;
+        let newPdfSrc: TPdfSource;
+
         if (size > MAX_IN_MEMORY_PDF_BYTES) {
-            // Large PDFs can't be safely read into memory (and can exceed fs.readFile limits >2GiB).
-            pdfData.value = null;
-            pdfSrc.value = {
+            newPdfData = null;
+            newPdfSrc = {
                 kind: 'path',
                 path,
-                size,
+                size, 
             };
         } else {
             const buffer = await api.readFile(path);
             const data = new Uint8Array(buffer);
-            pdfData.value = data;
-            pdfSrc.value = new Blob([data], { type: 'application/pdf' });
+            newPdfData = data;
+            newPdfSrc = new Blob([data], { type: 'application/pdf' });
         }
 
-        if (pdfData.value) {
-            resetHistory(pdfData.value);
+        // All async operations succeeded — commit state atomically
+        workingCopyPath.value = path;
+        pdfData.value = newPdfData;
+        pdfSrc.value = newPdfSrc;
+
+        if (newPdfData) {
+            resetHistory(newPdfData);
             syncDirtyFromHistory();
         } else {
             resetHistory(null);
