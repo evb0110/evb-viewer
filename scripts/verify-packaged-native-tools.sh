@@ -143,7 +143,8 @@ if [ "$platform" = "win" ]; then
     exit 1
   fi
 
-  system_dll_pattern='^(api-ms-win-.*\.dll|ext-ms-.*\.dll|kernel32\.dll|kernelbase\.dll|user32\.dll|gdi32\.dll|advapi32\.dll|shell32\.dll|ole32\.dll|oleaut32\.dll|ws2_32\.dll|comdlg32\.dll|comctl32\.dll|shlwapi\.dll|crypt32\.dll|secur32\.dll|rpcrt4\.dll|imm32\.dll|version\.dll|bcrypt\.dll|bcryptprimitives\.dll|ntdll\.dll|dbghelp\.dll|iphlpapi\.dll|winmm\.dll|setupapi\.dll|wldap32\.dll|normaliz\.dll|powrprof\.dll|cfgmgr32\.dll|winspool\.drv|netapi32\.dll|userenv\.dll|wintrust\.dll|dnsapi\.dll|msasn1\.dll|cryptbase\.dll|uxtheme\.dll)$'
+  script_dir="$(cd "$(dirname "$0")" && pwd)"
+  source "$script_dir/win-system-dll-pattern.sh"
 
   bundled_dlls_file="$(mktemp)"
   trap 'rm -f "$bundled_dlls_file"' EXIT
@@ -161,8 +162,12 @@ if [ "$platform" = "win" ]; then
         continue
       fi
       if ! grep -Fxq "$dep_lc" "$bundled_dlls_file"; then
-        echo "Error: Missing bundled DLL dependency \"$dep\" for $file"
-        unresolved=1
+        # MinGW/MSYS2 DLLs may be named with lib prefix (e.g. libglib-2.0-0.dll)
+        # while the import table references the non-prefixed name (glib-2.0-0.dll)
+        if ! grep -Fxq "lib$dep_lc" "$bundled_dlls_file"; then
+          echo "Error: Missing bundled DLL dependency \"$dep\" for $file"
+          unresolved=1
+        fi
       fi
     done < <(objdump -p "$file" 2>/dev/null | awk '/DLL Name:/{print $3}')
   done < <(find_tool_files "$platform_arch" "bin" | grep -Ei '\.(exe|dll)$' || true)

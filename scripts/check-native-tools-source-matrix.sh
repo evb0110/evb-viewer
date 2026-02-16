@@ -136,6 +136,9 @@ if [ "$missing" -ne 0 ]; then
   exit 1
 fi
 
+echo ""
+bash "$root_dir/scripts/check-win-dll-allowlist.sh"
+
 if [ "$check_all" -eq 1 ]; then
   echo "Native tool source matrix check passed (--all)."
 else
