@@ -1,28 +1,34 @@
 import { ref } from 'vue';
 
-const restoringTabIds = ref<Set<string>>(new Set());
+const restoringTabCounts = ref<Map<string, number>>(new Map());
 
-function updateRestoringTabs(updater: (next: Set<string>) => void) {
-    const next = new Set(restoringTabIds.value);
+function updateRestoringTabs(updater: (next: Map<string, number>) => void) {
+    const next = new Map(restoringTabCounts.value);
     updater(next);
-    restoringTabIds.value = next;
+    restoringTabCounts.value = next;
 }
 
 export function useWorkspaceRestoreTracker() {
     function start(tabId: string) {
         updateRestoringTabs((next) => {
-            next.add(tabId);
+            const current = next.get(tabId) ?? 0;
+            next.set(tabId, current + 1);
         });
     }
 
     function finish(tabId: string) {
         updateRestoringTabs((next) => {
-            next.delete(tabId);
+            const current = next.get(tabId) ?? 0;
+            if (current <= 1) {
+                next.delete(tabId);
+                return;
+            }
+            next.set(tabId, current - 1);
         });
     }
 
     function has(tabId: string) {
-        return restoringTabIds.value.has(tabId);
+        return (restoringTabCounts.value.get(tabId) ?? 0) > 0;
     }
 
     return {
