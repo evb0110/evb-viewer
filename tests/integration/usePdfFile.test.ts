@@ -151,6 +151,32 @@ describe('usePdfFile', () => {
         });
     });
 
+    describe('loadPdfFromPath', () => {
+        it('keeps the previous working copy when loading the next file fails', async () => {
+            const oldPdf = new Uint8Array([
+                1,
+                2,
+            ]);
+
+            mockElectronAPI.openPdfDialog.mockResolvedValue({
+                kind: 'pdf',
+                originalPath: '/old.pdf',
+                workingPath: '/tmp/old.pdf',
+            });
+            mockElectronAPI.statFile.mockResolvedValueOnce({ size: oldPdf.length });
+            mockElectronAPI.readFile.mockResolvedValueOnce(oldPdf.buffer);
+
+            const file = usePdfFile();
+            await file.openFile();
+
+            mockElectronAPI.statFile.mockRejectedValueOnce(new Error('read failure'));
+            await expect(file.loadPdfFromPath('/tmp/new.pdf')).rejects.toThrow('read failure');
+
+            expect(file.workingCopyPath.value).toBe('/tmp/old.pdf');
+            expect(mockElectronAPI.cleanupFile).not.toHaveBeenCalled();
+        });
+    });
+
     describe('closeFile', () => {
         it('resets all state', async () => {
             const pdfBytes = new Uint8Array([

@@ -118,6 +118,15 @@
             :ui="{ title: 'sr-only' }"
         />
 
+        <UAlert
+            v-if="isDjvuMode && djvuError"
+            color="error"
+            variant="soft"
+            class="mx-3 mt-2"
+            :description="String(djvuError)"
+            :ui="{ title: 'sr-only' }"
+        />
+
         <DjvuBanner
             v-if="isDjvuMode"
             :visible="djvuShowBanner"
@@ -406,6 +415,7 @@ const {
     djvuIsLoadingPages,
     djvuLoadingProgress,
     djvuShowBanner,
+    djvuError,
     showConvertDialog,
     openConvertDialog,
     djvuDismissBanner,

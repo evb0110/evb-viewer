@@ -56,6 +56,28 @@ export const usePdfTextLayerRenderer = (deps: {
 
     let lastHighlightDebugKey: string | null = null;
 
+    function buildWordKey(word: {
+        text: string;
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+    }) {
+        return `${word.text}|${word.x}|${word.y}|${word.width}|${word.height}`;
+    }
+
+    function collectWordsFromPageMatches(pageMatchData: IPdfPageMatches) {
+        const wordsByKey = new Map<string, NonNullable<NonNullable<IPdfPageMatches['matches'][number]['words']>[number]>>();
+
+        pageMatchData.matches.forEach((match) => {
+            match.words?.forEach((word) => {
+                wordsByKey.set(buildWordKey(word), word);
+            });
+        });
+
+        return Array.from(wordsByKey.values());
+    }
+
     function isHighlightDebugEnabled() {
         return isHighlightDebugEnabledFromStorage();
     }
@@ -244,12 +266,7 @@ export const usePdfTextLayerRenderer = (deps: {
             const firstMatchWords = firstMatch?.words ?? [];
 
             if (firstMatch && firstMatchWords.length > 0) {
-                const allWords: { [key: string]: typeof firstMatchWords[0] } = {};
-                pageMatchData.matches.forEach((match) => {
-                    match.words?.forEach((word) => {
-                        allWords[word.text] = word;
-                    });
-                });
+                const allWords = collectWordsFromPageMatches(pageMatchData);
 
                 const currentMatch = toValue(deps.currentSearchMatch);
                 const currentMatchWords = new Set<string>();
@@ -261,7 +278,7 @@ export const usePdfTextLayerRenderer = (deps: {
 
                 renderPageWordBoxes(
                     container,
-                    Object.values(allWords),
+                    allWords,
                     firstMatch.pageWidth,
                     firstMatch.pageHeight,
                     currentMatchWords.size > 0 ? currentMatchWords : undefined,
@@ -300,12 +317,7 @@ export const usePdfTextLayerRenderer = (deps: {
                 const firstMatch = pageMatches.matches.at(0);
                 const firstMatchWords = firstMatch?.words ?? [];
                 if (firstMatch && firstMatchWords.length > 0) {
-                    const allWords: { [key: string]: typeof firstMatchWords[0] } = {};
-                    pageMatches.matches.forEach((match) => {
-                        match.words?.forEach((word) => {
-                            allWords[word.text] = word;
-                        });
-                    });
+                    const allWords = collectWordsFromPageMatches(pageMatches);
 
                     const currentMatchWords = new Set<string>();
                     if (currentMatchValue && currentMatchValue.pageIndex === pageIndex && currentMatchValue.words) {
@@ -316,7 +328,7 @@ export const usePdfTextLayerRenderer = (deps: {
 
                     renderPageWordBoxes(
                         container,
-                        Object.values(allWords),
+                        allWords,
                         firstMatch.pageWidth,
                         firstMatch.pageHeight,
                         currentMatchWords.size > 0 ? currentMatchWords : undefined,

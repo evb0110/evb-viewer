@@ -27,6 +27,13 @@ const RTL_OCR_LANGUAGES = new Set([
     'syr',
 ]);
 
+class OcrCanceledError extends Error {
+    constructor() {
+        super('OCR canceled');
+        this.name = 'OcrCanceledError';
+    }
+}
+
 export const useOcr = () => {
     const { t } = useTypedI18n();
     const { localizeOcrError } = createOcrErrorLocalizer(t);
@@ -58,6 +65,7 @@ export const useOcr = () => {
     let progressCleanup: (() => void) | null = null;
     let completeCleanup: (() => void) | null = null;
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    let pendingOcrReject: ((reason?: unknown) => void) | null = null;
 
     async function loadLanguages() {
         try {
@@ -158,6 +166,7 @@ export const useOcr = () => {
                 errors: string[];
             }>((resolve, reject) => {
                 let didResolve = false;
+                pendingOcrReject = reject;
 
                 completeCleanup = api.onOcrComplete((result) => {
                     BrowserLogger.debug('ocr', 'Complete event received', {
@@ -172,6 +181,7 @@ export const useOcr = () => {
                             return;
                         }
                         didResolve = true;
+                        pendingOcrReject = null;
                         if (timeoutId) {
                             clearTimeout(timeoutId);
                             timeoutId = null;
@@ -182,6 +192,7 @@ export const useOcr = () => {
 
                 timeoutId = setTimeout(() => {
                     if (!didResolve) {
+                        pendingOcrReject = null;
                         timeoutId = null;
                         reject(new Error(t('errors.ocr.timeout')));
                     }
@@ -266,6 +277,9 @@ export const useOcr = () => {
         } catch (e) {
             const errMsg = e instanceof Error ? e.message : String(e);
             const errStack = e instanceof Error ? e.stack : undefined;
+            if (e instanceof OcrCanceledError) {
+                return;
+            }
             BrowserLogger.error('ocr', 'OCR run failed', {
                 requestId,
                 error: errMsg, 
@@ -288,10 +302,15 @@ export const useOcr = () => {
                 clearTimeout(timeoutId);
                 timeoutId = null;
             }
+            pendingOcrReject = null;
         }
     }
 
     function cancelOcr() {
+        const rejectPending = pendingOcrReject;
+        pendingOcrReject = null;
+        rejectPending?.(new OcrCanceledError());
+
         if (activeRequestId.value) {
             BrowserLogger.info('ocr', 'Cancelling OCR', { requestId: activeRequestId.value });
             const api = getElectronAPI();

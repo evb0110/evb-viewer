@@ -264,8 +264,14 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
                 ipcRenderer.on('djvu:viewingReady', handler);
                 return () => ipcRenderer.removeListener('djvu:viewingReady', handler);
             },
-            onViewingError: (callback: (data: { error: string }) => void): (() => void) => {
-                const handler = (_event: IpcRendererEvent, data: { error: string }) => callback(data);
+            onViewingError: (callback: (data: {
+                error: string;
+                jobId?: string;
+            }) => void): (() => void) => {
+                const handler = (_event: IpcRendererEvent, data: {
+                    error: string;
+                    jobId?: string;
+                }) => callback(data);
                 ipcRenderer.on('djvu:viewingError', handler);
                 return () => ipcRenderer.removeListener('djvu:viewingError', handler);
             },

@@ -672,15 +672,6 @@ export function setMenuDocumentState(windowId: number, hasDocument: boolean) {
     rebuildMenu();
 }
 
-export function clearMenuDocumentState(windowId: number) {
-    if (!menuDocumentStateByWindow.has(windowId)) {
-        return;
-    }
-
-    menuDocumentStateByWindow.delete(windowId);
-    rebuildMenu();
-}
-
 export function setMenuTabCount(windowId: number, tabCount: number) {
     const normalized = Number.isFinite(tabCount)
         ? Math.max(0, Math.floor(tabCount))

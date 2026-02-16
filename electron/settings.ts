@@ -8,23 +8,17 @@ import {
 } from 'fs';
 import { join } from 'path';
 import { app } from 'electron';
+import {
+    DEFAULT_LOCALE,
+    LOCALE_CODES,
+    type TLocale,
+} from '@app/i18n/locale-codes';
 import type { ISettingsData } from '@app/types/shared';
 import { createLogger } from '@electron/utils/logger';
 
 const logger = createLogger('settings');
 
-const SUPPORTED_LOCALES = [
-    'en',
-    'ru',
-    'fr',
-    'de',
-    'es',
-    'it',
-    'pt',
-    'nl',
-] as const;
-type TSupportedLocale = typeof SUPPORTED_LOCALES[number];
-const DEFAULT_LOCALE: TSupportedLocale = 'en';
+type TSupportedLocale = TLocale;
 
 const DEFAULT_SETTINGS: ISettingsData = {
     version: 1,
@@ -34,7 +28,7 @@ const DEFAULT_SETTINGS: ISettingsData = {
 };
 
 function isSupportedLocale(locale: string): locale is TSupportedLocale {
-    return SUPPORTED_LOCALES.includes(locale as TSupportedLocale);
+    return LOCALE_CODES.includes(locale as TSupportedLocale);
 }
 
 function sanitizeSettings(raw: Partial<ISettingsData> | null | undefined): ISettingsData {

@@ -43,12 +43,14 @@ export const useDjvu = () => {
 
     const showBanner = ref(true);
     const showConvertDialog = ref(false);
+    const viewingError = ref<string | null>(null);
     const activeViewingJobId = ref<string | null>(null);
     const activeConvertJobId = ref<string | null>(null);
     const pendingConvertCancel = ref(false);
 
     let unsubProgress: (() => void) | null = null;
     let unsubViewingReady: (() => void) | null = null;
+    let unsubViewingError: (() => void) | null = null;
     let swapHandler: ((event: {
         pdfPath: string;
         isPartial: boolean 
@@ -56,6 +58,20 @@ export const useDjvu = () => {
 
     function logSuppressedError(action: string, error: unknown) {
         BrowserLogger.warn('djvu', action, error);
+    }
+
+    function resetViewingProgressState() {
+        activeViewingJobId.value = null;
+        isLoadingPages.value = false;
+        loadingProgress.value = {
+            current: 0,
+            total: 0,
+        };
+        swapHandler = null;
+    }
+
+    function clearViewingError() {
+        viewingError.value = null;
     }
 
     function setupProgressListener() {
@@ -120,7 +136,7 @@ export const useDjvu = () => {
                     return;
                 }
                 if (!swapHandler) {
-                    activeViewingJobId.value = null;
+                    resetViewingProgressState();
                     return;
                 }
                 if (swapHandler) {
@@ -129,6 +145,30 @@ export const useDjvu = () => {
             });
         } catch (error) {
             logSuppressedError('DjVu viewing-ready listener unavailable', error);
+        }
+    }
+
+    function setupViewingErrorListener() {
+        if (unsubViewingError) {
+            return;
+        }
+
+        try {
+            const api = getElectronAPI();
+            unsubViewingError = api.djvu.onViewingError((event) => {
+                if (activeViewingJobId.value && event.jobId && event.jobId !== activeViewingJobId.value) {
+                    return;
+                }
+
+                BrowserLogger.error('djvu', 'Background viewing conversion failed', {
+                    jobId: event.jobId ?? activeViewingJobId.value,
+                    error: event.error,
+                });
+                viewingError.value = event.error || t('errors.djvu.open');
+                resetViewingProgressState();
+            });
+        } catch (error) {
+            logSuppressedError('DjVu viewing-error listener unavailable', error);
         }
     }
 
@@ -141,14 +181,18 @@ export const useDjvu = () => {
             unsubViewingReady();
             unsubViewingReady = null;
         }
-        swapHandler = null;
-        activeViewingJobId.value = null;
+        if (unsubViewingError) {
+            unsubViewingError();
+            unsubViewingError = null;
+        }
+        resetViewingProgressState();
         activeConvertJobId.value = null;
         pendingConvertCancel.value = false;
     }
 
     setupProgressListener();
     setupViewingReadyListener();
+    setupViewingErrorListener();
     onUnmounted(teardownListeners);
 
     async function openDjvuFile(
@@ -162,6 +206,7 @@ export const useDjvu = () => {
         const djvuFileName = djvuPath.split(/[\\/]/).pop() ?? t('djvu.fileFallback');
 
         showBanner.value = true;
+        clearViewingError();
         activeConvertJobId.value = null;
         pendingConvertCancel.value = false;
 
@@ -224,13 +269,7 @@ export const useDjvu = () => {
                                 });
                             }
                         } finally {
-                            activeViewingJobId.value = null;
-                            isLoadingPages.value = false;
-                            loadingProgress.value = {
-                                current: 0,
-                                total: 0, 
-                            };
-                            swapHandler = null;
+                            resetViewingProgressState();
                         }
                     })().catch((swapError: unknown) => {
                         logSuppressedError('Failed to swap DjVu full PDF', swapError);
@@ -238,12 +277,7 @@ export const useDjvu = () => {
                 };
             }
         } catch (e) {
-            activeViewingJobId.value = null;
-            isLoadingPages.value = false;
-            loadingProgress.value = {
-                current: 0,
-                total: 0, 
-            };
+            resetViewingProgressState();
             throw e;
         }
     }
@@ -280,6 +314,7 @@ export const useDjvu = () => {
         });
 
         try {
+            clearViewingError();
             const result = await api.djvu.convertToPdf(
                 djvuSourcePath.value,
                 savePath,
@@ -408,6 +443,7 @@ export const useDjvu = () => {
         loadingProgress,
         showBanner,
         showConvertDialog,
+        viewingError,
         isDjvuFeatureDisabled,
         openDjvuFile,
         convertToPdf,
@@ -417,5 +453,6 @@ export const useDjvu = () => {
         openConvertDialog,
         closeConvertDialog,
         dismissBanner,
+        clearViewingError,
     };
 };

@@ -40,7 +40,7 @@
     "release:major": "pnpm version major && git push && git push --tags",
     "check:resources:matrix": "bash scripts/check-native-tools-source-matrix.sh",
     "check:resources:matrix:all": "bash scripts/check-native-tools-source-matrix.sh --all",
-    "preversion": "pnpm lint && pnpm typecheck && pnpm run check:resources:matrix"
+    "preversion": "pnpm validate && pnpm test && pnpm run check:resources:matrix"
   },
   "dependencies": {
     "@nuxt/icon": "^2.1.1",

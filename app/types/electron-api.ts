@@ -180,6 +180,11 @@ interface IDjvuViewingReadyEvent {
     jobId?: string;
 }
 
+interface IDjvuViewingErrorEvent {
+    error: string;
+    jobId?: string;
+}
+
 interface IWindowTabsApi {
     transfer: (request: IWindowTabTransferRequest) => Promise<IWindowTabTransferResult>;
     transferAck: (ack: IWindowTabTransferAck) => Promise<boolean>;
@@ -198,7 +203,7 @@ interface IDjvuAPI {
     cleanupTemp: (tempPdfPath: string) => Promise<void>;
     onProgress: (callback: (progress: IDjvuProgress) => void) => () => void;
     onViewingReady: (callback: (data: IDjvuViewingReadyEvent) => void) => () => void;
-    onViewingError: (callback: (data: { error: string }) => void) => () => void;
+    onViewingError: (callback: (data: IDjvuViewingErrorEvent) => void) => () => void;
 }
 
 interface IOpenPdfResult {

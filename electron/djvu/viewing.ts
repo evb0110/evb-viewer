@@ -64,7 +64,10 @@ async function backgroundEmbedBookmarksAndSignal(
             jobId,
         });
     } catch (error) {
-        safeSendToWindow(window, 'djvu:viewingError', { error: error instanceof Error ? error.message : String(error) });
+        safeSendToWindow(window, 'djvu:viewingError', {
+            jobId,
+            error: error instanceof Error ? error.message : String(error),
+        });
     }
 }
 
@@ -205,7 +208,10 @@ async function backgroundConvertAll(
         );
 
         if (!parallelResult.success) {
-            safeSendToWindow(window, 'djvu:viewingError', { error: parallelResult.error ?? 'Parallel conversion failed' });
+            safeSendToWindow(window, 'djvu:viewingError', {
+                jobId,
+                error: parallelResult.error ?? 'Parallel conversion failed',
+            });
             return;
         }
 
@@ -248,9 +254,14 @@ async function backgroundConvertAll(
         });
     } catch (error) {
         logger.error(`[${jobId}] Background conversion failed: ${error instanceof Error ? error.message : String(error)}`);
-        safeSendToWindow(window, 'djvu:viewingError', { error: error instanceof Error ? error.message : String(error) });
+        safeSendToWindow(window, 'djvu:viewingError', {
+            jobId,
+            error: error instanceof Error ? error.message : String(error),
+        });
     } finally {
-        activeViewingJobId = null;
+        if (activeViewingJobId === jobId) {
+            activeViewingJobId = null;
+        }
         try {
             await rm(rangeDir, {
                 recursive: true,

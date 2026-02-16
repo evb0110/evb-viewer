@@ -181,19 +181,9 @@ export const usePdfFile = () => {
     async function loadPdfFromPath(path: string, opts?: { markDirty?: boolean }) {
         const api = getElectronAPI();
 
-        // Cleanup previous working copy if opening a different file
+        // Keep the previous working copy until the new file is fully validated and loaded.
+        // This avoids dropping recoverable state when opening the next file fails midway.
         const prevPath = workingCopyPath.value;
-        if (prevPath && prevPath !== path) {
-            clearOcrCache(prevPath);
-            try {
-                await api.cleanupFile(prevPath);
-            } catch (cleanupError) {
-                BrowserLogger.warn('pdf-file', 'Failed to cleanup previous working copy', {
-                    path: prevPath,
-                    error: cleanupError,
-                });
-            }
-        }
 
         // Verify and read file BEFORE committing any reactive state.
         // This prevents an inconsistent UI where the tab shows metadata
@@ -231,6 +221,18 @@ export const usePdfFile = () => {
         }
 
         isDirty.value = !!opts?.markDirty;
+
+        if (prevPath && prevPath !== path) {
+            clearOcrCache(prevPath);
+            try {
+                await api.cleanupFile(prevPath);
+            } catch (cleanupError) {
+                BrowserLogger.warn('pdf-file', 'Failed to cleanup previous working copy', {
+                    path: prevPath,
+                    error: cleanupError,
+                });
+            }
+        }
     }
 
     function pushHistorySnapshot(snapshot: Uint8Array) {

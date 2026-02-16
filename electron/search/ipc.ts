@@ -1,9 +1,6 @@
 import type { IpcMainInvokeEvent } from 'electron';
 import {ipcMain} from 'electron';
-import {
-    existsSync,
-    statSync,
-} from 'fs';
+import { stat } from 'fs/promises';
 import type { IPdfSearchIndex } from '@electron/search/index-builder';
 import {
     buildSearchIndex,
@@ -61,6 +58,15 @@ type TCachedIndex = {
 const indexCache = new Map<string, TCachedIndex>();
 const latestSearchBySender = new Map<number, string>();
 const registeredSenderCleanup = new Set<number>();
+
+async function fileExists(filePath: string) {
+    try {
+        await stat(filePath);
+        return true;
+    } catch {
+        return false;
+    }
+}
 
 function registerSenderCleanup(event: IpcMainInvokeEvent, senderId: number) {
     if (registeredSenderCleanup.has(senderId)) {
@@ -123,7 +129,7 @@ async function loadCachedIndex(pdfPath: string): Promise<TCachedIndex | null> {
     // Race-safe stat: file may disappear between existence check and stat
     let mtimeMs: number;
     try {
-        mtimeMs = statSync(indexPath).mtimeMs;
+        mtimeMs = (await stat(indexPath)).mtimeMs;
     } catch {
         // Index file doesn't exist or became unreadable
         indexCache.delete(pdfPath);
@@ -150,12 +156,12 @@ async function loadCachedIndex(pdfPath: string): Promise<TCachedIndex | null> {
     return entry;
 }
 
-function cacheBuiltIndex(pdfPath: string, index: IPdfSearchIndex): TCachedIndex {
+async function cacheBuiltIndex(pdfPath: string, index: IPdfSearchIndex): Promise<TCachedIndex> {
     const indexPath = getIndexPath(pdfPath);
     // Race-safe stat: use current time if file is missing or unreadable
     let mtimeMs: number;
     try {
-        mtimeMs = statSync(indexPath).mtimeMs;
+        mtimeMs = (await stat(indexPath)).mtimeMs;
     } catch {
         mtimeMs = Date.now();
     }
@@ -177,7 +183,7 @@ async function ensureSearchIndex(
     let entry = await loadCachedIndex(pdfPath);
     if (!entry) {
         log.info(`No index found for ${pdfPath}, building base index`);
-        entry = cacheBuiltIndex(
+        entry = await cacheBuiltIndex(
             pdfPath,
             await buildSearchIndex(pdfPath, [], { pageCount: expectedCount }),
         );
@@ -186,7 +192,7 @@ async function ensureSearchIndex(
 
     if (typeof expectedCount === 'number' && expectedCount > 0 && entry.index.pages.length < expectedCount) {
         log.debug(`Index incomplete (have=${entry.index.pages.length}, expected=${expectedCount}), rebuilding`);
-        entry = cacheBuiltIndex(
+        entry = await cacheBuiltIndex(
             pdfPath,
             await buildSearchIndex(pdfPath, [], { pageCount: expectedCount }),
         );
@@ -197,7 +203,7 @@ async function ensureSearchIndex(
 
         if (inRangeCount < expectedCount) {
             log.debug(`Index missing pages (have=${inRangeCount}, expected=${expectedCount}), rebuilding`);
-            entry = cacheBuiltIndex(
+            entry = await cacheBuiltIndex(
                 pdfPath,
                 await buildSearchIndex(pdfPath, [], { pageCount: expectedCount }),
             );
@@ -230,7 +236,7 @@ async function handlePdfSearch(
 
     log.info(`[${requestId}] Search requested: query="${query}", pdfPath=${pdfPath}`);
 
-    if (!pdfPath || !existsSync(pdfPath)) {
+    if (!pdfPath || !(await fileExists(pdfPath))) {
         throw new Error(`PDF not found: ${pdfPath}`);
     }
 
@@ -356,4 +362,3 @@ export function registerSearchHandlers() {
         return true;
     });
 }
-

@@ -19,6 +19,7 @@ const mockElectronAPI = {
     djvu: {
         onProgress: vi.fn(() => vi.fn()),
         onViewingReady: vi.fn(() => vi.fn()),
+        onViewingError: vi.fn(() => vi.fn()),
         openForViewing: vi.fn(),
         convertToPdf: vi.fn(),
         cancel: vi.fn(),
@@ -60,10 +61,20 @@ vi.stubGlobal('useI18n', () => ({ t: mockT }));
 const { useDjvu } = await import('@app/composables/useDjvu');
 
 describe('useDjvu', () => {
+    let viewingErrorCallback: ((data: {
+        error: string;
+        jobId?: string;
+    }) => void) | null = null;
+
     beforeEach(() => {
         vi.clearAllMocks();
         mockElectronAPI.djvu.onProgress.mockReturnValue(vi.fn());
         mockElectronAPI.djvu.onViewingReady.mockReturnValue(vi.fn());
+        viewingErrorCallback = null;
+        mockElectronAPI.djvu.onViewingError.mockImplementation((callback) => {
+            viewingErrorCallback = callback;
+            return vi.fn();
+        });
     });
 
     describe('initial state', () => {
@@ -199,11 +210,33 @@ describe('useDjvu', () => {
     });
 
     describe('listener setup', () => {
-        it('sets up progress and viewing-ready listeners on creation', () => {
+        it('sets up progress and viewing listeners on creation', () => {
             useDjvu();
 
             expect(mockElectronAPI.djvu.onProgress).toHaveBeenCalled();
             expect(mockElectronAPI.djvu.onViewingReady).toHaveBeenCalled();
+            expect(mockElectronAPI.djvu.onViewingError).toHaveBeenCalled();
+        });
+
+        it('shows background viewing errors and exits loading state', async () => {
+            mockElectronAPI.djvu.openForViewing.mockResolvedValue({
+                success: true,
+                pdfPath: '/tmp/partial.pdf',
+                pageCount: 5,
+                jobId: 'job-view-1',
+            });
+
+            const djvu = useDjvu();
+            await djvu.openDjvuFile('/multi.djvu', vi.fn(async () => {}));
+
+            expect(djvu.isLoadingPages.value).toBe(true);
+            viewingErrorCallback?.({
+                jobId: 'job-view-1',
+                error: 'Background conversion failed',
+            });
+
+            expect(djvu.isLoadingPages.value).toBe(false);
+            expect(djvu.viewingError.value).toBe('Background conversion failed');
         });
     });
 });

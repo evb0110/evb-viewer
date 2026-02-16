@@ -8,21 +8,17 @@ import nl from '../locales/nl';
 import pt from '../locales/pt';
 import ru from '../locales/ru';
 import type { EN_MESSAGE_SCHEMA } from './message-schema';
+import {
+    DEFAULT_LOCALE,
+    LOCALE_CODES,
+    type TLocale,
+} from './locale-codes';
 
-export const LOCALE_CODES = [
-    'en',
-    'ru',
-    'fr',
-    'de',
-    'es',
-    'it',
-    'pt',
-    'nl',
-] as const;
-
-export type TLocale = typeof LOCALE_CODES[number];
-
-export const DEFAULT_LOCALE: TLocale = 'en';
+export {
+    DEFAULT_LOCALE,
+    LOCALE_CODES,
+    type TLocale,
+};
 
 export const LOCALE_DEFINITIONS: ReadonlyArray<{
     code: TLocale;
