@@ -41,10 +41,10 @@ const emit = defineEmits<{click: [];}>();
     transition: background-color 0.1s ease, color 0.1s ease, box-shadow 0.1s ease, opacity 0.1s ease;
 }
 
+/* Grouped buttons: only override border-radius, not width.
+   Using the same fixed width as standalone ensures identical hover/active areas. */
 .toolbar-toggle.is-grouped {
     border-radius: 0;
-    min-width: var(--toolbar-control-height);
-    width: auto;
 }
 
 .toolbar-toggle:hover {
@@ -82,8 +82,4 @@ const emit = defineEmits<{click: [];}>();
     color: var(--app-toolbar-control-disabled-fg);
 }
 
-.toolbar-toggle :deep(svg) {
-    width: 1.25rem;
-    height: 1.25rem;
-}
 </style>

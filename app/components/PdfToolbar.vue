@@ -250,6 +250,25 @@ defineExpose({toolbarRef});
 </script>
 
 <style scoped>
+/*
+ * Toolbar sizing architecture
+ * ───────────────────────────
+ * All interactive toolbar controls share the same height (--toolbar-control-height: 2.25rem / 36px).
+ *
+ * Three button types coexist, each owning its own sizing:
+ *   1. UButton (.toolbar-icon-button)  — Nuxt UI buttons. The .toolbar-icon-button class
+ *      overrides Nuxt UI's padding/font-size. Icon SVG size comes from the Nuxt UI theme
+ *      (leadingIcon: "size-5" for md buttons = 1.25rem / 20px).
+ *   2. ToolbarToggleButton             — custom <button>; sizes itself via --toolbar-control-height.
+ *      Icon SVG size is set by the size-5 Tailwind class on the <Icon> component.
+ *      Grouped vs standalone is controlled by the `grouped` prop (no :deep from parent).
+ *   3. Zoom/Page controls              — UButtons in their own scoped components, using
+ *      the same --toolbar-control-height variable. They use slightly smaller icons (1.1rem)
+ *      for visual balance with simpler glyph shapes (plus, minus, chevrons).
+ *
+ * The :deep() rules below are only used for UButton state overrides (hover, disabled, focus)
+ * because Nuxt UI's internal styles require !important to override from a parent component.
+ */
 .toolbar {
     display: flex;
     align-items: center;
@@ -278,7 +297,6 @@ defineExpose({toolbarRef});
 }
 
 .toolbar :deep(.toolbar-icon-button),
-.toolbar :deep(.toolbar-group-button),
 .toolbar :deep(.zoom-controls-button),
 .toolbar :deep(.page-controls-button) {
     border: 1px solid transparent !important;
@@ -288,7 +306,6 @@ defineExpose({toolbarRef});
 }
 
 .toolbar :deep(.toolbar-icon-button:hover:not(:disabled)),
-.toolbar :deep(.toolbar-group-button:hover:not(:disabled)),
 .toolbar :deep(.zoom-controls-button:hover:not(:disabled)),
 .toolbar :deep(.page-controls-button:hover:not(:disabled)) {
     background: var(--app-toolbar-control-hover-bg) !important;
@@ -296,7 +313,6 @@ defineExpose({toolbarRef});
 }
 
 .toolbar :deep(.toolbar-icon-button:disabled),
-.toolbar :deep(.toolbar-group-button:disabled),
 .toolbar :deep(.zoom-controls-button:disabled),
 .toolbar :deep(.page-controls-button:disabled) {
     opacity: var(--app-toolbar-control-disabled-opacity) !important;
@@ -305,14 +321,12 @@ defineExpose({toolbarRef});
 }
 
 .toolbar :deep(.toolbar-icon-button:focus),
-.toolbar :deep(.toolbar-group-button:focus),
 .toolbar :deep(.zoom-controls-button:focus),
 .toolbar :deep(.page-controls-button:focus) {
     outline: none;
 }
 
 .toolbar :deep(.toolbar-icon-button:focus-visible),
-.toolbar :deep(.toolbar-group-button:focus-visible),
 .toolbar :deep(.zoom-controls-button:focus-visible),
 .toolbar :deep(.page-controls-button:focus-visible) {
     box-shadow: inset 0 0 0 1px var(--app-toolbar-focus-ring) !important;
@@ -378,11 +392,6 @@ defineExpose({toolbarRef});
     border-left: 1px solid var(--app-toolbar-group-border);
 }
 
-.toolbar-button-group :deep(button),
-.toolbar-button-group :deep(.u-button) {
-    border-radius: 0 !important;
-}
-
 .toolbar-icon-button {
     width: var(--toolbar-control-height);
     height: var(--toolbar-control-height);
@@ -391,21 +400,6 @@ defineExpose({toolbarRef});
     border-radius: 3px !important;
     font-size: var(--toolbar-icon-size);
     transition: background-color 0.1s ease, color 0.1s ease, box-shadow 0.1s ease;
-}
-
-.toolbar-group-button {
-    border-radius: 0 !important;
-    height: var(--toolbar-control-height);
-    min-width: var(--toolbar-control-height);
-    padding: 0.25rem;
-    font-size: var(--toolbar-icon-size);
-    transition: background-color 0.1s ease, color 0.1s ease;
-}
-
-.toolbar :deep(.toolbar-icon-button svg),
-.toolbar :deep(.toolbar-group-button svg) {
-    width: 1.25rem;
-    height: 1.25rem;
 }
 
 .toolbar-inline-group {
