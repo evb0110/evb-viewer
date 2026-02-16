@@ -108,6 +108,7 @@ const {
     closeTab,
     moveTabWithinGroup,
     splitGroup,
+    closeGroup,
     setSplitRatio,
     focusGroup,
     findDirectionalGroup,
@@ -126,12 +127,15 @@ const workspaceRestoreTracker = useWorkspaceRestoreTracker();
 const workspaceRefs = ref<Map<string, IWorkspaceExpose>>(new Map());
 const WORKSPACE_REF_WAIT_TIMEOUT_MS = 4000;
 const WORKSPACE_REF_POLL_MS = 16;
+const TAB_TRANSITION_CACHE_GRACE_MS = 1200;
 const DIRECTION_ORDER: TGroupDirection[] = [
     'left',
     'right',
     'up',
     'down',
 ];
+const activeTabTransitions = ref(0);
+let tabTransitionQueue: Promise<void> = Promise.resolve();
 
 const REQUIRED_WORKSPACE_METHODS: Array<keyof Omit<IWorkspaceExpose, 'hasPdf'>> = [
     'handleSave',
@@ -164,6 +168,26 @@ const REQUIRED_WORKSPACE_METHODS: Array<keyof Omit<IWorkspaceExpose, 'hasPdf'>> 
     'restoreSplitPayload',
     'closeAllDropdowns',
 ];
+
+const isTabTransitionBusy = computed(() => activeTabTransitions.value > 0);
+
+function enqueueTabTransition<T>(task: () => Promise<T>): Promise<T> {
+    const chained = tabTransitionQueue.then(async () => {
+        activeTabTransitions.value += 1;
+        try {
+            return await task();
+        } finally {
+            activeTabTransitions.value = Math.max(0, activeTabTransitions.value - 1);
+        }
+    });
+
+    tabTransitionQueue = chained.then(
+        () => undefined,
+        () => undefined,
+    );
+
+    return chained;
+}
 
 function isWorkspaceExpose(value: unknown): value is IWorkspaceExpose {
     if (!value || typeof value !== 'object') {
@@ -233,6 +257,17 @@ function removeTabFromState(tabId: string) {
     workspaceSplitCache.clear(tabId);
 }
 
+function cleanupEmptyGroups() {
+    for (const group of [...groups.value]) {
+        if (groups.value.length <= 1) {
+            break;
+        }
+        if (group.tabIds.length === 0) {
+            closeGroup(group.id);
+        }
+    }
+}
+
 const activeWorkspace = computed(() => {
     if (!activeTabId.value) {
         return null;
@@ -249,8 +284,13 @@ function createDirectionalAvailability(value: boolean): TDirectionalCommandAvail
     };
 }
 
+function getDirectionalTargetGroup(sourceGroupId: string, direction: TGroupDirection) {
+    return findDirectionalGroup(sourceGroupId, direction, false);
+}
+
 const tabContextAvailabilityByGroup = computed<Record<string, ITabContextAvailability>>(() => {
     const result: Record<string, ITabContextAvailability> = {};
+    const transitionsBusy = isTabTransitionBusy.value;
 
     for (const group of groups.value) {
         const hasActiveTab = Boolean(group.activeTabId);
@@ -259,21 +299,23 @@ const tabContextAvailabilityByGroup = computed<Record<string, ITabContextAvailab
         const copy = createDirectionalAvailability(false);
 
         for (const direction of DIRECTION_ORDER) {
+            const focusTarget = findDirectionalGroup(group.id, direction, true);
+            const directionalTarget = getDirectionalTargetGroup(group.id, direction);
+            const hasUsableDirectionalGroup = Boolean(directionalTarget && directionalTarget.tabIds.length > 0);
             focus[direction] = groups.value.length > 1
-                ? Boolean(findDirectionalGroup(group.id, direction, true))
+                ? Boolean(focusTarget && focusTarget.tabIds.length > 0) && !transitionsBusy
                 : false;
-            const hasDirectionalNeighbor = Boolean(findDirectionalGroup(group.id, direction, false));
-            move[direction] = hasActiveTab && hasDirectionalNeighbor;
-            copy[direction] = hasActiveTab && hasDirectionalNeighbor;
+            move[direction] = hasActiveTab && hasUsableDirectionalGroup && !transitionsBusy;
+            copy[direction] = hasActiveTab && hasUsableDirectionalGroup && !transitionsBusy;
         }
 
         result[group.id] = {
-            split: createDirectionalAvailability(hasActiveTab),
+            split: createDirectionalAvailability(hasActiveTab && !transitionsBusy),
             focus,
             move,
             copy,
-            canClose: hasActiveTab,
-            canCreate: true,
+            canClose: hasActiveTab && !transitionsBusy,
+            canCreate: !transitionsBusy,
         };
     }
 
@@ -334,35 +376,56 @@ function requestDirtyTabCloseConfirmation(tabId: string) {
 }
 
 async function handleCloseTab(groupId: string, tabId: string) {
-    const tab = getTabById(tabId);
-    if (!tab) {
-        return;
-    }
-
-    let shouldPersistBeforeClose = true;
-    if (tab.isDirty) {
-        const confirmed = await requestDirtyTabCloseConfirmation(tabId);
-        if (!confirmed) {
+    await enqueueTabTransition(async () => {
+        const tab = getTabById(tabId);
+        if (!tab) {
             return;
         }
-        shouldPersistBeforeClose = false;
-    }
 
-    const workspace = workspaceRefs.value.get(tabId);
-    if (workspace && workspaceHasPdf(workspace)) {
-        await workspace.handleCloseFileFromUi({ persist: shouldPersistBeforeClose });
-        if (!workspaceHasPdf(workspace)) {
-            const resolvedGroup = getGroupByTabId(tabId) ?? getGroupById(groupId);
-            if (resolvedGroup) {
-                closeTabInState(resolvedGroup.id, tabId);
+        let shouldPersistBeforeClose = true;
+        if (tab.isDirty) {
+            const confirmed = await requestDirtyTabCloseConfirmation(tabId);
+            if (!confirmed) {
+                return;
             }
+            shouldPersistBeforeClose = false;
         }
-    } else {
+
+        const workspace = workspaceRefs.value.get(tabId);
+        if (workspace && workspaceHasPdf(workspace)) {
+            workspaceRestoreTracker.start(tabId);
+            try {
+                await workspace.handleCloseFileFromUi({ persist: shouldPersistBeforeClose });
+            } finally {
+                workspaceRestoreTracker.finish(tabId);
+            }
+
+            if (!workspaceHasPdf(workspace)) {
+                const resolvedGroup = getGroupByTabId(tabId) ?? getGroupById(groupId);
+                if (resolvedGroup) {
+                    closeTabInState(resolvedGroup.id, tabId);
+                }
+            }
+            cleanupEmptyGroups();
+            return;
+        }
+
         const resolvedGroup = getGroupByTabId(tabId) ?? getGroupById(groupId);
         if (resolvedGroup) {
             closeTabInState(resolvedGroup.id, tabId);
         }
-    }
+
+        cleanupEmptyGroups();
+    });
+}
+
+function scheduleSplitCacheCleanup(tabId: string) {
+    setTimeout(() => {
+        const workspace = workspaceRefs.value.get(tabId);
+        if (workspace && workspaceHasPdf(workspace)) {
+            workspaceSplitCache.clear(tabId);
+        }
+    }, TAB_TRANSITION_CACHE_GRACE_MS);
 }
 
 function createTabInGroup(groupId: string) {
@@ -490,40 +553,47 @@ function closeTabInState(groupId: string, tabId: string) {
 }
 
 async function splitEditor(direction: TGroupDirection) {
-    const sourceGroup = getGroupById(activeGroupId.value);
-    const sourceTabId = sourceGroup?.activeTabId ?? null;
-    if (!sourceGroup || !sourceTabId) {
-        return;
-    }
+    await enqueueTabTransition(async () => {
+        const sourceGroup = getGroupById(activeGroupId.value);
+        const sourceTabId = sourceGroup?.activeTabId ?? null;
+        if (!sourceGroup || !sourceTabId) {
+            return;
+        }
 
-    const payload = await captureWorkspacePayload(sourceTabId);
-    if (!payload) {
-        return;
-    }
+        const payload = await captureWorkspacePayload(sourceTabId);
+        if (!payload) {
+            return;
+        }
 
-    workspaceSplitCache.set(sourceTabId, payload);
+        workspaceSplitCache.set(sourceTabId, payload);
+        scheduleSplitCacheCleanup(sourceTabId);
 
-    const newGroupId = splitGroup(sourceGroup.id, direction);
-    if (!newGroupId) {
-        return;
-    }
+        const newGroupId = splitGroup(sourceGroup.id, direction);
+        if (!newGroupId) {
+            return;
+        }
 
-    const newTab = createTab({
-        groupId: newGroupId,
-        activate: true,
+        const newTab = createTab({
+            groupId: newGroupId,
+            activate: true,
+        });
+
+        const restored = await restoreWorkspacePayload(newTab.id, payload);
+        if (!restored) {
+            removeTabFromState(newTab.id);
+            activateTab(sourceGroup.id, sourceTabId);
+            return;
+        }
+
+        activateTab(newGroupId, newTab.id);
+        cleanupEmptyGroups();
     });
-
-    const restored = await restoreWorkspacePayload(newTab.id, payload);
-    if (!restored) {
-        removeTabFromState(newTab.id);
-        activateTab(sourceGroup.id, sourceTabId);
-        return;
-    }
-
-    activateTab(newGroupId, newTab.id);
 }
 
 function focusEditorGroup(direction: TGroupDirection) {
+    if (isTabTransitionBusy.value) {
+        return;
+    }
     focusGroup(direction, true);
 }
 
@@ -533,8 +603,8 @@ function ensureTargetGroupForDirection(direction: TGroupDirection) {
         return null;
     }
 
-    const existing = findDirectionalGroup(sourceGroup.id, direction, false);
-    if (!existing) {
+    const existing = getDirectionalTargetGroup(sourceGroup.id, direction);
+    if (!existing || existing.tabIds.length === 0) {
         return null;
     }
 
@@ -544,54 +614,70 @@ function ensureTargetGroupForDirection(direction: TGroupDirection) {
     };
 }
 
-function moveActiveTab(direction: TGroupDirection) {
-    const sourceGroup = getGroupById(activeGroupId.value);
-    const sourceTabId = sourceGroup?.activeTabId ?? null;
-    if (!sourceGroup || !sourceTabId) {
-        return;
-    }
+async function moveActiveTab(direction: TGroupDirection) {
+    await enqueueTabTransition(async () => {
+        const sourceGroup = getGroupById(activeGroupId.value);
+        const sourceTabId = sourceGroup?.activeTabId ?? null;
+        if (!sourceGroup || !sourceTabId) {
+            return;
+        }
 
-    const route = ensureTargetGroupForDirection(direction);
-    if (!route) {
-        return;
-    }
+        const route = ensureTargetGroupForDirection(direction);
+        if (!route) {
+            return;
+        }
 
-    const moved = moveTabToGroup(sourceTabId, route.targetGroupId, true);
-    if (moved) {
-        activateTab(route.targetGroupId, sourceTabId);
-    }
+        const payload = await captureWorkspacePayload(sourceTabId);
+        if (!payload) {
+            return;
+        }
+
+        if (payload.kind !== 'empty') {
+            workspaceSplitCache.set(sourceTabId, payload);
+            scheduleSplitCacheCleanup(sourceTabId);
+        }
+
+        const moved = moveTabToGroup(sourceTabId, route.targetGroupId, true);
+        if (moved) {
+            activateTab(route.targetGroupId, sourceTabId);
+        }
+        cleanupEmptyGroups();
+    });
 }
 
 async function copyActiveTab(direction: TGroupDirection) {
-    const sourceGroup = getGroupById(activeGroupId.value);
-    const sourceTabId = sourceGroup?.activeTabId ?? null;
-    if (!sourceGroup || !sourceTabId) {
-        return;
-    }
+    await enqueueTabTransition(async () => {
+        const sourceGroup = getGroupById(activeGroupId.value);
+        const sourceTabId = sourceGroup?.activeTabId ?? null;
+        if (!sourceGroup || !sourceTabId) {
+            return;
+        }
 
-    const payload = await captureWorkspacePayload(sourceTabId);
-    if (!payload) {
-        return;
-    }
+        const payload = await captureWorkspacePayload(sourceTabId);
+        if (!payload) {
+            return;
+        }
 
-    const route = ensureTargetGroupForDirection(direction);
-    if (!route) {
-        return;
-    }
+        const route = ensureTargetGroupForDirection(direction);
+        if (!route) {
+            return;
+        }
 
-    const targetTab = createTab({
-        groupId: route.targetGroupId,
-        activate: true,
+        const targetTab = createTab({
+            groupId: route.targetGroupId,
+            activate: true,
+        });
+
+        const restored = await restoreWorkspacePayload(targetTab.id, payload);
+        if (!restored) {
+            removeTabFromState(targetTab.id);
+            activateTab(sourceGroup.id, sourceTabId);
+            return;
+        }
+
+        activateTab(route.targetGroupId, targetTab.id);
+        cleanupEmptyGroups();
     });
-
-    const restored = await restoreWorkspacePayload(targetTab.id, payload);
-    if (!restored) {
-        removeTabFromState(targetTab.id);
-        activateTab(sourceGroup.id, sourceTabId);
-        return;
-    }
-
-    activateTab(route.targetGroupId, targetTab.id);
 }
 
 async function handleTabContextCommand(
@@ -628,7 +714,7 @@ async function handleTabContextCommand(
     }
 
     if (command.kind === 'move') {
-        moveActiveTab(command.direction);
+        await moveActiveTab(command.direction);
         return;
     }
 
@@ -647,7 +733,7 @@ function handleTabMoveDirection(
 
     activateGroup(groupId);
     activateTab(groupId, tabId);
-    moveActiveTab(direction);
+    void moveActiveTab(direction);
 }
 
 const {
@@ -696,6 +782,7 @@ useTabsShellBindings({
 
 onMounted(() => {
     chromeHostsReady.value = true;
+    cleanupEmptyGroups();
 });
 
 watchEffect(() => {

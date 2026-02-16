@@ -344,6 +344,7 @@ import {
     onUnmounted,
     ref,
     toRef,
+    watch,
 } from 'vue';
 import { createWorkspaceExpose } from '@app/composables/page/createWorkspaceExpose';
 import { useWorkspaceOrchestration } from '@app/composables/page/useWorkspaceOrchestration';
@@ -619,6 +620,27 @@ onMounted(() => {
     setupShortcuts();
     void restoreCachedSplitPayloadIfNeeded();
 });
+
+watch(
+    [
+        hasQueuedSplitRestore,
+        hasPdf,
+        isRestoringSplitPayload,
+        isExternallyRestoring,
+    ],
+    ([
+        hasQueued,
+        hasLoadedPdf,
+        isRestoring,
+        isExternalRestoreInProgress,
+    ]) => {
+        if (!hasQueued || hasLoadedPdf || isRestoring || isExternalRestoreInProgress) {
+            return;
+        }
+        void restoreCachedSplitPayloadIfNeeded();
+    },
+    { immediate: true },
+);
 
 onBeforeUnmount(() => {
     void cacheSplitPayloadForRemount();

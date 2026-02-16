@@ -297,6 +297,9 @@ const {
         if (tab) emit('activate', tab.id);
     },
     (index, direction) => {
+        if (!isDirectionEnabled('move', direction)) {
+            return;
+        }
         const tab = props.tabs[index];
         if (tab) {
             emit('move-direction', tab.id, direction);
