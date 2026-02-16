@@ -61,7 +61,9 @@ const pendingOpenRequests: string[][] = [];
 let rendererReady = false;
 let defaultViewerPromptShown = false;
 let flushPendingFilesTimer: ReturnType<typeof setTimeout> | null = null;
-const EXTERNAL_OPEN_BATCH_WINDOW_MS = 250;
+let batchWindowStartTime: number | null = null;
+const EXTERNAL_OPEN_BATCH_WINDOW_MS = 800;
+const EXTERNAL_OPEN_MAX_BATCH_WAIT_MS = 10_000;
 
 function isSupportedFile(filePath: string) {
     return SUPPORTED_EXTENSIONS.has(extname(filePath).toLowerCase());
@@ -198,6 +200,7 @@ function flushPendingFiles() {
         clearTimeout(flushPendingFilesTimer);
         flushPendingFilesTimer = null;
     }
+    batchWindowStartTime = null;
 
     if (!rendererReady) {
         return;
@@ -210,13 +213,28 @@ function flushPendingFiles() {
 
     const paths = collectMergedPendingPaths();
     if (paths.length > 0) {
+        logger.info(`Flushing ${paths.length} batched external open path(s)`);
         sendToWindow(window, 'menu:openExternalPaths', paths);
     }
 }
 
 function scheduleFlushPendingFiles() {
-    if (!rendererReady || flushPendingFilesTimer) {
+    if (!rendererReady) {
         return;
+    }
+
+    const now = Date.now();
+    if (batchWindowStartTime === null) {
+        batchWindowStartTime = now;
+    }
+
+    if (now - batchWindowStartTime >= EXTERNAL_OPEN_MAX_BATCH_WAIT_MS) {
+        flushPendingFiles();
+        return;
+    }
+
+    if (flushPendingFilesTimer) {
+        clearTimeout(flushPendingFilesTimer);
     }
 
     flushPendingFilesTimer = setTimeout(() => {
