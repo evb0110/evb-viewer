@@ -8,7 +8,7 @@
             :aria-pressed="active"
             @click="emit('click')"
         >
-            <Icon :name="icon" />
+            <Icon :name="icon" class="size-5" />
         </button>
     </UTooltip>
 </template>
@@ -37,7 +37,6 @@ const emit = defineEmits<{click: [];}>();
     border-radius: 3px;
     background: transparent;
     color: var(--app-toolbar-control-inactive-fg);
-    font-size: var(--toolbar-icon-size);
     cursor: pointer;
     transition: background-color 0.1s ease, color 0.1s ease, box-shadow 0.1s ease, opacity 0.1s ease;
 }
@@ -83,9 +82,8 @@ const emit = defineEmits<{click: [];}>();
     color: var(--app-toolbar-control-disabled-fg);
 }
 
-.toolbar-toggle :deep(svg),
-.toolbar-toggle :deep(.iconify) {
-    width: 1em;
-    height: 1em;
+.toolbar-toggle :deep(svg) {
+    width: 1.25rem;
+    height: 1.25rem;
 }
 </style>
