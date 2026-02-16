@@ -21,6 +21,9 @@ export interface IWorkspaceExpose {
     handleFitWidth: () => void;
     handleFitHeight: () => void;
     handleActualSize: () => void;
+    handleViewModeSingle: () => void;
+    handleViewModeFacing: () => void;
+    handleViewModeFacingFirstSingle: () => void;
     handleDeletePages: () => void;
     handleExtractPages: () => void;
     handleRotateCw: () => void;

@@ -1,38 +1,73 @@
 import type { Ref } from 'vue';
 
-interface IDropdownExpose {close: () => void;}
-
-interface IOcrPopupExpose extends IDropdownExpose {open: () => void;}
+type TDropdownName = 'zoom' | 'page' | 'ocr' | 'overflow';
 
 export const useDropdownManager = (deps: {
-    zoomDropdownRef: Ref<IDropdownExpose | null>;
-    pageDropdownRef: Ref<IDropdownExpose | null>;
-    ocrPopupRef: Ref<IOcrPopupExpose | null>;
-    overflowMenuRef: Ref<IDropdownExpose | null>;
+    zoomOpen: Ref<boolean>;
+    pageOpen: Ref<boolean>;
+    ocrOpen: Ref<boolean>;
+    overflowOpen: Ref<boolean>;
 }) => {
     const {
-        zoomDropdownRef,
-        pageDropdownRef,
-        ocrPopupRef,
-        overflowMenuRef,
+        zoomOpen,
+        pageOpen,
+        ocrOpen,
+        overflowOpen,
     } = deps;
 
-    function closeAllDropdowns() {
-        zoomDropdownRef.value?.close();
-        pageDropdownRef.value?.close();
-        ocrPopupRef.value?.close();
-        overflowMenuRef.value?.close();
+    function setOpenState(dropdown: TDropdownName, value: boolean) {
+        if (dropdown === 'zoom') {
+            zoomOpen.value = value;
+            return;
+        }
+        if (dropdown === 'page') {
+            pageOpen.value = value;
+            return;
+        }
+        if (dropdown === 'ocr') {
+            ocrOpen.value = value;
+            return;
+        }
+        overflowOpen.value = value;
     }
 
-    function closeOtherDropdowns(except: 'zoom' | 'page' | 'ocr') {
-        if (except !== 'zoom') zoomDropdownRef.value?.close();
-        if (except !== 'page') pageDropdownRef.value?.close();
-        if (except !== 'ocr') ocrPopupRef.value?.close();
-        overflowMenuRef.value?.close();
+    function closeAllDropdowns() {
+        zoomOpen.value = false;
+        pageOpen.value = false;
+        ocrOpen.value = false;
+        overflowOpen.value = false;
+    }
+
+    function closeOtherDropdowns(except: TDropdownName) {
+        if (except !== 'zoom') {
+            zoomOpen.value = false;
+        }
+        if (except !== 'page') {
+            pageOpen.value = false;
+        }
+        if (except !== 'ocr') {
+            ocrOpen.value = false;
+        }
+        if (except !== 'overflow') {
+            overflowOpen.value = false;
+        }
+    }
+
+    function handleDropdownOpenChange(dropdown: TDropdownName, isOpen: boolean) {
+        setOpenState(dropdown, isOpen);
+        if (isOpen) {
+            closeOtherDropdowns(dropdown);
+        }
+    }
+
+    function openDropdown(dropdown: TDropdownName) {
+        handleDropdownOpenChange(dropdown, true);
     }
 
     return {
         closeAllDropdowns,
         closeOtherDropdowns,
+        handleDropdownOpenChange,
+        openDropdown,
     };
 };

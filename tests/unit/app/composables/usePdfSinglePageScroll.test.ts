@@ -17,10 +17,17 @@ import {
     resolveSnapAnchorForWheelDirection,
     usePdfSinglePageScroll,
 } from '@app/composables/pdf/usePdfSinglePageScroll';
+import type { TPdfViewMode } from '@app/types/shared';
 
 interface ITestPageGeometry {
     offsetTop: number;
     offsetHeight: number;
+}
+
+interface IScrollHarnessOptions {
+    viewMode?: TPdfViewMode;
+    pageGeometries?: ITestPageGeometry[];
+    getMostVisiblePage?: (viewer: HTMLElement | null) => number;
 }
 
 function createWheelEvent(
@@ -40,8 +47,8 @@ function createWheelEvent(
     } as WheelEvent;
 }
 
-function createSinglePageScrollHarness() {
-    const pageGeometries: ITestPageGeometry[] = [
+function createSinglePageScrollHarness(options?: IScrollHarnessOptions) {
+    const pageGeometries: ITestPageGeometry[] = options?.pageGeometries ?? [
         {
             offsetTop: 20,
             offsetHeight: 100,
@@ -73,7 +80,7 @@ function createSinglePageScrollHarness() {
         currentPage.value = page;
     });
 
-    const getMostVisiblePage = (viewer: HTMLElement | null) => {
+    const defaultMostVisiblePage = (viewer: HTMLElement | null) => {
         if (!viewer) {
             return 1;
         }
@@ -85,12 +92,14 @@ function createSinglePageScrollHarness() {
         }
         return 1;
     };
+    const getMostVisiblePage = options?.getMostVisiblePage ?? defaultMostVisiblePage;
 
     const singlePageScroll = usePdfSinglePageScroll({
         viewerContainer: ref(container),
-        numPages: ref(3),
+        numPages: ref(pageGeometries.length),
         currentPage,
         scaledMargin: ref(20),
+        viewMode: ref(options?.viewMode ?? 'single'),
         continuousScroll: ref(false),
         isLoading: ref(false),
         pdfDocument: shallowRef({} as PDFDocumentProxy),
@@ -312,5 +321,68 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
 
         singlePageScroll.handleWheel(createWheelEvent(1, 10, 0, 1));
         expect(currentPage.value).toBe(2);
+    });
+
+    it('moves one spread per wheel threshold in facing mode', () => {
+        const {
+            currentPage,
+            container,
+            singlePageScroll,
+        } = createSinglePageScrollHarness({
+            viewMode: 'facing',
+            pageGeometries: [
+                {
+                    offsetTop: 20,
+                    offsetHeight: 100,
+                },
+                {
+                    offsetTop: 20,
+                    offsetHeight: 100,
+                },
+                {
+                    offsetTop: 140,
+                    offsetHeight: 100,
+                },
+                {
+                    offsetTop: 140,
+                    offsetHeight: 100,
+                },
+                {
+                    offsetTop: 260,
+                    offsetHeight: 100,
+                },
+                {
+                    offsetTop: 260,
+                    offsetHeight: 100,
+                },
+                {
+                    offsetTop: 380,
+                    offsetHeight: 100,
+                },
+                {
+                    offsetTop: 380,
+                    offsetHeight: 100,
+                },
+            ],
+            getMostVisiblePage: (viewer) => {
+                if (!viewer) {
+                    return 1;
+                }
+                if (viewer.scrollTop >= 360) {
+                    return 7;
+                }
+                if (viewer.scrollTop >= 240) {
+                    return 5;
+                }
+                if (viewer.scrollTop >= 120) {
+                    return 3;
+                }
+                return 1;
+            },
+        });
+
+        singlePageScroll.handleWheel(createWheelEvent(720, 10));
+        expect(currentPage.value).toBe(3);
+        expect(container.scrollTop).toBe(120);
     });
 });

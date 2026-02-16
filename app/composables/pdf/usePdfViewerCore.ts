@@ -26,6 +26,7 @@ import type {
     PDFDocumentProxy,
     PDFPageProxy,
     TFitMode,
+    TPdfViewMode,
     TPdfSource,
 } from '@app/types/pdf';
 import type { usePdfDocument } from '@app/composables/pdf/usePdfDocument';
@@ -45,6 +46,7 @@ interface IUsePdfViewerCoreOptions {
     src: ComputedRef<TPdfSource | null>;
     zoom: ComputedRef<number>;
     fitMode: ComputedRef<TFitMode>;
+    viewMode: ComputedRef<TPdfViewMode>;
     isResizing: ComputedRef<boolean>;
     continuousScroll: ComputedRef<boolean>;
     annotationTool: ComputedRef<TAnnotationTool>;
@@ -109,6 +111,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         src,
         zoom,
         fitMode,
+        viewMode,
         isResizing,
         continuousScroll,
         annotationTool,
@@ -454,6 +457,23 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
                 scrollToPage(pageToSnapTo);
             }
         }
+    });
+
+    watch(viewMode, async () => {
+        if (!pdfDocument.value || isLoading.value) {
+            return;
+        }
+
+        const pageToSnapTo = getMostVisiblePage(viewerContainer.value, numPages.value);
+        resetContinuousScrollState();
+        const updated = computeFitWidthScale(viewerContainer.value);
+        if (updated) {
+            setupPagePlaceholders();
+        }
+
+        await reRenderAllVisiblePages(getVisibleRange);
+        await nextTick();
+        scrollToPage(pageToSnapTo);
     });
 
     watch(src, (newSrc, oldSrc) => {

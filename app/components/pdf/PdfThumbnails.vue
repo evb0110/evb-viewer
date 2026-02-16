@@ -56,6 +56,10 @@ interface IProps {
     totalPages: number;
     pageLabels?: string[] | null;
     selectedPages?: number[];
+    invalidationRequest?: {
+        id: number;
+        pages: number[];
+    } | null;
 }
 
 const props = defineProps<IProps>();
@@ -383,7 +387,16 @@ function invalidatePages(pages: number[]) {
     pendingInvalidation = pages;
 }
 
-defineExpose({ invalidatePages });
+watch(
+    () => props.invalidationRequest?.id,
+    () => {
+        const pages = props.invalidationRequest?.pages;
+        if (!pages || pages.length === 0) {
+            return;
+        }
+        invalidatePages([...pages]);
+    },
+);
 
 onBeforeUnmount(() => {
     cancelAllRenders();

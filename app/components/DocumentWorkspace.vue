@@ -1,7 +1,6 @@
 <template>
     <div class="flex flex-col h-full">
         <PdfToolbar
-            ref="pdfToolbarRef"
             :has-pdf="!!pdfSrc"
             :can-save="canSave"
             :can-undo="canUndo"
@@ -17,9 +16,6 @@
             :show-sidebar="showSidebar"
             :drag-mode="dragMode"
             :continuous-scroll="continuousScroll"
-            :collapse-tier="collapseTier"
-            :has-overflow-items="hasOverflowItems"
-            :is-collapsed="isCollapsed"
             :is-djvu-mode="isDjvuMode"
             :is-capturing-region="isCapturingRegion"
             @open-file="handleOpenFileFromUi"
@@ -37,44 +33,48 @@
             @disable-drag="dragMode = false; closeAllDropdowns()"
             @capture-region="handleCaptureRegion(); closeAllDropdowns()"
         >
-            <template #ocr>
+            <template #ocr="{ isCollapsed }">
                 <OcrPopup
-                    ref="ocrPopupRef"
                     :pdf-document="pdfDocument"
                     :pdf-data="pdfData"
                     :current-page="currentPage"
                     :total-pages="totalPages"
                     :working-copy-path="workingCopyPath"
+                    :open="ocrPopupOpen"
+                    :is-exporting-docx="isExportingDocx"
+                    :external-error="docxExportError"
                     :disabled="isDjvuMode"
                     :hide-trigger="isCollapsed(1)"
-                    @open="closeOtherDropdowns('ocr')"
+                    @update:open="handleDropdownOpen('ocr', $event)"
+                    @export-docx="handleExportDocx"
                     @ocr-complete="handleOcrComplete"
                 />
             </template>
             <template #zoom-dropdown>
                 <PdfZoomDropdown
-                    ref="zoomDropdownRef"
                     v-model:zoom="zoom"
                     v-model:fit-mode="fitMode"
+                    v-model:view-mode="viewMode"
+                    :open="zoomDropdownOpen"
                     :compact-level="0"
-                    @open="pageDropdownRef?.close()"
+                    @update:open="handleDropdownOpen('zoom', $event)"
                 />
             </template>
-            <template #page-dropdown>
+            <template #page-dropdown="{ collapseTier }">
                 <PdfPageDropdown
-                    ref="pageDropdownRef"
                     v-model="currentPage"
+                    :open="pageDropdownOpen"
                     :total-pages="totalPages"
                     :page-labels="pageLabels"
                     :compact-level="collapseTier >= 5 ? 2 : collapseTier >= 4 ? 1 : 0"
                     @go-to-page="handleGoToPage"
-                    @open="zoomDropdownRef?.close()"
+                    @update:open="handleDropdownOpen('page', $event)"
                 />
             </template>
-            <template #overflow-menu>
+            <template #overflow-menu="{ collapseTier, hasOverflowItems }">
                 <ToolbarOverflowMenu
                     v-if="hasOverflowItems"
-                    ref="overflowMenuRef"
+                    :open="overflowMenuOpen"
                     :collapse-tier="collapseTier"
                     :can-save="canSave"
                     :can-undo="canUndo"
@@ -85,19 +85,22 @@
                     :can-export-docx="!!workingCopyPath && !isAnySaving && !isHistoryBusy && !isExportingDocx"
                     :drag-mode="dragMode"
                     :continuous-scroll="continuousScroll"
+                    :view-mode="viewMode"
                     :is-djvu-mode="isDjvuMode"
                     :is-fit-width-active="isFitWidthActive"
                     :is-fit-height-active="isFitHeightActive"
+                    @update:open="handleDropdownOpen('overflow', $event)"
                     @save="handleSave(); closeAllDropdowns()"
                     @save-as="handleSaveAs(); closeAllDropdowns()"
                     @export-docx="handleExportDocx(); closeAllDropdowns()"
-                    @open-ocr="closeOtherDropdowns('ocr'); ocrPopupRef?.open()"
+                    @open-ocr="handleDropdownOpen('ocr', true)"
                     @undo="handleUndo(); closeAllDropdowns()"
                     @redo="handleRedo(); closeAllDropdowns()"
                     @fit-width="handleFitMode('width'); closeAllDropdowns()"
                     @fit-height="handleFitMode('height'); closeAllDropdowns()"
                     @enable-drag="enableDragMode(); closeAllDropdowns()"
                     @disable-drag="dragMode = false; closeAllDropdowns()"
+                    @set-view-mode="viewMode = $event; closeAllDropdowns()"
                     @toggle-continuous-scroll="continuousScroll = !continuousScroll; closeAllDropdowns()"
                     @open-settings="emit('open-settings'); closeAllDropdowns()"
                 />
@@ -131,7 +134,6 @@
                 :style="sidebarWrapperStyle"
             >
                 <PdfSidebar
-                    ref="sidebarRef"
                     v-model:active-tab="sidebarTab"
                     v-model:search-query="searchQuery"
                     :is-open="showSidebar"
@@ -157,6 +159,8 @@
                     :bookmark-edit-mode="bookmarkEditMode"
                     :is-page-operation-in-progress="isPageOperationInProgress"
                     :is-djvu-mode="isDjvuMode"
+                    :selected-thumbnail-pages="selectedThumbnailPages"
+                    :thumbnail-invalidation-request="thumbnailInvalidationRequest"
                     @search="handleSearch"
                     @next="handleSearchNext"
                     @previous="handleSearchPrevious"
@@ -166,6 +170,7 @@
                     @update:annotation-tool="handleAnnotationToolChange"
                     @update:annotation-keep-active="annotationKeepActive = $event"
                     @annotation-setting="handleAnnotationSettingChange"
+                    @update:selected-thumbnail-pages="handleSelectedThumbnailPagesUpdate"
                     @annotation-comment-selection="handleCommentSelection"
                     @annotation-start-place-note="handleStartPlaceNote"
                     @annotation-focus-comment="handleAnnotationFocusComment"
@@ -199,6 +204,7 @@
                     :src="pdfSrc"
                     :zoom="zoom"
                     :fit-mode="fitMode"
+                    :view-mode="viewMode"
                     :drag-mode="dragMode"
                     :continuous-scroll="continuousScroll"
                     :annotation-tool="annotationTool"
@@ -374,19 +380,18 @@ const {
     removeRecentFile,
     clearRecentFiles,
     pdfViewerRef,
-    zoomDropdownRef,
-    pageDropdownRef,
-    ocrPopupRef,
-    overflowMenuRef,
-    sidebarRef,
-    pdfToolbarRef,
-    collapseTier,
-    hasOverflowItems,
-    isCollapsed,
+    zoomDropdownOpen,
+    pageDropdownOpen,
+    ocrPopupOpen,
+    overflowMenuOpen,
+    selectedThumbnailPages,
+    thumbnailInvalidationRequest,
+    handleSelectedThumbnailPagesUpdate,
+    handleDropdownOpen,
     closeAllDropdowns,
-    closeOtherDropdowns,
     zoom,
     fitMode,
+    viewMode,
     currentPage,
     totalPages,
     isLoading,
@@ -450,6 +455,7 @@ const {
     handleExportScopeDialogSubmit,
     handleExportScopeDialogOpenChange,
     handleOcrComplete,
+    docxExportError,
     isAnySaving,
     isExportingDocx,
     canSave,
@@ -557,8 +563,9 @@ const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
     hasPdf,
     closeAllDropdowns,
     zoom,
+    viewMode,
     handleFitMode,
-    sidebarRef,
+    selectedThumbnailPages,
     pageOpsDelete,
     pageOpsExtract,
     handlePageRotate,

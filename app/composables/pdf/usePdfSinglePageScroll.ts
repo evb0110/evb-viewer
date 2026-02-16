@@ -5,7 +5,9 @@ import {
 } from 'vue';
 import { useDebounceFn } from '@vueuse/core';
 import type { PDFDocumentProxy } from '@app/types/pdf';
+import type { TPdfViewMode } from '@app/types/shared';
 import { runGuardedTask } from '@app/utils/async-guard';
+import { stepBySpread } from '@app/utils/pdf-view-mode';
 
 const WHEEL_LINE_DELTA_PX = 16;
 const PAGE_FLIP_STEP_DELTA_PX = 120;
@@ -108,6 +110,7 @@ interface IUsePdfSinglePageScrollOptions {
     numPages: Ref<number>;
     currentPage: Ref<number>;
     scaledMargin: Ref<number>;
+    viewMode: Ref<TPdfViewMode>;
     continuousScroll: Ref<boolean>;
     isLoading: Ref<boolean>;
     pdfDocument: ShallowRef<PDFDocumentProxy | null>;
@@ -145,6 +148,7 @@ export function usePdfSinglePageScroll(
         numPages,
         currentPage,
         scaledMargin,
+        viewMode,
         continuousScroll,
         isLoading,
         pdfDocument,
@@ -370,9 +374,13 @@ export function usePdfSinglePageScroll(
             return;
         }
 
-        const targetPage = Math.max(
+        // Keep paged scrolling predictable: one spread turn per wheel threshold.
+        const targetPage = stepBySpread(
+            activePage,
+            viewMode.value,
+            numPages.value,
+            direction,
             1,
-            Math.min(numPages.value, activePage + direction),
         );
         if (targetPage === activePage) {
             clearWheelAccumulator();

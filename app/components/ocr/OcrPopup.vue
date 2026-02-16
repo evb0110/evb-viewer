@@ -183,11 +183,11 @@
                 </template>
 
                 <!-- Error Display -->
-                <template v-if="error">
+                <template v-if="effectiveError">
                     <div class="ocr-popup__divider" />
                     <div class="ocr-popup__error">
                         <UIcon name="i-lucide-alert-circle" class="size-4" />
-                        <span>{{ error }}</span>
+                        <span>{{ effectiveError }}</span>
                     </div>
                 </template>
 
@@ -261,6 +261,9 @@ interface IProps {
     currentPage: number;
     totalPages: number;
     workingCopyPath: string | null;
+    open: boolean;
+    isExportingDocx?: boolean;
+    externalError?: string | null;
     disabled?: boolean;
     hideTrigger?: boolean;
 }
@@ -268,8 +271,9 @@ interface IProps {
 const props = defineProps<IProps>();
 
 const emit = defineEmits<{
-    (e: 'open'): void;
+    (e: 'update:open', value: boolean): void;
     (e: 'ocrComplete', pdfData: Uint8Array): void;
+    (e: 'export-docx', selectedLanguages: string[]): void;
 }>();
 
 const {
@@ -286,34 +290,17 @@ const {
     runOcr,
     cancelOcr,
     toggleLanguage,
-    exportDocx,
-    isExporting,
 } = useOcr();
 
-const isOpen = ref(false);
-
-function close() {
-    isOpen.value = false;
-}
-
-function open() {
-    isOpen.value = true;
-}
-
-function exportDocxFromToolbar() {
-    return exportDocx(props.workingCopyPath, props.pdfDocument);
-}
-
-defineExpose({
-    close,
-    open,
-    exportDocx: exportDocxFromToolbar,
-    isExporting,
+const isOpen = computed({
+    get: () => props.open,
+    set: (value: boolean) => emit('update:open', value),
 });
+const isExporting = computed(() => props.isExportingDocx ?? false);
+const effectiveError = computed(() => error.value ?? props.externalError ?? null);
 
 watch(isOpen, (value) => {
     if (value) {
-        emit('open');
         loadLanguages();
     }
 });
@@ -330,7 +317,7 @@ function handleCancel() {
 }
 
 function handleExportDocx() {
-    void exportDocx(props.workingCopyPath, props.pdfDocument);
+    emit('export-docx', [...settings.value.selectedLanguages]);
 }
 
 // Emit when OCR completes with PDF data

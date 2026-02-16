@@ -7,6 +7,7 @@ import type { IOcrWord } from '@app/types/shared';
 export type {
     IOcrWord,
     TFitMode,
+    TPdfViewMode,
 } from '@app/types/shared';
 
 export interface IContentInsets {

@@ -1,6 +1,7 @@
 <template>
     <div
         class="page_container"
+        :class="{ 'page_container--spread-single': spreadSingle }"
         :data-page="page"
     >
         <div class="page_canvas canvasWrapper"></div>
@@ -43,6 +44,7 @@ import type { IShapeContextProvide } from '@app/composables/pdf/useAnnotationSha
 interface IProps {
     page: number;
     showSkeleton: boolean;
+    spreadSingle?: boolean;
 }
 
 const props = defineProps<IProps>();

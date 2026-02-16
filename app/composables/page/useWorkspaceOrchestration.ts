@@ -2,7 +2,6 @@ import {
     ref,
     shallowRef,
     computed,
-    watchEffect,
     type Ref,
 } from 'vue';
 import {
@@ -10,7 +9,10 @@ import {
     useStorage,
 } from '@vueuse/core';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
-import type { TFitMode } from '@app/types/shared';
+import type {
+    TFitMode,
+    TPdfViewMode,
+} from '@app/types/shared';
 import { useOcrTextContent } from '@app/composables/pdf/useOcrTextContent';
 import type {
     IAnnotationCommentSummary,
@@ -47,6 +49,7 @@ import type { TOpenFileResult } from '@app/types/electron-api';
 import type { TTabUpdate } from '@app/types/tabs';
 import { hasElectronAPI } from '@app/utils/electron';
 import { useWorkspaceViewState } from '@app/composables/page/workspace-view-state';
+import { useDocxExport } from '@app/composables/useDocxExport';
 
 type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'bookmarks' | 'search';
 
@@ -81,13 +84,6 @@ export interface IPdfViewerExpose {
     getSelectedShape: () => IShapeAnnotation | null;
     applyStampImage: (file: File) => void;
     invalidatePages: (pages: number[]) => void;
-}
-
-export interface IOcrPopupExpose {
-    close: () => void;
-    open: () => void;
-    exportDocx: () => Promise<boolean>;
-    isExporting: { value: boolean };
 }
 
 export interface IWorkspaceOrchestrationDeps {
@@ -160,42 +156,44 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     } = useRecentFiles();
 
     const pdfViewerRef = ref<IPdfViewerExpose | null>(null);
-    const zoomDropdownRef = ref<{ close: () => void } | null>(null);
-    const pageDropdownRef = ref<{ close: () => void } | null>(null);
-    const ocrPopupRef = ref<IOcrPopupExpose | null>(null);
-    const overflowMenuRef = ref<{ close: () => void } | null>(null);
-    const sidebarRef = ref<{
-        focusSearch: () => void | Promise<void>;
-        selectAllPages: () => void;
-        invertPageSelection: () => void;
-        invalidateThumbnailPages: (pages: number[]) => void;
-        selectedThumbnailPages: number[];
+    const zoomDropdownOpen = ref(false);
+    const pageDropdownOpen = ref(false);
+    const ocrPopupOpen = ref(false);
+    const overflowMenuOpen = ref(false);
+    const selectedThumbnailPages = ref<number[]>([]);
+    const thumbnailInvalidationRequest = ref<{
+        id: number;
+        pages: number[];
     } | null>(null);
-    const pdfToolbarRef = ref<{ toolbarRef: HTMLElement | null } | null>(null);
+    let thumbnailInvalidationRequestId = 0;
 
-    const {
-        toolbarRef,
-        collapseTier,
-        hasOverflowItems,
-        isCollapsed,
-    } = useToolbarOverflow();
+    function setSelectedThumbnailPages(pages: number[]) {
+        selectedThumbnailPages.value = [...pages];
+    }
 
-    watchEffect(() => {
-        toolbarRef.value = pdfToolbarRef.value?.toolbarRef ?? null;
-    });
+    function requestThumbnailInvalidation(pages: number[]) {
+        thumbnailInvalidationRequestId += 1;
+        thumbnailInvalidationRequest.value = {
+            id: thumbnailInvalidationRequestId,
+            pages: [...pages],
+        };
+    }
 
     const {
         closeAllDropdowns,
         closeOtherDropdowns,
+        handleDropdownOpenChange,
+        openDropdown,
     } = useDropdownManager({
-        zoomDropdownRef,
-        pageDropdownRef,
-        ocrPopupRef,
-        overflowMenuRef,
+        zoomOpen: zoomDropdownOpen,
+        pageOpen: pageDropdownOpen,
+        ocrOpen: ocrPopupOpen,
+        overflowOpen: overflowMenuOpen,
     });
 
     const zoom = ref(1);
     const fitMode = ref<TFitMode>('width');
+    const viewMode = ref<TPdfViewMode>('single');
     const currentPage = ref(1);
     const totalPages = ref(0);
     const pdfDocument = shallowRef<PDFDocumentProxy | null>(null);
@@ -321,6 +319,12 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     } = usePdfSearch();
 
     const { clearCache: clearOcrCache } = useOcrTextContent();
+    const {
+        isExportingDocx: isDocxExporting,
+        docxExportError,
+        exportDocx,
+        clearDocxExportError,
+    } = useDocxExport();
 
     const {
         openSearch,
@@ -357,7 +361,13 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         pdfData,
         pdfDocument,
         pdfViewerRef,
-        ocrPopupRef,
+        requestDocxExport: (selectedLanguages?: string[]) => exportDocx({
+            workingCopyPath: workingCopyPath.value,
+            pdfDocument: pdfDocument.value,
+            selectedLanguages,
+        }),
+        openOcrPopup: () => openDropdown('ocr'),
+        isExportingDocx: isDocxExporting,
         workingCopyPath,
         annotationComments,
         totalPages,
@@ -559,7 +569,9 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     } = usePageOpsHandlers({
         workingCopyPath,
         totalPages,
-        sidebarRef,
+        selectedThumbnailPages,
+        setSelectedThumbnailPages,
+        invalidateThumbnailPages: requestThumbnailInvalidation,
         pdfViewerRef,
         pageContextMenu,
         closePageContextMenu,
@@ -627,7 +639,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         showSettings,
         annotationPlacingPageNote,
         pdfViewerRef,
-        sidebarRef,
         shapePropertiesPopoverVisible: computed(() => shapePropertiesPopover.value.visible),
         annotationContextMenuVisible: computed(() => annotationContextMenu.value.visible),
         pageContextMenuVisible: computed(() => pageContextMenu.value.visible),
@@ -726,6 +737,20 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
 
     const hasPdf = computed(() => !!pdfSrc.value);
 
+    function handleDropdownOpen(
+        dropdown: 'zoom' | 'page' | 'ocr' | 'overflow',
+        isOpen: boolean,
+    ) {
+        handleDropdownOpenChange(dropdown, isOpen);
+        if (isOpen && dropdown === 'ocr') {
+            clearDocxExportError();
+        }
+    }
+
+    function handleSelectedThumbnailPagesUpdate(pages: number[]) {
+        setSelectedThumbnailPages(pages);
+    }
+
     return {
         pdfSrc,
         pdfData,
@@ -755,21 +780,20 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         clearRecentFiles,
 
         pdfViewerRef,
-        zoomDropdownRef,
-        pageDropdownRef,
-        ocrPopupRef,
-        overflowMenuRef,
-        sidebarRef,
-        pdfToolbarRef,
-
-        collapseTier,
-        hasOverflowItems,
-        isCollapsed,
+        zoomDropdownOpen,
+        pageDropdownOpen,
+        ocrPopupOpen,
+        overflowMenuOpen,
+        selectedThumbnailPages,
+        thumbnailInvalidationRequest,
+        handleSelectedThumbnailPagesUpdate,
+        handleDropdownOpen,
         closeAllDropdowns,
         closeOtherDropdowns,
 
         zoom,
         fitMode,
+        viewMode,
         currentPage,
         totalPages,
         pdfDocument,
@@ -840,6 +864,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         handleExportScopeDialogSubmit,
         handleExportScopeDialogOpenChange,
         handleOcrComplete,
+        docxExportError,
         isAnySaving,
         isExportingDocx,
         canSave,

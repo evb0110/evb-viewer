@@ -61,6 +61,15 @@ export function registerTabsMenuBindings(
         electronApi.onMenuFitHeight(() => {
             deps.activeWorkspace.value?.handleFitHeight();
         }),
+        electronApi.onMenuViewModeSingle(() => {
+            deps.activeWorkspace.value?.handleViewModeSingle();
+        }),
+        electronApi.onMenuViewModeFacing(() => {
+            deps.activeWorkspace.value?.handleViewModeFacing();
+        }),
+        electronApi.onMenuViewModeFacingFirstSingle(() => {
+            deps.activeWorkspace.value?.handleViewModeFacingFirstSingle();
+        }),
         electronApi.onMenuOpenRecentFile((path: string) => {
             void deps.openPathInAppropriateTab(path);
         }),

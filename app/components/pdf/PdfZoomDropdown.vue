@@ -118,6 +118,71 @@
                                 />
                             </button>
                         </div>
+
+                        <div class="zoom-dropdown-divider" />
+
+                        <div class="zoom-dropdown-section">
+                            <button
+                                :class="[
+                                    'zoom-dropdown-item',
+                                    {
+                                        'is-active': isViewModeActive('single'),
+                                    },
+                                ]"
+                                @click="handleSetViewMode('single')"
+                            >
+                                <UIcon
+                                    name="i-lucide-file"
+                                    class="zoom-dropdown-icon size-5"
+                                />
+                                <span class="zoom-dropdown-label">{{ t('zoom.singlePage') }}</span>
+                                <UIcon
+                                    v-if="isViewModeActive('single')"
+                                    name="i-lucide-check"
+                                    class="zoom-dropdown-check size-4"
+                                />
+                            </button>
+                            <button
+                                :class="[
+                                    'zoom-dropdown-item',
+                                    {
+                                        'is-active': isViewModeActive('facing'),
+                                    },
+                                ]"
+                                @click="handleSetViewMode('facing')"
+                            >
+                                <UIcon
+                                    name="i-lucide-book-open"
+                                    class="zoom-dropdown-icon size-5"
+                                />
+                                <span class="zoom-dropdown-label">{{ t('zoom.facingPages') }}</span>
+                                <UIcon
+                                    v-if="isViewModeActive('facing')"
+                                    name="i-lucide-check"
+                                    class="zoom-dropdown-check size-4"
+                                />
+                            </button>
+                            <button
+                                :class="[
+                                    'zoom-dropdown-item',
+                                    {
+                                        'is-active': isViewModeActive('facing-first-single'),
+                                    },
+                                ]"
+                                @click="handleSetViewMode('facing-first-single')"
+                            >
+                                <UIcon
+                                    name="i-lucide-layout-grid"
+                                    class="zoom-dropdown-icon size-5"
+                                />
+                                <span class="zoom-dropdown-label">{{ t('zoom.facingWithFirstSingle') }}</span>
+                                <UIcon
+                                    v-if="isViewModeActive('facing-first-single')"
+                                    name="i-lucide-check"
+                                    class="zoom-dropdown-check size-4"
+                                />
+                            </button>
+                        </div>
                     </div>
                 </template>
             </UPopover>
@@ -137,7 +202,10 @@
 </template>
 
 <script setup lang="ts">
-import type { TFitMode } from '@app/types/shared';
+import type {
+    TFitMode,
+    TPdfViewMode,
+} from '@app/types/shared';
 import { nextTick } from 'vue';
 import { ZOOM } from '@app/constants/pdf-layout';
 
@@ -146,6 +214,8 @@ const { t } = useTypedI18n();
 interface IProps {
     zoom: number;
     fitMode: TFitMode;
+    viewMode: TPdfViewMode;
+    open: boolean;
     disabled?: boolean;
     compactLevel?: number;
 }
@@ -153,6 +223,8 @@ interface IProps {
 const {
     zoom,
     fitMode,
+    viewMode,
+    open,
     disabled = false,
     compactLevel = 0,
 } = defineProps<IProps>();
@@ -160,10 +232,14 @@ const {
 const emit = defineEmits<{
     (e: 'update:zoom', level: number): void;
     (e: 'update:fitMode', mode: TFitMode): void;
-    (e: 'open'): void;
+    (e: 'update:viewMode', mode: TPdfViewMode): void;
+    (e: 'update:open', value: boolean): void;
 }>();
 
-const isOpen = ref(false);
+const isOpen = computed({
+    get: () => open,
+    set: (value: boolean) => emit('update:open', value),
+});
 const customZoomValue = ref(formatZoomValue(zoom));
 const customZoomInputRef = ref<{ $el: HTMLElement } | null>(null);
 
@@ -177,11 +253,8 @@ function close() {
     isOpen.value = false;
 }
 
-defineExpose({ close });
-
 watch(isOpen, (value) => {
     if (value) {
-        emit('open');
         void nextTick(() => {
             const input = customZoomInputRef.value?.$el?.querySelector('input') as HTMLInputElement | null;
             input?.focus();
@@ -231,6 +304,15 @@ function handleSetZoom(level: number) {
 function handleSetFitMode(mode: TFitMode) {
     emit('update:zoom', 1);
     emit('update:fitMode', mode);
+    close();
+}
+
+function isViewModeActive(mode: TPdfViewMode) {
+    return viewMode === mode;
+}
+
+function handleSetViewMode(mode: TPdfViewMode) {
+    emit('update:viewMode', mode);
     close();
 }
 

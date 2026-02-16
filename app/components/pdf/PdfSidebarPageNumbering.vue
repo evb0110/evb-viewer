@@ -445,7 +445,6 @@ watch(
     },
 );
 
-defineExpose({ isExpanded });
 </script>
 
 <style scoped>

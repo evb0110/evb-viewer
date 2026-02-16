@@ -249,6 +249,22 @@ function getViewMenu(): MenuItemConstructorOptions {
                 channel: 'menu:fitHeight',
             }),
             { type: 'separator' },
+            createWindowMenuAction({
+                label: te('menu.singlePage'),
+                enabled: documentActionsEnabled,
+                channel: 'menu:viewModeSingle',
+            }),
+            createWindowMenuAction({
+                label: te('menu.facingPages'),
+                enabled: documentActionsEnabled,
+                channel: 'menu:viewModeFacing',
+            }),
+            createWindowMenuAction({
+                label: te('menu.facingWithFirstSingle'),
+                enabled: documentActionsEnabled,
+                channel: 'menu:viewModeFacingFirstSingle',
+            }),
+            { type: 'separator' },
             { role: 'toggleDevTools' },
         ],
     };

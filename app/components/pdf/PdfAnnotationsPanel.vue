@@ -1,5 +1,5 @@
 <template>
-    <div class="notes-panel" @click="commentsList?.closeContextMenu()">
+    <div class="notes-panel">
         <PdfAnnotationToolbar
             :tool="tool"
             :keep-active="keepActive"
@@ -58,7 +58,7 @@
                     type="button"
                     class="page-chip"
                     :class="{ 'is-current': item.pageNumber === currentPage }"
-                    @click="commentsList?.focusFirstCommentOnPage(item.pageNumber)"
+                    @click="focusFirstCommentOnPage(item.pageNumber)"
                 >
                     <span class="page-chip-label">{{ t('annotations.page') }} {{ item.pageNumber }}</span>
                     <span class="page-chip-count">• {{ t('annotations.noteCount', item.noteCount) }}</span>
@@ -67,7 +67,6 @@
         </section>
 
         <PdfAnnotationCommentsList
-            ref="commentsList"
             :comments="comments"
             :active-comment-stable-key="activeCommentStableKey"
             :author-name="appSettings.authorName"
@@ -80,16 +79,14 @@
 </template>
 
 <script setup lang="ts">
-import {
-    computed,
-    ref,
-} from 'vue';
+import {computed} from 'vue';
 import type {
     IAnnotationCommentSummary,
     IAnnotationSettings,
     TAnnotationTool,
 } from '@app/types/annotations';
 import PdfAnnotationCommentsList from '@app/components/pdf/PdfAnnotationCommentsList.vue';
+import { isTextNoteComment } from '@app/utils/pdf-annotation-comments';
 
 interface IProps {
     tool: TAnnotationTool;
@@ -126,16 +123,22 @@ const emit = defineEmits<{
     (e: 'start-place-note'): void;
 }>();
 
-const commentsList = ref<InstanceType<typeof PdfAnnotationCommentsList> | null>(null);
-
 const currentPage = computed(() => props.currentPage);
 const placingPageNote = computed(() => props.placingPageNote ?? false);
+const noteComments = computed(() => props.comments.filter(isTextNoteComment));
+
+function focusFirstCommentOnPage(pageNumber: number) {
+    const comment = noteComments.value.find(item => item.pageNumber === pageNumber);
+    if (!comment) {
+        return;
+    }
+    emit('focus-comment', comment);
+}
 
 const pagesWithNotes = computed<IPageAnnotationOverview[]>(() => {
-    const noteComments = commentsList.value?.noteComments ?? [];
     const map = new Map<number, IPageAnnotationOverview>();
 
-    noteComments.forEach((comment) => {
+    noteComments.value.forEach((comment) => {
         const current = map.get(comment.pageNumber);
         if (current) {
             current.noteCount += 1;

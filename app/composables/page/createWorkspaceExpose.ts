@@ -1,6 +1,9 @@
 import type { Ref } from 'vue';
 import type { TOpenFileResult } from '@app/types/electron-api';
-import type { TFitMode } from '@app/types/shared';
+import type {
+    TFitMode,
+    TPdfViewMode,
+} from '@app/types/shared';
 import type {
     ICloseFileFromUiOptions,
     IWorkspaceExpose,
@@ -22,8 +25,9 @@ interface ICreateWorkspaceExposeDeps {
     hasPdf: Ref<boolean>;
     closeAllDropdowns: () => void;
     zoom: Ref<number>;
+    viewMode: Ref<TPdfViewMode>;
     handleFitMode: (mode: TFitMode) => void;
-    sidebarRef: Ref<{ selectedThumbnailPages: number[] } | null>;
+    selectedThumbnailPages: Ref<number[]>;
     pageOpsDelete: (pages: number[], totalPages: number) => Promise<boolean>;
     pageOpsExtract: (pages: number[]) => Promise<boolean>;
     handlePageRotate: (pages: number[], angle: 90 | 270) => Promise<boolean>;
@@ -33,8 +37,8 @@ interface ICreateWorkspaceExposeDeps {
     openConvertDialog: () => void;
 }
 
-function getSelectedPages(sidebarRef: Ref<{ selectedThumbnailPages: number[] } | null>) {
-    return sidebarRef.value?.selectedThumbnailPages ?? [];
+function getSelectedPages(selectedThumbnailPages: Ref<number[]>) {
+    return selectedThumbnailPages.value;
 }
 
 /**
@@ -71,26 +75,35 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
         handleActualSize: () => {
             deps.zoom.value = 1;
         },
+        handleViewModeSingle: () => {
+            deps.viewMode.value = 'single';
+        },
+        handleViewModeFacing: () => {
+            deps.viewMode.value = 'facing';
+        },
+        handleViewModeFacingFirstSingle: () => {
+            deps.viewMode.value = 'facing-first-single';
+        },
         handleDeletePages: () => {
-            const pages = getSelectedPages(deps.sidebarRef);
+            const pages = getSelectedPages(deps.selectedThumbnailPages);
             if (pages.length > 0) {
                 void deps.pageOpsDelete(pages, deps.totalPages.value);
             }
         },
         handleExtractPages: () => {
-            const pages = getSelectedPages(deps.sidebarRef);
+            const pages = getSelectedPages(deps.selectedThumbnailPages);
             if (pages.length > 0) {
                 void deps.pageOpsExtract(pages);
             }
         },
         handleRotateCw: () => {
-            const pages = getSelectedPages(deps.sidebarRef);
+            const pages = getSelectedPages(deps.selectedThumbnailPages);
             if (pages.length > 0) {
                 void deps.handlePageRotate(pages, 90);
             }
         },
         handleRotateCcw: () => {
-            const pages = getSelectedPages(deps.sidebarRef);
+            const pages = getSelectedPages(deps.selectedThumbnailPages);
             if (pages.length > 0) {
                 void deps.handlePageRotate(pages, 270);
             }

@@ -16,6 +16,9 @@
                 'drag-mode': dragMode,
                 'is-placing-comment': highlightComposable.isPlacingComment.value,
                 'pdfViewer--single-page': !continuousScroll,
+                'pdfViewer--mode-single': viewMode === 'single',
+                'pdfViewer--mode-facing': viewMode === 'facing',
+                'pdfViewer--mode-facing-first-single': viewMode === 'facing-first-single',
                 'pdfViewer--hidden': src && isLoading,
                 'pdfViewer--fit-height': fitMode === 'height',
             }"
@@ -35,6 +38,7 @@
                 :key="page"
                 :page="page"
                 :show-skeleton="shouldShowSkeleton(page)"
+                :spread-single="isSpreadSingle(page)"
             />
         </div>
         <PdfRegionSnipOverlay
@@ -82,7 +86,9 @@ import type {
     PDFDocumentProxy,
     TPdfSource,
     TFitMode,
+    TPdfViewMode,
 } from '@app/types/pdf';
+import { isStandaloneSpreadPage } from '@app/utils/pdf-view-mode';
 import type {
     IAnnotationCommentSummary,
     IAnnotationEditorState,
@@ -100,6 +106,7 @@ interface IProps {
     zoom?: number;
     dragMode?: boolean;
     fitMode?: TFitMode;
+    viewMode?: TPdfViewMode;
     continuousScroll?: boolean;
     isResizing?: boolean;
     invertColors?: boolean;
@@ -121,6 +128,7 @@ const bufferPages = computed(() => props.bufferPages ?? 2);
 const zoom = computed(() => props.zoom ?? 1);
 const dragMode = computed(() => props.dragMode ?? false);
 const fitMode = computed<TFitMode>(() => props.fitMode ?? 'width');
+const viewMode = computed<TPdfViewMode>(() => props.viewMode ?? 'single');
 const isResizing = computed(() => props.isResizing ?? false);
 const invertColors = computed(() => props.invertColors ?? false);
 const showAnnotations = computed(() => props.showAnnotations ?? true);
@@ -201,7 +209,14 @@ const {
     computeFitWidthScale,
     effectiveScale,
     resetScale,
-} = usePdfScale(zoom, fitMode, basePageWidth, basePageHeight);
+} = usePdfScale(
+    zoom,
+    fitMode,
+    viewMode,
+    numPages,
+    basePageWidth,
+    basePageHeight,
+);
 const {
     computeSkeletonInsets,
     resetInsets,
@@ -273,6 +288,7 @@ const singlePageScroll = usePdfSinglePageScroll({
     numPages,
     currentPage,
     scaledMargin,
+    viewMode,
     continuousScroll,
     isLoading,
     pdfDocument,
@@ -332,6 +348,7 @@ const {
     src,
     zoom,
     fitMode,
+    viewMode,
     isResizing,
     continuousScroll,
     annotationTool,
@@ -369,6 +386,10 @@ const {
 });
 
 const pagesToRender = computed(() => range(1, numPages.value + 1));
+
+function isSpreadSingle(page: number) {
+    return isStandaloneSpreadPage(page, viewMode.value, numPages.value);
+}
 
 function isSnipActive() {
     return regionSnip.isActive.value;
@@ -694,6 +715,13 @@ defineExpose({
     display: flex;
     flex-direction: column;
 
+    &.pdfViewer--mode-facing,
+    &.pdfViewer--mode-facing-first-single {
+        display: grid;
+        grid-template-columns: repeat(2, max-content);
+        place-content: flex-start center;
+    }
+
     &.is-placing-comment {
         cursor: crosshair;
     }
@@ -721,6 +749,16 @@ defineExpose({
         display: none !important;
     }
     /* stylelint-enable selector-id-pattern */
+}
+
+.pdfViewer.pdfViewer--mode-facing .page_container,
+.pdfViewer.pdfViewer--mode-facing-first-single .page_container {
+    margin: 0;
+}
+
+.pdfViewer .page_container--spread-single {
+    grid-column: 1 / -1;
+    justify-self: center;
 }
 
 /* ── Drag Mode Cursor Overrides ────────────────────────────────────── */

@@ -239,6 +239,9 @@ export interface IElectronAPI {
     onMenuActualSize: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuFitWidth: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuFitHeight: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
+    onMenuViewModeSingle: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
+    onMenuViewModeFacing: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
+    onMenuViewModeFacingFirstSingle: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuUndo: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuRedo: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuDeletePages: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;

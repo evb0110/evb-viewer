@@ -57,12 +57,12 @@
                 />
                 <div class="pdf-sidebar-pages-thumbnails app-scrollbar">
                     <PdfThumbnails
-                        ref="thumbnailsRef"
                         :pdf-document="pdfDocument"
                         :current-page="currentPage"
                         :total-pages="totalPages"
                         :page-labels="pageLabels"
                         :selected-pages="selectedThumbnailPages"
+                        :invalidation-request="thumbnailInvalidationRequest"
                         @go-to-page="emit('goToPage', $event)"
                         @update:selected-pages="handleSelectedPagesUpdate"
                         @page-context-menu="emit('page-context-menu', $event)"
@@ -173,6 +173,11 @@ interface IProps {
     bookmarkEditMode: boolean;
     isPageOperationInProgress?: boolean;
     isDjvuMode?: boolean;
+    selectedThumbnailPages: number[];
+    thumbnailInvalidationRequest?: {
+        id: number;
+        pages: number[];
+    } | null;
 }
 
 const { t } = useTypedI18n();
@@ -224,6 +229,7 @@ const emit = defineEmits<{
     (e: 'page-export', pages: number[]): void;
     (e: 'page-delete', pages: number[]): void;
     (e: 'page-reorder', newOrder: number[]): void;
+    (e: 'update:selectedThumbnailPages', pages: number[]): void;
     (e: 'page-file-drop', payload: {
         afterPage: number;
         filePaths: string[];
@@ -251,54 +257,19 @@ const searchQueryProxy = computed({
 });
 
 const searchBarRef = ref<{ focus: () => void } | null>(null);
-const thumbnailsRef = ref<{ invalidatePages: (pages: number[]) => void } | null>(null);
-const selectedThumbnailPages = ref<number[]>([]);
+const selectedThumbnailPages = computed(() => props.selectedThumbnailPages);
 
 async function focusSearch() {
     await nextTick();
     searchBarRef.value?.focus();
 }
 
-function selectAllPages() {
-    if (props.totalPages <= 0) {
-        return;
-    }
-    const allPages = Array.from({ length: props.totalPages }, (_, i) => i + 1);
-    selectedThumbnailPages.value = allPages;
-}
-
-function invertPageSelection() {
-    if (props.totalPages <= 0) {
-        return;
-    }
-    const currentSet = new Set(selectedThumbnailPages.value);
-    const inverted: number[] = [];
-    for (let page = 1; page <= props.totalPages; page += 1) {
-        if (!currentSet.has(page)) {
-            inverted.push(page);
-        }
-    }
-    selectedThumbnailPages.value = inverted;
-}
-
-function invalidateThumbnailPages(pages: number[]) {
-    thumbnailsRef.value?.invalidatePages(pages);
-}
-
-defineExpose({
-    focusSearch,
-    selectAllPages,
-    invertPageSelection,
-    invalidateThumbnailPages,
-    selectedThumbnailPages,
-});
-
 function handleSelectedPagesUpdate(pages: number[]) {
-    selectedThumbnailPages.value = pages;
+    emit('update:selectedThumbnailPages', pages);
 }
 
 function clearPageSelection() {
-    selectedThumbnailPages.value = [];
+    emit('update:selectedThumbnailPages', []);
 }
 
 watch(
@@ -324,7 +295,13 @@ watch(
             return;
         }
 
-        selectedThumbnailPages.value = selectedThumbnailPages.value.filter(page => page <= totalPages);
+        const filteredPages = props.selectedThumbnailPages.filter(page => page <= totalPages);
+        if (
+            filteredPages.length !== props.selectedThumbnailPages.length
+            || filteredPages.some((page, index) => page !== props.selectedThumbnailPages[index])
+        ) {
+            emit('update:selectedThumbnailPages', filteredPages);
+        }
     },
 );
 

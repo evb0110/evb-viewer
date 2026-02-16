@@ -1,5 +1,5 @@
 <template>
-    <section class="notes-section notes-list-section">
+    <section class="notes-section notes-list-section" @click="closeContextMenu">
         <UCollapsible :default-open="false" :unmount-on-hide="false">
             <template #default="{ open }">
                 <button
@@ -327,17 +327,6 @@ function deleteContextComment() {
     closeContextMenu();
 }
 
-defineExpose({
-    closeContextMenu,
-    focusFirstCommentOnPage(pageNumber: number) {
-        const comment = noteComments.value.find(item => item.pageNumber === pageNumber);
-        if (!comment) {
-            return;
-        }
-        selectComment(comment);
-    },
-    noteComments,
-});
 </script>
 
 <style scoped>

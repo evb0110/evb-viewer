@@ -23,17 +23,13 @@ interface IPdfViewerForSave {
     getAllShapes: () => IShapeAnnotation[];
 }
 
-interface IOcrPopupForSave {
-    exportDocx: () => Promise<boolean>;
-    open: () => void;
-    isExporting: { value: boolean };
-}
-
 export interface IPageSaveOrchestrationDeps {
     pdfData: Ref<Uint8Array | null>;
     pdfDocument: ShallowRef<PDFDocumentProxy | null>;
     pdfViewerRef: Ref<IPdfViewerForSave | null>;
-    ocrPopupRef: Ref<IOcrPopupForSave | null>;
+    requestDocxExport: (selectedLanguages?: string[]) => Promise<boolean>;
+    openOcrPopup: () => void;
+    isExportingDocx: Ref<boolean>;
     workingCopyPath: Ref<string | null>;
     annotationComments: Ref<IAnnotationCommentSummary[]>;
     totalPages: Ref<number>;
@@ -71,7 +67,9 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         pdfData,
         pdfDocument,
         pdfViewerRef,
-        ocrPopupRef,
+        requestDocxExport,
+        openOcrPopup,
+        isExportingDocx,
         workingCopyPath,
         annotationComments,
         totalPages,
@@ -150,16 +148,13 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
     });
 
     const isAnySaving = computed(() => isSaving.value || isSavingAs.value);
-    const isExportingDocx = computed(() => ocrPopupRef.value?.isExporting?.value ?? false);
+    const isExportingDocxState = computed(() => isExportingDocx.value);
     const canSave = computed(() => isDirty.value || annotationDirty.value || pageLabelsDirty.value || bookmarksDirty.value);
 
-    async function handleExportDocx() {
-        if (!ocrPopupRef.value) {
-            return;
-        }
-        const result = await ocrPopupRef.value.exportDocx();
+    async function handleExportDocx(selectedLanguages?: string[]) {
+        const result = await requestDocxExport(selectedLanguages);
         if (result === false) {
-            ocrPopupRef.value.open();
+            openOcrPopup();
         }
     }
 
@@ -191,7 +186,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         handleExportDocx,
         handleOcrComplete,
         isAnySaving,
-        isExportingDocx,
+        isExportingDocx: isExportingDocxState,
         canSave,
     };
 };

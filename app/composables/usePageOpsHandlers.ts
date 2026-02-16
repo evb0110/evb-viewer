@@ -1,19 +1,14 @@
 import type { Ref } from 'vue';
 import { usePageOperations } from '@app/composables/pdf/usePageOperations';
 
-interface ISidebarForPageOps {
-    invalidateThumbnailPages: (pages: number[]) => void;
-    selectedThumbnailPages: number[];
-    selectAllPages: () => void;
-    invertPageSelection: () => void;
-}
-
 interface IPdfViewerForPageOps {invalidatePages: (pages: number[]) => void;}
 
 export interface IPageOpsHandlersDeps {
     workingCopyPath: Ref<string | null>;
     totalPages: Ref<number>;
-    sidebarRef: Ref<ISidebarForPageOps | null>;
+    selectedThumbnailPages: Ref<number[]>;
+    setSelectedThumbnailPages: (pages: number[]) => void;
+    invalidateThumbnailPages: (pages: number[]) => void;
     pdfViewerRef: Ref<IPdfViewerForPageOps | null>;
     pageContextMenu: Ref<{
         visible: boolean;
@@ -33,7 +28,9 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
     const {
         workingCopyPath,
         totalPages,
-        sidebarRef,
+        selectedThumbnailPages,
+        setSelectedThumbnailPages,
+        invalidateThumbnailPages,
         pdfViewerRef,
         pageContextMenu,
         closePageContextMenu,
@@ -77,7 +74,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
     }
 
     function handlePageRotate(pages: number[], angle: 90 | 180 | 270) {
-        sidebarRef.value?.invalidateThumbnailPages([...pages]);
+        invalidateThumbnailPages([...pages]);
         pdfViewerRef.value?.invalidatePages([...pages]);
         return pageOpsRotate(pages, angle);
     }
@@ -115,12 +112,26 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
 
     function handlePageContextMenuSelectAll() {
         closePageContextMenu();
-        sidebarRef.value?.selectAllPages();
+        if (totalPages.value <= 0) {
+            return;
+        }
+        const allPages = Array.from({ length: totalPages.value }, (_, index) => index + 1);
+        setSelectedThumbnailPages(allPages);
     }
 
     function handlePageContextMenuInvertSelection() {
         closePageContextMenu();
-        sidebarRef.value?.invertPageSelection();
+        if (totalPages.value <= 0) {
+            return;
+        }
+        const currentSet = new Set(selectedThumbnailPages.value);
+        const inverted: number[] = [];
+        for (let page = 1; page <= totalPages.value; page += 1) {
+            if (!currentSet.has(page)) {
+                inverted.push(page);
+            }
+        }
+        setSelectedThumbnailPages(inverted);
     }
 
     return {

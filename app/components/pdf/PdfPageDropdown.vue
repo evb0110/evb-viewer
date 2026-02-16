@@ -81,6 +81,7 @@ const { t } = useTypedI18n();
 interface IProps {
     modelValue: number;
     totalPages: number;
+    open: boolean;
     pageLabels?: string[] | null;
     disabled?: boolean;
     compactLevel?: number;
@@ -89,6 +90,7 @@ interface IProps {
 const {
     modelValue: currentPage,
     totalPages,
+    open,
     pageLabels = null,
     disabled = false,
     compactLevel = 0,
@@ -96,11 +98,14 @@ const {
 
 const emit = defineEmits<{
     (e: 'update:modelValue', page: number): void;
+    (e: 'update:open', value: boolean): void;
     (e: 'goToPage', page: number): void;
-    (e: 'open'): void;
 }>();
 
-const isEditing = ref(false);
+const isEditing = computed({
+    get: () => open,
+    set: (value: boolean) => emit('update:open', value),
+});
 const pageInputValue = ref(currentPage.toString());
 const pageInputRef = ref<HTMLInputElement | null>(null);
 const pageControlsRef = ref<HTMLElement | null>(null);
@@ -120,12 +125,6 @@ const effectivePageLabels = computed(() => {
 
     return Array.from({ length: totalPages }, (_, index) => String(index + 1));
 });
-
-function close() {
-    isEditing.value = false;
-}
-
-defineExpose({ close });
 
 function getCurrentInputLabel() {
     const label = effectivePageLabels.value[currentPage - 1] ?? '';
@@ -155,7 +154,6 @@ function startEditing() {
     if (disabled || totalPages === 0) {
         return;
     }
-    emit('open');
     isEditing.value = true;
     pageInputValue.value = getCurrentInputLabel();
     void nextTick(() => {
@@ -172,7 +170,7 @@ function cancelEditing() {
 function goToFirst() {
     emit('update:modelValue', 1);
     emit('goToPage', 1);
-    close();
+    isEditing.value = false;
 }
 
 function goToPrevious() {
@@ -194,7 +192,7 @@ function goToNext() {
 function goToLast() {
     emit('update:modelValue', totalPages);
     emit('goToPage', totalPages);
-    close();
+    isEditing.value = false;
 }
 
 function commitPageInput() {

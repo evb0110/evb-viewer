@@ -1,7 +1,4 @@
-import {
-    nextTick,
-    type Ref,
-} from 'vue';
+import type {Ref} from 'vue';
 import { useEventListener } from '@vueuse/core';
 import type { TAnnotationTool } from '@app/types/annotations';
 
@@ -10,14 +7,11 @@ interface IPdfViewerForShortcuts {
     deleteSelectedShape: () => void;
 }
 
-interface ISidebarForShortcuts {focusSearch: () => void | Promise<void>;}
-
 export interface IPageShortcutsDeps {
     pdfSrc: Ref<unknown>;
     showSettings: Ref<boolean>;
     annotationPlacingPageNote: Ref<boolean>;
     pdfViewerRef: Ref<IPdfViewerForShortcuts | null>;
-    sidebarRef: Ref<ISidebarForShortcuts | null>;
     shapePropertiesPopoverVisible: Ref<boolean>;
     annotationContextMenuVisible: Ref<boolean>;
     pageContextMenuVisible: Ref<boolean>;
@@ -32,7 +26,6 @@ export interface IPageShortcutsDeps {
 export const usePageShortcuts = (deps: IPageShortcutsDeps) => {
     const {
         pdfSrc,
-        sidebarRef,
         shapePropertiesPopoverVisible,
         annotationContextMenuVisible,
         pageContextMenuVisible,
@@ -47,7 +40,6 @@ export const usePageShortcuts = (deps: IPageShortcutsDeps) => {
         if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'f' && pdfSrc.value) {
             event.preventDefault();
             openSearch();
-            nextTick(() => sidebarRef.value?.focusSearch());
         }
     }
 

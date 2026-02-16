@@ -23,7 +23,12 @@
                     @click="emit('toggle-sidebar')"
                 />
 
-                <slot name="ocr" />
+                <slot
+                    name="ocr"
+                    :collapse-tier="collapseTier"
+                    :has-overflow-items="hasOverflowItems"
+                    :is-collapsed="isCollapsed"
+                />
 
                 <div class="toolbar-separator" />
 
@@ -82,7 +87,12 @@
 
             <div :class="['toolbar-section', 'toolbar-center', { 'toolbar-center-collapsed': hasOverflowItems }]">
                 <div class="toolbar-inline-group">
-                    <slot name="zoom-dropdown" />
+                    <slot
+                        name="zoom-dropdown"
+                        :collapse-tier="collapseTier"
+                        :has-overflow-items="hasOverflowItems"
+                        :is-collapsed="isCollapsed"
+                    />
                 </div>
 
                 <div class="toolbar-separator" />
@@ -120,7 +130,12 @@
                 <div class="toolbar-separator" />
 
                 <div class="toolbar-inline-group">
-                    <slot name="page-dropdown" />
+                    <slot
+                        name="page-dropdown"
+                        :collapse-tier="collapseTier"
+                        :has-overflow-items="hasOverflowItems"
+                        :is-collapsed="isCollapsed"
+                    />
                 </div>
 
                 <div class="toolbar-separator" />
@@ -151,7 +166,12 @@
             <div class="toolbar-separator" />
 
             <div class="toolbar-section toolbar-right">
-                <slot name="overflow-menu" />
+                <slot
+                    name="overflow-menu"
+                    :collapse-tier="collapseTier"
+                    :has-overflow-items="hasOverflowItems"
+                    :is-collapsed="isCollapsed"
+                />
                 <ToolbarButton
                     icon="lucide:settings"
                     :tooltip="t('toolbar.settings')"
@@ -180,9 +200,6 @@ defineProps<{
     dragMode: boolean;
     isCapturingRegion: boolean;
     continuousScroll: boolean;
-    collapseTier: number;
-    hasOverflowItems: boolean;
-    isCollapsed: (tier: number) => boolean;
     isDjvuMode?: boolean;
 }>();
 
@@ -205,9 +222,12 @@ const emit = defineEmits<{
 
 const { t } = useTypedI18n();
 
-const toolbarRef = ref<HTMLElement | null>(null);
-
-defineExpose({toolbarRef});
+const {
+    toolbarRef,
+    collapseTier,
+    hasOverflowItems,
+    isCollapsed,
+} = useToolbarOverflow();
 </script>
 
 <style scoped>

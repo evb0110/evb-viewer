@@ -56,6 +56,43 @@
                     <div class="overflow-menu-divider" />
                     <div class="overflow-menu-section">
                         <button
+                            :class="['overflow-menu-item', { 'is-active': viewMode === 'single' }]"
+                            @click="emit('set-view-mode', 'single'); close()"
+                        >
+                            <UIcon name="i-lucide-file" class="overflow-menu-icon" />
+                            <span class="overflow-menu-label">{{ t('zoom.singlePage') }}</span>
+                            <UIcon
+                                v-if="viewMode === 'single'"
+                                name="i-lucide-check"
+                                class="overflow-menu-check"
+                            />
+                        </button>
+                        <button
+                            :class="['overflow-menu-item', { 'is-active': viewMode === 'facing' }]"
+                            @click="emit('set-view-mode', 'facing'); close()"
+                        >
+                            <UIcon name="i-lucide-book-open" class="overflow-menu-icon" />
+                            <span class="overflow-menu-label">{{ t('zoom.facingPages') }}</span>
+                            <UIcon
+                                v-if="viewMode === 'facing'"
+                                name="i-lucide-check"
+                                class="overflow-menu-check"
+                            />
+                        </button>
+                        <button
+                            :class="['overflow-menu-item', { 'is-active': viewMode === 'facing-first-single' }]"
+                            @click="emit('set-view-mode', 'facing-first-single'); close()"
+                        >
+                            <UIcon name="i-lucide-layout-grid" class="overflow-menu-icon" />
+                            <span class="overflow-menu-label">{{ t('zoom.facingWithFirstSingle') }}</span>
+                            <UIcon
+                                v-if="viewMode === 'facing-first-single'"
+                                name="i-lucide-check"
+                                class="overflow-menu-check"
+                            />
+                        </button>
+                        <div class="overflow-menu-divider" />
+                        <button
                             :class="['overflow-menu-item', { 'is-active': isFitWidthActive }]"
                             @click="emit('fit-width'); close()"
                         >
@@ -150,9 +187,12 @@
 </template>
 
 <script setup lang="ts">
+import type { TPdfViewMode } from '@app/types/shared';
+
 const { t } = useTypedI18n();
 
 interface IProps {
+    open: boolean
     collapseTier: number
     canSave: boolean
     canUndo: boolean
@@ -163,14 +203,16 @@ interface IProps {
     canExportDocx: boolean
     dragMode: boolean
     continuousScroll: boolean
+    viewMode: TPdfViewMode
     isDjvuMode: boolean
     isFitWidthActive: boolean
     isFitHeightActive: boolean
 }
 
-defineProps<IProps>();
+const props = defineProps<IProps>();
 
 const emit = defineEmits<{
+    (e: 'update:open', value: boolean): void
     (e: 'save'): void
     (e: 'save-as'): void
     (e: 'export-docx'): void
@@ -181,17 +223,19 @@ const emit = defineEmits<{
     (e: 'fit-height'): void
     (e: 'enable-drag'): void
     (e: 'disable-drag'): void
+    (e: 'set-view-mode', mode: TPdfViewMode): void
     (e: 'toggle-continuous-scroll'): void
     (e: 'open-settings'): void
 }>();
 
-const isOpen = ref(false);
+const isOpen = computed({
+    get: () => props.open,
+    set: (value: boolean) => emit('update:open', value),
+});
 
 function close() {
     isOpen.value = false;
 }
-
-defineExpose({ close });
 </script>
 
 <style scoped>

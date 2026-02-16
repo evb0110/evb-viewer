@@ -63,6 +63,9 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
         onMenuActualSize: (callback: IMenuEventCallback): IMenuEventUnsubscribe => onNoArgEvent(ipcRenderer, 'menu:actualSize', callback),
         onMenuFitWidth: (callback: IMenuEventCallback): IMenuEventUnsubscribe => onNoArgEvent(ipcRenderer, 'menu:fitWidth', callback),
         onMenuFitHeight: (callback: IMenuEventCallback): IMenuEventUnsubscribe => onNoArgEvent(ipcRenderer, 'menu:fitHeight', callback),
+        onMenuViewModeSingle: (callback: IMenuEventCallback): IMenuEventUnsubscribe => onNoArgEvent(ipcRenderer, 'menu:viewModeSingle', callback),
+        onMenuViewModeFacing: (callback: IMenuEventCallback): IMenuEventUnsubscribe => onNoArgEvent(ipcRenderer, 'menu:viewModeFacing', callback),
+        onMenuViewModeFacingFirstSingle: (callback: IMenuEventCallback): IMenuEventUnsubscribe => onNoArgEvent(ipcRenderer, 'menu:viewModeFacingFirstSingle', callback),
         onMenuUndo: (callback: IMenuEventCallback): IMenuEventUnsubscribe => onNoArgEvent(ipcRenderer, 'menu:undo', callback),
         onMenuRedo: (callback: IMenuEventCallback): IMenuEventUnsubscribe => onNoArgEvent(ipcRenderer, 'menu:redo', callback),
 
