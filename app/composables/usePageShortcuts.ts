@@ -8,6 +8,7 @@ interface IPdfViewerForShortcuts {
 }
 
 export interface IPageShortcutsDeps {
+    isActive: Ref<boolean>;
     pdfSrc: Ref<unknown>;
     showSettings: Ref<boolean>;
     annotationPlacingPageNote: Ref<boolean>;
@@ -25,6 +26,7 @@ export interface IPageShortcutsDeps {
 
 export const usePageShortcuts = (deps: IPageShortcutsDeps) => {
     const {
+        isActive,
         pdfSrc,
         shapePropertiesPopoverVisible,
         annotationContextMenuVisible,
@@ -37,6 +39,9 @@ export const usePageShortcuts = (deps: IPageShortcutsDeps) => {
     const shortcutListenerCleanups: Array<() => void> = [];
 
     function handleGlobalShortcut(event: KeyboardEvent) {
+        if (!isActive.value) {
+            return;
+        }
         if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'f' && pdfSrc.value) {
             event.preventDefault();
             openSearch();
@@ -44,6 +49,9 @@ export const usePageShortcuts = (deps: IPageShortcutsDeps) => {
     }
 
     function handleGlobalPointerDown(event: PointerEvent) {
+        if (!isActive.value) {
+            return;
+        }
         const target = event.target instanceof HTMLElement ? event.target : null;
 
         if (shapePropertiesPopoverVisible.value) {

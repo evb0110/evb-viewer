@@ -45,10 +45,13 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
         fileExists: (path: string) => ipcRenderer.invoke('file:exists', path),
         writeFile: (path: string, data: Uint8Array) => ipcRenderer.invoke('file:write', path, data),
         writeDocxFile: (path: string, data: Uint8Array) => ipcRenderer.invoke('file:writeDocx', path, data),
+        createWorkingCopyFromData: (fileName: string, data: Uint8Array, originalPath?: string) =>
+            ipcRenderer.invoke('working-copy:createFromData', fileName, data, originalPath),
         saveFile: (path: string) => ipcRenderer.invoke('file:save', path),
         cleanupFile: (path: string) => ipcRenderer.invoke('file:cleanup', path),
         cleanupOcrTemp: (path: string) => ipcRenderer.invoke('file:cleanupOcrTemp', path),
         setWindowTitle: (title: string) => ipcRenderer.invoke('window:setTitle', title),
+        showItemInFolder: (path: string) => ipcRenderer.invoke('shell:showItemInFolder', path),
         setMenuDocumentState: (hasDocument: boolean) => ipcRenderer.invoke('menu:setDocumentState', hasDocument),
         notifyRendererReady: () => ipcRenderer.send('app:rendererReady'),
 
@@ -264,6 +267,14 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
 
         onMenuNewTab: (callback: IMenuEventCallback): IMenuEventUnsubscribe => onNoArgEvent(ipcRenderer, 'menu:newTab', callback),
         onMenuCloseTab: (callback: IMenuEventCallback): IMenuEventUnsubscribe => onNoArgEvent(ipcRenderer, 'menu:closeTab', callback),
+        onMenuSplitEditor: (callback: (direction: 'left' | 'right' | 'up' | 'down') => void): IMenuEventUnsubscribe =>
+            onSingleArgEvent(ipcRenderer, 'menu:splitEditor', callback),
+        onMenuFocusEditorGroup: (callback: (direction: 'left' | 'right' | 'up' | 'down') => void): IMenuEventUnsubscribe =>
+            onSingleArgEvent(ipcRenderer, 'menu:focusEditorGroup', callback),
+        onMenuMoveTabToGroup: (callback: (direction: 'left' | 'right' | 'up' | 'down') => void): IMenuEventUnsubscribe =>
+            onSingleArgEvent(ipcRenderer, 'menu:moveTabToGroup', callback),
+        onMenuCopyTabToGroup: (callback: (direction: 'left' | 'right' | 'up' | 'down') => void): IMenuEventUnsubscribe =>
+            onSingleArgEvent(ipcRenderer, 'menu:copyTabToGroup', callback),
 
         pageOps: {
             delete: (workingCopyPath: string, pages: number[], totalPages: number) =>

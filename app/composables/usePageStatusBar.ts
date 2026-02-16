@@ -3,6 +3,10 @@ import {
     type Ref,
 } from 'vue';
 import type { TTranslateFn } from '@app/i18n/locales';
+import {
+    getElectronAPI,
+    hasElectronAPI,
+} from '@app/utils/electron';
 import { formatBytes } from '@app/utils/formatters';
 
 export interface IPageStatusBarDeps {
@@ -33,6 +37,15 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
     } = deps;
 
     const statusFilePath = computed(() => originalPath.value ?? workingCopyPath.value ?? t('status.noFileOpen'));
+    const statusShowInFolderPath = computed(() => {
+        const path = originalPath.value ?? workingCopyPath.value;
+        if (typeof path !== 'string') {
+            return null;
+        }
+
+        const normalizedPath = path.trim();
+        return normalizedPath.length > 0 ? normalizedPath : null;
+    });
     const statusFileSizeBytes = computed(() => {
         if (pdfData.value) {
             return pdfData.value.byteLength;
@@ -92,6 +105,13 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
         }
         return t('status.noFileOpen');
     });
+    const statusCanShowInFolder = computed(() => hasElectronAPI() && statusShowInFolderPath.value !== null);
+    const statusShowInFolderTooltip = computed(() => statusCanShowInFolder.value
+        ? t('status.showInFolder')
+        : t('status.noFileOpen'));
+    const statusShowInFolderAriaLabel = computed(() => statusCanShowInFolder.value
+        ? t('status.showInFolder')
+        : t('status.noFileOpen'));
 
     async function handleStatusSaveClick() {
         if (!statusSaveDotCanSave.value) {
@@ -100,14 +120,31 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
         await handleSave();
     }
 
+    async function handleStatusShowInFolderClick() {
+        const path = statusShowInFolderPath.value;
+        if (!path || !statusCanShowInFolder.value) {
+            return;
+        }
+
+        try {
+            await getElectronAPI().showItemInFolder(path);
+        } catch {
+            // Ignore failures; status bar action is best-effort.
+        }
+    }
+
     return {
         statusFilePath,
         statusFileSizeLabel,
         statusZoomLabel,
+        statusCanShowInFolder,
+        statusShowInFolderTooltip,
+        statusShowInFolderAriaLabel,
         statusSaveDotClass,
         statusSaveDotCanSave,
         statusSaveDotTooltip,
         statusSaveDotAriaLabel,
         handleStatusSaveClick,
+        handleStatusShowInFolderClick,
     };
 };

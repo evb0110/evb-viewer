@@ -24,8 +24,9 @@ function createDeps(overrides: Partial<Parameters<typeof createWorkspaceExpose>[
         hasPdf: ref(false),
         closeAllDropdowns: vi.fn(),
         zoom: ref(1),
+        viewMode: ref('single'),
         handleFitMode: vi.fn(),
-        sidebarRef: ref<{ selectedThumbnailPages: number[] } | null>(null),
+        selectedThumbnailPages: ref<number[]>([]),
         pageOpsDelete: vi.fn(async (_pages: number[], _totalPages: number) => {}),
         pageOpsExtract: vi.fn(async (_pages: number[]) => {}),
         handlePageRotate: vi.fn(async (_pages: number[], _angle: 90 | 270) => {}),
@@ -76,10 +77,10 @@ describe('createWorkspaceExpose', () => {
         expect(deps.pageOpsExtract).not.toHaveBeenCalled();
         expect(deps.handlePageRotate).not.toHaveBeenCalled();
 
-        deps.sidebarRef.value = { selectedThumbnailPages: [
+        deps.selectedThumbnailPages.value = [
             1,
             3,
-        ] };
+        ];
 
         exposed.handleDeletePages();
         exposed.handleExtractPages();

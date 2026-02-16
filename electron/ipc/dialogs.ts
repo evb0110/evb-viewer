@@ -1,6 +1,7 @@
 import {
     BrowserWindow,
     dialog,
+    shell,
 } from 'electron';
 import { existsSync } from 'fs';
 import { copyFile } from 'fs/promises';
@@ -192,10 +193,51 @@ export async function handleOpenPdfDirectBatch(
     }
 }
 
+export async function handleCreateWorkingCopyFromData(
+    _event: Electron.IpcMainInvokeEvent,
+    fileName: string,
+    data: Uint8Array,
+    originalPath?: string,
+): Promise<string> {
+    const normalizedName = typeof fileName === 'string' ? fileName.trim() : '';
+    if (!normalizedName) {
+        throw new Error('Invalid file name');
+    }
+    if (!(data instanceof Uint8Array) || data.byteLength === 0) {
+        throw new Error('Invalid PDF payload');
+    }
+
+    return createWorkingCopyFromData(
+        normalizedName,
+        data,
+        typeof originalPath === 'string' && originalPath.trim().length > 0
+            ? originalPath.trim()
+            : undefined,
+    );
+}
+
 export function handleSetWindowTitle(event: Electron.IpcMainInvokeEvent, title: string) {
     const window = BrowserWindow.fromWebContents(event.sender);
     if (window) {
         window.setTitle(title || te('app.title'));
+    }
+}
+
+export function handleShowItemInFolder(
+    _event: Electron.IpcMainInvokeEvent,
+    filePath: string,
+): boolean {
+    const normalizedPath = typeof filePath === 'string' ? filePath.trim() : '';
+    if (!normalizedPath) {
+        return false;
+    }
+
+    try {
+        shell.showItemInFolder(normalizedPath);
+        return true;
+    } catch (error) {
+        logger.error(`Failed to show item in folder: ${error instanceof Error ? error.message : String(error)}`);
+        return false;
     }
 }
 

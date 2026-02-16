@@ -1,29 +1,33 @@
 <template>
-    <div class="h-screen flex flex-col bg-[var(--app-window-bg)]">
-        <TabBar
-            :tabs="tabs"
-            :active-tab-id="activeTabId"
-            @activate="activateTab"
-            @close="handleCloseTab"
-            @new-tab="createTab"
-            @reorder="moveTab"
-        />
-        <div
-            v-for="tab in tabs"
-            v-show="tab.id === activeTabId"
-            :key="tab.id"
-            class="flex-1 overflow-hidden flex flex-col"
-        >
-            <DocumentWorkspace
-                :ref="(el) => setWorkspaceRef(tab.id, el)"
-                :tab-id="tab.id"
-                :is-active="tab.id === activeTabId"
-                @update-tab="(u) => updateTab(tab.id, u)"
+    <div class="h-screen min-w-0 flex flex-col bg-[var(--app-window-bg)]">
+        <div id="editor-global-toolbar-host" class="editor-global-toolbar-host" />
+
+        <div class="flex-1 min-h-0 min-w-0">
+            <EditorGroupsGrid
+                v-if="layout && chromeHostsReady"
+                :node="layout"
+                :groups="groups"
+                :tabs="tabs"
+                :active-group-id="activeGroupId"
+                :tab-context-availability-by-group="tabContextAvailabilityByGroup"
+                @activate-group="activateGroup"
+                @activate-tab="activateTab"
+                @close-tab="handleCloseTab"
+                @new-tab="createTabInGroup"
+                @reorder-tab="moveTabWithinGroup"
+                @move-tab-direction="handleTabMoveDirection"
+                @tab-context-command="handleTabContextCommand"
+                @set-workspace-ref="setWorkspaceRef"
+                @update-tab="updateTab"
                 @open-in-new-tab="handleOpenInNewTab"
-                @request-close-tab="handleCloseTab(tab.id)"
+                @request-close-tab="handleCloseTab"
                 @open-settings="showSettings = true"
+                @update-split-ratio="setSplitRatio"
             />
         </div>
+
+        <div id="editor-global-status-host" class="editor-global-status-host" />
+
         <SettingsDialog v-if="showSettings" v-model:open="showSettings" />
         <UModal
             v-model:open="dirtyTabCloseDialogOpen"
@@ -62,6 +66,7 @@
 import {
     computed,
     nextTick,
+    onMounted,
     ref,
     watch,
     watchEffect,
@@ -73,28 +78,60 @@ import {
 } from '@app/utils/electron';
 import { useExternalFileDrop } from '@app/composables/page/useExternalFileDrop';
 import { useTabsShellBindings } from '@app/composables/page/useTabsShellBindings';
-import { useTabManager } from '@app/composables/useTabManager';
+import { useEditorGroupsManager } from '@app/composables/useEditorGroupsManager';
+import { useWorkspaceRestoreTracker } from '@app/composables/useWorkspaceRestoreTracker';
+import { useWorkspaceSplitCache } from '@app/composables/useWorkspaceSplitCache';
 import type { TOpenFileResult } from '@app/types/electron-api';
+import type { ITab } from '@app/types/tabs';
+import type { TGroupDirection } from '@app/types/editor-groups';
 import type { IWorkspaceExpose } from '@app/types/workspace-expose';
+import type { TSplitPayload } from '@app/types/split-payload';
+import type {
+    ITabContextAvailability,
+    TDirectionalCommandAvailability,
+    TTabContextCommand,
+} from '@app/types/tab-context-menu';
 
 const {
+    groups,
     tabs,
+    layout,
+    activeGroupId,
     activeTabId,
+    ensureAtLeastOneTab,
+    getGroupById,
+    getTabById,
+    getGroupByTabId,
+    activateGroup,
+    activateTab,
     createTab,
     closeTab,
-    activateTab,
-    updateTab,
-    moveTab,
-    ensureAtLeastOneTab,
-} = useTabManager();
+    moveTabWithinGroup,
+    splitGroup,
+    setSplitRatio,
+    focusGroup,
+    findDirectionalGroup,
+    moveTabToGroup,
+} = useEditorGroupsManager();
 
 const { t } = useTypedI18n();
 const showSettings = ref(false);
+const chromeHostsReady = ref(false);
 const dirtyTabCloseDialogOpen = ref(false);
 const dirtyTabCloseTargetId = ref<string | null>(null);
 let dirtyTabCloseDialogResolver: ((confirmed: boolean) => void) | null = null;
+const workspaceSplitCache = useWorkspaceSplitCache();
+const workspaceRestoreTracker = useWorkspaceRestoreTracker();
 
 const workspaceRefs = ref<Map<string, IWorkspaceExpose>>(new Map());
+const WORKSPACE_REF_WAIT_TIMEOUT_MS = 4000;
+const WORKSPACE_REF_POLL_MS = 16;
+const DIRECTION_ORDER: TGroupDirection[] = [
+    'left',
+    'right',
+    'up',
+    'down',
+];
 
 const REQUIRED_WORKSPACE_METHODS: Array<keyof Omit<IWorkspaceExpose, 'hasPdf'>> = [
     'handleSave',
@@ -123,6 +160,8 @@ const REQUIRED_WORKSPACE_METHODS: Array<keyof Omit<IWorkspaceExpose, 'hasPdf'>> 
     'handleRotateCcw',
     'handleInsertPages',
     'handleConvertToPdf',
+    'captureSplitPayload',
+    'restoreSplitPayload',
     'closeAllDropdowns',
 ];
 
@@ -154,11 +193,91 @@ function setWorkspaceRef(tabId: string, el: unknown) {
     workspaceRefs.value.delete(tabId);
 }
 
+function updateTab(tabId: string, updates: Partial<ITab>) {
+    const tab = getTabById(tabId);
+    if (!tab) {
+        return;
+    }
+    Object.assign(tab, updates);
+}
+
+function sleep(ms: number) {
+    return new Promise<void>((resolve) => {
+        setTimeout(resolve, ms);
+    });
+}
+
+async function waitForWorkspace(tabId: string, timeoutMs = WORKSPACE_REF_WAIT_TIMEOUT_MS) {
+    const started = Date.now();
+    while (Date.now() - started <= timeoutMs) {
+        const workspace = workspaceRefs.value.get(tabId) ?? null;
+        if (workspace) {
+            return workspace;
+        }
+        await nextTick();
+        await sleep(WORKSPACE_REF_POLL_MS);
+    }
+
+    BrowserLogger.warn('tabs', 'Workspace did not mount in time', {
+        tabId,
+        timeoutMs,
+    });
+    return null;
+}
+
+function removeTabFromState(tabId: string) {
+    const group = getGroupByTabId(tabId);
+    if (group) {
+        closeTab(group.id, tabId);
+    }
+    workspaceSplitCache.clear(tabId);
+}
+
 const activeWorkspace = computed(() => {
     if (!activeTabId.value) {
         return null;
     }
     return workspaceRefs.value.get(activeTabId.value) ?? null;
+});
+
+function createDirectionalAvailability(value: boolean): TDirectionalCommandAvailability {
+    return {
+        left: value,
+        right: value,
+        up: value,
+        down: value,
+    };
+}
+
+const tabContextAvailabilityByGroup = computed<Record<string, ITabContextAvailability>>(() => {
+    const result: Record<string, ITabContextAvailability> = {};
+
+    for (const group of groups.value) {
+        const hasActiveTab = Boolean(group.activeTabId);
+        const focus = createDirectionalAvailability(false);
+        const move = createDirectionalAvailability(false);
+        const copy = createDirectionalAvailability(false);
+
+        for (const direction of DIRECTION_ORDER) {
+            focus[direction] = groups.value.length > 1
+                ? Boolean(findDirectionalGroup(group.id, direction, true))
+                : false;
+            const hasDirectionalNeighbor = Boolean(findDirectionalGroup(group.id, direction, false));
+            move[direction] = hasActiveTab && hasDirectionalNeighbor;
+            copy[direction] = hasActiveTab && hasDirectionalNeighbor;
+        }
+
+        result[group.id] = {
+            split: createDirectionalAvailability(hasActiveTab),
+            focus,
+            move,
+            copy,
+            canClose: hasActiveTab,
+            canCreate: true,
+        };
+    }
+
+    return result;
 });
 
 let lastSyncedMenuDocumentState: boolean | null = null;
@@ -214,8 +333,8 @@ function requestDirtyTabCloseConfirmation(tabId: string) {
     });
 }
 
-async function handleCloseTab(tabId: string) {
-    const tab = tabs.value.find(candidate => candidate.id === tabId);
+async function handleCloseTab(groupId: string, tabId: string) {
+    const tab = getTabById(tabId);
     if (!tab) {
         return;
     }
@@ -233,18 +352,35 @@ async function handleCloseTab(tabId: string) {
     if (workspace && workspaceHasPdf(workspace)) {
         await workspace.handleCloseFileFromUi({ persist: shouldPersistBeforeClose });
         if (!workspaceHasPdf(workspace)) {
-            closeTab(tabId);
+            const resolvedGroup = getGroupByTabId(tabId) ?? getGroupById(groupId);
+            if (resolvedGroup) {
+                closeTabInState(resolvedGroup.id, tabId);
+            }
         }
     } else {
-        closeTab(tabId);
+        const resolvedGroup = getGroupByTabId(tabId) ?? getGroupById(groupId);
+        if (resolvedGroup) {
+            closeTabInState(resolvedGroup.id, tabId);
+        }
     }
 }
 
-async function handleOpenInNewTab(pathOrResult: string | TOpenFileResult) {
-    const tab = createTab();
-    await nextTick();
-    const ws = workspaceRefs.value.get(tab.id);
+function createTabInGroup(groupId: string) {
+    createTab({
+        groupId,
+        activate: true,
+    });
+}
+
+async function handleOpenInNewTab(pathOrResult: string | TOpenFileResult, groupId?: string) {
+    const targetGroupId = groupId ?? activeGroupId.value ?? undefined;
+    const tab = createTab({
+        groupId: targetGroupId,
+        activate: true,
+    });
+    const ws = await waitForWorkspace(tab.id);
     if (!ws) {
+        removeTabFromState(tab.id);
         return;
     }
     if (typeof pathOrResult === 'string') {
@@ -260,7 +396,7 @@ async function openPathInAppropriateTab(path: string) {
         await ws.handleOpenFileDirectWithPersist(path);
         return;
     }
-    await handleOpenInNewTab(path);
+    await handleOpenInNewTab(path, activeGroupId.value ?? undefined);
 }
 
 async function openPathsInAppropriateTab(paths: string[]) {
@@ -278,15 +414,240 @@ async function openPathsInAppropriateTab(paths: string[]) {
 
     let ws = activeWorkspace.value;
     if (!ws || workspaceHasPdf(ws)) {
-        const tab = createTab();
-        await nextTick();
-        ws = workspaceRefs.value.get(tab.id) ?? null;
-    }
-    if (!ws) {
-        return;
+        const tab = createTab({
+            groupId: activeGroupId.value,
+            activate: true,
+        });
+        ws = await waitForWorkspace(tab.id);
+        if (!ws) {
+            removeTabFromState(tab.id);
+            return;
+        }
     }
 
     await ws.handleOpenFileDirectBatchWithPersist(normalizedPaths);
+}
+
+async function captureWorkspacePayload(
+    tabId: string,
+    timeoutMs = WORKSPACE_REF_WAIT_TIMEOUT_MS,
+): Promise<TSplitPayload | null> {
+    const workspace = await waitForWorkspace(tabId, timeoutMs);
+    if (!workspace) {
+        return null;
+    }
+
+    try {
+        return await workspace.captureSplitPayload();
+    } catch (error) {
+        BrowserLogger.error('tabs', 'Failed to capture split payload', {
+            tabId,
+            error,
+        });
+        return null;
+    }
+}
+
+async function restoreWorkspacePayload(tabId: string, payload: TSplitPayload | null) {
+    if (!payload) {
+        return false;
+    }
+
+    workspaceRestoreTracker.start(tabId);
+    try {
+        const workspace = await waitForWorkspace(tabId);
+        if (!workspace) {
+            return false;
+        }
+        await workspace.restoreSplitPayload(payload);
+        await nextTick();
+
+        // Non-empty payloads must result in an opened document.
+        if (payload.kind !== 'empty' && !workspaceHasPdf(workspace)) {
+            BrowserLogger.warn('tabs', 'Split payload restore finished without an opened document', {
+                tabId,
+                payloadKind: payload.kind,
+            });
+            return false;
+        }
+
+        return true;
+    } catch (error) {
+        BrowserLogger.error('tabs', 'Failed to restore split payload', {
+            tabId,
+            payloadKind: payload.kind,
+            error,
+        });
+        return false;
+    } finally {
+        workspaceRestoreTracker.finish(tabId);
+    }
+}
+
+function closeTabInState(groupId: string, tabId: string) {
+    closeTab(groupId, tabId);
+    workspaceSplitCache.clear(tabId);
+}
+
+async function splitEditor(direction: TGroupDirection) {
+    const sourceGroup = getGroupById(activeGroupId.value);
+    const sourceTabId = sourceGroup?.activeTabId ?? null;
+    if (!sourceGroup || !sourceTabId) {
+        return;
+    }
+
+    const payload = await captureWorkspacePayload(sourceTabId);
+    if (!payload) {
+        return;
+    }
+
+    workspaceSplitCache.set(sourceTabId, payload);
+
+    const newGroupId = splitGroup(sourceGroup.id, direction);
+    if (!newGroupId) {
+        return;
+    }
+
+    const newTab = createTab({
+        groupId: newGroupId,
+        activate: true,
+    });
+
+    const restored = await restoreWorkspacePayload(newTab.id, payload);
+    if (!restored) {
+        removeTabFromState(newTab.id);
+        activateTab(sourceGroup.id, sourceTabId);
+        return;
+    }
+
+    activateTab(newGroupId, newTab.id);
+}
+
+function focusEditorGroup(direction: TGroupDirection) {
+    focusGroup(direction, true);
+}
+
+function ensureTargetGroupForDirection(direction: TGroupDirection) {
+    const sourceGroup = getGroupById(activeGroupId.value);
+    if (!sourceGroup) {
+        return null;
+    }
+
+    const existing = findDirectionalGroup(sourceGroup.id, direction, false);
+    if (!existing) {
+        return null;
+    }
+
+    return {
+        sourceGroup,
+        targetGroupId: existing.id,
+    };
+}
+
+function moveActiveTab(direction: TGroupDirection) {
+    const sourceGroup = getGroupById(activeGroupId.value);
+    const sourceTabId = sourceGroup?.activeTabId ?? null;
+    if (!sourceGroup || !sourceTabId) {
+        return;
+    }
+
+    const route = ensureTargetGroupForDirection(direction);
+    if (!route) {
+        return;
+    }
+
+    const moved = moveTabToGroup(sourceTabId, route.targetGroupId, true);
+    if (moved) {
+        activateTab(route.targetGroupId, sourceTabId);
+    }
+}
+
+async function copyActiveTab(direction: TGroupDirection) {
+    const sourceGroup = getGroupById(activeGroupId.value);
+    const sourceTabId = sourceGroup?.activeTabId ?? null;
+    if (!sourceGroup || !sourceTabId) {
+        return;
+    }
+
+    const payload = await captureWorkspacePayload(sourceTabId);
+    if (!payload) {
+        return;
+    }
+
+    const route = ensureTargetGroupForDirection(direction);
+    if (!route) {
+        return;
+    }
+
+    const targetTab = createTab({
+        groupId: route.targetGroupId,
+        activate: true,
+    });
+
+    const restored = await restoreWorkspacePayload(targetTab.id, payload);
+    if (!restored) {
+        removeTabFromState(targetTab.id);
+        activateTab(sourceGroup.id, sourceTabId);
+        return;
+    }
+
+    activateTab(route.targetGroupId, targetTab.id);
+}
+
+async function handleTabContextCommand(
+    groupId: string,
+    tabId: string,
+    command: TTabContextCommand,
+) {
+    const group = getGroupById(groupId);
+    if (!group) {
+        return;
+    }
+
+    activateGroup(groupId);
+    activateTab(groupId, tabId);
+
+    if (command.kind === 'new-tab') {
+        createTabInGroup(groupId);
+        return;
+    }
+
+    if (command.kind === 'close-tab') {
+        await handleCloseTab(groupId, tabId);
+        return;
+    }
+
+    if (command.kind === 'split') {
+        await splitEditor(command.direction);
+        return;
+    }
+
+    if (command.kind === 'focus') {
+        focusEditorGroup(command.direction);
+        return;
+    }
+
+    if (command.kind === 'move') {
+        moveActiveTab(command.direction);
+        return;
+    }
+
+    await copyActiveTab(command.direction);
+}
+
+function handleTabMoveDirection(
+    groupId: string,
+    tabId: string,
+    direction: 'left' | 'right',
+) {
+    const group = getGroupById(groupId);
+    if (!group || !group.tabIds.includes(tabId)) {
+        return;
+    }
+
+    activateGroup(groupId);
+    activateTab(groupId, tabId);
+    moveActiveTab(direction);
 }
 
 const {
@@ -303,9 +664,20 @@ useTabsShellBindings({
     tabs,
     activeTabId,
     activeWorkspace,
-    createTab,
-    activateTab,
-    handleCloseTab,
+    createTab: () => createTab({ activate: true }),
+    activateTab: (tabId) => {
+        const group = getGroupByTabId(tabId);
+        if (group) {
+            activateTab(group.id, tabId);
+        }
+    },
+    handleCloseTab: async (tabId) => {
+        const group = getGroupByTabId(tabId);
+        if (!group) {
+            return;
+        }
+        await handleCloseTab(group.id, tabId);
+    },
     openPathInAppropriateTab,
     openPathsInAppropriateTab,
     clearRecentFiles,
@@ -316,6 +688,14 @@ useTabsShellBindings({
     openSettings: () => {
         showSettings.value = true;
     },
+    splitEditor,
+    focusGroup: focusEditorGroup,
+    moveActiveTab,
+    copyActiveTab,
+});
+
+onMounted(() => {
+    chromeHostsReady.value = true;
 });
 
 watchEffect(() => {
@@ -327,5 +707,13 @@ watch(dirtyTabCloseDialogOpen, (isOpen) => {
         resolveDirtyTabCloseDialog(false);
     }
 });
-
 </script>
+
+<style scoped>
+.editor-global-toolbar-host,
+.editor-global-status-host {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+</style>

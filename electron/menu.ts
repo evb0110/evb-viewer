@@ -20,6 +20,7 @@ interface IWindowMenuActionOptions {
     channel: string;
     accelerator?: string;
     enabled?: boolean;
+    args?: unknown[];
 }
 
 export function sendToWindow(window: BaseWindow | undefined, channel: string, ...args: unknown[]) {
@@ -34,6 +35,7 @@ function createWindowMenuAction(options: IWindowMenuActionOptions): MenuItemCons
         channel,
         accelerator,
         enabled = true,
+        args = [],
     } = options;
 
     return {
@@ -41,7 +43,7 @@ function createWindowMenuAction(options: IWindowMenuActionOptions): MenuItemCons
         ...(accelerator ? { accelerator } : {}),
         enabled,
         click: (_item, window) => {
-            sendToWindow(window, channel);
+            sendToWindow(window, channel, ...args);
         },
     };
 }
@@ -264,6 +266,113 @@ function getViewMenu(): MenuItemConstructorOptions {
                 enabled: documentActionsEnabled,
                 channel: 'menu:viewModeFacingFirstSingle',
             }),
+            { type: 'separator' },
+            {
+                label: te('menu.editorGroups'),
+                submenu: [
+                    {
+                        label: te('menu.splitEditor'),
+                        submenu: [
+                            createWindowMenuAction({
+                                label: te('menu.splitEditorRight'),
+                                channel: 'menu:splitEditor',
+                                accelerator: 'CmdOrCtrl+\\',
+                                args: ['right'],
+                            }),
+                            createWindowMenuAction({
+                                label: te('menu.splitEditorLeft'),
+                                channel: 'menu:splitEditor',
+                                args: ['left'],
+                            }),
+                            createWindowMenuAction({
+                                label: te('menu.splitEditorUp'),
+                                channel: 'menu:splitEditor',
+                                args: ['up'],
+                            }),
+                            createWindowMenuAction({
+                                label: te('menu.splitEditorDown'),
+                                channel: 'menu:splitEditor',
+                                args: ['down'],
+                            }),
+                        ],
+                    },
+                    {
+                        label: te('menu.focusEditorGroup'),
+                        submenu: [
+                            createWindowMenuAction({
+                                label: te('menu.focusGroupRight'),
+                                channel: 'menu:focusEditorGroup',
+                                args: ['right'],
+                            }),
+                            createWindowMenuAction({
+                                label: te('menu.focusGroupLeft'),
+                                channel: 'menu:focusEditorGroup',
+                                args: ['left'],
+                            }),
+                            createWindowMenuAction({
+                                label: te('menu.focusGroupUp'),
+                                channel: 'menu:focusEditorGroup',
+                                args: ['up'],
+                            }),
+                            createWindowMenuAction({
+                                label: te('menu.focusGroupDown'),
+                                channel: 'menu:focusEditorGroup',
+                                args: ['down'],
+                            }),
+                        ],
+                    },
+                    {
+                        label: te('menu.moveTabToGroup'),
+                        submenu: [
+                            createWindowMenuAction({
+                                label: te('menu.moveTabRight'),
+                                channel: 'menu:moveTabToGroup',
+                                args: ['right'],
+                            }),
+                            createWindowMenuAction({
+                                label: te('menu.moveTabLeft'),
+                                channel: 'menu:moveTabToGroup',
+                                args: ['left'],
+                            }),
+                            createWindowMenuAction({
+                                label: te('menu.moveTabUp'),
+                                channel: 'menu:moveTabToGroup',
+                                args: ['up'],
+                            }),
+                            createWindowMenuAction({
+                                label: te('menu.moveTabDown'),
+                                channel: 'menu:moveTabToGroup',
+                                args: ['down'],
+                            }),
+                        ],
+                    },
+                    {
+                        label: te('menu.copyTabToGroup'),
+                        submenu: [
+                            createWindowMenuAction({
+                                label: te('menu.copyTabRight'),
+                                channel: 'menu:copyTabToGroup',
+                                args: ['right'],
+                            }),
+                            createWindowMenuAction({
+                                label: te('menu.copyTabLeft'),
+                                channel: 'menu:copyTabToGroup',
+                                args: ['left'],
+                            }),
+                            createWindowMenuAction({
+                                label: te('menu.copyTabUp'),
+                                channel: 'menu:copyTabToGroup',
+                                args: ['up'],
+                            }),
+                            createWindowMenuAction({
+                                label: te('menu.copyTabDown'),
+                                channel: 'menu:copyTabToGroup',
+                                args: ['down'],
+                            }),
+                        ],
+                    },
+                ],
+            },
             { type: 'separator' },
             { role: 'toggleDevTools' },
         ],

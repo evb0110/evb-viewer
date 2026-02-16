@@ -13,11 +13,13 @@ interface ISlot {
 
 const THRESHOLD = 5;
 const CLICK_SUPPRESS_MS = 300;
+const OUTSIDE_MOVE_THRESHOLD = 16;
 
 export const useTabDragReorder = (
     containerRef: Ref<HTMLElement | null>,
     onReorder: (fromIndex: number, toIndex: number) => void,
     onDragStart?: (index: number) => void,
+    onMoveToDirection?: (fromIndex: number, direction: 'left' | 'right') => void,
 ) => {
     const isDragging = ref(false);
     const dragIndex = ref(-1);
@@ -150,10 +152,20 @@ export const useTabDragReorder = (
         }
     }
 
-    function finishDrag() {
+    function finishDrag(pointerX: number | null) {
         const wasDragging = isDragging.value;
         const from = dragIndex.value;
         const to = targetIndex;
+        const containerRect = containerRef.value?.getBoundingClientRect() ?? null;
+        let moveDirection: 'left' | 'right' | null = null;
+
+        if (wasDragging && pointerX !== null && containerRect) {
+            if (pointerX < containerRect.left - OUTSIDE_MOVE_THRESHOLD) {
+                moveDirection = 'left';
+            } else if (pointerX > containerRect.right + OUTSIDE_MOVE_THRESHOLD) {
+                moveDirection = 'right';
+            }
+        }
 
         clearAllTransforms();
         isDragging.value = false;
@@ -164,24 +176,30 @@ export const useTabDragReorder = (
         slots = [];
         detachListeners();
 
+        if (wasDragging && moveDirection && from >= 0) {
+            lastDragEndTime = Date.now();
+            onMoveToDirection?.(from, moveDirection);
+            return;
+        }
+
         if (wasDragging && from !== to && from >= 0 && to >= 0) {
             lastDragEndTime = Date.now();
             onReorder(from, to);
         }
     }
 
-    function onPointerUp() {
+    function onPointerUp(event: PointerEvent) {
         if (isDragging.value) {
             lastDragEndTime = Date.now();
         }
-        finishDrag();
+        finishDrag(event.clientX);
     }
 
-    function onLostCapture() {
+    function onLostCapture(event: PointerEvent) {
         if (isDragging.value) {
             lastDragEndTime = Date.now();
         }
-        finishDrag();
+        finishDrag(event.clientX);
     }
 
     function onPointerDown(e: PointerEvent, index: number) {

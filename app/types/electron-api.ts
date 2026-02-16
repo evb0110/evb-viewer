@@ -2,6 +2,7 @@ import type {
     IMenuEventCallback,
     IMenuEventUnsubscribe,
 } from 'electron/ipc-types';
+import type { TGroupDirection } from '@app/types/editor-groups';
 import type {
     IOcrLanguage,
     IRecentFile,
@@ -222,10 +223,12 @@ export interface IElectronAPI {
     fileExists: (path: string) => Promise<boolean>;
     writeFile: (path: string, data: Uint8Array) => Promise<boolean>;
     writeDocxFile: (path: string, data: Uint8Array) => Promise<boolean>;
+    createWorkingCopyFromData: (fileName: string, data: Uint8Array, originalPath?: string) => Promise<string>;
     saveFile: (path: string) => Promise<boolean>;
     cleanupFile: (path: string) => Promise<void>;
     cleanupOcrTemp: (path: string) => Promise<void>;
     setWindowTitle: (title: string) => Promise<void>;
+    showItemInFolder: (path: string) => Promise<boolean>;
     setMenuDocumentState: (hasDocument: boolean) => Promise<void>;
     notifyRendererReady: () => void;
     onMenuOpenPdf: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
@@ -314,6 +317,10 @@ export interface IElectronAPI {
 
     onMenuNewTab: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuCloseTab: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
+    onMenuSplitEditor: (callback: (direction: TGroupDirection) => void) => IMenuEventUnsubscribe;
+    onMenuFocusEditorGroup: (callback: (direction: TGroupDirection) => void) => IMenuEventUnsubscribe;
+    onMenuMoveTabToGroup: (callback: (direction: TGroupDirection) => void) => IMenuEventUnsubscribe;
+    onMenuCopyTabToGroup: (callback: (direction: TGroupDirection) => void) => IMenuEventUnsubscribe;
 
     getPathForFile: (file: File) => string;
 }

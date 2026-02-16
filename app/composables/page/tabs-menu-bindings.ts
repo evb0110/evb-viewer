@@ -1,5 +1,6 @@
 import type { IElectronAPI } from '@app/types/electron-api';
 import type { Ref } from 'vue';
+import type { TGroupDirection } from '@app/types/editor-groups';
 import type { IWorkspaceExpose } from '@app/types/workspace-expose';
 
 interface ITabsMenuBindingDeps {
@@ -12,6 +13,10 @@ interface ITabsMenuBindingDeps {
     clearRecentFiles: () => Promise<void>;
     loadRecentFiles: () => Promise<void>;
     openSettings: () => void;
+    splitEditor: (direction: TGroupDirection) => Promise<void> | void;
+    focusGroup: (direction: TGroupDirection) => void;
+    moveActiveTab: (direction: TGroupDirection) => Promise<void> | void;
+    copyActiveTab: (direction: TGroupDirection) => Promise<void> | void;
 }
 
 /**
@@ -108,6 +113,18 @@ export function registerTabsMenuBindings(
             if (deps.activeTabId.value) {
                 void deps.handleCloseTab(deps.activeTabId.value);
             }
+        }),
+        electronApi.onMenuSplitEditor((direction) => {
+            void deps.splitEditor(direction);
+        }),
+        electronApi.onMenuFocusEditorGroup((direction) => {
+            deps.focusGroup(direction);
+        }),
+        electronApi.onMenuMoveTabToGroup((direction) => {
+            void deps.moveActiveTab(direction);
+        }),
+        electronApi.onMenuCopyTabToGroup((direction) => {
+            void deps.copyActiveTab(direction);
         }),
     ];
 }

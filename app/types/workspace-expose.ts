@@ -1,4 +1,5 @@
 import type { TOpenFileResult } from '@app/types/electron-api';
+import type { TSplitPayload } from '@app/types/split-payload';
 
 export interface ICloseFileFromUiOptions {persist?: boolean;}
 
@@ -30,5 +31,7 @@ export interface IWorkspaceExpose {
     handleRotateCcw: () => void;
     handleInsertPages: () => void;
     handleConvertToPdf: () => void;
+    captureSplitPayload: () => Promise<TSplitPayload>;
+    restoreSplitPayload: (payload: TSplitPayload) => Promise<void>;
     closeAllDropdowns: () => void;
 }

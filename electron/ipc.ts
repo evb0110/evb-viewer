@@ -32,10 +32,12 @@ import {
     handleOpenPdfDialog,
     handleOpenPdfDirect,
     handleOpenPdfDirectBatch,
+    handleCreateWorkingCopyFromData,
     handleSavePdfAs,
     handleSavePdfDialog,
     handleSaveDocxAs,
     handleSetWindowTitle,
+    handleShowItemInFolder,
 } from '@electron/ipc/dialogs';
 import {
     handlePdfExportImages,
@@ -52,6 +54,7 @@ export function registerIpcHandlers() {
     ipcMain.handle('dialog:openPdf', handleOpenPdfDialog);
     ipcMain.handle('dialog:openPdfDirect', handleOpenPdfDirect);
     ipcMain.handle('dialog:openPdfDirectBatch', handleOpenPdfDirectBatch);
+    ipcMain.handle('working-copy:createFromData', handleCreateWorkingCopyFromData);
     ipcMain.handle('dialog:savePdfAs', handleSavePdfAs);
     ipcMain.handle('dialog:savePdfDialog', handleSavePdfDialog);
     ipcMain.handle('dialog:saveDocxAs', handleSaveDocxAs);
@@ -71,6 +74,7 @@ export function registerIpcHandlers() {
     });
     ipcMain.handle('file:cleanupOcrTemp', handleCleanupOcrTemp);
     ipcMain.handle('window:setTitle', handleSetWindowTitle);
+    ipcMain.handle('shell:showItemInFolder', handleShowItemInFolder);
     ipcMain.handle('menu:setDocumentState', (_event, hasDocument: boolean) => {
         setMenuDocumentState(hasDocument);
     });

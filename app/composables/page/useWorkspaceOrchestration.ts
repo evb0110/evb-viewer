@@ -47,9 +47,13 @@ import {
 } from '@app/composables/page/workspace-annotation-utils';
 import type { TOpenFileResult } from '@app/types/electron-api';
 import type { TTabUpdate } from '@app/types/tabs';
-import { hasElectronAPI } from '@app/utils/electron';
+import {
+    getElectronAPI,
+    hasElectronAPI,
+} from '@app/utils/electron';
 import { useWorkspaceViewState } from '@app/composables/page/workspace-view-state';
 import { useDocxExport } from '@app/composables/useDocxExport';
+import type { TSplitPayload } from '@app/types/split-payload';
 
 type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'bookmarks' | 'search';
 
@@ -531,11 +535,15 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         statusFilePath,
         statusFileSizeLabel,
         statusZoomLabel,
+        statusCanShowInFolder,
+        statusShowInFolderTooltip,
+        statusShowInFolderAriaLabel,
         statusSaveDotClass,
         statusSaveDotCanSave,
         statusSaveDotTooltip,
         statusSaveDotAriaLabel,
         handleStatusSaveClick,
+        handleStatusShowInFolderClick,
     } = usePageStatusBar({
         t,
         pdfSrc,
@@ -635,6 +643,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         setupShortcuts,
         cleanupShortcuts,
     } = usePageShortcuts({
+        isActive,
         pdfSrc,
         showSettings,
         annotationPlacingPageNote,
@@ -749,6 +758,88 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
 
     function handleSelectedThumbnailPagesUpdate(pages: number[]) {
         setSelectedThumbnailPages(pages);
+    }
+
+    async function captureSplitPayload(): Promise<TSplitPayload> {
+        if (!pdfSrc.value) {
+            return { kind: 'empty' };
+        }
+
+        if (isDjvuMode.value && djvuSourcePath.value) {
+            return {
+                kind: 'djvu',
+                sourcePath: djvuSourcePath.value,
+            };
+        }
+
+        let snapshot = await pdfViewerRef.value?.saveDocument?.() ?? null;
+        if (!snapshot && pdfData.value) {
+            snapshot = pdfData.value.slice();
+        }
+
+        if (!snapshot && workingCopyPath.value && hasElectronAPI()) {
+            try {
+                snapshot = await getElectronAPI().readFile(workingCopyPath.value);
+            } catch (error) {
+                BrowserLogger.warn('workspace', 'Failed to read working copy for split payload', {
+                    path: workingCopyPath.value,
+                    error,
+                });
+            }
+        }
+
+        if (!snapshot) {
+            return { kind: 'empty' };
+        }
+
+        return {
+            kind: 'pdfSnapshot',
+            fileName: fileName.value ?? 'document.pdf',
+            originalPath: originalPath.value,
+            data: snapshot.slice(),
+            isDirty: (
+                annotationDirty.value
+                || isDirty.value
+                || hasAnnotationChanges()
+                || pageLabelsDirty.value
+                || bookmarksDirty.value
+            ),
+        };
+    }
+
+    async function restoreSplitPayload(payload: TSplitPayload): Promise<void> {
+        if (payload.kind === 'empty') {
+            return;
+        }
+
+        if (payload.kind === 'djvu') {
+            await openFileWithDjvuCleanup({
+                kind: 'djvu',
+                workingPath: '',
+                originalPath: payload.sourcePath,
+            });
+            return;
+        }
+
+        if (!hasElectronAPI()) {
+            await loadPdfFromData(payload.data.slice(), {
+                pushHistory: true,
+                persistWorkingCopy: false,
+            });
+            originalPath.value = payload.originalPath;
+            if (payload.isDirty) {
+                markDirty();
+            }
+            return;
+        }
+
+        const workingPath = await getElectronAPI().createWorkingCopyFromData(
+            payload.fileName,
+            payload.data,
+            payload.originalPath ?? undefined,
+        );
+        await loadPdfFromPath(workingPath, { markDirty: payload.isDirty });
+        originalPath.value = payload.originalPath;
     }
 
     return {
@@ -909,11 +1000,15 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         statusFilePath,
         statusFileSizeLabel,
         statusZoomLabel,
+        statusCanShowInFolder,
+        statusShowInFolderTooltip,
+        statusShowInFolderAriaLabel,
         statusSaveDotClass,
         statusSaveDotCanSave,
         statusSaveDotTooltip,
         statusSaveDotAriaLabel,
         handleStatusSaveClick,
+        handleStatusShowInFolderClick,
 
         isPageOperationInProgress,
         pageOpsDelete,
@@ -938,6 +1033,8 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         handleOpenFileWithResult,
         handleCloseFileFromUi,
         openRecentFile,
+        captureSplitPayload,
+        restoreSplitPayload,
 
         setupShortcuts,
         cleanupShortcuts,

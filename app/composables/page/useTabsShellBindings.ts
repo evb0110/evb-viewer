@@ -5,6 +5,7 @@ import {
     type Ref,
 } from 'vue';
 import { useEventListener } from '@vueuse/core';
+import type { TGroupDirection } from '@app/types/editor-groups';
 import type { IWorkspaceExpose } from '@app/types/workspace-expose';
 import {
     getElectronAPI,
@@ -27,6 +28,10 @@ interface IUseTabsShellBindingsOptions {
     handleWindowDragOver: (event: DragEvent) => void;
     handleWindowDrop: (event: DragEvent) => void;
     openSettings: () => void;
+    splitEditor: (direction: TGroupDirection) => Promise<void> | void;
+    focusGroup: (direction: TGroupDirection) => void;
+    moveActiveTab: (direction: TGroupDirection) => Promise<void> | void;
+    copyActiveTab: (direction: TGroupDirection) => Promise<void> | void;
 }
 
 export function useTabsShellBindings(options: IUseTabsShellBindingsOptions) {
@@ -45,6 +50,10 @@ export function useTabsShellBindings(options: IUseTabsShellBindingsOptions) {
         handleWindowDragOver,
         handleWindowDrop,
         openSettings,
+        splitEditor,
+        focusGroup,
+        moveActiveTab,
+        copyActiveTab,
     } = options;
 
     const menuCleanups: Array<() => void> = [];
@@ -118,6 +127,10 @@ export function useTabsShellBindings(options: IUseTabsShellBindingsOptions) {
                 clearRecentFiles,
                 loadRecentFiles,
                 openSettings,
+                splitEditor,
+                focusGroup,
+                moveActiveTab,
+                copyActiveTab,
             }));
             void nextTick(() => {
                 electronApi.notifyRendererReady();

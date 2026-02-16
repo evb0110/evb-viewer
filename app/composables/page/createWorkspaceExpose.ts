@@ -35,6 +35,8 @@ interface ICreateWorkspaceExposeDeps {
     totalPages: Ref<number>;
     isDjvuMode: Ref<boolean>;
     openConvertDialog: () => void;
+    captureSplitPayload: IWorkspaceExpose['captureSplitPayload'];
+    restoreSplitPayload: IWorkspaceExpose['restoreSplitPayload'];
 }
 
 function getSelectedPages(selectedThumbnailPages: Ref<number[]>) {
@@ -118,6 +120,8 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
             }
             void deps.handleOpenFileFromUi();
         },
+        captureSplitPayload: deps.captureSplitPayload,
+        restoreSplitPayload: deps.restoreSplitPayload,
         closeAllDropdowns: deps.closeAllDropdowns,
     };
 }
