@@ -19,7 +19,7 @@ interface INavigatorUADataLike {
     getHighEntropyValues?: (hints: string[]) => Promise<{ architecture?: string }>
 }
 
-const repositoryUrl = 'https://github.com/evb0110/electron-nuxt';
+const repositoryUrl = 'https://github.com/evb0110/evb-viewer';
 
 const featureHighlights = [
     {

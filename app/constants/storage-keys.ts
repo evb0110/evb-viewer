@@ -4,5 +4,5 @@ export const STORAGE_KEYS = {
     HIGHLIGHT_DEBUG: 'pdfHighlightDebug',
     HIGHLIGHT_DEBUG_VERBOSE: 'pdfHighlightDebugVerbose',
     OCR_DEBUG_BOXES: 'pdfOcrDebugBoxes',
-    LOG_LEVEL: 'electron-nuxt:log-level',
+    LOG_LEVEL: 'evb-viewer:log-level',
 } as const;

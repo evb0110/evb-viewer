@@ -30,7 +30,7 @@ export default defineEventHandler(async (event): Promise<ILatestReleaseResponse>
     const config = useRuntimeConfig(event);
     const githubApiBase = String(config.githubApiBase || 'https://api.github.com').replace(/\/+$/, '');
     const githubOwner = String(config.githubOwner || 'evb0110');
-    const githubRepo = String(config.githubRepo || 'electron-nuxt');
+    const githubRepo = String(config.githubRepo || 'evb-viewer');
     const githubToken = String(config.githubToken || '');
 
     const headers: Record<string, string> = {

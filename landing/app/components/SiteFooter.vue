@@ -1,5 +1,5 @@
 <script setup lang="ts">
-const repositoryUrl = 'https://github.com/evb0110/electron-nuxt';
+const repositoryUrl = 'https://github.com/evb0110/evb-viewer';
 </script>
 
 <template>

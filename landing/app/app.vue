@@ -1,7 +1,7 @@
 <script setup lang="ts">
 const title = 'EVB Viewer';
 const description = 'Cross-platform desktop viewer for PDF and DjVu documents with OCR, annotations, and export tools.';
-const ogImage = 'https://raw.githubusercontent.com/evb0110/electron-nuxt/main/docs/screenshot.png';
+const ogImage = 'https://raw.githubusercontent.com/evb0110/evb-viewer/main/docs/screenshot.png';
 
 useHead({
     htmlAttrs: {lang: 'en'},

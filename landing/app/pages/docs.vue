@@ -1,5 +1,5 @@
 <script setup lang="ts">
-const repositoryUrl = 'https://github.com/evb0110/electron-nuxt';
+const repositoryUrl = 'https://github.com/evb0110/evb-viewer';
 
 const bookmarks = [
     {
@@ -219,7 +219,7 @@ function scrollToBookmark(id: string): void {
             EVB Viewer builds are currently unsigned. Download installers from the official GitHub releases page.
           </p>
           <ul class="docs-list">
-            <li>Always install files published under <code>evb0110/electron-nuxt</code> releases.</li>
+            <li>Always install files published under <code>evb0110/evb-viewer</code> releases.</li>
             <li>If your OS shows a warning, use the per-platform override steps below.</li>
           </ul>
           <p><strong>macOS (DMG):</strong></p>

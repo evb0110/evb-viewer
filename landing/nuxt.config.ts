@@ -9,7 +9,7 @@ export default defineNuxtConfig({
     runtimeConfig: {
         githubApiBase: process.env.NUXT_GITHUB_API_BASE || 'https://api.github.com',
         githubOwner: process.env.NUXT_GITHUB_OWNER || 'evb0110',
-        githubRepo: process.env.NUXT_GITHUB_REPO || 'electron-nuxt',
+        githubRepo: process.env.NUXT_GITHUB_REPO || 'evb-viewer',
         githubToken: process.env.NUXT_GITHUB_TOKEN || '',
     },
 

@@ -1,0 +1,32 @@
+# Electron build output
+dist/
+dist-electron/
+
+# Native resources (Electron-only)
+resources/
+python/
+
+# Nuxt build cache (root app, not landing)
+.nuxt/
+nuxt-output/
+
+# Electron source (not needed for landing site)
+electron/
+app/
+public/
+build/
+tests/
+
+# IDE / tooling
+.idea/
+.vscode/
+.claude/
+.codex/
+.devkit/
+.playwright-mcp/
+.github/
+docs/
+
+# Config files not needed for landing
+electron-builder.yml
+eslint-plugin-custom.mjs

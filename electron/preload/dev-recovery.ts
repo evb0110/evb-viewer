@@ -25,10 +25,10 @@ export function installViteOutdatedOptimizeDepRecovery() {
         return;
     }
 
-    const RELOAD_KEY = 'electron-nuxt:dev:optimize-dep-reload';
+    const RELOAD_KEY = 'evb-viewer:dev:optimize-dep-reload';
     const RELOAD_COOLDOWN_MS = 10_000;
     const INITIAL_LOAD_GRACE_MS = 1_000;
-    const MAX_RELOADS_KEY = 'electron-nuxt:dev:reload-count';
+    const MAX_RELOADS_KEY = 'evb-viewer:dev:reload-count';
     const MAX_RELOADS_PER_SESSION = 3;
 
     const reloadHistory: IReloadEvent[] = [];
