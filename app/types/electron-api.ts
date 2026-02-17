@@ -19,7 +19,7 @@ import type {
 
 interface IOcrRecognizeRequest {
     pageNumber: number;
-    imageData: number[];
+    imageData: Uint8Array;
     languages: string[];
 }
 
@@ -46,7 +46,7 @@ interface IOcrJobStartResult {
 interface IOcrCompleteResult {
     requestId: string;
     success: boolean;
-    pdfData: number[] | null;
+    pdfData: Uint8Array | null;
     pdfPath?: string;
     errors: string[];
 }
@@ -96,7 +96,7 @@ interface IPreprocessingValidationResult {
 
 interface IPreprocessPageResult {
     success: boolean;
-    imageData: number[];
+    imageData: Uint8Array;
     message?: string;
     error?: string;
 }
@@ -106,7 +106,6 @@ type TPageOpsRotationAngle = 90 | 180 | 270;
 interface IPageOpsResult {
     success: boolean;
     pageCount?: number;
-    pdfData?: Uint8Array;
 }
 
 interface IPageOpsExtractResult {
@@ -118,7 +117,6 @@ interface IPageOpsExtractResult {
 interface IPageOpsInsertResult {
     success: boolean;
     canceled?: boolean;
-    pdfData?: Uint8Array;
 }
 
 interface IPageOpsAPI {
@@ -308,12 +306,13 @@ export interface IElectronAPI {
             pageCount?: number;
         },
     ) => Promise<IPdfSearchResponse>;
+    pdfSearchCancel: (requestId?: string) => Promise<{ canceled: boolean }>;
     onPdfSearchProgress: (callback: (progress: IPdfSearchProgress) => void) => () => void;
     pdfSearchResetCache: () => Promise<boolean>;
 
     preprocessing: {
         validate: () => Promise<IPreprocessingValidationResult>;
-        preprocessPage: (imageData: number[], usePreprocessing: boolean) => Promise<IPreprocessPageResult>;
+        preprocessPage: (imageData: Uint8Array, usePreprocessing: boolean) => Promise<IPreprocessPageResult>;
     };
 
     recentFiles: {

@@ -151,6 +151,37 @@ const splitContainerRef = ref<HTMLElement | null>(null);
 const hasMultipleGroups = computed(() => props.groups.length > 1);
 const leafNode = computed(() => (props.node.type === 'leaf' ? props.node : null));
 const splitNode = computed<IEditorLayoutSplitNode | null>(() => (props.node.type === 'split' ? props.node : null));
+const groupById = computed(() => {
+    const map = new Map<string, IEditorGroupState>();
+    for (const group of props.groups) {
+        map.set(group.id, group);
+    }
+    return map;
+});
+const tabById = computed(() => {
+    const map = new Map<string, ITab>();
+    for (const tab of props.tabs) {
+        map.set(tab.id, tab);
+    }
+    return map;
+});
+const tabsByGroupId = computed(() => {
+    const map = new Map<string, ITab[]>();
+    const tabLookup = tabById.value;
+
+    for (const group of props.groups) {
+        const groupTabs: ITab[] = [];
+        for (const tabId of group.tabIds) {
+            const tab = tabLookup.get(tabId);
+            if (tab) {
+                groupTabs.push(tab);
+            }
+        }
+        map.set(group.id, groupTabs);
+    }
+
+    return map;
+});
 const firstPaneStyle = computed(() => {
     if (!splitNode.value) {
         return undefined;
@@ -165,18 +196,11 @@ const groupForLeaf = computed(() => {
         return null;
     }
 
-    return props.groups.find(group => group.id === leaf.groupId) ?? null;
+    return groupById.value.get(leaf.groupId) ?? null;
 });
 
 function tabsForGroup(groupId: string) {
-    const group = props.groups.find(candidate => candidate.id === groupId);
-    if (!group) {
-        return [];
-    }
-
-    return group.tabIds
-        .map(tabId => props.tabs.find(tab => tab.id === tabId))
-        .filter((tab): tab is ITab => Boolean(tab));
+    return tabsByGroupId.value.get(groupId) ?? [];
 }
 
 function handleGroupPointerDown(groupId: string) {

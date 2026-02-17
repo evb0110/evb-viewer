@@ -69,6 +69,8 @@ import {
     onMounted,
     onUnmounted,
     ref,
+    shallowRef,
+    triggerRef,
     watch,
     watchEffect,
 } from 'vue';
@@ -135,7 +137,7 @@ let dirtyTabCloseDialogResolver: ((confirmed: boolean) => void) | null = null;
 const workspaceSplitCache = useWorkspaceSplitCache();
 const workspaceRestoreTracker = useWorkspaceRestoreTracker();
 
-const workspaceRefs = ref<Map<string, IWorkspaceExpose>>(new Map());
+const workspaceRefs = shallowRef<Map<string, IWorkspaceExpose>>(new Map());
 const WORKSPACE_REF_WAIT_TIMEOUT_MS = 4000;
 const WORKSPACE_REF_POLL_MS = 16;
 const TAB_TRANSITION_CACHE_GRACE_MS = 1200;
@@ -217,6 +219,7 @@ function isWorkspaceExpose(value: unknown): value is IWorkspaceExpose {
 function setWorkspaceRef(tabId: string, el: unknown) {
     if (isWorkspaceExpose(el)) {
         workspaceRefs.value.set(tabId, el);
+        triggerRef(workspaceRefs);
         return;
     }
 
@@ -227,6 +230,7 @@ function setWorkspaceRef(tabId: string, el: unknown) {
         });
     }
     workspaceRefs.value.delete(tabId);
+    triggerRef(workspaceRefs);
 }
 
 function updateTab(tabId: string, updates: Partial<ITab>) {

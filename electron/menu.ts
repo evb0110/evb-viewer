@@ -19,10 +19,13 @@ import {
 
 const appName = te('app.title');
 const WINDOW_TABS_ACTION_CHANNEL = 'menu:windowTabsAction';
+const MENU_REBUILD_DEBOUNCE_MS = 40;
 const menuDocumentStateByWindow = new Map<number, boolean>();
 const menuTabCountByWindow = new Map<number, number>();
 const trackedWindowIds = new Set<number>();
 let listenersRegistered = false;
+let menuRebuildTimer: ReturnType<typeof setTimeout> | null = null;
+let menuRebuildPending = false;
 
 interface IWindowMenuActionOptions {
     label: string;
@@ -598,11 +601,38 @@ function buildMenuTemplate(activeWindow: BrowserWindow | null): MenuItemConstruc
     return template;
 }
 
-function rebuildMenu() {
+function rebuildMenuNow() {
     const activeWindow = getFocusedAppWindow();
     const template = buildMenuTemplate(activeWindow);
     const menu = Menu.buildFromTemplate(template);
     Menu.setApplicationMenu(menu);
+}
+
+function rebuildMenu(immediate = false) {
+    if (immediate) {
+        if (menuRebuildTimer) {
+            clearTimeout(menuRebuildTimer);
+            menuRebuildTimer = null;
+        }
+        menuRebuildPending = false;
+        rebuildMenuNow();
+        return;
+    }
+
+    menuRebuildPending = true;
+    if (menuRebuildTimer) {
+        return;
+    }
+
+    menuRebuildTimer = setTimeout(() => {
+        menuRebuildTimer = null;
+
+        if (!menuRebuildPending) {
+            return;
+        }
+        menuRebuildPending = false;
+        rebuildMenuNow();
+    }, MENU_REBUILD_DEBOUNCE_MS);
 }
 
 function trackWindowForMenu(window: BrowserWindow) {
@@ -651,7 +681,7 @@ export function setupMenu() {
     for (const window of getAllAppWindows()) {
         trackWindowForMenu(window);
     }
-    rebuildMenu();
+    rebuildMenu(true);
 }
 
 export function updateRecentFilesMenu() {

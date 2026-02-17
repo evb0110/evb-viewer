@@ -26,7 +26,7 @@ export function handlePreprocessingValidate() {
 
 export async function handlePreprocessPage(
     _event: IpcMainInvokeEvent,
-    imageData: number[],
+    imageData: Uint8Array,
     usePreprocessing: boolean,
 ) {
     try {
@@ -69,7 +69,7 @@ export async function handlePreprocessPage(
             }
 
             const preprocessedBuffer = await readFile(outputPath);
-            const preprocessedData = Array.from(preprocessedBuffer);
+            const preprocessedData = new Uint8Array(preprocessedBuffer);
 
             log.debug(`Preprocessing successful: ${inputPath} -> ${outputPath}`);
 

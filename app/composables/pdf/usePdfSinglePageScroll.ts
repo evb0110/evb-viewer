@@ -207,10 +207,9 @@ export function usePdfSinglePageScroll(
         }
 
         const targetPage = Math.max(1, Math.min(pageNumber, numPages.value));
-        const pageContainers = container.querySelectorAll('.page_container');
-        const pageElement = pageContainers[targetPage - 1] as
-      | HTMLElement
-      | undefined;
+        const pageElement = container.querySelector<HTMLElement>(
+            `.page_container[data-page="${targetPage}"]`,
+        );
         if (!pageElement) {
             return null;
         }
@@ -263,9 +262,9 @@ export function usePdfSinglePageScroll(
         }
 
         const targetPage = Math.max(1, Math.min(pageNumber, numPages.value));
-        const pageContainers =
-            viewerContainer.value.querySelectorAll('.page_container');
-        const targetEl = pageContainers[targetPage - 1] as HTMLElement | undefined;
+        const targetEl = viewerContainer.value.querySelector<HTMLElement>(
+            `.page_container[data-page="${targetPage}"]`,
+        );
         if (!targetEl) {
             return;
         }

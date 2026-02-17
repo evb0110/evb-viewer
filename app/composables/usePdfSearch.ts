@@ -55,6 +55,7 @@ export const usePdfSearch = () => {
     let scheduledTimeout: ReturnType<typeof setTimeout> | null = null;
     let scheduledResolve: ((applied: boolean) => void) | null = null;
     let progressCleanup: (() => void) | null = null;
+    let activeRequestId: string | null = null;
 
     const MIN_QUERY_LENGTH = 2;
 
@@ -87,6 +88,24 @@ export const usePdfSearch = () => {
         }
     }
 
+    async function cancelActiveSearch() {
+        if (!activeRequestId || !hasElectronAPI()) {
+            return;
+        }
+
+        const requestIdToCancel = activeRequestId;
+        activeRequestId = null;
+
+        try {
+            await getElectronAPI().pdfSearchCancel(requestIdToCancel);
+        } catch (error) {
+            BrowserLogger.debug('pdf-search', 'Failed to cancel active search', {
+                requestId: requestIdToCancel,
+                error,
+            });
+        }
+    }
+
     async function performSearch(
         runId: number,
         query: string,
@@ -101,6 +120,8 @@ export const usePdfSearch = () => {
             return;
         }
 
+        const requestId = `search-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
         try {
             isSearching.value = true;
             isTruncated.value = false;
@@ -111,8 +132,8 @@ export const usePdfSearch = () => {
 
             // Call backend search API
             const api = getElectronAPI();
-            const searchId = `search-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-            const requestId = searchId;
+            const searchId = requestId;
+            activeRequestId = requestId;
 
             progressCleanup = api.onPdfSearchProgress((progress: IBackendSearchProgress) => {
                 if (runId !== searchRunId) {
@@ -224,6 +245,9 @@ export const usePdfSearch = () => {
                 currentResultIndex.value = mergedResults.length - 1;
             }
         } finally {
+            if (activeRequestId === requestId) {
+                activeRequestId = null;
+            }
             if (runId === searchRunId) {
                 isSearching.value = false;
                 cleanupProgressListener();
@@ -241,6 +265,7 @@ export const usePdfSearch = () => {
         }
 
         cancelScheduledSearch();
+        await cancelActiveSearch();
         const runId = ++searchRunId;
 
         if (trimmedQuery.length < MIN_QUERY_LENGTH) {
@@ -295,6 +320,7 @@ export const usePdfSearch = () => {
     function clearSearch() {
         searchRunId++;
         cancelScheduledSearch();
+        void cancelActiveSearch();
         cleanupProgressListener();
         isSearching.value = false;
         searchQuery.value = '';

@@ -82,14 +82,14 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
 
         ocrRecognize: (request: {
             pageNumber: number;
-            imageData: number[];
+            imageData: Uint8Array;
             languages: string[];
         }) => ipcRenderer.invoke('ocr:recognize', request),
 
         ocrRecognizeBatch: (
             pages: Array<{
                 pageNumber: number;
-                imageData: number[];
+                imageData: Uint8Array;
                 languages: string[];
             }>,
             requestId: string,
@@ -129,14 +129,14 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
         onOcrComplete: (callback: (result: {
             requestId: string;
             success: boolean;
-            pdfData: number[] | null;
+            pdfData: Uint8Array | null;
             pdfPath?: string;
             errors: string[];
         }) => void): (() => void) => {
             const handler = (_event: IpcRendererEvent, result: {
                 requestId: string;
                 success: boolean;
-                pdfData: number[] | null;
+                pdfData: Uint8Array | null;
                 pdfPath?: string;
                 errors: string[];
             }) => callback(result);
@@ -156,6 +156,8 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
             query,
             ...options,
         }),
+        pdfSearchCancel: (requestId?: string) =>
+            ipcRenderer.invoke('pdf:search:cancel', requestId),
 
         onPdfSearchProgress: (callback: (progress: {
             requestId: string;
@@ -175,7 +177,7 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
 
         preprocessing: {
             validate: () => ipcRenderer.invoke('preprocessing:validate'),
-            preprocessPage: (imageData: number[], usePreprocessing: boolean) =>
+            preprocessPage: (imageData: Uint8Array, usePreprocessing: boolean) =>
                 ipcRenderer.invoke('preprocessing:preprocessPage', imageData, usePreprocessing),
         },
 

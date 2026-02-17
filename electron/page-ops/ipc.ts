@@ -5,7 +5,6 @@ import {
 } from 'electron';
 import { existsSync } from 'fs';
 import {
-    readFile,
     rename,
     unlink,
     writeFile,
@@ -74,11 +73,6 @@ function validatePageNumbers(pages: unknown, label: string): asserts pages is nu
     }
 }
 
-async function readModifiedPdf(workingCopyPath: string) {
-    const buffer = await readFile(workingCopyPath);
-    return new Uint8Array(buffer);
-}
-
 async function handlePageOpsDelete(
     _event: Electron.IpcMainInvokeEvent,
     workingCopyPath: string,
@@ -93,11 +87,9 @@ async function handlePageOpsDelete(
     }
 
     const result = await deletePages(workingCopyPath, pages, totalPages);
-    const pdfData = await readModifiedPdf(workingCopyPath);
     return {
         success: true,
         pageCount: result.pageCount,
-        pdfData, 
     };
 }
 
@@ -153,11 +145,9 @@ async function handlePageOpsReorder(
     validatePageNumbers(newOrder, 'reorderPages');
 
     const result = await reorderPages(workingCopyPath, newOrder);
-    const pdfData = await readModifiedPdf(workingCopyPath);
     return {
         success: true,
         pageCount: result.pageCount,
-        pdfData, 
     };
 }
 
@@ -203,11 +193,7 @@ async function handlePageOpsInsert(
     }
 
     await insertPagesFromSourcePaths(workingCopyPath, totalPages, result.filePaths, afterPage);
-    const pdfData = await readModifiedPdf(workingCopyPath);
-    return {
-        success: true,
-        pdfData, 
-    };
+    return {success: true};
 }
 
 async function prepareInsertionSourcePdf(
@@ -335,11 +321,7 @@ async function handlePageOpsRotate(
     }
 
     await rotatePages(workingCopyPath, pages, angle);
-    const pdfData = await readModifiedPdf(workingCopyPath);
-    return {
-        success: true,
-        pdfData, 
-    };
+    return {success: true};
 }
 
 async function handlePageOpsInsertFile(
@@ -362,11 +344,7 @@ async function handlePageOpsInsertFile(
     }
 
     await insertPagesFromSourcePaths(workingCopyPath, totalPages, sourcePaths, afterPage);
-    const pdfData = await readModifiedPdf(workingCopyPath);
-    return {
-        success: true,
-        pdfData,
-    };
+    return {success: true};
 }
 
 export function registerPageOpsHandlers() {

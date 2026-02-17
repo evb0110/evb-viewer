@@ -79,15 +79,25 @@ function sendProgress(jobId: string, currentPage: number, processedCount: number
 
 function sendComplete(jobId: string, result: {
     success: boolean;
-    pdfData: number[] | null;
+    pdfData: Uint8Array | null;
     pdfPath?: string;
     errors: string[];
 }) {
+    const normalizedPdfData = result.pdfData
+        ? (result.pdfData.buffer instanceof ArrayBuffer ? result.pdfData : result.pdfData.slice())
+        : null;
+    const transferList: ArrayBuffer[] = [];
+    if (normalizedPdfData && normalizedPdfData.buffer instanceof ArrayBuffer) {
+        transferList.push(normalizedPdfData.buffer);
+    }
     parentPort?.postMessage({
         type: 'complete',
         jobId,
-        result,
-    });
+        result: {
+            ...result,
+            pdfData: normalizedPdfData,
+        },
+    }, transferList);
 }
 
 async function processOcrJob(
@@ -314,7 +324,7 @@ async function processOcrJob(
         } else {
             sendComplete(jobId, {
                 success: true,
-                pdfData: Array.from(mergedPdfBuffer),
+                pdfData: new Uint8Array(mergedPdfBuffer),
                 errors,
             });
         }

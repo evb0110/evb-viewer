@@ -12,6 +12,7 @@
         "electron/preload.ts",
         "electron/image/pdf-combine-worker.ts",
         "electron/ocr/worker/main.ts",
+        "electron/search/worker.ts",
         "scripts/electron-run/**/*.ts"
     ],
     "project": [

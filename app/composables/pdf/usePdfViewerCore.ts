@@ -489,18 +489,20 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         }
     });
 
+    const annotationCommentStableKeys = computed(() =>
+        annotationCommentsCache.value.map(comment => comment.stableKey),
+    );
     watch(
-        annotationCommentsCache,
-        (comments) => {
+        annotationCommentStableKeys,
+        (stableKeys) => {
             const activeKey = activeCommentStableKey.value;
             if (!activeKey) {
                 return;
             }
-            if (!comments.some((comment) => comment.stableKey === activeKey)) {
+            if (!stableKeys.includes(activeKey)) {
                 activeCommentStableKey.value = null;
             }
         },
-        { deep: true },
     );
 
     watch(
@@ -539,15 +541,19 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         }
     });
 
+    const annotationSettingsSignature = computed(() => {
+        const settings = annotationSettings.value;
+        if (!settings) {
+            return '';
+        }
+        return Object.values(settings).join('|');
+    });
     watch(
-        annotationSettings,
-        (settings) => {
-            editor.applyAnnotationSettings(settings);
+        annotationSettingsSignature,
+        () => {
+            editor.applyAnnotationSettings(annotationSettings.value);
         },
-        {
-            deep: true,
-            immediate: true,
-        },
+        {immediate: true},
     );
 
     watch(isResizing, async (value) => {

@@ -9,10 +9,7 @@ type TPageOpsRotation = 90 | 180 | 270;
 
 export const usePageOperations = (deps: {
     workingCopyPath: Ref<string | null>;
-    loadPdfFromData: (data: Uint8Array, opts?: {
-        pushHistory?: boolean;
-        persistWorkingCopy?: boolean;
-    }) => Promise<void>;
+    loadPdfFromPath: (path: string, opts?: { markDirty?: boolean }) => Promise<void>;
     clearOcrCache: (path: string) => void;
     resetSearchCache: () => void;
 }) => {
@@ -20,7 +17,7 @@ export const usePageOperations = (deps: {
 
     const {
         workingCopyPath,
-        loadPdfFromData,
+        loadPdfFromPath,
         clearOcrCache,
         resetSearchCache,
     } = deps;
@@ -36,7 +33,8 @@ export const usePageOperations = (deps: {
     }
 
     async function deletePages(pages: number[], totalPages: number) {
-        if (!workingCopyPath.value || pages.length === 0) {
+        const path = workingCopyPath.value;
+        if (!path || pages.length === 0) {
             return false;
         }
         if (pages.length >= totalPages) {
@@ -48,13 +46,10 @@ export const usePageOperations = (deps: {
         error.value = null;
         try {
             const api = getElectronAPI();
-            const result = await api.pageOps.delete(workingCopyPath.value, [...pages], totalPages);
-            if (result.success && result.pdfData) {
+            const result = await api.pageOps.delete(path, [...pages], totalPages);
+            if (result.success) {
                 invalidateCaches();
-                await loadPdfFromData(new Uint8Array(result.pdfData), {
-                    pushHistory: true,
-                    persistWorkingCopy: false,
-                });
+                await loadPdfFromPath(path, { markDirty: true });
                 return true;
             }
             return false;
@@ -68,7 +63,8 @@ export const usePageOperations = (deps: {
     }
 
     async function extractPages(pages: number[]) {
-        if (!workingCopyPath.value || pages.length === 0) {
+        const path = workingCopyPath.value;
+        if (!path || pages.length === 0) {
             return false;
         }
 
@@ -76,7 +72,7 @@ export const usePageOperations = (deps: {
         error.value = null;
         try {
             const api = getElectronAPI();
-            const result = await api.pageOps.extract(workingCopyPath.value, [...pages]);
+            const result = await api.pageOps.extract(path, [...pages]);
             return result.success && !result.canceled;
         } catch (e) {
             BrowserLogger.error('page-ops', 'extractPages failed', e);
@@ -88,7 +84,8 @@ export const usePageOperations = (deps: {
     }
 
     async function rotatePages(pages: number[], angle: TPageOpsRotation) {
-        if (!workingCopyPath.value || pages.length === 0) {
+        const path = workingCopyPath.value;
+        if (!path || pages.length === 0) {
             return false;
         }
 
@@ -96,13 +93,10 @@ export const usePageOperations = (deps: {
         error.value = null;
         try {
             const api = getElectronAPI();
-            const result = await api.pageOps.rotate(workingCopyPath.value, [...pages], angle);
-            if (result.success && result.pdfData) {
+            const result = await api.pageOps.rotate(path, [...pages], angle);
+            if (result.success) {
                 invalidateCaches();
-                await loadPdfFromData(new Uint8Array(result.pdfData), {
-                    pushHistory: true,
-                    persistWorkingCopy: false,
-                });
+                await loadPdfFromPath(path, { markDirty: true });
                 return true;
             }
             return false;
@@ -116,7 +110,8 @@ export const usePageOperations = (deps: {
     }
 
     async function insertPages(totalPages: number, afterPage: number) {
-        if (!workingCopyPath.value) {
+        const path = workingCopyPath.value;
+        if (!path) {
             return false;
         }
 
@@ -124,13 +119,10 @@ export const usePageOperations = (deps: {
         error.value = null;
         try {
             const api = getElectronAPI();
-            const result = await api.pageOps.insert(workingCopyPath.value, totalPages, afterPage);
-            if (result.success && result.pdfData) {
+            const result = await api.pageOps.insert(path, totalPages, afterPage);
+            if (result.success) {
                 invalidateCaches();
-                await loadPdfFromData(new Uint8Array(result.pdfData), {
-                    pushHistory: true,
-                    persistWorkingCopy: false,
-                });
+                await loadPdfFromPath(path, { markDirty: true });
                 return true;
             }
             return false;
@@ -144,7 +136,8 @@ export const usePageOperations = (deps: {
     }
 
     async function insertFile(totalPages: number, afterPage: number, sourcePaths: string[]) {
-        if (!workingCopyPath.value) {
+        const path = workingCopyPath.value;
+        if (!path) {
             return false;
         }
 
@@ -152,13 +145,10 @@ export const usePageOperations = (deps: {
         error.value = null;
         try {
             const api = getElectronAPI();
-            const result = await api.pageOps.insertFile(workingCopyPath.value, totalPages, afterPage, sourcePaths);
-            if (result.success && result.pdfData) {
+            const result = await api.pageOps.insertFile(path, totalPages, afterPage, sourcePaths);
+            if (result.success) {
                 invalidateCaches();
-                await loadPdfFromData(new Uint8Array(result.pdfData), {
-                    pushHistory: true,
-                    persistWorkingCopy: false,
-                });
+                await loadPdfFromPath(path, { markDirty: true });
                 return true;
             }
             return false;
@@ -172,7 +162,8 @@ export const usePageOperations = (deps: {
     }
 
     async function reorderPages(newOrder: number[]) {
-        if (!workingCopyPath.value || newOrder.length === 0) {
+        const path = workingCopyPath.value;
+        if (!path || newOrder.length === 0) {
             return false;
         }
 
@@ -180,13 +171,10 @@ export const usePageOperations = (deps: {
         error.value = null;
         try {
             const api = getElectronAPI();
-            const result = await api.pageOps.reorder(workingCopyPath.value, [...newOrder]);
-            if (result.success && result.pdfData) {
+            const result = await api.pageOps.reorder(path, [...newOrder]);
+            if (result.success) {
                 invalidateCaches();
-                await loadPdfFromData(new Uint8Array(result.pdfData), {
-                    pushHistory: true,
-                    persistWorkingCopy: false,
-                });
+                await loadPdfFromPath(path, { markDirty: true });
                 return true;
             }
             return false;

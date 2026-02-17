@@ -161,7 +161,7 @@ export const useOcr = () => {
 
             const ocrPromise = new Promise<{
                 success: boolean;
-                pdfData: number[] | null;
+                pdfData: Uint8Array | null;
                 pdfPath?: string;
                 errors: string[];
             }>((resolve, reject) => {
@@ -260,7 +260,7 @@ export const useOcr = () => {
                         requestId,
                         bytes: response.pdfData.length, 
                     });
-                    pdfBytes = new Uint8Array(response.pdfData);
+                    pdfBytes = response.pdfData;
                 } else {
                     throw new Error(t('errors.ocr.noPdfData'));
                 }

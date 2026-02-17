@@ -80,8 +80,30 @@ interface ITextContent {
 export const useOcrTextContent = () => {
     const manifestCache = new Map<string, IOcrManifest | null>();
     const pageCache = new Map<string, IOcrPageData>();
+    const MAX_MANIFEST_CACHE_ENTRIES = 32;
+    const MAX_PAGE_CACHE_ENTRIES = 800;
 
     let cachedAscentRatio: number | null = null;
+
+    function setLruCacheEntry<T>(
+        cache: Map<string, T>,
+        key: string,
+        value: T,
+        maxEntries: number,
+    ) {
+        if (cache.has(key)) {
+            cache.delete(key);
+        }
+        cache.set(key, value);
+
+        while (cache.size > maxEntries) {
+            const oldestKey = cache.keys().next().value;
+            if (!oldestKey) {
+                break;
+            }
+            cache.delete(oldestKey);
+        }
+    }
 
     /**
      * Computes the font ascent ratio for baseline alignment.
@@ -126,17 +148,32 @@ export const useOcrTextContent = () => {
         try {
             const exists = await api.fileExists(manifestPath);
             if (!exists) {
-                manifestCache.set(cacheKey, null);
+                setLruCacheEntry(
+                    manifestCache,
+                    cacheKey,
+                    null,
+                    MAX_MANIFEST_CACHE_ENTRIES,
+                );
                 return null;
             }
 
             const json = await api.readTextFile(manifestPath);
             const manifest = JSON.parse(json) as IOcrManifest;
-            manifestCache.set(cacheKey, manifest);
+            setLruCacheEntry(
+                manifestCache,
+                cacheKey,
+                manifest,
+                MAX_MANIFEST_CACHE_ENTRIES,
+            );
             return manifest;
         } catch (err) {
             BrowserLogger.warn('ocr', 'Failed to load manifest', err);
-            manifestCache.set(cacheKey, null);
+            setLruCacheEntry(
+                manifestCache,
+                cacheKey,
+                null,
+                MAX_MANIFEST_CACHE_ENTRIES,
+            );
             return null;
         }
     }
@@ -165,7 +202,12 @@ export const useOcrTextContent = () => {
         try {
             const json = await api.readTextFile(pagePath);
             const pageData = JSON.parse(json) as IOcrPageData;
-            pageCache.set(cacheKey, pageData);
+            setLruCacheEntry(
+                pageCache,
+                cacheKey,
+                pageData,
+                MAX_PAGE_CACHE_ENTRIES,
+            );
             return pageData;
         } catch (err) {
             BrowserLogger.warn('ocr', `Failed to load page ${pageNumber}`, err);

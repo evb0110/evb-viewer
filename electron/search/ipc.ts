@@ -1,18 +1,17 @@
 import type { IpcMainInvokeEvent } from 'electron';
-import {ipcMain} from 'electron';
-import { stat } from 'fs/promises';
-import type { IPdfSearchIndex } from '@electron/search/index-builder';
 import {
-    buildSearchIndex,
-    loadSearchIndex,
-} from '@electron/search/index-builder';
+    app,
+    ipcMain,
+    webContents,
+} from 'electron';
+import { existsSync } from 'fs';
+import {
+    dirname,
+    join,
+} from 'path';
+import { fileURLToPath } from 'url';
+import { Worker } from 'worker_threads';
 import { createLogger } from '@electron/utils/logger';
-import {
-    EXCERPT_CONTEXT_CHARS,
-    SEARCH_RESULT_LIMIT,
-} from '@electron/config/constants';
-
-const log = createLogger('search-ipc');
 
 interface ISearchExcerpt {
     prefix: boolean;
@@ -24,8 +23,8 @@ interface ISearchExcerpt {
 
 interface ISearchMatch {
     pageNumber: number;
-    pageMatchIndex: number;  // Ordinal position of this match on the page (0, 1, 2...)
-    matchIndex: number;      // Global index across all pages
+    pageMatchIndex: number;
+    matchIndex: number;
     startOffset: number;
     endOffset: number;
     excerpt: ISearchExcerpt;
@@ -43,28 +42,170 @@ interface ISearchResponse {
     truncated: boolean;
 }
 
-interface ISearchProgress {
+interface ISearchWorkerRequest {
     requestId: string;
-    processed: number;
-    total: number;
+    pdfPath: string;
+    query: string;
+    pageCount?: number;
 }
 
-type TCachedIndex = {
-    mtimeMs: number;
-    index: IPdfSearchIndex;
-    lowerTexts: string[];
-};
+type TSearchWorkerInboundMessage =
+    | {
+        type: 'search';
+        payload: ISearchWorkerRequest;
+    }
+    | {
+        type: 'cancel';
+        requestId: string;
+    }
+    | {type: 'reset-cache';};
 
-const indexCache = new Map<string, TCachedIndex>();
-const latestSearchBySender = new Map<number, string>();
+type TSearchWorkerOutboundMessage =
+    | {
+        type: 'progress';
+        requestId: string;
+        processed: number;
+        total: number;
+    }
+    | {
+        type: 'complete';
+        requestId: string;
+        response: ISearchResponse;
+    }
+    | {
+        type: 'cancelled';
+        requestId: string;
+    }
+    | {
+        type: 'error';
+        requestId: string;
+        error: string;
+    };
+
+interface IPendingSearchRequest {
+    resolve: (response: ISearchResponse) => void;
+    reject: (error: Error) => void;
+}
+
+interface ISenderSearchState {
+    worker: Worker;
+    activeRequestId: string | null;
+    pendingByRequestId: Map<string, IPendingSearchRequest>;
+}
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const log = createLogger('search-ipc');
+const senderSearchStates = new Map<number, ISenderSearchState>();
 const registeredSenderCleanup = new Set<number>();
 
-async function fileExists(filePath: string) {
+function getWorkerPath(): string {
+    const defaultPath = join(__dirname, 'search-worker.js');
+    if (!app?.isPackaged) {
+        return defaultPath;
+    }
+
+    const unpackedPath = defaultPath.replace('app.asar', 'app.asar.unpacked');
+    if (unpackedPath !== defaultPath && existsSync(unpackedPath)) {
+        return unpackedPath;
+    }
+
+    return defaultPath;
+}
+
+function sendSearchProgress(
+    senderId: number,
+    progress: {
+        requestId: string;
+        processed: number;
+        total: number;
+    },
+) {
+    const sender = webContents.fromId(senderId);
+    if (!sender || sender.isDestroyed()) {
+        return;
+    }
+
     try {
-        await stat(filePath);
-        return true;
+        sender.send('pdf:search:progress', progress);
+    } catch (err) {
+        log.debug(`Failed to send search progress: ${err instanceof Error ? err.message : String(err)}`);
+    }
+}
+
+function resolvePendingRequest(
+    state: ISenderSearchState,
+    requestId: string,
+    response: ISearchResponse,
+) {
+    const pending = state.pendingByRequestId.get(requestId);
+    if (!pending) {
+        return;
+    }
+
+    state.pendingByRequestId.delete(requestId);
+    pending.resolve(response);
+}
+
+function rejectPendingRequest(
+    state: ISenderSearchState,
+    requestId: string,
+    error: Error,
+) {
+    const pending = state.pendingByRequestId.get(requestId);
+    if (!pending) {
+        return;
+    }
+
+    state.pendingByRequestId.delete(requestId);
+    pending.reject(error);
+}
+
+function cleanupSenderState(
+    senderId: number,
+    options?: {
+        terminateWorker?: boolean;
+        reason?: string;
+    },
+) {
+    const state = senderSearchStates.get(senderId);
+    if (!state) {
+        return;
+    }
+
+    senderSearchStates.delete(senderId);
+
+    const reason = options?.reason ?? 'Search worker stopped';
+    for (const pending of state.pendingByRequestId.values()) {
+        pending.reject(new Error(reason));
+    }
+    state.pendingByRequestId.clear();
+    state.activeRequestId = null;
+
+    if (options?.terminateWorker !== false) {
+        void state.worker.terminate().catch(() => {
+            // Ignore worker cleanup errors
+        });
+    }
+}
+
+function cancelRequest(state: ISenderSearchState, requestId: string) {
+    try {
+        state.worker.postMessage({
+            type: 'cancel',
+            requestId,
+        } satisfies TSearchWorkerInboundMessage);
     } catch {
-        return false;
+        // Ignore send errors while cancelling
+    }
+
+    resolvePendingRequest(state, requestId, {
+        results: [],
+        truncated: false,
+    });
+
+    if (state.activeRequestId === requestId) {
+        state.activeRequestId = null;
     }
 }
 
@@ -75,147 +216,102 @@ function registerSenderCleanup(event: IpcMainInvokeEvent, senderId: number) {
 
     registeredSenderCleanup.add(senderId);
     event.sender.once('destroyed', () => {
-        latestSearchBySender.delete(senderId);
+        cleanupSenderState(senderId, {
+            terminateWorker: true,
+            reason: 'Renderer closed',
+        });
         registeredSenderCleanup.delete(senderId);
     });
 }
 
-function getIndexPath(pdfPath: string) {
-    return `${pdfPath}.index.json`;
-}
-
-function buildExcerpt(
-    text: string,
-    startOffset: number,
-    endOffset: number,
-): ISearchExcerpt {
-    const excerptStart = Math.max(0, startOffset - EXCERPT_CONTEXT_CHARS);
-    const excerptEnd = Math.min(text.length, endOffset + EXCERPT_CONTEXT_CHARS);
-
-    // Extract exact text slices - no modification to preserve source accuracy
-    const beforeRaw = text.slice(excerptStart, startOffset);
-    const match = text.slice(startOffset, endOffset);
-    const afterRaw = text.slice(endOffset, excerptEnd);
-
-    // Normalize whitespace for display but preserve exact boundaries
-    // Only collapse internal whitespace runs, trim outer edges of the excerpt
-    const before = beforeRaw.replace(/\s+/g, ' ').trimStart();
-    const after = afterRaw.replace(/\s+/g, ' ').trimEnd();
-
-    return {
-        prefix: excerptStart > 0,
-        suffix: excerptEnd < text.length,
-        before,
-        match,
-        after,
-    };
-}
-
-function sendProgress(event: IpcMainInvokeEvent, progress: ISearchProgress) {
-    if (event.sender.isDestroyed()) {
+function handleWorkerMessage(senderId: number, message: TSearchWorkerOutboundMessage) {
+    const state = senderSearchStates.get(senderId);
+    if (!state) {
         return;
     }
 
-    try {
-        event.sender.send('pdf:search:progress', progress);
-    } catch (err) {
-        log.debug(`Failed to send search progress: ${err instanceof Error ? err.message : String(err)}`);
-    }
-}
-
-async function loadCachedIndex(pdfPath: string): Promise<TCachedIndex | null> {
-    const indexPath = getIndexPath(pdfPath);
-
-    // Race-safe stat: file may disappear between existence check and stat
-    let mtimeMs: number;
-    try {
-        mtimeMs = (await stat(indexPath)).mtimeMs;
-    } catch {
-        // Index file doesn't exist or became unreadable
-        indexCache.delete(pdfPath);
-        return null;
-    }
-    const cached = indexCache.get(pdfPath);
-    if (cached && cached.mtimeMs === mtimeMs) {
-        return cached;
+    if (message.type === 'progress') {
+        sendSearchProgress(senderId, {
+            requestId: message.requestId,
+            processed: message.processed,
+            total: message.total,
+        });
+        return;
     }
 
-    const index = await loadSearchIndex(pdfPath);
-    if (!index) {
-        indexCache.delete(pdfPath);
-        return null;
-    }
-
-    const lowerTexts = index.pages.map(page => (page.text ?? '').toLowerCase());
-    const entry: TCachedIndex = {
-        mtimeMs,
-        index,
-        lowerTexts,
-    };
-    indexCache.set(pdfPath, entry);
-    return entry;
-}
-
-async function cacheBuiltIndex(pdfPath: string, index: IPdfSearchIndex): Promise<TCachedIndex> {
-    const indexPath = getIndexPath(pdfPath);
-    // Race-safe stat: use current time if file is missing or unreadable
-    let mtimeMs: number;
-    try {
-        mtimeMs = (await stat(indexPath)).mtimeMs;
-    } catch {
-        mtimeMs = Date.now();
-    }
-    const entry: TCachedIndex = {
-        mtimeMs,
-        index,
-        lowerTexts: index.pages.map(page => (page.text ?? '').toLowerCase()),
-    };
-    indexCache.set(pdfPath, entry);
-    return entry;
-}
-
-async function ensureSearchIndex(
-    pdfPath: string,
-    options: {pageCount?: number;},
-): Promise<TCachedIndex> {
-    const expectedCount = options.pageCount;
-
-    let entry = await loadCachedIndex(pdfPath);
-    if (!entry) {
-        log.info(`No index found for ${pdfPath}, building base index`);
-        entry = await cacheBuiltIndex(
-            pdfPath,
-            await buildSearchIndex(pdfPath, [], { pageCount: expectedCount }),
-        );
-        return entry;
-    }
-
-    if (typeof expectedCount === 'number' && expectedCount > 0 && entry.index.pages.length < expectedCount) {
-        log.debug(`Index incomplete (have=${entry.index.pages.length}, expected=${expectedCount}), rebuilding`);
-        entry = await cacheBuiltIndex(
-            pdfPath,
-            await buildSearchIndex(pdfPath, [], { pageCount: expectedCount }),
-        );
-    } else if (typeof expectedCount === 'number' && expectedCount > 0) {
-        const inRangeCount = entry.index.pages.reduce((count, page) => (
-            count + (page.pageNumber >= 1 && page.pageNumber <= expectedCount ? 1 : 0)
-        ), 0);
-
-        if (inRangeCount < expectedCount) {
-            log.debug(`Index missing pages (have=${inRangeCount}, expected=${expectedCount}), rebuilding`);
-            entry = await cacheBuiltIndex(
-                pdfPath,
-                await buildSearchIndex(pdfPath, [], { pageCount: expectedCount }),
-            );
+    if (message.type === 'complete') {
+        if (state.activeRequestId === message.requestId) {
+            state.activeRequestId = null;
         }
+        resolvePendingRequest(state, message.requestId, message.response);
+        return;
     }
 
-    return entry;
+    if (message.type === 'cancelled') {
+        if (state.activeRequestId === message.requestId) {
+            state.activeRequestId = null;
+        }
+        resolvePendingRequest(state, message.requestId, {
+            results: [],
+            truncated: false,
+        });
+        return;
+    }
+
+    if (state.activeRequestId === message.requestId) {
+        state.activeRequestId = null;
+    }
+
+    rejectPendingRequest(state, message.requestId, new Error(message.error));
 }
 
-/**
- * Search a PDF using cached index (for OCR'd PDFs) or pdftotext (for user PDFs)
- */
+function createSenderSearchState(senderId: number): ISenderSearchState {
+    const workerPath = getWorkerPath();
+    const worker = new Worker(workerPath);
+    const state: ISenderSearchState = {
+        worker,
+        activeRequestId: null,
+        pendingByRequestId: new Map(),
+    };
+
+    worker.on('message', (message: TSearchWorkerOutboundMessage) => {
+        handleWorkerMessage(senderId, message);
+    });
+
+    worker.on('error', (error: Error) => {
+        log.error(`Search worker error for sender ${senderId}: ${error.message}`);
+        cleanupSenderState(senderId, {
+            terminateWorker: true,
+            reason: `Search worker error: ${error.message}`,
+        });
+    });
+
+    worker.on('exit', (code) => {
+        const reason = code === 0
+            ? 'Search worker exited'
+            : `Search worker exited unexpectedly with code ${code}`;
+        cleanupSenderState(senderId, {
+            terminateWorker: false,
+            reason,
+        });
+    });
+
+    return state;
+}
+
+function ensureSenderState(event: IpcMainInvokeEvent, senderId: number) {
+    registerSenderCleanup(event, senderId);
+
+    let state = senderSearchStates.get(senderId);
+    if (state) {
+        return state;
+    }
+
+    state = createSenderSearchState(senderId);
+    senderSearchStates.set(senderId, state);
+    return state;
+}
+
 async function handlePdfSearch(
     event: IpcMainInvokeEvent,
     request: ISearchRequest,
@@ -223,22 +319,8 @@ async function handlePdfSearch(
     const {
         pdfPath,
         query,
-        requestId: requestIdRaw,
         pageCount,
     } = request;
-
-    const requestId = requestIdRaw || `search-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const senderId = event.sender.id;
-    latestSearchBySender.set(senderId, requestId);
-
-    // Register cleanup listener to remove latestSearchBySender entry when webContents is destroyed
-    registerSenderCleanup(event, senderId);
-
-    log.info(`[${requestId}] Search requested: query="${query}", pdfPath=${pdfPath}`);
-
-    if (!pdfPath || !(await fileExists(pdfPath))) {
-        throw new Error(`PDF not found: ${pdfPath}`);
-    }
 
     if (!query || query.trim().length === 0) {
         return {
@@ -247,118 +329,73 @@ async function handlePdfSearch(
         };
     }
 
-    const normalizedQuery = query.trim();
-    const lowerQuery = normalizedQuery.toLowerCase();
+    const senderId = event.sender.id;
+    const state = ensureSenderState(event, senderId);
+    const requestId = request.requestId?.trim()
+        || `search-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
-    const shouldCancel = () => latestSearchBySender.get(senderId) !== requestId;
+    if (state.activeRequestId && state.activeRequestId !== requestId) {
+        cancelRequest(state, state.activeRequestId);
+    }
 
-    try {
-        const indexEntry = await ensureSearchIndex(
-            pdfPath,
-            { pageCount },
-        );
+    state.activeRequestId = requestId;
 
-        const totalPages = typeof pageCount === 'number' && pageCount > 0
-            ? pageCount
-            : (indexEntry.index.pageCount ?? indexEntry.index.pages.length);
-
-        log.info(`[${requestId}] Searching ${totalPages} pages`);
-
-        sendProgress(event, {
-            requestId,
-            processed: 0,
-            total: totalPages,
+    return new Promise<ISearchResponse>((resolve, reject) => {
+        state.pendingByRequestId.set(requestId, {
+            resolve,
+            reject,
         });
 
-        const results: ISearchMatch[] = [];
-        let globalMatchIndex = 0;
-        let processedCount = 0;
-        let truncated = false;
-
-        for (let pageIdx = 0; pageIdx < indexEntry.index.pages.length; pageIdx += 1) {
-            if (shouldCancel()) {
-                log.info(`[${requestId}] Search cancelled`);
-                return {
-                    results: [],
-                    truncated: false,
-                };
+        try {
+            state.worker.postMessage({
+                type: 'search',
+                payload: {
+                    requestId,
+                    pdfPath,
+                    query,
+                    pageCount,
+                },
+            } satisfies TSearchWorkerInboundMessage);
+        } catch (error) {
+            state.pendingByRequestId.delete(requestId);
+            if (state.activeRequestId === requestId) {
+                state.activeRequestId = null;
             }
-
-            const page = indexEntry.index.pages[pageIdx]!;
-            if (page.pageNumber < 1) {
-                continue;
-            }
-            if (page.pageNumber > totalPages) {
-                break;
-            }
-
-            const pageText = page.text ?? '';
-
-            if (pageText) {
-                const lowerPageText = indexEntry.lowerTexts[pageIdx] ?? pageText.toLowerCase();
-                let position = 0;
-                let pageMatchIndex = 0;  // Track ordinal position within this page
-
-                while ((position = lowerPageText.indexOf(lowerQuery, position)) !== -1) {
-                    const startOffset = position;
-                    const endOffset = position + normalizedQuery.length;
-
-                    results.push({
-                        pageNumber: page.pageNumber,
-                        pageMatchIndex,
-                        matchIndex: globalMatchIndex,
-                        startOffset,
-                        endOffset,
-                        excerpt: buildExcerpt(pageText, startOffset, endOffset),
-                    });
-
-                    pageMatchIndex += 1;
-                    globalMatchIndex += 1;
-                    position += normalizedQuery.length;
-
-                    if (results.length >= SEARCH_RESULT_LIMIT) {
-                        truncated = true;
-                        break;
-                    }
-                }
-            }
-
-            processedCount += 1;
-            sendProgress(event, {
-                requestId,
-                processed: processedCount,
-                total: totalPages, 
-            });
-
-            if (truncated) {
-                break;
-            }
+            reject(new Error(error instanceof Error ? error.message : String(error)));
         }
+    });
+}
 
-        if (processedCount < totalPages) {
-            sendProgress(event, {
-                requestId,
-                processed: totalPages,
-                total: totalPages, 
-            });
-        }
-
-        log.info(`[${requestId}] Total matches found: ${results.length}${truncated ? ' (truncated)' : ''}`);
-        return {
-            results,
-            truncated,
-        };
-    } catch (err) {
-        const errMsg = err instanceof Error ? err.message : String(err);
-        log.error(`[${requestId}] Search error: ${errMsg}`);
-        throw new Error(`Search failed: ${errMsg}`);
+function handlePdfSearchCancel(
+    event: IpcMainInvokeEvent,
+    requestId?: string,
+) {
+    const senderId = event.sender.id;
+    const state = senderSearchStates.get(senderId);
+    if (!state) {
+        return { canceled: false };
     }
+
+    const targetRequestId = requestId?.trim() || state.activeRequestId;
+    if (!targetRequestId) {
+        return { canceled: false };
+    }
+
+    cancelRequest(state, targetRequestId);
+    return { canceled: true };
 }
 
 export function registerSearchHandlers() {
     ipcMain.handle('pdf:search', handlePdfSearch);
+    ipcMain.handle('pdf:search:cancel', handlePdfSearchCancel);
     ipcMain.handle('pdf:search:resetCache', () => {
-        indexCache.clear();
+        for (const state of senderSearchStates.values()) {
+            try {
+                state.worker.postMessage({type: 'reset-cache'} satisfies TSearchWorkerInboundMessage);
+            } catch {
+                // Ignore cache-reset failures
+            }
+        }
         return true;
     });
 }

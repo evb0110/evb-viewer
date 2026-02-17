@@ -1,4 +1,8 @@
-import { existsSync } from 'fs';
+import {
+    createWriteStream,
+    existsSync,
+    type WriteStream,
+} from 'fs';
 import {
     copyFile,
     mkdir,
@@ -8,7 +12,6 @@ import {
     rename,
     rm,
     unlink,
-    writeFile,
 } from 'fs/promises';
 import { tmpdir } from 'os';
 import {
@@ -58,6 +61,13 @@ interface ITiffPageRgba {
     width: number;
     height: number;
     rgba: Uint8Array;
+}
+
+interface ITiffPageDescriptor {
+    path: string;
+    width: number;
+    height: number;
+    dataLength: number;
 }
 
 const UTIF = utifModule as IUtifModule;
@@ -312,26 +322,60 @@ export async function exportPdfPagesAsImages(
     }
 }
 
-function decodeSinglePageTiff(tiffBytes: Uint8Array): ITiffPageRgba {
+function readTiffDimensions(ifd: IUtifFrame) {
+    const width = typeof ifd.width === 'number' ? ifd.width : 0;
+    const height = typeof ifd.height === 'number' ? ifd.height : 0;
+    if (width <= 0 || height <= 0) {
+        return null;
+    }
+    return {
+        width,
+        height,
+    };
+}
+
+function decodeSinglePageTiffMetadata(tiffBytes: Uint8Array) {
     const ifds = UTIF.decode(tiffBytes);
 
     for (const ifd of ifds) {
-        UTIF.decodeImage(tiffBytes, ifd);
-
-        const width = typeof ifd.width === 'number' ? ifd.width : 0;
-        const height = typeof ifd.height === 'number' ? ifd.height : 0;
-        if (width <= 0 || height <= 0) {
+        const dimensions = readTiffDimensions(ifd);
+        if (!dimensions) {
             continue;
         }
 
+        return dimensions;
+    }
+
+    throw new Error('Failed to decode TIFF page metadata');
+}
+
+function decodeSinglePageTiffRgba(
+    tiffBytes: Uint8Array,
+    expectedWidth: number,
+    expectedHeight: number,
+): ITiffPageRgba {
+    const ifds = UTIF.decode(tiffBytes);
+
+    for (const ifd of ifds) {
+        const dimensions = readTiffDimensions(ifd);
+        if (!dimensions) {
+            continue;
+        }
+
+        if (dimensions.width !== expectedWidth || dimensions.height !== expectedHeight) {
+            continue;
+        }
+
+        UTIF.decodeImage(tiffBytes, ifd);
+
         const rgba = UTIF.toRGBA8(ifd);
-        if (!rgba || rgba.length !== width * height * 4) {
+        if (!rgba || rgba.length !== expectedWidth * expectedHeight * 4) {
             continue;
         }
 
         return {
-            width,
-            height,
+            width: expectedWidth,
+            height: expectedHeight,
             rgba,
         };
     }
@@ -348,7 +392,7 @@ function alignOffset(offset: number, alignment: number): number {
 }
 
 function buildTiffIfd(
-    page: ITiffPageRgba,
+    page: Pick<ITiffPageDescriptor, 'width' | 'height' | 'dataLength'>,
     dataOffset: number,
 ): Record<string, unknown> {
     return {
@@ -365,7 +409,7 @@ function buildTiffIfd(
         t273: [dataOffset],
         t277: [4],
         t278: [page.height],
-        t279: [page.rgba.length],
+        t279: [page.dataLength],
         t282: [1],
         t283: [1],
         t284: [1],
@@ -378,7 +422,7 @@ function buildTiffIfd(
 }
 
 function resolvePageDataOffsets(
-    pages: ITiffPageRgba[],
+    pages: Array<Pick<ITiffPageDescriptor, 'dataLength'>>,
     firstDataOffset: number,
 ): number[] {
     const offsets: number[] = [];
@@ -386,10 +430,51 @@ function resolvePageDataOffsets(
 
     for (const page of pages) {
         offsets.push(cursor);
-        cursor += page.rgba.length;
+        cursor += page.dataLength;
     }
 
     return offsets;
+}
+
+async function writeChunkToStream(stream: WriteStream, chunk: Uint8Array) {
+    if (chunk.length === 0) {
+        return;
+    }
+
+    if (stream.write(chunk)) {
+        return;
+    }
+
+    await new Promise<void>((resolve, reject) => {
+        const handleDrain = () => {
+            stream.off('error', handleError);
+            resolve();
+        };
+        const handleError = (error: Error) => {
+            stream.off('drain', handleDrain);
+            reject(error);
+        };
+
+        stream.once('drain', handleDrain);
+        stream.once('error', handleError);
+    });
+}
+
+async function closeWriteStream(stream: WriteStream) {
+    await new Promise<void>((resolve, reject) => {
+        const handleFinish = () => {
+            stream.off('error', handleError);
+            resolve();
+        };
+        const handleError = (error: Error) => {
+            stream.off('finish', handleFinish);
+            reject(error);
+        };
+
+        stream.once('finish', handleFinish);
+        stream.once('error', handleError);
+        stream.end();
+    });
 }
 
 async function combinePagesIntoMultiPageTiff(pagePaths: string[], outputPath: string) {
@@ -397,11 +482,17 @@ async function combinePagesIntoMultiPageTiff(pagePaths: string[], outputPath: st
         throw new Error('No pages available for TIFF export');
     }
 
-    const pages: ITiffPageRgba[] = [];
+    const pages: ITiffPageDescriptor[] = [];
 
     for (const pagePath of pagePaths) {
         const tiffBytes = await readFile(pagePath);
-        pages.push(decodeSinglePageTiff(tiffBytes));
+        const metadata = decodeSinglePageTiffMetadata(tiffBytes);
+        pages.push({
+            path: pagePath,
+            width: metadata.width,
+            height: metadata.height,
+            dataLength: metadata.width * metadata.height * 4,
+        });
     }
 
     // UTIF encodes IFDs only; pixel data must be appended at explicit offsets.
@@ -424,19 +515,37 @@ async function combinePagesIntoMultiPageTiff(pagePaths: string[], outputPath: st
     const finalIfds = pages.map((page, index) => buildTiffIfd(page, pageOffsets[index]!));
     header = new Uint8Array(UTIF.encode(finalIfds));
 
-    const finalFirstDataOffset = alignOffset(header.length, 8);
-    pageOffsets = resolvePageDataOffsets(pages, finalFirstDataOffset);
+    const firstPageDataOffset = alignOffset(header.length, 8);
+    const stream = createWriteStream(outputPath, { flags: 'w' });
 
-    const lastPage = pages[pages.length - 1]!;
-    const lastOffset = pageOffsets[pageOffsets.length - 1]!;
-    const output = new Uint8Array(lastOffset + lastPage.rgba.length);
-    output.set(header, 0);
+    try {
+        await writeChunkToStream(stream, header);
 
-    for (let index = 0; index < pages.length; index += 1) {
-        output.set(pages[index]!.rgba, pageOffsets[index]!);
+        const paddingLength = firstPageDataOffset - header.length;
+        if (paddingLength > 0) {
+            await writeChunkToStream(stream, new Uint8Array(paddingLength));
+        }
+
+        for (const page of pages) {
+            const tiffBytes = await readFile(page.path);
+            const decoded = decodeSinglePageTiffRgba(
+                tiffBytes,
+                page.width,
+                page.height,
+            );
+
+            if (decoded.rgba.length !== page.dataLength) {
+                throw new Error('Decoded TIFF page size did not match computed descriptor size');
+            }
+
+            await writeChunkToStream(stream, decoded.rgba);
+        }
+
+        await closeWriteStream(stream);
+    } catch (error) {
+        stream.destroy();
+        throw error;
     }
-
-    await writeFile(outputPath, output);
 }
 
 export async function exportPdfAsMultiPageTiff(

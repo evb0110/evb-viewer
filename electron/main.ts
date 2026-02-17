@@ -368,10 +368,7 @@ async function init() {
 
     registerIpcHandlers();
     logStartupPhase('IPC handlers registered');
-    await initRecentFilesCache();
-    logStartupPhase('Recent files cache initialized');
-    setupMenu();
-    logStartupPhase('Application menu initialized');
+
     ipcMain.on('app:rendererReady', (event) => {
         const window = BrowserWindow.fromWebContents(event.sender);
         if (!window) {
@@ -423,6 +420,22 @@ async function init() {
     logStartupPhase('Creating main window');
     await createWindow();
     logStartupPhase('Main window creation requested');
+
+    void (async () => {
+        try {
+            await initRecentFilesCache();
+            logStartupPhase('Recent files cache initialized');
+        } catch (error) {
+            logger.error(`Failed to initialize recent files cache: ${error instanceof Error ? error.message : String(error)}`);
+        }
+
+        try {
+            setupMenu();
+            logStartupPhase('Application menu initialized');
+        } catch (error) {
+            logger.error(`Failed to initialize application menu: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    })();
 }
 
 void init();

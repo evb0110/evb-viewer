@@ -1,5 +1,6 @@
 import { app } from 'electron';
 import {
+    constants as fsConstants,
     existsSync,
     mkdirSync,
     rmSync,
@@ -31,12 +32,30 @@ function createWorkingDirectory() {
     return workDir;
 }
 
+async function copyFileCopyOnWrite(sourcePath: string, targetPath: string) {
+    try {
+        await copyFile(sourcePath, targetPath, fsConstants.COPYFILE_FICLONE_FORCE);
+        return;
+    } catch (error) {
+        const err = error as NodeJS.ErrnoException;
+        const shouldFallback = err.code === 'ENOTSUP'
+            || err.code === 'ENOSYS'
+            || err.code === 'EINVAL'
+            || err.code === 'EXDEV';
+        if (!shouldFallback) {
+            throw error;
+        }
+    }
+
+    await copyFile(sourcePath, targetPath);
+}
+
 export async function createWorkingCopy(originalPath: string): Promise<string> {
     const workDir = createWorkingDirectory();
 
     const fileName = basename(originalPath);
     const workingPath = join(workDir, fileName);
-    await copyFile(originalPath, workingPath);
+    await copyFileCopyOnWrite(originalPath, workingPath);
 
     workingCopyMap.set(workingPath, originalPath);
 

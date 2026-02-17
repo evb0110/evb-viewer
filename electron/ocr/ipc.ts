@@ -27,7 +27,7 @@ const log = createLogger('ocr-ipc');
 
 interface IOcrPageRequest {
     pageNumber: number;
-    imageData: number[];
+    imageData: Uint8Array;
     languages: string[];
 }
 

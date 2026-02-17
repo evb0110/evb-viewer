@@ -33,12 +33,22 @@
             @dblclick="handleViewerDblClick"
             @contextmenu="handleViewerContextMenu"
         >
+            <div
+                v-if="topVirtualSpacerStyle"
+                class="pdf-viewer-virtual-spacer"
+                :style="topVirtualSpacerStyle"
+            />
             <PdfViewerPage
                 v-for="page in pagesToRender"
                 :key="page"
                 :page="page"
                 :show-skeleton="shouldShowSkeleton(page)"
                 :spread-single="isSpreadSingle(page)"
+            />
+            <div
+                v-if="bottomVirtualSpacerStyle"
+                class="pdf-viewer-virtual-spacer"
+                :style="bottomVirtualSpacerStyle"
             />
         </div>
         <PdfRegionSnipOverlay
@@ -59,8 +69,10 @@
 <script setup lang="ts">
 import {
     computed,
+    onBeforeUnmount,
     ref,
     shallowRef,
+    watchEffect,
 } from 'vue';
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import { AnnotationEditorParamsType } from 'pdfjs-dist';
@@ -175,7 +187,7 @@ const viewerHost = ref<HTMLElement | null>(null);
 const viewerContainer = ref<HTMLElement | null>(null);
 const annotationUiManager = shallowRef<AnnotationEditorUIManager | null>(null);
 const annotationL10n = shallowRef<GenericL10n | null>(null);
-const annotationCommentsCache = ref<IAnnotationCommentSummary[]>([]);
+const annotationCommentsCache = shallowRef<IAnnotationCommentSummary[]>([]);
 const activeCommentStableKey = ref<string | null>(null);
 const regionSnip = usePdfRegionSnip({ viewerContainer });
 
@@ -196,6 +208,7 @@ const {
     scrollToPage: scrollToPageInternal,
     updateCurrentPage,
     updateVisibleRange,
+    setUniformLayoutMetrics,
 } = usePdfScroll();
 const {
     isDragging,
@@ -385,7 +398,107 @@ const {
     emit,
 });
 
-const pagesToRender = computed(() => range(1, numPages.value + 1));
+const VIRTUAL_MOUNT_BUFFER_MIN = 6;
+const pageHeightEstimate = computed(() => {
+    const baseHeight = basePageHeight.value;
+    if (!baseHeight) {
+        return 0;
+    }
+    return baseHeight * effectiveScale.value;
+});
+const pageGapEstimate = computed(() => scaledMargin.value);
+
+const virtualizedContinuousMode = computed(() =>
+    continuousScroll.value
+    && viewMode.value === 'single'
+    && numPages.value > 0
+    && pageHeightEstimate.value > 0,
+);
+const virtualMountBuffer = computed(() =>
+    Math.max(VIRTUAL_MOUNT_BUFFER_MIN, bufferPages.value + 2),
+);
+const virtualWindowStart = computed(() => {
+    if (!virtualizedContinuousMode.value) {
+        return 1;
+    }
+    return Math.max(1, visibleRange.value.start - virtualMountBuffer.value);
+});
+const virtualWindowEnd = computed(() => {
+    if (!virtualizedContinuousMode.value) {
+        return numPages.value;
+    }
+    return Math.min(numPages.value, visibleRange.value.end + virtualMountBuffer.value);
+});
+
+function computeVirtualSpacerHeight(hiddenPages: number) {
+    if (hiddenPages <= 0) {
+        return 0;
+    }
+    return hiddenPages * pageHeightEstimate.value
+        + Math.max(0, hiddenPages - 1) * pageGapEstimate.value;
+}
+
+const topVirtualSpacerStyle = computed<Record<string, string> | null>(() => {
+    if (!virtualizedContinuousMode.value) {
+        return null;
+    }
+
+    const hiddenBefore = Math.max(0, virtualWindowStart.value - 1);
+    const spacerHeight = computeVirtualSpacerHeight(hiddenBefore);
+    if (spacerHeight <= 0) {
+        return null;
+    }
+
+    return {height: `${spacerHeight}px`};
+});
+
+const bottomVirtualSpacerStyle = computed<Record<string, string> | null>(() => {
+    if (!virtualizedContinuousMode.value) {
+        return null;
+    }
+
+    const hiddenAfter = Math.max(0, numPages.value - virtualWindowEnd.value);
+    const spacerHeight = computeVirtualSpacerHeight(hiddenAfter);
+    if (spacerHeight <= 0) {
+        return null;
+    }
+
+    return {height: `${spacerHeight}px`};
+});
+
+const pagesToRender = computed(() => {
+    if (numPages.value <= 0) {
+        return [];
+    }
+
+    if (!virtualizedContinuousMode.value) {
+        return range(1, numPages.value + 1);
+    }
+
+    return range(virtualWindowStart.value, virtualWindowEnd.value + 1);
+});
+
+watchEffect(() => {
+    const totalPages = numPages.value;
+    const pageHeight = pageHeightEstimate.value;
+    const gap = pageGapEstimate.value;
+
+    if (viewMode.value === 'single' && totalPages > 0 && pageHeight > 0) {
+        setUniformLayoutMetrics({
+            pageHeight,
+            gap,
+            paddingTop: scaledMargin.value,
+            totalPages,
+        });
+        return;
+    }
+
+    setUniformLayoutMetrics(null);
+});
+
+onBeforeUnmount(() => {
+    setUniformLayoutMetrics(null);
+});
 
 function isSpreadSingle(page: number) {
     return isStandaloneSpreadPage(page, viewMode.value, numPages.value);
@@ -585,6 +698,13 @@ defineExpose({
         box-shadow: none;
         border-radius: inherit;
     }
+}
+
+.pdf-viewer-virtual-spacer {
+    flex-shrink: 0;
+    width: 1px;
+    pointer-events: none;
+    opacity: 0;
 }
 
 .pdfViewer .page_container--rendered .pdf-page-skeleton {

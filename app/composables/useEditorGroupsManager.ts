@@ -28,6 +28,29 @@ const tabs = ref<ITab[]>([]);
 const layout = ref<TEditorLayoutNode | null>(null);
 const activeGroupId = ref<string | null>(null);
 const groupMru = ref<string[]>([]);
+const groupLookup = computed(() => {
+    const map = new Map<string, IEditorGroupState>();
+    for (const group of groups.value) {
+        map.set(group.id, group);
+    }
+    return map;
+});
+const tabLookup = computed(() => {
+    const map = new Map<string, ITab>();
+    for (const tab of tabs.value) {
+        map.set(tab.id, tab);
+    }
+    return map;
+});
+const tabGroupLookup = computed(() => {
+    const map = new Map<string, string>();
+    for (const group of groups.value) {
+        for (const tabId of group.tabIds) {
+            map.set(tabId, group.id);
+        }
+    }
+    return map;
+});
 
 function createGroup(): IEditorGroupState {
     return {
@@ -57,18 +80,19 @@ function getGroupById(id: string | null | undefined) {
     if (!id) {
         return null;
     }
-    return groups.value.find(group => group.id === id) ?? null;
+    return groupLookup.value.get(id) ?? null;
 }
 
 function getTabById(id: string | null | undefined) {
     if (!id) {
         return null;
     }
-    return tabs.value.find(tab => tab.id === id) ?? null;
+    return tabLookup.value.get(id) ?? null;
 }
 
 function getGroupByTabId(tabId: string) {
-    return groups.value.find(group => group.tabIds.includes(tabId)) ?? null;
+    const groupId = tabGroupLookup.value.get(tabId);
+    return groupId ? getGroupById(groupId) : null;
 }
 
 function getGroupTabs(groupId: string) {

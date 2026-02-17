@@ -379,8 +379,6 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         }
 
         const scale = toValue(options.effectiveScale);
-        const containers =
-            containerRoot.querySelectorAll<HTMLDivElement>('.page_container');
 
         for (const batch of chunk(pagesToRenderNow, CONCURRENT_RENDERS)) {
             await Promise.all(
@@ -401,8 +399,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                     renderingPages.set(pageNumber, version);
 
                     try {
-                        const containerIndex = pageNumber - 1;
-                        const container = containers[containerIndex];
+                        const container = getPageContainer(containerRoot, pageNumber - 1);
                         if (!container) {
                             return;
                         }
@@ -767,12 +764,17 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     }
 
     watch(
-        () =>
-            [
+        () => {
+            const match = toValue(currentSearchMatch);
+            return [
                 isLoading.value,
                 toValue(searchPageMatches),
-                toValue(currentSearchMatch),
-            ] as const,
+                match?.pageIndex ?? -1,
+                match?.matchIndex ?? -1,
+                match?.startOffset ?? -1,
+                match?.endOffset ?? -1,
+            ] as const;
+        },
         () => {
             if (isLoading.value) {
                 return;
@@ -796,7 +798,6 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                 searchMatchScroller.requestScrollToMatch(matchPageIndex);
             });
         },
-        { deep: true },
     );
 
     function invalidatePages(pages: number[]) {

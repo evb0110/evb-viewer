@@ -35,7 +35,7 @@
         </div>
         <div
             v-else-if="results.length > 0"
-            class="pdf-search-results-list"
+            class="pdf-search-results-list-shell"
         >
             <div class="pdf-search-results-header">
                 {{ t('searchResults.resultCount', { count: results.length }) }} {{ t('searchResults.forQuery', { query: trimmedQuery }) }}
@@ -46,20 +46,35 @@
                     {{ t('searchResults.showingFirst', { count: results.length }) }}
                 </div>
             </div>
-            <PdfSearchResultItem
-                v-for="(result, index) in results"
-                :key="index"
-                :result="result"
-                :is-active="index === currentResultIndex"
-                :page-labels="pageLabels"
-                @click="$emit('goToResult', index)"
-            />
+            <div
+                v-bind="containerProps"
+                class="pdf-search-results-list app-scrollbar"
+            >
+                <div
+                    v-bind="wrapperProps"
+                    class="pdf-search-results-list-inner"
+                >
+                    <PdfSearchResultItem
+                        v-for="entry in virtualResults"
+                        :key="entry.index"
+                        :result="entry.data"
+                        :is-active="entry.index === currentResultIndex"
+                        :page-labels="pageLabels"
+                        @click="$emit('goToResult', entry.index)"
+                    />
+                </div>
+            </div>
         </div>
     </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import {
+    computed,
+    nextTick,
+    watch,
+} from 'vue';
+import { useVirtualList } from '@vueuse/core';
 import type { IPdfSearchMatch } from '@app/types/pdf';
 import PdfSearchResultItem from '@app/components/pdf/PdfSearchResultItem.vue';
 
@@ -82,6 +97,19 @@ interface IProps {
 const props = defineProps<IProps>();
 
 defineEmits<{(e: 'goToResult', index: number): void;}>();
+
+const SEARCH_RESULT_ITEM_HEIGHT = 72;
+
+const resultsForVirtualization = computed(() => props.results);
+const {
+    list: virtualResults,
+    containerProps,
+    wrapperProps,
+    scrollTo,
+} = useVirtualList(resultsForVirtualization, {
+    itemHeight: SEARCH_RESULT_ITEM_HEIGHT,
+    overscan: 10,
+});
 
 const trimmedQuery = computed(() => props.searchQuery.trim());
 
@@ -106,12 +134,37 @@ const progressText = computed(() => {
     const processed = Math.min(props.searchProgress.processed, total);
     return t('searchResults.pagesProgress', {
         processed,
-        total, 
+        total,
     });
 });
+
+watch(
+    () => [
+        props.currentResultIndex,
+        props.results.length,
+    ] as const,
+    async ([
+        nextIndex,
+        resultCount,
+    ]) => {
+        if (resultCount <= 0 || nextIndex < 0 || nextIndex >= resultCount) {
+            return;
+        }
+
+        await nextTick();
+        scrollTo(nextIndex);
+    },
+    { flush: 'post' },
+);
 </script>
 
 <style scoped>
+.pdf-search-results {
+    display: flex;
+    flex-direction: column;
+    min-height: 100%;
+}
+
 .pdf-search-results-empty {
     display: flex;
     flex-direction: column;
@@ -121,6 +174,13 @@ const progressText = computed(() => {
     padding: 24px;
     color: var(--ui-text-muted);
     text-align: center;
+}
+
+.pdf-search-results-list-shell {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    flex-direction: column;
 }
 
 .pdf-search-results-header {
@@ -150,6 +210,12 @@ const progressText = computed(() => {
 }
 
 .pdf-search-results-list {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+}
+
+.pdf-search-results-list-inner {
     display: flex;
     flex-direction: column;
 }

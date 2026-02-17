@@ -2,12 +2,70 @@ import { ref } from 'vue';
 import type { IScrollSnapshot } from '@app/types/pdf';
 import { clamp } from 'es-toolkit/math';
 
+interface IUniformPageLayoutMetrics {
+    pageHeight: number;
+    gap: number;
+    paddingTop: number;
+    totalPages: number;
+}
+
 export const usePdfScroll = () => {
     const currentPage = ref(1);
     const visibleRange = ref({
         start: 1,
         end: 1, 
     });
+    const uniformLayoutMetrics = ref<IUniformPageLayoutMetrics | null>(null);
+
+    function setUniformLayoutMetrics(metrics: IUniformPageLayoutMetrics | null) {
+        uniformLayoutMetrics.value = metrics;
+    }
+
+    function getVisiblePageRangeFromUniformLayout(
+        container: HTMLElement,
+        totalPages: number,
+    ) {
+        const metrics = uniformLayoutMetrics.value;
+        if (!metrics || metrics.totalPages !== totalPages) {
+            return null;
+        }
+
+        const stride = metrics.pageHeight + metrics.gap;
+        if (stride <= 0) {
+            return null;
+        }
+
+        const viewportTop = Math.max(0, container.scrollTop - metrics.paddingTop);
+        const viewportBottom = viewportTop + container.clientHeight;
+        const start = clamp(Math.floor(viewportTop / stride) + 1, 1, totalPages);
+        const end = clamp(Math.max(start, Math.ceil(viewportBottom / stride)), 1, totalPages);
+
+        return {
+            start,
+            end,
+        };
+    }
+
+    function getMostVisiblePageFromUniformLayout(
+        container: HTMLElement,
+        totalPages: number,
+    ) {
+        const metrics = uniformLayoutMetrics.value;
+        if (!metrics || metrics.totalPages !== totalPages) {
+            return null;
+        }
+
+        const stride = metrics.pageHeight + metrics.gap;
+        if (stride <= 0) {
+            return null;
+        }
+
+        const viewportCenter = Math.max(
+            0,
+            container.scrollTop - metrics.paddingTop + container.clientHeight / 2,
+        );
+        return clamp(Math.floor(viewportCenter / stride) + 1, 1, totalPages);
+    }
 
     function getVisiblePageRange(
         container: HTMLElement | null,
@@ -23,29 +81,37 @@ export const usePdfScroll = () => {
             };
         }
 
+        const uniformRange = getVisiblePageRangeFromUniformLayout(container, totalPages);
+        if (uniformRange) {
+            return uniformRange;
+        }
+
         const containerRect = container.getBoundingClientRect();
         const scrollTop = container.scrollTop;
         const viewportTop = scrollTop;
         const viewportBottom = scrollTop + containerRect.height;
 
-        const pageContainers = container.querySelectorAll('.page_container');
+        const pageContainers = container.querySelectorAll<HTMLElement>('.page_container');
         let firstVisible = 1;
         let lastVisible = 1;
         let foundFirst = false;
 
-        for (let i = 0; i < pageContainers.length; i++) {
-            const pageEl = pageContainers[i] as HTMLElement;
+        for (const pageEl of pageContainers) {
             const pageTop = pageEl.offsetTop;
             const pageBottom = pageTop + pageEl.offsetHeight;
+            const pageNumber = Number.parseInt(pageEl.dataset.page ?? '', 10);
+            if (!Number.isFinite(pageNumber) || pageNumber < 1) {
+                continue;
+            }
 
             const isVisible = pageBottom > viewportTop && pageTop < viewportBottom;
 
             if (isVisible) {
                 if (!foundFirst) {
-                    firstVisible = i + 1;
+                    firstVisible = pageNumber;
                     foundFirst = true;
                 }
-                lastVisible = i + 1;
+                lastVisible = pageNumber;
             } else if (foundFirst) {
                 break;
             }
@@ -65,19 +131,27 @@ export const usePdfScroll = () => {
             return 1;
         }
 
+        const uniformPage = getMostVisiblePageFromUniformLayout(container, totalPages);
+        if (uniformPage !== null) {
+            return uniformPage;
+        }
+
         const containerRect = container.getBoundingClientRect();
         const scrollTop = container.scrollTop;
         const viewportTop = scrollTop;
         const viewportBottom = scrollTop + containerRect.height;
 
-        const pageContainers = container.querySelectorAll('.page_container');
+        const pageContainers = container.querySelectorAll<HTMLElement>('.page_container');
         let mostVisiblePage = 1;
         let maxVisibleArea = 0;
 
-        for (let i = 0; i < pageContainers.length; i++) {
-            const pageEl = pageContainers[i] as HTMLElement;
+        for (const pageEl of pageContainers) {
             const pageTop = pageEl.offsetTop;
             const pageBottom = pageTop + pageEl.offsetHeight;
+            const pageNumber = Number.parseInt(pageEl.dataset.page ?? '', 10);
+            if (!Number.isFinite(pageNumber) || pageNumber < 1) {
+                continue;
+            }
 
             const visibleTop = Math.max(pageTop, viewportTop);
             const visibleBottom = Math.min(pageBottom, viewportBottom);
@@ -85,7 +159,7 @@ export const usePdfScroll = () => {
 
             if (visibleArea > maxVisibleArea) {
                 maxVisibleArea = visibleArea;
-                mostVisiblePage = i + 1;
+                mostVisiblePage = pageNumber;
             }
 
             if (pageTop > viewportBottom) {
@@ -107,8 +181,18 @@ export const usePdfScroll = () => {
         }
 
         const targetPage = clamp(pageNumber, 1, totalPages);
-        const pageContainers = container.querySelectorAll('.page_container');
-        const targetEl = pageContainers[targetPage - 1] as HTMLElement | undefined;
+        const metrics = uniformLayoutMetrics.value;
+        if (metrics && metrics.totalPages === totalPages) {
+            const stride = metrics.pageHeight + metrics.gap;
+            const top = metrics.paddingTop + (targetPage - 1) * stride;
+            container.scrollTop = Math.max(0, top - margin);
+            currentPage.value = targetPage;
+            return;
+        }
+
+        const targetEl = container.querySelector<HTMLElement>(
+            `.page_container[data-page="${targetPage}"]`,
+        );
 
         if (targetEl) {
             container.scrollTop = targetEl.offsetTop - margin;
@@ -177,6 +261,7 @@ export const usePdfScroll = () => {
         visibleRange,
         getVisiblePageRange,
         getMostVisiblePage,
+        setUniformLayoutMetrics,
         scrollToPage,
         captureScrollSnapshot,
         restoreScrollFromSnapshot,

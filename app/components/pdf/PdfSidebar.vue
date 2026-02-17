@@ -93,7 +93,7 @@
             />
             <div
                 v-show="activeTab === 'search'"
-                class="flex min-h-full flex-col"
+                class="flex h-full min-h-0 flex-col"
             >
                 <div class="sticky top-0 z-[1] border-b border-[var(--ui-border)] bg-inherit">
                     <PdfSearchBar
@@ -105,7 +105,7 @@
                         @previous="emit('previous')"
                     />
                 </div>
-                <div class="flex flex-col">
+                <div class="flex min-h-0 flex-col">
                     <PdfSearchResults
                         :results="searchResults"
                         :current-result-index="currentResultIndex"

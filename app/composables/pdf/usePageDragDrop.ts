@@ -17,6 +17,7 @@ interface IPageDragDropDeps {
     totalPages: Ref<number>;
     selectedPages: Ref<number[]>;
     onReorder: (newOrder: number[]) => void;
+    resolveDropIndex?: (clientY: number, container: HTMLElement) => number | null;
     onExternalFileDrop?: (afterPage: number, filePaths: string[]) => void;
 }
 
@@ -26,6 +27,7 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
         totalPages,
         selectedPages,
         onReorder,
+        resolveDropIndex,
         onExternalFileDrop,
     } = deps;
 
@@ -68,13 +70,29 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
     }
 
     function findScrollContainer() {
-        return containerRef.value?.closest('.pdf-sidebar-pages-thumbnails') as HTMLElement | null;
+        const container = containerRef.value;
+        if (!container) {
+            return null;
+        }
+
+        if (container.scrollHeight > container.clientHeight + 1) {
+            return container;
+        }
+
+        return container.closest('.pdf-sidebar-pages-thumbnails') as HTMLElement | null;
     }
 
     function calcDropIndex(clientY: number) {
         const el = containerRef.value;
         if (!el) {
             return 0;
+        }
+
+        if (resolveDropIndex) {
+            const resolved = resolveDropIndex(clientY, el);
+            if (typeof resolved === 'number' && Number.isFinite(resolved)) {
+                return Math.max(0, Math.min(totalPages.value, Math.floor(resolved)));
+            }
         }
 
         const thumbs = el.querySelectorAll('.pdf-thumbnail');

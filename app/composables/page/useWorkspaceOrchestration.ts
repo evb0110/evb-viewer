@@ -587,7 +587,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         onExportPages: (pages: number[]) => {
             void handleExportImages(pages);
         },
-        loadPdfFromData,
+        loadPdfFromPath,
         clearOcrCache: (path: string) => clearOcrCache(path),
         resetSearchCache,
     });

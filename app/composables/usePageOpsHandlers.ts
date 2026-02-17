@@ -16,10 +16,7 @@ export interface IPageOpsHandlersDeps {
     }>;
     closePageContextMenu: () => void;
     onExportPages: (pages: number[]) => void;
-    loadPdfFromData: (data: Uint8Array, opts?: {
-        pushHistory?: boolean;
-        persistWorkingCopy?: boolean;
-    }) => Promise<void>;
+    loadPdfFromPath: (path: string, opts?: { markDirty?: boolean }) => Promise<void>;
     clearOcrCache: (path: string) => void;
     resetSearchCache: () => void;
 }
@@ -35,7 +32,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         pageContextMenu,
         closePageContextMenu,
         onExportPages,
-        loadPdfFromData,
+        loadPdfFromPath,
         clearOcrCache,
         resetSearchCache,
     } = deps;
@@ -50,7 +47,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         reorderPages: pageOpsReorder,
     } = usePageOperations({
         workingCopyPath,
-        loadPdfFromData,
+        loadPdfFromPath,
         clearOcrCache: (path: string) => clearOcrCache(path),
         resetSearchCache,
     });

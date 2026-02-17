@@ -18,16 +18,68 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const log = createLogger('ocr-ipc');
+const OCR_WORKER_POOL_SIZE = (() => {
+    const parsed = Number.parseInt(process.env.EVB_OCR_WORKER_POOL_SIZE ?? '2', 10);
+    if (!Number.isFinite(parsed) || parsed < 1) {
+        return 2;
+    }
+    return parsed;
+})();
 
-interface IOcrJob {
+interface IOcrPdfPageRequest {
+    pageNumber: number;
+    languages: string[];
+}
+
+interface IOcrQueuedJob {
     jobId: string;
-    worker: Worker;
     webContentsId: number;
+    originalPdfData: Uint8Array;
+    pages: IOcrPdfPageRequest[];
+    workingCopyPath?: string;
+    renderDpi?: number;
+}
+
+interface IOcrActiveJob extends IOcrQueuedJob {
+    worker: Worker;
     completed: boolean;
     terminatedByUs: boolean;
 }
 
-const activeJobs = new Map<string, IOcrJob>();
+type TWorkerMessage = {
+    type: 'progress' | 'complete' | 'log';
+    jobId?: string;
+    progress?: {
+        requestId: string;
+        currentPage: number;
+        processedCount: number;
+        totalPages: number;
+    };
+    result?: {
+        success: boolean;
+        pdfData: Uint8Array | null;
+        pdfPath?: string;
+        errors: string[];
+    };
+    level?: string;
+    message?: string;
+};
+
+const activeJobs = new Map<string, IOcrActiveJob>();
+const queuedJobs: IOcrQueuedJob[] = [];
+const queuedJobIds = new Set<string>();
+const cancelledJobs = new Set<string>();
+
+function asTransferableBytes(bytes: Uint8Array) {
+    if (
+        bytes.buffer instanceof ArrayBuffer
+        && bytes.byteOffset === 0
+        && bytes.byteLength === bytes.buffer.byteLength
+    ) {
+        return bytes;
+    }
+    return bytes.slice();
+}
 
 export function safeSendToWindow(
     window: BrowserWindow | null | undefined,
@@ -49,6 +101,12 @@ export function safeSendToWindow(
     } catch (err) {
         log.debug(`Failed to send IPC message to channel "${channel}": ${err instanceof Error ? err.message : String(err)}`);
     }
+}
+
+function getJobWindow(webContentsId: number) {
+    return BrowserWindow.getAllWindows().find(
+        window => window.webContents.id === webContentsId,
+    );
 }
 
 function getWorkerPath(): string {
@@ -84,29 +142,38 @@ function createOcrWorker(): Worker {
     }});
 }
 
+function removeQueuedJob(jobId: string) {
+    const index = queuedJobs.findIndex(job => job.jobId === jobId);
+    if (index === -1) {
+        return null;
+    }
+
+    const [job] = queuedJobs.splice(index, 1);
+    queuedJobIds.delete(jobId);
+    return job ?? null;
+}
+
+function sendJobFailure(job: IOcrQueuedJob, error: string) {
+    const window = getJobWindow(job.webContentsId);
+    safeSendToWindow(window, 'ocr:complete', {
+        requestId: job.jobId,
+        success: false,
+        pdfData: null,
+        errors: [error],
+    });
+}
+
+function finalizeActiveJob(jobId: string) {
+    activeJobs.delete(jobId);
+    dispatchQueuedJobs();
+}
+
 function handleWorkerMessage(
     jobId: string,
     webContentsId: number,
-    message: {
-        type: 'progress' | 'complete' | 'log';
-        jobId?: string;
-        progress?: {
-            requestId: string;
-            currentPage: number;
-            processedCount: number;
-            totalPages: number;
-        };
-        result?: {
-            success: boolean;
-            pdfData: number[] | null;
-            pdfPath?: string;
-            errors: string[];
-        };
-        level?: string;
-        message?: string;
-    },
+    message: TWorkerMessage,
 ) {
-    const window = BrowserWindow.getAllWindows().find(w => w.webContents.id === webContentsId);
+    const window = getJobWindow(webContentsId);
 
     if (message.type === 'log') {
         const logLevel = message.level || 'debug';
@@ -135,16 +202,97 @@ function handleWorkerMessage(
         if (job) {
             job.completed = true;
             job.terminatedByUs = true;
-            job.worker.terminate();
-            activeJobs.delete(jobId);
+            void job.worker.terminate();
         }
         return;
     }
 }
 
-interface IOcrPdfPageRequest {
-    pageNumber: number;
-    languages: string[];
+function startQueuedJob(job: IOcrQueuedJob) {
+    queuedJobIds.delete(job.jobId);
+
+    const worker = createOcrWorker();
+    const activeJob: IOcrActiveJob = {
+        ...job,
+        worker,
+        completed: false,
+        terminatedByUs: false,
+    };
+    activeJobs.set(job.jobId, activeJob);
+
+    worker.on('message', (message: TWorkerMessage) => {
+        handleWorkerMessage(job.jobId, job.webContentsId, message);
+    });
+
+    worker.on('error', (err: Error) => {
+        if (cancelledJobs.has(job.jobId)) {
+            cancelledJobs.delete(job.jobId);
+            finalizeActiveJob(job.jobId);
+            return;
+        }
+
+        log.debug(`Worker error for job ${job.jobId}: ${err.message}`);
+        const active = activeJobs.get(job.jobId);
+        if (active) {
+            active.completed = true;
+        }
+        sendJobFailure(job, `Worker error: ${err.message}`);
+        finalizeActiveJob(job.jobId);
+    });
+
+    worker.on('exit', (code) => {
+        const wasCanceled = cancelledJobs.has(job.jobId);
+        if (wasCanceled) {
+            cancelledJobs.delete(job.jobId);
+        }
+
+        const active = activeJobs.get(job.jobId);
+        const wasCompletedOrTerminated = wasCanceled || active?.completed || active?.terminatedByUs;
+
+        if (code !== 0 && !wasCompletedOrTerminated) {
+            log.debug(`Worker exited with code ${code} for job ${job.jobId}`);
+            sendJobFailure(job, `Worker exited unexpectedly with code ${code}`);
+        }
+
+        finalizeActiveJob(job.jobId);
+    });
+
+    try {
+        const transferPdfData = asTransferableBytes(job.originalPdfData);
+        worker.postMessage({
+            type: 'start',
+            jobId: job.jobId,
+            data: {
+                originalPdfData: transferPdfData,
+                pages: job.pages,
+                workingCopyPath: job.workingCopyPath,
+                renderDpi: job.renderDpi,
+            },
+        }, [transferPdfData.buffer as ArrayBuffer]);
+    } catch (error) {
+        const errMsg = error instanceof Error ? error.message : String(error);
+        sendJobFailure(job, `Failed to post OCR job to worker: ${errMsg}`);
+        const active = activeJobs.get(job.jobId);
+        if (active) {
+            active.completed = true;
+            active.terminatedByUs = true;
+            void active.worker.terminate();
+        }
+        finalizeActiveJob(job.jobId);
+        return;
+    }
+
+    log.debug(`OCR job ${job.jobId} started in worker thread`);
+}
+
+function dispatchQueuedJobs() {
+    while (activeJobs.size < OCR_WORKER_POOL_SIZE && queuedJobs.length > 0) {
+        const nextJob = queuedJobs.shift();
+        if (!nextJob) {
+            return;
+        }
+        startQueuedJob(nextJob);
+    }
 }
 
 export async function handleOcrCreateSearchablePdfAsync(
@@ -162,69 +310,28 @@ export async function handleOcrCreateSearchablePdfAsync(
     log.debug(`handleOcrCreateSearchablePdfAsync called: pdfLen=${originalPdfData.length}, pages=${pages.length}, reqId=${requestId}, dpi=${renderDpi}`);
 
     try {
+        if (activeJobs.has(requestId) || queuedJobIds.has(requestId)) {
+            return {
+                started: false,
+                jobId: requestId,
+                error: `OCR job with id "${requestId}" already exists`,
+            };
+        }
+
         const languages = Array.from(new Set(pages.flatMap(page => page.languages)));
         await ensureTessdataLanguages(languages);
 
-        const worker = createOcrWorker();
-        const webContentsId = event.sender.id;
-
-        activeJobs.set(requestId, {
+        const queuedJob: IOcrQueuedJob = {
             jobId: requestId,
-            worker,
-            webContentsId,
-            completed: false,
-            terminatedByUs: false,
-        });
-
-        worker.on('message', (message) => {
-            handleWorkerMessage(requestId, webContentsId, message);
-        });
-
-        worker.on('error', (err: Error) => {
-            log.debug(`Worker error for job ${requestId}: ${err.message}`);
-            const job = activeJobs.get(requestId);
-            if (job) {
-                job.completed = true;
-            }
-            const window = BrowserWindow.getAllWindows().find(w => w.webContents.id === webContentsId);
-            safeSendToWindow(window, 'ocr:complete', {
-                requestId,
-                success: false,
-                pdfData: null,
-                errors: [`Worker error: ${err.message}`],
-            });
-            activeJobs.delete(requestId);
-        });
-
-        worker.on('exit', (code) => {
-            const job = activeJobs.get(requestId);
-            const wasCompletedOrTerminated = job?.completed || job?.terminatedByUs;
-
-            if (code !== 0 && !wasCompletedOrTerminated) {
-                log.debug(`Worker exited with code ${code} for job ${requestId}`);
-                const window = BrowserWindow.getAllWindows().find(w => w.webContents.id === webContentsId);
-                safeSendToWindow(window, 'ocr:complete', {
-                    requestId,
-                    success: false,
-                    pdfData: null,
-                    errors: [`Worker exited unexpectedly with code ${code}`],
-                });
-            }
-            activeJobs.delete(requestId);
-        });
-
-        worker.postMessage({
-            type: 'start',
-            jobId: requestId,
-            data: {
-                originalPdfData,
-                pages,
-                workingCopyPath,
-                renderDpi,
-            },
-        });
-
-        log.debug(`OCR job ${requestId} started in worker thread`);
+            webContentsId: event.sender.id,
+            originalPdfData,
+            pages,
+            workingCopyPath,
+            renderDpi,
+        };
+        queuedJobs.push(queuedJob);
+        queuedJobIds.add(requestId);
+        dispatchQueuedJobs();
 
         return {
             started: true,
@@ -232,7 +339,7 @@ export async function handleOcrCreateSearchablePdfAsync(
         };
     } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
-        log.debug(`Failed to start OCR worker: ${errMsg}`);
+        log.debug(`Failed to queue OCR worker job: ${errMsg}`);
         return {
             started: false,
             jobId: requestId,
@@ -246,16 +353,24 @@ export function handleOcrCancel(
     requestId: string,
 ): { canceled: boolean } {
     log.info(`[${requestId}] Cancel requested`);
-    const job = activeJobs.get(requestId);
-    if (!job) {
-        log.info(`[${requestId}] No active job found for cancel`);
+
+    const queued = removeQueuedJob(requestId);
+    if (queued) {
+        log.info(`[${requestId}] Queued OCR job cancelled`);
+        return { canceled: true };
+    }
+
+    const activeJob = activeJobs.get(requestId);
+    if (!activeJob) {
+        log.info(`[${requestId}] No active OCR job found for cancel`);
         return { canceled: false };
     }
 
-    job.completed = true;
-    job.terminatedByUs = true;
-    job.worker.terminate();
-    activeJobs.delete(requestId);
-    log.info(`[${requestId}] Job cancelled and worker terminated`);
+    activeJob.completed = true;
+    activeJob.terminatedByUs = true;
+    cancelledJobs.add(requestId);
+    void activeJob.worker.terminate();
+    finalizeActiveJob(requestId);
+    log.info(`[${requestId}] Active OCR job cancelled`);
     return { canceled: true };
 }

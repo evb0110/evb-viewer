@@ -1,6 +1,7 @@
 import {
     computed,
     ref,
+    shallowRef,
 } from 'vue';
 import {
     getElectronAPI,
@@ -23,16 +24,17 @@ export const usePdfFile = () => {
     const { t } = useTypedI18n();
 
     const pdfSrc = ref<TPdfSource | null>(null);
-    const pdfData = ref<Uint8Array | null>(null);
+    const pdfData = shallowRef<Uint8Array | null>(null);
     const workingCopyPath = ref<string | null>(null);
     const originalPath = ref<string | null>(null);
     const error = ref<string | null>(null);
     const isDirty = ref(false);
-    const history = ref<Uint8Array[]>([]);
+    const history = shallowRef<Uint8Array[]>([]);
     const historyIndex = ref(0);
-    const historyCleanIndex = ref(0);
+    const historyCleanIndex = ref(-1);
     const requiresSaveAsOnFirstSave = ref(false);
-    const MAX_HISTORY = 20;
+    const MAX_HISTORY_ENTRIES = 20;
+    const MAX_HISTORY_BYTES = 200 * 1024 * 1024;
 
     const { clearCache: clearOcrCache } = useOcrTextContent();
 
@@ -160,6 +162,10 @@ export const usePdfFile = () => {
 
     const MAX_IN_MEMORY_PDF_BYTES = 256 * 1024 * 1024;
 
+    function getHistoryBytes(snapshots: Uint8Array[]) {
+        return snapshots.reduce((total, snapshot) => total + snapshot.byteLength, 0);
+    }
+
     function resetHistory(snapshot: Uint8Array | null) {
         if (snapshot) {
             history.value = [snapshot.slice()];
@@ -168,14 +174,16 @@ export const usePdfFile = () => {
         } else {
             history.value = [];
             historyIndex.value = 0;
-            historyCleanIndex.value = 0;
+            historyCleanIndex.value = -1;
         }
     }
 
     function syncDirtyFromHistory() {
-        if (history.value.length > 0) {
-            isDirty.value = historyIndex.value !== historyCleanIndex.value;
+        if (history.value.length === 0) {
+            isDirty.value = false;
+            return;
         }
+        isDirty.value = historyCleanIndex.value < 0 || historyIndex.value !== historyCleanIndex.value;
     }
 
     async function loadPdfFromPath(path: string, opts?: { markDirty?: boolean }) {
@@ -245,16 +253,31 @@ export const usePdfFile = () => {
         const truncated = history.value.slice(0, historyIndex.value + 1);
         truncated.push(snapshot.slice());
 
-        let offset = 0;
         let nextHistory = truncated;
-        if (nextHistory.length > MAX_HISTORY) {
-            offset = nextHistory.length - MAX_HISTORY;
-            nextHistory = nextHistory.slice(offset);
+        let removedFromStart = 0;
+
+        while (nextHistory.length > MAX_HISTORY_ENTRIES) {
+            nextHistory = nextHistory.slice(1);
+            removedFromStart += 1;
+        }
+
+        let totalBytes = getHistoryBytes(nextHistory);
+        while (nextHistory.length > 1 && totalBytes > MAX_HISTORY_BYTES) {
+            totalBytes -= nextHistory[0]?.byteLength ?? 0;
+            nextHistory = nextHistory.slice(1);
+            removedFromStart += 1;
+        }
+
+        if (historyCleanIndex.value >= 0) {
+            if (removedFromStart > historyCleanIndex.value) {
+                historyCleanIndex.value = -1;
+            } else {
+                historyCleanIndex.value -= removedFromStart;
+            }
         }
 
         history.value = nextHistory;
         historyIndex.value = history.value.length - 1;
-        historyCleanIndex.value = Math.max(0, historyCleanIndex.value - offset);
         syncDirtyFromHistory();
     }
 
