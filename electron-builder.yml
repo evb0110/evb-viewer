@@ -2,7 +2,11 @@ appId: com.evb.viewer
 productName: EVB Viewer
 copyright: Copyright © 2026 Eugene Barsky
 
-asar: false
+asar: true
+asarUnpack:
+  - nuxt-output/server/**/*
+  - dist-electron/ocr-worker.js
+  - dist-electron/pdf-combine-worker.js
 npmRebuild: false
 afterPack: ./scripts/afterPack.cjs
 afterSign: ./scripts/afterSign.cjs
@@ -11,12 +15,22 @@ files:
   - dist-electron/
   - nuxt-output/
   - package.json
+  - "!nuxt-output/**/*.map"
+  - "!dist-electron/**/*.map"
+  - "!**/node_modules/**/*.map"
+  - "!**/node_modules/**/*.d.ts"
+  - "!**/node_modules/**/*.d.mts"
+  - "!**/node_modules/**/*.d.cts"
+  - "!**/node_modules/**/*.md"
+  - "!**/node_modules/**/README*"
   - "!.devkit/**/*"
   - "!.devkit"
 
 extraResources:
   - from: resources/tesseract/tessdata
     to: tesseract/tessdata
+    filter:
+      - eng.traineddata
   - from: resources/icon.png
     to: icon.png
 

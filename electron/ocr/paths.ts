@@ -9,6 +9,10 @@ import {
     join,
 } from 'path';
 import { fileURLToPath } from 'url';
+import {
+    ensureRuntimeTessdataSeededSync,
+    getRuntimeTessdataDir,
+} from '@electron/ocr/language-models';
 import { resolvePlatformArchTag } from '@electron/utils/platform-arch';
 
 interface IOcrPaths {
@@ -139,7 +143,8 @@ export function getOcrPaths(): IOcrPaths {
         ? join(platformDir, 'bin', 'tesseract.exe')
         : join(platformDir, 'bin', 'tesseract');
 
-    const tessdata = join(tesseractDir, 'tessdata');
+    ensureRuntimeTessdataSeededSync();
+    const tessdata = getRuntimeTessdataDir();
 
     return {
         binary,
@@ -155,7 +160,8 @@ export function getOcrToolPaths(): IOcrToolPaths {
     const tesseractDir = join(resourcesBase, 'tesseract');
     const tesseractPlatformDir = join(tesseractDir, platformArch);
     const tesseract = getBinaryPath(tesseractPlatformDir, 'tesseract');
-    const tessdata = join(tesseractDir, 'tessdata');
+    ensureRuntimeTessdataSeededSync();
+    const tessdata = getRuntimeTessdataDir();
 
     // Poppler paths (pdftoppm, pdftotext)
     const popplerDir = join(resourcesBase, 'poppler', platformArch);

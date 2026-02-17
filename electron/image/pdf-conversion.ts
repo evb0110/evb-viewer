@@ -1,4 +1,5 @@
-import { nativeImage } from 'electron';
+import {nativeImage} from 'electron';
+import { existsSync } from 'fs';
 import { readFile } from 'fs/promises';
 import {
     basename,
@@ -311,7 +312,13 @@ function canCombineInWorker(inputPaths: string[]): boolean {
 }
 
 function getCombineWorkerPath(): string {
-    return join(__dirname, COMBINE_WORKER_FILENAME);
+    const defaultPath = join(__dirname, COMBINE_WORKER_FILENAME);
+    const unpackedPath = defaultPath.replace('app.asar', 'app.asar.unpacked');
+    if (unpackedPath !== defaultPath && existsSync(unpackedPath)) {
+        return unpackedPath;
+    }
+
+    return defaultPath;
 }
 
 function decodeWorkerPdfBytes(data: unknown): Uint8Array | null {

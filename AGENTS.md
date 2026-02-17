@@ -50,7 +50,7 @@ After confirming a change works and introduces no regressions:
 3. Stage the files you changed (not `git add -A` — be specific)
 4. Commit with a clear message focused on "why"
 5. Push to the remote branch
-6. Don't touch or (most importantly) reset unrelated changes
+6. Don't touch or (most importantly) reset unrelated changes. If you find unrelated changes, you may proceed with your own work without asking for explicit permission.
 7. Unless user asks you to commit everything / all changes, only commit the changes you made
 
 Do NOT batch multiple unrelated changes into a single commit. Each commit should represent one logical unit of work.

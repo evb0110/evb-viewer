@@ -1,4 +1,5 @@
 import { app } from 'electron';
+import { existsSync } from 'fs';
 import {
     dirname,
     join,
@@ -17,6 +18,16 @@ export const config = {
             return `http://localhost:${this.port}`;
         },
         get entryPath() {
+            if (app.isPackaged) {
+                const unpackedPath = join(process.resourcesPath, 'app.asar.unpacked', 'nuxt-output', 'server', 'index.mjs');
+                if (existsSync(unpackedPath)) {
+                    return unpackedPath;
+                }
+
+                // Fallback for legacy non-asar layouts.
+                return join(process.resourcesPath, 'nuxt-output', 'server', 'index.mjs');
+            }
+
             return join(__dirname, '../nuxt-output/server/index.mjs');
         },
     },

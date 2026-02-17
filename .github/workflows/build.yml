@@ -25,13 +25,10 @@ jobs:
             platform: linux
             arch: arm64
 
-          # Windows — x64 runner builds both; arm64 is cross-compiled
+          # Windows — x64 runner builds both installers; arm64 is cross-compiled
           - os: windows-latest
             platform: win
             arch: x64
-          - os: windows-latest
-            platform: win
-            arch: arm64
 
     runs-on: ${{ matrix.os }}
 
@@ -55,6 +52,13 @@ jobs:
         shell: pwsh
         run: pnpm config set script-shell "C:\Program Files\Git\bin\bash.exe"
 
+      - name: Cache Windows native tool archives
+        if: runner.os == 'Windows'
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/win-bundle-cache
+          key: win-native-tools-${{ hashFiles('scripts/bundle-tools-windows.sh') }}
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -74,15 +78,22 @@ jobs:
         if: runner.os == 'Linux'
         run: bash scripts/bundle-tools-linux.sh
 
-      # Windows: download pre-built release ZIPs
-      # TARGET_ARCH tells the script where to place binaries (win32-x64 or win32-arm64).
-      # For arm64, x64 binaries are bundled — they run via WoW64 emulation.
+      # Windows: download pre-built release ZIPs once and bundle both targets.
+      # arm64 bundles x64 binaries that run via WoW64.
       - name: Bundle native tools (Windows)
         if: runner.os == 'Windows'
         shell: bash
         env:
-          TARGET_ARCH: ${{ matrix.arch }}
-        run: bash scripts/bundle-tools-windows.sh
+          WIN_BUNDLE_CACHE_DIR: ${{ runner.temp }}/win-bundle-cache
+        run: |
+          TARGET_ARCH=x64 bash scripts/bundle-tools-windows.sh
+          for tool in tesseract poppler qpdf djvulibre; do
+            src="resources/${tool}/win32-x64"
+            dst="resources/${tool}/win32-arm64"
+            rm -rf "$dst"
+            mkdir -p "$dst"
+            cp -a "$src/." "$dst/"
+          done
 
       - name: Build (Nuxt + Electron)
         run: pnpm run build
@@ -240,7 +251,7 @@ jobs:
 
           ATTEMPTS=3
           for attempt in $(seq 1 $ATTEMPTS); do
-            if pnpm exec electron-builder --win --${{ matrix.arch }}; then
+            if pnpm exec electron-builder --win --x64 --arm64; then
               exit 0
             fi
             if [ "$attempt" -lt "$ATTEMPTS" ]; then
@@ -257,24 +268,34 @@ jobs:
         env:
           WIN_EXPECT_SIGNATURE: ${{ env.WIN_EXPECT_SIGNATURE }}
         run: |
-          $exe = Get-ChildItem -Path dist -Filter *.exe | Select-Object -First 1
-          if (-not $exe) {
+          $executables = Get-ChildItem -Path dist -Filter *.exe
+          if (-not $executables) {
             Write-Error "No .exe artifact found in dist/"
             exit 1
           }
 
-          $sig = Get-AuthenticodeSignature -FilePath $exe.FullName
-          Write-Host "Installer: $($exe.Name)"
-          Write-Host "Authenticode status: $($sig.Status)"
+          foreach ($exe in $executables) {
+            $sig = Get-AuthenticodeSignature -FilePath $exe.FullName
+            Write-Host "Installer: $($exe.Name)"
+            Write-Host "Authenticode status: $($sig.Status)"
 
-          if ($env:WIN_EXPECT_SIGNATURE -eq "true" -and $sig.Status -ne "Valid") {
-            Write-Error "Windows installer is not validly signed"
-            exit 1
+            if ($env:WIN_EXPECT_SIGNATURE -eq "true" -and $sig.Status -ne "Valid") {
+              Write-Error "Windows installer is not validly signed"
+              exit 1
+            }
           }
 
       - name: Verify packaged native tools
+        if: runner.os != 'Windows'
         shell: bash
         run: bash scripts/verify-packaged-native-tools.sh "${{ matrix.platform }}" "${{ matrix.arch }}"
+
+      - name: Verify packaged native tools (Windows x64 + arm64)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          bash scripts/verify-packaged-native-tools.sh win x64
+          bash scripts/verify-packaged-native-tools.sh win arm64
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

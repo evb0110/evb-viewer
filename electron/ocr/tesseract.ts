@@ -1,4 +1,5 @@
 import { spawn } from 'child_process';
+import { ensureTessdataLanguages } from '@electron/ocr/language-models';
 import { getOcrPaths } from '@electron/ocr/paths';
 import { resolveTesseractLanguageConfig } from '@electron/ocr/tesseract-language-config';
 
@@ -35,11 +36,13 @@ export async function runOcr(
     languages: string[],
     options?: TTesseractSpawnOptions,
 ): Promise<IOcrResult> {
+    const languageConfig = resolveTesseractLanguageConfig(languages);
+    await ensureTessdataLanguages(languageConfig.orderedLanguages);
+
     const {
         binary,
         tessdata,
     } = getOcrPaths();
-    const languageConfig = resolveTesseractLanguageConfig(languages);
 
     const args = [
         'stdin',

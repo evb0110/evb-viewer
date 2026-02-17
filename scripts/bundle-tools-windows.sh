@@ -8,6 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 RESOURCES_DIR="$PROJECT_ROOT/resources"
 TEMP_DIR="/tmp/win-bundle-$$"
+CACHE_DIR="${WIN_BUNDLE_CACHE_DIR:-$PROJECT_ROOT/.cache/win-tools}"
 source "$SCRIPT_DIR/win-system-dll-pattern.sh"
 
 # TARGET_ARCH can be set by CI for cross-compilation (e.g., arm64 on x64 runner).
@@ -20,6 +21,7 @@ echo "Bundling native tools for $PLATFORM_ARCH"
 echo "=========================================="
 
 mkdir -p "$TEMP_DIR"
+mkdir -p "$CACHE_DIR"
 
 # ==========================================
 # Version configuration
@@ -37,8 +39,20 @@ DJVULIBRE_SF_PATH="DjVuLibre_Windows/3.5.28%2B4.12"
 download() {
   local url="$1"
   local dest="$2"
-  echo "  Downloading: $(basename "$dest")"
-  curl -fSL --retry 3 --retry-delay 5 -o "$dest" "$url"
+  local cache_key="${3:-$(basename "$dest")}"
+  local cache_path="$CACHE_DIR/$cache_key"
+
+  if [ -s "$cache_path" ]; then
+    echo "  Using cache: $cache_key"
+    cp "$cache_path" "$dest"
+    return
+  fi
+
+  echo "  Downloading: $cache_key"
+  local temp_cache="${cache_path}.part-$$"
+  curl -fSL --retry 3 --retry-delay 5 -o "$temp_cache" "$url"
+  mv "$temp_cache" "$cache_path"
+  cp "$cache_path" "$dest"
 }
 
 require_file() {
@@ -171,7 +185,7 @@ TESSERACT_DIR="$RESOURCES_DIR/tesseract/$PLATFORM_ARCH"
 clean_dir "$TESSERACT_DIR/bin"
 
 TESSERACT_URL="https://github.com/UB-Mannheim/tesseract/releases/download/${TESSERACT_TAG}/${TESSERACT_INSTALLER}"
-download "$TESSERACT_URL" "$TEMP_DIR/tesseract-setup.exe"
+download "$TESSERACT_URL" "$TEMP_DIR/tesseract-setup.exe" "tesseract-${TESSERACT_TAG}.exe"
 
 echo "  Extracting with 7z..."
 7z x -y "$TEMP_DIR/tesseract-setup.exe" -o"$TEMP_DIR/tesseract" > /dev/null 2>&1
@@ -201,7 +215,7 @@ POPPLER_DIR="$RESOURCES_DIR/poppler/$PLATFORM_ARCH"
 clean_dir "$POPPLER_DIR/bin"
 
 POPPLER_URL="https://github.com/oschwartz10612/poppler-windows/releases/download/v${POPPLER_VERSION}-0/Release-${POPPLER_VERSION}-0.zip"
-download "$POPPLER_URL" "$TEMP_DIR/poppler.zip"
+download "$POPPLER_URL" "$TEMP_DIR/poppler.zip" "poppler-${POPPLER_VERSION}.zip"
 
 echo "  Extracting..."
 unzip -qo "$TEMP_DIR/poppler.zip" -d "$TEMP_DIR/poppler"
@@ -240,7 +254,7 @@ QPDF_DIR="$RESOURCES_DIR/qpdf/$PLATFORM_ARCH"
 clean_dir "$QPDF_DIR/bin"
 
 QPDF_URL="https://github.com/qpdf/qpdf/releases/download/v${QPDF_VERSION}/qpdf-${QPDF_VERSION}-msvc64.zip"
-download "$QPDF_URL" "$TEMP_DIR/qpdf.zip"
+download "$QPDF_URL" "$TEMP_DIR/qpdf.zip" "qpdf-${QPDF_VERSION}.zip"
 
 echo "  Extracting..."
 unzip -qo "$TEMP_DIR/qpdf.zip" -d "$TEMP_DIR/qpdf"
@@ -276,7 +290,7 @@ if ! command -v objdump >/dev/null 2>&1; then
 fi
 
 DJVULIBRE_URL="https://sourceforge.net/projects/djvu/files/${DJVULIBRE_SF_PATH}/${DJVULIBRE_INSTALLER}/download"
-download "$DJVULIBRE_URL" "$TEMP_DIR/djvulibre-setup.exe"
+download "$DJVULIBRE_URL" "$TEMP_DIR/djvulibre-setup.exe" "djvulibre-${DJVULIBRE_SF_PATH//\//_}.exe"
 
 echo "  Extracting with 7z..."
 7z x -y "$TEMP_DIR/djvulibre-setup.exe" -o"$TEMP_DIR/djvulibre" > /dev/null 2>&1

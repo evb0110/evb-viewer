@@ -33,6 +33,11 @@ export default defineNuxtConfig({
 
     colorMode: {preference: 'light'},
 
+    sourcemap: {
+        server: false,
+        client: false,
+    },
+
     i18n: {
         restructureDir: 'app',
         locales: LOCALE_DEFINITIONS,
@@ -185,6 +190,7 @@ export default defineNuxtConfig({
     },
 
     nitro: {
+        sourceMap: false,
         output: { dir: 'nuxt-output' },
     },
 

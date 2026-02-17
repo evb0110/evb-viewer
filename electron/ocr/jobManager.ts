@@ -7,8 +7,10 @@ import {
     dirname,
     join,
 } from 'path';
+import { existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { Worker } from 'worker_threads';
+import { ensureTessdataLanguages } from '@electron/ocr/language-models';
 import { getOcrToolPaths } from '@electron/ocr/paths';
 import { createLogger } from '@electron/utils/logger';
 
@@ -50,7 +52,17 @@ export function safeSendToWindow(
 }
 
 function getWorkerPath(): string {
-    return join(__dirname, 'ocr-worker.js');
+    const defaultPath = join(__dirname, 'ocr-worker.js');
+    if (!app?.isPackaged) {
+        return defaultPath;
+    }
+
+    const unpackedPath = defaultPath.replace('app.asar', 'app.asar.unpacked');
+    if (unpackedPath !== defaultPath && existsSync(unpackedPath)) {
+        return unpackedPath;
+    }
+
+    return defaultPath;
 }
 
 function createOcrWorker(): Worker {
@@ -135,21 +147,24 @@ interface IOcrPdfPageRequest {
     languages: string[];
 }
 
-export function handleOcrCreateSearchablePdfAsync(
+export async function handleOcrCreateSearchablePdfAsync(
     event: IpcMainInvokeEvent,
     originalPdfData: Uint8Array,
     pages: IOcrPdfPageRequest[],
     requestId: string,
     workingCopyPath?: string,
     renderDpi?: number,
-): {
+): Promise<{
     started: boolean;
     jobId: string;
     error?: string;
-} {
+}> {
     log.debug(`handleOcrCreateSearchablePdfAsync called: pdfLen=${originalPdfData.length}, pages=${pages.length}, reqId=${requestId}, dpi=${renderDpi}`);
 
     try {
+        const languages = Array.from(new Set(pages.flatMap(page => page.languages)));
+        await ensureTessdataLanguages(languages);
+
         const worker = createOcrWorker();
         const webContentsId = event.sender.id;
 
