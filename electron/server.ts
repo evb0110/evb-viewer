@@ -228,10 +228,6 @@ export async function startServer() {
                 ELECTRON_RUN_AS_NODE: '1',
                 EVB_VIEWER_NUXT_INTERNAL: '1',
                 PORT: String(config.server.port),
-                // Nuxt server runs from app.asar.unpacked/, but node_modules lives
-                // inside app.asar (a sibling dir). ESM resolution only walks parent
-                // directories, so it never finds the asar. NODE_PATH bridges the gap.
-                NODE_PATH: join(process.resourcesPath, 'app.asar', 'node_modules'),
             },
             stdio: [
                 'inherit',

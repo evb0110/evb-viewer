@@ -19,6 +19,14 @@ export const config = {
         },
         get entryPath() {
             if (app.isPackaged) {
+                // Keep Nuxt server inside app.asar so Node ESM can resolve
+                // bare package imports from app.asar/node_modules.
+                const asarPath = join(process.resourcesPath, 'app.asar', 'nuxt-output', 'server', 'index.mjs');
+                if (existsSync(asarPath)) {
+                    return asarPath;
+                }
+
+                // Legacy fallback for older builds that unpacked Nuxt output.
                 const unpackedPath = join(process.resourcesPath, 'app.asar.unpacked', 'nuxt-output', 'server', 'index.mjs');
                 if (existsSync(unpackedPath)) {
                     return unpackedPath;
