@@ -128,6 +128,12 @@ export default withNuxt(
         },
     },
     {
+        files: ['landing/app/pages/**/*.vue'],
+        rules: {
+            'vue/multi-word-component-names': 'off',
+        },
+    },
+    {
         files: ['**/*.vue'],
         plugins: {custom: customPlugin},
         languageOptions: {parserOptions: {projectService: true}},

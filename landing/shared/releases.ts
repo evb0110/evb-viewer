@@ -1,7 +1,7 @@
-export type ReleasePlatform = 'macos' | 'windows' | 'linux' | 'unknown';
-export type ReleaseArch = 'arm64' | 'x64' | 'universal' | 'unknown';
+export type TReleasePlatform = 'macos' | 'windows' | 'linux' | 'unknown';
+export type TReleaseArch = 'arm64' | 'x64' | 'universal' | 'unknown';
 
-export interface ReleaseInstaller {
+export interface IReleaseInstaller {
     id: number
     name: string
     downloadUrl: string
@@ -9,28 +9,28 @@ export interface ReleaseInstaller {
     updatedAt: string
     contentType: string
     extension: string
-    platform: ReleasePlatform
-    arch: ReleaseArch
+    platform: TReleasePlatform
+    arch: TReleaseArch
 }
 
-export interface ReleaseSummary {
+export interface IReleaseSummary {
     tag: string
     name: string
     publishedAt: string
     htmlUrl: string
 }
 
-export interface UserAgentProfile {
-    platform: ReleasePlatform
-    arch: ReleaseArch
+export interface IUserAgentProfile {
+    platform: TReleasePlatform
+    arch: TReleaseArch
 }
 
-export interface LatestReleaseResponse {
-    release: ReleaseSummary
-    assets: ReleaseInstaller[]
+export interface ILatestReleaseResponse {
+    release: IReleaseSummary
+    assets: IReleaseInstaller[]
     recommendation: {
-        platform: ReleasePlatform
-        arch: ReleaseArch
+        platform: TReleasePlatform
+        arch: TReleaseArch
         assetId: number | null
     }
 }
@@ -58,7 +58,7 @@ const NON_INSTALLER_SUFFIXES = [
     '.yaml',
 ];
 
-const PREFERRED_EXTENSION_ORDER: Record<ReleasePlatform, string[]> = {
+const PREFERRED_EXTENSION_ORDER: Record<TReleasePlatform, string[]> = {
     macos: [
         'dmg',
         'pkg',
@@ -125,7 +125,7 @@ export function isInstallerAsset(assetName: string): boolean {
     return INSTALLER_EXTENSIONS.has(getAssetExtension(assetName));
 }
 
-export function detectPlatform(assetName: string): ReleasePlatform {
+export function detectPlatform(assetName: string): TReleasePlatform {
     const lowerName = assetName.toLowerCase();
     const extension = getAssetExtension(assetName);
 
@@ -159,7 +159,7 @@ export function detectPlatform(assetName: string): ReleasePlatform {
     return 'unknown';
 }
 
-export function detectArchitecture(assetName: string): ReleaseArch {
+export function detectArchitecture(assetName: string): TReleaseArch {
     const lowerName = assetName.toLowerCase();
 
     if (/\b(universal|all)\b/.test(lowerName)) {
@@ -177,7 +177,7 @@ export function detectArchitecture(assetName: string): ReleaseArch {
     return 'unknown';
 }
 
-export function parsePlatformHint(hint: string | null | undefined): ReleasePlatform {
+export function parsePlatformHint(hint: string | null | undefined): TReleasePlatform {
     const normalizedHint = (hint || '').toLowerCase();
 
     if (normalizedHint.includes('mac') || normalizedHint.includes('darwin')) {
@@ -195,7 +195,7 @@ export function parsePlatformHint(hint: string | null | undefined): ReleasePlatf
     return 'unknown';
 }
 
-export function parseArchitectureHint(hint: string | null | undefined): ReleaseArch {
+export function parseArchitectureHint(hint: string | null | undefined): TReleaseArch {
     const normalizedHint = (hint || '').toLowerCase();
 
     if (normalizedHint.includes('arm64') || normalizedHint.includes('aarch64')) {
@@ -209,10 +209,10 @@ export function parseArchitectureHint(hint: string | null | undefined): ReleaseA
     return 'unknown';
 }
 
-export function parseUserAgent(userAgent: string, platformHint = ''): UserAgentProfile {
+export function parseUserAgent(userAgent: string, platformHint = ''): IUserAgentProfile {
     const normalized = `${platformHint} ${userAgent}`.toLowerCase();
 
-    let platform: ReleasePlatform = 'unknown';
+    let platform: TReleasePlatform = 'unknown';
     if (/(macintosh|mac os x|darwin)/.test(normalized)) {
         platform = 'macos';
     } else if (/(windows|win32|win64)/.test(normalized)) {
@@ -221,7 +221,7 @@ export function parseUserAgent(userAgent: string, platformHint = ''): UserAgentP
         platform = 'linux';
     }
 
-    let arch: ReleaseArch = 'unknown';
+    let arch: TReleaseArch = 'unknown';
     if (/(arm64|aarch64|armv8|apple silicon)/.test(normalized)) {
         arch = 'arm64';
     } else if (/(x86_64|x64|amd64|wow64|intel|win64)/.test(normalized)) {
@@ -234,7 +234,7 @@ export function parseUserAgent(userAgent: string, platformHint = ''): UserAgentP
     };
 }
 
-export function recommendInstaller(assets: ReleaseInstaller[], profile: UserAgentProfile): ReleaseInstaller | null {
+export function recommendInstaller(assets: IReleaseInstaller[], profile: IUserAgentProfile): IReleaseInstaller | null {
     if (!assets.length) {
         return null;
     }
@@ -277,7 +277,7 @@ function extensionRank(extension: string, preferenceOrder: string[]): number {
     return preferenceOrder.length + 4;
 }
 
-function architectureRank(assetArch: ReleaseArch, profileArch: ReleaseArch): number {
+function architectureRank(assetArch: TReleaseArch, profileArch: TReleaseArch): number {
     if (profileArch === 'unknown') {
         if (assetArch === 'universal') {
             return 0;
@@ -305,11 +305,11 @@ function architectureRank(assetArch: ReleaseArch, profileArch: ReleaseArch): num
     return 3;
 }
 
-function knownPlatformRank(platform: ReleasePlatform): number {
+function knownPlatformRank(platform: TReleasePlatform): number {
     return platform === 'unknown' ? 1 : 0;
 }
 
-export function formatPlatform(platform: ReleasePlatform): string {
+export function formatPlatform(platform: TReleasePlatform): string {
     if (platform === 'macos') {
         return 'macOS';
     }
@@ -325,7 +325,7 @@ export function formatPlatform(platform: ReleasePlatform): string {
     return 'Unknown OS';
 }
 
-export function formatArch(arch: ReleaseArch): string {
+export function formatArch(arch: TReleaseArch): string {
     if (arch === 'arm64') {
         return 'ARM64';
     }
@@ -345,7 +345,7 @@ export function formatExtension(extension: string): string {
     return EXTENSION_LABEL[extension] || extension.toUpperCase();
 }
 
-export function formatInstallerLabel(asset: ReleaseInstaller): string {
+export function formatInstallerLabel(asset: IReleaseInstaller): string {
     const platform = formatPlatform(asset.platform);
     const arch = formatArch(asset.arch);
     const extension = formatExtension(asset.extension);

@@ -55,7 +55,7 @@ export function getDjvuToolPaths(): IDjvuToolPaths {
     };
 }
 
-export function getDjvuLibDir(): string {
+function getDjvuLibDir(): string {
     const platformArch = resolvePlatformArchTag();
     const resourcesBase = getResourcesBase();
     return join(resourcesBase, 'djvulibre', platformArch, 'lib');

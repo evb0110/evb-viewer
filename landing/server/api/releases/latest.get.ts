@@ -5,11 +5,11 @@ import {
     isInstallerAsset,
     parseUserAgent,
     recommendInstaller,
-    type LatestReleaseResponse,
-    type ReleaseInstaller,
+    type ILatestReleaseResponse,
+    type IReleaseInstaller,
 } from '~~/shared/releases';
 
-interface GithubReleaseAsset {
+interface IGithubReleaseAsset {
     id: number
     name: string
     browser_download_url: string
@@ -18,15 +18,15 @@ interface GithubReleaseAsset {
     content_type: string
 }
 
-interface GithubRelease {
+interface IGithubRelease {
     tag_name: string
     name: string
     published_at: string
     html_url: string
-    assets: GithubReleaseAsset[]
+    assets: IGithubReleaseAsset[]
 }
 
-export default defineEventHandler(async (event): Promise<LatestReleaseResponse> => {
+export default defineEventHandler(async (event): Promise<ILatestReleaseResponse> => {
     const config = useRuntimeConfig(event);
     const githubApiBase = String(config.githubApiBase || 'https://api.github.com').replace(/\/+$/, '');
     const githubOwner = String(config.githubOwner || 'evb0110');
@@ -42,9 +42,9 @@ export default defineEventHandler(async (event): Promise<LatestReleaseResponse> 
         headers.authorization = `Bearer ${githubToken}`;
     }
 
-    let release: GithubRelease;
+    let release: IGithubRelease;
     try {
-        release = await $fetch<GithubRelease>(`${githubApiBase}/repos/${githubOwner}/${githubRepo}/releases/latest`, {headers});
+        release = await $fetch<IGithubRelease>(`${githubApiBase}/repos/${githubOwner}/${githubRepo}/releases/latest`, {headers});
     } catch (error) {
         console.error('Unable to fetch latest release', error);
         throw createError({
@@ -55,7 +55,7 @@ export default defineEventHandler(async (event): Promise<LatestReleaseResponse> 
 
     const installers = (release.assets || [])
         .filter(asset => isInstallerAsset(asset.name))
-        .map<ReleaseInstaller>(asset => ({
+        .map<IReleaseInstaller>(asset => ({
             id: asset.id,
             name: asset.name,
             downloadUrl: asset.browser_download_url,

@@ -8,13 +8,13 @@ import {
     parsePlatformHint,
     parseUserAgent,
     recommendInstaller,
-    type LatestReleaseResponse,
-    type ReleaseArch,
-    type ReleaseInstaller,
-    type UserAgentProfile,
+    type ILatestReleaseResponse,
+    type TReleaseArch,
+    type IReleaseInstaller,
+    type IUserAgentProfile,
 } from '~~/shared/releases';
 
-interface NavigatorUADataLike {
+interface INavigatorUADataLike {
     platform?: string
     getHighEntropyValues?: (hints: string[]) => Promise<{ architecture?: string }>
 }
@@ -45,7 +45,7 @@ useSeoMeta({
     ogDescription: 'Cross-platform desktop viewer for PDF and DjVu with OCR and advanced annotation tools.',
 });
 
-const clientProfile = ref<UserAgentProfile>({
+const clientProfile = ref<IUserAgentProfile>({
     platform: 'unknown',
     arch: 'unknown',
 });
@@ -57,7 +57,7 @@ const {
     error,
     refresh,
     status,
-} = useFetch<LatestReleaseResponse>('/api/releases/latest', {
+} = useFetch<ILatestReleaseResponse>('/api/releases/latest', {
     key: 'latest-release-data',
     lazy: true,
     server: false,
@@ -65,7 +65,7 @@ const {
 
 const installers = computed(() => releaseData.value?.assets || []);
 
-const recommendedInstaller = computed<ReleaseInstaller | null>(() => {
+const recommendedInstaller = computed<IReleaseInstaller | null>(() => {
     if (!installers.value.length) {
         return null;
     }
@@ -86,7 +86,7 @@ const recommendedInstaller = computed<ReleaseInstaller | null>(() => {
     return installers.value[0] || null;
 });
 
-const selectedInstaller = computed<ReleaseInstaller | null>(() => {
+const selectedInstaller = computed<IReleaseInstaller | null>(() => {
     if (!installers.value.length) {
         return null;
     }
@@ -165,16 +165,16 @@ onMounted(async () => {
     clientProfile.value = await detectClientProfile();
 });
 
-async function detectClientProfile(): Promise<UserAgentProfile> {
+async function detectClientProfile(): Promise<IUserAgentProfile> {
     const uaProfile = parseUserAgent(navigator.userAgent);
-    const uaData = (navigator as Navigator & { userAgentData?: NavigatorUADataLike }).userAgentData;
+    const uaData = (navigator as Navigator & { userAgentData?: INavigatorUADataLike }).userAgentData;
 
     if (!uaData) {
         return uaProfile;
     }
 
     const hintedPlatform = parsePlatformHint(uaData.platform);
-    let hintedArch: ReleaseArch = 'unknown';
+    let hintedArch: TReleaseArch = 'unknown';
 
     if (typeof uaData.getHighEntropyValues === 'function') {
         try {
@@ -251,21 +251,16 @@ function scrollToInstallers(): void {
         </p>
       </div>
 
-      <UCard
-        class="hero-preview-card"
-        :ui="{ body: 'p-0 sm:p-0' }"
-      >
-        <div class="preview-shell">
-          <img
-            class="preview-image"
-            src="/evb-viewer-preview.png"
-            alt="EVB Viewer screenshot"
-          >
-          <p class="preview-caption">
-            Built for heavy document workflows: tabs, split views, OCR, and annotation tooling.
-          </p>
-        </div>
-      </UCard>
+      <figure class="hero-preview">
+        <img
+          class="preview-image"
+          src="/evb-viewer-preview-cropped.png"
+          alt="EVB Viewer screenshot"
+        >
+        <figcaption class="preview-caption">
+          Built for heavy document workflows: tabs, split views, OCR, and annotation tooling.
+        </figcaption>
+      </figure>
     </section>
 
     <section
