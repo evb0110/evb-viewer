@@ -85,7 +85,21 @@ clean_dir() {
 
 pe_arch() {
   local file_path="$1"
-  objdump -f "$file_path" 2>/dev/null | sed -n 's/^architecture: \([^,]*\).*/\1/p' | head -n 1
+  local arch
+  arch="$(objdump -f "$file_path" 2>/dev/null | sed -n 's/^architecture: \([^,]*\).*/\1/p' | head -n 1)" || true
+  if [ -n "$arch" ]; then
+    echo "$arch"
+    return
+  fi
+  # Fallback: x64 objdump cannot parse ARM64 PE files (no pei-aarch64 BFD target).
+  # Use the file command to detect machine type from the PE header.
+  local file_output
+  file_output="$(file "$file_path" 2>/dev/null)" || return 0
+  if echo "$file_output" | grep -qi 'Aarch64'; then
+    echo "aarch64"
+  elif echo "$file_output" | grep -qi 'x86-64'; then
+    echo "i386:x86-64"
+  fi
 }
 
 find_dependency_match() {
