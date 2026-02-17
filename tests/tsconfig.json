@@ -1,0 +1,16 @@
+{
+    "extends": "../tsconfig.json",
+    "compilerOptions": {
+        "types": ["node"]
+    },
+    "include": [
+        "./**/*.ts",
+        "../app/**/*.ts",
+        "../app/**/*.vue",
+        "../electron/types/*.d.ts",
+        "../.nuxt/nuxt.d.ts"
+    ],
+    "exclude": [
+        "node_modules"
+    ]
+}

@@ -54,6 +54,7 @@ interface IWorkspaceUiSyncDeps {
     t: (key: TTranslationKey, params?: Record<string, string | number>) => string;
     emitUpdateTab: (updates: TTabUpdate) => void;
     emitOpenSettings: () => void;
+    onOpenDjvuError?: (error: unknown) => void;
 }
 
 function getBaseName(path: string | null) {
@@ -109,17 +110,21 @@ export function setupWorkspaceUiSyncWatchers(deps: IWorkspaceUiSyncDeps) {
             return;
         }
         deps.pendingDjvu.value = null;
-        await deps.openDjvuFile(
-            djvuPath,
-            deps.loadPdfFromPath,
-            () => deps.currentPage.value,
-            (page) => {
-                deps.pdfViewerRef.value?.scrollToPage(page);
-            },
-            (path) => {
-                deps.originalPath.value = path;
-            },
-        );
+        try {
+            await deps.openDjvuFile(
+                djvuPath,
+                deps.loadPdfFromPath,
+                () => deps.currentPage.value,
+                (page) => {
+                    deps.pdfViewerRef.value?.scrollToPage(page);
+                },
+                (path) => {
+                    deps.originalPath.value = path;
+                },
+            );
+        } catch (error) {
+            deps.onOpenDjvuError?.(error);
+        }
     });
 
     watch(

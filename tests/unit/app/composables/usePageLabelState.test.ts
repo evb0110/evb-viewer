@@ -4,19 +4,26 @@ import {
     it,
     vi,
 } from 'vitest';
-import { ref } from 'vue';
+import {
+    ref,
+    type Ref,
+} from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { usePageLabelState } from '@app/composables/pdf/usePageLabelState';
 import type { IPdfPageLabelRange } from '@app/types/pdf';
 
-function createPdfDocument(
+function cast<T>(obj: unknown): T {
+    return obj as T;
+}
+
+function createPdfDocumentRef(
     numPages: number,
     getPageLabels: () => Promise<string[] | null>,
-): PDFDocumentProxy {
-    return {
+) {
+    return cast<Ref<PDFDocumentProxy | null>>(ref({
         numPages,
         getPageLabels,
-    } as PDFDocumentProxy;
+    }));
 }
 
 async function flushAsyncWork() {
@@ -28,11 +35,11 @@ describe('usePageLabelState', () => {
     it('loads labels from document when available', async () => {
         const markDirty = vi.fn();
         const state = usePageLabelState({
-            pdfDocument: ref(createPdfDocument(3, async () => [
+            pdfDocument: createPdfDocumentRef(3, async () => [
                 'i',
                 'ii',
                 'iii',
-            ])),
+            ]),
             totalPages: ref(3),
             markDirty,
         });
@@ -50,9 +57,9 @@ describe('usePageLabelState', () => {
     it('falls back to default labels when document labels throw', async () => {
         const markDirty = vi.fn();
         const state = usePageLabelState({
-            pdfDocument: ref(createPdfDocument(2, async () => {
+            pdfDocument: createPdfDocumentRef(2, async () => {
                 throw new Error('bad labels');
-            })),
+            }),
             totalPages: ref(2),
             markDirty,
         });
@@ -72,7 +79,7 @@ describe('usePageLabelState', () => {
     it('marks dirty only when label ranges actually change', () => {
         const markDirty = vi.fn();
         const state = usePageLabelState({
-            pdfDocument: ref<PDFDocumentProxy | null>(null),
+            pdfDocument: cast<Ref<PDFDocumentProxy | null>>(ref(null)),
             totalPages: ref(5),
             markDirty,
         });

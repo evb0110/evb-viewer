@@ -7,8 +7,12 @@ import {
 import { ref } from 'vue';
 import { createWorkspaceExpose } from '@app/composables/page/createWorkspaceExpose';
 
+function cast<T>(obj: unknown): T {
+    return obj as T;
+}
+
 function createDeps(overrides: Partial<Parameters<typeof createWorkspaceExpose>[0]> = {}) {
-    return {
+    return cast<Parameters<typeof createWorkspaceExpose>[0]>({
         handleSave: vi.fn(async () => {}),
         handleSaveAs: vi.fn(async () => {}),
         handleUndo: vi.fn(),
@@ -34,8 +38,10 @@ function createDeps(overrides: Partial<Parameters<typeof createWorkspaceExpose>[
         totalPages: ref(7),
         isDjvuMode: ref(false),
         openConvertDialog: vi.fn(),
+        captureSplitPayload: vi.fn(async () => ({})),
+        restoreSplitPayload: vi.fn(async () => {}),
         ...overrides,
-    };
+    });
 }
 
 describe('createWorkspaceExpose', () => {

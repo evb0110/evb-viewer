@@ -8,8 +8,14 @@ import {
 import {
     ref,
     shallowRef,
+    type ShallowRef,
 } from 'vue';
+import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type { IAnnotationSettings } from '@app/types/annotations';
+
+function cast<T>(obj: unknown): T {
+    return obj as T;
+}
 
 vi.mock('pdfjs-dist', () => ({
     AnnotationEditorType: {
@@ -68,6 +74,10 @@ function createUiManager(overrides: Partial<TUiManagerLike> = {}) {
     };
 }
 
+function mockUiManagerRef(uiManager: ReturnType<typeof createUiManager>) {
+    return cast<ShallowRef<AnnotationEditorUIManager | null>>(shallowRef(uiManager));
+}
+
 describe('useAnnotationToolManager', () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -81,7 +91,7 @@ describe('useAnnotationToolManager', () => {
             .mockResolvedValueOnce(undefined)});
 
         const manager = useAnnotationToolManager({
-            annotationUiManager: shallowRef(uiManager),
+            annotationUiManager: mockUiManagerRef(uiManager),
             currentPage: ref(3),
             annotationTool: ref('none'),
             annotationCursorMode: ref(false),
@@ -114,7 +124,7 @@ describe('useAnnotationToolManager', () => {
         });
 
         const manager = useAnnotationToolManager({
-            annotationUiManager: shallowRef(uiManager),
+            annotationUiManager: mockUiManagerRef(uiManager),
             currentPage: ref(1),
             annotationTool: ref('none'),
             annotationCursorMode: ref(false),
@@ -140,7 +150,7 @@ describe('useAnnotationToolManager', () => {
         const patchResizableFreeTextEditors = vi.fn();
 
         const manager = useAnnotationToolManager({
-            annotationUiManager: shallowRef(uiManager),
+            annotationUiManager: mockUiManagerRef(uiManager),
             currentPage: ref(1),
             annotationTool: ref('none'),
             annotationCursorMode: ref(false),
@@ -170,7 +180,7 @@ describe('useAnnotationToolManager', () => {
         const { useAnnotationToolManager } = await import('@app/composables/pdf/useAnnotationToolManager');
         const emitAnnotationToolAutoReset = vi.fn();
         const manager = useAnnotationToolManager({
-            annotationUiManager: shallowRef(createUiManager()),
+            annotationUiManager: mockUiManagerRef(createUiManager()),
             currentPage: ref(1),
             annotationTool: ref('text'),
             annotationCursorMode: ref(false),

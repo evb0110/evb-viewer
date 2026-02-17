@@ -15,11 +15,16 @@ vi.mock('vue', async (importOriginal) => {
     };
 });
 
+interface IViewingErrorData {
+    error: string;
+    jobId?: string;
+}
+
 const mockElectronAPI = {
     djvu: {
         onProgress: vi.fn(() => vi.fn()),
         onViewingReady: vi.fn(() => vi.fn()),
-        onViewingError: vi.fn(() => vi.fn()),
+        onViewingError: vi.fn((_callback: (data: IViewingErrorData) => void) => vi.fn()),
         openForViewing: vi.fn(),
         convertToPdf: vi.fn(),
         cancel: vi.fn(),
@@ -61,17 +66,14 @@ vi.stubGlobal('useI18n', () => ({ t: mockT }));
 const { useDjvu } = await import('@app/composables/useDjvu');
 
 describe('useDjvu', () => {
-    let viewingErrorCallback: ((data: {
-        error: string;
-        jobId?: string;
-    }) => void) | null = null;
+    let viewingErrorCallback: ((data: IViewingErrorData) => void) | null = null;
 
     beforeEach(() => {
         vi.clearAllMocks();
         mockElectronAPI.djvu.onProgress.mockReturnValue(vi.fn());
         mockElectronAPI.djvu.onViewingReady.mockReturnValue(vi.fn());
         viewingErrorCallback = null;
-        mockElectronAPI.djvu.onViewingError.mockImplementation((callback) => {
+        mockElectronAPI.djvu.onViewingError.mockImplementation((callback: (data: IViewingErrorData) => void) => {
             viewingErrorCallback = callback;
             return vi.fn();
         });

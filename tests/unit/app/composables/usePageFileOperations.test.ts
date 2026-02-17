@@ -7,8 +7,12 @@ import {
 import { ref } from 'vue';
 import { usePageFileOperations } from '@app/composables/usePageFileOperations';
 
+function cast<T>(obj: unknown): T {
+    return obj as T;
+}
+
 function createDeps(overrides: Partial<Parameters<typeof usePageFileOperations>[0]> = {}) {
-    return {
+    return cast<Parameters<typeof usePageFileOperations>[0]>({
         pdfSrc: ref<unknown>({}),
         isAnySaving: ref(false),
         isHistoryBusy: ref(false),
@@ -22,13 +26,15 @@ function createDeps(overrides: Partial<Parameters<typeof usePageFileOperations>[
         hasAnnotationChanges: vi.fn(() => false),
         persistAllAnnotationNotes: vi.fn(async (_force: boolean) => true),
         handleSave: vi.fn(async () => {}),
+        pickFileToOpen: vi.fn(async () => null),
         openFile: vi.fn(async () => {}),
         openFileDirect: vi.fn(async (_path: string) => {}),
         openFileDirectBatch: vi.fn(async (_paths: string[]) => {}),
         closeFile: vi.fn(async () => {}),
         closeAllDropdowns: vi.fn(),
+        emitOpenInNewTab: vi.fn(),
         ...overrides,
-    };
+    });
 }
 
 describe('usePageFileOperations', () => {

@@ -3,8 +3,8 @@ import type { ChildProcess } from 'child_process';
 import { stat } from 'fs/promises';
 import { join } from 'path';
 import {
+    buildDjvuRuntimeEnv,
     getDjvuToolPaths,
-    getDjvuLibDir,
 } from '@electron/djvu/paths';
 
 interface IDjvuConvertOptions {
@@ -37,7 +37,6 @@ export async function convertDjvuToPdf(
     options: IDjvuConvertOptions = {},
 ): Promise<IDjvuConvertResult> {
     const { ddjvu } = getDjvuToolPaths();
-    const libDir = getDjvuLibDir();
 
     const args = [
         '-format=pdf',
@@ -62,11 +61,7 @@ export async function convertDjvuToPdf(
                 'pipe',
                 'pipe',
             ],
-            env: {
-                ...process.env,
-                DYLD_LIBRARY_PATH: libDir,
-                LD_LIBRARY_PATH: libDir,
-            },
+            env: buildDjvuRuntimeEnv(),
         });
 
         activeProcesses.set(jobId, proc);
@@ -147,7 +142,6 @@ function convertDjvuPageRange(
     options: IRangeConvertOptions = {},
 ): Promise<IDjvuConvertResult> {
     const { ddjvu } = getDjvuToolPaths();
-    const libDir = getDjvuLibDir();
 
     const args = [
         '-format=pdf',
@@ -169,11 +163,7 @@ function convertDjvuPageRange(
                 'pipe',
                 'pipe',
             ],
-            env: {
-                ...process.env,
-                DYLD_LIBRARY_PATH: libDir,
-                LD_LIBRARY_PATH: libDir,
-            },
+            env: buildDjvuRuntimeEnv(),
         });
 
         activeProcesses.set(jobId, proc);
@@ -338,7 +328,6 @@ export function convertDjvuPageToImage(
     } = {},
 ): Promise<IDjvuConvertResult> {
     const { ddjvu } = getDjvuToolPaths();
-    const libDir = getDjvuLibDir();
     const format = options.format ?? 'ppm';
 
     const args = [
@@ -360,11 +349,7 @@ export function convertDjvuPageToImage(
                 'pipe',
                 'pipe',
             ],
-            env: {
-                ...process.env,
-                DYLD_LIBRARY_PATH: libDir,
-                LD_LIBRARY_PATH: libDir,
-            },
+            env: buildDjvuRuntimeEnv(),
         });
 
         activeProcesses.set(jobId, proc);

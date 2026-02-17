@@ -4,10 +4,16 @@ import {
     it,
     vi,
 } from 'vitest';
+import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import {
     ref,
     shallowRef,
+    type Ref,
 } from 'vue';
+
+function cast<T>(obj: unknown): T {
+    return obj as T;
+}
 
 const loggerError = vi.fn();
 
@@ -18,8 +24,8 @@ vi.mock('@app/utils/browser-logger', () => ({BrowserLogger: {
 }}));
 
 interface IClassList {
-    add: ReturnType<typeof vi.fn>;
-    remove: ReturnType<typeof vi.fn>;
+    add: (...args: string[]) => void;
+    remove: (...args: string[]) => void;
 }
 
 interface INodeLike {
@@ -28,14 +34,14 @@ interface INodeLike {
     innerHTML?: string;
     hidden?: boolean;
     dir?: string;
-    appendChild?: ReturnType<typeof vi.fn>;
-    querySelector?: ReturnType<typeof vi.fn>;
+    appendChild?: (...args: unknown[]) => void;
+    querySelector?: (selector: string) => unknown;
 }
 
 interface ICanvasLike extends INodeLike {
     width: number;
     height: number;
-    remove: ReturnType<typeof vi.fn>;
+    remove: () => void;
 }
 
 interface IRenderContext {
@@ -172,7 +178,7 @@ function createPageContainer(overrides?: {
 }
 
 function createContainerRoot(pageContainer: INodeLike) {
-    return {
+    return cast<HTMLElement>({
         querySelectorAll: vi.fn((selector: string) => (
             selector === '.page_container'
                 ? [pageContainer]
@@ -183,12 +189,12 @@ function createContainerRoot(pageContainer: INodeLike) {
                 ? pageContainer
                 : null
         )),
-    } as HTMLElement;
+    });
 }
 
 function createRenderResult() {
     return {
-        canvas: createCanvas() as HTMLCanvasElement,
+        canvas: cast<HTMLCanvasElement>(createCanvas()),
         viewport: {
             width: 120,
             height: 180,
@@ -281,7 +287,7 @@ describe('usePdfPageRenderer resilience', () => {
             effectiveScale: ref(1),
             bufferPages: ref(0),
             showAnnotations: ref(true),
-            annotationUiManager: ref({ direction: 'ltr' }),
+            annotationUiManager: cast<Ref<AnnotationEditorUIManager | null>>(ref({ direction: 'ltr' })),
             annotationL10n: ref(null),
             searchPageMatches: ref(new Map()),
             currentSearchMatch: ref(null),

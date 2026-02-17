@@ -1,7 +1,7 @@
 import { spawn } from 'child_process';
 import {
+    buildDjvuRuntimeEnv,
     getDjvuToolPaths,
-    getDjvuLibDir,
 } from '@electron/djvu/paths';
 import { createLogger } from '@electron/utils/logger';
 
@@ -15,7 +15,6 @@ interface IRunResult {
 
 function runDjvused(args: string[]): Promise<IRunResult> {
     const { djvused } = getDjvuToolPaths();
-    const libDir = getDjvuLibDir();
 
     return new Promise((resolve, reject) => {
         const proc = spawn(djvused, args, {
@@ -25,11 +24,7 @@ function runDjvused(args: string[]): Promise<IRunResult> {
                 'pipe',
                 'pipe',
             ],
-            env: {
-                ...process.env,
-                DYLD_LIBRARY_PATH: libDir,
-                LD_LIBRARY_PATH: libDir,
-            },
+            env: buildDjvuRuntimeEnv(),
         });
 
         let stdout = '';

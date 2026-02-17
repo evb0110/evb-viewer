@@ -5,11 +5,19 @@ import {
     it,
     vi,
 } from 'vitest';
-import { ref } from 'vue';
+import {
+    ref,
+    type Ref,
+} from 'vue';
 import type {
+    AnnotationEditorUIManager,
     PDFDocumentProxy,
     PDFPageProxy,
 } from 'pdfjs-dist';
+
+function cast<T>(obj: unknown): T {
+    return obj as T;
+}
 
 const loggerWarn = vi.fn();
 const loggerDebug = vi.fn();
@@ -124,7 +132,7 @@ function createDiv(): HTMLDivElement {
         setAttribute: vi.fn(),
         addEventListener: vi.fn(),
     };
-    return fakeDiv as HTMLDivElement;
+    return cast<HTMLDivElement>(fakeDiv);
 }
 
 function createContainer(pageCanvas: HTMLDivElement): HTMLElement {
@@ -135,12 +143,12 @@ function createContainer(pageCanvas: HTMLDivElement): HTMLElement {
         return null;
     });
     const fakeContainer: IFakeContainerElement = { querySelector };
-    return fakeContainer as HTMLElement;
+    return cast<HTMLElement>(fakeContainer);
 }
 
 function createViewport(): ReturnType<PDFPageProxy['getViewport']> {
     const viewport: IViewportLike = { clone: vi.fn(() => ({ rawDims: {} })) };
-    return viewport as ReturnType<PDFPageProxy['getViewport']>;
+    return cast<ReturnType<PDFPageProxy['getViewport']>>(viewport);
 }
 
 function createUiManager(enabled = false) {
@@ -157,6 +165,10 @@ function createUiManager(enabled = false) {
     };
 }
 
+function mockUiManagerRef(uiManager: ReturnType<typeof createUiManager>) {
+    return cast<Ref<AnnotationEditorUIManager | null>>(ref(uiManager));
+}
+
 describe('usePdfAnnotationLayerRenderer', () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -171,7 +183,7 @@ describe('usePdfAnnotationLayerRenderer', () => {
             currentPage: ref(1),
             pdfDocument: ref(null),
             showAnnotations: ref(true),
-            annotationUiManager: ref(uiManager),
+            annotationUiManager: mockUiManagerRef(uiManager),
             annotationL10n: ref(null),
         });
 
@@ -191,8 +203,8 @@ describe('usePdfAnnotationLayerRenderer', () => {
 
         expect(result).toBe(true);
         expect(annotationEditorLayerCtor).toHaveBeenCalledTimes(1);
-        const ctorArg = annotationEditorLayerCtor.mock.calls[0][0] as {textLayer?: { div?: HTMLDivElement };};
-        expect(ctorArg.textLayer?.div).toBe(textLayerDiv);
+        const ctorArg = annotationEditorLayerCtor.mock.calls[0]?.[0] as {textLayer?: { div?: HTMLDivElement };} | undefined;
+        expect(ctorArg?.textLayer?.div).toBe(textLayerDiv);
         expect(uiManager.addLayer).toHaveBeenCalledTimes(1);
         expect(loggerWarn).not.toHaveBeenCalled();
 
@@ -211,16 +223,16 @@ describe('usePdfAnnotationLayerRenderer', () => {
     });
 
     it('disables the annotation editor layer for the current document after a render crash', () => {
-        const firstDocument = { annotationStorage: {} } as PDFDocumentProxy;
-        const secondDocument = { annotationStorage: {} } as PDFDocumentProxy;
-        const pdfDocument = ref<PDFDocumentProxy | null>(firstDocument);
+        const firstDocument = cast<PDFDocumentProxy>({ annotationStorage: {} });
+        const secondDocument = cast<PDFDocumentProxy>({ annotationStorage: {} });
+        const pdfDocument = cast<Ref<PDFDocumentProxy | null>>(ref(firstDocument));
         const uiManager = createUiManager(false);
         const renderer = usePdfAnnotationLayerRenderer({
             numPages: ref(1),
             currentPage: ref(1),
             pdfDocument,
             showAnnotations: ref(true),
-            annotationUiManager: ref(uiManager),
+            annotationUiManager: mockUiManagerRef(uiManager),
             annotationL10n: ref(null),
         });
 

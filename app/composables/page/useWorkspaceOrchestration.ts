@@ -685,6 +685,9 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         t,
         emitUpdateTab: (updates) => emit('update-tab', updates),
         emitOpenSettings: () => emit('open-settings'),
+        onOpenDjvuError: (error) => {
+            pdfError.value = error instanceof Error ? error.message : t('errors.djvu.open');
+        },
     });
 
     useDocumentTransitions({

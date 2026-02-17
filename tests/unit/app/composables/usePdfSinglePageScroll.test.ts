@@ -16,8 +16,13 @@ import {
     resolveWheelPageFlipStepDelta,
     resolveSnapAnchorForWheelDirection,
     usePdfSinglePageScroll,
+    type TWheelDirection,
 } from '@app/composables/pdf/usePdfSinglePageScroll';
 import type { TPdfViewMode } from '@app/types/shared';
+
+function cast<T>(obj: unknown): T {
+    return obj as T;
+}
 
 interface ITestPageGeometry {
     offsetTop: number;
@@ -38,7 +43,7 @@ function createWheelEvent(
     deltaX = 0,
     deltaMode = 0,
 ): WheelEvent {
-    return {
+    return cast<WheelEvent>({
         deltaX,
         deltaY,
         deltaMode,
@@ -46,7 +51,7 @@ function createWheelEvent(
         ctrlKey: false,
         metaKey: false,
         preventDefault: vi.fn(),
-    } as WheelEvent;
+    });
 }
 
 function createSinglePageScrollHarness(options?: IScrollHarnessOptions) {
@@ -65,16 +70,16 @@ function createSinglePageScrollHarness(options?: IScrollHarnessOptions) {
         },
     ];
 
-    const pageElements = pageGeometries.map((page) => page as HTMLElement);
+    const pageElements = pageGeometries.map((page) => cast<HTMLElement>(page));
     const clientHeight = options?.clientHeight ?? 100;
     const scrollHeight = options?.scrollHeight ?? 440;
     const maxScrollTop = Math.max(0, scrollHeight - clientHeight);
     let scrollTop = 0;
-    const container = {
+    const container = cast<HTMLElement>({
         clientHeight,
         scrollHeight,
         querySelectorAll: vi.fn(() => pageElements),
-    } as HTMLElement;
+    });
     Object.defineProperty(container, 'scrollTop', {
         get: () => scrollTop,
         set: (value: number) => {
@@ -132,9 +137,13 @@ function createSinglePageScrollHarness(options?: IScrollHarnessOptions) {
 
 describe('usePdfSinglePageScroll helpers', () => {
     it('accumulates small deltas and flips only after threshold', () => {
-        let state = {
+        let state: {
+            delta: number;
+            direction: TWheelDirection | 0;
+            lastEventTimeMs: number 
+        } = {
             delta: 0,
-            direction: 0 as const,
+            direction: 0,
             lastEventTimeMs: 0,
         };
 

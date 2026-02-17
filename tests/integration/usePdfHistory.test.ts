@@ -8,12 +8,17 @@ import {
 import {
     nextTick,
     ref,
+    type Ref,
 } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { usePdfHistory } from '@app/composables/usePdfHistory';
 
+function cast<T>(obj: unknown): T {
+    return obj as T;
+}
+
 function createMockDeps(overrides: Partial<Parameters<typeof usePdfHistory>[0]> = {}) {
-    return {
+    return cast<Parameters<typeof usePdfHistory>[0]>({
         pdfDocument: ref<PDFDocumentProxy | null>(null),
         pdfViewerRef: ref<{
             scrollToPage: (page: number) => void;
@@ -32,7 +37,7 @@ function createMockDeps(overrides: Partial<Parameters<typeof usePdfHistory>[0]> 
         undo: vi.fn(async () => true),
         redo: vi.fn(async () => true),
         ...overrides,
-    };
+    });
 }
 
 describe('usePdfHistory', () => {
@@ -189,8 +194,8 @@ describe('usePdfHistory', () => {
     });
 
     it('does not call scrollToPage if doc reference stays the same', async () => {
-        const doc = { numPages: 3 } as PDFDocumentProxy;
-        const deps = createMockDeps({ pdfDocument: ref<PDFDocumentProxy | null>(doc) });
+        const doc = cast<PDFDocumentProxy>({ numPages: 3 });
+        const deps = createMockDeps({ pdfDocument: cast<Ref<PDFDocumentProxy | null>>(ref(doc)) });
         const scrollToPage = vi.fn();
         deps.pdfViewerRef.value = {
             scrollToPage,

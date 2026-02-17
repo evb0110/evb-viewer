@@ -7,6 +7,10 @@ import {
 } from 'vitest';
 import { useExternalFileDrop } from '@app/composables/page/useExternalFileDrop';
 
+function cast<T>(obj: unknown): T {
+    return obj as T;
+}
+
 function createDragEvent(paths: string[], types: string[] = ['Files']) {
     const files = paths.map((_path, index) => ({ name: `file-${index}` })) as File[];
     const event = {
@@ -20,7 +24,7 @@ function createDragEvent(paths: string[], types: string[] = ['Files']) {
         preventDefault: vi.fn(),
         stopPropagation: vi.fn(),
     };
-    return event as DragEvent;
+    return cast<DragEvent>(event);
 }
 
 describe('useExternalFileDrop', () => {
