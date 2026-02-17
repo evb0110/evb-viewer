@@ -79,6 +79,28 @@ function prependEnvPath(
         : additions.join(envDelimiter);
 }
 
+function normalizeWindowsPathEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+    const normalizedEnv: NodeJS.ProcessEnv = {};
+    const pathValues: string[] = [];
+
+    for (const [
+        key,
+        value,
+    ] of Object.entries(env)) {
+        if (key.toLowerCase() !== 'path') {
+            normalizedEnv[key] = value;
+            continue;
+        }
+
+        if (typeof value === 'string' && value.length > 0) {
+            pathValues.push(value);
+        }
+    }
+
+    normalizedEnv.Path = pathValues.join(';');
+    return normalizedEnv;
+}
+
 export function buildDjvuRuntimeEnv(options: IBuildDjvuRuntimeEnvOptions = {}): NodeJS.ProcessEnv {
     const env: NodeJS.ProcessEnv = {...(options.baseEnv ?? process.env)};
     const platform = options.platform ?? process.platform;
@@ -86,13 +108,13 @@ export function buildDjvuRuntimeEnv(options: IBuildDjvuRuntimeEnvOptions = {}): 
     const libDir = options.libDir ?? getDjvuLibDir();
 
     if (platform === 'win32') {
+        const windowsEnv = normalizeWindowsPathEnv(env);
         const binDir = options.binDir ?? join(getResourcesBase(), 'djvulibre', resolvePlatformArchTag(), 'bin');
-        const pathKey = Object.keys(env).find(key => key.toLowerCase() === 'path') ?? 'PATH';
-        prependEnvPath(env, [
+        prependEnvPath(windowsEnv, [
             binDir,
             libDir,
-        ], pathKey, envDelimiter);
-        return env;
+        ], 'Path', envDelimiter);
+        return windowsEnv;
     }
 
     prependEnvPath(env, [libDir], 'DYLD_LIBRARY_PATH', envDelimiter);

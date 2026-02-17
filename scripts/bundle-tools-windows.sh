@@ -8,6 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 RESOURCES_DIR="$PROJECT_ROOT/resources"
 TEMP_DIR="/tmp/win-bundle-$$"
+source "$SCRIPT_DIR/win-system-dll-pattern.sh"
 
 # TARGET_ARCH can be set by CI for cross-compilation (e.g., arm64 on x64 runner).
 # Native arm64 Windows builds don't exist for most tools, so arm64 bundles
@@ -57,6 +58,107 @@ copy_required_tool() {
   cp "$source" "$dest_dir/"
 }
 
+clean_dir() {
+  local dir="$1"
+  rm -rf "$dir"
+  mkdir -p "$dir"
+}
+
+pe_arch() {
+  local file_path="$1"
+  objdump -f "$file_path" 2>/dev/null | sed -n 's/^architecture: \([^,]*\).*/\1/p' | head -n 1
+}
+
+find_dependency_match() {
+  local search_root="$1"
+  local dep_name="$2"
+  local target_arch="$3"
+  local first_match=""
+
+  while IFS= read -r candidate; do
+    [ -n "$first_match" ] || first_match="$candidate"
+    if [ -z "$target_arch" ]; then
+      echo "$candidate"
+      return 0
+    fi
+
+    local candidate_arch
+    candidate_arch="$(pe_arch "$candidate")"
+    if [ "$candidate_arch" = "$target_arch" ]; then
+      echo "$candidate"
+      return 0
+    fi
+  done < <(find "$search_root" -type f -iname "$dep_name" -print)
+
+  if [ -n "$first_match" ]; then
+    echo "$first_match"
+    return 0
+  fi
+
+  return 1
+}
+
+bundle_dependency_closure() {
+  local search_root="$1"
+  local dest_bin="$2"
+  local expected_arch="$3"
+
+  local pending=("$dest_bin/ddjvu.exe" "$dest_bin/djvused.exe")
+  local pending_index=0
+  local seen_deps_file="$TEMP_DIR/djvu-seen-deps.txt"
+  : > "$seen_deps_file"
+
+  while [ "$pending_index" -lt "${#pending[@]}" ]; do
+    local binary="${pending[$pending_index]}"
+    pending_index=$((pending_index + 1))
+
+    while IFS= read -r dep; do
+      [ -n "$dep" ] || continue
+      local dep_lc
+      dep_lc="$(printf '%s' "$dep" | tr '[:upper:]' '[:lower:]')"
+
+      if grep -Fxiq "$dep_lc" "$seen_deps_file"; then
+        continue
+      fi
+
+      local dep_source
+      dep_source="$(find_dependency_match "$search_root" "$dep" "$expected_arch" || true)"
+      if [ -z "$dep_source" ]; then
+        if [[ "$dep_lc" =~ $system_dll_pattern ]]; then
+          continue
+        fi
+        echo "Error: Missing non-system DjVu dependency \"$dep\" needed by $(basename "$binary")"
+        exit 1
+      fi
+
+      local dep_dest="$dest_bin/$(basename "$dep_source")"
+      cp "$dep_source" "$dep_dest"
+      printf '%s\n' "$dep_lc" >> "$seen_deps_file"
+      pending+=("$dep_dest")
+    done < <(objdump -p "$binary" 2>/dev/null | awk '/DLL Name:/{print $3}')
+  done
+
+  rm -f "$seen_deps_file"
+}
+
+verify_directory_architecture() {
+  local target_dir="$1"
+  local expected_arch="$2"
+  local file_path
+
+  while IFS= read -r file_path; do
+    local actual_arch
+    actual_arch="$(pe_arch "$file_path")"
+    if [ -z "$actual_arch" ]; then
+      continue
+    fi
+    if [ "$actual_arch" != "$expected_arch" ]; then
+      echo "Error: Architecture mismatch for $(basename "$file_path"): expected $expected_arch, got $actual_arch"
+      exit 1
+    fi
+  done < <(find "$target_dir" -maxdepth 1 -type f \( -iname '*.exe' -o -iname '*.dll' \) -print)
+}
+
 # ==========================================
 # 1. Tesseract (UB-Mannheim)
 # ==========================================
@@ -66,7 +168,7 @@ echo "1. Bundling Tesseract (${TESSERACT_TAG})..."
 echo "=========================================="
 
 TESSERACT_DIR="$RESOURCES_DIR/tesseract/$PLATFORM_ARCH"
-mkdir -p "$TESSERACT_DIR/bin"
+clean_dir "$TESSERACT_DIR/bin"
 
 TESSERACT_URL="https://github.com/UB-Mannheim/tesseract/releases/download/${TESSERACT_TAG}/${TESSERACT_INSTALLER}"
 download "$TESSERACT_URL" "$TEMP_DIR/tesseract-setup.exe"
@@ -96,7 +198,7 @@ echo "2. Bundling Poppler ${POPPLER_VERSION}..."
 echo "=========================================="
 
 POPPLER_DIR="$RESOURCES_DIR/poppler/$PLATFORM_ARCH"
-mkdir -p "$POPPLER_DIR/bin"
+clean_dir "$POPPLER_DIR/bin"
 
 POPPLER_URL="https://github.com/oschwartz10612/poppler-windows/releases/download/v${POPPLER_VERSION}-0/Release-${POPPLER_VERSION}-0.zip"
 download "$POPPLER_URL" "$TEMP_DIR/poppler.zip"
@@ -135,7 +237,7 @@ echo "3. Bundling qpdf v${QPDF_VERSION}..."
 echo "=========================================="
 
 QPDF_DIR="$RESOURCES_DIR/qpdf/$PLATFORM_ARCH"
-mkdir -p "$QPDF_DIR/bin"
+clean_dir "$QPDF_DIR/bin"
 
 QPDF_URL="https://github.com/qpdf/qpdf/releases/download/v${QPDF_VERSION}/qpdf-${QPDF_VERSION}-msvc64.zip"
 download "$QPDF_URL" "$TEMP_DIR/qpdf.zip"
@@ -165,7 +267,13 @@ echo "4. Bundling DjVuLibre..."
 echo "=========================================="
 
 DJVU_DIR="$RESOURCES_DIR/djvulibre/$PLATFORM_ARCH"
-mkdir -p "$DJVU_DIR/bin" "$DJVU_DIR/lib"
+clean_dir "$DJVU_DIR/bin"
+clean_dir "$DJVU_DIR/lib"
+
+if ! command -v objdump >/dev/null 2>&1; then
+  echo "Error: objdump is required to bundle DjVu dependencies safely"
+  exit 1
+fi
 
 DJVULIBRE_URL="https://sourceforge.net/projects/djvu/files/${DJVULIBRE_SF_PATH}/${DJVULIBRE_INSTALLER}/download"
 download "$DJVULIBRE_URL" "$TEMP_DIR/djvulibre-setup.exe"
@@ -183,8 +291,15 @@ DJVU_EXTRACTED="$(dirname "$DJVU_DDJVU_EXE")"
 echo "  Copying binaries and DLLs..."
 copy_required_tool "$DJVU_EXTRACTED/ddjvu.exe" "$DJVU_DIR/bin" "ddjvu.exe"
 copy_required_tool "$DJVU_EXTRACTED/djvused.exe" "$DJVU_DIR/bin" "djvused.exe"
-cp "$DJVU_EXTRACTED/"*.dll "$DJVU_DIR/bin/" 2>/dev/null || true
-find "$(dirname "$DJVU_EXTRACTED")" -name '*.dll' -exec cp {} "$DJVU_DIR/bin/" \; 2>/dev/null || true
+
+DJVU_ARCH="$(pe_arch "$DJVU_DIR/bin/ddjvu.exe")"
+if [ -z "$DJVU_ARCH" ]; then
+  echo "Error: Failed to detect architecture for DjVu binaries"
+  exit 1
+fi
+
+bundle_dependency_closure "$TEMP_DIR/djvulibre" "$DJVU_DIR/bin" "$DJVU_ARCH"
+verify_directory_architecture "$DJVU_DIR/bin" "$DJVU_ARCH"
 
 echo "  DjVuLibre: $(ls "$DJVU_DIR/bin/"*.exe 2>/dev/null | wc -l) exe, $(ls "$DJVU_DIR/bin/"*.dll 2>/dev/null | wc -l) dlls"
 

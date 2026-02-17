@@ -17,6 +17,21 @@ describe('buildDjvuRuntimeEnv', () => {
         expect(env.Path).toBe('C:\\bundle\\djvu\\bin;C:\\bundle\\djvu\\lib;C:\\Windows\\System32');
     });
 
+    it('normalizes mixed-case PATH keys on Windows to a single Path key', () => {
+        const env = buildDjvuRuntimeEnv({
+            platform: 'win32',
+            baseEnv: {
+                PATH: 'C:\\Windows\\System32',
+                Path: 'C:\\Windows',
+            },
+            binDir: 'C:\\bundle\\djvu\\bin',
+            libDir: 'C:\\bundle\\djvu\\lib',
+        });
+
+        expect(env.Path).toBe('C:\\bundle\\djvu\\bin;C:\\bundle\\djvu\\lib;C:\\Windows\\System32;C:\\Windows');
+        expect(env.PATH).toBeUndefined();
+    });
+
     it('prepends DjVu lib directory to Unix dynamic loader variables', () => {
         const env = buildDjvuRuntimeEnv({
             platform: 'linux',

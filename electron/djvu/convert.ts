@@ -6,6 +6,7 @@ import {
     buildDjvuRuntimeEnv,
     getDjvuToolPaths,
 } from '@electron/djvu/paths';
+import { describeProcessExitCode } from '@electron/utils/process-exit';
 
 interface IDjvuConvertOptions {
     subsample?: number;
@@ -99,13 +100,14 @@ export async function convertDjvuToPdf(
 
         proc.on('close', async (code) => {
             activeProcesses.delete(jobId);
+            const exitCode = typeof code === 'number' ? code : -1;
 
-            if (code !== 0) {
+            if (exitCode !== 0) {
                 resolve({
                     success: false,
                     outputPath,
                     fileSize: 0,
-                    error: `ddjvu exited with code ${code}: ${stderr}`,
+                    error: `ddjvu exited with code ${describeProcessExitCode(exitCode)}: ${stderr}`,
                 });
                 return;
             }
@@ -199,13 +201,14 @@ function convertDjvuPageRange(
 
         proc.on('close', async (code) => {
             activeProcesses.delete(jobId);
+            const exitCode = typeof code === 'number' ? code : -1;
 
-            if (code !== 0) {
+            if (exitCode !== 0) {
                 resolve({
                     success: false,
                     outputPath,
                     fileSize: 0,
-                    error: `ddjvu exited with code ${code}: ${stderr}`,
+                    error: `ddjvu exited with code ${describeProcessExitCode(exitCode)}: ${stderr}`,
                 });
                 return;
             }
@@ -371,13 +374,14 @@ export function convertDjvuPageToImage(
 
         proc.on('close', async (code) => {
             activeProcesses.delete(jobId);
+            const exitCode = typeof code === 'number' ? code : -1;
 
-            if (code !== 0) {
+            if (exitCode !== 0) {
                 resolve({
                     success: false,
                     outputPath,
                     fileSize: 0,
-                    error: `ddjvu exited with code ${code}: ${stderr}`,
+                    error: `ddjvu exited with code ${describeProcessExitCode(exitCode)}: ${stderr}`,
                 });
                 return;
             }

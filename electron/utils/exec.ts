@@ -1,4 +1,5 @@
 import { spawn } from 'child_process';
+import { describeProcessExitCode } from '@electron/utils/process-exit';
 
 type TRunCommandResult = {
     stdout: string;
@@ -70,7 +71,9 @@ export async function runCommand(
 
             const exitCode = typeof code === 'number' ? code : -1;
             if (!allowedExitCodes.includes(exitCode)) {
-                reject(new Error(`${command} failed with exit code ${exitCode}: ${stderr || stdout}`));
+                reject(new Error(`${command} failed with exit code ${
+                    describeProcessExitCode(exitCode)
+                }: ${stderr || stdout}`));
                 return;
             }
 

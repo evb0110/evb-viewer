@@ -3,6 +3,7 @@ import {
     buildDjvuRuntimeEnv,
     getDjvuToolPaths,
 } from '@electron/djvu/paths';
+import { describeProcessExitCode } from '@electron/utils/process-exit';
 import { createLogger } from '@electron/utils/logger';
 
 const logger = createLogger('djvu-metadata');
@@ -45,7 +46,9 @@ function runDjvused(args: string[]): Promise<IRunResult> {
         proc.on('close', (code) => {
             const exitCode = typeof code === 'number' ? code : -1;
             if (exitCode !== 0) {
-                reject(new Error(`djvused failed with exit code ${exitCode}: ${stderr || stdout}`));
+                reject(new Error(`djvused failed with exit code ${
+                    describeProcessExitCode(exitCode)
+                }: ${stderr || stdout}`));
                 return;
             }
             resolve({
