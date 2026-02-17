@@ -50,6 +50,8 @@
   --landing-shadow: 0 18px 44px color-mix(in srgb, black 45%, transparent);
 }
 
+@layer base {
+
 *,
 *::before,
 *::after {
@@ -175,6 +177,12 @@ a {
   letter-spacing: 0.02em;
 }
 
+.header-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+}
+
 .header-actions {
   display: inline-flex;
   align-items: center;
@@ -216,6 +224,7 @@ a {
 .hero-cta {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 0.7rem;
   margin-top: 1.4rem;
 }
@@ -711,10 +720,23 @@ a {
     flex-wrap: wrap;
   }
 
-  .header-actions {
+  .header-nav {
     width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .header-actions {
     justify-content: flex-start;
     flex-wrap: wrap;
+  }
+
+  .hero-cta {
+    flex-direction: column;
+  }
+
+  .hero-cta > * {
+    width: 100%;
+    justify-content: center;
   }
 
   .stats-grid,
@@ -741,3 +763,5 @@ a {
     align-items: flex-start;
   }
 }
+
+} /* @layer base */

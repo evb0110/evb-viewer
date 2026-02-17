@@ -251,11 +251,17 @@ onUnmounted(() => {
 }
 
 .editor-group-pane.has-multiple-groups {
-    box-shadow: none;
+    position: relative;
 }
 
-.editor-group-pane.has-multiple-groups.is-active {
-    box-shadow: none;
+.editor-group-pane.has-multiple-groups :deep(.tab-bar) {
+    transition: background-color 0.12s ease, border-bottom-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.editor-group-pane.has-multiple-groups.is-active :deep(.tab-bar) {
+    background: var(--app-editor-group-active-tabbar-bg);
+    border-bottom-color: var(--app-editor-group-active-tabbar-divider);
+    box-shadow: inset 0 1px 0 var(--app-editor-group-active-tabbar-glow);
 }
 
 .editor-group-content {

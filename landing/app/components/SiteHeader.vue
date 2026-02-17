@@ -1,27 +1,3 @@
-<script setup lang="ts">
-const route = useRoute();
-const repositoryUrl = 'https://github.com/evb0110/evb-viewer';
-
-const navItems = [
-    {
-        label: 'Home',
-        to: '/',
-    },
-    {
-        label: 'Features',
-        to: '/features',
-    },
-    {
-        label: 'Documentation',
-        to: '/docs',
-    },
-];
-
-function isActive(path: string): boolean {
-    return route.path === path;
-}
-</script>
-
 <template>
   <header class="site-header section-reveal">
     <NuxtLink
@@ -32,7 +8,7 @@ function isActive(path: string): boolean {
       <span class="brand-name">Viewer</span>
     </NuxtLink>
 
-    <div class="header-actions">
+    <nav class="header-nav">
       <UButton
         v-for="item in navItems"
         :key="item.to"
@@ -41,15 +17,43 @@ function isActive(path: string): boolean {
         color="neutral"
         :variant="isActive(item.to) ? 'soft' : 'ghost'"
       />
+    </nav>
 
+    <div class="header-actions">
       <UButton
-        label="GitHub"
         :to="repositoryUrl"
         target="_blank"
         icon="i-simple-icons-github"
-        color="primary"
-        variant="soft"
+        color="neutral"
+        variant="ghost"
       />
+
+      <LanguageSwitcher />
     </div>
   </header>
 </template>
+
+<script setup lang="ts">
+const { t } = useTypedI18n();
+const route = useRoute();
+const repositoryUrl = 'https://github.com/evb0110/evb-viewer';
+
+const navItems = computed(() => [
+    {
+        label: t('header.nav.home'),
+        to: '/',
+    },
+    {
+        label: t('header.nav.features'),
+        to: '/features',
+    },
+    {
+        label: t('header.nav.docs'),
+        to: '/docs',
+    },
+]);
+
+function isActive(path: string) {
+    return route.path === path;
+}
+</script>

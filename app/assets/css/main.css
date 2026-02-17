@@ -37,6 +37,9 @@
     --app-editor-group-grid-bg: var(--app-window-bg);
     --app-editor-group-border: var(--ui-border);
     --app-editor-group-border-active: color-mix(in oklab, var(--ui-primary) 55%, var(--ui-border) 45%);
+    --app-editor-group-active-tabbar-bg: color-mix(in oklab, var(--app-chrome) 92%, var(--ui-primary) 8%);
+    --app-editor-group-active-tabbar-divider: color-mix(in oklab, var(--ui-border) 78%, var(--ui-primary) 22%);
+    --app-editor-group-active-tabbar-glow: color-mix(in oklab, var(--ui-primary) 14%, transparent);
     --app-editor-sash-size: 6px;
     --app-editor-sash-bg: color-mix(in oklab, var(--ui-border) 68%, transparent);
     --app-editor-sash-bg-hover: color-mix(in oklab, var(--ui-primary) 45%, var(--ui-border) 55%);
@@ -108,6 +111,9 @@
     --app-toolbar-focus-ring: color-mix(in oklab, var(--ui-border) 58%, var(--ui-text) 42%);
     --app-editor-group-border: color-mix(in oklab, var(--ui-border) 75%, var(--ui-text-muted) 25%);
     --app-editor-group-border-active: color-mix(in oklab, var(--ui-primary) 62%, var(--ui-border) 38%);
+    --app-editor-group-active-tabbar-bg: color-mix(in oklab, var(--app-chrome) 88%, var(--ui-primary) 12%);
+    --app-editor-group-active-tabbar-divider: color-mix(in oklab, var(--ui-border) 72%, var(--ui-primary) 28%);
+    --app-editor-group-active-tabbar-glow: color-mix(in oklab, var(--ui-primary) 22%, transparent);
     --app-editor-sash-bg: color-mix(in oklab, var(--ui-border) 80%, transparent);
     --app-editor-sash-bg-hover: color-mix(in oklab, var(--ui-primary) 58%, var(--ui-border) 42%);
     --app-status-bar-bg: color-mix(in oklab, var(--ui-bg) 86%, var(--ui-bg-elevated) 14%);

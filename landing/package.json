@@ -10,9 +10,11 @@
     "typecheck": "nuxt typecheck"
   },
   "dependencies": {
+    "@iconify-json/circle-flags": "^1.2.10",
     "@iconify-json/lucide": "^1.2.90",
     "@iconify-json/simple-icons": "^1.2.70",
     "@nuxt/ui": "^4.4.0",
+    "@nuxtjs/i18n": "^10.2.3",
     "nuxt": "^4.3.1",
     "tailwindcss": "^4.1.18"
   },

@@ -1,3 +1,193 @@
+<template>
+  <div>
+    <section class="hero-grid section-reveal">
+      <div class="hero-copy">
+        <UBadge
+          :label="t('home.hero.badge')"
+          color="primary"
+          variant="subtle"
+          class="hero-badge"
+        />
+
+        <h1 class="hero-title">
+          {{ t('home.hero.title') }}
+        </h1>
+
+        <p class="hero-subtitle">
+          {{ t('home.hero.subtitle') }}
+        </p>
+
+        <div class="hero-cta">
+          <UButton
+            :label="downloadPrimaryLabel"
+            :to="activeDownload?.downloadUrl || fallbackReleaseUrl"
+            target="_blank"
+            icon="i-lucide-download"
+            size="xl"
+            class="ring ring-inset ring-primary"
+          />
+
+          <UButton
+            :label="t('home.hero.browseInstallers')"
+            color="neutral"
+            variant="outline"
+            size="xl"
+            icon="i-lucide-list"
+            @click="scrollToInstallers"
+          />
+        </div>
+
+        <p class="hero-hint">
+          {{ recommendationHint }}
+        </p>
+
+        <p
+          v-if="releaseData"
+          class="release-meta"
+        >
+          <strong>{{ releaseData.release.tag }}</strong>
+          <span v-if="releaseDateLabel"> &middot; {{ t('home.hero.published', { date: releaseDateLabel }) }}</span>
+        </p>
+      </div>
+
+      <figure class="hero-preview">
+        <div class="preview-frame">
+          <img
+            class="preview-image"
+            src="/evb-viewer-preview-cropped.png"
+            :alt="t('home.preview.alt')"
+          >
+        </div>
+        <figcaption class="preview-caption">
+          {{ t('home.preview.caption') }}
+        </figcaption>
+      </figure>
+    </section>
+
+    <section
+      id="installers"
+      class="content-section section-reveal section-delay-1"
+    >
+      <div class="section-head">
+        <h2>{{ t('home.installers.heading') }}</h2>
+        <p>
+          {{ t('home.installers.description') }}
+        </p>
+      </div>
+
+      <UCard class="installer-card">
+        <div
+          v-if="status === 'pending'"
+          class="installer-state"
+        >
+          <p>{{ t('home.installers.loading') }}</p>
+        </div>
+
+        <div
+          v-else-if="error"
+          class="installer-state"
+        >
+          <p>{{ t('home.installers.error') }}</p>
+          <UButton
+            :label="t('home.installers.retry')"
+            color="neutral"
+            variant="outline"
+            @click="() => refresh()"
+          />
+        </div>
+
+        <div
+          v-else-if="installers.length"
+          class="installer-content"
+        >
+          <label
+            class="installer-label"
+            for="installer-select"
+          >
+            {{ t('home.installers.selectLabel') }}
+          </label>
+
+          <select
+            id="installer-select"
+            v-model.number="selectedAssetId"
+            class="installer-select"
+          >
+            <option
+              v-for="asset in installers"
+              :key="asset.id"
+              :value="asset.id"
+            >
+              {{ formatInstallerLabel(asset) }}
+            </option>
+          </select>
+
+          <p
+            v-if="selectedInstaller"
+            class="installer-details"
+          >
+            {{ t('home.installers.details', { name: selectedInstaller.name, size: formatFileSize(selectedInstaller.size) }) }}
+          </p>
+
+          <div class="installer-actions">
+            <UButton
+              :label="t('home.installers.downloadSelected')"
+              :to="selectedInstaller?.downloadUrl || fallbackReleaseUrl"
+              target="_blank"
+              icon="i-lucide-download"
+            />
+          </div>
+        </div>
+
+        <div
+          v-else
+          class="installer-state"
+        >
+          <p>{{ t('home.installers.noArtifacts') }}</p>
+        </div>
+      </UCard>
+    </section>
+
+    <section class="content-section section-reveal section-delay-2">
+      <div class="section-head">
+        <h2>{{ t('home.explore.heading') }}</h2>
+        <p>{{ t('home.explore.description') }}</p>
+      </div>
+
+      <div class="features-grid">
+        <UCard
+          v-for="feature in featureHighlights"
+          :key="feature.title"
+          class="feature-card"
+        >
+          <UIcon
+            :name="feature.icon"
+            class="feature-icon"
+          />
+          <h3>{{ feature.title }}</h3>
+          <p>{{ feature.description }}</p>
+        </UCard>
+      </div>
+
+      <div class="section-actions">
+        <UButton
+          :label="t('home.explore.featuresPage')"
+          to="/features"
+          color="neutral"
+          variant="outline"
+          trailing-icon="i-lucide-arrow-right"
+        />
+        <UButton
+          :label="t('home.explore.docsPage')"
+          to="/docs"
+          color="neutral"
+          variant="outline"
+          trailing-icon="i-lucide-arrow-right"
+        />
+      </div>
+    </section>
+  </div>
+</template>
+
 <script setup lang="ts">
 import {
     formatArch,
@@ -8,7 +198,6 @@ import {
     parsePlatformHint,
     parseUserAgent,
     recommendInstaller,
-    type ILatestReleaseResponse,
     type TReleaseArch,
     type IReleaseInstaller,
     type IUserAgentProfile,
@@ -19,30 +208,33 @@ interface INavigatorUADataLike {
     getHighEntropyValues?: (hints: string[]) => Promise<{ architecture?: string }>
 }
 
+const { t } = useTypedI18n();
+const { locale } = useI18n();
+
 const repositoryUrl = 'https://github.com/evb0110/evb-viewer';
 
-const featureHighlights = [
+const featureHighlights = computed(() => [
     {
         icon: 'i-lucide-file-stack',
-        title: 'PDF + DjVu in one app',
-        description: 'Read both formats, convert scans, and keep one consistent desktop workflow.',
+        title: t('home.features.pdfDjvu.title'),
+        description: t('home.features.pdfDjvu.description'),
     },
     {
         icon: 'i-lucide-text-search',
-        title: 'High-accuracy OCR',
-        description: 'Generate searchable PDFs with bundled `tessdata_best` language models.',
+        title: t('home.features.ocr.title'),
+        description: t('home.features.ocr.description'),
     },
     {
         icon: 'i-lucide-pen-tool',
-        title: 'Annotation workflow',
-        description: 'Highlight, draw, comment, and export your notes directly back into the file.',
+        title: t('home.features.annotations.title'),
+        description: t('home.features.annotations.description'),
     },
-];
+]);
 
 useSeoMeta({
-    title: 'Home',
-    ogTitle: 'EVB Viewer',
-    ogDescription: 'Cross-platform desktop viewer for PDF and DjVu with OCR and advanced annotation tools.',
+    title: () => t('home.seo.title'),
+    ogTitle: () => t('home.seo.ogTitle'),
+    ogDescription: () => t('home.seo.ogDescription'),
 });
 
 const clientProfile = ref<IUserAgentProfile>({
@@ -57,11 +249,7 @@ const {
     error,
     refresh,
     status,
-} = useFetch<ILatestReleaseResponse>('/api/releases/latest', {
-    key: 'latest-release-data',
-    lazy: true,
-    server: false,
-});
+} = useFetch('/api/releases/latest', {key: 'latest-release-data'});
 
 const installers = computed(() => releaseData.value?.assets || []);
 
@@ -105,25 +293,28 @@ const fallbackReleaseUrl = computed(() => releaseData.value?.release.htmlUrl || 
 const downloadPrimaryLabel = computed(() => {
     const installer = recommendedInstaller.value;
     if (!installer) {
-        return 'Open latest release';
+        return t('home.hero.openLatestRelease');
     }
 
     const platform = formatPlatform(installer.platform);
     const arch = formatArch(installer.arch);
     if (arch) {
-        return `Download for ${platform} (${arch})`;
+        return t('home.hero.downloadForArch', {
+            platform,
+            arch, 
+        });
     }
 
-    return `Download for ${platform}`;
+    return t('home.hero.downloadFor', { platform });
 });
 
 const recommendationHint = computed(() => {
     const installer = recommendedInstaller.value;
     if (!installer) {
-        return 'Automatic platform detection is unavailable. Choose an installer below.';
+        return t('home.hero.detectionUnavailable');
     }
 
-    return `Suggested for your device: ${formatInstallerLabel(installer)}`;
+    return t('home.hero.suggestedDevice', { installerLabel: formatInstallerLabel(installer) });
 });
 
 const releaseDateLabel = computed(() => {
@@ -137,7 +328,7 @@ const releaseDateLabel = computed(() => {
         return '';
     }
 
-    return new Intl.DateTimeFormat('en-US', { dateStyle: 'long' }).format(publishedDate);
+    return new Intl.DateTimeFormat(locale.value, { dateStyle: 'long' }).format(publishedDate);
 });
 
 watch([
@@ -191,200 +382,10 @@ async function detectClientProfile(): Promise<IUserAgentProfile> {
     };
 }
 
-function scrollToInstallers(): void {
+function scrollToInstallers() {
     document.getElementById('installers')?.scrollIntoView({
         behavior: 'smooth',
         block: 'start',
     });
 }
 </script>
-
-<template>
-  <div>
-    <section class="hero-grid section-reveal">
-      <div class="hero-copy">
-        <UBadge
-          label="Cross-platform desktop release"
-          color="primary"
-          variant="subtle"
-          class="hero-badge"
-        />
-
-        <h1 class="hero-title">
-          Read, annotate, OCR, and export documents without switching tools.
-        </h1>
-
-        <p class="hero-subtitle">
-          EVB Viewer combines PDF.js rendering, DjVu support, OCR, page operations, and
-          annotation workflows in a single desktop app for macOS, Windows, and Linux.
-        </p>
-
-        <div class="hero-cta">
-          <UButton
-            :label="downloadPrimaryLabel"
-            :to="activeDownload?.downloadUrl || fallbackReleaseUrl"
-            target="_blank"
-            icon="i-lucide-download"
-            size="xl"
-          />
-
-          <UButton
-            label="Browse all installers"
-            color="neutral"
-            variant="outline"
-            size="xl"
-            icon="i-lucide-list"
-            @click="scrollToInstallers"
-          />
-        </div>
-
-        <p class="hero-hint">
-          {{ recommendationHint }}
-        </p>
-
-        <p
-          v-if="releaseData"
-          class="release-meta"
-        >
-          <strong>{{ releaseData.release.tag }}</strong>
-          <span v-if="releaseDateLabel"> · Published {{ releaseDateLabel }}</span>
-        </p>
-      </div>
-
-      <figure class="hero-preview">
-        <div class="preview-frame">
-          <img
-            class="preview-image"
-            src="/evb-viewer-preview-cropped.png"
-            alt="EVB Viewer screenshot"
-          >
-        </div>
-        <figcaption class="preview-caption">
-          Built for heavy document workflows: tabs, split views, OCR, and annotation tooling.
-        </figcaption>
-      </figure>
-    </section>
-
-    <section
-      id="installers"
-      class="content-section section-reveal section-delay-1"
-    >
-      <div class="section-head">
-        <h2>Installer recommendation</h2>
-        <p>
-          The primary button is selected from your browser user agent. You can always choose another build.
-        </p>
-      </div>
-
-      <UCard class="installer-card">
-        <div
-          v-if="status === 'pending'"
-          class="installer-state"
-        >
-          <p>Loading latest release links...</p>
-        </div>
-
-        <div
-          v-else-if="error"
-          class="installer-state"
-        >
-          <p>Could not load release artifacts right now.</p>
-          <UButton
-            label="Retry"
-            color="neutral"
-            variant="outline"
-            @click="() => refresh()"
-          />
-        </div>
-
-        <div
-          v-else-if="installers.length"
-          class="installer-content"
-        >
-          <label
-            class="installer-label"
-            for="installer-select"
-          >
-            Select installer
-          </label>
-
-          <select
-            id="installer-select"
-            v-model.number="selectedAssetId"
-            class="installer-select"
-          >
-            <option
-              v-for="asset in installers"
-              :key="asset.id"
-              :value="asset.id"
-            >
-              {{ formatInstallerLabel(asset) }}
-            </option>
-          </select>
-
-          <p
-            v-if="selectedInstaller"
-            class="installer-details"
-          >
-            {{ selectedInstaller.name }} · {{ formatFileSize(selectedInstaller.size) }}
-          </p>
-
-          <div class="installer-actions">
-            <UButton
-              label="Download selected installer"
-              :to="selectedInstaller?.downloadUrl || fallbackReleaseUrl"
-              target="_blank"
-              icon="i-lucide-download"
-            />
-          </div>
-        </div>
-
-        <div
-          v-else
-          class="installer-state"
-        >
-          <p>No installer artifacts found in the latest release.</p>
-        </div>
-      </UCard>
-    </section>
-
-    <section class="content-section section-reveal section-delay-2">
-      <div class="section-head">
-        <h2>Explore EVB Viewer</h2>
-        <p>Use dedicated pages for in-depth features and full documentation.</p>
-      </div>
-
-      <div class="features-grid">
-        <UCard
-          v-for="feature in featureHighlights"
-          :key="feature.title"
-          class="feature-card"
-        >
-          <UIcon
-            :name="feature.icon"
-            class="feature-icon"
-          />
-          <h3>{{ feature.title }}</h3>
-          <p>{{ feature.description }}</p>
-        </UCard>
-      </div>
-
-      <div class="section-actions">
-        <UButton
-          label="Open full features page"
-          to="/features"
-          color="neutral"
-          variant="outline"
-          trailing-icon="i-lucide-arrow-right"
-        />
-        <UButton
-          label="Open full documentation"
-          to="/docs"
-          color="neutral"
-          variant="outline"
-          trailing-icon="i-lucide-arrow-right"
-        />
-      </div>
-    </section>
-  </div>
-</template>

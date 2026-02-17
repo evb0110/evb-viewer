@@ -1,0 +1,73 @@
+- generic [ref=e4]:
+  - banner [ref=e5]:
+    - link "EVB Viewer" [ref=e6] [cursor=pointer]:
+      - /url: /
+      - generic [ref=e7]: EVB
+      - generic [ref=e8]: Viewer
+    - generic [ref=e9]:
+      - link "Home" [ref=e10] [cursor=pointer]:
+        - /url: /
+        - generic [ref=e11]: Home
+      - link "Features" [ref=e12] [cursor=pointer]:
+        - /url: /features
+        - generic [ref=e13]: Features
+      - link "Documentation" [ref=e14] [cursor=pointer]:
+        - /url: /docs
+        - generic [ref=e15]: Documentation
+      - link "GitHub" [ref=e16] [cursor=pointer]:
+        - /url: https://github.com/evb0110/evb-viewer
+        - generic [ref=e18]: GitHub
+  - generic [ref=e19]:
+    - generic [ref=e20]:
+      - generic [ref=e21]:
+        - generic [ref=e23]: Cross-platform desktop release
+        - heading "Read, annotate, OCR, and export documents without switching tools." [level=1] [ref=e24]
+        - paragraph [ref=e25]: EVB Viewer combines PDF.js rendering, DjVu support, OCR, page operations, and annotation workflows in a single desktop app for macOS, Windows, and Linux.
+        - generic [ref=e26]:
+          - link "Open latest release" [ref=e27] [cursor=pointer]:
+            - /url: https://github.com/evb0110/evb-viewer/releases/latest
+            - generic [ref=e29]: Open latest release
+          - button "Browse all installers" [ref=e30]:
+            - generic [ref=e32]: Browse all installers
+        - paragraph [ref=e33]: Automatic platform detection is unavailable. Choose an installer below.
+      - 'figure "Built for heavy document workflows: tabs, split views, OCR, and annotation tooling." [ref=e34]':
+        - img "EVB Viewer screenshot" [ref=e35]
+        - generic [ref=e36]: "Built for heavy document workflows: tabs, split views, OCR, and annotation tooling."
+    - generic [ref=e37]:
+      - generic [ref=e38]:
+        - heading "Installer recommendation" [level=2] [ref=e39]
+        - paragraph [ref=e40]: The primary button is selected from your browser user agent. You can always choose another build.
+      - paragraph [ref=e44]: No installer artifacts found in the latest release.
+    - generic [ref=e45]:
+      - generic [ref=e46]:
+        - heading "Explore EVB Viewer" [level=2] [ref=e47]
+        - paragraph [ref=e48]: Use dedicated pages for in-depth features and full documentation.
+      - generic [ref=e49]:
+        - generic [ref=e51]:
+          - heading "PDF + DjVu in one app" [level=3] [ref=e53]
+          - paragraph [ref=e54]: Read both formats, convert scans, and keep one consistent desktop workflow.
+        - generic [ref=e56]:
+          - heading "High-accuracy OCR" [level=3] [ref=e58]
+          - paragraph [ref=e59]: "Generate searchable PDFs with bundled `tessdata_best` language models."
+        - generic [ref=e61]:
+          - heading "Annotation workflow" [level=3] [ref=e63]
+          - paragraph [ref=e64]: Highlight, draw, comment, and export your notes directly back into the file.
+      - generic [ref=e65]:
+        - link "Open full features page" [ref=e66] [cursor=pointer]:
+          - /url: /features
+          - generic [ref=e67]: Open full features page
+        - link "Open full documentation" [ref=e69] [cursor=pointer]:
+          - /url: /docs
+          - generic [ref=e70]: Open full documentation
+  - contentinfo [ref=e72]:
+    - paragraph [ref=e73]: Copyright © 2026 Eugene Barsky
+    - generic [ref=e74]:
+      - link "Documentation" [ref=e75] [cursor=pointer]:
+        - /url: /docs
+        - generic [ref=e76]: Documentation
+      - link "Features" [ref=e77] [cursor=pointer]:
+        - /url: /features
+        - generic [ref=e78]: Features
+      - link "View source" [ref=e79] [cursor=pointer]:
+        - /url: https://github.com/evb0110/evb-viewer
+        - generic [ref=e81]: View source

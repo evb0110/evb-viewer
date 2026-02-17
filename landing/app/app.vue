@@ -1,33 +1,3 @@
-<script setup lang="ts">
-const title = 'EVB Viewer';
-const description = 'Cross-platform desktop viewer for PDF and DjVu documents with OCR, annotations, and export tools.';
-const ogImage = 'https://raw.githubusercontent.com/evb0110/evb-viewer/main/docs/screenshot.png';
-
-useHead({
-    htmlAttrs: {lang: 'en'},
-    meta: [{
-        name: 'viewport',
-        content: 'width=device-width, initial-scale=1',
-    }],
-    link: [{
-        rel: 'icon',
-        href: '/favicon.ico',
-    }],
-});
-
-useSeoMeta({
-    titleTemplate: chunk => chunk ? `${chunk} · EVB Viewer` : 'EVB Viewer',
-    description,
-    ogTitle: title,
-    ogDescription: description,
-    ogImage,
-    twitterTitle: title,
-    twitterDescription: description,
-    twitterImage: ogImage,
-    twitterCard: 'summary_large_image',
-});
-</script>
-
 <template>
   <UApp>
     <div class="landing-root">
@@ -42,3 +12,34 @@ useSeoMeta({
     </div>
   </UApp>
 </template>
+
+<script setup lang="ts">
+const { t } = useTypedI18n();
+const { locale } = useI18n();
+
+const ogImage = 'https://raw.githubusercontent.com/evb0110/evb-viewer/main/docs/screenshot.png';
+
+useHead(() => ({
+    htmlAttrs: { lang: locale.value },
+    meta: [{
+        name: 'viewport',
+        content: 'width=device-width, initial-scale=1',
+    }],
+    link: [{
+        rel: 'icon',
+        href: '/favicon.ico',
+    }],
+}));
+
+useSeoMeta({
+    titleTemplate: chunk => chunk ? `${chunk} \u00b7 ${t('app.title')}` : t('app.title'),
+    description: () => t('app.description'),
+    ogTitle: () => t('app.title'),
+    ogDescription: () => t('app.description'),
+    ogImage,
+    twitterTitle: () => t('app.title'),
+    twitterDescription: () => t('app.description'),
+    twitterImage: ogImage,
+    twitterCard: 'summary_large_image',
+});
+</script>

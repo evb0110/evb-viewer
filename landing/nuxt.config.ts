@@ -1,6 +1,13 @@
+/* eslint-disable no-restricted-imports */
+import { LOCALE_DEFINITIONS } from './app/i18n/locales';
+import { DEFAULT_LOCALE } from './app/i18n/locale-codes';
+
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
-    modules: ['@nuxt/ui'],
+    modules: [
+        '@nuxt/ui',
+        '@nuxtjs/i18n',
+    ],
 
     devtools: { enabled: true },
 
@@ -14,10 +21,33 @@ export default defineNuxtConfig({
     },
 
     routeRules: {
-        '/': { prerender: true },
+        '/': { isr: 600 },
         '/features': { prerender: true },
         '/docs': { prerender: true },
     },
+
+    i18n: {
+        restructureDir: 'app',
+        locales: LOCALE_DEFINITIONS,
+        defaultLocale: DEFAULT_LOCALE,
+        langDir: 'locales/',
+        strategy: 'no_prefix',
+        detectBrowserLanguage: {
+            useCookie: true,
+            cookieKey: 'i18n_locale',
+        },
+    },
+
+    icon: {clientBundle: {icons: [
+        'circle-flags:gb',
+        'circle-flags:ru',
+        'circle-flags:fr',
+        'circle-flags:de',
+        'circle-flags:es',
+        'circle-flags:it',
+        'circle-flags:pt',
+        'circle-flags:nl',
+    ]}},
 
     compatibilityDate: '2025-01-15',
 });

@@ -1,26 +1,22 @@
-<script setup lang="ts">
-const repositoryUrl = 'https://github.com/evb0110/evb-viewer';
-</script>
-
 <template>
   <footer class="site-footer section-reveal section-delay-3">
-    <p>Copyright © 2026 Eugene Barsky</p>
+    <p>{{ t('footer.copyright') }}</p>
 
     <div class="footer-links">
       <UButton
-        label="Documentation"
+        :label="t('footer.docs')"
         to="/docs"
         color="neutral"
         variant="ghost"
       />
       <UButton
-        label="Features"
+        :label="t('footer.features')"
         to="/features"
         color="neutral"
         variant="ghost"
       />
       <UButton
-        label="View source"
+        :label="t('footer.viewSource')"
         :to="repositoryUrl"
         target="_blank"
         color="neutral"
@@ -30,3 +26,8 @@ const repositoryUrl = 'https://github.com/evb0110/evb-viewer';
     </div>
   </footer>
 </template>
+
+<script setup lang="ts">
+const { t } = useTypedI18n();
+const repositoryUrl = 'https://github.com/evb0110/evb-viewer';
+</script>
