@@ -2,6 +2,8 @@ appId: com.evb.viewer
 productName: EVB Viewer
 copyright: Copyright © 2026 Eugene Barsky
 
+# Nuxt server and workers are unpacked because they run as child processes
+# (ELECTRON_RUN_AS_NODE=1) which need real filesystem paths.
 asar: true
 asarUnpack:
   - nuxt-output/**/*
