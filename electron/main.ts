@@ -72,6 +72,8 @@ const readyWindowIds = new Set<number>();
 let defaultViewerPromptShown = false;
 let flushPendingFilesTimer: ReturnType<typeof setTimeout> | null = null;
 let batchWindowStartTime: number | null = null;
+let externalOpenBootstrapReady = false;
+let ensureWindowForExternalOpenPromise: Promise<void> | null = null;
 const EXTERNAL_OPEN_BATCH_WINDOW_MS = 800;
 const EXTERNAL_OPEN_MAX_BATCH_WAIT_MS = 10_000;
 
@@ -214,6 +216,42 @@ function focusMainWindow() {
     window.focus();
 }
 
+async function ensureMainWindowForExternalOpen() {
+    await app.whenReady();
+
+    if (!externalOpenBootstrapReady) {
+        // Initial startup flow creates the first window after IPC/bootstrap wiring is ready.
+        // Avoid creating windows earlier to prevent missing renderer-ready signals.
+        return;
+    }
+
+    if (!hasWindows()) {
+        logger.info('External open requested without active windows; creating main window');
+        readyWindowIds.clear();
+        await createWindow();
+        logStartupPhase('Main window creation requested by external open');
+    }
+
+    focusMainWindow();
+    scheduleFlushPendingFiles();
+}
+
+function requestMainWindowForExternalOpen() {
+    if (ensureWindowForExternalOpenPromise) {
+        return;
+    }
+
+    ensureWindowForExternalOpenPromise = (async () => {
+        try {
+            await ensureMainWindowForExternalOpen();
+        } catch (error) {
+            logger.error(`Failed to prepare window for external open: ${error instanceof Error ? error.message : String(error)}`);
+        } finally {
+            ensureWindowForExternalOpenPromise = null;
+        }
+    })();
+}
+
 function flushPendingFiles() {
     if (flushPendingFilesTimer) {
         clearTimeout(flushPendingFilesTimer);
@@ -285,7 +323,7 @@ if (!singleInstanceLock) {
 app.on('open-file', (event, filePath) => {
     event.preventDefault();
     queueOpenRequest([filePath]);
-    scheduleFlushPendingFiles();
+    requestMainWindowForExternalOpen();
 });
 
 // Windows/Linux: the OS passes the file path as a command-line argument
@@ -295,8 +333,7 @@ if (process.platform !== 'darwin') {
 
 app.on('second-instance', (_event, commandLine) => {
     queueOpenRequestFromArgs(commandLine.slice(1));
-    focusMainWindow();
-    scheduleFlushPendingFiles();
+    requestMainWindowForExternalOpen();
 });
 
 async function init() {
@@ -366,9 +403,13 @@ async function init() {
         if (!hasWindows()) {
             readyWindowIds.clear();
             void createWindow();
+            return;
         }
+        focusMainWindow();
+        scheduleFlushPendingFiles();
     });
 
+    externalOpenBootstrapReady = true;
     readyWindowIds.clear();
     logStartupPhase('Creating main window');
     await createWindow();
