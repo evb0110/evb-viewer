@@ -50,6 +50,7 @@ export default {
             details: '{name} · {size}',
             downloadSelected: 'Скачать выбранный установщик',
             noArtifacts: 'Артефакты установщиков не найдены в последнем релизе.',
+            recommended: 'Рекомендуется',
         },
         features: {
             pdfDjvu: {

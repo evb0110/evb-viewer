@@ -50,6 +50,7 @@ export default {
             details: '{name} · {size}',
             downloadSelected: 'Descargar el instalador seleccionado',
             noArtifacts: 'No se encontraron artefactos de instalador en la ultima version.',
+            recommended: 'Recomendado',
         },
         features: {
             pdfDjvu: {

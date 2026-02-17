@@ -74,7 +74,7 @@
         </p>
       </div>
 
-      <UCard class="installer-card">
+      <div class="installer-card">
         <div
           v-if="status === 'pending'"
           class="installer-state"
@@ -99,62 +99,47 @@
           v-else-if="installers.length"
           class="installer-content"
         >
-          <div class="installer-layout">
-            <div class="installer-platforms">
-              <UButton
-                v-for="platform in selectablePlatforms"
-                :key="platform"
-                :label="installerPlatformLabel(platform)"
-                size="sm"
-                :variant="selectedPlatform === platform ? 'solid' : 'ghost'"
-                :color="selectedPlatform === platform ? 'primary' : 'neutral'"
-                class="installer-platform-button"
-                @click="selectPlatform(platform)"
-              />
-            </div>
+          <div class="installer-platforms">
+            <UButton
+              v-for="platform in selectablePlatforms"
+              :key="platform"
+              :label="installerPlatformLabel(platform)"
+              size="sm"
+              :variant="selectedPlatform === platform ? 'solid' : 'ghost'"
+              :color="selectedPlatform === platform ? 'primary' : 'neutral'"
+              class="installer-platform-button"
+              @click="selectPlatform(platform)"
+            />
+          </div>
 
-            <div class="installer-select-layout">
-              <div class="installer-select-stack">
-                <label
-                  class="installer-label"
-                  for="installer-select"
-                >
-                  {{ t('home.installers.selectLabel') }}
-                </label>
-
-                <select
-                  id="installer-select"
-                  :value="selectedAssetId"
-                  class="installer-select-control"
-                  @change="onAssetIdChange"
-                >
-                  <option
-                    v-for="item in installerSelectOptions"
-                    :key="item.value"
-                    :value="item.value"
+          <div class="installer-list">
+            <button
+              v-for="installer in installersForSelectedPlatform"
+              :key="installer.id"
+              type="button"
+              class="installer-item"
+              :class="{ 'installer-item-recommended': isRecommendedInstaller(installer) }"
+              @click="triggerIframeDownload(installer.downloadUrl)"
+            >
+              <div class="installer-item-info">
+                <div class="installer-item-header">
+                  <span class="installer-item-variant">{{ formatInstallerVariantLabel(installer) }}</span>
+                  <span
+                    v-if="isRecommendedInstaller(installer)"
+                    class="installer-badge"
                   >
-                    {{ item.label }}
-                  </option>
-                </select>
-
-                <p
-                  v-if="selectedInstaller"
-                  class="installer-details"
-                >
-                  {{ t('home.installers.details', { name: selectedInstaller.name, size: formatFileSize(selectedInstaller.size) }) }}
-                </p>
+                    {{ t('home.installers.recommended') }}
+                  </span>
+                </div>
+                <span class="installer-item-meta">
+                  {{ installer.name }} · {{ formatFileSize(installer.size) }}
+                </span>
               </div>
-
-              <div class="installer-actions">
-                <UButton
-                  :label="t('home.installers.downloadSelected')"
-                  icon="i-lucide-download"
-                  size="lg"
-                  class="installer-download-button"
-                  @click="downloadSelectedInstaller"
-                />
-              </div>
-            </div>
+              <UIcon
+                name="i-lucide-download"
+                class="installer-item-icon"
+              />
+            </button>
           </div>
         </div>
 
@@ -164,7 +149,7 @@
         >
           <p>{{ t('home.installers.noArtifacts') }}</p>
         </div>
-      </UCard>
+      </div>
     </section>
 
     <section class="content-section section-reveal section-delay-2">
@@ -361,7 +346,7 @@ const selectedPlatform = computed<TReleasePlatform>(() => {
 
 const installersForSelectedPlatform = computed(() => {
     const platformAssets = installers.value.filter(asset => asset.platform === selectedPlatform.value);
-    return filterRedundantArchives(platformAssets).sort(compareInstallersForSelect);
+    return selectPreferredInstallers(platformAssets).sort(compareInstallersForSelect);
 });
 
 const installerSelectOptions = computed<TInstallerSelectItem[]>(() => installersForSelectedPlatform.value
@@ -501,6 +486,10 @@ function downloadSelectedInstaller() {
     }
 }
 
+function isRecommendedInstaller(installer: IReleaseInstaller) {
+    return recommendedInstaller.value?.id === installer.id;
+}
+
 function scrollToInstallers() {
     document.getElementById('installers')?.scrollIntoView({
         behavior: 'smooth',
@@ -547,8 +536,12 @@ function compareInstallersForSelect(left: IReleaseInstaller, right: IReleaseInst
     return left.name.localeCompare(right.name);
 }
 
+function effectiveArch(asset: IReleaseInstaller): TReleaseArch {
+    return asset.arch === 'unknown' ? 'x64' : asset.arch;
+}
+
 function formatInstallerVariantLabel(asset: IReleaseInstaller): string {
-    const arch = formatArch(asset.arch);
+    const arch = formatArch(effectiveArch(asset));
     const extension = formatExtension(asset.extension);
 
     if (arch) {
@@ -558,29 +551,45 @@ function formatInstallerVariantLabel(asset: IReleaseInstaller): string {
     return extension;
 }
 
-const ARCHIVE_EXTENSIONS = new Set([
-    'zip',
-    'tar.gz',
-]);
-
-function filterRedundantArchives(assets: IReleaseInstaller[]): IReleaseInstaller[] {
-    const archsWithInstaller = new Set(
-        assets
-            .filter(a => !ARCHIVE_EXTENSIONS.has(a.extension))
-            .map(a => a.arch),
-    );
-
-    if (!archsWithInstaller.size) {
+function selectPreferredInstallers(assets: IReleaseInstaller[]): IReleaseInstaller[] {
+    const first = assets[0];
+    if (!first) {
         return assets;
     }
 
-    return assets.filter(a => {
-        if (!ARCHIVE_EXTENSIONS.has(a.extension)) {
-            return true;
-        }
+    const formatOrder = INSTALLER_EXTENSION_ORDER[first.platform] || INSTALLER_EXTENSION_ORDER.unknown;
 
-        return !archsWithInstaller.has(a.arch);
-    });
+    const byArch = new Map<TReleaseArch, IReleaseInstaller[]>();
+    for (const asset of assets) {
+        const arch = effectiveArch(asset);
+        const group = byArch.get(arch) || [];
+        group.push(asset);
+        byArch.set(arch, group);
+    }
+
+    const result: IReleaseInstaller[] = [];
+    for (const [
+        , archAssets,
+    ] of byArch) {
+        const firstOfArch = archAssets[0];
+        if (!firstOfArch) continue;
+
+        let best = firstOfArch;
+        let bestRank = formatOrder.indexOf(best.extension);
+        if (bestRank === -1) bestRank = 999;
+
+        for (const asset of archAssets.slice(1)) {
+            let rank = formatOrder.indexOf(asset.extension);
+            if (rank === -1) rank = 999;
+            if (rank < bestRank) {
+                best = asset;
+                bestRank = rank;
+            }
+        }
+        result.push(best);
+    }
+
+    return result;
 }
 
 function installerExtensionRank(asset: IReleaseInstaller): number {

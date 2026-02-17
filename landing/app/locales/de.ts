@@ -50,6 +50,7 @@ export default {
             details: '{name} · {size}',
             downloadSelected: 'Ausgewaehltes Installationsprogramm herunterladen',
             noArtifacts: 'Keine Installations-Artefakte in der neuesten Version gefunden.',
+            recommended: 'Empfohlen',
         },
         features: {
             pdfDjvu: {

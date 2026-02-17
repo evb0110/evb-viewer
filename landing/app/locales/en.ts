@@ -50,6 +50,7 @@ export default {
             details: '{name} · {size}',
             downloadSelected: 'Download selected installer',
             noArtifacts: 'No installer artifacts found in the latest release.',
+            recommended: 'Recommended',
         },
         features: {
             pdfDjvu: {

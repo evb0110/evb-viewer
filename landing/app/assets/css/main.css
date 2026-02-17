@@ -37,10 +37,6 @@
   --landing-shadow: 0 16px 40px color-mix(in srgb, var(--color-blue-700) 18%, transparent);
   --installer-control-gap: 0.72rem;
   --installer-platform-gap: 0.25rem;
-  --installer-platform-min-width: 6.25rem;
-  --installer-content-max-width: 36rem;
-  --installer-select-min-width: 15rem;
-  --installer-select-max-width: 22rem;
 }
 
 .dark {
@@ -332,6 +328,10 @@ a {
   box-shadow: var(--landing-shadow);
 }
 
+.installer-card {
+  padding: 1.75rem;
+}
+
 .installer-state {
   display: flex;
   flex-direction: column;
@@ -341,14 +341,11 @@ a {
 .installer-content {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
-}
-
-.installer-layout {
-  display: flex;
-  flex-direction: column;
-  gap: 0.95rem;
-  max-width: var(--installer-content-max-width);
+  align-items: center;
+  gap: 1.25rem;
+  max-width: 34rem;
+  margin: 0 auto;
+  width: 100%;
 }
 
 .installer-platforms {
@@ -362,73 +359,91 @@ a {
 }
 
 .installer-platform-button {
-  min-width: var(--installer-platform-min-width);
+  min-width: 5.5rem;
   justify-content: center;
 }
 
-.installer-select-layout {
-  display: grid;
-  align-items: end;
-  gap: var(--installer-control-gap);
-  grid-template-columns: minmax(0, var(--installer-select-max-width)) auto;
-}
-
-.installer-select-stack {
+.installer-list {
   display: flex;
   flex-direction: column;
-  gap: 0.48rem;
-}
-
-.installer-label {
-  font-size: 0.87rem;
-  font-weight: 600;
-  letter-spacing: 0.015em;
-}
-
-.installer-select-control {
+  gap: 0.5rem;
   width: 100%;
-  min-width: var(--installer-select-min-width);
-  appearance: none;
-  border-radius: 0.625rem;
-  border: 1px solid var(--landing-border);
-  background-color: var(--landing-surface-strong);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 0.7rem center;
-  background-size: 0.85rem;
-  color: var(--landing-ink);
-  font-family: var(--font-sans);
-  font-size: 0.95rem;
-  line-height: 1.4;
-  padding: 0.6rem 2.25rem 0.6rem 0.75rem;
-  cursor: pointer;
-  transition: border-color 0.15s, box-shadow 0.15s;
 }
 
-.installer-select-control:hover {
-  border-color: var(--color-blue-400);
-}
-
-.installer-select-control:focus {
-  outline: none;
-  border-color: var(--color-blue-500);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-blue-500) 20%, transparent);
-}
-
-.installer-details {
-  margin: 0;
-  font-family: var(--font-mono);
-  font-size: 0.82rem;
-  color: var(--landing-muted);
-}
-
-.installer-actions {
+.installer-item {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  width: 100%;
+  padding: 0.85rem 1rem;
+  border-radius: 0.75rem;
+  border: 1px solid var(--landing-border);
+  background: var(--landing-surface-strong);
+  cursor: pointer;
+  transition: border-color 0.15s, background-color 0.15s, box-shadow 0.15s;
+  text-align: left;
+  font-family: inherit;
+  color: inherit;
 }
 
-.installer-download-button {
+.installer-item:hover {
+  border-color: var(--color-blue-400);
+  box-shadow: 0 2px 12px color-mix(in srgb, var(--color-blue-500) 10%, transparent);
+}
+
+.installer-item-recommended {
+  border-color: color-mix(in srgb, var(--color-blue-400) 60%, var(--landing-border) 40%);
+  background: color-mix(in srgb, var(--landing-surface-strong) 82%, var(--color-blue-400) 18%);
+}
+
+.installer-item-recommended:hover {
+  border-color: var(--color-blue-500);
+}
+
+.installer-item-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.installer-item-header {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.installer-item-variant {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.installer-badge {
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 0.1rem 0.45rem;
+  border-radius: 1rem;
+  background: color-mix(in srgb, var(--color-blue-500) 15%, var(--landing-surface));
+  color: var(--color-blue-500);
+  letter-spacing: 0.02em;
   white-space: nowrap;
+}
+
+.installer-item-meta {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--landing-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.installer-item-icon {
+  font-size: 1.15rem;
+  color: var(--color-blue-500);
+  flex-shrink: 0;
 }
 
 .stats-grid {
@@ -815,26 +830,20 @@ a {
     grid-template-columns: 1fr;
   }
 
-  .installer-select-control {
-    width: 100%;
-    min-width: min(100%, var(--installer-select-min-width));
-  }
-
-  .installer-select-layout {
-    grid-template-columns: 1fr;
-  }
-
   .installer-platforms {
-    display: flex;
+    width: 100%;
   }
 
   .installer-platform-button {
     flex: 1 1 calc(50% - var(--installer-platform-gap));
   }
 
-  .installer-download-button {
-    width: 100%;
-    justify-content: center;
+  .installer-content {
+    max-width: none;
+  }
+
+  .installer-card {
+    padding: 1.25rem;
   }
 
   .site-footer {
