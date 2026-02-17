@@ -25,10 +25,13 @@ jobs:
             platform: linux
             arch: arm64
 
-          # Windows — x64 runner builds both installers; arm64 uses MSYS2 clangarm64
+          # Windows — both run on x64 runner; arm64 cross-bundles via MSYS2 clangarm64
           - os: windows-latest
             platform: win
             arch: x64
+          - os: windows-latest
+            platform: win
+            arch: arm64
 
     runs-on: ${{ matrix.os }}
 
@@ -57,7 +60,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ runner.temp }}/win-bundle-cache
-          key: win-native-tools-${{ hashFiles('scripts/bundle-tools-windows.sh') }}
+          key: win-native-tools-${{ matrix.arch }}-${{ hashFiles('scripts/bundle-tools-windows.sh') }}
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -78,16 +81,13 @@ jobs:
         if: runner.os == 'Linux'
         run: bash scripts/bundle-tools-linux.sh
 
-      # Windows: x64 runner builds both architectures.
-      # x64 uses pre-built release ZIPs; arm64 uses MSYS2 clangarm64 packages.
+      # Windows: x64 downloads pre-built release ZIPs; arm64 uses MSYS2 clangarm64
       - name: Bundle native tools (Windows)
         if: runner.os == 'Windows'
         shell: bash
         env:
           WIN_BUNDLE_CACHE_DIR: ${{ runner.temp }}/win-bundle-cache
-        run: |
-          TARGET_ARCH=x64 bash scripts/bundle-tools-windows.sh
-          TARGET_ARCH=arm64 bash scripts/bundle-tools-windows.sh
+        run: TARGET_ARCH=${{ matrix.arch }} bash scripts/bundle-tools-windows.sh
 
       - name: Build (Nuxt + Electron)
         run: pnpm run build
@@ -245,7 +245,7 @@ jobs:
 
           ATTEMPTS=3
           for attempt in $(seq 1 $ATTEMPTS); do
-            if pnpm exec electron-builder --win --x64 --arm64; then
+            if pnpm exec electron-builder --win --${{ matrix.arch }}; then
               exit 0
             fi
             if [ "$attempt" -lt "$ATTEMPTS" ]; then
@@ -280,16 +280,8 @@ jobs:
           }
 
       - name: Verify packaged native tools
-        if: runner.os != 'Windows'
         shell: bash
         run: bash scripts/verify-packaged-native-tools.sh "${{ matrix.platform }}" "${{ matrix.arch }}"
-
-      - name: Verify packaged native tools (Windows x64 + arm64)
-        if: runner.os == 'Windows'
-        shell: bash
-        run: |
-          bash scripts/verify-packaged-native-tools.sh win x64
-          bash scripts/verify-packaged-native-tools.sh win arm64
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
