@@ -1,6 +1,0 @@
-[GET] https://evb-viewer.vercel.app/api/releases/latest => [200] 
-[GET] https://evb-viewer.vercel.app/_payload.json?b6c68ef6-dae4-4037-a9e9-a37a2a76b437 => [200] 
-[GET] https://evb-viewer.vercel.app/_payload.json?b6c68ef6-dae4-4037-a9e9-a37a2a76b437 => [200] 
-[GET] https://evb-viewer.vercel.app/features/_payload.json?b6c68ef6-dae4-4037-a9e9-a37a2a76b437 => [200] 
-[GET] https://evb-viewer.vercel.app/docs/_payload.json?b6c68ef6-dae4-4037-a9e9-a37a2a76b437 => [200] 
-[GET] https://evb-viewer.vercel.app/_nuxt/builds/meta/b6c68ef6-dae4-4037-a9e9-a37a2a76b437.json => [200] 

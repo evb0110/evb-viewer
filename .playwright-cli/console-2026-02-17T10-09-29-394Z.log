@@ -1,6 +1,0 @@
-[     685ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://evb-viewer.vercel.app/_payload.json?1b441320-ab63-4ba2-b5b4-47b444ddbf0f:0
-[     722ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://evb-viewer.vercel.app/_nuxt/xxXQxeON.js:0
-[    1271ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://evb-viewer.vercel.app/_nuxt/aR_8ZFZW.js:0
-[    1274ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://evb-viewer.vercel.app/_nuxt/ilptAeVq.js:0
-[    1274ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://evb-viewer.vercel.app/_nuxt/TwBGdwGR.js:0
-[    4507ms] [WARNING] The resource https://evb-viewer.vercel.app/_payload.json?1b441320-ab63-4ba2-b5b4-47b444ddbf0f was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally. @ https://evb-viewer.vercel.app/:0
