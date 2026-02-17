@@ -29,8 +29,6 @@ files:
 extraResources:
   - from: resources/tesseract/tessdata
     to: tesseract/tessdata
-    filter:
-      - eng.traineddata
   - from: resources/icon.png
     to: icon.png
 
