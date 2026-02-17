@@ -21,7 +21,7 @@
                 @tab-context-command="(tabId, command) => emit('tab-context-command', groupForLeaf!.id, tabId, command)"
             />
             <div class="editor-group-content">
-                <DocumentWorkspace
+                <DocumentWorkspaceHost
                     v-for="tab in tabsForGroup(groupForLeaf!.id)"
                     v-show="tab.id === groupForLeaf!.activeTabId"
                     :key="tab.id"

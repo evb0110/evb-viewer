@@ -54,6 +54,7 @@ function syncWindowRegistry() {
 }
 
 async function ensureWindowRuntimeReady() {
+    const runtimeStart = Date.now();
     if (!isCspConfigured) {
         isCspConfigured = true;
         setupContentSecurityPolicy();
@@ -71,12 +72,17 @@ async function ensureWindowRuntimeReady() {
 
     if (!serverReadyPromise) {
         serverReadyPromise = (async () => {
+            const serverBootStart = Date.now();
+            logger.info('[startup] Ensuring Nuxt runtime server is ready');
             await startServer();
+            logger.info(`[startup] Nuxt runtime process ensured (+${Date.now() - serverBootStart}ms)`);
             await waitForServer();
+            logger.info(`[startup] Nuxt runtime server is healthy (+${Date.now() - serverBootStart}ms)`);
         })();
     }
 
     await serverReadyPromise;
+    logger.info(`[startup] Window runtime ready (+${Date.now() - runtimeStart}ms)`);
 }
 
 function attachShowLifecycle(window: BrowserWindow) {
@@ -190,6 +196,7 @@ function attachShowLifecycle(window: BrowserWindow) {
             if (process.platform === 'darwin') {
                 app.focus({ steal: true });
             }
+            logger.info(`[startup] Window shown (windowId=${window.id})`);
         }
 
         cleanupShowHandlers();
@@ -310,6 +317,7 @@ function attachShowLifecycle(window: BrowserWindow) {
 }
 
 export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
+    const createStart = Date.now();
     await ensureWindowRuntimeReady();
 
     const preloadPath = join(__dirname, 'preload.js');
@@ -339,6 +347,7 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
 
     attachShowLifecycle(window);
     void window.loadURL(config.server.url);
+    logger.info(`[startup] BrowserWindow created and loadURL dispatched (+${Date.now() - createStart}ms)`);
 
     return window;
 }

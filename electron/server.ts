@@ -2,6 +2,14 @@ import {
     spawn,
     type ChildProcess,
 } from 'child_process';
+import {
+    existsSync,
+    readFileSync,
+    unlinkSync,
+    writeFileSync,
+} from 'fs';
+import { join } from 'path';
+import { app } from 'electron';
 import { retry } from 'es-toolkit/function';
 import {
     delay,
@@ -21,6 +29,116 @@ const logger = createLogger('server');
 let nuxtProcess: ChildProcess | null = null;
 let serverReady: Promise<void> | null = null;
 let usingExternalServer = false;
+const SERVER_OWNERSHIP_FILE = 'nuxt-server-owner.json';
+
+interface IServerOwnershipMarker {
+    pid: number;
+    entryPath: string;
+    createdAt: number;
+    version: 1;
+}
+
+function getOwnershipMarkerPath() {
+    return join(app.getPath('userData'), SERVER_OWNERSHIP_FILE);
+}
+
+function readOwnershipMarker(): IServerOwnershipMarker | null {
+    const markerPath = getOwnershipMarkerPath();
+    if (!existsSync(markerPath)) {
+        return null;
+    }
+
+    try {
+        const content = readFileSync(markerPath, 'utf-8');
+        const parsed = JSON.parse(content) as Partial<IServerOwnershipMarker>;
+        if (
+            typeof parsed?.pid !== 'number'
+            || !Number.isInteger(parsed.pid)
+            || parsed.pid <= 0
+            || typeof parsed.entryPath !== 'string'
+        ) {
+            return null;
+        }
+
+        return {
+            pid: parsed.pid,
+            entryPath: parsed.entryPath,
+            createdAt: typeof parsed.createdAt === 'number' ? parsed.createdAt : Date.now(),
+            version: 1,
+        };
+    } catch {
+        return null;
+    }
+}
+
+function writeOwnershipMarker(pid: number) {
+    if (!Number.isInteger(pid) || pid <= 0) {
+        return;
+    }
+
+    const markerPath = getOwnershipMarkerPath();
+    const marker: IServerOwnershipMarker = {
+        pid,
+        entryPath: config.server.entryPath,
+        createdAt: Date.now(),
+        version: 1,
+    };
+    try {
+        writeFileSync(markerPath, JSON.stringify(marker), 'utf-8');
+    } catch (err) {
+        logger.warn(`Failed to write server ownership marker: ${err instanceof Error ? err.message : String(err)}`);
+    }
+}
+
+function clearOwnershipMarker() {
+    const markerPath = getOwnershipMarkerPath();
+    try {
+        if (existsSync(markerPath)) {
+            unlinkSync(markerPath);
+        }
+    } catch (err) {
+        logger.warn(`Failed to clear server ownership marker: ${err instanceof Error ? err.message : String(err)}`);
+    }
+}
+
+function isPidAlive(pid: number) {
+    if (!Number.isInteger(pid) || pid <= 0) {
+        return false;
+    }
+
+    try {
+        process.kill(pid, 0);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+async function terminateProcess(pid: number, graceMs = 2_500) {
+    if (!isPidAlive(pid) || pid === process.pid) {
+        return;
+    }
+
+    try {
+        process.kill(pid, 'SIGTERM');
+    } catch {
+        return;
+    }
+
+    const start = Date.now();
+    while (Date.now() - start < graceMs) {
+        if (!isPidAlive(pid)) {
+            return;
+        }
+        await delay(100);
+    }
+
+    try {
+        process.kill(pid, 'SIGKILL');
+    } catch {
+        // Ignore if process already exited.
+    }
+}
 
 async function isServerRunning() {
     try {
@@ -32,8 +150,10 @@ async function isServerRunning() {
 }
 
 export async function startServer() {
+    const startTime = Date.now();
     if (nuxtProcess && nuxtProcess.exitCode !== null) {
         nuxtProcess = null;
+        clearOwnershipMarker();
     }
 
     // If we previously spawned the server, treat it as internal even though it answers on localhost.
@@ -42,13 +162,26 @@ export async function startServer() {
         if (!serverReady) {
             serverReady = Promise.resolve();
         }
+        logger.info(`Nuxt server already owned by this process (+${Date.now() - startTime}ms)`);
         return;
+    }
+
+    if (await isServerRunning()) {
+        const marker = readOwnershipMarker();
+        if (marker && marker.entryPath === config.server.entryPath) {
+            if (isPidAlive(marker.pid)) {
+                logger.warn(`Detected stale internally-owned Nuxt server (pid=${marker.pid}); terminating it`);
+                await terminateProcess(marker.pid);
+            }
+            clearOwnershipMarker();
+        }
     }
 
     if (await isServerRunning()) {
         logger.info('Nuxt server already running, connecting...');
         usingExternalServer = true;
         serverReady = Promise.resolve();
+        logger.info(`Using existing Nuxt server (+${Date.now() - startTime}ms)`);
         return;
     }
 
@@ -93,6 +226,7 @@ export async function startServer() {
             env: {
                 ...process.env,
                 ELECTRON_RUN_AS_NODE: '1',
+                EVB_VIEWER_NUXT_INTERNAL: '1',
                 PORT: String(config.server.port),
             },
             stdio: [
@@ -101,6 +235,10 @@ export async function startServer() {
                 'inherit',
             ],
         });
+    }
+
+    if (nuxtProcess.pid) {
+        writeOwnershipMarker(nuxtProcess.pid);
     }
 
     nuxtProcess.stdout?.on('data', (data: Buffer) => {
@@ -129,6 +267,8 @@ export async function startServer() {
     });
 
     nuxtProcess.on('exit', (code, signal) => {
+        clearOwnershipMarker();
+
         if (readySettled || usingExternalServer) {
             return;
         }
@@ -194,6 +334,9 @@ export function waitForServer() {
                 nuxtProcess.kill();
                 nuxtProcess = null;
             }
+            if (!usingExternalServer) {
+                clearOwnershipMarker();
+            }
 
             throw err;
         }
@@ -201,11 +344,15 @@ export function waitForServer() {
 }
 
 export function stopServer() {
-    if (usingExternalServer) {
-        return;
-    }
-    if (nuxtProcess) {
+    if (nuxtProcess && nuxtProcess.exitCode === null) {
+        logger.info('Stopping internally-managed Nuxt server');
         nuxtProcess.kill();
         nuxtProcess = null;
+        clearOwnershipMarker();
+        return;
+    }
+
+    if (!usingExternalServer) {
+        clearOwnershipMarker();
     }
 }

@@ -42,6 +42,11 @@ if (process.platform === 'win32') {
 app.setPath('userData', join(app.getPath('appData'), app.name));
 
 const logger = createLogger('main');
+const startupStartedAt = Date.now();
+
+function logStartupPhase(phase: string) {
+    logger.info(`[startup] ${phase} (+${Date.now() - startupStartedAt}ms)`);
+}
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const devDockIconPath = join(__dirname, '..', 'resources', 'icon.png');
@@ -229,6 +234,7 @@ function flushPendingFiles() {
     if (paths.length > 0) {
         logger.info(`Flushing ${paths.length} batched external open path(s)`);
         sendToWindow(window, 'menu:openExternalPaths', paths);
+        logStartupPhase(`Dispatched external file open batch (${paths.length} path(s))`);
     }
 }
 
@@ -294,7 +300,9 @@ app.on('second-instance', (_event, commandLine) => {
 });
 
 async function init() {
+    logStartupPhase('Bootstrap init started');
     await app.whenReady();
+    logStartupPhase('app.whenReady resolved');
     // In packaged builds, macOS uses the app bundle's .icns icon.
     // Only override in development where the host Electron binary has the default icon.
     if (process.platform === 'darwin' && !app.isPackaged) {
@@ -313,8 +321,11 @@ async function init() {
     });
 
     registerIpcHandlers();
+    logStartupPhase('IPC handlers registered');
     await initRecentFilesCache();
+    logStartupPhase('Recent files cache initialized');
     setupMenu();
+    logStartupPhase('Application menu initialized');
     ipcMain.on('app:rendererReady', (event) => {
         const window = BrowserWindow.fromWebContents(event.sender);
         if (!window) {
@@ -326,6 +337,7 @@ async function init() {
 
         scheduleFlushPendingFiles();
         if (window.id === getMainWindow()?.id) {
+            logStartupPhase(`Main renderer signaled ready (windowId=${window.id})`);
             maybePromptForDefaultViewer();
         }
     });
@@ -338,11 +350,16 @@ async function init() {
     });
 
     app.on('window-all-closed', () => {
-        stopServer();
         clearAllWorkingCopies();
         if (!config.isMac) {
+            stopServer();
             app.quit();
         }
+    });
+
+    app.on('before-quit', () => {
+        stopServer();
+        clearAllWorkingCopies();
     });
 
     app.on('activate', () => {
@@ -353,7 +370,9 @@ async function init() {
     });
 
     readyWindowIds.clear();
+    logStartupPhase('Creating main window');
     await createWindow();
+    logStartupPhase('Main window creation requested');
 }
 
 void init();

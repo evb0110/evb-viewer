@@ -27,6 +27,8 @@ const DEFAULT_SETTINGS: ISettingsData = {
     locale: DEFAULT_LOCALE,
 };
 
+let settingsCache: ISettingsData | null = null;
+
 function isSupportedLocale(locale: string): locale is TSupportedLocale {
     return LOCALE_CODES.includes(locale as TSupportedLocale);
 }
@@ -51,18 +53,31 @@ function getStoragePath() {
     return join(app.getPath('userData'), 'settings.json');
 }
 
+function cloneSettings(settings: ISettingsData): ISettingsData {
+    return {...settings};
+}
+
+function cacheSettings(raw: Partial<ISettingsData> | null | undefined): ISettingsData {
+    settingsCache = sanitizeSettings(raw);
+    return cloneSettings(settingsCache);
+}
+
 export async function loadSettings(): Promise<ISettingsData> {
+    if (settingsCache) {
+        return cloneSettings(settingsCache);
+    }
+
     const storagePath = getStoragePath();
     if (!existsSync(storagePath)) {
-        return { ...DEFAULT_SETTINGS };
+        return cacheSettings(DEFAULT_SETTINGS);
     }
 
     try {
         const content = await readFile(storagePath, 'utf-8');
-        return sanitizeSettings(JSON.parse(content) as Partial<ISettingsData>);
+        return cacheSettings(JSON.parse(content) as Partial<ISettingsData>);
     } catch (err) {
         logger.error(`Failed to load settings: ${err instanceof Error ? err.message : String(err)}`);
-        return { ...DEFAULT_SETTINGS };
+        return cacheSettings(DEFAULT_SETTINGS);
     }
 }
 
@@ -71,6 +86,7 @@ export async function saveSettings(settings: ISettingsData): Promise<void> {
     const safeSettings = sanitizeSettings(settings);
     try {
         await writeFile(storagePath, JSON.stringify(safeSettings, null, 2), 'utf-8');
+        settingsCache = safeSettings;
     } catch (err) {
         logger.error(`Failed to save settings: ${err instanceof Error ? err.message : String(err)}`);
         throw err;
@@ -78,17 +94,21 @@ export async function saveSettings(settings: ISettingsData): Promise<void> {
 }
 
 function loadSettingsSync(): ISettingsData {
+    if (settingsCache) {
+        return cloneSettings(settingsCache);
+    }
+
     const storagePath = getStoragePath();
     if (!existsSync(storagePath)) {
-        return { ...DEFAULT_SETTINGS };
+        return cacheSettings(DEFAULT_SETTINGS);
     }
 
     try {
         const content = readFileSync(storagePath, 'utf-8');
-        return sanitizeSettings(JSON.parse(content) as Partial<ISettingsData>);
+        return cacheSettings(JSON.parse(content) as Partial<ISettingsData>);
     } catch (err) {
         logger.error(`Failed to load settings: ${err instanceof Error ? err.message : String(err)}`);
-        return { ...DEFAULT_SETTINGS };
+        return cacheSettings(DEFAULT_SETTINGS);
     }
 }
 
