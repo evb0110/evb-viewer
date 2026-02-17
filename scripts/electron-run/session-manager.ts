@@ -19,6 +19,7 @@ import {
     cleanupStaleSessionArtifacts,
     clearSessionStarting,
     electronUserDataPath,
+    findPidsByCommandSubstring,
     findFreePort,
     getCurrentSessionName,
     getPidsOnPort,
@@ -27,6 +28,7 @@ import {
     isProcessAlive,
     isSessionRunning,
     isSessionStarting,
+    killProcessTree,
     killPids,
     listAllSessionNames,
     listRunningSessions,
@@ -43,6 +45,21 @@ let sessionState: ISessionState | null = null;
 
 const handleCommand = createCommandHandler(() => sessionState);
 
+async function killProcessTreeForPids(pids: number[], graceMs = 1200) {
+    for (const pid of Array.from(new Set(pids))) {
+        await killProcessTree(pid, graceMs);
+    }
+}
+
+async function killElectronProcessesByCdpPort(cdpPort: number | null | undefined) {
+    if (!Number.isFinite(cdpPort) || (cdpPort ?? 0) <= 0) {
+        return;
+    }
+
+    const pids = findPidsByCommandSubstring(`--remote-debugging-port=${cdpPort}`);
+    await killProcessTreeForPids(pids, 500);
+}
+
 async function isNuxtRunning(): Promise<boolean> {
     try {
         const res = await fetch(`http://localhost:${NUXT_PORT}`, { method: 'HEAD' });
@@ -55,6 +72,7 @@ async function isNuxtRunning(): Promise<boolean> {
 export async function killExistingNuxt(): Promise<void> {
     try {
         const pids = await getPidsOnPort(NUXT_PORT);
+        await killProcessTreeForPids(pids, 1200);
         await killPids(pids);
         await delay(500);
     } catch {}
@@ -163,7 +181,11 @@ async function startNuxtServer(forceClean = false): Promise<ChildProcess | null>
         await delay(500);
     }
 
-    nuxt.kill();
+    if (nuxt.pid && isProcessAlive(nuxt.pid)) {
+        await killProcessTree(nuxt.pid, 800);
+    } else {
+        nuxt.kill();
+    }
     throw new Error('Nuxt server failed to start');
 }
 
@@ -207,7 +229,11 @@ async function startElectron(cdpPort: number): Promise<ChildProcess> {
         await delay(500);
     }
 
-    electron.kill();
+    if (electron.pid && isProcessAlive(electron.pid)) {
+        await killProcessTree(electron.pid, 800);
+    } else {
+        electron.kill();
+    }
     throw new Error('Electron failed to start CDP');
 }
 
@@ -392,9 +418,8 @@ export async function startSession(forceClean = false) {
 
         const staleInfo = getSessionInfo();
         if (staleInfo?.electronPid && isProcessAlive(staleInfo.electronPid)) {
-            try {
-                process.kill(staleInfo.electronPid, 'SIGKILL');
-            } catch {}
+            await killProcessTree(staleInfo.electronPid, 500);
+            await killElectronProcessesByCdpPort(staleInfo.cdpPort);
             await delay(500);
         }
 
@@ -414,10 +439,18 @@ export async function startSession(forceClean = false) {
         } catch (error) {
             console.error('[Session] Failed to connect to browser, cleaning up...');
             try {
-                electronProcess.kill();
+                if (electronProcess.pid && isProcessAlive(electronProcess.pid)) {
+                    await killProcessTree(electronProcess.pid, 800);
+                } else {
+                    electronProcess.kill();
+                }
             } catch {}
             try {
-                nuxtProcess?.kill();
+                if (nuxtProcess?.pid && isProcessAlive(nuxtProcess.pid)) {
+                    await killProcessTree(nuxtProcess.pid, 800);
+                } else {
+                    nuxtProcess?.kill();
+                }
             } catch {}
             throw error;
         }
@@ -489,7 +522,11 @@ export async function startSession(forceClean = false) {
 
             await sessionState?.browser.disconnect().catch(() => {});
             try {
-                sessionState?.electronProcess.kill();
+                if (sessionState?.electronProcess.pid && isProcessAlive(sessionState.electronProcess.pid)) {
+                    await killProcessTree(sessionState.electronProcess.pid, 800);
+                } else {
+                    sessionState?.electronProcess.kill();
+                }
             } catch {}
 
             if (sessionState?.nuxtProcess) {
@@ -500,7 +537,11 @@ export async function startSession(forceClean = false) {
                 });
                 if (!othersAlive) {
                     try {
-                        sessionState.nuxtProcess.kill();
+                        if (sessionState.nuxtProcess.pid && isProcessAlive(sessionState.nuxtProcess.pid)) {
+                            await killProcessTree(sessionState.nuxtProcess.pid, 1200);
+                        } else {
+                            sessionState.nuxtProcess.kill();
+                        }
                     } catch {}
                 } else {
                     console.log('[Nuxt] Left running (other sessions active)');
@@ -602,16 +643,13 @@ export async function stopSingleSession(name: string) {
 
     if (info) {
         if (isProcessAlive(info.pid)) {
-            try {
-                process.kill(info.pid, 'SIGTERM');
-            } catch {}
+            await killProcessTree(info.pid, 1500);
         }
 
         if (info.electronPid && isProcessAlive(info.electronPid)) {
-            try {
-                process.kill(info.electronPid, 'SIGKILL');
-            } catch {}
+            await killProcessTree(info.electronPid, 800);
         }
+        await killElectronProcessesByCdpPort(info.cdpPort);
 
         if (info.nuxtPid && isProcessAlive(info.nuxtPid)) {
             const others = listAllSessionNames().filter(sessionName => sessionName !== name);
@@ -620,9 +658,7 @@ export async function stopSingleSession(name: string) {
                 return !!(otherInfo && isProcessAlive(otherInfo.pid));
             });
             if (!othersAlive) {
-                try {
-                    process.kill(info.nuxtPid, 'SIGKILL');
-                } catch {}
+                await killProcessTree(info.nuxtPid, 1200);
             } else {
                 console.log('[Nuxt] Left running (other sessions active)');
             }
@@ -634,9 +670,7 @@ export async function stopSingleSession(name: string) {
     }
 
     if (starting?.pid && isProcessAlive(starting.pid)) {
-        try {
-            process.kill(starting.pid, 'SIGTERM');
-        } catch {}
+        await killProcessTree(starting.pid, 1000);
     }
     clearSessionStarting(name);
 

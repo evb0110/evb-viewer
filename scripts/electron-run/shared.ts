@@ -138,6 +138,126 @@ export async function killPids(
     }
 }
 
+function sleep(ms: number) {
+    return new Promise<void>((resolve) => {
+        setTimeout(resolve, ms);
+    });
+}
+
+function collectDescendantPidsUnix(rootPid: number): number[] {
+    if (!Number.isFinite(rootPid) || rootPid <= 0) {
+        return [];
+    }
+
+    try {
+        const output = execSync('ps -eo pid=,ppid=', { encoding: 'utf8' }) as string;
+        const childrenByParent = new Map<number, number[]>();
+
+        for (const line of output.split('\n')) {
+            const trimmed = line.trim();
+            if (!trimmed) {
+                continue;
+            }
+            const parts = trimmed.split(/\s+/);
+            const pid = Number(parts[0]);
+            const ppid = Number(parts[1]);
+            if (!Number.isFinite(pid) || !Number.isFinite(ppid) || pid <= 0 || ppid <= 0) {
+                continue;
+            }
+            const bucket = childrenByParent.get(ppid) ?? [];
+            bucket.push(pid);
+            childrenByParent.set(ppid, bucket);
+        }
+
+        const descendants: number[] = [];
+        const stack = [rootPid];
+        while (stack.length > 0) {
+            const current = stack.pop()!;
+            const children = childrenByParent.get(current) ?? [];
+            for (const childPid of children) {
+                descendants.push(childPid);
+                stack.push(childPid);
+            }
+        }
+
+        return descendants;
+    } catch {
+        return [];
+    }
+}
+
+export function findPidsByCommandSubstring(substring: string): number[] {
+    const needle = substring.trim();
+    if (!needle) {
+        return [];
+    }
+
+    if (process.platform === 'win32') {
+        return [];
+    }
+
+    try {
+        const output = execSync('ps -ax -o pid=,command=', { encoding: 'utf8' }) as string;
+        const pids: number[] = [];
+        for (const line of output.split('\n')) {
+            const match = line.match(/^\s*(\d+)\s+(.+)$/);
+            if (!match) {
+                continue;
+            }
+            const pid = Number(match[1]);
+            const command = match[2];
+            if (!Number.isFinite(pid) || pid <= 0) {
+                continue;
+            }
+            if (command.includes(needle)) {
+                pids.push(pid);
+            }
+        }
+        return pids;
+    } catch {
+        return [];
+    }
+}
+
+export async function killProcessTree(pid: number, graceMs = 1500): Promise<void> {
+    if (!Number.isFinite(pid) || pid <= 0) {
+        return;
+    }
+    if (!isProcessAlive(pid)) {
+        return;
+    }
+
+    if (process.platform === 'win32') {
+        try {
+            execSync(`taskkill /PID ${pid} /T /F >NUL 2>&1`);
+        } catch {}
+        return;
+    }
+
+    const descendants = collectDescendantPidsUnix(pid);
+    const targets = Array.from(new Set([
+        ...descendants,
+        pid,
+    ]));
+    await killPids(targets, { signal: 'SIGTERM' });
+
+    if (graceMs > 0) {
+        const deadline = Date.now() + graceMs;
+        while (Date.now() < deadline) {
+            const alive = targets.some(targetPid => isProcessAlive(targetPid));
+            if (!alive) {
+                return;
+            }
+            await sleep(80);
+        }
+    }
+
+    const remaining = targets.filter(targetPid => isProcessAlive(targetPid));
+    if (remaining.length > 0) {
+        await killPids(remaining, { signal: 'SIGKILL' });
+    }
+}
+
 export function getSessionInfo(name = getCurrentSessionName()): ISessionInfo | null {
     try {
         return JSON.parse(readFileSync(sessionFilePath(name), 'utf8'));
