@@ -1,7 +1,7 @@
 #!/bin/bash
 # Bundle all required native tools for Windows (x64 and arm64)
-# Runs in Git Bash on CI — downloads pre-built release ZIPs
-# Set TARGET_ARCH=arm64 to cross-bundle for Windows ARM (uses x64 binaries via WoW64)
+# Runs in Git Bash on CI — downloads pre-built release ZIPs for x64,
+# uses MSYS2 clangarm64 packages for native arm64 binaries.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -11,9 +11,9 @@ TEMP_DIR="/tmp/win-bundle-$$"
 CACHE_DIR="${WIN_BUNDLE_CACHE_DIR:-$PROJECT_ROOT/.cache/win-tools}"
 source "$SCRIPT_DIR/win-system-dll-pattern.sh"
 
-# TARGET_ARCH can be set by CI for cross-compilation (e.g., arm64 on x64 runner).
-# Native arm64 Windows builds don't exist for most tools, so arm64 bundles
-# contain x64 binaries that run via WoW64 emulation on Windows ARM devices.
+# TARGET_ARCH can be set by CI (e.g., TARGET_ARCH=arm64 on x64 runner).
+# x64: downloads pre-built release ZIPs from upstream projects.
+# arm64: downloads native aarch64 binaries from MSYS2's clangarm64 repository.
 PLATFORM_ARCH="win32-${TARGET_ARCH:-x64}"
 
 echo "=========================================="
@@ -23,8 +23,13 @@ echo "=========================================="
 mkdir -p "$TEMP_DIR"
 mkdir -p "$CACHE_DIR"
 
+TESSERACT_DIR="$RESOURCES_DIR/tesseract/$PLATFORM_ARCH"
+POPPLER_DIR="$RESOURCES_DIR/poppler/$PLATFORM_ARCH"
+QPDF_DIR="$RESOURCES_DIR/qpdf/$PLATFORM_ARCH"
+DJVU_DIR="$RESOURCES_DIR/djvulibre/$PLATFORM_ARCH"
+
 # ==========================================
-# Version configuration
+# Version configuration (x64 path)
 # ==========================================
 TESSERACT_TAG="v5.4.0.20240606"
 TESSERACT_INSTALLER="tesseract-ocr-w64-setup-5.4.0.20240606.exe"
@@ -174,6 +179,118 @@ verify_directory_architecture() {
 }
 
 # ==========================================
+# ARM64: Native binaries via MSYS2 clangarm64
+# ==========================================
+bundle_arm64_via_msys2() {
+  echo ""
+  echo "=========================================="
+  echo "ARM64: Downloading native aarch64 binaries via MSYS2"
+  echo "=========================================="
+
+  local msys2_root="/c/msys64"
+  local pacman="$msys2_root/usr/bin/pacman.exe"
+  local iso_root="$CACHE_DIR/msys2-arm64"
+  local staging="$TEMP_DIR/msys2-staging"
+
+  if [ ! -x "$pacman" ]; then
+    echo "Error: MSYS2 pacman not found at $pacman"
+    exit 1
+  fi
+
+  mkdir -p "$iso_root/var/lib/pacman" "$iso_root/var/cache/pacman/pkg" "$iso_root/etc"
+  mkdir -p "$staging"
+
+  cat > "$iso_root/etc/pacman.conf" <<'PACMAN_CONF'
+[options]
+Architecture = aarch64
+SigLevel = Never
+
+[clangarm64]
+Server = https://mirror.msys2.org/mingw/clangarm64/
+PACMAN_CONF
+
+  local pacman_opts=(
+    --config "$iso_root/etc/pacman.conf"
+    --dbpath "$iso_root/var/lib/pacman"
+    --cachedir "$iso_root/var/cache/pacman/pkg"
+  )
+
+  local packages=(
+    mingw-w64-clang-aarch64-tesseract-ocr
+    mingw-w64-clang-aarch64-poppler
+    mingw-w64-clang-aarch64-qpdf
+    mingw-w64-clang-aarch64-djvulibre
+  )
+
+  echo "  Syncing clangarm64 package database..."
+  "$pacman" "${pacman_opts[@]}" -Sy
+
+  echo "  Downloading packages and dependencies..."
+  "$pacman" "${pacman_opts[@]}" -Sw --noconfirm "${packages[@]}"
+
+  echo "  Extracting packages..."
+  for pkg in "$iso_root/var/cache/pacman/pkg"/mingw-w64-clang-aarch64-*.pkg.tar.zst; do
+    [ -f "$pkg" ] || continue
+    zstd -dq "$pkg" --stdout | tar -xf - -C "$staging"
+  done
+
+  local arm64_bin="$staging/clangarm64/bin"
+  if [ ! -d "$arm64_bin" ]; then
+    echo "Error: Expected directory $arm64_bin not found after extraction"
+    exit 1
+  fi
+
+  echo ""
+  echo "  Setting up Tesseract (arm64)..."
+  clean_dir "$TESSERACT_DIR/bin"
+  require_file "$arm64_bin/tesseract.exe" "tesseract.exe (arm64)"
+  cp "$arm64_bin/tesseract.exe" "$TESSERACT_DIR/bin/"
+  cp "$arm64_bin/"*.dll "$TESSERACT_DIR/bin/"
+  echo "  Tesseract: $(ls "$TESSERACT_DIR/bin/"*.exe 2>/dev/null | wc -l) exe, $(ls "$TESSERACT_DIR/bin/"*.dll 2>/dev/null | wc -l) dlls"
+
+  echo ""
+  echo "  Setting up Poppler (arm64)..."
+  clean_dir "$POPPLER_DIR/bin"
+  for tool in pdftoppm.exe pdftotext.exe pdfimages.exe; do
+    require_file "$arm64_bin/$tool" "$tool (arm64)"
+    cp "$arm64_bin/$tool" "$POPPLER_DIR/bin/"
+  done
+  [ -f "$arm64_bin/pdfinfo.exe" ] && cp "$arm64_bin/pdfinfo.exe" "$POPPLER_DIR/bin/"
+  cp "$arm64_bin/"*.dll "$POPPLER_DIR/bin/"
+  echo "  Poppler: $(ls "$POPPLER_DIR/bin/"*.exe 2>/dev/null | wc -l) exe, $(ls "$POPPLER_DIR/bin/"*.dll 2>/dev/null | wc -l) dlls"
+
+  echo ""
+  echo "  Setting up qpdf (arm64)..."
+  clean_dir "$QPDF_DIR/bin"
+  require_file "$arm64_bin/qpdf.exe" "qpdf.exe (arm64)"
+  cp "$arm64_bin/qpdf.exe" "$QPDF_DIR/bin/"
+  cp "$arm64_bin/"*.dll "$QPDF_DIR/bin/"
+  echo "  qpdf: $(ls "$QPDF_DIR/bin/"*.exe 2>/dev/null | wc -l) exe, $(ls "$QPDF_DIR/bin/"*.dll 2>/dev/null | wc -l) dlls"
+
+  echo ""
+  echo "  Setting up DjVuLibre (arm64)..."
+  clean_dir "$DJVU_DIR/bin"
+  clean_dir "$DJVU_DIR/lib"
+  require_file "$arm64_bin/ddjvu.exe" "ddjvu.exe (arm64)"
+  require_file "$arm64_bin/djvused.exe" "djvused.exe (arm64)"
+  cp "$arm64_bin/ddjvu.exe" "$DJVU_DIR/bin/"
+  cp "$arm64_bin/djvused.exe" "$DJVU_DIR/bin/"
+  cp "$arm64_bin/"*.dll "$DJVU_DIR/bin/"
+  echo "  DjVuLibre: $(ls "$DJVU_DIR/bin/"*.exe 2>/dev/null | wc -l) exe, $(ls "$DJVU_DIR/bin/"*.dll 2>/dev/null | wc -l) dlls"
+
+  echo ""
+  echo "  Verifying aarch64 architecture..."
+  verify_directory_architecture "$TESSERACT_DIR/bin" "aarch64"
+  verify_directory_architecture "$POPPLER_DIR/bin" "aarch64"
+  verify_directory_architecture "$QPDF_DIR/bin" "aarch64"
+  verify_directory_architecture "$DJVU_DIR/bin" "aarch64"
+}
+
+if [ "${TARGET_ARCH:-x64}" = "arm64" ]; then
+  bundle_arm64_via_msys2
+else
+
+# ==========================================
 # 1. Tesseract (UB-Mannheim)
 # ==========================================
 echo ""
@@ -316,6 +433,8 @@ bundle_dependency_closure "$TEMP_DIR/djvulibre" "$DJVU_DIR/bin" "$DJVU_ARCH"
 verify_directory_architecture "$DJVU_DIR/bin" "$DJVU_ARCH"
 
 echo "  DjVuLibre: $(ls "$DJVU_DIR/bin/"*.exe 2>/dev/null | wc -l) exe, $(ls "$DJVU_DIR/bin/"*.dll 2>/dev/null | wc -l) dlls"
+
+fi  # end x64/arm64 branch
 
 # ==========================================
 # Note: Unpaper is currently not bundled on Windows

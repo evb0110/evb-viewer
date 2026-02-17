@@ -25,7 +25,7 @@ jobs:
             platform: linux
             arch: arm64
 
-          # Windows — x64 runner builds both installers; arm64 is cross-compiled
+          # Windows — x64 runner builds both installers; arm64 uses MSYS2 clangarm64
           - os: windows-latest
             platform: win
             arch: x64
@@ -78,8 +78,8 @@ jobs:
         if: runner.os == 'Linux'
         run: bash scripts/bundle-tools-linux.sh
 
-      # Windows: download pre-built release ZIPs once and bundle both targets.
-      # arm64 bundles x64 binaries that run via WoW64.
+      # Windows: x64 runner builds both architectures.
+      # x64 uses pre-built release ZIPs; arm64 uses MSYS2 clangarm64 packages.
       - name: Bundle native tools (Windows)
         if: runner.os == 'Windows'
         shell: bash
@@ -87,13 +87,7 @@ jobs:
           WIN_BUNDLE_CACHE_DIR: ${{ runner.temp }}/win-bundle-cache
         run: |
           TARGET_ARCH=x64 bash scripts/bundle-tools-windows.sh
-          for tool in tesseract poppler qpdf djvulibre; do
-            src="resources/${tool}/win32-x64"
-            dst="resources/${tool}/win32-arm64"
-            rm -rf "$dst"
-            mkdir -p "$dst"
-            cp -a "$src/." "$dst/"
-          done
+          TARGET_ARCH=arm64 bash scripts/bundle-tools-windows.sh
 
       - name: Build (Nuxt + Electron)
         run: pnpm run build
