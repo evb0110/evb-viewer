@@ -215,9 +215,15 @@ export function usePdfSinglePageScroll(
             return null;
         }
 
-        const min = Math.max(0, pageElement.offsetTop - scaledMargin.value);
-        const max =
-            min + Math.max(0, pageElement.offsetHeight - container.clientHeight);
+        const maxScrollTop = Math.max(
+            0,
+            container.scrollHeight - container.clientHeight,
+        );
+        const unclampedMin = Math.max(0, pageElement.offsetTop - scaledMargin.value);
+        const unclampedMax =
+            unclampedMin + Math.max(0, pageElement.offsetHeight - container.clientHeight);
+        const min = Math.min(maxScrollTop, unclampedMin);
+        const max = Math.min(maxScrollTop, Math.max(min, unclampedMax));
 
         return {
             min,

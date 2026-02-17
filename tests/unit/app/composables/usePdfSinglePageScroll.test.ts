@@ -28,6 +28,8 @@ interface IScrollHarnessOptions {
     viewMode?: TPdfViewMode;
     pageGeometries?: ITestPageGeometry[];
     getMostVisiblePage?: (viewer: HTMLElement | null) => number;
+    clientHeight?: number;
+    scrollHeight?: number;
 }
 
 function createWheelEvent(
@@ -64,12 +66,21 @@ function createSinglePageScrollHarness(options?: IScrollHarnessOptions) {
     ];
 
     const pageElements = pageGeometries.map((page) => page as HTMLElement);
+    const clientHeight = options?.clientHeight ?? 100;
+    const scrollHeight = options?.scrollHeight ?? 440;
+    const maxScrollTop = Math.max(0, scrollHeight - clientHeight);
+    let scrollTop = 0;
     const container = {
-        scrollTop: 0,
-        clientHeight: 100,
-        scrollHeight: 440,
+        clientHeight,
+        scrollHeight,
         querySelectorAll: vi.fn(() => pageElements),
     } as HTMLElement;
+    Object.defineProperty(container, 'scrollTop', {
+        get: () => scrollTop,
+        set: (value: number) => {
+            scrollTop = Math.max(0, Math.min(value, maxScrollTop));
+        },
+    });
 
     const currentPage = ref(1);
     const visibleRange = ref({
@@ -384,5 +395,38 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
         singlePageScroll.handleWheel(createWheelEvent(720, 10));
         expect(currentPage.value).toBe(3);
         expect(container.scrollTop).toBe(120);
+    });
+
+    it('flips down at page boundary when computed page bounds exceed container max scroll', () => {
+        const {
+            currentPage,
+            container,
+            singlePageScroll,
+        } = createSinglePageScrollHarness({
+            pageGeometries: [
+                {
+                    offsetTop: 20,
+                    offsetHeight: 100,
+                },
+                {
+                    offsetTop: 140,
+                    offsetHeight: 500,
+                },
+                {
+                    offsetTop: 540,
+                    offsetHeight: 100,
+                },
+            ],
+            clientHeight: 100,
+            scrollHeight: 600,
+            getMostVisiblePage: (viewer) => (viewer?.scrollTop ?? 0) >= 500 ? 2 : 1,
+        });
+
+        currentPage.value = 2;
+        container.scrollTop = 500;
+
+        singlePageScroll.handleWheel(createWheelEvent(120, 10));
+        expect(currentPage.value).toBe(3);
+        expect(container.scrollTop).toBe(500);
     });
 });
