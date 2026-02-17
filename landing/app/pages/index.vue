@@ -20,11 +20,10 @@
         <div class="hero-cta">
           <UButton
             :label="downloadPrimaryLabel"
-            :to="activeDownload?.downloadUrl || fallbackReleaseUrl"
-            target="_blank"
             icon="i-lucide-download"
             size="xl"
             class="ring ring-inset ring-primary"
+            @click="downloadActiveInstaller"
           />
 
           <UButton
@@ -131,9 +130,8 @@
           <div class="installer-actions">
             <UButton
               :label="t('home.installers.downloadSelected')"
-              :to="selectedInstaller?.downloadUrl || fallbackReleaseUrl"
-              target="_blank"
               icon="i-lucide-download"
+              @click="downloadSelectedInstaller"
             />
           </div>
         </div>
@@ -380,6 +378,32 @@ async function detectClientProfile(): Promise<IUserAgentProfile> {
         platform: hintedPlatform === 'unknown' ? uaProfile.platform : hintedPlatform,
         arch: hintedArch === 'unknown' ? uaProfile.arch : hintedArch,
     };
+}
+
+function triggerIframeDownload(url: string) {
+    const iframe = document.createElement('iframe');
+    iframe.style.display = 'none';
+    document.body.appendChild(iframe);
+    iframe.src = url;
+    setTimeout(() => iframe.remove(), 60_000);
+}
+
+function downloadActiveInstaller() {
+    const installer = activeDownload.value;
+    if (installer) {
+        triggerIframeDownload(installer.downloadUrl);
+    } else {
+        window.open(fallbackReleaseUrl.value, '_blank');
+    }
+}
+
+function downloadSelectedInstaller() {
+    const installer = selectedInstaller.value;
+    if (installer) {
+        triggerIframeDownload(installer.downloadUrl);
+    } else {
+        window.open(fallbackReleaseUrl.value, '_blank');
+    }
 }
 
 function scrollToInstallers() {
