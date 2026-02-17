@@ -58,6 +58,7 @@
             <i18n-t
               keypath="docs.unsigned.li1"
               tag="li"
+              global
             >
               <template #repo><code>evb0110/evb-viewer</code></template>
             </i18n-t>
@@ -69,12 +70,14 @@
             <i18n-t
               keypath="docs.unsigned.macosLi2"
               tag="li"
+              global
             >
               <template #open><code>Open</code></template>
             </i18n-t>
             <i18n-t
               keypath="docs.unsigned.macosLi3"
               tag="li"
+              global
             >
               <template #openAnyway><code>Open Anyway</code></template>
             </i18n-t>
@@ -85,6 +88,7 @@
             <i18n-t
               keypath="docs.unsigned.windowsLi2"
               tag="li"
+              global
             >
               <template #moreInfo><code>More info</code></template>
               <template #runAnyway><code>Run anyway</code></template>
@@ -97,6 +101,7 @@
             <i18n-t
               keypath="docs.unsigned.linuxLi2"
               tag="li"
+              global
             >
               <template #command><code>sudo apt install ./evb-viewer-*.deb</code></template>
             </i18n-t>
@@ -112,6 +117,7 @@
           <i18n-t
             keypath="docs.openCombine.intro"
             tag="p"
+            global
           >
             <template #menuPath><code>File > Open File...</code></template>
           </i18n-t>
@@ -121,6 +127,7 @@
             <i18n-t
               keypath="docs.openCombine.li3"
               tag="li"
+              global
             >
               <template #example><code>report-combined.pdf</code></template>
             </i18n-t>
@@ -128,6 +135,7 @@
             <i18n-t
               keypath="docs.openCombine.li5"
               tag="li"
+              global
             >
               <template #openRecent><code>Open Recent</code></template>
             </i18n-t>
@@ -135,6 +143,7 @@
           <i18n-t
             keypath="docs.openCombine.convertIntro"
             tag="p"
+            global
           >
             <template #menuPath><code>File > Convert to PDF...</code></template>
           </i18n-t>
@@ -153,6 +162,7 @@
             <i18n-t
               keypath="docs.tabsSplits.li2"
               tag="li"
+              global
             >
               <template #menuPath><code>View > Editor Groups > Split Editor</code></template>
             </i18n-t>
@@ -160,12 +170,14 @@
             <i18n-t
               keypath="docs.tabsSplits.li4"
               tag="li"
+              global
             >
               <template #command><code>Focus Editor Group</code></template>
             </i18n-t>
             <i18n-t
               keypath="docs.tabsSplits.li5"
               tag="li"
+              global
             >
               <template #moveTab><code>Move Tab to Group</code></template>
               <template #copyTab><code>Copy Tab to Group</code></template>
@@ -185,18 +197,21 @@
             <i18n-t
               keypath="docs.windowMgmt.li1"
               tag="li"
+              global
             >
               <template #menuPath><code>Window > Move Active Tab to New Window</code></template>
             </i18n-t>
             <i18n-t
               keypath="docs.windowMgmt.li2"
               tag="li"
+              global
             >
               <template #menuPath><code>Window > Move Active Tab to Window</code></template>
             </i18n-t>
             <i18n-t
               keypath="docs.windowMgmt.li3"
               tag="li"
+              global
             >
               <template #menuPath><code>Window > Merge This Window Into</code></template>
             </i18n-t>
@@ -215,6 +230,7 @@
             <i18n-t
               keypath="docs.pagesPanel.li2"
               tag="li"
+              global
             >
               <template #shift><code>Shift</code></template>
               <template #cmdCtrl><code>Cmd/Ctrl</code></template>
@@ -266,6 +282,7 @@
             <i18n-t
               keypath="docs.search.li1"
               tag="li"
+              global
             >
               <template #shortcut><code>Cmd/Ctrl + F</code></template>
             </i18n-t>
@@ -273,6 +290,7 @@
             <i18n-t
               keypath="docs.search.li3"
               tag="li"
+              global
             >
               <template #enter><code>Enter</code></template>
               <template #shiftEnter><code>Shift + Enter</code></template>
@@ -298,12 +316,14 @@
             <i18n-t
               keypath="docs.ocrExport.li5"
               tag="li"
+              global
             >
               <template #command><code>Export DOCX</code></template>
             </i18n-t>
             <i18n-t
               keypath="docs.ocrExport.li6"
               tag="li"
+              global
             >
               <template #exportImages><code>Export Images...</code></template>
               <template #exportTiff><code>Export Multi-page TIFF...</code></template>
@@ -311,6 +331,7 @@
             <i18n-t
               keypath="docs.ocrExport.li7"
               tag="li"
+              global
             >
               <template #captureRegion><code>Capture Region</code></template>
               <template #esc><code>Esc</code></template>
