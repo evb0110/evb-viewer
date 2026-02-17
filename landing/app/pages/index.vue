@@ -215,11 +215,6 @@ interface INavigatorUADataLike {
     getHighEntropyValues?: (hints: string[]) => Promise<{ architecture?: string }>
 }
 
-type TInstallerSelectItem = {
-    label: string
-    value: number
-};
-
 const { t } = useTypedI18n();
 const { locale } = useI18n();
 
@@ -349,12 +344,6 @@ const installersForSelectedPlatform = computed(() => {
     return selectPreferredInstallers(platformAssets).sort(compareInstallersForSelect);
 });
 
-const installerSelectOptions = computed<TInstallerSelectItem[]>(() => installersForSelectedPlatform.value
-    .map(asset => ({
-        label: formatInstallerVariantLabel(asset),
-        value: asset.id,
-    })));
-
 const selectedAssetId = computed(() => {
     const items = installersForSelectedPlatform.value;
     if (!items.length) {
@@ -477,15 +466,6 @@ function downloadActiveInstaller() {
     }
 }
 
-function downloadSelectedInstaller() {
-    const installer = selectedInstaller.value;
-    if (installer) {
-        triggerIframeDownload(installer.downloadUrl);
-    } else {
-        window.open(fallbackReleaseUrl.value, '_blank');
-    }
-}
-
 function isRecommendedInstaller(installer: IReleaseInstaller) {
     return recommendedInstaller.value?.id === installer.id;
 }
@@ -500,10 +480,6 @@ function scrollToInstallers() {
 function selectPlatform(platform: TReleasePlatform) {
     platformOverride.value = platform;
     assetIdOverride.value = undefined;
-}
-
-function onAssetIdChange(event: Event) {
-    assetIdOverride.value = Number((event.target as HTMLSelectElement).value);
 }
 
 function installerPlatformLabel(platform: TReleasePlatform): string {
