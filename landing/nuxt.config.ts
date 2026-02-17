@@ -17,7 +17,6 @@ export default defineNuxtConfig({
         '/': { prerender: true },
         '/features': { prerender: true },
         '/docs': { prerender: true },
-        '/api/releases/latest': { swr: 3600 },
     },
 
     compatibilityDate: '2025-01-15',

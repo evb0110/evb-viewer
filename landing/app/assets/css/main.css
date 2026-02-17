@@ -6,29 +6,17 @@
   --font-sans: 'Space Grotesk', 'Avenir Next', 'Helvetica Neue', sans-serif;
   --font-mono: 'IBM Plex Mono', 'SFMono-Regular', monospace;
 
-  --color-teal-50: #ecfffb;
-  --color-teal-100: #cbf8f0;
-  --color-teal-200: #98f0df;
-  --color-teal-300: #66e2cb;
-  --color-teal-400: #2ccfb2;
-  --color-teal-500: #00b492;
-  --color-teal-600: #008f76;
-  --color-teal-700: #0b6f5e;
-  --color-teal-800: #0f574c;
-  --color-teal-900: #103f38;
-  --color-teal-950: #062421;
-
-  --color-amber-50: #fff7eb;
-  --color-amber-100: #ffeed5;
-  --color-amber-200: #ffd7a8;
-  --color-amber-300: #ffbb72;
-  --color-amber-400: #fb9638;
-  --color-amber-500: #f77612;
-  --color-amber-600: #db5809;
-  --color-amber-700: #b63e0a;
-  --color-amber-800: #933212;
-  --color-amber-900: #772b12;
-  --color-amber-950: #431306;
+  --color-blue-50: #eff6ff;
+  --color-blue-100: #dbeafe;
+  --color-blue-200: #bfdbfe;
+  --color-blue-300: #93c5fd;
+  --color-blue-400: #60a5fa;
+  --color-blue-500: #3b82f6;
+  --color-blue-600: #2563eb;
+  --color-blue-700: #1d4ed8;
+  --color-blue-800: #1e40af;
+  --color-blue-900: #1e3a8a;
+  --color-blue-950: #172554;
 }
 
 :root {
@@ -38,27 +26,27 @@
   --sticky-header-height: 4.45rem;
   --sticky-anchor-offset: calc(var(--sticky-header-top) + var(--sticky-header-height) + var(--sticky-header-gap));
   --landing-background:
-    radial-gradient(circle at 12% 10%, color-mix(in srgb, var(--color-teal-200) 55%, transparent), transparent 55%),
-    radial-gradient(circle at 88% 15%, color-mix(in srgb, var(--color-amber-200) 55%, transparent), transparent 60%),
-    linear-gradient(180deg, #fffefa 0%, #f7fafc 100%);
-  --landing-surface: color-mix(in srgb, white 85%, var(--color-teal-100) 15%);
-  --landing-surface-strong: color-mix(in srgb, white 76%, var(--color-teal-200) 24%);
+    radial-gradient(circle at 12% 10%, color-mix(in srgb, var(--color-blue-200) 40%, transparent), transparent 55%),
+    radial-gradient(circle at 88% 15%, color-mix(in srgb, var(--color-blue-100) 40%, transparent), transparent 60%),
+    linear-gradient(180deg, #f8faff 0%, #f0f4fa 100%);
+  --landing-surface: color-mix(in srgb, white 85%, var(--color-blue-100) 15%);
+  --landing-surface-strong: color-mix(in srgb, white 76%, var(--color-blue-200) 24%);
   --landing-ink: #12212d;
   --landing-muted: color-mix(in srgb, var(--landing-ink) 62%, white 38%);
-  --landing-border: color-mix(in srgb, var(--color-teal-400) 32%, white 68%);
-  --landing-shadow: 0 16px 40px color-mix(in srgb, var(--color-teal-700) 18%, transparent);
+  --landing-border: color-mix(in srgb, var(--color-blue-400) 32%, white 68%);
+  --landing-shadow: 0 16px 40px color-mix(in srgb, var(--color-blue-700) 18%, transparent);
 }
 
 .dark {
   --landing-background:
-    radial-gradient(circle at 10% 20%, color-mix(in srgb, var(--color-teal-900) 70%, transparent), transparent 55%),
-    radial-gradient(circle at 86% 18%, color-mix(in srgb, var(--color-amber-950) 58%, transparent), transparent 60%),
-    linear-gradient(180deg, #051019 0%, #0c1724 100%);
-  --landing-surface: color-mix(in srgb, #112131 84%, var(--color-teal-900) 16%);
-  --landing-surface-strong: color-mix(in srgb, #14293d 74%, var(--color-teal-700) 26%);
+    radial-gradient(circle at 10% 20%, color-mix(in srgb, var(--color-blue-900) 60%, transparent), transparent 55%),
+    radial-gradient(circle at 86% 18%, color-mix(in srgb, var(--color-blue-950) 50%, transparent), transparent 60%),
+    linear-gradient(180deg, #060c1a 0%, #0c1424 100%);
+  --landing-surface: color-mix(in srgb, #112131 84%, var(--color-blue-900) 16%);
+  --landing-surface-strong: color-mix(in srgb, #14293d 74%, var(--color-blue-700) 26%);
   --landing-ink: #eef6ff;
   --landing-muted: color-mix(in srgb, var(--landing-ink) 76%, transparent);
-  --landing-border: color-mix(in srgb, var(--color-teal-500) 48%, #233549 52%);
+  --landing-border: color-mix(in srgb, var(--color-blue-500) 48%, #233549 52%);
   --landing-shadow: 0 18px 44px color-mix(in srgb, black 45%, transparent);
 }
 
@@ -105,19 +93,19 @@ a {
   width: clamp(16rem, 28vw, 28rem);
   aspect-ratio: 1 / 1;
   border-radius: 999px;
-  filter: blur(8px);
-  opacity: 0.55;
+  filter: blur(64px);
+  opacity: 0.35;
   animation: float-orb 12s ease-in-out infinite;
 }
 
 .landing-ambient-left {
-  background: color-mix(in srgb, var(--color-teal-300) 70%, transparent);
+  background: color-mix(in srgb, var(--color-blue-300) 70%, transparent);
   top: -7rem;
   left: -8rem;
 }
 
 .landing-ambient-right {
-  background: color-mix(in srgb, var(--color-amber-300) 70%, transparent);
+  background: color-mix(in srgb, var(--color-blue-200) 70%, transparent);
   top: -9rem;
   right: -8rem;
   animation-delay: 1.5s;
@@ -176,9 +164,9 @@ a {
   font-weight: 700;
   font-size: 0.92rem;
   letter-spacing: 0.06em;
-  background: linear-gradient(135deg, var(--color-teal-500), var(--color-amber-500));
+  background: linear-gradient(135deg, var(--color-blue-400), var(--color-blue-600));
   color: #fff;
-  box-shadow: 0 10px 24px color-mix(in srgb, var(--color-teal-700) 35%, transparent);
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--color-blue-700) 35%, transparent);
 }
 
 .brand-name {
@@ -195,7 +183,7 @@ a {
 
 .hero-grid {
   display: grid;
-  align-items: start;
+  align-items: center;
   gap: clamp(1.2rem, 3vw, 2rem);
   grid-template-columns: 1.2fr 1fr;
   margin-bottom: clamp(2rem, 4vw, 3rem);
@@ -235,14 +223,14 @@ a {
 .hero-hint {
   margin: 1rem 0 0;
   font-size: 0.93rem;
-  color: color-mix(in srgb, var(--landing-muted) 92%, var(--color-teal-700) 8%);
+  color: color-mix(in srgb, var(--landing-muted) 92%, var(--color-blue-700) 8%);
 }
 
 .release-meta {
   margin: 0.55rem 0 0;
   font-family: var(--font-mono);
   font-size: 0.84rem;
-  color: color-mix(in srgb, var(--landing-muted) 90%, var(--color-amber-700) 10%);
+  color: color-mix(in srgb, var(--landing-muted) 90%, var(--color-blue-700) 10%);
 }
 
 .hero-preview {
@@ -261,12 +249,22 @@ a {
   height: auto;
 }
 
+.preview-frame {
+  border-radius: 0.625rem;
+  overflow: hidden;
+  box-shadow:
+    0 4px 12px color-mix(in srgb, var(--color-blue-700) 14%, transparent),
+    0 16px 40px color-mix(in srgb, var(--color-blue-700) 12%, transparent),
+    0 32px 72px color-mix(in srgb, var(--color-blue-700) 8%, transparent);
+}
+
 .preview-caption {
   margin: 0;
   padding: 0 0.05rem;
   font-size: 0.92rem;
   line-height: 1.45;
   color: var(--landing-muted);
+  text-align: center;
 }
 
 .content-section {
@@ -350,7 +348,7 @@ a {
 }
 
 .installer-select:focus {
-  outline: 2px solid color-mix(in srgb, var(--color-teal-500) 68%, transparent);
+  outline: 2px solid color-mix(in srgb, var(--color-blue-500) 68%, transparent);
   outline-offset: 2px;
 }
 
@@ -379,7 +377,7 @@ a {
   font-size: 1.65rem;
   font-weight: 700;
   letter-spacing: -0.02em;
-  color: color-mix(in srgb, var(--landing-ink) 90%, var(--color-teal-700) 10%);
+  color: color-mix(in srgb, var(--landing-ink) 90%, var(--color-blue-700) 10%);
 }
 
 .stat-label {
@@ -409,7 +407,7 @@ a {
   display: inline-flex;
   width: 1.28rem;
   height: 1.28rem;
-  color: color-mix(in srgb, var(--color-teal-600) 84%, var(--color-amber-600) 16%);
+  color: var(--color-blue-600);
 }
 
 .docs-grid {
@@ -452,7 +450,7 @@ a {
   font-family: var(--font-mono);
   font-size: 0.8rem;
   letter-spacing: 0.08em;
-  color: color-mix(in srgb, var(--landing-muted) 88%, var(--color-teal-600) 12%);
+  color: color-mix(in srgb, var(--landing-muted) 88%, var(--color-blue-600) 12%);
 }
 
 .table-card {
@@ -621,7 +619,7 @@ a {
 .doc-icon {
   width: 1.2rem;
   height: 1.2rem;
-  color: color-mix(in srgb, var(--color-amber-600) 70%, var(--color-teal-600) 30%);
+  color: var(--color-blue-600);
 }
 
 .site-footer {

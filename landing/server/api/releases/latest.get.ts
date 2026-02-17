@@ -26,6 +26,22 @@ interface IGithubRelease {
     assets: IGithubReleaseAsset[]
 }
 
+function toInstallers(release: IGithubRelease): IReleaseInstaller[] {
+    return (release.assets || [])
+        .filter(asset => isInstallerAsset(asset.name))
+        .map<IReleaseInstaller>(asset => ({
+            id: asset.id,
+            name: asset.name,
+            downloadUrl: asset.browser_download_url,
+            size: asset.size,
+            updatedAt: asset.updated_at,
+            contentType: asset.content_type,
+            extension: getAssetExtension(asset.name),
+            platform: detectPlatform(asset.name),
+            arch: detectArchitecture(asset.name),
+        }));
+}
+
 export default defineEventHandler(async (event): Promise<ILatestReleaseResponse> => {
     const config = useRuntimeConfig(event);
     const githubApiBase = String(config.githubApiBase || 'https://api.github.com').replace(/\/+$/, '');
@@ -42,9 +58,13 @@ export default defineEventHandler(async (event): Promise<ILatestReleaseResponse>
         headers.authorization = `Bearer ${githubToken}`;
     }
 
+    async function fetchLatestRelease(): Promise<IGithubRelease> {
+        return $fetch<IGithubRelease>(`${githubApiBase}/repos/${githubOwner}/${githubRepo}/releases/latest`, { headers });
+    }
+
     let release: IGithubRelease;
     try {
-        release = await $fetch<IGithubRelease>(`${githubApiBase}/repos/${githubOwner}/${githubRepo}/releases/latest`, {headers});
+        release = await fetchLatestRelease();
     } catch (error) {
         console.error('Unable to fetch latest release', error);
         throw createError({
@@ -53,25 +73,32 @@ export default defineEventHandler(async (event): Promise<ILatestReleaseResponse>
         });
     }
 
-    const installers = (release.assets || [])
-        .filter(asset => isInstallerAsset(asset.name))
-        .map<IReleaseInstaller>(asset => ({
-            id: asset.id,
-            name: asset.name,
-            downloadUrl: asset.browser_download_url,
-            size: asset.size,
-            updatedAt: asset.updated_at,
-            contentType: asset.content_type,
-            extension: getAssetExtension(asset.name),
-            platform: detectPlatform(asset.name),
-            arch: detectArchitecture(asset.name),
-        }));
+    let installers = toInstallers(release);
+    if (!installers.length) {
+        for (let attempt = 0; attempt < 2; attempt++) {
+            await new Promise(resolve => setTimeout(resolve, 450 * (attempt + 1)));
+
+            try {
+                release = await fetchLatestRelease();
+                installers = toInstallers(release);
+                if (installers.length) {
+                    break;
+                }
+            } catch {
+                break;
+            }
+        }
+    }
 
     const clientHintsPlatform = getHeader(event, 'sec-ch-ua-platform')?.replace(/"/g, '') || '';
     const profile = parseUserAgent(getHeader(event, 'user-agent') || '', clientHintsPlatform);
     const recommended = recommendInstaller(installers, profile);
 
-    setHeader(event, 'cache-control', 'public, s-maxage=3600, stale-while-revalidate=86400');
+    if (installers.length) {
+        setHeader(event, 'cache-control', 'public, s-maxage=600, stale-while-revalidate=3600');
+    } else {
+        setHeader(event, 'cache-control', 'public, s-maxage=45, stale-while-revalidate=120');
+    }
 
     return {
         release: {

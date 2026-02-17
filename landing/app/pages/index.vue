@@ -252,11 +252,13 @@ function scrollToInstallers(): void {
       </div>
 
       <figure class="hero-preview">
-        <img
-          class="preview-image"
-          src="/evb-viewer-preview-cropped.png"
-          alt="EVB Viewer screenshot"
-        >
+        <div class="preview-frame">
+          <img
+            class="preview-image"
+            src="/evb-viewer-preview-cropped.png"
+            alt="EVB Viewer screenshot"
+          >
+        </div>
         <figcaption class="preview-caption">
           Built for heavy document workflows: tabs, split views, OCR, and annotation tooling.
         </figcaption>
