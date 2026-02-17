@@ -562,7 +562,10 @@ async function handleOpenInNewTab(pathOrResult: string | TOpenFileResult, groupI
 }
 
 async function openPathInAppropriateTab(path: string) {
-    const ws = activeWorkspace.value;
+    const activeTabWorkspace = activeTabId.value
+        ? (workspaceRefs.value.get(activeTabId.value) ?? await waitForWorkspace(activeTabId.value))
+        : null;
+    const ws = activeWorkspace.value ?? activeTabWorkspace;
     if (ws && !workspaceHasPdf(ws)) {
         await ws.handleOpenFileDirectWithPersist(path);
         return;
@@ -583,7 +586,10 @@ async function openPathsInAppropriateTab(paths: string[]) {
         return;
     }
 
-    let ws = activeWorkspace.value;
+    const activeTabWorkspace = activeTabId.value
+        ? (workspaceRefs.value.get(activeTabId.value) ?? await waitForWorkspace(activeTabId.value))
+        : null;
+    let ws = activeWorkspace.value ?? activeTabWorkspace;
     if (!ws || workspaceHasPdf(ws)) {
         const tab = createTab({
             groupId: activeGroupId.value,

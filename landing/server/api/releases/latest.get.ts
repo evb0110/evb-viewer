@@ -3,6 +3,7 @@ import {
     detectPlatform,
     getAssetExtension,
     isInstallerAsset,
+    normalizeInstallers,
     parseUserAgent,
     recommendInstaller,
     type ILatestReleaseResponse,
@@ -27,7 +28,7 @@ interface IGithubRelease {
 }
 
 function toInstallers(release: IGithubRelease): IReleaseInstaller[] {
-    return (release.assets || [])
+    const installers = (release.assets || [])
         .filter(asset => isInstallerAsset(asset.name))
         .map<IReleaseInstaller>(asset => ({
             id: asset.id,
@@ -40,6 +41,8 @@ function toInstallers(release: IGithubRelease): IReleaseInstaller[] {
             platform: detectPlatform(asset.name),
             arch: detectArchitecture(asset.name),
         }));
+
+    return normalizeInstallers(installers);
 }
 
 export default defineEventHandler(async (event): Promise<ILatestReleaseResponse> => {

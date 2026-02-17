@@ -99,40 +99,62 @@
           v-else-if="installers.length"
           class="installer-content"
         >
-          <label
-            class="installer-label"
-            for="installer-select"
-          >
-            {{ t('home.installers.selectLabel') }}
-          </label>
+          <div class="installer-layout">
+            <div class="installer-platforms">
+              <UButton
+                v-for="platform in selectablePlatforms"
+                :key="platform"
+                :label="installerPlatformLabel(platform)"
+                size="sm"
+                :variant="selectedPlatform === platform ? 'solid' : 'ghost'"
+                :color="selectedPlatform === platform ? 'primary' : 'neutral'"
+                class="installer-platform-button"
+                @click="selectPlatform(platform)"
+              />
+            </div>
 
-          <select
-            id="installer-select"
-            v-model.number="selectedAssetId"
-            class="installer-select"
-          >
-            <option
-              v-for="asset in installers"
-              :key="asset.id"
-              :value="asset.id"
-            >
-              {{ formatInstallerLabel(asset) }}
-            </option>
-          </select>
+            <div class="installer-select-layout">
+              <div class="installer-select-stack">
+                <label
+                  class="installer-label"
+                  for="installer-select"
+                >
+                  {{ t('home.installers.selectLabel') }}
+                </label>
 
-          <p
-            v-if="selectedInstaller"
-            class="installer-details"
-          >
-            {{ t('home.installers.details', { name: selectedInstaller.name, size: formatFileSize(selectedInstaller.size) }) }}
-          </p>
+                <select
+                  id="installer-select"
+                  :value="selectedAssetId"
+                  class="installer-select-control"
+                  @change="onAssetIdChange"
+                >
+                  <option
+                    v-for="item in installerSelectOptions"
+                    :key="item.value"
+                    :value="item.value"
+                  >
+                    {{ item.label }}
+                  </option>
+                </select>
 
-          <div class="installer-actions">
-            <UButton
-              :label="t('home.installers.downloadSelected')"
-              icon="i-lucide-download"
-              @click="downloadSelectedInstaller"
-            />
+                <p
+                  v-if="selectedInstaller"
+                  class="installer-details"
+                >
+                  {{ t('home.installers.details', { name: selectedInstaller.name, size: formatFileSize(selectedInstaller.size) }) }}
+                </p>
+              </div>
+
+              <div class="installer-actions">
+                <UButton
+                  :label="t('home.installers.downloadSelected')"
+                  icon="i-lucide-download"
+                  size="lg"
+                  class="installer-download-button"
+                  @click="downloadSelectedInstaller"
+                />
+              </div>
+            </div>
           </div>
         </div>
 
@@ -189,6 +211,7 @@
 <script setup lang="ts">
 import {
     formatArch,
+    formatExtension,
     formatFileSize,
     formatInstallerLabel,
     formatPlatform,
@@ -199,12 +222,18 @@ import {
     type TReleaseArch,
     type IReleaseInstaller,
     type IUserAgentProfile,
+    type TReleasePlatform,
 } from '~~/shared/releases';
 
 interface INavigatorUADataLike {
     platform?: string
     getHighEntropyValues?: (hints: string[]) => Promise<{ architecture?: string }>
 }
+
+type TInstallerSelectItem = {
+    label: string
+    value: number
+};
 
 const { t } = useTypedI18n();
 const { locale } = useI18n();
@@ -240,7 +269,45 @@ const clientProfile = ref<IUserAgentProfile>({
     arch: 'unknown',
 });
 
-const selectedAssetId = ref<number | null>(null);
+const INSTALLER_PLATFORM_ORDER: TReleasePlatform[] = [
+    'macos',
+    'windows',
+    'linux',
+    'unknown',
+];
+
+const INSTALLER_EXTENSION_ORDER: Record<TReleasePlatform, string[]> = {
+    macos: [
+        'dmg',
+        'pkg',
+        'zip',
+    ],
+    windows: [
+        'exe',
+        'msi',
+    ],
+    linux: [
+        'deb',
+        'appimage',
+        'rpm',
+        'tar.gz',
+        'zip',
+    ],
+    unknown: [
+        'dmg',
+        'exe',
+        'deb',
+        'appimage',
+        'zip',
+    ],
+};
+
+const INSTALLER_ARCH_ORDER: Record<TReleaseArch, number> = {
+    x64: 0,
+    arm64: 1,
+    universal: 2,
+    unknown: 3,
+};
 
 const {
     data: releaseData,
@@ -250,6 +317,10 @@ const {
 } = useFetch('/api/releases/latest', {key: 'latest-release-data'});
 
 const installers = computed(() => releaseData.value?.assets || []);
+
+const selectablePlatforms = computed<TReleasePlatform[]>(() => INSTALLER_PLATFORM_ORDER.filter(
+    platform => installers.value.some(asset => asset.platform === platform),
+));
 
 const recommendedInstaller = computed<IReleaseInstaller | null>(() => {
     if (!installers.value.length) {
@@ -272,17 +343,62 @@ const recommendedInstaller = computed<IReleaseInstaller | null>(() => {
     return installers.value[0] || null;
 });
 
+const platformOverride = ref<TReleasePlatform | null>(null);
+const assetIdOverride = ref<number | undefined>(undefined);
+
+const selectedPlatform = computed<TReleasePlatform>(() => {
+    if (platformOverride.value && selectablePlatforms.value.includes(platformOverride.value)) {
+        return platformOverride.value;
+    }
+
+    const recPlatform = recommendedInstaller.value?.platform || 'unknown';
+    if (selectablePlatforms.value.includes(recPlatform)) {
+        return recPlatform;
+    }
+
+    return selectablePlatforms.value[0] || 'unknown';
+});
+
+const installersForSelectedPlatform = computed(() => {
+    const platformAssets = installers.value.filter(asset => asset.platform === selectedPlatform.value);
+    return filterRedundantArchives(platformAssets).sort(compareInstallersForSelect);
+});
+
+const installerSelectOptions = computed<TInstallerSelectItem[]>(() => installersForSelectedPlatform.value
+    .map(asset => ({
+        label: formatInstallerVariantLabel(asset),
+        value: asset.id,
+    })));
+
+const selectedAssetId = computed(() => {
+    const items = installersForSelectedPlatform.value;
+    if (!items.length) {
+        return undefined;
+    }
+
+    if (assetIdOverride.value != null && items.some(a => a.id === assetIdOverride.value)) {
+        return assetIdOverride.value;
+    }
+
+    const rec = recommendedInstaller.value;
+    if (rec && rec.platform === selectedPlatform.value) {
+        return rec.id;
+    }
+
+    return items[0]?.id;
+});
+
 const selectedInstaller = computed<IReleaseInstaller | null>(() => {
-    if (!installers.value.length) {
+    if (!installersForSelectedPlatform.value.length) {
         return null;
     }
 
-    const found = installers.value.find(asset => asset.id === selectedAssetId.value);
+    const found = installersForSelectedPlatform.value.find(asset => asset.id === selectedAssetId.value);
     if (found) {
         return found;
     }
 
-    return recommendedInstaller.value;
+    return installersForSelectedPlatform.value[0] || null;
 });
 
 const activeDownload = computed(() => selectedInstaller.value || recommendedInstaller.value);
@@ -299,7 +415,7 @@ const downloadPrimaryLabel = computed(() => {
     if (arch) {
         return t('home.hero.downloadForArch', {
             platform,
-            arch, 
+            arch,
         });
     }
 
@@ -328,27 +444,6 @@ const releaseDateLabel = computed(() => {
 
     return new Intl.DateTimeFormat(locale.value, { dateStyle: 'long' }).format(publishedDate);
 });
-
-watch([
-    installers,
-    recommendedInstaller,
-], ([
-    nextInstallers,
-    nextRecommendation,
-]) => {
-    if (!nextInstallers.length) {
-        selectedAssetId.value = null;
-        return;
-    }
-
-    const hasSelection = nextInstallers.some(asset => asset.id === selectedAssetId.value);
-    if (!hasSelection) {
-        const fallbackInstaller = nextInstallers[0];
-        if (fallbackInstaller) {
-            selectedAssetId.value = nextRecommendation?.id || fallbackInstaller.id;
-        }
-    }
-}, { immediate: true });
 
 onMounted(async () => {
     clientProfile.value = await detectClientProfile();
@@ -411,5 +506,90 @@ function scrollToInstallers() {
         behavior: 'smooth',
         block: 'start',
     });
+}
+
+function selectPlatform(platform: TReleasePlatform) {
+    platformOverride.value = platform;
+    assetIdOverride.value = undefined;
+}
+
+function onAssetIdChange(event: Event) {
+    assetIdOverride.value = Number((event.target as HTMLSelectElement).value);
+}
+
+function installerPlatformLabel(platform: TReleasePlatform): string {
+    if (platform === 'macos') {
+        return t('features.platforms.macOs');
+    }
+
+    if (platform === 'windows') {
+        return t('features.platforms.windows');
+    }
+
+    if (platform === 'linux') {
+        return t('features.platforms.linux');
+    }
+
+    return formatPlatform(platform);
+}
+
+function compareInstallersForSelect(left: IReleaseInstaller, right: IReleaseInstaller): number {
+    const extensionDiff = installerExtensionRank(left) - installerExtensionRank(right);
+    if (extensionDiff !== 0) {
+        return extensionDiff;
+    }
+
+    const archDiff = INSTALLER_ARCH_ORDER[left.arch] - INSTALLER_ARCH_ORDER[right.arch];
+    if (archDiff !== 0) {
+        return archDiff;
+    }
+
+    return left.name.localeCompare(right.name);
+}
+
+function formatInstallerVariantLabel(asset: IReleaseInstaller): string {
+    const arch = formatArch(asset.arch);
+    const extension = formatExtension(asset.extension);
+
+    if (arch) {
+        return `${arch} (${extension})`;
+    }
+
+    return extension;
+}
+
+const ARCHIVE_EXTENSIONS = new Set([
+    'zip',
+    'tar.gz',
+]);
+
+function filterRedundantArchives(assets: IReleaseInstaller[]): IReleaseInstaller[] {
+    const archsWithInstaller = new Set(
+        assets
+            .filter(a => !ARCHIVE_EXTENSIONS.has(a.extension))
+            .map(a => a.arch),
+    );
+
+    if (!archsWithInstaller.size) {
+        return assets;
+    }
+
+    return assets.filter(a => {
+        if (!ARCHIVE_EXTENSIONS.has(a.extension)) {
+            return true;
+        }
+
+        return !archsWithInstaller.has(a.arch);
+    });
+}
+
+function installerExtensionRank(asset: IReleaseInstaller): number {
+    const preferenceOrder = INSTALLER_EXTENSION_ORDER[asset.platform] || INSTALLER_EXTENSION_ORDER.unknown;
+    const index = preferenceOrder.indexOf(asset.extension);
+    if (index !== -1) {
+        return index;
+    }
+
+    return preferenceOrder.length + 4;
 }
 </script>

@@ -6,6 +6,7 @@
             ref="workspaceRef"
             :tab-id="tabId"
             :is-active="isActive"
+            :pending-document-open="isDocumentOpenInFlight"
             @update-tab="(updates) => emit('update-tab', updates)"
             @open-in-new-tab="(result) => emit('open-in-new-tab', result)"
             @request-close-tab="emit('request-close-tab')"
@@ -13,7 +14,16 @@
         />
 
         <div v-else class="workspace-host__placeholder">
+            <div
+                v-if="isDocumentOpenInFlight"
+                class="workspace-host__placeholder-loading"
+                role="status"
+                aria-live="polite"
+            >
+                <UIcon name="i-lucide-loader-circle" class="workspace-host__spinner" />
+            </div>
             <PdfEmptyState
+                v-else
                 :recent-files="recentFiles"
                 :open-batch-progress="null"
                 @open-file="handleOpenFileFromUi"
@@ -62,6 +72,7 @@ const emit = defineEmits<{
 const workspaceRequested = ref(false);
 const workspaceRef = ref<IWorkspaceExpose | null>(null);
 let workspaceLoadPromise: Promise<IWorkspaceExpose | null> | null = null;
+const documentOpenInFlightCount = ref(0);
 
 const {
     recentFiles,
@@ -77,6 +88,16 @@ const hasPdf = computed<boolean>(() => {
     }
     return value?.value ?? false;
 });
+const isDocumentOpenInFlight = computed(() => documentOpenInFlightCount.value > 0);
+
+async function runWhileOpeningDocument(run: () => Promise<void>) {
+    documentOpenInFlightCount.value += 1;
+    try {
+        await run();
+    } finally {
+        documentOpenInFlightCount.value = Math.max(0, documentOpenInFlightCount.value - 1);
+    }
+}
 
 function sleep(ms: number) {
     return new Promise<void>((resolve) => {
@@ -150,8 +171,10 @@ async function withWorkspace(action: string, run: (workspace: IWorkspaceExpose) 
 }
 
 async function handleOpenRecentFromPlaceholder(file: IRecentFile) {
-    await withWorkspace('openRecentFromPlaceholder', async (workspace) => {
-        await workspace.handleOpenFileDirectWithPersist(file.originalPath);
+    await runWhileOpeningDocument(async () => {
+        await withWorkspace('openRecentFromPlaceholder', async (workspace) => {
+            await workspace.handleOpenFileDirectWithPersist(file.originalPath);
+        });
     });
 }
 
@@ -188,16 +211,25 @@ const workspaceExpose: IWorkspaceExpose = {
     },
     handleOpenFileFromUi,
     handleOpenFileDirectWithPersist: async (path: string) => {
-        await withWorkspace('handleOpenFileDirectWithPersist', workspace => workspace.handleOpenFileDirectWithPersist(path));
+        await runWhileOpeningDocument(async () => {
+            await withWorkspace(
+                'handleOpenFileDirectWithPersist',
+                workspace => workspace.handleOpenFileDirectWithPersist(path),
+            );
+        });
     },
     handleOpenFileDirectBatchWithPersist: async (paths: string[]) => {
-        await withWorkspace(
-            'handleOpenFileDirectBatchWithPersist',
-            workspace => workspace.handleOpenFileDirectBatchWithPersist(paths),
-        );
+        await runWhileOpeningDocument(async () => {
+            await withWorkspace(
+                'handleOpenFileDirectBatchWithPersist',
+                workspace => workspace.handleOpenFileDirectBatchWithPersist(paths),
+            );
+        });
     },
     handleOpenFileWithResult: async (result: TOpenFileResult) => {
-        await withWorkspace('handleOpenFileWithResult', workspace => workspace.handleOpenFileWithResult(result));
+        await runWhileOpeningDocument(async () => {
+            await withWorkspace('handleOpenFileWithResult', workspace => workspace.handleOpenFileWithResult(result));
+        });
     },
     handleCloseFileFromUi: async (options) => {
         await withLoadedWorkspace('handleCloseFileFromUi', workspace => workspace.handleCloseFileFromUi(options));
@@ -290,6 +322,15 @@ defineExpose(workspaceExpose);
     height: 100%;
     min-width: 0;
     min-height: 0;
+}
+
+.workspace-host__placeholder-loading {
+    display: flex;
+    width: 100%;
+    height: 100%;
+    align-items: center;
+    justify-content: center;
+    background: color-mix(in oklab, var(--app-window-bg) 90%, var(--ui-bg-muted) 10%);
 }
 
 .workspace-host__loading {

@@ -74,6 +74,7 @@ let flushPendingFilesTimer: ReturnType<typeof setTimeout> | null = null;
 let batchWindowStartTime: number | null = null;
 let externalOpenBootstrapReady = false;
 let ensureWindowForExternalOpenPromise: Promise<void> | null = null;
+let hasHandledInitialExternalOpenDispatch = false;
 const EXTERNAL_OPEN_BATCH_WINDOW_MS = 800;
 const EXTERNAL_OPEN_MAX_BATCH_WAIT_MS = 10_000;
 
@@ -281,6 +282,12 @@ function scheduleFlushPendingFiles() {
         return;
     }
 
+    if (!hasHandledInitialExternalOpenDispatch) {
+        hasHandledInitialExternalOpenDispatch = true;
+        flushPendingFiles();
+        return;
+    }
+
     const now = Date.now();
     if (batchWindowStartTime === null) {
         batchWindowStartTime = now;
@@ -349,9 +356,11 @@ async function init() {
             logger.warn(`Failed to set dock icon: ${err instanceof Error ? err.message : String(err)}`);
         }
     }
+    const appVersion = app.getVersion();
     app.setAboutPanelOptions({
         applicationName: 'EVB Viewer',
-        applicationVersion: app.getVersion(),
+        applicationVersion: appVersion,
+        version: appVersion.startsWith('0.') ? 'Beta' : undefined,
         copyright: 'Copyright \u00A9 2026 Eugene Barsky',
         iconPath: aboutIconPath,
         authors: ['Eugene Barsky'],

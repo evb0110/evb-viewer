@@ -268,6 +268,25 @@ export function recommendInstaller(assets: IReleaseInstaller[], profile: IUserAg
     return sorted[0] || null;
 }
 
+export function normalizeInstallers(assets: IReleaseInstaller[]): IReleaseInstaller[] {
+    const windowsExeArchs = new Set(
+        assets
+            .filter(asset => asset.platform === 'windows' && asset.extension === 'exe' && asset.arch !== 'unknown')
+            .map(asset => asset.arch),
+    );
+
+    const hasArchSpecificWindowsBuilds = windowsExeArchs.has('x64') && windowsExeArchs.has('arm64');
+    if (!hasArchSpecificWindowsBuilds) {
+        return assets;
+    }
+
+    return assets.filter(asset => !(
+        asset.platform === 'windows'
+        && asset.extension === 'exe'
+        && asset.arch === 'unknown'
+    ));
+}
+
 function extensionRank(extension: string, preferenceOrder: string[]): number {
     const index = preferenceOrder.indexOf(extension);
     if (index !== -1) {

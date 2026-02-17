@@ -4,7 +4,7 @@ copyright: Copyright © 2026 Eugene Barsky
 
 asar: true
 asarUnpack:
-  - nuxt-output/server/**/*
+  - nuxt-output/**/*
   - dist-electron/ocr-worker.js
   - dist-electron/pdf-combine-worker.js
 npmRebuild: false

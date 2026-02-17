@@ -28,7 +28,9 @@
         variant="ghost"
       />
 
-      <LanguageSwitcher />
+      <ClientOnly>
+        <LanguageSwitcher />
+      </ClientOnly>
     </div>
   </header>
 </template>

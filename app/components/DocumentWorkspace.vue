@@ -367,6 +367,7 @@ import { BrowserLogger } from '@app/utils/browser-logger';
 const props = defineProps<{
     tabId: string;
     isActive: boolean;
+    pendingDocumentOpen?: boolean;
 }>();
 
 const canTeleportToolbar = computed(() => (
@@ -396,6 +397,7 @@ const suppressEmptyState = computed(() => (
     isRestoringSplitPayload.value
     || hasQueuedSplitRestore.value
     || isExternallyRestoring.value
+    || props.pendingDocumentOpen === true
 ));
 
 const w = useWorkspaceOrchestration({

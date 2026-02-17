@@ -35,6 +35,12 @@
   --landing-muted: color-mix(in srgb, var(--landing-ink) 62%, white 38%);
   --landing-border: color-mix(in srgb, var(--color-blue-400) 32%, white 68%);
   --landing-shadow: 0 16px 40px color-mix(in srgb, var(--color-blue-700) 18%, transparent);
+  --installer-control-gap: 0.72rem;
+  --installer-platform-gap: 0.25rem;
+  --installer-platform-min-width: 6.25rem;
+  --installer-content-max-width: 36rem;
+  --installer-select-min-width: 15rem;
+  --installer-select-max-width: 22rem;
 }
 
 .dark {
@@ -335,7 +341,42 @@ a {
 .installer-content {
   display: flex;
   flex-direction: column;
-  gap: 0.8rem;
+  gap: 1rem;
+}
+
+.installer-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 0.95rem;
+  max-width: var(--installer-content-max-width);
+}
+
+.installer-platforms {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--installer-platform-gap);
+  padding: 0.3rem;
+  background: var(--landing-surface-strong);
+  border-radius: 0.72rem;
+  border: 1px solid var(--landing-border);
+}
+
+.installer-platform-button {
+  min-width: var(--installer-platform-min-width);
+  justify-content: center;
+}
+
+.installer-select-layout {
+  display: grid;
+  align-items: end;
+  gap: var(--installer-control-gap);
+  grid-template-columns: minmax(0, var(--installer-select-max-width)) auto;
+}
+
+.installer-select-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.48rem;
 }
 
 .installer-label {
@@ -344,21 +385,34 @@ a {
   letter-spacing: 0.015em;
 }
 
-.installer-select {
+.installer-select-control {
   width: 100%;
-  border-radius: 0.75rem;
+  min-width: var(--installer-select-min-width);
+  appearance: none;
+  border-radius: 0.625rem;
   border: 1px solid var(--landing-border);
-  background: var(--landing-surface-strong);
+  background-color: var(--landing-surface-strong);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.7rem center;
+  background-size: 0.85rem;
   color: var(--landing-ink);
   font-family: var(--font-sans);
   font-size: 0.95rem;
   line-height: 1.4;
-  padding: 0.72rem 0.85rem;
+  padding: 0.6rem 2.25rem 0.6rem 0.75rem;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
 
-.installer-select:focus {
-  outline: 2px solid color-mix(in srgb, var(--color-blue-500) 68%, transparent);
-  outline-offset: 2px;
+.installer-select-control:hover {
+  border-color: var(--color-blue-400);
+}
+
+.installer-select-control:focus {
+  outline: none;
+  border-color: var(--color-blue-500);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-blue-500) 20%, transparent);
 }
 
 .installer-details {
@@ -370,8 +424,11 @@ a {
 
 .installer-actions {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.55rem;
+  align-items: flex-end;
+}
+
+.installer-download-button {
+  white-space: nowrap;
 }
 
 .stats-grid {
@@ -756,6 +813,28 @@ a {
 
   .bookmark-nav {
     grid-template-columns: 1fr;
+  }
+
+  .installer-select-control {
+    width: 100%;
+    min-width: min(100%, var(--installer-select-min-width));
+  }
+
+  .installer-select-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .installer-platforms {
+    display: flex;
+  }
+
+  .installer-platform-button {
+    flex: 1 1 calc(50% - var(--installer-platform-gap));
+  }
+
+  .installer-download-button {
+    width: 100%;
+    justify-content: center;
   }
 
   .site-footer {
