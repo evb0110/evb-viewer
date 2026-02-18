@@ -2,8 +2,10 @@ import { spawn } from 'child_process';
 import type { ChildProcess } from 'child_process';
 import {
     mkdir,
+    readFile,
     rm,
     stat,
+    writeFile,
 } from 'fs/promises';
 import {
     availableParallelism,
@@ -11,11 +13,13 @@ import {
     tmpdir,
 } from 'os';
 import { join } from 'path';
+import { PDFDocument } from 'pdf-lib';
 import {
     buildDjvuRuntimeEnv,
     getDjvuToolPaths,
 } from '@electron/djvu/paths';
 import { getOcrToolPaths } from '@electron/ocr/paths';
+import { createLogger } from '@electron/utils/logger';
 import { describeProcessExitCode } from '@electron/utils/process-exit';
 
 interface IDjvuConvertOptions {
@@ -38,11 +42,7 @@ const MIN_PAGES_FOR_RANGE_PARALLELISM = 24;
 const PROGRESS_CAP = 90;
 
 const activeProcesses = new Map<string, ChildProcess>();
-
-interface IPageRange {
-    start: number;
-    end: number;
-}
+const logger = createLogger('djvu-convert');
 
 export async function convertDjvuToPdf(
     inputPath: string,
@@ -54,20 +54,16 @@ export async function convertDjvuToPdf(
     const shouldUseRangeParallelism = shouldUseParallelRangeConversion(options);
 
     if (shouldUseRangeParallelism) {
-        const parallelResult = await convertDjvuToPdfWithRanges(
+        logger.info(`[${jobId}] Using parallel DjVu conversion: pages=${totalPages}, workers=${getRangeWorkerCount(totalPages)}`);
+        return convertDjvuToPdfWithRanges(
             inputPath,
             outputPath,
             jobId,
             options,
         );
-        if (parallelResult.success) {
-            return parallelResult;
-        }
-        if (!shouldFallbackToSingleProcess(parallelResult.error)) {
-            return parallelResult;
-        }
     }
 
+    logger.info(`[${jobId}] Using single-process DjVu conversion: pages=${totalPages}`);
     return convertDjvuToPdfSingleProcess(inputPath, outputPath, jobId, options, totalPages);
 }
 
@@ -84,47 +80,55 @@ async function convertDjvuToPdfWithRanges(
             success: false,
             outputPath,
             fileSize: 0,
-            error: 'Range parallelism is not applicable',
+            error: 'Parallel conversion is not applicable',
         };
     }
 
-    const { qpdf } = getOcrToolPaths();
-    const tempDir = join(tmpdir(), `djvu-ranges-${Date.now()}-${Math.random().toString(36).slice(2)}`);
-    const ranges = splitPageRanges(totalPages, workerCount);
-    const chunkPaths = ranges.map((_, index) => join(tempDir, `part-${index + 1}.pdf`));
+    const tempDir = join(tmpdir(), `djvu-pages-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    const chunkPaths = Array.from({ length: totalPages }, (_, index) => join(tempDir, `page-${index + 1}.pdf`));
     const completedPages = new Set<number>();
+    const pageQueue = Array.from({ length: totalPages }, (_, index) => index + 1);
     let firstError: string | null = null;
 
     await mkdir(tempDir, { recursive: true });
 
     try {
-        const tasks = ranges.map((range, index) => convertRangeToPdf(
-            inputPath,
-            chunkPaths[index]!,
-            `${jobId}-range-${index + 1}`,
-            range,
-            options.subsample,
-            (pageNum) => {
-                if (!options.onProgress || totalPages <= 0) {
+        async function worker(workerIndex: number) {
+            while (!firstError && pageQueue.length > 0) {
+                const pageNum = pageQueue.shift();
+                if (!pageNum) {
+                    return;
+                }
+
+                const pageOutputPath = chunkPaths[pageNum - 1]!;
+                const pageResult = await convertPageToPdf(
+                    inputPath,
+                    pageOutputPath,
+                    `${jobId}-range-${workerIndex}-page-${pageNum}`,
+                    pageNum,
+                    options.subsample,
+                );
+
+                if (!pageResult.success) {
+                    firstError = pageResult.error ?? `Failed to convert page ${pageNum}`;
+                    cancelConversion(jobId);
                     return;
                 }
 
                 if (!completedPages.has(pageNum)) {
                     completedPages.add(pageNum);
-                    const percent = Math.min(
-                        PROGRESS_CAP,
-                        Math.round((completedPages.size / totalPages) * PROGRESS_CAP),
-                    );
-                    options.onProgress(percent);
+                    if (options.onProgress) {
+                        const percent = Math.min(
+                            PROGRESS_CAP,
+                            Math.round((completedPages.size / totalPages) * PROGRESS_CAP),
+                        );
+                        options.onProgress(percent);
+                    }
                 }
-            },
-        ).then((result) => {
-            if (!result.success && !firstError) {
-                firstError = result.error ?? `Failed to convert range ${range.start}-${range.end}`;
-                cancelConversion(jobId);
             }
-        }));
+        }
 
+        const tasks = Array.from({ length: workerCount }, (_, index) => worker(index + 1));
         await Promise.all(tasks);
 
         if (firstError) {
@@ -136,17 +140,7 @@ async function convertDjvuToPdfWithRanges(
             };
         }
 
-        const mergeResult = await runProcess(
-            `${jobId}-merge`,
-            qpdf,
-            [
-                '--empty',
-                '--pages',
-                ...chunkPaths,
-                '--',
-                outputPath,
-            ],
-        );
+        const mergeResult = await mergePdfChunks(chunkPaths, outputPath, `${jobId}-merge`);
         if (!mergeResult.success) {
             return {
                 success: false,
@@ -171,7 +165,7 @@ async function convertDjvuToPdfWithRanges(
                 success: false,
                 outputPath,
                 fileSize: 0,
-                error: `Output file not found after range conversion: ${err instanceof Error ? err.message : String(err)}`,
+                error: `Output file not found after parallel conversion: ${err instanceof Error ? err.message : String(err)}`,
             };
         }
     } finally {
@@ -247,47 +241,83 @@ async function convertDjvuToPdfSingleProcess(
     }
 }
 
-async function convertRangeToPdf(
+async function convertPageToPdf(
     inputPath: string,
     outputPath: string,
-    rangeJobId: string,
-    range: IPageRange,
+    pageJobId: string,
+    page: number,
     subsample: number | undefined,
-    onPageSeen: (pageNum: number) => void,
 ) {
     const args = buildPdfArgs(
         inputPath,
         outputPath,
         subsample,
-        `${range.start}-${range.end}`,
+        String(page),
     );
     const result = await runProcess(
-        rangeJobId,
+        pageJobId,
         getDjvuToolPaths().ddjvu,
         args,
-        {
-            env: buildDjvuRuntimeEnv(),
-            onStderr: (chunk) => {
-                const pageMatches = chunk.matchAll(/-------- page (\d+)/g);
-                for (const match of pageMatches) {
-                    const pageNum = parseInt(match[1] ?? '0', 10);
-                    if (!Number.isInteger(pageNum) || pageNum < range.start || pageNum > range.end) {
-                        continue;
-                    }
-                    onPageSeen(pageNum);
-                }
-            },
-        },
+        { env: buildDjvuRuntimeEnv() },
     );
 
     if (!result.success) {
         return {
             success: false,
-            error: result.error ?? `Failed to convert page range ${range.start}-${range.end}`,
+            error: result.error ?? `Failed to convert page ${page}`,
         };
     }
 
     return { success: true };
+}
+
+async function mergePdfChunks(
+    chunkPaths: string[],
+    outputPath: string,
+    mergeJobId: string,
+) {
+    const { qpdf } = getOcrToolPaths();
+    const qpdfResult = await runProcess(
+        mergeJobId,
+        qpdf,
+        [
+            '--empty',
+            '--pages',
+            ...chunkPaths,
+            '--',
+            outputPath,
+        ],
+    );
+    if (qpdfResult.success) {
+        return { success: true };
+    }
+
+    logger.warn(`[${mergeJobId}] qpdf merge failed, falling back to pdf-lib merge: ${qpdfResult.error}`);
+
+    try {
+        const mergedDoc = await PDFDocument.create();
+
+        for (const chunkPath of chunkPaths) {
+            const chunkData = await readFile(chunkPath);
+            const chunkDoc = await PDFDocument.load(chunkData, { updateMetadata: false });
+            const chunkIndices = chunkDoc.getPageIndices();
+            if (chunkIndices.length === 0) {
+                continue;
+            }
+            const pages = await mergedDoc.copyPages(chunkDoc, chunkIndices);
+            for (const page of pages) {
+                mergedDoc.addPage(page);
+            }
+        }
+
+        await writeFile(outputPath, new Uint8Array(await mergedDoc.save()));
+        return { success: true };
+    } catch (error) {
+        return {
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+        };
+    }
 }
 
 function buildPdfArgs(
@@ -575,26 +605,6 @@ function shouldUseParallelRangeConversion(options: IDjvuConvertOptions) {
         return false;
     }
     return getRangeWorkerCount(totalPages) > 1;
-}
-
-function shouldFallbackToSingleProcess(error: string | undefined) {
-    if (!error) {
-        return false;
-    }
-    return /ENOENT|EACCES|qpdf/i.test(error);
-}
-
-function splitPageRanges(totalPages: number, workerCount: number): IPageRange[] {
-    const pagesPerRange = Math.ceil(totalPages / workerCount);
-    const ranges: IPageRange[] = [];
-    for (let start = 1; start <= totalPages; start += pagesPerRange) {
-        const end = Math.min(totalPages, start + pagesPerRange - 1);
-        ranges.push({
-            start,
-            end,
-        });
-    }
-    return ranges;
 }
 
 function getLogicalCpuCount() {
