@@ -1,7 +1,7 @@
 {
   "name": "evb-viewer",
   "productName": "EVB Viewer",
-  "version": "0.1.54",
+  "version": "0.1.55",
   "author": "Eugene Barsky <7149553@gmail.com>",
   "description": "EVB Viewer — a PDF and DjVu document viewer",
   "license": "MIT",
