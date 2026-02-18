@@ -5,6 +5,7 @@ export async function detectSourceDpi(
     pdfPath: string,
     pdfimagesBinary: string | undefined,
     log: TWorkerLog,
+    commandEnv?: NodeJS.ProcessEnv,
 ): Promise<number | null> {
     if (!pdfimagesBinary) {
         return null;
@@ -14,7 +15,11 @@ export async function detectSourceDpi(
         const result = await runCommand(pdfimagesBinary, [
             '-list',
             pdfPath,
-        ]);
+        ], {
+            commandLabel: 'pdfimages(-list)',
+            env: commandEnv,
+            log,
+        });
         const lines = result.stdout.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
         if (lines.length <= 1) {
             return null;

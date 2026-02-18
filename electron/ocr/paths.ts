@@ -26,6 +26,8 @@ interface IOcrToolPaths {
     pdftoppm: string;
     pdftotext: string;
     pdfimages?: string;
+    popplerDataDir?: string;
+    popplerFontConfigDir?: string;
     qpdf: string;
     unpaper?: string;
 }
@@ -50,6 +52,12 @@ interface IToolValidationResult {
         pdftotext: {
             found: boolean;
             path: string 
+        };
+        popplerRuntime?: {
+            dataDirFound: boolean;
+            dataDir?: string;
+            fontConfigDirFound: boolean;
+            fontConfigDir?: string;
         };
         qpdf: {
             found: boolean;
@@ -163,11 +171,15 @@ export function getOcrToolPaths(): IOcrToolPaths {
     ensureRuntimeTessdataSeededSync();
     const tessdata = getRuntimeTessdataDir();
 
-    // Poppler paths (pdftoppm, pdftotext)
+    // Poppler paths
     const popplerDir = join(resourcesBase, 'poppler', platformArch);
     const pdftoppm = getBinaryPath(popplerDir, 'pdftoppm');
     const pdftotext = getBinaryPath(popplerDir, 'pdftotext');
     const pdfimages = getBinaryPath(popplerDir, 'pdfimages', true) || undefined;
+    const popplerDataDirCandidate = join(popplerDir, 'share', 'poppler');
+    const popplerFontConfigDirCandidate = join(popplerDir, 'etc', 'fonts');
+    const popplerDataDir = existsSync(popplerDataDirCandidate) ? popplerDataDirCandidate : undefined;
+    const popplerFontConfigDir = existsSync(popplerFontConfigDirCandidate) ? popplerFontConfigDirCandidate : undefined;
 
     // qpdf path
     const qpdfDir = join(resourcesBase, 'qpdf', platformArch);
@@ -182,6 +194,8 @@ export function getOcrToolPaths(): IOcrToolPaths {
         pdftoppm,
         pdftotext,
         pdfimages,
+        popplerDataDir,
+        popplerFontConfigDir,
         qpdf,
         unpaper,
     };
@@ -256,13 +270,25 @@ export async function validateOcrTools(): Promise<IToolValidationResult> {
         errors.push(`pdftotext not found: ${paths.pdftotext} (install Poppler or bundle it)`);
     }
 
+    const popplerDataDirFound = !!paths.popplerDataDir && existsSync(paths.popplerDataDir);
+    const popplerFontConfigDirFound = !!paths.popplerFontConfigDir && existsSync(paths.popplerFontConfigDir);
+    if (process.platform === 'win32') {
+        if (!popplerDataDirFound) {
+            errors.push(`Poppler data directory not found: ${paths.popplerDataDir || '(unset)'} (expected <resources>/poppler/<platform>/share/poppler)`);
+        }
+        if (!popplerFontConfigDirFound) {
+            errors.push(`Poppler fontconfig directory not found: ${paths.popplerFontConfigDir || '(unset)'} (expected <resources>/poppler/<platform>/etc/fonts)`);
+        }
+    }
+
     // Check qpdf
     const qpdfFound = checkToolExists(paths.qpdf);
     if (!qpdfFound) {
         errors.push(`qpdf not found: ${paths.qpdf} (install qpdf or bundle it)`);
     }
 
-    const valid = tesseractFound && tessdataFound && pdftoppmFound && qpdfFound;
+    const popplerRuntimeValid = process.platform !== 'win32' || (popplerDataDirFound && popplerFontConfigDirFound);
+    const valid = tesseractFound && tessdataFound && pdftoppmFound && qpdfFound && popplerRuntimeValid;
 
     return {
         valid,
@@ -284,6 +310,12 @@ export async function validateOcrTools(): Promise<IToolValidationResult> {
             pdftotext: {
                 found: pdftotextFound,
                 path: paths.pdftotext,
+            },
+            popplerRuntime: {
+                dataDirFound: popplerDataDirFound,
+                dataDir: paths.popplerDataDir,
+                fontConfigDirFound: popplerFontConfigDirFound,
+                fontConfigDir: paths.popplerFontConfigDir,
             },
             qpdf: {
                 found: qpdfFound,

@@ -128,7 +128,9 @@ function createOcrWorker(): Worker {
     const workerPath = getWorkerPath();
 
     log.debug(`Creating OCR worker: ${workerPath}`);
-    log.debug(`Tool paths: tesseract=${paths.tesseract}, pdftoppm=${paths.pdftoppm}, qpdf=${paths.qpdf}`);
+    log.debug(
+        `Tool paths: tesseract=${paths.tesseract}, pdftoppm=${paths.pdftoppm}, qpdf=${paths.qpdf}, popplerData=${paths.popplerDataDir || 'none'}, fontConfig=${paths.popplerFontConfigDir || 'none'}`,
+    );
 
     return new Worker(workerPath, {workerData: {
         tesseractBinary: paths.tesseract,
@@ -136,6 +138,8 @@ function createOcrWorker(): Worker {
         pdftoppmBinary: paths.pdftoppm,
         pdftotextBinary: paths.pdftotext,
         pdfimagesBinary: paths.pdfimages,
+        popplerDataDir: paths.popplerDataDir,
+        popplerFontConfigDir: paths.popplerFontConfigDir,
         qpdfBinary: paths.qpdf,
         unpaperBinary: paths.unpaper,
         tempDir: app.getPath('temp'),

@@ -52,6 +52,15 @@ check_file() {
   fi
 }
 
+check_dir() {
+  local path="$1"
+  local label="$2"
+  if [ ! -d "$path" ]; then
+    echo "Error: Missing $label ($path)"
+    exit 1
+  fi
+}
+
 check_file "$resource_root/tesseract/$platform_arch/bin/tesseract$exe_suffix" "tesseract binary"
 
 tessdata_dir="$resource_root/tesseract/tessdata"
@@ -66,6 +75,11 @@ fi
 
 check_file "$resource_root/poppler/$platform_arch/bin/pdftoppm$exe_suffix" "pdftoppm binary"
 check_file "$resource_root/poppler/$platform_arch/bin/pdftotext$exe_suffix" "pdftotext binary"
+if [ "$platform" = "win" ]; then
+  check_file "$resource_root/poppler/$platform_arch/bin/pdftocairo$exe_suffix" "pdftocairo binary"
+  check_dir "$resource_root/poppler/$platform_arch/share/poppler" "poppler data directory"
+  check_dir "$resource_root/poppler/$platform_arch/etc/fonts" "poppler fontconfig directory"
+fi
 check_file "$resource_root/qpdf/$platform_arch/bin/qpdf$exe_suffix" "qpdf binary"
 check_file "$resource_root/djvulibre/$platform_arch/bin/ddjvu$exe_suffix" "ddjvu binary"
 check_file "$resource_root/djvulibre/$platform_arch/bin/djvused$exe_suffix" "djvused binary"

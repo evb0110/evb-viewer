@@ -6,6 +6,8 @@ export interface IWorkerPaths {
     pdftoppmBinary: string;
     pdftotextBinary: string;
     pdfimagesBinary?: string;
+    popplerDataDir?: string;
+    popplerFontConfigDir?: string;
     qpdfBinary: string;
     unpaperBinary?: string;
     tempDir: string;

@@ -264,13 +264,24 @@ PACMAN_CONF
 
   echo ""
   echo "  Setting up Poppler (arm64)..."
-  clean_dir "$POPPLER_DIR/bin"
-  for tool in pdftoppm.exe pdftotext.exe pdfimages.exe; do
+  clean_dir "$POPPLER_DIR"
+  mkdir -p "$POPPLER_DIR/bin"
+  for tool in pdftoppm.exe pdftotext.exe pdfimages.exe pdftocairo.exe; do
     require_file "$arm64_bin/$tool" "$tool (arm64)"
     cp "$arm64_bin/$tool" "$POPPLER_DIR/bin/"
   done
   [ -f "$arm64_bin/pdfinfo.exe" ] && cp "$arm64_bin/pdfinfo.exe" "$POPPLER_DIR/bin/"
   cp "$arm64_bin/"*.dll "$POPPLER_DIR/bin/"
+  # Poppler on Windows also relies on runtime data/config directories.
+  # Without these, pdftoppm can crash on some PDFs with access violations.
+  if [ -d "$staging/clangarm64/share/poppler" ]; then
+    mkdir -p "$POPPLER_DIR/share"
+    cp -R "$staging/clangarm64/share/poppler" "$POPPLER_DIR/share/"
+  fi
+  if [ -d "$staging/clangarm64/etc/fonts" ]; then
+    mkdir -p "$POPPLER_DIR/etc"
+    cp -R "$staging/clangarm64/etc/fonts" "$POPPLER_DIR/etc/"
+  fi
   echo "  Poppler: $(ls "$POPPLER_DIR/bin/"*.exe 2>/dev/null | wc -l) exe, $(ls "$POPPLER_DIR/bin/"*.dll 2>/dev/null | wc -l) dlls"
 
   echo ""
@@ -343,7 +354,8 @@ echo "2. Bundling Poppler ${POPPLER_VERSION}..."
 echo "=========================================="
 
 POPPLER_DIR="$RESOURCES_DIR/poppler/$PLATFORM_ARCH"
-clean_dir "$POPPLER_DIR/bin"
+clean_dir "$POPPLER_DIR"
+mkdir -p "$POPPLER_DIR/bin"
 
 POPPLER_URL="https://github.com/oschwartz10612/poppler-windows/releases/download/v${POPPLER_VERSION}-0/Release-${POPPLER_VERSION}-0.zip"
 download "$POPPLER_URL" "$TEMP_DIR/poppler.zip" "poppler-${POPPLER_VERSION}.zip"
@@ -357,9 +369,10 @@ if [ -z "$POPPLER_PDFTOPPM" ]; then
   exit 1
 fi
 POPPLER_BIN="$(dirname "$POPPLER_PDFTOPPM")"
+POPPLER_ROOT="$(dirname "$(dirname "$POPPLER_BIN")")"
 
 echo "  Copying binaries and DLLs..."
-for tool in pdftoppm.exe pdftotext.exe pdfimages.exe; do
+for tool in pdftoppm.exe pdftotext.exe pdfimages.exe pdftocairo.exe; do
   copy_required_tool "$POPPLER_BIN/$tool" "$POPPLER_DIR/bin" "$tool"
 done
 # Optional utility
@@ -370,6 +383,21 @@ fi
 find "$(dirname "$POPPLER_BIN")" -name '*.dll' -exec cp {} "$POPPLER_DIR/bin/" \; 2>/dev/null || true
 # Also check directly in bin dir
 cp "$POPPLER_BIN/"*.dll "$POPPLER_DIR/bin/" 2>/dev/null || true
+
+# Poppler on Windows also relies on runtime data/config directories.
+# Without these, pdftoppm can crash on some PDFs with access violations.
+if [ -d "$POPPLER_ROOT/share/poppler" ]; then
+  mkdir -p "$POPPLER_DIR/share"
+  cp -R "$POPPLER_ROOT/share/poppler" "$POPPLER_DIR/share/"
+fi
+
+if [ -d "$POPPLER_ROOT/Library/etc/fonts" ]; then
+  mkdir -p "$POPPLER_DIR/etc"
+  cp -R "$POPPLER_ROOT/Library/etc/fonts" "$POPPLER_DIR/etc/"
+elif [ -d "$POPPLER_ROOT/etc/fonts" ]; then
+  mkdir -p "$POPPLER_DIR/etc"
+  cp -R "$POPPLER_ROOT/etc/fonts" "$POPPLER_DIR/etc/"
+fi
 
 echo "  Poppler: $(ls "$POPPLER_DIR/bin/"*.exe 2>/dev/null | wc -l) exe, $(ls "$POPPLER_DIR/bin/"*.dll 2>/dev/null | wc -l) dlls"
 
@@ -477,12 +505,26 @@ verify_tool() {
   fi
 }
 
+verify_dir() {
+  local path="$1"
+  local name="$2"
+  if [ -d "$path" ]; then
+    echo "  OK  $name ($path)"
+  else
+    echo "  MISSING  $name"
+    missing_count=$((missing_count + 1))
+  fi
+}
+
 missing_count=0
 
 verify_tool "$TESSERACT_DIR/bin/tesseract.exe" "tesseract"
 verify_tool "$POPPLER_DIR/bin/pdftoppm.exe" "pdftoppm"
+verify_tool "$POPPLER_DIR/bin/pdftocairo.exe" "pdftocairo"
 verify_tool "$POPPLER_DIR/bin/pdftotext.exe" "pdftotext"
 verify_tool "$POPPLER_DIR/bin/pdfimages.exe" "pdfimages"
+verify_dir "$POPPLER_DIR/share/poppler" "poppler data directory"
+verify_dir "$POPPLER_DIR/etc/fonts" "fontconfig directory"
 verify_tool "$QPDF_DIR/bin/qpdf.exe" "qpdf"
 verify_tool "$DJVU_DIR/bin/ddjvu.exe" "ddjvu"
 verify_tool "$DJVU_DIR/bin/djvused.exe" "djvused"

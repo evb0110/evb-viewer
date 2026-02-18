@@ -52,6 +52,17 @@ check_file() {
   fi
 }
 
+check_dir() {
+  local path="$1"
+  local label="$2"
+  if [ ! -d "$path" ]; then
+    echo "  MISSING $label: $path"
+    missing=1
+  else
+    echo "  OK      $label: $path"
+  fi
+}
+
 resolve_host_tag() {
   local uname_s
   local uname_m
@@ -95,6 +106,11 @@ check_tag() {
   check_file "resources/tesseract/$tag/bin/tesseract$exe_suffix" "tesseract"
   check_file "resources/poppler/$tag/bin/pdftoppm$exe_suffix" "pdftoppm"
   check_file "resources/poppler/$tag/bin/pdftotext$exe_suffix" "pdftotext"
+  if [ "$platform" = "win32" ]; then
+    check_file "resources/poppler/$tag/bin/pdftocairo$exe_suffix" "pdftocairo"
+    check_dir "resources/poppler/$tag/share/poppler" "poppler data directory"
+    check_dir "resources/poppler/$tag/etc/fonts" "poppler fontconfig directory"
+  fi
   check_file "resources/qpdf/$tag/bin/qpdf$exe_suffix" "qpdf"
   check_file "resources/djvulibre/$tag/bin/ddjvu$exe_suffix" "ddjvu"
   check_file "resources/djvulibre/$tag/bin/djvused$exe_suffix" "djvused"

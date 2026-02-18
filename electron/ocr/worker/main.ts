@@ -54,14 +54,6 @@ import {
 import { runCommand } from '@electron/ocr/worker/run-command';
 
 const paths = workerData as IWorkerPaths;
-const PDFTOPPM_FALLBACK_DPIS = [
-    600,
-    450,
-    300,
-    220,
-    150,
-    96,
-];
 
 const log: TWorkerLog = (level, message) => {
     const timestamp = new Date().toISOString();
@@ -72,64 +64,48 @@ const log: TWorkerLog = (level, message) => {
     });
 };
 
-function buildPdftoppmDpiPlan(initialDpi: number) {
-    const normalizedInitial = clampDpi(initialDpi);
-    const plan: number[] = [normalizedInitial];
+function buildPopplerEnv() {
+    const env: NodeJS.ProcessEnv = {};
 
-    for (const fallbackDpi of PDFTOPPM_FALLBACK_DPIS) {
-        if (fallbackDpi >= normalizedInitial) {
-            continue;
-        }
-        if (!plan.includes(fallbackDpi)) {
-            plan.push(fallbackDpi);
-        }
+    if (paths.popplerDataDir) {
+        env.POPPLER_DATADIR = paths.popplerDataDir;
     }
 
-    return plan;
+    if (paths.popplerFontConfigDir) {
+        env.FONTCONFIG_PATH = paths.popplerFontConfigDir;
+        env.FONTCONFIG_FILE = join(paths.popplerFontConfigDir, 'fonts.conf');
+    }
+
+    if (Object.keys(env).length === 0) {
+        return undefined;
+    }
+
+    return env;
 }
 
 async function renderPdfPageToPng(
     pageNumber: number,
     sourcePdfPath: string,
     outputPngPath: string,
-    baseDpi: number,
+    dpi: number,
+    popplerEnv?: NodeJS.ProcessEnv,
 ) {
-    const dpiPlan = buildPdftoppmDpiPlan(baseDpi);
-    let lastError: string | null = null;
-
-    for (let attempt = 0; attempt < dpiPlan.length; attempt++) {
-        const dpi = dpiPlan[attempt]!;
-        const attemptLabel = `${attempt + 1}/${dpiPlan.length}`;
-        try {
-            await runCommand(paths.pdftoppmBinary, [
-                '-png',
-                '-r',
-                String(dpi),
-                '-f',
-                String(pageNumber),
-                '-l',
-                String(pageNumber),
-                '-singlefile',
-                sourcePdfPath,
-                outputPngPath.replace(/\.png$/, ''),
-            ], {
-                commandLabel: `pdftoppm(page=${pageNumber},dpi=${dpi})`,
-                log,
-            });
-
-            if (attempt > 0) {
-                log('warn', `Recovered page ${pageNumber} rasterization at ${dpi} DPI after ${attemptLabel} attempts`);
-            }
-
-            return dpi;
-        } catch (err) {
-            lastError = err instanceof Error ? err.message : String(err);
-            const level = attempt === dpiPlan.length - 1 ? 'error' : 'warn';
-            log(level, `pdftoppm failed for page ${pageNumber} at ${dpi} DPI (attempt ${attemptLabel}): ${lastError}`);
-        }
-    }
-
-    throw new Error(lastError ?? `pdftoppm failed for page ${pageNumber}`);
+    await runCommand(paths.pdftoppmBinary, [
+        '-png',
+        '-r',
+        String(dpi),
+        '-f',
+        String(pageNumber),
+        '-l',
+        String(pageNumber),
+        '-singlefile',
+        sourcePdfPath,
+        outputPngPath.replace(/\.png$/, ''),
+    ], {
+        commandLabel: `pdftoppm(page=${pageNumber},dpi=${dpi})`,
+        env: popplerEnv,
+        log,
+    });
 }
 
 function sendProgress(jobId: string, currentPage: number, processedCount: number, totalPages: number) {
@@ -206,11 +182,20 @@ async function processOcrJob(
 
         const ocrPageData: IOcrPageWithWords[] = [];
         const ocrPdfMap: Map<number, string> = new Map();
+        const popplerEnv = buildPopplerEnv();
+        if (popplerEnv) {
+            log(
+                'debug',
+                `Poppler env: POPPLER_DATADIR=${popplerEnv.POPPLER_DATADIR || 'unset'}, FONTCONFIG_PATH=${popplerEnv.FONTCONFIG_PATH || 'unset'}, FONTCONFIG_FILE=${popplerEnv.FONTCONFIG_FILE || 'unset'}`,
+            );
+        } else if (process.platform === 'win32') {
+            log('warn', 'Poppler env data/config paths are unavailable; Windows builds may crash if Poppler runtime assets are missing');
+        }
 
         const targetPages = pages.filter((p): p is IOcrPdfPageRequest => !!p);
-        const detectedDpi = renderDpi ?? await detectSourceDpi(originalPdfPath, paths.pdfimagesBinary, log);
+        const detectedDpi = renderDpi ?? await detectSourceDpi(originalPdfPath, paths.pdfimagesBinary, log, popplerEnv);
         const extractionDpi = clampDpi(detectedDpi ?? 300);
-        let effectiveRenderDpi = extractionDpi;
+        const effectiveRenderDpi = extractionDpi;
         const concurrency = getOcrConcurrency(targetPages.length);
         const tesseractThreads = getTesseractThreadLimit(concurrency);
 
@@ -226,13 +211,13 @@ async function processOcrJob(
             const pageImagePath = trackTempFile(join(paths.tempDir, `${sessionId}-page-${page.pageNumber}.png`));
 
             try {
-                const actualRasterDpi = await renderPdfPageToPng(
+                await renderPdfPageToPng(
                     page.pageNumber,
                     originalPdfPath,
                     pageImagePath,
                     extractionDpi,
+                    popplerEnv,
                 );
-                effectiveRenderDpi = Math.min(effectiveRenderDpi, actualRasterDpi);
 
                 const imageBuffer = await readFile(pageImagePath);
 
@@ -256,7 +241,7 @@ async function processOcrJob(
                     page.languages,
                     imageWidth,
                     imageHeight,
-                    actualRasterDpi,
+                    extractionDpi,
                     paths.tesseractBinary,
                     paths.tessdataPath,
                     tesseractThreads,
