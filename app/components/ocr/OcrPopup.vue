@@ -187,7 +187,21 @@
                     <div class="ocr-popup__divider" />
                     <div class="ocr-popup__error">
                         <UIcon name="i-lucide-alert-circle" class="size-4" />
-                        <span>{{ effectiveError }}</span>
+                        <div class="ocr-popup__error-content">
+                            <span class="ocr-popup__error-text">{{ effectiveError }}</span>
+                            <UTooltip :text="copyLogsTooltip" :delay-duration="1200">
+                                <UButton
+                                    icon="i-lucide-copy"
+                                    variant="ghost"
+                                    color="neutral"
+                                    size="xs"
+                                    class="ocr-popup__copy-logs"
+                                    :loading="isCopyingLogs"
+                                    :aria-label="t('ocr.copyLogs')"
+                                    @click="handleCopyLogs"
+                                />
+                            </UTooltip>
+                        </div>
                     </div>
                 </template>
 
@@ -252,6 +266,8 @@
 
 <script setup lang="ts">
 import type { PDFDocumentProxy } from 'pdfjs-dist';
+import { BrowserLogger } from '@app/utils/browser-logger';
+import { getElectronAPI } from '@app/utils/electron';
 
 const { t } = useTypedI18n();
 
@@ -298,12 +314,87 @@ const isOpen = computed({
 });
 const isExporting = computed(() => props.isExportingDocx ?? false);
 const effectiveError = computed(() => error.value ?? props.externalError ?? null);
+const isCopyingLogs = ref(false);
+const copyLogsState = ref<'idle' | 'copied' | 'failed'>('idle');
+let copyLogsStateResetTimer: ReturnType<typeof setTimeout> | null = null;
+
+const copyLogsTooltip = computed(() => {
+    if (copyLogsState.value === 'copied') {
+        return t('ocr.logsCopied');
+    }
+    if (copyLogsState.value === 'failed') {
+        return t('ocr.logsCopyFailed');
+    }
+    return t('ocr.copyLogs');
+});
 
 watch(isOpen, (value) => {
     if (value) {
         loadLanguages();
     }
 });
+
+onBeforeUnmount(() => {
+    if (copyLogsStateResetTimer) {
+        clearTimeout(copyLogsStateResetTimer);
+        copyLogsStateResetTimer = null;
+    }
+});
+
+function scheduleCopyLogsStateReset() {
+    if (copyLogsStateResetTimer) {
+        clearTimeout(copyLogsStateResetTimer);
+    }
+    copyLogsStateResetTimer = setTimeout(() => {
+        copyLogsState.value = 'idle';
+        copyLogsStateResetTimer = null;
+    }, 2500);
+}
+
+async function handleCopyLogs() {
+    if (!effectiveError.value || isCopyingLogs.value) {
+        return;
+    }
+
+    isCopyingLogs.value = true;
+    copyLogsState.value = 'idle';
+
+    try {
+        const api = getElectronAPI();
+        const debugLogs = await api.getDebugLogs();
+        const selectedLanguages = settings.value.selectedLanguages.length > 0
+            ? settings.value.selectedLanguages.join(',')
+            : '-';
+
+        const lines = [
+            'EVB Viewer OCR diagnostics',
+            `generatedAt=${new Date().toISOString()}`,
+            `currentPage=${props.currentPage}`,
+            `totalPages=${props.totalPages}`,
+            `selectedLanguages=${selectedLanguages}`,
+            `isRunning=${progress.value.isRunning}`,
+            `uiError=${effectiveError.value}`,
+            '',
+            '--- debug:log stream ---',
+            ...(debugLogs.length > 0
+                ? debugLogs.map(entry => `[${entry.timestamp}] [${entry.source}] ${entry.message}`)
+                : ['(no buffered logs available)']),
+        ];
+
+        if (!globalThis.navigator?.clipboard || typeof globalThis.navigator.clipboard.writeText !== 'function') {
+            throw new Error('Clipboard API is unavailable');
+        }
+
+        await globalThis.navigator.clipboard.writeText(lines.join('\n'));
+        copyLogsState.value = 'copied';
+    } catch (copyErr) {
+        copyLogsState.value = 'failed';
+        BrowserLogger.error('ocr', 'Failed to copy OCR debug logs', copyErr);
+    } finally {
+        isCopyingLogs.value = false;
+        scheduleCopyLogsStateReset();
+    }
+}
 
 function handleRunOcr() {
     if (!props.pdfDocument || !props.pdfData) {
@@ -446,10 +537,26 @@ watch(() => results.value.searchablePdfData, (pdfData) => {
 .ocr-popup__error {
     padding: 0.5rem 0.75rem;
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 0.5rem;
     color: var(--ui-error);
     font-size: 0.75rem;
+}
+
+.ocr-popup__error-content {
+    min-width: 0;
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.ocr-popup__error-text {
+    overflow-wrap: anywhere;
+}
+
+.ocr-popup__copy-logs {
+    align-self: flex-start;
 }
 
 .ocr-popup__results {

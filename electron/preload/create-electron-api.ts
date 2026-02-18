@@ -18,6 +18,7 @@ import type {
     IMenuEventCallback,
     IMenuEventUnsubscribe,
 } from 'electron/ipc-types';
+import { getDebugLogMessages } from '@electron/preload/debug-log-buffer';
 
 function onNoArgEvent(ipcRenderer: IpcRenderer, channel: string, callback: IMenuEventCallback): IMenuEventUnsubscribe {
     const handler = (_event: IpcRendererEvent) => callback();
@@ -65,6 +66,7 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
         setMenuTabCount: (tabCount: number) => ipcRenderer.invoke('menu:setTabCount', tabCount),
         closeCurrentWindow: () => ipcRenderer.invoke('window:closeCurrent'),
         notifyRendererReady: () => ipcRenderer.send('app:rendererReady'),
+        getDebugLogs: () => Promise.resolve(getDebugLogMessages()),
 
         onMenuOpenPdf: (callback: IMenuEventCallback): IMenuEventUnsubscribe => onNoArgEvent(ipcRenderer, 'menu:openPdf', callback),
         onMenuSave: (callback: IMenuEventCallback): IMenuEventUnsubscribe => onNoArgEvent(ipcRenderer, 'menu:save', callback),

@@ -225,6 +225,11 @@ export const useOcr = () => {
             });
 
             if (response.errors.length > 0) {
+                BrowserLogger.error('ocr', 'OCR backend reported page failures', {
+                    requestId,
+                    success: response.success,
+                    errors: response.errors,
+                });
                 const localizedErrors = response.errors.map(err =>
                     localizeOcrError(err, 'errors.ocr.createSearchablePdf'),
                 );

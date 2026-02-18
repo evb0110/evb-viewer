@@ -1,6 +1,8 @@
 interface IDescribeProcessExitCodeOptions {platform?: NodeJS.Platform;}
 
 const WINDOWS_NTSTATUS_HINTS: Record<string, string> = {
+    '0xC0000005': 'STATUS_ACCESS_VIOLATION (process crashed while accessing invalid memory)',
+    '0xC0000409': 'STATUS_STACK_BUFFER_OVERRUN (stack corruption or fail-fast termination)',
     '0xC000007B': 'STATUS_INVALID_IMAGE_FORMAT (often caused by mixed 32/64-bit binaries or DLLs)',
     '0xC0000135': 'STATUS_DLL_NOT_FOUND (required DLL is missing)',
     '0xC0000142': 'STATUS_DLL_INIT_FAILED (a dependent DLL failed to initialize)',

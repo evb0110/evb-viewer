@@ -180,7 +180,7 @@ function handleWorkerMessage(
         if (logLevel === 'warn') {
             log.warn(message.message || '');
         } else if (logLevel === 'error') {
-            log.debug(`[worker-error] ${message.message || ''}`);
+            log.error(`[worker-error] ${message.message || ''}`);
         } else {
             log.debug(`[worker] ${message.message || ''}`);
         }
@@ -231,7 +231,7 @@ function startQueuedJob(job: IOcrQueuedJob) {
             return;
         }
 
-        log.debug(`Worker error for job ${job.jobId}: ${err.message}`);
+        log.error(`Worker error for job ${job.jobId}: ${err.message}`);
         const active = activeJobs.get(job.jobId);
         if (active) {
             active.completed = true;
@@ -250,7 +250,7 @@ function startQueuedJob(job: IOcrQueuedJob) {
         const wasCompletedOrTerminated = wasCanceled || active?.completed || active?.terminatedByUs;
 
         if (code !== 0 && !wasCompletedOrTerminated) {
-            log.debug(`Worker exited with code ${code} for job ${job.jobId}`);
+            log.error(`Worker exited with code ${code} for job ${job.jobId}`);
             sendJobFailure(job, `Worker exited unexpectedly with code ${code}`);
         }
 
@@ -319,6 +319,13 @@ export async function handleOcrCreateSearchablePdfAsync(
         }
 
         const languages = Array.from(new Set(pages.flatMap(page => page.languages)));
+        const tessdataDir = getOcrToolPaths().tessdata;
+        const missingLanguages = languages.filter(languageCode =>
+            !existsSync(join(tessdataDir, `${languageCode}.traineddata`)),
+        );
+        if (missingLanguages.length > 0) {
+            log.warn(`Missing OCR language models in ${tessdataDir}; downloading: ${missingLanguages.join(', ')}`);
+        }
         await ensureTessdataLanguages(languages);
 
         const queuedJob: IOcrQueuedJob = {
@@ -339,7 +346,7 @@ export async function handleOcrCreateSearchablePdfAsync(
         };
     } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
-        log.debug(`Failed to queue OCR worker job: ${errMsg}`);
+        log.error(`Failed to queue OCR worker job: ${errMsg}`);
         return {
             started: false,
             jobId: requestId,

@@ -150,6 +150,9 @@ export const EN_MESSAGE_SCHEMA = {
         'exportDocx': 'Export DOCX',
         'start': 'Start OCR',
         'cancel': 'Cancel OCR',
+        'copyLogs': 'Copy logs',
+        'logsCopied': 'Logs copied',
+        'logsCopyFailed': 'Failed to copy logs',
     },
     'djvu': {
         'loadingPages': 'Loading pages... {current}/{total}',

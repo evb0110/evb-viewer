@@ -150,6 +150,9 @@ export default {
         'exportDocx': 'Экспорт DOCX',
         'start': 'Запустить OCR',
         'cancel': 'Отменить OCR',
+        'copyLogs': 'Копировать логи',
+        'logsCopied': 'Логи скопированы',
+        'logsCopyFailed': 'Не удалось скопировать логи',
     },
     'djvu': {
         'loadingPages': 'Загрузка страниц... {current}/{total}',

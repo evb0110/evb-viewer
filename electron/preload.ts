@@ -6,6 +6,7 @@ import {
 } from 'electron';
 import { installViteOutdatedOptimizeDepRecovery } from '@electron/preload/dev-recovery';
 import { createElectronApi } from '@electron/preload/create-electron-api';
+import { pushDebugLogMessage } from '@electron/preload/debug-log-buffer';
 
 const PRELOAD_INSTALL_FLAG = '__preloadInstalled';
 const preloadState = globalThis as Record<string, unknown>;
@@ -23,6 +24,7 @@ if (!preloadAlreadyInstalled) {
         message: string;
         timestamp: string;
     }) => {
+        pushDebugLogMessage(data);
         console.log(`[${data.timestamp}] [${data.source}] ${data.message}`);
     });
 

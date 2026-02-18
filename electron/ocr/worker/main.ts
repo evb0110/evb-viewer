@@ -54,6 +54,14 @@ import {
 import { runCommand } from '@electron/ocr/worker/run-command';
 
 const paths = workerData as IWorkerPaths;
+const PDFTOPPM_FALLBACK_DPIS = [
+    600,
+    450,
+    300,
+    220,
+    150,
+    96,
+];
 
 const log: TWorkerLog = (level, message) => {
     const timestamp = new Date().toISOString();
@@ -63,6 +71,66 @@ const log: TWorkerLog = (level, message) => {
         message: `[${timestamp}] [ocr-worker] ${message}`,
     });
 };
+
+function buildPdftoppmDpiPlan(initialDpi: number) {
+    const normalizedInitial = clampDpi(initialDpi);
+    const plan: number[] = [normalizedInitial];
+
+    for (const fallbackDpi of PDFTOPPM_FALLBACK_DPIS) {
+        if (fallbackDpi >= normalizedInitial) {
+            continue;
+        }
+        if (!plan.includes(fallbackDpi)) {
+            plan.push(fallbackDpi);
+        }
+    }
+
+    return plan;
+}
+
+async function renderPdfPageToPng(
+    pageNumber: number,
+    sourcePdfPath: string,
+    outputPngPath: string,
+    baseDpi: number,
+) {
+    const dpiPlan = buildPdftoppmDpiPlan(baseDpi);
+    let lastError: string | null = null;
+
+    for (let attempt = 0; attempt < dpiPlan.length; attempt++) {
+        const dpi = dpiPlan[attempt]!;
+        const attemptLabel = `${attempt + 1}/${dpiPlan.length}`;
+        try {
+            await runCommand(paths.pdftoppmBinary, [
+                '-png',
+                '-r',
+                String(dpi),
+                '-f',
+                String(pageNumber),
+                '-l',
+                String(pageNumber),
+                '-singlefile',
+                sourcePdfPath,
+                outputPngPath.replace(/\.png$/, ''),
+            ], {
+                commandLabel: `pdftoppm(page=${pageNumber},dpi=${dpi})`,
+                log,
+            });
+
+            if (attempt > 0) {
+                log('warn', `Recovered page ${pageNumber} rasterization at ${dpi} DPI after ${attemptLabel} attempts`);
+            }
+
+            return dpi;
+        } catch (err) {
+            lastError = err instanceof Error ? err.message : String(err);
+            const level = attempt === dpiPlan.length - 1 ? 'error' : 'warn';
+            log(level, `pdftoppm failed for page ${pageNumber} at ${dpi} DPI (attempt ${attemptLabel}): ${lastError}`);
+        }
+    }
+
+    throw new Error(lastError ?? `pdftoppm failed for page ${pageNumber}`);
+}
 
 function sendProgress(jobId: string, currentPage: number, processedCount: number, totalPages: number) {
     parentPort?.postMessage({
@@ -142,6 +210,7 @@ async function processOcrJob(
         const targetPages = pages.filter((p): p is IOcrPdfPageRequest => !!p);
         const detectedDpi = renderDpi ?? await detectSourceDpi(originalPdfPath, paths.pdfimagesBinary, log);
         const extractionDpi = clampDpi(detectedDpi ?? 300);
+        let effectiveRenderDpi = extractionDpi;
         const concurrency = getOcrConcurrency(targetPages.length);
         const tesseractThreads = getTesseractThreadLimit(concurrency);
 
@@ -157,18 +226,13 @@ async function processOcrJob(
             const pageImagePath = trackTempFile(join(paths.tempDir, `${sessionId}-page-${page.pageNumber}.png`));
 
             try {
-                await runCommand(paths.pdftoppmBinary, [
-                    '-png',
-                    '-r',
-                    String(extractionDpi),
-                    '-f',
-                    String(page.pageNumber),
-                    '-l',
-                    String(page.pageNumber),
-                    '-singlefile',
+                const actualRasterDpi = await renderPdfPageToPng(
+                    page.pageNumber,
                     originalPdfPath,
-                    pageImagePath.replace(/\.png$/, ''),
-                ]);
+                    pageImagePath,
+                    extractionDpi,
+                );
+                effectiveRenderDpi = Math.min(effectiveRenderDpi, actualRasterDpi);
 
                 const imageBuffer = await readFile(pageImagePath);
 
@@ -192,7 +256,7 @@ async function processOcrJob(
                     page.languages,
                     imageWidth,
                     imageHeight,
-                    extractionDpi,
+                    actualRasterDpi,
                     paths.tesseractBinary,
                     paths.tessdataPath,
                     tesseractThreads,
@@ -218,7 +282,7 @@ async function processOcrJob(
                 }
             } catch (err) {
                 const errMsg = err instanceof Error ? err.message : String(err);
-                log('debug', `Failed to process page ${page.pageNumber}: ${errMsg}`);
+                log('warn', `Failed to process page ${page.pageNumber}: ${errMsg}`);
                 errors.push(`Failed to process page ${page.pageNumber}: ${errMsg}`);
             } finally {
                 try {
@@ -239,7 +303,7 @@ async function processOcrJob(
 
         ocrPageData.sort((a, b) => a.pageNumber - b.pageNumber);
 
-        log('debug', `OCR done. ocrPageData=${ocrPageData.length}, ocrPdfMap=${ocrPdfMap.size}, errors=${errors.length}`);
+        log('debug', `OCR done. ocrPageData=${ocrPageData.length}, ocrPdfMap=${ocrPdfMap.size}, errors=${errors.length}, renderDpi=${effectiveRenderDpi}`);
 
         sendProgress(
             jobId,
@@ -249,6 +313,7 @@ async function processOcrJob(
         );
 
         if (ocrPageData.length === 0 || ocrPdfMap.size === 0) {
+            log('error', `OCR failed to produce searchable output. errors=${errors.join(' | ') || 'none'}`);
             sendComplete(jobId, {
                 success: false,
                 pdfData: null,
@@ -294,7 +359,7 @@ async function processOcrJob(
                     ocrPageData,
                     pageCount,
                     allLanguages,
-                    extractionDpi,
+                    effectiveRenderDpi,
                     log,
                 );
             } catch (v2Err) {
@@ -330,7 +395,7 @@ async function processOcrJob(
         }
     } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
-        log('debug', `CRITICAL ERROR in processOcrJob: ${errMsg}`);
+        log('error', `CRITICAL ERROR in processOcrJob: ${errMsg}`);
         sendComplete(jobId, {
             success: false,
             pdfData: null,

@@ -51,6 +51,12 @@ interface IOcrCompleteResult {
     errors: string[];
 }
 
+export interface IDebugLogEntry {
+    source: string;
+    message: string;
+    timestamp: string;
+}
+
 interface IPdfSearchExcerpt {
     prefix: boolean;
     suffix: boolean;
@@ -264,6 +270,7 @@ export interface IElectronAPI {
     setMenuTabCount: (tabCount: number) => Promise<void>;
     closeCurrentWindow: () => Promise<boolean>;
     notifyRendererReady: () => void;
+    getDebugLogs: () => Promise<IDebugLogEntry[]>;
     onMenuOpenPdf: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuSave: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuSaveAs: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
