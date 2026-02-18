@@ -4,9 +4,7 @@ import {
 } from 'electron';
 import type { IpcMainInvokeEvent } from 'electron';
 import {
-    mkdir,
     readFile,
-    rm,
     unlink,
     writeFile,
 } from 'fs/promises';
@@ -18,7 +16,6 @@ import {
 import type { IPdfBookmarkEntry } from '@app/types/pdf';
 import {
     cancelConversion,
-    convertAllPagesParallel,
     convertDjvuToPdf,
 } from '@electron/djvu/convert';
 import {
@@ -173,12 +170,9 @@ async function backgroundConvertAll(
     pageCount: number,
     jobId: string,
 ) {
-    const rangeDir = join(app.getPath('temp'), `djvu-ranges-${Date.now()}`);
     logger.info(`[${jobId}] Background conversion starting: ${pageCount} pages`);
 
     try {
-        await mkdir(rangeDir, { recursive: true });
-
         safeSendToWindow(window, 'djvu:progress', {
             jobId,
             phase: 'loading' as const,
@@ -191,52 +185,49 @@ async function backgroundConvertAll(
             .then(sexp => parseDjvuOutline(sexp))
             .catch(() => [] as IPdfBookmarkEntry[]);
 
-        const parallelResult = await convertAllPagesParallel(
+        const fullPdfPath = join(app.getPath('temp'), `djvu-full-${Date.now()}.pdf`);
+        const convertResult = await convertDjvuToPdf(
             djvuPath,
-            rangeDir,
-            pageCount,
+            fullPdfPath,
             jobId,
-            {onPagesCompleted: (completed, total) => {
-                safeSendToWindow(window, 'djvu:progress', {
-                    jobId,
-                    phase: 'loading' as const,
-                    current: completed,
-                    total,
-                    percent: Math.round((completed / total) * 90),
-                });
-            }},
+            {
+                pageCount,
+                onProgress: (percent) => {
+                    const boundedPercent = Math.max(0, Math.min(90, percent));
+                    const completed = Math.round((boundedPercent / 90) * pageCount);
+                    safeSendToWindow(window, 'djvu:progress', {
+                        jobId,
+                        phase: 'loading' as const,
+                        current: Math.max(0, Math.min(pageCount, completed)),
+                        total: pageCount,
+                        percent: boundedPercent,
+                    });
+                },
+            },
         );
 
-        if (!parallelResult.success) {
+        if (!convertResult.success) {
             safeSendToWindow(window, 'djvu:viewingError', {
                 jobId,
-                error: parallelResult.error ?? 'Parallel conversion failed',
+                error: convertResult.error ?? 'Conversion failed',
             });
             return;
         }
 
-        const mergedDoc = await PDFDocument.create();
-        for (const rangePath of parallelResult.rangePaths) {
-            const rangeData = await readFile(rangePath);
-            const rangeDoc = await PDFDocument.load(rangeData, { updateMetadata: false });
-            const copiedPages = await mergedDoc.copyPages(rangeDoc, rangeDoc.getPageIndices());
-            for (const page of copiedPages) {
-                mergedDoc.addPage(page);
-            }
-        }
-
         const bookmarks = await outlinePromise;
-        let finalData: Uint8Array;
-
         if (bookmarks.length > 0) {
-            const mergedData = new Uint8Array(await mergedDoc.save());
-            finalData = await embedBookmarksIntoPdf(mergedData, bookmarks);
-        } else {
-            finalData = new Uint8Array(await mergedDoc.save());
-        }
+            safeSendToWindow(window, 'djvu:progress', {
+                jobId,
+                phase: 'loading' as const,
+                current: pageCount,
+                total: pageCount,
+                percent: 92,
+            });
 
-        const fullPdfPath = join(app.getPath('temp'), `djvu-full-${Date.now()}.pdf`);
-        await writeFile(fullPdfPath, finalData);
+            const fullData = await readFile(fullPdfPath);
+            const withBookmarks = await embedBookmarksIntoPdf(new Uint8Array(fullData), bookmarks);
+            await writeFile(fullPdfPath, withBookmarks);
+        }
 
         safeSendToWindow(window, 'djvu:progress', {
             jobId,
@@ -261,14 +252,6 @@ async function backgroundConvertAll(
     } finally {
         if (activeViewingJobId === jobId) {
             activeViewingJobId = null;
-        }
-        try {
-            await rm(rangeDir, {
-                recursive: true,
-                force: true,
-            });
-        } catch {
-            // Ignore cleanup errors
         }
     }
 }

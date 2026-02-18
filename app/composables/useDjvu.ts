@@ -96,6 +96,19 @@ export const useDjvu = () => {
                         };
                     }
                 } else {
+                    const isTrackingCurrentJob = (
+                        conversionState.value.isConverting
+                        || pendingConvertCancel.value
+                        || (
+                            activeConvertJobId.value !== null
+                            && progress.jobId === activeConvertJobId.value
+                        )
+                    );
+
+                    if (!isTrackingCurrentJob) {
+                        return;
+                    }
+
                     if (pendingConvertCancel.value) {
                         activeConvertJobId.value = progress.jobId;
                         pendingConvertCancel.value = false;
@@ -193,7 +206,10 @@ export const useDjvu = () => {
     setupProgressListener();
     setupViewingReadyListener();
     setupViewingErrorListener();
-    onUnmounted(teardownListeners);
+    onUnmounted(() => {
+        void cancelActiveJobs();
+        teardownListeners();
+    });
 
     async function openDjvuFile(
         djvuPath: string,
