@@ -318,6 +318,31 @@ jobs:
           path: artifacts
           merge-multiple: true
 
+      - name: Validate updater metadata paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          yml_files=(artifacts/latest*.yml)
+          if [ ${#yml_files[@]} -eq 0 ]; then
+            echo "::error::No latest*.yml files found in artifacts/"
+            exit 1
+          fi
+
+          for yml in "${yml_files[@]}"; do
+            rel_path="$(awk '/^path: / {print $2; exit}' "$yml" | tr -d '"' | tr -d "'")"
+            if [ -z "$rel_path" ]; then
+              echo "::error::Missing path entry in $yml"
+              exit 1
+            fi
+            if [ ! -f "artifacts/$rel_path" ]; then
+              echo "::error::Updater metadata mismatch in $yml -> $rel_path not found"
+              echo "Available artifacts:"
+              ls -la artifacts
+              exit 1
+            fi
+          done
+
       - name: Create draft release
         uses: softprops/action-gh-release@v2
         with:

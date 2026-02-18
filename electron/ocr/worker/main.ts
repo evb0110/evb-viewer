@@ -108,6 +108,39 @@ async function renderPdfPageToPng(
     });
 }
 
+async function preparePdfForPoppler(
+    sourcePdfPath: string,
+    sessionId: string,
+    trackTempFile: (path: string) => string,
+) {
+    const normalizedPdfPath = trackTempFile(join(paths.tempDir, `${sessionId}-poppler-input.pdf`));
+
+    try {
+        await runCommand(paths.qpdfBinary, [
+            sourcePdfPath,
+            normalizedPdfPath,
+        ], {
+            commandLabel: 'qpdf(poppler-preflight)',
+            allowedExitCodes: [
+                0,
+                3,
+            ],
+            log,
+        });
+
+        const normalizedStat = await stat(normalizedPdfPath);
+        if (normalizedStat.size <= 0) {
+            throw new Error('qpdf produced an empty normalized PDF');
+        }
+
+        log('debug', `Prepared Poppler input via qpdf: ${normalizedPdfPath} (${normalizedStat.size} bytes)`);
+        return normalizedPdfPath;
+    } catch (err) {
+        log('warn', `qpdf preflight failed; falling back to original PDF for Poppler commands: ${err instanceof Error ? err.message : String(err)}`);
+        return sourcePdfPath;
+    }
+}
+
 function sendProgress(jobId: string, currentPage: number, processedCount: number, totalPages: number) {
     parentPort?.postMessage({
         type: 'progress',
@@ -182,6 +215,7 @@ async function processOcrJob(
 
         const ocrPageData: IOcrPageWithWords[] = [];
         const ocrPdfMap: Map<number, string> = new Map();
+        const popplerSourcePdfPath = await preparePdfForPoppler(originalPdfPath, sessionId, trackTempFile);
         const popplerEnv = buildPopplerEnv();
         if (popplerEnv) {
             log(
@@ -193,7 +227,7 @@ async function processOcrJob(
         }
 
         const targetPages = pages.filter((p): p is IOcrPdfPageRequest => !!p);
-        const detectedDpi = renderDpi ?? await detectSourceDpi(originalPdfPath, paths.pdfimagesBinary, log, popplerEnv);
+        const detectedDpi = renderDpi ?? await detectSourceDpi(popplerSourcePdfPath, paths.pdfimagesBinary, log, popplerEnv);
         const extractionDpi = clampDpi(detectedDpi ?? 300);
         const effectiveRenderDpi = extractionDpi;
         const concurrency = getOcrConcurrency(targetPages.length);
@@ -213,7 +247,7 @@ async function processOcrJob(
             try {
                 await renderPdfPageToPng(
                     page.pageNumber,
-                    originalPdfPath,
+                    popplerSourcePdfPath,
                     pageImagePath,
                     extractionDpi,
                     popplerEnv,

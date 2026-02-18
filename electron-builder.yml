@@ -35,6 +35,7 @@ extraResources:
 
 mac:
   icon: resources/icon.icns
+  artifactName: "EVB-Viewer-${version}-${arch}.${ext}"
   entitlementsInherit: build/entitlements.mac.plist
   target:
     - dmg
@@ -51,7 +52,7 @@ mac:
 
 win:
   icon: resources/icon.ico
-  artifactName: "${productName}-${version}-${arch}-setup.${ext}"
+  artifactName: "EVB-Viewer-${version}-${arch}-setup.${ext}"
   target:
     - nsis
   extraResources:

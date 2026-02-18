@@ -33,7 +33,9 @@ DJVU_DIR="$RESOURCES_DIR/djvulibre/$PLATFORM_ARCH"
 # ==========================================
 TESSERACT_TAG="v5.4.0.20240606"
 TESSERACT_INSTALLER="tesseract-ocr-w64-setup-5.4.0.20240606.exe"
-POPPLER_VERSION="25.12.0"
+# Field reports on Win x64 show access-violation crashes in Poppler 25.12.0
+# for some PDFs. Pin to a known stable release while we investigate upstream.
+POPPLER_VERSION="${POPPLER_VERSION_OVERRIDE:-24.08.0}"
 QPDF_VERSION="12.3.2"
 DJVULIBRE_INSTALLER="DjVuLibre-3.5.28_DjView-4.12_Setup.exe"
 DJVULIBRE_SF_PATH="DjVuLibre_Windows/3.5.28%2B4.12"
