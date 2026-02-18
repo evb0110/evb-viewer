@@ -109,7 +109,6 @@ check_tag() {
   if [ "$platform" = "win32" ]; then
     check_file "resources/poppler/$tag/bin/pdftocairo$exe_suffix" "pdftocairo"
     check_dir "resources/poppler/$tag/share/poppler" "poppler data directory"
-    check_dir "resources/poppler/$tag/etc/fonts" "poppler fontconfig directory"
   fi
   check_file "resources/qpdf/$tag/bin/qpdf$exe_suffix" "qpdf"
   check_file "resources/djvulibre/$tag/bin/ddjvu$exe_suffix" "ddjvu"

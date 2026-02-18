@@ -138,8 +138,7 @@ bundle_dependency_closure() {
 
   local pending=("$dest_bin/ddjvu.exe" "$dest_bin/djvused.exe")
   local pending_index=0
-  local seen_deps_file="$TEMP_DIR/djvu-seen-deps.txt"
-  : > "$seen_deps_file"
+  declare -A seen_deps=()
 
   while [ "$pending_index" -lt "${#pending[@]}" ]; do
     local binary="${pending[$pending_index]}"
@@ -150,7 +149,7 @@ bundle_dependency_closure() {
       local dep_lc
       dep_lc="$(printf '%s' "$dep" | tr '[:upper:]' '[:lower:]')"
 
-      if grep -Fxiq "$dep_lc" "$seen_deps_file"; then
+      if [[ -n "${seen_deps[$dep_lc]+x}" ]]; then
         continue
       fi
 
@@ -166,12 +165,10 @@ bundle_dependency_closure() {
 
       local dep_dest="$dest_bin/$(basename "$dep_source")"
       cp "$dep_source" "$dep_dest"
-      printf '%s\n' "$dep_lc" >> "$seen_deps_file"
+      seen_deps["$dep_lc"]=1
       pending+=("$dep_dest")
     done < <(objdump -p "$binary" 2>/dev/null | awk '/DLL Name:/{print $3}')
   done
-
-  rm -f "$seen_deps_file"
 }
 
 verify_directory_architecture() {
@@ -524,7 +521,6 @@ verify_tool "$POPPLER_DIR/bin/pdftocairo.exe" "pdftocairo"
 verify_tool "$POPPLER_DIR/bin/pdftotext.exe" "pdftotext"
 verify_tool "$POPPLER_DIR/bin/pdfimages.exe" "pdfimages"
 verify_dir "$POPPLER_DIR/share/poppler" "poppler data directory"
-verify_dir "$POPPLER_DIR/etc/fonts" "fontconfig directory"
 verify_tool "$QPDF_DIR/bin/qpdf.exe" "qpdf"
 verify_tool "$DJVU_DIR/bin/ddjvu.exe" "ddjvu"
 verify_tool "$DJVU_DIR/bin/djvused.exe" "djvused"

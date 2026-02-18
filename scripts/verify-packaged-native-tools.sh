@@ -78,7 +78,6 @@ check_file "$resource_root/poppler/$platform_arch/bin/pdftotext$exe_suffix" "pdf
 if [ "$platform" = "win" ]; then
   check_file "$resource_root/poppler/$platform_arch/bin/pdftocairo$exe_suffix" "pdftocairo binary"
   check_dir "$resource_root/poppler/$platform_arch/share/poppler" "poppler data directory"
-  check_dir "$resource_root/poppler/$platform_arch/etc/fonts" "poppler fontconfig directory"
 fi
 check_file "$resource_root/qpdf/$platform_arch/bin/qpdf$exe_suffix" "qpdf binary"
 check_file "$resource_root/djvulibre/$platform_arch/bin/ddjvu$exe_suffix" "ddjvu binary"

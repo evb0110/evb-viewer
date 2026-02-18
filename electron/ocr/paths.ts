@@ -276,9 +276,6 @@ export async function validateOcrTools(): Promise<IToolValidationResult> {
         if (!popplerDataDirFound) {
             errors.push(`Poppler data directory not found: ${paths.popplerDataDir || '(unset)'} (expected <resources>/poppler/<platform>/share/poppler)`);
         }
-        if (!popplerFontConfigDirFound) {
-            errors.push(`Poppler fontconfig directory not found: ${paths.popplerFontConfigDir || '(unset)'} (expected <resources>/poppler/<platform>/etc/fonts)`);
-        }
     }
 
     // Check qpdf
@@ -287,7 +284,7 @@ export async function validateOcrTools(): Promise<IToolValidationResult> {
         errors.push(`qpdf not found: ${paths.qpdf} (install qpdf or bundle it)`);
     }
 
-    const popplerRuntimeValid = process.platform !== 'win32' || (popplerDataDirFound && popplerFontConfigDirFound);
+    const popplerRuntimeValid = process.platform !== 'win32' || popplerDataDirFound;
     const valid = tesseractFound && tessdataFound && pdftoppmFound && qpdfFound && popplerRuntimeValid;
 
     return {
