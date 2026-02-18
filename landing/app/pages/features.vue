@@ -1,12 +1,15 @@
 <template>
-  <div>
+  <main aria-labelledby="features-title">
     <section class="page-intro section-reveal">
       <UBadge
         :label="t('features.hero.badge')"
         color="primary"
         variant="subtle"
       />
-      <h1 class="page-title">
+      <h1
+        id="features-title"
+        class="page-title"
+      >
         {{ t('features.hero.title') }}
       </h1>
       <p class="page-subtitle">
@@ -93,11 +96,23 @@
         </div>
       </UCard>
     </section>
-  </div>
+  </main>
 </template>
 
 <script setup lang="ts">
+import {
+    buildAbsoluteUrl,
+    normalizeSiteUrl,
+} from '~~/shared/seo';
+
 const { t } = useTypedI18n();
+const route = useRoute();
+const runtimeConfig = useRuntimeConfig();
+
+const siteUrl = computed(() => normalizeSiteUrl(runtimeConfig.public.siteUrl));
+const canonicalUrl = computed(() => buildAbsoluteUrl(siteUrl.value, route.path));
+const ogImage = computed(() => buildAbsoluteUrl(siteUrl.value, '/evb-viewer-preview.png'));
+const pageDescription = computed(() => t('features.seo.ogDescription'));
 
 const featureCards = computed(() => [
     {
@@ -171,7 +186,13 @@ const platformRows = computed(() => [
 
 useSeoMeta({
     title: () => t('features.seo.title'),
+    description: () => pageDescription.value,
     ogTitle: () => t('features.seo.ogTitle'),
-    ogDescription: () => t('features.seo.ogDescription'),
+    ogDescription: () => pageDescription.value,
+    ogUrl: () => canonicalUrl.value,
+    ogImage: () => ogImage.value,
+    twitterTitle: () => t('features.seo.ogTitle'),
+    twitterDescription: () => pageDescription.value,
+    twitterImage: () => ogImage.value,
 });
 </script>

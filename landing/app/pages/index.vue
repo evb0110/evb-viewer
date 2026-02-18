@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <main aria-labelledby="home-title">
     <section class="hero-grid section-reveal">
       <div class="hero-copy">
         <UBadge
@@ -9,7 +9,10 @@
           class="hero-badge"
         />
 
-        <h1 class="hero-title">
+        <h1
+          id="home-title"
+          class="hero-title"
+        >
           {{ t('home.hero.title') }}
         </h1>
 
@@ -55,6 +58,11 @@
             class="preview-image"
             src="/evb-viewer-preview-cropped.png"
             :alt="t('home.preview.alt')"
+            width="2936"
+            height="1935"
+            loading="eager"
+            decoding="async"
+            fetchpriority="high"
           >
         </div>
         <figcaption class="preview-caption">
@@ -190,10 +198,14 @@
         />
       </div>
     </section>
-  </div>
+  </main>
 </template>
 
 <script setup lang="ts">
+import {
+    buildAbsoluteUrl,
+    normalizeSiteUrl,
+} from '~~/shared/seo';
 import {
     formatArch,
     formatExtension,
@@ -217,8 +229,14 @@ interface INavigatorUADataLike {
 
 const { t } = useTypedI18n();
 const { locale } = useI18n();
+const route = useRoute();
+const runtimeConfig = useRuntimeConfig();
 
 const repositoryUrl = 'https://github.com/evb0110/evb-viewer';
+const siteUrl = computed(() => normalizeSiteUrl(runtimeConfig.public.siteUrl));
+const canonicalUrl = computed(() => buildAbsoluteUrl(siteUrl.value, route.path));
+const ogImage = computed(() => buildAbsoluteUrl(siteUrl.value, '/evb-viewer-preview.png'));
+const pageDescription = computed(() => t('home.seo.ogDescription'));
 
 const featureHighlights = computed(() => [
     {
@@ -240,8 +258,14 @@ const featureHighlights = computed(() => [
 
 useSeoMeta({
     title: () => t('home.seo.title'),
+    description: () => pageDescription.value,
     ogTitle: () => t('home.seo.ogTitle'),
-    ogDescription: () => t('home.seo.ogDescription'),
+    ogDescription: () => pageDescription.value,
+    ogUrl: () => canonicalUrl.value,
+    ogImage: () => ogImage.value,
+    twitterTitle: () => t('home.seo.ogTitle'),
+    twitterDescription: () => pageDescription.value,
+    twitterImage: () => ogImage.value,
 });
 
 const clientProfile = ref<IUserAgentProfile>({
@@ -377,6 +401,38 @@ const selectedInstaller = computed<IReleaseInstaller | null>(() => {
 
 const activeDownload = computed(() => selectedInstaller.value || recommendedInstaller.value);
 const fallbackReleaseUrl = computed(() => releaseData.value?.release.htmlUrl || `${repositoryUrl}/releases/latest`);
+const softwareApplicationSchema = computed(() => {
+    const latestRelease = releaseData.value?.release;
+
+    return {
+        '@context': 'https://schema.org',
+        '@type': 'SoftwareApplication',
+        name: t('app.title'),
+        applicationCategory: 'UtilitiesApplication',
+        operatingSystem: 'macOS, Windows, Linux',
+        description: pageDescription.value,
+        url: canonicalUrl.value,
+        image: ogImage.value,
+        downloadUrl: fallbackReleaseUrl.value,
+        author: {
+            '@type': 'Person',
+            name: 'Eugene Barsky',
+        },
+        offers: {
+            '@type': 'Offer',
+            price: '0',
+            priceCurrency: 'USD',
+        },
+        softwareVersion: latestRelease?.tag,
+        datePublished: latestRelease?.publishedAt,
+    };
+});
+
+useHead(() => ({script: [{
+    key: 'software-application-schema',
+    type: 'application/ld+json',
+    textContent: JSON.stringify(softwareApplicationSchema.value),
+}]}));
 
 const downloadPrimaryLabel = computed(() => {
     const installer = recommendedInstaller.value;

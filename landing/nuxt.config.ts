@@ -18,12 +18,15 @@ export default defineNuxtConfig({
         githubOwner: process.env.NUXT_GITHUB_OWNER || 'evb0110',
         githubRepo: process.env.NUXT_GITHUB_REPO || 'evb-viewer',
         githubToken: process.env.NUXT_GITHUB_TOKEN || '',
+        public: {siteUrl: process.env.NUXT_PUBLIC_SITE_URL || process.env.NUXT_SITE_URL || 'https://evb-viewer.vercel.app'},
     },
 
     routeRules: {
         '/': { isr: 600 },
         '/features': { prerender: true },
         '/docs': { prerender: true },
+        '/robots.txt': { prerender: true },
+        '/sitemap.xml': { prerender: true },
     },
 
     i18n: {
