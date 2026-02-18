@@ -1,7 +1,7 @@
 <template>
     <div class="workspace-host">
         <component
-            :is="AsyncDocumentWorkspace"
+            :is="DocumentWorkspace"
             v-if="workspaceRequested"
             ref="workspaceRef"
             :tab-id="tabId"
@@ -33,7 +33,12 @@
             />
         </div>
 
-        <div v-if="workspaceRequested && !workspaceRef" class="workspace-host__loading" role="status" aria-live="polite">
+        <div
+            v-if="workspaceRequested && !hasMountedWorkspace"
+            class="workspace-host__loading"
+            role="status"
+            aria-live="polite"
+        >
             <UIcon name="i-lucide-loader-circle" class="workspace-host__spinner" />
         </div>
     </div>
@@ -42,7 +47,6 @@
 <script setup lang="ts">
 import {
     computed,
-    defineAsyncComponent,
     nextTick,
     onMounted,
     ref,
@@ -54,8 +58,7 @@ import type { TSplitPayload } from '@app/types/split-payload';
 import type { IWorkspaceExpose } from '@app/types/workspace-expose';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { useRecentFiles } from '@app/composables/useRecentFiles';
-
-const AsyncDocumentWorkspace = defineAsyncComponent(() => import('@app/components/DocumentWorkspace.vue'));
+import DocumentWorkspace from '@app/components/DocumentWorkspace.vue';
 
 const props = defineProps<{
     tabId: string;
@@ -70,9 +73,42 @@ const emit = defineEmits<{
 }>();
 
 const workspaceRequested = ref(false);
-const workspaceRef = ref<IWorkspaceExpose | null>(null);
+const workspaceRef = ref<unknown>(null);
 let workspaceLoadPromise: Promise<IWorkspaceExpose | null> | null = null;
 const documentOpenInFlightCount = ref(0);
+const WORKSPACE_MOUNT_TIMEOUT_MS = 30_000;
+const WORKSPACE_MOUNT_RETRY_TIMEOUT_MS = 20_000;
+const REQUIRED_WORKSPACE_METHODS: Array<keyof Omit<IWorkspaceExpose, 'hasPdf'>> = [
+    'handleSave',
+    'handleSaveAs',
+    'handleUndo',
+    'handleRedo',
+    'handleOpenFileFromUi',
+    'handleOpenFileDirectWithPersist',
+    'handleOpenFileDirectBatchWithPersist',
+    'handleOpenFileWithResult',
+    'handleCloseFileFromUi',
+    'handleExportDocx',
+    'handleExportImages',
+    'handleExportMultiPageTiff',
+    'handleZoomIn',
+    'handleZoomOut',
+    'handleFitWidth',
+    'handleFitHeight',
+    'handleActualSize',
+    'handleViewModeSingle',
+    'handleViewModeFacing',
+    'handleViewModeFacingFirstSingle',
+    'handleDeletePages',
+    'handleExtractPages',
+    'handleRotateCw',
+    'handleRotateCcw',
+    'handleInsertPages',
+    'handleConvertToPdf',
+    'captureSplitPayload',
+    'restoreSplitPayload',
+    'closeAllDropdowns',
+];
 
 const {
     recentFiles,
@@ -81,14 +117,37 @@ const {
     clearRecentFiles,
 } = useRecentFiles();
 
+function isWorkspaceExpose(value: unknown): value is IWorkspaceExpose {
+    if (!value || typeof value !== 'object') {
+        return false;
+    }
+
+    const candidate = value as Record<string, unknown>;
+    if (!('hasPdf' in candidate)) {
+        return false;
+    }
+
+    return REQUIRED_WORKSPACE_METHODS.every(methodName => typeof candidate[methodName] === 'function');
+}
+
+const mountedWorkspace = computed<IWorkspaceExpose | null>(() => (
+    isWorkspaceExpose(workspaceRef.value) ? workspaceRef.value : null
+));
+const hasMountedWorkspace = computed(() => mountedWorkspace.value !== null);
+
 const hasPdf = computed<boolean>(() => {
-    const value = workspaceRef.value?.hasPdf;
+    const value = mountedWorkspace.value?.hasPdf;
     if (typeof value === 'boolean') {
         return value;
     }
     return value?.value ?? false;
 });
 const isDocumentOpenInFlight = computed(() => documentOpenInFlightCount.value > 0);
+
+function workspaceHasPdf(workspace: IWorkspaceExpose) {
+    const value = workspace.hasPdf;
+    return typeof value === 'boolean' ? value : value.value;
+}
 
 async function runWhileOpeningDocument(run: () => Promise<void>) {
     documentOpenInFlightCount.value += 1;
@@ -105,11 +164,12 @@ function sleep(ms: number) {
     });
 }
 
-async function waitForWorkspaceMount(timeoutMs = 7_500) {
+async function waitForWorkspaceMount(timeoutMs = WORKSPACE_MOUNT_TIMEOUT_MS) {
     const start = Date.now();
     while (Date.now() - start <= timeoutMs) {
-        if (workspaceRef.value) {
-            return workspaceRef.value;
+        const workspace = mountedWorkspace.value;
+        if (workspace) {
+            return workspace;
         }
         await nextTick();
         await sleep(16);
@@ -118,8 +178,8 @@ async function waitForWorkspaceMount(timeoutMs = 7_500) {
 }
 
 async function ensureWorkspaceLoaded(reason: string) {
-    if (workspaceRef.value) {
-        return workspaceRef.value;
+    if (mountedWorkspace.value) {
+        return mountedWorkspace.value;
     }
 
     workspaceRequested.value = true;
@@ -140,22 +200,7 @@ async function ensureWorkspaceLoaded(reason: string) {
 }
 
 async function withLoadedWorkspace(action: string, run: (workspace: IWorkspaceExpose) => Promise<void> | void) {
-    if (!workspaceRef.value) {
-        return;
-    }
-
-    try {
-        await run(workspaceRef.value);
-    } catch (error) {
-        BrowserLogger.error('workspace-host', `Action failed (${action})`, {
-            tabId: props.tabId,
-            error,
-        });
-    }
-}
-
-async function withWorkspace(action: string, run: (workspace: IWorkspaceExpose) => Promise<void> | void) {
-    const workspace = workspaceRef.value ?? await ensureWorkspaceLoaded(action);
+    const workspace = mountedWorkspace.value;
     if (!workspace) {
         return;
     }
@@ -170,11 +215,49 @@ async function withWorkspace(action: string, run: (workspace: IWorkspaceExpose) 
     }
 }
 
+async function withWorkspace(action: string, run: (workspace: IWorkspaceExpose) => Promise<void> | void) {
+    let workspace = mountedWorkspace.value ?? await ensureWorkspaceLoaded(action);
+    if (!workspace) {
+        workspace = await waitForWorkspaceMount(WORKSPACE_MOUNT_RETRY_TIMEOUT_MS);
+    }
+    if (!workspace) {
+        BrowserLogger.error('workspace-host', 'Workspace unavailable for action', {
+            tabId: props.tabId,
+            action,
+        });
+        return;
+    }
+
+    try {
+        await run(workspace);
+    } catch (error) {
+        BrowserLogger.error('workspace-host', `Action failed (${action})`, {
+            tabId: props.tabId,
+            error,
+        });
+    }
+}
+
+async function openPathWithRetry(path: string, action: string) {
+    await withWorkspace(action, workspace => workspace.handleOpenFileDirectWithPersist(path));
+
+    const workspace = mountedWorkspace.value;
+    if (!workspace || workspaceHasPdf(workspace)) {
+        return;
+    }
+
+    BrowserLogger.warn('workspace-host', 'Initial open attempt did not load a document; retrying once', {
+        tabId: props.tabId,
+        path,
+        action,
+    });
+
+    await withWorkspace(`${action}:retry`, retryWorkspace => retryWorkspace.handleOpenFileDirectWithPersist(path));
+}
+
 async function handleOpenRecentFromPlaceholder(file: IRecentFile) {
     await runWhileOpeningDocument(async () => {
-        await withWorkspace('openRecentFromPlaceholder', async (workspace) => {
-            await workspace.handleOpenFileDirectWithPersist(file.originalPath);
-        });
+        await openPathWithRetry(file.originalPath, 'openRecentFromPlaceholder');
     });
 }
 
@@ -212,10 +295,7 @@ const workspaceExpose: IWorkspaceExpose = {
     handleOpenFileFromUi,
     handleOpenFileDirectWithPersist: async (path: string) => {
         await runWhileOpeningDocument(async () => {
-            await withWorkspace(
-                'handleOpenFileDirectWithPersist',
-                workspace => workspace.handleOpenFileDirectWithPersist(path),
-            );
+            await openPathWithRetry(path, 'handleOpenFileDirectWithPersist');
         });
     },
     handleOpenFileDirectBatchWithPersist: async (paths: string[]) => {
@@ -286,14 +366,15 @@ const workspaceExpose: IWorkspaceExpose = {
     handleConvertToPdf: () => {
         void withLoadedWorkspace('handleConvertToPdf', workspace => workspace.handleConvertToPdf());
     },
-    captureSplitPayload: async () => {
-        if (!workspaceRef.value) {
-            return {kind: 'empty'} satisfies TSplitPayload;
+    captureSplitPayload: () => {
+        const workspace = mountedWorkspace.value;
+        if (!workspace) {
+            return Promise.resolve({kind: 'empty'} satisfies TSplitPayload);
         }
-        return workspaceRef.value.captureSplitPayload();
+        return workspace.captureSplitPayload();
     },
     restoreSplitPayload: async (payload: TSplitPayload) => {
-        if (!workspaceRef.value && payload.kind === 'empty') {
+        if (!mountedWorkspace.value && payload.kind === 'empty') {
             return;
         }
         await withWorkspace('restoreSplitPayload', workspace => workspace.restoreSplitPayload(payload));

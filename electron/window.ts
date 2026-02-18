@@ -141,6 +141,24 @@ function attachShowLifecycle(window: BrowserWindow) {
         window.webContents.removeListener('did-fail-load', onFailLoad);
     };
 
+    function showAndFocusMaximizedWindow() {
+        if (window.isDestroyed()) {
+            return;
+        }
+
+        if (!window.isMaximized()) {
+            window.maximize();
+        }
+        if (!window.isVisible()) {
+            window.show();
+        }
+        window.focus();
+
+        if (process.platform === 'darwin') {
+            app.focus({ steal: true });
+        }
+    }
+
     const showWindowNow = async () => {
         if (window.isDestroyed() || hasShownWindow) {
             return;
@@ -169,13 +187,7 @@ function attachShowLifecycle(window: BrowserWindow) {
                 return;
             }
 
-            if (!window.isVisible()) {
-                window.maximize();
-            }
-            window.focus();
-            if (process.platform === 'darwin') {
-                app.focus({ steal: true });
-            }
+            showAndFocusMaximizedWindow();
 
             try {
                 await window.webContents.executeJavaScript(`
@@ -189,13 +201,7 @@ function attachShowLifecycle(window: BrowserWindow) {
                 // Page might be navigating
             }
         } else {
-            if (!window.isVisible()) {
-                window.maximize();
-            }
-            window.focus();
-            if (process.platform === 'darwin') {
-                app.focus({ steal: true });
-            }
+            showAndFocusMaximizedWindow();
             logger.info(`[startup] Window shown (windowId=${window.id})`);
         }
 
@@ -343,6 +349,10 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
     const shouldSetMain = options.setAsMain ?? mainWindowId === null;
     if (shouldSetMain) {
         mainWindowId = window.id;
+    }
+
+    if (!window.isMaximized()) {
+        window.maximize();
     }
 
     attachShowLifecycle(window);
