@@ -90,7 +90,7 @@ jobs:
         run: TARGET_ARCH=${{ matrix.arch }} bash scripts/bundle-tools-windows.sh
 
       - name: Build (Nuxt + Electron)
-        run: pnpm run build
+        run: pnpm run build:strict
 
       - name: Configure optional macOS signing and notarization
         if: runner.os == 'macOS'
@@ -350,7 +350,7 @@ jobs:
           bash scripts/bundle-djvu-macos.sh
 
       - name: Build (Nuxt + Electron)
-        run: pnpm run build
+        run: pnpm run build:strict
 
       - name: Configure optional macOS signing and notarization
         shell: bash

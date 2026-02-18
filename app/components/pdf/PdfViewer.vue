@@ -110,7 +110,7 @@ import type {
 } from '@app/types/annotations';
 import type { IAnnotationContextMenuPayload } from '@app/composables/pdf/pdfAnnotationUtils';
 
-import 'pdfjs-dist/web/pdf_viewer.css';
+import '@app/assets/css/vendor/pdfjs-viewer-sanitized.css';
 
 interface IProps {
     src: TPdfSource | null;
