@@ -11,6 +11,7 @@ export interface IPageShortcutsDeps {
     isActive: Ref<boolean>;
     pdfSrc: Ref<unknown>;
     showSettings: Ref<boolean>;
+    annotationTool: Ref<TAnnotationTool>;
     annotationPlacingPageNote: Ref<boolean>;
     pdfViewerRef: Ref<IPdfViewerForShortcuts | null>;
     shapePropertiesPopoverVisible: Ref<boolean>;
@@ -28,6 +29,8 @@ export const usePageShortcuts = (deps: IPageShortcutsDeps) => {
     const {
         isActive,
         pdfSrc,
+        annotationTool,
+        annotationPlacingPageNote,
         shapePropertiesPopoverVisible,
         annotationContextMenuVisible,
         pageContextMenuVisible,
@@ -42,6 +45,33 @@ export const usePageShortcuts = (deps: IPageShortcutsDeps) => {
         if (!isActive.value) {
             return;
         }
+
+        const target = event.target instanceof HTMLElement ? event.target : null;
+        const isEditingText = (
+            target?.isContentEditable
+            || target?.closest('[contenteditable="true"], [contenteditable=""]')
+            || target?.closest('input, textarea, select')
+        );
+        if (isEditingText) {
+            return;
+        }
+
+        if (event.key === 'Escape') {
+            if (shapePropertiesPopoverVisible.value) {
+                closeShapeProperties();
+            }
+            if (annotationContextMenuVisible.value) {
+                closeAnnotationContextMenu();
+            }
+            if (pageContextMenuVisible.value) {
+                closePageContextMenu();
+            }
+            if (annotationPlacingPageNote.value || annotationTool.value !== 'none') {
+                deps.handleAnnotationToolChange('none');
+            }
+            return;
+        }
+
         if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'f' && pdfSrc.value) {
             event.preventDefault();
             openSearch();

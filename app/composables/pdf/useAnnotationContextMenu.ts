@@ -12,6 +12,7 @@ interface IAnnotationContextMenuState {
     y: number;
     comment: IAnnotationCommentSummary | null;
     hasSelection: boolean;
+    selectionText: string;
     pageNumber: number | null;
     pageX: number | null;
     pageY: number | null;
@@ -27,6 +28,7 @@ export const useAnnotationContextMenu = (deps: {t: TTranslateFn;}) => {
         y: 0,
         comment: null,
         hasSelection: false,
+        selectionText: '',
         pageNumber: null,
         pageX: null,
         pageY: null,
@@ -41,6 +43,10 @@ export const useAnnotationContextMenu = (deps: {t: TTranslateFn;}) => {
         const text = annotationContextMenu.value.comment?.text?.trim();
         return Boolean(text);
     });
+
+    const annotationContextMenuCanCopySelection = computed(() => (
+        annotationContextMenu.value.selectionText.trim().length > 0
+    ));
 
     const annotationContextMenuCanCreateFree = computed(() => (
         Number.isFinite(annotationContextMenu.value.pageNumber)
@@ -95,6 +101,7 @@ export const useAnnotationContextMenu = (deps: {t: TTranslateFn;}) => {
             y: 0,
             comment: null,
             hasSelection: false,
+            selectionText: '',
             pageNumber: null,
             pageX: null,
             pageY: null,
@@ -106,6 +113,7 @@ export const useAnnotationContextMenu = (deps: {t: TTranslateFn;}) => {
         clientX: number;
         clientY: number;
         hasSelection: boolean;
+        selectionText: string;
         pageNumber: number | null;
         pageX: number | null;
         pageY: number | null;
@@ -113,7 +121,7 @@ export const useAnnotationContextMenu = (deps: {t: TTranslateFn;}) => {
         const hasComment = Boolean(payload.comment);
         const hasSelection = payload.hasSelection;
         const width = 258;
-        const markupSectionHeight = hasSelection ? 164 : 0;
+        const markupSectionHeight = hasSelection ? 200 : 0;
         const estimatedHeight = (hasComment ? 258 : 0) + markupSectionHeight + 132;
         const clamped = clampToViewport(payload.clientX, payload.clientY, width, estimatedHeight);
 
@@ -123,6 +131,7 @@ export const useAnnotationContextMenu = (deps: {t: TTranslateFn;}) => {
             y: clamped.y,
             comment: payload.comment,
             hasSelection: payload.hasSelection,
+            selectionText: payload.selectionText,
             pageNumber: payload.pageNumber,
             pageX: payload.pageX,
             pageY: payload.pageY,
@@ -133,6 +142,7 @@ export const useAnnotationContextMenu = (deps: {t: TTranslateFn;}) => {
         annotationContextMenu,
         annotationContextMenuStyle,
         annotationContextMenuCanCopy,
+        annotationContextMenuCanCopySelection,
         annotationContextMenuCanCreateFree,
         contextMenuAnnotationLabel,
         contextMenuDeleteActionLabel,

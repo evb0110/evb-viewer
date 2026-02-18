@@ -60,6 +60,7 @@ export default {
         'styleDescription': 'Couleur et taille de l’outil sélectionné.',
         'color': 'Couleur',
         'keepActive': 'Garder l’outil actif',
+        'exitModeHint': 'Appuyez sur Esc pour quitter le mode annotation.',
         'cursor': 'Curseur',
         'draw': 'Dessin',
         'text': 'Texte',

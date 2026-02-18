@@ -57,6 +57,7 @@ export interface IAnnotationContextMenuPayload {
     clientX: number;
     clientY: number;
     hasSelection: boolean;
+    selectionText: string;
     pageNumber: number | null;
     pageX: number | null;
     pageY: number | null;

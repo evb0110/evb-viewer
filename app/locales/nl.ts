@@ -60,6 +60,7 @@ export default {
         'styleDescription': 'Kleur en grootte voor het geselecteerde gereedschap.',
         'color': 'Kleur',
         'keepActive': 'Geselecteerd gereedschap actief houden',
+        'exitModeHint': 'Druk op Esc om de annotatiemodus te verlaten.',
         'cursor': 'Cursor',
         'draw': 'Tekenen',
         'text': 'Tekst',

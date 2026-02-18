@@ -31,7 +31,7 @@
                 @fit-height="handleFitMode('height'); closeAllDropdowns()"
                 @toggle-continuous-scroll="continuousScroll = !continuousScroll; closeAllDropdowns()"
                 @enable-drag="enableDragMode(); closeAllDropdowns()"
-                @disable-drag="dragMode = false; closeAllDropdowns()"
+                @disable-drag="handleAnnotationToolChange('none'); closeAllDropdowns()"
                 @capture-region="handleCaptureRegion(); closeAllDropdowns()"
             >
                 <template #ocr="{ isCollapsed }">
@@ -100,7 +100,7 @@
                         @fit-width="handleFitMode('width'); closeAllDropdowns()"
                         @fit-height="handleFitMode('height'); closeAllDropdowns()"
                         @enable-drag="enableDragMode(); closeAllDropdowns()"
-                        @disable-drag="dragMode = false; closeAllDropdowns()"
+                        @disable-drag="handleAnnotationToolChange('none'); closeAllDropdowns()"
                         @set-view-mode="viewMode = $event; closeAllDropdowns()"
                         @toggle-continuous-scroll="continuousScroll = !continuousScroll; closeAllDropdowns()"
                         @open-settings="emit('open-settings'); closeAllDropdowns()"
@@ -285,6 +285,7 @@
             :annotation-context-menu="annotationContextMenu"
             :annotation-context-menu-style="annotationContextMenuStyle"
             :annotation-context-menu-can-copy="annotationContextMenuCanCopy"
+            :annotation-context-menu-can-copy-selection="annotationContextMenuCanCopySelection"
             :annotation-context-menu-can-create-free="annotationContextMenuCanCreateFree"
             :context-menu-annotation-label="contextMenuAnnotationLabel"
             :context-menu-delete-action-label="contextMenuDeleteActionLabel"
@@ -302,6 +303,7 @@
             @focus-note="bringAnnotationNoteToFront"
             @context-open-note="openContextMenuNote"
             @context-copy-text="copyContextMenuNoteText"
+            @context-copy-selection-text="copyContextMenuSelectionText"
             @context-delete="deleteContextMenuComment"
             @context-markup="createContextMenuMarkup"
             @context-create-free-note="createContextMenuFreeNote"
@@ -463,6 +465,7 @@ const {
     annotationContextMenu,
     annotationContextMenuStyle,
     annotationContextMenuCanCopy,
+    annotationContextMenuCanCopySelection,
     annotationContextMenuCanCreateFree,
     contextMenuAnnotationLabel,
     contextMenuDeleteActionLabel,
@@ -535,6 +538,7 @@ const {
     handleViewerAnnotationContextMenu,
     openContextMenuNote,
     copyContextMenuNoteText,
+    copyContextMenuSelectionText,
     deleteContextMenuComment,
     createContextMenuFreeNote,
     createContextMenuSelectionNote,

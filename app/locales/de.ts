@@ -60,6 +60,7 @@ export default {
         'styleDescription': 'Farbe und Größe für das aktuell ausgewählte Werkzeug.',
         'color': 'Farbe',
         'keepActive': 'Ausgewähltes Werkzeug aktiv halten',
+        'exitModeHint': 'Drücken Sie Esc, um den Anmerkungsmodus zu verlassen.',
         'cursor': 'Zeiger',
         'draw': 'Zeichnen',
         'text': 'Text',

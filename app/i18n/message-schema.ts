@@ -60,6 +60,7 @@ export const EN_MESSAGE_SCHEMA = {
         'styleDescription': 'Color and size for the currently selected tool.',
         'color': 'Color',
         'keepActive': 'Keep selected tool active',
+        'exitModeHint': 'Press Esc to exit annotation mode.',
         'cursor': 'Cursor',
         'draw': 'Draw',
         'text': 'Text',

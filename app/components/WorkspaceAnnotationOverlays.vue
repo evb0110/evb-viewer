@@ -18,11 +18,13 @@
         :menu="annotationContextMenu"
         :style="annotationContextMenuStyle"
         :can-copy="annotationContextMenuCanCopy"
+        :can-copy-selection="annotationContextMenuCanCopySelection"
         :can-create-free="annotationContextMenuCanCreateFree"
         :annotation-label="contextMenuAnnotationLabel"
         :delete-label="contextMenuDeleteActionLabel"
         @open-note="$emit('context-open-note')"
         @copy-text="$emit('context-copy-text')"
+        @copy-selection-text="$emit('context-copy-selection-text')"
         @delete="$emit('context-delete')"
         @markup="(tool: TAnnotationTool) => $emit('context-markup', tool)"
         @create-free-note="$emit('context-create-free-note')"
@@ -74,6 +76,7 @@ interface IContextMenuState {
     y: number;
     comment: IAnnotationCommentSummary | null;
     hasSelection: boolean;
+    selectionText: string;
     pageNumber: number | null;
     pageX: number | null;
     pageY: number | null;
@@ -92,6 +95,7 @@ defineProps<{
     annotationContextMenu: IContextMenuState;
     annotationContextMenuStyle: Record<string, string>;
     annotationContextMenuCanCopy: boolean;
+    annotationContextMenuCanCopySelection: boolean;
     annotationContextMenuCanCreateFree: boolean;
     contextMenuAnnotationLabel: string;
     contextMenuDeleteActionLabel: string;
@@ -112,6 +116,7 @@ defineEmits<{
     'focus-note': [stableKey: string];
     'context-open-note': [];
     'context-copy-text': [];
+    'context-copy-selection-text': [];
     'context-delete': [];
     'context-markup': [tool: TAnnotationTool];
     'context-create-free-note': [];

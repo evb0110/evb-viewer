@@ -60,6 +60,7 @@ export default {
         'styleDescription': 'Cor e tamanho da ferramenta selecionada.',
         'color': 'Cor',
         'keepActive': 'Manter ferramenta selecionada ativa',
+        'exitModeHint': 'Prima Esc para sair do modo de anotação.',
         'cursor': 'Cursor',
         'draw': 'Desenhar',
         'text': 'Texto',

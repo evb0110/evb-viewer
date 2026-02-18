@@ -5,6 +5,16 @@
             <p class="notes-section-description">{{ t('annotations.createDescription') }}</p>
         </header>
 
+        <button
+            type="button"
+            class="tool-button tool-button--select"
+            :class="{ 'is-active': tool === 'none' }"
+            @click="emit('set-tool', 'none')"
+        >
+            <UIcon name="i-lucide-mouse-pointer" class="tool-button-icon" />
+            <span class="tool-button-label">{{ t('zoom.textSelect') }}</span>
+        </button>
+
         <div class="grid grid-cols-2 gap-1.5">
             <button
                 v-for="toolItem in toolItems"
@@ -27,6 +37,10 @@
             />
             {{ t('annotations.keepActive') }}
         </label>
+
+        <p class="annotation-exit-hint">
+            {{ t('annotations.exitModeHint') }}
+        </p>
     </section>
 </template>
 
@@ -154,6 +168,10 @@ const toolItems = computed<IToolItem[]>(() => [
     cursor: pointer;
 }
 
+.tool-button--select {
+    width: 100%;
+}
+
 .tool-button:hover {
     border-color: color-mix(in srgb, var(--ui-primary) 40%, var(--ui-border) 60%);
     color: var(--ui-text-highlighted);
@@ -184,5 +202,12 @@ const toolItems = computed<IToolItem[]>(() => [
 
 .keep-active-toggle input[type="checkbox"] {
     accent-color: var(--ui-primary);
+}
+
+.annotation-exit-hint {
+    margin: 0;
+    font-size: 0.76rem;
+    line-height: 1.35;
+    color: var(--ui-text-toned);
 }
 </style>

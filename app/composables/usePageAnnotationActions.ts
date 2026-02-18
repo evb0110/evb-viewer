@@ -46,6 +46,7 @@ export interface IPageAnnotationActionsDeps {
         visible: boolean;
         comment: IAnnotationCommentSummary | null;
         hasSelection: boolean;
+        selectionText: string;
         pageNumber: number | null;
         pageX: number | null;
         pageY: number | null;
@@ -61,6 +62,7 @@ export interface IPageAnnotationActionsDeps {
         clientX: number;
         clientY: number;
         hasSelection: boolean;
+        selectionText: string;
         pageNumber: number | null;
         pageX: number | null;
         pageY: number | null;
@@ -237,6 +239,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         clientX: number;
         clientY: number;
         hasSelection: boolean;
+        selectionText: string;
         pageNumber: number | null;
         pageX: number | null;
         pageY: number | null;
@@ -266,6 +269,19 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         }
         void handleCopyAnnotationComment(comment);
         closeAnnotationContextMenu();
+    }
+
+    async function copyContextMenuSelectionText() {
+        const text = annotationContextMenu.value.selectionText.trim();
+        closeAnnotationContextMenu();
+        if (!text) {
+            return;
+        }
+        try {
+            await navigator.clipboard.writeText(text);
+        } catch (error) {
+            BrowserLogger.debug('annotations', 'Failed to copy selected text to clipboard', error);
+        }
     }
 
     function deleteContextMenuComment() {
@@ -428,6 +444,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         handleViewerAnnotationContextMenu,
         openContextMenuNote,
         copyContextMenuNoteText,
+        copyContextMenuSelectionText,
         deleteContextMenuComment,
         createContextMenuFreeNote,
         createContextMenuSelectionNote,

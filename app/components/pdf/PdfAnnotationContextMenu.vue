@@ -42,6 +42,14 @@
             <button
                 type="button"
                 class="annotation-context-menu-action"
+                :disabled="!canCopySelection"
+                @click="emit('copy-selection-text')"
+            >
+                {{ t('contextMenu.copyTextToClipboard') }}
+            </button>
+            <button
+                type="button"
+                class="annotation-context-menu-action"
                 @click="emit('markup', 'highlight')"
             >
                 {{ t('contextMenu.highlight') }}
@@ -97,6 +105,7 @@ interface IContextMenuState {
         source?: string;
     } | null;
     hasSelection: boolean;
+    selectionText: string;
     pageNumber: number | null;
     pageX: number | null;
     pageY: number | null;
@@ -106,6 +115,7 @@ defineProps<{
     menu: IContextMenuState;
     style: Record<string, string>;
     canCopy: boolean;
+    canCopySelection: boolean;
     canCreateFree: boolean;
     annotationLabel: string;
     deleteLabel: string;
@@ -114,6 +124,7 @@ defineProps<{
 const emit = defineEmits<{
     'open-note': [];
     'copy-text': [];
+    'copy-selection-text': [];
     'delete': [];
     'markup': [tool: TAnnotationTool];
     'create-free-note': [];

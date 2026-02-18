@@ -98,14 +98,14 @@ export function useAnnotationHighlight(
         clientX: number,
         clientY: number,
     ): IAnnotationContextMenuPayload {
+        const selectionRange = selectionHighlight.getSelectionRangeForCommentAction();
         const target = notePlacement.resolvePagePointTarget(clientX, clientY);
         return {
             comment,
             clientX,
             clientY,
-            hasSelection: Boolean(
-                selectionHighlight.getSelectionRangeForCommentAction(),
-            ),
+            hasSelection: Boolean(selectionRange),
+            selectionText: selectionRange?.toString() ?? '',
             pageNumber: target?.pageNumber ?? null,
             pageX: target?.pageX ?? null,
             pageY: target?.pageY ?? null,
