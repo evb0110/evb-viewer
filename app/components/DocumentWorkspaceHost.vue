@@ -154,14 +154,17 @@ watch(
     [
         hasQueuedSplitRestore,
         () => props.hasDocumentHint === true,
+        () => props.isActive,
     ],
     ([
         hasQueued,
         hasDocumentHint,
+        isActive,
     ]) => {
         workspaceRequested.value = resolveWorkspaceRequestedState(workspaceRequested.value, {
             hasQueuedSplitRestore: hasQueued,
             hasDocumentHint,
+            isActive,
         });
     },
     { immediate: true },

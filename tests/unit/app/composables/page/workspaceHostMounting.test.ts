@@ -48,6 +48,7 @@ describe('workspace host mount request state', () => {
         expect(shouldAutoRequestWorkspace({
             hasQueuedSplitRestore: true,
             hasDocumentHint: false,
+            isActive: false,
         })).toBe(true);
     });
 
@@ -55,6 +56,15 @@ describe('workspace host mount request state', () => {
         expect(shouldAutoRequestWorkspace({
             hasQueuedSplitRestore: false,
             hasDocumentHint: true,
+            isActive: false,
+        })).toBe(true);
+    });
+
+    it('requests mount when the tab is active', () => {
+        expect(shouldAutoRequestWorkspace({
+            hasQueuedSplitRestore: false,
+            hasDocumentHint: false,
+            isActive: true,
         })).toBe(true);
     });
 
@@ -62,6 +72,7 @@ describe('workspace host mount request state', () => {
         const requested = resolveWorkspaceRequestedState(true, {
             hasQueuedSplitRestore: false,
             hasDocumentHint: false,
+            isActive: false,
         });
         expect(requested).toBe(true);
     });
@@ -70,6 +81,7 @@ describe('workspace host mount request state', () => {
         const requested = resolveWorkspaceRequestedState(false, {
             hasQueuedSplitRestore: false,
             hasDocumentHint: false,
+            isActive: false,
         });
         expect(requested).toBe(false);
     });

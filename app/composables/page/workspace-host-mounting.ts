@@ -3,6 +3,7 @@ import type { ITab } from '@app/types/tabs';
 interface IWorkspaceHostSignals {
     hasQueuedSplitRestore: boolean;
     hasDocumentHint: boolean;
+    isActive: boolean;
 }
 
 export function hasDocumentMountHint(tab: Pick<ITab, 'fileName' | 'originalPath' | 'isDjvu'>) {
@@ -10,7 +11,7 @@ export function hasDocumentMountHint(tab: Pick<ITab, 'fileName' | 'originalPath'
 }
 
 export function shouldAutoRequestWorkspace(signals: IWorkspaceHostSignals) {
-    return signals.hasQueuedSplitRestore || signals.hasDocumentHint;
+    return signals.hasQueuedSplitRestore || signals.hasDocumentHint || signals.isActive;
 }
 
 export function resolveWorkspaceRequestedState(

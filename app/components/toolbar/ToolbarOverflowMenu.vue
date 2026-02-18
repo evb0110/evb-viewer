@@ -16,7 +16,7 @@
                 <div v-if="collapseTier >= 1" class="overflow-menu-section">
                     <button
                         class="overflow-menu-item"
-                        :disabled="!canExportDocx || isExportingDocx"
+                        :disabled="!hasPdf || !canExportDocx || isExportingDocx"
                         @click="emit('export-docx'); close()"
                     >
                         <UIcon name="i-lucide-file-text" class="overflow-menu-icon" />
@@ -24,7 +24,7 @@
                     </button>
                     <button
                         class="overflow-menu-item"
-                        :disabled="isDjvuMode"
+                        :disabled="!hasPdf || isDjvuMode"
                         @click="emit('open-ocr'); close()"
                     >
                         <UIcon name="i-lucide-scan-text" class="overflow-menu-icon" />
@@ -32,6 +32,7 @@
                     </button>
                     <button
                         :class="['overflow-menu-item', { 'is-active': continuousScroll }]"
+                        :disabled="!hasPdf"
                         @click="emit('toggle-continuous-scroll'); close()"
                     >
                         <UIcon name="i-lucide-scroll" class="overflow-menu-icon" />
@@ -57,6 +58,7 @@
                     <div class="overflow-menu-section">
                         <button
                             :class="['overflow-menu-item', { 'is-active': viewMode === 'single' }]"
+                            :disabled="!hasPdf"
                             @click="emit('set-view-mode', 'single'); close()"
                         >
                             <UIcon name="i-lucide-file" class="overflow-menu-icon" />
@@ -69,6 +71,7 @@
                         </button>
                         <button
                             :class="['overflow-menu-item', { 'is-active': viewMode === 'facing' }]"
+                            :disabled="!hasPdf"
                             @click="emit('set-view-mode', 'facing'); close()"
                         >
                             <UIcon name="i-lucide-book-open" class="overflow-menu-icon" />
@@ -81,6 +84,7 @@
                         </button>
                         <button
                             :class="['overflow-menu-item', { 'is-active': viewMode === 'facing-first-single' }]"
+                            :disabled="!hasPdf"
                             @click="emit('set-view-mode', 'facing-first-single'); close()"
                         >
                             <span class="overflow-menu-icon overflow-menu-icon--facing-first-single">
@@ -97,6 +101,7 @@
                         <div class="overflow-menu-divider" />
                         <button
                             :class="['overflow-menu-item', { 'is-active': isFitWidthActive }]"
+                            :disabled="!hasPdf"
                             @click="emit('fit-width'); close()"
                         >
                             <UIcon name="i-lucide-move-horizontal" class="overflow-menu-icon" />
@@ -109,6 +114,7 @@
                         </button>
                         <button
                             :class="['overflow-menu-item', { 'is-active': isFitHeightActive }]"
+                            :disabled="!hasPdf"
                             @click="emit('fit-height'); close()"
                         >
                             <UIcon name="i-lucide-move-vertical" class="overflow-menu-icon" />
@@ -121,6 +127,7 @@
                         </button>
                         <button
                             :class="['overflow-menu-item', { 'is-active': dragMode }]"
+                            :disabled="!hasPdf"
                             @click="emit('enable-drag'); close()"
                         >
                             <UIcon name="i-lucide-hand" class="overflow-menu-icon" />
@@ -133,6 +140,7 @@
                         </button>
                         <button
                             :class="['overflow-menu-item', { 'is-active': !dragMode }]"
+                            :disabled="!hasPdf"
                             @click="emit('disable-drag'); close()"
                         >
                             <UIcon name="i-lucide-text-cursor" class="overflow-menu-icon" />
@@ -152,7 +160,7 @@
                     <div class="overflow-menu-section">
                         <button
                             class="overflow-menu-item"
-                            :disabled="!canSave || isAnySaving || isHistoryBusy"
+                            :disabled="!hasPdf || !canSave || isAnySaving || isHistoryBusy"
                             @click="emit('save'); close()"
                         >
                             <UIcon name="i-lucide-save" class="overflow-menu-icon" />
@@ -160,7 +168,7 @@
                         </button>
                         <button
                             class="overflow-menu-item"
-                            :disabled="isAnySaving || isHistoryBusy"
+                            :disabled="!hasPdf || isAnySaving || isHistoryBusy"
                             @click="emit('save-as'); close()"
                         >
                             <UIcon name="i-lucide-save-all" class="overflow-menu-icon" />
@@ -168,7 +176,7 @@
                         </button>
                         <button
                             class="overflow-menu-item"
-                            :disabled="!canUndo || isHistoryBusy || isAnySaving"
+                            :disabled="!hasPdf || !canUndo || isHistoryBusy || isAnySaving"
                             @click="emit('undo'); close()"
                         >
                             <UIcon name="i-lucide-undo-2" class="overflow-menu-icon" />
@@ -176,7 +184,7 @@
                         </button>
                         <button
                             class="overflow-menu-item"
-                            :disabled="!canRedo || isHistoryBusy || isAnySaving"
+                            :disabled="!hasPdf || !canRedo || isHistoryBusy || isAnySaving"
                             @click="emit('redo'); close()"
                         >
                             <UIcon name="i-lucide-redo-2" class="overflow-menu-icon" />
@@ -197,6 +205,7 @@ const { t } = useTypedI18n();
 interface IProps {
     open: boolean
     collapseTier: number
+    hasPdf: boolean
     canSave: boolean
     canUndo: boolean
     canRedo: boolean

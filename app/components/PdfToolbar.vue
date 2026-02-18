@@ -1,184 +1,180 @@
 <template>
     <header ref="toolbarRef" class="toolbar">
-        <template v-if="!hasPdf">
+        <div class="toolbar-section toolbar-left">
             <ToolbarButton
                 icon="lucide:folder-open"
                 :tooltip="t('toolbar.openPdf')"
                 @click="emit('open-file')"
             />
-            <div class="flex-1" />
+            <div class="toolbar-separator" />
+            <ToolbarButton
+                icon="lucide:panel-left"
+                :active="showSidebar"
+                :tooltip="t('toolbar.toggleSidebar')"
+                :disabled="!hasPdf"
+                @click="emit('toggle-sidebar')"
+            />
+
+            <slot
+                name="ocr"
+                :collapse-tier="collapseTier"
+                :has-overflow-items="hasOverflowItems"
+                :is-collapsed="isCollapsed"
+            />
+
+            <div class="toolbar-separator" />
+
+            <template v-if="!isCollapsed(3)">
+                <ToolbarButton
+                    icon="lucide:save"
+                    :tooltip="t('toolbar.save')"
+                    :disabled="!hasPdf || !canSave || isAnySaving || isHistoryBusy || isDjvuMode"
+                    :loading="isSaving"
+                    @click="emit('save')"
+                />
+                <ToolbarButton
+                    icon="lucide:save-all"
+                    :tooltip="t('toolbar.saveAs')"
+                    :disabled="!hasPdf || isAnySaving || isHistoryBusy || isDjvuMode"
+                    :loading="isSavingAs"
+                    @click="emit('save-as')"
+                />
+            </template>
+            <ToolbarButton
+                v-if="!isCollapsed(1)"
+                icon="lucide:file-text"
+                :tooltip="t('toolbar.exportDocx')"
+                :disabled="!hasPdf || !canExportDocx || isAnySaving || isHistoryBusy || isExportingDocx"
+                :loading="isExportingDocx"
+                @click="emit('export-docx')"
+            />
+
+            <div class="toolbar-separator" />
+
+            <template v-if="!isCollapsed(3)">
+                <ToolbarButton
+                    icon="lucide:undo-2"
+                    :tooltip="t('toolbar.undo')"
+                    :disabled="!hasPdf || !canUndo || isHistoryBusy || isAnySaving || isDjvuMode"
+                    @click="emit('undo')"
+                />
+                <ToolbarButton
+                    icon="lucide:redo-2"
+                    :tooltip="t('toolbar.redo')"
+                    :disabled="!hasPdf || !canRedo || isHistoryBusy || isAnySaving || isDjvuMode"
+                    @click="emit('redo')"
+                />
+            </template>
+            <ToolbarButton
+                icon="lucide:scan"
+                :active="isCapturingRegion"
+                :tooltip="t('toolbar.captureRegion')"
+                :disabled="!hasPdf"
+                @click="emit('capture-region')"
+            />
+
+            <div class="toolbar-separator" />
+        </div>
+
+        <div class="toolbar-separator" />
+
+        <div :class="['toolbar-section', 'toolbar-center', { 'toolbar-center-collapsed': hasOverflowItems }]">
+            <div class="toolbar-inline-group">
+                <slot
+                    name="zoom-dropdown"
+                    :collapse-tier="collapseTier"
+                    :has-overflow-items="hasOverflowItems"
+                    :is-collapsed="isCollapsed"
+                />
+            </div>
+
+            <div class="toolbar-separator" />
+
+            <div v-if="!isCollapsed(2)" class="toolbar-button-group">
+                <div class="toolbar-group-item">
+                    <ToolbarButton
+                        icon="lucide:move-horizontal"
+                        :active="isFitWidthActive"
+                        :tooltip="t('zoom.fitWidth')"
+                        :disabled="!hasPdf"
+                        grouped
+                        @click="emit('fit-width')"
+                    />
+                </div>
+                <div class="toolbar-group-item">
+                    <ToolbarButton
+                        icon="lucide:move-vertical"
+                        :active="isFitHeightActive"
+                        :tooltip="t('zoom.fitHeight')"
+                        :disabled="!hasPdf"
+                        grouped
+                        @click="emit('fit-height')"
+                    />
+                </div>
+                <div v-if="!isCollapsed(1)" class="toolbar-group-item">
+                    <ToolbarButton
+                        icon="lucide:scroll"
+                        :active="continuousScroll"
+                        :tooltip="t('zoom.continuousScroll')"
+                        :disabled="!hasPdf"
+                        grouped
+                        @click="emit('toggle-continuous-scroll')"
+                    />
+                </div>
+            </div>
+
+            <div class="toolbar-separator" />
+
+            <div class="toolbar-inline-group">
+                <slot
+                    name="page-dropdown"
+                    :collapse-tier="collapseTier"
+                    :has-overflow-items="hasOverflowItems"
+                    :is-collapsed="isCollapsed"
+                />
+            </div>
+
+            <div class="toolbar-separator" />
+
+            <div v-if="!isCollapsed(2)" class="toolbar-button-group">
+                <div class="toolbar-group-item">
+                    <ToolbarButton
+                        icon="lucide:hand"
+                        :active="dragMode"
+                        :tooltip="t('zoom.handTool')"
+                        :disabled="!hasPdf"
+                        grouped
+                        @click="emit('enable-drag')"
+                    />
+                </div>
+                <div class="toolbar-group-item">
+                    <ToolbarButton
+                        icon="lucide:text-cursor"
+                        :active="!dragMode"
+                        :tooltip="t('zoom.textSelect')"
+                        :disabled="!hasPdf"
+                        grouped
+                        @click="emit('disable-drag')"
+                    />
+                </div>
+            </div>
+        </div>
+
+        <div class="toolbar-separator" />
+
+        <div class="toolbar-section toolbar-right">
+            <slot
+                name="overflow-menu"
+                :collapse-tier="collapseTier"
+                :has-overflow-items="hasOverflowItems"
+                :is-collapsed="isCollapsed"
+            />
             <ToolbarButton
                 icon="lucide:settings"
                 :tooltip="t('toolbar.settings')"
                 @click="emit('open-settings')"
             />
-        </template>
-
-        <template v-if="hasPdf">
-            <div class="toolbar-section toolbar-left">
-                <ToolbarButton
-                    icon="lucide:panel-left"
-                    :active="showSidebar"
-                    :tooltip="t('toolbar.toggleSidebar')"
-                    @click="emit('toggle-sidebar')"
-                />
-
-                <slot
-                    name="ocr"
-                    :collapse-tier="collapseTier"
-                    :has-overflow-items="hasOverflowItems"
-                    :is-collapsed="isCollapsed"
-                />
-
-                <div class="toolbar-separator" />
-
-                <template v-if="!isCollapsed(3)">
-                    <ToolbarButton
-                        icon="lucide:save"
-                        :tooltip="t('toolbar.save')"
-                        :disabled="!canSave || isAnySaving || isHistoryBusy || isDjvuMode"
-                        :loading="isSaving"
-                        @click="emit('save')"
-                    />
-                    <ToolbarButton
-                        icon="lucide:save-all"
-                        :tooltip="t('toolbar.saveAs')"
-                        :disabled="isAnySaving || isHistoryBusy || isDjvuMode"
-                        :loading="isSavingAs"
-                        @click="emit('save-as')"
-                    />
-                </template>
-                <ToolbarButton
-                    v-if="!isCollapsed(1)"
-                    icon="lucide:file-text"
-                    :tooltip="t('toolbar.exportDocx')"
-                    :disabled="!canExportDocx || isAnySaving || isHistoryBusy || isExportingDocx"
-                    :loading="isExportingDocx"
-                    @click="emit('export-docx')"
-                />
-
-                <div class="toolbar-separator" />
-
-                <template v-if="!isCollapsed(3)">
-                    <ToolbarButton
-                        icon="lucide:undo-2"
-                        :tooltip="t('toolbar.undo')"
-                        :disabled="!canUndo || isHistoryBusy || isAnySaving || isDjvuMode"
-                        @click="emit('undo')"
-                    />
-                    <ToolbarButton
-                        icon="lucide:redo-2"
-                        :tooltip="t('toolbar.redo')"
-                        :disabled="!canRedo || isHistoryBusy || isAnySaving || isDjvuMode"
-                        @click="emit('redo')"
-                    />
-                </template>
-                <ToolbarButton
-                    icon="lucide:scan"
-                    :active="isCapturingRegion"
-                    :tooltip="t('toolbar.captureRegion')"
-                    @click="emit('capture-region')"
-                />
-
-                <div class="toolbar-separator" />
-            </div>
-
-            <div class="toolbar-separator" />
-
-            <div :class="['toolbar-section', 'toolbar-center', { 'toolbar-center-collapsed': hasOverflowItems }]">
-                <div class="toolbar-inline-group">
-                    <slot
-                        name="zoom-dropdown"
-                        :collapse-tier="collapseTier"
-                        :has-overflow-items="hasOverflowItems"
-                        :is-collapsed="isCollapsed"
-                    />
-                </div>
-
-                <div class="toolbar-separator" />
-
-                <div v-if="!isCollapsed(2)" class="toolbar-button-group">
-                    <div class="toolbar-group-item">
-                        <ToolbarButton
-                            icon="lucide:move-horizontal"
-                            :active="isFitWidthActive"
-                            :tooltip="t('zoom.fitWidth')"
-                            grouped
-                            @click="emit('fit-width')"
-                        />
-                    </div>
-                    <div class="toolbar-group-item">
-                        <ToolbarButton
-                            icon="lucide:move-vertical"
-                            :active="isFitHeightActive"
-                            :tooltip="t('zoom.fitHeight')"
-                            grouped
-                            @click="emit('fit-height')"
-                        />
-                    </div>
-                    <div v-if="!isCollapsed(1)" class="toolbar-group-item">
-                        <ToolbarButton
-                            icon="lucide:scroll"
-                            :active="continuousScroll"
-                            :tooltip="t('zoom.continuousScroll')"
-                            grouped
-                            @click="emit('toggle-continuous-scroll')"
-                        />
-                    </div>
-                </div>
-
-                <div class="toolbar-separator" />
-
-                <div class="toolbar-inline-group">
-                    <slot
-                        name="page-dropdown"
-                        :collapse-tier="collapseTier"
-                        :has-overflow-items="hasOverflowItems"
-                        :is-collapsed="isCollapsed"
-                    />
-                </div>
-
-                <div class="toolbar-separator" />
-
-                <div v-if="!isCollapsed(2)" class="toolbar-button-group">
-                    <div class="toolbar-group-item">
-                        <ToolbarButton
-                            icon="lucide:hand"
-                            :active="dragMode"
-                            :tooltip="t('zoom.handTool')"
-                            grouped
-                            @click="emit('enable-drag')"
-                        />
-                    </div>
-                    <div class="toolbar-group-item">
-                        <ToolbarButton
-                            icon="lucide:text-cursor"
-                            :active="!dragMode"
-                            :tooltip="t('zoom.textSelect')"
-                            grouped
-                            @click="emit('disable-drag')"
-                        />
-                    </div>
-                </div>
-
-            </div>
-
-            <div class="toolbar-separator" />
-
-            <div class="toolbar-section toolbar-right">
-                <slot
-                    name="overflow-menu"
-                    :collapse-tier="collapseTier"
-                    :has-overflow-items="hasOverflowItems"
-                    :is-collapsed="isCollapsed"
-                />
-                <ToolbarButton
-                    icon="lucide:settings"
-                    :tooltip="t('toolbar.settings')"
-                    @click="emit('open-settings')"
-                />
-            </div>
-        </template>
+        </div>
     </header>
 </template>
 
