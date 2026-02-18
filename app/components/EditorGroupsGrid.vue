@@ -25,7 +25,7 @@
                     v-for="tab in tabsForGroup(groupForLeaf!.id)"
                     v-show="tab.id === groupForLeaf!.activeTabId"
                     :key="tab.id"
-                    :ref="(el) => emit('set-workspace-ref', tab.id, el)"
+                    :ref="workspaceRefHandler(tab.id)"
                     :tab-id="tab.id"
                     :is-active="groupForLeaf!.id === activeGroupId && tab.id === groupForLeaf!.activeTabId"
                     @update-tab="(updates) => emit('update-tab', tab.id, updates)"
@@ -105,6 +105,7 @@ import {
     computed,
     onUnmounted,
     ref,
+    watch,
 } from 'vue';
 import type {
     ITab,
@@ -148,6 +149,7 @@ const emit = defineEmits<{
 }>();
 
 const splitContainerRef = ref<HTMLElement | null>(null);
+const workspaceRefHandlersByTabId = new Map<string, (el: unknown) => void>();
 const hasMultipleGroups = computed(() => props.groups.length > 1);
 const leafNode = computed(() => (props.node.type === 'leaf' ? props.node : null));
 const splitNode = computed<IEditorLayoutSplitNode | null>(() => (props.node.type === 'split' ? props.node : null));
@@ -201,6 +203,19 @@ const groupForLeaf = computed(() => {
 
 function tabsForGroup(groupId: string) {
     return tabsByGroupId.value.get(groupId) ?? [];
+}
+
+function workspaceRefHandler(tabId: string) {
+    const existing = workspaceRefHandlersByTabId.get(tabId);
+    if (existing) {
+        return existing;
+    }
+
+    const handler = (el: unknown) => {
+        emit('set-workspace-ref', tabId, el);
+    };
+    workspaceRefHandlersByTabId.set(tabId, handler);
+    return handler;
 }
 
 function handleGroupPointerDown(groupId: string) {
@@ -259,7 +274,17 @@ function startResize(event: PointerEvent, splitId: string, orientation: TGroupOr
 
 onUnmounted(() => {
     clearResizeListeners();
+    workspaceRefHandlersByTabId.clear();
 });
+
+watch(() => props.tabs, (tabs) => {
+    const activeTabIds = new Set(tabs.map(tab => tab.id));
+    for (const tabId of workspaceRefHandlersByTabId.keys()) {
+        if (!activeTabIds.has(tabId)) {
+            workspaceRefHandlersByTabId.delete(tabId);
+        }
+    }
+}, {deep: false});
 </script>
 
 <style scoped>

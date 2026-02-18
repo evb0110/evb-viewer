@@ -218,6 +218,9 @@ function isWorkspaceExpose(value: unknown): value is IWorkspaceExpose {
 
 function setWorkspaceRef(tabId: string, el: unknown) {
     if (isWorkspaceExpose(el)) {
+        if (workspaceRefs.value.get(tabId) === el) {
+            return;
+        }
         workspaceRefs.value.set(tabId, el);
         triggerRef(workspaceRefs);
         return;
@@ -228,6 +231,9 @@ function setWorkspaceRef(tabId: string, el: unknown) {
             tabId,
             receivedType: typeof el,
         });
+    }
+    if (!workspaceRefs.value.has(tabId)) {
+        return;
     }
     workspaceRefs.value.delete(tabId);
     triggerRef(workspaceRefs);
