@@ -635,6 +635,11 @@ function rebuildMenu(immediate = false) {
     }, MENU_REBUILD_DEBOUNCE_MS);
 }
 
+function rebuildMenuForWindowStateChange(windowId: number) {
+    const focusedWindow = getFocusedAppWindow();
+    rebuildMenu(focusedWindow?.id === windowId);
+}
+
 function trackWindowForMenu(window: BrowserWindow) {
     if (trackedWindowIds.has(window.id)) {
         return;
@@ -689,7 +694,7 @@ export function updateRecentFilesMenu() {
 }
 
 export function refreshMenu() {
-    rebuildMenu();
+    rebuildMenu(true);
 }
 
 export function setMenuDocumentState(windowId: number, hasDocument: boolean) {
@@ -699,7 +704,7 @@ export function setMenuDocumentState(windowId: number, hasDocument: boolean) {
     }
 
     menuDocumentStateByWindow.set(windowId, normalized);
-    rebuildMenu();
+    rebuildMenuForWindowStateChange(windowId);
 }
 
 export function setMenuTabCount(windowId: number, tabCount: number) {
@@ -711,7 +716,7 @@ export function setMenuTabCount(windowId: number, tabCount: number) {
     }
 
     menuTabCountByWindow.set(windowId, normalized);
-    rebuildMenu();
+    rebuildMenuForWindowStateChange(windowId);
 }
 
 export function showTabContextMenu(window: BrowserWindow, tabId: string) {

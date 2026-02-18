@@ -323,15 +323,70 @@ export async function exportPdfPagesAsImages(
 }
 
 function readTiffDimensions(ifd: IUtifFrame) {
-    const width = typeof ifd.width === 'number' ? ifd.width : 0;
-    const height = typeof ifd.height === 'number' ? ifd.height : 0;
-    if (width <= 0 || height <= 0) {
+    const width = resolveTiffDimension(ifd, [
+        'width',
+        't256',
+        'ImageWidth',
+        256,
+    ]);
+    const height = resolveTiffDimension(ifd, [
+        'height',
+        't257',
+        'ImageLength',
+        257,
+    ]);
+
+    if (!width || !height) {
         return null;
     }
+
     return {
         width,
         height,
     };
+}
+
+function toPositiveInteger(value: unknown) {
+    if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+        return Math.floor(value);
+    }
+    if (typeof value === 'bigint' && value > 0n) {
+        return Number(value);
+    }
+    return null;
+}
+
+function resolveTiffDimensionValue(value: unknown): number | null {
+    const direct = toPositiveInteger(value);
+    if (direct) {
+        return direct;
+    }
+
+    if (Array.isArray(value) && value.length > 0) {
+        return toPositiveInteger(value[0]);
+    }
+
+    if (ArrayBuffer.isView(value)) {
+        const length = Reflect.get(value, 'length');
+        if (typeof length === 'number' && length > 0) {
+            return toPositiveInteger(Reflect.get(value, 0));
+        }
+    }
+
+    return null;
+}
+
+function resolveTiffDimension(ifd: IUtifFrame, candidates: Array<string | number>) {
+    const record = ifd as Record<string | number, unknown>;
+
+    for (const key of candidates) {
+        const resolved = resolveTiffDimensionValue(record[key]);
+        if (resolved) {
+            return resolved;
+        }
+    }
+
+    return null;
 }
 
 function decodeSinglePageTiffMetadata(tiffBytes: Uint8Array) {

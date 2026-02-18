@@ -105,6 +105,47 @@ export function resolveWheelPageFlipStepDelta(
     );
 }
 
+function hasPageGeometry(value: unknown): value is HTMLElement {
+    if (!value || typeof value !== 'object') {
+        return false;
+    }
+
+    const candidate = value as {
+        offsetTop?: unknown;
+        offsetHeight?: unknown;
+    };
+
+    return typeof candidate.offsetTop === 'number' && typeof candidate.offsetHeight === 'number';
+}
+
+function getPageElementByNumber(container: HTMLElement, pageNumber: number) {
+    const selector = `.page_container[data-page="${pageNumber}"]`;
+    const querySelector = (
+        container as {querySelector?: (input: string) => unknown;}
+    ).querySelector;
+
+    if (typeof querySelector === 'function') {
+        const directMatch = querySelector.call(container, selector);
+        if (hasPageGeometry(directMatch)) {
+            return directMatch;
+        }
+    }
+
+    const querySelectorAll = (
+        container as {querySelectorAll?: (input: string) => ArrayLike<unknown>;}
+    ).querySelectorAll;
+    if (typeof querySelectorAll !== 'function') {
+        return null;
+    }
+
+    const allPages = querySelectorAll.call(container, '.page_container') as ArrayLike<unknown> & {item?: (index: number) => unknown;};
+    const indexedMatch = typeof allPages.item === 'function'
+        ? allPages.item(pageNumber - 1)
+        : allPages[pageNumber - 1];
+
+    return hasPageGeometry(indexedMatch) ? indexedMatch : null;
+}
+
 interface IUsePdfSinglePageScrollOptions {
     viewerContainer: Ref<HTMLElement | null>;
     numPages: Ref<number>;
@@ -207,9 +248,7 @@ export function usePdfSinglePageScroll(
         }
 
         const targetPage = Math.max(1, Math.min(pageNumber, numPages.value));
-        const pageElement = container.querySelector<HTMLElement>(
-            `.page_container[data-page="${targetPage}"]`,
-        );
+        const pageElement = getPageElementByNumber(container, targetPage);
         if (!pageElement) {
             return null;
         }
@@ -262,9 +301,7 @@ export function usePdfSinglePageScroll(
         }
 
         const targetPage = Math.max(1, Math.min(pageNumber, numPages.value));
-        const targetEl = viewerContainer.value.querySelector<HTMLElement>(
-            `.page_container[data-page="${targetPage}"]`,
-        );
+        const targetEl = getPageElementByNumber(viewerContainer.value, targetPage);
         if (!targetEl) {
             return;
         }
