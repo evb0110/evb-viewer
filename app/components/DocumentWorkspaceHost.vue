@@ -50,6 +50,7 @@ import {
     nextTick,
     onMounted,
     ref,
+    watch,
 } from 'vue';
 import type { TOpenFileResult } from '@app/types/electron-api';
 import type { IRecentFile } from '@app/types/shared';
@@ -58,11 +59,14 @@ import type { TSplitPayload } from '@app/types/split-payload';
 import type { IWorkspaceExpose } from '@app/types/workspace-expose';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { useRecentFiles } from '@app/composables/useRecentFiles';
+import { useWorkspaceSplitCache } from '@app/composables/useWorkspaceSplitCache';
+import { resolveWorkspaceRequestedState } from '@app/composables/page/workspace-host-mounting';
 import DocumentWorkspace from '@app/components/DocumentWorkspace.vue';
 
 const props = defineProps<{
     tabId: string;
     isActive: boolean;
+    hasDocumentHint?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -76,6 +80,7 @@ const workspaceRequested = ref(false);
 const workspaceRef = ref<unknown>(null);
 let workspaceLoadPromise: Promise<IWorkspaceExpose | null> | null = null;
 const documentOpenInFlightCount = ref(0);
+const workspaceSplitCache = useWorkspaceSplitCache();
 const WORKSPACE_MOUNT_TIMEOUT_MS = 30_000;
 const WORKSPACE_MOUNT_RETRY_TIMEOUT_MS = 20_000;
 const REQUIRED_WORKSPACE_METHODS: Array<keyof Omit<IWorkspaceExpose, 'hasPdf'>> = [
@@ -142,7 +147,25 @@ const hasPdf = computed<boolean>(() => {
     }
     return value?.value ?? false;
 });
+const hasQueuedSplitRestore = computed(() => workspaceSplitCache.has(props.tabId));
 const isDocumentOpenInFlight = computed(() => documentOpenInFlightCount.value > 0);
+
+watch(
+    [
+        hasQueuedSplitRestore,
+        () => props.hasDocumentHint === true,
+    ],
+    ([
+        hasQueued,
+        hasDocumentHint,
+    ]) => {
+        workspaceRequested.value = resolveWorkspaceRequestedState(workspaceRequested.value, {
+            hasQueuedSplitRestore: hasQueued,
+            hasDocumentHint,
+        });
+    },
+    { immediate: true },
+);
 
 function workspaceHasPdf(workspace: IWorkspaceExpose) {
     const value = workspace.hasPdf;

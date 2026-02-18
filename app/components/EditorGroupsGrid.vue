@@ -27,6 +27,7 @@
                     :key="tab.id"
                     :ref="workspaceRefHandler(tab.id)"
                     :tab-id="tab.id"
+                    :has-document-hint="hasDocumentMountHint(tab)"
                     :is-active="groupForLeaf!.id === activeGroupId && tab.id === groupForLeaf!.activeTabId"
                     @update-tab="(updates) => emit('update-tab', tab.id, updates)"
                     @open-in-new-tab="(result) => emit('open-in-new-tab', result, groupForLeaf!.id)"
@@ -121,6 +122,7 @@ import type {
     TEditorLayoutNode,
     TGroupOrientation,
 } from '@app/types/editor-groups';
+import { hasDocumentMountHint } from '@app/composables/page/workspace-host-mounting';
 
 defineOptions({name: 'EditorGroupsGrid'});
 
