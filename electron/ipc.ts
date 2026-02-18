@@ -63,6 +63,13 @@ import {
     loadSettings,
     saveSettings,
 } from '@electron/settings';
+import {
+    deferDownloadedUpdate,
+    getUpdateStatus,
+    installDownloadedUpdate,
+    skipUpdateVersion,
+    triggerManualUpdateCheck,
+} from '@electron/updates';
 
 export { clearAllWorkingCopies } from '@electron/ipc/workingCopy';
 
@@ -199,6 +206,12 @@ export function registerIpcHandlers() {
         await saveSettings(settings);
         updateRecentFilesMenu();
     });
+
+    ipcMain.handle('updates:getState', () => getUpdateStatus());
+    ipcMain.handle('updates:check', () => triggerManualUpdateCheck());
+    ipcMain.handle('updates:install', () => installDownloadedUpdate());
+    ipcMain.handle('updates:defer', () => deferDownloadedUpdate());
+    ipcMain.handle('updates:skipVersion', (_event, version: string) => skipUpdateVersion(version));
 
     registerOcrHandlers();
     registerSearchHandlers();

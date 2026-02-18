@@ -183,6 +183,17 @@ interface IDjvuViewingErrorEvent {
     jobId?: string;
 }
 
+export type TAppUpdateCheckOrigin = 'auto' | 'manual';
+export type TAppUpdatePhase = 'idle' | 'checking' | 'downloading' | 'downloaded' | 'no-update' | 'error' | 'unsupported';
+
+export interface IAppUpdateStatus {
+    phase: TAppUpdatePhase;
+    origin: TAppUpdateCheckOrigin;
+    version: string | null;
+    percent: number | null;
+    message: string | null;
+}
+
 interface IWindowTabsApi {
     transfer: (request: IWindowTabTransferRequest) => Promise<IWindowTabTransferResult>;
     transferAck: (ack: IWindowTabTransferAck) => Promise<boolean>;
@@ -331,10 +342,20 @@ export interface IElectronAPI {
         save: (settings: ISettingsData) => Promise<void>;
     };
     onMenuOpenSettings: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
+    onMenuCheckForUpdates: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
 
     pageOps: IPageOpsAPI;
 
     djvu: IDjvuAPI;
+
+    updates: {
+        getState: () => Promise<IAppUpdateStatus>;
+        check: () => Promise<{ started: boolean }>;
+        install: () => Promise<{ started: boolean }>;
+        defer: () => Promise<void>;
+        skipVersion: (version: string) => Promise<void>;
+        onStatus: (callback: (status: IAppUpdateStatus) => void) => IMenuEventUnsubscribe;
+    };
 
     onMenuConvertToPdf: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
 

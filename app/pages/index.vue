@@ -59,6 +59,52 @@
                 />
             </template>
         </UModal>
+        <UModal
+            v-model:open="updatesDialog.open"
+            :title="updatesDialogTitle"
+            :ui="{ footer: 'justify-end' }"
+        >
+            <template #description>
+                <span class="sr-only">
+                    {{ updatesDialogDescription }}
+                </span>
+            </template>
+
+            <template #body>
+                <p class="text-sm text-muted">
+                    {{ updatesDialogDescription }}
+                </p>
+            </template>
+
+            <template #footer="{ close }">
+                <template v-if="updatesDialog.kind === 'ready'">
+                    <UButton
+                        :label="t('updates.deferAction')"
+                        color="neutral"
+                        variant="outline"
+                        @click="handleDeferUpdate(close)"
+                    />
+                    <UButton
+                        :label="t('updates.skipAction')"
+                        color="neutral"
+                        variant="outline"
+                        @click="handleSkipUpdate(close)"
+                    />
+                    <UButton
+                        :label="t('updates.installAction')"
+                        @click="handleInstallUpdate"
+                    />
+                </template>
+                <template v-else>
+                    <UButton
+                        :label="t('settings.close')"
+                        color="neutral"
+                        variant="outline"
+                        @click="close"
+                    />
+                </template>
+            </template>
+        </UModal>
     </div>
 </template>
 
@@ -81,6 +127,7 @@ import {
 } from '@app/utils/electron';
 import { useExternalFileDrop } from '@app/composables/page/useExternalFileDrop';
 import { useTabsShellBindings } from '@app/composables/page/useTabsShellBindings';
+import { useAppUpdates } from '@app/composables/useAppUpdates';
 import { useEditorGroupsManager } from '@app/composables/useEditorGroupsManager';
 import { useWorkspaceRestoreTracker } from '@app/composables/useWorkspaceRestoreTracker';
 import { useWorkspaceSplitCache } from '@app/composables/useWorkspaceSplitCache';
@@ -136,6 +183,16 @@ const dirtyTabCloseTargetId = ref<string | null>(null);
 let dirtyTabCloseDialogResolver: ((confirmed: boolean) => void) | null = null;
 const workspaceSplitCache = useWorkspaceSplitCache();
 const workspaceRestoreTracker = useWorkspaceRestoreTracker();
+const {
+    checkForUpdates,
+    closeDialog: closeUpdatesDialog,
+    deferUpdate,
+    dialog: updatesDialog,
+    dialogVersion: updatesDialogVersion,
+    ensureInitialized: ensureUpdatesInitialized,
+    installUpdateNow,
+    skipUpdateVersion,
+} = useAppUpdates();
 
 const workspaceRefs = shallowRef<Map<string, IWorkspaceExpose>>(new Map());
 const WORKSPACE_REF_WAIT_TIMEOUT_MS = 4000;
@@ -467,6 +524,69 @@ const dirtyTabCloseTargetName = computed(() => {
         : null;
     return tab?.fileName ?? t('tabs.newTab');
 });
+
+const updatesDialogTitle = computed(() => {
+    if (updatesDialog.value.kind === 'ready') {
+        return t('updates.readyTitle');
+    }
+
+    switch (updatesDialog.value.phase) {
+        case 'checking':
+            return t('updates.checkingTitle');
+        case 'downloading':
+            return t('updates.downloadingTitle');
+        case 'no-update':
+            return t('updates.upToDateTitle');
+        case 'error':
+            return t('updates.errorTitle');
+        case 'unsupported':
+            return t('updates.unsupportedTitle');
+        default:
+            return t('updates.checkingTitle');
+    }
+});
+
+const updatesDialogDescription = computed(() => {
+    const version = updatesDialogVersion.value ?? t('updates.unknownVersion');
+
+    if (updatesDialog.value.kind === 'ready') {
+        return t('updates.readyDescription', { version });
+    }
+
+    switch (updatesDialog.value.phase) {
+        case 'checking':
+            return t('updates.checkingDescription');
+        case 'downloading': {
+            const percent = Math.max(0, Math.round(updatesDialog.value.percent ?? 0));
+            return t('updates.downloadingDescription', {
+                version,
+                percent,
+            });
+        }
+        case 'no-update':
+            return t('updates.upToDateDescription', { version });
+        case 'error':
+            return t('updates.errorDescription', { message: updatesDialog.value.message ?? t('updates.unknownError') });
+        case 'unsupported':
+            return t('updates.unsupportedDescription');
+        default:
+            return t('updates.checkingDescription');
+    }
+});
+
+function handleDeferUpdate(close: () => void) {
+    close();
+    void deferUpdate();
+}
+
+function handleSkipUpdate(close: () => void) {
+    close();
+    void skipUpdateVersion();
+}
+
+function handleInstallUpdate() {
+    void installUpdateNow();
+}
 
 function resolveDirtyTabCloseDialog(confirmed: boolean) {
     const resolver = dirtyTabCloseDialogResolver;
@@ -1102,6 +1222,7 @@ useTabsShellBindings({
     openSettings: () => {
         showSettings.value = true;
     },
+    checkForUpdates,
     splitEditor,
     focusGroup: focusEditorGroup,
     moveActiveTab,
@@ -1112,6 +1233,7 @@ useTabsShellBindings({
 onMounted(() => {
     chromeHostsReady.value = true;
     cleanupEmptyGroups();
+    void ensureUpdatesInitialized();
 
     if (hasElectronAPI()) {
         incomingTabTransferCleanup = getElectronAPI().tabs.onIncomingTransfer((transfer) => {
@@ -1133,6 +1255,12 @@ watchEffect(() => {
 watch(dirtyTabCloseDialogOpen, (isOpen) => {
     if (!isOpen && dirtyTabCloseDialogResolver) {
         resolveDirtyTabCloseDialog(false);
+    }
+});
+
+watch(() => updatesDialog.value.open, (isOpen) => {
+    if (!isOpen) {
+        closeUpdatesDialog();
     }
 });
 </script>

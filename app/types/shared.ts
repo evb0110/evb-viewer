@@ -33,4 +33,5 @@ export interface ISettingsData {
     theme: TAppTheme;
     locale: TAppLocale;
     suppressDefaultViewerPrompt?: boolean;
+    skippedUpdateVersion?: string;
 }

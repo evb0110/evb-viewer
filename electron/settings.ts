@@ -46,6 +46,9 @@ function sanitizeSettings(raw: Partial<ISettingsData> | null | undefined): ISett
         suppressDefaultViewerPrompt: typeof raw?.suppressDefaultViewerPrompt === 'boolean'
             ? raw.suppressDefaultViewerPrompt
             : undefined,
+        skippedUpdateVersion: typeof raw?.skippedUpdateVersion === 'string' && raw.skippedUpdateVersion.trim()
+            ? raw.skippedUpdateVersion.trim()
+            : undefined,
     };
 }
 

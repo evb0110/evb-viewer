@@ -151,7 +151,7 @@ jobs:
 
           ATTEMPTS=3
           for attempt in $(seq 1 $ATTEMPTS); do
-            if pnpm exec electron-builder --mac --${{ matrix.arch }}; then
+            if pnpm exec electron-builder --publish never --mac --${{ matrix.arch }}; then
               exit 0
             fi
             if [ "$attempt" -lt "$ATTEMPTS" ]; then
@@ -209,7 +209,7 @@ jobs:
         if: runner.os == 'Linux'
         env:
           USE_SYSTEM_FPM: "true"
-        run: pnpm exec electron-builder --linux --${{ matrix.arch }}
+        run: pnpm exec electron-builder --publish never --linux --${{ matrix.arch }}
 
       - name: Configure optional Windows signing
         if: runner.os == 'Windows'
@@ -245,7 +245,7 @@ jobs:
 
           ATTEMPTS=3
           for attempt in $(seq 1 $ATTEMPTS); do
-            if pnpm exec electron-builder --win --${{ matrix.arch }}; then
+            if pnpm exec electron-builder --publish never --win --${{ matrix.arch }}; then
               exit 0
             fi
             if [ "$attempt" -lt "$ATTEMPTS" ]; then
@@ -283,6 +283,13 @@ jobs:
         shell: bash
         run: bash scripts/verify-packaged-native-tools.sh "${{ matrix.platform }}" "${{ matrix.arch }}"
 
+      - name: Prune updater metadata on secondary targets
+        if: runner.os == 'Linux' || (runner.os == 'Windows' && matrix.arch != 'x64')
+        shell: bash
+        run: |
+          rm -f dist/latest*.yml
+          rm -f dist/*.blockmap
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -293,6 +300,8 @@ jobs:
             dist/*.exe
             dist/*.AppImage
             dist/*.deb
+            dist/latest*.yml
+            dist/*.blockmap
           if-no-files-found: error
 
   release:
@@ -412,7 +421,7 @@ jobs:
 
           ATTEMPTS=3
           for attempt in $(seq 1 $ATTEMPTS); do
-            if pnpm exec electron-builder --mac zip --x64; then
+            if pnpm exec electron-builder --publish never --mac zip --x64; then
               exit 0
             fi
             if [ "$attempt" -lt "$ATTEMPTS" ]; then

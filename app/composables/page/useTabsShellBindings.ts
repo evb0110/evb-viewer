@@ -29,6 +29,7 @@ interface IUseTabsShellBindingsOptions {
     handleWindowDragOver: (event: DragEvent) => void;
     handleWindowDrop: (event: DragEvent) => void;
     openSettings: () => void;
+    checkForUpdates: () => Promise<void> | void;
     splitEditor: (direction: TGroupDirection) => Promise<void> | void;
     focusGroup: (direction: TGroupDirection) => void;
     moveActiveTab: (direction: TGroupDirection) => Promise<void> | void;
@@ -52,6 +53,7 @@ export function useTabsShellBindings(options: IUseTabsShellBindingsOptions) {
         handleWindowDragOver,
         handleWindowDrop,
         openSettings,
+        checkForUpdates,
         splitEditor,
         focusGroup,
         moveActiveTab,
@@ -130,6 +132,7 @@ export function useTabsShellBindings(options: IUseTabsShellBindingsOptions) {
                 clearRecentFiles,
                 loadRecentFiles,
                 openSettings,
+                checkForUpdates,
                 splitEditor,
                 focusGroup,
                 moveActiveTab,

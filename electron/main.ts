@@ -3,6 +3,7 @@ import {
     BrowserWindow,
     ipcMain,
 } from 'electron';
+import type { IAppUpdateStatus } from '@app/types/electron-api';
 import {
     dirname,
     extname,
@@ -22,6 +23,7 @@ import { initRecentFilesCache } from '@electron/recent-files';
 import { stopServer } from '@electron/server';
 import {
     createWindow,
+    getAllAppWindows,
     getMainWindow,
     hasWindows,
 } from '@electron/window';
@@ -31,6 +33,7 @@ import {
 } from '@electron/window-tab-transfer';
 import { promptSetDefaultViewer } from '@electron/default-viewer';
 import { createLogger } from '@electron/utils/logger';
+import { initializeUpdates } from '@electron/updates';
 
 app.setName(app.isPackaged ? 'EVB Viewer' : 'EVB Viewer Dev');
 if (process.platform === 'win32') {
@@ -319,6 +322,12 @@ function maybePromptForDefaultViewer() {
     void promptSetDefaultViewer(window);
 }
 
+function broadcastUpdateStatus(status: IAppUpdateStatus) {
+    for (const window of getAllAppWindows()) {
+        sendToWindow(window, 'updates:status', status);
+    }
+}
+
 const singleInstanceLock = app.requestSingleInstanceLock();
 if (!singleInstanceLock) {
     app.quit();
@@ -368,6 +377,8 @@ async function init() {
 
     registerIpcHandlers();
     logStartupPhase('IPC handlers registered');
+    initializeUpdates(broadcastUpdateStatus);
+    logStartupPhase('Update service initialized');
 
     ipcMain.on('app:rendererReady', (event) => {
         const window = BrowserWindow.fromWebContents(event.sender);

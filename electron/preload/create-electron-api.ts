@@ -4,7 +4,10 @@ import type {
     webUtils,
 } from 'electron';
 import type { ISettingsData } from '@app/types/shared';
-import type { IElectronAPI } from '@app/types/electron-api';
+import type {
+    IAppUpdateStatus,
+    IElectronAPI,
+} from '@app/types/electron-api';
 import type {
     IWindowTabIncomingTransfer,
     IWindowTabTransferAck,
@@ -213,6 +216,7 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
         },
 
         onMenuOpenSettings: (callback: IMenuEventCallback): IMenuEventUnsubscribe => onNoArgEvent(ipcRenderer, 'menu:openSettings', callback),
+        onMenuCheckForUpdates: (callback: IMenuEventCallback): IMenuEventUnsubscribe => onNoArgEvent(ipcRenderer, 'menu:checkForUpdates', callback),
 
         onMenuDeletePages: (callback: IMenuEventCallback): IMenuEventUnsubscribe => onNoArgEvent(ipcRenderer, 'menu:deletePages', callback),
         onMenuExtractPages: (callback: IMenuEventCallback): IMenuEventUnsubscribe => onNoArgEvent(ipcRenderer, 'menu:extractPages', callback),
@@ -277,6 +281,16 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
                 ipcRenderer.on('djvu:viewingError', handler);
                 return () => ipcRenderer.removeListener('djvu:viewingError', handler);
             },
+        },
+
+        updates: {
+            getState: () => ipcRenderer.invoke('updates:getState'),
+            check: () => ipcRenderer.invoke('updates:check'),
+            install: () => ipcRenderer.invoke('updates:install'),
+            defer: () => ipcRenderer.invoke('updates:defer'),
+            skipVersion: (version: string) => ipcRenderer.invoke('updates:skipVersion', version),
+            onStatus: (callback: (status: IAppUpdateStatus) => void): IMenuEventUnsubscribe =>
+                onSingleArgEvent(ipcRenderer, 'updates:status', callback),
         },
 
         onMenuConvertToPdf: (callback: IMenuEventCallback): IMenuEventUnsubscribe => onNoArgEvent(ipcRenderer, 'menu:convertToPdf', callback),

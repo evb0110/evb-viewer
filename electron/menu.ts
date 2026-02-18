@@ -555,12 +555,19 @@ function getWindowMenu(activeWindow: BrowserWindow | null): MenuItemConstructorO
 function getHelpMenu(): MenuItemConstructorOptions {
     return {
         label: te('menu.help'),
-        submenu: [config.isMac
-            ? { role: 'about' }
-            : {
-                label: te('menu.about'),
-                click: () => { app.showAboutPanel(); },
-            }],
+        submenu: [
+            createWindowMenuAction({
+                label: te('menu.checkForUpdates'),
+                channel: 'menu:checkForUpdates',
+            }),
+            { type: 'separator' },
+            config.isMac
+                ? { role: 'about' }
+                : {
+                    label: te('menu.about'),
+                    click: () => { app.showAboutPanel(); },
+                },
+        ],
     };
 }
 

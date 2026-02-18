@@ -71,6 +71,23 @@
                         {{ t('settings.languageDescription') }}
                     </p>
                 </div>
+
+                <div class="settings-field">
+                    <label class="settings-label">
+                        {{ t('settings.updates') }}
+                    </label>
+                    <UButton
+                        :label="isCheckInProgress ? t('updates.checkingAction') : t('settings.checkForUpdates')"
+                        color="neutral"
+                        variant="outline"
+                        :loading="isCheckInProgress"
+                        :disabled="isCheckInProgress"
+                        @click="handleCheckForUpdates"
+                    />
+                    <p class="settings-description">
+                        {{ t('settings.checkForUpdatesDescription') }}
+                    </p>
+                </div>
             </div>
         </template>
 
@@ -86,6 +103,7 @@
 </template>
 
 <script setup lang="ts">
+import { onMounted } from 'vue';
 import type {
     TAppLocale,
     TAppTheme,
@@ -102,6 +120,11 @@ const {
     settings,
     updateSetting,
 } = useSettings();
+const {
+    checkForUpdates,
+    ensureInitialized: ensureUpdatesInitialized,
+    isCheckInProgress,
+} = useAppUpdates();
 
 const LOCALE_FLAGS: Record<string, string> = {
     en: 'i-circle-flags-gb',
@@ -169,6 +192,14 @@ async function applyLocale(locale: string | { value: string }) {
     await setLocale(code);
     updateSetting('locale', code);
 }
+
+function handleCheckForUpdates() {
+    void checkForUpdates();
+}
+
+onMounted(() => {
+    void ensureUpdatesInitialized();
+});
 </script>
 
 <style scoped>

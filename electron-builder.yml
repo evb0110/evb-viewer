@@ -110,4 +110,7 @@ dmg:
       type: link
       path: /Applications
 
-publish: null
+publish:
+  provider: github
+  owner: evb0110
+  repo: evb-viewer

@@ -8,6 +8,19 @@ import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
+function parsePositiveInt(raw: string | undefined, fallback: number) {
+    if (!raw) {
+        return fallback;
+    }
+
+    const parsed = Number.parseInt(raw, 10);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+        return fallback;
+    }
+
+    return parsed;
+}
+
 export const config = {
     isDev: !app.isPackaged,
     isMac: process.platform === 'darwin',
@@ -45,5 +58,11 @@ export const config = {
         height: 700,
         title: 'EVB Viewer',
         backgroundColor: '#ffffff',
+    },
+
+    updates: {
+        metadataUrl: process.env.EVB_UPDATES_METADATA_URL || 'https://evb-viewer.vercel.app/api/releases/latest',
+        pollIntervalMs: parsePositiveInt(process.env.EVB_UPDATES_POLL_INTERVAL_MS, 6 * 60 * 60 * 1000),
+        initialDelayMs: parsePositiveInt(process.env.EVB_UPDATES_INITIAL_DELAY_MS, 2 * 60 * 1000),
     },
 } as const;

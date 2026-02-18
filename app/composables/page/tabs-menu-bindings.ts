@@ -14,6 +14,7 @@ interface ITabsMenuBindingDeps {
     clearRecentFiles: () => Promise<void>;
     loadRecentFiles: () => Promise<void>;
     openSettings: () => void;
+    checkForUpdates: () => Promise<void> | void;
     splitEditor: (direction: TGroupDirection) => Promise<void> | void;
     focusGroup: (direction: TGroupDirection) => void;
     moveActiveTab: (direction: TGroupDirection) => Promise<void> | void;
@@ -89,6 +90,9 @@ export function registerTabsMenuBindings(
         }),
         electronApi.onMenuOpenSettings(() => {
             deps.openSettings();
+        }),
+        electronApi.onMenuCheckForUpdates(() => {
+            void deps.checkForUpdates();
         }),
         electronApi.onMenuDeletePages(() => {
             deps.activeWorkspace.value?.handleDeletePages();
