@@ -1,9 +1,9 @@
 import { app } from 'electron';
-import {
-    type ProgressInfo,
-    type UpdateDownloadedEvent,
-    type UpdateInfo,
-    autoUpdater,
+import electronUpdater from 'electron-updater';
+import type {
+    ProgressInfo,
+    UpdateDownloadedEvent,
+    UpdateInfo,
 } from 'electron-updater';
 import type {
     IAppUpdateStatus,
@@ -15,6 +15,8 @@ import {
     saveSettings,
 } from '@electron/settings';
 import { createLogger } from '@electron/utils/logger';
+
+const { autoUpdater } = electronUpdater;
 
 interface ILandingLatestReleaseResponse {release?: {tag?: string;};}
 
