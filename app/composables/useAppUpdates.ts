@@ -154,6 +154,10 @@ const isCheckInProgress = computed(() => {
     return status.value.phase === 'checking' || status.value.phase === 'downloading';
 });
 
+const isUpdateSupported = computed(() => {
+    return status.value.phase !== 'unsupported';
+});
+
 const dialogVersion = computed(() => dialog.value.version || status.value.version);
 
 export function useAppUpdates() {
@@ -162,6 +166,7 @@ export function useAppUpdates() {
         dialog,
         dialogVersion,
         isCheckInProgress,
+        isUpdateSupported,
         ensureInitialized,
         checkForUpdates,
         installUpdateNow,

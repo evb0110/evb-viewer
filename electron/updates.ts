@@ -1,3 +1,5 @@
+import { spawnSync } from 'node:child_process';
+import path from 'node:path';
 import { app } from 'electron';
 import electronUpdater from 'electron-updater';
 import type {
@@ -91,8 +93,49 @@ function updateStatus(next: Partial<IAppUpdateStatus>) {
     emitStatus(status);
 }
 
+let codeSignatureValid: boolean | null = null;
+
+function hasValidCodeSignature() {
+    if (codeSignatureValid !== null) {
+        return codeSignatureValid;
+    }
+
+    try {
+        const appBundle = path.resolve(process.execPath, '..', '..', '..');
+        const result = spawnSync('codesign', [
+            '-d',
+            '--verbose=2',
+            appBundle,
+        ], {
+            encoding: 'utf8',
+            timeout: 5000,
+        });
+        if (result.status !== 0) {
+            codeSignatureValid = false;
+        } else {
+            codeSignatureValid = !(result.stderr || '').includes('Signature=adhoc');
+        }
+    } catch {
+        codeSignatureValid = false;
+    }
+
+    if (!codeSignatureValid) {
+        logger.info('Ad-hoc code signature detected; auto-updates require Developer ID signing');
+    }
+
+    return codeSignatureValid;
+}
+
 function isUpdaterSupported() {
-    return app.isPackaged && UPDATER_SUPPORTED_PLATFORMS.has(process.platform);
+    if (!app.isPackaged || !UPDATER_SUPPORTED_PLATFORMS.has(process.platform)) {
+        return false;
+    }
+
+    if (process.platform === 'darwin' && !hasValidCodeSignature()) {
+        return false;
+    }
+
+    return true;
 }
 
 function isAbortError(error: unknown) {
@@ -258,6 +301,12 @@ function setAutoUpdaterListeners() {
 }
 
 async function shouldRunUpdaterCheck(origin: TAppUpdateCheckOrigin) {
+    if (origin === 'manual') {
+        // Manual checks should always hit the updater feed directly.
+        // Metadata can be stale because it is CDN-cached.
+        return true;
+    }
+
     const currentVersion = normalizeVersion(app.getVersion());
     let latestVersion: string;
 
@@ -268,29 +317,10 @@ async function shouldRunUpdaterCheck(origin: TAppUpdateCheckOrigin) {
             ? 'Timed out while checking for updates.'
             : (error instanceof Error ? error.message : String(error));
         logger.warn(`Unable to query update metadata: ${message}`);
-
-        if (origin === 'manual') {
-            updateStatus({
-                phase: 'error',
-                origin: 'manual',
-                version: currentVersion || null,
-                percent: null,
-                message,
-            });
-        }
         return false;
     }
 
     if (compareVersions(latestVersion, currentVersion) <= 0) {
-        if (origin === 'manual') {
-            updateStatus({
-                phase: 'no-update',
-                origin: 'manual',
-                version: currentVersion || latestVersion,
-                percent: null,
-                message: null,
-            });
-        }
         return false;
     }
 
@@ -303,7 +333,7 @@ async function shouldRunUpdaterCheck(origin: TAppUpdateCheckOrigin) {
         await writeSkippedVersion(null);
     }
 
-    if (origin === 'auto' && skippedVersion && skippedVersion === latestVersion) {
+    if (skippedVersion && skippedVersion === latestVersion) {
         logger.info(`Skipping automatic prompt for ignored version ${latestVersion}`);
         return false;
     }
@@ -394,6 +424,13 @@ export function initializeUpdates(onStatus: (status: IAppUpdateStatus) => void) 
 
     if (!isUpdaterSupported()) {
         logger.info('Automatic updates disabled in this runtime');
+        updateStatus({
+            phase: 'unsupported',
+            origin: 'auto',
+            version: normalizeVersion(app.getVersion()) || null,
+            percent: null,
+            message: null,
+        });
         return;
     }
 
@@ -418,6 +455,9 @@ export async function installDownloadedUpdate() {
     if (!downloadedVersion) {
         return { started: false };
     }
+
+    // Installation is always user-initiated, so errors must surface to the UI
+    currentCheckOrigin = 'manual';
 
     await writeSkippedVersion(null);
     autoUpdater.quitAndInstall(false, true);

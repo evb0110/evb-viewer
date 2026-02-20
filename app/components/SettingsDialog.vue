@@ -72,7 +72,10 @@
                     </p>
                 </div>
 
-                <div class="settings-field">
+                <div
+                    v-if="isUpdateSupported"
+                    class="settings-field"
+                >
                     <label class="settings-label">
                         {{ t('settings.updates') }}
                     </label>
@@ -124,6 +127,7 @@ const {
     checkForUpdates,
     ensureInitialized: ensureUpdatesInitialized,
     isCheckInProgress,
+    isUpdateSupported,
 } = useAppUpdates();
 
 const LOCALE_FLAGS: Record<string, string> = {
