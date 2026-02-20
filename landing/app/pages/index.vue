@@ -127,7 +127,7 @@
               type="button"
               class="installer-item"
               :class="{ 'installer-item-recommended': isRecommendedInstaller(installer) }"
-              @click="triggerIframeDownload(installer.downloadUrl)"
+              @click="trackDownload(installer); triggerIframeDownload(installer.downloadUrl)"
             >
               <div class="installer-item-info">
                 <div class="installer-item-header">
@@ -513,9 +513,23 @@ function triggerIframeDownload(url: string) {
     setTimeout(() => iframe.remove(), 60_000);
 }
 
+function trackDownload(installer: IReleaseInstaller) {
+    fetch('/api/analytics/download', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            platform: installer.platform,
+            arch: installer.arch,
+            version: releaseData.value?.release.tag ?? 'unknown',
+            fileName: installer.name,
+        }),
+    }).catch(() => {})
+}
+
 function downloadActiveInstaller() {
     const installer = activeDownload.value;
     if (installer) {
+        trackDownload(installer);
         triggerIframeDownload(installer.downloadUrl);
     } else {
         window.open(fallbackReleaseUrl.value, '_blank');
