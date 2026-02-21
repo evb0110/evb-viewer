@@ -223,6 +223,17 @@ async function ensureSearchIndex(
         return entry;
     }
 
+    // Detect stale indexes where all pages have empty text (e.g. previous
+    // pdftotext extraction failed silently) and force a rebuild.
+    const hasAnyText = entry.lowerTexts.some(t => t.length > 0);
+    if (!hasAnyText && entry.index.pages.length > 0) {
+        entry = await cacheBuiltIndex(
+            pdfPath,
+            await buildSearchIndex(pdfPath, [], { pageCount: expectedCount }),
+        );
+        return entry;
+    }
+
     if (
         typeof expectedCount === 'number'
         && expectedCount > 0

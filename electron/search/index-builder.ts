@@ -171,7 +171,9 @@ export async function buildSearchIndex(
         });
     }
 
+    const hasAnyText = Array.from(pagesByNumber.values()).some(p => (p.text ?? '').length > 0);
     const needsPdfText = !existing
+        || !hasAnyText
         || (typeof expectedCount === 'number' && expectedCount > 0 && pagesByNumber.size < expectedCount);
 
     if (needsPdfText) {
