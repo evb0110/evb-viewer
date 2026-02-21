@@ -1,14 +1,11 @@
 import { readFile } from 'fs/promises';
-import {
-    getDocument,
-    GlobalWorkerOptions,
-} from 'pdfjs-dist';
+// Must use the legacy build — the default build uses DOMMatrix and other
+// browser-only APIs that don't exist in Node.js worker threads.
+import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import type { TextItem } from 'pdfjs-dist/types/src/display/api';
 import { createLogger } from '@electron/utils/logger';
 
 const log = createLogger('pdfjs-text-extractor');
-
-GlobalWorkerOptions.workerSrc = '';
 
 interface IPageText {
     pageNumber: number;
@@ -19,7 +16,10 @@ export async function extractTextWithPdfjs(pdfPath: string): Promise<IPageText[]
     log.debug(`Extracting text with pdfjs-dist: ${pdfPath}`);
 
     const data = new Uint8Array(await readFile(pdfPath));
-    const doc = await getDocument({ data }).promise;
+    const doc = await getDocument({
+        data,
+        isEvalSupported: false,
+    }).promise;
 
     try {
         const pages: IPageText[] = [];
