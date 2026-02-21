@@ -1,6 +1,6 @@
-import { getHeader } from 'h3'
-import { getDb } from '~~/server/db'
-import { landingDownload } from '~~/server/db/schema'
+import { getHeader } from 'h3';
+import { getDb } from '~~/server/db';
+import { landingDownload } from '~~/server/db/schema';
 
 export default defineEventHandler(async (event) => {
     const body = await readBody<{
@@ -8,17 +8,20 @@ export default defineEventHandler(async (event) => {
         arch?: string
         version?: string
         fileName?: string
-    }>(event)
+    }>(event);
 
     if (!body?.platform || !body?.arch || !body?.version || !body?.fileName) {
-        throw createError({ statusCode: 400, statusMessage: 'Missing required fields' })
+        throw createError({
+            statusCode: 400,
+            statusMessage: 'Missing required fields', 
+        });
     }
 
-    const geo = extractGeo(event)
-    const visitorHash = await hashVisitorIdentity(event)
-    const userAgent = getHeader(event, 'user-agent') ?? null
+    const geo = extractGeo(event);
+    const visitorHash = await hashVisitorIdentity(event);
+    const userAgent = getHeader(event, 'user-agent') ?? null;
 
-    const db = getDb()
+    const db = getDb();
     await db.insert(landingDownload).values({
         platform: body.platform.slice(0, 20),
         arch: body.arch.slice(0, 20),
@@ -29,7 +32,7 @@ export default defineEventHandler(async (event) => {
         region: geo.region,
         visitorHash,
         userAgent,
-    })
+    });
 
-    return { ok: true }
-})
+    return { ok: true };
+});

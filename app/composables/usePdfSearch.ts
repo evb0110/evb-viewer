@@ -290,6 +290,11 @@ export const usePdfSearch = () => {
                 scheduledResolve = null;
                 try {
                     await performSearch(runId, trimmedQuery, pdfPath, pageCount);
+                } catch (error) {
+                    BrowserLogger.warn('pdf-search', 'Search failed', {
+                        query: trimmedQuery,
+                        error, 
+                    });
                 } finally {
                     resolve(runId === searchRunId);
                 }

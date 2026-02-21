@@ -1,5 +1,5 @@
 export default defineNuxtPlugin(() => {
-    const router = useRouter()
+    const router = useRouter();
 
     router.afterEach((to) => {
         fetch('/api/analytics/page-view', {
@@ -9,6 +9,6 @@ export default defineNuxtPlugin(() => {
                 path: to.path,
                 referrer: document.referrer || null,
             }),
-        }).catch(() => {})
-    })
-})
+        }).catch(() => {});
+    });
+});

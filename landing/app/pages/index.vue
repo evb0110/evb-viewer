@@ -523,7 +523,7 @@ function trackDownload(installer: IReleaseInstaller) {
             version: releaseData.value?.release.tag ?? 'unknown',
             fileName: installer.name,
         }),
-    }).catch(() => {})
+    }).catch(() => {});
 }
 
 function downloadActiveInstaller() {

@@ -6,6 +6,7 @@ import {
 import { join } from 'path';
 import type { IOcrWord } from '@app/types/shared';
 import { extractTextFromPdf } from '@electron/search/pdf-text-extractor';
+import { extractTextWithPdfjs } from '@electron/search/pdfjs-text-extractor';
 import { createLogger } from '@electron/utils/logger';
 
 export interface IPageIndex {
@@ -174,9 +175,12 @@ export async function buildSearchIndex(
         || (typeof expectedCount === 'number' && expectedCount > 0 && pagesByNumber.size < expectedCount);
 
     if (needsPdfText) {
+        let seeded = false;
+
+        // Primary: pdfjs-dist — matches the text layer exactly
         try {
-            log.debug(`Seeding index with pdftotext output (pageCount=${expectedCount ?? 'unknown'})`);
-            const pageTexts = await extractTextFromPdf(pdfPath, { pageCount: expectedCount });
+            log.debug(`Seeding index with pdfjs-dist (pageCount=${expectedCount ?? 'unknown'})`);
+            const pageTexts = await extractTextWithPdfjs(pdfPath);
             pageTexts.forEach((pt) => {
                 const entry = pagesByNumber.get(pt.pageNumber);
                 if (!entry) {
@@ -192,9 +196,36 @@ export async function buildSearchIndex(
                     entry.text = pt.text;
                 }
             });
-        } catch (pdfTextErr) {
-            const errMsg = pdfTextErr instanceof Error ? pdfTextErr.message : String(pdfTextErr);
-            log.debug(`Warning: Failed to seed index with pdftotext: ${errMsg}`);
+            seeded = true;
+        } catch (pdfjsErr) {
+            const errMsg = pdfjsErr instanceof Error ? pdfjsErr.message : String(pdfjsErr);
+            log.warn(`Failed to extract text with pdfjs-dist: ${errMsg}`);
+        }
+
+        // Fallback: pdftotext (Poppler CLI) for edge cases
+        if (!seeded) {
+            try {
+                log.debug(`Falling back to pdftotext (pageCount=${expectedCount ?? 'unknown'})`);
+                const pageTexts = await extractTextFromPdf(pdfPath, { pageCount: expectedCount });
+                pageTexts.forEach((pt) => {
+                    const entry = pagesByNumber.get(pt.pageNumber);
+                    if (!entry) {
+                        pagesByNumber.set(pt.pageNumber, {
+                            pageNumber: pt.pageNumber,
+                            text: pt.text,
+                            words: undefined,
+                        });
+                        return;
+                    }
+
+                    if (!entry.text && pt.text) {
+                        entry.text = pt.text;
+                    }
+                });
+            } catch (pdfTextErr) {
+                const errMsg = pdfTextErr instanceof Error ? pdfTextErr.message : String(pdfTextErr);
+                log.warn(`Failed to extract text with pdftotext: ${errMsg}`);
+            }
         }
     }
 

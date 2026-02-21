@@ -1,4 +1,11 @@
-import { index, pgTable, serial, text, timestamp, varchar } from 'drizzle-orm/pg-core'
+import {
+    index,
+    pgTable,
+    serial,
+    text,
+    timestamp,
+    varchar,
+} from 'drizzle-orm/pg-core';
 
 export const landingPageView = pgTable(
     'landing_page_view',
@@ -19,7 +26,7 @@ export const landingPageView = pgTable(
         index('landing_pv_country_idx').on(table.country),
         index('landing_pv_visitor_hash_idx').on(table.visitorHash),
     ],
-)
+);
 
 export const landingDownload = pgTable(
     'landing_download',
@@ -42,4 +49,4 @@ export const landingDownload = pgTable(
         index('landing_dl_created_at_idx').on(table.createdAt),
         index('landing_dl_country_idx').on(table.country),
     ],
-)
+);

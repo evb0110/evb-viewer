@@ -92,6 +92,7 @@ export default withNuxt(
             '*.config.mjs',
             'eslint.config.mjs',
             'nuxt.config.ts',
+            'landing/*.config.ts',
             'electron/**',
             'tests/**',
             '**/*.d.ts',
