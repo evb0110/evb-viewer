@@ -1,7 +1,5 @@
-import {
-    BrowserWindow,
-    app,
-} from 'electron';
+import { isMainThread } from 'worker_threads';
+import { app } from 'electron';
 import {
     appendFileSync,
     mkdirSync,
@@ -57,39 +55,33 @@ const RENDER_LOG_LEVEL = normalizeLogLevel(process.env.ELECTRON_RENDER_LOG_LEVEL
 
 const LOG_DIR = join(app.getPath('temp'), 'electron-logs');
 
-// Ensure log directory exists
 try {
     mkdirSync(LOG_DIR, { recursive: true });
 } catch {
     // Ignore if already exists
 }
 
-/**
- * Broadcast a log message to all renderer windows
- * Sends via 'debug:log' IPC channel which preload.ts listens for
- */
-function broadcastToRenderers(data: ILogMessage) {
-    const windows = BrowserWindow.getAllWindows();
-    for (const win of windows) {
-        if (!win.isDestroyed() && win.webContents) {
-            win.webContents.send('debug:log', data);
+async function broadcastToRenderers(data: ILogMessage) {
+    if (!isMainThread) {
+        return;
+    }
+
+    try {
+        const { BrowserWindow } = await import('electron');
+        const windows = BrowserWindow.getAllWindows();
+        for (const win of windows) {
+            if (!win.isDestroyed() && win.webContents) {
+                win.webContents.send('debug:log', data);
+            }
         }
+    } catch {
+        // Silently ignore IPC errors in edge cases
     }
 }
 
-/**
- * Create a logger instance for a specific source module
- *
- * All logs are:
- * 1. Written to a file in the temp directory
- * 2. Forwarded to all renderer windows via IPC for console display
- *
- * @param source - Module identifier (e.g., 'ocr-ipc', 'search', 'tesseract')
- */
 export function createLogger(source: string): ILogger {
     const logFile = join(LOG_DIR, `${source}.log`);
 
-    // Ensure parent directory exists
     try {
         mkdirSync(dirname(logFile), { recursive: true });
     } catch {
@@ -100,7 +92,6 @@ export function createLogger(source: string): ILogger {
         const ts = new Date().toISOString();
         const formattedMsg = `[${ts}] [${source}] [${level}] ${msg}`;
 
-        // Write to file
         if (shouldLog(level, FILE_LOG_LEVEL)) {
             try {
                 appendFileSync(logFile, `${formattedMsg}\n`);
@@ -109,9 +100,8 @@ export function createLogger(source: string): ILogger {
             }
         }
 
-        // Forward to all renderer consoles
         if (shouldLog(level, RENDER_LOG_LEVEL)) {
-            broadcastToRenderers({
+            void broadcastToRenderers({
                 source,
                 message: `[${level}] ${msg}`,
                 timestamp: ts,
@@ -126,4 +116,3 @@ export function createLogger(source: string): ILogger {
         error: (msg: string) => log('ERROR', msg),
     };
 }
-

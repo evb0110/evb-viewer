@@ -198,7 +198,7 @@ export async function buildSearchIndex(
                     entry.text = pt.text;
                 }
             });
-            seeded = true;
+            seeded = pageTexts.some(pt => pt.text.length > 0);
         } catch (pdfjsErr) {
             const errMsg = pdfjsErr instanceof Error ? pdfjsErr.message : String(pdfjsErr);
             log.warn(`Failed to extract text with pdfjs-dist: ${errMsg}`);
