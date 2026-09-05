@@ -81,7 +81,7 @@ export const useWorkspaceDocumentControls = (options: IWorkspaceDocumentControls
         closePageContextMenu,
         handleExportImages,
         ensureHistoryBaselineForMutation,
-        materializeAnnotationsForPageMutation,
+        saveAnnotationsForPageMutation,
         reloadWorkingCopyIntoHistory,
         ensureWorkingCopyFreshForRead,
         preparePdfReloadWaiter,
@@ -149,7 +149,7 @@ export const useWorkspaceDocumentControls = (options: IWorkspaceDocumentControls
             emitOpenInNewTab(path);
         },
         ensureHistoryBaselineForMutation,
-        materializeAnnotationsForPageMutation,
+        saveAnnotationsForPageMutation,
         reloadWorkingCopyIntoHistory,
         ...(documentRevisionToken !== undefined ? { documentRevisionToken } : {}),
         ...(ensureWorkingCopyFreshForRead !== undefined ? { ensureWorkingCopyFreshForRead } : {}),

@@ -551,6 +551,7 @@ fn image_bytes<'a>(file_name: &'a str, data: &'a [u8]) -> PageSpec<InputSource<'
     PageSpec::Image {
         page_size: None,
         placement: None,
+        rotation_degrees: 0,
         image: ImageSpec {
             source: InputSource::Bytes { file_name, data },
             compression: ImageCompression::Auto,

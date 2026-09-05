@@ -23,7 +23,6 @@
                 :is-spread-single="isSpreadSingle"
                 :is-buffered-page="isPageBuffered"
                 :is-rendered-page="isPageRenderedForClass"
-                :is-shape-overlay-visual-ready-page="isPageVisualReadyForShapeOverlay"
                 :get-page-scale="getPageScale"
                 :get-page-placeholder-style="getPagePlaceholderStyle"
                 :bottom-virtual-spacer-style="bottomVirtualSpacerStyle"
@@ -72,11 +71,7 @@
             />
             <PdfViewerPortalLayers
                 :viewer-container="viewerContainer"
-                :markers-by-page="visibleMarkersByPage"
                 :links-by-page="visibleLinksByPage"
-                @open-note="handleMarkerOpenNote"
-                @context-menu="handleMarkerContextMenu"
-                @move-marker="handleMarkerMove"
                 @link-destination="handleLinkDestination"
             />
         </template>
@@ -147,7 +142,6 @@ const {
     t,
     viewerHost,
     viewerContainer,
-    annotationUiManager,
     viewerClass,
     containerStyle,
     scaledMargin,
@@ -158,7 +152,6 @@ const {
     isSpreadSingle,
     isPageBuffered,
     isPageRenderedForClass,
-    isPageVisualReadyForShapeOverlay,
     getPageScale,
     getPagePlaceholderStyle,
     getExactPagePlaceholderStyle,
@@ -182,12 +175,8 @@ const {
     clearPendingImagePlacement,
     regionSnip,
     cropSelection,
-    visibleMarkersByPage,
     visibleLinksByPage,
     isViewerLoadingOverlayVisible,
-    handleMarkerOpenNote,
-    handleMarkerContextMenu,
-    handleMarkerMove,
     handleLinkDestination,
     handleViewerContainerRef,
     pdfViewerPublicApi,
@@ -495,8 +484,6 @@ onBeforeUnmount(() => {
     const snapshot = chassisAuthority.openSurface.snapshot.value;
     chassisAuthority.openSurface.clearOpeningPageFrame(snapshot.generation, openingPageFrameOwnerId);
 });
-
-void annotationUiManager;
 
 defineExpose(pdfViewerPublicApi);
 </script>

@@ -20,15 +20,15 @@ import { normalizeMarkerRect } from '@app/modules/pdf-viewer/engine/annotation-g
 import { toMarkerPointFromPdfPoint } from '@app/modules/pdf-viewer/engine/annotation-geometry/toMarkerPointFromPdfPoint';
 import { toMarkerRectFromPdfRect } from '@app/modules/pdf-viewer/engine/annotation-geometry/toMarkerRectFromPdfRect';
 import type { normalizePageRotation } from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizePageRotation';
-import { generateManagedShapeStableKey } from '@app/modules/pdf-viewer/engine/pdf-serialization-refs/generateManagedShapeStableKey';
-import { readManagedShapeStableKey } from '@app/modules/pdf-viewer/engine/pdf-serialization-refs/readManagedShapeStableKey';
+import { generateManagedShapeStableKey } from '@app/modules/pdf-viewer/annotations/pdf-refs/generateManagedShapeStableKey';
+import { readManagedShapeStableKey } from '@app/modules/pdf-viewer/annotations/pdf-refs/readManagedShapeStableKey';
 import { formatPdfJsAnnotationRef } from '@app/utils/pdfAnnotationRefs';
 import { getAllShapePoints } from '@app/modules/pdf-viewer/engine/pdf-shape-strokes/getAllShapePoints';
 import { readPdfRectFromDict } from '@pdf-core';
 import { parsePdfDateStringTimestamp } from '@app/utils/pdfDate';
-import { computePointsMinMax } from '@app/modules/pdf-viewer/engine/pdf-page-annotation-iteration/computePointsMinMax';
-import { iterateAnnotationRefDicts } from '@app/modules/pdf-viewer/engine/pdf-page-annotation-iteration/iterateAnnotationRefDicts';
-import { resolvePageAnnotationContext } from '@app/modules/pdf-viewer/engine/pdf-page-annotation-iteration/resolvePageAnnotationContext';
+import { computePointsMinMax } from '@app/modules/pdf-viewer/annotations/pdf-page-iteration/computePointsMinMax';
+import { iterateAnnotationRefDicts } from '@app/modules/pdf-viewer/annotations/pdf-page-iteration/iterateAnnotationRefDicts';
+import { resolvePageAnnotationContext } from '@app/modules/pdf-viewer/annotations/pdf-page-iteration/resolvePageAnnotationContext';
 
 const BORDER_NAME = PDFName.of('Border');
 

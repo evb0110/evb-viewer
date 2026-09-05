@@ -3,7 +3,19 @@ import {
     expect,
     it,
 } from 'vitest';
-import {resolveThumbnailVirtualPages} from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailLayout';
+import {
+    createThumbnailItemStyle,
+    resolveThumbnailVirtualPages,
+} from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailLayout';
+
+describe('createThumbnailItemStyle', () => {
+    it('keeps the rendered row at least as tall as its virtual layout slot', () => {
+        expect(createThumbnailItemStyle(412, 236)).toEqual({
+            minHeight: '236px',
+            transform: 'translateY(412px)',
+        });
+    });
+});
 
 describe('resolveThumbnailVirtualPages', () => {
     it('keeps current-page neighbors inside the active physical segment', () => {

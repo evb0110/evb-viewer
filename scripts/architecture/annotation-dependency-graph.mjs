@@ -13,9 +13,6 @@ export const ANNOTATION_GRAPH_SCAN_ROOTS = [
     'app/modules/pdf-viewer/tools',
     'app/modules/pdf-viewer/runtime/save',
     'app/modules/pdf-viewer/engine/annotations',
-    'app/modules/pdf-viewer/engine/pdf-serialization-comments',
-    'app/modules/pdf-viewer/engine/pdf-serialization-operations',
-    'app/modules/pdf-viewer/engine/serialization',
 ];
 
 const ANNOTATION_POLICY_ROOTS = [
@@ -31,72 +28,8 @@ const ANNOTATION_SESSION = 'app/modules/pdf-viewer/runtime/sessions/createPdfAnn
 
 const RUNTIME_TOOLS_ALLOWED_EDGES = new Set();
 
-export const ANNOTATION_LATE_BOUND_EDGES = [
-    {
-        source: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useFreeTextResize.ts',
-        target: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationSync.ts',
-        kind: 'late-bound',
-        label: 'scheduleAnnotationCommentsSync',
-        phase: 'event-time',
-        evidence: 'createPdfAnnotationSession wires useFreeTextResize with () => commentSync.scheduleAnnotationCommentsSync().',
-    },
-    {
-        source: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationToolState.ts',
-        target: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useFreeTextResize.ts',
-        kind: 'late-bound',
-        label: 'getFreeTextResize',
-        phase: 'event-time',
-        evidence: 'useAnnotationToolState calls getFreeTextResize().patchResizableFreeTextEditors().',
-    },
-    {
-        source: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationEditorBridge.ts',
-        target: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationSync.ts',
-        kind: 'late-bound',
-        label: 'getCommentSync',
-        phase: 'init/event-time',
-        evidence: 'useAnnotationEditorBridge resolves getCommentSync() during dialog and editor initialization flows.',
-    },
-    {
-        source: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationEditorBridge.ts',
-        target: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationToolState.ts',
-        kind: 'late-bound',
-        label: 'getToolManager/getMarkupSubtype',
-        phase: 'init/event-time',
-        evidence: 'useAnnotationEditorBridge resolves tool manager and markup subtype ports during annotation editor setup.',
-    },
-    {
-        source: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationSync.ts',
-        target: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationMarkerViewModel.ts',
-        kind: 'late-bound',
-        label: 'syncInlineCommentIndicators',
-        phase: 'event-time',
-        evidence: 'useAnnotationSync receives inline indicator sync as an injected callback.',
-    },
-    {
-        source: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationHighlight.ts',
-        target: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationSync.ts',
-        kind: 'late-bound',
-        label: 'getSync',
-        phase: 'event-time',
-        evidence: 'useAnnotationHighlight resolves comment sync while creating text markup and note comments.',
-    },
-    {
-        source: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationCrud.ts',
-        target: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationHighlight.ts',
-        kind: 'late-bound',
-        label: 'getHighlight',
-        phase: 'event-time',
-        evidence: 'useAnnotationCrud resolves highlight placement/page-point helpers during click and note flows.',
-    },
-    {
-        source: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationCrud.ts',
-        target: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationSync.ts',
-        kind: 'late-bound',
-        label: 'getSync',
-        phase: 'event-time',
-        evidence: 'useAnnotationCrud resolves comment sync for active comment, deletion, and editor summary flows.',
-    },
-];
+// The deleted PDF.js editor bridge no longer contributes late-bound edges.
+export const ANNOTATION_LATE_BOUND_EDGES = [];
 
 function matchesRoot(filePath, root) {
     return filePath === root || filePath.startsWith(`${root}/`);

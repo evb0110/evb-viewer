@@ -133,6 +133,127 @@
     }
 
     #[test]
+    fn patches_an_existing_stamp_without_dropping_foreign_keys() {
+        let (mut document, page_id) = create_test_document();
+        let first = placed_jpeg_mutation();
+        let first_path = first.bytes_path.clone();
+        let mut first = first;
+        first.stable_key = Some("stamp-preserve".to_string());
+        let first_bytes = read(&first_path).unwrap();
+        apply_placed_images(
+            &mut document,
+            std::slice::from_ref(&first),
+            vec![first_bytes],
+            0,
+            "D:20260831130000Z",
+            &mut None,
+        )
+        .unwrap();
+        let stamp_ref = get_page_annots(&document, page_id).unwrap()[0]
+            .as_reference()
+            .unwrap();
+        let stamp = document.get_dictionary_mut(stamp_ref).unwrap();
+        stamp.set(
+            "NM",
+            Object::string_literal("placed-image-native:stamp-preserve"),
+        );
+        stamp.set("RC", Object::string_literal("<p>rich stamp</p>"));
+        stamp.set("State", Object::Name(b"Accepted".to_vec()));
+        stamp.set("IRT", Object::Reference((900, 0)));
+        stamp.set("UnknownKey", Object::Integer(77));
+        let before = stamp.clone();
+
+        let updated = placed_jpeg_mutation();
+        let updated_path = updated.bytes_path.clone();
+        let mut updated = updated;
+        updated.stable_key = Some("stamp-preserve".to_string());
+        updated.annotation_id = Some(format_pdfjs_annotation_ref(stamp_ref));
+        updated.x = 0.5;
+        let updated_bytes = read(&updated_path).unwrap();
+        apply_placed_images(
+            &mut document,
+            std::slice::from_ref(&updated),
+            vec![updated_bytes],
+            0,
+            "D:20260831130100Z",
+            &mut None,
+        )
+        .unwrap();
+
+        let after = document.get_dictionary(stamp_ref).unwrap();
+        assert_unowned_keys_unchanged(
+            &before,
+            after,
+            &[b"Rect", b"AP", b"F", b"NM", b"M"],
+        )
+        .unwrap();
+        assert_eq!(
+            read_annotation_name(after).as_deref(),
+            Some("placed-image-native:stamp-preserve")
+        );
+        let _ = remove_file(first_path);
+        let _ = remove_file(updated_path);
+    }
+
+    #[test]
+    fn deleting_a_foreign_stamp_keeps_a_shared_placed_image_appearance() {
+        let (mut document, page_id) = create_test_document();
+        let managed = placed_jpeg_mutation();
+        let managed_path = managed.bytes_path.clone();
+        let managed_bytes = read(&managed_path).unwrap();
+        apply_placed_images(
+            &mut document,
+            std::slice::from_ref(&managed),
+            vec![managed_bytes],
+            0,
+            "D:20260831130000Z",
+            &mut None,
+        )
+        .unwrap();
+        let managed_ref = get_page_annots(&document, page_id).unwrap()[0]
+            .as_reference()
+            .unwrap();
+        let (appearance_ref, image_ref) = placed_image_appearance_refs(&document, managed_ref)
+            .expect("managed stamp appearance graph");
+
+        let foreign_ref = document.add_object(dictionary! {
+            "Type" => "Annot",
+            "Subtype" => "Stamp",
+            "Rect" => vec![30.into(), 30.into(), 60.into(), 60.into()],
+            "NM" => Object::string_literal("foreign-stamp"),
+            "AP" => dictionary! { "N" => Object::Reference(appearance_ref) },
+        });
+        let mut annots = get_page_annots(&document, page_id).unwrap();
+        annots.push(Object::Reference(foreign_ref));
+        document
+            .get_dictionary_mut(page_id)
+            .unwrap()
+            .set("Annots", Object::Array(annots));
+
+        delete_annotations(
+            &mut document,
+            &[AnnotationDelete {
+                page_index: 0,
+                object_number: Some(foreign_ref.0),
+                generation_number: Some(foreign_ref.1),
+                stable_key: None,
+                created_at: None,
+            }],
+        )
+        .unwrap();
+
+        assert_eq!(
+            get_page_annots(&document, page_id).unwrap(),
+            vec![Object::Reference(managed_ref)]
+        );
+        assert!(document.get_dictionary(managed_ref).is_ok());
+        assert!(document.get_object(appearance_ref).is_ok());
+        assert!(document.get_object(image_ref).is_ok());
+        assert!(document.get_object(foreign_ref).is_err());
+        let _ = remove_file(managed_path);
+    }
+
+    #[test]
     fn rejects_duplicate_stable_placed_image_targets_without_an_exact_ref() {
         let (mut document, page_id) = create_test_document();
         let stable_key = "placed-image-duplicate";
@@ -180,14 +301,16 @@
         let mutations = NativeMutationsFile {
             updates: Vec::new(),
             geometry_updates: Vec::new(),
+            notes: Vec::new(),
             free_text_notes: Vec::new(),
-            free_text_editors: Vec::new(),
+            text_boxes: Vec::new(),
             deletes: Vec::new(),
             page_labels: None,
             bookmarks: None,
             shapes: None,
             markup: None,
             placed_images: vec![placed_image],
+            placed_image_geometry_updates: Vec::new(),
             continuation: None,
         };
         append_native_mutations(
@@ -213,7 +336,7 @@
         assert_eq!(annotation_subtype(stamp), "stamp");
         assert_eq!(
             stamp.get(b"NM").ok().and_then(pdf_string_to_text).as_deref(),
-            Some("placed-image-native:0:0:D:20260609123456+03'00'")
+            Some("0:0:D:20260609123456+03'00'")
         );
         assert_eq!(
             stamp.get(b"M").ok().and_then(pdf_string_to_text).as_deref(),
@@ -304,7 +427,7 @@
         names.dedup();
         assert_eq!(names.len(), 17);
         assert!(names.iter().any(|name| {
-            name == "placed-image-native:0:16:D:20260829121300+04'00'"
+            name == "0:16:D:20260829121300+04'00'"
         }));
 
     }

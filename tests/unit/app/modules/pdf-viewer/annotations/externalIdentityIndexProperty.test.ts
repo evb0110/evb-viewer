@@ -59,38 +59,29 @@ describe('ExternalIdentityIndex properties', () => {
         ));
     });
 
-    it('resolves every explicit binding idempotently and never from proximity or text', () => {
+    it('resolves the reduced PDF reference binding idempotently and never from proximity or text', () => {
         fc.assert(fc.property(
             fc.uniqueArray(nonBlankString, {
-                minLength: 5,
-                maxLength: 5,
+                minLength: 2,
+                maxLength: 2,
             }),
             (values) => {
                 const [
                     idValue,
                     pdfRef,
-                    pdfName,
-                    pdfjsUid,
-                    elementId,
-                ] = values as [string, string, string, string, string];
+                ] = values as [string, string];
                 const id = asAnnotationId(idValue);
                 const index = new ExternalIdentityIndex();
                 index.bind({
                     id,
                     pdfRef,
-                    pdfName,
-                    pdfjsUid,
-                    elementId,
                 });
 
                 expect(index.resolve({pdfRef})).toBe(id);
-                expect(index.resolve({pdfName})).toBe(id);
-                expect(index.resolve({pdfjsUid})).toBe(id);
-                expect(index.resolve({elementId})).toBe(id);
                 expect(index.resolve({})).toBeNull();
                 expect(index.resolve(castUnknownBindings({
                     pageIndex: 10,
-                    text: pdfName,
+                    text: 'same words',
                     rect: {
                         left: 0.1,
                         top: 0.1,
@@ -102,41 +93,40 @@ describe('ExternalIdentityIndex properties', () => {
         ));
     });
 
-    it('never merges two annotations that claim the same external identity', () => {
+    it('never merges two annotations that claim the same PDF reference', () => {
         fc.assert(fc.property(
             nonBlankString,
             nonBlankString,
             nonBlankString,
-            (firstIdValue, secondIdValue, pdfName) => {
+            (firstIdValue, secondIdValue, pdfRef) => {
                 fc.pre(firstIdValue.trim() !== secondIdValue.trim());
                 const index = new ExternalIdentityIndex();
                 index.bind({
                     id: asAnnotationId(firstIdValue),
-                    pdfName,
+                    pdfRef,
                 });
 
                 expect(() => index.bind({
                     id: asAnnotationId(secondIdValue),
-                    pdfName,
+                    pdfRef,
                 }))
                     .toThrow(ExternalIdentityConflictError);
             },
         ));
     });
 
-    it('rejects a lookup whose explicit bindings point at different annotations', () => {
+    it('resolves only the owner of the supplied PDF reference', () => {
         fc.assert(fc.property(
             fc.uniqueArray(normalizedNonBlankString, {
-                minLength: 4,
-                maxLength: 4,
+                minLength: 3,
+                maxLength: 3,
             }),
             (values) => {
                 const [
                     firstId,
                     secondId,
                     pdfRef,
-                    pdfName,
-                ] = values as [string, string, string, string];
+                ] = values as [string, string, string];
                 const index = new ExternalIdentityIndex();
                 index.bind({
                     id: asAnnotationId(firstId),
@@ -144,14 +134,10 @@ describe('ExternalIdentityIndex properties', () => {
                 });
                 index.bind({
                     id: asAnnotationId(secondId),
-                    pdfName,
+                    pdfRef: `${pdfRef}-other`,
                 });
 
-                expect(() => index.resolve({
-                    pdfRef,
-                    pdfName,
-                }))
-                    .toThrow(ExternalIdentityConflictError);
+                expect(index.resolve({pdfRef})).toBe(asAnnotationId(firstId));
             },
         ));
     });
@@ -243,21 +229,15 @@ describe('ExternalIdentityIndex properties', () => {
         expect(index.resolve({pdfRef: 'shared-ref'})).not.toBe(firstId);
     });
 
-    it('treats whitespace-equivalent annotation ids as the same owner', () => {
+    it('trims PDF references during lookup', () => {
         const index = new ExternalIdentityIndex();
+        const owner = asAnnotationId('owner');
         index.bind({
-            id: asAnnotationId(' !'),
-            pdfRef: 'ref',
-        });
-        index.bind({
-            id: asAnnotationId('!'),
-            pdfName: 'name',
+            id: owner,
+            pdfRef: ' ref ',
         });
 
-        expect(index.resolve({
-            pdfRef: 'ref',
-            pdfName: 'name',
-        })).toBe(asAnnotationId('!'));
+        expect(index.resolve({pdfRef: 'ref'})).toBe(owner);
     });
 });
 

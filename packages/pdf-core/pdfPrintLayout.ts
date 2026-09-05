@@ -20,6 +20,9 @@ import {
     resolvePdfLibMediaBox,
 } from '@pdf-core/pdfPageBoxes';
 
+// Removal condition: pdf-page-ops gains an N-source Form XObject composition
+// operation that preserves the print layout behavior covered by this module.
+
 export interface IBuildPrintablePdfDataOptions {
     pageNumbers?: number[];
     viewMode: TPdfViewMode;
@@ -311,6 +314,8 @@ async function embedPrintablePages(
     sourcePdf: PDFDocument,
     pageNumbers: number[],
 ) {
+    // Keep pdf-lib until pdf-page-ops can embed arbitrary source pages as
+    // reusable Form XObjects for print imposition.
     const sourcePages = pageNumbers.map(pageNumber => sourcePdf.getPage(pageNumber - 1));
     const blankContentsRef = sourcePdf.context.register(
         sourcePdf.context.flateStream(new Uint8Array()),

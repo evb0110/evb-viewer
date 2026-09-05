@@ -81,6 +81,8 @@ export {
 } from '@contracts/diagnostics/diagnosticsCapability';
 export {
     PDF_ANNOTATION_INDEX_MAX_CHUNK_BYTES,
+    PDF_ANNOTATION_PARSE_MAX_CHUNK_BYTES,
+    PDF_ANNOTATION_PARSE_MAX_LINE_BYTES,
     PDF_EMBEDDED_SHAPE_INDEX_MAX_CHUNK_BYTES,
     PDF_EMBEDDED_SHAPE_INDEX_MAX_LINE_BYTES,
 } from '@contracts/electronApiDocuments';
@@ -91,6 +93,23 @@ export type {
     IPdfAnnotationIndexObjectRef,
     IPdfAnnotationIndexOptions,
     IPdfAnnotationIndexSession,
+    IPdfAnnotationForeignEntry,
+    IPdfAnnotationHighlightEntry,
+    IPdfAnnotationNoteEntry,
+    IPdfAnnotationNoteReply,
+    IPdfAnnotationParseChunk,
+    IPdfAnnotationParseChunkOptions,
+    IPdfAnnotationParseEntry,
+    IPdfAnnotationParsePoint,
+    IPdfAnnotationParseOptions,
+    IPdfAnnotationParseResult,
+    IPdfAnnotationParseSession,
+    IPdfAnnotationShapeEntry,
+    IPdfSidecarChunkOptions,
+    IPdfAnnotationStampEntry,
+    IPdfAnnotationStampImageReference,
+    IPdfAnnotationTextBoxEntry,
+    TPdfAnnotationParseEntity,
     IPdfEmbeddedShapeIndexChunk,
     IPdfEmbeddedShapeIndexChunkOptions,
     IPdfEmbeddedShapeIndexEntry,
@@ -98,6 +117,21 @@ export type {
     IPdfEmbeddedShapeIndexPoint,
     IPdfEmbeddedShapeIndexSession,
 } from '@contracts/electronApiDocuments';
+export {
+    decodePdfAnnotationParseEntry,
+    decodePdfAnnotationParseProtocolFixture,
+    decodePdfAnnotationParseResult,
+} from '@contracts/pdfAnnotationParseSchemas';
+export type {IPdfAnnotationParseProtocolFixture} from '@contracts/pdfAnnotationParseSchemas';
+export {
+    formatPdfJsAnnotationRef,
+    normalizePdfJsAnnotationId,
+    parsePdfAnnotationRef,
+    parsePdfJsAnnotationRef,
+    parsePdfNativeAnnotationRef,
+} from '@contracts/pdfAnnotationRefs';
+export type {IPdfAnnotationRef} from '@contracts/pdfAnnotationRefs';
+export type * from '@contracts/pdfOpenFileResults';
 
 export {
     HOST_RESOURCE_PROFILE_ARGUMENT_PREFIX,
@@ -176,13 +210,18 @@ export type {
     TDocumentRevisionToken,
 } from '@contracts/documentRevision';
 export {
+    createBrowserStoreFileIdentity,
     decodeTypedStagedArtifact,
+    isBrowserStoreFileIdentity,
+    isBrowserStoreStagedArtifact,
     isTypedStagedArtifact,
 } from '@contracts/stagedArtifacts';
 export type {
+    IBrowserStoreFileIdentity,
     IStagedArtifactValidations,
     ITypedStagedArtifact,
     TArtifactFileIdentity,
+    TBrowserStoreStagedArtifact,
 } from '@contracts/stagedArtifacts';
 export {
     isDocumentRevisionInfo,
@@ -371,6 +410,7 @@ export type {
 
 export {
     normalizePdfNativeAnnotationIdentityBindings,
+    collectExpectedNativeIdentityIds,
     PDF_NATIVE_DATE_PATTERN,
     PDF_NATIVE_MUTATION_ENUM_VALUES,
     PDF_NATIVE_MUTATION_LIMITS,

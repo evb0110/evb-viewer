@@ -4,11 +4,17 @@ import {
     it,
 } from 'vitest';
 import {
+    createBrowserStoreFileIdentity,
     decodeTypedStagedArtifact,
+    isBrowserStoreFileIdentity,
+    isBrowserStoreStagedArtifact,
     isTypedStagedArtifact,
 } from '@contracts/stagedArtifacts';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 
 const SHA256 = 'a'.repeat(64);
+const BROWSER_DOCUMENT_REF = 'browser://documents/browser-id/staged.pdf';
+const BROWSER_REVISION = requireDocumentRevisionToken('drt1:browser:revision-1');
 
 function createArtifact() {
     return {
@@ -81,6 +87,132 @@ describe('typed staged artifact contracts', () => {
         } as const;
 
         expect(decodeTypedStagedArtifact(opaqueArtifact)).toEqual(opaqueArtifact);
+    });
+
+    it('decodes browser-store identity without manufacturing an OS identity', () => {
+        const artifact = {
+            ...createArtifact(),
+            path: BROWSER_DOCUMENT_REF,
+            fileIdentity: createBrowserStoreFileIdentity(
+                BROWSER_DOCUMENT_REF,
+                BROWSER_REVISION,
+            ),
+            revision: BROWSER_REVISION,
+        };
+
+        expect(isBrowserStoreFileIdentity(artifact.fileIdentity)).toBe(true);
+        expect(isBrowserStoreStagedArtifact(artifact)).toBe(true);
+        expect(decodeTypedStagedArtifact(artifact)).toEqual(artifact);
+        expect(artifact.fileIdentity).toEqual({
+            platform: 'browser',
+            documentRef: BROWSER_DOCUMENT_REF,
+            revisionToken: BROWSER_REVISION,
+        });
+        expect('deviceId' in artifact.fileIdentity).toBe(false);
+        expect('inode' in artifact.fileIdentity).toBe(false);
+    });
+
+    it.each([
+        {
+            name: 'a native path in the browser identity',
+            fileIdentity: {
+                platform: 'browser',
+                documentRef: '/tmp/staged.pdf',
+                revisionToken: BROWSER_REVISION,
+            },
+        },
+        {
+            name: 'a browser identity whose ref differs from the artifact path',
+            fileIdentity: {
+                platform: 'browser',
+                documentRef: 'browser://documents/other/staged.pdf',
+                revisionToken: BROWSER_REVISION,
+            },
+        },
+        {
+            name: 'a browser identity whose revision differs from the artifact revision',
+            fileIdentity: {
+                platform: 'browser',
+                documentRef: BROWSER_DOCUMENT_REF,
+                revisionToken: 'drt1:browser:other-revision',
+            },
+        },
+        {
+            name: 'the bare browser document ref prefix',
+            fileIdentity: {
+                platform: 'browser',
+                documentRef: 'browser://documents/',
+                revisionToken: BROWSER_REVISION,
+            },
+        },
+        {
+            name: 'an overlong browser document ref',
+            fileIdentity: {
+                platform: 'browser',
+                documentRef: `browser://documents/${'a'.repeat(32_768)}`,
+                revisionToken: BROWSER_REVISION,
+            },
+        },
+        {
+            name: 'an overlong browser revision token',
+            fileIdentity: {
+                platform: 'browser',
+                documentRef: BROWSER_DOCUMENT_REF,
+                revisionToken: 'r'.repeat(513),
+            },
+        },
+    ])('rejects browser identity with $name', ({fileIdentity}) => {
+        const artifact = {
+            ...createArtifact(),
+            path: BROWSER_DOCUMENT_REF,
+            fileIdentity,
+            revision: BROWSER_REVISION,
+        };
+
+        expect(decodeTypedStagedArtifact(artifact)).toBeNull();
+        expect(isBrowserStoreStagedArtifact(artifact)).toBe(false);
+    });
+
+    it('requires a current browser revision for browser-store staged artifacts', () => {
+        const artifact = {
+            ...createArtifact(),
+            path: BROWSER_DOCUMENT_REF,
+            fileIdentity: createBrowserStoreFileIdentity(
+                BROWSER_DOCUMENT_REF,
+                BROWSER_REVISION,
+            ),
+            revision: null,
+        };
+
+        expect(decodeTypedStagedArtifact(artifact)).toBeNull();
+        expect(isBrowserStoreStagedArtifact(artifact)).toBe(false);
+    });
+
+    it('does not permit a browser-store identity on an opaque native receipt', () => {
+        const {
+            sha256: _sha256,
+            ...artifact
+        } = {
+            ...createArtifact(),
+            path: BROWSER_DOCUMENT_REF,
+            fileIdentity: createBrowserStoreFileIdentity(
+                BROWSER_DOCUMENT_REF,
+                BROWSER_REVISION,
+            ),
+            revision: BROWSER_REVISION,
+        };
+
+        expect(decodeTypedStagedArtifact({
+            ...artifact,
+            receiptVersion: 2,
+        })).toBeNull();
+    });
+
+    it('rejects browser identity construction for non-browser refs', () => {
+        expect(() => createBrowserStoreFileIdentity('/tmp/staged.pdf', BROWSER_REVISION))
+            .toThrow(TypeError);
+        expect(() => createBrowserStoreFileIdentity(BROWSER_DOCUMENT_REF, ' ' as typeof BROWSER_REVISION))
+            .toThrow(TypeError);
     });
 
     it.each([

@@ -41,7 +41,7 @@ import {
     waitForPdfLoaded,
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
-import {createFreeTextAnnotation} from '@tests/e2e/electron/helpers/viewerAnnotations';
+import {createCanonicalTextBoxWithPointer} from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {installPageEvaluationShims} from '@tests/e2e/electron/helpers/pageRuntime';
 import {getWorkspaceToolbarSnapshot} from '@tests/e2e/electron/helpers/workspaceExpose';
 import {readPdfAnnotationSummary} from '@tests/e2e/electron/helpers/fixtures';
@@ -276,9 +276,10 @@ async function run() {
 
         await openAnnotationsTab(page, OPERATION_TIMEOUT_MS);
         const annotationText = `Packaged smoke annotation ${Date.now()}`;
-        if (await createFreeTextAnnotation(page, annotationText) < 1) {
-            throw new Error('Packaged smoke failed to create a FreeText annotation');
-        }
+        await createCanonicalTextBoxWithPointer(page, annotationText, {
+            x: 0.4,
+            y: 0.3,
+        });
         await page.keyboard.press('Escape');
         await waitForSaveEnabled(page);
         await saveViaWindowHandle(page, OPERATION_TIMEOUT_MS);

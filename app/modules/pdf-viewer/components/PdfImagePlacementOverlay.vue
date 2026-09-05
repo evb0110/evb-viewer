@@ -395,6 +395,7 @@ function applyResizeInteraction(interaction: IActiveInteraction, event: PointerE
         clientX: event.clientX,
         clientY: event.clientY,
         rotationDegrees: interaction.originRotationDegrees,
+        shiftKey: event.shiftKey,
     });
 
     const containerOrigin = {

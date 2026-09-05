@@ -38,11 +38,6 @@ import { useViewportPagePin } from '@app/modules/pdf-viewer/runtime/composables/
 import { usePdfSkeletonInsets } from '@app/modules/pdf-viewer/runtime/skeleton/usePdfSkeletonInsets';
 import { usePdfViewerReloadTransition } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerReloadTransition';
 import { usePdfViewerCurrentPageSync } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerCurrentPageSync';
-import {
-    usePdfViewerPreservedVisibleContent,
-    type IPreservedVisibleContentRequest,
-    type IPreservedVisibleContentState,
-} from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerPreservedVisibleContent';
 import { usePdfViewportViewModel } from '@app/modules/pdf-viewer/runtime/viewport/usePdfViewportViewModel';
 import { usePdfOpenVirtualSurfaceGeometry } from '@app/modules/pdf-viewer/runtime/viewport/usePdfOpenVirtualSurfaceGeometry';
 import { usePdfSinglePageNavigationController } from '@app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageNavigationController';
@@ -244,20 +239,10 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         if (signal.aborted || options.zoomMode.value === 'custom') {
             return;
         }
-        scale.computeFitWidthScale(options.viewerContainer.value, {page: pageNumber});
+        scale.invalidateScaleCache(); scale.computeFitWidthScale(options.viewerContainer.value, {page: pageNumber});
         setupPagePlaceholders();
         await nextTick();
     }
-    const {
-        capturePreservedVisibleContentState,
-        releasePreservedVisualSnapshotNow,
-        schedulePreservedVisualSnapshotRelease,
-    } = usePdfViewerPreservedVisibleContent({
-        viewerContainer: options.viewerContainer,
-        currentPage,
-    });
-    let nextPreservedVisibleContentState: IPreservedVisibleContentState | null = null;
-    let activePreservedVisibleContent: IPreservedVisibleContentState | null = null;
     let resolvedPageToRestore = 1;
     let activeReloadTransactionId: number | null = null;
     let visualReloadTransitionToken: number | null = null;
@@ -677,14 +662,8 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     }
     function beginReloadPlacement(transition: IPdfDocumentTransition): IPdfViewportReloadPlacement {
         const plan = transition.plan;
-        const preservedRequest = plan.preserveVisibleContent ? nextPreservedVisibleContentState : null;
-        if (nextPreservedVisibleContentState && !preservedRequest) {
-            releasePreservedVisualSnapshotNow(nextPreservedVisibleContentState);
-        }
-        nextPreservedVisibleContentState = null;
-        activePreservedVisibleContent = preservedRequest;
         const pageToRestore = plan.isReload
-            ? preservedRequest?.pageToRestore ?? currentPage.value
+            ? currentPage.value
             : 1;
         resolvedPageToRestore = Math.max(1, Math.floor(pageToRestore));
         const displayZoomToRestore = plan.isReload && options.zoomMode.value === 'custom'
@@ -717,17 +696,11 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             });
         }
         options.emitCurrentPage(pageToRestore);
-        const preserveOpeningLayout = !plan.isReload
-            && !plan.preserveVisibleContent
-            && shouldPreserveOpeningLayout();
+        const preserveOpeningLayout = !plan.isReload && shouldPreserveOpeningLayout();
         const preserveReloadDisplayZoom = plan.isReload
             && !plan.isSelectiveReload
             && displayZoomToRestore !== null;
-        if (plan.preserveVisibleContent) {
-            if (plan.isReload || preserveReloadDisplayZoom) {
-                scale.invalidateScaleCache();
-            }
-        } else if (!plan.isSelectiveReload) {
+        if (!plan.isSelectiveReload) {
             if (plan.isReload || preserveReloadDisplayZoom || preserveOpeningLayout) {
                 scale.invalidateScaleCache();
             } else {
@@ -978,7 +951,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         };
         activeDocumentPlacement = null;
         pinCurrentPageToRestoreTarget();
-        if (!transition.plan.preserveVisibleContent) {
+        {
             const readyMetricRange = resolvePdfReadyMetricRange({
                 currentPage: currentPage.value,
                 totalPages: numPages.value,
@@ -1029,38 +1002,9 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             start: currentPage.value,
             end: currentPage.value,
         };
-        await requestMandatoryRaster(initialRange, transition.plan.preserveVisibleContent
-            ? {
-                preserveRenderedPages: true,
-                bufferOverride: 0,
-                forceRerender: true,
-            }
-            : {bufferOverride: 0});
+        await requestMandatoryRaster(initialRange, {bufferOverride: 0});
         if (!transition.isCurrent()) {
             return;
-        }
-        if (transition.plan.preserveVisibleContent) {
-            const preserved = activePreservedVisibleContent;
-            const anchor = preserved?.semanticAnchor;
-            applyReloadViewport(resolvedPageToRestore, {
-                navigationSource: 'restore',
-                preferExactDom: true,
-                ...(anchor
-                    ? {
-                        pageYRatio: anchor.yRatio,
-                        markerRect: {
-                            left: anchor.xRatio,
-                            top: anchor.yRatio,
-                            width: 0,
-                            height: 0,
-                        },
-                    }
-                    : {}),
-            });
-            schedulePreservedVisualSnapshotRelease({
-                preservedVisibleContent: preserved,
-                resolvedPageToRestore,
-            });
         }
         if (placement.shouldPinReloadPage) {
             pinCurrentPageToRestoreTarget();
@@ -1095,10 +1039,6 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             singlePageScroll.viewportAuthority.suspend();
             activeDocumentPlacement = null;
             cancelMandatoryRaster();
-            const preserved = activePreservedVisibleContent;
-            if (preserved) {
-                releasePreservedVisualSnapshotNow(preserved);
-            }
             settleVisualReloadTransition(transition.reason);
             const transactionId = activeReloadTransactionId;
             activeReloadTransactionId = null;
@@ -1191,10 +1131,6 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         requestMandatoryRaster,
         settleMandatoryRaster,
         commitVisibleRange,
-        preserveNextSourceReloadVisibleContent(request?: IPreservedVisibleContentRequest) {
-            nextPreservedVisibleContentState = capturePreservedVisibleContentState(request);
-            documentSession.preserveNextReloadVisibleContent(nextPreservedVisibleContentState !== null);
-        },
     };
 };
 export type TPdfViewportSession = ReturnType<typeof createPdfViewportSession>;

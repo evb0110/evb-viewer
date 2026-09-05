@@ -1,17 +1,4 @@
-import type { PDFDocument } from 'pdf-lib';
 import { clamp } from 'es-toolkit/math';
-import {
-    DEFAULT_TIFF_DECODE_LIMITS,
-    iterateDecodedTiffFrames,
-} from '@pdf-core/iterateDecodedTiffFrames';
-import {
-    applyCombinedPdfPageLabels,
-    inspectPdfCombineCatalog,
-    offsetPdfCombineBookmarks,
-} from '@pdf-core/pdfCombineCatalog';
-import type {IPdfCombinePageLabelRange} from '@pdf-core/pdfCombineCatalog';
-import { writePdfBookmarkOutlines } from '@pdf-core/writePdfBookmarkOutlines';
-import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
 import {
     ensurePdfExtension,
     getExtension,
@@ -21,9 +8,7 @@ import {
 import {
     BROWSER_COMBINE_IMAGE_EXTENSIONS,
     buildBrowserByteLimitError,
-    toBrowserOwnedArrayBuffer,
 } from '@app/platform/browser-api/browserPlatformHelpers';
-import { appendPdfImagePage } from '@app/platform/browser-api/appendPdfImagePage';
 import {
     BrowserPdfCombineWorkerUnavailableError,
     canUseBrowserPdfCombineWorker,
@@ -32,10 +17,7 @@ import {
 } from '@app/platform/browser-api/browserPdfCombineWorkerClient';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 import { browserDjvuCapability } from '@app/platform/browser-api/browserDjvuCapability';
-import {
-    getBrowserDjvuBookmarksForCombine,
-    runBrowserDjvuConversion,
-} from '@app/platform/browser-api/browserDjvuConversionPipeline';
+import { runBrowserDjvuConversion } from '@app/platform/browser-api/browserDjvuConversionPipeline';
 import { emitBrowserOpenDocumentDirectBatchProgress } from '@app/platform/browser-api/documentsMenuCapability';
 import type { TOpenBatchProgressOperation } from '@contracts/electronApiDocuments';
 import {
@@ -43,12 +25,6 @@ import {
     getBrowserDocumentFileName,
 } from '@app/platform/browserDocumentStore';
 import { BROWSER_MAX_FULL_READ_BYTES } from '@app/platform/browser/browserDocumentConstants';
-import {
-    readBrowserRasterImageMetadata,
-    readBrowserTiffFrameDpi,
-    resolveBrowserRasterIccProfile,
-} from '@app/platform/browser-api/browserRasterImageMetadata';
-import {embedPdfImageIccProfile} from '@app/platform/browser-api/embedPdfImageIccProfile';
 import { isNativeDocumentRef } from '@app/utils/documentRef';
 import {PdfCombineCapabilityError} from '@contracts/pdfCombineErrors';
 import {createBrowserPdfCombineOutputError} from '@app/platform/browser-api/browserPdfCombineLimits';
@@ -91,10 +67,8 @@ function assertBrowserCombineSources(paths: string[]) {
 
 const BROWSER_COMBINED_PDF_TOTAL_INPUT_MAX_BYTES = BROWSER_MAX_FULL_READ_BYTES;
 const BROWSER_COMBINED_PDF_REWRITE_MAX_BYTES = BROWSER_MAX_FULL_READ_BYTES;
-const BROWSER_COMBINED_PDF_MAX_IMAGE_PIXELS = 80_000_000;
 const BROWSER_COMBINED_PDF_MAX_PAGES = 500;
 const BROWSER_COMBINED_PDF_MAX_OUTPUT_BYTES = BROWSER_MAX_FULL_READ_BYTES;
-const BROWSER_COMBINED_PDF_MAX_DECODED_WORKING_BYTES = 256 * 1024 * 1024;
 
 interface IBrowserDecodedWorkingSetBudget {
     usedBytes: number;
@@ -124,19 +98,6 @@ export function assertBrowserCombinedPdfOutputBytes(bytes: Uint8Array) {
     if (bytes.byteLength === 0 || bytes.byteLength > BROWSER_COMBINED_PDF_MAX_OUTPUT_BYTES) {
         throw createBrowserPdfCombineOutputError(bytes.byteLength);
     }
-}
-
-function assertBrowserImageMetadata(fileName: string, bytes: Uint8Array) {
-    const metadata = readBrowserRasterImageMetadata(bytes, getExtension(fileName));
-    if (
-        !metadata
-        || metadata.width < 1
-        || metadata.height < 1
-        || metadata.width > BROWSER_COMBINED_PDF_MAX_IMAGE_PIXELS / metadata.height
-    ) {
-        throw new Error(`ERR_BROWSER_PDF_COMBINE_IMAGE_TOO_LARGE:${fileName}`);
-    }
-    return metadata;
 }
 
 function buildBrowserLargeJobError(label: string, maxBytes: number) {
@@ -252,9 +213,7 @@ async function createBrowserPdfFromDjvuForCombine(path: string, signal?: AbortSi
                     jobId,
                     pdfStrategy: 'compact-djvu-aware',
                     subsample: 2,
-                    // The combine planner writes the extracted outline after
-                    // compact conversion, keeping compact export enabled.
-                    preserveBookmarks: false,
+                    preserveBookmarks: true,
                 },
             );
             throwIfCombineAborted(signal);
@@ -264,14 +223,6 @@ async function createBrowserPdfFromDjvuForCombine(path: string, signal?: AbortSi
 
         if (!result.success) {
             throw new Error(result.error ?? `Failed to convert DjVu file: ${fileName}`);
-        }
-        const bookmarks = await getBrowserDjvuBookmarksForCombine(path, signal);
-        if (bookmarks.length > 0) {
-            const {PDFDocument} = await import('pdf-lib');
-            const convertedBytes = await browserDocumentStore.read(outputRef);
-            const convertedPdf = await PDFDocument.load(convertedBytes);
-            writePdfBookmarkOutlines(convertedPdf, bookmarks);
-            await browserDocumentStore.write(outputRef, new Uint8Array(await convertedPdf.save()));
         }
         return outputRef;
     } catch (error) {
@@ -313,164 +264,6 @@ async function createBrowserCombineInputPaths(paths: string[], signal?: AbortSig
     }
 }
 
-function releaseCanvas(canvas: HTMLCanvasElement) {
-    canvas.width = 0;
-    canvas.height = 0;
-}
-
-async function canvasToPngBytes(canvas: HTMLCanvasElement) {
-    const pngBlob = await new Promise<Blob>((resolve, reject) => {
-        canvas.toBlob((nextBlob) => {
-            if (!nextBlob) {
-                reject(new Error('Failed to convert image to PNG'));
-                return;
-            }
-
-            resolve(nextBlob);
-        }, 'image/png');
-    });
-
-    return new Uint8Array(await pngBlob.arrayBuffer());
-}
-
-async function normalizeImageBytesToPng(fileName: string, bytes: Uint8Array) {
-    const extension = getExtension(fileName);
-    if (extension === '.png') {
-        return bytes;
-    }
-
-    assertBrowserImageMetadata(fileName, bytes);
-
-    if (typeof document === 'undefined' || typeof URL === 'undefined') {
-        throw new Error(
-            `Image format is not available in the current browser runtime: ${fileName}`,
-        );
-    }
-
-    const blob = new Blob([toBrowserOwnedArrayBuffer(bytes)]);
-    const objectUrl = URL.createObjectURL(blob);
-
-    try {
-        const image = await new Promise<HTMLImageElement>((resolve, reject) => {
-            const nextImage = new Image();
-            nextImage.onload = () => resolve(nextImage);
-            nextImage.onerror = () =>
-                reject(new Error(`Failed to load image: ${fileName}`));
-            nextImage.src = objectUrl;
-        });
-
-        const canvas = document.createElement('canvas');
-        canvas.width = image.naturalWidth || image.width;
-        canvas.height = image.naturalHeight || image.height;
-        const context = canvas.getContext('2d');
-        if (!context) {
-            throw new Error('Canvas 2D context is unavailable');
-        }
-
-        context.drawImage(image, 0, 0);
-        try {
-            return await canvasToPngBytes(canvas);
-        } finally {
-            releaseCanvas(canvas);
-        }
-    } finally {
-        URL.revokeObjectURL(objectUrl);
-    }
-}
-
-function createClampedImageData(rgba: Uint8Array, width: number, height: number) {
-    if (typeof ImageData === 'undefined') {
-        throw new Error('ImageData is unavailable in the current browser runtime');
-    }
-
-    const clamped = new Uint8ClampedArray(rgba.byteLength);
-    clamped.set(rgba);
-    return new ImageData(clamped, width, height);
-}
-
-async function encodeRgbaToPngBytes(
-    width: number,
-    height: number,
-    rgba: Uint8Array,
-) {
-    if (typeof document === 'undefined') {
-        throw new Error('Canvas 2D context is unavailable');
-    }
-
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    const context = canvas.getContext('2d');
-    if (!context) {
-        throw new Error('Canvas 2D context is unavailable');
-    }
-
-    context.putImageData(createClampedImageData(rgba, width, height), 0, 0);
-    try {
-        return await canvasToPngBytes(canvas);
-    } finally {
-        releaseCanvas(canvas);
-    }
-}
-
-async function embedTiffPages(
-    pdfDocument: PDFDocument,
-    fileName: string,
-    bytes: Uint8Array,
-    decodedBudget: IBrowserDecodedWorkingSetBudget,
-) {
-    let addedPages = 0;
-
-    for (const {
-        frame,
-        width,
-        height,
-        rgba,
-    } of iterateDecodedTiffFrames(bytes, {
-            ...DEFAULT_TIFF_DECODE_LIMITS,
-            sourceLabel: fileName,
-        })) {
-        consumeBrowserDecodedWorkingSet(decodedBudget, width, height, fileName);
-        const pngBytes = await encodeRgbaToPngBytes(width, height, rgba);
-        const image = await pdfDocument.embedPng(pngBytes);
-        appendPdfImagePage(pdfDocument, image, {dpi: readBrowserTiffFrameDpi(frame)});
-        addedPages += 1;
-    }
-
-    if (addedPages === 0) {
-        throw new Error(`Failed to decode TIFF image: ${fileName}`);
-    }
-}
-
-async function embedImagePage(
-    pdfDocument: PDFDocument,
-    fileName: string,
-    bytes: Uint8Array,
-    decodedBudget: IBrowserDecodedWorkingSetBudget,
-) {
-    const extension = getExtension(fileName);
-    if (extension === '.tif' || extension === '.tiff') {
-        await embedTiffPages(pdfDocument, fileName, bytes, decodedBudget);
-        return;
-    }
-
-    if (extension === '.jpg' || extension === '.jpeg') {
-        const metadata = assertBrowserImageMetadata(fileName, bytes);
-        consumeBrowserDecodedWorkingSet(decodedBudget, metadata.width, metadata.height, fileName);
-        const image = await pdfDocument.embedJpg(bytes);
-        embedPdfImageIccProfile(pdfDocument, image, await resolveBrowserRasterIccProfile(metadata));
-        appendPdfImagePage(pdfDocument, image, metadata);
-        return;
-    }
-
-    const metadata = assertBrowserImageMetadata(fileName, bytes);
-    consumeBrowserDecodedWorkingSet(decodedBudget, metadata.width, metadata.height, fileName);
-    const pngBytes = await normalizeImageBytesToPng(fileName, bytes);
-    const image = await pdfDocument.embedPng(pngBytes);
-    embedPdfImageIccProfile(pdfDocument, image, await resolveBrowserRasterIccProfile(metadata));
-    appendPdfImagePage(pdfDocument, image, metadata);
-}
-
 export async function createCombinedPdfFromPaths(
     paths: string[],
     progressOptions?: IBrowserBatchOpenProgressOptions,
@@ -500,56 +293,23 @@ async function createCombinedPdfFromPreparedPaths(
     const startedAt = Date.now();
     const totalPaths = paths.length;
 
-    if (canCombineBrowserPathsOffThread(paths) && canUseBrowserPdfCombineWorker()) {
-        const inputs = [];
-
-        for (let index = 0; index < paths.length; index += 1) {
-            throwIfCombineAborted(progressOptions?.signal);
-            if (index > 0) {
-                await yieldToBrowser();
-            }
-
-            const path = paths[index]!;
-            const data = await browserDocumentStore.read(path);
-            inputs.push(cloneCombineWorkerInput(
-                getBrowserDocumentFileName(path),
-                data,
-            ));
-            emitBatchOpenProgress(progressOptions, index + 1, totalPaths, startedAt, 80);
-        }
-
-        try {
-            const result = await runBrowserPdfCombineWorkerRequest(
-                'combinePdfs',
-                { inputs },
-                progressOptions?.signal,
-            );
-            emitBatchOpenProgress(progressOptions, totalPaths, totalPaths, startedAt, 95);
-            return result.data;
-        } catch (error) {
-            if (
-                !(error instanceof BrowserPdfCombineWorkerUnavailableError)
-                && !(
-                    error instanceof Error
-                    && (
-                        error.message === 'ERR_BROWSER_PDF_COMBINE_WORKER_UNSUPPORTED_IMAGE_RUNTIME'
-                        || error.message.startsWith('ERR_BROWSER_PDF_COMBINE_WORKER_UNSUPPORTED_INPUT:')
-                    )
-                )
-            ) {
-                throw error;
-            }
-        }
+    if (!canCombineBrowserPathsOffThread(paths)) {
+        throw new PdfCombineCapabilityError(
+            'native-unavailable',
+            'Browser PDF combine does not support this input set',
+            {operation: 'pdf-combine'},
+        );
     }
 
-    const { PDFDocument } = await import('pdf-lib');
-    const pdfDocument = await PDFDocument.create();
-    const sourceOutlines: IPdfBookmarkEntry[] = [];
-    const pageLabelRanges: IPdfCombinePageLabelRange[] = [];
-    const decodedBudget: IBrowserDecodedWorkingSetBudget = {
-        usedBytes: 0,
-        maxBytes: BROWSER_COMBINED_PDF_MAX_DECODED_WORKING_BYTES,
-    };
+    if (!canUseBrowserPdfCombineWorker()) {
+        throw new PdfCombineCapabilityError(
+            'native-unavailable',
+            'Browser PDF combine worker is unavailable',
+            {operation: 'pdf-combine'},
+        );
+    }
+
+    const inputs = [];
 
     for (let index = 0; index < paths.length; index += 1) {
         throwIfCombineAborted(progressOptions?.signal);
@@ -558,54 +318,34 @@ async function createCombinedPdfFromPreparedPaths(
         }
 
         const path = paths[index]!;
-        const bytes = await browserDocumentStore.read(path);
-        const fileName = getBrowserDocumentFileName(path);
-        const firstPageIndex = pdfDocument.getPageCount();
-        if (isPdfFileName(fileName)) {
-            const sourcePdf = await PDFDocument.load(bytes);
-            const catalog = inspectPdfCombineCatalog(sourcePdf);
-            const copiedPages = await pdfDocument.copyPages(
-                sourcePdf,
-                sourcePdf.getPageIndices(),
-            );
-            copiedPages.forEach((page) => pdfDocument.addPage(page));
-            assertBrowserCombinedPdfPageCount(pdfDocument.getPageCount());
-            sourceOutlines.push({
-                title: fileName,
-                pageIndex: firstPageIndex,
-                namedDest: null,
-                bold: false,
-                italic: false,
-                color: null,
-                items: offsetPdfCombineBookmarks(catalog.bookmarks, firstPageIndex),
-            });
-            pageLabelRanges.push(...catalog.pageLabels.map(range => ({
-                ...range,
-                pageIndex: firstPageIndex + range.pageIndex,
-            })));
-            emitBatchOpenProgress(progressOptions, index + 1, totalPaths, startedAt, 90);
-            continue;
-        }
-
-        await embedImagePage(pdfDocument, fileName, bytes, decodedBudget);
-        assertBrowserCombinedPdfPageCount(pdfDocument.getPageCount());
-        sourceOutlines.push({
-            title: fileName,
-            pageIndex: firstPageIndex,
-            namedDest: null,
-            bold: false,
-            italic: false,
-            color: null,
-            items: [],
-        });
-        emitBatchOpenProgress(progressOptions, index + 1, totalPaths, startedAt, 90);
+        const data = await browserDocumentStore.read(path);
+        inputs.push(cloneCombineWorkerInput(
+            getBrowserDocumentFileName(path),
+            data,
+        ));
+        emitBatchOpenProgress(progressOptions, index + 1, totalPaths, startedAt, 80);
     }
 
-    await yieldToBrowser();
-    writePdfBookmarkOutlines(pdfDocument, sourceOutlines);
-    applyCombinedPdfPageLabels(pdfDocument, pageLabelRanges);
-    const result = new Uint8Array(await pdfDocument.save());
-    assertBrowserCombinedPdfOutputBytes(result);
-    emitBatchOpenProgress(progressOptions, totalPaths, totalPaths, startedAt, 95);
-    return result;
+    try {
+        const result = await runBrowserPdfCombineWorkerRequest(
+            'combinePdfs',
+            { inputs },
+            progressOptions?.signal,
+        );
+        assertBrowserCombinedPdfOutputBytes(result.data);
+        emitBatchOpenProgress(progressOptions, totalPaths, totalPaths, startedAt, 95);
+        return result.data;
+    } catch (error) {
+        if (error instanceof BrowserPdfCombineWorkerUnavailableError) {
+            throw new PdfCombineCapabilityError(
+                'native-unavailable',
+                'Browser PDF combine worker failed to start',
+                {
+                    operation: 'pdf-combine',
+                    cause: error,
+                },
+            );
+        }
+        throw error;
+    }
 }

@@ -101,6 +101,25 @@ describe('createDeferredWorkspaceExposeProxy', () => {
         expect(deps.withLoadedWorkspace).not.toHaveBeenCalled();
     });
 
+    it('forwards targeted navigation options through a mounted deferred workspace', () => {
+        const handleGoToPage = vi.fn();
+        const workspace = createWorkspace({handleGoToPage});
+        const proxy = createDeferredWorkspaceExposeProxy(createDeps(workspace));
+        const options = {
+            navigationSource: 'annotation' as const,
+            markerRect: {
+                left: 0.1,
+                top: 0.2,
+                width: 0.3,
+                height: 0.4,
+            },
+        };
+
+        proxy.handleGoToPage(25, options);
+
+        expect(handleGoToPage).toHaveBeenCalledWith(25, options);
+    });
+
     it('forwards mount-wait methods and returns their result', async () => {
         const workspace = createWorkspace({handleSave: vi.fn(async () => true)});
         const deps = createDeps(workspace);
@@ -110,6 +129,15 @@ describe('createDeferredWorkspaceExposeProxy', () => {
 
         expect(deps.withLoadedWorkspace).toHaveBeenCalledWith('handleSave', expect.any(Function));
         expect(workspace.handleSave).toHaveBeenCalledOnce();
+    });
+
+    it('preserves the image placement result through the deferred workspace command', async () => {
+        const workspace = createWorkspace({handlePasteImageFromClipboard: cast<IWorkspaceExpose['handlePasteImageFromClipboard']>(vi.fn(async () => true))});
+        const deps = createDeps(workspace);
+        const proxy = createDeferredWorkspaceExposeProxy(deps);
+
+        await expect(proxy.handlePasteImageFromClipboard()).resolves.toBe(true);
+        expect(workspace.handlePasteImageFromClipboard).toHaveBeenCalledOnce();
     });
 
     it('returns safe defaults when mount-wait methods have no workspace', async () => {

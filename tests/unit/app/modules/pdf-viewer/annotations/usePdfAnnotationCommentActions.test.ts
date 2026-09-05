@@ -15,21 +15,21 @@ import {
     shallowRef,
 } from 'vue';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
-import { AnnotationApplication } from '@app/modules/pdf-viewer/annotations/annotationApplication';
+import {
+    AnnotationApplication,
+    toCanonicalShapeEntity,
+} from '@app/modules/pdf-viewer/annotations/annotationApplication';
 import { usePdfAnnotationCommentActions } from '@app/modules/pdf-viewer/annotations/usePdfAnnotationCommentActions';
 import { usePdfShapeTool } from '@app/modules/pdf-viewer/tools/usePdfShapeTool';
 import { usePdfAnnotationCommentModel } from '@app/modules/pdf-viewer/annotations/usePdfAnnotationCommentModel';
 import { annotationIdForSummary } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
+import { asAnnotationId } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type {
     IAnnotationCommentSummary,
     IShapeAnnotation,
     TAnnotationTool,
 } from '@app/types/annotations';
 
-const IMPORT_SOURCE = {
-    documentKey: 'doc-key',
-    path: '/documents/doc.pdf',
-};
 const mountedApps = new Set<ReturnType<typeof createApp>>();
 
 function createEmbeddedShape(overrides?: Partial<IShapeAnnotation>): IShapeAnnotation {
@@ -112,6 +112,7 @@ function createActionsHarness() {
 
     return {
         actions,
+        annotationApplication,
         shapeTool,
         activeCommentStableKey,
         scrollToPage,
@@ -141,7 +142,8 @@ describe('usePdfAnnotationCommentActions shape rows', () => {
 
     it('focuses the shape, marks the row active and scrolls to its page', async () => {
         const harness = createActionsHarness();
-        harness.shapeTool.shapeComposable.importEmbeddedShapes([createEmbeddedShape()], IMPORT_SOURCE);
+        const shape = createEmbeddedShape();
+        harness.annotationApplication.value.store.replaceFromDocument([toCanonicalShapeEntity(shape, asAnnotationId(shape.id))], []);
         const summary = importedShapeSummary(harness);
 
         await harness.actions.focusAnnotationComment(summary);
@@ -163,7 +165,8 @@ describe('usePdfAnnotationCommentActions shape rows', () => {
 
     it('leaves focus untouched when no shape owns the row', async () => {
         const harness = createActionsHarness();
-        harness.shapeTool.shapeComposable.importEmbeddedShapes([createEmbeddedShape()], IMPORT_SOURCE);
+        const shape = createEmbeddedShape();
+        harness.annotationApplication.value.store.replaceFromDocument([toCanonicalShapeEntity(shape, asAnnotationId(shape.id))], []);
         const summary = importedShapeSummary(harness);
         const staleSummary: IAnnotationCommentSummary = {
             ...summary,
@@ -180,7 +183,8 @@ describe('usePdfAnnotationCommentActions shape rows', () => {
 
     it('still deletes the shape the row identifies', async () => {
         const harness = createActionsHarness();
-        harness.shapeTool.shapeComposable.importEmbeddedShapes([createEmbeddedShape()], IMPORT_SOURCE);
+        const shape = createEmbeddedShape();
+        harness.annotationApplication.value.store.replaceFromDocument([toCanonicalShapeEntity(shape, asAnnotationId(shape.id))], []);
         const summary = importedShapeSummary(harness);
 
         await expect(harness.actions.deleteAnnotationComment(summary)).resolves.toBe(true);

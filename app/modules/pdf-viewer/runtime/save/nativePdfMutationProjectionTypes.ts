@@ -10,17 +10,17 @@ export interface INativePdfMutationAnnotationSavePlan {
 }
 
 /**
- * The native-append grant emitted once by `classifyPdfSaveRoute`. Native projectors
+ * The native-append grant emitted once by the native mutation planner. Native projectors
  * assert it and read its flags; they never re-derive a mode, capability, or route.
  */
 export interface INativeAppendSaveRoute {
     readonly route: 'native-append';
-    /** Only `source-replay` admits replayable annotation mutations onto this route. */
+    /** Only `loaded-source` admits replayable annotation mutations onto this route. */
     readonly annotationRoute: INativePdfMutationAnnotationSavePlan;
     readonly replayableAnnotationMutationsAllowed: boolean;
     readonly metadataMutationsAllowed: boolean;
     readonly annotationWorkDirty: boolean;
-    readonly pdfjsMaterializeForced: boolean;
+    readonly writerSaveForced: boolean;
     readonly nativeMutationProjection: INativePdfMutationProjection;
 }
 

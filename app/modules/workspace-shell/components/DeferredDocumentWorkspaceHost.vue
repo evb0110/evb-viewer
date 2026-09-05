@@ -797,13 +797,13 @@ const workspaceExpose: IWorkspaceExpose = createDeferredWorkspaceExposeProxy({
         // begins its surface generation; the owner-less session rejects them
         // as potential stale projections, so the host retains the genuine
         // user command and replays it when the generation begins.
-        handleGoToPage: page => {
+        handleGoToPage: (page, options) => {
             if (isDocumentOpenInFlight.value || !mountedWorkspace.value) {
                 activeDocumentSession.value.requestDocumentPage(page);
                 return;
             }
 
-            mountedWorkspace.value.handleGoToPage(page);
+            mountedWorkspace.value.handleGoToPage(page, options);
         },
         handleOpenFileFromUi,
         hasPdf,

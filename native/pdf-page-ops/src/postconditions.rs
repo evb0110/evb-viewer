@@ -19,16 +19,13 @@ pub(crate) fn validate_appended_revision_postconditions(
 ) -> Result<()> {
     validate_note_text_document_postconditions(document, &mutations.updates, modified_at)?;
     validate_note_geometry_document_postconditions(document, &mutations.geometry_updates)?;
+    validate_text_note_document_postconditions(document, &mutations.notes, modified_at)?;
     validate_free_text_note_document_postconditions(
         document,
         &mutations.free_text_notes,
         modified_at,
     )?;
-    validate_free_text_editor_document_postconditions(
-        document,
-        &mutations.free_text_editors,
-        modified_at,
-    )?;
+    validate_text_box_document_postconditions(document, &mutations.text_boxes, modified_at)?;
     validate_annotation_delete_document_postconditions(document, &mutations.deletes)?;
     if let Some(page_labels) = &mutations.page_labels {
         if mutations.continuation.as_ref().is_some_and(|continuation| {
@@ -64,6 +61,34 @@ pub(crate) fn validate_appended_revision_postconditions(
         placed_image_chunk_index(mutations),
         modified_at,
     )
+}
+
+/// Compare a rewritten annotation with its source while ignoring keys owned
+/// by the mutation. This is used by conversion tests and is intentionally
+/// small enough to reuse for other annotation migrations.
+#[cfg(test)]
+pub(crate) fn assert_unowned_keys_unchanged(
+    before: &Dictionary,
+    after: &Dictionary,
+    owned_keys: &[&[u8]],
+) -> Result<()> {
+    let owned = owned_keys.iter().copied().collect::<HashSet<_>>();
+    let mut keys = HashSet::new();
+    keys.extend(before.iter().map(|(key, _)| key.to_vec()));
+    keys.extend(after.iter().map(|(key, _)| key.to_vec()));
+    for key in keys {
+        if owned.contains(key.as_slice()) {
+            continue;
+        }
+        if before.get(key.as_slice()).ok() != after.get(key.as_slice()).ok() {
+            return Err(format!(
+                "Annotation key /{} changed outside the mutation-owned set",
+                String::from_utf8_lossy(&key)
+            )
+            .into());
+        }
+    }
+    Ok(())
 }
 
 pub(crate) fn validate_note_text_document_postconditions(
@@ -138,17 +163,22 @@ pub(crate) fn validate_note_geometry_document_postconditions(
         let page_id = page_resolver.page_id(document, page_number)?;
         let page_view = resolve_page_view(document, page_id)?;
         let page_rotation = resolve_page_rotation(document, page_id)?;
-        let expected_rect = marker_rect_to_pdf_rect(update.marker_rect, page_view, page_rotation)?;
         let target_id = (update.object_number, update.generation_number);
-        let target_dict = document.dictionary(target_id)?;
+        let target = resolve_note_target(document, target_id)?;
+        let target_dict = document.dictionary(target.annotation_id)?;
         let target_subtype = annotation_subtype(target_dict);
         if target_subtype != "text" && target_subtype != "freetext" {
             return Err("Note geometry target has an unsupported subtype".into());
         }
+        let expected_rect = if target_subtype == "text" {
+            text_note_pdf_rect(update.marker_rect, page_view, page_rotation)?
+        } else {
+            marker_rect_to_pdf_rect(update.marker_rect, page_view, page_rotation)?
+        };
         let page_annots = get_page_annots(document, page_id)?;
         if !page_annots
             .iter()
-            .any(|object| object.as_reference().ok() == Some(target_id))
+            .any(|object| object.as_reference().ok() == Some(target.annotation_id))
         {
             return Err("Note geometry target is missing from destination page Annots".into());
         }
@@ -173,7 +203,7 @@ pub(crate) fn validate_note_geometry_document_postconditions(
                 "Note geometry embedded Popup Rect",
             )?;
         }
-        if let Some(popup_id) = annotation_related_ref(target_dict, b"Popup") {
+        if let Some(popup_id) = target.popup_ref {
             if !page_annots
                 .iter()
                 .any(|object| object.as_reference().ok() == Some(popup_id))
@@ -189,7 +219,7 @@ pub(crate) fn validate_note_geometry_document_postconditions(
                 expected_rect,
                 "Note geometry Popup Rect",
             )?;
-            if annotation_related_ref(popup_dict, b"Parent") != Some(target_id) {
+            if annotation_related_ref(popup_dict, b"Parent") != Some(target.annotation_id) {
                 return Err("Note geometry Popup Parent did not reference its target".into());
             }
             if popup_dict
@@ -210,6 +240,14 @@ pub(crate) fn validate_free_text_note_document_postconditions(
     notes: &[FreeTextNote],
     modified_at: &str,
 ) -> Result<()> {
+    validate_text_note_document_postconditions(document, notes, modified_at)
+}
+
+pub(crate) fn validate_text_note_document_postconditions(
+    document: &impl PdfObjectSource,
+    notes: &[TextNote],
+    modified_at: &str,
+) -> Result<()> {
     if notes.is_empty() {
         return Ok(());
     }
@@ -223,7 +261,7 @@ pub(crate) fn validate_free_text_note_document_postconditions(
         let page_id = page_resolver.page_id(document, page_number)?;
         let page_view = resolve_page_view(document, page_id)?;
         let page_rotation = resolve_page_rotation(document, page_id)?;
-        let expected_rect = marker_rect_to_pdf_rect(note.marker_rect, page_view, page_rotation)?;
+        let expected_rect = text_note_pdf_rect(note.marker_rect, page_view, page_rotation)?;
         let note_name = replayable_free_text_note_name(note);
         let annots = get_page_annots(document, page_id)?;
         let matching_refs: Vec<ObjectId> = annots
@@ -233,17 +271,17 @@ pub(crate) fn validate_free_text_note_document_postconditions(
                 document
                     .dictionary(*object_id)
                     .ok()
-                    .filter(|dict| annotation_subtype(dict) == "freetext")
-                    .and_then(|dict| dict.get(b"NM").ok())
-                    .and_then(pdf_string_to_text)
-                    .as_deref()
-                    == Some(note_name.as_str())
+                    .filter(|dict| annotation_subtype(dict) == "text")
+                    .and_then(read_annotation_name)
+                    .is_some_and(|actual_name| {
+                        text_note_delete_name_matches(&actual_name, &note_name, note.created_at)
+                    })
             })
             .collect();
 
         if matching_refs.len() != 1 {
             return Err(format!(
-                "Expected exactly one FreeText annotation named {note_name}, found {}",
+                "Expected exactly one Text annotation named {note_name}, found {}",
                 matching_refs.len()
             )
             .into());
@@ -251,31 +289,76 @@ pub(crate) fn validate_free_text_note_document_postconditions(
 
         let annot_ref = matching_refs[0];
         let annot_dict = document.dictionary(annot_ref)?;
-        validate_free_text_annotation_fields(
-            document,
-            annot_dict,
-            note,
-            &note_name,
+        if annotation_subtype(annot_dict) != "text" {
+            return Err("Text note annotation has the wrong subtype".into());
+        }
+        if annot_dict
+            .get(b"Name")
+            .ok()
+            .and_then(|object| object.as_name().ok())
+            != Some(b"Note")
+        {
+            return Err("Text note annotation has the wrong icon name".into());
+        }
+        validate_annotation_text_fields(annot_dict, &note.text, modified_at, "Text note")?;
+        validate_optional_author(annot_dict, note.author.as_deref(), "Text note")?;
+        let actual_name = annot_dict
+            .get(b"NM")
+            .ok()
+            .and_then(pdf_string_to_text)
+            .ok_or("Text note annotation is missing NM")?;
+        if !text_note_delete_name_matches(&actual_name, &note_name, note.created_at) {
+            return Err("Text note annotation NM did not match requested note name".into());
+        }
+        if annot_dict
+            .get(b"CreationDate")
+            .ok()
+            .and_then(pdf_string_to_text)
+            .is_none()
+        {
+            return Err("Text note annotation is missing CreationDate".into());
+        }
+        if annot_dict.get(b"AP").is_ok() {
+            return Err("Text note annotation unexpectedly contains AP".into());
+        }
+        validate_rect_approximately(
+            parse_rect(annot_dict.get(b"Rect")?)?,
             expected_rect,
-            modified_at,
+            "Text note annotation Rect",
         )?;
+        if annot_dict
+            .get(b"P")
+            .ok()
+            .and_then(|object| object.as_reference().ok())
+            != Some(page_id)
+        {
+            return Err("Text note annotation /P did not match its page".into());
+        }
         let popup_ref = annotation_related_ref(annot_dict, b"Popup")
-            .ok_or("FreeText annotation is missing Popup")?;
+            .ok_or("Text note annotation is missing Popup")?;
         if !annots
             .iter()
             .any(|object| object.as_reference().ok() == Some(popup_ref))
         {
-            return Err("FreeText popup is missing from page Annots".into());
+            return Err("Text note popup is missing from page Annots".into());
         }
         let popup_dict = document.dictionary(popup_ref)?;
         validate_popup_annotation_fields(popup_dict, note, expected_rect, modified_at, annot_ref)?;
+        if popup_dict
+            .get(b"P")
+            .ok()
+            .and_then(|object| object.as_reference().ok())
+            != Some(page_id)
+        {
+            return Err("Text note Popup /P did not match its page".into());
+        }
     }
     Ok(())
 }
 
-pub(crate) fn validate_free_text_editor_document_postconditions(
+pub(crate) fn validate_text_box_document_postconditions(
     document: &impl PdfObjectSource,
-    editors: &[FreeTextEditor],
+    editors: &[TextBoxMutation],
     modified_at: &str,
 ) -> Result<()> {
     if editors.is_empty() {
@@ -289,35 +372,36 @@ pub(crate) fn validate_free_text_editor_document_postconditions(
             .ok_or("Invalid FreeText editor page index")?;
         let page_id = page_resolver.page_id(document, page_number)?;
         let page_view = resolve_page_view(document, page_id)?;
-        let expected_rect = validate_free_text_editor_rect(editor, page_view)?;
-        let expected_name = free_text_editor_name(editor);
+        let expected_rect = validate_text_box_rect(editor, page_view)?;
+        let expected_name = text_box_name(editor);
         let page_annotation_refs = get_page_annots(document, page_id)?
             .iter()
             .filter_map(|object| object.as_reference().ok())
             .collect::<Vec<_>>();
-        let matching_refs: Vec<ObjectId> =
-            if let Some(annotation_id) = editor.annotation_id.as_deref() {
-                let object_id = parse_pdfjs_annotation_object_id(annotation_id)
-                    .ok_or("Invalid imported FreeText annotation id")?;
-                page_annotation_refs
-                    .into_iter()
-                    .filter(|candidate| *candidate == object_id)
-                    .collect()
-            } else {
-                page_annotation_refs
-                    .into_iter()
-                    .filter(|object_id| {
-                        document
-                            .dictionary(*object_id)
-                            .ok()
-                            .filter(|dict| annotation_subtype(dict) == "freetext")
-                            .and_then(|dict| dict.get(b"NM").ok())
-                            .and_then(pdf_string_to_text)
-                            .as_deref()
-                            == Some(expected_name.as_str())
-                    })
-                    .collect()
-            };
+        let matching_refs: Vec<ObjectId> = if let Some(annotation_id) =
+            editor.annotation_id.as_deref()
+        {
+            let object_id = parse_pdfjs_annotation_object_id(annotation_id)
+                .ok_or("Invalid imported FreeText annotation id")?;
+            page_annotation_refs
+                .into_iter()
+                .filter(|candidate| *candidate == object_id)
+                .collect()
+        } else {
+            page_annotation_refs
+                .into_iter()
+                .filter(|object_id| {
+                    document
+                        .dictionary(*object_id)
+                        .ok()
+                        .filter(|dict| annotation_subtype(dict) == "freetext")
+                        .and_then(read_annotation_name)
+                        .is_some_and(|actual_name| {
+                            annotation_names_match(&actual_name, &expected_name, &["evb-freetext:"])
+                        })
+                })
+                .collect()
+        };
         if matching_refs.len() != 1 {
             return Err(format!(
                 "Expected exactly one FreeText editor named {expected_name}, found {}",
@@ -326,12 +410,28 @@ pub(crate) fn validate_free_text_editor_document_postconditions(
             .into());
         }
         let dict = document.dictionary(matching_refs[0])?;
-        validate_annotation_text_fields(dict, &editor.text, modified_at, "FreeText editor")?;
+        let effective_modified_at = shape_pdf_date(editor.modified_at, modified_at);
+        validate_annotation_text_fields(
+            dict,
+            &editor.text,
+            &effective_modified_at,
+            "FreeText editor",
+        )?;
+        if editor.author.is_some() {
+            validate_optional_author(dict, editor.author.as_deref(), "FreeText editor")?;
+        }
+        if let Some(created_at) = editor.created_at {
+            let actual_creation_date = dict
+                .get(b"CreationDate")
+                .ok()
+                .and_then(pdf_string_to_text)
+                .ok_or("FreeText editor is missing creation timestamp")?;
+            if actual_creation_date != shape_pdf_date(Some(created_at), modified_at) {
+                return Err("FreeText editor creation timestamp did not match".into());
+            }
+        }
         let actual_rect = parse_rect(dict.get(b"Rect")?)?;
         validate_rect_approximately(actual_rect, expected_rect, "FreeText editor Rect")?;
-        if dict.get(b"Popup").is_ok() {
-            return Err("FreeText editor unexpectedly contains a Popup".into());
-        }
         let rotation = dict.get(b"Rotate")?.as_i64()?;
         if rotation != i64::from(editor.rotation) {
             return Err("FreeText editor rotation did not match the requested rotation".into());
@@ -341,10 +441,78 @@ pub(crate) fn validate_free_text_editor_document_postconditions(
             .ok()
             .and_then(|object| object.as_str().ok())
             .ok_or("FreeText editor is missing DA")?;
-        if !String::from_utf8_lossy(default_appearance).contains("/Helv") {
-            return Err("FreeText editor DA is missing Helvetica".into());
-        }
+        let expected_color = editor.color.map(|component| f64::from(component) / 255.0);
+        validate_text_box_default_appearance(default_appearance, editor.font_size, expected_color)?;
         validate_appearance(document, dict)?;
+    }
+    Ok(())
+}
+
+fn validate_text_box_default_appearance(
+    default_appearance: &[u8],
+    expected_font_size: f64,
+    expected_color: [f64; 3],
+) -> Result<()> {
+    const EPSILON: f64 = 0.0001;
+
+    let tokens = tokenize_default_appearance(default_appearance);
+    let mut actual_font_size = None;
+    let mut actual_color = None;
+    for (index, &(start, end)) in tokens.iter().enumerate() {
+        let token = &default_appearance[start..end];
+        if token == b"Tf" {
+            let size = index
+                .checked_sub(1)
+                .and_then(|operand_index| tokens.get(operand_index))
+                .and_then(|&(operand_start, operand_end)| {
+                    std::str::from_utf8(&default_appearance[operand_start..operand_end])
+                        .ok()
+                        .and_then(|value| value.parse::<f64>().ok())
+                });
+            if let Some(size) = size.filter(|value| value.is_finite() && *value > 0.0) {
+                actual_font_size = Some(size);
+            }
+        } else if token == b"rg" {
+            let Some(first_operand) = index.checked_sub(3) else {
+                continue;
+            };
+            let mut color = [0.0; 3];
+            let mut operands_are_valid = true;
+            for (component, &(operand_start, operand_end)) in
+                color.iter_mut().zip(tokens[first_operand..index].iter())
+            {
+                let value = std::str::from_utf8(&default_appearance[operand_start..operand_end])
+                    .ok()
+                    .and_then(|value| value.parse::<f64>().ok())
+                    .filter(|value| value.is_finite() && (0.0..=1.0).contains(value));
+                let Some(value) = value else {
+                    operands_are_valid = false;
+                    break;
+                };
+                *component = value;
+            }
+            if operands_are_valid {
+                actual_color = Some(color);
+            }
+        }
+    }
+
+    let Some(actual_font_size) = actual_font_size else {
+        return Err("FreeText editor DA is missing Tf operands".into());
+    };
+    if (actual_font_size - expected_font_size).abs() > EPSILON {
+        return Err("FreeText editor DA font size did not match the requested size".into());
+    }
+
+    let Some(actual_color) = actual_color else {
+        return Err("FreeText editor DA is missing rg operands".into());
+    };
+    if actual_color
+        .into_iter()
+        .zip(expected_color)
+        .any(|(actual, expected)| (actual - expected).abs() > EPSILON)
+    {
+        return Err("FreeText editor DA color did not match the requested color".into());
     }
     Ok(())
 }
@@ -373,7 +541,10 @@ pub(crate) fn validate_annotation_delete_document_postconditions(
             let target_id = (object_number, generation_number);
             refs_to_delete.insert(target_id);
             if document.dictionary(target_id).is_ok() {
-                for object_id in collect_annotation_refs_to_delete(document, target_id)? {
+                let page_annots = get_page_annots(document, page_id)?;
+                for object_id in
+                    collect_annotation_refs_to_delete(document, target_id, Some(&page_annots))?
+                {
                     refs_to_delete.insert(object_id);
                 }
             }
@@ -471,7 +642,7 @@ pub(crate) fn validate_placed_image_annotation(
         .ok()
         .and_then(pdf_string_to_text)
         .ok_or("Placed image annotation is missing NM")?;
-    if actual_name != expected_name {
+    if !placed_image_names_match(&actual_name, expected_name) {
         return Err("Placed image annotation NM did not match requested name".into());
     }
     let modified = dict
@@ -533,6 +704,7 @@ pub(crate) fn validate_annotation_text_fields(
     Ok(())
 }
 
+#[allow(dead_code)]
 pub(crate) fn validate_free_text_annotation_fields(
     document: &impl PdfObjectSource,
     dict: &Dictionary,
@@ -964,7 +1136,7 @@ pub(crate) fn validate_shapes_document_postconditions(
             let Ok(dict) = document.dictionary(object_id) else {
                 continue;
             };
-            if let Some(stable_key) = read_managed_shape_stable_key(dict) {
+            if let Some(stable_key) = read_shape_stable_key(dict) {
                 if deleted_refs.stable_keys.contains(&stable_key) {
                     return Err(
                         "Deleted stable-key shape is still referenced from page Annots".into(),
@@ -1157,10 +1329,10 @@ fn validate_new_markup_target(
                 .dictionary(*object_id)
                 .ok()
                 .filter(|dict| canonical_markup_subtype(dict).as_deref() == Some(&hint.subtype))
-                .and_then(|dict| dict.get(b"NM").ok())
-                .and_then(pdf_string_to_text)
-                .as_deref()
-                == Some(expected_name.as_str())
+                .and_then(read_annotation_name)
+                .is_some_and(|actual_name| {
+                    annotation_names_match(&actual_name, &expected_name, &["evb-markup:"])
+                })
         })
         .collect();
     if matching_refs.len() != 1 {
@@ -1199,4 +1371,45 @@ fn validate_new_markup_target(
         .ok_or("New text-markup annotation is missing Rect")?;
     validate_rect_approximately(actual_rect, expected_rect, "Text-markup annotation Rect")?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn text_box_default_appearance_requires_requested_font_size_and_color() {
+        let expected_color = [17.0 / 255.0, 24.0 / 255.0, 39.0 / 255.0];
+        validate_text_box_default_appearance(
+            b"/Courier 18 Tf 0.0667 0.0941 0.1529 rg 2 Tc",
+            18.0,
+            expected_color,
+        )
+        .unwrap();
+
+        assert!(validate_text_box_default_appearance(
+            b"/Courier 17 Tf 0.0667 0.0941 0.1529 rg",
+            18.0,
+            expected_color,
+        )
+        .is_err());
+        assert!(validate_text_box_default_appearance(
+            b"/Courier 18 Tf 0.0667 0.0941 rg",
+            18.0,
+            expected_color,
+        )
+        .is_err());
+        validate_text_box_default_appearance(
+            b"/Helv invalid Tf 0 0 rg /Helv 18 Tf 0.0667 0.0941 0.1529 rg",
+            18.0,
+            expected_color,
+        )
+        .unwrap();
+        validate_text_box_default_appearance(
+            b"/Helv 18 Tf 0.0667 0.0941 0.1529 rg /Helv invalid Tf",
+            18.0,
+            expected_color,
+        )
+        .unwrap();
+    }
 }

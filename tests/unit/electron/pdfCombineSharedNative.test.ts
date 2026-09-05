@@ -6,6 +6,7 @@ import {
     vi,
 } from 'vitest';
 import type * as PdfCoreModule from '@pdf-core';
+import { PdfCombineCapabilityError } from '@electron/image/pdfCombineErrors';
 
 const mocks = vi.hoisted(() => {
     const nativeCombine = vi.fn();
@@ -24,6 +25,9 @@ const mocks = vi.hoisted(() => {
         2,
         3,
     ]));
+    const mkdtemp = vi.fn(async () => '/tmp/pdf-combine-normalized');
+    const rm = vi.fn(async () => undefined);
+    const writeFile = vi.fn(async () => undefined);
     const stat = vi.fn(async () => ({
         isFile: () => true,
         size: 1024,
@@ -66,6 +70,9 @@ const mocks = vi.hoisted(() => {
         openFileClose,
         openFileRead,
         readFile,
+        mkdtemp,
+        rm,
+        writeFile,
         stat,
         drawImage,
         addPage,
@@ -81,9 +88,12 @@ const mocks = vi.hoisted(() => {
 vi.mock('@electron/image/tryCreatePdfWithNativeImageCombiner', () => ({tryCreatePdfWithNativeImageCombiner: mocks.nativeCombine}));
 
 vi.mock('fs/promises', () => ({
+    mkdtemp: mocks.mkdtemp,
     open: mocks.open,
     readFile: mocks.readFile,
+    rm: mocks.rm,
     stat: mocks.stat,
+    writeFile: mocks.writeFile,
 }));
 
 vi.mock('pdf-lib', () => ({PDFDocument: {create: mocks.create}}));
@@ -97,7 +107,10 @@ vi.mock('@pdf-core', async (importOriginal) => {
     };
 });
 
-vi.mock('electron', () => ({nativeImage: {createFromPath: mocks.nativeImageCreateFromPath}}));
+vi.mock('electron', () => ({
+    app: {isPackaged: false},
+    nativeImage: {createFromPath: mocks.nativeImageCreateFromPath},
+}));
 
 const { createCombinedPdf } = await import('@electron/image/pdfCombineShared');
 
@@ -143,31 +156,16 @@ describe('createCombinedPdf native image fast path', () => {
         expect(mocks.nativeCombine).toHaveBeenCalledWith([
             '/tmp/a.png',
             '/tmp/b.jpg',
-        ], {onProgress: progress});
+        ], expect.objectContaining({onProgress: progress}));
         expect(mocks.create).not.toHaveBeenCalled();
     });
 
-    it('falls back to pdf-lib when the native image combiner is unavailable', async () => {
-        const result = await createCombinedPdf(['/tmp/a.png'], {unsupportedFileError: sourcePath => `Unsupported: ${sourcePath}`});
+    it('fails closed when the native image combiner is unavailable', async () => {
+        await expect(createCombinedPdf(['/tmp/a.png'], {unsupportedFileError: sourcePath => `Unsupported: ${sourcePath}`}))
+            .rejects.toBeInstanceOf(PdfCombineCapabilityError);
 
-        expect(Array.from(result)).toEqual([
-            9,
-            9,
-        ]);
         expect(mocks.nativeCombine).toHaveBeenCalledTimes(1);
-        expect(mocks.create).toHaveBeenCalledTimes(1);
-        expect(mocks.embedPng).toHaveBeenCalledWith(expect.any(Uint8Array));
-        expect(mocks.addPage).toHaveBeenCalledWith([
-            10,
-            20,
-        ]);
-        expect(mocks.drawImage).toHaveBeenCalledWith(await mocks.embedPng.mock.results[0]?.value, {
-            x: 0,
-            y: 0,
-            width: 10,
-            height: 20,
-        });
-        expect(mocks.save).toHaveBeenCalledTimes(1);
+        expect(mocks.create).not.toHaveBeenCalled();
     });
 
     it('rejects oversized JS fallback inputs before reading them', async () => {
@@ -182,28 +180,6 @@ describe('createCombinedPdf native image fast path', () => {
 
         expect(mocks.readFile).not.toHaveBeenCalled();
         expect(mocks.embedPng).not.toHaveBeenCalled();
-    });
-
-    it('checks PNG dimensions before embedding the image into pdf-lib', async () => {
-        mocks.readFile.mockResolvedValueOnce(createPngHeader(10_000, 10_000));
-
-        await expect(createCombinedPdf(['/tmp/oversized.png'], {unsupportedFileError: sourcePath => `Unsupported: ${sourcePath}`}))
-            .rejects
-            .toThrow('Image dimensions are too large to combine safely: /tmp/oversized.png');
-
-        expect(mocks.embedPng).not.toHaveBeenCalled();
-        expect(mocks.addPage).not.toHaveBeenCalled();
-    });
-
-    it('rejects oversized JS fallback output before returning it', async () => {
-        mocks.save.mockResolvedValueOnce({byteLength: (16 * 1024 * 1024) + 1});
-
-        await expect(createCombinedPdf(['/tmp/a.png'], {unsupportedFileError: sourcePath => `Unsupported: ${sourcePath}`}))
-            .rejects
-            .toMatchObject({
-                code: 'too-large',
-                name: 'SerializableError',
-            });
     });
 
     it.each([
@@ -254,6 +230,10 @@ describe('createCombinedPdf native image fast path', () => {
         ],
     ])('combines a small valid %s image after the header preflight', async (_format, sourcePath, header) => {
         mocks.headerPrefix = header;
+        mocks.nativeCombine.mockResolvedValueOnce(new Uint8Array([
+            9,
+            9,
+        ]));
 
         const result = await createCombinedPdf([sourcePath], {unsupportedFileError: path => `Unsupported: ${path}`});
 
@@ -263,14 +243,22 @@ describe('createCombinedPdf native image fast path', () => {
         ]);
         expect(mocks.nativeImageCreateFromPath).toHaveBeenCalledWith(sourcePath);
         expect(mocks.nativeImageToPng).toHaveBeenCalledTimes(1);
-        expect(mocks.embedPng).toHaveBeenCalledWith(new Uint8Array([
-            8,
-            8,
-        ]));
-        expect(mocks.addPage).toHaveBeenCalledWith([
-            10,
-            20,
-        ]);
+        expect(mocks.writeFile).toHaveBeenCalledWith(
+            '/tmp/pdf-combine-normalized/input-1.png',
+            new Uint8Array([
+                8,
+                8,
+            ]),
+        );
+        expect(mocks.nativeCombine).toHaveBeenCalledWith(
+            ['/tmp/pdf-combine-normalized/input-1.png'],
+            expect.any(Object),
+        );
+        expect(mocks.embedPng).not.toHaveBeenCalled();
+        expect(mocks.rm).toHaveBeenCalledWith('/tmp/pdf-combine-normalized', {
+            recursive: true,
+            force: true,
+        });
     });
 
     it.each([
@@ -313,37 +301,6 @@ describe('createCombinedPdf native image fast path', () => {
         expect(mocks.embedPng).not.toHaveBeenCalled();
     });
 });
-
-function createPngHeader(width: number, height: number): Uint8Array<ArrayBuffer> {
-    const data = new Uint8Array(new ArrayBuffer(24));
-    data.set([
-        0x89,
-        0x50,
-        0x4e,
-        0x47,
-        0x0d,
-        0x0a,
-        0x1a,
-        0x0a,
-        0x00,
-        0x00,
-        0x00,
-        0x0d,
-        0x49,
-        0x48,
-        0x44,
-        0x52,
-    ]);
-    data[16] = (width >>> 24) & 0xff;
-    data[17] = (width >>> 16) & 0xff;
-    data[18] = (width >>> 8) & 0xff;
-    data[19] = width & 0xff;
-    data[20] = (height >>> 24) & 0xff;
-    data[21] = (height >>> 16) & 0xff;
-    data[22] = (height >>> 8) & 0xff;
-    data[23] = height & 0xff;
-    return data;
-}
 
 function writeUint16LE(data: Uint8Array, offset: number, value: number) {
     data[offset] = value & 0xff;

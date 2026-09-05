@@ -12,7 +12,6 @@ import {
 } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { usePageSaveOrchestration } from '@app/modules/workspace-shell/composables/usePageSaveOrchestration';
-import type { IScrollSnapshot } from '@app/types/pdfUi';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 import type {IWorkspaceSaveDependencies} from '@app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService';
 import { cast } from '@tests/helpers/cast';
@@ -42,15 +41,10 @@ vi.mock(
 );
 vi.mock('@app/utils/platformDocuments', () => ({getDocumentFilesCapability: () => ({statFile: platformMocks.statFile})}));
 vi.mock(
-    '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfSerialization',
-    () => ({usePdfSerialization: () => ({
+    '@app/modules/pdf-viewer/runtime/composables/pdf/pdfDocumentPersistence',
+    () => ({usePdfPlacedImagePersistence: () => ({
         getSourcePdfData: vi.fn(async () => new Uint8Array([1])),
-        serializePdfForSave: vi.fn(async (data: Uint8Array) => data),
-        rewriteMarkupSubtypes: vi.fn(),
         embedPlacedImageToPage: vi.fn(),
-        updateEmbeddedAnnotationByRef: vi.fn(),
-        deleteEmbeddedAnnotationByRef: vi.fn(),
-        rewritePageLabels: vi.fn(),
     })}),
 );
 
@@ -108,57 +102,6 @@ describe('usePageSaveOrchestration', () => {
         vi.stubGlobal('useTypedI18n', () => ({t: (key: string) => key}));
     });
 
-    it('arms preserved PDF and metadata reloads without rewriting the current page', () => {
-        const currentPage = ref(41);
-        const scrollSnapshot: IScrollSnapshot = {
-            width: 800,
-            height: 4000,
-            centerX: 300,
-            centerY: 2100,
-            anchorPage: 42,
-            anchorInsidePage: true,
-            anchorOffsetRatio: 0.25,
-            anchorContentXRatio: 0.375,
-            anchorContentYRatio: 0.525,
-            anchorPageXRatio: 0.5,
-            anchorPageYRatio: 0.25,
-            anchorPageYOutsideEdge: 'inside',
-            anchorPageYOutsideOffsetPx: null,
-        };
-        const preserveNextSourceReloadVisibleContent = vi.fn();
-        const preserveMetadataForNextSourceReload = vi.fn();
-        const clearPreservedSourceReloadMetadata = vi.fn();
-
-        usePageSaveOrchestration(createDeps({
-            currentPage,
-            totalPages: ref(50),
-            bookmarksDirty: ref(true),
-            preserveMetadataForNextSourceReload,
-            clearPreservedSourceReloadMetadata,
-            pdfDocument: shallowRef({numPages: 50} as PDFDocumentProxy),
-            pdfViewerRef: ref({
-                scrollToPage: vi.fn(),
-                runSaveTransaction: vi.fn(),
-                getAllShapes: vi.fn(() => []),
-                captureScrollSnapshot: vi.fn(() => scrollSnapshot),
-                preserveNextSourceReloadVisibleContent,
-            }),
-        }));
-
-        const dependencies = cast<IWorkspaceSaveDependencies>(saveMocks.capturedDeps);
-        const reloadWaiter = dependencies.lifecycle.preparePostSaveReload?.();
-        expect(reloadWaiter).toBeDefined();
-        reloadWaiter?.cancel();
-
-        expect(currentPage.value).toBe(41);
-        expect(preserveMetadataForNextSourceReload).toHaveBeenCalledOnce();
-        expect(clearPreservedSourceReloadMetadata).toHaveBeenCalledOnce();
-        expect(preserveNextSourceReloadVisibleContent).toHaveBeenCalledWith({
-            scrollSnapshot,
-            pageToRestore: 42,
-        });
-    });
-
     it('gets the working-copy size through the split file capability', async () => {
         usePageSaveOrchestration(createDeps());
         const dependencies = cast<IWorkspaceSaveDependencies>(saveMocks.capturedDeps);
@@ -169,38 +112,10 @@ describe('usePageSaveOrchestration', () => {
         expect(platformMocks.statFile).toHaveBeenCalledWith('/tmp/document.pdf');
     });
 
-    it('uses live annotation predicates in the canSave fallback', () => {
-        const orchestration = usePageSaveOrchestration(createDeps({
-            hasPendingUnsavedChanges: undefined,
-            hasLivePdfJsAnnotationChanges: vi.fn(() => true),
-        }));
-
-        expect(orchestration.canSave.value).toBe(true);
-    });
-
     it('treats an already clean save command as a successful no-op', async () => {
         const orchestration = usePageSaveOrchestration(createDeps());
 
         await expect(orchestration.handleSave()).resolves.toBe(true);
-        expect(saveMocks.handleSave).not.toHaveBeenCalled();
-    });
-
-    it('reconciles a preserved source signal only when a save command runs', async () => {
-        const preservedSourceDirty = ref(true);
-        const reconcilePreservedAnnotationSourceDirty = vi.fn(() => {
-            preservedSourceDirty.value = false;
-        });
-        const orchestration = usePageSaveOrchestration(createDeps({
-            hasPendingUnsavedChanges: undefined,
-            hasPreservedAnnotationSourceChanges: () => preservedSourceDirty.value,
-            reconcilePreservedAnnotationSourceDirty,
-        }));
-
-        expect(orchestration.canSave.value).toBe(true);
-        expect(reconcilePreservedAnnotationSourceDirty).not.toHaveBeenCalled();
-        await expect(orchestration.handleSave()).resolves.toBe(true);
-        expect(reconcilePreservedAnnotationSourceDirty).toHaveBeenCalledOnce();
-        expect(orchestration.canSave.value).toBe(false);
         expect(saveMocks.handleSave).not.toHaveBeenCalled();
     });
 

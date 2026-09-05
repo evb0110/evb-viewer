@@ -143,14 +143,6 @@ export function annotationKindLabelFromSubtype(
     return annotationKindLabelBySubtype.get(normalizeAnnotationSubtype(subtype)) ?? fallbackAnnotationKindLabel;
 }
 
-export function isPopupSubtype(subtype: string | null | undefined) {
-    return normalizeAnnotationSubtype(subtype) === 'popup';
-}
-
-export function isLinkSubtype(subtype: string | null | undefined) {
-    return normalizeAnnotationSubtype(subtype) === 'link';
-}
-
 export function isTextMarkupSubtype(subtype: string | null | undefined) {
     return textMarkupSubtypes.has(normalizeAnnotationSubtype(subtype));
 }

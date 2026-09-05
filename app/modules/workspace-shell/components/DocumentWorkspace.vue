@@ -136,6 +136,7 @@
                     :annotation-inventory="annotationInventory"
                     :annotation-enrichment-state="annotationEnrichmentState"
                     :annotation-active-comment-stable-key="annotationActiveCommentStableKey"
+                    :selected-text-box="selectedTextBox"
                     :bookmark-edit-mode="bookmarkEditMode"
                     :bookmark-items="bookmarkItems"
                     :bookmarks-dirty="bookmarksDirty"
@@ -163,7 +164,6 @@
                     @annotation-focus-comment="annotationSession.handleAnnotationFocusComment"
                     @annotation-open-note="annotationSession.handleOpenAnnotationNote"
                     @annotation-delete-comment="annotationSession.handleDeleteAnnotationComment"
-                    @annotation-place-note="annotationSession.handleStartPlaceNote"
                     @annotation-retry-enrichment="requestAnnotationEnrichment"
                     @bookmarks-change="handleBookmarksChange"
                     @update:bookmark-edit-mode="bookmarkEditMode = $event"
@@ -324,6 +324,7 @@
             @shape-delete="annotationSession.handleDeleteSelectedShape"
             @shape-close="annotationSession.closeShapeProperties"
             @text-markup-color-update="annotationSession.handleTextMarkupColorUpdate"
+            @text-markup-opacity-update="annotationSession.handleTextMarkupOpacityUpdate"
             @text-markup-close="annotationSession.closeTextMarkupProperties"
         />
         <DjvuConversionOverlay
@@ -441,6 +442,7 @@ import { createDocumentWorkspaceAutomationHandlers } from '@app/modules/workspac
 import { useDocumentOpenedAutomationEvent } from '@app/modules/workspace-shell/automation/useDocumentOpenedAutomationEvent';
 import { usePendingWorkspaceDocumentOpen } from '@app/modules/workspace-shell/composables/usePendingWorkspaceDocumentOpen';
 import { useDjvuProjectionActions } from '@app/modules/workspace-shell/composables/useDjvuProjectionActions';
+import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/public';
 import {
     documentOpenSurfaceSessionKey,
     injectDocumentOpenSurfaceSession,
@@ -788,13 +790,13 @@ const {
     contextMenuDeleteActionLabel,
     annotationTool,
     annotationKeepActive,
-    annotationPlacingPageNote,
     annotationSettings,
     annotationComments,
     annotationCommentsStatus,
     annotationInventory,
     annotationEnrichmentState,
     annotationActiveCommentStableKey,
+    selectedTextBox,
     thumbnailHiddenAnnotationIds,
     markAnnotationCommentsLoading,
     annotationDirty,
@@ -1038,15 +1040,19 @@ const documentSourceSidebar = useDocumentSourceSidebarSession({onNavigate: pageI
 function handleSourceSidebarGoToPage(pageNumber: number, _event?: MouseEvent) {
     handlePreviewAwareGoToPage(pageNumber);
 }
-function handlePreviewAwareGoToPage(pageNumber: number) {
+function handlePreviewAwareGoToPage(pageNumber: number, options?: IScrollToPageOptions) {
     if (!openingPreviewReady.value) {
-        handleGoToPage(pageNumber);
+        handleGoToPage(pageNumber, options);
         return;
     }
     const boundedPage = Math.min(
         Math.max(1, Math.trunc(pageNumber)),
         Math.max(1, openingPreviewPageCount.value),
     );
+    if (options) {
+        handleGoToPage(boundedPage, options);
+        return;
+    }
     documentOpenSurface.requestNavigation(boundedPage);
 }
 const documentPageSource = shallowRef<IDocumentPageSource | null>(null);
@@ -1334,7 +1340,6 @@ const {
     annotationCommentsStatus,
     annotationInventory,
     annotationDirty,
-    annotationPlacingPageNote,
     annotationTool,
     bookmarkItems,
     bookmarksDirty,

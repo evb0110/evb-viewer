@@ -15,6 +15,7 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
     let mut updates_file = None;
     let mut changes_file = None;
     let mut mutations_file = None;
+    let mut password_file = None;
     let mut identity_bindings_file = None;
     let mut instructions_file = None;
     let mut modified_at = None;
@@ -62,6 +63,11 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
                 identity_bindings_file = Some(PathBuf::from(
                     args.next()
                         .ok_or("Missing --identity-bindings-file value")?,
+                ))
+            }
+            "--password-file" => {
+                password_file = Some(PathBuf::from(
+                    args.next().ok_or("Missing --password-file value")?,
                 ))
             }
             "--instructions-file" => {
@@ -133,6 +139,10 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
         return Err("--identity-bindings-file is only valid for save-mutations".into());
     }
 
+    if password_file.is_some() && command != "decrypt" {
+        return Err("--password-file is only valid for decrypt".into());
+    }
+
     let operation = match command.as_str() {
         "split-pages" => Operation::SplitPages {
             instructions_file: instructions_file.ok_or("Missing --instructions-file value")?,
@@ -172,13 +182,18 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
             append_in_place,
             identity_bindings_file,
         },
+        "parse-annotations" => Operation::ParseAnnotations {
+            modified_at: modified_at.ok_or("Missing --modified-at value")?,
+        },
         "annotation-index" | "annotation-name-index" => Operation::AnnotationNameIndex,
         "embedded-shape-index" | "shape-index" => Operation::EmbeddedShapeIndex,
         "pdf-conformance" | "conformance" => Operation::PdfConformance,
+        "decrypt" => Operation::Decrypt { password_file },
         "page-geometry" | "get-page-geometry" => Operation::PageGeometry {
             page_number: page_number.ok_or("Missing --page value")?,
         },
         "page-sizes" => Operation::PageSizes,
+        "read-catalog" => Operation::ReadCatalog,
         _ => return Err(format!("Unknown command: {command}").into()),
     };
 
@@ -193,6 +208,55 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_decrypt_request_with_an_optional_password_file() {
+        let config = parse_args(
+            [
+                "decrypt",
+                "--input",
+                "encrypted.pdf",
+                "--output",
+                "decrypted.pdf",
+                "--password-file",
+                "password.txt",
+            ]
+            .into_iter()
+            .map(String::from),
+        )
+        .unwrap();
+
+        assert!(matches!(
+            config.operation,
+            Operation::Decrypt {
+                password_file: Some(_)
+            }
+        ));
+        assert_eq!(config.input_path, PathBuf::from("encrypted.pdf"));
+        assert_eq!(config.output_path, PathBuf::from("decrypted.pdf"));
+    }
+
+    #[test]
+    fn rejects_the_password_file_flag_outside_decrypt() {
+        let error = parse_args(
+            [
+                "page-sizes",
+                "--input",
+                "input.pdf",
+                "--output",
+                "sizes.json",
+                "--password-file",
+                "password.txt",
+            ]
+            .into_iter()
+            .map(String::from),
+        )
+        .err()
+        .expect("password file outside decrypt should be rejected")
+        .to_string();
+
+        assert!(error.contains("--password-file is only valid for decrypt"));
+    }
 
     #[test]
     fn parses_page_geometry_request() {
@@ -298,5 +362,49 @@ mod tests {
         .to_string();
 
         assert!(error.contains("requires --append"));
+    }
+
+    #[test]
+    fn parses_annotation_parse_request_with_modified_at() {
+        let config = parse_args(
+            [
+                "parse-annotations",
+                "--input",
+                "input.pdf",
+                "--output",
+                "annotations.jsonl",
+                "--modified-at",
+                "D:20260830130000Z",
+            ]
+            .into_iter()
+            .map(String::from),
+        )
+        .unwrap();
+
+        assert!(matches!(
+            config.operation,
+            Operation::ParseAnnotations { ref modified_at }
+                if modified_at == "D:20260830130000Z"
+        ));
+    }
+
+    #[test]
+    fn annotation_parse_requires_modified_at() {
+        let error = parse_args(
+            [
+                "parse-annotations",
+                "--input",
+                "input.pdf",
+                "--output",
+                "annotations.jsonl",
+            ]
+            .into_iter()
+            .map(String::from),
+        )
+        .err()
+        .expect("annotation parse should require its deterministic identity timestamp")
+        .to_string();
+
+        assert!(error.contains("Missing --modified-at value"));
     }
 }

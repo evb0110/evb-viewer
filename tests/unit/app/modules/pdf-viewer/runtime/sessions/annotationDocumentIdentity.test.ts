@@ -16,11 +16,8 @@ import {
     ref,
     shallowRef,
 } from 'vue';
-import type { Ref } from 'vue';
-import type {
-    IAnnotationCommentSummary,
-    TAnnotationStableKey,
-} from '@app/types/annotations';
+import {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import type {IAnnotationCommentSummary} from '@app/types/annotations';
 import type { TPdfSource } from '@app/types/pdfUi';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 
@@ -29,25 +26,10 @@ vi.mock('@app/services/pdfjs/getPdfjsViewerRuntimeProbeFailures', () => ({
     GenericL10n: vi.fn(),
 }));
 
-// The session hands its snapshot identity to the annotation sync bridge and
-// keeps no other handle on it. Delegating to the real bridge keeps the session
-// behaviour intact while exposing the identity the session actually wired.
-const { snapshotDocumentIdentity } = vi.hoisted(() => (
-    {snapshotDocumentIdentity: {ref: null as Ref<string> | null}}
-));
-
-vi.mock('@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationSync', async (importOriginal) => {
-    const actual = await importOriginal<{useAnnotationSync: (options: {documentIdentity: Ref<string>}) => unknown}>();
-    return {
-        ...actual,
-        useAnnotationSync: (options: {documentIdentity: Ref<string>}) => {
-            snapshotDocumentIdentity.ref = options.documentIdentity;
-            return actual.useAnnotationSync(options);
-        },
-    };
-});
-
-const { createPdfAnnotationSession } = await import(
+const {
+    createPdfAnnotationSession,
+    resolveAnnotationSnapshotDocumentIdentity,
+} = await import(
     '@app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession'
 );
 
@@ -55,32 +37,6 @@ const lastModified = 1_735_689_600_000;
 
 function createPick(bytes: Uint8Array<ArrayBuffer>) {
     return new File([bytes], 'shared-name.pdf', {lastModified});
-}
-
-function createComment(id: string): IAnnotationCommentSummary {
-    return {
-        source: 'editor',
-        id,
-        stableKey: `uid:0:${id}` as TAnnotationStableKey,
-        pageIndex: 0,
-        pageNumber: 1,
-        text: 'note',
-        subtype: 'Highlight',
-        author: null,
-        createdAt: null,
-        modifiedAt: null,
-        color: '#ffff00',
-        uid: id,
-        annotationId: null,
-        annotationName: null,
-        hasNote: false,
-        markerRect: {
-            left: 0.1,
-            top: 0.2,
-            width: 0.3,
-            height: 0.04,
-        },
-    };
 }
 
 function createPlacedImageComment(annotationId: string): IAnnotationCommentSummary {
@@ -113,7 +69,6 @@ const mountedSessions: Array<() => void> = [];
 
 afterEach(() => {
     mountedSessions.splice(0).forEach(unmount => unmount());
-    snapshotDocumentIdentity.ref = null;
 });
 
 function mountAnnotationSession(initial: {
@@ -136,6 +91,13 @@ function mountAnnotationSession(initial: {
                 numPages: ref(0),
                 registerDisposable: vi.fn(),
                 subscribe: vi.fn(() => vi.fn()),
+                captureFence: vi.fn(() => ({
+                    loadToken: 0,
+                    documentVersion: 0,
+                    documentRevision: null,
+                    openSurfaceGeneration: 0,
+                })),
+                isCurrent: vi.fn(() => true),
             },
             viewport: {
                 currentPage: ref(1),
@@ -205,12 +167,36 @@ function mountAnnotationSession(initial: {
         pdfDocument,
         emitAnnotationComments,
         storeDocumentKey: () => activeSession.annotationApplication.value.documentKey,
-        snapshotDocumentKey: () => snapshotDocumentIdentity.ref!.value,
+        snapshotDocumentKey: () => resolveAnnotationSnapshotDocumentIdentity({
+            originalPath: originalPath.value,
+            workingCopyPath: workingCopyPath.value,
+            source: src.value,
+        }),
         canonicalAnnotationIds: () => activeSession.annotationApplication.value.store
             .list()
             .map(entity => entity.identity.id),
-        ingest: (id: string) => activeSession.annotationApplication.value
-            .ingestLegacySummaries([createComment(id)]),
+        ingest: (id: string) => activeSession.annotationApplication.value.store.createTextMarkup({
+            kind: 'text-markup',
+            identity: {id: asAnnotationId(id)},
+            pageIndex: 0,
+            revision: 0,
+            persistedRevision: -1,
+            deleted: false,
+            createdAt: null,
+            modifiedAt: null,
+            author: null,
+            subtype: 'Highlight',
+            contents: 'note',
+            selectedText: null,
+            quadPoints: [{
+                left: 0.1,
+                top: 0.2,
+                width: 0.3,
+                height: 0.04,
+            }],
+            color: '#ffff00',
+            opacity: 1,
+        }),
         syncPlacedImages: (annotationIds: readonly string[]) => activeSession.annotationCommentModel
             .applyFromSync(annotationIds.map(createPlacedImageComment)),
         projectedComments: () => activeSession.annotationApplication.value.listCommentSummaries(),
@@ -297,7 +283,7 @@ describe('annotation document identity', () => {
         expect(harness.storeDocumentKey()).toBe(firstKey);
     });
 
-    it('imports, reprojects, and deletes a placed image through the production session after a hard reopen', async () => {
+    it('leaves placed-image summaries to the canonical parser during a hard reopen', async () => {
         const harness = mountAnnotationSession({
             originalPath: '/documents/original.pdf',
             workingCopyPath: '/managed/working.pdf',
@@ -317,15 +303,8 @@ describe('annotation document identity', () => {
         } as PDFDocumentProxy;
 
         harness.syncPlacedImages(['44R']);
-        const [firstComment] = harness.projectedComments();
-        const [firstId] = harness.canonicalAnnotationIds();
-        expect(firstComment).toMatchObject({
-            appAnnotationId: firstId,
-            annotationId: '44R',
-            annotationName: 'placed-image-session-1',
-            subtype: 'Stamp',
-            hasNote: false,
-        });
+        expect(harness.canonicalAnnotationIds()).toEqual([]);
+        expect(harness.projectedComments()).toEqual([]);
         expect(harness.hasCanonicalChanges()).toBe(false);
 
         harness.pdfDocument.value = firstDocument;
@@ -336,18 +315,9 @@ describe('annotation document identity', () => {
         await nextTick();
 
         harness.syncPlacedImages(['91R']);
-        const [reopenedComment] = harness.projectedComments();
-        expect(harness.canonicalAnnotationIds()).toEqual([firstId]);
-        expect(reopenedComment).toMatchObject({
-            appAnnotationId: firstId,
-            annotationId: '91R',
-            annotationName: 'placed-image-session-1',
-            stableKey: 'nm:placed-image-session-1',
-        });
-        expect(harness.hasCanonicalChanges()).toBe(false);
-
-        expect(harness.deleteEmbeddedAnnotationDeferred(reopenedComment!)).toBe(true);
         expect(harness.canonicalAnnotationIds()).toEqual([]);
+        expect(harness.projectedComments()).toEqual([]);
+        expect(harness.hasCanonicalChanges()).toBe(false);
     });
 
     it('fails closed on duplicate placed-image names through the production comment sync', () => {

@@ -108,6 +108,7 @@ export class AnnotationPersistenceIdentityLedger {
                 return {
                     ...live,
                     deleted: true,
+                    revision: live.revision + 1,
                 };
             }
             return snapshot;
@@ -117,13 +118,26 @@ export class AnnotationPersistenceIdentityLedger {
             return snapshot;
         }
         const identity = rebaseAnnotationPersistenceIdentity(snapshot.identity, persisted.pdfRef);
-        if (identity === snapshot.identity && persisted.persistedRevision === snapshot.persistedRevision) {
+        // A saved delete retires the PDF object. Undoing that delete restores a
+        // live transient, even though the tombstone itself carries the save's
+        // revision while it waits to be serialized. Never let the retired
+        // revision make the restored entity look clean.
+        const restoredAfterSavedDelete = Boolean(
+            live?.deleted
+            && !snapshot.deleted
+            && live.persistedRevision >= 0
+            && live.identity.pdfRef === undefined,
+        );
+        const persistedRevision = restoredAfterSavedDelete
+            ? -1
+            : persisted.persistedRevision;
+        if (identity === snapshot.identity && persistedRevision === snapshot.persistedRevision) {
             return snapshot;
         }
         return {
             ...snapshot,
             identity,
-            persistedRevision: persisted.persistedRevision,
+            persistedRevision,
         };
     }
 

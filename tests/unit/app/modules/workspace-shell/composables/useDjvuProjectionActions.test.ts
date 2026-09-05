@@ -8,6 +8,27 @@ import { ref } from 'vue';
 import { useDjvuProjectionActions } from '@app/modules/workspace-shell/composables/useDjvuProjectionActions';
 
 describe('useDjvuProjectionActions', () => {
+    it('preserves the PDF image placement result through the projection wrapper', async () => {
+        const pasteImageFromClipboard = vi.fn(async () => true);
+        const actions = useDjvuProjectionActions({
+            isDjvuMode: ref(false),
+            currentPage: ref(31),
+            documentViewerRef: ref(null),
+            ensureProjection: vi.fn(async () => true),
+            saveAs: vi.fn(async () => true),
+            exportDocx: vi.fn(async () => undefined),
+            isExportingDocx: ref(false),
+            cancelExportDocx: vi.fn(),
+            handleDropdownOpen: vi.fn(),
+            insertImageFromFile: vi.fn(),
+            pasteImageFromClipboard,
+            createQuickNote: vi.fn(),
+        });
+
+        await expect(actions.handlePasteImageFromClipboard()).resolves.toBe(true);
+        expect(pasteImageFromClipboard).toHaveBeenCalledOnce();
+    });
+
     it('cancels an active DOCX export before waiting for DjVu projection', async () => {
         const ensureProjection = vi.fn(async () => true);
         const exportDocx = vi.fn(async () => undefined);

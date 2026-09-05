@@ -1,12 +1,10 @@
-import type { TPdfLayerVisualSnapshotRelease } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/pdfLayerVisualSnapshotRelease';
-
 const RESIZE_SNAPSHOT_CLASS = 'pdf-resize-canvas-snapshot';
 const RESIZE_SNAPSHOT_CANVAS_CLASS = 'page_canvas--resize-visual-snapshot';
 
 export interface IPdfResizeCanvasVisualSnapshot {
     hasReplacementCanvas: () => boolean;
     isValid: () => boolean;
-    release: TPdfLayerVisualSnapshotRelease;
+    release: () => void;
 }
 
 export function preservePdfResizeCanvasVisualSnapshot(

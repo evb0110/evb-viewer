@@ -1,4 +1,8 @@
 use super::*;
+pub(crate) use evb_native_support::pdf_catalog::{
+    deserialize_bounded_bookmark_items, BookmarkEntry, PageLabelRange,
+};
+use serde::Serialize;
 
 fn deserialize_collection<'de, D, T>(deserializer: D) -> std::result::Result<Vec<T>, D::Error>
 where
@@ -6,15 +10,6 @@ where
     T: serde::Deserialize<'de>,
 {
     deserialize_bounded_vec::<D, T, MAX_COLLECTION_ITEMS>(deserializer)
-}
-
-fn deserialize_bookmark_items<'de, D>(
-    deserializer: D,
-) -> std::result::Result<Vec<BookmarkEntry>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    deserialize_bounded_vec::<D, BookmarkEntry, 5_000>(deserializer)
 }
 
 fn deserialize_shape_items<'de, D, T>(deserializer: D) -> std::result::Result<Vec<T>, D::Error>
@@ -137,6 +132,17 @@ where
     deserialize_bounded_vec::<D, PlacedImage, MAX_PLACED_IMAGE_MUTATIONS>(deserializer)
 }
 
+fn deserialize_placed_image_geometry_updates<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Vec<PlacedImageGeometryUpdate>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    deserialize_bounded_vec::<D, PlacedImageGeometryUpdate, MAX_PLACED_IMAGE_GEOMETRY_UPDATES>(
+        deserializer,
+    )
+}
+
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct NativeMutationContinuation {
@@ -151,7 +157,8 @@ pub(crate) struct NativeMutationContinuation {
 #[serde(rename_all = "camelCase")]
 pub(crate) enum NativeMutationContinuationFamily {
     Notes,
-    FreeTextEditors,
+    #[serde(alias = "freeTextEditors")]
+    TextBoxes,
     PageLabels,
     Bookmarks,
     Shapes,
@@ -161,6 +168,7 @@ pub(crate) enum NativeMutationContinuationFamily {
 
 pub(crate) const MAX_MARKUP_GEOMETRY_ITEMS: usize = 512;
 pub(crate) const MAX_PLACED_IMAGE_MUTATIONS: usize = 16;
+pub(crate) const MAX_PLACED_IMAGE_GEOMETRY_UPDATES: usize = 256;
 pub(crate) const MAX_SHAPE_MUTATION_POINTS: usize = 20_000;
 pub(crate) const MAX_SHAPE_MUTATION_STROKES: usize = 4_096;
 
@@ -709,13 +717,20 @@ pub(crate) enum Operation {
         append_in_place: bool,
         identity_bindings_file: Option<PathBuf>,
     },
+    ParseAnnotations {
+        modified_at: String,
+    },
     AnnotationNameIndex,
     EmbeddedShapeIndex,
     PdfConformance,
+    Decrypt {
+        password_file: Option<PathBuf>,
+    },
     PageGeometry {
         page_number: u32,
     },
     PageSizes,
+    ReadCatalog,
 }
 
 #[derive(Deserialize)]
@@ -811,6 +826,9 @@ pub(crate) struct NoteChangesFile {
     pub(crate) geometry_updates: Vec<NoteGeometryUpdate>,
     #[serde(default)]
     #[serde(deserialize_with = "deserialize_collection")]
+    pub(crate) notes: Vec<TextNote>,
+    #[serde(default)]
+    #[serde(deserialize_with = "deserialize_collection")]
     pub(crate) free_text_notes: Vec<FreeTextNote>,
     #[serde(default)]
     #[serde(deserialize_with = "deserialize_collection")]
@@ -828,10 +846,14 @@ pub(crate) struct NativeMutationsFile {
     pub(crate) geometry_updates: Vec<NoteGeometryUpdate>,
     #[serde(default)]
     #[serde(deserialize_with = "deserialize_collection")]
-    pub(crate) free_text_notes: Vec<FreeTextNote>,
+    pub(crate) notes: Vec<TextNote>,
     #[serde(default)]
     #[serde(deserialize_with = "deserialize_collection")]
-    pub(crate) free_text_editors: Vec<FreeTextEditor>,
+    pub(crate) free_text_notes: Vec<FreeTextNote>,
+    #[serde(default)]
+    #[serde(rename = "textBoxes", alias = "freeTextEditors")]
+    #[serde(deserialize_with = "deserialize_collection")]
+    pub(crate) text_boxes: Vec<TextBoxMutation>,
     #[serde(default)]
     #[serde(deserialize_with = "deserialize_collection")]
     pub(crate) deletes: Vec<AnnotationDelete>,
@@ -843,7 +865,26 @@ pub(crate) struct NativeMutationsFile {
     #[serde(deserialize_with = "deserialize_placed_images")]
     pub(crate) placed_images: Vec<PlacedImage>,
     #[serde(default)]
+    #[serde(deserialize_with = "deserialize_placed_image_geometry_updates")]
+    pub(crate) placed_image_geometry_updates: Vec<PlacedImageGeometryUpdate>,
+    #[serde(default)]
     pub(crate) continuation: Option<NativeMutationContinuation>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct PlacedImageGeometryUpdate {
+    pub(crate) page_index: u32,
+    #[serde(default)]
+    pub(crate) stable_key: Option<String>,
+    #[serde(default)]
+    pub(crate) annotation_id: Option<String>,
+    pub(crate) x: f64,
+    pub(crate) y: f64,
+    pub(crate) width: f64,
+    pub(crate) height: f64,
+    #[serde(default)]
+    pub(crate) rotation_degrees: Option<f64>,
 }
 
 #[derive(Deserialize)]
@@ -863,7 +904,7 @@ pub(crate) struct NoteGeometryUpdate {
     pub(crate) marker_rect: MarkerRect,
 }
 
-#[derive(Clone, Copy, Deserialize)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct MarkerRect {
     pub(crate) left: f64,
@@ -874,7 +915,7 @@ pub(crate) struct MarkerRect {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct FreeTextNote {
+pub(crate) struct TextNote {
     pub(crate) page_index: u32,
     pub(crate) stable_key: String,
     pub(crate) text: String,
@@ -884,9 +925,13 @@ pub(crate) struct FreeTextNote {
     pub(crate) created_at: Option<u64>,
 }
 
+/// Legacy mutation callers still send `freeTextNotes`. Keep the old Rust name
+/// as an alias while `/Text` is now the only note representation written.
+pub(crate) type FreeTextNote = TextNote;
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct FreeTextEditor {
+pub(crate) struct TextBoxMutation {
     pub(crate) page_index: u32,
     pub(crate) stable_key: String,
     #[serde(default)]
@@ -896,6 +941,12 @@ pub(crate) struct FreeTextEditor {
     pub(crate) rotation: u16,
     pub(crate) font_size: f64,
     pub(crate) color: [u8; 3],
+    #[serde(default)]
+    pub(crate) author: Option<String>,
+    #[serde(default)]
+    pub(crate) created_at: Option<u64>,
+    #[serde(default)]
+    pub(crate) modified_at: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -907,39 +958,13 @@ pub(crate) struct PageLabelsMutation {
     pub(crate) ranges: Vec<PageLabelRange>,
 }
 
-#[derive(Clone, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct PageLabelRange {
-    pub(crate) start_page: u32,
-    pub(crate) style: Option<String>,
-    pub(crate) prefix: String,
-    pub(crate) start_number: u32,
-}
-
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct BookmarksMutation {
     pub(crate) total_pages: u32,
     pub(crate) untitled_label: String,
     #[serde(default)]
-    #[serde(deserialize_with = "deserialize_bookmark_items")]
-    pub(crate) items: Vec<BookmarkEntry>,
-}
-
-#[derive(Clone, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct BookmarkEntry {
-    pub(crate) title: String,
-    pub(crate) page_index: Option<u32>,
-    pub(crate) page_y_ratio: Option<f64>,
-    pub(crate) named_dest: Option<String>,
-    #[serde(default)]
-    pub(crate) bold: bool,
-    #[serde(default)]
-    pub(crate) italic: bool,
-    pub(crate) color: Option<String>,
-    #[serde(default)]
-    #[serde(deserialize_with = "deserialize_bookmark_items")]
+    #[serde(deserialize_with = "deserialize_bounded_bookmark_items")]
     pub(crate) items: Vec<BookmarkEntry>,
 }
 
@@ -1017,9 +1042,12 @@ pub(crate) struct MarkupSubtypeHint {
     pub(crate) source: Option<String>,
 }
 
+/// One identity report entry: the caller's canonical annotation identity and
+/// the PDF object reference the writer produced for it. Every writer family
+/// (markup, notes, text boxes, stamps and shapes) pushes into the same report.
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct MarkupIdentityBinding {
+pub(crate) struct AnnotationIdentityBinding {
     pub(crate) annotation_id: String,
     pub(crate) pdf_ref: String,
 }
@@ -1090,6 +1118,7 @@ mod protocol_schema_tests {
     fn canonical_mutation_fixture_round_trips_and_rejects_unknown_fields() {
         let source = include_str!("../../protocol-fixtures/pdf-page-ops-save-mutations.json");
         let parsed: NativeMutationsFile = serde_json::from_str(source).unwrap();
+        assert_eq!(parsed.text_boxes.len(), 1);
         assert_eq!(parsed.placed_images.len(), 1);
 
         let with_unknown = source.replacen("{", r#"{"unknownField":true,"#, 1);

@@ -90,6 +90,10 @@ export function matchesCommentQuery(
         ||
         comment.text.toLowerCase().includes(normalizedQuery)
         || (comment.previewText ?? '').toLowerCase().includes(normalizedQuery)
+        || (comment.replies?.some(reply => (
+            reply.contents.toLowerCase().includes(normalizedQuery)
+            || (reply.author ?? '').toLowerCase().includes(normalizedQuery)
+        )) ?? false)
         || (comment.kindLabel ?? '').toLowerCase().includes(normalizedQuery)
         || (comment.subtype ?? '').toLowerCase().includes(normalizedQuery)
         || author.toLowerCase().includes(normalizedQuery)

@@ -6,6 +6,7 @@ import type {ISerializableErrorEnvelope} from '@contracts/serializableError';
 
 export const NATIVE_ERROR_CODES = [
     'encrypted',
+    'needs-password',
     'too-large',
     'corrupt-xref',
     'unsupported-filter',

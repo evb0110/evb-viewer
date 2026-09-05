@@ -1,34 +1,17 @@
 import type {ShallowRef} from 'vue';
-import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import type {
     IAnnotationCommentSummary,
     ITextMarkupAnnotationProperties,
 } from '@app/types/annotations';
 import { computeSummaryStableKey } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
 import type { usePdfAnnotationCommentModel } from '@app/modules/pdf-viewer/annotations/usePdfAnnotationCommentModel';
-import type { useAnnotationCrud } from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationCrud';
-import type { useAnnotationToolState } from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationToolState';
-import { getStoredAnnotationEditor } from '@app/modules/pdf-viewer/annotations/bridge/pdfjsAnnotationFacade';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { resetLivePdfJsAnnotationStorageModifiedIds } from '@app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges';
+import type { AnnotationApplication } from '@app/modules/pdf-viewer/annotations/annotationApplication';
+import type { ITextMarkupEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 
 type TAnnotationCommentModel = ReturnType<typeof usePdfAnnotationCommentModel>;
 
 interface IUsePdfAnnotationColorCommandsOptions {
-    pdfDocument: ShallowRef<PDFDocumentProxy | null>;
-    annotations: {
-        crud: Pick<
-            ReturnType<typeof useAnnotationCrud>,
-            'findEditorByAnnotationElementId' | 'findEditorForComment'
-        >;
-        editor: {markupSubtype: Pick<
-            ReturnType<typeof useAnnotationToolState>,
-                | 'getSelectedTextMarkupAnnotationProperties'
-                | 'rememberMarkupSubtypeColorOverride'
-                | 'updateSelectedTextMarkupAnnotationColor'
-                | 'updateTextMarkupAnnotationColor'
-        >;};
-    };
+    annotationApplication: ShallowRef<AnnotationApplication>;
     annotationCommentModel: TAnnotationCommentModel;
     emitForcedAnnotationMutation: (options?: { scheduleCommentSync?: boolean }) => void;
 }
@@ -44,8 +27,7 @@ export interface ITextMarkupColorMutationResult {
 
 export const usePdfAnnotationColorCommands = (options: IUsePdfAnnotationColorCommandsOptions) => {
     const {
-        pdfDocument,
-        annotations,
+        annotationApplication,
         annotationCommentModel,
         emitForcedAnnotationMutation,
     } = options;
@@ -67,18 +49,38 @@ export const usePdfAnnotationColorCommands = (options: IUsePdfAnnotationColorCom
         annotationCommentModel.updateCachedColor(comment, color, options);
     }
 
-    function resetAnnotationStorageModifiedIds() {
-        resetLivePdfJsAnnotationStorageModifiedIds(pdfDocument.value);
+    function getTextMarkupEntity(comment: IAnnotationCommentSummary) {
+        const application = annotationApplication.value;
+        const annotationId = application.annotationIdForSummary(comment);
+        const entity = annotationId ? application.store.get(annotationId) : null;
+        return entity?.kind === 'text-markup' && !entity.deleted ? entity : null;
     }
 
-    function findTextMarkupEditorForComment(comment: IAnnotationCommentSummary) {
-        return annotations.crud.findEditorForComment(comment)
-            ?? (comment.annotationId
-                ? annotations.crud.findEditorByAnnotationElementId(comment.pageIndex, comment.annotationId)
-                : null)
-            ?? (comment.annotationId
-                ? getStoredAnnotationEditor(pdfDocument.value, comment.annotationId)
-                : null);
+    function getNoteEntity(comment: IAnnotationCommentSummary) {
+        const application = annotationApplication.value;
+        const annotationId = application.annotationIdForSummary(comment);
+        const entity = annotationId ? application.store.get(annotationId) : null;
+        return entity?.kind === 'note' && !entity.deleted ? entity : null;
+    }
+
+    function toTextMarkupProperties(entity: ITextMarkupEntity): ITextMarkupAnnotationProperties {
+        return {
+            id: entity.identity.id,
+            pageIndex: entity.pageIndex,
+            subtype: entity.subtype,
+            color: entity.color ?? '',
+            markerRect: entity.quadPoints[0] ?? null,
+            opacity: entity.opacity,
+            contents: entity.contents,
+        };
+    }
+
+    function updateTextMarkupEntityColor(entity: ITextMarkupEntity, color: string) {
+        const updated = annotationApplication.value.store.updateTextMarkup(
+            entity.identity.id,
+            {color},
+        );
+        return Boolean(updated);
     }
 
     function createColorMutationResult(
@@ -108,15 +110,17 @@ export const usePdfAnnotationColorCommands = (options: IUsePdfAnnotationColorCom
     }
 
     function updateSelectedTextMarkupAnnotationColor(color: string) {
-        const selectedMarkup = annotations.editor.markupSubtype.getSelectedTextMarkupAnnotationProperties();
-        const didUpdate = annotations.editor.markupSubtype.updateSelectedTextMarkupAnnotationColor(color);
-        if (didUpdate) {
+        const selectedEntity = [...annotationApplication.value.store.selectedIds]
+            .map(id => annotationApplication.value.store.get(id))
+            .find((entity): entity is ITextMarkupEntity => entity?.kind === 'text-markup' && !entity.deleted);
+        const selectedMarkup = selectedEntity ? toTextMarkupProperties(selectedEntity) : null;
+        const didUpdate = selectedEntity ? updateTextMarkupEntityColor(selectedEntity, color) : false;
+        if (didUpdate && selectedEntity) {
             const selectedComment = selectedMarkup ? toSelectedTextMarkupComment(selectedMarkup) : null;
             if (selectedComment) {
                 updateCachedAnnotationCommentColor(selectedComment, color);
             }
             if (selectedComment) {
-                resetAnnotationStorageModifiedIds();
                 emitForcedAnnotationMutation({ scheduleCommentSync: true });
                 return createColorMutationResult(selectedComment, color, {
                     updated: true,
@@ -126,7 +130,6 @@ export const usePdfAnnotationColorCommands = (options: IUsePdfAnnotationColorCom
                     sourceColor: selectedMarkup?.color ?? null,
                 });
             }
-            resetAnnotationStorageModifiedIds();
             emitForcedAnnotationMutation({ scheduleCommentSync: true });
         }
         return didUpdate
@@ -139,69 +142,40 @@ export const usePdfAnnotationColorCommands = (options: IUsePdfAnnotationColorCom
     }
 
     function updateTextMarkupAnnotationColor(comment: IAnnotationCommentSummary, color: string) {
+        const note = getNoteEntity(comment);
+        if (note) {
+            const sourceColor = note.color;
+            const updated = annotationApplication.value.store.updateNote(note.identity.id, {color});
+            if (!updated) {
+                return noopColorMutationResult;
+            }
+            emitForcedAnnotationMutation({scheduleCommentSync: true});
+            return createColorMutationResult(comment, color, {
+                updated: true,
+                shouldScheduleCommentSync: true,
+                shouldRefreshPage: false,
+                shouldApplyTextMarkupColor: false,
+                sourceColor,
+                colorEdited: true,
+            });
+        }
         const subtype = annotationCommentModel.toTextMarkupSubtype(comment);
-        const editor = findTextMarkupEditorForComment(comment);
+        const entity = getTextMarkupEntity(comment);
         if (!subtype) {
             return noopColorMutationResult;
         }
-        annotations.editor.markupSubtype.rememberMarkupSubtypeColorOverride(comment.annotationId, color);
         const sourceColor = comment.color ?? null;
-        if (!editor) {
-            BrowserLogger.debug('annotations', 'Updated context-menu text markup color', () => ({
-                annotationId: comment.annotationId ?? null,
-                stableKey: comment.stableKey,
-                subtype,
-                previousColor: comment.color ?? null,
-                nextColor: color,
-                editorFound: false,
-                editorConnected: false,
-                editorUpdated: false,
-                renderedQueued: true,
-                preview: 'rendered-page',
-            }));
-            updateCachedAnnotationCommentColor(comment, color, { colorEdited: comment.colorEdited !== false });
-            resetAnnotationStorageModifiedIds();
-            emitForcedAnnotationMutation();
-            return createColorMutationResult(comment, color, {
-                updated: true,
-                shouldScheduleCommentSync: false,
-                shouldRefreshPage: true,
-                shouldApplyTextMarkupColor: true,
-                sourceColor,
-                colorEdited: comment.colorEdited !== false,
-            });
+        const didUpdate = entity ? updateTextMarkupEntityColor(entity, color) : false;
+        if (!entity || !didUpdate) {
+            return noopColorMutationResult;
         }
-        const editorUpdated = annotations.editor.markupSubtype.updateTextMarkupAnnotationColor(
-            editor,
-            comment.pageIndex,
-            subtype,
-            color,
-        );
-        const editorConnected = editor.div?.isConnected === true;
-        const shouldApplyTextMarkupColor = !editorConnected || subtype !== 'Highlight';
-        const didUpdate = (editorUpdated && editorConnected) || shouldApplyTextMarkupColor;
-        BrowserLogger.debug('annotations', 'Updated context-menu text markup color', () => ({
-            annotationId: comment.annotationId ?? null,
-            stableKey: comment.stableKey,
-            subtype,
-            previousColor: comment.color ?? null,
-            nextColor: color,
-            editorFound: true,
-            editorConnected,
-            editorUpdated,
-            renderedQueued: shouldApplyTextMarkupColor,
-            preview: editorUpdated && editorConnected
-                ? 'editor'
-                : (shouldApplyTextMarkupColor ? 'rendered-page' : 'rendered-page-missing'),
-        }));
         updateCachedAnnotationCommentColor(comment, color, { colorEdited: comment.colorEdited !== false });
-        resetAnnotationStorageModifiedIds();
-        emitForcedAnnotationMutation({ scheduleCommentSync: didUpdate });
+        emitForcedAnnotationMutation({ scheduleCommentSync: true });
         return createColorMutationResult(comment, color, {
-            updated: didUpdate,
-            shouldScheduleCommentSync: didUpdate,
-            shouldRefreshPage: true,
-            shouldApplyTextMarkupColor,
+            updated: true,
+            shouldScheduleCommentSync: true,
+            shouldRefreshPage: false,
+            shouldApplyTextMarkupColor: false,
             sourceColor,
             colorEdited: comment.colorEdited !== false,
         });
@@ -215,6 +189,7 @@ export const usePdfAnnotationColorCommands = (options: IUsePdfAnnotationColorCom
 
 export function toSelectedTextMarkupComment(markup: ITextMarkupAnnotationProperties): IAnnotationCommentSummary {
     return {
+        appAnnotationId: markup.id,
         id: markup.id,
         stableKey: computeSummaryStableKey({
             id: markup.id,
@@ -224,7 +199,7 @@ export function toSelectedTextMarkupComment(markup: ITextMarkupAnnotationPropert
         }),
         pageIndex: markup.pageIndex,
         pageNumber: markup.pageIndex + 1,
-        text: '',
+        text: markup.contents ?? '',
         author: null,
         modifiedAt: null,
         color: markup.color,

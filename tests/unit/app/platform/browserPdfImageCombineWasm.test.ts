@@ -352,6 +352,111 @@ describe('tryCombineImageInputsWithWasm', () => {
         });
     });
 
+    it('encodes catalog metadata and page rotation as a version 5 WASM request', async () => {
+        const wasmMock = createWasmExportsMock({output: new Uint8Array([
+            4,
+            5,
+            6,
+        ])});
+        vi.stubGlobal('fetch', createFetchMock());
+        vi.stubGlobal('WebAssembly', {
+            ...wasmGlobalMockBase,
+            instantiate: vi.fn(async () => ({instance: {exports: wasmMock.exports}})),
+        });
+        const {tryCombineImageInputsWithWasm} = await import('@app/platform/browser-api/tryCombineImageInputsWithWasm');
+
+        await expect(tryCombineImageInputsWithWasm([], {
+            catalog: {
+                bookmarks: [{
+                    title: 'Chapter 1',
+                    pageIndex: 0,
+                    pageYRatio: 0.25,
+                    namedDest: 'chapter-1',
+                    bold: true,
+                    italic: false,
+                    color: '#336699',
+                    items: [],
+                }],
+                pageLabels: [{
+                    pageIndex: 0,
+                    style: 'D',
+                    prefix: 'Page ',
+                    start: 1,
+                }],
+            },
+            pageSpecs: [{
+                kind: 'image',
+                pageSize: {
+                    widthPoints: 72,
+                    heightPoints: 36,
+                },
+                rotationDegrees: 90,
+                image: {
+                    fileName: 'page.ppm',
+                    data: new Uint8Array([
+                        0x50,
+                        0x36,
+                    ]),
+                },
+            }],
+        })).resolves.toEqual({
+            status: 'success',
+            data: new Uint8Array([
+                4,
+                5,
+                6,
+            ]),
+        });
+
+        const request = wasmMock.capturedRequest();
+        const view = new DataView(request.buffer, request.byteOffset, request.byteLength);
+        expect(new TextDecoder().decode(request.slice(0, 4))).toBe('EPIC');
+        expect(view.getUint32(4, true)).toBe(5);
+        expect(view.getUint32(24, true)).toBe(1);
+        let offset = 28;
+        expect(view.getUint32(offset, true)).toBe(1);
+        offset += 4;
+        expect(view.getUint32(offset, true)).toBe(1);
+        offset += 4;
+        const titleLength = view.getUint32(offset, true);
+        offset += 4;
+        expect(new TextDecoder().decode(request.slice(offset, offset + titleLength))).toBe('Chapter 1');
+        offset += titleLength;
+        expect(view.getUint32(offset, true)).toBe(0);
+        offset += 4;
+        expect(view.getFloat64(offset, true)).toBe(0.25);
+        offset += 8;
+        const namedDestinationLength = view.getUint32(offset, true);
+        offset += 4;
+        expect(new TextDecoder().decode(request.slice(offset, offset + namedDestinationLength))).toBe('chapter-1');
+        offset += namedDestinationLength;
+        expect(view.getUint32(offset, true)).toBe(1);
+        offset += 4;
+        expect(view.getUint32(offset, true)).toBe(0);
+        offset += 4;
+        const colorLength = view.getUint32(offset, true);
+        offset += 4;
+        expect(new TextDecoder().decode(request.slice(offset, offset + colorLength))).toBe('#336699');
+        offset += colorLength;
+        expect(view.getUint32(offset, true)).toBe(0);
+        offset += 4;
+        expect(view.getUint32(offset, true)).toBe(1);
+        offset += 4;
+        const styleLength = view.getUint32(offset, true);
+        offset += 4;
+        expect(new TextDecoder().decode(request.slice(offset, offset + styleLength))).toBe('D');
+        offset += styleLength;
+        const prefixLength = view.getUint32(offset, true);
+        offset += 4;
+        expect(new TextDecoder().decode(request.slice(offset, offset + prefixLength))).toBe('Page ');
+        offset += prefixLength;
+        expect(view.getUint32(offset, true)).toBe(1);
+        offset += 4;
+        expect(view.getUint32(offset, true)).toBe(1);
+        offset += 4 + 8 + 8 + 4 + 4;
+        expect(view.getUint32(offset, true)).toBe(90);
+    });
+
     it('skips WASM for mixed PDF inputs', async () => {
         const fetchMock = createFetchMock();
         vi.stubGlobal('fetch', fetchMock);
@@ -413,7 +518,7 @@ describe('tryCombineImageInputsWithWasm', () => {
         expect(wasmMock.free).toHaveBeenCalledTimes(1);
         expect(loggerWarn).toHaveBeenCalledWith(
             'browser-wasm',
-            'PDF image combine WASM failed; falling back to pdf-lib',
+            'PDF image combine WASM failed',
             {
                 error: 'wasm failed',
                 resultCode: -1,

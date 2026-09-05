@@ -219,7 +219,7 @@ const APP_PRODUCTION_SOURCE_EXTENSIONS = [
     '.vue',
 ];
 
-const ANNOTATION_STORAGE_PRIVATE_ACCESS_ALLOWED_FILES = new Set(['app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges.ts']);
+const ANNOTATION_STORAGE_PRIVATE_ACCESS_ALLOWED_FILES = new Set(['app/modules/pdf-viewer/runtime/save/pdfjsAnnotationDiagnostics.ts']);
 
 const ANNOTATION_STORAGE_PRIVATE_MEMBERS = [
     'serializable',
@@ -527,6 +527,21 @@ function checkPdfViewerEngineLayer(edge) {
         return null;
     }
 
+    // These two compatibility readers are the ticket's retained pdf-lib
+    // exceptions. Their small pure helpers stay with the annotation owner.
+    const retainedPdfLibConsumers = new Set([
+        `${PDF_VIEWER_ENGINE_ROOT}/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations.ts`,
+        `${PDF_VIEWER_ENGINE_ROOT}/annotations/annotation-sync-helpers/collectPdfAnnotationNamesByPage.ts`,
+    ]);
+    const retainedHelperRoots = [
+        `${PDF_VIEWER_MODULE_ROOT}/annotations/pdf-page-iteration`,
+        `${PDF_VIEWER_MODULE_ROOT}/annotations/pdf-refs`,
+    ];
+    if (retainedPdfLibConsumers.has(edge.source)
+        && retainedHelperRoots.some(root => matchesRoot(edge.target, root))) {
+        return null;
+    }
+
     return createViolation({
         rule: 'pdf-viewer-engine-layer-back-edge',
         source: edge.source,
@@ -633,7 +648,7 @@ function checkAnnotationStoragePrivateAccess(filePath, sourceText = '') {
         source: filePath,
         target: filePath,
         specifier: 'source',
-        message: 'PDF.js annotationStorage dirty-state members must be accessed through the annotation save bridge.',
+        message: 'PDF.js annotationStorage internals may only be read by the retained runtime diagnostics module.',
     })];
 }
 

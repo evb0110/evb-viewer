@@ -20,4 +20,7 @@ export interface IWorkspaceCommandSink {
     reset: (source?: TWorkspaceUndoSource) => void;
     /** Drops only the source's commands that replay one of the removed entities. */
     forget: (source: TWorkspaceUndoSource, entityIds: ReadonlySet<string>) => void;
+    /** Routes editor keyboard history through the single workspace timeline. */
+    undo?: () => Promise<boolean> | boolean;
+    redo?: () => Promise<boolean> | boolean;
 }

@@ -1366,6 +1366,8 @@ export default {
         'author': 'Author Name',
         'authorPlaceholder': 'Your name for annotations',
         'authorDescription': 'Shown as the author on sticky notes and comments.',
+        'suppressUnencryptedSaveNotice': 'Do not warn before removing PDF password protection',
+        'suppressUnencryptedSaveNoticeDescription': 'The saved PDF will not require the original password.',
         'theme': 'Theme',
         'themeLight': 'Light',
         'themeDark': 'Dark',
@@ -1507,6 +1509,12 @@ export default {
         'file': {
             'open': 'Failed to open file',
             'openNotFound': '"{name}" could not be opened. The file may have been moved, deleted, or its storage was cleared.',
+            'passwordPromptTitle': 'Password required',
+            'passwordPromptDescription': 'Enter the password for "{name}" to open this PDF.',
+            'passwordPromptLabel': 'Password',
+            'passwordPromptOpen': 'Open',
+            'passwordPromptIncorrect': 'That password is incorrect. Try again.',
+            'unsupportedEncryption': 'This PDF uses an encryption method that EVB Viewer cannot open.',
             'invalid': 'Invalid or non-existent file',
             'emptyPdf': 'The PDF file is empty (0 bytes)',
             'noPages': 'The PDF contains no pages',
@@ -1520,6 +1528,10 @@ export default {
             'openNotes': 'Open notes could not be saved, so the document was not written.',
             'documentChanged': 'The document changed before the save finished, so nothing was written.',
             'notCompleted': 'The document could not be written.',
+            'unencryptedTitle': 'Save without password protection?',
+            'unencryptedDescription': 'This PDF was opened with a password. Saving it will create a copy without password protection.',
+            'unencryptedDontShowAgain': 'Do not show this warning again',
+            'unencryptedContinue': 'Continue',
         },
         'export': {
             'images': 'Failed to export images',
@@ -1528,6 +1540,7 @@ export default {
         'browser': {
             'filePickerSetupDenied': 'Browser file access was denied. Choose Open again to use the compatible file picker.',
             'largeSaveHandleHint': 'Use a browser with local file system access enabled to save large documents.',
+            'useNativeApp': 'Use the native app for files this large.',
         },
         'search': {
             'browserTooLarge': 'Search is unavailable in the browser for very large documents.',

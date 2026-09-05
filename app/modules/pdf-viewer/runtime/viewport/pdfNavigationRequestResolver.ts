@@ -192,5 +192,7 @@ export function isPdfNavigationReady(
         const textLayer = pageElement?.querySelector<HTMLElement>('.text-layer, .textLayer');
         return textLayer?.dataset?.pdfTextLayerReady === 'true';
     }
-    return Boolean(pageElement?.querySelector('.annotation-editor-layer, .annotationEditorLayer'));
+    return Boolean(pageElement?.querySelector(
+        '.pdf-annotation-editor-layer, .annotation-editor-layer, .annotationEditorLayer',
+    ));
 }

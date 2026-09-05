@@ -71,12 +71,10 @@ pub(crate) fn write_page_geometry_path(
     let _validated_input = ValidatedInputFiles::open(&[input_path.to_path_buf()], output_path)?;
     let incremental = load_incremental_pdf_path(input_path, qpdf_path)
         .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
-    if incremental.get_prev_documents().is_encrypted() {
-        return Err(domain_error(
-            NativeErrorCode::Encrypted,
-            "Encrypted PDFs are not supported by native page ops",
-        ));
-    }
+    assert_plaintext_base(
+        incremental.get_prev_documents(),
+        "Encrypted PDFs are not supported by native page ops",
+    )?;
 
     let geometry = get_page_geometry(&AppendedRevision::new(&incremental), page_number)?;
     let mut output = AtomicOutput::create(output_path)?;
@@ -94,12 +92,10 @@ pub(crate) fn write_crop_pages_path(
 ) -> Result<()> {
     let mut incremental = load_incremental_pdf_path(input_path, qpdf_path)
         .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
-    if incremental.get_prev_documents().is_encrypted() {
-        return Err(domain_error(
-            NativeErrorCode::Encrypted,
-            "Encrypted PDFs are not supported by native page ops",
-        ));
-    }
+    assert_plaintext_base(
+        incremental.get_prev_documents(),
+        "Encrypted PDFs are not supported by native page ops",
+    )?;
 
     crop_pages_incremental(&mut incremental, pages, margins)?;
     append_incremental_page_revision(
@@ -119,12 +115,10 @@ pub(crate) fn write_remove_crop_pages_path(
 ) -> Result<()> {
     let mut incremental = load_incremental_pdf_path(input_path, qpdf_path)
         .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
-    if incremental.get_prev_documents().is_encrypted() {
-        return Err(domain_error(
-            NativeErrorCode::Encrypted,
-            "Encrypted PDFs are not supported by native page ops",
-        ));
-    }
+    assert_plaintext_base(
+        incremental.get_prev_documents(),
+        "Encrypted PDFs are not supported by native page ops",
+    )?;
 
     remove_crop_from_pages_incremental(&mut incremental, pages)?;
     append_incremental_page_revision(
@@ -330,6 +324,66 @@ pub(crate) fn marker_rect_to_pdf_rect(
         number_object(max_x),
         number_object(max_y),
     ]))
+}
+
+/// Convert a PDF-space annotation rectangle back into the normalized marker
+/// coordinates used by the renderer and mutation protocol. Keep this beside
+/// `marker_rect_to_pdf_rect` so parse and write cannot quietly choose different
+/// rotation conventions.
+pub(crate) fn pdf_rect_to_marker_rect(
+    rect: PdfRect,
+    page_view: PdfRect,
+    page_rotation: i64,
+) -> Result<MarkerRect> {
+    if !rect.x1.is_finite()
+        || !rect.y1.is_finite()
+        || !rect.x2.is_finite()
+        || !rect.y2.is_finite()
+        || rect.width() <= 0.0
+        || rect.height() <= 0.0
+        || !page_view.width().is_finite()
+        || !page_view.height().is_finite()
+        || page_view.width() <= 0.0
+        || page_view.height() <= 0.0
+    {
+        return Err("Invalid PDF rectangle or page view".into());
+    }
+
+    let (left, top, width, height) = match normalize_page_rotation(page_rotation) {
+        90 => (
+            (rect.y1 - page_view.y1) / page_view.height(),
+            (rect.x1 - page_view.x1) / page_view.width(),
+            rect.height() / page_view.height(),
+            rect.width() / page_view.width(),
+        ),
+        180 => (
+            1.0 - (rect.x2 - page_view.x1) / page_view.width(),
+            (rect.y1 - page_view.y1) / page_view.height(),
+            rect.width() / page_view.width(),
+            rect.height() / page_view.height(),
+        ),
+        270 => (
+            1.0 - (rect.y2 - page_view.y1) / page_view.height(),
+            1.0 - (rect.x2 - page_view.x1) / page_view.width(),
+            rect.height() / page_view.height(),
+            rect.width() / page_view.width(),
+        ),
+        _ => (
+            (rect.x1 - page_view.x1) / page_view.width(),
+            1.0 - (rect.y2 - page_view.y1) / page_view.height(),
+            rect.width() / page_view.width(),
+            rect.height() / page_view.height(),
+        ),
+    };
+
+    let marker_rect = MarkerRect {
+        left,
+        top,
+        width,
+        height,
+    };
+    validate_marker_rect(marker_rect)?;
+    Ok(marker_rect)
 }
 
 pub(crate) fn crop_pages_incremental(

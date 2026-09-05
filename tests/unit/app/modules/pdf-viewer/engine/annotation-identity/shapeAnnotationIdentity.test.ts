@@ -37,21 +37,21 @@ describe('shape annotation identity', () => {
             id: 'local-id',
             pageIndex: 2,
             stableKey: 'evb-shape:stable',
-        }))).toBe('shape:2:evb-shape:stable');
+        }))).toBe('nm:evb-shape:stable');
 
         expect(computeShapeCommentStableKey(shape({
             annotationId: '12R',
             id: 'local-id',
             pageIndex: 2,
             stableKey: null,
-        }))).toBe('shape:2:12R');
+        }))).toBe('ann:2:12R');
 
         expect(computeShapeCommentStableKey(shape({
             annotationId: null,
             id: 'local-id',
             pageIndex: 2,
             stableKey: null,
-        }))).toBe('shape:2:local-id');
+        }))).toBe('ann:2:local-id');
     });
 
     it('normalizes managed stable keys and pdf annotation ids', () => {

@@ -10,12 +10,9 @@ import type {
     TShapeResizeHandle,
 } from '@app/types/annotations';
 import type { AnnotationApplication } from '@app/modules/pdf-viewer/annotations/annotationApplication';
+import {toLegacyShapeAnnotation} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type { IShapeEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
-import type { IShapeImportSource } from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
-import type { TDocumentRevisionToken } from '@contracts/documentRevision';
-import { isShapeSavePreparation } from '@app/modules/pdf-viewer/annotations/isShapeSavePreparation';
 import { cloneShape } from '@app/modules/pdf-viewer/engine/shapes/cloneShape';
-import { BrowserLogger } from '@app/utils/browserLogger';
 import {
     buildShapeAnnotation,
     createDrawingShape,
@@ -68,10 +65,7 @@ export interface IShapeContextProvide {
     }) => void;
 }
 
-interface IUseAnnotationShapesOptions {
-    annotationApplication: ShallowRef<AnnotationApplication>;
-    notifyShapeCommentsChanged: () => void;
-}
+interface IUseAnnotationShapesOptions {annotationApplication: ShallowRef<AnnotationApplication>;}
 
 /**
  * Renders the canonical shapes `AnnotationStore` owns and forwards drawing and
@@ -79,10 +73,7 @@ interface IUseAnnotationShapesOptions {
  * baseline of its own: the only state here is transient drawing/selection UI,
  * plus a cache of the last store emission so Vue can depend on it.
  */
-export const useAnnotationShapes = ({
-    annotationApplication,
-    notifyShapeCommentsChanged,
-}: IUseAnnotationShapesOptions) => {
+export const useAnnotationShapes = ({annotationApplication}: IUseAnnotationShapesOptions) => {
     const selectedShapeId = ref<string | null>(null);
     const focusedShapeId = ref<string | null>(null);
     const drawingShape = ref<IShapeAnnotation | null>(null);
@@ -94,9 +85,10 @@ export const useAnnotationShapes = ({
     } | null = null;
 
     function projectCanonicalShapes() {
-        const entities = annotationApplication.value.store.listShapes({includeDeleted: true});
+        const entities = annotationApplication.value.store.list({includeDeleted: true})
+            .filter((entity): entity is IShapeEntity => entity.kind === 'shape');
         shapeEntities.value = entities;
-        const liveIds = new Set(entities.filter(entity => !entity.deleted).map(entity => entity.geometry.id));
+        const liveIds = new Set(entities.filter(entity => !entity.deleted).map(entity => projectShape(entity).id));
         if (selectedShapeId.value && !liveIds.has(selectedShapeId.value)) {
             selectedShapeId.value = null;
         }
@@ -116,21 +108,16 @@ export const useAnnotationShapes = ({
     onScopeDispose(() => stopProjection?.());
 
     function projectShape(entity: IShapeEntity) {
-        // The canonical identity owns the PDF object reference. Geometry can
-        // retain the reference from an older document revision after a
-        // delete/save/undo replay, so never project that stale copy.
-        const geometry = {...entity.geometry};
-        delete geometry.annotationId;
-        return {
-            ...geometry,
-            ...(entity.identity.pdfRef
-                ? {
-                    source: 'embedded' as const,
-                    annotationId: entity.identity.pdfRef,
-                }
-                : {}),
-            ...(entity.identity.pdfName ? {stableKey: entity.identity.pdfName} : {}),
-        };
+        const shape = toLegacyShapeAnnotation(entity);
+        return entity.identity.pdfRef
+            ? {
+                ...shape,
+                source: 'embedded' as const,
+            }
+            : {
+                ...shape,
+                source: 'local' as const,
+            };
     }
 
     const liveShapes = computed(() => shapeEntities.value
@@ -138,8 +125,8 @@ export const useAnnotationShapes = ({
         .map(projectShape));
     const tombstones = computed(() => shapeEntities.value
         .filter(entity => entity.deleted)
-        .map(projectShape)
-        .filter(shape => shape.source === 'embedded'));
+        .filter(entity => entity.identity.pdfRef !== undefined || entity.materialized === true)
+        .map(projectShape));
 
     const shapesByPage = computed(() => {
         const byPage = new Map<number, IShapeAnnotation[]>();
@@ -164,12 +151,7 @@ export const useAnnotationShapes = ({
             .map(shape => shape.stableKey)
             .filter((stableKey): stableKey is string => Boolean(stableKey)),
     ));
-    const hasShapes = computed(() => {
-        // Depend on the projection so dirty state re-evaluates with every
-        // canonical emission; the store remains the only judge of it.
-        void shapeEntities.value;
-        return annotationApplication.value.store.hasChangesSinceSavedBaseline('shape');
-    });
+    const hasShapes = computed(() => shapeEntities.value.some(entity => !entity.deleted));
 
     function getShapesForPage(pageIndex: number): IShapeAnnotation[] {
         return shapesByPage.value.get(pageIndex) ?? [];
@@ -191,89 +173,7 @@ export const useAnnotationShapes = ({
         return [...deletedEmbeddedShapeStableKeys.value];
     }
 
-    function importEmbeddedShapes(imported: IShapeAnnotation[], source: IShapeImportSource) {
-        const plan = annotationApplication.value.importEmbeddedShapes(imported, source);
-        BrowserLogger.debug('pdf-shapes', 'Applied embedded shape import', () => ({
-            importedShapeCount: imported.length,
-            mode: plan.mode,
-            reason: plan.reason,
-            shapeCount: liveShapes.value.length,
-            deletedAnnotationIds: getDeletedEmbeddedAnnotationIds(),
-            deletedStableKeys: getDeletedEmbeddedShapeStableKeys(),
-        }));
-        notifyShapeCommentsChanged();
-        return plan;
-    }
-
-    function resetShapeImportBaseline() {
-        annotationApplication.value.store.resetShapeImportBaseline();
-        notifyShapeCommentsChanged();
-    }
-
-    function isShapeImportBaselineReady() {
-        return annotationApplication.value.store.hasShapeImportBaseline;
-    }
-
-    function preservesShapeImportBaseline(source: IShapeImportSource) {
-        return annotationApplication.value.store.preservesShapeImportBaseline(source);
-    }
-
-    function clearPendingShapeImportAdoption() {
-        annotationApplication.value.store.clearPendingShapeImportAdoption();
-    }
-
-    /**
-     * Captures the shape save frontier bound to the store that owns it, so a
-     * rollback after a failed save can never reach a store that replaced this
-     * one — a later document's structurally identical frontier included. The
-     * same binding gates the clean mark: a save whose priming ran against a
-     * retired store must not declare the current document's shapes saved.
-     */
-    function beginShapeSave(documentRevisionToken: TDocumentRevisionToken | null = null) {
-        const store = annotationApplication.value.store;
-        const frontier = store.beginSave(documentRevisionToken);
-        return {
-            primePersistedShapes(imported: IShapeAnnotation[]) {
-                const applied = annotationApplication.value.store === store
-                    && annotationApplication.value.primePersistedShapes(imported, frontier);
-                if (applied) {
-                    notifyShapeCommentsChanged();
-                }
-                return applied;
-            },
-            rollback() {
-                const rolledBack = store.rollbackToSaveFrontier(frontier);
-                if (rolledBack && annotationApplication.value.store === store) {
-                    notifyShapeCommentsChanged();
-                }
-                return rolledBack;
-            },
-            markSaved() {
-                if (annotationApplication.value.store !== store) {
-                    return false;
-                }
-                store.markShapesSaved();
-                return true;
-            },
-        };
-    }
-
-    /**
-     * `prepared` is the token `beginShapeSave` minted for this save. When the
-     * save primed the persisted baseline, only that token may declare the
-     * shapes clean; a save that never primed has nothing to be stale about and
-     * marks the live store directly.
-     */
-    function markSavedShapeState(prepared?: unknown) {
-        if (isShapeSavePreparation(prepared)) {
-            return prepared.markSaved();
-        }
-        annotationApplication.value.store.markShapesSaved();
-        return true;
-    }
-
     function clearShapes() {
-        annotationApplication.value.store.resetShapeImportBaseline();
         selectedShapeId.value = null;
         focusedShapeId.value = null;
         resetDrawingState();
@@ -348,13 +248,6 @@ export const useAnnotationShapes = ({
         selectShape,
         focusShape,
         clearShapes,
-        importEmbeddedShapes,
-        resetShapeImportBaseline,
-        isShapeImportBaselineReady,
-        preservesShapeImportBaseline,
-        clearPendingShapeImportAdoption,
-        beginShapeSave,
-        markSavedShapeState,
         buildShapeAnnotation,
         startDrawing,
         continueDrawing,

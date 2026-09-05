@@ -13,6 +13,19 @@ bypass the cache. Numbers are from an M3 Pro (11 cores, 36 GB) on
 | `pnpm validate:integration` | acceptance plus the affected Electron regression lane |
 | `pnpm validate:nightly` | clean lint and typecheck, static checks, type coverage, coverage, duplicates, Rust tests, resource matrix, and the Electron quarantine lane |
 
+The large-document Electron performance lane lives in
+[`.github/workflows/perf-lane.yml`](../.github/workflows/perf-lane.yml). It runs on a
+nightly schedule or by manual dispatch on Ubuntu 22.04. The 882-page save/reopen
+lane and the 2,646-page budget lane download immutable assets from the dedicated
+fixture repository and verify their manifest identities before staging them.
+
+Those jobs are blocking within the performance workflow, but they do not gate
+pushes or pull requests. The 882-page save deadline and the 2,646-page heartbeat
+and renderer-heap budgets remain in their Electron specs. The workflow records
+the xlarge save duration, largest heartbeat gap, and renderer heap delta in both
+the step summary and a retained artifact. A failed run opens or updates one
+tracking issue with the run URL.
+
 `pnpm validate` runs `node scripts/validation-gates.mjs acceptance --all`.
 Without `--all`, the acceptance tier builds an affected plan from the change
 classification; `EVB_VALIDATE_ALL_GATES=1` is the environment equivalent.

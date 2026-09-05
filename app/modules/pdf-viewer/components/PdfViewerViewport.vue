@@ -32,7 +32,6 @@
                 :spread-single="isSpreadSingle(item.page)"
                 :buffered="isBufferedPage(item.page)"
                 :rendered="isRenderedPage(item.page)"
-                :shape-overlay-visual-ready="isShapeOverlayVisualReadyPage(item.page)"
                 :page-scale="getPageScale(item.page)"
                 :placeholder-style="getEffectivePagePlaceholderStyle(item.page)"
                 :placed-image="pendingImagePlacement?.pageNumber === item.page ? pendingImagePlacement : null"
@@ -86,7 +85,6 @@ interface IProps {
     isSpreadSingle: (page: number) => boolean;
     isBufferedPage: (page: number) => boolean;
     isRenderedPage: (page: number) => boolean;
-    isShapeOverlayVisualReadyPage: (page: number) => boolean;
     getPageScale: (page: number) => IPdfPageScale | null;
     getPagePlaceholderStyle: (page: number) => Record<string, string> | null;
     bottomVirtualSpacerStyle?: Record<string, string> | null;
@@ -109,7 +107,6 @@ const {
     isSpreadSingle,
     isBufferedPage,
     isRenderedPage,
-    isShapeOverlayVisualReadyPage,
     getPageScale,
     getPagePlaceholderStyle,
     bottomVirtualSpacerStyle = null,

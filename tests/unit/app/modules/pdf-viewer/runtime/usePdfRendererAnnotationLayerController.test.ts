@@ -19,19 +19,15 @@ function createHarness() {
 
     const renderDeferred = Promise.withResolvers<null>();
     const renderSignals: AbortSignal[] = [];
-    const annotationLayerRenderer = cast<Parameters<typeof usePdfRendererAnnotationLayerController>[0]['annotationLayerRenderer']>({
-        renderAnnotationLayer: vi.fn((_page, _layer, _viewport, _pageNumber, _canvasMap, renderOptions) => {
-            if (renderOptions?.signal) {
-                renderSignals.push(renderOptions.signal);
-            }
-            return renderDeferred.promise;
-        }),
-        renderAnnotationEditorLayer: vi.fn(),
-    });
+    const annotationLayerRenderer = cast<Parameters<typeof usePdfRendererAnnotationLayerController>[0]['annotationLayerRenderer']>({renderAnnotationLayer: vi.fn((_page, _layer, _viewport, _pageNumber, _canvasMap, renderOptions) => {
+        if (renderOptions?.signal) {
+            renderSignals.push(renderOptions.signal);
+        }
+        return renderDeferred.promise;
+    })});
     const controller = usePdfRendererAnnotationLayerController({
         annotationLayerRenderer,
         showAnnotations: ref(true),
-        annotationUiManager: ref(null),
         getRenderVersion: () => 1,
         cleanupPageIfCurrentRender: vi.fn(),
         logNonCriticalStageError: vi.fn(),
@@ -81,7 +77,7 @@ describe('usePdfRendererAnnotationLayerController', () => {
         await expect(render).resolves.toMatchObject({shouldContinue: true});
     });
 
-    it('registers editor-layer controllers so dispose aborts direct editor renders', () => {
+    it('registers page annotation controllers so dispose aborts direct renders', () => {
         const harness = createHarness();
         const editorController = new AbortController();
 

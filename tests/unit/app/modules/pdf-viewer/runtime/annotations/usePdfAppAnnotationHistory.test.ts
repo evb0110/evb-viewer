@@ -53,6 +53,93 @@ describe('usePdfAppAnnotationHistory', () => {
         });
     });
 
+    it('transfers a canonical create command into the workspace stack on first attach', async () => {
+        const ledger = useWorkspaceCommandLedger();
+        let present = true;
+        const history = usePdfAppAnnotationHistory({
+            pdfjsAnnotationState: ref(createAnnotationState()),
+            emitAnnotationState: vi.fn(),
+            markModified: vi.fn(),
+        });
+
+        history.registerCommand({
+            annotationIds: [asAnnotationId('canonical-shape')],
+            cmd: () => {
+                present = true;
+            },
+            undo: () => {
+                present = false;
+            },
+        });
+        history.setWorkspaceCommandSink({
+            register: ledger.registerCommand,
+            reset: ledger.resetSource,
+            forget: ledger.forgetSourceEntries,
+        });
+
+        expect(ledger.canUndoTimeline.value).toBe(true);
+        await expect(ledger.undoTimeline()).resolves.toBe(true);
+        expect(present).toBe(false);
+        expect(ledger.canRedoTimeline.value).toBe(true);
+        await expect(ledger.redoTimeline()).resolves.toBe(true);
+        expect(present).toBe(true);
+    });
+
+    it('keeps the workspace command across a renderer target swap', async () => {
+        const ledger = useWorkspaceCommandLedger();
+        let present = true;
+        const history = usePdfAppAnnotationHistory({
+            pdfjsAnnotationState: ref(createAnnotationState()),
+            emitAnnotationState: vi.fn(),
+            markModified: vi.fn(),
+        });
+        const sink = {
+            register: ledger.registerCommand,
+            reset: ledger.resetSource,
+            forget: ledger.forgetSourceEntries,
+        };
+
+        history.setWorkspaceCommandSink(sink);
+        history.registerCommand({
+            cmd: () => {
+                present = true;
+            },
+            undo: () => {
+                present = false;
+            },
+        });
+        history.setWorkspaceCommandSink(null);
+        history.setWorkspaceCommandSink(sink);
+
+        expect(ledger.canUndoTimeline.value).toBe(true);
+        await expect(ledger.undoTimeline()).resolves.toBe(true);
+        expect(present).toBe(false);
+    });
+
+    it('routes editor history through the workspace timeline when attached', async () => {
+        const ledger = useWorkspaceCommandLedger();
+        const workspaceUndo = vi.fn(async () => true);
+        const workspaceRedo = vi.fn(async () => true);
+        const history = usePdfAppAnnotationHistory({
+            pdfjsAnnotationState: ref(createAnnotationState()),
+            emitAnnotationState: vi.fn(),
+            markModified: vi.fn(),
+        });
+
+        history.setWorkspaceCommandSink({
+            register: ledger.registerCommand,
+            reset: ledger.resetSource,
+            forget: ledger.forgetSourceEntries,
+            undo: workspaceUndo,
+            redo: workspaceRedo,
+        });
+
+        await expect(history.undoForEditor()).resolves.toBe(true);
+        await expect(history.redoForEditor()).resolves.toBe(true);
+        expect(workspaceUndo).toHaveBeenCalledOnce();
+        expect(workspaceRedo).toHaveBeenCalledOnce();
+    });
+
     it('reports app-owned executor command availability without rewriting native state', () => {
         const pdfjsAnnotationState = ref(createAnnotationState());
         const emittedStates: IAnnotationEditorState[] = [];
@@ -77,7 +164,7 @@ describe('usePdfAppAnnotationHistory', () => {
         expect(pdfjsAnnotationState.value.hasSomethingToUndo).toBe(true);
         expect(pdfjsAnnotationState.value.hasSomethingToRedo).toBe(false);
         expect(emittedStates.at(-1)).toMatchObject({
-            hasSomethingToUndo: true,
+            hasSomethingToUndo: false,
             hasSomethingToRedo: true,
             hasAppAnnotationUndoHistory: false,
             hasAppAnnotationRedoHistory: true,

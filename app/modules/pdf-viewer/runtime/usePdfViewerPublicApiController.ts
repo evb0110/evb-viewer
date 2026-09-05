@@ -11,6 +11,7 @@ import { toShapeAnnotationCommentSummary } from '@app/modules/pdf-viewer/engine/
 import { getPageContainerByNumber } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/getPageContainerByNumber';
 import { toSelectedTextMarkupComment } from '@app/modules/pdf-viewer/annotations/usePdfAnnotationColorCommands';
 import { cloneSparsePageMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
+import { collectPdfJsAnnotationStorageDebugState } from '@app/modules/pdf-viewer/runtime/save/pdfjsAnnotationDiagnostics';
 
 const POINT_NOTE_CANCELLED_REASON = 'The document changed before the point note was created.';
 
@@ -20,6 +21,7 @@ type TPdfViewerPublicApiRefBackedKeys =
     | 'hasShapes'
     | 'isCapturingRegion'
     | 'isCropSelecting'
+    | 'selectedTextBox'
     | 'selectedShapeId';
 
 type TPdfViewerRefBackedSource = {
@@ -51,7 +53,6 @@ interface IUsePdfViewerPublicApiControllerOptions {
             bufferOverride?: number;
         },
     ) => Promise<void>;
-    preserveNextSourceReloadVisibleContent: NonNullable<IPdfViewerExpose['preserveNextSourceReloadVisibleContent']>;
     renderLoadedPdfPagesForBrowserPrint: NonNullable<IPdfViewerExpose['renderLoadedPdfPagesForBrowserPrint']>;
     startImagePlacement: IPdfViewerExpose['startImagePlacement'];
     clearPendingImagePlacement: IPdfViewerExpose['clearPendingImagePlacement'];
@@ -143,20 +144,11 @@ export const usePdfViewerPublicApiController = (
         ensurePageMetricsInRange: documentSession.ensurePageMetricsInRange,
         getPageMetricsSnapshot: () => cloneSparsePageMetrics(documentSession.pageMetrics.value),
         waitForViewerLoadSettled: options.waitForViewerLoadSettled,
-        preserveNextSourceReloadVisibleContent: options.preserveNextSourceReloadVisibleContent,
-        adoptPersistedManagedShapesOnNextImport: annotationRuntime.adoptPersistedManagedShapesOnNextImport,
-        clearPendingManagedShapeImportAdoption: annotationRuntime.clearPendingManagedShapeImportAdoption,
-        ensureManagedShapeBaselineReady: annotationRuntime.ensureManagedShapeBaselineReady,
-        preparePersistedManagedShapesForSave: annotationRuntime.preparePersistedManagedShapesForSave,
-        restorePreparedManagedShapesAfterFailedSave: annotationRuntime.restorePreparedManagedShapesAfterFailedSave,
         commitPdfEditorsForSave: annotationSession.commitPdfEditorsForSave,
         runSaveTransaction: annotationSession.runSaveTransaction,
-        saveDocument: annotationSession.saveViewerDocument,
-        materializePdfJsDocumentForInternalUse: annotationSession.materializePdfJsDocumentForInternalUse,
         clearAnnotationHistory: () => annotationSession.appAnnotationHistory.clear(),
         renderLoadedPdfPagesForBrowserPrint: options.renderLoadedPdfPagesForBrowserPrint,
-        markSavedShapeState: (prepared?: unknown) => {
-            shapeComposable.markSavedShapeState(prepared);
+        markSavedShapeState: (_prepared?: unknown) => {
             // Saving changes the clean shape baseline but must not collapse the
             // app-managed undo/redo stack; re-emit so toolbar state stays current.
             annotationSession.appAnnotationHistory.emitCombinedState();
@@ -273,13 +265,18 @@ export const usePdfViewerPublicApiController = (
         annotationHistoryMutationVersion: annotationSession.appAnnotationHistory.annotationHistoryMutationVersion,
         annotationHistoryResetVersion: annotationSession.appAnnotationHistory.annotationHistoryResetVersion,
         hasCanonicalAnnotationChanges: annotationRuntime.hasCanonicalAnnotationChanges,
-        collectLiveAnnotationChanges: annotationRuntime.collectLiveAnnotationChanges,
+        getAnnotationDirtyEntityCount: () => annotationSession.annotationApplication.value.store.dirtyEntities().length,
+        hasCanonicalShapeChanges: annotationRuntime.hasCanonicalShapeChanges,
+        getAnnotationStorageDebugState: () => collectPdfJsAnnotationStorageDebugState(
+            documentSession.pdfDocument.value,
+        ),
         getDeletedCanonicalAnnotationIds: annotationRuntime.getDeletedCanonicalAnnotationIds,
         getDeletedPersistedCanonicalAnnotationCount: annotationRuntime.getDeletedPersistedCanonicalAnnotationCount,
         setWorkspaceCommandSink: annotationSession.appAnnotationHistory.setWorkspaceCommandSink,
-        startCommentPlacement: annotationRuntime.highlightComposable.startCommentPlacement,
-        cancelCommentPlacement: annotationRuntime.highlightComposable.cancelCommentPlacement,
         registerAnnotationHistoryCommand: annotationRuntime.registerShapeHistoryCommand,
+        selectedTextBox: computed(() => annotationRuntime.annotationEditorSurface.getSelectedTextBox()),
+        getSelectedTextBox: annotationRuntime.annotationEditorSurface.getSelectedTextBox,
+        updateSelectedTextBoxProperties: annotationRuntime.annotationEditorSurface.updateSelectedTextBoxProperties,
         ensurePdfAnnotationNameReconciliation: annotations.commentSync.ensurePdfAnnotationNameReconciliation,
         focusAnnotationComment,
         updateAnnotationComment: (comment, text) => {
@@ -325,6 +322,14 @@ export const usePdfViewerPublicApiController = (
             },
             { source: 'user' },
         ),
+        updateSelectedTextMarkupAnnotationProperties: (updates, selected) => annotationMutationService
+            .updateSelectedTextMarkupAnnotationProperties(
+                {
+                    updates,
+                    selected,
+                },
+                { source: 'user' },
+            ),
         updateTextMarkupAnnotationColor: (comment, color) => annotationMutationService.updateColor(
             {
                 comment,
@@ -339,6 +344,7 @@ export const usePdfViewerPublicApiController = (
         clearShapes: shapeComposable.clearShapes,
         clearSelectedShape: selectedShapeCommands.clearSelectedShape,
         deleteSelectedShape: selectedShapeCommands.deleteSelectedShape,
+        deleteShapeById: selectedShapeCommands.deleteShapeById,
         hasShapes: shapeComposable.hasShapes,
         selectedShapeId: shapeComposable.selectedShapeId,
         updateShape: selectedShapeCommands.updateShape,

@@ -237,5 +237,101 @@ describe('browser worker request parsers', () => {
                 angle: 45,
             },
         })).toBeNull();
+
+        expect(parseBrowserPdfCombineWorkerRequest({
+            id: 13,
+            type: 'combinePdfs',
+            payload: {
+                inputs: [{
+                    fileName: 'page.ppm',
+                    data,
+                }],
+                wasmImagePreprocessing: {
+                    pageSpecs: [{
+                        kind: 'image',
+                        pageSize: {
+                            widthPoints: 72,
+                            heightPoints: 72,
+                        },
+                        image: {
+                            fileName: 'page.ppm',
+                            data,
+                        },
+                    }],
+                    catalog: {
+                        bookmarks: [{
+                            title: 'Chapter 1',
+                            pageIndex: 0,
+                            namedDest: null,
+                            bold: false,
+                            italic: false,
+                            color: null,
+                            items: [],
+                        }],
+                        pageLabels: [{
+                            pageIndex: 0,
+                            style: 'D',
+                            prefix: 'Page ',
+                            start: 1,
+                        }],
+                    },
+                },
+            },
+        })).toMatchObject({
+            id: 13,
+            type: 'combinePdfs',
+            payload: {wasmImagePreprocessing: {catalog: {
+                bookmarks: [{title: 'Chapter 1'}],
+                pageLabels: [{
+                    pageIndex: 0,
+                    prefix: 'Page ',
+                }],
+            }}},
+        });
+
+        expect(parseBrowserPageOpsWorkerRequest({
+            id: 9,
+            type: 'readCatalog',
+            payload: {data},
+        })).toEqual({
+            id: 9,
+            type: 'readCatalog',
+            payload: {data},
+        });
+        expect(parseBrowserPageOpsWorkerRequest({
+            id: 10,
+            type: 'conformance',
+            payload: {data},
+        })).toEqual({
+            id: 10,
+            type: 'conformance',
+            payload: {data},
+        });
+        expect(parseBrowserPageOpsWorkerRequest({
+            id: 11,
+            type: 'mergePages',
+            payload: {documents: [
+                data,
+                new Uint8Array([
+                    4,
+                    5,
+                ]),
+            ]},
+        })).toEqual({
+            id: 11,
+            type: 'mergePages',
+            payload: {documents: [
+                data,
+                new Uint8Array([
+                    4,
+                    5,
+                ]),
+            ]},
+        });
+        expect(parseBrowserPageOpsWorkerRequest({
+            id: 12,
+            type: 'mergePages',
+            payload: {documents: []},
+        })).toBeNull();
     });
 });

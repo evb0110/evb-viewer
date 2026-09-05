@@ -133,7 +133,8 @@ export const usePdfViewerFeatureController = (
         currentPage: viewerCurrentPage,
         numPages: documentSession.numPages,
         effectiveScale: viewerEffectiveScale,
-        emitFinalize: viewerEvents.imagePlacementFinalize,
+        finalizePlacement: payload => annotationSessionRef.value?.finalizeImagePlacement(payload)
+            ?? Promise.resolve(false),
     });
 
     const {
@@ -154,9 +155,6 @@ export const usePdfViewerFeatureController = (
         viewportWritePort,
     });
 
-    const isPlacingComment = computed(
-        () => annotationSessionRef.value?.highlightComposable.isPlacingComment.value ?? false,
-    );
     const viewportSession = createPdfViewportSession({
         document: documentSession,
         chassisAuthority,
@@ -190,10 +188,9 @@ export const usePdfViewerFeatureController = (
         classState: {
             isAnySaving,
             isDragging,
-            isViewerPanDragModeActive: computed(() => isViewerPanDragModeActive.value && !isPlacingComment.value),
-            isPlacingComment,
-            isSelectionMarkupToolActive: computed(() => isSelectionMarkupToolActive.value && !isPlacingComment.value),
-            isTextSelectionModeActive: computed(() => isTextSelectionModeActive.value && !isPlacingComment.value),
+            isViewerPanDragModeActive,
+            isSelectionMarkupToolActive,
+            isTextSelectionModeActive,
             fitMode,
             zoomMode,
             resizeTransitionVisible: computed(
@@ -312,7 +309,6 @@ export const usePdfViewerFeatureController = (
         annotationKeepActive,
         annotationSettings,
         authorName,
-        stopDrag: () => stopDrag(),
         clearPendingImagePlacement,
         emitAnnotationModified: payload => viewerEvents.annotationModified(payload),
         emitAnnotationState: viewerEvents.annotationState,
@@ -324,10 +320,9 @@ export const usePdfViewerFeatureController = (
         emitAnnotationToolAutoReset: viewerEvents.annotationToolAutoReset,
         emitAnnotationSetting: viewerEvents.annotationSetting,
         emitAnnotationCommentClick: viewerEvents.annotationCommentClick,
-        emitAnnotationToolCancel: viewerEvents.annotationToolCancel,
-        emitAnnotationNotePlacementChange: viewerEvents.annotationNotePlacementChange,
         reportAnnotationFailure: viewerEvents.annotationFailure,
         emitShapeContextMenu: viewerEvents.shapeContextMenu,
+        finalizeImagePlacement: props.finalizeImagePlacement,
     });
     annotationSessionRef.value = annotationSession;
 
@@ -364,7 +359,6 @@ export const usePdfViewerFeatureController = (
         effectiveScale: viewportSession.scale.effectiveScale,
         continuousScroll,
         numPages: documentSession.numPages,
-        markersByPage: annotationSession.markersByPage,
         linksByPage: annotationSession.linksByPage,
     });
     markDelayedSkeletonPageRendered = renderViewModel.markPageRendered;
@@ -389,7 +383,6 @@ export const usePdfViewerFeatureController = (
         handleViewerContextMenu,
     } = usePdfViewerMouseInteractions({
         isSnipActive: () => regionSnip.isActive.value || cropSelection.isSelecting.value,
-        isCommentPlacementActive: () => isPlacingComment.value,
         isViewerPanDragModeActive,
         markUserViewportInteraction: viewportSession.markUserViewportInteraction,
         cancelPendingSearchScroll: () => renderingSession.cancelPendingSearchScroll(),
@@ -464,7 +457,6 @@ export const usePdfViewerFeatureController = (
         applyFitWidthToCurrentPage,
         waitForViewerLoadSettled: documentSession.waitForLoadSettled,
         renderVisiblePages: renderingSession.renderVisiblePages,
-        preserveNextSourceReloadVisibleContent: viewportSession.preserveNextSourceReloadVisibleContent,
         renderLoadedPdfPagesForBrowserPrint,
         startImagePlacement,
         clearPendingImagePlacement,
@@ -483,7 +475,6 @@ export const usePdfViewerFeatureController = (
         viewerHost,
         viewerContainer,
         renderedPageStateVersion: readonly(renderingSession.renderedPageStateVersion),
-        annotationUiManager: annotationSession.annotationUiManager,
         viewerClass: viewportSession.viewModel.viewerClass,
         containerStyle: viewportSession.viewModel.containerStyle,
         scaledMargin: viewportSession.scale.scaledMargin,
@@ -496,7 +487,6 @@ export const usePdfViewerFeatureController = (
         isSpreadSingle: (page: number) => isStandaloneSpreadPage(page, viewMode.value, documentSession.numPages.value),
         isPageBuffered: viewportSession.viewModel.isPageBuffered,
         isPageRenderedForClass: renderingSession.isPageRenderedForClass,
-        isPageVisualReadyForShapeOverlay: renderingSession.isPageVisualReady,
         getPageScale: viewportSession.viewModel.getPageScale,
         getPagePlaceholderStyle: viewportSession.viewModel.getPagePlaceholderStyle,
         getExactPagePlaceholderStyle: viewportSession.openVirtualSurfaceGeometry.getExactPagePlaceholderStyle,
@@ -524,12 +514,8 @@ export const usePdfViewerFeatureController = (
         clearPendingImagePlacement,
         regionSnip,
         cropSelection,
-        visibleMarkersByPage: renderViewModel.visibleMarkersByPage,
         visibleLinksByPage: renderViewModel.visibleLinksByPage,
         isViewerLoadingOverlayVisible: renderViewModel.isViewerLoadingOverlayVisible,
-        handleMarkerOpenNote: annotationSession.handleMarkerOpenNote,
-        handleMarkerContextMenu: annotationSession.handleMarkerContextMenu,
-        handleMarkerMove: annotationSession.handleMarkerMove,
         handleLinkDestination: viewportSession.handleLinkDestination,
         handleViewerContainerRef: viewportSession.handleViewerContainerRef,
         pdfViewerPublicApi,

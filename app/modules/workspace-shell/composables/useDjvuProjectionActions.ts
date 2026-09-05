@@ -35,8 +35,11 @@ export const useDjvuProjectionActions = (options: IDjvuProjectionActionOptions) 
         return true;
     }
 
-    async function runEdit(action: () => unknown) {
-        if (await ensureProjection('edit')) await action();
+    async function runEdit<T>(action: () => T | Promise<T>) {
+        if (await ensureProjection('edit')) {
+            return action();
+        }
+        return undefined;
     }
 
     async function ensureDropdownProjection(
@@ -67,8 +70,14 @@ export const useDjvuProjectionActions = (options: IDjvuProjectionActionOptions) 
             void ensureDropdownProjection(dropdown, isOpen);
         },
         runEdit,
-        handleInsertImageFromFile: () => runEdit(options.insertImageFromFile),
-        handlePasteImageFromClipboard: () => runEdit(options.pasteImageFromClipboard),
+        handleInsertImageFromFile: async () => {
+            await runEdit(options.insertImageFromFile);
+        },
+        // The workspace expose contract is currently void-typed, but the
+        // Electron command runner must receive the placement result.
+        handlePasteImageFromClipboard: () => (
+            runEdit(options.pasteImageFromClipboard) as Promise<void>
+        ),
         handleQuickNoteAction: () => runEdit(options.createQuickNote),
     };
 };

@@ -1,3 +1,13 @@
+struct RemovePdfFilesOnDrop<const N: usize>([PathBuf; N]);
+
+impl<const N: usize> Drop for RemovePdfFilesOnDrop<N> {
+    fn drop(&mut self) {
+        for path in &self.0 {
+            let _ = remove_file(path);
+        }
+    }
+}
+
 #[test]
 fn updates_note_text_on_target_and_popup() {
     let mut document = Document::with_version("1.7");
@@ -153,8 +163,8 @@ fn appends_imported_text_note_geometry_and_linked_popup_to_new_page() {
 
     let expected_rect = PdfRect {
         x1: 120.0,
-        y1: 63.0,
-        x2: 150.0,
+        y1: 55.0,
+        x2: 140.0,
         y2: 75.0,
     };
     let target = loaded.get_dictionary(target_id).unwrap();
@@ -714,6 +724,191 @@ fn appends_annotation_delete_as_incremental_revision() {
 }
 
 #[test]
+fn deletes_popup_free_text_by_stable_key_when_page_geometry_is_unavailable() {
+    let (mut document, page_id) = create_test_document();
+    document
+        .get_dictionary_mut(page_id)
+        .unwrap()
+        .set("MediaBox", vec![0.into(), 0.into(), 1.into()]);
+    assert!(resolve_page_view(&document, page_id).is_err());
+
+    let text_id = document.add_object(dictionary! {
+        "Type" => "Annot",
+        "Subtype" => "Text",
+        "Rect" => vec![10.into(), 60.into(), 30.into(), 80.into()],
+        "NM" => Object::string_literal("text-note"),
+        "P" => page_id,
+    });
+    let popup_id = document.add_object(dictionary! {
+        "Type" => "Annot",
+        "Subtype" => "Popup",
+        "Rect" => vec![10.into(), 60.into(), 30.into(), 80.into()],
+        "P" => page_id,
+    });
+    let free_text_id = document.add_object(dictionary! {
+        "Type" => "Annot",
+        "Subtype" => "FreeText",
+        "Rect" => vec![10.into(), 60.into(), 11.into(), 61.into()],
+        "NM" => Object::string_literal("evb-note:missing-geometry"),
+        "Popup" => popup_id,
+        "P" => page_id,
+    });
+    document
+        .get_dictionary_mut(popup_id)
+        .unwrap()
+        .set("Parent", Object::Reference(free_text_id));
+    document.get_dictionary_mut(page_id).unwrap().set(
+        "Annots",
+        vec![
+            Object::Reference(text_id),
+            Object::Reference(free_text_id),
+            Object::Reference(popup_id),
+        ],
+    );
+
+    let temp_paths = RemovePdfFilesOnDrop([
+        temp_pdf_path("delete-free-text-missing-geometry-input"),
+        temp_pdf_path("delete-free-text-missing-geometry-output"),
+    ]);
+    let input_path = &temp_paths.0[0];
+    let output_path = &temp_paths.0[1];
+    let mut original_bytes = Vec::new();
+    document.save_to(&mut original_bytes).unwrap();
+    write(input_path, &original_bytes).unwrap();
+    write(output_path, &original_bytes).unwrap();
+
+    append_native_mutations(
+        input_path,
+        output_path,
+        &NativeMutationsFile {
+            deletes: vec![AnnotationDelete {
+                page_index: 0,
+                object_number: None,
+                generation_number: None,
+                stable_key: Some("missing-geometry".to_string()),
+                created_at: None,
+            }],
+            ..NativeMutationsFile::default()
+        },
+        "D:20260831130000Z",
+    )
+    .unwrap();
+
+    let loaded = Document::load(output_path).unwrap();
+    let refs: Vec<ObjectId> = get_page_annots(&loaded, page_id)
+        .unwrap()
+        .iter()
+        .filter_map(|object| object.as_reference().ok())
+        .collect();
+    assert!(refs.contains(&text_id));
+    assert!(!refs.contains(&free_text_id));
+    assert!(!refs.contains(&popup_id));
+}
+
+#[test]
+fn deletes_a_note_popup_and_transitive_reply_chain() {
+    fn fixture() -> (Document, ObjectId, [ObjectId; 4], ObjectId) {
+        let (mut document, page_id) = create_test_document();
+        let popup_id = document.add_object(dictionary! {
+            "Type" => "Annot",
+            "Subtype" => "Popup",
+            "Contents" => Object::string_literal("popup"),
+            "P" => Object::Reference(page_id),
+        });
+        let note_id = document.add_object(dictionary! {
+            "Type" => "Annot",
+            "Subtype" => "Text",
+            "NM" => Object::string_literal("note-with-replies"),
+            "Contents" => Object::string_literal("note"),
+            "Popup" => Object::Reference(popup_id),
+            "P" => Object::Reference(page_id),
+        });
+        document
+            .get_dictionary_mut(popup_id)
+            .unwrap()
+            .set("Parent", Object::Reference(note_id));
+        let reply_one_id = document.add_object(dictionary! {
+            "Type" => "Annot",
+            "Subtype" => "Text",
+            "IRT" => Object::Reference(note_id),
+            "Contents" => Object::string_literal("reply one"),
+            "P" => Object::Reference(page_id),
+        });
+        let reply_two_id = document.add_object(dictionary! {
+            "Type" => "Annot",
+            "Subtype" => "Text",
+            "IRT" => Object::Reference(reply_one_id),
+            "Contents" => Object::string_literal("reply two"),
+            "P" => Object::Reference(page_id),
+        });
+        let unrelated_id = document.add_object(dictionary! {
+            "Type" => "Annot",
+            "Subtype" => "Highlight",
+            "Contents" => Object::string_literal("keep"),
+            "P" => Object::Reference(page_id),
+        });
+        document.get_dictionary_mut(page_id).unwrap().set(
+            "Annots",
+            vec![
+                Object::Reference(note_id),
+                Object::Reference(popup_id),
+                Object::Reference(reply_one_id),
+                Object::Reference(reply_two_id),
+                Object::Reference(unrelated_id),
+            ],
+        );
+        (
+            document,
+            page_id,
+            [note_id, popup_id, reply_one_id, reply_two_id],
+            unrelated_id,
+        )
+    }
+
+    let (mut document, page_id, deleted_ids, unrelated_id) = fixture();
+    delete_annotations(
+        &mut document,
+        &[AnnotationDelete {
+            page_index: 0,
+            object_number: Some(deleted_ids[0].0),
+            generation_number: Some(deleted_ids[0].1),
+            stable_key: None,
+            created_at: None,
+        }],
+    )
+    .unwrap();
+    assert_eq!(
+        get_page_annots(&document, page_id).unwrap(),
+        vec![Object::Reference(unrelated_id)]
+    );
+    for object_id in deleted_ids {
+        assert!(!document.objects.contains_key(&object_id));
+    }
+
+    let (document, page_id, deleted_ids, unrelated_id) = fixture();
+    let mut incremental = IncrementalDocument::from_document(document, 0, None);
+    delete_annotations_incremental(
+        &mut incremental,
+        &[AnnotationDelete {
+            page_index: 0,
+            object_number: Some(deleted_ids[0].0),
+            generation_number: Some(deleted_ids[0].1),
+            stable_key: None,
+            created_at: None,
+        }],
+    )
+    .unwrap();
+    let revision = AppendedRevision::new(&incremental);
+    assert_eq!(
+        get_page_annots(&revision, page_id).unwrap(),
+        vec![Object::Reference(unrelated_id)]
+    );
+    for object_id in deleted_ids {
+        assert!(matches!(revision.object(object_id), Ok(Object::Null)));
+    }
+}
+
+#[test]
 fn deletes_explicit_annotation_ref_from_its_p_page_when_page_hint_is_stale() {
     let (mut document, _first_page_id, last_page_id) = create_sparse_million_page_document();
     let target_id = document.add_object(dictionary! {
@@ -864,7 +1059,7 @@ fn appends_free_text_note_delete_by_stable_key_as_incremental_revision() {
 }
 
 #[test]
-fn appends_free_text_note_as_incremental_revision() {
+fn appends_free_text_note_as_text_annotation_for_legacy_callers() {
     let (mut document, page_id) = create_test_document();
     let input_path = temp_pdf_path("append-free-text-input");
     let output_path = temp_pdf_path("append-free-text-output");
@@ -907,16 +1102,22 @@ fn appends_free_text_note_as_incremental_revision() {
 
     let loaded = Document::load(&output_path).unwrap();
     let annots = get_page_annots(&loaded, page_id).unwrap();
-    let free_text_ref = annots
+    let text_ref = annots
         .iter()
         .filter_map(|object| object.as_reference().ok())
         .find(|object_id| {
             loaded
                 .get_dictionary(*object_id)
-                .map(|dict| annotation_subtype(dict) == "freetext")
+                .map(|dict| annotation_subtype(dict) == "text")
                 .unwrap_or(false)
         })
         .unwrap();
+    assert!(!annots.iter().filter_map(|object| object.as_reference().ok()).any(|object_id| {
+        loaded
+            .get_dictionary(object_id)
+            .map(|dict| annotation_subtype(dict) == "freetext")
+            .unwrap_or(false)
+    }));
     let popup_ref = annots
         .iter()
         .filter_map(|object| object.as_reference().ok())
@@ -927,12 +1128,12 @@ fn appends_free_text_note_as_incremental_revision() {
                 .unwrap_or(false)
         })
         .unwrap();
-    let free_text = loaded.get_dictionary(free_text_ref).unwrap();
+    let text_note = loaded.get_dictionary(text_ref).unwrap();
     let popup = loaded.get_dictionary(popup_ref).unwrap();
-    let rect = parse_rect(free_text.get(b"Rect").unwrap()).unwrap();
+    let rect = parse_rect(text_note.get(b"Rect").unwrap()).unwrap();
 
     assert_eq!(
-        string_bytes(&loaded, free_text_ref, b"Contents"),
+        string_bytes(&loaded, text_ref, b"Contents"),
         encode_pdf_text_string("native editor note")
     );
     assert_eq!(
@@ -940,26 +1141,479 @@ fn appends_free_text_note_as_incremental_revision() {
         encode_pdf_text_string("native editor note")
     );
     assert_eq!(
-        pdf_string_to_text(free_text.get(b"NM").unwrap()).unwrap(),
-        "evb-note:uid:0:pdfjs_internal_editor_0:created:1781009077000"
+        pdf_string_to_text(text_note.get(b"NM").unwrap()).unwrap(),
+        "uid:0:pdfjs_internal_editor_0"
     );
-    assert_eq!(annotation_related_ref(free_text, b"Popup"), Some(popup_ref));
+    assert_eq!(text_note.get(b"Name").unwrap().as_name().unwrap(), b"Note");
+    assert_eq!(
+        pdf_string_to_text(text_note.get(b"CreationDate").unwrap()).unwrap(),
+        "D:20260609124437Z"
+    );
+    assert_eq!(annotation_related_ref(text_note, b"Popup"), Some(popup_ref));
     assert_eq!(
         annotation_related_ref(popup, b"Parent"),
-        Some(free_text_ref)
+        Some(text_ref)
     );
-    assert!(free_text.get(b"AP").is_ok());
-    assert_approximately(rect.width(), 0.32);
-    assert_approximately(rect.height(), 0.16);
+    assert!(text_note.get(b"AP").is_err());
+    assert_approximately(rect.width(), 20.0);
+    assert_approximately(rect.height(), 20.0);
+    assert_approximately(rect.x1, 20.0);
+    assert_approximately(rect.y1, 60.0);
 
     let _ = remove_file(input_path);
     let _ = remove_file(output_path);
 }
 
 #[test]
+fn canonical_notes_input_also_writes_a_text_annotation() {
+    let (mut document, page_id) = create_test_document();
+    let input_path = temp_pdf_path("append-canonical-text-note-input");
+    let output_path = temp_pdf_path("append-canonical-text-note-output");
+    let mut original_bytes = Vec::new();
+    document.save_to(&mut original_bytes).unwrap();
+    write(&input_path, &original_bytes).unwrap();
+    write(&output_path, &original_bytes).unwrap();
+
+    append_native_mutations(
+        &input_path,
+        &output_path,
+        &NativeMutationsFile {
+            notes: vec![TextNote {
+                page_index: 0,
+                stable_key: "canonical-note".to_string(),
+                text: "canonical text".to_string(),
+                marker_rect: MarkerRect {
+                    left: 0.3,
+                    top: 0.4,
+                    width: 0.001,
+                    height: 0.001,
+                },
+                author: Some("Canonical author".to_string()),
+                color: Some("#336699".to_string()),
+                created_at: None,
+            }],
+            ..NativeMutationsFile::default()
+        },
+        "D:20260831120000Z",
+    )
+    .unwrap();
+
+    let loaded = Document::load(&output_path).unwrap();
+    let note_refs = get_page_annots(&loaded, page_id)
+        .unwrap()
+        .iter()
+        .filter_map(|object| object.as_reference().ok())
+        .filter(|object_id| {
+            loaded
+                .get_dictionary(*object_id)
+                .map(|dict| annotation_subtype(dict) == "text")
+                .unwrap_or(false)
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(note_refs.len(), 1);
+    let note = loaded.get_dictionary(note_refs[0]).unwrap();
+    assert_eq!(
+        pdf_string_to_text(note.get(b"Contents").unwrap()).as_deref(),
+        Some("canonical text")
+    );
+    assert_eq!(
+        pdf_string_to_text(note.get(b"NM").unwrap()).as_deref(),
+        Some("canonical-note")
+    );
+    assert_eq!(
+        pdf_string_to_text(note.get(b"T").unwrap()).as_deref(),
+        Some("Canonical author")
+    );
+    assert_eq!(note.get(b"Name").unwrap().as_name().unwrap(), b"Note");
+    let rect = parse_rect(note.get(b"Rect").unwrap()).unwrap();
+    assert_approximately(rect.width(), 20.0);
+    assert_approximately(rect.height(), 20.0);
+
+    let _ = remove_file(input_path);
+    let _ = remove_file(output_path);
+}
+
+#[test]
+fn first_edit_converts_only_the_target_marker_and_preserves_its_payload() {
+    let (mut document, page_id) = create_test_document();
+    let blank_appearance = document.add_object(Stream::new(
+        dictionary! {
+            "Type" => "XObject",
+            "Subtype" => "Form",
+            "BBox" => vec![0.into(), 0.into(), 0.into(), 0.into()],
+        },
+        Vec::new(),
+    ));
+    let target_popup_id = document.add_object(dictionary! {
+        "Type" => "Annot",
+        "Subtype" => "Popup",
+        "Parent" => (0, 0),
+        "Rect" => vec![20.into(), 60.into(), 21.into(), 61.into()],
+        "Contents" => Object::string_literal("legacy note"),
+    });
+    let target_id = document.add_object(dictionary! {
+        "Type" => "Annot",
+        "Subtype" => "FreeText",
+        "Rect" => vec![20.into(), 60.into(), 21.into(), 61.into()],
+        "NM" => Object::string_literal("legacy-target"),
+        "Contents" => Object::string_literal("legacy note"),
+        "DA" => Object::string_literal("/Helv 12 Tf 0 0 0 rg"),
+        "AP" => dictionary! {"N" => blank_appearance},
+        "Popup" => target_popup_id,
+        "IRT" => (900, 0),
+        "UnknownKey" => Object::string_literal("keep me"),
+        "P" => page_id,
+    });
+    document
+        .get_dictionary_mut(target_popup_id)
+        .unwrap()
+        .set("Parent", Object::Reference(target_id));
+
+    let untouched_popup_id = document.add_object(dictionary! {
+        "Type" => "Annot",
+        "Subtype" => "Popup",
+        "Rect" => vec![40.into(), 60.into(), 41.into(), 61.into()],
+        "Contents" => Object::string_literal("untouched note"),
+    });
+    let untouched_id = document.add_object(dictionary! {
+        "Type" => "Annot",
+        "Subtype" => "FreeText",
+        "Rect" => vec![40.into(), 60.into(), 41.into(), 61.into()],
+        "NM" => Object::string_literal("legacy-untouched"),
+        "Contents" => Object::string_literal("untouched note"),
+        "AP" => dictionary! {"N" => blank_appearance},
+        "Popup" => untouched_popup_id,
+        "P" => page_id,
+    });
+    document
+        .get_dictionary_mut(untouched_popup_id)
+        .unwrap()
+        .set("Parent", Object::Reference(untouched_id));
+    document
+        .get_dictionary_mut(page_id)
+        .unwrap()
+        .set(
+            "Annots",
+            vec![
+                Object::Reference(target_id),
+                Object::Reference(target_popup_id),
+                Object::Reference(untouched_id),
+                Object::Reference(untouched_popup_id),
+            ],
+        );
+
+    let target_before = document.get_dictionary(target_id).unwrap().clone();
+    let untouched_before = document.get_object(untouched_id).unwrap().clone();
+    let input_path = temp_pdf_path("marker-conversion-input");
+    let output_path = temp_pdf_path("marker-conversion-output");
+    let mut original_bytes = Vec::new();
+    document.save_to(&mut original_bytes).unwrap();
+    write(&input_path, &original_bytes).unwrap();
+    write(&output_path, &original_bytes).unwrap();
+
+    append_native_mutations(
+        &input_path,
+        &output_path,
+        &NativeMutationsFile {
+            updates: vec![NoteTextUpdate {
+                object_number: target_id.0,
+                generation_number: target_id.1,
+                text: "edited note".to_string(),
+            }],
+            ..NativeMutationsFile::default()
+        },
+        "D:20260831123000Z",
+    )
+    .unwrap();
+
+    let loaded = Document::load(&output_path).unwrap();
+    let target = loaded.get_dictionary(target_id).unwrap();
+    assert_eq!(annotation_subtype(target), "text");
+    assert_unowned_keys_unchanged(
+        &target_before,
+        target,
+        &[
+            b"Subtype",
+            b"Name",
+            b"F",
+            b"Rect",
+            b"CreationDate",
+            b"AP",
+            b"DA",
+            b"Contents",
+            b"M",
+        ],
+    )
+    .unwrap();
+    assert!(target.get(b"AP").is_err());
+    assert!(target.get(b"DA").is_err());
+    assert_eq!(
+        string_bytes(&loaded, target_id, b"Contents"),
+        encode_pdf_text_string("edited note")
+    );
+    assert_eq!(
+        string_bytes(&loaded, target_popup_id, b"Contents"),
+        encode_pdf_text_string("edited note")
+    );
+    assert_eq!(
+        loaded.get_object(untouched_id).unwrap(),
+        &untouched_before,
+        "a sibling marker must not be rewritten"
+    );
+    assert_eq!(
+        annotation_subtype(loaded.get_dictionary(untouched_id).unwrap()),
+        "freetext"
+    );
+
+    let _ = remove_file(input_path);
+    let _ = remove_file(output_path);
+}
+
+#[test]
+fn editing_a_marker_through_its_popup_converts_the_parent_note() {
+    let (mut document, page_id) = create_test_document();
+    let blank_appearance = document.add_object(Stream::new(
+        dictionary! {
+            "Type" => "XObject",
+            "Subtype" => "Form",
+            "BBox" => vec![0.into(), 0.into(), 0.into(), 0.into()],
+        },
+        Vec::new(),
+    ));
+    let popup_id = document.add_object(dictionary! {
+        "Type" => "Annot",
+        "Subtype" => "Popup",
+        "Rect" => vec![20.into(), 60.into(), 21.into(), 61.into()],
+        "Contents" => Object::string_literal("legacy note"),
+    });
+    let marker_id = document.add_object(dictionary! {
+        "Type" => "Annot",
+        "Subtype" => "FreeText",
+        "Rect" => vec![20.into(), 60.into(), 21.into(), 61.into()],
+        "NM" => Object::string_literal("popup-target"),
+        "Contents" => Object::string_literal("legacy note"),
+        "AP" => dictionary! {"N" => blank_appearance},
+        "Popup" => popup_id,
+        "P" => page_id,
+    });
+    document
+        .get_dictionary_mut(popup_id)
+        .unwrap()
+        .set("Parent", Object::Reference(marker_id));
+    document
+        .get_dictionary_mut(page_id)
+        .unwrap()
+        .set("Annots", vec![Object::Reference(marker_id), Object::Reference(popup_id)]);
+
+    let input_path = temp_pdf_path("popup-marker-conversion-input");
+    let output_path = temp_pdf_path("popup-marker-conversion-output");
+    let mut bytes = Vec::new();
+    document.save_to(&mut bytes).unwrap();
+    write(&input_path, &bytes).unwrap();
+    write(&output_path, &bytes).unwrap();
+    append_native_mutations(
+        &input_path,
+        &output_path,
+        &NativeMutationsFile {
+            updates: vec![NoteTextUpdate {
+                object_number: popup_id.0,
+                generation_number: popup_id.1,
+                text: "popup edit".to_string(),
+            }],
+            ..NativeMutationsFile::default()
+        },
+        "D:20260831123100Z",
+    )
+    .unwrap();
+
+    let loaded = Document::load(&output_path).unwrap();
+    assert_eq!(
+        annotation_subtype(loaded.get_dictionary(marker_id).unwrap()),
+        "text"
+    );
+    assert_eq!(
+        string_bytes(&loaded, marker_id, b"Contents"),
+        encode_pdf_text_string("popup edit")
+    );
+    assert_eq!(
+        string_bytes(&loaded, popup_id, b"Contents"),
+        encode_pdf_text_string("popup edit")
+    );
+
+    let _ = remove_file(input_path);
+    let _ = remove_file(output_path);
+}
+
+#[test]
+fn geometry_edit_uses_the_save_timestamp_when_converting_a_marker() {
+    let (mut document, page_id) = create_test_document();
+    let blank_appearance = document.add_object(Stream::new(
+        dictionary! {
+            "Type" => "XObject",
+            "Subtype" => "Form",
+            "BBox" => vec![0.into(), 0.into(), 0.into(), 0.into()],
+        },
+        Vec::new(),
+    ));
+    let popup_id = document.add_object(dictionary! {
+        "Type" => "Annot",
+        "Subtype" => "Popup",
+        "Rect" => vec![20.into(), 60.into(), 21.into(), 61.into()],
+        "Parent" => (0, 0),
+    });
+    let marker_id = document.add_object(dictionary! {
+        "Type" => "Annot",
+        "Subtype" => "FreeText",
+        "Rect" => vec![20.into(), 60.into(), 21.into(), 61.into()],
+        "NM" => Object::string_literal("geometry-target"),
+        "DA" => Object::string_literal("/F1 12 Tf"),
+        "AP" => dictionary! {"N" => blank_appearance},
+        "Popup" => popup_id,
+        "P" => page_id,
+    });
+    document
+        .get_dictionary_mut(popup_id)
+        .unwrap()
+        .set("Parent", Object::Reference(marker_id));
+    document
+        .get_dictionary_mut(page_id)
+        .unwrap()
+        .set("Annots", vec![Object::Reference(marker_id), Object::Reference(popup_id)]);
+
+    let modified_at = "D:20260831124000Z";
+    update_note_geometry(
+        &mut document,
+        &[NoteGeometryUpdate {
+            object_number: marker_id.0,
+            generation_number: marker_id.1,
+            page_index: 0,
+            marker_rect: MarkerRect {
+                left: 0.1,
+                top: 0.2,
+                width: 0.001,
+                height: 0.001,
+            },
+        }],
+        modified_at,
+    )
+    .unwrap();
+
+    let marker = document.get_dictionary(marker_id).unwrap();
+    assert_eq!(annotation_subtype(marker), "text");
+    assert_eq!(
+        pdf_string_to_text(marker.get(b"M").unwrap()),
+        Some(modified_at.to_string())
+    );
+    assert_eq!(marker.get(b"Name").unwrap().as_name().unwrap(), b"Note");
+    assert!(marker.get(b"AP").is_err());
+    assert!(marker.get(b"DA").is_err());
+    let rect = parse_rect(marker.get(b"Rect").unwrap()).unwrap();
+    assert_approximately(rect.width(), 20.0);
+    assert_approximately(rect.height(), 20.0);
+    let popup_rect = parse_rect(
+        document.get_dictionary(popup_id).unwrap().get(b"Rect").unwrap(),
+    )
+    .unwrap();
+    assert_approximately(popup_rect.width(), 20.0);
+    assert_approximately(popup_rect.height(), 20.0);
+}
+
+#[test]
+fn text_edit_keeps_a_marker_when_the_note_icon_does_not_fit() {
+    let build_document = || {
+        let (mut document, page_id) = create_test_document();
+        document
+            .get_dictionary_mut(page_id)
+            .unwrap()
+            .set("MediaBox", vec![0.into(), 0.into(), 10.into(), 10.into()]);
+        let blank_appearance = document.add_object(Stream::new(
+            dictionary! {
+                "Type" => "XObject",
+                "Subtype" => "Form",
+                "BBox" => vec![0.into(), 0.into(), 0.into(), 0.into()],
+            },
+            Vec::new(),
+        ));
+        let popup_id = document.add_object(dictionary! {
+            "Type" => "Annot",
+            "Subtype" => "Popup",
+            "Rect" => vec![1.into(), 8.into(), 1.1.into(), 8.1.into()],
+        });
+        let marker_id = document.add_object(dictionary! {
+            "Type" => "Annot",
+            "Subtype" => "FreeText",
+            "Rect" => vec![1.into(), 8.into(), 1.1.into(), 8.1.into()],
+            "NM" => Object::string_literal("tiny-marker"),
+            "Contents" => Object::string_literal("old text"),
+            "AP" => dictionary! {"N" => blank_appearance},
+            "Popup" => popup_id,
+            "P" => page_id,
+        });
+        document
+            .get_dictionary_mut(popup_id)
+            .unwrap()
+            .set("Parent", Object::Reference(marker_id));
+        document
+            .get_dictionary_mut(page_id)
+            .unwrap()
+            .set("Annots", vec![Object::Reference(marker_id), Object::Reference(popup_id)]);
+        (document, marker_id, popup_id)
+    };
+
+    let modified_at = "D:20260831124500Z";
+    let (mut document, marker_id, popup_id) = build_document();
+    assert!(update_annotation_text_by_ref(&mut document, marker_id, "edited", modified_at).unwrap());
+    assert_eq!(
+        annotation_subtype(document.get_dictionary(marker_id).unwrap()),
+        "freetext"
+    );
+    assert_eq!(
+        string_bytes(&document, marker_id, b"Contents"),
+        encode_pdf_text_string("edited")
+    );
+    assert_eq!(
+        string_bytes(&document, popup_id, b"Contents"),
+        encode_pdf_text_string("edited")
+    );
+
+    let (document, marker_id, popup_id) = build_document();
+    let mut incremental = IncrementalDocument::from_document(document, 0, None);
+    assert!(update_annotation_text_incremental_by_ref(
+        &mut incremental,
+        marker_id,
+        "edited",
+        modified_at,
+    )
+    .unwrap());
+    let revision = AppendedRevision::new(&incremental);
+    assert_eq!(annotation_subtype(revision.dictionary(marker_id).unwrap()), "freetext");
+    assert_eq!(
+        revision
+            .dictionary(marker_id)
+            .unwrap()
+            .get(b"Contents")
+            .unwrap()
+            .as_str()
+            .unwrap(),
+        encode_pdf_text_string("edited").as_slice()
+    );
+    assert_eq!(
+        revision
+            .dictionary(popup_id)
+            .unwrap()
+            .get(b"Contents")
+            .unwrap()
+            .as_str()
+            .unwrap(),
+        encode_pdf_text_string("edited").as_slice()
+    );
+}
+
+#[test]
 fn appends_and_updates_visible_free_text_editor_as_incremental_revision() {
     let (mut document, page_id) = create_test_document();
     let pdf_path = temp_pdf_path("append-visible-free-text-editor");
+    let _cleanup = RemovePdfFilesOnDrop([pdf_path.clone()]);
     let mut original_bytes = Vec::new();
     document.save_to(&mut original_bytes).unwrap();
     write(&pdf_path, &original_bytes).unwrap();
@@ -972,7 +1626,7 @@ fn appends_and_updates_visible_free_text_editor_as_incremental_revision() {
             &pdf_path,
             &pdf_path,
             &NativeMutationsFile {
-                free_text_editors: vec![FreeTextEditor {
+                text_boxes: vec![TextBoxMutation {
                     page_index: 0,
                     stable_key: "pdfjs_internal_editor_0".to_string(),
                     annotation_id: None,
@@ -981,6 +1635,9 @@ fn appends_and_updates_visible_free_text_editor_as_incremental_revision() {
                     rotation: 0,
                     font_size: 16.0,
                     color: [245, 158, 11],
+                    author: None,
+                    created_at: None,
+                    modified_at: None,
                 }],
                 ..NativeMutationsFile::default()
             },
@@ -1027,9 +1684,296 @@ fn appends_and_updates_visible_free_text_editor_as_incremental_revision() {
         .unwrap();
     let appearance_text = String::from_utf8_lossy(&appearance.content);
     assert!(appearance_text.contains("0.9608 0.6196 0.0431 rg"));
-    assert!(appearance_text.contains("(saved text) Tj"));
+    assert!(appearance_text.contains("(saved) Tj"));
+    assert!(appearance_text.contains("(text) Tj"));
 
-    let _ = remove_file(pdf_path);
+}
+
+#[test]
+fn text_box_create_round_trips_canonical_properties_and_metadata() {
+    let (mut document, page_id) = create_test_document();
+    let pdf_path = temp_pdf_path("append-text-box-create-parse");
+    let _cleanup = RemovePdfFilesOnDrop([pdf_path.clone()]);
+    let mut original_bytes = Vec::new();
+    document.save_to(&mut original_bytes).unwrap();
+    write(&pdf_path, &original_bytes).unwrap();
+
+    let text = "A long text box line that wraps at the requested width without changing its font size";
+    let created_at = 1_780_000_000_000;
+    let modified_at = 1_780_000_060_000;
+    append_native_mutations(
+        &pdf_path,
+        &pdf_path,
+        &NativeMutationsFile {
+            text_boxes: vec![TextBoxMutation {
+                page_index: 0,
+                stable_key: "text-box-create".to_string(),
+                annotation_id: None,
+                text: text.to_string(),
+                rect: [10.0, 20.0, 110.0, 80.0],
+                rotation: 0,
+                font_size: 16.0,
+                color: [17, 24, 39],
+                author: Some("Ada Lovelace".to_string()),
+                created_at: Some(created_at),
+                modified_at: Some(modified_at),
+            }],
+            ..NativeMutationsFile::default()
+        },
+        "D:20260831120000Z",
+    )
+    .unwrap();
+
+    let loaded = Document::load(&pdf_path).unwrap();
+    let text_box_id = get_page_annots(&loaded, page_id)
+        .unwrap()
+        .iter()
+        .filter_map(|object| object.as_reference().ok())
+        .find(|object_id| {
+            loaded
+                .get_dictionary(*object_id)
+                .ok()
+                .and_then(read_annotation_name)
+                .as_deref()
+                == Some("text-box-create")
+        })
+        .expect("created text box should be referenced by the page");
+    let dict = loaded.get_dictionary(text_box_id).unwrap();
+    assert_eq!(pdf_string_to_text(dict.get(b"T").unwrap()).as_deref(), Some("Ada Lovelace"));
+    assert_eq!(
+        pdf_string_to_text(dict.get(b"CreationDate").unwrap()).as_deref(),
+        Some(shape_pdf_date(Some(created_at), "D:19700101000000Z").as_str()),
+    );
+    assert_eq!(
+        pdf_string_to_text(dict.get(b"M").unwrap()).as_deref(),
+        Some(shape_pdf_date(Some(modified_at), "D:19700101000000Z").as_str()),
+    );
+
+    let parsed = collect_parsed_annotations(&loaded, "D:20260831120000Z").unwrap();
+    let parsed_text_box = parsed
+        .iter()
+        .find_map(|entry| match entry {
+            PdfAnnotationParseEntry::TextBox(value) if value.name == "text-box-create" => {
+                Some(value)
+            }
+            _ => None,
+        })
+        .expect("created text box should parse as a text box");
+    assert_eq!(parsed_text_box.text, text);
+    assert_eq!(parsed_text_box.author.as_deref(), Some("Ada Lovelace"));
+    assert_eq!(parsed_text_box.created_at, Some(created_at as i64));
+    assert_eq!(parsed_text_box.modified_at, Some(modified_at as i64));
+    assert_eq!(parsed_text_box.rotation, 0);
+    assert_eq!(parsed_text_box.font_size, 16.0);
+    assert_eq!(parsed_text_box.color, "#111827");
+    assert_approximately(parsed_text_box.rect.left, 0.05);
+    assert_approximately(parsed_text_box.rect.top, 0.2);
+    assert_approximately(parsed_text_box.rect.width, 0.5);
+    assert_approximately(parsed_text_box.rect.height, 0.6);
+
+    let appearance_ref = dict
+        .get(b"AP")
+        .unwrap()
+        .as_dict()
+        .unwrap()
+        .get(b"N")
+        .unwrap()
+        .as_reference()
+        .unwrap();
+    let appearance = loaded
+        .get_object(appearance_ref)
+        .unwrap()
+        .as_stream()
+        .unwrap();
+    let appearance_text = String::from_utf8_lossy(&appearance.content);
+    assert!(appearance_text.matches(" Tj").count() > 1);
+    for line in wrap_free_text_lines(text, 100.0, 16.0) {
+        // This mirrors the writer's line-break measurement; rendered fit is checked by the PDF appearance assertions above.
+        assert!(free_text_line_width(&line, 16.0) <= 100.0);
+    }
+    let lines = wrap_free_text_lines("aaa    bbb", 35.0, 16.0);
+    assert_eq!(lines, vec!["aaa", "bbb"]);
+    for line in lines {
+        assert!(free_text_line_width(&line, 16.0) <= 35.0);
+    }
+}
+
+#[test]
+fn updates_foreign_text_box_in_place_and_preserves_unowned_keys_and_popup() {
+    let (mut document, page_id) = create_test_document();
+    let old_appearance = document.add_object(Stream::new(
+        dictionary! {
+            "Type" => "XObject",
+            "Subtype" => "Form",
+            "BBox" => vec![0.into(), 0.into(), 10.into(), 10.into()],
+        },
+        b"q old appearance Q".to_vec(),
+    ));
+    let popup_id = document.add_object(dictionary! {
+        "Type" => "Annot",
+        "Subtype" => "Popup",
+        "Contents" => Object::string_literal("foreign popup"),
+        "Rect" => vec![20.into(), 60.into(), 100.into(), 80.into()],
+        "P" => page_id,
+    });
+    let foreign_id = document.add_object(dictionary! {
+        "Type" => "Annot",
+        "Subtype" => "FreeText",
+        "Rect" => vec![20.into(), 30.into(), 160.into(), 80.into()],
+        "NM" => Object::string_literal("foreign-text-box"),
+        "Contents" => Object::string_literal("foreign text"),
+        "T" => Object::string_literal("Foreign author"),
+        "CreationDate" => Object::string_literal("D:20260101000000Z"),
+        "M" => Object::string_literal("D:20260102000000Z"),
+        "DA" => Object::string_literal("/Courier 12 Tf 0.2 0.3 0.4 rg 2 Tc 3 Tr"),
+        "AP" => dictionary! {
+            "N" => old_appearance,
+            "R" => Object::string_literal("rollover"),
+            "D" => Object::string_literal("down"),
+            "UnknownAP" => Object::Integer(42),
+        },
+        "RC" => Object::string_literal("<b>foreign rich text</b>"),
+        "DS" => Object::string_literal("font: Courier"),
+        "Q" => Object::Integer(2),
+        "Border" => vec![1.into(), 2.into(), 3.into(), 4.into()],
+        "BS" => dictionary! {"W" => 7},
+        "IC" => vec![0.1.into(), 0.2.into(), 0.3.into()],
+        "CL" => vec![1.into(), 2.into(), 3.into(), 4.into()],
+        "IT" => Object::Name(b"FreeTextTypeWriter".to_vec()),
+        "Popup" => popup_id,
+        "UnknownKey" => Object::string_literal("keep me"),
+        "P" => page_id,
+    });
+    document
+        .get_dictionary_mut(popup_id)
+        .unwrap()
+        .set("Parent", Object::Reference(foreign_id));
+    document
+        .get_dictionary_mut(page_id)
+        .unwrap()
+        .set("Annots", vec![Object::Reference(foreign_id), Object::Reference(popup_id)]);
+    let before = document.get_dictionary(foreign_id).unwrap().clone();
+    let before_popup = document.get_dictionary(popup_id).unwrap().clone();
+    let before_ap = before.get(b"AP").unwrap().as_dict().unwrap().clone();
+
+    let input_path = temp_pdf_path("foreign-text-box-input");
+    let output_path = temp_pdf_path("foreign-text-box-output");
+    let _cleanup = RemovePdfFilesOnDrop([input_path.clone(), output_path.clone()]);
+    let mut bytes = Vec::new();
+    document.save_to(&mut bytes).unwrap();
+    write(&input_path, &bytes).unwrap();
+    write(&output_path, &bytes).unwrap();
+    append_native_mutations(
+        &input_path,
+        &output_path,
+        &NativeMutationsFile {
+            text_boxes: vec![TextBoxMutation {
+                page_index: 0,
+                stable_key: "foreign-text-box".to_string(),
+                annotation_id: Some(format_pdfjs_annotation_ref(foreign_id)),
+                text: "edited foreign text".to_string(),
+                rect: [20.0, 30.0, 160.0, 80.0],
+                rotation: 0,
+                font_size: 18.0,
+                color: [17, 24, 39],
+                author: None,
+                created_at: None,
+                modified_at: None,
+            }],
+            ..NativeMutationsFile::default()
+        },
+        "D:20260831130000Z",
+    )
+    .unwrap();
+
+    let loaded = Document::load(&output_path).unwrap();
+    let after = loaded.get_dictionary(foreign_id).unwrap();
+    assert_unowned_keys_unchanged(
+        &before,
+        after,
+        &[b"Rect", b"Contents", b"M", b"Rotate", b"DA", b"AP"],
+    )
+    .unwrap();
+    assert_eq!(pdf_string_to_text(after.get(b"T").unwrap()).as_deref(), Some("Foreign author"));
+    assert_eq!(
+        pdf_string_to_text(after.get(b"CreationDate").unwrap()).as_deref(),
+        Some("D:20260101000000Z")
+    );
+    assert!(after.get(b"Popup").is_ok());
+    let after_ap = after.get(b"AP").unwrap().as_dict().unwrap();
+    assert_eq!(after_ap.get(b"R").unwrap(), before_ap.get(b"R").unwrap());
+    assert_eq!(after_ap.get(b"D").unwrap(), before_ap.get(b"D").unwrap());
+    assert_eq!(
+        after_ap.get(b"UnknownAP").unwrap(),
+        before_ap.get(b"UnknownAP").unwrap()
+    );
+    let da = String::from_utf8_lossy(after.get(b"DA").unwrap().as_str().unwrap());
+    assert!(da.contains("/Courier 18 Tf"));
+    assert!(da.contains("2 Tc 3 Tr"));
+    assert!(da.contains("0.0667 0.0941 0.1529 rg"));
+    assert_eq!(loaded.get_dictionary(popup_id).unwrap(), &before_popup);
+
+}
+
+#[test]
+fn deletes_text_box_and_its_popup_by_canonical_stable_key() {
+    let (mut document, page_id) = create_test_document();
+    let popup_id = document.add_object(dictionary! {
+        "Type" => "Annot",
+        "Subtype" => "Popup",
+        "Rect" => vec![10.into(), 10.into(), 20.into(), 20.into()],
+        "P" => page_id,
+    });
+    let text_box_id = document.add_object(dictionary! {
+        "Type" => "Annot",
+        "Subtype" => "FreeText",
+        "NM" => Object::string_literal("delete-text-box"),
+        "Rect" => vec![10.into(), 10.into(), 100.into(), 30.into()],
+        "Popup" => popup_id,
+        "P" => page_id,
+    });
+    document
+        .get_dictionary_mut(popup_id)
+        .unwrap()
+        .set("Parent", Object::Reference(text_box_id));
+    document.get_dictionary_mut(page_id).unwrap().set(
+        "Annots",
+        vec![Object::Reference(text_box_id), Object::Reference(popup_id)],
+    );
+    let input_path = temp_pdf_path("delete-text-box-input");
+    let output_path = temp_pdf_path("delete-text-box-output");
+    let _cleanup = RemovePdfFilesOnDrop([input_path.clone(), output_path.clone()]);
+    let mut bytes = Vec::new();
+    document.save_to(&mut bytes).unwrap();
+    write(&input_path, &bytes).unwrap();
+    write(&output_path, &bytes).unwrap();
+
+    append_native_mutations(
+        &input_path,
+        &output_path,
+        &NativeMutationsFile {
+            deletes: vec![AnnotationDelete {
+                page_index: 0,
+                object_number: None,
+                generation_number: None,
+                stable_key: Some("delete-text-box".to_string()),
+                created_at: None,
+            }],
+            ..NativeMutationsFile::default()
+        },
+        "D:20260831140000Z",
+    )
+    .unwrap();
+
+    let loaded = Document::load(&output_path).unwrap();
+    let page_annotation_refs: Vec<ObjectId> = get_page_annots(&loaded, page_id)
+        .unwrap()
+        .iter()
+        .filter_map(|object| object.as_reference().ok())
+        .collect();
+    assert!(!page_annotation_refs.contains(&text_box_id));
+    assert!(!page_annotation_refs.contains(&popup_id));
+
 }
 
 #[test]
@@ -1046,6 +1990,7 @@ fn updates_imported_free_text_editor_by_pdf_reference_without_duplication() {
         .unwrap()
         .set("Annots", vec![Object::Reference(imported_ref)]);
     let pdf_path = temp_pdf_path("append-imported-free-text-editor");
+    let _cleanup = RemovePdfFilesOnDrop([pdf_path.clone()]);
     let mut original_bytes = Vec::new();
     document.save_to(&mut original_bytes).unwrap();
     write(&pdf_path, &original_bytes).unwrap();
@@ -1054,7 +1999,7 @@ fn updates_imported_free_text_editor_by_pdf_reference_without_duplication() {
         &pdf_path,
         &pdf_path,
         &NativeMutationsFile {
-            free_text_editors: vec![FreeTextEditor {
+            text_boxes: vec![TextBoxMutation {
                 page_index: 0,
                 stable_key: "pdf-ref-imported".to_string(),
                 annotation_id: Some(format_pdfjs_annotation_ref(imported_ref)),
@@ -1063,6 +2008,9 @@ fn updates_imported_free_text_editor_by_pdf_reference_without_duplication() {
                 rotation: 0,
                 font_size: 18.0,
                 color: [17, 24, 39],
+                author: None,
+                created_at: None,
+                modified_at: None,
             }],
             ..NativeMutationsFile::default()
         },
@@ -1078,16 +2026,19 @@ fn updates_imported_free_text_editor_by_pdf_reference_without_duplication() {
         dict.get(b"Contents").unwrap().as_str().unwrap(),
         encode_pdf_text_string("edited imported text"),
     );
-    assert!(dict.get(b"NM").is_err());
+    assert_eq!(
+        pdf_string_to_text(dict.get(b"NM").unwrap()).as_deref(),
+        Some("pdf-ref-imported"),
+    );
     assert!(dict.get(b"AP").is_ok());
 
-    let _ = remove_file(pdf_path);
 }
 
 #[test]
 fn incremental_mixed_free_text_mutations_preserve_every_page_annotation() {
     let (mut document, page_id) = create_test_document();
     let pdf_path = temp_pdf_path("append-mixed-free-text-mutations");
+    let _cleanup = RemovePdfFilesOnDrop([pdf_path.clone()]);
     let mut original_bytes = Vec::new();
     document.save_to(&mut original_bytes).unwrap();
     write(&pdf_path, &original_bytes).unwrap();
@@ -1110,8 +2061,8 @@ fn incremental_mixed_free_text_mutations_preserve_every_page_annotation() {
                 color: None,
                 created_at: Some(1_787_783_296_280),
             }],
-            free_text_editors: vec![
-                FreeTextEditor {
+            text_boxes: vec![
+                TextBoxMutation {
                     page_index: 0,
                     stable_key: "freetext-first".to_string(),
                     annotation_id: None,
@@ -1120,8 +2071,11 @@ fn incremental_mixed_free_text_mutations_preserve_every_page_annotation() {
                     rotation: 0,
                     font_size: 16.0,
                     color: [17, 24, 39],
+                    author: None,
+                    created_at: None,
+                    modified_at: None,
                 },
-                FreeTextEditor {
+                TextBoxMutation {
                     page_index: 0,
                     stable_key: "freetext-second".to_string(),
                     annotation_id: None,
@@ -1130,6 +2084,9 @@ fn incremental_mixed_free_text_mutations_preserve_every_page_annotation() {
                     rotation: 0,
                     font_size: 16.0,
                     color: [34, 197, 94],
+                    author: None,
+                    created_at: None,
+                    modified_at: None,
                 },
             ],
             ..NativeMutationsFile::default()
@@ -1139,6 +2096,14 @@ fn incremental_mixed_free_text_mutations_preserve_every_page_annotation() {
     .unwrap();
 
     let loaded = Document::load(&pdf_path).unwrap();
+    let text_names: Vec<String> = get_page_annots(&loaded, page_id)
+        .unwrap()
+        .iter()
+        .filter_map(|object| object.as_reference().ok())
+        .filter_map(|object_id| loaded.get_dictionary(object_id).ok())
+        .filter(|dict| annotation_subtype(dict) == "text")
+        .filter_map(|dict| dict.get(b"NM").ok().and_then(pdf_string_to_text))
+        .collect();
     let free_text_names: Vec<String> = get_page_annots(&loaded, page_id)
         .unwrap()
         .iter()
@@ -1148,20 +2113,22 @@ fn incremental_mixed_free_text_mutations_preserve_every_page_annotation() {
         .filter_map(|dict| dict.get(b"NM").ok().and_then(pdf_string_to_text))
         .collect();
     assert_eq!(
+        text_names,
+        vec!["uid:0:pdfjs_internal_editor_0"]
+    );
+    assert_eq!(
         free_text_names,
         vec![
-            "evb-note:uid:0:pdfjs_internal_editor_0:created:1787783296280",
-            "evb-freetext:freetext-first",
-            "evb-freetext:freetext-second",
+            "freetext-first",
+            "freetext-second",
         ]
     );
 
-    let _ = remove_file(pdf_path);
 }
 
 #[test]
 fn accepts_pdfjs_free_text_border_rounding_past_the_page_edge() {
-    let editor = FreeTextEditor {
+    let editor = TextBoxMutation {
         page_index: 0,
         stable_key: "pdfjs_internal_editor_0".to_string(),
         annotation_id: None,
@@ -1170,6 +2137,9 @@ fn accepts_pdfjs_free_text_border_rounding_past_the_page_edge() {
         rotation: 0,
         font_size: 16.0,
         color: [0, 0, 0],
+        author: None,
+        created_at: None,
+        modified_at: None,
     };
     let page_view = PdfRect {
         x1: 0.0,
@@ -1178,17 +2148,17 @@ fn accepts_pdfjs_free_text_border_rounding_past_the_page_edge() {
         y2: 100.0,
     };
 
-    let accepted = validate_free_text_editor_rect(&editor, page_view).unwrap();
+    let accepted = validate_text_box_rect(&editor, page_view).unwrap();
     assert_approximately(accepted.x1, 20.0);
     assert_approximately(accepted.y1, 30.0);
     assert_approximately(accepted.x2, 202.0);
     assert_approximately(accepted.y2, 60.0);
 
-    let outside = FreeTextEditor {
+    let outside = TextBoxMutation {
         rect: [20.0, 30.0, 205.0, 60.0],
         ..editor
     };
-    assert!(validate_free_text_editor_rect(&outside, page_view).is_err());
+    assert!(validate_text_box_rect(&outside, page_view).is_err());
 }
 
 #[test]
@@ -1252,20 +2222,20 @@ fn repeated_free_text_note_append_updates_existing_named_note() {
 
     let loaded = Document::load(&pdf_path).unwrap();
     let annots = get_page_annots(&loaded, page_id).unwrap();
-    let free_text_refs: Vec<ObjectId> = annots
+    let text_refs: Vec<ObjectId> = annots
         .iter()
         .filter_map(|object| object.as_reference().ok())
         .filter(|object_id| {
             loaded
                 .get_dictionary(*object_id)
-                .map(|dict| annotation_subtype(dict) == "freetext")
+                .map(|dict| annotation_subtype(dict) == "text")
                 .unwrap_or(false)
         })
         .collect();
 
-    assert_eq!(free_text_refs.len(), 1);
+    assert_eq!(text_refs.len(), 1);
     assert_eq!(
-        string_bytes(&loaded, free_text_refs[0], b"Contents"),
+        string_bytes(&loaded, text_refs[0], b"Contents"),
         encode_pdf_text_string("second text")
     );
 
@@ -1279,7 +2249,7 @@ fn same_page_free_text_batch_indexes_initial_annots_once_and_preserves_order() {
     for index in 0..24 {
         let annot_id = document.add_object(dictionary! {
             "Type" => "Annot",
-            "Subtype" => "FreeText",
+            "Subtype" => "Text",
             "NM" => Object::string_literal(format!("evb-note:existing-{index}")),
             "Contents" => Object::string_literal("old"),
         });
@@ -1324,6 +2294,7 @@ fn same_page_free_text_batch_indexes_initial_annots_once_and_preserves_order() {
         &notes,
         "D:20260609123456Z",
         &mut annotation_visits,
+        &mut None,
     )
     .unwrap();
 
@@ -1375,26 +2346,27 @@ fn incremental_same_batch_duplicate_note_reuses_the_indexed_annotation() {
         &notes,
         "D:20260609123456Z",
         &mut annotation_visits,
+        &mut None,
     )
     .unwrap();
 
     let revision = AppendedRevision::new(&incremental);
     let annots = get_page_annots(&revision, page_id).unwrap();
-    let free_text_refs: Vec<ObjectId> = annots
+    let text_refs: Vec<ObjectId> = annots
         .iter()
         .filter_map(|object| object.as_reference().ok())
         .filter(|object_id| {
             revision
                 .dictionary(*object_id)
-                .map(|dict| annotation_subtype(dict) == "freetext")
+                .map(|dict| annotation_subtype(dict) == "text")
                 .unwrap_or(false)
         })
         .collect();
     assert_eq!(annotation_visits, 0);
-    assert_eq!(free_text_refs.len(), 1);
+    assert_eq!(text_refs.len(), 1);
     assert_eq!(
         revision
-            .dictionary(free_text_refs[0])
+            .dictionary(text_refs[0])
             .unwrap()
             .get(b"Contents")
             .ok()

@@ -23,5 +23,15 @@ export function isNoteEligible(
         return true;
     }
 
+    if (
+        normalized === 'highlight'
+        || normalized === 'underline'
+        || normalized === 'strikeout'
+        || normalized === 'strikethrough'
+        || normalized === 'squiggly'
+    ) {
+        return true;
+    }
+
     return source === 'editor' && typeof text === 'string' && text.trim().length > 0;
 }

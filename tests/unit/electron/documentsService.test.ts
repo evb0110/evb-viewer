@@ -6,6 +6,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 
 const mocks = vi.hoisted(() => ({
     backingEntry: {
@@ -27,6 +28,7 @@ const mocks = vi.hoisted(() => ({
         status: 'running' | 'completed' | 'failed';
         totalBytes: number;
     }) => void),
+    parsePdfAnnotations: vi.fn(),
 }));
 
 vi.mock('@electron/file-access/workingCopyMaterialization', () => ({
@@ -40,6 +42,14 @@ vi.mock('@electron/file-access/workingCopyMaterialization', () => ({
 vi.mock('@electron/file-access/workingCopyStore', () => ({
     getWorkingCopyBackingEntry: () => mocks.backingEntry,
     normalizePathForLookup: (path: string) => path,
+}));
+
+vi.mock('@electron/features/documents/main/pdfAnnotationParse', () => ({
+    beginPdfAnnotationParse: vi.fn(),
+    cancelPdfAnnotationParse: vi.fn(),
+    parsePdfAnnotations: (...args: unknown[]) => mocks.parsePdfAnnotations(...args),
+    readPdfAnnotationParseChunk: vi.fn(),
+    releasePdfAnnotationParse: vi.fn(),
 }));
 
 const { createDocumentsService } = await import('@electron/features/documents/createDocumentsService');
@@ -109,5 +119,29 @@ describe('documents service working-copy backing status', () => {
                 state: 'materialized',
             },
         }));
+    });
+
+    it('delegates one-shot annotation parsing to the native host', async () => {
+        const revision = requireDocumentRevisionToken('drt1:service-parse-revision');
+        const result = {
+            documentRevisionToken: revision,
+            pageCount: 1,
+            entities: [],
+            foreign: [],
+        };
+        mocks.parsePdfAnnotations.mockResolvedValue(result);
+        const service = createDocumentsService();
+        const context = {senderId: 7};
+
+        await expect(service.parsePdfAnnotations(
+            context,
+            '/tmp/managed.pdf',
+            {expectedDocumentRevisionToken: revision},
+        )).resolves.toEqual(result);
+        expect(mocks.parsePdfAnnotations).toHaveBeenCalledWith(
+            context,
+            '/tmp/managed.pdf',
+            {expectedDocumentRevisionToken: revision},
+        );
     });
 });

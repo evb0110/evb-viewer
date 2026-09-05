@@ -59,7 +59,6 @@ function createLifecycle(overrides: Record<string, unknown> = {}) {
         clearAnnotationComments: vi.fn(),
         annotationActiveCommentStableKey: ref(null),
         annotationEditorState: ref(null),
-        annotationPlacingPageNote: ref(false),
         bookmarkItems: ref([]),
         bookmarksDirty: ref(false),
         bookmarkEditMode: ref(false),

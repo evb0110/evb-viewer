@@ -1,7 +1,4 @@
-import type {
-    ICropMargins,
-    IPageGeometry,
-} from '@contracts/shared';
+import type { ICropMargins } from '@contracts/shared';
 import type { IWorkerTaskErrorFrame } from '@electron/utils/workerTask';
 import { isRecord } from '@contracts/runtimeGuards';
 
@@ -17,12 +14,6 @@ export type TCropWorkerInput =
         type: 'removeCrop';
         workingCopyPath: string;
         pages: number[];
-        senderWebContentsId?: number;
-    }
-    | {
-        type: 'getPageGeometry';
-        workingCopyPath: string;
-        pageNumber: number;
         senderWebContentsId?: number;
     };
 
@@ -86,17 +77,6 @@ export function decodeCropWorkerInput(value: unknown): TCropWorkerInput | null {
         return null;
     }
 
-    if (value.type === 'getPageGeometry') {
-        return isPositiveSafeInteger(value.pageNumber)
-            ? {
-                type: 'getPageGeometry',
-                workingCopyPath: value.workingCopyPath,
-                pageNumber: value.pageNumber,
-                ...(senderWebContentsId === undefined ? {} : {senderWebContentsId}),
-            }
-            : null;
-    }
-
     const pages = decodePageNumbers(value.pages);
     if (pages === null) {
         return null;
@@ -136,7 +116,6 @@ export type TCropWorkerResult =
     | {
         type: 'result';
         ok: true;
-        data?: IPageGeometry;
     }
     | {
         type: 'result';

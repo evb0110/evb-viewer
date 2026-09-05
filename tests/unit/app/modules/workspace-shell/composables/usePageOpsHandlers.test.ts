@@ -88,7 +88,7 @@ function createHarness(options: {
         onExportPages,
         canMutatePages,
         ensureHistoryBaselineForMutation: vi.fn(async () => true),
-        materializeAnnotationsForPageMutation: vi.fn(async () => true),
+        saveAnnotationsForPageMutation: vi.fn(async () => true),
         reloadWorkingCopyIntoHistory: vi.fn(async () => true),
         preparePdfReloadWaiter,
         clearOcrCache: vi.fn(),

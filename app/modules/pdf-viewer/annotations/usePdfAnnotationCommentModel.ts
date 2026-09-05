@@ -26,6 +26,9 @@ function cloneSnapshot(comment: IAnnotationCommentSummary): IAnnotationCommentSu
     return {
         ...comment,
         markerRect: comment.markerRect ? {...comment.markerRect} : comment.markerRect,
+        ...(comment.replies
+            ? {replies: comment.replies.map(reply => ({...reply}))}
+            : {}),
     };
 }
 

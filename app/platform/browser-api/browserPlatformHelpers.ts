@@ -46,7 +46,7 @@ function buildBrowserByteLimitError(
 ) {
     return new Error(
         `${label} is unavailable in the browser for ${noun} larger than ${Math.floor(maxBytes / (1024 * 1024))}MB`
-        + (hint ? ` ${hint}` : ''),
+        + (hint ? (hint.startsWith('.') ? hint : ` ${hint}`) : ''),
     );
 }
 

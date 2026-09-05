@@ -35,7 +35,6 @@ describe('usePdfViewerMouseInteractions', () => {
         const handleViewerContextMenuAnnotation = vi.fn();
         const interactions = usePdfViewerMouseInteractions({
             isSnipActive: () => false,
-            isCommentPlacementActive: () => false,
             isViewerPanDragModeActive: computed(() => false),
             cancelPendingSearchScroll: vi.fn(),
             handleDragStart: vi.fn(),
@@ -62,7 +61,6 @@ describe('usePdfViewerMouseInteractions', () => {
         const handleViewerContextMenuAnnotation = vi.fn();
         const interactions = usePdfViewerMouseInteractions({
             isSnipActive: () => true,
-            isCommentPlacementActive: () => false,
             isViewerPanDragModeActive: computed(() => false),
             cancelPendingSearchScroll: vi.fn(),
             handleDragStart: vi.fn(),
@@ -80,40 +78,6 @@ describe('usePdfViewerMouseInteractions', () => {
         expect(handleViewerContextMenuAnnotation).not.toHaveBeenCalled();
     });
 
-    it('suppresses pan and text-selection defaults while placing a note', () => {
-        vi.stubGlobal('HTMLElement', class HTMLElementStub {
-            closest() {
-                return null;
-            }
-        });
-        const cancelPendingSearchScroll = vi.fn();
-        const handleDragStart = vi.fn();
-        const interactions = usePdfViewerMouseInteractions({
-            isSnipActive: () => false,
-            isCommentPlacementActive: () => true,
-            isViewerPanDragModeActive: computed(() => true),
-            cancelPendingSearchScroll,
-            handleDragStart,
-            handleDragMove: vi.fn(),
-            stopDrag: vi.fn(),
-            handleViewerClickAnnotation: vi.fn(),
-            handleViewerDblClickAnnotation: vi.fn(),
-            handleViewerContextMenuAnnotation: vi.fn(),
-        });
-
-        const mouseDownEvent = createMouseEvent();
-        interactions.handleViewerMouseDown(mouseDownEvent);
-
-        expect(mouseDownEvent.preventDefault).toHaveBeenCalledOnce();
-        expect(cancelPendingSearchScroll).toHaveBeenCalledOnce();
-        expect(handleDragStart).not.toHaveBeenCalled();
-
-        const selectStartEvent = createMouseEvent();
-        interactions.handleSelectStart(selectStartEvent);
-
-        expect(selectStartEvent.preventDefault).toHaveBeenCalledOnce();
-    });
-
     it('stops pan drag on mouseup inside the viewer', () => {
         vi.stubGlobal('HTMLElement', class HTMLElementStub {
             closest() {
@@ -123,7 +87,6 @@ describe('usePdfViewerMouseInteractions', () => {
         const stopDrag = vi.fn();
         const interactions = usePdfViewerMouseInteractions({
             isSnipActive: () => false,
-            isCommentPlacementActive: () => false,
             isViewerPanDragModeActive: computed(() => true),
             cancelPendingSearchScroll: vi.fn(),
             handleDragStart: vi.fn(),
@@ -138,5 +101,37 @@ describe('usePdfViewerMouseInteractions', () => {
         interactions.handleViewerMouseUp(event);
 
         expect(stopDrag).toHaveBeenCalledOnce();
+    });
+
+    it('does not start viewer drag from a canonical annotation layer target', () => {
+        class ElementStub {
+            addEventListener() {}
+            dispatchEvent() { return true; }
+            removeEventListener() {}
+            closest(selector: string) {
+                return selector.includes('.pdf-annotation-editor-layer') ? {} : null;
+            }
+        }
+        class HTMLElementStub extends ElementStub {}
+        vi.stubGlobal('Element', ElementStub);
+        vi.stubGlobal('HTMLElement', HTMLElementStub);
+        const handleDragStart = vi.fn();
+        const interactions = usePdfViewerMouseInteractions({
+            isSnipActive: () => false,
+            isViewerPanDragModeActive: computed(() => true),
+            cancelPendingSearchScroll: vi.fn(),
+            handleDragStart,
+            handleDragMove: vi.fn(),
+            stopDrag: vi.fn(),
+            handleViewerClickAnnotation: vi.fn(),
+            handleViewerDblClickAnnotation: vi.fn(),
+            handleViewerContextMenuAnnotation: vi.fn(),
+        });
+
+        const event = createMouseEvent(new ElementStub());
+        interactions.handleViewerMouseDown(event);
+
+        expect(event.preventDefault).toHaveBeenCalledOnce();
+        expect(handleDragStart).not.toHaveBeenCalled();
     });
 });

@@ -1,4 +1,7 @@
-import { readFileSync } from 'node:fs';
+import {
+    existsSync,
+    readFileSync,
+} from 'node:fs';
 import { resolve } from 'node:path';
 import {
     describe,
@@ -38,7 +41,7 @@ describe('local selection cleanup callback pattern', () => {
 
     it('leaves delegating code alone', () => {
         for (const delegatingForm of [
-            'import { clearEditorSelectionVisuals } from \'@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/clearEditorSelectionVisuals\';',
+            'import { clearSelectionCache } from \'@app/modules/pdf-viewer/runtime/annotations/selection\';',
             '        clearSelectionCache,',
             '        clearSelectionCache();',
             '            clearEditorSelectionVisuals({',
@@ -53,25 +56,11 @@ describe('local selection cleanup callback pattern', () => {
 
 describe('canonical annotation serialization architecture', () => {
     it('does not retain raw PDF.js editors in deferred selection cleanup callbacks', () => {
-        for (const path of [
-            // The highlight bridge delegates its cleanup to this module; the
-            // invariant lives wherever the deferred callback is written.
-            'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/clearEditorSelectionVisuals.ts',
-            'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationCrud.ts',
-        ]) {
-            const contents = source(path);
-            expect(contents).toContain('const editorElement = editor?.div ?? null;');
-            expect(contents).not.toMatch(new RegExp(
-                `${LOCAL_SELECTION_CLEANUP_CALLBACK}[\\s\\S]{0,1200}editor\\?\\.div`,
-                'u',
-            ));
-        }
+        expect(existsSync(resolve(process.cwd(), 'app/modules/pdf-viewer/annotations/bridge'))).toBe(false);
     });
 
     it('keeps the highlight bridge delegating its selection cleanup', () => {
-        const contents = source('app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationHighlight.ts');
-        expect(contents).toContain('import { clearEditorSelectionVisuals } from');
-        expect(contents).not.toMatch(new RegExp(LOCAL_SELECTION_CLEANUP_CALLBACK, 'u'));
+        expect(existsSync(resolve(process.cwd(), 'app/modules/pdf-viewer/annotations/bridge'))).toBe(false);
     });
 
     it('routes viewer annotation failures into the one shared workspace surface', () => {
@@ -83,12 +72,12 @@ describe('canonical annotation serialization architecture', () => {
     });
 
     it('keeps workspace annotation projections out of the PDF serializer', () => {
-        const contents = source('app/modules/pdf-viewer/runtime/composables/pdf/usePdfSerialization.ts');
+        const contents = source('app/modules/pdf-viewer/runtime/composables/pdf/pdfDocumentPersistence.ts');
         expect(contents).not.toContain('annotationComments: Ref<');
         expect(contents).not.toContain('getAnnotationCommentsSnapshot');
         expect(contents).not.toContain('mergeAnnotationCommentSaveSnapshot');
         expect(contents).not.toContain('applyAnnotationPayload');
-        expect(contents).toContain('projectAnnotationBackendMutations(options.annotationSerializationPlan, \'pdf-lib-rewrite\')');
+        expect(contents).toContain('consumeNativePdfMutationProjection');
     });
 
     it('routes print serialization through the canonical viewer transaction', () => {

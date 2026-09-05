@@ -45,8 +45,7 @@ describe('isNoteEligible', () => {
     });
 
     it('returns false for non-note subtypes when no other signals are provided', () => {
-        expect(isNoteEligible('highlight')).toBe(false);
-        expect(isNoteEligible('underline')).toBe(false);
+        expect(isNoteEligible('ink')).toBe(false);
         expect(isNoteEligible(null)).toBe(false);
         expect(isNoteEligible(undefined)).toBe(false);
     });
@@ -55,12 +54,21 @@ describe('isNoteEligible', () => {
         expect(isNoteEligible('highlight', false, 'editor', 'hello')).toBe(true);
     });
 
-    it('returns false when source is editor but text is whitespace-only', () => {
-        expect(isNoteEligible('highlight', false, 'editor', '   ')).toBe(false);
+    it('returns true for an empty text-markup regardless of source or text', () => {
+        expect(isNoteEligible('highlight', false, 'editor')).toBe(true);
+        expect(isNoteEligible('highlight', false, 'pdf')).toBe(true);
+        expect(isNoteEligible('highlight', false, 'editor', '   ')).toBe(true);
+        expect(isNoteEligible('highlight', false, 'pdf', '   ')).toBe(true);
+        expect(isNoteEligible('underline', false, 'editor', '   ')).toBe(true);
+        expect(isNoteEligible('underline', false, 'pdf', '   ')).toBe(true);
+        expect(isNoteEligible('strikeout', false, 'editor', '   ')).toBe(true);
+        expect(isNoteEligible('strikeout', false, 'pdf', '   ')).toBe(true);
+        expect(isNoteEligible('squiggly', false, 'editor', '   ')).toBe(true);
+        expect(isNoteEligible('squiggly', false, 'pdf', '   ')).toBe(true);
     });
 
-    it('returns false when source is pdf even with non-empty text', () => {
-        expect(isNoteEligible('highlight', false, 'pdf', 'hello')).toBe(false);
+    it('returns true for a PDF-originated text-markup with derived text', () => {
+        expect(isNoteEligible('highlight', false, 'pdf', 'hello')).toBe(true);
     });
 });
 

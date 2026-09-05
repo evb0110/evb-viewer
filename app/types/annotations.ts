@@ -11,6 +11,7 @@ import type {
     TDrawableShapeTool,
 } from '@contracts/annotations';
 import type { IPdfNativeShapeAnnotation } from '@contracts/electronApiDocuments';
+import type { IPdfAnnotationNoteReply } from '@contracts/pdfAnnotationParseTypes';
 import type {
     Except,
     TaggedUnion,
@@ -91,6 +92,11 @@ type TEditorShapeOverrides =
     | 'x2'
     | 'y2';
 
+/**
+ * Legacy shape DTO retained for the existing drawing tools and serializers.
+ * Remove it with the adapter in annotationEntity.ts when #165 and #166 move
+ * those consumers to IShapeEntity.
+ */
 export interface IShapeAnnotation extends Omit<IPdfNativeShapeAnnotation, TEditorShapeOverrides> {
     id: string;
     pageIndex: number;
@@ -111,10 +117,7 @@ export interface IShapeAnnotation extends Omit<IPdfNativeShapeAnnotation, TEdito
 
 export type TAnnotationStableKey =
     | `nm:${string}`
-    | `ann:${number}:${string}`
-    | `uid:${number}:${string}`
-    | `src:${'editor' | 'pdf' | 'shape'}:${number}:${string}`
-    | `shape:${number}:${string}`;
+    | `ann:${number}:${string}`;
 
 export type TImmutableShapeKey = 'id' | 'pageIndex';
 export type TShapeAnnotationPatch = Partial<Except<IShapeAnnotation, TImmutableShapeKey>>;
@@ -173,6 +176,8 @@ export interface ITextMarkupAnnotationProperties {
     subtype: TMarkupSubtype;
     color: string;
     markerRect: IAnnotationMarkerRect | null;
+    opacity?: number | null;
+    contents?: string;
 }
 
 export interface ILinkAnnotation {
@@ -208,6 +213,8 @@ interface IAnnotationCommentSummaryFields {
     annotationName?: string | null | undefined;
     hasNote?: boolean;
     markerRect?: IAnnotationMarkerRect | null | undefined;
+    /** Replies derived from a foreign PDF note. The editor never authors them. */
+    replies?: readonly IPdfAnnotationNoteReply[] | undefined;
     /**
      * Canonical text-markup geometry: one marker rect per `/QuadPoints` quad,
      * so a multi-line highlight survives ingest as the lines it was drawn from

@@ -166,11 +166,10 @@ describe('changed-area classifier', () => {
         expect(getNativePdfSaveDependencyPaths()).toEqual(expect.arrayContaining([
             'app/modules/workspace-shell/composables/document-session/createDocumentPersistence.ts',
             'app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts',
-            'app/services/pdf-file/savePdfBytesToWorkingCopy.ts',
             'packages/contracts/documentsPersistenceSchemas.ts',
             'packages/contracts/electronApiDocuments.ts',
             'packages/pdf-core/nativePdfMutationPolicy.ts',
-            'app/modules/pdf-viewer/runtime/composables/pdf/usePdfSerialization.ts',
+            'app/modules/pdf-viewer/runtime/save/**',
             'native/evb-native-support/**',
         ]));
         expect(classifyChangedFiles(['native/pdf-page-ops/src/incremental.rs'])).toMatchObject({electron_save_reopen: {
@@ -186,12 +185,11 @@ describe('changed-area classifier', () => {
             .toMatchObject({native_or_build: {matched: true}});
         expect(classifyChangedFiles(['packages/contracts/electronApiDocuments.ts']))
             .toMatchObject({electron_save_reopen: {matched: true}});
-        expect(classifyChangedFiles(['app/modules/pdf-viewer/runtime/composables/pdf/usePdfSerialization.ts']))
+        expect(classifyChangedFiles(['app/modules/pdf-viewer/runtime/save/pdfDocumentPersistence.ts']))
             .toMatchObject({electron_save_reopen: {matched: true}});
         for (const file of [
             'app/modules/workspace-shell/composables/document-session/createDocumentPersistence.ts',
             'app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts',
-            'app/services/pdf-file/savePdfBytesToWorkingCopy.ts',
             'packages/contracts/documentsPersistenceSchemas.ts',
             'packages/pdf-core/nativePdfMutationPolicy.ts',
             'native/evb-native-support/src/lib.rs',

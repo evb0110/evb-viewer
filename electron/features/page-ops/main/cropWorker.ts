@@ -9,7 +9,6 @@ import {
 } from '@electron/features/page-ops/main/cropWorkerProtocol';
 import {
     cropPagesLocal,
-    getPageGeometryLocal,
     removeCropFromPagesLocal,
 } from '@electron/features/page-ops/main/cropLocal';
 import { createWorkerTaskErrorFrame } from '@electron/utils/workerTask';
@@ -50,17 +49,6 @@ async function run() {
                 parentPort.postMessage({
                     type: 'result',
                     ok: true,
-                } satisfies TCropWorkerResult);
-                break;
-            case 'getPageGeometry':
-                parentPort.postMessage({
-                    type: 'result',
-                    ok: true,
-                    data: await getPageGeometryLocal(
-                        input.workingCopyPath,
-                        input.pageNumber,
-                        abortController.signal,
-                    ),
                 } satisfies TCropWorkerResult);
                 break;
         }

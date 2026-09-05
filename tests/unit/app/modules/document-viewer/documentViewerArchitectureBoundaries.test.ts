@@ -166,15 +166,15 @@ describe('document viewer architecture boundaries', () => {
         const scaleContract = read(
             'app/modules/pdf-viewer/engine/pdf-page-scale/pdfPageScale.ts',
         );
-        const shapeOverlay = read('app/modules/pdf-viewer/components/PdfShapeOverlay.vue');
+        const annotationEditorLayer = read('app/modules/pdf-viewer/components/PdfAnnotationEditorLayer.vue');
         const page = read('app/modules/pdf-viewer/components/PdfViewerPage.vue');
 
         expect(scaleContract).toContain('buildPdfPageScaleStyle');
         expect(scaleContract).toContain('toPdfScaledCssLength');
         expect(page).toContain('pageScaleStyle');
-        expect(shapeOverlay).toContain('toPdfScaledCssLength(shape.strokeWidth)');
-        expect(shapeOverlay).not.toContain('getComputedStyle');
-        expect(shapeOverlay).not.toContain('pdfToCssScale');
+        expect(annotationEditorLayer).toContain('PdfShapeAnnotation');
+        expect(annotationEditorLayer).not.toContain('getComputedStyle');
+        expect(annotationEditorLayer).not.toContain('pdfToCssScale');
 
         for (const path of [
             'app/modules/pdf-viewer/runtime/composables/usePdfViewerVirtualization.ts',
@@ -184,13 +184,6 @@ describe('document viewer architecture boundaries', () => {
             expect(read(path), path).not.toContain('\'--total-scale-factor\'');
         }
 
-        for (const path of [
-            'app/modules/pdf-viewer/engine/annotations/annotation-markup-subtype-draw-layer/createAnnotationMarkupSubtypeDrawLayer.ts',
-            'app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/reconcileTextMarkupVisualOverlays.ts',
-        ]) {
-            expect(read(path), path).toContain('toPdfScaledCssLength');
-            expect(read(path), path).not.toContain('calc(var(--total-scale-factor');
-        }
     });
 
     it('exposes one sidebar host contract for every document renderer', () => {

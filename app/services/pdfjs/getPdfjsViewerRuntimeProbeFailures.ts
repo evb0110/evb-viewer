@@ -32,8 +32,3 @@ function assertPdfjsViewerRuntimeCompatibility(runtime: unknown = pdfjsViewerLib
 }
 
 assertPdfjsViewerRuntimeCompatibility(pdfjsViewerLib);
-
-export const {
-    EventBus,
-    GenericL10n,
-} = pdfjsViewerLib;

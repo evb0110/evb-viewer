@@ -93,6 +93,7 @@ const electronE2ERegressionTestFiles = [
     'tests/e2e/electron/inactivePdfTabs.e2e.test.ts',
     'tests/e2e/electron/inactiveDjvuTabs.e2e.test.ts',
     'tests/e2e/electron/annotationLifecycle.e2e.test.ts',
+    'tests/e2e/electron/stampPicker.e2e.test.ts',
     'tests/e2e/electron/squigglyMarkup.e2e.test.ts',
 ];
 
@@ -406,7 +407,8 @@ describe('electron e2e Vitest project topology', () => {
         expect(largePdfSource).not.toContain('EVB_E2E_LARGE_PDF_WINDOW_MODE');
         expect(largePdfSource).not.toContain('windowMode');
         expect(largePdfSource).toContain('createElectronE2ESessionFixture({');
-        expect(largePdfSource).toContain('dirty.pdfJsAnnotationStorage !== null');
+        expect(largePdfSource).toContain('state.annotationDirtyEntityCount === 0');
+        expect(largePdfSource).toContain('.pdf-annotation-editor-layer');
         expect(largePdfSource).toContain('qpdfDictionaryContainsText(annotationObject, \'Contents\', expectedText)');
         expect(largePdfSource).not.toContain('qpdfObjectContainsText');
         expect(activationSource).toContain('await (target.tab as ElementHandle<Element>).click();');

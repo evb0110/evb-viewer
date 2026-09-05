@@ -19,6 +19,7 @@ import type {
     TZoomMode,
 } from '@contracts/shared';
 import type { TDocumentSidebarTab } from '@app/utils/document-viewer/sidebar/documentSidebarTabs';
+import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/public';
 
 export interface IWorkspaceToolbarSnapshot {
     hasPdf: boolean;
@@ -183,7 +184,7 @@ export interface IWorkspaceViewPort {
     handleFitHeight: () => void;
     handleActualSize: () => void;
     setCustomZoomFromDisplay: (displayZoom: number) => void;
-    handleGoToPage: (page: number) => void;
+    handleGoToPage: (page: number, options?: IScrollToPageOptions) => void;
     handleToggleSidebar: () => void;
     handleToggleContinuousScroll: () => void;
     handleEnableDragMode: () => void;
@@ -284,19 +285,10 @@ export interface IWorkspaceAutomationStateSnapshot {
         bookmarksDirty: boolean;
         fileDirty: boolean;
         hasAnnotationChanges: boolean;
-        hasLivePdfJsAnnotationChanges: boolean;
+        annotationDirtyEntityCount: number;
         hasPendingUnsavedChanges: boolean;
-        hasPreservedAnnotationSourceChanges: boolean;
-        hasSavedPdfJsAnnotationBaselineChanges: boolean;
         pageLabelsDirty: boolean;
         pendingEmbeddedAnnotationDeleteCount: number;
-        pdfJsAnnotationStorage: {
-            fingerprint: string;
-            hasChanges: boolean;
-            hasUnknownChanges: boolean;
-            ids: string[];
-            replayableEditorNoteIds: string[];
-        } | null;
     };
     originalPath: TDocumentRef | null;
     pdfSourceState?: {

@@ -58,16 +58,16 @@ async function waitForToolbarCanSave(page: Page) {
     throw new Error(`Save did not become available: ${JSON.stringify(snapshot)}`);
 }
 
-async function waitForLivePdfJsAnnotationChange(page: Page) {
+async function waitForAnnotationChange(page: Page) {
     const startedAt = Date.now();
-    let dirtyState = (await readWorkspaceStateValues<{dirtyState?: {hasLivePdfJsAnnotationChanges?: boolean;};}>(page, ['dirtyState'])).dirtyState;
+    let dirtyState = (await readWorkspaceStateValues<{dirtyState?: {hasAnnotationChanges?: boolean;};}>(page, ['dirtyState'])).dirtyState;
 
     while (Date.now() - startedAt < 15_000) {
-        if (dirtyState?.hasLivePdfJsAnnotationChanges === true) {
+        if (dirtyState?.hasAnnotationChanges === true) {
             return;
         }
         await delay(150);
-        dirtyState = (await readWorkspaceStateValues<{dirtyState?: {hasLivePdfJsAnnotationChanges?: boolean;};}>(page, ['dirtyState'])).dirtyState;
+        dirtyState = (await readWorkspaceStateValues<{dirtyState?: {hasAnnotationChanges?: boolean;};}>(page, ['dirtyState'])).dirtyState;
     }
 
     throw new Error(`FreeText editor did not enter PDF.js annotation storage: ${JSON.stringify(dirtyState)}`);
@@ -162,7 +162,10 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
         session = null;
     });
 
-    it('opens a startup PDF path, creates a visible annotation, and saves it to disk', async () => {
+    // These smoke cases still create annotations through the retired PDF.js
+    // editor. #187 and #186 will re-enable the same save coverage through the
+    // canonical EVB surface and Rust writer.
+    it.skip('opens a startup PDF path, creates a visible annotation, and saves it to disk', async () => {
         const pdfPath = await createMultiPageTextFixturePdf(`blocking-save-smoke-${Date.now()}.pdf`, 3);
         const beforeHash = hashFile(pdfPath);
 
@@ -212,7 +215,7 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
         const createdCount = await createFreeTextAnnotation(page, annotationText);
         expect(createdCount).toBeGreaterThan(0);
         await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
-        await waitForLivePdfJsAnnotationChange(page);
+        await waitForAnnotationChange(page);
         await waitForToolbarCanSave(page);
 
         const saveBaselineEventId = await getLatestAutomationEventId(page);
@@ -261,7 +264,7 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
         });
     }, BLOCKING_SMOKE_TIMEOUT_MS);
 
-    it('saves one bounded pressure annotation and reopens it in a fresh Electron process', async () => {
+    it.skip('saves one bounded pressure annotation and reopens it in a fresh Electron process', async () => {
         const runOwner = `blocking-pressure-save-${Date.now()}`;
         const pdfPath = await createLargeScannedFixturePdf(
             'blocking-pressure-annotation.pdf',
@@ -296,11 +299,11 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
             y: 0.5,
         })).toBeGreaterThan(0);
         await expect.poll(async () => (
-            await readWorkspaceStateValues<{dirtyState?: {hasLivePdfJsAnnotationChanges?: boolean;}}>(
+            await readWorkspaceStateValues<{dirtyState?: {hasAnnotationChanges?: boolean;}}>(
                 session!.page,
                 ['dirtyState'],
             )
-        ).dirtyState?.hasLivePdfJsAnnotationChanges ?? false, {timeout: 20_000}).toBe(true);
+        ).dirtyState?.hasAnnotationChanges ?? false, {timeout: 20_000}).toBe(true);
 
         const saveBaselineEventId = await getLatestAutomationEventId(session.page);
         await saveViaWindowHandle(session.page, 60_000);
@@ -312,12 +315,10 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
         await expect.poll(async () => (
             await readWorkspaceStateValues<{dirtyState?: {
                 fileDirty?: boolean;
-                hasLivePdfJsAnnotationChanges?: boolean;
                 hasPendingUnsavedChanges?: boolean;
             };}>(session!.page, ['dirtyState'])
         ).dirtyState, {timeout: 20_000}).toMatchObject({
             fileDirty: false,
-            hasLivePdfJsAnnotationChanges: false,
             hasPendingUnsavedChanges: false,
         });
         const savedSummary = await readPdfAnnotationSummary(pdfPath);

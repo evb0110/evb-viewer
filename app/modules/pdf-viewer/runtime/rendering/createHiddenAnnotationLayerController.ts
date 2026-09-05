@@ -3,16 +3,13 @@ import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type { AnnotationLayer as TAnnotationLayer } from 'pdfjs-dist/types/src/display/annotation_layer';
 import type { MaybeRefOrGetter } from 'vue';
 import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
-import {
-    shouldHideHiddenEmbeddedAnnotation,
-    syncHiddenEmbeddedAnnotationDom as syncHiddenEmbeddedAnnotationDomForContainer,
-} from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-refresh/syncHiddenEmbeddedAnnotationDom';
 import { getOptionalFunction } from '@app/services/pdfjs/runtime';
 import type {
     IAnnotationLayerWithEditableAnnotations,
     IEditableAnnotationLike,
 } from '@app/modules/pdf-viewer/runtime/rendering/pdfAnnotationLayerRendererTypes';
 
+// fallow-ignore-next-line unused-export -- hidden-layer compensation remains for the #195 bridge cleanup.
 export function createHiddenAnnotationLayerController(options: {
     hiddenAnnotationIds?: MaybeRefOrGetter<Set<string>> | undefined;
     managedAnnotationIds?: MaybeRefOrGetter<Set<string>> | undefined;
@@ -21,6 +18,7 @@ export function createHiddenAnnotationLayerController(options: {
     drawLayers: ReadonlyMap<number, unknown>;
     annotationEditorLayerContainers: ReadonlyMap<number, HTMLElement>;
 }) {
+    const normalizedAnnotationId = (id: string | null | undefined) => normalizePdfJsAnnotationId(id);
     const normalizeIds = (source?: MaybeRefOrGetter<Set<string>>) => {
         const normalizedIds = new Set<string>();
         (toValue(source) ?? new Set<string>()).forEach((id) => {
@@ -47,12 +45,11 @@ export function createHiddenAnnotationLayerController(options: {
     const isHiddenEditableAnnotationId = (
         annotationId: string | null | undefined,
         pageContainer?: HTMLElement | null,
-    ) => shouldHideHiddenEmbeddedAnnotation({
-        annotationId,
-        hiddenAnnotationIds: getNormalizedHiddenAnnotationIds(),
-        managedAnnotationIds: getNormalizedManagedAnnotationIds(),
-        pageContainer,
-    });
+    ) => {
+        void pageContainer;
+        const normalized = normalizedAnnotationId(annotationId);
+        return Boolean(normalized && getNormalizedHiddenAnnotationIds().has(normalized));
+    };
 
     const hideHiddenManagedEditors = (pageNumber?: number) => {
         const annotationUiManager = options.getAnnotationUiManager();
@@ -145,10 +142,13 @@ export function createHiddenAnnotationLayerController(options: {
         if (hiddenAnnotationIds.size === 0) {
             return;
         }
-        syncHiddenEmbeddedAnnotationDomForContainer({
-            container: annotationLayerDiv,
-            hiddenAnnotationIds,
-            managedAnnotationIds: getNormalizedManagedAnnotationIds(),
+        annotationLayerDiv.querySelectorAll<HTMLElement>('[data-annotation-id]').forEach((element) => {
+            const annotationId = normalizedAnnotationId(
+                element.dataset.annotationId ?? element.getAttribute('data-annotation-id'),
+            );
+            if (annotationId && hiddenAnnotationIds.has(annotationId)) {
+                element.remove();
+            }
         });
     };
 

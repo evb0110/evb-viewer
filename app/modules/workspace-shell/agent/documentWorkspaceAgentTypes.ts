@@ -34,7 +34,6 @@ export interface IUseDocumentWorkspaceAgentOptions {
     annotationCommentsStatus: Ref<TAnnotationCommentsStatus>;
     annotationInventory: Ref<IAnnotationInventoryCompleteness | null>;
     annotationDirty: Ref<boolean>;
-    annotationPlacingPageNote: Ref<boolean>;
     annotationTool: Ref<TAnnotationTool>;
     bookmarkItems: Ref<IPdfBookmarkEntry[]>;
     bookmarksDirty: Ref<boolean>;

@@ -100,6 +100,7 @@ import {
 } from '@electron/utils/createLogger';
 import {
     closeCachedRangeReadHandles,
+    sweepStalePdfAnnotationParseArtifacts,
     sweepStalePdfAnnotationIndexArtifacts,
     sweepStalePdfEmbeddedShapeIndexArtifacts,
     sweepStaleDefaultAppTempPdfs,
@@ -813,6 +814,7 @@ void runInitSequence({
     shouldResetRendererReadyOnNavigation,
     shutdownCoordinator,
     sweepStaleDefaultAppTempPdfs,
+    sweepStalePdfAnnotationParseArtifacts,
     sweepStalePdfAnnotationIndexArtifacts,
     sweepStalePdfEmbeddedShapeIndexArtifacts,
     sweepStaleManagedScratchTempDirs,

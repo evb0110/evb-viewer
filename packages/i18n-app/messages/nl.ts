@@ -1366,6 +1366,8 @@ export default {
         'author': 'Auteursnaam',
         'authorPlaceholder': 'Uw naam voor annotaties',
         'authorDescription': 'Wordt weergegeven als auteur bij plaknotities en opmerkingen.',
+        'suppressUnencryptedSaveNotice': 'Niet waarschuwen voordat de pdf-wachtwoordbeveiliging wordt verwijderd',
+        'suppressUnencryptedSaveNoticeDescription': 'Voor de opgeslagen pdf is het oorspronkelijke wachtwoord niet nodig.',
         'theme': 'Thema',
         'themeLight': 'Licht',
         'themeDark': 'Donker',
@@ -1507,6 +1509,12 @@ export default {
         'file': {
             'open': 'Kan bestand niet openen',
             'openNotFound': '"{name}" kon niet worden geopend. Het bestand is mogelijk verplaatst, verwijderd, of de opslag is gewist.',
+            'passwordPromptTitle': 'Wachtwoord vereist',
+            'passwordPromptDescription': 'Voer het wachtwoord voor "{name}" in om deze PDF te openen.',
+            'passwordPromptLabel': 'Wachtwoord',
+            'passwordPromptOpen': 'Openen',
+            'passwordPromptIncorrect': 'Dat wachtwoord is onjuist. Probeer het opnieuw.',
+            'unsupportedEncryption': 'Deze PDF gebruikt versleuteling die EVB Viewer niet kan openen.',
             'invalid': 'Ongeldig of niet-bestaand bestand',
             'emptyPdf': 'Het PDF-bestand is leeg (0 bytes)',
             'noPages': 'De PDF bevat geen pagina’s',
@@ -1520,6 +1528,10 @@ export default {
             'openNotes': 'Open notities konden niet worden opgeslagen, dus het document is niet weggeschreven.',
             'documentChanged': 'Het document veranderde voordat het opslaan klaar was, dus er is niets weggeschreven.',
             'notCompleted': 'Het document kon niet worden weggeschreven.',
+            'unencryptedTitle': 'Opslaan zonder wachtwoordbeveiliging?',
+            'unencryptedDescription': 'Deze pdf is met een wachtwoord geopend. Bij het opslaan wordt een kopie zonder wachtwoordbeveiliging gemaakt.',
+            'unencryptedDontShowAgain': 'Deze waarschuwing niet meer tonen',
+            'unencryptedContinue': 'Doorgaan',
         },
         'export': {
             'images': 'Afbeeldingsexport mislukt',
@@ -1528,6 +1540,7 @@ export default {
         'browser': {
             'filePickerSetupDenied': 'Browsertoegang tot bestanden is geweigerd. Kies opnieuw Openen om de compatibele bestandskiezer te gebruiken.',
             'largeSaveHandleHint': 'Gebruik een browser met lokale bestandssysteemtoegang ingeschakeld om grote documenten op te slaan.',
+            'useNativeApp': 'Use the native app for files this large.',
         },
         'search': {
             'browserTooLarge': 'Zoeken is in de browser niet beschikbaar voor zeer grote documenten.',

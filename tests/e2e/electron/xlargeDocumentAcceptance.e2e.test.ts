@@ -8,6 +8,10 @@ import {
     writeFile,
 } from 'node:fs/promises';
 import {
+    createReadStream,
+    existsSync,
+} from 'node:fs';
+import {
     dirname,
     join,
     resolve,
@@ -39,10 +43,6 @@ import {
     type IElectronE2ESession,
 } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {
-    createFreeTextAnnotationWithPointer,
-    createStickyNoteWithPointer,
-} from '@tests/e2e/electron/helpers/viewerAnnotations';
-import {
     openAnnotationsTab,
     saveViaVisibleToolbarWithDeadline,
     scrollViewerToPage,
@@ -52,7 +52,6 @@ import {
 import {
     callWorkspaceCommand,
     readWorkspaceStateValues,
-    waitForSaveFrontierReady,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 
 /**
@@ -234,6 +233,13 @@ interface ISaveReceiptProbeWindow extends Window {
     ) => Promise<void> | void;
     __resumeSaveReceiptCommit?: () => void;
     __saveReceiptProbe?: ISaveReceiptProbe;
+}
+
+interface IAgentActionResult extends Record<string, unknown> {
+    created?: boolean;
+    markerRect?: unknown;
+    tabId?: string;
+    updated?: boolean;
 }
 
 interface IHeartbeatSnapshot {
@@ -1218,6 +1224,22 @@ function annotationRefEquals(
         && left?.generationNumber === right?.generationNumber;
 }
 
+function annotationRefKey(ref: IAnnotationObjectRef) {
+    return `${ref.objectNumber}:${ref.generationNumber}`;
+}
+
+async function waitForDetachedEditorLayers(
+    page: Page,
+    timeout = XLARGE_SAVE_TIMEOUT_MS,
+) {
+    await page.waitForFunction(() => (
+        document.querySelectorAll(
+            '.editor-pane.is-active .annotationEditorLayer, '
+            + '.editor-pane.is-active .annotation-editor-layer',
+        ).length === 0
+    ), {timeout});
+}
+
 function assertFinalAnnotationIndex(index: IAnnotationIndexRead) {
     expect(index.session.pageCount).toBe(XLARGE_PAGE_COUNT);
     expect(index.session.entryCount).toBe(10);
@@ -1229,45 +1251,44 @@ function assertFinalAnnotationIndex(index: IAnnotationIndexRead) {
     expect(index.chunkByteLengths.every(length => length <= XLARGE_IPC_PAYLOAD_MAX_BYTES)).toBe(true);
     expect(index.transportPayloadByteLengths.every(length => length > 0 && length <= XLARGE_IPC_PAYLOAD_MAX_BYTES)).toBe(true);
 
-    const ordinaryEditors = index.entries.filter(entry => (
+    const canonicalNotes = index.entries.filter(entry => (
         entry.pageIndex === XLARGE_MIDDLE_PAGE - 1
-        && entry.subtype === 'FreeText'
-        && /^evb-freetext:freetext-[0-9a-f-]{36}$/u.test(entry.name ?? '')
-        && entry.popupRef === null
+        && entry.subtype === 'Text'
+        && entry.name !== BASELINE_NOTE_NAME
+        && entry.popupRef !== null
         && entry.parentRef === null
     ));
-    expect(ordinaryEditors).toHaveLength(2);
-    expect(new Set(ordinaryEditors.map(entry => entry.name)).size).toBe(2);
-    expect(new Set(ordinaryEditors.map(entry => (
+    expect(canonicalNotes).toHaveLength(2);
+    expect(new Set(canonicalNotes.map(entry => entry.name)).size).toBe(2);
+    expect(new Set(canonicalNotes.map(entry => (
         `${entry.objectNumber}:${entry.generationNumber}`
     ))).size).toBe(2);
-
-    const toolbarNote = index.entries.find(entry => (
-        entry.pageIndex === XLARGE_MIDDLE_PAGE - 1
-        && entry.subtype === 'FreeText'
-        && entry.popupRef !== null
-        && entry.name !== BASELINE_NOTE_NAME
-    ));
-    expect(toolbarNote).toBeDefined();
-    if (!toolbarNote) {
-        throw new Error('Final annotation index is missing the toolbar note');
-    }
 
     const toolbarPopups = index.entries.filter(entry => (
         entry.pageIndex === XLARGE_MIDDLE_PAGE - 1
         && entry.subtype === 'Popup'
     ));
-    expect(toolbarPopups).toHaveLength(1);
-    expect(toolbarPopups.some(entry => annotationRefEquals(toolbarNote?.popupRef ?? null, {
-        objectNumber: entry.objectNumber,
-        generationNumber: entry.generationNumber,
-    }))).toBe(true);
-    expect(toolbarPopups[0]?.parentRef).not.toBeNull();
+    expect(toolbarPopups).toHaveLength(2);
+    const canonicalPopupKeys = new Set(
+        canonicalNotes.map(entry => annotationRefKey(entry.popupRef!)),
+    );
+    const toolbarPopupKeys = new Set(
+        toolbarPopups.map(entry => annotationRefKey({
+            objectNumber: entry.objectNumber,
+            generationNumber: entry.generationNumber,
+        })),
+    );
+    expect(canonicalPopupKeys.size).toBe(canonicalNotes.length);
+    expect(toolbarPopupKeys).toEqual(canonicalPopupKeys);
+    for (const canonicalNote of canonicalNotes) {
+        expect(toolbarPopups.some(entry => annotationRefEquals(canonicalNote.popupRef, {
+            objectNumber: entry.objectNumber,
+            generationNumber: entry.generationNumber,
+        }))).toBe(true);
+    }
+    expect(toolbarPopups.every(entry => entry.parentRef !== null)).toBe(true);
 
-    return {
-        ordinaryEditors,
-        toolbarNote,
-    };
+    return {canonicalNotes};
 }
 
 function toPdfUtf16BeHex(value: string) {
@@ -1302,14 +1323,23 @@ async function assertAnnotationObjectsContainTexts(
     const objectContents = await Promise.all(
         annotations.map(annotation => readAnnotationObjectContents(pdfPath, annotation)),
     );
+    const matchedObjectIndexes = new Set<number>();
     for (const expectedText of expectedTexts) {
-        expect(objectContents.filter(({
+        const matchingObjectIndexes = objectContents.flatMap(({
             stdout,
             normalized,
-        }) => (
+        }, index) => (
             stdout.includes(expectedText)
             || normalized.includes(toPdfUtf16BeHex(expectedText))
-        ))).toHaveLength(1);
+        ) ? [index] : []);
+        expect(matchingObjectIndexes).toHaveLength(1);
+        const matchingObjectIndex = matchingObjectIndexes[0];
+        expect(matchingObjectIndex).toBeDefined();
+        if (matchingObjectIndex === undefined) {
+            continue;
+        }
+        expect(matchedObjectIndexes.has(matchingObjectIndex)).toBe(false);
+        matchedObjectIndexes.add(matchingObjectIndex);
     }
 }
 
@@ -1334,10 +1364,16 @@ function assertMeasuredIpcPayloadBudget(telemetry: IXlargeAcceptanceTelemetry) {
     ))).toBe(true);
 }
 
-async function waitForWorkspaceComment(page: Page, text: string, pageNumber: number) {
+async function waitForWorkspaceComment(
+    page: Page,
+    text: string,
+    pageNumber: number,
+    source: 'editor' | 'pdf' = 'editor',
+) {
     await page.waitForFunction((input: {
         pageNumber: number;
         text: string
+        source: 'editor' | 'pdf';
     }) => {
         const values = window.__evbTestApi?.readActiveWorkspaceStateValues?.(['annotationComments']) as {annotationComments?: unknown;} | undefined;
         const comments = Array.isArray(values?.annotationComments)
@@ -1349,12 +1385,118 @@ async function waitForWorkspaceComment(page: Page, text: string, pageNumber: num
             }
             const record = comment as Record<string, unknown>;
             return record.text === input.text
+                && record.source === input.source
+                && record.subtype === 'Text'
+                && typeof record.appAnnotationId === 'string'
+                && record.appAnnotationId.length > 0
                 && (record.pageNumber === input.pageNumber || record.pageIndex === input.pageNumber - 1);
         });
     }, {timeout: 20_000}, {
         pageNumber,
         text,
+        source,
     });
+}
+
+async function createCanonicalNoteViaAgentAction(
+    page: Page,
+    text: string,
+    pageNumber: number,
+    pageX: number,
+    pageY: number,
+) {
+    const tabIdBeforeCreate = await page.evaluate(() => (
+        document.querySelector<HTMLElement>(
+            '.editor-pane.is-active .tab-list .tab.is-active[data-tab-id]',
+        )?.dataset.tabId ?? null
+    ));
+    if (!tabIdBeforeCreate) {
+        throw new Error('Could not identify the active document before canonical note creation');
+    }
+    const notesUri = `evb://document/${encodeURIComponent(tabIdBeforeCreate)}/notes`;
+    const readNotes = async () => {
+        const resourceResult = await callWorkspaceCommand<Record<string, unknown>>(
+            page,
+            'readAgentResource',
+            [notesUri],
+            {requiredMethods: ['readAgentResource']},
+        );
+        return Array.isArray(resourceResult.value?.notes) ? resourceResult.value.notes : [];
+    };
+    const existingStableKeys = new Set(
+        (await readNotes()).flatMap(note => (
+            note && typeof note === 'object' && typeof (note as Record<string, unknown>).stableKey === 'string'
+                ? [(note as Record<string, unknown>).stableKey as string]
+                : []
+        )),
+    );
+    const createdResult = await callWorkspaceCommand<IAgentActionResult>(page, 'runAgentAction', [
+        'annotation.create_note_at_point',
+        {
+            page: pageNumber,
+            pageX,
+            pageY,
+            preferTextAnchor: false,
+        },
+    ], {requiredMethods: ['runAgentAction']});
+    const created = createdResult.value;
+    expect(createdResult.called).toBe(true);
+    expect(created?.created).toBe(true);
+    if (!createdResult.called || created?.created !== true) {
+        throw new Error('Canonical note creation action did not create a note');
+    }
+    const tabId = created.tabId;
+    if (!tabId || tabId !== tabIdBeforeCreate || created.markerRect === undefined) {
+        throw new Error('Canonical note creation action did not return its document identity');
+    }
+
+    let stableKey: string | null = null;
+    const stableKeyDeadline = Date.now() + XLARGE_SAVE_TIMEOUT_MS;
+    while (!stableKey && Date.now() < stableKeyDeadline) {
+        const notes = await readNotes();
+        const newPageStableKeys = new Set<string>();
+        for (const note of notes) {
+            if (!note || typeof note !== 'object') {
+                continue;
+            }
+            const candidate = note as Record<string, unknown>;
+            const candidatePage = typeof candidate.pageNumber === 'number'
+                ? candidate.pageNumber
+                : Number(candidate.pageIndex) + 1;
+            if (
+                candidatePage === pageNumber
+                && typeof candidate.stableKey === 'string'
+                && !existingStableKeys.has(candidate.stableKey)
+            ) {
+                newPageStableKeys.add(candidate.stableKey);
+            }
+        }
+        if (newPageStableKeys.size > 1) {
+            throw new Error(`Expected one new page ${pageNumber} note, found ${newPageStableKeys.size}`);
+        }
+        stableKey = [...newPageStableKeys][0] ?? null;
+        if (!stableKey) {
+            const remainingMs = stableKeyDeadline - Date.now();
+            if (remainingMs > 0) {
+                await new Promise(resolve => setTimeout(resolve, Math.min(100, remainingMs)));
+            }
+        }
+    }
+    if (!stableKey) {
+        throw new Error(`Canonical note ${text} did not publish a stable key`);
+    }
+
+    const updatedResult = await callWorkspaceCommand<IAgentActionResult>(page, 'runAgentAction', [
+        'annotation.update_note',
+        {
+            markerRect: created.markerRect,
+            stableKey,
+            text,
+        },
+    ], {requiredMethods: ['runAgentAction']});
+    expect(updatedResult.called).toBe(true);
+    expect(updatedResult.value?.updated).toBe(true);
+    await waitForWorkspaceComment(page, text, pageNumber);
 }
 
 async function readOptionalRendererIpcPayloadProbe(page: Page): Promise<IRendererIpcPayloadProbe | null> {
@@ -1472,6 +1614,14 @@ async function writeTelemetry(telemetry: IXlargeAcceptanceTelemetry) {
     );
 }
 
+async function hashPath(path: string) {
+    const hash = createHash('sha256');
+    for await (const chunk of createReadStream(path)) {
+        hash.update(chunk);
+    }
+    return hash.digest('hex');
+}
+
 xlargeDescribe('Electron E2E - xlarge document acceptance', () => {
     it('keeps embedded annotations across two sessions and a fresh renderer save/reopen', async () => {
         const telemetry = createTelemetry();
@@ -1579,7 +1729,7 @@ xlargeDescribe('Electron E2E - xlarge document acceptance', () => {
             sessionA = null;
 
             // Session B is a fresh Electron process opening the same staged
-            // path, then applying the toolbar note and ordinary editors.
+            // path, then creating two notes through the EVB-owned surface.
             sessionB = await timed(
                 telemetry,
                 'session-b-start',
@@ -1615,72 +1765,43 @@ xlargeDescribe('Electron E2E - xlarge document acceptance', () => {
             await waitForRenderedPage(sessionB.page, XLARGE_MIDDLE_PAGE, XLARGE_SAVE_TIMEOUT_MS);
             await openAnnotationsTab(sessionB.page, XLARGE_SAVE_TIMEOUT_MS);
             await startRendererPlacementSampling(sessionB.page);
-            const freeTextOne = `xlarge ordinary freetext one ${Date.now()}`;
-            const freeTextTwo = `xlarge ordinary freetext two ${Date.now()}`;
             await startRendererLongTaskProbe(sessionB.page);
-            const firstEditorCount = await timed(
-                telemetry,
-                'session-b-free-text-editor-one',
-                () => createFreeTextAnnotationWithPointer(
-                    sessionB!.page,
-                    freeTextOne,
-                    {
-                        x: 0.28,
-                        y: 0.31,
-                    },
-                    XLARGE_MIDDLE_PAGE,
-                ),
-            );
-            expect(firstEditorCount).toBeGreaterThan(0);
-            const secondEditorCount = await timed(
-                telemetry,
-                'session-b-free-text-editor-two',
-                () => createFreeTextAnnotationWithPointer(
-                    sessionB!.page,
-                    freeTextTwo,
-                    {
-                        x: 0.57,
-                        y: 0.42,
-                    },
-                    XLARGE_MIDDLE_PAGE,
-                ),
-            );
-            expect(secondEditorCount).toBeGreaterThan(firstEditorCount);
-            telemetry.rendererPlacementSampling = await readRendererPlacementSampling(sessionB.page);
-            // Prove the ordinary FreeText path owns its own dirty frontier.
-            // The popup note below must not mask a missing editor commit.
-            await waitForSaveFrontierReady(sessionB.page, 30_000);
-
-            const toolbarNoteText = `xlarge toolbar note ${Date.now()}`;
+            await waitForDetachedEditorLayers(sessionB.page);
+            const canonicalNoteOne = `xlarge canonical note one ${Date.now()}`;
             await timed(
                 telemetry,
-                'session-b-toolbar-popup-note',
-                () => createStickyNoteWithPointer(
+                'session-b-canonical-note-one',
+                () => createCanonicalNoteViaAgentAction(
                     sessionB!.page,
-                    toolbarNoteText,
-                    {
-                        x: 0.72,
-                        y: 0.24,
-                    },
+                    canonicalNoteOne,
                     XLARGE_MIDDLE_PAGE,
+                    0.28,
+                    0.31,
                 ),
             );
-            await waitForWorkspaceComment(sessionB.page, toolbarNoteText, XLARGE_MIDDLE_PAGE);
-            await waitForSaveFrontierReady(sessionB.page, 30_000);
-            const dirtyState = await readWorkspaceStateValues<{dirtyState?: {
+            const canonicalNoteTwo = `xlarge canonical note two ${Date.now()}`;
+            await timed(
+                telemetry,
+                'session-b-canonical-note-two',
+                () => createCanonicalNoteViaAgentAction(
+                    sessionB!.page,
+                    canonicalNoteTwo,
+                    XLARGE_MIDDLE_PAGE,
+                    0.57,
+                    0.42,
+                ),
+            );
+            telemetry.rendererPlacementSampling = await readRendererPlacementSampling(sessionB.page);
+            const dirtyState = await readWorkspaceStateValues<{
                 annotationDirty?: boolean;
-                hasLivePdfJsAnnotationChanges?: boolean;
-                pdfJsAnnotationStorage?: {
-                    hasChanges?: boolean;
-                    ids?: string[]
-                };
-            };}>(sessionB.page, ['dirtyState']);
-            expect(dirtyState.dirtyState).toMatchObject({
-                annotationDirty: true,
-                hasLivePdfJsAnnotationChanges: true,
-                pdfJsAnnotationStorage: {hasChanges: true},
-            });
-            expect(dirtyState.dirtyState?.pdfJsAnnotationStorage?.ids?.length ?? 0).toBeGreaterThan(0);
+                dirtyState?: {annotationDirtyEntityCount?: number;};
+            }>(sessionB.page, [
+                'annotationDirty',
+                'dirtyState',
+            ]);
+            expect(dirtyState.annotationDirty).toBe(true);
+            expect(dirtyState.dirtyState?.annotationDirtyEntityCount ?? 0).toBeGreaterThan(0);
+            await waitForDetachedEditorLayers(sessionB.page);
 
             if (activeHeartbeat) {
                 const heartbeatBeforeSave = await activeHeartbeat();
@@ -1772,6 +1893,7 @@ xlargeDescribe('Electron E2E - xlarge document acceptance', () => {
             });
             activeHeartbeat = null;
             await timed(telemetry, 'saved-output-qpdf-check', () => assertQpdfCheck(savedPath));
+            const savedContentHash = await hashPath(savedPath);
             await timed(telemetry, 'fresh-renderer-reload', async () => {
                 await sessionB!.page.reload({waitUntil: 'domcontentloaded'});
                 activeHeartbeat = await startRendererHeartbeat(sessionB!.page);
@@ -1779,6 +1901,24 @@ xlargeDescribe('Electron E2E - xlarge document acceptance', () => {
                 await waitForViewerInteractive(sessionB!.page, XLARGE_SAVE_TIMEOUT_MS);
             });
 
+            await expect.poll(
+                async () => {
+                    const state = await readWorkspaceStateValues<{
+                        documentRevisionToken?: string | null;
+                        pdfSourceState?: IPdfSourceStateSnapshot;
+                        workingCopyPath?: string | null;
+                    }>(sessionB!.page, [
+                        'documentRevisionToken',
+                        'pdfSourceState',
+                        'workingCopyPath',
+                    ]);
+                    const reopenedPath = state.pdfSourceState?.reloadPath
+                        ?? state.workingCopyPath
+                        ?? null;
+                    return typeof reopenedPath === 'string' && existsSync(reopenedPath);
+                },
+                {timeout: XLARGE_SAVE_TIMEOUT_MS},
+            ).toBe(true);
             const reopenedState = await readWorkspaceStateValues<{
                 documentRevisionToken?: string | null;
                 pdfSourceState?: IPdfSourceStateSnapshot;
@@ -1788,16 +1928,25 @@ xlargeDescribe('Electron E2E - xlarge document acceptance', () => {
                 'pdfSourceState',
                 'workingCopyPath',
             ]);
-            expect(reopenedState.workingCopyPath).toBe(savedPath);
             expect(reopenedState.documentRevisionToken).toBe(savedState.documentRevisionToken);
             expect(reopenedState.pdfSourceState).toEqual({
                 hasInMemoryData: false,
                 reloadKind: 'path',
-                reloadPath: savedPath,
+                reloadPath: reopenedState.workingCopyPath,
             });
             const reopenedPath = reopenedState.pdfSourceState?.reloadPath
                 ?? reopenedState.workingCopyPath
-                ?? savedPath;
+                ?? null;
+            expect(reopenedPath).toEqual(expect.any(String));
+            if (!reopenedPath) {
+                throw new Error('Reopened workspace state did not expose a working-copy path');
+            }
+            expect(existsSync(reopenedPath)).toBe(true);
+            // A fresh renderer reload may rematerialize the disposable working
+            // copy, so its path is not a durable identity. The saved bytes and
+            // revision remain the real save/reopen contract.
+            expect(await hashPath(reopenedPath)).toBe(savedContentHash);
+            await waitForDetachedEditorLayers(sessionB.page);
             const finalIndex = await timed(
                 telemetry,
                 'fresh-renderer-read-final-annotation-index',
@@ -1813,27 +1962,21 @@ xlargeDescribe('Electron E2E - xlarge document acceptance', () => {
                 baselineStructuralSummary,
                 finalStructuralSummary,
             );
-            const {
-                ordinaryEditors,
-                toolbarNote,
-            } = assertFinalAnnotationIndex(finalIndex);
+            const {canonicalNotes} = assertFinalAnnotationIndex(finalIndex);
             recordAnnotationIndexPayloads(telemetry, 'B', finalIndex);
             await waitForRenderedPage(sessionB.page, XLARGE_MIDDLE_PAGE, XLARGE_SAVE_TIMEOUT_MS);
             await timed(telemetry, 'fresh-renderer-read-annotation-objects', () => (
                 assertAnnotationObjectsContainTexts(
                     reopenedPath,
+                    canonicalNotes,
                     [
-                        ...ordinaryEditors,
-                        toolbarNote,
-                    ],
-                    [
-                        freeTextOne,
-                        freeTextTwo,
-                        toolbarNoteText,
+                        canonicalNoteOne,
+                        canonicalNoteTwo,
                     ],
                 )
             ));
-            await waitForWorkspaceComment(sessionB.page, toolbarNoteText, XLARGE_MIDDLE_PAGE);
+            await waitForWorkspaceComment(sessionB.page, canonicalNoteOne, XLARGE_MIDDLE_PAGE, 'pdf');
+            await waitForWorkspaceComment(sessionB.page, canonicalNoteTwo, XLARGE_MIDDLE_PAGE, 'pdf');
 
             const rendererIpcPayloadProbeAfterReload = await readOptionalRendererIpcPayloadProbe(sessionB.page);
             recordRendererIpcPayloadProbe(telemetry, 'B', rendererIpcPayloadProbeAfterReload);

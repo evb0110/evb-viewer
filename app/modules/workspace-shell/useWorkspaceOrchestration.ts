@@ -1,4 +1,3 @@
-/* eslint-disable max-lines -- The workspace coordinator owns lifecycle and output identity wiring. */
 import type {
     ComputedRef,
     Ref,
@@ -14,8 +13,8 @@ import {
 } from '@app/modules/pdf-viewer/public';
 import { usePageAnnotationActions } from '@app/modules/workspace-shell/composables/usePageAnnotationActions';
 import {deleteAnnotationById} from '@app/modules/workspace-shell/annotations/deleteAnnotationById';
-import {shouldClearPreservedAnnotationSourceDirty} from '@app/modules/workspace-shell/annotations/shouldClearPreservedAnnotationSourceDirty';
 import { usePageSaveOrchestration } from '@app/modules/workspace-shell/composables/usePageSaveOrchestration';
+import { useUnencryptedSaveNotice } from '@app/modules/workspace-shell/composables/useUnencryptedSaveNotice';
 import { useShutdownSaveFlushReporting } from '@app/modules/workspace-shell/composables/useShutdownSaveFlushReporting';
 import { useWorkspaceDocumentControls } from '@app/modules/workspace-shell/composables/useWorkspaceDocumentControls';
 import { useWorkspaceDocumentLifecycleEffects } from '@app/modules/workspace-shell/composables/useWorkspaceDocumentLifecycleEffects';
@@ -35,7 +34,7 @@ import { useDocxExport } from '@app/composables/useDocxExport';
 import { useWorkspacePrint } from '@app/modules/workspace-shell/composables/useWorkspacePrint';
 import { useMetadataSession } from '@app/modules/workspace-shell/composables/useMetadataSession';
 import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import { createPageMutationAnnotationMaterializer } from '@app/modules/workspace-shell/composables/createPageMutationAnnotationMaterializer';
+import { createPageMutationWriterSave } from '@app/modules/workspace-shell/composables/createPageMutationWriterSave';
 import { createPrintableSourceDataResolver } from '@app/modules/workspace-shell/composables/createPrintableSourceDataResolver';
 import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 import type { IBrowserPrintDocument } from '@app/utils/pdfPrintShared';
@@ -108,9 +107,13 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         emit,
     } = deps;
     const { t } = useTypedI18n();
+    // Every workspace failure that reaches the user goes through this one
+    // surface, so save, annotation, and open failures share one toast path.
+    const failureSurface = useWorkspaceFailureSurface();
     const fileLifecycle = useWorkspaceFileLifecycleController({
         analyticsDocumentScope: deps.analyticsDocumentScope,
         openSurface: deps.openSurface,
+        failureSurface,
     });
     const {
         isDjvuMode,
@@ -135,11 +138,12 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         fileName,
         isDirty,
         pdfError,
+        wasEncrypted,
         pdfFailurePresentation,
+        loadPdfFromData,
         loadPdfFromPath,
         ensureHistoryBaselineForMutation,
         reloadWorkingCopyIntoHistory,
-        loadPdfFromData,
         saveFile,
         repairWorkingCopy,
         optimizeWorkingCopy,
@@ -213,7 +217,12 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         closeSearch,
         resetSearchCache,
     } = sidebarSearch;
-    const { settings: appSettings } = useSettings();
+    const {
+        settings: appSettings,
+        save: saveSettings,
+        updateSetting,
+    } = useSettings();
+    const unencryptedSaveNotice = useUnencryptedSaveNotice();
     const isSaving = ref(false);
     const isSavingAs = ref(false);
     const isHistoryBusy = ref(false);
@@ -227,9 +236,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     const {
         pageLabelState,
         bookmarkState,
-        clearPreservedSourceReloadMetadata,
         consumePreservedSourceReloadMetadata,
-        preserveMetadataForNextSourceReload,
         workspaceUndoTimeline,
         workspaceCommandSink,
     } = metadataSession;
@@ -248,7 +255,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             );
             if (viewerTargetChanged) {
                 previous?.setCommandSink?.(null);
-                workspaceCommandSink.reset('annotation');
             }
             current.setCommandSink?.(workspaceCommandSink);
         },
@@ -309,13 +315,8 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         closeAnnotationContextMenu,
         showAnnotationContextMenu,
         hasAnnotationChanges,
-        hasLivePdfJsAnnotationChanges,
-        hasSavedPdfJsAnnotationBaselineChanges,
-        hasPreservedLivePdfjsAnnotationSession,
-        getSavedPdfJsAnnotationFingerprint,
         annotationTool,
         annotationKeepActive,
-        annotationPlacingPageNote,
         annotationSettings,
         annotationComments,
         annotationCommentsStatus,
@@ -366,44 +367,10 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         void annotationComments.value;
         return pdfViewerRef.value?.getDeletedCanonicalAnnotationIds?.() ?? [];
     });
-    const preservedAnnotationSourceDirty = ref(false);
     function applyAnnotationComments(comments: IAnnotationCommentSummary[]) {
         applyAnnotationCommentsFromSession(comments);
     }
 
-    function markPreservedAnnotationSourceDirty() {
-        preservedAnnotationSourceDirty.value = true;
-    }
-
-    function setPreservedAnnotationSourceDirty(dirty: boolean) {
-        preservedAnnotationSourceDirty.value = dirty;
-    }
-
-    function hasPreservedAnnotationSourceChanges() { return preservedAnnotationSourceDirty.value; }
-
-    function reconcilePreservedAnnotationSourceDirty() {
-        if (shouldClearPreservedAnnotationSourceDirty({
-            isDirty: preservedAnnotationSourceDirty.value,
-            hasSavedPdfJsFingerprint: getSavedPdfJsAnnotationFingerprint() !== null,
-            hasLivePdfJsChanges: hasLivePdfJsAnnotationChanges(),
-        })) {
-            preservedAnnotationSourceDirty.value = false;
-        }
-    }
-
-    function markAnnotationSavedAndClearPreservedSource(opts?: { preserveLivePdfjsSession?: boolean }) {
-        markAnnotationSaved(opts);
-        preservedAnnotationSourceDirty.value = false;
-    }
-
-    function resetAnnotationTrackingAndPreservedSource() {
-        preservedAnnotationSourceDirty.value = false;
-        resetAnnotationTracking();
-    }
-
-    watch(workingCopyPath, () => {
-        preservedAnnotationSourceDirty.value = false;
-    });
 
     const hasReactiveAnnotationChanges = computed(() => {
         // Canonical annotation storage is intentionally framework-agnostic.
@@ -420,9 +387,8 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         || isDirty.value
         || hasActivePdfJsEditorDraft.value
         || hasReactiveAnnotationChanges.value
-        || hasSavedPdfJsAnnotationBaselineChanges()
+        || false
         || pendingEmbeddedAnnotationDeleteCount.value > 0
-        || preservedAnnotationSourceDirty.value
         || pageLabelsDirty.value
         || bookmarksDirty.value
     ));
@@ -431,7 +397,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         || hasActivePdfJsEditorDraft.value
         || hasReactiveAnnotationChanges.value
         || pendingEmbeddedAnnotationDeleteCount.value > 0
-        || preservedAnnotationSourceDirty.value
     ));
     const hasPendingTabChanges = hasPendingUnsavedChanges;
     const statusOriginalPath = computed(() => deps.pendingDocumentPath?.value ?? originalPath.value);
@@ -440,11 +405,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         ?? originalPath.value
         ?? workingCopyPath.value
     ));
-
-    // Every workspace failure that reaches the user goes through this one
-    // surface, so save aborts and annotation creation failures cannot drift
-    // into separate, half-wired reporting.
-    const failureSurface = useWorkspaceFailureSurface();
 
     const pageSaveOrchestration = usePageSaveOrchestration({
         failureSurface,
@@ -457,6 +417,19 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             deps.documentSession.snapshot.value.identity.documentSessionKey
         )),
         documentRevisionToken,
+        wasEncrypted,
+        unencryptedSaveNotice: {
+            request: unencryptedSaveNotice.requestUnencryptedSaveNotice,
+            suppress: computed(() => appSettings.value.suppressUnencryptedSaveNotice === true),
+            updateSuppress: () => updateSetting('suppressUnencryptedSaveNotice', true),
+            resetSuppress: () => {
+                appSettings.value = {
+                    ...appSettings.value,
+                    suppressUnencryptedSaveNotice: false,
+                };
+            },
+            flushSettings: saveSettings,
+        },
         totalPages,
         pageLabelsDirty,
         pageLabelRanges,
@@ -468,19 +441,12 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         annotationNoteWindowsCount: computed(() => annotationNoteWindows.value.length),
         pendingEmbeddedAnnotationDeleteCount,
         hasAnnotationChanges,
-        hasLivePdfJsAnnotationChanges,
-        hasSavedPdfJsAnnotationBaselineChanges,
-        getSavedPdfJsAnnotationFingerprint,
-        hasPreservedAnnotationSourceChanges,
-        reconcilePreservedAnnotationSourceDirty,
-        markAnnotationSaved: markAnnotationSavedAndClearPreservedSource,
+        markAnnotationSaved,
         getAnnotationSaveStateToken,
         markPageLabelsSaved,
         getPageLabelsSaveStateToken: getPageLabelsRevision,
         markBookmarksSaved,
         getBookmarksSaveStateToken: getBookmarksRevision,
-        preserveMetadataForNextSourceReload,
-        clearPreservedSourceReloadMetadata,
         isDirty,
         hasPendingUnsavedChanges,
         validatePdfPath: path => getDocumentPdfCapability().validatePdfPath(path),
@@ -508,7 +474,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         hasSaveFailure,
         embedPlacedImageToPage,
         getSourcePdfData,
-        serializePdfForSave,
         saveForExternalRead,
         getNativeSaveTransactionOptions,
     } = pageSaveOrchestration;
@@ -581,9 +546,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         showSidebar,
         sidebarTab,
         annotationTool,
-        annotationPlacingPageNote,
         annotationEditorState,
-        hasLivePdfJsAnnotationChanges: computed(() => hasLivePdfJsAnnotationChanges()),
         appAnnotationUndoDepth,
         hasOpenAnnotationNotes,
         canUndoHistory: workspaceUndoTimeline.canUndoTimeline,
@@ -633,19 +596,15 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         )
     ));
     const canMutatePages = computed(() => deps.sourceCapabilities.value.pageEdits);
-    const materializeAnnotationsForPageMutation = createPageMutationAnnotationMaterializer({
+    const saveAnnotationsForPageMutation = createPageMutationWriterSave({
         annotationDirty,
         hasAnnotationChanges,
-        hasLivePdfJsAnnotationChanges,
-        hasSavedPdfJsAnnotationBaselineChanges,
         pendingEmbeddedAnnotationDeleteCount,
-        preservedAnnotationSourceDirty,
         workingCopyPath,
         documentRevisionToken,
         pdfViewerRef,
         currentPage,
         waitForPdfReload,
-        loadPdfFromData,
         loadPdfFromPath,
         getNativeSaveTransactionOptions,
     });
@@ -653,7 +612,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         pdfViewerRef,
         annotationTool,
         annotationKeepActive,
-        annotationPlacingPageNote,
         annotationSettings,
         annotationActiveCommentStableKey,
         annotationContextMenu,
@@ -672,11 +630,9 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         annotationNoteWindows,
         loadPdfFromData,
         loadPdfFromPath,
-        materializeAnnotationsForPageMutation,
+        saveAnnotationsForPageMutation,
         waitForPdfReload,
         invalidateThumbnailPages: requestThumbnailInvalidation,
-        markPreservedAnnotationSourceDirty,
-        setPreservedAnnotationSourceDirty,
         getAnnotationCommentsSnapshot: () => annotationComments.value,
         getAnnotationCommentsStatusSnapshot: () => annotationCommentsStatus.value,
         getEmbeddedMutationBaseData: pageSaveOrchestration.getEmbeddedMutationBaseData,
@@ -698,17 +654,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         payload?: Parameters<typeof handleAnnotationModified>[0],
     ) {
         handleAnnotationModified(payload);
-        if (
-            hasPreservedLivePdfjsAnnotationSession()
-            && (
-                annotationDirty.value
-                || hasAnnotationChanges()
-                || hasLivePdfJsAnnotationChanges()
-                || hasSavedPdfJsAnnotationBaselineChanges()
-            )
-        ) {
-            markPreservedAnnotationSourceDirty();
-        }
         requestThumbnailInvalidation([currentPage.value]);
     }
 
@@ -744,7 +689,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         closePageContextMenu,
         handleExportImages,
         ensureHistoryBaselineForMutation,
-        materializeAnnotationsForPageMutation,
+        saveAnnotationsForPageMutation,
         reloadWorkingCopyIntoHistory,
         preparePdfReloadWaiter,
         clearOcrCache: (path) => clearOcrCache(path),
@@ -775,10 +720,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         hasPendingUnsavedChanges,
         pdfData,
         pdfViewerRef,
-        source: {
-            getSourcePdfData,
-            serializePdfForSave,
-        },
+        source: {getSourcePdfData},
         runWithDocumentOperationLease: documentOperationLease.runExclusive,
     });
 
@@ -896,10 +838,8 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         canSave,
         showSettings,
         annotationTool,
-        annotationPlacingPageNote,
         pdfViewerRef,
         documentViewerRef,
-        serializePdfForSave,
         shapePropertiesPopoverVisible: computed(() => shapePropertiesPopover.value.visible),
         annotationContextMenuVisible: computed(() => annotationContextMenu.value.visible),
         pageContextMenuVisible: computed(() => pageContextMenu.value.visible),
@@ -959,7 +899,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         clearAnnotationComments,
         annotationActiveCommentStableKey,
         annotationEditorState,
-        annotationPlacingPageNote,
         bookmarkItems,
         bookmarksDirty,
         bookmarkEditMode,
@@ -969,7 +908,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         pageLabels,
         pageLabelRanges,
         pageLabelsDirty,
-        resetAnnotationTracking: resetAnnotationTrackingAndPreservedSource,
+        resetAnnotationTracking,
         resetSearchCache,
         closeSearch,
         closeAnnotationContextMenu,
@@ -1091,7 +1030,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             onAnnotationContextMenu: annotationActions.handleViewerAnnotationContextMenu,
             onAnnotationModified: handleAnnotationModifiedWithThumbnailInvalidation,
             onAnnotationFailure: failureSurface.reportAnnotationFailure,
-            onAnnotationNotePlacementChange: value => { annotationPlacingPageNote.value = value; },
             onAnnotationOpenNote: annotationActions.handleOpenAnnotationNote,
             onAnnotationSetting: annotationSession.handleAnnotationSettingChange,
             onAnnotationState: annotationSession.handleAnnotationState,
@@ -1179,7 +1117,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             handleInsertImageFromFile: () => insertImageFromFileAt(currentPage.value, 0.5, 0.5),
             handlePasteImageFromClipboard: () => pasteImageFromClipboardAt(currentPage.value, 0.5, 0.5),
             handleAnnotationModified: handleAnnotationModifiedWithThumbnailInvalidation,
-            hasPreservedAnnotationSourceChanges,
             pendingEmbeddedAnnotationDeleteCount,
         },
         documentControls,

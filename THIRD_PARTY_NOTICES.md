@@ -4,7 +4,7 @@ This file is a practical index of the major third-party components and assets th
 
 ## Bundled Web Assets
 
-- PDF.js assets from `pdfjs-dist` are copied under `public/pdf/`. Upstream license files for CMaps, ICC profiles, standard fonts, and WebAssembly helpers are retained in that tree.
+- PDF.js is built from the exact EVB fork commit `f029c04600ed3d851491c0d70eafe7caa1557d36` of `https://github.com/evb0110/pdf.js` and committed as the local tarball under `vendor/pdfjs-dist/`. The receipt, sorted manifest, and `scripts/verify-pdfjs-provenance.mjs` bind its bytes and contents. Builds copy only runtime assets under `public/pdf/`; the complete package never ships wholesale. No npm package is published. Upstream license files for CMaps, ICC profiles, standard fonts, and WebAssembly helpers remain in the package and copied assets. Human legal review is required for the fork's modification notices and bundled third-party inventory.
 - DjVu.js browser assets are vendored under `public/vendor/djvujs/`; see `public/vendor/djvujs/LICENSE.md`.
 
 ## Desktop Native Resources

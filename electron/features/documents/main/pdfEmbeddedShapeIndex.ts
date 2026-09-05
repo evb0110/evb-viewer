@@ -1,12 +1,9 @@
 import {randomUUID} from 'node:crypto';
-import {createReadStream} from 'node:fs';
 import {
     lstat,
     mkdtemp,
-    open,
     readdir,
     rm,
-    stat,
 } from 'node:fs/promises';
 import {join} from 'node:path';
 import {
@@ -54,6 +51,16 @@ import {
     isOneOf,
     isRecord,
 } from '@contracts/runtimeGuards';
+import {
+    addSafePdfSidecarOffset,
+    assertPdfSidecarFitsSafeOffsetRange,
+    assertSafePdfSidecarOffset,
+    findPdfSidecarLineIndex,
+    parsePdfSidecarJsonLine,
+    readPdfSidecarLine,
+    scanPdfSidecarLines,
+    type IScannedPdfSidecar,
+} from '@electron/features/documents/main/pdfSidecarLineIndex';
 
 const SHAPE_INDEX_DIRECTORY_PREFIX = 'pdf-embedded-shape-index-';
 const SHAPE_INDEX_FILE_NAME = 'index.jsonl';
@@ -64,23 +71,9 @@ const SHAPE_INDEX_SWEEP_MAX_ENTRIES = 200;
 const SHAPE_INDEX_NATIVE_TIMEOUT_MS = 30 * 60 * 1_000;
 const SHAPE_INDEX_NATIVE_STDOUT_BYTES = 64 * 1_024;
 const SHAPE_INDEX_NATIVE_STDERR_BYTES = 512 * 1_024;
-const MAX_SAFE_INTEGER_BIGINT = BigInt(Number.MAX_SAFE_INTEGER);
 const MAX_SHAPE_POINTS = 40_000;
 const MAX_SHAPE_STROKES = 4_096;
 const logger = createLogger('pdf-embedded-shape-index');
-
-interface IShapeIndexLine {
-    offset: number;
-    byteLength: number;
-}
-
-interface IScannedShapeIndex {
-    dataStartOffset: number;
-    dataBytes: number;
-    pageCount: number;
-    entryCount: number;
-    lines: IShapeIndexLine[];
-}
 
 interface IShapeIndexSessionState {
     sessionId: string;
@@ -90,7 +83,7 @@ interface IShapeIndexSessionState {
     expectedRevisionToken: TDocumentRevisionToken;
     sidecarDirectory: string;
     sidecarPath: string;
-    index: IScannedShapeIndex;
+    index: IScannedPdfSidecar;
     abortController: AbortController;
     cancelGroup: string;
     operationPromise: Promise<void>;
@@ -105,21 +98,6 @@ const sessions = new Map<string, IShapeIndexSessionState>();
 
 function getOwnerId(context: IDocumentsSenderIdContext) {
     return context.senderId ?? -1;
-}
-
-function addSafeOffsets(left: number, right: number, fieldName: string) {
-    const result = left + right;
-    if (!Number.isSafeInteger(result) || result < 0) {
-        throw new RangeError(`${fieldName} exceeds the safe integer range`);
-    }
-    return result;
-}
-
-function assertSafeOffset(value: number, fieldName: string) {
-    if (!Number.isSafeInteger(value) || value < 0) {
-        throw new RangeError(`${fieldName} must be a non-negative safe integer`);
-    }
-    return value;
 }
 
 function decodeHeader(value: unknown) {
@@ -293,123 +271,6 @@ function decodeDataLine(value: unknown) {
     return value.entries.map(decodeShapeEntry);
 }
 
-function parseJsonLine(bytes: Buffer, label: string) {
-    const withoutNewline = bytes[bytes.length - 1] === 0x0a
-        ? bytes.subarray(0, bytes.length - 1)
-        : bytes;
-    const jsonBytes = withoutNewline[withoutNewline.length - 1] === 0x0d
-        ? withoutNewline.subarray(0, withoutNewline.length - 1)
-        : withoutNewline;
-    if (jsonBytes.length === 0) {
-        throw new Error(`Embedded shape index sidecar contains an empty ${label} line`);
-    }
-    try {
-        return JSON.parse(jsonBytes.toString('utf8')) as unknown;
-    } catch (error) {
-        throw new Error(`Embedded shape index sidecar contains invalid JSON in its ${label} line`, {cause: error});
-    }
-}
-
-function scanSidecarLines(sidecarPath: string): Promise<IScannedShapeIndex> {
-    return new Promise((resolveScan, rejectScan) => {
-        const lines: IShapeIndexLine[] = [];
-        let stream: ReturnType<typeof createReadStream> | null = null;
-        let pending = Buffer.alloc(0) as Buffer;
-        let pendingStartOffset = 0;
-        let dataStartOffset = 0;
-        let totalBytes = 0;
-        let pageCount: number | null = null;
-        let entryCount = 0;
-        let headerSeen = false;
-        let settled = false;
-
-        const rejectOnce = (error: unknown) => {
-            if (settled) {
-                return;
-            }
-            settled = true;
-            stream?.destroy();
-            rejectScan(error);
-        };
-        const processLine = (line: Buffer, offset: number) => {
-            if (line.length === 0 || line.length > PDF_EMBEDDED_SHAPE_INDEX_MAX_LINE_BYTES) {
-                throw new Error(`Embedded shape index sidecar line exceeds ${PDF_EMBEDDED_SHAPE_INDEX_MAX_LINE_BYTES} bytes`);
-            }
-            const value = parseJsonLine(line, headerSeen ? 'data' : 'header');
-            if (!headerSeen) {
-                pageCount = decodeHeader(value);
-                dataStartOffset = addSafeOffsets(offset, line.length, 'Embedded shape index offset');
-                headerSeen = true;
-                return;
-            }
-            const entries = decodeDataLine(value);
-            entryCount = addSafeOffsets(entryCount, entries.length, 'Embedded shape index entry count');
-            lines.push({
-                offset: addSafeOffsets(offset, -dataStartOffset, 'Embedded shape index offset'),
-                byteLength: line.length,
-            });
-        };
-        const consume = (chunk: Buffer) => {
-            totalBytes = addSafeOffsets(totalBytes, chunk.length, 'Embedded shape index sidecar size');
-            pending = pending.length === 0 ? chunk : Buffer.concat([
-                pending,
-                chunk,
-            ]);
-            if (pending.length > PDF_EMBEDDED_SHAPE_INDEX_MAX_LINE_BYTES && pending.indexOf(0x0a) < 0) {
-                throw new Error(`Embedded shape index sidecar line exceeds ${PDF_EMBEDDED_SHAPE_INDEX_MAX_LINE_BYTES} bytes`);
-            }
-            let newlineIndex = pending.indexOf(0x0a);
-            while (newlineIndex >= 0) {
-                const lineLength = newlineIndex + 1;
-                processLine(pending.subarray(0, lineLength), pendingStartOffset);
-                pendingStartOffset = addSafeOffsets(pendingStartOffset, lineLength, 'Embedded shape index offset');
-                pending = pending.subarray(lineLength);
-                newlineIndex = pending.indexOf(0x0a);
-            }
-            if (pending.length > PDF_EMBEDDED_SHAPE_INDEX_MAX_LINE_BYTES) {
-                throw new Error(`Embedded shape index sidecar line exceeds ${PDF_EMBEDDED_SHAPE_INDEX_MAX_LINE_BYTES} bytes`);
-            }
-        };
-
-        stream = createReadStream(sidecarPath, {highWaterMark: 64 * 1_024});
-        stream.on('data', (chunk: Buffer | string) => {
-            try {
-                consume(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
-            } catch (error) {
-                rejectOnce(error);
-            }
-        });
-        stream.once('error', rejectOnce);
-        stream.once('end', () => {
-            if (settled) {
-                return;
-            }
-            try {
-                if (pending.length > 0) {
-                    processLine(pending, pendingStartOffset);
-                    pendingStartOffset = addSafeOffsets(pendingStartOffset, pending.length, 'Embedded shape index offset');
-                }
-                if (pageCount === null) {
-                    throw new Error('Embedded shape index sidecar is empty');
-                }
-                if (pendingStartOffset !== totalBytes) {
-                    throw new Error('Embedded shape index sidecar offset accounting failed');
-                }
-                settled = true;
-                resolveScan({
-                    dataStartOffset,
-                    dataBytes: addSafeOffsets(totalBytes, -dataStartOffset, 'Embedded shape index bytes'),
-                    pageCount,
-                    entryCount,
-                    lines,
-                });
-            } catch (error) {
-                rejectOnce(error);
-            }
-        });
-    });
-}
-
 function parseChunkOptions(options: IPdfEmbeddedShapeIndexChunkOptions | undefined) {
     const chunkBytes = options?.chunkBytes ?? PDF_EMBEDDED_SHAPE_INDEX_MAX_CHUNK_BYTES;
     if (
@@ -420,21 +281,6 @@ function parseChunkOptions(options: IPdfEmbeddedShapeIndexChunkOptions | undefin
         throw new RangeError(`Embedded shape index chunkBytes must be between 1 and ${PDF_EMBEDDED_SHAPE_INDEX_MAX_CHUNK_BYTES}`);
     }
     return chunkBytes;
-}
-
-function findLineIndex(lines: readonly IShapeIndexLine[], offset: number) {
-    let low = 0;
-    let high = lines.length - 1;
-    while (low <= high) {
-        const middle = Math.floor((low + high) / 2);
-        const line = lines[middle]!;
-        if (line.offset === offset) {
-            return middle;
-        }
-        if (line.offset < offset) low = middle + 1;
-        else high = middle - 1;
-    }
-    return -1;
 }
 
 function assertSessionOwner(session: IShapeIndexSessionState, context: IDocumentsSenderIdContext) {
@@ -601,12 +447,18 @@ export async function beginPdfEmbeddedShapeIndex(
                 throw abortErrorFromSignal(abortController.signal);
             }
             await assertWorkingCopyRevisionCurrent(resolvedPath, expectedRevisionToken);
-            const sidecarStat = await stat(sidecarPath, {bigint: true});
-            if (sidecarStat.size > MAX_SAFE_INTEGER_BIGINT) {
-                throw new Error('Embedded shape index sidecar exceeds the safe offset range');
-            }
-            session.index = await scanSidecarLines(sidecarPath);
-            if (session.index.dataBytes !== Number(sidecarStat.size) - session.index.dataStartOffset) {
+            const sidecarSize = await assertPdfSidecarFitsSafeOffsetRange(
+                sidecarPath,
+                'Embedded shape index',
+            );
+            session.index = await scanPdfSidecarLines(sidecarPath, {
+                maxLineBytes: PDF_EMBEDDED_SHAPE_INDEX_MAX_LINE_BYTES,
+                label: 'Embedded shape index',
+                signal: abortController.signal,
+                decodeHeader,
+                decodeDataLine,
+            });
+            if (session.index.dataBytes !== sidecarSize - session.index.dataStartOffset) {
                 throw new Error('Embedded shape index sidecar changed while it was being indexed');
             }
             session.lastTouchedAt = Date.now();
@@ -652,7 +504,7 @@ export async function readPdfEmbeddedShapeIndexChunk(
     if (session.canceled || session.released) {
         throw new Error('Embedded shape index session is canceled');
     }
-    const requestedOffset = assertSafeOffset(offset, 'offset');
+    const requestedOffset = assertSafePdfSidecarOffset(offset, 'offset');
     const chunkBytes = parseChunkOptions(options);
     if (requestedOffset === session.index.dataBytes) {
         session.lastTouchedAt = Date.now();
@@ -664,7 +516,7 @@ export async function readPdfEmbeddedShapeIndexChunk(
             entries: [],
         };
     }
-    const lineIndex = findLineIndex(session.index.lines, requestedOffset);
+    const lineIndex = findPdfSidecarLineIndex(session.index.lines, requestedOffset);
     if (lineIndex < 0) {
         throw new RangeError('Embedded shape index offset must point to the beginning of a chunk line');
     }
@@ -672,29 +524,15 @@ export async function readPdfEmbeddedShapeIndexChunk(
     if (line.byteLength > chunkBytes) {
         throw new RangeError(`Embedded shape index line requires a chunk of at least ${line.byteLength} bytes`);
     }
-    const absoluteOffset = addSafeOffsets(session.index.dataStartOffset, requestedOffset, 'Embedded shape index offset');
-    const lineBytes = Buffer.allocUnsafe(line.byteLength);
-    const sidecarHandle = await open(session.sidecarPath, 'r');
-    try {
-        let bytesRead = 0;
-        while (bytesRead < line.byteLength) {
-            const readResult = await sidecarHandle.read(
-                lineBytes,
-                bytesRead,
-                line.byteLength - bytesRead,
-                absoluteOffset + bytesRead,
-            );
-            if (readResult.bytesRead === 0) {
-                throw new Error('Embedded shape index sidecar ended before the requested chunk');
-            }
-            bytesRead += readResult.bytesRead;
-        }
-    } finally {
-        await sidecarHandle.close();
-    }
-    const entries = decodeDataLine(parseJsonLine(lineBytes, 'data'));
+    const lineBytes = await readPdfSidecarLine(
+        session.sidecarPath,
+        session.index.dataStartOffset,
+        line,
+        'Embedded shape index',
+    );
+    const entries = decodeDataLine(parsePdfSidecarJsonLine(lineBytes, 'data'));
     const nextOffset = lineIndex + 1 < session.index.lines.length
-        ? addSafeOffsets(line.offset, line.byteLength, 'Embedded shape index offset')
+        ? addSafePdfSidecarOffset(line.offset, line.byteLength, 'Embedded shape index offset')
         : null;
     session.lastTouchedAt = Date.now();
     return {

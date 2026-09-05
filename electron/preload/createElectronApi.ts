@@ -264,13 +264,15 @@ export function createElectronApi(
         });
     }
 
-    const openDocumentDirect = async (path: string) => {
+    const openDocumentDirect = async (path: string, password?: string) => {
         const pendingAllow = pendingRendererFileOpenAllows.get(path)?.promise;
         if (pendingAllow && !await pendingAllow) {
             return null;
         }
         await options.waitForDocumentOpenDirect?.(path);
-        return baseDocuments.openDocumentDirect(path);
+        return password === undefined
+            ? baseDocuments.openDocumentDirect(path)
+            : baseDocuments.openDocumentDirect(path, password);
     };
     const openDocumentDirectBatch = async (
         paths: string[],
@@ -457,6 +459,7 @@ export function createElectronApi(
     const documentWorkingCopy = {
         createWorkingCopyFromData: baseDocuments.createWorkingCopyFromData,
         createWorkingCopyFromPath: baseDocuments.createWorkingCopyFromPath,
+        parsePdfAnnotations: baseDocuments.parsePdfAnnotations,
         cleanupFile: baseDocuments.cleanupFile,
         cleanupOcrTemp: baseDocuments.cleanupOcrTemp,
     } satisfies IDocumentsWorkingCopyCapability;
@@ -508,6 +511,18 @@ export function createElectronApi(
             : {}),
         ...(baseDocuments.cancelPdfAnnotationIndex
             ? {cancelPdfAnnotationIndex: baseDocuments.cancelPdfAnnotationIndex}
+            : {}),
+        ...(baseDocuments.beginPdfAnnotationParse
+            ? {beginPdfAnnotationParse: baseDocuments.beginPdfAnnotationParse}
+            : {}),
+        ...(baseDocuments.readPdfAnnotationParseChunk
+            ? {readPdfAnnotationParseChunk: baseDocuments.readPdfAnnotationParseChunk}
+            : {}),
+        ...(baseDocuments.releasePdfAnnotationParse
+            ? {releasePdfAnnotationParse: baseDocuments.releasePdfAnnotationParse}
+            : {}),
+        ...(baseDocuments.cancelPdfAnnotationParse
+            ? {cancelPdfAnnotationParse: baseDocuments.cancelPdfAnnotationParse}
             : {}),
         ...(baseDocuments.beginPdfEmbeddedShapeIndex
             ? {beginPdfEmbeddedShapeIndex: baseDocuments.beginPdfEmbeddedShapeIndex}

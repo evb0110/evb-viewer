@@ -13,6 +13,7 @@ describe('createDocumentViewerExposeForwarder', () => {
         const djvuScroll = vi.fn();
         const target = shallowRef<Record<PropertyKey, unknown> | null>({scrollToPage: pdfScroll});
         const exposed = createDocumentViewerExposeForwarder(target);
+        const options = {navigationSource: 'annotation' as const};
         const scrollToPage = (page: number) => {
             const method = Reflect.get(exposed, 'scrollToPage');
             if (typeof method !== 'function') {
@@ -27,6 +28,13 @@ describe('createDocumentViewerExposeForwarder', () => {
 
         expect(pdfScroll).toHaveBeenCalledWith(3);
         expect(djvuScroll).toHaveBeenCalledWith(7);
+
+        const method = Reflect.get(exposed, 'scrollToPage');
+        if (typeof method !== 'function') {
+            throw new Error('scrollToPage is unavailable');
+        }
+        method(11, options);
+        expect(djvuScroll).toHaveBeenLastCalledWith(11, options);
     });
 
     it('keeps stable chassis navigation callable while a feature pack is absent or swapping', () => {

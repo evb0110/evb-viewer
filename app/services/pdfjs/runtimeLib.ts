@@ -1,5 +1,4 @@
 import { ensurePdfjsSsrGlobals } from '@app/services/pdfjs/ensurePdfjsSsrGlobals';
-import { getPdfAnnotationEditorCompatibilityProbeFailures } from '@app/services/pdfjs/annotationEditorCompatibility';
 import {
     getPdfjsAssetDir,
     getViewerAssetResolver,
@@ -34,31 +33,6 @@ interface IPdfjsVendoredAssetVersionOptions {
 const PDFJS_VENDORED_VERSION_STAMP_URL = '/pdf/.pdfjs-version';
 const PDFJS_MAX_INTERMEDIATE_CANVAS_BYTES = 128 * 1024 * 1024;
 
-const DEFAULT_ANNOTATION_EDITOR_TYPE = {
-    DISABLE: -1,
-    NONE: 0,
-    FREETEXT: 3,
-    HIGHLIGHT: 9,
-    STAMP: 13,
-    INK: 15,
-    POPUP: 16,
-};
-
-const DEFAULT_ANNOTATION_EDITOR_PARAMS_TYPE = {
-    RESIZE: 1,
-    CREATE: 2,
-    FREETEXT_SIZE: 11,
-    FREETEXT_COLOR: 12,
-    INK_COLOR: 21,
-    INK_THICKNESS: 22,
-    INK_OPACITY: 23,
-    HIGHLIGHT_COLOR: 31,
-    HIGHLIGHT_THICKNESS: 32,
-    HIGHLIGHT_FREE: 33,
-    HIGHLIGHT_SHOW_ALL: 34,
-    DRAW_STEP: 41,
-};
-
 const DEFAULT_ANNOTATION_MODE = {
     DISABLE: 0,
     ENABLE: 1,
@@ -66,10 +40,10 @@ const DEFAULT_ANNOTATION_MODE = {
     ENABLE_STORAGE: 3,
 };
 
-const DEFAULT_PIXELS_PER_INCH = {
-    CSS: 96,
-    PDF: 72,
-    PDF_TO_CSS_UNITS: 96 / 72,
+const DEFAULT_IMAGE_KIND = {
+    GRAYSCALE_1BPP: 1,
+    RGB_24BPP: 2,
+    RGBA_32BPP: 3,
 };
 
 const REQUIRED_ANNOTATION_EDITOR_UI_MANAGER_METHODS = [
@@ -345,7 +319,6 @@ export function getPdfjsRuntimeProbeFailures(runtime: unknown = pdfjsLib) {
         ...getRuntimeNumberMapProbeFailures(runtime, 'AnnotationMode', REQUIRED_ANNOTATION_MODE_KEYS),
         ...getRuntimeNumberMapProbeFailures(runtime, 'PixelsPerInch', REQUIRED_PIXELS_PER_INCH_KEYS),
         ...getAnnotationEditorUiManagerProbeFailures(runtime),
-        ...getPdfAnnotationEditorCompatibilityProbeFailures(runtime),
         ...getPdfDateStringProbeFailures(runtime),
     ];
 }
@@ -430,17 +403,8 @@ export async function preparePdfjsBrowserRuntime(runtime: IPdfjsBrowserRuntime =
 
 export const AnnotationLayer = getRuntimeExport('AnnotationLayer');
 export const AnnotationEditorLayer = getRuntimeExport('AnnotationEditorLayer');
-export const AnnotationEditorParamsType = getMergedRuntimeExport(
-    'AnnotationEditorParamsType',
-    DEFAULT_ANNOTATION_EDITOR_PARAMS_TYPE,
-);
-export const AnnotationEditorType = getMergedRuntimeExport(
-    'AnnotationEditorType',
-    DEFAULT_ANNOTATION_EDITOR_TYPE,
-);
 export const AnnotationEditorUIManager = getRuntimeExport('AnnotationEditorUIManager');
 export const AnnotationMode = getMergedRuntimeExport('AnnotationMode', DEFAULT_ANNOTATION_MODE);
 export const DrawLayer = getRuntimeExport('DrawLayer');
-export const PDFDateString = getRuntimeExport('PDFDateString');
-export const PixelsPerInch = getMergedRuntimeExport('PixelsPerInch', DEFAULT_PIXELS_PER_INCH);
+export const ImageKind = getMergedRuntimeExport('ImageKind', DEFAULT_IMAGE_KIND);
 export const TextLayer = getRuntimeExport('TextLayer');

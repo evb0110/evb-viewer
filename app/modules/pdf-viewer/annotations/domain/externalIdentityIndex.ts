@@ -8,12 +8,7 @@ type TBindingKey = Exclude<keyof IAnnotationIdentity, 'id'>;
 export class ExternalIdentityConflictError extends Error {}
 
 export class ExternalIdentityIndex {
-    readonly #indexes: Record<TBindingKey, Map<string, AnnotationId>> = {
-        pdfRef: new Map(),
-        pdfName: new Map(),
-        pdfjsUid: new Map(),
-        elementId: new Map(),
-    };
+    readonly #indexes: Record<TBindingKey, Map<string, AnnotationId>> = {pdfRef: new Map()};
 
     bind(identity: IAnnotationIdentity) {
         this.replace([{
@@ -26,12 +21,7 @@ export class ExternalIdentityIndex {
         readonly before: IAnnotationIdentity | null;
         readonly after: IAnnotationIdentity | null;
     }>) {
-        const staged: Record<TBindingKey, Map<string, AnnotationId | null>> = {
-            pdfRef: new Map(),
-            pdfName: new Map(),
-            pdfjsUid: new Map(),
-            elementId: new Map(),
-        };
+        const staged: Record<TBindingKey, Map<string, AnnotationId | null>> = {pdfRef: new Map()};
         const ownerOf = (key: TBindingKey, value: string) => staged[key].has(value)
             ? staged[key].get(value) ?? null
             : this.#indexes[key].get(value) ?? null;

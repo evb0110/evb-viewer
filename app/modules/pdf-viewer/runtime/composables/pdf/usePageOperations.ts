@@ -107,7 +107,7 @@ export const usePageOperations = (deps: {
     bookmarkItems?: Ref<IPdfBookmarkEntry[]>;
     bookmarksResolved?: Ref<boolean>;
     ensureHistoryBaselineForMutation: () => Promise<boolean>;
-    materializeAnnotationsForPageMutation?: () => Promise<boolean>;
+    saveAnnotationsForPageMutation?: () => Promise<boolean>;
     reloadWorkingCopyIntoHistory: (opts?: { markDirty?: boolean }) => Promise<boolean>;
     clearOcrCache: (path: TDocumentRef) => void;
     resetSearchCache: () => void;
@@ -130,7 +130,7 @@ export const usePageOperations = (deps: {
         bookmarkItems,
         bookmarksResolved,
         ensureHistoryBaselineForMutation,
-        materializeAnnotationsForPageMutation,
+        saveAnnotationsForPageMutation,
         reloadWorkingCopyIntoHistory,
         clearOcrCache,
         resetSearchCache,
@@ -404,8 +404,8 @@ export const usePageOperations = (deps: {
                         });
                     }
                 }
-                if (options.shouldReload && materializeAnnotationsForPageMutation) {
-                    const didMaterialize = await materializeAnnotationsForPageMutation();
+                if (options.shouldReload && saveAnnotationsForPageMutation) {
+                    const didMaterialize = await saveAnnotationsForPageMutation();
                     if (!didMaterialize) {
                         return recordOutcome<TResult>({
                             status: 'blocked',

@@ -17,6 +17,7 @@
             placeholderStyle ?? undefined,
             pageScaleStyle,
         ]"
+        @click="handlePageClick"
     >
         <div class="page_canvas">
             <div
@@ -38,7 +39,7 @@
         </div>
         <div class="text-layer textLayer"></div>
         <div class="annotation-layer annotationLayer"></div>
-        <div class="annotation-editor-layer annotationEditorLayer"></div>
+        <PdfAnnotationEditorLayer :page-index="page - 1" />
         <PdfImagePlacementOverlay
             :placement="placedImage"
             :busy="placedImageBusy"
@@ -46,45 +47,17 @@
             @finalize="emit('finalize-placed-image')"
             @cancel="emit('cancel-placed-image')"
         />
-        <PdfShapeOverlay
-            v-if="shapeContext && showShapeOverlay"
-            :shapes="pageShapes"
-            :drawing-shape="pageDrawingShape"
-            :selected-shape-id="shapeContext.selectedShapeId.value"
-            :focused-shape-id="shapeContext.focusedShapeId.value"
-            :is-active="shapeContext.isShapeToolActive.value"
-            :is-annotation-tool-active="shapeContext.isAnyAnnotationToolActive.value"
-            :selection-enabled="shapeContext.isSelectionToolActive.value"
-            :tool="shapeContext.activeShapeTool.value"
-            :page-scale="pageScale"
-            @start-drawing="startDrawingShape"
-            @continue-drawing="continueDrawingShape"
-            @finish-drawing="finishDrawingShape"
-            @start-drag-shape="startDraggingShape"
-            @continue-drag-shape="continueDraggingShape"
-            @finish-drag-shape="finishDraggingShape"
-            @start-resize-shape="startResizingShape"
-            @continue-resize-shape="continueResizingShape"
-            @finish-resize-shape="finishResizingShape"
-            @select-shape="selectShape"
-            @shape-contextmenu="openShapeContextMenu"
-        />
     </div>
 </template>
 
 <script setup lang="ts">
 
 import DocumentPageSkeleton from '@app/components/document-viewer/DocumentPageSkeleton.vue';
+import PdfAnnotationEditorLayer from '@app/modules/pdf-viewer/components/PdfAnnotationEditorLayer.vue';
 import PdfImagePlacementOverlay from '@app/modules/pdf-viewer/components/PdfImagePlacementOverlay.vue';
-import PdfShapeOverlay from '@app/modules/pdf-viewer/components/PdfShapeOverlay.vue';
 import { clearPdfSelectionForLayerTeardown } from '@app/modules/pdf-viewer/engine/pdf-selection-cleanup/clearPdfSelectionForLayerTeardown';
-import { shouldShowShapeOverlay } from '@app/modules/pdf-viewer/engine/pdf-shape-overlay-visibility/shouldShowShapeOverlay';
+import { shouldClearPdfPageSelection } from '@app/modules/pdf-viewer/engine/annotations/shouldClearPdfPageSelection';
 import { usePdfSkeletonContext } from '@app/modules/pdf-viewer/runtime/skeleton/usePdfSkeletonInsets';
-import type { IShapeContextProvide } from '@app/modules/pdf-viewer/tools/useAnnotationShapes';
-import type {
-    IShapePoint,
-    TShapeResizeHandle,
-} from '@app/types/annotations';
 import type {
     IPdfImagePlacementDraft,
     IPdfImagePlacementRectUpdate,
@@ -93,6 +66,7 @@ import {
     buildPdfPageScaleStyle,
     type IPdfPageScale,
 } from '@app/modules/pdf-viewer/engine/pdf-page-scale/pdfPageScale';
+import { annotationEditorSurfaceKey } from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
 
 interface IProps {
     page: number;
@@ -102,7 +76,6 @@ interface IProps {
     spreadSingle?: boolean;
     buffered?: boolean;
     rendered?: boolean;
-    shapeOverlayVisualReady?: boolean;
     pageScale: IPdfPageScale | null;
     placeholderStyle?: Record<string, string> | null;
     placedImage?: IPdfImagePlacementDraft | null;
@@ -117,7 +90,6 @@ const {
     spreadSingle = false,
     buffered = false,
     rendered = false,
-    shapeOverlayVisualReady = false,
     pageScale,
     placeholderStyle = null,
     placedImage = null,
@@ -147,79 +119,16 @@ const fallbackSkeletonPadding = Object.freeze({
 const pageSkeletonPadding = computed(() => scaledSkeletonPadding.value ?? fallbackSkeletonPadding);
 const pageSkeletonContentHeight = computed(() => scaledPageHeight.value ?? 760);
 
-const shapeContext = inject<IShapeContextProvide | null>('shapeContext', null);
-
-const pageShapes = computed(() => shapeContext?.getShapesForPage(page - 1) ?? []);
 const showPageSkeleton = computed(() => showSkeleton);
 const pageVisualState = computed(() => rendered ? 'ready' : 'none');
-const isPageVisualReadyForShapeOverlay = computed(() => shapeOverlayVisualReady);
+const annotationEditorSurface = inject(annotationEditorSurfaceKey, null);
 
-const pageDrawingShape = computed(() => {
-    const drawing = shapeContext?.drawingShape.value;
-    if (!drawing || drawing.pageIndex !== page - 1) {
-        return null;
+function handlePageClick(event: MouseEvent) {
+    const target = event.target;
+    if (!shouldClearPdfPageSelection(target)) {
+        return;
     }
-    return drawing;
-});
-const showShapeOverlay = computed(() => Boolean(
-    shapeContext
-    && shouldShowShapeOverlay({
-        hasDrawingShape: Boolean(pageDrawingShape.value),
-        hasPageShapes: pageShapes.value.length > 0,
-        isPageVisualReady: isPageVisualReadyForShapeOverlay.value,
-        isShapeToolActive: shapeContext.isShapeToolActive.value,
-    }),
-));
-
-function startDrawingShape(coords: IShapePoint) {
-    shapeContext?.handleStartDrawing(page - 1, coords);
-}
-
-function continueDrawingShape(coords: IShapePoint) {
-    shapeContext?.handleContinueDrawing(coords);
-}
-
-function finishDrawingShape() {
-    shapeContext?.handleFinishDrawing();
-}
-
-function startDraggingShape(payload: IShapePoint & { shapeId: string }) {
-    shapeContext?.handleStartDraggingShape(payload.shapeId, payload);
-}
-
-function continueDraggingShape(coords: IShapePoint) {
-    shapeContext?.handleContinueDraggingShape(coords);
-}
-
-function finishDraggingShape() {
-    shapeContext?.handleFinishDraggingShape();
-}
-
-function startResizingShape(payload: IShapePoint & {
-    shapeId: string;
-    handle: TShapeResizeHandle;
-}) {
-    shapeContext?.handleStartResizingShape(payload.shapeId, payload.handle, payload);
-}
-
-function continueResizingShape(coords: IShapePoint) {
-    shapeContext?.handleContinueResizingShape(coords);
-}
-
-function finishResizingShape() {
-    shapeContext?.handleFinishResizingShape();
-}
-
-function selectShape(id: string | null) {
-    shapeContext?.handleSelectShape(id);
-}
-
-function openShapeContextMenu(payload: {
-    shapeId: string;
-    clientX: number;
-    clientY: number;
-}) {
-    shapeContext?.handleShapeContextMenu(payload);
+    annotationEditorSurface?.clearSelection();
 }
 
 onMounted(() => {

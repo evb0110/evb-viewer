@@ -114,6 +114,52 @@ describe('restoreWorkspaceCheckpoint', () => {
         expect(activateTab).toHaveBeenCalledWith('restored-tab');
     });
 
+    it('reopens a clean checkpoint through the source path to restore its process registration', async () => {
+        const openPathInReservedTab = vi.fn().mockResolvedValue(true);
+
+        await restoreWorkspaceCheckpoint({
+            version: 1,
+            capturedAt: 123,
+            activePaneId: 'pane-1',
+            activeTabId: 'tab-1',
+            layout: {
+                type: 'leaf',
+                paneId: 'pane-1',
+            },
+            panes: [{
+                paneId: 'pane-1',
+                tabIds: ['tab-1'],
+                activeTabId: 'tab-1',
+            }],
+            tabs: [{
+                tabId: 'tab-1',
+                paneId: 'pane-1',
+                fileName: 'saved.pdf',
+                sourceRef: '/documents/saved.pdf',
+                workingCopyRef: '/tmp/working/saved.pdf',
+                isDirty: false,
+                isDjvu: false,
+                currentPage: null,
+                zoom: null,
+                zoomMode: null,
+            }],
+        }, {
+            tabs: ref([{
+                id: 'tab-1',
+                fileName: 'saved.pdf',
+                originalPath: '/documents/saved.pdf',
+                isDirty: false,
+                isDjvu: false,
+            }]),
+            workspaceRefs: ref(new Map()),
+            restoreGraph: vi.fn(),
+            openPathInReservedTab,
+            activateTab: vi.fn(),
+        });
+
+        expect(openPathInReservedTab).toHaveBeenCalledWith('tab-1', '/documents/saved.pdf');
+    });
+
     it('restores an unsaved generated PDF from its working copy without losing Save As semantics', async () => {
         const workspace = cast<IWorkspaceExpose>({
             waitForDocumentOpenSettled: vi.fn().mockResolvedValue(undefined),

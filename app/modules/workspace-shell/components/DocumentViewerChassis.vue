@@ -115,6 +115,7 @@ import {
     resolveDocumentOpeningPageShellId,
 } from '@app/utils/document-viewer/chassis/documentOpeningPageFrameAuthority';
 import { readPrevalidatedTrustedPdfOpenGeometry } from '@app/modules/pdf-viewer/public';
+import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/public';
 import { readPrevalidatedTrustedDjvuOpenGeometry } from '@app/modules/djvu-viewer/public';
 import { resolveDocumentPageSourceOpeningFrame } from '@app/modules/workspace-shell/viewers/resolveDocumentPageSourceOpeningFrame';
 import DocumentPageSkeleton from '@app/components/document-viewer/DocumentPageSkeleton.vue';
@@ -125,6 +126,7 @@ import {
 } from '@app/utils/document-viewer/chassis/documentViewportResizeAnchor';
 import type { IDocumentWheelInteraction } from '@app/utils/document-viewer/input/documentWheelInteraction';
 import { observeDocumentViewportWheelInteraction } from '@app/utils/document-viewer/chassis/documentViewportWritePort';
+import { shouldRestoreDocumentViewerHandoffSnapshot } from '@app/modules/workspace-shell/viewers/shouldRestoreDocumentViewerHandoffSnapshot';
 
 defineOptions({ inheritAttrs: false });
 
@@ -644,15 +646,24 @@ watch(() => [
     const nextViewer = sourceViewerRef.value as {
         waitForViewerLoadSettled?: () => Promise<void>;
         restoreScrollSnapshot?: (snapshot: unknown, options: {fallbackPage: number}) => void;
-        scrollToPage?: (pageNumber: number) => void;
+        scrollToPage?: (pageNumber: number, options?: IScrollToPageOptions) => void;
     } | null;
     await nextViewer?.waitForViewerLoadSettled?.();
     if (generation !== handoffGeneration || sourceViewerRef.value !== nextViewer) {
         return;
     }
-    if (nextViewer?.restoreScrollSnapshot) {
+    const viewportSession = chassisAuthority.openSurface.viewportSession.value;
+    const shouldRestoreSnapshot = shouldRestoreDocumentViewerHandoffSnapshot({
+        fallbackPage,
+        currentPage: chassisAuthority.currentPage.value,
+        pendingNavigationPage: viewportSession.identity !== null
+                && viewportSession.requestedPage !== viewportSession.committedPage
+            ? viewportSession.requestedPage
+            : null,
+    });
+    if (shouldRestoreSnapshot && nextViewer?.restoreScrollSnapshot) {
         nextViewer.restoreScrollSnapshot(snapshot, {fallbackPage});
-    } else {
+    } else if (shouldRestoreSnapshot) {
         nextViewer?.scrollToPage?.(fallbackPage);
     }
 }, {flush: 'pre'});
@@ -669,10 +680,10 @@ defineExpose(createDocumentViewerExposeForwarder(sourceViewerRef, {
             ? session.requestedPage
             : null;
     },
-    scrollToPage: (pageNumber: number) => {
+    scrollToPage: (pageNumber: number, options?: IScrollToPageOptions) => {
         const normalizedPage = chassisAuthority.navigate(pageNumber);
-        const viewer = sourceViewerRef.value as {scrollToPage?: (page: number) => void;} | null;
-        viewer?.scrollToPage?.(normalizedPage);
+        const viewer = sourceViewerRef.value as {scrollToPage?: (page: number, options?: IScrollToPageOptions) => void;} | null;
+        viewer?.scrollToPage?.(normalizedPage, options);
     },
 }));
 </script>

@@ -96,20 +96,6 @@ export interface IPdfjsEditor {
     isEmpty?: () => boolean;
 }
 
-export interface IPdfjsEditorWithEditComment extends IPdfjsEditor {editComment: () => void;}
-
-export interface IPdfjsEditorConstructorLike {updateDefaultParams?: (type: number, value: unknown) => void;}
-
-export interface IPdfjsEditorLayerWithGetEditorByUid {getEditorByUID: (uid: string) => unknown;}
-
-export interface IPdfjsAnnotationEditorLayer extends IPdfjsEditorParent {
-    div: HTMLElement;
-    createAndAddNewEditor: (
-        event: PointerEvent,
-        isCentered: boolean,
-        data?: Record<string, unknown>,
-    ) => unknown;
-}
 
 export interface IPdfjsL10n {
     getLanguage: () => string | Promise<string>;

@@ -14,6 +14,7 @@ interface IImagePlacementPointerResizeOptions {
     clientX: number;
     clientY: number;
     rotationDegrees?: number;
+    shiftKey?: boolean;
     minSizePx?: number;
 }
 
@@ -301,6 +302,7 @@ export function resizeImagePlacementRect(
         clientX,
         clientY,
         rotationDegrees = 0,
+        shiftKey = false,
         minSizePx = DEFAULT_MIN_IMAGE_PLACEMENT_SIZE_PX,
     } = options;
     const aspectRatio = originRectPx.width / Math.max(EPSILON, originRectPx.height);
@@ -329,7 +331,12 @@ export function resizeImagePlacementRect(
     } else {
         const rawWidth = Math.max(EPSILON, handleVector.x * handleLocalFromAnchor.x);
         const rawHeight = Math.max(EPSILON, handleVector.y * handleLocalFromAnchor.y);
-        const locked = resolveLockedAspectSize(rawWidth, rawHeight, aspectRatio, minSizePx);
+        const locked = shiftKey
+            ? resolveLockedAspectSize(rawWidth, rawHeight, aspectRatio, minSizePx)
+            : {
+                width: Math.max(minSizePx, rawWidth),
+                height: Math.max(minSizePx, rawHeight),
+            };
 
         desiredWidth = locked.width;
         desiredHeight = locked.height;

@@ -48,6 +48,13 @@ import {
     releasePdfEmbeddedShapeIndex,
 } from '@electron/features/documents/main/pdfEmbeddedShapeIndex';
 import {
+    beginPdfAnnotationParse,
+    cancelPdfAnnotationParse,
+    parsePdfAnnotations,
+    readPdfAnnotationParseChunk,
+    releasePdfAnnotationParse,
+} from '@electron/features/documents/main/pdfAnnotationParse';
+import {
     handleFileWrite,
     handleFileWriteDocx,
     handleReplaceWorkingCopyFromPath,
@@ -233,6 +240,8 @@ export function createDocumentsService(): IDocumentsService {
             handleCreateWorkingCopyFromData(...args),
         createWorkingCopyFromPath: (...args: TDocumentsServiceArgs<'createWorkingCopyFromPath'>) =>
             handleCreateWorkingCopyFromPath(...args),
+        parsePdfAnnotations: (...args: TDocumentsServiceArgs<'parsePdfAnnotations'>) =>
+            parsePdfAnnotations(...args),
         savePdfAs: (...args: TDocumentsServiceArgs<'savePdfAs'>) => handleSavePdfAs(...args),
         savePdfDataAs: (...args: TDocumentsServiceArgs<'savePdfDataAs'>) => handleSavePdfDataAs(...args),
         beginSavePdfDataAs: (...args: TDocumentsServiceArgs<'beginSavePdfDataAs'>) =>
@@ -262,6 +271,14 @@ export function createDocumentsService(): IDocumentsService {
             releasePdfAnnotationIndex(...args),
         cancelPdfAnnotationIndex: (...args: TDocumentsServiceArgs<'cancelPdfAnnotationIndex'>) =>
             cancelPdfAnnotationIndex(...args),
+        beginPdfAnnotationParse: (...args: TDocumentsServiceArgs<'beginPdfAnnotationParse'>) =>
+            beginPdfAnnotationParse(...args),
+        readPdfAnnotationParseChunk: (...args: TDocumentsServiceArgs<'readPdfAnnotationParseChunk'>) =>
+            readPdfAnnotationParseChunk(...args),
+        releasePdfAnnotationParse: (...args: TDocumentsServiceArgs<'releasePdfAnnotationParse'>) =>
+            releasePdfAnnotationParse(...args),
+        cancelPdfAnnotationParse: (...args: TDocumentsServiceArgs<'cancelPdfAnnotationParse'>) =>
+            cancelPdfAnnotationParse(...args),
         beginPdfEmbeddedShapeIndex: (...args: TDocumentsServiceArgs<'beginPdfEmbeddedShapeIndex'>) =>
             beginPdfEmbeddedShapeIndex(...args),
         readPdfEmbeddedShapeIndexChunk: (...args: TDocumentsServiceArgs<'readPdfEmbeddedShapeIndexChunk'>) =>

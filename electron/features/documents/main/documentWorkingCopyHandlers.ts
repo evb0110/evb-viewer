@@ -10,9 +10,23 @@ import type { TOpenPath } from '@electron/file-access/openPathCapabilities';
 import { createLogger } from '@electron/utils/createLogger';
 import { IPC_FILENAME_MAX_LENGTH } from '@electron/utils/ipcLimits';
 import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsService';
+import {
+    isPdfDecryptPassword,
+    PDF_DECRYPT_PASSWORD_MAX_BYTES,
+} from '@contracts/pdfDecryptSchemas';
 
 const logger = createLogger('documents-dialogs');
 const MAX_WORKING_COPY_DATA_BYTES = 16 * 1024 * 1024;
+
+function assertOptionalPdfDecryptPassword(value: unknown): string | undefined {
+    if (value === undefined) {
+        return undefined;
+    }
+    if (!isPdfDecryptPassword(value)) {
+        throw new Error(`PDF password exceeds the ${PDF_DECRYPT_PASSWORD_MAX_BYTES}-byte limit`);
+    }
+    return value;
+}
 
 interface ITrustedOriginalPathOptions {
     sourcePath?: string;
@@ -49,6 +63,7 @@ export async function handleCreateWorkingCopyFromData(
     fileName: string,
     data: Uint8Array,
     originalPath?: string,
+    password?: string,
 ) {
     const normalizedName = typeof fileName === 'string' ? fileName.trim() : '';
     if (!normalizedName || normalizedName.length > IPC_FILENAME_MAX_LENGTH) {
@@ -57,6 +72,7 @@ export async function handleCreateWorkingCopyFromData(
     if (!(data instanceof Uint8Array) || data.byteLength === 0 || data.byteLength > MAX_WORKING_COPY_DATA_BYTES) {
         throw new Error('Invalid PDF payload');
     }
+    const validatedPassword = assertOptionalPdfDecryptPassword(password);
 
     const trustedOriginalPath = resolveTrustedOriginalPath(
         originalPath,
@@ -64,13 +80,14 @@ export async function handleCreateWorkingCopyFromData(
         context.senderId,
     );
 
-    return createWorkingCopyFromData(normalizedName, data, trustedOriginalPath, context.senderId);
+    return createWorkingCopyFromData(normalizedName, data, trustedOriginalPath, context.senderId, validatedPassword);
 }
 
 export async function handleCreateWorkingCopyFromPath(
     context: IDocumentsSenderIdContext,
     sourcePath: TOpenPath,
     originalPath?: string,
+    password?: string,
 ) {
     if (!existsSync(sourcePath)) {
         throw new Error(`File not found: ${sourcePath}`);
@@ -78,11 +95,17 @@ export async function handleCreateWorkingCopyFromPath(
     if (!isSupportedOpenPath(sourcePath)) {
         throw new Error('Invalid source file type');
     }
+    const validatedPassword = assertOptionalPdfDecryptPassword(password);
 
     const trustedOriginalPath = resolveTrustedOriginalPath(originalPath, {
         sourcePath,
         warningContext: 'createWorkingCopyFromPath',
     }, context.senderId);
 
-    return createWorkingCopyFromPath(sourcePath, trustedOriginalPath, context.senderId);
+    return createWorkingCopyFromPath(
+        sourcePath,
+        trustedOriginalPath,
+        context.senderId,
+        validatedPassword === undefined ? {} : {password: validatedPassword},
+    );
 }

@@ -9,6 +9,7 @@ import type {
     IAnnotationEditorState,
     IShapeAnnotation,
 } from '@app/types/annotations';
+import type { ITextBoxEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import { usePageAnnotationTools } from '@app/modules/workspace-shell/composables/usePageAnnotationTools';
 
 function createEditorState(overrides: Partial<IAnnotationEditorState> = {}): IAnnotationEditorState {
@@ -38,13 +39,38 @@ function createShapeAnnotation(overrides: Partial<IShapeAnnotation> = {}): IShap
     };
 }
 
+function createTextBoxEntity(): ITextBoxEntity {
+    return {
+        kind: 'text-box',
+        identity: {id: 'text-box' as ITextBoxEntity['identity']['id']},
+        pageIndex: 0,
+        revision: 0,
+        persistedRevision: 0,
+        deleted: false,
+        createdAt: null,
+        modifiedAt: null,
+        author: null,
+        text: 'text box',
+        rect: {
+            left: 0.1,
+            top: 0.1,
+            width: 0.3,
+            height: 0.1,
+        },
+        rotation: 0,
+        fontSize: 14,
+        color: '#000000',
+    };
+}
+
 function createHarness() {
     const viewer = {
-        cancelCommentPlacement: vi.fn(),
         clearSelectedShape: vi.fn(),
         selectedShapeId: null as string | null,
         getSelectedShape: vi.fn<() => IShapeAnnotation | null>(() => null),
         updateShape: vi.fn(),
+        getSelectedTextBox: vi.fn<() => ITextBoxEntity | null>(() => null),
+        updateSelectedTextBoxProperties: vi.fn(),
     };
 
     const deps = {
@@ -63,21 +89,18 @@ function createHarness() {
 }
 
 describe('usePageAnnotationTools', () => {
-    it('switches tools and clears placement/context state', () => {
+    it('switches tools and clears context state', () => {
         const {
             deps,
             viewer,
             tools,
         } = createHarness();
 
-        tools.annotationPlacingPageNote.value = true;
         tools.handleAnnotationToolChange('highlight');
 
         expect(tools.annotationTool.value).toBe('highlight');
         expect(deps.dragMode.value).toBe(false);
-        expect(viewer.cancelCommentPlacement).toHaveBeenCalledOnce();
         expect(viewer.clearSelectedShape).toHaveBeenCalledOnce();
-        expect(tools.annotationPlacingPageNote.value).toBe(false);
         expect(deps.closeAnnotationContextMenu).toHaveBeenCalledOnce();
     });
 
@@ -177,6 +200,28 @@ describe('usePageAnnotationTools', () => {
 
         expect(viewer.updateShape).toHaveBeenNthCalledWith(1, 'ink-shape-1', { strokeWidth: 6 });
         expect(viewer.updateShape).toHaveBeenNthCalledWith(2, 'ink-shape-1', { opacity: 0.4 });
+    });
+
+    it('routes text size and color changes to the selected canonical text box', () => {
+        const {
+            viewer,
+            tools,
+        } = createHarness();
+
+        viewer.getSelectedTextBox.mockReturnValue(createTextBoxEntity());
+
+        tools.handleAnnotationSettingChange({
+            key: 'textSize',
+            value: 22,
+        });
+        tools.handleAnnotationSettingChange({
+            key: 'textColor',
+            value: '#ef4444',
+        });
+
+        expect(viewer.updateSelectedTextBoxProperties).toHaveBeenNthCalledWith(1, {fontSize: 22});
+        expect(viewer.updateSelectedTextBoxProperties).toHaveBeenNthCalledWith(2, {color: '#ef4444'});
+        expect(viewer.updateShape).not.toHaveBeenCalled();
     });
 
     it('tracks dirty state across editor undo transitions and save/reset', () => {

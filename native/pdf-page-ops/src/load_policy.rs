@@ -1,5 +1,5 @@
 use super::*;
-use lopdf::{DecompressError, Error as LopdfError, LoadOptions};
+use lopdf::{encryption::DecryptionError, DecompressError, Error as LopdfError, LoadOptions};
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering as AtomicOrdering},
     Mutex,
@@ -15,9 +15,10 @@ const MAX_BYTE_INPUT_PDF_PAGES: usize = 100_000;
 const MAX_PATH_INPUT_PDF_PAGES: usize = 200_000;
 const MAX_PDF_STRUCTURAL_NESTING: usize = 256;
 const MAX_PDF_XREF_REVISIONS: usize = 4_096;
+const MAX_XREF_PROBE_BYTES: usize = 64 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct PdfLoadPolicy {
+pub(crate) struct PdfLoadPolicy {
     max_encoded_bytes: usize,
     max_decompressed_stream_bytes: usize,
     max_objects: usize,
@@ -71,14 +72,88 @@ fn admit_loaded_object(object_id: ObjectId, object: &mut Object) -> Option<(Obje
 }
 
 pub(crate) fn load_pdf_path(path: &Path) -> Result<Document> {
+    load_pdf_path_with_password(path, None)
+}
+
+pub(crate) fn load_pdf_path_with_password(path: &Path, password: Option<&str>) -> Result<Document> {
     let bytes = read_file_bounded(path, PDF_PATH_LOAD_POLICY.max_encoded_bytes, "PDF input")
         .map_err(|error| Box::new(error) as Box<dyn Error>)?;
-    load_pdf_bytes_with_policy(&bytes, PDF_PATH_LOAD_POLICY)
+    load_pdf_bytes_with_policy_and_password(&bytes, PDF_PATH_LOAD_POLICY, password)
+}
+
+/// Loads a compatibility-sized raw PDF input through the standard byte-input
+/// policy with an optional password. The decrypt operation and the wasm
+/// decrypt op share this entry point.
+pub(crate) fn load_pdf_bytes_bounded(bytes: &[u8], password: Option<&str>) -> Result<Document> {
+    load_pdf_bytes_with_policy_and_password(bytes, PDF_LOAD_POLICY, password)
 }
 
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 pub(crate) fn load_pdf_bytes(bytes: &[u8]) -> Result<Document> {
     load_pdf_bytes_with_policy(bytes, PDF_LOAD_POLICY)
+}
+
+/// Loads raw PDF bytes with an optional decryption password for encrypted inputs.
+///
+/// lopdf skips `LoadOptions.filter` on the encrypted-load path (reader.rs keeps
+/// the raw-object loader), so the ObjStm admission filter below does not run for
+/// an encrypted input. `max_decompressed_size` still bounds every stream the
+/// encrypted loader inflates, `preflight_pdf_structure` still runs before the
+/// load, and `validate_loaded_document` still runs after it. Callers that admit
+/// an encrypted base must therefore re-check `assert_plaintext_base` before
+/// writing anything onto it.
+pub(crate) fn load_pdf_bytes_with_policy_and_password(
+    bytes: &[u8],
+    policy: PdfLoadPolicy,
+    password: Option<&str>,
+) -> Result<Document> {
+    if bytes.len() > policy.max_encoded_bytes {
+        return Err(limit_error(format!(
+            "Encoded PDF input exceeds the {}-byte admission ceiling",
+            policy.max_encoded_bytes
+        )));
+    }
+    preflight_pdf_structure(bytes, policy)?;
+    let _load_guard = PDF_LOAD_GUARD
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    ACTIVE_STREAM_LIMIT.store(policy.max_decompressed_stream_bytes, AtomicOrdering::SeqCst);
+    OBJECT_STREAM_LIMIT_HIT.store(false, AtomicOrdering::SeqCst);
+    let mut options = policy.lopdf_options();
+    options.password = password.map(str::to_string);
+    let loaded = Document::load_mem_with_options(bytes, options);
+    if OBJECT_STREAM_LIMIT_HIT.load(AtomicOrdering::SeqCst) {
+        return Err(limit_error(format!(
+            "PDF object stream exceeds the {}-byte decompression ceiling",
+            policy.max_decompressed_stream_bytes
+        )));
+    }
+    let document = loaded.map_err(|error| classify_lopdf_load_error(error, policy, bytes))?;
+    validate_loaded_document(&document, policy)?;
+    Ok(document)
+}
+
+/// The one owner of the plaintext-base rule: a document whose base revision
+/// carries encryption must be refused even when lopdf auto-decrypted it at
+/// load. `Document::is_encrypted()` alone admits empty-user-password files,
+/// because lopdf strips `/Encrypt` from the trailer after authenticating the
+/// empty password; `was_encrypted()` catches exactly those files.
+pub(crate) fn assert_plaintext_base(document: &Document, message: &str) -> Result<()> {
+    if document.was_encrypted() || document.is_encrypted() {
+        return Err(domain_error(
+            NativeErrorCode::Encrypted,
+            message.to_string(),
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+pub(crate) fn load_pdf_bytes_with_password(
+    bytes: &[u8],
+    password: Option<&str>,
+) -> Result<Document> {
+    load_pdf_bytes_with_policy_and_password(bytes, PDF_LOAD_POLICY, password)
 }
 
 pub(crate) fn load_incremental_pdf_path(
@@ -125,31 +200,6 @@ fn load_incremental_pdf_path_with_policy(
     Ok(incremental)
 }
 
-fn load_pdf_bytes_with_policy(bytes: &[u8], policy: PdfLoadPolicy) -> Result<Document> {
-    if bytes.len() > policy.max_encoded_bytes {
-        return Err(limit_error(format!(
-            "Encoded PDF input exceeds the {}-byte admission ceiling",
-            policy.max_encoded_bytes
-        )));
-    }
-    preflight_pdf_structure(bytes, policy)?;
-    let _load_guard = PDF_LOAD_GUARD
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    ACTIVE_STREAM_LIMIT.store(policy.max_decompressed_stream_bytes, AtomicOrdering::SeqCst);
-    OBJECT_STREAM_LIMIT_HIT.store(false, AtomicOrdering::SeqCst);
-    let loaded = Document::load_mem_with_options(bytes, policy.lopdf_options());
-    if OBJECT_STREAM_LIMIT_HIT.load(AtomicOrdering::SeqCst) {
-        return Err(limit_error(format!(
-            "PDF object stream exceeds the {}-byte decompression ceiling",
-            policy.max_decompressed_stream_bytes
-        )));
-    }
-    let document = loaded.map_err(|error| classify_lopdf_load_error(error, policy))?;
-    validate_loaded_document(&document, policy)?;
-    Ok(document)
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum AdmissionKey {
     Count,
@@ -184,6 +234,7 @@ struct AdmissionArray {
 #[derive(Default)]
 struct AdmissionDictionary {
     dictionary_type: Option<AdmissionDictionaryType>,
+    has_encrypt: bool,
     pending_key: Option<AdmissionKey>,
     count: Option<u64>,
     first: Option<u64>,
@@ -1017,6 +1068,9 @@ fn parse_xref_dictionary(
                 array_depth = array_depth.saturating_sub(1);
             }
             AdmissionToken::Name(name) if dictionary_depth == 1 && array_depth == 0 => {
+                if decoded_name_matches(name, b"Encrypt") {
+                    dictionary.has_encrypt = true;
+                }
                 if dictionary.pending_key == Some(AdmissionKey::Type) {
                     dictionary.dictionary_type = admission_dictionary_type(name);
                     dictionary.pending_key = None;
@@ -1068,6 +1122,88 @@ fn parse_xref_dictionary(
         }
     }
     Err(xref_error("PDF cross-reference dictionary is unterminated"))
+}
+
+/// Checks the terminal xref chain for a real `/Encrypt` entry without loading
+/// the PDF body. This is used only after the byte-input ceiling has rejected an
+/// eager load, where a raw byte search could mistake page content for trailer
+/// metadata or miss encryption inherited through an earlier revision.
+pub(crate) fn path_has_encryption_entry(path: &Path) -> Result<bool> {
+    let file_len = fs::metadata(path)
+        .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?
+        .len();
+    let (terminal_xref, _) = read_terminal_xref(path, file_len)?;
+    let mut pending = vec![terminal_xref];
+    let mut visited = HashSet::new();
+    let mut scanned_bytes = 0_u64;
+
+    while let Some(offset) = pending.pop() {
+        if offset >= file_len {
+            return Err(xref_error("PDF cross-reference offset is outside the file"));
+        }
+        if !visited.insert(offset) {
+            return Err(xref_error(
+                "PDF cross-reference revision chain contains a repeated offset",
+            ));
+        }
+        if visited.len() > MAX_PDF_XREF_REVISIONS {
+            return Err(limit_error(format!(
+                "PDF cross-reference chain exceeds the {MAX_PDF_XREF_REVISIONS}-revision admission ceiling"
+            )));
+        }
+
+        let section = read_xref_probe_window(path, offset)?;
+        scanned_bytes = scanned_bytes
+            .checked_add(u64::try_from(section.len()).map_err(|_| {
+                limit_error("PDF cross-reference scan length exceeds the addressable range")
+            })?)
+            .ok_or_else(|| limit_error("PDF cross-reference scan length overflow"))?;
+        if scanned_bytes > file_len {
+            return Err(xref_error(
+                "PDF cross-reference sections overlap or exceed the input",
+            ));
+        }
+        let parsed = if section.starts_with(b"xref") {
+            parse_classic_xref_section(&section, 0, PDF_PATH_LOAD_POLICY)
+        } else {
+            parse_xref_stream_section(&section, 0, PDF_PATH_LOAD_POLICY)
+        };
+        let (dictionary, consumed) = match parsed {
+            Ok(parsed) => parsed,
+            Err(_error) if section.len() == MAX_XREF_PROBE_BYTES => {
+                return Err(limit_error(
+                    "PDF cross-reference section exceeds the structural probe ceiling",
+                ));
+            }
+            Err(error) => return Err(error),
+        };
+        if dictionary.has_encrypt {
+            return Ok(true);
+        }
+        if consumed == 0 {
+            return Err(xref_error("PDF cross-reference section consumed no bytes"));
+        }
+        for linked in [dictionary.prev, dictionary.xref_stm].into_iter().flatten() {
+            if linked >= file_len {
+                return Err(xref_error("PDF cross-reference link is outside the file"));
+            }
+            pending.push(linked);
+        }
+    }
+
+    Ok(false)
+}
+
+fn read_xref_probe_window(path: &Path, offset: u64) -> Result<Vec<u8>> {
+    let mut file =
+        File::open(path).map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
+    file.seek(SeekFrom::Start(offset))
+        .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
+    let mut bytes = Vec::new();
+    file.take(MAX_XREF_PROBE_BYTES as u64)
+        .read_to_end(&mut bytes)
+        .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
+    Ok(bytes)
 }
 
 fn xref_error(message: impl Into<String>) -> Box<dyn Error> {
@@ -1188,18 +1324,80 @@ fn validate_page_count(page_count: u64, policy: PdfLoadPolicy) -> Result<()> {
     Ok(())
 }
 
-fn classify_lopdf_load_error(error: LopdfError, policy: PdfLoadPolicy) -> Box<dyn Error> {
+pub(crate) fn load_pdf_bytes_with_policy(bytes: &[u8], policy: PdfLoadPolicy) -> Result<Document> {
+    load_pdf_bytes_with_policy_and_password(bytes, policy, None)
+}
+
+/// Best-effort read of the `/Encrypt` dictionary's `/Filter` name for inputs
+/// whose password authentication failed. Returns the handler name when it is
+/// present and not the built-in `Standard` password handler, `None` otherwise.
+fn probe_unsupported_security_handler(bytes: &[u8], policy: PdfLoadPolicy) -> Option<String> {
+    let options = LoadOptions {
+        max_decompressed_size: Some(policy.max_decompressed_stream_bytes),
+        ..LoadOptions::default()
+    };
+    let document = Document::load_mem_with_options(bytes, options).ok()?;
+    let dictionary = document.get_encrypted().ok()?;
+    let filter = dictionary.get(b"Filter").ok()?;
+    let name = filter.as_name().ok()?;
+    if name == b"Standard" {
+        None
+    } else {
+        Some(String::from_utf8_lossy(name).into_owned())
+    }
+}
+
+fn classify_lopdf_load_error(
+    error: LopdfError,
+    policy: PdfLoadPolicy,
+    bytes: &[u8],
+) -> Box<dyn Error> {
     if matches!(
         error,
         LopdfError::Decompress(DecompressError::MemoryLimitExceeded { .. })
     ) {
-        limit_error(format!(
+        return limit_error(format!(
             "PDF stream exceeds the {}-byte decompression ceiling",
             policy.max_decompressed_stream_bytes
-        ))
-    } else {
-        Box::new(error)
+        ));
     }
+    if matches!(error, LopdfError::InvalidPassword) {
+        // lopdf only checks the security handler name inside
+        // `EncryptionState::decode`, which runs after a successful password
+        // authentication, so a public-key handler surfaces here as
+        // `InvalidPassword`. A raw load without a password returns the trailer
+        // intact, letting us read the `/Filter` name it refused to decrypt.
+        if let Some(handler) = probe_unsupported_security_handler(bytes, policy) {
+            return domain_error(
+                NativeErrorCode::UnsupportedFilter,
+                format!("Unsupported PDF security handler: {handler}"),
+            );
+        }
+        return domain_error(
+            NativeErrorCode::NeedsPassword,
+            "The supplied password was not accepted by the encrypted PDF",
+        );
+    }
+    if let LopdfError::UnsupportedSecurityHandler(handler) = &error {
+        return domain_error(
+            NativeErrorCode::UnsupportedFilter,
+            format!(
+                "Unsupported PDF security handler: {}",
+                String::from_utf8_lossy(handler)
+            ),
+        );
+    }
+    if matches!(
+        error,
+        LopdfError::Decryption(DecryptionError::UnsupportedVersion)
+            | LopdfError::Decryption(DecryptionError::UnsupportedRevision)
+    ) {
+        return domain_error(
+            NativeErrorCode::UnsupportedFilter,
+            "The encrypted PDF uses an encryption revision that is not supported",
+        );
+    }
+    Box::new(error)
 }
 
 fn limit_error(message: impl Into<String>) -> Box<dyn Error> {
@@ -1209,6 +1407,7 @@ fn limit_error(message: impl Into<String>) -> Box<dyn Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn policy(
         max_encoded_bytes: usize,
@@ -1327,6 +1526,31 @@ mod tests {
             1
         );
         assert_eq!(loaded.previous_len(), u64::try_from(bytes.len()).unwrap());
+    }
+
+    #[test]
+    fn xref_probe_rejects_revision_windows_that_revisit_input_bytes() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path =
+            std::env::temp_dir().join(format!("evb-pdf-page-ops-xref-probe-overlap-{nonce}.pdf"));
+        let mut bytes = b"%PDF-1.7\n".to_vec();
+        let first_offset = bytes.len();
+        bytes.extend_from_slice(b"xref\n0 1\n0000000000 65535 f \ntrailer\n<< /Size 1 >>\n");
+        bytes.extend_from_slice(format!("startxref\n{first_offset}\n%%EOF\n").as_bytes());
+        let second_offset = bytes.len();
+        bytes.extend_from_slice(b"xref\n0 1\n0000000000 65535 f \ntrailer\n");
+        bytes.extend_from_slice(format!("<< /Size 1 /Prev {first_offset} >>\n").as_bytes());
+        bytes.extend_from_slice(format!("startxref\n{second_offset}\n%%EOF\n").as_bytes());
+        std::fs::write(&path, bytes).unwrap();
+
+        let error = path_has_encryption_entry(&path)
+            .expect_err("overlapping revision probe windows must fail closed");
+        assert_corrupt_xref(error);
+
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]

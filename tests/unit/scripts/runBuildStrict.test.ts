@@ -75,9 +75,22 @@ describe('run-build-strict', () => {
     });
 
     it('adds a heap floor for strict build child processes', () => {
-        expect(getStrictBuildEnv({}).NODE_OPTIONS).toBe('--max-old-space-size=6144');
+        const env = getStrictBuildEnv({});
+        expect(env.NODE_OPTIONS).toBe('--max-old-space-size=6144');
+        expect(env.EVB_NUXT_BUILD_DIR).toMatch(/\.devkit\/cache\/strict-build\/nuxt-build$/u);
+        expect(env.EVB_NUXT_VITE_CACHE_DIR).toMatch(/\.devkit\/cache\/strict-build\/vite-cache$/u);
         expect(getStrictBuildEnv({ NODE_OPTIONS: '--trace-warnings' }).NODE_OPTIONS)
             .toBe('--trace-warnings --max-old-space-size=6144');
+    });
+
+    it('preserves explicit Nuxt artifact directories', () => {
+        expect(getStrictBuildEnv({
+            EVB_NUXT_BUILD_DIR: '/tmp/custom-nuxt-build',
+            EVB_NUXT_VITE_CACHE_DIR: '/tmp/custom-vite-cache',
+        })).toMatchObject({
+            EVB_NUXT_BUILD_DIR: '/tmp/custom-nuxt-build',
+            EVB_NUXT_VITE_CACHE_DIR: '/tmp/custom-vite-cache',
+        });
     });
 
     it('preserves an explicit heap setting from the caller', () => {

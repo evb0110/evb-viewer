@@ -29,6 +29,8 @@ export interface IGeneratePlatformApiArtifactsOptions { projectRoot?: string; }
 
 const browserImplementedOptionalMethodNames = new Set<string>([
     'createCombinedPdfFromFiles',
+    'applyPdfNativeMutationsToWorkingCopy',
+    'commitStagedPdfNativeMutations',
     'openFolderDialogStructured',
     'resyncWorkingCopy',
     'showItemInFolderStructured',

@@ -14,6 +14,7 @@ const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(currentDir, '..');
 const buildLogPath = path.join(projectRoot, '.tmp', 'build.log');
 const STRICT_BUILD_NODE_OPTIONS = '--max-old-space-size=6144';
+const strictBuildNuxtArtifactsDir = path.join(projectRoot, '.devkit', 'cache', 'strict-build');
 
 export function getPnpmInvocation(args, platform = process.platform) {
     if (platform === 'win32') {
@@ -49,6 +50,10 @@ export function getStrictBuildEnv(env = process.env) {
                 nodeOptions,
                 STRICT_BUILD_NODE_OPTIONS,
             ].filter(Boolean).join(' '),
+        EVB_NUXT_BUILD_DIR: env.EVB_NUXT_BUILD_DIR
+            ?? path.join(strictBuildNuxtArtifactsDir, 'nuxt-build'),
+        EVB_NUXT_VITE_CACHE_DIR: env.EVB_NUXT_VITE_CACHE_DIR
+            ?? path.join(strictBuildNuxtArtifactsDir, 'vite-cache'),
     };
 }
 

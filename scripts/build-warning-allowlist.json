@@ -5,7 +5,7 @@
     "^WARN \\[plugin nuxt:server-devonly:transform\\] Sourcemap is likely to be incorrect: a plugin \\(nuxt:server-devonly:transform\\) was used to transform files, but didn't generate a sourcemap for the transformation\\. Consult the plugin documentation for help(?: \\(x\\d+\\))?$",
     "^WARN \"file:///.*/node_modules/(?:\\.pnpm/@nuxt\\+nitro-server@[^/]+/node_modules/)?@nuxt/nitro-server/dist/runtime/utils/cache-driver\\.(?:js|mjs)\" is imported by \"virtual:#nitro-internal-virtual/storage\", but could not be resolved \\u2013 treating it as an external dependency\\.$",
     "^WARN Could not fetch from `https://api\\.fontshare\\.com/v2/fonts`\\. Will retry in `\\d+ms`\\. `\\d+` retries left\\.$",
-    "^WARN (?:\"[A-Za-z0-9_$]+\"(?:,? | and )?)+ ?are imported from external module \"file://(?:/?[A-Za-z]:/|/).*?/node_modules/(?:\\.pnpm/h3@[^/]+/node_modules/)?h3/dist/index\\.mjs\" but never used in \"node_modules/(?:\\.pnpm/@nuxt\\+nitro-server@[^/]+/node_modules/)?@nuxt/nitro-server/dist/h3\\.mjs\"\\.$",
+    "^WARN (?:\"[A-Za-z0-9_$]+\"(?:,? | and )?)+ ?are imported from external module \"file://(?:/?[A-Za-z]:/|/).*?/node_modules/(?:\\.pnpm/h3@[^/]+/node_modules/)?h3/dist/index\\.mjs\" but never used in \"(?:[^\"]*/)?node_modules/(?:\\.pnpm/@nuxt\\+nitro-server@[^/]+/node_modules/)?@nuxt/nitro-server/dist/h3\\.mjs\"\\.$",
     "^WARN node_modules/\\.pnpm/@vueuse\\+core@[^/]+/node_modules/@vueuse/core/dist/index\\.js \\(\\d+:\\d+\\): A comment\\n\"/\\* #__PURE__ \\*/\"$",
     "^WARN \\[PLUGIN_TIMINGS\\] Your build spent \\d+% of \\d+(?:\\.\\d+)?(?:ms|s) inside plugin hooks \\(\\d+(?:\\.\\d+)?(?:ms|s)\\)\\.[\\s\\S]*See https://rolldown\\.rs/reference/InputOptions\\.checks#plugintimings for more details\\.$"
   ]

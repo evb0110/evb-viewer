@@ -3,10 +3,14 @@ import {
     deletePdfPages,
     extractPdfPages,
     getPageGeometryFromPdfBytes,
+    parsePdfAnnotations,
     insertPdfPages,
     removeCropPdfBytes,
     reorderPdfPages,
     rotatePdfBytes,
+    readPdfCatalog,
+    readPdfConformance,
+    mergePdfPages,
 } from '@app/platform/browser-api/browserPageOpsCore';
 import type {
     IBrowserPageOpsWorkerRequest,
@@ -19,7 +23,6 @@ import {
     parseBrowserPageOpsWorkerRequest,
 } from '@app/platform/browser-api/browserPageOpsWorker.types';
 import { getErrorMessage } from '@app/utils/error';
-
 function toTransferableUint8Array(data: Uint8Array) {
     if (
         data.byteOffset === 0
@@ -106,6 +109,30 @@ async function handleGetPageGeometryRequest(
     );
 }
 
+async function handleParseAnnotationsRequest(
+    request: IBrowserPageOpsWorkerRequest<'parseAnnotations'>,
+) {
+    return parsePdfAnnotations(request.payload.data);
+}
+
+async function handleReadCatalogRequest(
+    request: IBrowserPageOpsWorkerRequest<'readCatalog'>,
+) {
+    return readPdfCatalog(request.payload.data);
+}
+
+async function handleConformanceRequest(
+    request: IBrowserPageOpsWorkerRequest<'conformance'>,
+) {
+    return readPdfConformance(request.payload.data);
+}
+
+async function handleMergePagesRequest(
+    request: IBrowserPageOpsWorkerRequest<'mergePages'>,
+) {
+    return mergePdfPages(request.payload.documents);
+}
+
 async function handleRequest(
     request: TBrowserPageOpsWorkerRequest,
 ) {
@@ -126,6 +153,14 @@ async function handleRequest(
             return handleRemoveCropRequest(request);
         case 'getPageGeometry':
             return handleGetPageGeometryRequest(request);
+        case 'parseAnnotations':
+            return handleParseAnnotationsRequest(request);
+        case 'readCatalog':
+            return handleReadCatalogRequest(request);
+        case 'conformance':
+            return handleConformanceRequest(request);
+        case 'mergePages':
+            return handleMergePagesRequest(request);
         default:
             throw new Error(`Unsupported browser page operation request: ${(request as {type: string}).type}`);
     }
@@ -153,6 +188,41 @@ self.addEventListener('message', async (event: MessageEvent<unknown>) => {
                 type: request.type,
                 ok: true,
                 data: data as IBrowserPageOpsWorkerResultMap['getPageGeometry'],
+            } satisfies TBrowserPageOpsWorkerResponse;
+            self.postMessage(response);
+            return;
+        }
+
+        if (request.type === 'parseAnnotations') {
+            const parseResult = data as IBrowserPageOpsWorkerResultMap['parseAnnotations'];
+            const transferableData = toTransferableUint8Array(parseResult.data);
+            const response = {
+                id: request.id,
+                type: request.type,
+                ok: true,
+                data: {data: transferableData},
+            } satisfies TBrowserPageOpsWorkerResponse;
+            self.postMessage(response, [transferableData.buffer]);
+            return;
+        }
+
+        if (request.type === 'readCatalog') {
+            const response = {
+                id: request.id,
+                type: 'readCatalog',
+                ok: true,
+                data: data as IBrowserPageOpsWorkerResultMap['readCatalog'],
+            } satisfies TBrowserPageOpsWorkerResponse;
+            self.postMessage(response);
+            return;
+        }
+
+        if (request.type === 'conformance') {
+            const response = {
+                id: request.id,
+                type: 'conformance',
+                ok: true,
+                data: data as IBrowserPageOpsWorkerResultMap['conformance'],
             } satisfies TBrowserPageOpsWorkerResponse;
             self.postMessage(response);
             return;

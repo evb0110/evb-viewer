@@ -23,10 +23,12 @@ const fixtures = [
         file: 'freetext-lifecycle-test.pdf',
         expected: {
             dark: 0.00448,
-            ink: 0.00712,
+            // PDF.js 5.7.304's forked text rendering changes the anti-aliased
+            // edge coverage for this fixture. Keep the measured value pinned.
+            ink: 0.00769,
             luminance: {
                 max: 253.945,
-                min: 253.845,
+                min: 253.818,
             },
             textItems: 3,
         },

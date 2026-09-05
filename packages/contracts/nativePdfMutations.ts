@@ -8,8 +8,8 @@ import type {
     IPdfNativeAnnotationDelete,
     IPdfNativeBookmarksMutation,
     IPdfNativeFreeTextNote,
-    IPdfNativeFreeTextEditor,
     IPdfNativeFreeTextNoteMarkerRect,
+    IPdfNativeTextBoxMutation,
     IPdfNativeMarkupMarkerRect,
     IPdfNativeMarkupSubtypeHint,
     IPdfNativeMutationSet,
@@ -17,6 +17,7 @@ import type {
     IPdfNativePageLabelRange,
     IPdfNativePageLabelsMutation,
     IPdfNativePlacedImage,
+    IPdfNativePlacedImageGeometryUpdate,
     IPdfNativeShapeAnnotation,
     IPdfNativeShapePoint,
     IPdfNativeShapesMutation,
@@ -36,6 +37,7 @@ import {
     isPdfNativeNormalizedRectInsidePageBounds,
 } from '@contracts/nativePdfPageBounds';
 import { requirePageIndex } from '@contracts/pageNumbers';
+import {parsePdfJsAnnotationRef} from '@contracts/pdfAnnotationRefs';
 import { PDF_PAGE_LABEL_STYLE_VALUES } from '@contracts/pdfPageLabels';
 import {
     isOneOf,
@@ -47,6 +49,8 @@ export const PDF_NATIVE_MUTATION_LIMITS = {
     noteTextUpdates: 256,
     noteGeometryUpdates: 256,
     noteChanges: 256,
+    textBoxes: 256,
+    /** @deprecated Use textBoxes. */
     freeTextEditors: 256,
     noteTextLength: 64 * 1024,
     pageLabelRanges: 2_048,
@@ -63,6 +67,7 @@ export const PDF_NATIVE_MUTATION_LIMITS = {
     placedImages: 16,
     placedImageBytes: 128 * 1024 * 1024,
     placedImagesTotalBytes: 512 * 1024 * 1024,
+    placedImageGeometryUpdates: 256,
 } as const;
 
 export const PDF_NATIVE_MUTATION_ENUM_VALUES = {
@@ -95,6 +100,8 @@ export type TPdfNativeMutationSetNativeToolPayload = Simplify<
 
 export type TPdfNativeMutationContinuationFamily =
     | 'notes'
+    | 'textBoxes'
+    /** @deprecated Accepted for continuations produced before the text-box rename. */
     | 'freeTextEditors'
     | 'pageLabels'
     | 'bookmarks'
@@ -123,6 +130,63 @@ interface IPdfNativeBookmarkState {
 interface IPdfNativeShapePointState {count: number;}
 
 interface IPdfNativePlacedImageByteState {totalBytes: number;}
+
+function normalizePlacedImageGeometryUpdates(
+    value: unknown,
+    label: string,
+    options: IPdfNativeValidationOptions,
+): IPdfNativePlacedImageGeometryUpdate[] {
+    if (value === undefined) {
+        return [];
+    }
+    if (!Array.isArray(value) || value.length > PDF_NATIVE_MUTATION_LIMITS.placedImageGeometryUpdates) {
+        fail(`${label} must be an array with at most ${PDF_NATIVE_MUTATION_LIMITS.placedImageGeometryUpdates} updates`, options);
+    }
+    return value.map((item, index) => {
+        if (!isRecord(item)) {
+            fail(`${label}[${index}] must be an object`, options);
+        }
+        const pageIndex = item.pageIndex;
+        if (typeof pageIndex !== 'number' || !Number.isSafeInteger(pageIndex) || pageIndex < 0) {
+            fail(`${label}[${index}].pageIndex must be a non-negative safe integer`, options);
+        }
+        const annotationId = item.annotationId;
+        if (annotationId !== undefined && annotationId !== null && typeof annotationId !== 'string') {
+            fail(`${label}[${index}].annotationId must be a string or null`, options);
+        }
+        const stableKey = item.stableKey;
+        if (stableKey !== undefined && (typeof stableKey !== 'string' || stableKey.trim().length === 0)) {
+            fail(`${label}[${index}].stableKey must be a non-empty string`, options);
+        }
+        const x = normalizeFiniteUnitNumber(item.x, `${label}[${index}].x`, options);
+        const y = normalizeFiniteUnitNumber(item.y, `${label}[${index}].y`, options);
+        const width = normalizeFiniteUnitNumber(item.width, `${label}[${index}].width`, options);
+        const height = normalizeFiniteUnitNumber(item.height, `${label}[${index}].height`, options);
+        if (!isPdfNativeNormalizedBoxInsidePageBounds({
+            x,
+            y,
+            width,
+            height,
+        })) {
+            fail(`${label}[${index}] must fit inside the normalized page bounds`, options);
+        }
+        const rotationDegrees = item.rotationDegrees;
+        if (rotationDegrees !== undefined && rotationDegrees !== null
+            && (typeof rotationDegrees !== 'number' || !isNativeF32(rotationDegrees))) {
+            fail(`${label}[${index}].rotationDegrees must be a finite number or null`, options);
+        }
+        return {
+            pageIndex: requirePageIndex(pageIndex),
+            ...(stableKey === undefined ? {} : {stableKey: stableKey.trim()}),
+            ...(annotationId === undefined ? {} : {annotationId}),
+            x,
+            y,
+            width,
+            height,
+            ...(rotationDegrees === undefined ? {} : {rotationDegrees}),
+        };
+    });
+}
 
 function createValidationError(message: string, options: IPdfNativeValidationOptions = {}) {
     return options.errorKind === 'error'
@@ -311,7 +375,7 @@ function normalizeFreeTextNotes(
     });
 }
 
-function normalizeFreeTextEditors(
+function normalizeTextBoxes(
     value: unknown,
     label: string,
     options: IPdfNativeValidationOptions,
@@ -320,10 +384,10 @@ function normalizeFreeTextEditors(
         return [];
     }
     if (!Array.isArray(value) || value.length > PDF_NATIVE_MUTATION_LIMITS.collectionItems) {
-        fail(`${label} must be an array with at most ${PDF_NATIVE_MUTATION_LIMITS.collectionItems} editors`, options);
+        fail(`${label} must be an array with at most ${PDF_NATIVE_MUTATION_LIMITS.collectionItems} text boxes`, options);
     }
 
-    return Array.from(value, (editor, index): IPdfNativeFreeTextEditor => {
+    return Array.from(value, (editor, index): IPdfNativeTextBoxMutation => {
         if (!isRecord(editor)) {
             fail(`${label}[${index}] must be an object`, options);
         }
@@ -389,6 +453,15 @@ function normalizeFreeTextEditors(
             rotation: editor.rotation as 0 | 90 | 180 | 270,
             fontSize: editor.fontSize,
             color: editor.color.map(component => Number(component)) as [number, number, number],
+            ...(editor.author === undefined
+                ? {}
+                : {author: normalizeOptionalString(editor.author, `${label}[${index}].author`, options)}),
+            ...(editor.createdAt === undefined
+                ? {}
+                : {createdAt: normalizeOptionalTimestamp(editor.createdAt, `${label}[${index}].createdAt`, options)}),
+            ...(editor.modifiedAt === undefined
+                ? {}
+                : {modifiedAt: normalizeOptionalTimestamp(editor.modifiedAt, `${label}[${index}].modifiedAt`, options)}),
         };
     });
 }
@@ -1217,7 +1290,14 @@ export function normalizePdfNativeMutationSet(
     const updates = normalizeOptionalPdfNativeNoteTextUpdates(value.updates, `${label}.updates`, options);
     const geometryUpdates = normalizePdfNativeNoteGeometryUpdates(value.geometryUpdates, `${label}.geometryUpdates`, options);
     const freeTextNotes = normalizeFreeTextNotes(value.freeTextNotes, `${label}.freeTextNotes`, options);
-    const freeTextEditors = normalizeFreeTextEditors(value.freeTextEditors, `${label}.freeTextEditors`, options);
+    if (value.textBoxes !== undefined && value.freeTextEditors !== undefined) {
+        fail(`${label} must include only one of textBoxes or freeTextEditors`, options);
+    }
+    const textBoxes = normalizeTextBoxes(
+        value.textBoxes ?? value.freeTextEditors,
+        `${label}.textBoxes`,
+        options,
+    );
     const deletes = normalizeAnnotationDeletes(value.deletes, `${label}.deletes`, options);
     const pageLabels = value.pageLabels === undefined
         ? null
@@ -1232,13 +1312,19 @@ export function normalizePdfNativeMutationSet(
         ? null
         : normalizeMarkupMutation(value.markup, `${label}.markup`, options);
     const placedImages = normalizePlacedImages(value.placedImages, `${label}.placedImages`, options);
+    const placedImageGeometryUpdates = normalizePlacedImageGeometryUpdates(
+        value.placedImageGeometryUpdates,
+        `${label}.placedImageGeometryUpdates`,
+        options,
+    );
     if (
-        updates.length + geometryUpdates.length + freeTextNotes.length + deletes.length + freeTextEditors.length === 0
+        updates.length + geometryUpdates.length + freeTextNotes.length + deletes.length + textBoxes.length === 0
         && !pageLabels
         && !bookmarks
         && !shapes
         && !markup
         && placedImages.length === 0
+        && placedImageGeometryUpdates.length === 0
     ) {
         fail(`${label} must include at least one native PDF mutation`, options);
     }
@@ -1246,16 +1332,87 @@ export function normalizePdfNativeMutationSet(
         ...(updates.length > 0 ? {updates} : {}),
         ...(geometryUpdates.length > 0 ? {geometryUpdates} : {}),
         ...(freeTextNotes.length > 0 ? {freeTextNotes} : {}),
-        ...(freeTextEditors.length > 0 ? {freeTextEditors} : {}),
+        ...(textBoxes.length > 0 ? {textBoxes} : {}),
         ...(deletes.length > 0 ? {deletes} : {}),
         ...(pageLabels ? {pageLabels} : {}),
         ...(bookmarks ? {bookmarks} : {}),
         ...(shapes ? {shapes} : {}),
         ...(markup ? {markup} : {}),
         ...(placedImages.length > 0 ? {placedImages} : {}),
+        ...(placedImageGeometryUpdates.length > 0 ? {placedImageGeometryUpdates} : {}),
     };
     validateNativeMutationCollectionBudget(normalized, label, options);
     return normalized;
+}
+
+function addExpectedNativeIdentityCandidate(
+    ids: Set<string>,
+    candidate: string | null | undefined,
+) {
+    const normalizedCandidate = candidate?.trim();
+    if (!normalizedCandidate) {
+        return;
+    }
+    if (ids.has(normalizedCandidate)) {
+        throw new Error(`Duplicate native annotation identity candidate ${normalizedCandidate}`);
+    }
+    ids.add(normalizedCandidate);
+}
+
+function addNewNativeAnnotationIdentityCandidate(
+    ids: Set<string>,
+    primaryIdentity: string | null | undefined,
+    fallbackIdentity: string | null | undefined,
+    existingAnnotationId: string | null | undefined,
+) {
+    if (parsePdfJsAnnotationRef(existingAnnotationId)) {
+        return;
+    }
+    const normalizedPrimaryIdentity = primaryIdentity?.trim();
+    if (normalizedPrimaryIdentity) {
+        addExpectedNativeIdentityCandidate(ids, normalizedPrimaryIdentity);
+        return;
+    }
+    addExpectedNativeIdentityCandidate(ids, fallbackIdentity?.trim());
+}
+
+function isNewNativeFreeTextNote(
+    note: NonNullable<IPdfNativeMutationSet['freeTextNotes']>[number],
+) {
+    const stableKey = note.stableKey.trim();
+    return !/^(?:ann|nm):/iu.test(stableKey);
+}
+
+/** Return identities the native writer can bind while creating annotations. */
+export function collectExpectedNativeIdentityIds(mutations: IPdfNativeMutationSet): string[] {
+    const ids = new Set<string>();
+    for (const hint of mutations.markup?.hints ?? []) {
+        const annotationId = hint.annotationId?.trim();
+        const appAnnotationId = hint.appAnnotationId?.trim();
+        if (
+            !appAnnotationId
+            || (hint.source !== 'editor' && hint.source !== 'editor-live')
+            || parsePdfJsAnnotationRef(annotationId)
+        ) {
+            continue;
+        }
+        addExpectedNativeIdentityCandidate(ids, appAnnotationId);
+    }
+    for (const note of mutations.freeTextNotes ?? []) {
+        if (isNewNativeFreeTextNote(note)) {
+            addExpectedNativeIdentityCandidate(ids, note.stableKey);
+        }
+    }
+    for (const editor of mutations.textBoxes ?? mutations.freeTextEditors ?? []) {
+        addNewNativeAnnotationIdentityCandidate(ids, editor.stableKey, null, editor.annotationId);
+    }
+    for (const shape of mutations.shapes?.shapes ?? []) {
+        addNewNativeAnnotationIdentityCandidate(ids, shape.stableKey, shape.annotationId, shape.annotationId);
+    }
+    for (const image of mutations.placedImages ?? []) {
+        addNewNativeAnnotationIdentityCandidate(ids, image.stableKey, image.annotationId, image.annotationId);
+    }
+    return [...ids];
 }
 
 export type TPdfNativeMutationChunk = IPdfNativeMutationSet & {continuation?: IPdfNativeMutationContinuation;};
@@ -1275,6 +1432,13 @@ function countBookmarkItems(items: readonly IPdfBookmarkEntry[]): number {
     return items.reduce((total, item) => total + 1 + countBookmarkItems(item.items), 0);
 }
 
+function getTextBoxes(mutations: IPdfNativeMutationSet): readonly IPdfNativeTextBoxMutation[] {
+    if (mutations.textBoxes !== undefined && mutations.freeTextEditors !== undefined) {
+        fail('native PDF mutations must include only one of textBoxes or freeTextEditors', {errorKind: 'error'});
+    }
+    return mutations.textBoxes ?? mutations.freeTextEditors ?? [];
+}
+
 function countNativeMutationItems(mutations: IPdfNativeMutationSet): number {
     let total = 0;
     const add = (count: number) => {
@@ -1286,7 +1450,7 @@ function countNativeMutationItems(mutations: IPdfNativeMutationSet): number {
     add(mutations.updates?.length ?? 0);
     add(mutations.geometryUpdates?.length ?? 0);
     add(mutations.freeTextNotes?.length ?? 0);
-    add(mutations.freeTextEditors?.length ?? 0);
+    add(getTextBoxes(mutations).length);
     add(mutations.deletes?.length ?? 0);
     add(mutations.pageLabels?.ranges.length ?? 0);
     add(mutations.bookmarks ? countBookmarkItems(mutations.bookmarks.items) : 0);
@@ -1306,6 +1470,7 @@ function countNativeMutationItems(mutations: IPdfNativeMutationSet): number {
         }
     }
     add(mutations.placedImages?.length ?? 0);
+    add(mutations.placedImageGeometryUpdates?.length ?? 0);
     return total;
 }
 
@@ -1495,14 +1660,16 @@ function splitMarkupMutation(markup: NonNullable<IPdfNativeMutationSet['markup']
 export function splitPdfNativeMutationSetIntoBoundedChunks(
     mutations: IPdfNativeMutationSet,
 ): TPdfNativeMutationChunk[] {
-    const noteChunks: Array<Pick<TPdfNativeMutationChunk, 'updates' | 'geometryUpdates' | 'freeTextNotes' | 'deletes'>> = [];
+    const noteChunks: Array<Pick<TPdfNativeMutationChunk, 'updates' | 'geometryUpdates' | 'placedImageGeometryUpdates' | 'freeTextNotes' | 'deletes'>> = [];
     let updateIndex = 0;
     let geometryUpdateIndex = 0;
+    let placedImageGeometryUpdateIndex = 0;
     let noteIndex = 0;
     let deleteIndex = 0;
     while (
         updateIndex < (mutations.updates?.length ?? 0)
         || geometryUpdateIndex < (mutations.geometryUpdates?.length ?? 0)
+        || placedImageGeometryUpdateIndex < (mutations.placedImageGeometryUpdates?.length ?? 0)
         || noteIndex < (mutations.freeTextNotes?.length ?? 0)
         || deleteIndex < (mutations.deletes?.length ?? 0)
         || noteChunks.length === 0
@@ -1514,28 +1681,41 @@ export function splitPdfNativeMutationSetIntoBoundedChunks(
             PDF_NATIVE_MUTATION_LIMITS.noteChanges - updates.length,
         ));
         geometryUpdateIndex += geometryUpdates.length;
+        const placedImageGeometryUpdates = (mutations.placedImageGeometryUpdates ?? []).slice(
+            placedImageGeometryUpdateIndex,
+            placedImageGeometryUpdateIndex + Math.max(
+                0,
+                PDF_NATIVE_MUTATION_LIMITS.noteChanges - updates.length - geometryUpdates.length,
+            ),
+        );
+        placedImageGeometryUpdateIndex += placedImageGeometryUpdates.length;
         const freeTextNotes = (mutations.freeTextNotes ?? []).slice(noteIndex, noteIndex + Math.max(
             0,
-            PDF_NATIVE_MUTATION_LIMITS.noteChanges - updates.length - geometryUpdates.length,
+            PDF_NATIVE_MUTATION_LIMITS.noteChanges - updates.length - geometryUpdates.length
+                - placedImageGeometryUpdates.length,
         ));
         noteIndex += freeTextNotes.length;
         const deletes = (mutations.deletes ?? []).slice(deleteIndex, deleteIndex + Math.max(
             0,
-            PDF_NATIVE_MUTATION_LIMITS.noteChanges - updates.length - geometryUpdates.length - freeTextNotes.length,
+            PDF_NATIVE_MUTATION_LIMITS.noteChanges - updates.length - geometryUpdates.length
+                - placedImageGeometryUpdates.length - freeTextNotes.length,
         ));
         deleteIndex += deletes.length;
-        if (updates.length + geometryUpdates.length + freeTextNotes.length + deletes.length === 0) {
+        if (updates.length + geometryUpdates.length + placedImageGeometryUpdates.length
+            + freeTextNotes.length + deletes.length === 0) {
             break;
         }
         noteChunks.push({
             ...(updates.length > 0 ? {updates} : {}),
             ...(geometryUpdates.length > 0 ? {geometryUpdates} : {}),
+            ...(placedImageGeometryUpdates.length > 0 ? {placedImageGeometryUpdates} : {}),
             ...(freeTextNotes.length > 0 ? {freeTextNotes} : {}),
             ...(deletes.length > 0 ? {deletes} : {}),
         });
     }
 
-    const editorChunks = sliceIntoChunks(mutations.freeTextEditors ?? [], PDF_NATIVE_MUTATION_LIMITS.freeTextEditors);
+    const textBoxes = getTextBoxes(mutations);
+    const textBoxChunks = sliceIntoChunks(textBoxes, PDF_NATIVE_MUTATION_LIMITS.textBoxes);
     const pageLabelChunks = mutations.pageLabels === undefined
         ? []
         : sliceIntoChunks(mutations.pageLabels.ranges, PDF_NATIVE_MUTATION_LIMITS.pageLabelRanges)
@@ -1562,8 +1742,8 @@ export function splitPdfNativeMutationSetIntoBoundedChunks(
     const base: TPdfNativeMutationChunk = {};
     const firstNotes = noteChunks[0];
     if (firstNotes) Object.assign(base, firstNotes);
-    const firstEditors = editorChunks[0];
-    if (mutations.freeTextEditors?.length && firstEditors) base.freeTextEditors = firstEditors;
+    const firstTextBoxes = textBoxChunks[0];
+    if (textBoxes.length && firstTextBoxes) base.textBoxes = firstTextBoxes;
     const firstPageLabels = pageLabelChunks[0];
     if (firstPageLabels) base.pageLabels = firstPageLabels;
     const firstBookmarks = bookmarkChunks[0];
@@ -1604,7 +1784,7 @@ export function splitPdfNativeMutationSetIntoBoundedChunks(
     };
 
     appendFamilyChunks('notes', noteChunks, (chunk, value) => Object.assign(chunk, value));
-    appendFamilyChunks('freeTextEditors', editorChunks, (chunk, value) => {chunk.freeTextEditors = value;});
+    appendFamilyChunks('textBoxes', textBoxChunks, (chunk, value) => {chunk.textBoxes = value;});
     appendFamilyChunks('pageLabels', pageLabelChunks, (chunk, value) => {chunk.pageLabels = value;});
     appendFamilyChunks(
         'bookmarks',

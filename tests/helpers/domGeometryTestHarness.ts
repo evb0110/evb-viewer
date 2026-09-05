@@ -1,3 +1,4 @@
+/* eslint-disable custom/file-naming */
 export interface ITestRect {
     left: number;
     top: number;
@@ -32,12 +33,4 @@ export function createTestDomRect(rect: ITestRect): DOMRect {
         x: left,
         y: top,
     };
-}
-
-export function setTestElementRect<T extends Element>(element: T, rect: ITestRect) {
-    Object.defineProperty(element, 'getBoundingClientRect', {
-        configurable: true,
-        value: () => createTestDomRect(rect),
-    });
-    return element;
 }

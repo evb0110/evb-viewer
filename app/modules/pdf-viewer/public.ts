@@ -21,16 +21,10 @@ export { usePageLabelState } from '@app/modules/pdf-viewer/runtime/composables/p
 export { usePageOperations } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageOperations';
 export { usePdfHistory } from '@app/modules/pdf-viewer/runtime/composables/usePdfHistory';
 export { usePdfSearch } from '@app/modules/pdf-viewer/runtime/composables/usePdfSearch';
-export { usePdfSerialization } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfSerialization';
-export type { TPdfPlacedImageEmbeddingResult } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfSerialization';
-export { isPdfPlacedImageNativePathResult } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfSerialization';
+export { usePdfPlacedImagePersistence } from '@app/modules/pdf-viewer/runtime/composables/pdf/pdfDocumentPersistence';
+export type { TPdfPlacedImageEmbeddingResult } from '@app/modules/pdf-viewer/runtime/composables/pdf/pdfDocumentPersistence';
+export { isPdfPlacedImageNativePathResult } from '@app/modules/pdf-viewer/runtime/composables/pdf/pdfDocumentPersistence';
 export type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
-export {
-    collectLivePdfJsAnnotationChangeFingerprint,
-    collectLivePdfJsAnnotationChangeIds,
-    resetLivePdfJsAnnotationStorageModifiedState,
-} from '@app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges';
-export type {IPdfLiveAnnotationChangeSummary} from '@app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges';
 export {annotationIdForSummary} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
 export {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 export type {AnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
@@ -52,13 +46,12 @@ export { isNoteEligibleComment } from '@app/modules/pdf-viewer/engine/annotation
 export { PENDING_ANNOTATION_ENRICHMENT_STATE } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationEnrichmentPolicy';
 export type { IAnnotationEnrichmentState } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationEnrichmentPolicy';
 export { isShapeTool } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isShapeTool';
-export { resolveAnnotationCommentTextMarkupColor } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/resolveAnnotationCommentTextMarkupColor';
 export { markerRectFromPoint } from '@app/modules/pdf-viewer/engine/annotations/pdf-page-point-resolver/markerRectFromPoint';
 export { resolveVisiblePageLabelsDuringMetadataRefresh } from '@app/modules/pdf-viewer/engine/page-labels/resolveVisiblePageLabelsDuringMetadataRefresh';
 export { capturePdfRegionAsPngBlob } from '@app/modules/pdf-viewer/engine/pdf-region-capture/capturePdfRegionAsPngBlob';
 export { resolvePdfReloadPage } from '@app/modules/pdf-viewer/engine/pdf-reload-waiter/resolvePdfReloadPage';
 export { createPdfReloadWaiter } from '@app/modules/pdf-viewer/engine/pdf-reload-waiter/createPdfReloadWaiter';
-export type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/pdf-serialization-subtype-hints/pdfSerializationSubtypeHintsTypes';
+export type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/annotation-subtype-hints/pdfSerializationSubtypeHintsTypes';
 export { getShapeRect } from '@app/modules/pdf-viewer/engine/pdf-shape-resize/getShapeRect';
 export { findPdfPageContainer } from '@app/modules/pdf-viewer/dom/pdf-viewer-dom/findPdfPageContainer';
 export { pdfViewerDomSelectors } from '@app/modules/pdf-viewer/dom/pdf-viewer-dom/pdfViewerDomSelectors';

@@ -86,6 +86,7 @@ fn write_fixture(stamp: Option<&str>) -> Vec<u8> {
         [PageSpec::Image {
             page_size: None,
             placement: None,
+            rotation_degrees: 0,
             image: ImageSpec {
                 source: InputSource::Bytes {
                     file_name: "input.ppm",

@@ -6,7 +6,8 @@ import type {
     IPdfNativeStagedCommitOptions,
 } from '@contracts/electronApiDocuments';
 import {normalizePdfNativeAnnotationIdentityBindings} from '@contracts/nativePdfMutations';
-import {parsePdfJsAnnotationRef} from '@app/utils/pdfAnnotationRefs';
+
+export {collectExpectedNativeIdentityIds} from '@contracts/nativePdfMutations';
 
 const MAX_TARGETED_PDF_OBJECT_REFS = 128;
 const CANONICAL_PDF_OBJECT_REF_PATTERN = /(?:^|\D)(\d+)\s+(\d+)\s+R(?:$|\D)/i;
@@ -76,27 +77,7 @@ export function createNativeStagedCommitOptions(
     };
 }
 
-export function collectExpectedNativeMarkupIdentityIds(mutations: IPdfNativeMutationSet): string[] {
-    const ids = new Set<string>();
-    for (const hint of mutations.markup?.hints ?? []) {
-        const annotationId = hint.annotationId?.trim();
-        const appAnnotationId = hint.appAnnotationId?.trim();
-        if (
-            !appAnnotationId
-            || (hint.source !== 'editor' && hint.source !== 'editor-live')
-            || parsePdfJsAnnotationRef(annotationId)
-        ) {
-            continue;
-        }
-        if (ids.has(appAnnotationId)) {
-            throw new Error(`Duplicate native markup identity candidate ${appAnnotationId}`);
-        }
-        ids.add(appAnnotationId);
-    }
-    return [...ids];
-}
-
-export function validateNativeMarkupIdentityBindings(
+export function validateNativeIdentityBindings(
     value: unknown,
     expectedAnnotationIds: readonly string[],
     label: string,
@@ -104,7 +85,7 @@ export function validateNativeMarkupIdentityBindings(
     const bindings = normalizePdfNativeAnnotationIdentityBindings(value, label, {errorKind: 'error'});
     const expected = new Set(expectedAnnotationIds);
     if (bindings.length !== expected.size) {
-        throw new Error(`${label} did not bind exactly the newly authored markup identities`);
+        throw new Error(`${label} did not bind exactly the newly authored annotation identities`);
     }
     for (const binding of bindings) {
         if (!expected.has(binding.annotationId)) {
@@ -114,7 +95,7 @@ export function validateNativeMarkupIdentityBindings(
     return bindings;
 }
 
-export function haveSameNativeMarkupIdentityBindings(
+export function haveSameNativeIdentityBindings(
     left: readonly IPdfNativeAnnotationIdentityBinding[],
     right: readonly IPdfNativeAnnotationIdentityBinding[],
 ) {

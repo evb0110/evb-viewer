@@ -1,13 +1,15 @@
 import type * as WorkspaceOrchestration from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 
 export type TPageAnnotationActionsPdfViewer = Pick<WorkspaceOrchestration.IPdfViewerExpose,
-    'cancelCommentPlacement'
-    | 'commentAtPoint'
+    'commentAtPoint'
     | 'commentSelection'
     | 'deleteAnnotationComment'
     | 'deleteSelectedShape'
+    | 'deleteShapeById'
     | 'focusAnnotationComment'
     | 'getSelectedShape'
+    | 'getCurrentPage'
+    | 'getAllShapes'
     | 'getSelectedTextMarkupAnnotationProperties'
     | 'getViewerContainer'
     | 'highlightSelection'
@@ -16,10 +18,10 @@ export type TPageAnnotationActionsPdfViewer = Pick<WorkspaceOrchestration.IPdfVi
     | 'removeAnnotationFromInternalCache'
     | 'runSaveTransaction'
     | 'selectedShapeId'
-    | 'startCommentPlacement'
     | 'startImagePlacement'
     | 'updateAnnotationComment'
     | 'updateSelectedTextMarkupAnnotationColor'
+    | 'updateSelectedTextMarkupAnnotationProperties'
     | 'updateTextMarkupAnnotationColor'
     | 'updateShape'
 > & Partial<Pick<WorkspaceOrchestration.IPdfViewerExpose,

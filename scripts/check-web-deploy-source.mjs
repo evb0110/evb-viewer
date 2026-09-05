@@ -60,6 +60,7 @@ export const WEB_DEPLOY_SOURCE_EXCLUDED_DIRECTORY_NAMES = [
     'release',
     'resources',
     'tests',
+    'vendor',
 ];
 
 // `MEMORIES.md` is the local scratch note `.gitignore` describes: not part of the
@@ -73,6 +74,8 @@ export const WEB_DEPLOY_SOURCE_EXCLUDED_FILE_NAMES = [
     'electron-builder.yml',
     'eslint-plugin-custom.mjs',
 ];
+
+export const WEB_DEPLOY_SOURCE_EXCLUDED_FILE_PATTERNS = [/\.(?:tgz|tar\.gz)$/iu];
 
 export const WEB_DEPLOY_SOURCE_ROOT_ONLY_FILE_NAMES = [...ROOT_ONLY_LOCAL_ARTIFACT_FILE_NAMES];
 
@@ -144,6 +147,7 @@ export function isExcludedWebDeploySourceDirectoryName(directoryName) {
 export function isExcludedWebDeploySourceFileName(fileName) {
     return findAgentInstructionFileName(fileName) !== null
         || WEB_DEPLOY_SOURCE_EXCLUDED_FILE_NAMES.includes(fileName)
+        || WEB_DEPLOY_SOURCE_EXCLUDED_FILE_PATTERNS.some(pattern => pattern.test(fileName))
         || isExcludedEnvFileName(fileName);
 }
 

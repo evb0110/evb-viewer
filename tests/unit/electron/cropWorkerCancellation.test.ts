@@ -6,13 +6,19 @@ import {
 } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-    getPageGeometryLocal: vi.fn(),
+    cropPagesLocal: vi.fn(),
     on: vi.fn(),
     postMessage: vi.fn(),
     workerData: {
-        type: 'getPageGeometry',
+        type: 'crop',
         workingCopyPath: '/tmp/document.pdf',
-        pageNumber: 7,
+        pages: [7],
+        margins: {
+            top: 1,
+            bottom: 1,
+            left: 1,
+            right: 1,
+        },
     },
 }));
 
@@ -25,21 +31,21 @@ vi.mock('worker_threads', () => ({
 }));
 
 vi.mock('@electron/features/page-ops/main/cropLocal', () => ({
-    cropPagesLocal: vi.fn(),
-    getPageGeometryLocal: mocks.getPageGeometryLocal,
+    cropPagesLocal: mocks.cropPagesLocal,
     removeCropFromPagesLocal: vi.fn(),
 }));
 
 describe('cropWorker cancellation', () => {
-    it('passes cancellation through to native page geometry', async () => {
+    it('passes cancellation through to the crop operation', async () => {
         let receivedSignal: AbortSignal | undefined;
         let resolveStarted: (() => void) | undefined;
         const started = new Promise<void>((resolve) => {
             resolveStarted = resolve;
         });
-        mocks.getPageGeometryLocal.mockImplementation(async (
+        mocks.cropPagesLocal.mockImplementation(async (
             _workingCopyPath: string,
-            _pageNumber: number,
+            _pages: number[],
+            _margins: unknown,
             signal: AbortSignal,
         ) => {
             receivedSignal = signal;

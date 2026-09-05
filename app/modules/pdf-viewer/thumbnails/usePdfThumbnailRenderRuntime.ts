@@ -30,10 +30,8 @@ import {
 import {
     createEditedTextMarkupThumbnailVisualSignature,
     createHiddenAnnotationIdsSignature,
-    drawEditedTextMarkupThumbnailVisuals,
     getEditedTextMarkupThumbnailComments,
 } from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailTextMarkupVisuals';
-import { collectEditedTextMarkupCanvasSuppressionIds } from '@app/modules/pdf-viewer/annotations/edited-text-markup-canvas-suppression/collectEditedTextMarkupCanvasSuppressionIds';
 import { resolveThumbnailItemHeightFromAspect } from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailLayout';
 import type { IUsePdfThumbnailRenderRuntimeOptions } from '@app/modules/pdf-viewer/thumbnails/usePdfThumbnailRenderRuntimeOptions';
 import { createThumbnailRenderFrameScheduler } from '@app/modules/pdf-viewer/thumbnails/createThumbnailRenderFrameScheduler';
@@ -197,9 +195,7 @@ export const usePdfThumbnailRenderRuntime = (
     ));
     // Deleted-source tombstones arrive without a page, so they stay document-wide;
     // only the edited text-markup half can be attributed to a page today.
-    const documentHiddenAnnotationIds = computed(
-        () => collectEditedTextMarkupCanvasSuppressionIds([], visuals.hiddenAnnotationIds.value),
-    );
+    const documentHiddenAnnotationIds = computed(() => new Set(visuals.hiddenAnnotationIds.value));
     const documentVisualSignature = computed(() => [
         createHiddenAnnotationIdsSignature(documentHiddenAnnotationIds.value),
         createEditedTextMarkupThumbnailVisualSignature(
@@ -218,15 +214,8 @@ export const usePdfThumbnailRenderRuntime = (
         ].join('\u0002');
     }
 
-    function resolveHiddenAnnotationIdsForPage(pageNumber: number) {
-        const pageComments = editedTextMarkupCommentsByPage.value[pageNumber];
-        if (!pageComments) {
-            return documentHiddenAnnotationIds.value;
-        }
-        return collectEditedTextMarkupCanvasSuppressionIds(
-            pageComments,
-            documentHiddenAnnotationIds.value,
-        );
+    function resolveHiddenAnnotationIdsForPage(_pageNumber: number) {
+        return documentHiddenAnnotationIds.value;
     }
 
     function isThumbnailPaneActive() {
@@ -439,13 +428,6 @@ export const usePdfThumbnailRenderRuntime = (
             ) {
                 return false;
             }
-            drawEditedTextMarkupThumbnailVisuals({
-                annotationSettings: visuals.annotationSettings.value,
-                canvas: prepared.renderCanvas,
-                comments: editedTextMarkupCommentsByPage.value[prepared.pageNumber] ?? [],
-                context: prepared.context,
-                pageNum: prepared.pageNumber,
-            });
             if (prepared.renderCanvas !== prepared.canvas) {
                 const visibleContext = prepared.canvas.getContext('2d');
                 if (!visibleContext) {

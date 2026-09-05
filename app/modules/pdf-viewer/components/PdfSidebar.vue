@@ -18,6 +18,7 @@
                 :inventory="annotationInventory"
                 :enrichment-state="annotationEnrichmentState"
                 :active-comment-stable-key="annotationActiveCommentStableKey"
+                :selected-text-box="selectedTextBox"
                 :keep-active="annotationKeepActive"
                 @set-tool="updateAnnotationTool"
                 @update:keep-active="updateAnnotationKeepActive"
@@ -25,7 +26,6 @@
                 @focus-comment="focusAnnotationComment"
                 @open-note="openAnnotationNote"
                 @delete-comment="deleteAnnotationComment"
-                @place-note="placeAnnotationNote"
                 @retry-enrichment="retryAnnotationEnrichment"
             />
 
@@ -136,6 +136,7 @@ import type {
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import type { TPdfSidebarTab } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerExpose.types';
 import type { IAnnotationEnrichmentState } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationEnrichmentPolicy';
+import type { ITextBoxEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import { PENDING_ANNOTATION_ENRICHMENT_STATE } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationEnrichmentPolicy';
 import PdfAnnotationsPanel from '@app/modules/pdf-viewer/components/PdfAnnotationsPanel.vue';
 import PdfOutline from '@app/modules/pdf-viewer/components/PdfOutline.vue';
@@ -188,6 +189,7 @@ interface IProps {
     annotationInventory?: IAnnotationInventoryCompleteness | null | undefined;
     annotationEnrichmentState?: IAnnotationEnrichmentState | undefined;
     annotationActiveCommentStableKey?: string | null | undefined;
+    selectedTextBox?: Pick<ITextBoxEntity, 'fontSize' | 'color'> | null | undefined;
     bookmarkEditMode: boolean;
     bookmarkItems: IPdfBookmarkEntry[];
     bookmarksDirty: boolean;
@@ -208,6 +210,7 @@ const { t } = useTypedI18n();
 const {
     activeTab: activeTabProp = undefined,
     annotationActiveCommentStableKey: annotationActiveCommentStableKeyProp = undefined,
+    selectedTextBox = null,
     annotationTool,
     annotationKeepActive,
     annotationSettings,
@@ -271,7 +274,6 @@ const emit = defineEmits<{
     'annotation-focus-comment': [comment: IAnnotationCommentSummary];
     'annotation-open-note': [comment: IAnnotationCommentSummary];
     'annotation-delete-comment': [comment: IAnnotationCommentSummary];
-    'annotation-place-note': [];
     'annotation-retry-enrichment': [];
     'bookmarks-change': [payload: IPdfBookmarkChangePayload];
     'page-context-menu': [payload: {
@@ -416,10 +418,6 @@ function openAnnotationNote(comment: IAnnotationCommentSummary) {
 
 function deleteAnnotationComment(comment: IAnnotationCommentSummary) {
     emit('annotation-delete-comment', comment);
-}
-
-function placeAnnotationNote() {
-    emit('annotation-place-note');
 }
 
 function retryAnnotationEnrichment() {

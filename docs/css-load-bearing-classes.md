@@ -47,7 +47,7 @@ formats on PDF.js layer elements:
 <div class="page_canvas canvasWrapper" />
 ```
 
-**Why:** pdfjs-dist (currently v5.7.284) internally uses camelCase class names (`textLayer`, `annotationLayer`, `annotationEditorLayer`). PDF.js's own CSS and JS reference these names. The kebab-case variants (`text-layer`, `annotation-layer`, `annotation-editor-layer`) are the app's convention for custom styling and JS queries.
+**Why:** pdfjs-dist (currently v5.7.304 from the committed EVB fork) internally uses camelCase class names (`textLayer`, `annotationLayer`, `annotationEditorLayer`). PDF.js's own CSS and JS reference these names. The kebab-case variants (`text-layer`, `annotation-layer`, `annotation-editor-layer`) are the app's convention for custom styling and JS queries.
 
 Both formats must be preserved. CSS selectors and JS queries throughout the codebase target one or both:
 
@@ -61,6 +61,13 @@ Both formats must be preserved. CSS selectors and JS queries throughout the code
 // useAnnotationHighlight.ts queries both
 element.closest('.text-layer, .textLayer')
 ```
+
+The sanitized PDF.js viewer CSS is regenerated from the installed local
+`vendor/pdfjs-dist` tarball with `pnpm run copy:pdfjs`. The complete package is
+not a web asset. Keep the generated CSS and its referenced `public/pdfjs/images/`
+files in sync, and run the provenance verifier before accepting a PDF.js
+artifact update. The artifact is not published to npm. Human legal review is
+required for upstream modification notices and third-party assets.
 
 **History:** Introduced deliberately in commits `1c095e3`, `12c3f2e`, `853d900` as a robustness pattern.
 

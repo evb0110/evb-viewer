@@ -6,6 +6,7 @@ export const ANNOTATION_TOOLS = [
     'strikethrough',
     'squiggly',
     'text',
+    'note',
     'draw',
     'rectangle',
     'circle',

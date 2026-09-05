@@ -62,6 +62,9 @@ tmp/
 coverage/
 docs/
 node_modules/
+vendor/
+*.tgz
+*.tar.gz
 
 # Build-time config not needed for the web deployment
 .DS_Store

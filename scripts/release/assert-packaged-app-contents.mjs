@@ -43,6 +43,7 @@ export const FORBIDDEN_EXACT_ENTRIES = [
 
 export const FORBIDDEN_PREFIXES = [
     '/node_modules',
+    '/vendor',
     '/nuxt-output/public/mobile-reader-proof',
 ];
 
@@ -117,12 +118,33 @@ export function collectEntryViolations(entries) {
             problems.push(`source map should not ship: ${entry}`);
             continue;
         }
+        if (entry.endsWith('.d.ts') || entry.endsWith('.d.mts')) {
+            problems.push(`PDF.js declaration should not ship: ${entry}`);
+            continue;
+        }
         if (isForbiddenPublicArtifactPath(entry.slice(1))) {
             problems.push(`private staging path should not ship: ${entry}`);
             continue;
         }
         if (entry.endsWith('.meta.json')) {
             problems.push(`bundle metafile should not ship: ${entry}`);
+            continue;
+        }
+        if (entry.endsWith('.tgz') || entry.endsWith('.tar.gz')) {
+            problems.push(`archive should not ship: ${entry}`);
+            continue;
+        }
+        if (/\/(?:pdfjs-dist|pdfjs-dist-codex-preview)(?:\/|$)/u.test(entry)
+            || /(?:^|\/)(?:pdf\.sandbox|pdf\.min)\.mjs$/u.test(entry)
+            || /(?:^|\/)(?:pdf_viewer|pdf\.worker)\.mjs\.map$/u.test(entry)
+            || /(?:^|\/)image_decoders\//u.test(entry)) {
+            problems.push(`complete or alternate PDF.js package content should not ship: ${entry}`);
+            continue;
+        }
+        if (entry.endsWith('.d.ts')
+            || /\/pdfjs-dist[^/]*\.(?:md|map)$/u.test(entry)
+            || /(?:^|\/)(?:patches?|[^/]+\.(?:patch|orig|rej|bak))(?:\/|$)/u.test(entry)) {
+            problems.push(`PDF.js development artifact should not ship: ${entry}`);
             continue;
         }
         if (path.posix.basename(entry).startsWith('favicon-dev')) {

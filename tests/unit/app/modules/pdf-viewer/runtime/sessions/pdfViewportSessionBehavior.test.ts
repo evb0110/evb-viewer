@@ -178,7 +178,6 @@ function createViewportFixture(input: {
                     isAnySaving: computed(() => false),
                     isDragging: ref(false),
                     isViewerPanDragModeActive: computed(() => false),
-                    isPlacingComment: ref(false),
                     isSelectionMarkupToolActive: computed(() => false),
                     isTextSelectionModeActive: computed(() => false),
                     fitMode: computed(() => fitMode.value),

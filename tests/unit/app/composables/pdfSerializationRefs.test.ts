@@ -14,12 +14,12 @@ import type {
     PDFRef,
 } from 'pdf-lib';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
-import { resolveCommentPdfRefInDocument } from '@app/modules/pdf-viewer/engine/pdf-serialization-refs/resolveCommentPdfRefInDocument';
+import { resolveCommentPdfRefInDocument } from '@app/modules/pdf-viewer/annotations/pdf-refs/resolveCommentPdfRefInDocument';
 import {
     getPdfAnnotationIdFromStableKey,
     parsePdfAnnotationStableKey,
     parsePdfAnnotationStableKeyRef,
-} from '@app/modules/pdf-viewer/engine/pdf-serialization-refs/parsePdfAnnotationStableKey';
+} from '@app/modules/pdf-viewer/annotations/pdf-refs/parsePdfAnnotationStableKey';
 import { formatPdfJsAnnotationRef } from '@app/utils/pdfAnnotationRefs';
 
 interface ILiteralObject { [key: string]: PDFObject | string | number | boolean | null | undefined | ILiteralObject | TLiteralArray; }
@@ -47,6 +47,16 @@ describe('parsePdfAnnotationStableKey', () => {
             normalizedAnnotationId: '12R',
         });
         expect(parsePdfAnnotationStableKeyRef('ann:3:12R4')?.normalizedAnnotationId).toBe('12R4');
+        expect(parsePdfAnnotationStableKeyRef('ann:3:12 4 R')).toEqual({
+            stableKey: 'ann:3:12 4 R',
+            pageIndex: 3,
+            annotationId: '12 4 R',
+            ref: {
+                objectNumber: 12,
+                generationNumber: 4,
+            },
+            normalizedAnnotationId: '12R4',
+        });
     });
 
     it('rejects invalid page indexes and non-ref strict stable keys', () => {
@@ -60,7 +70,7 @@ describe('parsePdfAnnotationStableKey', () => {
 function createEditorComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {
     return {
         id: 'editor:0:pdfjs_internal_editor_0',
-        stableKey: 'uid:0:pdfjs_internal_editor_0',
+        stableKey: 'ann:0:pdfjs_internal_editor_0',
         pageIndex: 0,
         pageNumber: 1,
         text: '',
@@ -81,7 +91,7 @@ function createEditorComment(overrides: Partial<IAnnotationCommentSummary> = {})
 function createPdfComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {
     return {
         id: 'pdf:0:1',
-        stableKey: 'uid:0:1',
+        stableKey: 'ann:0:1',
         pageIndex: 0,
         pageNumber: 1,
         text: '',

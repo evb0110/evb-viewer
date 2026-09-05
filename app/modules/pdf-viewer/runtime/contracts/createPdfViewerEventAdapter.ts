@@ -8,7 +8,6 @@ import type {
 import type { IAnnotationContextMenuPayload } from '@app/modules/pdf-viewer/engine/annotationContextMenuPayload';
 import type { IAnnotationEnrichmentState } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationEnrichmentPolicy';
 import type { IAnnotationCreationFailureReport } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationCreationOutcome.types';
-import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdfImagePlacement';
 import type {
     PDFDocumentProxy,
     TFitMode,
@@ -39,14 +38,12 @@ export interface IPdfViewerEventAdapter {
     annotationSetting(payload: TAnnotationSettingChange): void;
     annotationCommentClick(comment: IAnnotationCommentSummary): void;
     annotationToolCancel(): void;
-    annotationNotePlacementChange(active: boolean): void;
     annotationFailure(failure: IAnnotationCreationFailureReport): void;
     shapeContextMenu(payload: {
         shapeId: string;
         clientX: number;
         clientY: number;
     }): void;
-    imagePlacementFinalize(payload: IPdfPlacedImageFinalizePayload): void;
     initialVisualPending(): void;
     initialVisualReady(payload: {pageNumber: number;}): void;
 }
@@ -75,10 +72,8 @@ export function createPdfViewerEventAdapter(emit: IPdfViewerEmit): IPdfViewerEve
         annotationSetting: payload => emit('annotation-setting', payload),
         annotationCommentClick: comment => emit('annotation-comment-click', comment),
         annotationToolCancel: () => emit('annotation-tool-cancel'),
-        annotationNotePlacementChange: active => emit('annotation-note-placement-change', active),
         annotationFailure: failure => emit('annotation-failure', failure),
         shapeContextMenu: payload => emit('shape-context-menu', payload),
-        imagePlacementFinalize: payload => emit('image-placement-finalize', payload),
         initialVisualPending: () => emit('initial-visual-pending'),
         initialVisualReady: payload => emit('initial-visual-ready', payload),
     };

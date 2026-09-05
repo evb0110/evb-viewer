@@ -25,6 +25,8 @@ import {
     it,
     vi,
 } from 'vitest';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
+import {createBrowserStoreFileIdentity} from '@contracts/stagedArtifacts';
 
 const mocks = vi.hoisted(() => ({
     inspect: vi.fn(),
@@ -191,6 +193,35 @@ describe('managed temporary file handles', () => {
                 tailCheck: true,
             },
         })).rejects.toThrow('altered');
+    });
+
+    it('does not send browser-store receipts through native file leases', async () => {
+        const {resolveTypedStagedArtifact} = await import('@electron/features/documents/main/managedTempFileHandles');
+        const browserRef = 'browser://documents/staged/browser-output.pdf';
+        const revision = requireDocumentRevisionToken('drt1:browser:staged-output');
+        const browserArtifact = {
+            receiptVersion: 1 as const,
+            artifactKind: 'pdf' as const,
+            path: browserRef,
+            size: 3,
+            sha256: createHash('sha256').update(Buffer.from([
+                1,
+                2,
+                3,
+            ])).digest('hex'),
+            fileIdentity: createBrowserStoreFileIdentity(browserRef, revision),
+            validations: {
+                qpdfCheck: false,
+                tailCheck: false,
+                semanticCheck: false,
+                fsynced: false,
+            },
+            leaseId: 'browser-lease',
+            revision,
+        };
+
+        await expect(resolveTypedStagedArtifact({senderId: 42}, browserArtifact))
+            .rejects.toThrow('browser document store commit path');
     });
 
     it('revokes a staged image-placement-style handle and permits a clean retry', async () => {

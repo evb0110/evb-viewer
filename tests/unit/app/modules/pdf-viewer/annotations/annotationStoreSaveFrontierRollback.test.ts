@@ -5,7 +5,8 @@ import {
 } from 'vitest';
 import {
     asAnnotationId,
-    type IStickyNoteEntity,
+    type INoteEntity,
+    type IShapeEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {AnnotationStore} from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
 import {AnnotationApplication} from '@app/modules/pdf-viewer/annotations/annotationApplication';
@@ -13,7 +14,7 @@ import {requireDocumentRevisionToken} from '@contracts';
 
 function importPersistedHighlight(store: AnnotationStore) {
     const annotationId = asAnnotationId('persisted-highlight');
-    store.import({
+    store.replaceFromDocument([{
         kind: 'text-markup',
         identity: {
             id: annotationId,
@@ -27,8 +28,8 @@ function importPersistedHighlight(store: AnnotationStore) {
         modifiedAt: null,
         author: null,
         subtype: 'Highlight',
-        text: '',
-        geometry: [{
+        contents: '',
+        quadPoints: [{
             left: 0.1,
             top: 0.2,
             width: 0.3,
@@ -36,13 +37,13 @@ function importPersistedHighlight(store: AnnotationStore) {
         }],
         color: '#ffff00',
         opacity: 1,
-    });
+    }], []);
     return annotationId;
 }
 
-function stickyNote(id: string, text: string, left: number): IStickyNoteEntity {
+function stickyNote(id: string, text: string, left: number): INoteEntity {
     return {
-        kind: 'sticky-note',
+        kind: 'note',
         identity: {id: asAnnotationId(id)},
         pageIndex: 0,
         revision: 0,
@@ -51,14 +52,15 @@ function stickyNote(id: string, text: string, left: number): IStickyNoteEntity {
         createdAt: null,
         modifiedAt: null,
         author: null,
-        text,
-        anchor: {
+        contents: text,
+        position: {
             left,
             top: 0.2,
             width: 0.01,
             height: 0.01,
         },
         color: '#ffcc00',
+        open: false,
     };
 }
 
@@ -71,76 +73,100 @@ describe('AnnotationStore save frontier rollback', () => {
 
         expect(() => store.assertSaveFrontierCurrent(frontier, replacementRevision))
             .toThrow('document revision changed');
-        expect(() => store.acknowledgeSave(frontier, new Map(), replacementRevision))
+        expect(() => store.markPersisted(frontier, [], replacementRevision))
             .toThrow('document revision changed');
     });
 
-    it('owns pending markup subtype intent so an immediate save can observe it', () => {
+    it('keeps markup subtype edits in canonical history for an immediate save', () => {
         const store = new AnnotationStore();
-        store.setPendingMarkupSubtype([
-            'editor-identity',
-            '52R',
-        ], 'Squiggly');
-
-        expect(store.resolveMarkupSubtype(['editor-identity'])).toBe('Squiggly');
-        expect(store.markupSubtypesByExternalId().get('52R')).toBe('Squiggly');
-
-        store.clearPendingMarkupSubtypes();
-        expect(store.resolveMarkupSubtype(['editor-identity'])).toBeNull();
+        const id = asAnnotationId('markup');
+        store.createTextMarkup({
+            kind: 'text-markup',
+            identity: {id},
+            pageIndex: 0,
+            revision: 0,
+            persistedRevision: -1,
+            deleted: false,
+            createdAt: null,
+            modifiedAt: null,
+            author: null,
+            subtype: 'Highlight',
+            contents: '',
+            quadPoints: [{
+                left: 0.1,
+                top: 0.1,
+                width: 0.1,
+                height: 0.01,
+            }],
+            color: '#ffff00',
+            opacity: 1,
+        });
+        store.updateTextMarkup(id, {subtype: 'Squiggly'});
+        expect(store.get(id)).toMatchObject({
+            subtype: 'Squiggly',
+            revision: 1,
+        });
     });
 
-    it('rolls back only prepared shape identity while preserving semantic edits', () => {
-        const application = new AnnotationApplication('document');
-        const geometry = {
-            id: 'local-shape',
-            type: 'rectangle' as const,
+    it('keeps canonical shape edits dirty while a parsed identity is adopted', () => {
+        const store = new AnnotationStore();
+        const shape: IShapeEntity = {
+            kind: 'shape',
+            identity: {id: asAnnotationId('local-shape')},
             pageIndex: 0,
-            x: 0.1,
-            y: 0.2,
-            width: 0.3,
-            height: 0.4,
-            color: '#123456',
-            opacity: 1,
-            strokeWidth: 2,
-            source: 'local',
-            stableKey: 'evb-shape:local-shape',
-        } as const;
-        const created = application.createShapeFromGeometry(geometry);
-        const session = application.beginSave();
-
-        expect(application.primePersistedShapes([{
-            ...geometry,
-            x: 0.8,
-            color: '#abcdef',
-            source: 'embedded',
-            annotationId: '44R0',
-            pdfSubtype: 'Square',
-        }], session.frontier)).toBe(true);
-
-        const primed = application.store.get(created.identity.id);
-        expect(primed?.identity.pdfRef).toBe('44R0');
-        expect(primed && 'geometry' in primed ? primed.geometry : null).toEqual(geometry);
-        expect(() => application.assertSaveCurrent(session)).not.toThrow();
-
-        application.store.setStyle(created.identity.id, {color: '#ff0000'});
-        application.store.bindIdentity({
-            annotationId: created.identity.id,
-            expectedRevision: 1,
-            bindings: {pdfName: 'later-identity'},
-        });
-        expect(() => application.assertSaveCurrent(session)).toThrow('staleRevisionError');
-
-        expect(application.rollbackSave(session)).toBe(true);
-        expect(application.store.get(created.identity.id)).toMatchObject({
-            identity: {
-                elementId: 'local-shape',
-                pdfName: 'later-identity',
+            revision: 0,
+            persistedRevision: -1,
+            deleted: false,
+            createdAt: null,
+            modifiedAt: null,
+            author: null,
+            tool: 'rectangle',
+            rect: {
+                left: 0.1,
+                top: 0.2,
+                width: 0.3,
+                height: 0.4,
             },
-            geometry: {color: '#ff0000'},
+            strokeColor: '#123456',
+            strokeWidth: 2,
+            fill: null,
+            opacity: 1,
+        };
+        store.createShape(shape);
+        const frontier = store.beginSave();
+
+        store.replaceFromDocument([{
+            ...shape,
+            identity: {
+                id: shape.identity.id,
+                pdfRef: '44R0',
+            },
+            rect: {
+                left: 0.8,
+                top: 0.2,
+                width: 0.3,
+                height: 0.4,
+            },
+            persistedRevision: 0,
+        }], []);
+
+        expect(store.get(shape.identity.id)).toMatchObject({
+            identity: {pdfRef: '44R0'},
+            rect: shape.rect,
+            persistedRevision: -1,
+            revision: 0,
+        });
+        expect(() => store.assertSaveFrontierCurrent(frontier)).not.toThrow();
+
+        store.updateShape(shape.identity.id, {strokeColor: '#ff0000'});
+        expect(() => store.assertSaveFrontierCurrent(frontier)).toThrow('staleRevisionError');
+        expect(store.rollbackToSaveFrontier(frontier)).toBe(true);
+        expect(store.get(shape.identity.id)).toMatchObject({
+            identity: {pdfRef: '44R0'},
+            strokeColor: '#ff0000',
             persistedRevision: -1,
             revision: 1,
         });
-        expect(application.store.get(created.identity.id)?.identity.pdfRef).toBeUndefined();
     });
 
     it('preserves concurrent authored mutations and new entities while failed-save rollback unwinds', () => {
@@ -149,10 +175,10 @@ describe('AnnotationStore save frontier rollback', () => {
         const frontier = store.beginSave();
 
         // Both edits are authored after capture and must remain canonical.
-        store.setStyle(annotationId, {color: '#ff0000'});
+        store.updateTextMarkup(annotationId, {color: '#ff0000'});
         const noteId = asAnnotationId('rollback-note');
-        store.createStickyNote({
-            kind: 'sticky-note',
+        store.createNote({
+            kind: 'note',
             identity: {id: noteId},
             pageIndex: 0,
             revision: 0,
@@ -161,14 +187,15 @@ describe('AnnotationStore save frontier rollback', () => {
             createdAt: null,
             modifiedAt: null,
             author: null,
-            text: 'created after the frontier was captured',
-            anchor: {
+            contents: 'created after the frontier was captured',
+            position: {
                 left: 0.5,
                 top: 0.5,
                 width: 0.01,
                 height: 0.01,
             },
             color: '#ffcc00',
+            open: false,
         });
 
         expect(() => store.assertSaveFrontierCurrent(frontier)).toThrow('staleRevisionError');
@@ -178,8 +205,8 @@ describe('AnnotationStore save frontier rollback', () => {
             color: '#ff0000',
             revision: 1,
         });
-        expect(store.get(noteId)).toMatchObject({text: 'created after the frontier was captured'});
-        expect(store.resolveExternal({pdfRef: '12R0'})).toBe(annotationId);
+        expect(store.get(noteId)).toMatchObject({contents: 'created after the frontier was captured'});
+        expect(store.get(annotationId)?.identity.pdfRef).toBe('12R0');
         expect(() => store.assertSaveFrontierCurrent(frontier)).toThrow('staleRevisionError');
     });
 
@@ -191,30 +218,33 @@ describe('AnnotationStore save frontier rollback', () => {
         // The initial scan discovers an already-persisted source annotation
         // after the frontier is captured; the frontier tolerates it.
         const lateId = asAnnotationId('late-persisted');
-        store.import({
-            kind: 'text-markup',
-            identity: {
-                id: lateId,
-                pdfRef: '34R0',
+        store.replaceFromDocument([
+            store.get(annotationId)!,
+            {
+                kind: 'text-markup',
+                identity: {
+                    id: lateId,
+                    pdfRef: '34R0',
+                },
+                pageIndex: 1,
+                revision: 0,
+                persistedRevision: 0,
+                deleted: false,
+                createdAt: null,
+                modifiedAt: null,
+                author: null,
+                subtype: 'Highlight',
+                contents: '',
+                quadPoints: [{
+                    left: 0.2,
+                    top: 0.3,
+                    width: 0.2,
+                    height: 0.04,
+                }],
+                color: '#00ffff',
+                opacity: 1,
             },
-            pageIndex: 1,
-            revision: 0,
-            persistedRevision: 0,
-            deleted: false,
-            createdAt: null,
-            modifiedAt: null,
-            author: null,
-            subtype: 'Highlight',
-            text: '',
-            geometry: [{
-                left: 0.2,
-                top: 0.3,
-                width: 0.2,
-                height: 0.04,
-            }],
-            color: '#00ffff',
-            opacity: 1,
-        });
+        ], []);
         expect(() => store.assertSaveFrontierCurrent(frontier)).not.toThrow();
 
         store.rollbackToSaveFrontier(frontier);
@@ -229,7 +259,7 @@ describe('AnnotationStore save frontier rollback', () => {
         const frontier = store.beginSave();
 
         // A captured semantic mutation lands mid-save: CAS must reject it.
-        store.setStyle(annotationId, {color: '#00ff00'});
+        store.updateTextMarkup(annotationId, {color: '#00ff00'});
         expect(() => store.assertSaveFrontierCurrent(frontier)).toThrow(
             'staleRevisionError: annotations changed after the save frontier was captured',
         );
@@ -248,18 +278,18 @@ describe('AnnotationStore save frontier rollback', () => {
         const frontier = store.beginSave();
 
         // The materializing save binds the external identity it just wrote.
-        store.bindIdentity({
-            annotationId,
-            expectedRevision: 0,
-            bindings: {
-                pdfRef: '12R0',
-                pdfName: 'evb-note-1',
+        store.replaceFromDocument([{
+            ...store.get(annotationId)!,
+            identity: {
+                id: annotationId,
+                pdfRef: '13R0',
             },
-        });
+            persistedRevision: 0,
+        }], []);
         expect(() => store.assertSaveFrontierCurrent(frontier)).not.toThrow();
-        expect(store.get(annotationId)?.identity.pdfName).toBe('evb-note-1');
+        expect(store.get(annotationId)?.identity.pdfRef).toBe('13R0');
 
-        store.setStyle(annotationId, {color: '#123456'});
+        store.updateTextMarkup(annotationId, {color: '#123456'});
         expect(() => store.assertSaveFrontierCurrent(frontier)).toThrow('staleRevisionError');
     });
 
@@ -274,7 +304,7 @@ describe('AnnotationStore save frontier rollback', () => {
         expect(rightFrontier.entityBaselineHash).toBe(leftFrontier.entityBaselineHash);
         expect([...rightFrontier.revisions]).toEqual([...leftFrontier.revisions]);
 
-        left.setStyle(leftId, {color: '#00ff00'});
+        left.updateTextMarkup(leftId, {color: '#00ff00'});
         const drifted = left.get(leftId);
 
         // A failed save unwinding in `finally` must neither throw nor let one
@@ -298,19 +328,17 @@ describe('AnnotationStore save frontier rollback', () => {
 
     it('preserves post-frontier application mutations when a save fails', () => {
         const application = new AnnotationApplication('document');
-        application.store.createStickyNote(stickyNote('note-to-persist', 'note to persist', 0.1));
-        const session = application.beginSave();
+        application.store.createNote(stickyNote('note-to-persist', 'note to persist', 0.1));
+        const frontier = application.store.beginSave();
 
         // A second note is created after the frontier; the save then fails.
-        application.store.createStickyNote(stickyNote('post-frontier-note', 'created after save started', 0.3));
-        expect(() => application.assertSaveCurrent(session)).toThrow('staleRevisionError');
-
-        application.rollbackSave(session);
+        application.store.createNote(stickyNote('post-frontier-note', 'created after save started', 0.3));
+        expect(() => application.store.assertSaveFrontierCurrent(frontier)).toThrow('staleRevisionError');
 
         expect(application.store.list()).toEqual([
-            expect.objectContaining({text: 'note to persist'}),
-            expect.objectContaining({text: 'created after save started'}),
+            expect.objectContaining({contents: 'note to persist'}),
+            expect.objectContaining({contents: 'created after save started'}),
         ]);
-        expect(() => application.assertSaveCurrent(session)).toThrow('staleRevisionError');
+        expect(() => application.store.assertSaveFrontierCurrent(frontier)).toThrow('staleRevisionError');
     });
 });

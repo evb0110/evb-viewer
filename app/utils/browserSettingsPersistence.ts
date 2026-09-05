@@ -185,6 +185,9 @@ export function serializeBrowserSettingsPayload(settings: ISettingsData) {
     if (sanitized.suppressDefaultViewerPrompt !== undefined) {
         payload.suppressDefaultViewerPrompt = sanitized.suppressDefaultViewerPrompt;
     }
+    if (sanitized.suppressUnencryptedSaveNotice !== undefined) {
+        payload.suppressUnencryptedSaveNotice = sanitized.suppressUnencryptedSaveNotice;
+    }
     if (sanitized.skippedUpdateVersion !== undefined) {
         payload.skippedUpdateVersion = sanitized.skippedUpdateVersion;
     }

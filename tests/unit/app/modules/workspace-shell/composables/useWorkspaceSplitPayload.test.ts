@@ -270,12 +270,9 @@ describe('useWorkspaceSplitPayload', () => {
         const runSaveTransaction = vi.fn(async (request) => {
             expect(request).toMatchObject({
                 mode: 'snapshot',
-                forcePdfjsMaterialize: true,
+                forceWriterSave: true,
                 serializeResult: true,
-                includeManagedShapes: true,
-                rewriteShapeState: true,
             });
-            expect(request.source?.serializePdfForSave).toBe(serializePdfForSave);
             return {
                 source: 'serialized-rewrite' as const,
                 baseBytes: Uint8Array.of(1),
@@ -284,7 +281,7 @@ describe('useWorkspaceSplitPayload', () => {
                 nativeMutationProjection: null,
                 fallbackDecision: TEST_PDF_SAVE_BYTE_ROUTE_DECISION,
                 annotationSavePlan: {
-                    route: 'pdfjs-materialize' as const,
+                    route: 'writer-save' as const,
                     expectedCost: 'full-document' as const,
                     reason: 'no-live-pdfjs-annotation-work' as const,
                     unreplayableLiveAnnotationIds: [],
@@ -293,11 +290,7 @@ describe('useWorkspaceSplitPayload', () => {
         });
         const { captureSplitPayload } = useWorkspaceSplitPayload(createOptions({
             hasPendingTabChanges: ref(true),
-            pdfViewerRef: ref({
-                runSaveTransaction,
-                saveDocument: vi.fn(async () => null),
-                materializePdfJsDocumentForInternalUse: vi.fn(async () => null),
-            }),
+            pdfViewerRef: ref({runSaveTransaction}),
             serializePdfForSave,
             pdfSrc: ref(new Blob([serializedBytes])),
             workingCopyPath: ref(null),
@@ -306,7 +299,6 @@ describe('useWorkspaceSplitPayload', () => {
         await captureSplitPayload();
 
         expect(runSaveTransaction).toHaveBeenCalledTimes(1);
-        expect(serializePdfForSave).not.toHaveBeenCalled();
         expect(mocks.createWorkingCopyFromData).toHaveBeenCalledWith(
             'sample.pdf',
             serializedBytes,
@@ -337,7 +329,7 @@ describe('useWorkspaceSplitPayload', () => {
             expect(request).toMatchObject({
                 mode: 'snapshot',
                 saveFlowMode: 'save',
-                forcePdfjsMaterialize: false,
+                forceWriterSave: false,
                 workingPath: '/tmp/working.pdf',
             });
             expect(request.source).toBeUndefined();
@@ -356,11 +348,7 @@ describe('useWorkspaceSplitPayload', () => {
             hasPendingTabChanges: ref(true),
             pdfData: ref(null),
             documentRevisionToken: ref(revision),
-            pdfViewerRef: ref({
-                runSaveTransaction,
-                saveDocument: vi.fn(async () => null),
-                materializePdfJsDocumentForInternalUse: vi.fn(async () => null),
-            }),
+            pdfViewerRef: ref({runSaveTransaction}),
             getNativeSaveTransactionOptions: () => ({
                 nativeCapabilities: {
                     hasNativePdfMutationCapability: true,
@@ -369,8 +357,6 @@ describe('useWorkspaceSplitPayload', () => {
                 dirtyState: {
                     annotationDirty: true,
                     hasAnnotationChanges: true,
-                    hasLivePdfJsAnnotationChanges: false,
-                    savedPdfjsAnnotationBaselineDirty: false,
                     shapeStateDirty: false,
                 },
                 documentStructure: {

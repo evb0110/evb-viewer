@@ -18,7 +18,10 @@ import type {
     IPdfNativeStagedCommitOptions,
     IPdfNativeNoteTextSaveResult,
 } from '@contracts/electronApiDocuments';
-import {splitPdfNativeMutationSetIntoBoundedChunks} from '@contracts/nativePdfMutations';
+import {
+    collectExpectedNativeIdentityIds,
+    splitPdfNativeMutationSetIntoBoundedChunks,
+} from '@contracts/nativePdfMutations';
 import type { IPdfValidationResult } from '@contracts/pdfConformance';
 import type { ITypedStagedArtifact } from '@contracts/stagedArtifacts';
 import {
@@ -216,16 +219,8 @@ function normalizeNativeMutationSet(rawMutations: unknown): IPdfNativeMutationSe
     return normalizePdfNativeMutationSet(rawMutations, 'native PDF mutations', {errorKind: 'error'});
 }
 
-function needsNativeMarkupIdentityBindingsReport(mutations: IPdfNativeMutationSet) {
-    return (mutations.markup?.hints ?? []).some(hint => {
-        const appAnnotationId = hint.appAnnotationId?.trim();
-        const annotationId = hint.annotationId?.trim();
-        return Boolean(
-            appAnnotationId
-            && (hint.source === 'editor' || hint.source === 'editor-live')
-            && !(annotationId && /^\d+R\d*$/iu.test(annotationId)),
-        );
-    });
+function needsNativeIdentityBindingsReport(mutations: IPdfNativeMutationSet) {
+    return collectExpectedNativeIdentityIds(mutations).length > 0;
 }
 
 function getValidatedOriginalPath(workingPath: string, senderWebContentsId: number): string {
@@ -771,7 +766,7 @@ export async function handleNativePdfMutationsSave(
         payloadFlag: '--mutations-file',
         payload: mutations,
         commandLabel: 'evb-pdf-page-ops(save-mutations)',
-        ...(needsNativeMarkupIdentityBindingsReport(mutations)
+        ...(needsNativeIdentityBindingsReport(mutations)
             ? {identityBindingsFileName: 'identity-bindings.json'}
             : {}),
     });
@@ -791,7 +786,7 @@ export async function handleNativePdfMutationsApplyToWorkingCopy(
         payloadFlag: '--mutations-file',
         payload: mutations,
         commandLabel: 'evb-pdf-page-ops(save-mutations-working-copy)',
-        ...(needsNativeMarkupIdentityBindingsReport(mutations)
+        ...(needsNativeIdentityBindingsReport(mutations)
             ? {identityBindingsFileName: 'identity-bindings.json'}
             : {}),
     });

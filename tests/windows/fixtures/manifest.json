@@ -118,8 +118,8 @@
                 {
                     "id": "F03-freetext-lifecycle",
                     "path": "../../fixtures/electron/freetext-lifecycle-test.pdf",
-                    "bytes": 1084,
-                    "sha256": "d3d26fee713b6ef520faee5509c56fca2b6be9adb8a3f50bb1212cbb5b0a0ce1",
+                    "bytes": 2363,
+                    "sha256": "86b75f75582c95dab1f889a1db2324420f1ea8ba5e0f49b6c3ecdf14a9896fcf",
                     "expectedPages": 1,
                     "markers": [],
                     "generated": false,

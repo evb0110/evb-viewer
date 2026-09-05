@@ -75,6 +75,12 @@ const toolItems = computed<IToolItem[]>(() => [
         hasStyleControls: true,
     },
     {
+        id: 'note',
+        label: t('annotations.stickyNoteLabel'),
+        icon: 'i-ph-chat-circle-dots',
+        hasStyleControls: true,
+    },
+    {
         id: 'highlight',
         label: t('annotations.highlight'),
         icon: 'i-ph-highlighter',

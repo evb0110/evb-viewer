@@ -28,10 +28,6 @@ import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronP
 import { createTestDomRect } from '@tests/helpers/domGeometryTestHarness';
 import {TEST_PDF_SAVE_BYTE_ROUTE_DECISION} from '@tests/unit/app/modules/pdf-viewer/runtime/save/testPdfSaveByteRouteDecision';
 
-const { resolveAnnotationCommentTextMarkupColor } = vi.hoisted(() => ({resolveAnnotationCommentTextMarkupColor: vi.fn(() => null as string | null)}));
-
-vi.mock('@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/resolveAnnotationCommentTextMarkupColor', () => ({resolveAnnotationCommentTextMarkupColor}));
-
 function createComment(stableKeySeed: string): IAnnotationCommentSummary {
     return {
         appAnnotationId: `anno-${stableKeySeed}`,
@@ -71,7 +67,7 @@ function createEditorOpenNote(
 ): IAnnotationCommentSummary {
     return {
         ...baseComment,
-        stableKey: 'uid:504:open-note',
+        stableKey: 'ann:504:open-note',
         id: 'open-note',
         source: 'editor',
         annotationId: null,
@@ -163,10 +159,9 @@ function createHarness() {
 
     const viewer = {
         getViewerContainer: vi.fn(() => viewerContainer.value as HTMLElement | null),
+        getCurrentPage: vi.fn(() => 1),
         commentSelection: vi.fn(async () => false),
         commentAtPoint: vi.fn(async () => true),
-        startCommentPlacement: vi.fn(),
-        cancelCommentPlacement: vi.fn(),
         focusAnnotationComment: vi.fn(async () => {}),
         highlightSelection: vi.fn(async () => true),
         invalidatePages: vi.fn(),
@@ -185,8 +180,10 @@ function createHarness() {
         updateShape: vi.fn(),
         getSelectedShape: vi.fn(() => selectedShape.value),
         deleteSelectedShape: vi.fn(),
+        deleteShapeById: vi.fn(),
+        getAllShapes: vi.fn(() => []),
         runSaveTransaction: vi.fn(async () => ({
-            source: 'pdfjs-materialize' as const,
+            source: 'writer-save' as const,
             baseBytes: null,
             serializedBytes: Uint8Array.of(9, 9),
             serializedResult: null,
@@ -234,7 +231,6 @@ function createHarness() {
         pdfViewerRef: ref(viewer),
         annotationTool,
         annotationKeepActive: ref(false),
-        annotationPlacingPageNote: ref(false),
         annotationSettings: ref({ ...DEFAULT_ANNOTATION_SETTINGS }),
         annotationActiveCommentStableKey: ref<string | null>(null),
         annotationContextMenu: ref({
@@ -268,7 +264,7 @@ function createHarness() {
             persistWorkingCopy?: boolean;
         }) => {}),
         loadPdfFromPath: vi.fn(async (_path: string, _opts?: { markDirty?: boolean }) => {}),
-        materializeAnnotationsForPageMutation: vi.fn(async () => true),
+        saveAnnotationsForPageMutation: vi.fn(async () => true),
         waitForPdfReload: vi.fn(async (_page: number) => {}),
         invalidateThumbnailPages: vi.fn(),
         removeAnnotationFromCache: vi.fn(),
@@ -276,8 +272,6 @@ function createHarness() {
         deleteEmbeddedAnnotationDeferred: vi.fn(),
         undeleteEmbeddedAnnotationDeferred: vi.fn(),
         isNativeFreeTextNoteSaved: vi.fn(() => false),
-        markPreservedAnnotationSourceDirty: vi.fn(),
-        setPreservedAnnotationSourceDirty: vi.fn(),
         getAnnotationCommentsSnapshot: vi.fn((): IAnnotationCommentSummary[] => []),
         getAnnotationCommentsStatusSnapshot: vi.fn((): TAnnotationCommentsStatus => 'loading'),
         getEmbeddedMutationBaseData: vi.fn(async () => Uint8Array.of(6, 6)),
@@ -295,8 +289,6 @@ function createHarness() {
 }
 
 beforeEach(() => {
-    resolveAnnotationCommentTextMarkupColor.mockReset();
-    resolveAnnotationCommentTextMarkupColor.mockReturnValue(null);
     vi.stubGlobal('useTypedI18n', () => ({
         t: (key: string) => key,
         setLocale: vi.fn(async () => {}),
@@ -378,7 +370,7 @@ describe('usePageAnnotationActions', () => {
                 viewer,
                 actions,
             } = createHarness();
-            const comment = createComment('src:editor:0:transient-note');
+            const comment = createComment('transient-note');
             comment.source = 'editor';
             comment.id = 'transient-note';
             comment.subtype = 'FreeText';
@@ -414,7 +406,7 @@ describe('usePageAnnotationActions', () => {
                 viewer,
                 actions,
             } = createHarness();
-            const comment = createComment('src:editor:0:transient-note');
+            const comment = createComment('transient-note');
             comment.source = 'editor';
             comment.id = 'transient-note';
             comment.subtype = 'FreeText';
@@ -433,7 +425,7 @@ describe('usePageAnnotationActions', () => {
                 ...openedComment,
                 id: 'actual-editor',
                 uid: 'actual-editor',
-                stableKey: 'uid:0:actual-editor',
+                stableKey: 'ann:0:actual-editor',
                 text: 'Saved note text',
                 modifiedAt: Date.now() + 1_000,
             };
@@ -455,7 +447,7 @@ describe('usePageAnnotationActions', () => {
         expect(actions).not.toHaveProperty('undoLatestFreshAnnotationNoteCreation');
     });
 
-    it('starts quick note placement without creating a selection-based note', async () => {
+    it('selects the canonical note tool without creating a selection-based note', async () => {
         const {
             deps,
             viewer,
@@ -468,9 +460,7 @@ describe('usePageAnnotationActions', () => {
         await actions.handleQuickNoteAction();
 
         expect(viewer.commentSelection).not.toHaveBeenCalled();
-        expect(viewer.startCommentPlacement).toHaveBeenCalledOnce();
-        expect(deps.annotationPlacingPageNote.value).toBe(true);
-        expect(deps.annotationTool.value).toBe('none');
+        expect(deps.annotationTool.value).toBe('note');
         expect(deps.dragMode.value).toBe(false);
         expect(deps.showSidebar.value).toBe(true);
         expect(deps.sidebarTab.value).toBe('bookmarks');
@@ -709,45 +699,8 @@ describe('usePageAnnotationActions', () => {
                 }),
                 '#ef4444',
             );
-            expect(deps.setPreservedAnnotationSourceDirty).toHaveBeenCalledWith(true);
-            expect(deps.setPreservedAnnotationSourceDirty).toHaveBeenCalledWith(false);
         },
     );
-
-    it('uses rendered materialized color as undo baseline when the cached comment has no color', () => {
-        const {
-            deps,
-            viewer,
-            viewerContainer,
-            actions,
-        } = createHarness();
-        viewerContainer.value = {
-            addEventListener: vi.fn(),
-            removeEventListener: vi.fn(),
-            querySelector: vi.fn(() => null),
-        };
-        resolveAnnotationCommentTextMarkupColor.mockReturnValue('#ef4444');
-        const comment = createComment('context-color-rendered-baseline');
-        comment.subtype = 'Highlight';
-        comment.color = null;
-        deps.annotationContextMenu.value.comment = comment;
-
-        actions.handleContextTextMarkupColorUpdate('#22c55e');
-
-        expect(viewer.registerAnnotationHistoryCommand).toHaveBeenCalledOnce();
-        const historyCommand = viewer.registerAnnotationHistoryCommand.mock.calls[0]?.[0];
-        historyCommand?.undo();
-        expect(viewer.updateTextMarkupAnnotationColor).toHaveBeenLastCalledWith(
-            expect.objectContaining({
-                stableKey: comment.stableKey,
-                color: '#22c55e',
-                colorEdited: false,
-            }),
-            '#ef4444',
-        );
-        expect(deps.setPreservedAnnotationSourceDirty).toHaveBeenLastCalledWith(false);
-        expect(deps.loadPdfFromData).not.toHaveBeenCalled();
-    });
 
     it('keeps rapid materialized text markup color updates latest-wins without reload', () => {
         const {
@@ -874,6 +827,27 @@ describe('usePageAnnotationActions', () => {
         );
     });
 
+    it('uses the viewer current page for clipboard placement when no explicit target is supplied', async () => {
+        const {
+            deps,
+            viewer,
+            actions,
+        } = createHarness();
+        viewer.getCurrentPage.mockReturnValue(31);
+        vi.stubGlobal('navigator', {clipboard: {read: vi.fn(async () => [{
+            types: ['image/jpeg'],
+            getType: vi.fn(async () => new Blob([Uint8Array.of(1, 2, 3)], {type: 'image/jpeg'})),
+        }])}});
+
+        await actions.pasteImageFromClipboardAt();
+
+        expect(viewer.startImagePlacement).toHaveBeenCalledWith(
+            expect.any(File),
+            {pageNumber: 31},
+        );
+        expect(deps.closeAnnotationContextMenu).toHaveBeenCalledOnce();
+    });
+
     it('contains image picker read failures without tearing down the document workspace', async () => {
         const {
             viewer,
@@ -989,7 +963,7 @@ describe('usePageAnnotationActions', () => {
         } = createHarness();
         deps.workingCopyPath.value = '/tmp/large-work.pdf';
         const appliedMutations: string[] = [];
-        deps.materializeAnnotationsForPageMutation.mockImplementationOnce(async () => {
+        deps.saveAnnotationsForPageMutation.mockImplementationOnce(async () => {
             if (pendingAnnotations) {
                 appliedMutations.push('annotations');
             }
@@ -1008,7 +982,7 @@ describe('usePageAnnotationActions', () => {
         const finalized = await actions.handleFinalizePlacedImage(placedImagePayload(90));
 
         expect(finalized).toBe(true);
-        expect(deps.materializeAnnotationsForPageMutation).toHaveBeenCalledOnce();
+        expect(deps.saveAnnotationsForPageMutation).toHaveBeenCalledOnce();
         expect(deps.getEmbeddedMutationBaseData).not.toHaveBeenCalled();
         expect(deps.embedPlacedImageToPage).toHaveBeenCalledWith(null, expect.any(Object));
         expect(deps.loadPdfFromPath).toHaveBeenCalledWith('/tmp/large-work.pdf', {markDirty: true});
@@ -1381,7 +1355,7 @@ describe('usePageAnnotationActions', () => {
             viewer,
             actions,
         } = createHarness();
-        const comment = createComment('uid:0:pdfjs_internal_editor_0');
+        const comment = createComment('pdfjs_internal_editor_0');
         comment.source = 'editor';
         comment.annotationId = 'pdfjs_internal_editor_0';
         comment.uid = 'pdfjs_internal_editor_0';
@@ -1507,51 +1481,6 @@ describe('usePageAnnotationActions', () => {
         await actions.handleDeleteAnnotationComment(comment);
 
         expect(viewer.deleteEmbeddedAnnotationDeferred).toHaveBeenCalledWith(comment);
-    });
-
-    it('reloads current page from serialized data for embedded fallback', async () => {
-        const {
-            deps,
-            actions,
-        } = createHarness();
-
-        const didReload = await actions.serializeCurrentPdfForEmbeddedFallback();
-
-        expect(didReload).toBe(true);
-        expect(deps.waitForPdfReload).toHaveBeenCalledWith(3);
-        expect(deps.loadPdfFromData).toHaveBeenCalledWith(Uint8Array.of(9, 9), {
-            pushHistory: true,
-            persistWorkingCopy: true,
-        });
-    });
-
-    it('runs embedded fallback working-copy reloads through the document operation lease', async () => {
-        const {
-            deps,
-            actions,
-        } = createHarness();
-        const leaseGate = Promise.withResolvers<undefined>();
-        deps.runWithDocumentOperationLease.mockImplementationOnce(async <T>(
-            kind: TDocumentOperationKind,
-            operation: () => Promise<T>,
-        ) => {
-            expect(kind).toBe('page-operation');
-            await leaseGate.promise;
-            return operation();
-        });
-
-        const reloadPromise = actions.serializeCurrentPdfForEmbeddedFallback();
-        await Promise.resolve();
-
-        expect(deps.runWithDocumentOperationLease).toHaveBeenCalledWith('page-operation', expect.any(Function));
-        expect(deps.loadPdfFromData).not.toHaveBeenCalled();
-
-        leaseGate.resolve(undefined);
-        await expect(reloadPromise).resolves.toBe(true);
-        expect(deps.loadPdfFromData).toHaveBeenCalledWith(Uint8Array.of(9, 9), {
-            pushHistory: true,
-            persistWorkingCopy: true,
-        });
     });
 
 });

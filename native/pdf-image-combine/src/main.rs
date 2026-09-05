@@ -12,14 +12,15 @@ use evb_native_support::{
     bounded_io::{deserialize_bounded_vec, read_file_bounded},
     generated_native_tool_protocols::PDF_IMAGE_COMBINE,
     output::{AtomicOutput, ValidatedInputFiles},
+    pdf_catalog::deserialize_bounded_bookmark_items,
     NativeError, NativeErrorCode,
 };
 use evb_pdf_image_combine::{
     combine_tiff_paths, encode_netpbm_path_as_png_with_dpi, probe_netpbm_path, write_pdf,
-    FramePolicy, ImageCompression, ImageProcessing, ImageSpec, InputSource, JpegSizeGuardrail,
-    PageSpec, PdfBilevelDecode, PdfBuildOptions, PdfImagePlacement, PdfPageSize, Result,
-    DEFAULT_MAX_BILEVEL_PIXELS, DEFAULT_MAX_IMAGE_PIXELS, MAX_WORKER_THREADS,
-    PDF_COMBINE_MAX_OUTPUT_BYTES,
+    BookmarkEntry, FramePolicy, ImageCompression, ImageProcessing, ImageSpec, InputSource,
+    JpegSizeGuardrail, PageLabelRange, PageSpec, PdfBilevelDecode, PdfBuildOptions,
+    PdfImagePlacement, PdfPageSize, Result, DEFAULT_MAX_BILEVEL_PIXELS, DEFAULT_MAX_IMAGE_PIXELS,
+    MAX_WORKER_THREADS, PDF_COMBINE_MAX_OUTPUT_BYTES,
 };
 use serde::Deserialize;
 
@@ -42,6 +43,7 @@ struct Config {
     output_format: OutputFormat,
     compact_manifest_path: Option<PathBuf>,
     shared_jbig2_symbols: bool,
+    rotations_file: Option<PathBuf>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -118,6 +120,8 @@ fn run(raw_args: Vec<String>) -> Result<()> {
             let stream = open_compact_manifest_jsonl(manifest_path, max_pages)?;
             let total = stream.page_count;
             let provenance_stamp_hex = stream.provenance_stamp_hex.clone();
+            let outlines = stream.outlines.clone();
+            let page_labels = stream.page_labels.clone();
             let started_at = Instant::now();
             return write_pdf_file_streaming(
                 stream,
@@ -143,6 +147,8 @@ fn run(raw_args: Vec<String>) -> Result<()> {
                         MAX_WORKER_THREADS as u64,
                     ) as usize,
                     enable_shared_symbol_encoding: config.shared_jbig2_symbols,
+                    outlines,
+                    page_labels,
                 },
                 total,
                 |processed| {
@@ -154,10 +160,15 @@ fn run(raw_args: Vec<String>) -> Result<()> {
         }
     }
 
-    let (page_specs, provenance_stamp_hex) =
+    let (mut page_specs, provenance_stamp_hex, outlines, page_labels) =
         if let Some(manifest_path) = &config.compact_manifest_path {
             let manifest = read_compact_manifest(manifest_path, max_pages)?;
-            (manifest.page_specs, manifest.provenance_stamp_hex)
+            (
+                manifest.page_specs,
+                manifest.provenance_stamp_hex,
+                manifest.outlines,
+                manifest.page_labels,
+            )
         } else {
             (
                 config
@@ -167,6 +178,7 @@ fn run(raw_args: Vec<String>) -> Result<()> {
                     .map(|source| PageSpec::Image {
                         page_size: None,
                         placement: None,
+                        rotation_degrees: 0,
                         image: ImageSpec {
                             source,
                             compression: ImageCompression::Auto,
@@ -177,8 +189,22 @@ fn run(raw_args: Vec<String>) -> Result<()> {
                     })
                     .collect(),
                 None,
+                Vec::new(),
+                Vec::new(),
             )
         };
+    if let Some(rotations_path) = &config.rotations_file {
+        let rotations = read_rotation_values(rotations_path, page_specs.len())?;
+        for (page_spec, rotation_degrees) in page_specs.iter_mut().zip(rotations) {
+            if let PageSpec::Image {
+                rotation_degrees: current,
+                ..
+            } = page_spec
+            {
+                *current = rotation_degrees;
+            }
+        }
+    }
     let total = page_specs.len();
     let started_at = Instant::now();
     write_pdf_file(
@@ -207,6 +233,8 @@ fn run(raw_args: Vec<String>) -> Result<()> {
                 MAX_WORKER_THREADS as u64,
             ) as usize,
             enable_shared_symbol_encoding: config.shared_jbig2_symbols,
+            outlines,
+            page_labels,
         },
         |processed| {
             if config.json_progress {
@@ -288,9 +316,11 @@ struct CompactManifestJsonl {
     path: PathBuf,
     page_count: usize,
     provenance_stamp_hex: Option<String>,
+    outlines: Vec<BookmarkEntry>,
+    page_labels: Vec<PageLabelRange>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct CompactManifestJsonlHeader {
     format: String,
@@ -298,6 +328,14 @@ struct CompactManifestJsonlHeader {
     page_count: usize,
     #[serde(default)]
     provenance_stamp_hex: Option<String>,
+    #[serde(
+        default,
+        alias = "bookmarks",
+        deserialize_with = "deserialize_bounded_bookmark_items"
+    )]
+    outlines: Vec<BookmarkEntry>,
+    #[serde(default)]
+    page_labels: Vec<PageLabelRange>,
 }
 
 struct CompactManifestJsonlIterator {
@@ -526,6 +564,7 @@ fn parse_args(mut args: impl Iterator<Item = String>, max_pages: usize) -> Resul
     let mut compact_manifest_path = None;
     let mut shared_jbig2_symbols = false;
     let mut reading_inputs = false;
+    let mut rotations_file = None;
 
     while let Some(arg) = args.next() {
         if reading_inputs {
@@ -549,6 +588,11 @@ fn parse_args(mut args: impl Iterator<Item = String>, max_pages: usize) -> Resul
             "--inputs-file" => {
                 let value = args.next().ok_or("Missing --inputs-file value")?;
                 input_paths.extend(read_input_paths_file(Path::new(&value), max_pages)?);
+            }
+            "--rotations-file" => {
+                rotations_file = Some(PathBuf::from(
+                    args.next().ok_or("Missing --rotations-file value")?,
+                ));
             }
             "--compact-manifest" => {
                 compact_manifest_path = Some(PathBuf::from(
@@ -594,6 +638,7 @@ fn parse_args(mut args: impl Iterator<Item = String>, max_pages: usize) -> Resul
         output_format,
         compact_manifest_path,
         shared_jbig2_symbols,
+        rotations_file,
     })
 }
 
@@ -630,9 +675,36 @@ fn read_input_paths_file(path: &Path, max_pages: usize) -> Result<Vec<PathBuf>> 
     Ok(paths)
 }
 
+fn read_rotation_values(path: &Path, expected: usize) -> Result<Vec<u16>> {
+    let bytes = read_file_bounded(path, MAX_SIDECAR_BYTES, "image rotation list")?;
+    let text = std::str::from_utf8(&bytes).map_err(|error| {
+        NativeError::new(
+            NativeErrorCode::InvalidRequest,
+            format!("Invalid image rotation list UTF-8: {error}"),
+        )
+    })?;
+    let values = text
+        .lines()
+        .map(|line| line.parse::<u16>())
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    if values.len() != expected
+        || values
+            .iter()
+            .any(|value| !matches!(value, 0 | 90 | 180 | 270))
+    {
+        return Err(
+            "Image rotation list must contain one value per input and only 0, 90, 180, or 270"
+                .into(),
+        );
+    }
+    Ok(values)
+}
+
 struct ParsedCompactManifest {
     page_specs: Vec<PageSpec<PathBuf>>,
     provenance_stamp_hex: Option<String>,
+    outlines: Vec<BookmarkEntry>,
+    page_labels: Vec<PageLabelRange>,
 }
 
 #[derive(Deserialize)]
@@ -640,6 +712,14 @@ struct ParsedCompactManifest {
 struct CompactManifestEnvelope {
     #[serde(default)]
     provenance_stamp_hex: Option<String>,
+    #[serde(
+        default,
+        alias = "bookmarks",
+        deserialize_with = "deserialize_bounded_bookmark_items"
+    )]
+    outlines: Vec<BookmarkEntry>,
+    #[serde(default)]
+    page_labels: Vec<PageLabelRange>,
     #[serde(deserialize_with = "deserialize_compact_manifest_pages")]
     pages: Vec<CompactManifestPage>,
 }
@@ -703,6 +783,8 @@ fn read_compact_manifest(path: &Path, max_pages: usize) -> Result<ParsedCompactM
         return Ok(ParsedCompactManifest {
             page_specs,
             provenance_stamp_hex: envelope.provenance_stamp_hex,
+            outlines: envelope.outlines,
+            page_labels: envelope.page_labels,
         });
     }
 
@@ -749,6 +831,8 @@ fn read_compact_manifest(path: &Path, max_pages: usize) -> Result<ParsedCompactM
     Ok(ParsedCompactManifest {
         page_specs,
         provenance_stamp_hex: None,
+        outlines: Vec::new(),
+        page_labels: Vec::new(),
     })
 }
 
@@ -850,6 +934,8 @@ fn open_compact_manifest_jsonl(path: &Path, max_pages: usize) -> Result<CompactM
         path: path.to_path_buf(),
         page_count: header.page_count,
         provenance_stamp_hex: header.provenance_stamp_hex,
+        outlines: header.outlines,
+        page_labels: header.page_labels,
     })
 }
 
@@ -870,6 +956,7 @@ fn parse_compact_manifest_line(
     let image = |source, compression, processing, size_guardrail, placement| PageSpec::Image {
         page_size: Some(page_size),
         placement,
+        rotation_degrees: 0,
         image: ImageSpec {
             source,
             compression,
@@ -1321,5 +1408,60 @@ mod tests {
         assert_eq!(parsed.page_specs.len(), 1);
         assert!(parsed.provenance_stamp_hex.is_none());
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn compact_manifest_header_preserves_catalog_metadata() {
+        let path = temp_manifest_path("catalog-header");
+        let header = serde_json::json!({
+            "format": COMPACT_MANIFEST_JSONL_FORMAT,
+            "schemaVersion": COMPACT_MANIFEST_JSONL_SCHEMA_VERSION,
+            "pageCount": 1,
+            "bookmarks": [{
+                "title": "Cover",
+                "pageIndex": 0,
+                "pageYRatio": null,
+                "namedDest": null,
+                "bold": false,
+                "italic": false,
+                "color": null,
+                "items": [],
+            }],
+            "pageLabels": [{
+                "startPage": 1,
+                "style": "D",
+                "prefix": "",
+                "startNumber": 1,
+            }],
+        });
+        std::fs::write(
+            &path,
+            format!("{}\n", serde_json::to_string(&header).unwrap()),
+        )
+        .unwrap();
+
+        let parsed = open_compact_manifest_jsonl(&path, 1).unwrap();
+
+        assert_eq!(parsed.outlines.len(), 1);
+        assert_eq!(parsed.outlines[0].page_index, Some(0));
+        assert_eq!(parsed.page_labels.len(), 1);
+        assert_eq!(parsed.page_labels[0].start_page, 1);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn compact_manifest_header_rejects_aggregate_bookmark_overflow() {
+        let header = serde_json::json!({
+            "format": COMPACT_MANIFEST_JSONL_FORMAT,
+            "schemaVersion": COMPACT_MANIFEST_JSONL_SCHEMA_VERSION,
+            "pageCount": 1,
+            "outlines": (0..=evb_native_support::pdf_catalog::MAX_BOOKMARK_ITEMS)
+                .map(|_| serde_json::json!({"title": "x", "pageIndex": 0}))
+                .collect::<Vec<_>>(),
+        });
+
+        let error = serde_json::from_value::<CompactManifestJsonlHeader>(header)
+            .expect_err("the manifest outline field must use the shared aggregate bound");
+        assert!(error.to_string().contains("item admission ceiling"));
     }
 }

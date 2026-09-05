@@ -49,7 +49,7 @@ describe('shapeAnnotationComments', () => {
 
         expect(summary).toMatchObject({
             id: 'shape-1',
-            stableKey: 'shape:2:evb-shape:stable-rect',
+            stableKey: 'nm:evb-shape:stable-rect',
             pageIndex: 2,
             pageNumber: 3,
             text: '',
@@ -85,7 +85,7 @@ describe('shapeAnnotationComments', () => {
         }));
 
         expect(summary.subtype).toBe('Arrow');
-        expect(summary.stableKey).toBe('shape:0:shape-arrow');
+        expect(summary.stableKey).toBe('ann:0:shape-arrow');
     });
 
     it('carries drawing timestamps into sidebar summaries', () => {

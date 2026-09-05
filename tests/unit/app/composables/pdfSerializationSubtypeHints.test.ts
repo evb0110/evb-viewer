@@ -4,8 +4,8 @@ import {
     it,
 } from 'vitest';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
-import { collectMarkupSubtypeHints } from '@app/modules/pdf-viewer/engine/pdf-serialization-subtype-hints/collectMarkupSubtypeHints';
-import { groupMarkupSubtypeHintsByPage } from '@app/modules/pdf-viewer/engine/pdf-serialization-subtype-hints/groupMarkupSubtypeHintsByPage';
+import { collectMarkupSubtypeHints } from '@app/modules/pdf-viewer/engine/annotation-subtype-hints/collectMarkupSubtypeHints';
+import { groupMarkupSubtypeHintsByPage } from '@app/modules/pdf-viewer/engine/annotation-subtype-hints/groupMarkupSubtypeHintsByPage';
 
 function createComment(overrides: Partial<IAnnotationCommentSummary>): IAnnotationCommentSummary {
     return {

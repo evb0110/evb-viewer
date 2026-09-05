@@ -21,8 +21,9 @@ fn appends_markup_subtype_rewrite_as_incremental_revision() {
         &NativeMutationsFile {
             updates: Vec::new(),
             geometry_updates: Vec::new(),
+            notes: Vec::new(),
             free_text_notes: Vec::new(),
-            free_text_editors: Vec::new(),
+            text_boxes: Vec::new(),
             deletes: Vec::new(),
             page_labels: None,
             bookmarks: None,
@@ -49,6 +50,7 @@ fn appends_markup_subtype_rewrite_as_incremental_revision() {
                 }],
             }),
             placed_images: Vec::new(),
+            placed_image_geometry_updates: Vec::new(),
             continuation: None,
         },
         "D:20260609123456+03'00'",
@@ -77,6 +79,90 @@ fn appends_markup_subtype_rewrite_as_incremental_revision() {
 
     let _ = remove_file(input_path);
     let _ = remove_file(output_path);
+}
+
+#[test]
+fn patches_highlight_without_dropping_rich_text_review_reply_or_unknown_keys() {
+    let (mut document, page_id, markup_id) = create_test_markup_pdf("Highlight");
+    let foreign_reply_id = document.new_object_id();
+    let markup = document.get_dictionary_mut(markup_id).unwrap();
+    markup.set("RC", Object::string_literal("<p>rich text</p>"));
+    markup.set("State", Object::Name(b"Accepted".to_vec()));
+    markup.set("IRT", Object::Reference(foreign_reply_id));
+    markup.set(
+        "UnknownKey",
+        Object::String(vec![1, 2, 3], StringFormat::Hexadecimal),
+    );
+    let before = markup.clone();
+    let page_view = resolve_page_view(&document, page_id).unwrap();
+    let candidate = create_markup_candidate(&document, page_view, 0, markup_id, 0).unwrap();
+
+    assert!(apply_markup_rewrite_to_object(
+        &mut document,
+        &candidate,
+        "Highlight",
+        Some("#00ff00"),
+        Some("updated contents"),
+        Some("markup-preserve"),
+        "D:20260831130000Z",
+    )
+    .unwrap());
+
+    let after = document.get_dictionary(markup_id).unwrap();
+    assert_unowned_keys_unchanged(
+        &before,
+        after,
+        &[b"C", b"CA", b"AP", b"Contents", b"M", b"NM"],
+    )
+    .unwrap();
+    assert_eq!(read_annotation_name(after).as_deref(), Some("markup-preserve"));
+}
+
+#[test]
+fn resolves_a_legacy_markup_prefix_without_rewriting_it() {
+    let (mut document, page_id, markup_id) = create_test_markup_pdf("Highlight");
+    document
+        .get_dictionary_mut(markup_id)
+        .unwrap()
+        .set("NM", Object::string_literal("evb-markup:legacy-markup"));
+    let page_view = resolve_page_view(&document, page_id).unwrap();
+    let candidate = create_markup_candidate(&document, page_view, 0, markup_id, 0).unwrap();
+    let hint = MarkupSubtypeHint {
+        subtype: "Underline".to_string(),
+        page_index: 0,
+        marker_rect: MarkerRect {
+            left: 0.1,
+            top: 0.5,
+            width: 0.4,
+            height: 0.3,
+        },
+        markup_geometry: None,
+        app_annotation_id: None,
+        annotation_id: None,
+        color: Some("#00ff00".to_string()),
+        contents: None,
+        id: Some("legacy-markup".to_string()),
+        page_markup_index: Some(0),
+        source: Some("editor".to_string()),
+    };
+    let mut states = vec![MarkupHintState {
+        annotation_ref: None,
+        color: None,
+        hint,
+        consumed: false,
+    }];
+    assert!(rewrite_page_markup_subtypes(
+        &mut document,
+        &[candidate],
+        &HashMap::new(),
+        &mut states,
+        "D:20260831130000Z",
+    )
+    .unwrap());
+    assert!(states[0].consumed);
+    let after = document.get_dictionary(markup_id).unwrap();
+    assert_eq!(read_annotation_name(after).as_deref(), Some("evb-markup:legacy-markup"));
+    assert_eq!(canonical_markup_subtype(after).as_deref(), Some("Underline"));
 }
 
 #[test]
@@ -271,14 +357,14 @@ fn emits_exact_identity_binding_for_new_native_markup() {
     let object_id = annots[0].as_reference().unwrap();
     assert_eq!(
         bindings[0],
-        MarkupIdentityBinding {
+        AnnotationIdentityBinding {
             annotation_id: "app-annotation-1".to_string(),
             pdf_ref: format!("{} {} R", object_id.0, object_id.1),
         }
     );
 
     let report_path = temp_pdf_path("markup-identity-report").with_extension("json");
-    write_markup_identity_bindings_report(&report_path, &bindings).unwrap();
+    write_annotation_identity_bindings_report(&report_path, &bindings).unwrap();
     assert_eq!(
         read(&report_path).unwrap(),
         format!(
@@ -329,34 +415,34 @@ fn rejects_new_native_markup_without_a_canonical_identity_binding() {
 #[test]
 fn rejects_malformed_or_duplicate_native_markup_identity_reports() {
     let report_path = temp_pdf_path("invalid-markup-identity-report").with_extension("json");
-    let reject = |bindings: Vec<MarkupIdentityBinding>| {
-        assert!(write_markup_identity_bindings_report(&report_path, &bindings).is_err());
+    let reject = |bindings: Vec<AnnotationIdentityBinding>| {
+        assert!(write_annotation_identity_bindings_report(&report_path, &bindings).is_err());
     };
 
-    reject(vec![MarkupIdentityBinding {
+    reject(vec![AnnotationIdentityBinding {
         annotation_id: String::new(),
         pdf_ref: "700 0 R".to_string(),
     }]);
-    reject(vec![MarkupIdentityBinding {
+    reject(vec![AnnotationIdentityBinding {
         annotation_id: "app-annotation-1".to_string(),
         pdf_ref: "700R".to_string(),
     }]);
     reject(vec![
-        MarkupIdentityBinding {
+        AnnotationIdentityBinding {
             annotation_id: "app-annotation-1".to_string(),
             pdf_ref: "700 0 R".to_string(),
         },
-        MarkupIdentityBinding {
+        AnnotationIdentityBinding {
             annotation_id: "app-annotation-1".to_string(),
             pdf_ref: "701 0 R".to_string(),
         },
     ]);
     reject(vec![
-        MarkupIdentityBinding {
+        AnnotationIdentityBinding {
             annotation_id: "app-annotation-1".to_string(),
             pdf_ref: "700 0 R".to_string(),
         },
-        MarkupIdentityBinding {
+        AnnotationIdentityBinding {
             annotation_id: "app-annotation-2".to_string(),
             pdf_ref: "700 0 R".to_string(),
         },
@@ -382,8 +468,9 @@ fn appends_and_upserts_all_new_text_markup_subtypes() {
     let mutation = NativeMutationsFile {
         updates: Vec::new(),
         geometry_updates: Vec::new(),
+        notes: Vec::new(),
         free_text_notes: Vec::new(),
-        free_text_editors: Vec::new(),
+        text_boxes: Vec::new(),
         deletes: Vec::new(),
         page_labels: None,
         bookmarks: None,
@@ -413,6 +500,7 @@ fn appends_and_upserts_all_new_text_markup_subtypes() {
             .collect(),
         }),
         placed_images: Vec::new(),
+        placed_image_geometry_updates: Vec::new(),
         continuation: None,
     };
 
@@ -442,7 +530,7 @@ fn appends_and_upserts_all_new_text_markup_subtypes() {
         assert_eq!(canonical_markup_subtype(annotation).as_deref(), Some(subtype));
         assert_eq!(
             pdf_string_to_text(annotation.get(b"NM").unwrap()).as_deref(),
-            Some(format!("evb-markup:{id}").as_str())
+            Some(id)
         );
         assert!(annotation.get(b"QuadPoints").is_ok());
         let quad_points = read_markup_quad_points(&loaded, annotation).unwrap();
@@ -472,8 +560,9 @@ fn appends_highlight_color_rewrite_as_display_rgb() {
         &NativeMutationsFile {
             updates: Vec::new(),
             geometry_updates: Vec::new(),
+            notes: Vec::new(),
             free_text_notes: Vec::new(),
-            free_text_editors: Vec::new(),
+            text_boxes: Vec::new(),
             deletes: Vec::new(),
             page_labels: None,
             bookmarks: None,
@@ -500,6 +589,7 @@ fn appends_highlight_color_rewrite_as_display_rgb() {
                 }],
             }),
             placed_images: Vec::new(),
+            placed_image_geometry_updates: Vec::new(),
             continuation: None,
         },
         "D:20260609123456+03'00'",
@@ -599,7 +689,7 @@ fn recreates_managed_markup_after_an_incremental_delete_retired_its_object() {
             .ok()
             .and_then(pdf_string_to_text)
             .as_deref(),
-        Some("evb-markup:9R"),
+        Some("9R"),
     );
 
     let _ = remove_file(pdf_path);
@@ -700,6 +790,34 @@ fn rewrites_imported_markup_note_text_and_linked_popup_in_memory() {
     .unwrap();
 
     assert_markup_note_and_popup(&document, markup_id, popup_id);
+}
+
+#[test]
+fn rewrites_imported_markup_using_the_canonical_identity_when_id_is_a_pdf_ref() {
+    let (mut document, _page_id, markup_id) = create_test_markup_pdf("Highlight");
+    document
+        .get_dictionary_mut(markup_id)
+        .unwrap()
+        .set("NM", Object::string_literal("canonical-markup-id"));
+
+    let mut mutation = imported_markup_note_mutation(markup_id);
+    let hint = mutation
+        .markup
+        .as_mut()
+        .expect("markup mutation exists")
+        .hints
+        .first_mut()
+        .expect("markup hint exists");
+    hint.app_annotation_id = Some("canonical-markup-id".to_string());
+    hint.id = Some(format_pdfjs_annotation_ref(markup_id));
+
+    apply_native_mutations(&mut document, &mutation, "D:20260829120500+04'00'").unwrap();
+
+    let markup = document.get_dictionary(markup_id).unwrap();
+    assert_eq!(
+        markup.get(b"Contents").ok().and_then(pdf_string_to_text).as_deref(),
+        Some("edited imported markup note"),
+    );
 }
 
 #[test]
@@ -927,8 +1045,9 @@ fn appends_managed_shape_as_incremental_revision() {
         &NativeMutationsFile {
             updates: Vec::new(),
             geometry_updates: Vec::new(),
+            notes: Vec::new(),
             free_text_notes: Vec::new(),
-            free_text_editors: Vec::new(),
+            text_boxes: Vec::new(),
             deletes: Vec::new(),
             page_labels: None,
             bookmarks: None,
@@ -941,6 +1060,7 @@ fn appends_managed_shape_as_incremental_revision() {
             }),
             markup: None,
             placed_images: Vec::new(),
+            placed_image_geometry_updates: Vec::new(),
             continuation: None,
         },
         "D:20260609123456+03'00'",
@@ -991,8 +1111,9 @@ fn appends_ink_with_a_preview_compatible_normal_appearance() {
         &NativeMutationsFile {
             updates: Vec::new(),
             geometry_updates: Vec::new(),
+            notes: Vec::new(),
             free_text_notes: Vec::new(),
-            free_text_editors: Vec::new(),
+            text_boxes: Vec::new(),
             deletes: Vec::new(),
             page_labels: None,
             bookmarks: None,
@@ -1005,6 +1126,7 @@ fn appends_ink_with_a_preview_compatible_normal_appearance() {
             }),
             markup: None,
             placed_images: Vec::new(),
+            placed_image_geometry_updates: Vec::new(),
             continuation: None,
         },
         "D:20260609123456+03'00'",
@@ -1276,8 +1398,9 @@ fn updates_and_deletes_managed_shapes_as_incremental_revision() {
         &NativeMutationsFile {
             updates: Vec::new(),
             geometry_updates: Vec::new(),
+            notes: Vec::new(),
             free_text_notes: Vec::new(),
-            free_text_editors: Vec::new(),
+            text_boxes: Vec::new(),
             deletes: Vec::new(),
             page_labels: None,
             bookmarks: None,
@@ -1293,6 +1416,7 @@ fn updates_and_deletes_managed_shapes_as_incremental_revision() {
             }),
             markup: None,
             placed_images: Vec::new(),
+            placed_image_geometry_updates: Vec::new(),
             continuation: None,
         },
         "D:20260609123456+03'00'",
@@ -1308,8 +1432,9 @@ fn updates_and_deletes_managed_shapes_as_incremental_revision() {
         &NativeMutationsFile {
             updates: Vec::new(),
             geometry_updates: Vec::new(),
+            notes: Vec::new(),
             free_text_notes: Vec::new(),
-            free_text_editors: Vec::new(),
+            text_boxes: Vec::new(),
             deletes: Vec::new(),
             page_labels: None,
             bookmarks: None,
@@ -1322,6 +1447,7 @@ fn updates_and_deletes_managed_shapes_as_incremental_revision() {
             }),
             markup: None,
             placed_images: Vec::new(),
+            placed_image_geometry_updates: Vec::new(),
             continuation: None,
         },
         "D:20260609123500+03'00'",
@@ -1362,6 +1488,136 @@ fn updates_and_deletes_managed_shapes_as_incremental_revision() {
 }
 
 #[test]
+fn deletes_explicit_shapes_without_page_backrefs_from_full_and_incremental_documents() {
+    let (mut document, page_id) = create_test_document();
+    let mut shape = shape_with_stale_appearance("Square");
+    shape.set("NM", Object::string_literal("shape-without-page"));
+    let shape_id = document.add_object(Object::Dictionary(shape));
+    document
+        .get_dictionary_mut(page_id)
+        .unwrap()
+        .set("Annots", vec![Object::Reference(shape_id)]);
+    apply_shape_annotations(
+        &mut document,
+        &ShapesMutation {
+            total_pages: 1,
+            rewrite_shape_state: true,
+            shapes: Vec::new(),
+            deleted_annotation_ids: vec![format_pdfjs_annotation_ref(shape_id)],
+            deleted_stable_keys: Vec::new(),
+        },
+        "D:20260831130000Z",
+        &mut None,
+    )
+    .unwrap();
+    assert!(get_page_annots(&document, page_id).unwrap().is_empty());
+
+    let (mut document, page_id) = create_test_document();
+    let mut shape = shape_with_stale_appearance("Square");
+    shape.set(
+        "NM",
+        Object::string_literal("shape-without-page-incremental"),
+    );
+    let shape_id = document.add_object(Object::Dictionary(shape));
+    document
+        .get_dictionary_mut(page_id)
+        .unwrap()
+        .set("Annots", vec![Object::Reference(shape_id)]);
+    let mut incremental = IncrementalDocument::from_document(document, 0, None);
+    apply_shape_annotations_incremental(
+        &mut incremental,
+        &ShapesMutation {
+            total_pages: 1,
+            rewrite_shape_state: true,
+            shapes: Vec::new(),
+            deleted_annotation_ids: vec![format_pdfjs_annotation_ref(shape_id)],
+            deleted_stable_keys: Vec::new(),
+        },
+        "D:20260831130000Z",
+        &mut None,
+    )
+    .unwrap();
+    let revision = AppendedRevision::new(&incremental);
+    assert!(get_page_annots(&revision, page_id).unwrap().is_empty());
+}
+
+#[test]
+fn patches_a_bare_shape_without_dropping_rich_text_review_reply_or_unknown_keys() {
+    let (mut document, page_id) = create_test_document();
+    let mut shape = shape_with_stale_appearance("Square");
+    shape.set("NM", Object::string_literal("bare-shape"));
+    shape.set("RC", Object::string_literal("<p>rich shape</p>"));
+    shape.set("State", Object::Name(b"Accepted".to_vec()));
+    shape.set("IRT", Object::Reference((900, 0)));
+    shape.set("UnknownKey", Object::Integer(77));
+    let shape_id = document.add_object(Object::Dictionary(shape));
+    document
+        .get_dictionary_mut(page_id)
+        .unwrap()
+        .set("Annots", vec![Object::Reference(shape_id)]);
+    let before = document.get_dictionary(shape_id).unwrap().clone();
+    let mut requested = rectangle_shape("bare-shape", "#112233");
+    requested.annotation_id = Some(format_pdfjs_annotation_ref(shape_id));
+
+    apply_shape_annotations(
+        &mut document,
+        &ShapesMutation {
+            total_pages: 1,
+            rewrite_shape_state: true,
+            shapes: vec![requested],
+            deleted_annotation_ids: Vec::new(),
+            deleted_stable_keys: Vec::new(),
+        },
+        "D:20260831130000Z",
+        &mut None,
+    )
+    .unwrap();
+
+    let after = document.get_dictionary(shape_id).unwrap();
+    assert_unowned_keys_unchanged(
+        &before,
+        after,
+        &[
+            b"P",
+            b"Rect",
+            b"C",
+            b"CA",
+            b"Border",
+            b"IC",
+            b"AP",
+            b"CreationDate",
+            b"M",
+            b"NM",
+            b"EVBShapeKey",
+        ],
+    )
+    .unwrap();
+    assert_eq!(read_annotation_name(after).as_deref(), Some("bare-shape"));
+}
+
+#[test]
+fn writes_the_supplied_shape_identity_to_nm_without_a_generated_prefix() {
+    let shape = rectangle_shape("shape-created-bare", "#112233");
+    let dict = create_shape_annotation_dict(
+        &shape,
+        PdfRect {
+            x1: 0.0,
+            y1: 0.0,
+            x2: 200.0,
+            y2: 100.0,
+        },
+        0,
+        "D:20260831130000Z",
+    )
+    .unwrap();
+    assert_eq!(
+        read_annotation_name(&dict).as_deref(),
+        Some("shape-created-bare")
+    );
+    assert!(read_managed_shape_stable_key(&dict).is_none());
+}
+
+#[test]
 fn deletes_high_index_shapes_by_evb_key_or_managed_nm_without_a_page_walk() {
     for (stable_key, use_private_key) in [
         ("evb-shape:delete-high-index-private", true),
@@ -1395,7 +1651,8 @@ fn deletes_high_index_shapes_by_evb_key_or_managed_nm_without_a_page_walk() {
                 deleted_stable_keys: vec![stable_key.to_string()],
             },
             "D:20260609123456Z",
-        )
+        &mut None,
+)
         .unwrap();
         assert!(get_page_annots(&document, last_page_id).unwrap().is_empty());
         assert!(
@@ -1432,7 +1689,8 @@ fn deletes_high_index_shapes_by_evb_key_or_managed_nm_without_a_page_walk() {
                 deleted_stable_keys: vec![stable_key.to_string()],
             },
             "D:20260609123456Z",
-        )
+        &mut None,
+)
         .unwrap();
         let revision = AppendedRevision::new(&incremental);
         assert!(get_page_annots(&revision, last_page_id).unwrap().is_empty());
@@ -1550,8 +1808,9 @@ fn shapes_mutation(shapes: Vec<ShapeAnnotation>) -> NativeMutationsFile {
     NativeMutationsFile {
         updates: Vec::new(),
         geometry_updates: Vec::new(),
+        notes: Vec::new(),
         free_text_notes: Vec::new(),
-        free_text_editors: Vec::new(),
+        text_boxes: Vec::new(),
         deletes: Vec::new(),
         page_labels: None,
         bookmarks: None,
@@ -1564,6 +1823,7 @@ fn shapes_mutation(shapes: Vec<ShapeAnnotation>) -> NativeMutationsFile {
         }),
         markup: None,
         placed_images: Vec::new(),
+        placed_image_geometry_updates: Vec::new(),
         continuation: None,
     }
 }
@@ -1952,7 +2212,8 @@ fn removes_stale_appearance_on_the_full_rewrite_shape_route() {
             deleted_stable_keys: Vec::new(),
         },
         "D:20260609123456+03'00'",
-    )
+    &mut None,
+)
     .unwrap();
 
     assert!(shape_dict(&document, "evb-shape:stale-full-rewrite-square")
@@ -1979,7 +2240,8 @@ fn keeps_the_source_rect_on_the_full_rewrite_shape_route() {
             deleted_stable_keys: Vec::new(),
         },
         "D:20260609123456+03'00'",
-    )
+    &mut None,
+)
     .unwrap();
 
     assert_eq!(
@@ -2070,7 +2332,8 @@ fn keeps_the_source_rect_of_an_untouched_off_page_circle_on_the_full_rewrite_rou
             deleted_stable_keys: Vec::new(),
         },
         "D:20260609123456+03'00'",
-    )
+    &mut None,
+)
     .unwrap();
 
     assert_eq!(
@@ -2165,7 +2428,8 @@ fn keeps_an_indirect_source_rect_on_the_full_rewrite_shape_route() {
             deleted_stable_keys: Vec::new(),
         },
         "D:20260609123456+03'00'",
-    )
+    &mut None,
+)
     .unwrap();
 
     assert_eq!(
@@ -2194,7 +2458,8 @@ fn rewrites_an_indirect_source_rect_when_the_shape_moved() {
             deleted_stable_keys: Vec::new(),
         },
         "D:20260609123456+03'00'",
-    )
+    &mut None,
+)
     .unwrap();
 
     let rect = resolved_shape_rect_values(&document, object_id);

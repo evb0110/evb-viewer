@@ -12,7 +12,7 @@ import {
     isAbortError,
 } from '@electron/utils/abort';
 import { getErrorMessage } from '@electron/utils/error';
-import { assembleSearchablePageText } from '@pdf-core';
+import { assembleSearchablePageText } from '@pdf-core/pdfSearchCore';
 import type { IPageText } from '@electron/search/pageText';
 
 const log = createLogger('pdfTextExtractor');

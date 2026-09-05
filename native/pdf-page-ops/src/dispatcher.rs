@@ -72,6 +72,14 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
                 config.qpdf_path.as_deref(),
             )
         }
+        Operation::ParseAnnotations { modified_at } => {
+            return write_annotation_parse_path(
+                &config.input_path,
+                &config.output_path,
+                modified_at,
+                config.qpdf_path.as_deref(),
+            )
+        }
         Operation::PageSizes => {
             return write_page_sizes_path(
                 &config.input_path,
@@ -86,11 +94,25 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
                 config.qpdf_path.as_deref(),
             )
         }
+        Operation::Decrypt { password_file } => {
+            return write_decrypted_pdf_path(
+                &config.input_path,
+                &config.output_path,
+                password_file.as_deref(),
+            );
+        }
         Operation::PageGeometry { page_number } => {
             return write_page_geometry_path(
                 &config.input_path,
                 &config.output_path,
                 *page_number,
+                config.qpdf_path.as_deref(),
+            )
+        }
+        Operation::ReadCatalog => {
+            return write_pdf_combine_catalog_path(
+                &config.input_path,
+                &config.output_path,
                 config.qpdf_path.as_deref(),
             )
         }
@@ -196,6 +218,7 @@ fn read_append_mutations(operation: &Operation) -> Result<Option<(NativeMutation
             (
                 NativeMutationsFile {
                     updates: changes.updates,
+                    notes: changes.notes,
                     free_text_notes: changes.free_text_notes,
                     deletes: changes.deletes,
                     ..NativeMutationsFile::default()
@@ -238,6 +261,7 @@ fn read_non_append_mutations(operation: &Operation) -> Result<Option<(NativeMuta
             (
                 NativeMutationsFile {
                     updates: changes.updates,
+                    notes: changes.notes,
                     free_text_notes: changes.free_text_notes,
                     deletes: changes.deletes,
                     ..NativeMutationsFile::default()

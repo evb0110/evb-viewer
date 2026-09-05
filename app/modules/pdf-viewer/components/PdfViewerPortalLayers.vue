@@ -1,14 +1,4 @@
 <template>
-    <template v-for="[pageNum, markers] in markersByPage" :key="`markers-${pageNum}`">
-        <Teleport v-if="markerLayerTargets.get(pageNum)" :to="markerLayerTargets.get(pageNum)!">
-            <PdfCommentMarkerLayer
-                :markers="markers"
-                @open-note="handleOpenNote"
-                @context-menu="handleContextMenu"
-                @move-marker="handleMoveMarker"
-            />
-        </Teleport>
-    </template>
     <template v-for="(links, pageNum) in linksByPage" :key="`links-${pageNum}`">
         <Teleport v-if="linkLayerTargets.get(Number(pageNum))" :to="linkLayerTargets.get(Number(pageNum))!">
             <PdfLinkOverlayLayer
@@ -21,59 +11,29 @@
 
 <script setup lang="ts">
 import { useMutationObserver } from '@vueuse/core';
-import PdfCommentMarkerLayer from '@app/modules/pdf-viewer/components/annotations/PdfCommentMarkerLayer.vue';
 import PdfLinkOverlayLayer from '@app/modules/pdf-viewer/components/annotations/PdfLinkOverlayLayer.vue';
 import { resolvePdfViewerPortalTargets } from '@app/modules/pdf-viewer/runtime/portal/resolvePdfViewerPortalTargets';
-import type {
-    IAnnotationCommentSummary,
-    IAnnotationMarkerRect,
-    ILinkAnnotation,
-} from '@app/types/annotations';
-import type { IMarkerViewModel } from '@app/modules/pdf-viewer/engine/annotations/types';
+import type { ILinkAnnotation } from '@app/types/annotations';
 
 interface IProps {
     viewerContainer: HTMLElement | null;
-    markersByPage: Map<number, IMarkerViewModel[]>;
     linksByPage: Record<number, ILinkAnnotation[]>;
 }
 
 const {
     linksByPage,
-    markersByPage,
     viewerContainer,
 } = defineProps<IProps>();
 
-const emit = defineEmits<{
-    'open-note': [comment: IAnnotationCommentSummary];
-    'context-menu': [comment: IAnnotationCommentSummary, event: MouseEvent];
-    'move-marker': [comment: IAnnotationCommentSummary, markerRect: IAnnotationMarkerRect];
-    'link-destination': [dest: NonNullable<ILinkAnnotation['dest']>];
-}>();
+const emit = defineEmits<{'link-destination': [dest: NonNullable<ILinkAnnotation['dest']>];}>();
 
 const portalTargetRefreshTick = ref(0);
 let portalTargetRefreshFrame: number | null = null;
-
-const markerLayerTargets = computed(() => {
-    void portalTargetRefreshTick.value;
-    return resolvePdfViewerPortalTargets(viewerContainer, [...markersByPage.keys()]);
-});
 
 const linkLayerTargets = computed(() => {
     void portalTargetRefreshTick.value;
     return resolvePdfViewerPortalTargets(viewerContainer, Object.keys(linksByPage).map(Number));
 });
-
-function handleOpenNote(comment: IAnnotationCommentSummary) {
-    emit('open-note', comment);
-}
-
-function handleContextMenu(comment: IAnnotationCommentSummary, event: MouseEvent) {
-    emit('context-menu', comment, event);
-}
-
-function handleMoveMarker(comment: IAnnotationCommentSummary, markerRect: IAnnotationMarkerRect) {
-    emit('move-marker', comment, markerRect);
-}
 
 function handleLinkDestination(dest: NonNullable<ILinkAnnotation['dest']>) {
     emit('link-destination', dest);

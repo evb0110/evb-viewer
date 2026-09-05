@@ -13,6 +13,7 @@ import { isFiniteNumber } from '@contracts/runtimeGuards';
  * See `docs/freetext-note-persistence.md` for why the save pipeline rewrites
  * app note rects down to this shape.
  */
+// fallow-ignore-next-line unused-export
 export const POINT_NOTE_MARKER_MAX_NORMALIZED_SIZE = 0.02;
 
 /**
@@ -21,6 +22,7 @@ export const POINT_NOTE_MARKER_MAX_NORMALIZED_SIZE = 0.02;
  * comparison absorbs that noise and stays far below any authored size: the
  * documented non-marker example `0.020001` is still rejected.
  */
+// fallow-ignore-next-line unused-export
 export const POINT_NOTE_MARKER_SIZE_ROUNDING_TOLERANCE = Number.EPSILON * 16;
 
 const POINT_NOTE_MARKER_SIZE_LIMIT

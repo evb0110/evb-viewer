@@ -39,7 +39,6 @@ type TWholeDocumentPrimitive =
   | 'readDocumentBytes'
   | 'PDFDocument.load'
   | 'PDF.js getData'
-  | 'PDF.js saveDocument'
   | 'fs.readFile'
   | 'fs.readFileSync'
   | 'Blob/File.arrayBuffer';
@@ -81,21 +80,9 @@ const WHOLE_DOCUMENT_ALLOWLIST: readonly IWholeDocumentAllowlistEntry[] = [
     },
     {
         module:
-      'app/modules/pdf-viewer/engine/pdf-serialization-worker-client/runSerializationWorkerRequest.ts',
+      'app/modules/pdf-viewer/runtime/composables/pdf/pdfDocumentPersistence.ts',
         primitive: 'readDocumentBytes',
         occurrences: 1,
-        maximumBytesClassifier:
-      'BROWSER_MAX_FULL_READ_BYTES, 16 MiB byte compatibility cap; native reload rejects before reading',
-        reason:
-      'A disposable serialization worker failure reloads the exact working copy into a JS request.',
-        removalCondition:
-      'Remove the reload when native or worker serialization accepts the path and fails with a typed capability error.',
-    },
-    {
-        module:
-      'app/modules/pdf-viewer/runtime/composables/pdf/usePdfSerialization.ts',
-        primitive: 'readDocumentBytes',
-        occurrences: 2,
         maximumBytesClassifier:
       'BROWSER_MAX_FULL_READ_BYTES, 16 MiB nonnative compatibility fallback; native path must fail closed',
         reason:
@@ -105,15 +92,27 @@ const WHOLE_DOCUMENT_ALLOWLIST: readonly IWholeDocumentAllowlistEntry[] = [
     },
     {
         module:
+      'app/modules/pdf-viewer/runtime/composables/pdf/createPdfSourceDataReader.ts',
+        primitive: 'readDocumentBytes',
+        occurrences: 1,
+        maximumBytesClassifier:
+      'Working-copy bytes are bounded by the existing native/print operation policy',
+        reason:
+      'The writer path rereads the committed working copy for detached consumers.',
+        removalCondition:
+      'Remove the read when all detached consumers can consume a staged output path.',
+    },
+    {
+        module:
       'app/modules/workspace-shell/composables/useWorkspaceSplitPayload.ts',
         primitive: 'readDocumentBytes',
         occurrences: 2,
         maximumBytesClassifier:
-      'BROWSER_MAX_FULL_READ_BYTES, 16 MiB compatibility fallback; native path split handoff must fail closed',
+      'Working-copy split snapshots use the bounded document bytes capability',
         reason:
-      'The split payload compatibility path materializes the working copy for renderer handoff.',
+      'Split handoff rereads the current working copy for a detached snapshot.',
         removalCondition:
-      'Remove both reads when split handoff is path-backed or uses <=8 MiB chunks.',
+      'Remove both reads when split handoff can consume a staged output path.',
     },
     {
         module:
@@ -126,120 +125,6 @@ const WHOLE_DOCUMENT_ALLOWLIST: readonly IWholeDocumentAllowlistEntry[] = [
       'Shape import parses a complete byte buffer in the in-memory compatibility operation.',
         removalCondition:
       'Remove the whole-document load when shape import consumes the native path index or bounded page data.',
-    },
-    {
-        module:
-      'app/modules/pdf-viewer/engine/pdf-serialization-operations/serializePdfEdits.ts',
-        primitive: 'PDFDocument.load',
-        occurrences: 1,
-        maximumBytesClassifier:
-      'Caller-owned Uint8Array with no maximum byte classifier, legacy in-memory operation',
-        reason:
-      'The renderer rewrite backend loads the complete document before applying edits.',
-        removalCondition:
-      'Remove the whole-document load when path-backed serialization uses native append or a bounded worker route.',
-    },
-    {
-        module:
-      'app/modules/pdf-viewer/engine/pdf-serialization-operations/deleteEmbeddedAnnotation.ts',
-        primitive: 'PDFDocument.load',
-        occurrences: 1,
-        maximumBytesClassifier:
-      'Caller-owned Uint8Array with no maximum byte classifier, legacy in-memory operation',
-        reason:
-      'Embedded annotation deletion remains a complete in-memory rewrite.',
-        removalCondition:
-      'Remove the whole-document load when deletion runs through path-backed native serialization.',
-    },
-    {
-        module:
-      'app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/collectPdfAnnotationNamesByPage.ts',
-        primitive: 'PDFDocument.load',
-        occurrences: 1,
-        maximumBytesClassifier:
-      'Annotation enrichment page caps, but no maximum byte classifier in this helper',
-        reason:
-      'The browser and in-memory annotation identity fallback reparses PDF.js bytes as a complete document.',
-        removalCondition:
-      'Remove the load when all desktop path sources use the native annotation index and browser-only use is isolated.',
-    },
-    {
-        module:
-      'app/modules/pdf-viewer/engine/pdf-bookmark-serialization/rewriteBookmarks.ts',
-        primitive: 'PDFDocument.load',
-        occurrences: 1,
-        maximumBytesClassifier:
-      'Caller-owned Uint8Array with no maximum byte classifier, legacy in-memory operation',
-        reason: 'Bookmark rewrite is a complete in-memory document operation.',
-        removalCondition:
-      'Remove the whole-document load when bookmark serialization accepts a path-backed operation.',
-    },
-    {
-        module:
-      'app/modules/pdf-viewer/engine/pdf-serialization-operations/updateEmbeddedAnnotationText.ts',
-        primitive: 'PDFDocument.load',
-        occurrences: 1,
-        maximumBytesClassifier:
-      'Caller-owned Uint8Array with no maximum byte classifier, legacy in-memory operation',
-        reason:
-      'Embedded note updates load and save the complete document in JavaScript.',
-        removalCondition:
-      'Remove the whole-document load when note updates use native incremental serialization.',
-    },
-    {
-        module:
-      'app/modules/pdf-viewer/engine/serialization/pdf-serialization-annotations/applyCanonicalAnnotationIdentityBindings.ts',
-        primitive: 'PDFDocument.load',
-        occurrences: 1,
-        maximumBytesClassifier:
-      'Caller-owned Uint8Array with no maximum byte classifier, legacy in-memory operation',
-        reason:
-      'Canonical identity binding still parses a complete byte buffer before PDF.js save.',
-        removalCondition:
-      'Remove the whole-document load when identity binding moves to the path-backed annotation index.',
-    },
-    {
-        module: 'electron/image/pdfConversion.ts',
-        primitive: 'PDFDocument.load',
-        occurrences: 1,
-        maximumBytesClassifier:
-      'PDF_COMBINE_SMALL_MEMORY_MAX_INPUT_BYTES, 512 MiB per-input compatibility cap',
-        reason:
-      'The image-to-PDF compatibility combine path loads a temporary PDF in memory.',
-        removalCondition:
-      'Remove the load when the path-backed native combine route owns this conversion.',
-    },
-    {
-        module: 'electron/image/pdfCombineShared.ts',
-        primitive: 'PDFDocument.load',
-        occurrences: 1,
-        maximumBytesClassifier: 'maxInputBytes, 512 MiB default legacy cap',
-        reason:
-      'The JS combine route loads an input PDF while image inputs use separate bounded image reads.',
-        removalCondition:
-      'Remove the load when PDF inputs stay path-backed through native combine.',
-    },
-    {
-        module: 'electron/features/page-ops/main/cropLocal.ts',
-        primitive: 'PDFDocument.load',
-        occurrences: 2,
-        maximumBytesClassifier:
-      'PAGE_OPS_LOCAL_FALLBACK_MAX_BYTES, 16 MiB compatibility fallback after native failure',
-        reason:
-      'The local crop fallback loads the working copy only after the native operation declines a small input.',
-        removalCondition:
-      'Remove both loads when native crop returns a typed capability error and no JS fallback remains.',
-    },
-    {
-        module: 'app/utils/stripPdfEncryption.ts',
-        primitive: 'PDFDocument.load',
-        occurrences: 1,
-        maximumBytesClassifier:
-      'Caller-owned Uint8Array with no maximum byte classifier, legacy in-memory utility',
-        reason:
-      'Encryption stripping is an in-memory byte utility with no path-aware admission check.',
-        removalCondition:
-      'Remove the load when encrypted path sources use a bounded native decrypt or copy operation.',
     },
     {
         module: 'packages/pdf-core/pdfPrintLayout.ts',
@@ -262,62 +147,6 @@ const WHOLE_DOCUMENT_ALLOWLIST: readonly IWholeDocumentAllowlistEntry[] = [
       'Structural inspection accepts bytes directly and does not classify path size at this layer.',
         removalCondition:
       'Remove the whole-document load when structural inspection consumes bounded qpdf/native results.',
-    },
-    {
-        module:
-      'app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/collectPdfAnnotationNamesByPage.ts',
-        primitive: 'PDF.js getData',
-        occurrences: 1,
-        maximumBytesClassifier:
-      'Annotation enrichment page caps, but no maximum byte classifier in this helper',
-        reason:
-      'The browser and in-memory annotation identity fallback asks PDF.js for the whole document.',
-        removalCondition:
-      'Remove getData when browser-only enrichment no longer shares the desktop path flow.',
-    },
-    {
-        module:
-      'app/modules/pdf-viewer/runtime/save/usePdfViewerSaveTransaction.ts',
-        primitive: 'PDF.js saveDocument',
-        occurrences: 1,
-        maximumBytesClassifier:
-      'PDF.js save output has no <=8 MiB chunk classifier, legacy in-memory save route',
-        reason:
-      'The compatibility save route materializes a complete PDF.js output byte array.',
-        removalCondition:
-      'Remove saveDocument from desktop path saves when native append owns the path output.',
-    },
-    {
-        module: 'electron/image/pdfConversion.ts',
-        primitive: 'fs.readFile',
-        occurrences: 1,
-        maximumBytesClassifier:
-      'PDF_COMBINE_SMALL_MEMORY_MAX_INPUT_BYTES, 512 MiB per-input compatibility cap',
-        reason:
-      'The compatibility combine path reads a temporary PDF into a whole byte array.',
-        removalCondition:
-      'Remove the read when the path-backed native combine route owns this conversion.',
-    },
-    {
-        module: 'electron/image/pdfCombineShared.ts',
-        primitive: 'fs.readFile',
-        occurrences: 1,
-        maximumBytesClassifier: 'maxInputBytes, 512 MiB default legacy cap',
-        reason:
-      'The JS combine route reads a PDF input; image reads in the same module are classified separately.',
-        removalCondition:
-      'Remove the PDF read when PDF inputs remain on the native path-backed combine route.',
-    },
-    {
-        module: 'electron/features/page-ops/main/cropLocal.ts',
-        primitive: 'fs.readFile',
-        occurrences: 2,
-        maximumBytesClassifier:
-      'PAGE_OPS_LOCAL_FALLBACK_MAX_BYTES, 16 MiB compatibility fallback after native failure',
-        reason:
-      'The local crop fallback reads the working copy only after the native operation declines a small input.',
-        removalCondition:
-      'Remove both reads when native crop returns a typed capability error and no JS fallback remains.',
     },
     {
         module: 'electron/image/tryCreatePdfWithNativeImageCombiner.ts',
@@ -344,11 +173,6 @@ const WHOLE_DOCUMENT_ALLOWLIST: readonly IWholeDocumentAllowlistEntry[] = [
 ];
 
 const KNOWN_NON_DOCUMENT_READS: readonly IKnownNonDocumentRead[] = [
-    {
-        module: 'electron/djvu/buildOptimizedPdf.ts',
-        pattern: /const fileData = await readFile\(imagePaths\[i\]!\)/u,
-        reason: 'Raster image input, not a document PDF.',
-    },
     {
         module: 'electron/features/djvu/main/buildCompactDjvuAwarePdfFromDjvu.ts',
         pattern: /const data = await readFile\(path\);/u,
@@ -388,11 +212,6 @@ const KNOWN_NON_DOCUMENT_READS: readonly IKnownNonDocumentRead[] = [
     },
     {
         module: 'electron/image/pdfCombineShared.ts',
-        pattern: /const originalBytes = await readFile\(sourcePath\)/u,
-        reason: 'Image input in the PDF combine module, not a document PDF.',
-    },
-    {
-        module: 'electron/image/pdfCombineShared.ts',
         pattern:
       /const tiffBytes = new Uint8Array\(await readFile\(sourcePath\)\)/u,
         reason: 'TIFF image input in the PDF combine module, not a document PDF.',
@@ -402,7 +221,7 @@ const KNOWN_NON_DOCUMENT_READS: readonly IKnownNonDocumentRead[] = [
 const KNOWN_ARRAY_BUFFER_EXCEPTIONS: readonly IKnownNonDocumentRead[] = [
     {
         module:
-      'app/modules/pdf-viewer/runtime/composables/pdf/usePdfSerialization.ts',
+      'app/modules/pdf-viewer/runtime/composables/pdf/pdfDocumentPersistence.ts',
         pattern: /new Uint8Array\(await blob\.arrayBuffer\(\)\)/u,
         reason: 'Placed image Blob, not a document PDF.',
     },
@@ -497,12 +316,6 @@ function collectWholeDocumentCallSites() {
                     source,
                     'PDF.js getData',
                     /\.\s*getData\s*\(/gu,
-                ).filter(() => !isBrowserModule(modulePath)),
-                ...findCallSites(
-                    modulePath,
-                    source,
-                    'PDF.js saveDocument',
-                    /\.\s*saveDocument\s*\(/gu,
                 ).filter(() => !isBrowserModule(modulePath)),
                 ...findCallSites(
                     modulePath,
@@ -667,9 +480,6 @@ describe('xlarge document path architecture', () => {
         const documentPersistenceSource = readSource(
             'app/modules/workspace-shell/composables/document-session/createDocumentPersistence.ts',
         );
-        const serializationWorkerSource = readSource(
-            'app/modules/pdf-viewer/engine/pdf-serialization-worker-client/runSerializationWorkerRequest.ts',
-        );
         const browserCombineSource = readSource(
             'app/platform/browser-api/createCombinedPdfFromPaths.ts',
         );
@@ -726,9 +536,6 @@ describe('xlarge document path architecture', () => {
         expect(documentPersistenceSource).toContain(
             'const MAX_IN_MEMORY_PDF_BYTES = BROWSER_MAX_FULL_READ_BYTES;',
         );
-        expect(serializationWorkerSource).toContain(
-            'const SERIALIZATION_WORKER_MAX_INPUT_BYTES = BROWSER_MAX_FULL_READ_BYTES;',
-        );
         expect(browserCombineSource).toContain(
             'const BROWSER_COMBINED_PDF_TOTAL_INPUT_MAX_BYTES = BROWSER_MAX_FULL_READ_BYTES;',
         );
@@ -742,26 +549,11 @@ describe('xlarge document path architecture', () => {
     });
 
     it('keeps both PDF.js workers sparse for path-backed multi-gigabyte documents', () => {
-        const pdfjsPatch = readSource('patches/pdfjs-dist@5.7.284.patch');
         const assetCopySource = readSource('scripts/copy-pdfjs-assets.mjs');
+        const provenance = readSource('vendor/pdfjs-dist/provenance.json');
 
-        expect(pdfjsPatch).toContain('diff --git a/build/pdf.worker.mjs b/build/pdf.worker.mjs');
-        expect(pdfjsPatch).toContain(
-            'diff --git a/legacy/build/pdf.worker.mjs b/legacy/build/pdf.worker.mjs',
-        );
-        expect(pdfjsPatch.match(/^\+ {2}_storedChunks = new Map\(\);$/gmu)).toHaveLength(2);
-        expect(
-            pdfjsPatch.match(/^\+ {4}super\(new Uint8Array\(0\), 0, 0, null\);$/gmu),
-        ).toHaveLength(2);
-        expect(
-            pdfjsPatch.match(/^\+ {4}this\._storeBytes\(begin, new Uint8Array\(chunk\)\);$/gmu),
-        ).toHaveLength(2);
-        expect(
-            pdfjsPatch.match(/^\+ {4}const byte = this\._getStoredByte\(pos\);$/gmu),
-        ).toHaveLength(2);
-        expect(pdfjsPatch).not.toContain(
-            '+    this.pos++;\n+    return this._getStoredByte(pos);',
-        );
+        expect(provenance).toContain('f029c04600ed3d851491c0d70eafe7caa1557d36');
+        expect(provenance).toContain('forbiddenStreamBytesWorkerMaterializations');
         expect(assetCopySource).toContain('join(root, \'build\', \'pdf.worker.mjs\')');
         expect(assetCopySource).not.toContain(
             'join(root, \'build\', \'pdf.worker.min.mjs\')',
@@ -769,57 +561,21 @@ describe('xlarge document path architecture', () => {
     });
 
     it('keeps malformed-xref recovery bounded for range-backed documents in both workers', () => {
-        const pdfjsPatch = readSource('patches/pdfjs-dist@5.7.284.patch');
         const publicWorkerSource = readSource('public/pdf/pdf.worker.min.mjs');
-        const workerPaths = [
-            'build/pdf.worker.mjs',
-            'legacy/build/pdf.worker.mjs',
-        ] as const;
-        for (const workerPath of workerPaths) {
-            const workerDiffStart = pdfjsPatch.indexOf(
-                `diff --git a/${workerPath} b/${workerPath}`,
-            );
-            const nextDiffStart = pdfjsPatch.indexOf(
-                '\ndiff --git ',
-                workerDiffStart + 1,
-            );
-            const workerPatch = pdfjsPatch.slice(
-                workerDiffStart,
-                nextDiffStart === -1 ? undefined : nextDiffStart,
-            );
-
-            expect(workerDiffStart).toBeGreaterThanOrEqual(0);
-            expect(workerPatch).toContain('+  indexObjectsBounded() {');
-            expect(workerPatch).toContain('+    const SCAN_WINDOW_BYTES = 1024 * 1024;');
-            expect(workerPatch).toContain('+      const buffer = stream.getByteRange(windowBegin, windowEnd);');
-            expect(workerPatch).toContain('+        stream.discardChunksBefore(windowEnd - HEADER_OVERLAP_BYTES);');
-            expect(workerPatch).not.toContain(
+        const legacyWorkerSource = readSource('node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs');
+        for (const workerSource of [
+            publicWorkerSource,
+            legacyWorkerSource,
+        ]) {
+            expect(workerSource).toContain('indexObjectsBounded');
+            expect(workerSource).toContain('discardChunksBefore');
+            expect(workerSource).not.toContain(
                 'PDF.js xref recovery is disabled for range-backed documents above 16 MiB',
             );
         }
-
-        expect(publicWorkerSource).toContain('indexObjectsBounded');
-        expect(publicWorkerSource).toContain('discardChunksBefore');
-        expect(publicWorkerSource).not.toContain(
-            'PDF.js xref recovery is disabled for range-backed documents above 16 MiB',
-        );
     });
 
     it('keeps native and worker failures fail-closed for desktop paths', () => {
-        const annotationPreparationSource = readSource(
-            'app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/preparePdfAnnotationNameRead.ts',
-        );
-        const annotationNativeBranchStart = annotationPreparationSource.indexOf(
-            'if (nativePdfSource)',
-        );
-        const annotationRendererFallbackStart = annotationPreparationSource.indexOf(
-            'const {collectPdfAnnotationNamesByPage}',
-            annotationNativeBranchStart,
-        );
-        const annotationNativeBranch = annotationPreparationSource.slice(
-            annotationNativeBranchStart,
-            annotationRendererFallbackStart,
-        );
         const shapeWorkerSource = readSource(
             'app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/embeddedShapeAnnotationsWorkerClient.ts',
         );
@@ -835,16 +591,6 @@ describe('xlarge document path architecture', () => {
         const cropLocalSource = readSource('electron/features/page-ops/main/cropLocal.ts');
         const nativeCropSource = readSource('electron/features/page-ops/main/nativeCrop.ts');
 
-        expect(annotationNativeBranchStart).toBeGreaterThanOrEqual(0);
-        expect(annotationRendererFallbackStart).toBeGreaterThan(
-            annotationNativeBranchStart,
-        );
-        expect(annotationNativeBranch).toContain(
-            'annotationNameSkipReason: \'unreadable-source\'',
-        );
-        expect(annotationNativeBranch).not.toContain(
-            'collectPdfAnnotationNamesByPage',
-        );
         const nativeShapeBranchStart = shapeWorkerSource.indexOf(
             'if (isNativeEmbeddedShapeIndexSource(path))',
         );

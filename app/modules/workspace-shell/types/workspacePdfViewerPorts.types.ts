@@ -38,7 +38,9 @@ export interface IWorkspacePdfViewerAnnotationToolsPort extends
         | 'updateShape'
     >,
     Pick<IPdfViewerAnnotationCommandExpose,
-        'cancelCommentPlacement'
+        'selectedTextBox'
+        | 'getSelectedTextBox'
+        | 'updateSelectedTextBoxProperties'
     > {}
 
 export interface IWorkspacePdfViewerAnnotationChangesPort extends
@@ -48,10 +50,9 @@ export interface IWorkspacePdfViewerAnnotationChangesPort extends
     >,
     Pick<IPdfViewerSaveExpose,
         'runSaveTransaction'
-        | 'saveDocument'
     >,
     Pick<IPdfViewerAnnotationCommandExpose,
-        'collectLiveAnnotationChanges'
+        'hasCanonicalShapeChanges'
     > {}
 
 export interface IWorkspacePdfViewerAnnotationNotesPort extends Pick<IPdfViewerAnnotationCommentExpose,
@@ -90,7 +91,7 @@ export interface IWorkspacePdfViewerAgentPort extends
 export interface IWorkspacePdfViewerExposeAutomationPort extends
     Partial<Pick<IPdfViewerAnnotationCommandExpose,
         'commentAtPoint'
-        | 'collectLiveAnnotationChanges'
+        | 'getAnnotationStorageDebugState'
         | 'highlightSelection'
     >>,
     Partial<Pick<IPdfViewerShapeExpose,

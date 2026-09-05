@@ -1485,12 +1485,11 @@ fn try_write_overlay_source_batch(
                 });
             }
         };
-        if source.is_encrypted() {
-            return Err(OverlaySourceBatchFailure::Failed(domain_error(
-                NativeErrorCode::Encrypted,
-                "Encrypted source PDFs are not supported by native page ops",
-            )));
-        }
+        assert_plaintext_base(
+            &source,
+            "Encrypted source PDFs are not supported by native page ops",
+        )
+        .map_err(OverlaySourceBatchFailure::Failed)?;
         let batch_instructions = rebase_overlay_source_instructions(instructions, pages)
             .map_err(OverlaySourceBatchFailure::Failed)?;
         let mut incremental =
@@ -1500,12 +1499,11 @@ fn try_write_overlay_source_batch(
                     "Failed to parse PDF structure",
                 ))
             })?;
-        if incremental.get_prev_documents().is_encrypted() {
-            return Err(OverlaySourceBatchFailure::Failed(domain_error(
-                NativeErrorCode::Encrypted,
-                "Encrypted PDFs are not supported by native page ops",
-            )));
-        }
+        assert_plaintext_base(
+            incremental.get_prev_documents(),
+            "Encrypted PDFs are not supported by native page ops",
+        )
+        .map_err(OverlaySourceBatchFailure::Failed)?;
         if let Err(error) =
             overlay_text_layers_incremental(&mut incremental, &source, &batch_instructions)
         {
@@ -1613,21 +1611,17 @@ pub(crate) fn write_overlay_text_layers_path(
     {
         let mut target = load_pdf_path(input_path)
             .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
-        if target.is_encrypted() {
-            return Err(domain_error(
-                NativeErrorCode::Encrypted,
-                "Encrypted PDFs are not supported by native page ops",
-            ));
-        }
+        assert_plaintext_base(
+            &target,
+            "Encrypted PDFs are not supported by native page ops",
+        )?;
         let source = load_pdf_path(source_path).map_err(|error| {
             classify_pdf_load_error(error, "Failed to parse source PDF structure")
         })?;
-        if source.is_encrypted() {
-            return Err(domain_error(
-                NativeErrorCode::Encrypted,
-                "Encrypted source PDFs are not supported by native page ops",
-            ));
-        }
+        assert_plaintext_base(
+            &source,
+            "Encrypted source PDFs are not supported by native page ops",
+        )?;
         overlay_text_layers(&mut target, &source, instructions)?;
         let mut output = AtomicOutput::create(output_path)?;
         target.save_to(output.file_mut()?)?;
@@ -1648,21 +1642,17 @@ pub(crate) fn write_overlay_text_layers_path(
     if source_encoded_len <= MAX_ENCODED_PDF_BYTES as u64 {
         let mut incremental = load_incremental_pdf_path(input_path, Some(qpdf_path))
             .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
-        if incremental.get_prev_documents().is_encrypted() {
-            return Err(domain_error(
-                NativeErrorCode::Encrypted,
-                "Encrypted PDFs are not supported by native page ops",
-            ));
-        }
+        assert_plaintext_base(
+            incremental.get_prev_documents(),
+            "Encrypted PDFs are not supported by native page ops",
+        )?;
         let source = load_pdf_path(source_path).map_err(|error| {
             classify_pdf_load_error(error, "Failed to parse source PDF structure")
         })?;
-        if source.is_encrypted() {
-            return Err(domain_error(
-                NativeErrorCode::Encrypted,
-                "Encrypted source PDFs are not supported by native page ops",
-            ));
-        }
+        assert_plaintext_base(
+            &source,
+            "Encrypted source PDFs are not supported by native page ops",
+        )?;
         overlay_text_layers_incremental(&mut incremental, &source, instructions)?;
         incremental.new_document.version = incremental.get_prev_documents().version.clone();
         let revision_bytes = build_incremental_revision(&mut incremental)?;
@@ -1682,20 +1672,16 @@ pub(crate) fn write_overlay_text_layers_path(
     // multi-gigabyte source never crosses the eager decoder boundary here.
     let target_probe = load_incremental_pdf_path(input_path, Some(qpdf_path))
         .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
-    if target_probe.get_prev_documents().is_encrypted() {
-        return Err(domain_error(
-            NativeErrorCode::Encrypted,
-            "Encrypted PDFs are not supported by native page ops",
-        ));
-    }
+    assert_plaintext_base(
+        target_probe.get_prev_documents(),
+        "Encrypted PDFs are not supported by native page ops",
+    )?;
     let source_probe = load_incremental_pdf_path(source_path, Some(qpdf_path))
         .map_err(|error| classify_pdf_load_error(error, "Failed to parse source PDF structure"))?;
-    if source_probe.get_prev_documents().is_encrypted() {
-        return Err(domain_error(
-            NativeErrorCode::Encrypted,
-            "Encrypted source PDFs are not supported by native page ops",
-        ));
-    }
+    assert_plaintext_base(
+        source_probe.get_prev_documents(),
+        "Encrypted source PDFs are not supported by native page ops",
+    )?;
 
     let source_pages = referenced_source_pages(instructions)?;
     let temp_dir = OverlaySourceTempDir::create()?;

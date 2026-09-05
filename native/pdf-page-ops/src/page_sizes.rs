@@ -12,10 +12,10 @@ use std::{
 };
 
 use crate::{
-    classify_pdf_load_error, domain_error, intersect_rect, load_annotation_index_pdf_path,
-    load_pdf_path, reclassify_domain_error, resolve_inherited_box, resolve_page_rotation,
-    resolve_page_view, AppendedRevision, NativeErrorCode, PageTreeResolver, PdfObjectSource,
-    PdfRect, Result, MAX_DECOMPRESSED_PDF_STREAM_BYTES, MAX_ENCODED_PDF_BYTES,
+    assert_plaintext_base, classify_pdf_load_error, domain_error, intersect_rect,
+    load_annotation_index_pdf_path, load_pdf_path, reclassify_domain_error, resolve_inherited_box,
+    resolve_page_rotation, resolve_page_view, AppendedRevision, NativeErrorCode, PageTreeResolver,
+    PdfObjectSource, PdfRect, Result, MAX_DECOMPRESSED_PDF_STREAM_BYTES, MAX_ENCODED_PDF_BYTES,
 };
 
 pub(crate) const PAGE_SIZES_SIDECAR_FORMAT: &str = "evb-pdf-page-sizes";
@@ -530,12 +530,10 @@ pub(crate) fn write_page_sizes_path(
     if encoded_len <= MAX_ENCODED_PDF_BYTES as u64 {
         let document = load_pdf_path(input_path)
             .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
-        if document.is_encrypted() {
-            return Err(domain_error(
-                NativeErrorCode::Encrypted,
-                "Encrypted PDFs are not supported by native page ops",
-            ));
-        }
+        assert_plaintext_base(
+            &document,
+            "Encrypted PDFs are not supported by native page ops",
+        )?;
         return write_page_sizes_sidecar_document(&document, output_path);
     }
 
@@ -546,12 +544,10 @@ pub(crate) fn write_page_sizes_path(
         )
     })?;
     let incremental = load_annotation_index_pdf_path(input_path, Some(qpdf_path))?;
-    if incremental.get_prev_documents().is_encrypted() {
-        return Err(domain_error(
-            NativeErrorCode::Encrypted,
-            "Encrypted PDFs are not supported by native page ops",
-        ));
-    }
+    assert_plaintext_base(
+        incremental.get_prev_documents(),
+        "Encrypted PDFs are not supported by native page ops",
+    )?;
     let structural = AppendedRevision::new(&incremental);
     write_page_sizes_sidecar(&structural, output_path)
 }

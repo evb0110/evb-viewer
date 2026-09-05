@@ -158,7 +158,7 @@ import DocumentBookmarkToolbar from '@app/components/document-viewer/DocumentBoo
 import DocumentBookmarkTree from '@app/components/document-viewer/DocumentBookmarkTree.vue';
 import { navigateToBookmarkDestination } from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/navigateToBookmarkDestination';
 import { createBookmarkIdentityFactory } from '@app/modules/pdf-viewer/engine/pdf-outline-identity/createBookmarkIdentityFactory';
-import { areBookmarkEntriesEqual } from '@app/modules/pdf-viewer/engine/pdf-bookmark-serialization/areBookmarkEntriesEqual';
+import { areBookmarkEntriesEqual } from '@app/modules/pdf-viewer/engine/pdf-outline-tree/areBookmarkEntriesEqual';
 import { PDF_NATIVE_MUTATION_LIMITS } from '@contracts/nativePdfMutations';
 
 interface IProps {

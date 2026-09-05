@@ -25,8 +25,26 @@
                     type="color"
                     :value="markup.color"
                     class="annotation-properties-color"
+                    data-testid="annotation-properties-color"
                     @input="updateColor"
                 >
+            </label>
+
+            <label class="annotation-properties-field">
+                <span class="annotation-properties-label">{{ t('annotationProperties.opacity') }}</span>
+                <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    class="annotation-properties-range"
+                    :aria-label="t('annotationProperties.opacity')"
+                    data-testid="annotation-properties-opacity"
+                    :value="opacity"
+                    @input="updateOpacityPreview"
+                    @change="commitOpacity"
+                >
+                <span class="annotation-properties-value">{{ Math.round(opacity * 100) }}%</span>
             </label>
         </div>
     </div>
@@ -47,8 +65,11 @@ const {
     y: number;
 }>();
 
+const opacity = ref(1);
+
 const emit = defineEmits<{
     'update-color': [color: string];
+    'update-opacity': [opacity: number];
     close: [];
 }>();
 
@@ -70,9 +91,38 @@ const positionStyle = computed(() => ({
     top: `${y}px`,
 }));
 
+function normalizeOpacity(value: unknown) {
+    const numeric = typeof value === 'number' ? value : Number(value);
+    return Number.isFinite(numeric) ? Math.min(1, Math.max(0, numeric)) : null;
+}
+
+watch(() => markup?.opacity, (value) => {
+    opacity.value = normalizeOpacity(value) ?? 1;
+}, {immediate: true});
+
 function updateColor(event: Event) {
     if (event.target instanceof HTMLInputElement) {
         emit('update-color', event.target.value);
+    }
+}
+
+function updateOpacityPreview(event: Event) {
+    if (event.target instanceof HTMLInputElement) {
+        const nextOpacity = normalizeOpacity(event.target.value);
+        if (nextOpacity !== null) {
+            opacity.value = nextOpacity;
+        }
+    }
+}
+
+function commitOpacity(event: Event) {
+    const source = event.target instanceof HTMLInputElement
+        ? event.target.value
+        : opacity.value;
+    const nextOpacity = normalizeOpacity(source);
+    if (nextOpacity !== null) {
+        opacity.value = nextOpacity;
+        emit('update-opacity', nextOpacity);
     }
 }
 
@@ -139,5 +189,20 @@ function close() {
     border: 1px solid var(--ui-border);
     border-radius: var(--app-radius-xs);
     background: transparent;
+}
+
+.annotation-properties-range {
+    min-width: 0;
+    width: 100%;
+    height: var(--app-range-track-height);
+    accent-color: var(--ui-text);
+}
+
+.annotation-properties-value {
+    width: var(--app-pdf-annotation-properties-value-min-width);
+    text-align: right;
+    font-size: var(--app-text-size-micro);
+    color: var(--ui-text-muted);
+    font-variant-numeric: tabular-nums;
 }
 </style>

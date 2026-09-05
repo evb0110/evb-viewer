@@ -14,6 +14,7 @@ import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
 import { DOCUMENTS_IPC_CODECS } from '@electron/features/documents/documentsIpcCodecs';
 import { OCR_PLATFORM_FEATURE } from '@contracts/ocrPlatformFeature';
 import { SCAN_CLEANUP_PLATFORM_FEATURE } from '@contracts/scanCleanupPlatformFeature';
+import {PDF_DECRYPT_PASSWORD_MAX_BYTES} from '@contracts/pdfDecryptSchemas';
 
 const AGENT_CHANNELS = AGENT_PLATFORM_FEATURE.invokeChannels;
 const AGENT_IPC_CODECS = AGENT_PLATFORM_FEATURE.ipcCodecs;
@@ -550,6 +551,45 @@ describe('feature IPC codec maps', () => {
             originalPath: '/documents/scan.pdf',
             openingGeometry: validGeometry,
         });
+        expect(DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.openDocumentDirect].decodeResult({
+            kind: 'pdf-needs-password',
+            originalPath: '/documents/scan.pdf',
+        })).toEqual({
+            kind: 'pdf-needs-password',
+            originalPath: '/documents/scan.pdf',
+        });
+        expect(DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.openDocumentDirect].decodeResult({
+            kind: 'pdf-unsupported-encryption',
+            originalPath: '/documents/scan.pdf',
+        })).toEqual({
+            kind: 'pdf-unsupported-encryption',
+            originalPath: '/documents/scan.pdf',
+        });
+        expect(DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.openDocumentDirect].decodeArgs([
+            '/documents/scan.pdf',
+            'correct-password',
+        ])).toEqual([
+            '/documents/scan.pdf',
+            'correct-password',
+        ]);
+        expect(DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.openDocumentDirect].decodeArgs([
+            '/documents/scan.pdf',
+            undefined,
+        ])).toEqual(['/documents/scan.pdf']);
+        expect(() => DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.openDocumentDirect].decodeArgs([
+            '/documents/scan.pdf',
+            'x'.repeat(PDF_DECRYPT_PASSWORD_MAX_BYTES + 1),
+        ])).toThrow(`password exceeds the ${PDF_DECRYPT_PASSWORD_MAX_BYTES}-byte limit`);
+        const multibytePassword = '🔒'.repeat(Math.ceil((PDF_DECRYPT_PASSWORD_MAX_BYTES + 1) / 4));
+        expect(multibytePassword.length).toBeLessThan(PDF_DECRYPT_PASSWORD_MAX_BYTES);
+        expect(() => DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.openDocumentDirect].decodeArgs([
+            '/documents/scan.pdf',
+            multibytePassword,
+        ])).toThrow(`password exceeds the ${PDF_DECRYPT_PASSWORD_MAX_BYTES}-byte limit`);
+        expect(() => DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.openDocumentDirect].decodeResult({
+            kind: 'pdf-needs-password',
+            originalPath: '',
+        })).toThrow('invalid encrypted PDF open-file result');
         expect(() => DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.pdfOpeningGeometry].decodeResult({
             ...validGeometry,
             pageNumber: 2,

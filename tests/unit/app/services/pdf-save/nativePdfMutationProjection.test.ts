@@ -12,9 +12,9 @@ import {
     buildNativeFreeTextNotesForSave,
     isReplayableEditorOnlyFreeTextNote,
     toNativeFreeTextNote,
-} from '@app/modules/pdf-viewer/runtime/save/nativeFreeTextNotes';
-import { buildNativeNoteTextUpdatesForSave } from '@app/modules/pdf-viewer/runtime/save/nativeNoteTextUpdates';
-import { buildNativeAnnotationDeletesForSave } from '@app/modules/pdf-viewer/runtime/save/buildNativeAnnotationDeletesForSave';
+} from '@app/modules/pdf-viewer/annotations/persistence/nativeFreeTextNoteProjection';
+import { buildNativeNoteTextUpdatesForSave } from '@app/modules/pdf-viewer/annotations/persistence/nativeNoteTextUpdateProjection';
+import { projectNativeAnnotationDeletes } from '@app/modules/pdf-viewer/annotations/persistence/nativeAnnotationDeleteProjection';
 import {
     buildNativeShapesMutationForSave,
     isNativeShapeEligible,
@@ -23,7 +23,7 @@ import {
 import {
     buildNativeMarkupMutationForSave,
     toNativeMarkupHint,
-} from '@app/modules/pdf-viewer/runtime/save/nativeMarkupMutations';
+} from '@app/modules/pdf-viewer/annotations/persistence/nativeMarkupProjection';
 import { PDF_NATIVE_MUTATION_LIMITS } from '@contracts/nativePdfMutations';
 
 function createComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {
@@ -57,7 +57,7 @@ function createComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnn
 function createEditorFreeTextComment(overrides: Partial<IAnnotationCommentSummary> = {}) {
     return createComment({
         id: 'editor:0:pdfjs_internal_editor_0',
-        stableKey: 'uid:0:pdfjs_internal_editor_0',
+        stableKey: 'ann:0:pdfjs_internal_editor_0',
         text: 'Editor note',
         subtype: 'FreeText',
         annotationId: null,
@@ -114,7 +114,7 @@ describe('native FreeText note builders', () => {
         expect(isReplayableEditorOnlyFreeTextNote(comment)).toBe(true);
         expect(toNativeFreeTextNote(comment)).toEqual({
             pageIndex: 0,
-            stableKey: 'uid:0:pdfjs_internal_editor_0',
+            stableKey: 'ann:0:pdfjs_internal_editor_0',
             text: 'Editor note',
             markerRect: {
                 left: 0.1,
@@ -138,6 +138,19 @@ describe('native FreeText note builders', () => {
 
         expect(notes.value).toEqual([expect.objectContaining({stableKey: comment.stableKey})]);
         expect(notes.skipEvents).toEqual([]);
+    });
+
+    it('uses the canonical app identity for a new sticky note', () => {
+        const comment = createComment({
+            appAnnotationId: 'anno_sticky_note',
+            id: 'anno_sticky_note',
+            stableKey: 'ann:0:editor:anno_sticky_note',
+            annotationId: null,
+            source: 'editor',
+            subtype: 'Text',
+        });
+
+        expect(toNativeFreeTextNote(comment)).toEqual(expect.objectContaining({stableKey: 'anno_sticky_note'}));
     });
 });
 
@@ -181,7 +194,7 @@ describe('native note text and delete builders', () => {
     });
 
     it('builds native deletes for PDF refs and editor-only FreeText stable keys', () => {
-        const deletes = buildNativeAnnotationDeletesForSave(createMutationProjectionInput({pendingDeletes: [
+        const deletes = projectNativeAnnotationDeletes(createMutationProjectionInput({pendingDeletes: [
             createComment(),
             createEditorFreeTextComment(),
         ]}));
@@ -194,7 +207,7 @@ describe('native note text and delete builders', () => {
             },
             {
                 pageIndex: 0,
-                stableKey: 'uid:0:pdfjs_internal_editor_0',
+                stableKey: 'ann:0:pdfjs_internal_editor_0',
                 createdAt: 1781009077123,
             },
         ]);
@@ -412,7 +425,7 @@ describe('native markup builders', () => {
             canonicalComments: [createComment({
                 appAnnotationId: 'app-markup-1',
                 id: 'current-runtime-id',
-                stableKey: 'src:editor:0:current-runtime-id',
+                stableKey: 'ann:0:current-runtime-id',
                 subtype: 'Highlight',
                 source: 'editor',
                 annotationId: null,
@@ -451,7 +464,7 @@ describe('native markup builders', () => {
             canonicalComments: [createComment({
                 appAnnotationId: 'app-markup-1',
                 id: '9R',
-                stableKey: 'src:editor:0:9R',
+                stableKey: 'ann:0:9R',
                 subtype: 'Highlight',
                 source: 'editor',
                 annotationId: null,

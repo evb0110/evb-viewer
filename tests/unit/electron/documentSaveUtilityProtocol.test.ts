@@ -10,6 +10,8 @@ import {
     decodeDocumentSaveUtilityResult,
     getDocumentSaveUtilityReusePlan,
 } from '@electron/features/documents/main/documentSaveUtilityProtocol';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
+import {createBrowserStoreFileIdentity} from '@contracts/stagedArtifacts';
 
 function createStagedArtifact(overrides: {
     changedObjectRefsSha256?: string;
@@ -44,8 +46,8 @@ function createStagedArtifact(overrides: {
             qpdfResult: {
                 isValid: true,
                 tool: 'qpdf',
-                errors: [],
-                warnings: ['recoverable qpdf warning'],
+                errors: [] as string[],
+                warnings: ['recoverable qpdf warning'] as string[],
             },
             ...(overrides.changedObjectRefsSha256 === undefined
                 ? {}
@@ -302,6 +304,42 @@ describe('document save utility protocol', () => {
             throw new Error('Expected a decoded commit request');
         }
         expect(getDocumentSaveUtilityReusePlan(request).fileSync).toBe(false);
+    });
+
+    it('does not route a browser-store receipt through native utility reuse', () => {
+        const browserRef = 'browser://documents/staged/browser-output.pdf';
+        const browserRevision = requireDocumentRevisionToken('drt1:browser:staged-output');
+        const changedObjectRefs = [
+            '12 0 R',
+            '44 2 R',
+        ];
+        const browserArtifactBase = createStagedArtifact();
+        const browserArtifact = {
+            ...browserArtifactBase,
+            path: browserRef,
+            fileIdentity: createBrowserStoreFileIdentity(browserRef, browserRevision),
+            revision: browserRevision,
+            validations: {
+                ...browserArtifactBase.validations,
+                changedObjectRefsSha256: createChangedObjectRefsSha256(changedObjectRefs),
+            },
+        } as const;
+
+        expect(getDocumentSaveUtilityReusePlan({
+            type: 'commit',
+            sourcePath: '/tmp/output.tmp',
+            targetPath: '/tmp/output.pdf',
+            expectedBytes: 100,
+            changedObjectRefs,
+            stagedArtifact: browserArtifact,
+        })).toEqual({
+            fingerprint: false,
+            tailCheck: false,
+            qpdfCheck: false,
+            nativeIncrementalCheck: false,
+            changedObjectRefsCheck: false,
+            fileSync: false,
+        });
     });
 
     it('normalizes changed-object scope before hashing', () => {

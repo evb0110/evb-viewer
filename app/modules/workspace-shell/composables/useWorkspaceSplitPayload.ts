@@ -31,6 +31,7 @@ import {
 } from '@app/modules/workspace-shell/composables/nativePdfMutationArtifact';
 
 interface IUseWorkspaceSplitPayloadOptions {
+    readonly [key: string]: unknown;
     pdfSrc: Ref<TPdfSource | null>;
     isDjvuMode: Ref<boolean>;
     djvuSourcePath: Ref<TDocumentRef | null>;
@@ -43,13 +44,6 @@ interface IUseWorkspaceSplitPayloadOptions {
     pdfViewerRef: Ref<IWorkspacePdfViewerSplitPort | null>;
     documentViewerRef: Ref<IWorkspaceDocumentViewerSplitPort | null>;
     pdfData: Ref<Uint8Array | null>;
-    serializePdfForSave?: (
-        data: Uint8Array,
-        options?: {
-            includeShapes?: boolean;
-            rewriteShapeState?: boolean;
-        },
-    ) => Promise<Uint8Array>;
     openFileWithViewerLifecycle: (result: TOpenFileResult) => Promise<TDocumentOpenOutcome>;
     waitForPdfReload: (page: number) => Promise<void>;
     loadPdfFromPath: (path: TDocumentRef, options?: { markDirty?: boolean }) => Promise<void>;
@@ -144,23 +138,14 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
             }
             const viewerTransaction = await options.pdfViewerRef.value?.runSaveTransaction({
                 mode: 'snapshot',
-                forcePdfjsMaterialize: true,
-                ...(options.serializePdfForSave ? {
-                    serializeResult: true,
-                    includeManagedShapes: true,
-                    rewriteShapeState: true,
-                    source: {
-                        getSourcePdfData: async () => {
-                            if (options.pdfData.value) {
-                                return options.pdfData.value;
-                            }
-                            return workingCopyPath
-                                ? readDocumentBytes(workingCopyPath)
-                                : null;
-                        },
-                        serializePdfForSave: options.serializePdfForSave,
-                    },
-                } : {}),
+                forceWriterSave: true,
+                serializeResult: true,
+                source: {getSourcePdfData: async () => {
+                    if (options.pdfData.value) {
+                        return options.pdfData.value;
+                    }
+                    return workingCopyPath ? readDocumentBytes(workingCopyPath) : null;
+                }},
             });
             const viewerSnapshot = resolvePdfViewerSaveTransactionFinalBytes(viewerTransaction);
             if (viewerSnapshot) {
@@ -193,7 +178,7 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
             const viewerTransaction = await options.pdfViewerRef.value?.runSaveTransaction({
                 mode: 'snapshot',
                 saveFlowMode: 'save',
-                forcePdfjsMaterialize: false,
+                forceWriterSave: false,
                 workingPath: sourcePath,
                 ...(options.getNativeSaveTransactionOptions?.() ?? {}),
             });

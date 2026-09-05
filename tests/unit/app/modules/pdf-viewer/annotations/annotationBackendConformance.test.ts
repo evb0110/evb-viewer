@@ -5,7 +5,7 @@ import {
 } from 'vitest';
 import {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {AnnotationStore} from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
-import {buildSerializationPlan} from '@app/modules/pdf-viewer/serialization/serializationPlan';
+import {buildSerializationPlan} from '@app/modules/pdf-viewer/annotations/persistence/annotationSavePlan';
 import {requireDocumentRevisionToken} from '@contracts';
 import {
     ANNOTATION_PERSISTENCE_BACKENDS,
@@ -19,11 +19,10 @@ describe('annotation persistence backend conformance', () => {
         const store = new AnnotationStore();
         const noteId = asAnnotationId('annotation-note');
         const markupId = asAnnotationId('annotation-markup');
-        store.createStickyNote({
-            kind: 'sticky-note',
+        store.createNote({
+            kind: 'note',
             identity: {
                 id: noteId,
-                pdfName: 'note-nm',
                 pdfRef: '12R0',
             },
             pageIndex: 0,
@@ -33,20 +32,20 @@ describe('annotation persistence backend conformance', () => {
             createdAt: null,
             modifiedAt: null,
             author: 'Test',
-            text: 'שלום — semantic note',
-            anchor: {
+            contents: 'שלום — semantic note',
+            position: {
                 left: 0.1,
                 top: 0.2,
                 width: 0.02,
                 height: 0.02,
             },
             color: '#ffcc00',
+            open: false,
         });
         store.createTextMarkup({
             kind: 'text-markup',
             identity: {
                 id: markupId,
-                pdfName: 'markup-nm',
                 pdfRef: '13 0 R',
             },
             pageIndex: 1,
@@ -57,8 +56,8 @@ describe('annotation persistence backend conformance', () => {
             modifiedAt: null,
             author: null,
             subtype: 'Squiggly',
-            text: 'overlap',
-            geometry: [{
+            contents: 'overlap',
+            quadPoints: [{
                 left: 0.3,
                 top: 0.4,
                 width: 0.2,
@@ -69,7 +68,7 @@ describe('annotation persistence backend conformance', () => {
         });
         store.delete(markupId);
         const frontier = store.beginSave();
-        const plan = buildSerializationPlan(frontier, store.dirtyAt(frontier));
+        const plan = buildSerializationPlan(frontier, store.dirtyEntities());
         expect(plan.changedObjectRefs).toEqual(['12 0 R']);
         expect(Object.isFrozen(plan)).toBe(true);
         expect(Object.isFrozen(plan.steps)).toBe(true);
@@ -83,8 +82,6 @@ describe('annotation persistence backend conformance', () => {
         }) => mutation));
 
         const expectedSemantics = semantics[0]!;
-        expect(semantics[1]).toEqual(expectedSemantics);
-        expect(semantics[2]).toEqual(expectedSemantics);
         expect(assertAnnotationBackendSemanticConformance(plan)).toEqual(expectedSemantics);
         expect(expectedSemantics.map(mutation => mutation.operation)).toEqual([
             'prepare-free-text-appearance',
@@ -93,23 +90,20 @@ describe('annotation persistence backend conformance', () => {
             'bind-identities',
         ]);
         expect(expectedSemantics[2]?.fields).toMatchObject({
-            text: 'שלום — semantic note',
-            anchor: {
+            contents: 'שלום — semantic note',
+            position: {
                 width: 0.02,
                 height: 0.02,
             },
         });
     });
 
-    it('executes and reopens all three backend adapters against canonical entities', async () => {
+    it('executes and reopens the native writer adapter against canonical entities', async () => {
         const store = new AnnotationStore();
         const noteId = asAnnotationId('backend-note');
-        store.createStickyNote({
-            kind: 'sticky-note',
-            identity: {
-                id: noteId,
-                pdfName: 'backend-note',
-            },
+        store.createNote({
+            kind: 'note',
+            identity: {id: noteId},
             pageIndex: 0,
             revision: 0,
             persistedRevision: -1,
@@ -117,35 +111,30 @@ describe('annotation persistence backend conformance', () => {
             createdAt: 1,
             modifiedAt: 2,
             author: 'Author',
-            text: 'עברית Ω',
-            anchor: {
+            contents: 'עברית Ω',
+            position: {
                 left: 0.1,
                 top: 0.2,
                 width: 0.02,
                 height: 0.02,
             },
             color: '#ffaa00',
-            fidelity: {
-                subject: 'semantic',
-                flags: 4,
-                rotation: 90,
-                zOrder: 2,
-            },
+            open: false,
         });
         const frontier = store.beginSave();
-        const plan = buildSerializationPlan(frontier, store.dirtyAt(frontier));
+        const plan = buildSerializationPlan(frontier, store.dirtyEntities());
         const calls: string[] = [];
-        const adapters = ANNOTATION_PERSISTENCE_BACKENDS.map((backend, index) => ({
-            backend,
+        const adapters = [{
+            backend: 'native-append' as const,
             apply: async (mutations: ReturnType<typeof projectAnnotationBackendMutations>) => {
-                calls.push(`${backend}:${mutations.map(mutation => mutation.operation).join(',')}`);
-                return new Uint8Array([index + 1]);
+                calls.push(`native-append:${mutations.map(mutation => mutation.operation).join(',')}`);
+                return new Uint8Array([1]);
             },
             reopen: async () => plan.expected,
-        }));
+        }];
         const results = await verifyAllAnnotationPersistenceBackends(plan, adapters);
         expect(results.map(result => result.backend)).toEqual(ANNOTATION_PERSISTENCE_BACKENDS);
-        expect(calls).toHaveLength(3);
+        expect(calls).toHaveLength(1);
         expect(calls.every(call => call.endsWith('prepare-free-text-appearance,write-free-text-contents,bind-identities'))).toBe(true);
     });
 
@@ -176,7 +165,7 @@ describe('annotation persistence backend conformance', () => {
                 payloadHash: 'ocr-hash',
             }],
             routeConstraints: {
-                allowedBackends: ['pdf-lib-rewrite'],
+                allowedBackends: ['native-append'],
                 forceRewrite: true,
             },
             postconditions: {

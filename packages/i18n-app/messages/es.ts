@@ -1366,6 +1366,8 @@ export default {
         'author': 'Nombre del autor',
         'authorPlaceholder': 'Su nombre para las anotaciones',
         'authorDescription': 'Se muestra como autor en notas adhesivas y comentarios.',
+        'suppressUnencryptedSaveNotice': 'No avisar antes de eliminar la protección con contraseña del PDF',
+        'suppressUnencryptedSaveNoticeDescription': 'El PDF guardado no requerirá la contraseña original.',
         'theme': 'Tema',
         'themeLight': 'Claro',
         'themeDark': 'Oscuro',
@@ -1507,6 +1509,12 @@ export default {
         'file': {
             'open': 'No se pudo abrir el archivo',
             'openNotFound': 'No se pudo abrir «{name}». El archivo puede haber sido movido, eliminado o su almacenamiento fue borrado.',
+            'passwordPromptTitle': 'Se requiere una contraseña',
+            'passwordPromptDescription': 'Introduce la contraseña de «{name}» para abrir este PDF.',
+            'passwordPromptLabel': 'Contraseña',
+            'passwordPromptOpen': 'Abrir',
+            'passwordPromptIncorrect': 'La contraseña no es correcta. Inténtalo de nuevo.',
+            'unsupportedEncryption': 'Este PDF usa un cifrado que EVB Viewer no puede abrir.',
             'invalid': 'Archivo no válido o inexistente',
             'emptyPdf': 'El archivo PDF está vacío (0 bytes)',
             'noPages': 'El PDF no contiene páginas',
@@ -1520,6 +1528,10 @@ export default {
             'openNotes': 'No se pudieron guardar las notas abiertas, así que el documento no se escribió.',
             'documentChanged': 'El documento cambió antes de terminar de guardar, así que no se escribió nada.',
             'notCompleted': 'No se pudo escribir el documento.',
+            'unencryptedTitle': '¿Guardar sin protección con contraseña?',
+            'unencryptedDescription': 'Este PDF se abrió con una contraseña. Al guardarlo se creará una copia sin protección con contraseña.',
+            'unencryptedDontShowAgain': 'No volver a mostrar este aviso',
+            'unencryptedContinue': 'Continuar',
         },
         'export': {
             'images': 'No se pudieron exportar las imágenes',
@@ -1528,6 +1540,7 @@ export default {
         'browser': {
             'filePickerSetupDenied': 'Se denegó el acceso del navegador a los archivos. Vuelve a elegir Abrir para usar el selector compatible.',
             'largeSaveHandleHint': 'Usa un navegador con acceso al sistema de archivos local activado para guardar documentos grandes.',
+            'useNativeApp': 'Use the native app for files this large.',
         },
         'search': {
             'browserTooLarge': 'La búsqueda no está disponible en el navegador para documentos muy grandes.',

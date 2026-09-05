@@ -15,5 +15,6 @@ export { sweepStaleDefaultAppTempPdfs } from '@electron/features/documents/main/
 export { sweepStaleOcrTempArtifacts } from '@electron/features/documents/main/sweepStaleOcrTempArtifacts';
 export { sweepStalePdfAnnotationIndexArtifacts } from '@electron/features/documents/main/pdfAnnotationIndex';
 export { sweepStalePdfEmbeddedShapeIndexArtifacts } from '@electron/features/documents/main/pdfEmbeddedShapeIndex';
+export { sweepStalePdfAnnotationParseArtifacts } from '@electron/features/documents/main/pdfAnnotationParse';
 export { registerDocumentRevisionEventBridge } from '@electron/features/documents/main/registerDocumentRevisionEventBridge';
 export { registerDocumentRevisionInvalidationEffects } from '@electron/features/documents/main/registerDocumentRevisionInvalidationEffects';

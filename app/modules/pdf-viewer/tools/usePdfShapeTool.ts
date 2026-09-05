@@ -15,7 +15,8 @@ import type {
     TAnnotationTool,
 } from '@app/types/annotations';
 import type { AnnotationApplication } from '@app/modules/pdf-viewer/annotations/annotationApplication';
-import { cloneShape } from '@app/modules/pdf-viewer/engine/shapes/cloneShape';
+import { toCanonicalShapeEntity } from '@app/modules/pdf-viewer/annotations/annotationApplication';
+import { asAnnotationId } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 
 interface IUsePdfShapeToolOptions {
     annotationTool: ComputedRef<TAnnotationTool>;
@@ -33,13 +34,12 @@ interface IUsePdfShapeToolOptions {
 }
 
 export const usePdfShapeTool = (options: IUsePdfShapeToolOptions) => {
-    const shapeComposable = useAnnotationShapes({
-        annotationApplication: options.annotationApplication,
-        notifyShapeCommentsChanged: () => options.getShapeCommentsChangedHandler()?.(),
-    });
+    const shapeComposable = useAnnotationShapes({annotationApplication: options.annotationApplication});
 
     function handleShapeCreated(shape: IShapeAnnotation) {
-        options.annotationApplication.value.createShapeFromGeometry(shape);
+        options.annotationApplication.value.store.createShape(
+            toCanonicalShapeEntity(shape, asAnnotationId(shape.id)),
+        );
         options.markModified();
         options.getShapeCommentsChangedHandler()?.();
     }
@@ -53,20 +53,20 @@ export const usePdfShapeTool = (options: IUsePdfShapeToolOptions) => {
     }
 
     function applyShapeUpdateWithHistory(previousShape: IShapeAnnotation, nextShape: IShapeAnnotation) {
-        options.annotationApplication.value.replaceShapeGeometry(
-            resolveShapeAnnotationId(previousShape),
-            cloneShape(nextShape),
-            cloneShape(previousShape),
-        );
+        const annotationId = resolveShapeAnnotationId(previousShape);
+        const nextEntity = toCanonicalShapeEntity(nextShape, annotationId);
+        options.annotationApplication.value.store.updateShape(annotationId, {
+            tool: nextEntity.tool,
+            rect: nextEntity.rect,
+            ...(nextEntity.points === undefined ? {} : {points: nextEntity.points}),
+            ...(nextEntity.strokes === undefined ? {} : {strokes: nextEntity.strokes}),
+            strokeColor: nextEntity.strokeColor,
+            strokeWidth: nextEntity.strokeWidth,
+            fill: nextEntity.fill,
+            opacity: nextEntity.opacity,
+        });
         options.markModified();
         options.getShapeCommentsChangedHandler()?.();
-    }
-
-    function previewShapeUpdate(shape: IShapeAnnotation) {
-        options.annotationApplication.value.previewShapeGeometry(
-            resolveShapeAnnotationId(shape),
-            cloneShape(shape),
-        );
     }
 
     function deleteShape(shape: IShapeAnnotation) {
@@ -96,7 +96,7 @@ export const usePdfShapeTool = (options: IUsePdfShapeToolOptions) => {
         annotationSettings: options.annotationSettings,
         onShapeCreated: handleShapeCreated,
         onShapeUpdated: applyShapeUpdateWithHistory,
-        onShapePreviewed: previewShapeUpdate,
+        onShapePreviewed: () => undefined,
         onShapeContextMenu: options.emitShapeContextMenu,
     });
 
@@ -121,7 +121,13 @@ export const usePdfShapeTool = (options: IUsePdfShapeToolOptions) => {
             return null;
         }
         const application = options.annotationApplication.value;
-        const annotationId = application.annotationIdForSummary(comment);
+        const directId = comment.id.trim()
+            ? asAnnotationId(comment.id)
+            : null;
+        const directEntity = directId ? application.store.get(directId) : null;
+        const annotationId = directEntity?.kind === 'shape'
+            ? directEntity.identity.id
+            : application.annotationIdForSummary(comment);
         if (!annotationId) {
             return null;
         }

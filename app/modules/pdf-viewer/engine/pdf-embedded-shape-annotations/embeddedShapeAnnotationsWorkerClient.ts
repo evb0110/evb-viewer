@@ -156,10 +156,6 @@ function isNativeEmbeddedShapeIndexSource(path: TDocumentRef | null | undefined)
     return Boolean(path) && isNativeDocumentRef(path);
 }
 
-export function isNativeEmbeddedShapeImportSource(path: TDocumentRef | null | undefined) {
-    return isNativeEmbeddedShapeIndexSource(path);
-}
-
 function hasValue<T extends string>(values: readonly T[], value: unknown): value is T {
     return typeof value === 'string' && values.includes(value as T);
 }

@@ -7,6 +7,7 @@ import {
 } from 'node:fs/promises';
 import { transform } from 'esbuild';
 import {
+    basename,
     dirname,
     join,
     resolve,
@@ -27,6 +28,8 @@ const ASSET_DIRECTORIES = [
     'wasm',
     'iccs',
 ];
+
+const PDFJS_DOCUMENTATION_FILE_PATTERN = /^(?:README|CHANGELOG)(?:\.[^/\\]+)?$/iu;
 
 const PDFJS_VERSION_STAMP_FILE = '.pdfjs-version';
 export const PDFJS_WORKER_MAX_BYTES = 1_500_000;
@@ -105,6 +108,7 @@ export async function copyPdfjsAssets({
             join(root, directory),
             join(targetRoot, directory),
             {
+                filter: (source) => !PDFJS_DOCUMENTATION_FILE_PATTERN.test(basename(source)),
                 recursive: true,
                 force: true,
             },

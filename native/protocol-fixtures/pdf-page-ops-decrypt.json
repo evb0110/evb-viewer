@@ -1,0 +1,7 @@
+{
+  "format": "evb-pdf-decrypt",
+  "schemaVersion": 1,
+  "outcome": "rewritten",
+  "wasEncrypted": true,
+  "revision": 6
+}

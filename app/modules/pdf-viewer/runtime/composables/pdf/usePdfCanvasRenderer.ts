@@ -71,6 +71,7 @@ export const usePdfCanvasRenderer = (deps: {
     outputScale: MaybeRefOrGetter<number>;
     viewRotation?: MaybeRefOrGetter<TPdfViewRotation>;
     defaultMaxCanvasPixels?: number | undefined;
+    annotationProjectionReady?: MaybeRefOrGetter<boolean>;
 }) => {
     const {
         outputScale,
@@ -218,6 +219,13 @@ export const usePdfCanvasRenderer = (deps: {
             options?.contentIntent === 'canvas-only-buffer'
             || options?.contentIntent === 'canvas-only-refine'
         ) {
+            return {
+                annotationCanvasMap: null,
+                annotationMode: AnnotationMode?.DISABLE ?? 0,
+                operationsFilter: undefined,
+            };
+        }
+        if (toValue(deps.annotationProjectionReady ?? true) === false) {
             return {
                 annotationCanvasMap: null,
                 annotationMode: AnnotationMode?.DISABLE ?? 0,

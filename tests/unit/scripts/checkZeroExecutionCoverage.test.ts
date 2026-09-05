@@ -143,7 +143,10 @@ describe('zero-execution coverage tripwire', () => {
             'app/components/Viewer.vue',
             './app/components/Viewer.vue',
             'app/app.vue',
+            'app/modules/workspace-shell/components/DocumentPasswordDialog.vue',
+            'app/modules/workspace-shell/components/UnencryptedSaveDialog.vue',
             'electron/main.ts',
+            'scripts/generate-freetext-lifecycle-fixture.mjs',
             'scripts/release/publish.mjs',
             'tests/unit/app/Viewer.test.ts',
         ])).toEqual([
@@ -152,8 +155,26 @@ describe('zero-execution coverage tripwire', () => {
         ]);
         expect(NON_UNIT_COVERAGE_ENTRYPOINTS).toContain('app/app.vue');
         expect(NON_UNIT_COVERAGE_ENTRYPOINTS).toContain('app/modules/pdf-viewer/components/PdfViewer.vue');
+        expect(NON_UNIT_COVERAGE_ENTRYPOINTS).toContain(
+            'app/modules/pdf-viewer/components/PdfAnnotationEditorLayer.vue',
+        );
+        expect(NON_UNIT_COVERAGE_ENTRYPOINTS).toContain(
+            'app/modules/pdf-viewer/runtime/rendering/createHiddenAnnotationLayerController.ts',
+        );
+        expect(NON_UNIT_COVERAGE_ENTRYPOINTS).toContain(
+            'app/modules/workspace-shell/components/DocumentPasswordDialog.vue',
+        );
+        expect(NON_UNIT_COVERAGE_ENTRYPOINTS).toContain(
+            'app/modules/workspace-shell/components/UnencryptedSaveDialog.vue',
+        );
+        expect(NON_UNIT_COVERAGE_ENTRYPOINTS).toContain('scripts/generate-freetext-lifecycle-fixture.mjs');
         expect(NON_UNIT_COVERAGE_ENTRYPOINTS).toContain('app/pages/electron.vue');
         expect(NON_UNIT_COVERAGE_ENTRYPOINTS).toContain('electron/preload.ts');
+        expect(NON_UNIT_COVERAGE_ENTRYPOINTS).toContain(
+            'app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations.worker.ts',
+        );
+        expect(NON_UNIT_COVERAGE_ENTRYPOINTS).toContain('app/platform/browser-api/browserPageOps.worker.ts');
+        expect(NON_UNIT_COVERAGE_ENTRYPOINTS).toContain('app/platform/browser-api/browserPdfCombine.worker.ts');
     });
 
     it('discovers and checks targets across the widened production roots', async () => {

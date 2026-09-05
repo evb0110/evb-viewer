@@ -1,10 +1,12 @@
 export {
     buildPdfSaveRestrictions,
+    containsPdfEncryptMarker,
     createConservativePdfConformanceFallbackProfile,
     createDefaultPdfConformanceProfile,
     detectPdfaLevelFromPdfText,
     hasPdfEncryptMarkersInPdfText,
     hasPdfSignatureMarkersInPdfText,
+    PDF_ENCRYPT_SCAN_REGION_BYTES,
 } from '@pdf-core/pdfConformanceHelpers';
 export { loadPdfStructure } from '@pdf-core/loadPdfStructure';
 export type {

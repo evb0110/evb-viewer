@@ -1,0 +1,296 @@
+name: Large-document Electron performance lane
+
+concurrency:
+  group: large-document-perf-${{ github.workflow }}
+  cancel-in-progress: false
+
+on:
+  schedule:
+    - cron: '17 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+env:
+  NODE_VERSION: '24.11.1'
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  EVB_E2E_PRESERVE_ARTIFACTS: '1'
+  FIXTURE_REPOSITORY: evb0110/evb-viewer-fixtures
+  FIXTURE_RELEASE_TAG: fixtures-2026-08-31
+
+jobs:
+  build:
+    name: Build Electron once
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
+
+      - name: Build native page operations and Electron
+        run: pnpm run build:pdf-page-ops && pnpm run build:electron
+
+      - name: Upload shared Electron build
+        uses: actions/upload-artifact@v7
+        with:
+          name: large-document-electron-build-${{ github.run_id }}
+          path: |
+            .tmp/**
+            dist-electron/**
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 3
+
+  large_pdf:
+    name: 882-page save and reopen
+    needs: build
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
+
+      - name: Install PDF test tools
+        run: scripts/ci/apt-install.sh poppler-utils qpdf
+
+      - name: Download shared Electron build
+        uses: actions/download-artifact@v8
+        with:
+          name: large-document-electron-build-${{ github.run_id }}
+
+      - name: Download pinned 882-page fixture
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          fixture_root="$RUNNER_TEMP/evb-large-pdf"
+          mkdir -p "$fixture_root"
+          gh release download "$FIXTURE_RELEASE_TAG" \
+            --repo "$FIXTURE_REPOSITORY" \
+            --pattern 'turkish-english-lexicon-letter-bookmarks.pdf' \
+            --dir "$fixture_root"
+          printf '%s  %s\n' \
+            '1660bced91f628b9acbb2fc0f9dac29fe783a3f43d26231d8f3b0c73133b21b6' \
+            "$fixture_root/turkish-english-lexicon-letter-bookmarks.pdf" \
+            | sha256sum --check
+
+      - name: Sweep Electron sessions before the run
+        run: |
+          set -euo pipefail
+          pnpm electron:run stop --all >/dev/null 2>&1 || true
+          test -z "$(pgrep -af '[a]utomation-electron-app-entry' || true)"
+
+      - name: Run 882-page Electron acceptance
+        env:
+          EVB_E2E_LARGE_PDF_FIXTURE: ${{ runner.temp }}/evb-large-pdf/turkish-english-lexicon-letter-bookmarks.pdf
+          EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE: '1'
+          EVB_E2E_REQUIRE_EXACT_ZALIZNYAK: '1'
+          EVB_EXACT_FIXTURE_PROFILE: localZaliznyak882
+          EVB_LARGE_PDF_ARTIFACT_ROOT: ${{ runner.temp }}/evb-large-pdf/artifacts
+          EVB_PDF_PAGE_OPS_ENABLE: '1'
+        run: |
+          set -o pipefail
+          bash scripts/test-electron-e2e-headless.sh --no-build e2e-large-pdf \
+            tests/e2e/electron/largePdfAnnotationSave.e2e.test.ts --reporter verbose \
+            2>&1 | tee "$RUNNER_TEMP/evb-large-pdf/acceptance.log"
+
+      - name: Upload 882-page evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: large-document-882-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/evb-large-pdf/acceptance.log
+            .devkit/sessions/e2e-*/session.log
+            .devkit/sessions/e2e-*/session.json
+            .devkit/sessions/e2e-*/session-starting.json
+            .devkit/sessions/e2e-*/screenshots/**
+            .devkit/test/electron-e2e-artifacts/**
+            .devkit/scratch/dev-server-logs/e2e-*/**
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Clean finished Electron sessions
+        if: ${{ always() }}
+        run: |
+          pnpm electron:run stop --all >/dev/null 2>&1 || true
+          find .devkit/sessions -mindepth 1 -maxdepth 1 -type d -name 'e2e-*' -exec rm -rf -- {} + 2>/dev/null || true
+          rm -rf -- "$RUNNER_TEMP/evb-large-pdf"
+
+  xlarge_pdf:
+    name: 2646-page budget acceptance
+    needs: build
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
+
+      - name: Install PDF test tools
+        run: scripts/ci/apt-install.sh poppler-utils qpdf
+
+      - name: Download shared Electron build
+        uses: actions/download-artifact@v8
+        with:
+          name: large-document-electron-build-${{ github.run_id }}
+
+      - name: Download pinned 2646-page fixture
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          fixture_root="$RUNNER_TEMP/evb-xlarge-pdf"
+          mkdir -p "$fixture_root"
+          gh release download "$FIXTURE_RELEASE_TAG" \
+            --repo "$FIXTURE_REPOSITORY" \
+            --pattern 'zaliznyak-three-distinct-copy-2646-pages.pdf' \
+            --dir "$fixture_root"
+          printf '%s  %s\n' \
+            '5609c151c1cec881da4b97ec7028250574f8f0ee67540dcdc8808cc7b8ab0aea' \
+            "$fixture_root/zaliznyak-three-distinct-copy-2646-pages.pdf" \
+            | sha256sum --check
+
+      - name: Sweep Electron sessions before the run
+        run: |
+          set -euo pipefail
+          pnpm electron:run stop --all >/dev/null 2>&1 || true
+          test -z "$(pgrep -af '[a]utomation-electron-app-entry' || true)"
+
+      - name: Run 2646-page Electron acceptance
+        env:
+          EVB_E2E_XLARGE_PDF_FIXTURE: ${{ runner.temp }}/evb-xlarge-pdf/zaliznyak-three-distinct-copy-2646-pages.pdf
+          EVB_E2E_XLARGE_PDF_ARTIFACT: ${{ runner.temp }}/evb-xlarge-pdf/xlarge-document-acceptance.json
+          EVB_PDF_PAGE_OPS_ENABLE: '1'
+        run: |
+          set -o pipefail
+          bash scripts/test-electron-e2e-headless.sh --no-build e2e-xlarge-pdf \
+            tests/e2e/electron/xlargeDocumentAcceptance.e2e.test.ts --reporter verbose \
+            2>&1 | tee "$RUNNER_TEMP/evb-xlarge-pdf/acceptance.log"
+
+      - name: Append measured budgets to summary
+        if: ${{ always() }}
+        run: |
+          node --input-type=module <<'NODE'
+          import {appendFileSync, readFileSync} from 'node:fs';
+          const path = process.env.RUNNER_TEMP + '/evb-xlarge-pdf/xlarge-document-acceptance.json';
+          try {
+            const telemetry = JSON.parse(readFileSync(path, 'utf8'));
+            const save = telemetry.phases?.find((phase) => phase.phase === 'session-b-save-window-handle');
+            const heartbeat = Math.max(...(telemetry.heartbeats ?? []).map((entry) => entry.maxGapMs ?? 0));
+            const heap = Math.max(...(telemetry.rss ?? []).map((entry) => entry.rendererJsHeapDeltaBytes ?? 0));
+            console.log(`saveDurationMs=${save?.durationMs ?? 'unavailable'}`);
+            console.log(`maxHeartbeatGapMs=${heartbeat}`);
+            console.log(`maxRendererJsHeapDeltaBytes=${heap}`);
+            const summary = [
+              '## Large-document measurements',
+              '',
+              '| save duration (ms) | max heartbeat gap (ms) | max renderer heap delta (bytes) |',
+              '| ---: | ---: | ---: |',
+              `| ${save?.durationMs ?? 'unavailable'} | ${heartbeat} | ${heap} |`,
+              '',
+            ].join('\n');
+            appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary);
+            process.stdout.write(summary);
+          } catch (error) {
+            console.error(`Telemetry unavailable: ${error instanceof Error ? error.message : String(error)}`);
+            process.exitCode = 1;
+          }
+          NODE
+        env:
+          RUNNER_TEMP: ${{ runner.temp }}
+
+      - name: Upload 2646-page evidence and measurements
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: large-document-xlarge-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/evb-xlarge-pdf/acceptance.log
+            ${{ runner.temp }}/evb-xlarge-pdf/xlarge-document-acceptance.json
+            .devkit/sessions/e2e-*/session.log
+            .devkit/sessions/e2e-*/session.json
+            .devkit/sessions/e2e-*/session-starting.json
+            .devkit/sessions/e2e-*/screenshots/**
+            .devkit/test/electron-e2e-artifacts/**
+            .devkit/scratch/dev-server-logs/e2e-*/**
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Clean finished Electron sessions
+        if: ${{ always() }}
+        run: |
+          pnpm electron:run stop --all >/dev/null 2>&1 || true
+          find .devkit/sessions -mindepth 1 -maxdepth 1 -type d -name 'e2e-*' -exec rm -rf -- {} + 2>/dev/null || true
+          rm -rf -- "$RUNNER_TEMP/evb-xlarge-pdf"
+
+  report_failure:
+    name: Report failed performance lane
+    if: ${{ always() && (needs.build.result == 'failure' || needs.large_pdf.result == 'failure' || needs.xlarge_pdf.result == 'failure') }}
+    needs: [build, large_pdf, xlarge_pdf]
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Open or update tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          title='Large-document Electron performance lane is red'
+          body="Nightly large-document Electron lane failed in run $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID. Inspect the 882-page and 2646-page artifacts before changing a budget."
+          issue_number="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "$title in:title" --json number --jq '.[0].number // empty')"
+          if [ -n "$issue_number" ]; then
+            gh issue comment "$issue_number" --repo "$GITHUB_REPOSITORY" --body "$body"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$body" --label bug
+          fi

@@ -2,7 +2,6 @@ import type { ComputedRef } from 'vue';
 
 interface IUsePdfViewerMouseInteractionsOptions {
     isSnipActive: () => boolean;
-    isCommentPlacementActive: () => boolean;
     isViewerPanDragModeActive: ComputedRef<boolean>;
     markUserViewportInteraction?: (() => void) | undefined;
     cancelPendingSearchScroll: () => void;
@@ -17,9 +16,9 @@ interface IUsePdfViewerMouseInteractionsOptions {
 const COMMENT_TARGET_SELECTOR = [
     '.pdf-inline-comment-anchor-marker',
     '.pdf-inline-comment-marker',
-    '.pdf-comment-marker-button',
     '.pdf-annotation-has-note-target',
     '.pdf-annotation-has-comment',
+    '.pdf-annotation-editor-layer [data-annotation-id]',
     '.annotationLayer .popupTriggerArea',
     '.annotation-layer .popupTriggerArea',
 ].join(', ');
@@ -29,13 +28,12 @@ function isImagePlacementTarget(target: EventTarget | null) {
 }
 
 function isCommentTarget(target: EventTarget | null) {
-    return target instanceof HTMLElement && Boolean(target.closest(COMMENT_TARGET_SELECTOR));
+    return target instanceof Element && Boolean(target.closest(COMMENT_TARGET_SELECTOR));
 }
 
 export const usePdfViewerMouseInteractions = (options: IUsePdfViewerMouseInteractionsOptions) => {
     const {
         isSnipActive,
-        isCommentPlacementActive,
         isViewerPanDragModeActive,
         markUserViewportInteraction,
         cancelPendingSearchScroll,
@@ -52,11 +50,6 @@ export const usePdfViewerMouseInteractions = (options: IUsePdfViewerMouseInterac
             return;
         }
         markUserViewportInteraction?.();
-        if (isCommentPlacementActive()) {
-            event.preventDefault();
-            cancelPendingSearchScroll();
-            return;
-        }
         if (isCommentTarget(event.target)) {
             event.preventDefault();
             return;
@@ -90,7 +83,7 @@ export const usePdfViewerMouseInteractions = (options: IUsePdfViewerMouseInterac
     }
 
     function handleSelectStart(event: Event) {
-        if (isViewerPanDragModeActive.value || isCommentPlacementActive()) {
+        if (isViewerPanDragModeActive.value) {
             event.preventDefault();
         }
     }

@@ -30,7 +30,6 @@ interface IPageShortcutsDeps {
     canPrint: Ref<boolean>;
     canSave: Ref<boolean>;
     annotationTool: Ref<TAnnotationTool>;
-    annotationPlacingPageNote: Ref<boolean>;
     pdfViewerRef: Ref<IPdfViewerForShortcuts | null>;
     shapePropertiesPopoverVisible: Ref<boolean>;
     annotationContextMenuVisible: Ref<boolean>;
@@ -113,7 +112,6 @@ export const usePageShortcuts = <TDeps extends IPageShortcutsDeps>(deps: TDeps) 
         pdfSrc,
         canPrint,
         annotationTool,
-        annotationPlacingPageNote,
         shapePropertiesPopoverVisible,
         annotationContextMenuVisible,
         pageContextMenuVisible,
@@ -133,7 +131,7 @@ export const usePageShortcuts = <TDeps extends IPageShortcutsDeps>(deps: TDeps) 
         if (pageContextMenuVisible.value) {
             closePageContextMenu();
         }
-        if (annotationPlacingPageNote.value || annotationTool.value !== 'none') {
+        if (annotationTool.value !== 'none') {
             deps.handleAnnotationToolChange('none');
         }
     }

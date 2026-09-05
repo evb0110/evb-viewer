@@ -28,7 +28,7 @@ import {
     iteratePageMatches,
 } from '@electron/search/worker/searchMatch';
 import { parsePageNumber } from '@contracts/pageNumbers';
-import type { IResolvedSearchMatchOptions } from '@pdf-core';
+import type { IResolvedSearchMatchOptions } from '@pdf-core/pdfSearchCore';
 import type { ICachedIndex } from '@electron/search/worker/ensureSearchIndex';
 import {
     ensureSearchIndex,
@@ -40,7 +40,7 @@ import {
     resetXlargeSearchIndexBuilds,
 } from '@electron/search/xlargeSearchRouting';
 import type {IXlargeSearchIndexBuildProgress} from '@electron/search/xlargeIndexBuilder';
-import { collectSearchMatchWords } from '@pdf-core';
+import { collectSearchMatchWords } from '@pdf-core/collectSearchMatchWords';
 import { decodeSearchWorkerData } from '@contracts/resourcePolicies';
 
 interface ISearchRequestContext extends IResolvedSearchMatchOptions {

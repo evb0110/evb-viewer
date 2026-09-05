@@ -38,7 +38,7 @@ export function createPrintableSourceDataResolver(deps: ICreatePrintableSourceDa
     async function materializeDirtyPrintableBytes() {
         const printTransaction = await deps.pdfViewerRef.value?.runSaveTransaction({
             mode: 'print',
-            forcePdfjsMaterialize: true,
+            forceWriterSave: true,
             serializeResult: true,
             includeManagedShapes: true,
             rewriteShapeState: true,

@@ -236,11 +236,6 @@ describe('real crop worker protocol', () => {
             workingCopyPath: '/tmp/document.pdf',
             pages: [Number.NaN],
         },
-        {
-            type: 'getPageGeometry',
-            workingCopyPath: '/tmp/document.pdf',
-            pageNumber: Number.POSITIVE_INFINITY,
-        },
     ])('rejects malformed frames without killing the worker (%j)', async (frame) => {
         await expect(harness.decode('decodeCropWorkerInput', frame)).resolves.toBeNull();
     });

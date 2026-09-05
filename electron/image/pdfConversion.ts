@@ -1,12 +1,5 @@
 import { existsSync } from 'fs';
-import {
-    mkdtemp,
-    readFile,
-    rm,
-    stat,
-} from 'fs/promises';
-import { randomUUID } from 'crypto';
-import { tmpdir } from 'os';
+import {stat} from 'fs/promises';
 import {
     basename,
     dirname,
@@ -18,25 +11,8 @@ import {
     Worker,
     type ResourceLimits,
 } from 'worker_threads';
-import { PDFDocument } from 'pdf-lib';
 import { createLogger } from '@electron/utils/createLogger';
-import {
-    createCombinedPdf,
-    isImagePath,
-} from '@electron/image/pdfCombineShared';
-import {
-    DJVU_PAGE_SIZE_ARRAY_MAX_PAGES,
-    buildCompactDjvuAwarePdfFromDjvu,
-    cancelConversion,
-    getDjvuPageSizesForViewing,
-} from '@electron/features/djvu/public';
-import { resolveDjvuCompactFidelityPreset } from '@contracts/djvuConversionPolicy';
-import {
-    getDjvuPageCount,
-    getDjvuOutline,
-    getDjvuResolution,
-} from '@electron/djvu/metadata';
-import { parseDjvuOutline } from '@electron/djvu/parseDjvuOutline';
+import {isImagePath} from '@electron/image/pdfCombineShared';
 import { getErrorMessage } from '@electron/utils/error';
 import {
     isFiniteWorkerMessageNumber,
@@ -296,102 +272,6 @@ export function buildCombinedPdfOutputPath(inputPaths: string[]) {
     return join(dir, outputName);
 }
 
-async function createPdfFromInputPathsLocal(
-    inputPaths: string[],
-    options?: ICreatePdfFromInputPathsOptions,
-): Promise<Uint8Array> {
-    if (options?.signal?.aborted) {
-        throw abortErrorFromSignal(options.signal);
-    }
-
-    return createCombinedPdf(inputPaths, {
-        ...(options?.onProgress ? { onProgress: options.onProgress } : {}),
-        unsupportedFileError: (sourcePath) => `Unsupported file type: ${sourcePath}`,
-        skipNativeImageCombiner: true,
-        ...(options?.signal ? { signal: options.signal } : {}),
-        appendDjvuPages: async (targetPdf, sourcePath) => {
-            const tempDir = await mkdtemp(join(tmpdir(), 'pdf-combine-djvu-'));
-            const tempPdfPath = join(tempDir, `${randomUUID()}.pdf`);
-            const jobId = `pdf-combine-djvu-${randomUUID()}`;
-            const abortHandler = options?.signal
-                ? () => {
-                    void cancelConversion(jobId);
-                }
-                : null;
-
-            try {
-                if (options?.signal?.aborted) {
-                    throw abortErrorFromSignal(options.signal);
-                }
-                if (options?.signal && abortHandler) {
-                    options.signal.addEventListener('abort', abortHandler, { once: true });
-                }
-                const pageCount = await getOptionalDjvuPageCount(sourcePath, options?.signal);
-                const sourceDpi = await getDjvuResolution(sourcePath, options?.signal ? { signal: options.signal } : {});
-                const pageSizes = pageCount > 0 && pageCount <= DJVU_PAGE_SIZE_ARRAY_MAX_PAGES
-                    ? await getDjvuPageSizesForViewing(sourcePath, pageCount, options?.signal ? { signal: options.signal } : {})
-                    : null;
-                const result = await buildCompactDjvuAwarePdfFromDjvu({
-                    jobId,
-                    djvuPath: sourcePath,
-                    outputPath: tempPdfPath,
-                    tempDir,
-                    pageCount,
-                    sourceDpi,
-                    pageSizes,
-                    qualityPreset: resolveDjvuCompactFidelityPreset(2),
-                    ...(options?.signal ? { signal: options.signal } : {}),
-                });
-
-                if (options?.signal?.aborted) {
-                    throw abortErrorFromSignal(options.signal);
-                }
-                if (!result.success) {
-                    throw new Error(result.error ?? `Failed to convert DjVu file: ${sourcePath}`);
-                }
-
-                if (options?.signal?.aborted) {
-                    throw abortErrorFromSignal(options.signal);
-                }
-                await assertLocalPdfReadLimit(tempPdfPath);
-                const sourceBytes = await readFile(tempPdfPath);
-                const sourcePdf = await PDFDocument.load(sourceBytes);
-                const copiedPages = await targetPdf.copyPages(sourcePdf, sourcePdf.getPageIndices());
-                for (const page of copiedPages) {
-                    targetPdf.addPage(page);
-                }
-                const bookmarks = await getDjvuOutline(sourcePath, options?.signal ? { signal: options.signal } : {})
-                    .then(parseDjvuOutline)
-                    .catch(() => []);
-                return {
-                    pageCount: copiedPages.length,
-                    bookmarks,
-                };
-            } finally {
-                if (options?.signal && abortHandler) {
-                    options.signal.removeEventListener('abort', abortHandler);
-                }
-                await rm(tempDir, {
-                    recursive: true,
-                    force: true,
-                }).catch(() => undefined);
-            }
-        },
-    });
-}
-
-async function getOptionalDjvuPageCount(sourcePath: string, signal?: AbortSignal) {
-    try {
-        return await getDjvuPageCount(sourcePath, signal ? { signal } : {});
-    } catch (error) {
-        if (signal?.aborted) {
-            throw abortErrorFromSignal(signal);
-        }
-        logger.debug(`Failed to read DjVu page count before combine conversion: ${getErrorMessage(error)}`);
-        return 0;
-    }
-}
-
 function canCombineInWorker(inputPaths: string[]) {
     return inputPaths.every((sourcePath) => {
         const extension = extname(sourcePath).toLowerCase();
@@ -465,29 +345,6 @@ function assertMemoryCombineInputResourceLimits(resourceUsage: ICombineInputReso
     const estimatedMinimumOutputBytes = Math.ceil(resourceUsage.totalBytes * 1.25);
     if (estimatedMinimumOutputBytes > PDF_COMBINE_SMALL_MEMORY_MAX_OUTPUT_BYTES) {
         throw createPdfCombineOutputTooLargeError();
-    }
-}
-
-function canUseLocalWorkerStartupFallback(totalBytes: number) {
-    return totalBytes <= PDF_COMBINE_LOCAL_FALLBACK_MAX_TOTAL_BYTES;
-}
-
-function getLocalWorkerStartupFallbackDisabledError() {
-    const maxMb = Math.floor(PDF_COMBINE_LOCAL_FALLBACK_MAX_TOTAL_BYTES / (1024 * 1024));
-    return new Error(`Image combine worker startup failed and main-process fallback is disabled for inputs larger than ${maxMb}MB`);
-}
-
-async function assertLocalPdfReadLimit(pdfPath: string) {
-    const pdfStat = await stat(pdfPath);
-    if (!pdfStat.isFile()) {
-        throw new Error(`Converted DjVu PDF is not a regular file: ${pdfPath}`);
-    }
-    if (toSafeByteCount(pdfStat.size, pdfPath) > PDF_COMBINE_LOCAL_FALLBACK_MAX_TOTAL_BYTES) {
-        throw new PdfCombineCapabilityError(
-            'native-failure',
-            `Converted DjVu PDF is too large for the small-input compatibility path: ${pdfPath}`,
-            {operation: 'pdf-combine'},
-        );
     }
 }
 
@@ -700,7 +557,6 @@ async function createPdfFromNormalizedInputPaths(
     normalizedPaths: string[],
     resourceUsage: ICombineInputResourceUsage,
     options?: ICreatePdfFromInputPathsOptions,
-    nativeAlreadyAttempted = false,
 ) {
     const smallMemoryCombine = isSmallMemoryCombine(resourceUsage);
     if (!smallMemoryCombine) {
@@ -712,14 +568,16 @@ async function createPdfFromNormalizedInputPaths(
     }
 
     assertMemoryCombineInputResourceLimits(resourceUsage);
-    if (!nativeAlreadyAttempted) {
-        const nativePdf = await tryCreatePdfFromInputPathsNative(normalizedPaths, options);
-        if (nativePdf) {
-            return nativePdf;
-        }
+    const nativePdf = await tryCreatePdfFromInputPathsNative(normalizedPaths, options);
+    if (nativePdf) {
+        return nativePdf;
     }
     if (!canCombineInWorker(normalizedPaths)) {
-        return createPdfFromInputPathsLocal(normalizedPaths, options);
+        throw new PdfCombineCapabilityError(
+            'native-failure',
+            'Native PDF combine does not support this input set',
+            {operation: 'pdf-combine'},
+        );
     }
 
     try {
@@ -734,13 +592,15 @@ async function createPdfFromNormalizedInputPaths(
             throw workerError;
         }
 
-        logger.warn(
-            `Image combine worker failed, falling back to in-process conversion: ${getErrorMessage(workerError)}`,
+        logger.warn(`Image combine worker failed to start: ${getErrorMessage(workerError)}`);
+        throw new PdfCombineCapabilityError(
+            'native-unavailable',
+            `Image combine worker is unavailable: ${getErrorMessage(workerError)}`,
+            {
+                operation: 'pdf-combine',
+                cause: workerError,
+            },
         );
-        if (!canUseLocalWorkerStartupFallback(resourceUsage.totalBytes)) {
-            throw getLocalWorkerStartupFallbackDisabledError();
-        }
-        return createPdfFromInputPathsLocal(normalizedPaths, options);
     }
 }
 

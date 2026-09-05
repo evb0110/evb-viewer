@@ -122,7 +122,6 @@ function createAgentOptions(
         annotationCommentsStatus: ref<TAnnotationCommentsStatus>('ready'),
         annotationInventory: ref<IAnnotationInventoryCompleteness | null>(null),
         annotationDirty: ref(false),
-        annotationPlacingPageNote: ref(false),
         annotationTool: ref<TAnnotationTool>('none'),
         bookmarkItems,
         bookmarksDirty: ref(false),

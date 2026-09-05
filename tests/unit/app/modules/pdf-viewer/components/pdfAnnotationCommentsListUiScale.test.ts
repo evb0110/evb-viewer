@@ -192,12 +192,13 @@ describe('annotation comments list under UI scaling', () => {
 
         const rows = readRows(host);
         for (const row of rows) {
-            expect(row.element.tagName).toBe('BUTTON');
-            expect(row.element.getAttribute('tabindex')).toBeNull();
-            expect(row.element.hasAttribute('disabled')).toBe(false);
+            expect(row.element.tagName).toBe('DIV');
+            const content = row.element.querySelector<HTMLButtonElement>('.note-item-content');
+            expect(content?.tagName).toBe('BUTTON');
+            expect(content?.hasAttribute('disabled')).toBe(false);
         }
 
-        const focusTarget = rows[2]?.element;
+        const focusTarget = rows[2]?.element.querySelector<HTMLButtonElement>('.note-item-content');
         focusTarget?.focus();
         expect(document.activeElement).toBe(focusTarget);
 

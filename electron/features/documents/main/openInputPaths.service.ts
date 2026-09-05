@@ -18,9 +18,10 @@ import {
     isSupportedOpenPath,
 } from '@electron/image/pdfConversion';
 import {
-    createWorkingCopy,
     createWorkingCopyFromPath,
+    createWorkingCopyWithOutcome,
 } from '@electron/file-access/workingCopyCreation';
+import {PdfDecryptAttemptError} from '@electron/file-access/workingCopyDecryption';
 import { cleanupWorkingCopy } from '@electron/file-access/workingCopyCleanup';
 import {
     allowOpenPaths,
@@ -50,6 +51,7 @@ interface IOpenInputPathsOptions {
     onCombineProgress?: (progress: ICreatePdfFromInputPathsProgress) => void;
     signal?: AbortSignal;
     forceCombine?: boolean;
+    password?: string;
 }
 
 interface IOpenInputPathsAbortLifecycle {
@@ -240,32 +242,49 @@ export async function openInputPaths(
                 },
             });
             throwIfAborted(signal);
-            unownedWorkingPath = await createWorkingCopy(
-                requireOpenPath(originalPath, owner),
-                ownerWebContentsId,
-            );
-            throwIfAborted(signal);
-            if (isGenerated) {
-                // Generated outputs stay out of Recent Files, so opening one is
-                // the only signal that the user still wants it: it has to
-                // restart the retention window the cleanup sweep measures.
-                await touchScanCleanupGeneratedOutput(originalPath);
-            } else {
-                persistRecentInputsAfterOpen([originalPath], owner);
+            try {
+                const trustedOriginalPath = requireOpenPath(originalPath, owner);
+                const workingCopy = await createWorkingCopyWithOutcome(
+                    trustedOriginalPath,
+                    ownerWebContentsId,
+                    options.password,
+                    signal,
+                );
+                unownedWorkingPath = workingCopy.workingPath;
+                throwIfAborted(signal);
+                if (isGenerated) {
+                    // Generated outputs stay out of Recent Files, so opening one is
+                    // the only signal that the user still wants it: it has to
+                    // restart the retention window the cleanup sweep measures.
+                    await touchScanCleanupGeneratedOutput(originalPath);
+                } else {
+                    persistRecentInputsAfterOpen([originalPath], owner);
+                }
+                throwIfAborted(signal);
+                logger.debug(`openInputPaths PDF source-critical timings: ${JSON.stringify({
+                    recentPersistence: 'background',
+                    totalMs: Math.round((performance.now() - sourceCriticalStartedAt) * 10) / 10,
+                })}`);
+                const result: TOpenFileResult = {
+                    kind: 'pdf',
+                    workingPath: unownedWorkingPath,
+                    originalPath,
+                    ...(isGenerated ? {isGenerated: true} : {}),
+                    ...(workingCopy.wasEncrypted ? {wasEncrypted: true as const} : {}),
+                };
+                unownedWorkingPath = null;
+                return result;
+            } catch (error) {
+                if (error instanceof PdfDecryptAttemptError) {
+                    return {
+                        kind: error.outcome === 'needs-password'
+                            ? 'pdf-needs-password'
+                            : 'pdf-unsupported-encryption',
+                        originalPath,
+                    };
+                }
+                throw error;
             }
-            throwIfAborted(signal);
-            logger.debug(`openInputPaths PDF source-critical timings: ${JSON.stringify({
-                recentPersistence: 'background',
-                totalMs: Math.round((performance.now() - sourceCriticalStartedAt) * 10) / 10,
-            })}`);
-            const result: TOpenFileResult = {
-                kind: 'pdf',
-                workingPath: unownedWorkingPath,
-                originalPath,
-                ...(isGenerated ? {isGenerated: true} : {}),
-            };
-            unownedWorkingPath = null;
-            return result;
         } finally {
             openLease?.release();
             lifecycle.cleanup();

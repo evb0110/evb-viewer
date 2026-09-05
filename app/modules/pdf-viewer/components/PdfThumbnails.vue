@@ -251,7 +251,10 @@ function getThumbnailCanvasStyle(page: number) {
     return createThumbnailCanvasStyle(thumbnailLayout.value.getPageAspect(page));
 }
 function getThumbnailStyle(page: number) {
-    return createThumbnailItemStyle(getThumbnailTop(page));
+    return createThumbnailItemStyle(
+        getThumbnailTop(page),
+        thumbnailLayout.value.getPageHeight(page),
+    );
 }
 
 const {

@@ -1,6 +1,7 @@
 #![cfg(target_family = "unix")]
 
 use lopdf::{dictionary, Document, Object, Stream};
+use serde_json::Value;
 use std::{
     env,
     fs::{self, File},
@@ -298,19 +299,59 @@ fn append_mutations(pdf: &Path, mutations: &Path) -> Output {
         .unwrap()
 }
 
-fn qpdf_object(pdf: &Path, object_number: u32) -> String {
+fn qpdf_objects_json(pdf: &Path) -> String {
     let output = Command::new(qpdf_path())
-        .arg(format!("--show-object={object_number},0"))
+        .args(["--json=1", "--json-key=objects", "--json-stream-data=none"])
         .arg("--")
         .arg(pdf)
         .output()
         .unwrap();
     assert!(
         output.status.success(),
-        "qpdf object read failed: {}",
+        "qpdf object JSON read failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
     String::from_utf8(output.stdout).unwrap()
+}
+
+fn qpdf_contains_pdf_text(pdf: &Path, text: &str) -> bool {
+    let objects = qpdf_objects_json(pdf).to_lowercase();
+    objects.contains(&pdf_utf16be_hex(text)) || objects.contains(&text.to_lowercase())
+}
+
+fn qpdf_text_note_objects(pdf: &Path) -> Vec<((u32, u16), String)> {
+    let value: Value = serde_json::from_str(&qpdf_objects_json(pdf)).unwrap();
+    let objects = value
+        .get("objects")
+        .and_then(Value::as_object)
+        .expect("qpdf object JSON must contain an objects map");
+    let page = objects
+        .values()
+        .find(|object| object.get("/Type") == Some(&Value::String("/Page".to_string())))
+        .expect("qpdf object JSON must contain a page");
+    let annotation_refs = page
+        .get("/Annots")
+        .and_then(Value::as_array)
+        .expect("qpdf page object must contain an Annots array");
+
+    annotation_refs
+        .iter()
+        .filter_map(|reference| {
+            let reference = reference.as_str()?;
+            let mut parts = reference.split_whitespace();
+            let object_number = parts.next()?.parse().ok()?;
+            let generation_number = parts.next()?.parse().ok()?;
+            if parts.next()? != "R" {
+                return None;
+            }
+            let object = objects.get(reference)?;
+            if object.get("/Subtype") != Some(&Value::String("/Text".to_string())) {
+                return None;
+            }
+            let contents = object.get("/Contents")?.as_str()?.to_string();
+            Some(((object_number, generation_number), contents))
+        })
+        .collect()
 }
 
 fn pdf_utf16be_hex(value: &str) -> String {
@@ -581,13 +622,18 @@ fn qpdf_structural_loader_resolves_repeated_native_mutations() {
         "first append failed: {}",
         String::from_utf8_lossy(&first.stderr)
     );
-    assert!(qpdf_object(&pdf, 5)
-        .to_lowercase()
-        .contains(&pdf_utf16be_hex("first text")));
+    let first_notes = qpdf_text_note_objects(&pdf);
+    assert_eq!(first_notes.len(), 1);
+    assert_eq!(first_notes[0].1, "first text");
 
     fs::write(
         &second_mutations,
-        br#"{"updates":[{"objectNumber":5,"generationNumber":0,"text":"edited text"}],"freeTextNotes":[{"pageIndex":0,"stableKey":"uid:0:second","text":"second text","markerRect":{"left":0.3,"top":0.4,"width":0.01,"height":0.01},"author":null,"color":null,"createdAt":2}]}"#,
+        format!(
+            r#"{{"updates":[{{"objectNumber":{},"generationNumber":{},"text":"edited text"}}],"freeTextNotes":[{{"pageIndex":0,"stableKey":"uid:0:second","text":"second text","markerRect":{{"left":0.3,"top":0.4,"width":0.01,"height":0.01}},"author":null,"color":null,"createdAt":2}}]}}"#,
+            first_notes[0].0.0,
+            first_notes[0].0.1,
+        )
+        .as_bytes(),
     )
     .unwrap();
 
@@ -597,16 +643,15 @@ fn qpdf_structural_loader_resolves_repeated_native_mutations() {
         "second append failed: {}",
         String::from_utf8_lossy(&second.stderr)
     );
-    let edited = qpdf_object(&pdf, 5);
-    assert!(
-        edited
-            .to_lowercase()
-            .contains(&pdf_utf16be_hex("edited text")),
-        "external reader resolved the prior annotation revision: {edited}"
-    );
-    assert!(qpdf_object(&pdf, 8)
-        .to_lowercase()
-        .contains(&pdf_utf16be_hex("second text")));
+    let text_notes = qpdf_text_note_objects(&pdf);
+    assert_eq!(text_notes.len(), 2);
+    assert!(text_notes
+        .iter()
+        .any(|(object_id, contents)| *object_id == first_notes[0].0 && contents == "edited text"));
+    assert!(text_notes
+        .iter()
+        .any(|(_, contents)| contents == "second text"));
+    assert!(!qpdf_contains_pdf_text(&pdf, "first text"));
     assert_qpdf_check(&pdf);
 }
 

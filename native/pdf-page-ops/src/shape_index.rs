@@ -304,12 +304,10 @@ pub(crate) fn write_embedded_shape_index_path(
 
     let incremental = load_annotation_index_pdf_path(input_path, qpdf_path)
         .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
-    if incremental.get_prev_documents().is_encrypted() {
-        return Err(domain_error(
-            NativeErrorCode::Encrypted,
-            "Encrypted PDFs are not supported by the embedded shape index operation",
-        ));
-    }
+    assert_plaintext_base(
+        incremental.get_prev_documents(),
+        "Encrypted PDFs are not supported by the embedded shape index operation",
+    )?;
 
     write_embedded_shape_index(&AppendedRevision::new(&incremental), output_path)
 }
@@ -388,7 +386,7 @@ fn supported_shape_subtype(subtype: &str) -> Option<&'static str> {
     }
 }
 
-fn parse_shape_index_entry(
+pub(crate) fn parse_shape_index_entry(
     document: &impl PdfObjectSource,
     dict: &Dictionary,
     page_index: u64,
@@ -826,7 +824,7 @@ fn read_shape_color(
     read_shape_number_array(document, dict, key)
 }
 
-fn pdf_color_to_hex(color: Option<&[f64]>, fallback: &str) -> String {
+pub(crate) fn pdf_color_to_hex(color: Option<&[f64]>, fallback: &str) -> String {
     let Some(color) = color else {
         return fallback.to_string();
     };
@@ -868,7 +866,7 @@ fn normalized_color_component(value: f64) -> f64 {
     value.clamp(0.0, 1.0)
 }
 
-fn read_shape_opacity(document: &impl PdfObjectSource, dict: &Dictionary) -> f64 {
+pub(crate) fn read_shape_opacity(document: &impl PdfObjectSource, dict: &Dictionary) -> f64 {
     dict.get(b"CA")
         .ok()
         .and_then(|object| document.resolved(object).ok())
@@ -962,7 +960,7 @@ fn read_shape_dates(dict: &Dictionary) -> (Option<i64>, Option<i64>) {
     (created.or(modified), modified)
 }
 
-fn parse_pdf_date_timestamp(value: &str) -> Option<i64> {
+pub(crate) fn parse_pdf_date_timestamp(value: &str) -> Option<i64> {
     let normalized = value.trim();
     let body = normalized
         .strip_prefix('D')?

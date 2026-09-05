@@ -3,7 +3,6 @@ import type {
     Ref,
     ShallowRef,
 } from 'vue';
-import type { IMarkerViewModel } from '@app/modules/pdf-viewer/engine/annotations/types';
 import { usePdfViewerLoadingState } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerLoadingState';
 import type {
     PDFDocumentProxy,
@@ -44,7 +43,6 @@ interface IUsePdfRenderViewModelOptions {
     effectiveScale: Ref<number>;
     continuousScroll: ComputedRef<boolean>;
     numPages: Ref<number>;
-    markersByPage: Ref<Map<number, IMarkerViewModel[]>>;
     linksByPage: ComputedRef<Record<number, ILinkAnnotation[]>>;
 }
 
@@ -75,9 +73,6 @@ export const usePdfRenderViewModel = (options: IUsePdfRenderViewModelOptions) =>
         || isInitialSkeletonGeometryPending.value
     ));
 
-    const visibleMarkersByPage = computed(() => (
-        new Map([...options.markersByPage.value].filter(([page]) => options.isPageRenderedForClass(page)))
-    ));
     const visibleLinksByPage = computed(() => (
         isViewerLoadingOverlayVisible.value
             ? emptyLinksByPage
@@ -104,7 +99,6 @@ export const usePdfRenderViewModel = (options: IUsePdfRenderViewModelOptions) =>
 
     return {
         isViewerLoadingOverlayVisible,
-        visibleMarkersByPage,
         visibleLinksByPage,
         shouldShowPageSkeleton,
         isPageRenderFailed: options.isPageRenderFailed,

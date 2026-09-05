@@ -4,7 +4,7 @@ import {
     it,
 } from 'vitest';
 import type { IPdfBookmarkEntry } from '@app/types/pdfContracts';
-import { areBookmarkEntriesEqual } from '@app/modules/pdf-viewer/engine/pdf-bookmark-serialization/areBookmarkEntriesEqual';
+import { areBookmarkEntriesEqual } from '@app/modules/pdf-viewer/engine/pdf-outline-tree/areBookmarkEntriesEqual';
 import { cast } from '@tests/helpers/cast';
 
 function createEntry(

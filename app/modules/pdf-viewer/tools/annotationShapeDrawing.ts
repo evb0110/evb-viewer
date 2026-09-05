@@ -5,7 +5,7 @@ import type {
     TDrawableShapeType,
 } from '@app/types/annotations';
 import type { IShapeAnnotationConstructionOptions } from '@app/types/shapeAnnotationConstructionOptions';
-import { generateManagedShapeStableKey } from '@app/modules/pdf-viewer/engine/pdf-serialization-refs/generateManagedShapeStableKey';
+import { generateManagedShapeStableKey } from '@app/modules/pdf-viewer/annotations/pdf-refs/generateManagedShapeStableKey';
 import { getPointMinMaxBounds } from '@app/modules/pdf-viewer/engine/pdf-shape-resize/getPointMinMaxBounds';
 import { toShapeRect } from '@app/modules/pdf-viewer/engine/pdf-shape-resize/toShapeRect';
 import { getAllShapePoints } from '@app/modules/pdf-viewer/engine/pdf-shape-strokes/getAllShapePoints';

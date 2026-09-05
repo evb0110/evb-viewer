@@ -61,6 +61,7 @@ export function createLazyBrowserPlatformApiGenerated({
     const documentOpenOnOpenDocumentDirectBatchProgressMethod = lazyEvent(pathDescriptors.documentOpen.onOpenDocumentDirectBatchProgress.path);
     const documentWorkingCopyCreateWorkingCopyFromDataMethod = lazyAsync(pathDescriptors.documentWorkingCopy.createWorkingCopyFromData.path);
     const documentWorkingCopyCreateWorkingCopyFromPathMethod = lazyAsync(pathDescriptors.documentWorkingCopy.createWorkingCopyFromPath.path);
+    const documentWorkingCopyParsePdfAnnotationsMethod = lazyAsync(pathDescriptors.documentWorkingCopy.parsePdfAnnotations.path);
     const documentWorkingCopyCleanupFileMethod = lazyAsync(pathDescriptors.documentWorkingCopy.cleanupFile.path);
     const documentWorkingCopyCleanupOcrTempMethod = lazyAsync(pathDescriptors.documentWorkingCopy.cleanupOcrTemp.path);
     const documentFilesReadFileMethod = lazyAsync(pathDescriptors.documentFiles.readFile.path);
@@ -81,6 +82,8 @@ export function createLazyBrowserPlatformApiGenerated({
     const documentFilesResyncWorkingCopyMethod = lazyAsync(pathDescriptors.documentFiles.resyncWorkingCopy.path);
     const documentFilesSavePdfDataMethod = lazyAsync(pathDescriptors.documentFiles.savePdfData.path);
     const documentFilesSavePdfDataChunksMethod = lazyAsync(pathDescriptors.documentFiles.savePdfDataChunks.path);
+    const documentFilesApplyPdfNativeMutationsToWorkingCopyMethod = lazyAsync(pathDescriptors.documentFiles.applyPdfNativeMutationsToWorkingCopy.path);
+    const documentFilesCommitStagedPdfNativeMutationsMethod = lazyAsync(pathDescriptors.documentFiles.commitStagedPdfNativeMutations.path);
     const documentFilesOnDocumentRevisionChangedMethod = lazyEvent(pathDescriptors.documentFiles.onDocumentRevisionChanged.path);
     const documentPdfAnalyzePdfConformanceMethod = lazyAsync(pathDescriptors.documentPdf.analyzePdfConformance.path);
     const documentPdfValidatePdfDataMethod = lazyAsync(pathDescriptors.documentPdf.validatePdfData.path);
@@ -299,6 +302,7 @@ export function createLazyBrowserPlatformApiGenerated({
     documentWorkingCopy: {
         createWorkingCopyFromData: documentWorkingCopyCreateWorkingCopyFromDataMethod,
         createWorkingCopyFromPath: documentWorkingCopyCreateWorkingCopyFromPathMethod,
+        parsePdfAnnotations: documentWorkingCopyParsePdfAnnotationsMethod,
         cleanupFile: documentWorkingCopyCleanupFileMethod,
         cleanupOcrTemp: documentWorkingCopyCleanupOcrTempMethod,
     },
@@ -321,6 +325,8 @@ export function createLazyBrowserPlatformApiGenerated({
         resyncWorkingCopy: documentFilesResyncWorkingCopyMethod,
         savePdfData: documentFilesSavePdfDataMethod,
         savePdfDataChunks: documentFilesSavePdfDataChunksMethod,
+        applyPdfNativeMutationsToWorkingCopy: documentFilesApplyPdfNativeMutationsToWorkingCopyMethod,
+        commitStagedPdfNativeMutations: documentFilesCommitStagedPdfNativeMutationsMethod,
         onDocumentRevisionChanged: documentFilesOnDocumentRevisionChangedMethod,
     },
     documentPdf: {

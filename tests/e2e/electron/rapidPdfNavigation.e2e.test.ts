@@ -108,7 +108,7 @@ interface IVisiblePageState {
     hasCanvas: boolean;
     canvasCount: number;
     textSpanCount: number;
-    markerCount: number;
+    noteCount: number;
     linkOverlayCount: number;
     shapeOverlayCount: number;
     visibleShapeCount: number;
@@ -223,7 +223,7 @@ async function collectVisiblePageState(session: IElectronE2ESession) {
                     hasCanvas: Boolean(container.querySelector('.page_canvas canvas')),
                     canvasCount: container.querySelectorAll('.page_canvas canvas').length,
                     textSpanCount: container.querySelectorAll('.text-layer span, .textLayer span').length,
-                    markerCount: container.querySelectorAll('.pdf-comment-marker-button').length,
+                    noteCount: container.querySelectorAll('.pdf-annotation-editor-note').length,
                     linkOverlayCount: container.querySelectorAll('.pdf-link-overlay').length,
                     shapeOverlayCount: container.querySelectorAll('.pdf-shape-overlay').length,
                     visibleShapeCount: container.querySelectorAll('.pdf-shape-overlay > g:not(.is-drawing)').length,

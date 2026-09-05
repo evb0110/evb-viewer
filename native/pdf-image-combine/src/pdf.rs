@@ -3,6 +3,11 @@ use flate2::{write::ZlibEncoder, Compression};
 use jbig2_codec::Bilevel;
 use std::{collections::HashMap, fmt::Write as FmtWrite, io::Write as IoWrite, sync::Arc};
 
+use evb_native_support::pdf_catalog::{
+    normalize_bookmark_entries, normalize_page_label_ranges, resolve_bookmark_destination_top,
+    BookmarkEntry, PageLabelRange, MAX_BOOKMARK_DEPTH, MAX_BOOKMARK_ITEMS, MAX_PAGE_LABEL_RANGES,
+};
+
 use crate::{flate::deflate_up_filtered_slices, netpbm::PbmP4Image, PdfBilevelDecode, Result};
 
 pub(crate) enum ImagePayload {
@@ -376,9 +381,12 @@ pub(crate) fn build_mask_pdf_page(page: &MaskPdfPage) -> Result<Vec<u8>> {
 pub(crate) fn write_pdf_to_writer<W: IoWrite>(
     writer: W,
     provenance_stamp_hex: Option<&str>,
+    outlines: &[BookmarkEntry],
+    page_labels: &[PageLabelRange],
     mut write_pages: impl FnMut(&mut PdfWriter<W>) -> Result<()>,
 ) -> Result<W> {
-    let mut writer = PdfWriter::new(writer, provenance_stamp_hex)?;
+    let mut writer =
+        PdfWriter::new_with_catalog(writer, provenance_stamp_hex, outlines, page_labels)?;
     write_pages(&mut writer)?;
     writer.finish()
 }
@@ -390,6 +398,11 @@ pub(crate) struct PdfWriter<W: IoWrite> {
     next_object: usize,
     bytes_written: usize,
     provenance_stamp_hex: Option<String>,
+    outlines: Vec<BookmarkEntry>,
+    page_labels: Vec<PageLabelRange>,
+    outlines_object: Option<usize>,
+    page_labels_object: Option<usize>,
+    page_dimensions: Vec<(f64, f64)>,
     // Key by the dictionary bytes, not an allocation address. Writer chunks
     // release their page-owned `Arc`s after serialization, so a later chunk
     // may otherwise reuse the same address for different globals and point at
@@ -399,36 +412,98 @@ pub(crate) struct PdfWriter<W: IoWrite> {
 }
 
 impl<W: IoWrite> PdfWriter<W> {
+    #[allow(dead_code)]
     fn new(inner: W, provenance_stamp_hex: Option<&str>) -> Result<Self> {
+        Self::new_with_catalog(inner, provenance_stamp_hex, &[], &[])
+    }
+
+    fn new_with_catalog(
+        inner: W,
+        provenance_stamp_hex: Option<&str>,
+        outlines: &[BookmarkEntry],
+        page_labels: &[PageLabelRange],
+    ) -> Result<Self> {
         if let Some(stamp) = provenance_stamp_hex {
             validate_provenance_stamp_hex(stamp)?;
         }
+        validate_catalog_inputs(outlines, page_labels)?;
+        let mut next_object = 3;
+        let outlines_object = if outlines.is_empty() {
+            None
+        } else {
+            let object = next_object;
+            next_object += 1;
+            Some(object)
+        };
+        let page_labels_object = if page_labels.is_empty() {
+            None
+        } else {
+            let object = next_object;
+            next_object += 1;
+            Some(object)
+        };
+        let mut catalog_body = String::from("<< /Type /Catalog /Pages 2 0 R");
+        if let Some(object) = outlines_object {
+            let _ = write!(
+                catalog_body,
+                " /Outlines {object} 0 R /PageMode /UseOutlines"
+            );
+        }
+        if let Some(object) = page_labels_object {
+            let _ = write!(catalog_body, " /PageLabels {object} 0 R");
+        }
+        catalog_body.push_str(" >>");
         let mut writer = Self {
             inner,
             offsets: Vec::new(),
             page_objects: Vec::new(),
-            next_object: 3,
+            next_object,
             bytes_written: 0,
             provenance_stamp_hex: provenance_stamp_hex.map(str::to_owned),
+            outlines: outlines.to_vec(),
+            page_labels: page_labels.to_vec(),
+            outlines_object,
+            page_labels_object,
+            page_dimensions: Vec::new(),
             jbig2_globals_objects: HashMap::new(),
         };
 
         writer.write_all(b"%PDF-1.4\n%\xE2\xE3\xCF\xD3\n")?;
-        writer.push_object(1, b"<< /Type /Catalog /Pages 2 0 R >>")?;
+        writer.push_object(1, catalog_body.as_bytes())?;
         Ok(writer)
     }
 
+    #[allow(dead_code)]
     pub(crate) fn add_page(&mut self, page: &ImagePage) -> Result<()> {
-        self.add_image_page(page, None, None)
+        self.add_page_with_rotation(page, 0)
     }
 
+    pub(crate) fn add_page_with_rotation(
+        &mut self,
+        page: &ImagePage,
+        rotation_degrees: u16,
+    ) -> Result<()> {
+        self.add_image_page(page, None, None, rotation_degrees)
+    }
+
+    #[allow(dead_code)]
     pub(crate) fn add_page_with_size(
         &mut self,
         page: &ImagePage,
         page_size: &PdfPageSize,
         placement: Option<&PdfImagePlacement>,
     ) -> Result<()> {
-        self.add_image_page(page, Some(page_size), placement)
+        self.add_page_with_size_and_rotation(page, page_size, placement, 0)
+    }
+
+    pub(crate) fn add_page_with_size_and_rotation(
+        &mut self,
+        page: &ImagePage,
+        page_size: &PdfPageSize,
+        placement: Option<&PdfImagePlacement>,
+        rotation_degrees: u16,
+    ) -> Result<()> {
+        self.add_image_page(page, Some(page_size), placement, rotation_degrees)
     }
 
     fn add_image_page(
@@ -436,7 +511,9 @@ impl<W: IoWrite> PdfWriter<W> {
         page: &ImagePage,
         page_size: Option<&PdfPageSize>,
         placement: Option<&PdfImagePlacement>,
+        rotation_degrees: u16,
     ) -> Result<()> {
+        validate_rotation_degrees(rotation_degrees)?;
         if let Some(size) = page_size {
             validate_page_size(size)?;
         }
@@ -461,11 +538,17 @@ impl<W: IoWrite> PdfWriter<W> {
         let page_height = page_size
             .map(|size| size.height_points)
             .unwrap_or_else(|| points(page.height, page.dpi));
+        let rotation = if rotation_degrees == 0 {
+            String::new()
+        } else {
+            format!(" /Rotate {rotation_degrees}")
+        };
         let page_body = format!(
-            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {:.4} {:.4}] /Resources << /XObject << /{} {} 0 R >> >> /Contents {} 0 R >>",
-            page_width, page_height, image_name, image_object, content_object
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {:.4} {:.4}]{} /Resources << /XObject << /{} {} 0 R >> >> /Contents {} 0 R >>",
+            page_width, page_height, rotation, image_name, image_object, content_object
         );
         self.push_object(page_object, page_body.as_bytes())?;
+        self.page_dimensions.push((page_width, page_height));
         self.push_image_object(image_object, page, icc_object)?;
         if let (Some(object_number), Some(profile)) = (icc_object, page.icc_profile.as_ref()) {
             let components = if page.color_space == "DeviceGray" {
@@ -530,6 +613,7 @@ impl<W: IoWrite> PdfWriter<W> {
             page_width, page_height, xobjects, content_object
         );
         self.push_object(page_object, page_body.as_bytes())?;
+        self.page_dimensions.push((page_width, page_height));
         self.push_layered_image_object(background_object, &page.background)?;
         self.push_image_mask_object(mask_object, &page.foreground_mask)?;
 
@@ -586,6 +670,7 @@ impl<W: IoWrite> PdfWriter<W> {
             page_width, page_height, xobjects, content_object
         );
         self.push_object(page_object, page_body.as_bytes())?;
+        self.page_dimensions.push((page_width, page_height));
         self.push_layered_image_object(background_object, &page.background)?;
         self.push_soft_foreground_object(
             foreground_object,
@@ -649,6 +734,7 @@ impl<W: IoWrite> PdfWriter<W> {
             page_width, page_height, xobjects, content_object
         );
         self.push_object(page_object, page_body.as_bytes())?;
+        self.page_dimensions.push((page_width, page_height));
         self.push_layered_image_object(background_object, &page.background)?;
         self.push_masked_layered_image_object(foreground_object, mask_object, &page.foreground)?;
         self.push_bilevel_image_object(mask_object, &page.foreground_mask)?;
@@ -694,6 +780,7 @@ impl<W: IoWrite> PdfWriter<W> {
             page_width, page_height, mask_name, mask_object, content_object
         );
         self.push_object(page_object, page_body.as_bytes())?;
+        self.page_dimensions.push((page_width, page_height));
         self.push_image_mask_object(mask_object, &page.foreground_mask)?;
 
         let content_stream = format!(
@@ -720,6 +807,13 @@ impl<W: IoWrite> PdfWriter<W> {
             self.page_objects.len()
         );
         self.push_object(2, pages_body.as_bytes())?;
+
+        if let Some(object_number) = self.outlines_object {
+            self.write_outlines(object_number)?;
+        }
+        if let Some(object_number) = self.page_labels_object {
+            self.write_page_labels(object_number)?;
+        }
 
         let info_object = if let Some(stamp) = self.provenance_stamp_hex.take() {
             let object_number = self.next_object;
@@ -762,6 +856,101 @@ impl<W: IoWrite> PdfWriter<W> {
         self.flush()?;
 
         Ok(self.inner)
+    }
+
+    fn write_outlines(&mut self, root_object: usize) -> Result<()> {
+        let total_pages = u32::try_from(self.page_objects.len())
+            .map_err(|_| "Too many pages for PDF outline destinations")?;
+        let outlines = normalize_bookmark_entries(&self.outlines, total_pages, "Untitled");
+        let mut nodes = Vec::new();
+        let outline_level =
+            allocate_outline_level(&outlines, root_object, &mut self.next_object, &mut nodes)?;
+
+        for node in &nodes {
+            let body = self.outline_node_body(node);
+            self.push_object(node.object_number, body.as_bytes())?;
+        }
+
+        let mut root_body = format!("<< /Type /Outlines /Count {}", outline_level.visible_count);
+        if let Some(first) = outline_level.first {
+            let _ = write!(root_body, " /First {first} 0 R");
+        }
+        if let Some(last) = outline_level.last {
+            let _ = write!(root_body, " /Last {last} 0 R");
+        }
+        root_body.push_str(" >>");
+        self.push_object(root_object, root_body.as_bytes())
+    }
+
+    fn outline_node_body(&self, node: &OutlineNode<'_>) -> String {
+        let mut body = format!(
+            "<< /Title {} /Parent {} 0 R",
+            encode_pdf_text_hex(&node.item.title),
+            node.parent,
+        );
+        if let Some(previous) = node.previous {
+            let _ = write!(body, " /Prev {previous} 0 R");
+        }
+        if let Some(next) = node.next {
+            let _ = write!(body, " /Next {next} 0 R");
+        }
+        if let Some(first_child) = node.first_child {
+            let _ = write!(body, " /First {first_child} 0 R");
+        }
+        if let Some(last_child) = node.last_child {
+            let _ = write!(body, " /Last {last_child} 0 R");
+        }
+        if node.child_visible_count > 0 {
+            let _ = write!(body, " /Count {}", node.child_visible_count);
+        }
+
+        if let Some(page_index) = node.item.page_index {
+            if let (Some(page_object), Some((_, page_height))) = (
+                self.page_objects.get(page_index as usize),
+                self.page_dimensions.get(page_index as usize),
+            ) {
+                let top = resolve_bookmark_destination_top(*page_height, node.item.page_y_ratio);
+                let _ = write!(body, " /Dest [{page_object} 0 R /XYZ null {top:.4} null]");
+            }
+        } else if let Some(named_dest) = node.item.named_dest.as_deref() {
+            let _ = write!(body, " /Dest {}", encode_pdf_text_hex(named_dest));
+        }
+
+        let flags = (if node.item.italic { 1 } else { 0 }) | (if node.item.bold { 2 } else { 0 });
+        if flags > 0 {
+            let _ = write!(body, " /F {flags}");
+        }
+        if let Some([red, green, blue]) = normalized_bookmark_color(node.item.color.as_deref()) {
+            let _ = write!(body, " /C {red:.4} {green:.4} {blue:.4}");
+        }
+        body.push_str(" >>");
+        body
+    }
+
+    fn write_page_labels(&mut self, object_number: usize) -> Result<()> {
+        let total_pages = u32::try_from(self.page_objects.len())
+            .map_err(|_| "Too many pages for PDF page labels")?;
+        let ranges = normalize_page_label_ranges(&self.page_labels, total_pages);
+        let mut body = String::from("<< /Nums [");
+        for range in ranges {
+            let _ = write!(
+                body,
+                " {} << /Type /PageLabel",
+                range.start_page.saturating_sub(1)
+            );
+            if let Some(style) = range.style.as_deref() {
+                let _ = write!(body, " /S /{style}");
+            }
+            if !range.prefix.is_empty() {
+                let _ = write!(body, " /P {}", encode_pdf_text_hex(&range.prefix));
+            }
+            if range.style.is_some() && range.start_number > 1 {
+                let _ = write!(body, " /St {}", range.start_number);
+            }
+            body.push_str(" >>");
+        }
+        body.push_str(" ] >>");
+        self.push_object(object_number, body.as_bytes())
     }
 
     fn ensure_jbig2_globals(&mut self, stream: &BilevelStream) -> Result<Option<usize>> {
@@ -1034,6 +1223,156 @@ impl<W: IoWrite> PdfWriter<W> {
     }
 }
 
+struct OutlineNode<'a> {
+    object_number: usize,
+    parent: usize,
+    previous: Option<usize>,
+    next: Option<usize>,
+    first_child: Option<usize>,
+    last_child: Option<usize>,
+    child_visible_count: usize,
+    item: &'a BookmarkEntry,
+}
+
+struct OutlineLevel {
+    first: Option<usize>,
+    last: Option<usize>,
+    visible_count: usize,
+}
+
+fn allocate_outline_level<'a>(
+    items: &'a [BookmarkEntry],
+    parent: usize,
+    next_object: &mut usize,
+    nodes: &mut Vec<OutlineNode<'a>>,
+) -> Result<OutlineLevel> {
+    if items.is_empty() {
+        return Ok(OutlineLevel {
+            first: None,
+            last: None,
+            visible_count: 0,
+        });
+    }
+
+    let mut node_indices: Vec<usize> = Vec::with_capacity(items.len());
+    for (index, item) in items.iter().enumerate() {
+        let object_number = *next_object;
+        *next_object = (*next_object)
+            .checked_add(1)
+            .ok_or("Too many PDF outline objects")?;
+        let previous = index
+            .checked_sub(1)
+            .and_then(|previous_index| node_indices.get(previous_index))
+            .map(|&previous_index| nodes[previous_index].object_number);
+        node_indices.push(nodes.len());
+        nodes.push(OutlineNode {
+            object_number,
+            parent,
+            previous,
+            next: None,
+            first_child: None,
+            last_child: None,
+            child_visible_count: 0,
+            item,
+        });
+        if previous.is_some() {
+            nodes
+                .get_mut(node_indices[index - 1])
+                .expect("outline sibling was just allocated")
+                .next = Some(object_number);
+        }
+    }
+
+    let mut visible_count = 0usize;
+    for (index, item) in items.iter().enumerate() {
+        let node_index = node_indices[index];
+        let child_level = allocate_outline_level(
+            &item.items,
+            nodes[node_index].object_number,
+            next_object,
+            nodes,
+        )?;
+        let node = nodes
+            .get_mut(node_index)
+            .expect("outline node was just allocated");
+        node.first_child = child_level.first;
+        node.last_child = child_level.last;
+        node.child_visible_count = child_level.visible_count;
+        visible_count = visible_count
+            .checked_add(1)
+            .and_then(|count| count.checked_add(child_level.visible_count))
+            .ok_or("Too many PDF outline entries")?;
+    }
+
+    Ok(OutlineLevel {
+        first: node_indices
+            .first()
+            .map(|&node_index| nodes[node_index].object_number),
+        last: node_indices
+            .last()
+            .map(|&node_index| nodes[node_index].object_number),
+        visible_count,
+    })
+}
+
+fn validate_catalog_inputs(
+    outlines: &[BookmarkEntry],
+    page_labels: &[PageLabelRange],
+) -> Result<()> {
+    if page_labels.len() > MAX_PAGE_LABEL_RANGES {
+        return Err(format!("Too many page-label ranges (maximum {MAX_PAGE_LABEL_RANGES})").into());
+    }
+
+    let mut bookmark_count = 0usize;
+    validate_bookmark_entries(outlines, 0, &mut bookmark_count)
+}
+
+fn validate_bookmark_entries(
+    items: &[BookmarkEntry],
+    depth: usize,
+    count: &mut usize,
+) -> Result<()> {
+    if depth > MAX_BOOKMARK_DEPTH {
+        return Err("Bookmark tree is too deeply nested".into());
+    }
+    for item in items {
+        if item.title.len() > 4_096 {
+            return Err("Bookmark title exceeds the 4096-byte admission ceiling".into());
+        }
+        *count = count.checked_add(1).ok_or("Too many bookmark items")?;
+        if *count > MAX_BOOKMARK_ITEMS {
+            return Err(format!("Too many bookmark items (maximum {MAX_BOOKMARK_ITEMS})").into());
+        }
+        validate_bookmark_entries(&item.items, depth + 1, count)?;
+    }
+    Ok(())
+}
+
+fn encode_pdf_text_hex(text: &str) -> String {
+    let mut encoded = String::with_capacity(4 + text.len() * 4);
+    encoded.push_str("<FEFF");
+    for code_unit in text.encode_utf16() {
+        let _ = write!(encoded, "{code_unit:04X}");
+    }
+    encoded.push('>');
+    encoded
+}
+
+fn normalized_bookmark_color(color: Option<&str>) -> Option<[f64; 3]> {
+    let color = color?.strip_prefix('#')?;
+    if color.len() != 6 {
+        return None;
+    }
+    let red = u8::from_str_radix(&color[0..2], 16).ok()?;
+    let green = u8::from_str_radix(&color[2..4], 16).ok()?;
+    let blue = u8::from_str_radix(&color[4..6], 16).ok()?;
+    Some([
+        f64::from(red) / 255.0,
+        f64::from(green) / 255.0,
+        f64::from(blue) / 255.0,
+    ])
+}
+
 fn validate_provenance_stamp_hex(stamp: &str) -> Result<()> {
     if stamp.is_empty()
         || !stamp.len().is_multiple_of(2)
@@ -1044,6 +1383,14 @@ fn validate_provenance_stamp_hex(stamp: &str) -> Result<()> {
         return Err("provenanceStampHex must be a non-empty lowercase hexadecimal string".into());
     }
     Ok(())
+}
+
+fn validate_rotation_degrees(rotation_degrees: u16) -> Result<()> {
+    if matches!(rotation_degrees, 0 | 90 | 180 | 270) {
+        Ok(())
+    } else {
+        Err("Image rotation must be 0, 90, 180, or 270 degrees".into())
+    }
 }
 
 impl<W: IoWrite> IoWrite for PdfWriter<W> {
@@ -1407,6 +1754,131 @@ mod tests {
         let placed = String::from_utf8_lossy(&placed.finish().unwrap()).into_owned();
         assert!(placed.contains("/MediaBox [0 0 100.0000 200.0000]"));
         assert!(placed.contains("q 80.0000 0 0 170.0000 5.0000 7.0000 cm /Im1 Do Q"));
+    }
+
+    #[test]
+    fn image_rotation_emits_rotate_without_swapping_the_media_box() {
+        let page = ImagePage {
+            width: 2,
+            height: 2,
+            dpi: 72,
+            color_space: "DeviceGray",
+            icc_profile: None,
+            payload: ImagePayload::RawFlate {
+                data: vec![0],
+                decode_params: String::new(),
+            },
+        };
+        let page_size = PdfPageSize {
+            width_points: 100.0,
+            height_points: 200.0,
+        };
+
+        for rotation in [90, 270] {
+            let mut writer = PdfWriter::new(Vec::new(), None).unwrap();
+            writer
+                .add_page_with_size_and_rotation(&page, &page_size, None, rotation)
+                .unwrap();
+            let pdf = String::from_utf8_lossy(&writer.finish().unwrap()).into_owned();
+            assert!(pdf.contains(&format!(
+                "/MediaBox [0 0 100.0000 200.0000] /Rotate {rotation}"
+            )));
+            assert!(pdf.contains("q 100.0000 0 0 200.0000 0 0 cm /Im1 Do Q"));
+        }
+
+        let mut unrotated = PdfWriter::new(Vec::new(), None).unwrap();
+        unrotated
+            .add_page_with_size_and_rotation(&page, &page_size, None, 0)
+            .unwrap();
+        let unrotated = String::from_utf8_lossy(&unrotated.finish().unwrap()).into_owned();
+        assert!(unrotated.contains("/MediaBox [0 0 100.0000 200.0000]"));
+        assert!(!unrotated.contains("/Rotate"));
+
+        let mut invalid = PdfWriter::new(Vec::new(), None).unwrap();
+        assert!(invalid
+            .add_page_with_size_and_rotation(&page, &page_size, None, 45)
+            .is_err());
+    }
+
+    #[test]
+    fn catalog_writer_emits_outlines_and_page_labels() {
+        let page = ImagePage {
+            width: 2,
+            height: 2,
+            dpi: 72,
+            color_space: "DeviceGray",
+            icc_profile: None,
+            payload: ImagePayload::RawFlate {
+                data: vec![0],
+                decode_params: String::new(),
+            },
+        };
+        let outlines = [BookmarkEntry {
+            title: " Chapter 1 ".to_string(),
+            page_index: Some(0),
+            page_y_ratio: Some(0.25),
+            named_dest: None,
+            bold: true,
+            italic: false,
+            color: Some("#336699".to_string()),
+            items: vec![BookmarkEntry {
+                title: "Section".to_string(),
+                page_index: Some(0),
+                page_y_ratio: None,
+                named_dest: None,
+                bold: false,
+                italic: true,
+                color: None,
+                items: Vec::new(),
+            }],
+        }];
+        let labels = [PageLabelRange {
+            start_page: 1,
+            style: Some("r".to_string()),
+            prefix: "Part ".to_string(),
+            start_number: 4,
+        }];
+        let page_size = PdfPageSize {
+            width_points: 72.0,
+            height_points: 36.0,
+        };
+        let mut writer = PdfWriter::new_with_catalog(Vec::new(), None, &outlines, &labels).unwrap();
+        writer.add_page_with_size(&page, &page_size, None).unwrap();
+        let pdf = String::from_utf8_lossy(&writer.finish().unwrap()).into_owned();
+
+        assert!(pdf.contains("/Outlines 3 0 R /PageMode /UseOutlines"));
+        assert!(pdf.contains("/PageLabels 4 0 R"));
+        assert!(pdf.contains("/Type /Outlines /Count 2"));
+        assert!(pdf.contains("/Title <FEFF004300680061007000740065007200200031>"));
+        assert!(pdf.contains("/Dest [5 0 R /XYZ null 27.0000 null]"));
+        assert!(pdf.contains("/S /r /P <FEFF00500061007200740020> /St 4"));
+        assert!(pdf.contains("/F 2 /C 0.2000 0.4000 0.6000"));
+    }
+
+    #[test]
+    fn empty_catalog_preserves_the_legacy_writer_bytes() {
+        let page = ImagePage {
+            width: 2,
+            height: 2,
+            dpi: 72,
+            color_space: "DeviceGray",
+            icc_profile: None,
+            payload: ImagePayload::RawFlate {
+                data: vec![0],
+                decode_params: String::new(),
+            },
+        };
+        let mut legacy = PdfWriter::new(Vec::new(), None).unwrap();
+        legacy.add_page(&page).unwrap();
+        let legacy = legacy.finish().unwrap();
+
+        let mut current = PdfWriter::new_with_catalog(Vec::new(), None, &[], &[]).unwrap();
+        current.add_page(&page).unwrap();
+        let current = current.finish().unwrap();
+
+        assert_eq!(current, legacy);
+        assert!(!String::from_utf8_lossy(&current).contains("/Outlines"));
+        assert!(!String::from_utf8_lossy(&current).contains("/PageLabels"));
     }
 
     #[test]

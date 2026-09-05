@@ -8,7 +8,7 @@ import type {
     ISearchMatch,
     ISearchResponse,
 } from '@electron/search/protocol';
-import type { IResolvedSearchMatchOptions } from '@pdf-core';
+import type { IResolvedSearchMatchOptions } from '@pdf-core/pdfSearchCore';
 import { SEARCH_WIRE_CODEC } from '@contracts/search';
 import {
     COMPACT_SEARCH_INDEX_MAX_BYTES,
@@ -42,7 +42,7 @@ import {
     loadSearchIndex,
     type IPdfSearchIndex,
 } from '@electron/search/indexBuilder';
-import { collectSearchMatchWords } from '@pdf-core';
+import { collectSearchMatchWords } from '@pdf-core/collectSearchMatchWords';
 import {
     parseDocumentRevisionToken,
     type TDocumentRevisionToken,

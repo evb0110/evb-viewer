@@ -4,7 +4,7 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { pdfViewerDomClasses } from '@app/modules/pdf-viewer/dom/pdf-viewer-dom/pdfViewerDomClasses';
 import { preservePdfResizeCanvasVisualSnapshot } from '@app/modules/pdf-viewer/engine/pdf-resize-visual-snapshot/preservePdfResizeCanvasVisualSnapshot';
-import { schedulePdfLayerVisualSnapshotRelease } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/schedulePdfLayerVisualSnapshotRelease';
+import { schedulePdfResizeCanvasVisualSnapshotRelease } from '@app/modules/pdf-viewer/engine/pdf-resize-visual-snapshot/schedulePdfResizeCanvasVisualSnapshotRelease';
 import type {
     ICurrentPageSyncOptions,
     IResizeAnchorContext,
@@ -455,7 +455,7 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
                 }
             };
             activeResizeVisualSnapshots.set(page, lease);
-            schedulePdfLayerVisualSnapshotRelease(release, {
+            schedulePdfResizeCanvasVisualSnapshotRelease(release, {
                 forceReleaseAfterMaxDelay: false,
                 minFrames: 2,
                 waitFor: () => (

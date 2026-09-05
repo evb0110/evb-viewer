@@ -32,6 +32,11 @@ import type {
     IPdfAnnotationIndexChunkOptions,
     IPdfAnnotationIndexOptions,
     IPdfAnnotationIndexSession,
+    IPdfAnnotationParseChunk,
+    IPdfAnnotationParseChunkOptions,
+    IPdfAnnotationParseOptions,
+    IPdfAnnotationParseResult,
+    IPdfAnnotationParseSession,
     IPdfDataPrintOptions,
     IPdfEmbeddedShapeIndexChunk,
     IPdfEmbeddedShapeIndexChunkOptions,
@@ -79,7 +84,11 @@ export interface IDocumentsService {
     openCombineDialog: (context: IDocumentsDialogContext) => Promise<TOpenFileResult | null>;
     openFolderDialog: (context: IDocumentsDialogContext) => Promise<TOpenFileResult | null>;
     openImageDialog: (context: IDocumentsDialogContext) => Promise<string | null>;
-    openDocumentDirect: (context: IDocumentsWebContentsContext, filePath: string) => Promise<TOpenFileResult | null>;
+    openDocumentDirect: (
+        context: IDocumentsWebContentsContext,
+        filePath: string,
+        password?: string,
+    ) => Promise<TOpenFileResult | null>;
     openDocumentDirectBatch: (
         context: IDocumentsWebContentsContext,
         filePaths: string[],
@@ -92,12 +101,19 @@ export interface IDocumentsService {
         fileName: string,
         data: Uint8Array,
         originalPath?: string,
+        password?: string,
     ) => Promise<string>;
     createWorkingCopyFromPath: (
         context: IDocumentsSenderIdContext,
         sourcePath: TOpenPath,
         originalPath?: string,
+        password?: string,
     ) => Promise<string>;
+    parsePdfAnnotations: (
+        context: IDocumentsSenderIdContext,
+        filePath: string,
+        options: IPdfAnnotationParseOptions,
+    ) => Promise<IPdfAnnotationParseResult>;
     savePdfAs: (
         context: IDocumentsDialogContext,
         workingPath: string,
@@ -165,6 +181,25 @@ export interface IDocumentsService {
         sessionId: string,
     ) => Promise<boolean>;
     cancelPdfAnnotationIndex: (
+        context: IDocumentsSenderIdContext,
+        sessionId: string,
+    ) => Promise<{canceled: boolean}>;
+    beginPdfAnnotationParse: (
+        context: IDocumentsSenderIdContext,
+        filePath: string,
+        options: IPdfAnnotationParseOptions,
+    ) => Promise<IPdfAnnotationParseSession>;
+    readPdfAnnotationParseChunk: (
+        context: IDocumentsSenderIdContext,
+        sessionId: string,
+        offset: number,
+        options?: IPdfAnnotationParseChunkOptions,
+    ) => Promise<IPdfAnnotationParseChunk>;
+    releasePdfAnnotationParse: (
+        context: IDocumentsSenderIdContext,
+        sessionId: string,
+    ) => Promise<boolean>;
+    cancelPdfAnnotationParse: (
         context: IDocumentsSenderIdContext,
         sessionId: string,
     ) => Promise<{canceled: boolean}>;

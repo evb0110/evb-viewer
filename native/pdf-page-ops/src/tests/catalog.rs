@@ -14,8 +14,9 @@
             &NativeMutationsFile {
                 updates: Vec::new(),
                 geometry_updates: Vec::new(),
+                notes: Vec::new(),
                 free_text_notes: Vec::new(),
-                free_text_editors: Vec::new(),
+                text_boxes: Vec::new(),
                 deletes: Vec::new(),
                 page_labels: Some(PageLabelsMutation {
                     total_pages: 1,
@@ -43,6 +44,7 @@
                 shapes: None,
                 markup: None,
                 placed_images: Vec::new(),
+                placed_image_geometry_updates: Vec::new(),
                 continuation: None,
             },
             "D:20260609123456+03'00'",
@@ -108,6 +110,42 @@
     }
 
     #[test]
+    fn read_catalog_returns_outlines_and_page_labels() {
+        let (document, _page_id) = create_outline_fixture();
+        let catalog = read_pdf_combine_catalog(&document).unwrap();
+        assert_eq!(catalog.page_labels.len(), 1);
+        assert_eq!(catalog.bookmarks[0].title, "Parent");
+        assert_eq!(catalog.bookmarks[0].page_index, Some(0));
+    }
+
+    #[test]
+    fn read_catalog_terminates_on_cyclic_outline() {
+        let mut document = create_test_document().0;
+        let item_id = document.new_object_id();
+        document.set_object(
+            item_id,
+            Object::Dictionary(dictionary! {
+                "Title" => Object::string_literal("Loop"),
+                "Next" => Object::Reference(item_id),
+            }),
+        );
+        let outlines_id = document.new_object_id();
+        document.set_object(
+            outlines_id,
+            Object::Dictionary(dictionary! {"First" => Object::Reference(item_id)}),
+        );
+        let root_id = document.trailer.get(b"Root").unwrap().as_reference().unwrap();
+        document
+            .get_dictionary_mut(root_id)
+            .unwrap()
+            .set("Outlines", Object::Reference(outlines_id));
+
+        let catalog = read_pdf_combine_catalog(&document).unwrap();
+        assert_eq!(catalog.bookmarks.len(), 1);
+        assert!(catalog.bookmarks[0].items.is_empty());
+    }
+
+    #[test]
     fn saves_and_reopens_10_001_bookmarks_across_path_addressed_fragments() {
         let (mut document, _page_id) = create_test_document();
         let input_path = temp_pdf_path("append-bookmark-subtree-input");
@@ -131,8 +169,9 @@
             &NativeMutationsFile {
                 updates: Vec::new(),
                 geometry_updates: Vec::new(),
+                notes: Vec::new(),
                 free_text_notes: Vec::new(),
-                free_text_editors: Vec::new(),
+                text_boxes: Vec::new(),
                 deletes: Vec::new(),
                 page_labels: None,
                 bookmarks: Some(BookmarksMutation {
@@ -143,6 +182,7 @@
                 shapes: None,
                 markup: None,
                 placed_images: Vec::new(),
+                placed_image_geometry_updates: Vec::new(),
                 continuation: None,
             },
             "D:20260609123456+03'00'",
@@ -168,8 +208,9 @@
                 &NativeMutationsFile {
                     updates: Vec::new(),
                     geometry_updates: Vec::new(),
+                    notes: Vec::new(),
                     free_text_notes: Vec::new(),
-                    free_text_editors: Vec::new(),
+                    text_boxes: Vec::new(),
                     deletes: Vec::new(),
                     page_labels: None,
                     bookmarks: Some(BookmarksMutation {
@@ -180,6 +221,7 @@
                     shapes: None,
                     markup: None,
                     placed_images: Vec::new(),
+                    placed_image_geometry_updates: Vec::new(),
                     continuation: Some(NativeMutationContinuation {
                         family: NativeMutationContinuationFamily::Bookmarks,
                         chunk_index: u32::try_from(chunk_index + 1).unwrap(),
@@ -266,8 +308,9 @@
             &NativeMutationsFile {
                 updates: Vec::new(),
                 geometry_updates: Vec::new(),
+                notes: Vec::new(),
                 free_text_notes: Vec::new(),
-                free_text_editors: Vec::new(),
+                text_boxes: Vec::new(),
                 deletes: Vec::new(),
                 page_labels: Some(PageLabelsMutation {
                     total_pages: 1,
@@ -286,6 +329,7 @@
                 shapes: None,
                 markup: None,
                 placed_images: Vec::new(),
+                placed_image_geometry_updates: Vec::new(),
                 continuation: None,
             },
             "D:20260609123456+03'00'",
@@ -640,7 +684,7 @@
             deleted_annotation_ids: Vec::new(),
             deleted_stable_keys: Vec::new(),
         };
-        apply_shape_annotations(&mut document, &shape_mutation, "D:20260609123456Z").unwrap();
+        apply_shape_annotations(&mut document, &shape_mutation, "D:20260609123456Z", &mut None).unwrap();
 
         let note_id = document.add_object(dictionary! {
             "Type" => "Annot",
@@ -657,7 +701,7 @@
         flatten_million_page_tree(&mut document, first_page_id);
 
         reset_page_tree_node_read_count();
-        apply_shape_annotations(&mut document, &shape_mutation, "D:20260609123456Z").unwrap();
+        apply_shape_annotations(&mut document, &shape_mutation, "D:20260609123456Z", &mut None).unwrap();
         assert!(
             page_tree_node_read_count() < 100,
             "shape mutation walked too many page-tree nodes: {}",
@@ -723,6 +767,7 @@
             &mut incremental,
             &shape_mutation,
             "D:20260609123456Z",
+            &mut None,
         )
         .unwrap();
         assert!(

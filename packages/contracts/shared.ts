@@ -102,6 +102,7 @@ export interface ISettingsData {
     agentMcpEnabled: boolean;
     clientDiagnosticsPreference: TClientDiagnosticsPreference;
     suppressDefaultViewerPrompt?: boolean;
+    suppressUnencryptedSaveNotice?: boolean;
     skippedUpdateVersion?: string;
 }
 

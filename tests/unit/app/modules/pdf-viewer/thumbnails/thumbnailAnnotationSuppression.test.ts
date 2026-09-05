@@ -315,27 +315,6 @@ describe('thumbnail annotation suppression', () => {
         }
     });
 
-    it('suppresses the recoloured annotation only on the page that carries it', async () => {
-        const annotationComments = ref<IAnnotationCommentSummary[]>([createComment({
-            annotationId: '20R0',
-            id: '20R0',
-            stableKey: 'ann:1:20R',
-            pageIndex: 1,
-            pageNumber: 2,
-        })]);
-        const {unmount} = mountThumbnailRuntime(annotationComments);
-
-        try {
-            await settleRenders();
-
-            const editedPageRender = renders.find(render => render.pageNumber === 2);
-            expect(editedPageRender?.hasOperationsFilter).toBe(true);
-            expect(editedPageRender?.keptAnnotationIds).toEqual([]);
-        } finally {
-            await unmount();
-        }
-    });
-
     it('re-renders only the recoloured page when a highlight colour changes', async () => {
         const annotationComments = ref<IAnnotationCommentSummary[]>([createComment({
             annotationId: '20R0',

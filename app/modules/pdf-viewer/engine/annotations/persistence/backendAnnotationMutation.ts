@@ -9,7 +9,7 @@ export type TAnnotationMutationOperation =
     | 'bind-identities';
 
 export interface IBackendAnnotationMutation {
-    readonly backend: 'native-append' | 'pdf-lib-rewrite' | 'pdfjs-save-document';
+    readonly backend: 'native-append' | 'native-append' | 'native-append';
     readonly order: number;
     readonly annotationId: AnnotationId;
     readonly operation: TAnnotationMutationOperation;

@@ -43,6 +43,7 @@
     "preview": "pnpm exec nuxi preview",
     "postinstall": "pnpm exec nuxi prepare && pnpm run copy:pdfjs && pnpm run check:electron:install",
     "copy:pdfjs": "node scripts/copy-pdfjs-assets.mjs && node scripts/sync-pdfjs-viewer-css.mjs",
+    "verify:pdfjs-provenance": "node scripts/verify-pdfjs-provenance.mjs",
     "typecheck": "node scripts/run-nuxt-typecheck.mjs && node scripts/run-workspace-package-typecheck.mjs -p electron/tsconfig.json -p tests/tsconfig.json -p tsconfig.scripts.json -p server/tsconfig.json",
     "typecheck:clean": "node scripts/run-nuxt-typecheck.mjs --cold && node scripts/run-workspace-package-typecheck.mjs --cold -p electron/tsconfig.json -p tests/tsconfig.json -p tsconfig.scripts.json -p server/tsconfig.json",
     "lint": "node scripts/validation-gates.mjs lint",
@@ -182,7 +183,7 @@
     "iron-webcrypto": "2.0.0",
     "node-mock-http": "1.0.5",
     "pdf-lib": "^1.17.1",
-    "pdfjs-dist": "5.7.284",
+    "pdfjs-dist": "file:vendor/pdfjs-dist/pdfjs-dist-5.7.304-f029c046.tgz",
     "pdfjs-dist-codex-preview": "npm:pdfjs-dist@5.4.296",
     "radix3": "1.1.2",
     "source-map-js": "1.2.1",
@@ -307,7 +308,7 @@
       "builder-util-runtime": "9.7.0",
       "bundle-require@^5.0.0>esbuild": "0.28.2",
       "eslint-plugin-regexp": "3.1.0",
-      "fast-uri": "3.1.5",
+      "fast-uri": "3.1.6",
       "fontless@^0.2.0>esbuild": "0.28.2",
       "form-data": "4.0.6",
       "hono": "4.12.34",
@@ -334,9 +335,6 @@
       "vite@^7.0.0>esbuild": "0.28.2",
       "vue": "3.5.41",
       "ws": "8.21.0"
-    },
-    "patchedDependencies": {
-      "pdfjs-dist@5.7.284": "patches/pdfjs-dist@5.7.284.patch"
     }
   }
 }

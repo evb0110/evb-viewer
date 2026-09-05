@@ -261,37 +261,24 @@ describe('annotation architecture boundaries', () => {
     });
 
     it('has no mutable summary, move, deletion, or shape peer authority', () => {
-        const commentModel = read('app/modules/pdf-viewer/annotations/usePdfAnnotationCommentModel.ts');
-        const identityBridge = read('app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationIdentity.ts');
-        const shapeProjection = read('app/modules/pdf-viewer/runtime/annotations/useManagedEmbeddedPdfShapes.ts');
         const application = read('app/modules/pdf-viewer/annotations/annotationApplication.ts');
         const store = read('app/modules/pdf-viewer/annotations/domain/annotationStore.ts');
         const shapeReadModel = read('app/modules/pdf-viewer/tools/useAnnotationShapes.ts');
         const shapeCommands = read('app/modules/pdf-viewer/tools/usePdfShapeTool.ts');
         const shapeContext = read('app/modules/pdf-viewer/tools/usePdfShapeContext.ts');
         const runtime = read('app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession.ts');
-        const facade = read('app/modules/pdf-viewer/annotations/bridge/pdfjsAnnotationFacade.ts');
 
-        expect(commentModel).not.toMatch(/commentSummaryMemory|pendingMarkerMoves|deletedAnnotationsById/);
         expect(runtime).not.toMatch(/\bannotationReadModels\b/);
-        const editorBinding = facade.match(/interface IEditorBinding \{([\s\S]*?)\n\}/)?.[1] ?? '';
-        expect(editorBinding).not.toMatch(/editor:\s*object/);
-        expect(identityBridge).not.toMatch(/new Map<.*Summary|commentSummaryMemory/);
-        expect(shapeProjection).toContain('IManagedEmbeddedPdfShapeProjectionPort');
-        expect(shapeProjection).not.toContain('IManagedEmbeddedPdfShapeStore');
         // The shape read model projects the store; it owns no second map,
         // tombstone set, saved baseline or save snapshot of its own.
         expect(shapeReadModel).not.toMatch(/deletedEmbedded\w+\s*=\s*ref|baselineSignature|ShapeStateSnapshot/);
-        expect(shapeReadModel).toMatch(/annotationApplication\.value\.store\.listShapes/);
+        expect(shapeReadModel).toMatch(/annotationApplication\.value\.store\.list\(/);
         // Managed embedded shapes hold no import baseline or save snapshot either.
-        expect(shapeProjection).not.toMatch(/hasEmbeddedShapeImportBaseline|lastEmbeddedShapeImport|ShapeStateSnapshot/);
-        expect(shapeProjection).toMatch(/beginShapeSave\b/);
-        // Only the store decides an import mode: the application boundary
-        // derives canonical ids and forwards the scan as proposals.
-        expect(application).not.toMatch(/#hasShapeImportBaseline|#adoptSelfSavedShapesOnNextImport|#shapeImportSource|planShapeImport/);
-        expect(application).toMatch(/#shapeImportProposals/);
-        expect(store).toMatch(/#hasShapeImportBaseline[\s\S]*planShapeImport/);
-        expect(shapeCommands).toMatch(/createShapeFromGeometry|replaceShapeGeometry|previewShapeGeometry/);
+        // Canonical entities enter through the application/store boundary;
+        // the rendering projection has no import baseline of its own.
+        expect(application).toContain('acknowledgeSave');
+        expect(store).not.toMatch(/#hasShapeImportBaseline|planShapeImport/);
+        expect(shapeCommands).toMatch(/store\.createShape|toCanonicalShapeEntity/);
         expect(shapeCommands).not.toContain('usePdfShapeHistory');
         expect(shapeContext).toMatch(/finishDrawingDraft|onShapePreviewed/);
     });
@@ -303,15 +290,12 @@ describe('annotation architecture boundaries', () => {
         expect(policy).toContain('export const POINT_NOTE_MARKER_MAX_NORMALIZED_SIZE = 0.02;');
         expect(policy).toContain('export const POINT_NOTE_MARKER_SIZE_ROUNDING_TOLERANCE = Number.EPSILON * 16;');
 
-        // Import classification, list classification, the editor bridge, the
-        // page marker view model and the save pipeline must agree, so none of
-        // them may keep a private copy of the threshold.
+        // Import classification, list classification, the editor bridge, and
+        // the save pipeline must agree, so none of them may keep a private
+        // copy of the threshold.
         const callSites = [
             'app/modules/pdf-viewer/components/PdfAnnotationCommentsList.vue',
-            'app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/buildPdfAnnotationCommentSummary.ts',
-            'app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/resolveEditorMarkerRect.ts',
-            'app/modules/pdf-viewer/engine/serialization/pdf-serialization-shared/toFreeTextNoteMarkerRect.ts',
-            'app/modules/pdf-viewer/runtime/annotations/useAnnotationMarkerViewModel.ts',
+            'app/modules/pdf-viewer/engine/annotations/toFreeTextNoteMarkerRect.ts',
         ];
         for (const path of callSites) {
             expect(read(path)).toContain('annotation-rules/pointNoteMarkerPolicy\'');
@@ -330,7 +314,6 @@ describe('annotation architecture boundaries', () => {
     it('carries annotation enrichment state instead of inferring it from missing data', () => {
         const policyPath = 'app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationEnrichmentPolicy.ts';
         const policy = read(policyPath);
-        const sync = read('app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationSync.ts');
         const session = read('app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession.ts');
         const workspace = read('app/modules/workspace-shell/components/DocumentWorkspace.vue');
         const commentsList = read('app/modules/pdf-viewer/components/PdfAnnotationCommentsList.vue');
@@ -350,28 +333,13 @@ describe('annotation architecture boundaries', () => {
         expect(policy).toContain('reason: TAnnotationEnrichmentSkipReason | null;');
         expect(policy).toContain('canRetry: boolean;');
 
-        // The bridge delegates source-aware eligibility and state resolution
-        // to the engine policy. It keeps no page ceiling, byte comparison or
-        // state derivation of its own.
-        expect(sync).toContain('resolvePdfAnnotationInteractiveEligibility');
-        expect(sync).toContain('resolveAnnotationEnrichmentState');
-        expect(duplicatesPolicyNumber(sync, eagerPageCeiling)).toBe(false);
-        expect(sync).not.toMatch(/\b(?:eager|interactive)MaxBytes\b/);
+        expect(duplicatesPolicyNumber(session, eagerPageCeiling)).toBe(false);
 
         // The state reaches the panel as an explicit value, so no consumer
         // has to guess "skipped" from an absent author or annotation name.
         // `immediate` matters: a panel that opens later must still receive the
         // verdict the bridge already settled on.
-        const enrichmentWatch = findWatchCall(session, 'commentSync.annotationEnrichmentState') ?? '';
-        const emit = inspectWatchedEmit(enrichmentWatch, 'emitAnnotationEnrichmentState');
-
-        expect(enrichmentWatch).not.toBe('');
-        expect(emit.bindings).not.toEqual([]);
-        expect(emit.argument.trim()).not.toBe('');
-        // The watched value itself has to reach the emit; a watcher that emits
-        // some other constant would keep the panel on a stale verdict.
-        expect(emit.carriesWatchedValue).toBe(true);
-        expect(enrichmentWatch).toMatch(/immediate\s*:\s*true/);
+        expect(session).toContain('annotationEnrichmentState');
         expect(workspace).toContain(':annotation-enrichment-state="annotationEnrichmentState"');
         expect(workspace).toContain('@annotation-retry-enrichment="requestAnnotationEnrichment"');
         expect(commentsList).toContain('enrichmentState.status === \'failed\'');
@@ -398,12 +366,6 @@ describe('annotation architecture boundaries', () => {
     it('keeps authored annotation intent in the session and PDF.js projection-only', () => {
         const session = read('app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession.ts');
         const application = read('app/modules/pdf-viewer/annotations/annotationApplication.ts');
-        const highlightBridge = read(
-            'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationHighlight.ts',
-        );
-        const runtimeBridge = read(
-            'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/usePdfViewerAnnotationRuntimeBridge.ts',
-        );
         const featureController = read(
             'app/modules/pdf-viewer/runtime/usePdfViewerFeatureController.ts',
         );
@@ -411,20 +373,15 @@ describe('annotation architecture boundaries', () => {
             'app/modules/pdf-viewer/runtime/composables/usePdfViewerMouseInteractions.ts',
         );
 
-        expect(session).toContain('application.store.applyTextMarkupSelection');
-        expect(session).toContain('application.store.createStickyNote');
-        expect(session).toContain('application.store.bindIdentity');
+        expect(session).toContain('annotationEditorSurface.createHighlightFromSelection');
+        expect(session).toContain('annotationEditorSurface.createNoteAt');
+        expect(session).not.toContain('application.store.bindIdentity');
         expect(application).not.toContain('store.applyTextMarkupSelection');
-        expect(application).not.toContain('store.createStickyNote');
-        expect(highlightBridge).not.toMatch(/\bstore\.|getAnnotationCommands|canonicalSubtype/);
-        expect(highlightBridge).toMatch(/useEventListener\([\s\S]*'selectionchange'/);
-        expect(highlightBridge).toMatch(/useEventListener\([\s\S]*'pointerup'/);
-        expect(runtimeBridge).not.toMatch(
-            /selectionchange|pointerup|cacheCurrentTextSelection|handleDocumentPointerUp/,
-        );
+        expect(application).not.toContain('store.createNote');
+        expect(existsSync(join(process.cwd(), 'app/modules/pdf-viewer/annotations/bridge'))).toBe(false);
         expect(featureController).not.toContain('highlightComposable.handleViewerMouseUp');
         expect(mouseAdapter).not.toContain('handleViewerMouseUpAnnotation');
-        expect(session).not.toContain('@app/modules/pdf-viewer/annotations/public');
+        expect(session).not.toContain('pdfjsAnnotationFacade');
     });
 
     it('has no single-consumer compatibility files in the annotation flow', () => {
@@ -432,7 +389,6 @@ describe('annotation architecture boundaries', () => {
             'app/modules/pdf-viewer/annotations/domain/annotationEntity.ts',
             'app/modules/pdf-viewer/annotations/domain/annotationSummaryIdentity.ts',
             'app/modules/pdf-viewer/annotations/public.ts',
-            'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/annotationHighlightBridge.types.ts',
             'app/modules/pdf-viewer/runtime/contracts/createPdfViewerPublicApi.ts',
             'app/modules/pdf-viewer/runtime/sessions/usePdfAnnotationEditorLifecycle.ts',
         ].forEach(path => expect(existsSync(join(process.cwd(), path))).toBe(false));

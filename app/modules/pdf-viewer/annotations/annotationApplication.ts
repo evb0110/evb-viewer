@@ -1,105 +1,30 @@
 import type {
     IAnnotationCommentSummary,
     IShapeAnnotation,
-    TMarkupSubtype,
+    TDrawableShapeType,
 } from '@app/types/annotations';
-import type {PDFDocumentProxy} from '@app/types/pdfContracts';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
-import {measureOperationPhase} from '@contracts/measureOperationPhase';
 import type {IPageIdentityDelta} from '@contracts/electronApiPageOps';
 import type {
     AnnotationEntity,
     AnnotationId,
-    IPlacedImageEntity,
     IShapeEntity,
-    IStickyNoteEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
-/* eslint-disable max-lines -- Canonical annotation ingest, projection, and save verification share identity invariants. */
+
 import {
-    deriveAnnotationId,
     asAnnotationId,
     mintAnnotationId,
-    normalizeAnnotationText,
+    toLegacyShapeAnnotation,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
-import { cloneShape } from '@app/modules/pdf-viewer/engine/shapes/cloneShape';
-import { getNormalizedShapeStableKey } from '@app/modules/pdf-viewer/engine/annotations/shape-annotation-identity/shapeAnnotationIdentity';
 import {
     AnnotationStore,
     type IAnnotationSaveFrontier,
-    type IShapeImportProposal,
-    type IShapeImportSource,
 } from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
-import { ExternalIdentityConflictError } from '@app/modules/pdf-viewer/annotations/domain/externalIdentityIndex';
-import {
-    buildSerializationPlan,
-    type IAnnotationReopenReader,
-    verifyAnnotationSave,
-} from '@app/modules/pdf-viewer/serialization/serializationPlan';
-import {
-    configurePdfjsWorkerSrc,
-    createPdfjsDocumentOptions,
-} from '@app/services/pdfjs/runtimeLib';
-import {getDocumentFilesCapability} from '@app/utils/platformDocuments';
-import {
-    formatPdfJsAnnotationRef,
-    normalizePdfJsAnnotationId,
-    parsePdfJsAnnotationRef,
-} from '@app/utils/pdfAnnotationRefs';
-import {
-    computeSummaryStableKey,
-    getReplayableFreeTextNoteName,
-} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
-import {toMarkerRectFromPdfRect} from '@app/modules/pdf-viewer/engine/annotation-geometry/toMarkerRectFromPdfRect';
-import {toCanonicalTextMarkupGeometryFromRecord} from '@app/modules/pdf-viewer/engine/annotation-geometry/canonicalTextMarkupGeometry';
-import type {TPageRotation} from '@app/modules/pdf-viewer/engine/annotation-geometry/pageRotation';
-import {normalizePageRotation} from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizePageRotation';
-import type {IPdfAnnotationRecord} from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/annotationSyncHelpersTypes';
-import {buildPopupIndex} from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/buildPopupIndex';
-import {resolvePdfAnnotationCommentText} from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/buildPdfAnnotationCommentSummary';
-import {resolveCombinedAnnotationText} from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/resolveCombinedAnnotationText';
-import {resolvePdfAnnotationPreviewText} from '@app/modules/pdf-viewer/engine/annotations/pdf-annotation-preview-text/resolvePdfAnnotationPreviewText';
-import type {
-    IPdfTextPreviewItem,
-    IPdfTextPreviewViewport,
-} from '@app/modules/pdf-viewer/engine/annotations/pdf-annotation-preview-text/pdfAnnotationPreviewTextTypes';
-import {getOptionalNumber} from '@app/services/pdfjs/runtime';
-import {isTextMarkupSubtype} from '@app/services/pdf/annotationSubtype';
-import {resolvePdfAnnotationCanonicalKind} from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/resolvePdfAnnotationCanonicalKind';
-import {BrowserLogger} from '@app/utils/browserLogger';
+import {buildSerializationPlan} from '@app/modules/pdf-viewer/annotations/persistence/annotationSavePlan';
+import {normalizePdfJsAnnotationId} from '@app/utils/pdfAnnotationRefs';
 
-const ANNOTATION_VERIFICATION_RANGE_BYTES = 1024 * 1024;
-const SLOW_ANNOTATION_PATH_VERIFICATION_MS = 1_000;
-
-interface IAnnotationPathVerificationTiming {
-    readonly phase: string;
-    readonly durationMs: number;
-}
-
-function roundAnnotationVerificationDuration(durationMs: number) {
-    return Math.round(durationMs * 10) / 10;
-}
-
-function parseNativePdfObjectRef(pdfRef: string) {
-    const match = pdfRef.trim().match(/^([1-9]\d*) ([0-9]+) R$/u);
-    if (!match) {
-        return null;
-    }
-
-    const objectNumber = Number(match[1]);
-    const generationNumber = Number(match[2]);
-    if (
-        !Number.isSafeInteger(objectNumber)
-        || !Number.isSafeInteger(generationNumber)
-        || objectNumber <= 0
-        || generationNumber < 0
-    ) {
-        return null;
-    }
-
-    return {
-        objectNumber,
-        generationNumber,
-    };
+function normalizedPdfRef(value: string | null | undefined) {
+    return normalizePdfJsAnnotationId(value);
 }
 
 export interface IAnnotationReadModel {
@@ -113,378 +38,97 @@ export interface IAnnotationReadModel {
 export interface IAnnotationSaveSession {
     readonly frontier: IAnnotationSaveFrontier;
     readonly plan: ReturnType<typeof buildSerializationPlan>;
-    readonly materializedPdfRefs: Map<AnnotationId, string>;
 }
 
-/** Evidence used to distinguish a newly appended annotation from prior identical content. */
-export interface IAnnotationSaveVerificationOptions {readonly preexistingPdfAnnotationRefs?: readonly string[];}
-
-/**
- * One reopened page, read exactly the way the opened document reads a page: the
- * same records, the same popup pairing, the same page view box and `/Rotate`.
- * Verification compares a store entity against the file, and the entity was
- * built from these same inputs, so anything the reopen resolves differently
- * would be reported as a save failure that never happened.
- */
-interface IVerificationPage {
-    readonly records: readonly IPdfAnnotationRecord[];
-    readonly pageView: number[];
-    readonly pageRotation: TPageRotation;
-    /** The annotation's own note text, popup-linked notes included. */
-    resolveNoteText(record: IPdfAnnotationRecord): Promise<string>;
-}
-
-function persistentIdentity(comment: IAnnotationCommentSummary) {
-    return comment.annotationId
-        ?? comment.annotationName
-        ?? comment.uid
-        ?? comment.id;
-}
-
-const PLACED_IMAGE_ANNOTATION_NAME_PREFIX = 'placed-image-';
-
-function placedImageAnnotationName(comment: IAnnotationCommentSummary) {
-    if (
-        comment.source !== 'pdf'
-        || comment.subtype?.trim().toLowerCase() !== 'stamp'
-    ) {
-        return null;
-    }
-    const annotationName = comment.annotationName?.trim();
-    return annotationName?.startsWith(PLACED_IMAGE_ANNOTATION_NAME_PREFIX)
-        ? annotationName
-        : null;
-}
-
-function normalizedPdfRef(value: string | null | undefined) {
-    return normalizePdfJsAnnotationId(value);
-}
-
-function markerRectsEqual(
-    left: IAnnotationCommentSummary['markerRect'],
-    right: IAnnotationCommentSummary['markerRect'],
-) {
-    if (!left || !right) {
-        return false;
-    }
-    return left.left === right.left
-        && left.top === right.top
-        && left.width === right.width
-        && left.height === right.height;
-}
-
-function isPersistedSummary(comment: IAnnotationCommentSummary) {
-    return comment.source === 'pdf'
-        || Boolean(normalizePdfJsAnnotationId(comment.annotationId));
-}
-
-function isPersistedEditorFreeTextSummary(comment: IAnnotationCommentSummary) {
-    const subtype = comment.subtype?.trim().toLowerCase();
-    return comment.source === 'editor'
-        && (subtype === 'freetext' || subtype === 'typewriter')
-        && Boolean(parsePdfJsAnnotationRef(comment.annotationId));
-}
-
-function toMarkupSubtype(value: string | null | undefined): TMarkupSubtype | null {
-    if (value === 'Highlight' || value === 'Underline' || value === 'StrikeOut' || value === 'Squiggly') {
-        return value;
-    }
-    return null;
-}
 
 /**
  * The production boundary for annotation state. Existing pdfjs snapshots enter
- * through `ingestLegacySummaries`; UI and persistence consumers leave through
- * read models and revision-frontier save sessions.
+ * through the temporary summary adapter; UI and persistence consumers leave
+ * through read models and revision-frontier save sessions.
  */
+
+function shapeToolFromLegacyShape(shape: IShapeAnnotation): TDrawableShapeType {
+    if (shape.type === 'polyline') {
+        return 'draw';
+    }
+    if (shape.type === 'arrow') {
+        return 'arrow';
+    }
+    if (shape.type === 'line' && shape.lineEndStyle === 'closedArrow') {
+        return 'arrow';
+    }
+    return shape.type === 'rectangle' || shape.type === 'circle' || shape.type === 'line'
+        ? shape.type
+        : 'draw';
+}
+
+export function toCanonicalShapeEntity(
+    shape: IShapeAnnotation,
+    id: AnnotationId = mintAnnotationId(),
+): IShapeEntity {
+    const pdfRef = normalizedPdfRef(shape.annotationId);
+    const tool = shapeToolFromLegacyShape(shape);
+    const linePoints = tool === 'line' || tool === 'arrow'
+        ? [
+            {
+                x: shape.x,
+                y: shape.y,
+            },
+            {
+                x: shape.x2 ?? shape.x + shape.width,
+                y: shape.y2 ?? shape.y + shape.height,
+            },
+        ]
+        : null;
+    const geometryPoints = shape.points ?? linePoints;
+    const allGeometryPoints = geometryPoints ?? shape.strokes?.flatMap(stroke => stroke) ?? [];
+    const hasPointBounds = allGeometryPoints.length > 0;
+    const geometryLeft = hasPointBounds
+        ? Math.min(...allGeometryPoints.map(point => point.x))
+        : shape.x;
+    const geometryTop = hasPointBounds
+        ? Math.min(...allGeometryPoints.map(point => point.y))
+        : shape.y;
+    const geometryRight = hasPointBounds
+        ? Math.max(...allGeometryPoints.map(point => point.x))
+        : null;
+    const geometryBottom = hasPointBounds
+        ? Math.max(...allGeometryPoints.map(point => point.y))
+        : null;
+    return {
+        kind: 'shape',
+        identity: {
+            id,
+            ...(pdfRef ? {pdfRef} : {}),
+        },
+        pageIndex: shape.pageIndex,
+        revision: 0,
+        persistedRevision: pdfRef ? 0 : -1,
+        deleted: false,
+        createdAt: shape.createdAt ?? null,
+        modifiedAt: shape.modifiedAt ?? null,
+        author: null,
+        tool,
+        rect: {
+            left: geometryLeft,
+            top: geometryTop,
+            width: hasPointBounds ? geometryRight! - geometryLeft : shape.width,
+            height: hasPointBounds ? geometryBottom! - geometryTop : shape.height,
+        },
+        ...(geometryPoints === undefined || geometryPoints === null ? {} : {points: structuredClone(geometryPoints)}),
+        ...(shape.strokes === undefined ? {} : {strokes: structuredClone(shape.strokes)}),
+        strokeColor: shape.color,
+        strokeWidth: shape.strokeWidth,
+        fill: shape.fillColor ?? null,
+        opacity: shape.opacity,
+    };
+}
+
 export class AnnotationApplication {
     readonly store: AnnotationStore;
-    readonly legacyIdentityConflicts = new Set<string>();
-    readonly #mintedIds = new Map<string, AnnotationId>();
 
     constructor(readonly documentKey: string, store = new AnnotationStore()) {
         this.store = store;
-    }
-
-    ingestLegacySummaries(comments: readonly IAnnotationCommentSummary[]) {
-        const placedImageNameCounts = new Map<string, number>();
-        comments.forEach((comment) => {
-            const annotationName = placedImageAnnotationName(comment);
-            if (annotationName) {
-                placedImageNameCounts.set(
-                    annotationName,
-                    (placedImageNameCounts.get(annotationName) ?? 0) + 1,
-                );
-            }
-        });
-        comments.forEach((comment) => {
-            if (!comment.markerRect || comment.source === 'shape') {
-                return;
-            }
-            const imageAnnotationName = placedImageAnnotationName(comment);
-            if (
-                imageAnnotationName
-                && (placedImageNameCounts.get(imageAnnotationName) ?? 0) > 1
-            ) {
-                this.legacyIdentityConflicts.add(persistentIdentity(comment));
-                return;
-            }
-            const commentPdfRef = normalizedPdfRef(comment.annotationId);
-            const persistentKey = imageAnnotationName ?? commentPdfRef ?? persistentIdentity(comment);
-            const persisted = isPersistedSummary(comment);
-            const annotationNameId = comment.annotationName
-                ? asAnnotationId(comment.annotationName)
-                : null;
-            const existingByCanonicalPdfName = annotationNameId
-                ? this.store.get(annotationNameId)
-                : null;
-            const existingByPlacedImageName = imageAnnotationName
-                ? this.store.resolveExternal({pdfName: imageAnnotationName})
-                : null;
-            const existingPlacedImage = existingByPlacedImageName
-                && this.store.get(existingByPlacedImageName)?.kind === 'placed-image'
-                ? existingByPlacedImageName
-                : null;
-            let annotationId: AnnotationId;
-            if (comment.appAnnotationId) {
-                annotationId = asAnnotationId(comment.appAnnotationId);
-            } else if (existingPlacedImage) {
-                annotationId = existingPlacedImage;
-            } else if (existingByCanonicalPdfName) {
-                annotationId = annotationNameId!;
-            } else if (persisted) {
-                annotationId = deriveAnnotationId(this.documentKey, persistentKey);
-            } else {
-                annotationId = this.#mintedIds.get(persistentKey) ?? mintAnnotationId();
-            }
-            if (!persisted) this.#mintedIds.set(persistentKey, annotationId);
-            const existing = this.store.get(annotationId);
-            if (existing) {
-                if (
-                    imageAnnotationName
-                    && existing.kind === 'placed-image'
-                    && comment.appAnnotationId
-                    && existing.identity.pdfName !== imageAnnotationName
-                ) {
-                    this.legacyIdentityConflicts.add(persistentIdentity(comment));
-                    return;
-                }
-                const identifiesSameRecord = Boolean(
-                    // A summary carrying the canonical id names the record outright —
-                    // nothing was inferred from external keys, so there is nothing to
-                    // disambiguate. The external-key comparisons below only guard
-                    // identities this ingest had to guess.
-                    Boolean(comment.appAnnotationId)
-                    || (Boolean(commentPdfRef) && normalizedPdfRef(existing.identity.pdfRef) === commentPdfRef)
-                    || (Boolean(imageAnnotationName)
-                        && existing.kind === 'placed-image'
-                        && existing.identity.pdfName === imageAnnotationName)
-                    || (Boolean(comment.annotationName) && existing.identity.id === comment.annotationName)
-                    || (Boolean(comment.uid) && existing.identity.pdfjsUid === comment.uid)
-                    || (Boolean(comment.id) && existing.identity.elementId === comment.id),
-                );
-                if (!identifiesSameRecord) this.legacyIdentityConflicts.add(persistentIdentity(comment));
-                // PDF.js editor summaries can retain the object ref of an
-                // annotation deleted by the last acknowledged save. They
-                // identify the live editor record, but cannot prove that the
-                // ref still exists in the current PDF revision. Only a fresh
-                // PDF scan is authoritative for rebinding those refs.
-                if (
-                    identifiesSameRecord
-                    && comment.source === 'pdf'
-                    && (commentPdfRef || comment.annotationName)
-                    && !(imageAnnotationName && existing.kind === 'placed-image')
-                ) {
-                    const {
-                        id: _canonicalId,
-                        ...existingBindings
-                    } = existing.identity;
-                    this.store.bindIdentity({
-                        annotationId: existing.identity.id,
-                        expectedRevision: existing.revision,
-                        bindings: {
-                            ...existingBindings,
-                            ...(comment.annotationId ? {pdfRef: comment.annotationId} : {}),
-                            ...(comment.annotationName ? {pdfName: comment.annotationName} : {}),
-                        },
-                    });
-                }
-                if (identifiesSameRecord && imageAnnotationName && existing.kind === 'placed-image') {
-                    const nextPdfRef = comment.annotationId ?? existing.identity.pdfRef;
-                    const rectChanged = !markerRectsEqual(existing.rect, comment.markerRect);
-                    const pageChanged = existing.pageIndex !== comment.pageIndex;
-                    const refChanged = nextPdfRef !== existing.identity.pdfRef;
-                    const nameChanged = existing.identity.pdfName !== imageAnnotationName;
-                    if (rectChanged || pageChanged || refChanged || nameChanged) {
-                        this.store.import({
-                            ...existing,
-                            identity: {
-                                ...existing.identity,
-                                ...(nextPdfRef ? {pdfRef: nextPdfRef} : {}),
-                                pdfName: imageAnnotationName,
-                            },
-                            pageIndex: comment.pageIndex,
-                            rect: structuredClone(comment.markerRect),
-                        });
-                    }
-                }
-                this.store.acknowledgePendingMarkupSubtype(existing.identity.id, [
-                    comment.id,
-                    comment.uid ?? '',
-                    comment.annotationId ?? '',
-                    comment.annotationName ?? '',
-                    persistentKey,
-                ]);
-                return;
-            }
-            const identity = {
-                id: annotationId,
-                ...(comment.annotationId ? {pdfRef: comment.annotationId} : {}),
-                ...(comment.annotationName ? {pdfName: comment.annotationName} : {}),
-                ...(comment.uid ? {pdfjsUid: comment.uid} : {}),
-                ...(comment.id ? {elementId: comment.id} : {}),
-            };
-            const common = {
-                identity,
-                pageIndex: comment.pageIndex,
-                revision: 0,
-                persistedRevision: persisted ? 0 : -1,
-                deleted: false,
-                createdAt: comment.createdAt ?? null,
-                modifiedAt: comment.modifiedAt ?? null,
-                author: comment.author ?? null,
-            } as const;
-            const markupSubtype = toMarkupSubtype(comment.subtype);
-            if (markupSubtype) {
-                const entity = {
-                    ...common,
-                    kind: 'text-markup',
-                    subtype: markupSubtype,
-                    text: normalizeAnnotationText(comment.text ?? ''),
-                    // One rect per stored quad. A multi-line highlight that
-                    // arrived as its bounding box would be reported as a
-                    // geometry-count failure the moment the save verifier read
-                    // the file's own /QuadPoints back.
-                    geometry: comment.markupGeometry?.length
-                        ? comment.markupGeometry.map(rect => structuredClone(rect))
-                        : [structuredClone(comment.markerRect)],
-                    color: comment.color ?? null,
-                    opacity: comment.opacity ?? null,
-                } as const;
-                this.store.import(entity);
-                return;
-            }
-            if (imageAnnotationName) {
-                const entity: IPlacedImageEntity = {
-                    ...common,
-                    kind: 'placed-image',
-                    rect: structuredClone(comment.markerRect),
-                };
-                this.store.import(entity);
-                return;
-            }
-            const canonicalKind = comment.source === 'pdf'
-                ? resolvePdfAnnotationCanonicalKind(comment.subtype, comment.hasNote === true)
-                : comment.hasNote || isPersistedEditorFreeTextSummary(comment)
-                    ? 'sticky-note'
-                    : null;
-            if (canonicalKind !== 'sticky-note') {
-                return;
-            }
-            const entity: IStickyNoteEntity = {
-                ...common,
-                kind: 'sticky-note',
-                text: normalizeAnnotationText(comment.text ?? ''),
-                anchor: structuredClone(comment.markerRect),
-                color: comment.color ?? null,
-            };
-            this.store.import(entity);
-        });
-    }
-
-    reconcileLegacySummaries(
-        comments: readonly IAnnotationCommentSummary[],
-        options: {
-            adoptAsSavedBaseline?: boolean;
-            reconcileMissingTransient?: boolean;
-        } = {},
-    ) {
-        const entityIdsBeforeIngest = new Set(this.store.list({includeDeleted: true}).map(entity => entity.identity.id));
-        this.ingestLegacySummaries(comments);
-        if (options.reconcileMissingTransient === false) {
-            return;
-        }
-        const present = new Set(comments
-            .map(comment => this.annotationIdForSummary(comment))
-            .filter((value): value is AnnotationId => Boolean(value)));
-        // Forward the observed-present canonical ids as a proposal; the store
-        // alone decides which transients to tombstone.
-        this.store.reconcileObservedTransients(present);
-        if (options.adoptAsSavedBaseline) {
-            const baselineIds = new Set(comments.flatMap((comment) => {
-                const annotationId = this.annotationIdForSummary(comment);
-                if (!annotationId || (!isPersistedSummary(comment) && entityIdsBeforeIngest.has(annotationId))) {
-                    return [];
-                }
-                return [annotationId];
-            }));
-            this.store.adoptEntitiesAsSavedBaseline(baselineIds);
-        }
-    }
-
-    reconcilePdfjsEditorPresence(
-        presentExternalIds: ReadonlySet<string>,
-        options: {changedExternalIds?: ReadonlySet<string>} = {},
-    ) {
-        // Forward the rendered external ids as a proposal; the store alone
-        // decides canonical restoration and transient tombstoning.
-        this.store.reconcileEditorPresence(presentExternalIds, options);
-    }
-
-    /**
-     * Translates a scanned document's shape records into canonical proposals.
-     * Deriving the id needs this boundary's document key; every decision the
-     * proposals feed — mode, adoption, tombstones, baseline — is the store's.
-     */
-    importEmbeddedShapes(shapes: readonly IShapeAnnotation[], source: IShapeImportSource) {
-        return this.store.reconcileImportedShapes(this.#shapeImportProposals(shapes), source);
-    }
-
-    primePersistedShapes(
-        shapes: readonly IShapeAnnotation[],
-        frontier: IAnnotationSaveFrontier,
-    ) {
-        return this.store.primeImportedShapes(this.#shapeImportProposals(shapes), frontier);
-    }
-
-    createShapeFromGeometry(geometry: IShapeAnnotation) {
-        const stableKey = getNormalizedShapeStableKey(geometry);
-        return this.store.createShape({
-            kind: 'shape',
-            identity: {
-                id: mintAnnotationId(),
-                elementId: geometry.id,
-                ...(stableKey ? {pdfName: stableKey} : {}),
-            },
-            pageIndex: geometry.pageIndex,
-            revision: 0,
-            persistedRevision: -1,
-            deleted: false,
-            createdAt: geometry.createdAt ?? Date.now(),
-            modifiedAt: geometry.modifiedAt ?? Date.now(),
-            author: null,
-            geometry: cloneShape(geometry),
-        });
-    }
-
-    #shapeImportProposals(shapes: readonly IShapeAnnotation[]): IShapeImportProposal[] {
-        return shapes.map(shape => ({
-            annotationId: deriveAnnotationId(
-                this.documentKey,
-                shape.annotationId ?? getNormalizedShapeStableKey(shape) ?? shape.id,
-            ),
-            geometry: cloneShape(shape),
-        }));
     }
 
     listReadModels(): readonly IAnnotationReadModel[] {
@@ -492,24 +136,29 @@ export class AnnotationApplication {
             annotationId: entity.identity.id,
             kind: entity.kind,
             pageIndex: entity.pageIndex,
-            text: entity.kind === 'shape' || entity.kind === 'placed-image' ? '' : entity.text,
+            text: entity.kind === 'text-box'
+                ? entity.text
+                : entity.kind === 'note'
+                    ? entity.contents
+                    : entity.kind === 'text-markup'
+                        ? entity.contents
+                        : '',
             deleted: entity.deleted,
         }));
     }
 
     /**
-     * Normalized external ids of deleted annotations whose bytes the loaded
-     * document still paints. Render suppression derives from this one
-     * projection, so a delete of any kind — shape, sticky note or text markup —
-     * stops the native paint until a save rewrites the file, and an undo drops
-     * the tombstone so the annotation paints again.
+     * Returns the PDF references of deleted canonical annotations. The
+     * suppression set is derived from the store's tombstones, so the UI has no
+     * second deletion ledger.
      */
     deletedEmbeddedAnnotationIds(): ReadonlySet<string> {
         const ids = new Set<string>();
         this.store.list({includeDeleted: true}).forEach((entity) => {
-            const annotationId = entity.deleted
-                ? normalizePdfJsAnnotationId(entity.identity.pdfRef)
-                : null;
+            if (!entity.deleted) {
+                return;
+            }
+            const annotationId = normalizePdfJsAnnotationId(entity.identity.pdfRef);
             if (annotationId) {
                 ids.add(annotationId);
             }
@@ -517,29 +166,37 @@ export class AnnotationApplication {
         return ids;
     }
 
-    /** Immutable UI projection derived only from canonical entities. */
     listCommentSummaries(): readonly IAnnotationCommentSummary[] {
         return this.store.list().flatMap((entity) => {
             if (entity.kind === 'shape') {
                 return [];
             }
-            const source = entity.persistedRevision >= 0 ? 'pdf' : 'editor';
-            const externalId = entity.identity.elementId
-                ?? entity.identity.pdfRef
-                ?? entity.identity.pdfjsUid
-                ?? entity.identity.id;
-            const stableKey = entity.kind === 'placed-image' && entity.identity.pdfName
-                ? `nm:${entity.identity.pdfName}` as const
-                : entity.identity.pdfRef
-                    ? `ann:${entity.pageIndex}:${entity.identity.pdfRef}` as const
-                    : entity.identity.pdfjsUid
-                        ? `uid:${entity.pageIndex}:${entity.identity.pdfjsUid}` as const
-                        : `src:${source}:${entity.pageIndex}:${externalId}` as const;
-            const markerRect = entity.kind === 'sticky-note'
-                ? structuredClone(entity.anchor)
-                : entity.kind === 'placed-image'
-                    ? structuredClone(entity.rect)
-                    : structuredClone(entity.geometry[0] ?? null);
+            const source = entity.persistedRevision >= 0 ? 'pdf' as const : 'editor' as const;
+            const externalId = entity.identity.pdfRef ?? entity.identity.id;
+            const stableKey: IAnnotationCommentSummary['stableKey'] = entity.identity.pdfRef
+                ? `ann:${entity.pageIndex}:${entity.identity.pdfRef}`
+                : `ann:${entity.pageIndex}:${entity.identity.id}`;
+            const markerRect = entity.kind === 'text-box'
+                ? structuredClone(entity.rect)
+                : entity.kind === 'note'
+                    ? structuredClone(entity.position)
+                    : entity.kind === 'text-markup'
+                        ? structuredClone(entity.quadPoints[0] ?? null)
+                        : structuredClone(entity.rect);
+            const text = entity.kind === 'text-box'
+                ? entity.text
+                : entity.kind === 'note'
+                    ? entity.contents
+                    : entity.kind === 'text-markup'
+                        ? entity.contents
+                        : '';
+            const subtype = entity.kind === 'text-markup'
+                ? entity.subtype
+                : entity.kind === 'note'
+                    ? 'Text'
+                    : entity.kind === 'text-box'
+                        ? 'FreeText'
+                        : 'Stamp';
             return [{
                 source,
                 appAnnotationId: entity.identity.id,
@@ -547,557 +204,94 @@ export class AnnotationApplication {
                 stableKey,
                 pageIndex: entity.pageIndex,
                 pageNumber: entity.pageIndex + 1,
-                text: entity.kind === 'placed-image' ? '' : entity.text,
-                subtype: entity.kind === 'text-markup'
-                    ? entity.subtype
-                    : entity.kind === 'placed-image' ? 'Stamp' : 'FreeText',
+                text,
+                ...(entity.kind === 'text-markup'
+                    ? {previewText: entity.selectedText ?? null}
+                    : {}),
+                subtype,
                 author: entity.author,
                 createdAt: entity.createdAt,
                 modifiedAt: entity.modifiedAt,
-                color: entity.kind === 'text-markup' || entity.kind === 'sticky-note'
+                color: entity.kind === 'text-box'
+                    || entity.kind === 'note'
+                    || entity.kind === 'text-markup'
                     ? entity.color
                     : null,
                 ...(entity.kind === 'text-markup' ? {opacity: entity.opacity} : {}),
-                uid: entity.identity.pdfjsUid ?? null,
+                uid: null,
                 annotationId: entity.identity.pdfRef ?? null,
-                annotationName: entity.identity.pdfName ?? null,
-                hasNote: entity.kind === 'sticky-note'
-                    || (entity.kind !== 'placed-image' && entity.text.length > 0),
+                annotationName: null,
+                hasNote: entity.kind === 'note'
+                    || (entity.kind !== 'placed-image' && text.length > 0),
                 markerRect,
+                ...(entity.kind === 'note' && entity.replies
+                    ? {replies: entity.replies.map(reply => ({...reply}))}
+                    : {}),
                 ...(entity.kind === 'text-markup'
-                    ? {markupGeometry: structuredClone(entity.geometry)}
+                    ? {markupGeometry: structuredClone(entity.quadPoints)}
                     : {}),
             } satisfies IAnnotationCommentSummary];
         });
     }
 
-    projectSummaries(comments: readonly IAnnotationCommentSummary[]) {
-        return comments.flatMap((comment) => {
-            const annotationId = this.annotationIdForSummary(comment);
-            if (!annotationId) {
-                return [comment];
-            }
-            const entity = this.store.get(annotationId);
-            if (!entity || entity.deleted) {
-                return [];
-            }
-            if (entity.kind === 'sticky-note') {
-                return [{
-                    ...comment,
-                    appAnnotationId: annotationId,
-                    pageIndex: entity.pageIndex,
-                    pageNumber: entity.pageIndex + 1,
-                    text: entity.text,
-                    markerRect: structuredClone(entity.anchor),
-                    color: entity.color,
-                    author: entity.author,
-                    createdAt: entity.createdAt,
-                    modifiedAt: entity.modifiedAt,
-                    hasNote: true,
-                }];
-            }
-            if (entity.kind === 'text-markup') {
-                return [{
-                    ...comment,
-                    appAnnotationId: annotationId,
-                    pageIndex: entity.pageIndex,
-                    pageNumber: entity.pageIndex + 1,
-                    text: entity.text,
-                    subtype: entity.subtype,
-                    markerRect: structuredClone(entity.geometry[0] ?? comment.markerRect ?? null),
-                    color: entity.color,
-                    opacity: entity.opacity,
-                    author: entity.author,
-                    createdAt: entity.createdAt,
-                    modifiedAt: entity.modifiedAt,
-                    markupGeometry: structuredClone(entity.geometry),
-                }];
-            }
-            if (entity.kind === 'placed-image') {
-                return [{
-                    ...comment,
-                    appAnnotationId: annotationId,
-                    source: entity.persistedRevision >= 0 ? 'pdf' as const : 'editor' as const,
-                    id: entity.identity.pdfRef ?? comment.id,
-                    pageIndex: entity.pageIndex,
-                    pageNumber: entity.pageIndex + 1,
-                    text: '',
-                    subtype: 'Stamp' as const,
-                    markerRect: structuredClone(entity.rect),
-                    annotationId: entity.identity.pdfRef ?? null,
-                    annotationName: entity.identity.pdfName ?? null,
-                    stableKey: entity.identity.pdfName
-                        ? `nm:${entity.identity.pdfName}` as const
-                        : comment.stableKey,
-                    author: entity.author,
-                    createdAt: entity.createdAt,
-                    modifiedAt: entity.modifiedAt,
-                    color: null,
-                    hasNote: false,
-                }];
-            }
-            return [{
-                ...comment,
-                appAnnotationId: annotationId,
-                pageIndex: entity.pageIndex,
-                pageNumber: entity.pageIndex + 1,
-            }];
-        });
-    }
-
-    annotationIdForSummary(comment: IAnnotationCommentSummary) {
-        const imageAnnotationName = placedImageAnnotationName(comment);
-        if (imageAnnotationName) {
-            return this.#annotationIdForPlacedImageSummary(comment, imageAnnotationName);
-        }
+    annotationIdForSummary(comment: IAnnotationCommentSummary): AnnotationId | null {
         if (comment.appAnnotationId) {
-            const annotationId = asAnnotationId(comment.appAnnotationId);
-            if (this.store.get(annotationId)) {
-                return annotationId;
+            const id = asAnnotationId(comment.appAnnotationId);
+            if (this.store.get(id)) {
+                return id;
             }
         }
         const pdfRef = normalizedPdfRef(comment.annotationId);
-        return this.store.resolveExternal({
-            ...(pdfRef ? {pdfRef} : {}),
-            ...(comment.annotationName ? {pdfName: comment.annotationName} : {}),
-            ...(comment.uid ? {pdfjsUid: comment.uid} : {}),
-            ...(comment.id ? {elementId: comment.id} : {}),
-        });
+        if (!pdfRef) {
+            return null;
+        }
+        return this.store.list({includeDeleted: true})
+            .find(entity => normalizedPdfRef(entity.identity.pdfRef) === pdfRef)
+            ?.identity.id ?? null;
     }
 
-    #annotationIdForPlacedImageSummary(
-        comment: IAnnotationCommentSummary,
-        annotationName: string,
-    ) {
-        const pdfRef = normalizedPdfRef(comment.annotationId);
-        const appAnnotationId = comment.appAnnotationId
-            ? asAnnotationId(comment.appAnnotationId)
+    annotationIdForShape(shape: Pick<IShapeAnnotation, 'id' | 'annotationId'>): AnnotationId | null {
+        const byId = this.store.get(asAnnotationId(shape.id));
+        if (byId?.kind === 'shape') {
+            return byId.identity.id;
+        }
+        const pdfRef = normalizedPdfRef(shape.annotationId);
+        return pdfRef
+            ? this.store.list({includeDeleted: true})
+                .find(entity => entity.kind === 'shape'
+                    && normalizedPdfRef(entity.identity.pdfRef) === pdfRef)
+                ?.identity.id ?? null
             : null;
-        const annotationId = appAnnotationId && this.store.get(appAnnotationId)
-            ? appAnnotationId
-            : this.store.resolveExternal({pdfName: annotationName})
-                ?? this.store.resolveExternal({...(pdfRef ? {pdfRef} : {})});
-        if (!annotationId) {
-            return null;
-        }
-        const entity = this.store.get(annotationId);
-        if (!entity || entity.kind !== 'placed-image') {
-            return null;
-        }
-        if (entity.identity.pdfName !== annotationName) {
-            return null;
-        }
-        const expectedPdfRef = normalizedPdfRef(comment.annotationId);
-        const actualPdfRef = normalizedPdfRef(entity.identity.pdfRef);
-        if (expectedPdfRef !== actualPdfRef) {
-            return null;
-        }
-        return annotationId;
     }
 
-    annotationIdForShape(shape: Pick<IShapeAnnotation, 'id' | 'annotationId'>) {
-        return this.store.resolveExternal({
-            ...(shape.annotationId ? {pdfRef: shape.annotationId} : {}),
-            elementId: shape.id,
-        });
+    toLegacyShape(entity: IShapeEntity): IShapeAnnotation {
+        return toLegacyShapeAnnotation(entity);
     }
 
-    replaceShapeGeometry(
-        annotationId: AnnotationId,
-        geometry: IShapeEntity['geometry'],
-        historyBeforeGeometry?: IShapeEntity['geometry'],
-    ) {
-        return this.store.replaceShapeGeometry(annotationId, geometry, historyBeforeGeometry);
+    remapPages(delta: IPageIdentityDelta) {
+        this.store.remapPages(delta);
     }
-
-    previewShapeGeometry(annotationId: AnnotationId, geometry: IShapeEntity['geometry']) {
-        return this.store.previewShapeGeometry(annotationId, geometry);
-    }
-
-    remapPages(delta: IPageIdentityDelta) { this.store.remapPages(delta); }
 
     beginSave(documentRevisionToken: TDocumentRevisionToken | null = null): IAnnotationSaveSession {
-        if (this.legacyIdentityConflicts.size) {
-            throw new ExternalIdentityConflictError(`Ambiguous legacy annotation identities: ${Array.from(this.legacyIdentityConflicts).join(', ')}`);
-        }
         const frontier = this.store.beginSave(documentRevisionToken);
+        const dirty = this.store.dirtyEntities();
         return {
             frontier,
-            materializedPdfRefs: new Map(),
             plan: buildSerializationPlan(
                 frontier,
-                this.store.dirtyAt(frontier),
+                dirty,
                 this.store.list({includeDeleted: true}),
             ),
         };
-    }
-
-    recordMaterializedIdentityBinding(
-        session: IAnnotationSaveSession,
-        annotationId: string,
-        pdfRef: string,
-    ) {
-        const canonicalId = asAnnotationId(annotationId);
-        if (!session.frontier.revisions.has(canonicalId)) {
-            throw new Error(`Unexpected materialized annotation identity ${annotationId}`);
-        }
-        const parsedPdfRef = parseNativePdfObjectRef(pdfRef) ?? parsePdfJsAnnotationRef(pdfRef);
-        if (!parsedPdfRef) {
-            throw new Error(`Malformed materialized PDF ref for ${annotationId}`);
-        }
-        const normalizedPdfRef = formatPdfJsAnnotationRef(parsedPdfRef);
-        const existing = session.materializedPdfRefs.get(canonicalId);
-        if (existing && normalizePdfJsAnnotationId(existing) !== normalizedPdfRef) {
-            throw new Error(`Conflicting materialized PDF refs for ${annotationId}`);
-        }
-        session.materializedPdfRefs.set(canonicalId, normalizedPdfRef);
-    }
-
-    async verifyAndAcknowledgeSave(
-        session: IAnnotationSaveSession,
-        bytes: Uint8Array,
-        reader: IAnnotationReopenReader,
-        currentDocumentRevisionToken: TDocumentRevisionToken | null = session.frontier.documentRevisionToken,
-    ) {
-        await verifyAnnotationSave(bytes, session.plan, reader);
-        this.store.acknowledgeSave(
-            session.frontier,
-            session.materializedPdfRefs,
-            currentDocumentRevisionToken,
-        );
-    }
-
-    async verifySaveBytes(
-        session: IAnnotationSaveSession,
-        bytes: Uint8Array,
-        options: IAnnotationSaveVerificationOptions = {},
-    ) {
-        const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
-        configurePdfjsWorkerSrc(pdfjs);
-        const loadingTask = pdfjs.getDocument({
-            ...createPdfjsDocumentOptions(pdfjs),
-            data: bytes.slice(),
-        });
-        const document = await loadingTask.promise;
-        try {
-            await this.#verifySaveDocument(session, document, bytes, options);
-        } finally {
-            await document.destroy();
-        }
-    }
-
-    async verifySavePath(
-        session: IAnnotationSaveSession,
-        path: string,
-        knownSize: number,
-        options: IAnnotationSaveVerificationOptions = {},
-    ) {
-        const verificationStartedAt = performance.now();
-        const timings: IAnnotationPathVerificationTiming[] = [];
-        const measure = <T>(phase: string, operation: () => Promise<T>) =>
-            measureOperationPhase(operation, durationMs => timings.push({
-                phase,
-                durationMs,
-            }));
-        let rangeReadCount = 0;
-        let rangeReadBytes = 0;
-        let rangeReadTotalMs = 0;
-        let rangeReadMaxMs = 0;
-        let outcome: 'success' | 'failure' = 'failure';
-        if (!Number.isSafeInteger(knownSize) || knownSize <= 0) {
-            throw new Error('Path-backed annotation verification requires a positive safe file size');
-        }
-        const pdfjs = await measure(
-            'import-pdfjs',
-            () => import('pdfjs-dist/legacy/build/pdf.mjs'),
-        );
-        configurePdfjsWorkerSrc(pdfjs);
-        const documentFiles = getDocumentFilesCapability();
-        const before = await measure('stat-before', () => documentFiles.statFile(path));
-        if (before.size !== knownSize) {
-            throw new Error('Staged PDF changed before semantic verification');
-        }
-        const initialLength = Math.min(knownSize, ANNOTATION_VERIFICATION_RANGE_BYTES);
-        const initialData = await measure(
-            'read-initial-range',
-            () => documentFiles.readFileRange(path, 0, initialLength),
-        );
-        if (initialData.byteLength !== initialLength) {
-            throw new Error('Staged PDF returned an incomplete initial verification range');
-        }
-        if (knownSize <= ANNOTATION_VERIFICATION_RANGE_BYTES) {
-            try {
-                await measure(
-                    'verify-small-bytes',
-                    () => this.verifySaveBytes(session, initialData, options),
-                );
-                outcome = 'success';
-                return;
-            } finally {
-                const totalMs = roundAnnotationVerificationDuration(
-                    performance.now() - verificationStartedAt,
-                );
-                if (totalMs >= SLOW_ANNOTATION_PATH_VERIFICATION_MS) {
-                    BrowserLogger.warn('annotations', 'Slow staged annotation verification', {
-                        totalMs,
-                        knownSize,
-                        timings,
-                        rangeReadCount,
-                        rangeReadBytes,
-                        rangeReadTotalMs: roundAnnotationVerificationDuration(rangeReadTotalMs),
-                        rangeReadMaxMs: roundAnnotationVerificationDuration(rangeReadMaxMs),
-                        outcome,
-                    });
-                }
-            }
-        }
-
-        let rejectRangeRead: (error: Error) => void = () => undefined;
-        const rangeReadFailure = new Promise<never>((_resolve, reject) => {
-            rejectRangeRead = reject;
-        });
-        let failed = false;
-        class AnnotationVerificationRangeTransport extends pdfjs.PDFDataRangeTransport {
-            private aborted = false;
-
-            public constructor() {
-                super(knownSize, initialData, false);
-            }
-
-            public override requestDataRange = (begin: number, end: number) => {
-                if (this.aborted || failed || end <= begin) {
-                    return;
-                }
-                const startedAt = performance.now();
-                const requestedBytes = end - begin;
-                rangeReadCount += 1;
-                rangeReadBytes += requestedBytes;
-                void documentFiles.readFileRange(path, begin, requestedBytes).then((chunk) => {
-                    const durationMs = performance.now() - startedAt;
-                    rangeReadTotalMs += durationMs;
-                    rangeReadMaxMs = Math.max(rangeReadMaxMs, durationMs);
-                    if (this.aborted || failed) {
-                        return;
-                    }
-                    if (chunk.byteLength !== requestedBytes) {
-                        throw new Error('Staged PDF returned an incomplete semantic verification range');
-                    }
-                    this.onDataRange(begin, chunk);
-                }).catch((error: unknown) => {
-                    if (this.aborted || failed) {
-                        return;
-                    }
-                    failed = true;
-                    rejectRangeRead(error instanceof Error ? error : new Error(String(error)));
-                });
-            };
-
-            public override abort = () => {
-                this.aborted = true;
-            };
-        }
-
-        const range = new AnnotationVerificationRangeTransport();
-        const loadingTask = pdfjs.getDocument({
-            ...createPdfjsDocumentOptions(pdfjs),
-            length: knownSize,
-            range,
-            rangeChunkSize: ANNOTATION_VERIFICATION_RANGE_BYTES,
-            disableAutoFetch: true,
-            disableStream: true,
-        });
-        let document: PDFDocumentProxy | null = null;
-        try {
-            document = await measure('load-document', () => Promise.race([
-                loadingTask.promise,
-                rangeReadFailure,
-            ]));
-            await measure('verify-expected-annotations', () => Promise.race([
-                this.#verifySaveDocument(session, document!, initialData, options),
-                rangeReadFailure,
-            ]));
-            const after = await measure('stat-after', () => documentFiles.statFile(path));
-            if (after.size !== knownSize) {
-                throw new Error('Staged PDF changed during semantic verification');
-            }
-            outcome = 'success';
-        } finally {
-            range.abort();
-            await measure('destroy-document', async () => {
-                if (document) {
-                    await document.destroy();
-                } else {
-                    await loadingTask.destroy();
-                }
-            });
-            const totalMs = roundAnnotationVerificationDuration(
-                performance.now() - verificationStartedAt,
-            );
-            if (totalMs >= SLOW_ANNOTATION_PATH_VERIFICATION_MS) {
-                BrowserLogger.warn('annotations', 'Slow staged annotation verification', {
-                    totalMs,
-                    knownSize,
-                    timings,
-                    rangeReadCount,
-                    rangeReadBytes,
-                    rangeReadTotalMs: roundAnnotationVerificationDuration(rangeReadTotalMs),
-                    rangeReadMaxMs: roundAnnotationVerificationDuration(rangeReadMaxMs),
-                    outcome,
-                });
-            }
-        }
-    }
-
-    async #verifySaveDocument(
-        session: IAnnotationSaveSession,
-        document: PDFDocumentProxy,
-        verificationToken: Uint8Array,
-        options: IAnnotationSaveVerificationOptions,
-    ) {
-        const reopened: AnnotationEntity[] = [];
-        const matchedRecords = new Set<IPdfAnnotationRecord>();
-        const verificationPages = new Map<number, Promise<IVerificationPage>>();
-        const preexistingPdfRefs = options.preexistingPdfAnnotationRefs === undefined
-            ? null
-            : new Set(options.preexistingPdfAnnotationRefs
-                .map(value => normalizePdfJsAnnotationId(value))
-                .filter((value): value is string => Boolean(value)));
-        for (const expected of session.plan.expected) {
-            if (expected.deleted && expected.pageIndex >= document.numPages) {
-                continue;
-            }
-            const verificationPage = await this.#verificationPage(
-                document,
-                expected.pageIndex,
-                verificationPages,
-            );
-            const {
-                pageRotation,
-                pageView,
-                records,
-            } = verificationPage;
-            // The plan freezes expected content, not identity: bindings still
-            // advance while the save runs (the managed-shape rescan of the
-            // saved bytes learns each shape's ref before commit). The store
-            // owns those bindings, so bind against it rather than the snapshot.
-            const identity = this.store.get(expected.identity.id)?.identity ?? expected.identity;
-            const externalIds = new Set([
-                identity.id,
-                identity.pdfRef,
-                identity.pdfName,
-                identity.pdfjsUid,
-                identity.elementId,
-                session.materializedPdfRefs.get(expected.identity.id),
-            ].filter((value): value is string => Boolean(value)));
-            if (expected.kind === 'sticky-note' && !identity.pdfRef && !identity.pdfName) {
-                const id = identity.elementId
-                    ?? identity.pdfjsUid
-                    ?? identity.id;
-                const nativeName = getReplayableFreeTextNoteName({
-                    stableKey: computeSummaryStableKey({
-                        id,
-                        pageIndex: expected.pageIndex,
-                        source: 'editor',
-                        uid: identity.pdfjsUid ?? null,
-                        annotationId: null,
-                    }),
-                    createdAt: expected.createdAt,
-                });
-                if (nativeName) externalIds.add(nativeName);
-            }
-            let record = records.find(candidate => !matchedRecords.has(candidate) && (
-                (typeof candidate.id === 'string' && externalIds.has(candidate.id))
-                || (typeof candidate.id === 'string' && externalIds.has(candidate.id.replace(/R0$/u, 'R')))
-            ));
-            if (
-                !record
-                && preexistingPdfRefs
-                && expected.kind === 'sticky-note'
-                && !identity.pdfRef
-                && !identity.pdfName
-            ) {
-                const semanticCandidates: IPdfAnnotationRecord[] = [];
-                for (const candidate of records) {
-                    if (matchedRecords.has(candidate) || candidate.subtype !== 'FreeText') {
-                        continue;
-                    }
-                    const candidateRef = normalizePdfJsAnnotationId(candidate.id);
-                    if (!candidateRef || preexistingPdfRefs.has(candidateRef)) {
-                        continue;
-                    }
-                    const candidateRect = this.#normalizePdfRect(candidate.rect, pageView, pageRotation);
-                    if (
-                        !candidateRect
-                        || Math.abs(candidateRect.left - expected.anchor.left) > 0.0001
-                        || Math.abs(candidateRect.top - expected.anchor.top) > 0.0001
-                        || Math.abs(candidateRect.width - expected.anchor.width) > 0.0001
-                        || Math.abs(candidateRect.height - expected.anchor.height) > 0.0001
-                    ) {
-                        continue;
-                    }
-                    // The same text rule the comparison below applies, so a
-                    // candidate can never be adopted and then rejected for text
-                    // this match had read differently.
-                    if (await verificationPage.resolveNoteText(candidate) !== expected.text) {
-                        continue;
-                    }
-                    semanticCandidates.push(candidate);
-                }
-                if (semanticCandidates.length === 1) {
-                    [record] = semanticCandidates;
-                }
-            }
-            if (record) {
-                matchedRecords.add(record);
-                if (
-                    !identity.pdfRef
-                    && typeof record.id === 'string'
-                    && normalizePdfJsAnnotationId(record.id)
-                ) {
-                    session.materializedPdfRefs.set(expected.identity.id, record.id);
-                }
-            }
-            if (expected.deleted) {
-                if (record) reopened.push({
-                    ...expected,
-                    deleted: false,
-                });
-                continue;
-            }
-            if (!record) continue;
-            if (expected.kind === 'sticky-note') {
-                const rect = this.#normalizePdfRect(record.rect, pageView, pageRotation);
-                reopened.push({
-                    ...expected,
-                    text: await verificationPage.resolveNoteText(record),
-                    ...(rect ? {anchor: rect} : {}),
-                });
-            } else if (expected.kind === 'text-markup') {
-                const subtype = toMarkupSubtype(record.subtype);
-                if (!subtype) continue;
-                // Canonical geometry, not overlay geometry: the save verifier
-                // compares what the file holds against what the store authored,
-                // so both sides cross the same documented boundary.
-                reopened.push({
-                    ...expected,
-                    subtype,
-                    text: await verificationPage.resolveNoteText(record),
-                    geometry: toCanonicalTextMarkupGeometryFromRecord(record, pageView, pageRotation),
-                });
-            } else {
-                reopened.push(expected);
-            }
-        }
-        await verifyAnnotationSave(verificationToken, session.plan, {reopen: () => Promise.resolve(reopened)});
     }
 
     acknowledgeSave(
         session: IAnnotationSaveSession,
         currentDocumentRevisionToken: TDocumentRevisionToken | null = session.frontier.documentRevisionToken,
     ) {
-        this.store.acknowledgeSave(
+        this.store.markPersisted(
             session.frontier,
-            session.materializedPdfRefs,
+            [],
             currentDocumentRevisionToken,
         );
     }
@@ -1114,106 +308,5 @@ export class AnnotationApplication {
         this.store.assertSaveFrontierCurrent(session.frontier, currentDocumentRevisionToken);
     }
 
-    #normalizePdfRect(
-        rect: readonly number[] | undefined,
-        view: readonly number[],
-        pageRotation: TPageRotation,
-    ) {
-        return toMarkerRectFromPdfRect(
-            rect ? [...rect] : undefined,
-            [...view],
-            pageRotation,
-        );
-    }
 
-    /**
-     * Reads one reopened page once and memoizes it, so several dirty
-     * annotations on the same page share its records, its popup index and — at
-     * most once, and only when some annotation actually carries `/Contents` —
-     * its extracted text.
-     */
-    async #verificationPage(
-        document: PDFDocumentProxy,
-        pageIndex: number,
-        cache: Map<number, Promise<IVerificationPage>>,
-    ) {
-        const cached = cache.get(pageIndex);
-        if (cached) {
-            return cached;
-        }
-        const loading = (async (): Promise<IVerificationPage> => {
-            const page = await document.getPage(pageIndex + 1);
-            const records = await page.getAnnotations() as IPdfAnnotationRecord[];
-            const popupById = buildPopupIndex(records);
-            const pageView = [...page.view];
-            const pageRotation = normalizePageRotation(getOptionalNumber(page, 'rotate') ?? 0);
-            let pageText: Promise<{
-                items: IPdfTextPreviewItem[];
-                viewport: IPdfTextPreviewViewport | null;
-            }> | null = null;
-            const readPageText = () => {
-                pageText ??= (async () => {
-                    try {
-                        const viewport = page.getViewport({scale: 1});
-                        const textContent = await page.getTextContent();
-                        return {
-                            items: Array.isArray(textContent.items)
-                                ? textContent.items as IPdfTextPreviewItem[]
-                                : [],
-                            viewport: {
-                                transform: [...viewport.transform],
-                                width: viewport.width,
-                                height: viewport.height,
-                                scale: viewport.scale,
-                            },
-                        };
-                    } catch (error) {
-                        // The opened document falls back to no preview text the
-                        // same way, so a page whose text will not extract still
-                        // compares against the same answer on both sides.
-                        BrowserLogger.debug(
-                            'annotations',
-                            `Failed to collect verification preview text for page ${pageIndex + 1}`,
-                            error,
-                        );
-                        return {
-                            items: [],
-                            viewport: null,
-                        };
-                    }
-                })();
-                return pageText;
-            };
-            return {
-                records,
-                pageView,
-                pageRotation,
-                resolveNoteText: async (record) => {
-                    const popup = record.popupRef
-                        ? popupById.get(record.popupRef) ?? null
-                        : null;
-                    // Extracting page text is the expensive part, and it only
-                    // changes the answer for text markup whose /Contents repeats
-                    // the words underneath it. Notes and empty /Contents need
-                    // none of it.
-                    const mayRepeatPageText = isTextMarkupSubtype(record.subtype)
-                        && resolveCombinedAnnotationText(record, popup).trim().length > 0;
-                    const previewText = mayRepeatPageText
-                        ? await readPageText().then(text => resolvePdfAnnotationPreviewText(
-                            record,
-                            text.items,
-                            pageView,
-                            pageRotation,
-                            text.viewport,
-                        ))
-                        : null;
-                    return normalizeAnnotationText(
-                        resolvePdfAnnotationCommentText(record, popup, previewText),
-                    );
-                },
-            };
-        })();
-        cache.set(pageIndex, loading);
-        return loading;
-    }
 }

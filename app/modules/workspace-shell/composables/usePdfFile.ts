@@ -15,12 +15,14 @@ import {
     createEpochGuard,
 } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
 import type { IDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+import type { TWorkspaceFailureSurface } from '@app/modules/workspace-shell/composables/useWorkspaceFailureSurface';
 
 let nextPdfFileAnalyticsScopeIndex = 0;
 
 export interface IUsePdfFileOptions {
     analyticsDocumentScope?: IAnalyticsDocumentScope | undefined;
     openSurface?: IDocumentOpenSurfaceSession | undefined;
+    failureSurface?: TWorkspaceFailureSurface | undefined;
 }
 
 export const usePdfFile = (options: IUsePdfFileOptions = {}) => {
@@ -52,6 +54,7 @@ export const usePdfFile = (options: IUsePdfFileOptions = {}) => {
         pdfSrc,
         pendingDjvu,
         requiresSaveAsOnFirstSave,
+        wasEncrypted,
         resetForClose,
         workingCopyPath,
         documentRevisionInfo,
@@ -114,6 +117,9 @@ export const usePdfFile = (options: IUsePdfFileOptions = {}) => {
         incrementSessionVersion,
         loadEpoch,
         openSurface: options.openSurface,
+        ...(options.failureSurface?.reportOpenFailure
+            ? {reportOpenFailure: options.failureSurface.reportOpenFailure}
+            : {}),
         openEpoch,
         pushHistorySnapshot,
         resetHistory,
@@ -205,6 +211,7 @@ export const usePdfFile = (options: IUsePdfFileOptions = {}) => {
         documentRevisionToken,
         originalPath,
         requiresSaveAsOnFirstSave,
+        wasEncrypted,
         fileName,
         error,
         failurePresentation,

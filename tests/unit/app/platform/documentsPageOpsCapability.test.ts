@@ -1,4 +1,7 @@
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import {
+    beforeAll,
     beforeEach,
     describe,
     expect,
@@ -31,6 +34,7 @@ const browserPageOpsWorkerMock = vi.hoisted(() => ({
     canUse: vi.fn(() => false),
     run: vi.fn(),
 }));
+let pageOpsWasmBytes: Uint8Array;
 
 vi.mock('@app/platform/browser-api/browserYield', () => ({yieldToBrowser: yieldToBrowserMock}));
 vi.mock('@app/platform/browser-api/browserPageOpsWorkerClient', () => ({
@@ -61,8 +65,21 @@ function createPageOps(overrides: Partial<TPageOpsOptions> = {}) {
 }
 
 describe('createBrowserPageOpsCapability', () => {
+    beforeAll(async () => {
+        pageOpsWasmBytes = new Uint8Array(await readFile(
+            join(process.cwd(), 'public/wasm/evb-pdf-page-ops.wasm'),
+        ));
+    });
+
     beforeEach(() => {
         vi.clearAllMocks();
+        vi.unstubAllGlobals();
+        vi.stubGlobal('location', {href: 'https://viewer.test/workspace'});
+        vi.stubGlobal('fetch', vi.fn(async () => ({
+            ok: true,
+            headers: {get: () => null},
+            arrayBuffer: async () => pageOpsWasmBytes.slice().buffer,
+        })));
         browserDocumentStoreMock.read.mockReset();
         browserDocumentStoreMock.stat.mockReset();
         browserDocumentStoreMock.assertDocumentRevisionCurrent.mockReset();

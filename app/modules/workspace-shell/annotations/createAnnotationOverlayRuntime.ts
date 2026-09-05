@@ -30,7 +30,7 @@ const INLINE_MARKER_PROXIMITY = 0.08;
 
 interface IInlineTriggerIdentity {
     annotationIds: Set<string>;
-    markerPoints: Array<{
+    notePoints: Array<{
         pageNumber: number;
         x: number;
         y: number;
@@ -113,7 +113,7 @@ function collectViewportDomSnapshot(viewportRoot: HTMLElement | null): IViewport
 function collectRenderedInlineAnchorIdentity(snapshot: IViewportDomSnapshot | null): IInlineTriggerIdentity {
     const identity: IInlineTriggerIdentity = {
         annotationIds: new Set<string>(),
-        markerPoints: [],
+        notePoints: [],
     };
     if (!snapshot) {
         return identity;
@@ -122,27 +122,27 @@ function collectRenderedInlineAnchorIdentity(snapshot: IViewportDomSnapshot | nu
     snapshot.pageContainers.forEach((pageContainer, pageNumber) => {
         const pageRect = pageContainer.getBoundingClientRect();
         pageContainer
-            .querySelectorAll<HTMLElement>('.pdf-comment-marker-button[data-annotation-id]')
-            .forEach((markerElement) => {
-                const annotationId = markerElement.dataset.annotationId;
+            .querySelectorAll<HTMLElement>('.pdf-annotation-editor-note[data-annotation-id]')
+            .forEach((noteElement) => {
+                const annotationId = noteElement.dataset.annotationId;
                 if (annotationId) {
                     identity.annotationIds.add(annotationId);
                 }
 
-                const markerRect = markerElement.getBoundingClientRect();
+                const noteRect = noteElement.getBoundingClientRect();
                 if (
                     pageRect.width <= 0
                     || pageRect.height <= 0
-                    || markerRect.width <= 0
-                    || markerRect.height <= 0
+                    || noteRect.width <= 0
+                    || noteRect.height <= 0
                 ) {
                     return;
                 }
 
-                identity.markerPoints.push({
+                identity.notePoints.push({
                     pageNumber,
-                    x: clamp((markerRect.left + markerRect.width / 2 - pageRect.left) / pageRect.width, 0, 1),
-                    y: clamp((markerRect.top + markerRect.height / 2 - pageRect.top) / pageRect.height, 0, 1),
+                    x: clamp((noteRect.left + noteRect.width / 2 - pageRect.left) / pageRect.width, 0, 1),
+                    y: clamp((noteRect.top + noteRect.height / 2 - pageRect.top) / pageRect.height, 0, 1),
                 });
             });
     });
@@ -163,7 +163,7 @@ function inlineIdentityMatchesNote(
     }
     const noteAnchorX = clamp(markerRect.left + markerRect.width, 0, 1);
     const noteAnchorY = clamp(markerRect.top, 0, 1);
-    return inlineIdentity.markerPoints.some(point => (
+    return inlineIdentity.notePoints.some(point => (
         point.pageNumber === note.pageNumber
         && Math.hypot(point.x - noteAnchorX, point.y - noteAnchorY) <= INLINE_MARKER_PROXIMITY
     ));
@@ -182,35 +182,35 @@ function pointInRect(x: number, y: number, rect: TViewportBounds) {
     return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
 }
 
-function getMarkerPointFromElement(
-    markerElement: HTMLElement,
+function getNotePointFromElement(
+    noteElement: HTMLElement,
     viewportBounds: TViewportBounds,
 ): IConnectorMarkerPoint | null {
-    const markerRect = markerElement.getBoundingClientRect();
-    if (markerRect.width <= 0 || markerRect.height <= 0 || !rectsIntersect(markerRect, viewportBounds)) {
+    const noteRect = noteElement.getBoundingClientRect();
+    if (noteRect.width <= 0 || noteRect.height <= 0 || !rectsIntersect(noteRect, viewportBounds)) {
         return null;
     }
     return {
-        cx: markerRect.left + markerRect.width / 2,
-        cy: markerRect.top + markerRect.height / 2,
-        radius: Math.min(markerRect.width, markerRect.height) / 2,
+        cx: noteRect.left + noteRect.width / 2,
+        cy: noteRect.top + noteRect.height / 2,
+        radius: Math.min(noteRect.width, noteRect.height) / 2,
     };
 }
 
-function getRenderedMarkerCenter(
+function getRenderedNoteCenter(
     pageContainer: HTMLElement,
     annotationId: string,
     viewportBounds: TViewportBounds,
 ) {
     const escapedId = escapeCssAttr(annotationId);
-    const markerSelectors = [
-        `.pdf-comment-marker-button[data-annotation-id="${escapedId}"]`,
+    const noteSelectors = [
+        `.pdf-annotation-editor-note[data-annotation-id="${escapedId}"]`,
         `.pdf-note-open-anchor[data-annotation-id="${escapedId}"]`,
     ];
 
-    for (const selector of markerSelectors) {
-        for (const markerElement of pageContainer.querySelectorAll<HTMLElement>(selector)) {
-            const point = getMarkerPointFromElement(markerElement, viewportBounds);
+    for (const selector of noteSelectors) {
+        for (const noteElement of pageContainer.querySelectorAll<HTMLElement>(selector)) {
+            const point = getNotePointFromElement(noteElement, viewportBounds);
             if (point) {
                 return point;
             }
@@ -378,8 +378,6 @@ function mapNotesToPageTargets(
 export function createAnnotationOverlayRuntime(options: IAnnotationOverlayRuntimeOptions) {
     const indicatorDomTick = ref(0);
     const connectorLines = shallowRef<IConnectorLine[]>([]);
-    const isMarkerDragTooltipSuppressed = ref(false);
-    let markerDragTooltipReleaseTimer: ReturnType<typeof setTimeout> | null = null;
 
     const viewportRootElement = computed(() => options.getViewportRoot());
     const viewportDomSnapshot = computed<IViewportDomSnapshot | null>(() => {
@@ -436,7 +434,7 @@ export function createAnnotationOverlayRuntime(options: IAnnotationOverlayRuntim
             if (!position || !pageContainer) {
                 return [];
             }
-            const marker = getRenderedMarkerCenter(pageContainer, note.annotationId, viewportBounds)
+            const marker = getRenderedNoteCenter(pageContainer, note.annotationId, viewportBounds)
                 ?? getMarkerAnchorInPage(pageContainer, note, viewportBounds);
             if (!marker) {
                 return [];
@@ -467,25 +465,6 @@ export function createAnnotationOverlayRuntime(options: IAnnotationOverlayRuntim
 
     function scheduleConnectorRefreshBurst(frames = 2) {
         connectorRefreshScheduler.request(frames);
-    }
-
-    function clearMarkerDragTooltipReleaseTimer() {
-        if (markerDragTooltipReleaseTimer !== null) {
-            clearTimeout(markerDragTooltipReleaseTimer);
-            markerDragTooltipReleaseTimer = null;
-        }
-    }
-
-    function setMarkerDragTooltipSuppressed(active: boolean) {
-        clearMarkerDragTooltipReleaseTimer();
-        if (active) {
-            isMarkerDragTooltipSuppressed.value = true;
-            return;
-        }
-        markerDragTooltipReleaseTimer = setTimeout(() => {
-            markerDragTooltipReleaseTimer = null;
-            isMarkerDragTooltipSuppressed.value = false;
-        }, NOTE_WINDOW.MARKER_DRAG_TOOLTIP_RELEASE_MS);
     }
 
     function getMinimizedIndicatorStyle(note: IAnnotationNoteWindowEntry) {
@@ -521,7 +500,6 @@ export function createAnnotationOverlayRuntime(options: IAnnotationOverlayRuntim
 
     onMounted(() => scheduleOverlayRefreshBurst(10));
     onBeforeUnmount(() => {
-        clearMarkerDragTooltipReleaseTimer();
         indicatorDomRefreshScheduler.cancel();
         connectorRefreshScheduler.cancel();
         connectorLines.value = [];
@@ -534,16 +512,6 @@ export function createAnnotationOverlayRuntime(options: IAnnotationOverlayRuntim
         () => scheduleConnectorRefreshBurst(1),
         { passive: true },
     );
-    useEventListener(import.meta.client ? window : undefined, 'pdf-comment-marker-drag', () => {
-        setMarkerDragTooltipSuppressed(true);
-        scheduleConnectorRefreshBurst(1);
-    });
-    useEventListener(import.meta.client ? window : undefined, 'pdf-comment-marker-drag-state', (event: Event) => {
-        const detail = event instanceof CustomEvent && typeof event.detail === 'object' && event.detail !== null
-            ? event.detail as { active?: unknown }
-            : null;
-        setMarkerDragTooltipSuppressed(detail?.active === true);
-    });
     useMutationObserver(viewportRootElement, () => scheduleOverlayRefreshBurst(4), {
         childList: true,
         subtree: true,
@@ -583,7 +551,6 @@ export function createAnnotationOverlayRuntime(options: IAnnotationOverlayRuntim
         minimizedIndicatorTargets,
         openNoteAnchorTargets,
         connectorLines,
-        isMarkerDragTooltipSuppressed,
         getMinimizedIndicatorStyle,
         getMinimizedNotePreview,
         traceAnchorInteraction,

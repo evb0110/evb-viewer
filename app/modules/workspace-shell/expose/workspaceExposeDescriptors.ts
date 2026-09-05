@@ -403,7 +403,7 @@ export const workspaceExposeCommandRegistry = defineWorkspaceExposeCommandRegist
         toolbar: {eventName: 'paste-image-from-clipboard'},
         group: 'view',
         real: 'passthrough',
-        deferred: 'mountWaitVoid',
+        deferred: 'mountWaitBoolean',
         menu: {
             actionName: 'paste-image-from-clipboard',
             register: 'onMenuPasteImageFromClipboard',

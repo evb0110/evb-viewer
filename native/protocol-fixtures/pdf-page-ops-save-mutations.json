@@ -1,6 +1,20 @@
 {
   "updates": [],
   "freeTextNotes": [],
+  "textBoxes": [
+    {
+      "pageIndex": 0,
+      "stableKey": "fixture-text-box",
+      "text": "Fixture text box",
+      "rect": [10, 20, 100, 60],
+      "rotation": 0,
+      "fontSize": 16,
+      "color": [17, 24, 39],
+      "author": "Ada Lovelace",
+      "createdAt": 1780000000000,
+      "modifiedAt": 1780000060000
+    }
+  ],
   "deletes": [],
   "placedImages": [
     {

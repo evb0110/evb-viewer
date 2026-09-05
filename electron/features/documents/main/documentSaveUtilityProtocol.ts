@@ -6,8 +6,10 @@ import {
 import { isRecord } from '@contracts/runtimeGuards';
 import {
     decodeTypedStagedArtifact,
+    isBrowserStoreFileIdentity,
     type ITypedStagedArtifact,
 } from '@contracts/stagedArtifacts';
+import {nativePdfSemanticScope} from '@contracts/nativePdfSemanticScope';
 
 export interface IDocumentSaveUtilityCommitRequest {
     type: 'commit';
@@ -127,15 +129,23 @@ export function createChangedObjectRefsSha256(changedObjectRefs: readonly string
 }
 
 export function createNativeIncrementalMutationSemanticScopeSha256() {
-    return createHash('sha256')
-        .update('evb-pdf-page-ops:incremental-native-mutations:v1')
-        .digest('hex');
+    return nativePdfSemanticScope;
 }
 
 export function getDocumentSaveUtilityReusePlan(
     request: IDocumentSaveUtilityCommitRequest,
 ): IDocumentSaveUtilityReusePlan {
     const artifact = request.stagedArtifact;
+    if (artifact && isBrowserStoreFileIdentity(artifact.fileIdentity)) {
+        return {
+            fingerprint: false,
+            tailCheck: false,
+            qpdfCheck: false,
+            nativeIncrementalCheck: false,
+            changedObjectRefsCheck: false,
+            fileSync: false,
+        };
+    }
     const receiptReuseEnabled = process.platform !== 'win32'
         && artifact?.receiptVersion === 1
         && artifact?.fileIdentity.platform === 'posix';

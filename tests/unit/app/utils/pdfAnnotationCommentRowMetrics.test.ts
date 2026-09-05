@@ -6,6 +6,9 @@ import {
 import {
     ANNOTATION_COMMENT_ROW_GAP_REM,
     ANNOTATION_COMMENT_ROW_HEIGHT_REM,
+    ANNOTATION_COMMENT_REPLY_BLOCK_REM,
+    ANNOTATION_COMMENT_REPLY_CHARS_PER_LINE,
+    ANNOTATION_COMMENT_REPLY_TEXT_LINE_HEIGHT_REM,
     ANNOTATION_COMMENT_ROW_STRIDE_REM,
     resolveAnnotationCommentRowMetrics,
 } from '@app/utils/pdfAnnotationCommentRowMetrics';
@@ -66,6 +69,27 @@ describe('annotation comment row metrics', () => {
         // metrics must land on exactly that value, so default-scale users see no
         // layout change from this fix.
         expect(resolveAnnotationCommentRowMetrics(BASE_ROOT_FONT_SIZE_PX).rowStridePx).toBe(112);
+    });
+
+    it('reserves a full reply block in the virtual row stride', () => {
+        const base = resolveAnnotationCommentRowMetrics(BASE_ROOT_FONT_SIZE_PX);
+        const withReply = resolveAnnotationCommentRowMetrics(BASE_ROOT_FONT_SIZE_PX, [{contents: 'reply'}]);
+
+        expect(withReply.rowStridePx - base.rowStridePx)
+            .toBe(Math.round(ANNOTATION_COMMENT_REPLY_BLOCK_REM * BASE_ROOT_FONT_SIZE_PX));
+        expect(withReply.rowHeightPx + withReply.rowGapPx).toBe(withReply.rowStridePx);
+    });
+
+    it('reserves additional lines for wrapped and multiline replies', () => {
+        const oneLine = resolveAnnotationCommentRowMetrics(BASE_ROOT_FONT_SIZE_PX, [{contents: 'reply'}]);
+        const longReply = 'x'.repeat(ANNOTATION_COMMENT_REPLY_CHARS_PER_LINE + 1);
+        const wrapped = resolveAnnotationCommentRowMetrics(BASE_ROOT_FONT_SIZE_PX, [{contents: longReply}]);
+        const multiline = resolveAnnotationCommentRowMetrics(BASE_ROOT_FONT_SIZE_PX, [{contents: 'first\nsecond'}]);
+        const extraLinePx = Math.round(ANNOTATION_COMMENT_REPLY_TEXT_LINE_HEIGHT_REM * BASE_ROOT_FONT_SIZE_PX);
+
+        expect(wrapped.rowStridePx).toBe(oneLine.rowStridePx + extraLinePx);
+        expect(multiline.rowStridePx).toBe(oneLine.rowStridePx + extraLinePx);
+        expect(wrapped.rowHeightPx + wrapped.rowGapPx).toBe(wrapped.rowStridePx);
     });
 
     it('diverges from the historical stride at every non-default preset', () => {

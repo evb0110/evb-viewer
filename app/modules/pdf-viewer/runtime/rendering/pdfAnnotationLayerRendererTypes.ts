@@ -1,3 +1,4 @@
+// fallow-ignore-next-line unused-type -- dormant PDF.js compatibility contract is removed with #195.
 export interface IAnnotationUiManagerWithAnnotationRenderGuards {
     renderAnnotationElement?: (annotation: unknown) => unknown;
     setMissingCanvas?: (
@@ -28,6 +29,7 @@ export type TAnnotationEditorLayerFailureReason =
     | 'pdfjs-compatibility-unsupported'
     | 'stale-document';
 
+// fallow-ignore-next-line unused-type -- dormant PDF.js failure contract is removed with #195.
 export interface IAnnotationEditorLayerPageFailure {
     pageNumber: number;
     reason: TAnnotationEditorLayerFailureReason;

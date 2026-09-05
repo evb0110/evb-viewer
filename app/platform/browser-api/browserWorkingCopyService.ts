@@ -16,61 +16,109 @@ import {
     emitBatchOpenProgress,
     type IBrowserBatchOpenProgressOptions,
 } from '@app/platform/browser-api/createCombinedPdfFromPaths';
-import { containsPdfEncryptMarker } from '@app/platform/browser-api/browserPdfValidation';
-import { stripBrowserPdfEncryption } from '@app/platform/browser-api/stripBrowserPdfEncryption';
+import {
+    containsPdfEncryptMarker,
+    PDF_ENCRYPT_SCAN_REGION_BYTES,
+} from '@pdf-core';
+import {
+    isPdfDecryptPassword,
+    PDF_DECRYPT_PASSWORD_MAX_BYTES,
+} from '@contracts/pdfDecryptSchemas';
+import {
+    isBrowserPageOpsWasmFailure,
+    tryRunBrowserPageOpsWithWasm,
+} from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
 
-const PDF_ENCRYPT_SCAN_REGION_BYTES = 32 * 1024;
-const BROWSER_EAGER_DECRYPT_BYTES = 64 * 1024 * 1024;
-
-function buildBrowserLargeJobError(label: string, maxBytes: number) {
+function buildBrowserLargeJobError(label: string, maxBytes: number, hint?: string) {
     return buildBrowserByteLimitError(
         label,
         maxBytes,
         'inputs',
+        hint,
     );
 }
 
-export async function decryptBrowserWorkingCopy(workingPath: string) {
-    try {
-        const { size } = await browserDocumentStore.stat(workingPath);
-        if (size > BROWSER_EAGER_DECRYPT_BYTES) {
-            const head = await browserDocumentStore.readRange(
-                workingPath,
-                0,
-                Math.min(PDF_ENCRYPT_SCAN_REGION_BYTES, size),
-            );
-            if (!containsPdfEncryptMarker(head)) {
-                const tailStart = Math.max(
-                    head.byteLength,
-                    size - PDF_ENCRYPT_SCAN_REGION_BYTES,
-                );
-                const tail = tailStart < size
-                    ? await browserDocumentStore.readRange(
-                        workingPath,
-                        tailStart,
-                        size - tailStart,
-                    )
-                    : new Uint8Array();
-                if (!containsPdfEncryptMarker(tail)) {
-                    return;
-                }
-            }
-        }
+export async function decryptBrowserWorkingCopy(workingPath: string, password?: string) {
+    if (password !== undefined && !isPdfDecryptPassword(password)) {
+        throw new Error(`PDF password exceeds the ${PDF_DECRYPT_PASSWORD_MAX_BYTES}-byte limit`);
+    }
+    const { size } = await browserDocumentStore.stat(workingPath);
+    const head = await browserDocumentStore.readRange(
+        workingPath,
+        0,
+        Math.min(PDF_ENCRYPT_SCAN_REGION_BYTES, size),
+    );
+    let encrypted = containsPdfEncryptMarker(head);
+    if (!encrypted && size > head.byteLength) {
+        const tailStart = Math.max(
+            head.byteLength,
+            size - PDF_ENCRYPT_SCAN_REGION_BYTES,
+        );
+        const tail = await browserDocumentStore.readRange(
+            workingPath,
+            tailStart,
+            size - tailStart,
+        );
+        encrypted = containsPdfEncryptMarker(tail);
+    }
+    if (!encrypted) {
+        return {
+            outcome: 'plain',
+            wasEncrypted: false,
+        } as const;
+    }
 
-        if (size > BROWSER_MAX_FULL_READ_BYTES) {
-            throw buildBrowserLargeJobError(
-                'Opening encrypted documents',
-                BROWSER_MAX_FULL_READ_BYTES,
-            );
-        }
+    if (size > BROWSER_MAX_FULL_READ_BYTES) {
+        throw buildBrowserLargeJobError(
+            'Opening encrypted documents',
+            BROWSER_MAX_FULL_READ_BYTES,
+        );
+    }
 
-        const bytes = await browserDocumentStore.read(workingPath);
-        const decrypted = await stripBrowserPdfEncryption(bytes);
-        if (decrypted !== bytes) {
-            await browserDocumentStore.write(workingPath, new Uint8Array(decrypted));
+    const bytes = await browserDocumentStore.read(workingPath);
+    const result = await tryRunBrowserPageOpsWithWasm('decrypt', {
+        data: bytes,
+        password: password ?? '',
+    });
+    if (result === null) {
+        throw new Error('Browser PDF decrypt operation is unavailable');
+    }
+    if (isBrowserPageOpsWasmFailure(result)) {
+        if (result.error.code === 'needs-password') {
+            return {
+                outcome: 'needs-password',
+                wasEncrypted: true,
+            } as const;
         }
-    } catch {
-        // Decryption failed; keep the original encrypted working copy.
+        if (result.error.code === 'unsupported-filter' || result.error.code === 'encrypted') {
+            return {
+                outcome: 'unsupported',
+                wasEncrypted: true,
+            } as const;
+        }
+        throw new Error(result.error.message);
+    }
+    if (!(result && result.data instanceof Uint8Array)) {
+        throw new Error('Browser PDF decrypt operation returned an invalid result');
+    }
+    const revision = await browserDocumentStore.getDocumentRevision(workingPath);
+    await browserDocumentStore.write(workingPath, new Uint8Array(result.data), {expectedDocumentRevisionToken: revision.token});
+    return {
+        outcome: 'decrypted',
+        wasEncrypted: true,
+    } as const;
+}
+
+type TBrowserWorkingCopyDecryptionResult = Awaited<ReturnType<typeof decryptBrowserWorkingCopy>>;
+
+export function assertBrowserWorkingCopyDecrypted(
+    result: TBrowserWorkingCopyDecryptionResult,
+) {
+    if (result.outcome === 'needs-password') {
+        throw new Error('PDF decryption requires a password');
+    }
+    if (result.outcome === 'unsupported') {
+        throw new Error('PDF encryption handler is unsupported');
     }
 }
 
@@ -79,6 +127,7 @@ export async function createBrowserWorkingCopyFromBytes(options: {
     data: Uint8Array;
     mimeType?: string;
     sourceRef?: TDocumentRef;
+    password?: string;
 }) {
     const workingPath = await browserDocumentStore.createStoredDocument(
         options.fileName,
@@ -91,13 +140,21 @@ export async function createBrowserWorkingCopyFromBytes(options: {
         },
     );
 
-    await decryptBrowserWorkingCopy(workingPath);
-    return workingPath;
+    try {
+        const decryption = await decryptBrowserWorkingCopy(workingPath, options.password);
+        assertBrowserWorkingCopyDecrypted(decryption);
+        return workingPath;
+    } catch (error) {
+        await browserDocumentStore.remove(workingPath).catch(() => undefined);
+        throw error;
+    }
 }
 
 export async function openDocumentPaths(
     paths: string[],
     progressOptions?: IBrowserBatchOpenProgressOptions,
+    password?: string,
+    largeDocumentMessage?: string,
 ) {
     const startedAt = Date.now();
     const normalizedPaths = normalizeNonEmptyStringPaths(paths);
@@ -127,20 +184,47 @@ export async function openDocumentPaths(
     if (normalizedPaths.length === 1 && isPdfFileName(firstFileName)) {
         const sourcePath = normalizedPaths[0]!;
         const { size } = await browserDocumentStore.stat(sourcePath);
+        if (size > BROWSER_MAX_FULL_READ_BYTES) {
+            throw buildBrowserLargeJobError(
+                'Opening documents',
+                BROWSER_MAX_FULL_READ_BYTES,
+                largeDocumentMessage ? `. ${largeDocumentMessage}` : undefined,
+            );
+        }
         if (size <= BROWSER_MAX_FULL_READ_BYTES) {
             await browserDocumentStore.ensureByteBackedSource(sourcePath);
         }
-        const workingPath =
-            await browserDocumentStore.cloneAsWorkingCopy(sourcePath);
-        await decryptBrowserWorkingCopy(workingPath);
-        await browserDocumentStore.touchRecentFile(sourcePath);
-        browserDocumentStore.unload(sourcePath);
-        emitBatchOpenProgress(progressOptions, 1, 1, startedAt);
-        return {
-            kind: 'pdf',
-            workingPath,
-            originalPath: sourcePath,
-        } satisfies TOpenFileResult;
+        const workingPath = await browserDocumentStore.cloneAsWorkingCopy(sourcePath);
+        let published = false;
+        try {
+            const decryption = await decryptBrowserWorkingCopy(workingPath, password);
+            if (decryption.outcome === 'needs-password') {
+                return {
+                    kind: 'pdf-needs-password',
+                    originalPath: sourcePath,
+                } satisfies TOpenFileResult;
+            }
+            if (decryption.outcome === 'unsupported') {
+                return {
+                    kind: 'pdf-unsupported-encryption',
+                    originalPath: sourcePath,
+                } satisfies TOpenFileResult;
+            }
+            await browserDocumentStore.touchRecentFile(sourcePath);
+            browserDocumentStore.unload(sourcePath);
+            emitBatchOpenProgress(progressOptions, 1, 1, startedAt);
+            published = true;
+            return {
+                kind: 'pdf',
+                workingPath,
+                originalPath: sourcePath,
+                ...(decryption.wasEncrypted ? {wasEncrypted: true as const} : {}),
+            } satisfies TOpenFileResult;
+        } finally {
+            if (!published) {
+                await browserDocumentStore.remove(workingPath).catch(() => undefined);
+            }
+        }
     }
 
     const { createCombinedPdfFromPaths } = await import('@app/platform/browser-api/createCombinedPdfFromPaths');

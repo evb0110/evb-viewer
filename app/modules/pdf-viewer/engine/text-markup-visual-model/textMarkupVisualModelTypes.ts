@@ -1,7 +1,5 @@
 
 
-export type TPdfTextMarkupRect = [number, number, number, number];
-
 export interface ITextMarkupRect {
     height: number;
     left: number;

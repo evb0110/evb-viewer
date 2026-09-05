@@ -16,9 +16,13 @@ import {
     isShapeTool,
     PENDING_ANNOTATION_ENRICHMENT_STATE,
 } from '@app/modules/pdf-viewer/public';
+import type { IWorkspacePdfViewerAnnotationToolsPort } from '@app/modules/workspace-shell/types/workspacePdfViewerPorts.types';
 
-interface IPdfViewerForAnnotationTools {
-    cancelCommentPlacement: () => void;
+interface IPdfViewerForAnnotationTools extends Pick<IWorkspacePdfViewerAnnotationToolsPort,
+    'selectedTextBox'
+    | 'getSelectedTextBox'
+    | 'updateSelectedTextBoxProperties'
+> {
     clearSelectedShape: () => void;
     selectedShapeId: string | null;
     getSelectedShape: () => (IShapeAnnotation & { pdfSubtype?: string | null | undefined }) | null;
@@ -44,7 +48,6 @@ export const usePageAnnotationTools = (deps: IPageAnnotationToolsDeps) => {
 
     const annotationTool = ref<TAnnotationTool>('none');
     const annotationKeepActive = ref(true);
-    const annotationPlacingPageNote = ref(false);
     const annotationSettings = ref<IAnnotationSettings>({ ...DEFAULT_ANNOTATION_SETTINGS });
     const annotationComments = ref<IAnnotationCommentSummary[]>([]);
     const annotationCommentsStatus = ref<TAnnotationCommentsStatus>('loading');
@@ -104,11 +107,9 @@ export const usePageAnnotationTools = (deps: IPageAnnotationToolsDeps) => {
     function handleAnnotationToolChange(tool: TAnnotationTool) {
         annotationTool.value = tool;
         dragMode.value = false;
-        pdfViewerRef.value?.cancelCommentPlacement();
         if (tool !== 'select') {
             pdfViewerRef.value?.clearSelectedShape();
         }
-        annotationPlacingPageNote.value = false;
         closeAnnotationContextMenu();
     }
 
@@ -119,20 +120,17 @@ export const usePageAnnotationTools = (deps: IPageAnnotationToolsDeps) => {
         const previousTool = annotationTool.value;
         if (isShapeTool(previousTool)) {
             annotationTool.value = 'select';
-            annotationPlacingPageNote.value = false;
             closeAnnotationContextMenu();
             return;
         }
         annotationTool.value = 'none';
         pdfViewerRef.value?.clearSelectedShape();
-        annotationPlacingPageNote.value = false;
         closeAnnotationContextMenu();
     }
 
     function handleAnnotationToolCancel() {
         annotationTool.value = 'none';
         pdfViewerRef.value?.clearSelectedShape();
-        annotationPlacingPageNote.value = false;
         closeAnnotationContextMenu();
     }
 
@@ -144,6 +142,18 @@ export const usePageAnnotationTools = (deps: IPageAnnotationToolsDeps) => {
             ...annotationSettings.value,
             [payload.key]: payload.value,
         };
+
+        const selectedTextBox = pdfViewerRef.value?.getSelectedTextBox?.();
+        if (selectedTextBox && pdfViewerRef.value?.updateSelectedTextBoxProperties) {
+            if (payload.key === 'textColor' && typeof payload.value === 'string') {
+                pdfViewerRef.value.updateSelectedTextBoxProperties({color: payload.value});
+                return;
+            }
+            if (payload.key === 'textSize' && typeof payload.value === 'number') {
+                pdfViewerRef.value.updateSelectedTextBoxProperties({fontSize: payload.value});
+                return;
+            }
+        }
 
         const selectedShapeId = pdfViewerRef.value?.selectedShapeId;
         if (!selectedShapeId) {
@@ -248,7 +258,6 @@ export const usePageAnnotationTools = (deps: IPageAnnotationToolsDeps) => {
     return {
         annotationTool,
         annotationKeepActive,
-        annotationPlacingPageNote,
         annotationSettings,
         annotationComments,
         annotationCommentsStatus,

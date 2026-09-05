@@ -3,6 +3,11 @@ import {
     isSafeWorkerRequestId,
 } from '@contracts/runtimeGuards';
 import type {INativeErrorEnvelope} from '@contracts/nativeErrors';
+import type {
+    IBrowserPdfCombineBookmarkEntry,
+    IBrowserPdfCombineCatalog,
+    IBrowserPdfCombinePageLabelRange,
+} from '@app/platform/browser-api/browserPageOpsWorker.types';
 
 interface IBrowserPdfCombineInput {
     fileName: string;
@@ -22,6 +27,7 @@ interface IBrowserPdfCombineWasmPageSpec {
     pageSize: IBrowserPdfCombinePageSize;
     jpegQuality?: number;
     ppiCap?: number;
+    rotationDegrees?: 0 | 90 | 180 | 270;
     foregroundColor?: TBrowserPdfCombineRgb;
     image?: IBrowserPdfCombineInput;
     background?: IBrowserPdfCombineInput;
@@ -33,6 +39,7 @@ interface IBrowserPdfCombineWasmImagePreprocessing {
     ppiCap?: number;
     pageSizes?: IBrowserPdfCombinePageSize[];
     pageSpecs?: IBrowserPdfCombineWasmPageSpec[];
+    catalog?: IBrowserPdfCombineCatalog;
 }
 
 interface IBrowserPdfCombinePayload {
@@ -176,6 +183,14 @@ function parseBrowserPdfCombineWasmPageSpec(value: unknown): IBrowserPdfCombineW
     const pageSize = parseBrowserPdfCombinePageSize(value.pageSize);
     const jpegQuality = parseOptionalBoundedInteger(value.jpegQuality, 1, 100);
     const ppiCap = parseOptionalBoundedInteger(value.ppiCap, 0, 1200);
+    const rotationDegrees = value.rotationDegrees === undefined
+        ? undefined
+        : value.rotationDegrees === 0
+            || value.rotationDegrees === 90
+            || value.rotationDegrees === 180
+            || value.rotationDegrees === 270
+            ? value.rotationDegrees
+            : null;
     const foregroundColor = parseOptionalRgb(value.foregroundColor);
     const image = parseOptionalWasmInput(value.image);
     const background = parseOptionalWasmInput(value.background);
@@ -185,6 +200,7 @@ function parseBrowserPdfCombineWasmPageSpec(value: unknown): IBrowserPdfCombineW
         || pageSize === null
         || jpegQuality === null
         || ppiCap === null
+        || rotationDegrees === null
         || foregroundColor === null
         || image === null
         || background === null
@@ -212,6 +228,9 @@ function parseBrowserPdfCombineWasmPageSpec(value: unknown): IBrowserPdfCombineW
     if (ppiCap !== undefined) {
         parsed.ppiCap = ppiCap;
     }
+    if (rotationDegrees !== undefined) {
+        parsed.rotationDegrees = rotationDegrees;
+    }
     if (foregroundColor !== undefined) {
         parsed.foregroundColor = foregroundColor;
     }
@@ -227,6 +246,92 @@ function parseBrowserPdfCombineWasmPageSpec(value: unknown): IBrowserPdfCombineW
     return parsed;
 }
 
+function parseCatalogBookmark(
+    value: unknown,
+    depth: number,
+    state: {count: number},
+): IBrowserPdfCombineBookmarkEntry | null {
+    if (!isRecord(value) || depth >= 64 || state.count >= 5_000 || !Array.isArray(value.items)) {
+        return null;
+    }
+    if (
+        typeof value.title !== 'string'
+        || (value.pageIndex !== null && (typeof value.pageIndex !== 'number' || !Number.isSafeInteger(value.pageIndex) || value.pageIndex < 0))
+        || (value.pageYRatio !== undefined
+            && value.pageYRatio !== null
+            && (typeof value.pageYRatio !== 'number' || !Number.isFinite(value.pageYRatio)))
+        || (value.namedDest !== null && typeof value.namedDest !== 'string')
+        || typeof value.bold !== 'boolean'
+        || typeof value.italic !== 'boolean'
+        || (value.color !== null && typeof value.color !== 'string')
+        || value.items.length > 5_000
+    ) {
+        return null;
+    }
+    state.count += 1;
+    const items: IBrowserPdfCombineBookmarkEntry[] = [];
+    for (const item of value.items) {
+        const parsed = parseCatalogBookmark(item, depth + 1, state);
+        if (parsed === null) {
+            return null;
+        }
+        items.push(parsed);
+    }
+    return {
+        title: value.title,
+        pageIndex: value.pageIndex,
+        ...(value.pageYRatio === undefined ? {} : {pageYRatio: value.pageYRatio}),
+        namedDest: value.namedDest,
+        bold: value.bold,
+        italic: value.italic,
+        color: value.color,
+        items,
+    };
+}
+
+function parseBrowserPdfCombineCatalog(value: unknown): IBrowserPdfCombineCatalog | null {
+    if (!isRecord(value) || !Array.isArray(value.bookmarks) || !Array.isArray(value.pageLabels)) {
+        return null;
+    }
+    if (value.bookmarks.length > 5_000 || value.pageLabels.length > 2_048) {
+        return null;
+    }
+    const state = {count: 0};
+    const bookmarks: IBrowserPdfCombineBookmarkEntry[] = [];
+    for (const bookmark of value.bookmarks) {
+        const parsed = parseCatalogBookmark(bookmark, 0, state);
+        if (parsed === null) {
+            return null;
+        }
+        bookmarks.push(parsed);
+    }
+    const pageLabels: IBrowserPdfCombinePageLabelRange[] = [];
+    for (const range of value.pageLabels) {
+        if (
+            !isRecord(range)
+            || typeof range.pageIndex !== 'number'
+            || !Number.isSafeInteger(range.pageIndex)
+            || range.pageIndex < 0
+            || (range.style !== undefined && typeof range.style !== 'string')
+            || (range.prefix !== undefined && typeof range.prefix !== 'string')
+            || (range.start !== undefined
+                && (typeof range.start !== 'number' || !Number.isSafeInteger(range.start) || range.start < 0))
+        ) {
+            return null;
+        }
+        pageLabels.push({
+            pageIndex: range.pageIndex,
+            ...(range.style === undefined ? {} : {style: range.style}),
+            ...(range.prefix === undefined ? {} : {prefix: range.prefix}),
+            ...(range.start === undefined ? {} : {start: range.start}),
+        });
+    }
+    return {
+        bookmarks,
+        pageLabels,
+    };
+}
+
 function parseBrowserPdfCombineWasmImagePreprocessing(
     value: unknown,
 ): IBrowserPdfCombineWasmImagePreprocessing | null | undefined {
@@ -238,9 +343,11 @@ function parseBrowserPdfCombineWasmImagePreprocessing(
     }
     const jpegQuality = parseOptionalBoundedInteger(value.jpegQuality, 1, 100);
     const ppiCap = parseOptionalBoundedInteger(value.ppiCap, 0, 1200);
+    const catalog = parseBrowserPdfCombineCatalog(value.catalog);
     if (
         jpegQuality === null
         || ppiCap === null
+        || (value.catalog !== undefined && catalog === null)
     ) {
         return null;
     }
@@ -287,6 +394,9 @@ function parseBrowserPdfCombineWasmImagePreprocessing(
     }
     if (pageSpecs !== undefined) {
         parsed.pageSpecs = pageSpecs;
+    }
+    if (catalog !== null && catalog !== undefined) {
+        parsed.catalog = catalog;
     }
     return parsed;
 }

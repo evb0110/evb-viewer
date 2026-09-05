@@ -419,38 +419,6 @@ describe('createPdfFromInputPaths worker fallback', () => {
         expect(mocks.writeFile).not.toHaveBeenCalled();
     });
 
-    it('falls back to in-process conversion when worker startup fails', async () => {
-        const result = await createPdfFromInputPaths(['/tmp/input.pdf']);
-
-        expect(Array.from(result)).toEqual([
-            9,
-            9,
-            9,
-        ]);
-        expect(mocks.workerCtor).toHaveBeenCalledTimes(1);
-        const workerScript = mocks.workerCtor.mock.calls[0]?.[0] as string;
-        const workerOptions = mocks.workerCtor.mock.calls[0]?.[1] as {
-            eval?: boolean;
-            resourceLimits?: {
-                maxOldGenerationSizeMb?: number;
-                maxYoungGenerationSizeMb?: number;
-                stackSizeMb?: number;
-            };
-            workerData?: { inputPaths?: string[] };
-        };
-        expect(workerScript).toContain('pdfCombineWorker');
-        expect(workerOptions.eval).toBeUndefined();
-        expect(workerOptions.resourceLimits).toMatchObject({
-            maxOldGenerationSizeMb: 512,
-            maxYoungGenerationSizeMb: 64,
-            stackSizeMb: 8,
-        });
-        expect(workerOptions.workerData?.inputPaths).toEqual(['/tmp/input.pdf']);
-        expect(mocks.create).toHaveBeenCalledTimes(1);
-        expect(mocks.load).toHaveBeenCalledTimes(1);
-        expect(mocks.loggerWarn).toHaveBeenCalledTimes(1);
-    });
-
     it('does not fall back to in-process conversion after runtime worker failure', async () => {
         mocks.workerState.mode = 'runtime-error';
 
@@ -534,59 +502,6 @@ describe('createPdfFromInputPaths worker fallback', () => {
         expect(workerOptions.workerData?.inputPaths).toEqual(inputPaths);
         expect(mocks.create).not.toHaveBeenCalled();
         expect(mocks.loggerWarn).not.toHaveBeenCalled();
-    });
-
-    it('converts DjVu inputs on the local combine path', async () => {
-        const result = await createPdfFromInputPaths([
-            '/tmp/input.pdf',
-            '/tmp/scan.djvu',
-        ]);
-
-        expect(Array.from(result)).toEqual([
-            9,
-            9,
-            9,
-        ]);
-        expect(mocks.workerCtor).not.toHaveBeenCalled();
-        expect(mocks.buildCompactDjvuAwarePdfFromDjvu).toHaveBeenCalledWith(expect.objectContaining({
-            djvuPath: '/tmp/scan.djvu',
-            outputPath: expect.stringMatching(/^\/tmp\/pdf-combine-djvu-test\/.+\.pdf$/u),
-            jobId: expect.stringMatching(/^pdf-combine-djvu-/u),
-            pageCount: 2,
-            sourceDpi: 300,
-            qualityPreset: 'balanced',
-        }));
-        expect(mocks.rm).toHaveBeenCalledWith('/tmp/pdf-combine-djvu-test', {
-            recursive: true,
-            force: true,
-        });
-        expect(mocks.load).toHaveBeenCalledTimes(2);
-    });
-
-    it('cancels the generated DjVu local combine job when the supplied signal aborts', async () => {
-        const controller = new AbortController();
-        let resolveConversion: (value: IMockDjvuConvertSuccess) => void = () => {};
-        mocks.buildCompactDjvuAwarePdfFromDjvu.mockImplementationOnce(async () => new Promise<IMockDjvuConvertSuccess>((resolve) => {
-            resolveConversion = resolve;
-        }));
-
-        const combinePromise = createPdfFromInputPaths(['/tmp/scan.djvu'], {signal: controller.signal});
-        for (let attempt = 0; attempt < 20 && mocks.buildCompactDjvuAwarePdfFromDjvu.mock.calls.length === 0; attempt += 1) {
-            await new Promise(resolve => setImmediate(resolve));
-        }
-        const jobId = mocks.buildCompactDjvuAwarePdfFromDjvu.mock.calls[0]?.[0]?.jobId;
-        expect(jobId).toEqual(expect.stringMatching(/^pdf-combine-djvu-/u));
-
-        controller.abort(new Error('combine canceled'));
-        expect(mocks.cancelConversion).toHaveBeenCalledWith(jobId);
-        resolveConversion({
-            success: true,
-            outputPath: '/tmp/pdf-combine-djvu-test/output.pdf',
-            fileSize: 1024,
-        });
-
-        await expect(combinePromise).rejects.toThrow('combine canceled');
-        expect(mocks.readFile).not.toHaveBeenCalled();
     });
 
     it('rejects generated DjVu PDFs above the small-input classifier before reading them into pdf-lib', async () => {

@@ -122,7 +122,6 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
         annotationCommentsStatus,
         annotationInventory,
         annotationDirty,
-        annotationPlacingPageNote,
         annotationTool,
         bookmarkItems,
         bookmarksDirty,
@@ -741,7 +740,7 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
                 context?.assertCurrentDocument();
                 await handleQuickNoteAction();
                 await nextTick();
-                return {isPlacingPageNote: annotationPlacingPageNote.value};
+                return {annotationTool: annotationTool.value};
             },
         },
         {

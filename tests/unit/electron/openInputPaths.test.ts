@@ -18,6 +18,18 @@ const mocks = vi.hoisted(() => ({
         _options?: unknown,
     ) => outputPath),
     createWorkingCopy: vi.fn(async (_originalPath: string, _ownerWebContentsId?: number) => '/tmp/working/original.pdf'),
+    createWorkingCopyWithOutcome: vi.fn(async (
+        originalPath: string,
+        ownerWebContentsId?: number,
+        _password?: string,
+        _signal?: AbortSignal,
+    ): Promise<{
+        workingPath: string;
+        wasEncrypted: true | undefined
+    }> => ({
+        workingPath: await mocks.createWorkingCopy(originalPath, ownerWebContentsId),
+        wasEncrypted: undefined,
+    })),
     createWorkingCopyFromPath: vi.fn(async (
         _sourcePath: string,
         _originalPath?: string,
@@ -33,6 +45,15 @@ const mocks = vi.hoisted(() => ({
     rm: vi.fn(async (_path: string, _options?: unknown) => undefined),
     stat: vi.fn(async (_path: string) => ({size: 8 * 1024 * 1024})),
     touchScanCleanupGeneratedOutput: vi.fn(async (_path: string) => true),
+    PdfDecryptAttemptError: class PdfDecryptAttemptError extends Error {
+        readonly outcome: 'needs-password' | 'unsupported-encryption';
+
+        constructor(outcome: 'needs-password' | 'unsupported-encryption') {
+            super(outcome);
+            this.name = 'PdfDecryptAttemptError';
+            this.outcome = outcome;
+        }
+    },
 }));
 
 // mkdtemp answers with a fresh directory inside the OS temp root. Cleanup owns
@@ -62,12 +83,15 @@ vi.mock('@electron/image/pdfConversion', () => ({
 vi.mock('@electron/file-access/workingCopyCreation', () => ({
     createWorkingCopy: (originalPath: string, ownerWebContentsId?: number) =>
         mocks.createWorkingCopy(originalPath, ownerWebContentsId),
+    createWorkingCopyWithOutcome: (...args: [string, number | undefined, string | undefined, AbortSignal | undefined]) =>
+        mocks.createWorkingCopyWithOutcome(...args),
     createWorkingCopyFromPath: (
         sourcePath: string,
         originalPath?: string,
         ownerWebContentsId?: number,
     ) => mocks.createWorkingCopyFromPath(sourcePath, originalPath, ownerWebContentsId),
 }));
+vi.mock('@electron/file-access/workingCopyDecryption', () => ({PdfDecryptAttemptError: mocks.PdfDecryptAttemptError}));
 vi.mock('@electron/file-access/workingCopyCleanup', () => ({cleanupWorkingCopy: (
     workingPath: string,
     ownerWebContentsId?: number,
@@ -173,6 +197,70 @@ describe('openInputPaths', () => {
 
         expect(mocks.addRecentInputs).toHaveBeenCalledWith(['/tmp/source.pdf'], owner);
         expect(mocks.touchScanCleanupGeneratedOutput).not.toHaveBeenCalled();
+    });
+
+    it('opens an encrypted PDF with the supplied password before publishing the copy', async () => {
+        const owner = {id: 42};
+        mocks.createWorkingCopyWithOutcome.mockResolvedValueOnce({
+            workingPath: '/tmp/working/decrypted.pdf',
+            wasEncrypted: true,
+        });
+        const {openInputPaths} = await import('@electron/features/documents/main/openInputPaths.service');
+
+        await expect(openInputPaths(
+            ['/tmp/source.pdf'],
+            {password: 'correct-password'},
+            owner as never,
+        )).resolves.toEqual({
+            kind: 'pdf',
+            workingPath: '/tmp/working/decrypted.pdf',
+            originalPath: '/tmp/source.pdf',
+            wasEncrypted: true,
+        });
+
+        expect(mocks.createWorkingCopyWithOutcome).toHaveBeenCalledWith(
+            '/tmp/source.pdf',
+            42,
+            'correct-password',
+            expect.any(AbortSignal),
+        );
+        expect(mocks.cleanupWorkingCopy).not.toHaveBeenCalled();
+    });
+
+    it('returns a retryable needs-password result without publishing a failed copy', async () => {
+        const owner = {id: 42};
+        mocks.createWorkingCopyWithOutcome.mockRejectedValueOnce(
+            new mocks.PdfDecryptAttemptError('needs-password'),
+        );
+        const {openInputPaths} = await import('@electron/features/documents/main/openInputPaths.service');
+
+        await expect(openInputPaths(
+            ['/tmp/source.pdf'],
+            {password: 'wrong-password'},
+            owner as never,
+        )).resolves.toEqual({
+            kind: 'pdf-needs-password',
+            originalPath: '/tmp/source.pdf',
+        });
+
+        expect(mocks.cleanupWorkingCopy).not.toHaveBeenCalled();
+        expect(mocks.addRecentInputs).not.toHaveBeenCalled();
+    });
+
+    it('returns unsupported encryption without publishing a working copy', async () => {
+        const owner = {id: 42};
+        mocks.createWorkingCopyWithOutcome.mockRejectedValueOnce(
+            new mocks.PdfDecryptAttemptError('unsupported-encryption'),
+        );
+        const {openInputPaths} = await import('@electron/features/documents/main/openInputPaths.service');
+
+        await expect(openInputPaths(['/tmp/source.pdf'], {}, owner as never)).resolves.toEqual({
+            kind: 'pdf-unsupported-encryption',
+            originalPath: '/tmp/source.pdf',
+        });
+
+        expect(mocks.cleanupWorkingCopy).not.toHaveBeenCalled();
+        expect(mocks.addRecentInputs).not.toHaveBeenCalled();
     });
 
     it('admits a single PDF open through the bounded interactive lane', async () => {

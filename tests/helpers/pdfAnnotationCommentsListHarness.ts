@@ -43,7 +43,7 @@ function createComment(index: number): IAnnotationCommentSummary {
         pageIndex: index,
         pageNumber: index + 1,
         source: 'pdf',
-        stableKey: `src:pdf:${index}:comment-${index}`,
+        stableKey: `ann:${index}:comment-${index}`,
         subtype: 'Text',
         text: `Annotation body ${index} that is deliberately long enough to need clipping by the row box rather than grow it.`,
         uid: null,
@@ -79,6 +79,7 @@ export function unmountAnnotationCommentsLists() {
 
 export interface IMountAnnotationCommentsListOptions {
     activeIndex?: number | null;
+    comments?: readonly IAnnotationCommentSummary[];
     /**
      * The scroll container's visible height. A DOM environment lays nothing out,
      * so the height a real sidebar would have has to be stated; tall values stand
@@ -87,20 +88,27 @@ export interface IMountAnnotationCommentsListOptions {
     clientHeightPx?: number;
 }
 
+interface IAnnotationCommentsListHarnessEvents {deleted: IAnnotationCommentSummary[];}
+
 export function mountAnnotationCommentsList({
     activeIndex = null,
     clientHeightPx = DEFAULT_CONTAINER_HEIGHT_PX,
+    comments = ANNOTATION_COMMENT_FIXTURES,
 }: IMountAnnotationCommentsListOptions = {}) {
     const host = document.createElement('div');
     document.body.append(host);
     const viewProps = reactive({
         activeCommentStableKey: activeIndex === null
             ? null
-            : String(annotationIdForSummary(ANNOTATION_COMMENT_FIXTURES[activeIndex]!)),
-        comments: ANNOTATION_COMMENT_FIXTURES,
+            : String(annotationIdForSummary(comments[activeIndex]!)),
+        comments,
         status: 'ready' as const,
     });
-    const app = createApp(defineComponent({setup: () => () => h(PdfAnnotationCommentsList, {...viewProps})}));
+    const events: IAnnotationCommentsListHarnessEvents = {deleted: []};
+    const app = createApp(defineComponent({setup: () => () => h(PdfAnnotationCommentsList, {
+        ...viewProps,
+        onDeleteComment: (comment: IAnnotationCommentSummary) => events.deleted.push(comment),
+    })}));
     app.component('UButton', defineComponent({setup: () => () => h('button')}));
     app.component('UIcon', defineComponent({setup: () => () => h('span')}));
     app.mount(host);
@@ -124,6 +132,7 @@ export function mountAnnotationCommentsList({
     return {
         clientHeightPx,
         container,
+        events,
         host,
         unmount,
         async scrollTo(offsetPx: number) {

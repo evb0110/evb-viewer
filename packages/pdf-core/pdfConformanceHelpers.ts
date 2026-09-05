@@ -8,6 +8,8 @@ const PDFA_PART_PATTERN = /<pdfaid:part>\s*([^<\s]+)\s*<\/pdfaid:part>/iu;
 const PDFA_CONFORMANCE_PATTERN = /<pdfaid:conformance>\s*([^<\s]+)\s*<\/pdfaid:conformance>/iu;
 const PDF_SIGNATURE_PATTERN = /\/(?:ByteRange|FT\s*\/Sig|Type\s*\/Sig)\b/u;
 const PDF_ENCRYPT_PATTERN = /\/Encrypt\b/u;
+export const PDF_ENCRYPT_SCAN_REGION_BYTES = 32 * 1024;
+const pdfBinaryDecoder = new TextDecoder('latin1');
 
 type TPdfConformanceFallbackOverrides = Partial<Omit<TPdfConformanceProfileBase, 'canIncrementalSave'>>;
 
@@ -28,6 +30,10 @@ export function hasPdfSignatureMarkersInPdfText(text: string) {
 
 export function hasPdfEncryptMarkersInPdfText(text: string) {
     return PDF_ENCRYPT_PATTERN.test(text);
+}
+
+export function containsPdfEncryptMarker(bytes: Uint8Array) {
+    return hasPdfEncryptMarkersInPdfText(pdfBinaryDecoder.decode(bytes));
 }
 
 export function createDefaultPdfConformanceProfile(): IPdfConformanceProfile {

@@ -13,10 +13,12 @@ import type { TPdfProjectionReason } from '@app/utils/document-viewer/session/do
 import type { IDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import type { TDocumentDirectOpenOptions } from '@app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow';
+import type { TWorkspaceFailureSurface } from '@app/modules/workspace-shell/composables/useWorkspaceFailureSurface';
 
 interface IUseWorkspaceFileLifecycleControllerOptions {
     analyticsDocumentScope?: IAnalyticsDocumentScope | undefined;
     openSurface?: IDocumentOpenSurfaceSession | undefined;
+    failureSurface?: TWorkspaceFailureSurface | undefined;
 }
 
 function createWorkspaceFileSwitch(deps: {
@@ -118,6 +120,7 @@ export const useWorkspaceFileLifecycleController = (
         isElectron,
         pendingDjvu,
         openBatchProgress,
+        wasEncrypted,
         notifyPdfInitialVisualReady,
         pickFileToOpen: pickPdfFileToOpen,
         openFile,
@@ -148,6 +151,7 @@ export const useWorkspaceFileLifecycleController = (
     } = usePdfFile({
         analyticsDocumentScope: options.analyticsDocumentScope,
         openSurface: options.openSurface,
+        failureSurface: options.failureSurface,
     });
 
     const {
@@ -336,6 +340,7 @@ export const useWorkspaceFileLifecycleController = (
         documentRevisionToken,
         originalPath,
         requiresSaveAsOnFirstSave,
+        wasEncrypted,
         fileName,
         isDirty,
         pdfConformanceAnalysisState,

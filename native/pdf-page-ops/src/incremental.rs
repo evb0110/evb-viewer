@@ -4,6 +4,8 @@ use evb_native_support::output::{AtomicOutput, PathRevisionWitness};
 const SEED_COMPARE_CHUNK_BYTES: usize = 64 * 1024;
 const MAX_CLASSIC_XREF_OFFSET: u64 = 9_999_999_999;
 const XREF_STREAM_OFFSET_BYTES: usize = 8;
+const MAX_ANNOTATION_IDENTITY_BINDINGS: usize = 4_096;
+const MAX_ANNOTATION_IDENTITY_REPORT_BYTES: usize = 256 * 1024;
 
 pub(crate) trait AppendRollback: Write {
     fn rollback_to(&mut self, len: u64) -> std::io::Result<()>;
@@ -246,7 +248,7 @@ pub(crate) fn apply_native_mutations_with_bindings(
     document: &mut Document,
     mutations: &NativeMutationsFile,
     modified_at: &str,
-    identity_bindings: &mut Vec<MarkupIdentityBinding>,
+    identity_bindings: &mut Vec<AnnotationIdentityBinding>,
 ) -> Result<()> {
     apply_native_mutations_internal(document, mutations, modified_at, Some(identity_bindings))
 }
@@ -255,29 +257,34 @@ fn apply_native_mutations_internal(
     document: &mut Document,
     mutations: &NativeMutationsFile,
     modified_at: &str,
-    mut identity_bindings: Option<&mut Vec<MarkupIdentityBinding>>,
+    mut identity_bindings: Option<&mut Vec<AnnotationIdentityBinding>>,
 ) -> Result<()> {
     let mut annotation_visits = 0usize;
     if !mutations.updates.is_empty() {
         update_note_text(document, &mutations.updates, modified_at)?;
     }
     if !mutations.geometry_updates.is_empty() {
-        update_note_geometry(document, &mutations.geometry_updates)?;
+        update_note_geometry(document, &mutations.geometry_updates, modified_at)?;
     }
-    if !mutations.free_text_notes.is_empty() {
-        upsert_free_text_notes_with_counter(
+    if !mutations.notes.is_empty() || !mutations.free_text_notes.is_empty() {
+        upsert_text_notes_with_counter(
             document,
-            &mutations.free_text_notes,
+            mutations
+                .notes
+                .iter()
+                .chain(mutations.free_text_notes.iter()),
             modified_at,
             &mut annotation_visits,
+            &mut identity_bindings,
         )?;
     }
-    if !mutations.free_text_editors.is_empty() {
-        upsert_free_text_editors_with_counter(
+    if !mutations.text_boxes.is_empty() {
+        upsert_text_boxes_with_counter(
             document,
-            &mutations.free_text_editors,
+            &mutations.text_boxes,
             modified_at,
             &mut annotation_visits,
+            &mut identity_bindings,
         )?;
     }
     if !mutations.deletes.is_empty() {
@@ -290,7 +297,7 @@ fn apply_native_mutations_internal(
         set_bookmarks(document, bookmarks)?;
     }
     if let Some(shapes) = &mutations.shapes {
-        apply_shape_annotations(document, shapes, modified_at)?;
+        apply_shape_annotations(document, shapes, modified_at, &mut identity_bindings)?;
     }
     if let Some(markup) = &mutations.markup {
         match identity_bindings.as_mut() {
@@ -307,6 +314,14 @@ fn apply_native_mutations_internal(
             &mutations.placed_images,
             image_bytes,
             placed_image_chunk_index(mutations),
+            modified_at,
+            &mut identity_bindings,
+        )?;
+    }
+    if !mutations.placed_image_geometry_updates.is_empty() {
+        apply_placed_image_geometry_updates(
+            document,
+            &mutations.placed_image_geometry_updates,
             modified_at,
         )?;
     }
@@ -325,7 +340,7 @@ pub(crate) fn apply_native_mutations_incremental_with_bindings(
     incremental: &mut IncrementalDocument,
     mutations: &NativeMutationsFile,
     modified_at: &str,
-    identity_bindings: &mut Vec<MarkupIdentityBinding>,
+    identity_bindings: &mut Vec<AnnotationIdentityBinding>,
 ) -> Result<()> {
     apply_native_mutations_incremental_internal(
         incremental,
@@ -335,33 +350,111 @@ pub(crate) fn apply_native_mutations_incremental_with_bindings(
     )
 }
 
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+pub(crate) struct NativeMutationBytesResult {
+    pub(crate) data: Vec<u8>,
+    pub(crate) page_count: u32,
+    pub(crate) identity_bindings: Vec<AnnotationIdentityBinding>,
+}
+
+/// Apply one validated mutation payload to an in-memory PDF and append the
+/// resulting revision to the original bytes. Browser saves must keep the
+/// native writer's incremental semantics, even though they cannot use paths.
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+pub(crate) fn append_native_mutations_to_bytes(
+    input: &[u8],
+    mutations: &NativeMutationsFile,
+    modified_at: &str,
+) -> Result<NativeMutationBytesResult> {
+    if input.len() > PAGE_OP_WASM_MAX_INPUT_BYTES {
+        return Err(domain_error(
+            NativeErrorCode::TooLarge,
+            "Page-op WASM input exceeds the input admission ceiling",
+        ));
+    }
+    let document = load_browser_pdf(input)?;
+    let page_count = u32::try_from(document.get_pages().len())
+        .map_err(|_| "PDF page count exceeds the WASM response range")?;
+    let mut incremental = IncrementalDocument::from_document(
+        document,
+        u64::try_from(input.len())?,
+        input.last().copied(),
+    );
+    let mut identity_bindings = Vec::new();
+    apply_native_mutations_incremental_with_bindings(
+        &mut incremental,
+        mutations,
+        modified_at,
+        &mut identity_bindings,
+    )?;
+    let revision = build_incremental_revision(&mut incremental)?;
+    let expected_object_ids = collect_incremental_append_object_ids(&incremental);
+    validate_incremental_append_bytes(
+        &revision,
+        u64::try_from(input.len())?,
+        incremental.get_prev_documents().xref_start,
+        &expected_object_ids,
+    )?;
+    validate_appended_revision_postconditions(
+        &AppendedRevision::new(&incremental),
+        mutations,
+        modified_at,
+    )?;
+    validate_annotation_identity_bindings(&identity_bindings)?;
+    let output_len = input.len().checked_add(revision.len()).ok_or_else(|| {
+        domain_error(
+            NativeErrorCode::TooLarge,
+            "Page-op WASM output exceeds the admission ceiling",
+        )
+    })?;
+    if output_len > PAGE_OP_WASM_MAX_OUTPUT_BYTES {
+        return Err(domain_error(
+            NativeErrorCode::TooLarge,
+            "Page-op WASM output exceeds the admission ceiling",
+        ));
+    }
+    let mut data = Vec::with_capacity(output_len);
+    data.extend_from_slice(input);
+    data.extend_from_slice(&revision);
+    Ok(NativeMutationBytesResult {
+        data,
+        page_count,
+        identity_bindings,
+    })
+}
+
 fn apply_native_mutations_incremental_internal(
     incremental: &mut IncrementalDocument,
     mutations: &NativeMutationsFile,
     modified_at: &str,
-    mut identity_bindings: Option<&mut Vec<MarkupIdentityBinding>>,
+    mut identity_bindings: Option<&mut Vec<AnnotationIdentityBinding>>,
 ) -> Result<()> {
     let mut annotation_visits = 0usize;
     if !mutations.updates.is_empty() {
         update_note_text_incremental(incremental, &mutations.updates, modified_at)?;
     }
     if !mutations.geometry_updates.is_empty() {
-        update_note_geometry_incremental(incremental, &mutations.geometry_updates)?;
+        update_note_geometry_incremental(incremental, &mutations.geometry_updates, modified_at)?;
     }
-    if !mutations.free_text_notes.is_empty() {
-        upsert_free_text_notes_incremental_with_counter(
+    if !mutations.notes.is_empty() || !mutations.free_text_notes.is_empty() {
+        upsert_text_notes_incremental_with_counter(
             incremental,
-            &mutations.free_text_notes,
+            mutations
+                .notes
+                .iter()
+                .chain(mutations.free_text_notes.iter()),
             modified_at,
             &mut annotation_visits,
+            &mut identity_bindings,
         )?;
     }
-    if !mutations.free_text_editors.is_empty() {
-        upsert_free_text_editors_incremental_with_counter(
+    if !mutations.text_boxes.is_empty() {
+        upsert_text_boxes_incremental_with_counter(
             incremental,
-            &mutations.free_text_editors,
+            &mutations.text_boxes,
             modified_at,
             &mut annotation_visits,
+            &mut identity_bindings,
         )?;
     }
     if !mutations.deletes.is_empty() {
@@ -380,7 +473,12 @@ fn apply_native_mutations_incremental_internal(
         set_bookmarks_incremental(incremental, bookmarks, mutations.continuation.as_ref())?;
     }
     if let Some(shapes) = &mutations.shapes {
-        apply_shape_annotations_incremental(incremental, shapes, modified_at)?;
+        apply_shape_annotations_incremental(
+            incremental,
+            shapes,
+            modified_at,
+            &mut identity_bindings,
+        )?;
     }
     if let Some(markup) = &mutations.markup {
         match identity_bindings.as_mut() {
@@ -402,6 +500,14 @@ fn apply_native_mutations_incremental_internal(
             &mutations.placed_images,
             image_bytes,
             placed_image_chunk_index(mutations),
+            modified_at,
+            &mut identity_bindings,
+        )?;
+    }
+    if !mutations.placed_image_geometry_updates.is_empty() {
+        apply_placed_image_geometry_updates_incremental(
+            incremental,
+            &mutations.placed_image_geometry_updates,
             modified_at,
         )?;
     }
@@ -430,12 +536,10 @@ pub(crate) fn append_native_mutations_with_qpdf(
         .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
     let mut incremental = load_incremental_pdf_path(input_path, qpdf_path)
         .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
-    if incremental.get_prev_documents().is_encrypted() {
-        return Err(domain_error(
-            NativeErrorCode::Encrypted,
-            "Encrypted PDFs are not supported by native page ops",
-        ));
-    }
+    assert_plaintext_base(
+        incremental.get_prev_documents(),
+        "Encrypted PDFs are not supported by native page ops",
+    )?;
 
     let previous_len = incremental.previous_len();
     let previous_last_byte = incremental.previous_last_byte();
@@ -501,12 +605,10 @@ pub(crate) fn append_native_mutations_in_place_with_qpdf(
         .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
     let mut incremental = load_incremental_pdf_path(input_path, qpdf_path)
         .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
-    if incremental.get_prev_documents().is_encrypted() {
-        return Err(domain_error(
-            NativeErrorCode::Encrypted,
-            "Encrypted PDFs are not supported by native page ops",
-        ));
-    }
+    assert_plaintext_base(
+        incremental.get_prev_documents(),
+        "Encrypted PDFs are not supported by native page ops",
+    )?;
 
     let previous_len = incremental.previous_len();
     let previous_last_byte = incremental.previous_last_byte();
@@ -555,6 +657,9 @@ fn write_native_mutations_revision(
     } else {
         apply_native_mutations_incremental(incremental, mutations, modified_at)?;
     }
+    let identity_bindings_report = identity_bindings_path
+        .map(|_| serialize_annotation_identity_bindings_report(&identity_bindings))
+        .transpose()?;
 
     let previous_len = incremental.previous_len();
     let previous_last_byte = incremental.previous_last_byte();
@@ -596,19 +701,39 @@ fn write_native_mutations_revision(
                 previous_xref_start,
             )?;
         }
-        if let Some(path) = identity_bindings_path {
-            write_markup_identity_bindings_report(path, &identity_bindings)?;
+        if let (Some(path), Some(bytes)) =
+            (identity_bindings_path, identity_bindings_report.as_deref())
+        {
+            fs::write(path, bytes)?;
         }
     }
     result
 }
 
-pub(crate) fn write_markup_identity_bindings_report(
+#[cfg(test)]
+pub(crate) fn write_annotation_identity_bindings_report(
     path: &Path,
-    bindings: &[MarkupIdentityBinding],
+    bindings: &[AnnotationIdentityBinding],
 ) -> Result<()> {
-    if bindings.len() > MAX_MARKUP_SUBTYPE_HINTS {
-        return Err("Native markup identity binding report exceeds its item limit".into());
+    let bytes = serialize_annotation_identity_bindings_report(bindings)?;
+    fs::write(path, bytes)?;
+    Ok(())
+}
+
+fn serialize_annotation_identity_bindings_report(
+    bindings: &[AnnotationIdentityBinding],
+) -> Result<Vec<u8>> {
+    validate_annotation_identity_bindings(bindings)?;
+    let bytes = serde_json::to_vec(bindings)?;
+    if bytes.len() > MAX_ANNOTATION_IDENTITY_REPORT_BYTES {
+        return Err("Native annotation identity binding report is too large".into());
+    }
+    Ok(bytes)
+}
+
+fn validate_annotation_identity_bindings(bindings: &[AnnotationIdentityBinding]) -> Result<()> {
+    if bindings.len() > MAX_ANNOTATION_IDENTITY_BINDINGS {
+        return Err("Native annotation identity binding report exceeds its item limit".into());
     }
     let mut annotation_ids = HashSet::new();
     let mut pdf_refs = HashSet::new();
@@ -619,7 +744,7 @@ pub(crate) fn write_markup_identity_bindings_report(
             || !pdf_refs.insert(binding.pdf_ref.as_str())
         {
             return Err(
-                "Native markup identity binding report contains a duplicate or invalid binding"
+                "Native annotation identity binding report contains a duplicate or invalid binding"
                     .into(),
             );
         }
@@ -633,15 +758,11 @@ pub(crate) fn write_markup_identity_bindings_report(
             || ref_parts.next().is_some()
         {
             return Err(
-                "Native markup identity binding report contains an invalid PDF reference".into(),
+                "Native annotation identity binding report contains an invalid PDF reference"
+                    .into(),
             );
         }
     }
-    let bytes = serde_json::to_vec(bindings)?;
-    if bytes.len() > 256 * 1024 {
-        return Err("Native markup identity binding report is too large".into());
-    }
-    fs::write(path, bytes)?;
     Ok(())
 }
 
@@ -665,12 +786,10 @@ pub(crate) fn write_native_mutations_path(
     if encoded_len <= MAX_ENCODED_PDF_BYTES as u64 {
         let mut document = load_pdf_path(input_path)
             .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
-        if document.is_encrypted() {
-            return Err(domain_error(
-                NativeErrorCode::Encrypted,
-                "Encrypted PDFs are not supported by native page ops",
-            ));
-        }
+        assert_plaintext_base(
+            &document,
+            "Encrypted PDFs are not supported by native page ops",
+        )?;
         let mut identity_bindings = Vec::new();
         if identity_bindings_path.is_some() {
             apply_native_mutations_with_bindings(
@@ -682,6 +801,9 @@ pub(crate) fn write_native_mutations_path(
         } else {
             apply_native_mutations(&mut document, mutations, modified_at)?;
         }
+        let identity_bindings_report = identity_bindings_path
+            .map(|_| serialize_annotation_identity_bindings_report(&identity_bindings))
+            .transpose()?;
         let mut staged = AtomicOutput::create(output_path)
             .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
         document
@@ -691,24 +813,25 @@ pub(crate) fn write_native_mutations_path(
                     .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?,
             )
             .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
-        if let Some(path) = identity_bindings_path {
-            write_markup_identity_bindings_report(path, &identity_bindings)?;
-        }
-        return staged
+        staged
             .publish_if_unchanged()
-            .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()));
+            .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
+        if let (Some(path), Some(bytes)) =
+            (identity_bindings_path, identity_bindings_report.as_deref())
+        {
+            fs::write(path, bytes)?;
+        }
+        return Ok(());
     }
 
     let source_witness = PathRevisionWitness::capture(input_path)
         .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
     let mut incremental = load_incremental_pdf_path(input_path, qpdf_path)
         .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
-    if incremental.get_prev_documents().is_encrypted() {
-        return Err(domain_error(
-            NativeErrorCode::Encrypted,
-            "Encrypted PDFs are not supported by native page ops",
-        ));
-    }
+    assert_plaintext_base(
+        incremental.get_prev_documents(),
+        "Encrypted PDFs are not supported by native page ops",
+    )?;
     with_staged_incremental_output_for_revision(
         input_path,
         output_path,
@@ -1359,10 +1482,27 @@ pub(crate) fn validate_incremental_append_output(
     output.seek(SeekFrom::Start(previous_len))?;
     let mut appended_bytes = Vec::new();
     output.read_to_end(&mut appended_bytes)?;
+    validate_incremental_append_bytes(
+        &appended_bytes,
+        previous_len,
+        previous_xref_start,
+        expected_object_ids,
+    )
+}
+
+fn validate_incremental_append_bytes(
+    appended_bytes: &[u8],
+    previous_len: u64,
+    previous_xref_start: usize,
+    expected_object_ids: &[ObjectId],
+) -> Result<()> {
     if appended_bytes.is_empty() {
         return Err("Native incremental append produced no revision bytes".into());
     }
-    let eof_offset = find_last_bytes(&appended_bytes, b"%%EOF")
+    let final_len = previous_len
+        .checked_add(u64::try_from(appended_bytes.len())?)
+        .ok_or("Native incremental append length overflow")?;
+    let eof_offset = find_last_bytes(appended_bytes, b"%%EOF")
         .ok_or("Native incremental append is missing an EOF marker")?;
     if !appended_bytes[eof_offset + b"%%EOF".len()..]
         .iter()
@@ -1371,7 +1511,7 @@ pub(crate) fn validate_incremental_append_output(
         return Err("Native incremental append has trailing bytes after EOF".into());
     }
 
-    let prev_offset = parse_number_after_last_marker(&appended_bytes, b"/Prev")
+    let prev_offset = parse_number_after_last_marker(appended_bytes, b"/Prev")
         .ok_or("Native incremental append is missing a /Prev pointer")?;
     if prev_offset != u64::try_from(previous_xref_start)? {
         return Err(
@@ -1379,7 +1519,7 @@ pub(crate) fn validate_incremental_append_output(
         );
     }
 
-    let startxref_offset = parse_number_after_last_marker(&appended_bytes, b"startxref")
+    let startxref_offset = parse_number_after_last_marker(appended_bytes, b"startxref")
         .ok_or("Native incremental append is missing startxref")?;
     if startxref_offset < previous_len || startxref_offset >= final_len {
         return Err("Native incremental append startxref is outside the appended revision".into());
@@ -1390,12 +1530,12 @@ pub(crate) fn validate_incremental_append_output(
         .get(xref_relative_offset..)
         .is_some_and(|bytes| bytes.starts_with(b"xref"))
     {
-        parse_incremental_xref_table(&appended_bytes, xref_relative_offset)?
+        parse_incremental_xref_table(appended_bytes, xref_relative_offset)?
     } else {
-        parse_incremental_xref_stream(&appended_bytes, xref_relative_offset)?
+        parse_incremental_xref_stream(appended_bytes, xref_relative_offset)?
     };
     validate_expected_incremental_objects(
-        &appended_bytes,
+        appended_bytes,
         previous_len,
         expected_object_ids,
         &xref_entries,

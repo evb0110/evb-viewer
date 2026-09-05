@@ -25,7 +25,6 @@ async function createCombinedPdf(
     return createCombinedPdfShared(inputPaths, {
         ...(onProgress ? { onProgress } : {}),
         unsupportedFileError: (sourcePath) => `Unsupported file type for worker combine: ${sourcePath}`,
-        skipNativeImageCombiner: true,
     });
 }
 

@@ -25,7 +25,6 @@ function createState(options?: {
         showSidebar: ref(false),
         sidebarTab: ref('thumbnails'),
         annotationTool: ref('none'),
-        annotationPlacingPageNote: ref(false),
         annotationEditorState: ref({
             isEditing: false,
             isEmpty: true,
@@ -33,7 +32,6 @@ function createState(options?: {
             hasSomethingToRedo: false,
             hasSelectedEditor: false,
         }),
-        hasLivePdfJsAnnotationChanges: ref(false),
         appAnnotationUndoDepth: ref(0),
         hasOpenAnnotationNotes: ref(options?.hasOpenAnnotationNotes ?? false),
         canUndoHistory: ref(false),
@@ -43,7 +41,6 @@ function createState(options?: {
         documentViewerRef: ref({
             getViewerContainer: () => null,
             scrollToPage: () => {},
-            cancelCommentPlacement: () => {},
         }),
         ...options?.overrides,
     });
@@ -115,7 +112,6 @@ describe('useWorkspaceViewState', () => {
             getViewerContainer: () => null,
             scrollToPage: () => {},
             cancelProgrammaticNavigation,
-            cancelCommentPlacement: () => {},
         })}});
 
         state.handleFitMode('height');
@@ -134,7 +130,6 @@ describe('useWorkspaceViewState', () => {
             documentViewerRef: ref({
                 getViewerContainer: () => null,
                 scrollToPage: () => {},
-                cancelCommentPlacement: () => {},
                 applyFitWidthToCurrentPage,
             }),
         }});
@@ -229,16 +224,17 @@ describe('useWorkspaceViewState', () => {
     });
 
     it('scrolls to an explicit bookmark target even when the page is already current', () => {
+        const requestPageNavigation = vi.fn();
         const scrollToPage = vi.fn();
         const state = createState({overrides: {
             showSidebar: ref(true),
             sidebarTab: ref('bookmarks'),
             currentPage: ref(3),
             totalPages: ref(10),
+            requestPageNavigation,
             documentViewerRef: ref({
                 getViewerContainer: () => null,
                 scrollToPage,
-                cancelCommentPlacement: () => {},
             }),
         }});
         const scrollOptions = {pageYRatio: 0};
@@ -246,6 +242,7 @@ describe('useWorkspaceViewState', () => {
         state.handleGoToPage(3, scrollOptions);
 
         expect(scrollToPage).toHaveBeenCalledWith(3, scrollOptions);
+        expect(requestPageNavigation).not.toHaveBeenCalled();
     });
 
     it('forwards a same-page command so an evicted current canvas can recover', () => {
@@ -258,7 +255,6 @@ describe('useWorkspaceViewState', () => {
             documentViewerRef: ref({
                 getViewerContainer: () => null,
                 scrollToPage,
-                cancelCommentPlacement: () => {},
             }),
         }});
 
@@ -282,7 +278,6 @@ describe('useWorkspaceViewState', () => {
                 getViewerContainer: () => null,
                 scrollToPage,
                 getPendingNavigationTargetPage: () => 6,
-                cancelCommentPlacement: () => {},
             }),
         }});
 
@@ -307,7 +302,6 @@ describe('useWorkspaceViewState', () => {
             documentViewerRef: ref({
                 getViewerContainer: () => null,
                 scrollToPage,
-                cancelCommentPlacement: () => {},
             }),
         }});
         const options = {

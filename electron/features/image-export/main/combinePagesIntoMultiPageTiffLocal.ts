@@ -12,8 +12,8 @@ import UTIF, { type IUtifFrame } from 'utif';
 import {
     buildTiffImageIfd,
     encodeTiffIfds,
-} from '@pdf-core';
-import type { ITiffImageDescriptor } from '@pdf-core';
+} from '@pdf-core/tiffEncoding';
+import type { ITiffImageDescriptor } from '@pdf-core/tiffEncoding';
 import {
     atomicReplace,
     makeSiblingTempPath,

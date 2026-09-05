@@ -131,15 +131,15 @@ describe('annotation undo boundary probe host scoping', () => {
         document.body.innerHTML = `
             <div class="editor-pane is-active">
                 <div class="workspace-host" data-workspace-active="true">
-                    <div class="annotationEditorLayer">
-                        <div class="highlightEditor" id="${ACTIVE_HIGHLIGHT_ID}"></div>
+                    <div class="pdf-annotation-editor-layer">
+                        <div class="pdf-annotation-editor-text-markup" id="${ACTIVE_HIGHLIGHT_ID}"></div>
                     </div>
                 </div>
             </div>
             <div class="editor-pane">
                 <div class="workspace-host" data-workspace-active="false">
-                    <div class="annotationEditorLayer">
-                        <div class="highlightEditor" id="${INACTIVE_HIGHLIGHT_ID}"></div>
+                    <div class="pdf-annotation-editor-layer">
+                        <div class="pdf-annotation-editor-text-markup" id="${INACTIVE_HIGHLIGHT_ID}"></div>
                     </div>
                 </div>
             </div>
@@ -196,19 +196,19 @@ describe('annotation undo boundary probe host scoping', () => {
         button.addEventListener('click', () => {
             activeHost.querySelector(`#${ACTIVE_HIGHLIGHT_ID}`)?.remove();
             const strayEditor = document.createElement('div');
-            strayEditor.className = 'highlightEditor';
+            strayEditor.className = 'pdf-annotation-editor-text-markup';
             strayEditor.id = 'inactive-late-highlight';
-            inactiveHost.querySelector('.annotationEditorLayer')?.append(strayEditor);
+            inactiveHost.querySelector('.pdf-annotation-editor-layer')?.append(strayEditor);
         });
 
         const boundary = await clickHistoryActionAcrossAnimationBoundaries(createEvaluatingPage(), 'Undo');
 
         // The inactive host owns a highlight editor of its own throughout, so a
         // document-wide count would report 2 here and 2 after the undo.
-        expect(boundary.at('before').highlightEditorCount).toBe(1);
+        expect(boundary.at('before').canonicalTextMarkupCount).toBe(1);
         expect(boundary.at('before').editorLayerTags).toHaveLength(1);
-        expect(boundary.at('synchronous').highlightEditorCount).toBe(0);
-        expect(boundary.at('frame-2').highlightEditorCount).toBe(0);
+        expect(boundary.at('synchronous').canonicalTextMarkupCount).toBe(0);
+        expect(boundary.at('frame-2').canonicalTextMarkupCount).toBe(0);
         expect(boundary.at('frame-2').removedHighlightNodeIds).toEqual([ACTIVE_HIGHLIGHT_ID]);
         // The stray node was appended to the inactive host in the same task as
         // the undo; it must not read as a resurrected editor.
@@ -224,14 +224,14 @@ describe('annotation undo boundary probe host scoping', () => {
         await clickHistoryActionAcrossAnimationBoundaries(page, 'Undo');
         activeHost.querySelector(`#${ACTIVE_HIGHLIGHT_ID}`)?.remove();
         const strayEditor = document.createElement('div');
-        strayEditor.className = 'highlightEditor';
+        strayEditor.className = 'pdf-annotation-editor-text-markup';
         strayEditor.id = 'inactive-deferred-highlight';
-        inactiveHost.querySelector('.annotationEditorLayer')?.append(strayEditor);
+        inactiveHost.querySelector('.pdf-annotation-editor-layer')?.append(strayEditor);
 
         const observed = await readAnnotationUndoBoundaryProbe(page);
 
         expect(observed.added).toEqual([]);
-        expect(observed.highlightEditorCount).toBe(0);
+        expect(observed.canonicalTextMarkupCount).toBe(0);
         expect(observed.highlightAnnotationCount).toBe(0);
     });
 

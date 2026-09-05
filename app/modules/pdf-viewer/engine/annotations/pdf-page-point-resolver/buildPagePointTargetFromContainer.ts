@@ -1,4 +1,4 @@
-import type { IPagePointTarget } from '@app/modules/pdf-viewer/engine/annotations/types';
+import type { IPagePointTarget } from '@app/modules/pdf-viewer/engine/annotations/pagePointTarget';
 import { clamp01 } from '@app/modules/pdf-viewer/engine/annotation-geometry/clamp01';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import type { INotePlacementDiagnosticsContext } from '@app/modules/pdf-viewer/engine/annotations/pdf-page-point-resolver/notePlacementDiagnosticsContext';

@@ -167,6 +167,7 @@ import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import { parseCssRgbColor } from '@app/modules/pdf-viewer/engine/text-markup-color/parseCssRgbColor';
 import { rgbToHex } from '@app/modules/pdf-viewer/engine/text-markup-color/rgbToHex';
 import type { IAnnotationContextMenuState } from '@app/types/pdfContextMenu';
+import { isNoteEligibleComment } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isNoteEligibleComment';
 
 const {
     menu,
@@ -211,6 +212,7 @@ const EDITABLE_COLOR_SUBTYPES = new Set([
     'strikeout',
     'strikethrough',
     'squiggly',
+    'text',
 ]);
 
 function getFallbackColorForSubtype(subtype: string | null | undefined) {
@@ -224,22 +226,15 @@ function getFallbackColorForSubtype(subtype: string | null | undefined) {
     if (normalizedSubtype === 'squiggly') {
         return DEFAULT_ANNOTATION_SETTINGS.squigglyColor;
     }
+    if (normalizedSubtype === 'text') {
+        return DEFAULT_ANNOTATION_SETTINGS.textColor;
+    }
     return DEFAULT_ANNOTATION_SETTINGS.highlightColor;
 }
 
 const canOpenNote = computed(() => {
     const comment = menu.comment;
-    if (!comment) {
-        return false;
-    }
-    const subtype = comment.subtype?.trim().toLowerCase() ?? '';
-    return comment.text.trim().length > 0
-        || comment.hasNote === true
-        || subtype === 'text'
-        || subtype === 'note-linked'
-        || subtype === 'note-inline'
-        || subtype.includes('popup')
-        || subtype.includes('note');
+    return isNoteEligibleComment(comment);
 });
 
 function normalizeColorInputValue(

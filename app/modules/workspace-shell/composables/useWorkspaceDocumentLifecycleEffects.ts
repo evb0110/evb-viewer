@@ -33,7 +33,6 @@ interface IWorkspaceDocumentLifecycleEffectsOptions extends IDocumentTransitionD
     pdfViewerRef: Ref<{
         scrollToPage: (page: number) => void;
         clearShapes: () => void;
-        cancelCommentPlacement: () => void;
     } | null>;
     showSettings: Ref<boolean>;
     emitOpenSettings: () => void;
@@ -71,7 +70,6 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
         clearAnnotationComments,
         annotationActiveCommentStableKey,
         annotationEditorState,
-        annotationPlacingPageNote,
         bookmarkItems,
         bookmarksDirty,
         bookmarkEditMode,
@@ -172,7 +170,6 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
         clearAnnotationComments,
         annotationActiveCommentStableKey,
         annotationEditorState,
-        annotationPlacingPageNote,
         bookmarkItems,
         bookmarksDirty,
         bookmarkEditMode,

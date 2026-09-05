@@ -289,7 +289,7 @@ function mergeTextRanges(ranges: ITextRange[]) {
 function extractTextItemSegments(
     item: IPdfTextPreviewItem,
     viewport: IPdfTextPreviewViewport,
-    targets: IAnnotationMarkerRect[],
+    targets: readonly IAnnotationMarkerRect[],
 ) {
     const text = item.str ?? '';
     if (!text.trim()) {
@@ -313,19 +313,13 @@ function extractTextItemSegments(
         .filter(Boolean);
 }
 
-export function resolvePdfAnnotationPreviewText(
-    annotation: IPdfAnnotationTextPreviewRecord,
+function resolvePreviewTextForTargets(
+    subtype: string | null | undefined,
+    targets: readonly IAnnotationMarkerRect[],
     textItems: readonly IPdfTextPreviewItem[],
-    pageView: number[] | null | undefined,
-    pageRotation: TPageRotation,
     viewport: IPdfTextPreviewViewport | null | undefined,
 ) {
-    if (!isTextMarkupSubtype(annotation.subtype) || textItems.length === 0 || !hasUsableViewport(viewport)) {
-        return null;
-    }
-
-    const targets = resolveAnnotationTargetRects(annotation, pageView, pageRotation);
-    if (targets.length === 0) {
+    if (!isTextMarkupSubtype(subtype) || textItems.length === 0 || !hasUsableViewport(viewport) || targets.length === 0) {
         return null;
     }
 
@@ -336,4 +330,25 @@ export function resolvePdfAnnotationPreviewText(
 
     const previewText = joinPreviewSegments(segments);
     return previewText || null;
+}
+
+/** Extracts derived text when the caller already has canonical marker rects. */
+export function resolvePdfAnnotationPreviewTextFromMarkerRects(
+    subtype: string | null | undefined,
+    targetRects: readonly IAnnotationMarkerRect[],
+    textItems: readonly IPdfTextPreviewItem[],
+    viewport: IPdfTextPreviewViewport | null | undefined,
+) {
+    return resolvePreviewTextForTargets(subtype, targetRects, textItems, viewport);
+}
+
+export function resolvePdfAnnotationPreviewText(
+    annotation: IPdfAnnotationTextPreviewRecord,
+    textItems: readonly IPdfTextPreviewItem[],
+    pageView: number[] | null | undefined,
+    pageRotation: TPageRotation,
+    viewport: IPdfTextPreviewViewport | null | undefined,
+) {
+    const targets = resolveAnnotationTargetRects(annotation, pageView, pageRotation);
+    return resolvePreviewTextForTargets(annotation.subtype, targets, textItems, viewport);
 }

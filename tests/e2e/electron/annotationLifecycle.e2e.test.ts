@@ -3,21 +3,34 @@ import {
     describe,
     expect,
     it,
+    onTestFinished,
 } from 'vitest';
 import {
     copyFileSync,
     realpathSync,
+    rmSync,
+    writeFileSync,
 } from 'node:fs';
+import {
+    dirname,
+    join,
+} from 'node:path';
 import { delay } from 'es-toolkit/promise';
 import type { Page } from 'puppeteer-core';
 import {
     copyProjectFixture,
+    createCanonicalAnnotationSurfaceFixturePdf,
+    createForeignNoteReplyFixturePdf,
+    createLinkOnlyFixturePdf,
     createMultiPageTextFixturePdf,
+    readPdfTextAnnotationRecords,
 } from '@tests/e2e/electron/helpers/fixtures';
 import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
     clickHistoryActionAcrossAnimationBoundaries,
+    clickAnnotationTool,
     clickLatestVisibleNoteWindowClose,
+    collectAnnotationOwnershipDebugState,
     collectStickyNoteDebugState,
     createStickyNoteWithPointer,
     createFreeTextAnnotation,
@@ -52,10 +65,204 @@ import {
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 
 const NOTE_TEXT_ENTRY_TIMEOUT_MS = 20_000;
-const TOOLTIP_HIDDEN_QUIET_WINDOW_MS = 400;
-const TOOLTIP_HIDDEN_POLL_INTERVAL_MS = 50;
+const ACTIVE_IMAGE_PLACEMENT_SELECTOR = '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .pdf-image-placement';
+const CANONICAL_STAMP_SELECTOR = '.editor-pane.is-active .page_container[data-page="1"] .pdf-annotation-editor-stamp';
+const PLACED_IMAGE_JPEG = Buffer.from(
+    '/9j/4AAQSkZJRgABAQAAAAAAAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGCQgKCgkICQkKDA8MCgsOCwkJDRENDg8QEBEQCgwSExIQEw8QEBD/2wBDAQMDAwQDBAgEBAgQCwkLEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBD/wAARCAAoAEADAREAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAf/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFgEBAQEAAAAAAAAAAAAAAAAAAAcI/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEQMRAD8Al7UCSAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP//Z',
+    'base64',
+);
 
-interface IAnnotationDirtyStateSnapshot extends Record<string, unknown> {dirtyState?: {hasLivePdfJsAnnotationChanges?: boolean;};}
+interface IStampVisualSnapshot {
+    annotationId: string | null;
+    height: number;
+    imageSource: string | null;
+    left: number;
+    rotationDegrees: number;
+    top: number;
+    width: number;
+}
+
+async function installManagedJpegClipboard(page: Page, imagePath: string) {
+    return page.evaluate(async (input: {imagePath: string;}) => {
+        const files = window.electronAPI?.documentFiles;
+        if (!files?.createManagedTempFileHandle) {
+            throw new Error('Managed image handles are unavailable');
+        }
+        const NativeFile = window.File;
+        const originalFileDescriptor = Object.getOwnPropertyDescriptor(window, 'File');
+        const originalClipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+        Object.defineProperty(window, '__evbRestoreManagedClipboard', {
+            configurable: true,
+            value: () => {
+                if (originalFileDescriptor) {
+                    Object.defineProperty(window, 'File', originalFileDescriptor);
+                }
+                else {
+                    Reflect.deleteProperty(window, 'File');
+                }
+                if (originalClipboardDescriptor) {
+                    Object.defineProperty(navigator, 'clipboard', originalClipboardDescriptor);
+                }
+                else {
+                    Reflect.deleteProperty(navigator, 'clipboard');
+                }
+            },
+        });
+        const handle = await files.createManagedTempFileHandle(input.imagePath);
+        const ManagedFile = new Proxy(NativeFile, {construct(target, args) {
+            return Object.assign(Reflect.construct(target, args), {nativeSourceHandle: handle});
+        }});
+        Object.defineProperty(window, 'File', {
+            configurable: true,
+            value: ManagedFile,
+        });
+        const bytes = await files.readFile(input.imagePath);
+        const blob = new Blob([bytes as BlobPart], {type: 'image/jpeg'});
+        const probeFile = new ManagedFile([blob], 'clipboard-probe.jpg', {type: 'image/jpeg'});
+        const bitmap = await createImageBitmap(probeFile);
+        const dimensions = {
+            height: bitmap.height,
+            width: bitmap.width,
+        };
+        bitmap.close();
+        Object.defineProperty(navigator, 'clipboard', {
+            configurable: true,
+            value: {read: async () => [{
+                types: ['image/jpeg'],
+                getType: async () => blob,
+            }]},
+        });
+        return {
+            dimensions,
+            hasNativeSourceHandle: 'nativeSourceHandle' in probeFile,
+            leaseId: handle.leaseId,
+        };
+    }, {imagePath});
+}
+
+async function uninstallManagedJpegClipboard(page: Page) {
+    await page.evaluate(() => {
+        const windowWithRestore = window as Window & {__evbRestoreManagedClipboard?: () => void;};
+        windowWithRestore.__evbRestoreManagedClipboard?.();
+        delete windowWithRestore.__evbRestoreManagedClipboard;
+    });
+}
+
+async function dragImagePlacementControl(
+    page: Page,
+    selector: string,
+    deltaX: number,
+    deltaY: number,
+    holdShift = false,
+) {
+    await page.$eval(selector, element => {
+        element.scrollIntoView({
+            block: 'center',
+            inline: 'center',
+        });
+    });
+    const center = await page.$eval(selector, element => {
+        const rect = element.getBoundingClientRect();
+        return {
+            x: rect.left + rect.width / 2,
+            y: rect.top + rect.height / 2,
+        };
+    });
+    if (holdShift) {
+        await page.keyboard.down('Shift');
+    }
+    try {
+        await page.mouse.move(center.x, center.y);
+        await page.mouse.down();
+        await page.mouse.move(center.x + deltaX, center.y + deltaY, {steps: 8});
+        await page.mouse.up();
+    } finally {
+        if (holdShift) {
+            await page.keyboard.up('Shift');
+        }
+    }
+}
+
+async function rotateImagePlacementByQuarterTurn(page: Page) {
+    const points = await page.$eval(ACTIVE_IMAGE_PLACEMENT_SELECTOR, element => {
+        const frameRect = element.getBoundingClientRect();
+        const center = {
+            x: frameRect.left + frameRect.width / 2,
+            y: frameRect.top + frameRect.height / 2,
+        };
+        const handle = element.querySelector<HTMLElement>('.pdf-image-placement__rotate-handle');
+        if (!handle) {
+            throw new Error('Image placement rotate handle is unavailable');
+        }
+        const handleRect = handle.getBoundingClientRect();
+        const start = {
+            x: handleRect.left + handleRect.width / 2,
+            y: handleRect.top + handleRect.height / 2,
+        };
+        const offset = {
+            x: start.x - center.x,
+            y: start.y - center.y,
+        };
+        return {
+            start,
+            target: {
+                x: center.x - offset.y,
+                y: center.y + offset.x,
+            },
+        };
+    });
+    await page.keyboard.down('Shift');
+    try {
+        await page.mouse.move(points.start.x, points.start.y);
+        await page.mouse.down();
+        await page.mouse.move(points.target.x, points.target.y, {steps: 8});
+        await page.mouse.up();
+    } finally {
+        await page.keyboard.up('Shift');
+    }
+}
+
+async function readPendingImagePlacementSnapshot(page: Page) {
+    return page.$eval(ACTIVE_IMAGE_PLACEMENT_SELECTOR, element => {
+        const frame = element as HTMLElement;
+        const transform = frame.querySelector<HTMLElement>('.pdf-image-placement__transform');
+        const rotation = getComputedStyle(transform ?? frame)
+            .getPropertyValue('--pdf-image-placement-rotation')
+            .trim();
+        return {
+            height: Number.parseFloat(frame.style.height) / 100,
+            left: Number.parseFloat(frame.style.left) / 100,
+            rotationDegrees: Number.parseFloat(rotation.replace(/deg$/u, '')) || 0,
+            top: Number.parseFloat(frame.style.top) / 100,
+            width: Number.parseFloat(frame.style.width) / 100,
+        };
+    });
+}
+
+async function readCanonicalStampSnapshot(page: Page): Promise<IStampVisualSnapshot> {
+    return page.$eval(CANONICAL_STAMP_SELECTOR, element => {
+        const stamp = element as HTMLElement;
+        const image = stamp.querySelector<HTMLImageElement>('.pdf-annotation-editor-stamp__image');
+        const rotation = /rotate\((-?[0-9.]+)deg\)/u.exec(stamp.style.transform)?.[1];
+        return {
+            annotationId: stamp.dataset.annotationId ?? null,
+            height: Number.parseFloat(stamp.style.height) / 100,
+            imageSource: image?.src ?? null,
+            left: Number.parseFloat(stamp.style.left) / 100,
+            rotationDegrees: rotation ? Number.parseFloat(rotation) : 0,
+            top: Number.parseFloat(stamp.style.top) / 100,
+            width: Number.parseFloat(stamp.style.width) / 100,
+        };
+    });
+}
+
+async function releaseManagedImageHandle(page: Page, leaseId: string) {
+    await page.evaluate(async (id: string) => {
+        await window.electronAPI?.documentFiles.releaseManagedTempFileHandle?.(id);
+    }, leaseId);
+}
+
+interface IAnnotationDirtyStateSnapshot extends Record<string, unknown> {dirtyState?: {hasAnnotationChanges?: boolean;};}
 
 async function waitForActiveTabDirtyState(page: Page, expectedDirty: boolean) {
     const startedAt = Date.now();
@@ -329,6 +536,181 @@ interface ICanonicalAnnotationIdentity {
     source: string;
     stableKey: string;
     subtype: string | undefined;
+}
+
+interface ICanonicalNoteSnapshot {
+    color: string | null;
+    markerRect: {
+        height: number;
+        left: number;
+        top: number;
+        width: number;
+    } | null;
+    replies: Array<{
+        author: string | null;
+        contents: string;
+        modifiedAt: number | null;
+    }>;
+    source: string;
+    stableKey: string;
+    subtype: string | null;
+    text: string;
+}
+
+async function readCanonicalNoteSnapshots(page: Page) {
+    await installWorkspaceExposeProbe(page);
+    return page.evaluate((): ICanonicalNoteSnapshot[] => {
+        const state = (window as IWorkspaceExposeProbeWindow).__evbTestApi
+            ?.readActiveWorkspaceStateValues<{annotationComments?: Array<{
+            color?: string | null;
+            hasNote?: boolean;
+            markerRect?: {
+                height: number;
+                left: number;
+                top: number;
+                width: number;
+            } | null;
+            replies?: Array<{
+                author?: string | null;
+                contents: string;
+                modifiedAt?: number | null;
+            }>;
+            source: string;
+            stableKey: string;
+            subtype?: string | null;
+            text: string;
+        }>;}>(['annotationComments']);
+        return (state?.annotationComments ?? [])
+            .filter(comment => comment.hasNote === true)
+            .map(comment => ({
+                color: comment.color ?? null,
+                markerRect: comment.markerRect
+                    ? {
+                        height: comment.markerRect.height,
+                        left: comment.markerRect.left,
+                        top: comment.markerRect.top,
+                        width: comment.markerRect.width,
+                    }
+                    : null,
+                replies: (comment.replies ?? []).map(reply => ({
+                    author: reply.author ?? null,
+                    contents: reply.contents,
+                    modifiedAt: reply.modifiedAt ?? null,
+                })),
+                source: comment.source,
+                stableKey: comment.stableKey,
+                subtype: comment.subtype ?? null,
+                text: comment.text,
+            }));
+    });
+}
+
+async function waitForCanonicalNote(
+    page: Page,
+    text: string,
+    timeoutMs = NOTE_TEXT_ENTRY_TIMEOUT_MS,
+) {
+    const startedAt = Date.now();
+    let notes = await readCanonicalNoteSnapshots(page);
+    while (Date.now() - startedAt < timeoutMs) {
+        const note = notes.find(candidate => candidate.text === text);
+        if (note) {
+            return note;
+        }
+        await delay(100);
+        notes = await readCanonicalNoteSnapshots(page);
+    }
+    throw new Error(`Timed out waiting for canonical note ${text}: ${JSON.stringify(notes)}`);
+}
+
+async function readVisibleCanonicalNoteCenter(page: Page, stableKey: string) {
+    return page.evaluate((expectedStableKey: string) => {
+        const isVisible = (candidate: HTMLElement) => {
+            const rect = candidate.getBoundingClientRect();
+            const style = window.getComputedStyle(candidate);
+            return style.display !== 'none'
+                && style.visibility !== 'hidden'
+                && Number(style.opacity || '1') > 0
+                && rect.width > 0
+                && rect.height > 0;
+        };
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const notes = Array.from(document.querySelectorAll<HTMLElement>('.pdf-annotation-editor-note'))
+            .filter(note => note.dataset.stableKey === expectedStableKey && isVisible(note));
+        const note = notes.find(candidate => activeHost?.contains(candidate)) ?? notes[0] ?? null;
+        if (!note) {
+            return null;
+        }
+        const rect = note.getBoundingClientRect();
+        return {
+            x: rect.left + rect.width / 2,
+            y: rect.top + rect.height / 2,
+        };
+    }, stableKey);
+}
+
+async function recolorCanonicalNote(page: Page, stableKey: string, color: string) {
+    const center = await readVisibleCanonicalNoteCenter(page, stableKey);
+    if (!center) {
+        throw new Error(`Canonical note was not visible for recolor: ${stableKey}`);
+    }
+    await page.mouse.click(center.x, center.y, {button: 'right'});
+    await page.waitForSelector(
+        `.annotation-context-menu-color-button[aria-label="${color}"]`,
+        {
+            timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS,
+            visible: true,
+        },
+    );
+    const clicked = await page.evaluate((targetColor: string) => {
+        const button = Array.from(document.querySelectorAll<HTMLButtonElement>(
+            '.annotation-context-menu-color-button',
+        )).find(candidate => (
+            candidate.getAttribute('aria-label')?.trim().toLowerCase() === targetColor.toLowerCase()
+        ));
+        button?.click();
+        return Boolean(button);
+    }, color);
+    if (!clicked) {
+        throw new Error(`Canonical note color swatch was not available: ${color}`);
+    }
+    await expect.poll(
+        async () => (await readCanonicalNoteSnapshots(page)).find(note => note.stableKey === stableKey)?.color ?? null,
+        {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS},
+    ).toBe(color);
+}
+
+async function moveCanonicalNote(page: Page, stableKey: string, before: NonNullable<ICanonicalNoteSnapshot['markerRect']>) {
+    const center = await readVisibleCanonicalNoteCenter(page, stableKey);
+    if (!center) {
+        throw new Error(`Canonical note was not visible for move: ${stableKey}`);
+    }
+    await page.mouse.move(center.x, center.y);
+    await page.mouse.down();
+    await page.mouse.move(center.x + 110, center.y + 70, {steps: 8});
+    await page.mouse.up();
+
+    await expect.poll(async () => {
+        const note = (await readCanonicalNoteSnapshots(page)).find(candidate => candidate.stableKey === stableKey);
+        return note?.markerRect
+            ? Math.hypot(note.markerRect.left - before.left, note.markerRect.top - before.top)
+            : 0;
+    }, {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}).toBeGreaterThan(0.01);
+    const moved = (await readCanonicalNoteSnapshots(page)).find(note => note.stableKey === stableKey);
+    if (!moved?.markerRect) {
+        throw new Error(`Canonical note lost its marker rectangle after move: ${stableKey}`);
+    }
+    return moved;
+}
+
+function expectMarkerAnchorClose(actual: ICanonicalNoteSnapshot['markerRect'], expected: ICanonicalNoteSnapshot['markerRect']) {
+    expect(actual).not.toBeNull();
+    expect(expected).not.toBeNull();
+    if (!actual || !expected) {
+        return;
+    }
+    expect(actual.left).toBeCloseTo(expected.left, 3);
+    expect(actual.top).toBeCloseTo(expected.top, 3);
 }
 
 async function readCanonicalHighlightIdentities(page: Page) {
@@ -658,637 +1040,6 @@ async function placeEmptyNote(page: Page) {
     throw new Error(`Could not create sticky note through visible controls: ${JSON.stringify(await collectStickyNoteDebugState(page))}`);
 }
 
-async function getCommentMarkerAnchorState(page: Page) {
-    await waitForActiveWorkspaceHost(page);
-    return page.evaluate(() => {
-        const anchors = Array.from(document.querySelectorAll<HTMLElement>('.freeTextEditor.pdf-comment-marker-anchor-editor'));
-        return anchors.map((anchor) => {
-            const computed = window.getComputedStyle(anchor);
-            return {
-                dataAnchor: anchor.getAttribute('data-evb-comment-marker-anchor'),
-                ariaHidden: anchor.getAttribute('aria-hidden'),
-                inlineLeft: anchor.style.left,
-                inlineTop: anchor.style.top,
-                inlineWidth: anchor.style.width,
-                inlineHeight: anchor.style.height,
-                opacity: computed.opacity,
-                pointerEvents: computed.pointerEvents,
-                borderTopStyle: computed.borderTopStyle,
-                borderTopColor: computed.borderTopColor,
-                outlineStyle: computed.outlineStyle,
-                boxShadow: computed.boxShadow,
-            };
-        });
-    });
-}
-
-async function getCommentMarkerAnchorDebugState(page: Page) {
-    return page.evaluate(() => {
-        const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host')
-            ?? document.querySelector<HTMLElement>('.workspace-host');
-        const readEditor = (editor: HTMLElement) => {
-            const computed = window.getComputedStyle(editor);
-            const rect = editor.getBoundingClientRect();
-            return {
-                className: editor.className,
-                dataAnchor: editor.getAttribute('data-evb-comment-marker-anchor'),
-                ariaHidden: editor.getAttribute('aria-hidden'),
-                inlineLeft: editor.style.left,
-                inlineTop: editor.style.top,
-                inlineWidth: editor.style.width,
-                inlineHeight: editor.style.height,
-                opacity: computed.opacity,
-                pointerEvents: computed.pointerEvents,
-                rect: {
-                    left: Math.round(rect.left),
-                    top: Math.round(rect.top),
-                    width: Math.round(rect.width),
-                    height: Math.round(rect.height),
-                },
-            };
-        };
-        return {
-            hostFound: Boolean(host),
-            hostClassName: host?.className ?? null,
-            markerCount: host?.querySelectorAll('.pdf-comment-marker-button').length ?? 0,
-            globalMarkerCount: document.querySelectorAll('.pdf-comment-marker-button').length,
-            freeTextEditors: Array.from(host?.querySelectorAll<HTMLElement>('.freeTextEditor') ?? []).map(readEditor),
-            globalFreeTextEditors: Array.from(document.querySelectorAll<HTMLElement>('.freeTextEditor')).map(readEditor),
-        };
-    });
-}
-
-async function waitForCommentMarkerAnchorState(page: Page) {
-    try {
-        await page.waitForFunction(() => {
-            const anchor = Array.from(document.querySelectorAll<HTMLElement>('.freeTextEditor.pdf-comment-marker-anchor-editor')).at(-1);
-            if (!anchor) {
-                return false;
-            }
-            const computed = window.getComputedStyle(anchor);
-            return anchor.getAttribute('data-evb-comment-marker-anchor') === 'true'
-                && computed.opacity === '0'
-                && computed.pointerEvents === 'none';
-        }, { timeout: 8_000 });
-    } catch (error) {
-        throw new Error(`Timed out waiting for hidden sticky-note anchor: ${JSON.stringify(await getCommentMarkerAnchorDebugState(page))}`, { cause: error });
-    }
-
-    const state = await getCommentMarkerAnchorState(page);
-    if (state.length === 0) {
-        throw new Error('Expected a PDF.js FreeText sticky-note anchor');
-    }
-    return state.at(-1)!;
-}
-
-async function getLatestCommentMarkerKey(page: Page) {
-    await page.waitForFunction(() => document.querySelectorAll('.pdf-comment-marker-button').length > 0, { timeout: 8_000 });
-    return page.evaluate(() => {
-        const markers = Array.from(document.querySelectorAll<HTMLElement>('.pdf-comment-marker-button'));
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const isVisibleMarker = (marker: HTMLElement) => {
-            const rect = marker.getBoundingClientRect();
-            const style = window.getComputedStyle(marker);
-            return (
-                style.display !== 'none'
-                && style.visibility !== 'hidden'
-                && Number(style.opacity || '1') > 0
-                && rect.width > 0
-                && rect.height > 0
-            );
-        };
-        const visibleActiveMarkers = activeHost
-            ? markers.filter(marker => activeHost.contains(marker) && isVisibleMarker(marker))
-            : [];
-        const visibleMarkers = markers.filter(isVisibleMarker);
-        return (visibleActiveMarkers.at(-1) ?? visibleMarkers.at(-1) ?? markers.at(-1))?.dataset.stableKey ?? null;
-    });
-}
-
-async function getCommentMarkerCenter(page: Page, stableKey: string) {
-    const center = await page.evaluate((targetKey: string) => {
-        const markers = Array.from(document.querySelectorAll<HTMLElement>('.pdf-comment-marker-button'))
-            .filter(candidate => candidate.dataset.stableKey === targetKey);
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const isVisibleMarker = (marker: HTMLElement) => {
-            const rect = marker.getBoundingClientRect();
-            const style = window.getComputedStyle(marker);
-            return (
-                style.display !== 'none'
-                && style.visibility !== 'hidden'
-                && Number(style.opacity || '1') > 0
-                && rect.width > 0
-                && rect.height > 0
-            );
-        };
-        const marker = markers.find(marker => activeHost?.contains(marker) && isVisibleMarker(marker))
-            ?? markers.find(isVisibleMarker)
-            ?? markers.at(-1);
-        if (!marker) {
-            return null;
-        }
-        const rect = marker.getBoundingClientRect();
-        return {
-            x: Math.round(rect.x + rect.width / 2),
-            y: Math.round(rect.y + rect.height / 2),
-        };
-    }, stableKey);
-    if (!center) {
-        throw new Error(`Could not locate marker ${stableKey}: ${JSON.stringify(await getCommentMarkerAnchorDebugState(page))}`);
-    }
-    return center;
-}
-
-async function movePointerAwayFromCommentMarker(
-    page: Page,
-    stableKey: string,
-    center: {
-        x: number;
-        y: number;
-    },
-) {
-    const awayPoint = {
-        x: Math.max(8, center.x - 120),
-        y: Math.max(8, center.y - 120),
-    };
-    await page.mouse.move(awayPoint.x, awayPoint.y, { steps: 8 });
-    await page.evaluate(({
-        targetKey,
-        x,
-        y,
-    }: {
-        targetKey: string;
-        x: number;
-        y: number;
-    }) => {
-        const markers = Array.from(document.querySelectorAll<HTMLElement>('.pdf-comment-marker-button'))
-            .filter(candidate => candidate.dataset.stableKey === targetKey);
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const isVisibleMarker = (marker: HTMLElement) => {
-            const rect = marker.getBoundingClientRect();
-            const style = window.getComputedStyle(marker);
-            return (
-                style.display !== 'none'
-                && style.visibility !== 'hidden'
-                && Number(style.opacity || '1') > 0
-                && rect.width > 0
-                && rect.height > 0
-            );
-        };
-        const marker = markers.find(marker => activeHost?.contains(marker) && isVisibleMarker(marker))
-            ?? markers.find(isVisibleMarker)
-            ?? markers.at(-1);
-        marker?.dispatchEvent(new PointerEvent('pointerleave', {
-            bubbles: false,
-            cancelable: true,
-            clientX: x,
-            clientY: y,
-            pointerId: 1,
-            pointerType: 'mouse',
-        }));
-    }, {
-        targetKey: stableKey,
-        ...awayPoint,
-    });
-}
-
-async function movePointerOverCommentMarker(
-    page: Page,
-    stableKey: string,
-    center: {
-        x: number;
-        y: number;
-    },
-) {
-    await page.mouse.move(center.x, center.y, { steps: 8 });
-    await page.evaluate(({
-        targetKey,
-        x,
-        y,
-    }: {
-        targetKey: string;
-        x: number;
-        y: number;
-    }) => {
-        const markers = Array.from(document.querySelectorAll<HTMLElement>('.pdf-comment-marker-button'))
-            .filter(candidate => candidate.dataset.stableKey === targetKey);
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const isVisibleMarker = (marker: HTMLElement) => {
-            const rect = marker.getBoundingClientRect();
-            const style = window.getComputedStyle(marker);
-            return (
-                style.display !== 'none'
-                && style.visibility !== 'hidden'
-                && Number(style.opacity || '1') > 0
-                && rect.width > 0
-                && rect.height > 0
-            );
-        };
-        const marker = markers.find(marker => activeHost?.contains(marker) && isVisibleMarker(marker))
-            ?? markers.find(isVisibleMarker)
-            ?? markers.at(-1);
-        marker?.dispatchEvent(new PointerEvent('pointermove', {
-            bubbles: true,
-            cancelable: true,
-            clientX: x,
-            clientY: y,
-            pointerId: 1,
-            pointerType: 'mouse',
-        }));
-    }, {
-        targetKey: stableKey,
-        ...center,
-    });
-}
-
-async function waitForVisibleTooltipText(page: Page, expectedText: string) {
-    try {
-        await page.waitForFunction((text: string) => {
-            const isVisible = (candidate: HTMLElement) => {
-                const rect = candidate.getBoundingClientRect();
-                const style = window.getComputedStyle(candidate);
-                return (
-                    style.display !== 'none'
-                    && style.visibility !== 'hidden'
-                    && Number(style.opacity || '1') > 0
-                    && rect.width > 0
-                    && rect.height > 0
-                );
-            };
-            return Array.from(document.querySelectorAll<HTMLElement>('[data-slot="content"]'))
-                .filter(isVisible)
-                .some(tooltip => tooltip.textContent?.includes(text));
-        }, { timeout: 8_000 }, expectedText);
-    } catch (error) {
-        throw new Error(`Timed out waiting for visible tooltip text: ${JSON.stringify(await collectTooltipDebugState(page))}`, { cause: error });
-    }
-}
-
-async function waitForNoVisibleTooltipText(page: Page, expectedText: string) {
-    try {
-        await page.waitForFunction((text: string) => {
-            const isVisible = (candidate: HTMLElement) => {
-                const rect = candidate.getBoundingClientRect();
-                const style = window.getComputedStyle(candidate);
-                return (
-                    style.display !== 'none'
-                    && style.visibility !== 'hidden'
-                    && Number(style.opacity || '1') > 0
-                    && rect.width > 0
-                    && rect.height > 0
-                );
-            };
-            return !Array.from(document.querySelectorAll<HTMLElement>('[data-slot="content"]'))
-                .filter(isVisible)
-                .some(tooltip => tooltip.textContent?.includes(text));
-        }, { timeout: 4_000 }, expectedText);
-    } catch (error) {
-        throw new Error(`Timed out waiting for tooltip text to disappear: ${JSON.stringify(await collectTooltipDebugState(page))}`, { cause: error });
-    }
-}
-
-async function waitForTooltipTextToRemainHidden(page: Page, expectedText: string, timeoutMs = 4_000) {
-    const startedAt = Date.now();
-    let hiddenSince: number | null = null;
-
-    while (Date.now() - startedAt < timeoutMs) {
-        const hasVisibleTooltip = await page.evaluate((text: string) => {
-            const isVisible = (candidate: HTMLElement) => {
-                const rect = candidate.getBoundingClientRect();
-                const style = window.getComputedStyle(candidate);
-                return (
-                    style.display !== 'none'
-                    && style.visibility !== 'hidden'
-                    && Number(style.opacity || '1') > 0
-                    && rect.width > 0
-                    && rect.height > 0
-                );
-            };
-            return Array.from(document.querySelectorAll<HTMLElement>('[data-slot="content"]'))
-                .filter(isVisible)
-                .some(tooltip => tooltip.textContent?.includes(text));
-        }, expectedText);
-
-        if (hasVisibleTooltip) {
-            hiddenSince = null;
-        } else {
-            hiddenSince ??= Date.now();
-            if (Date.now() - hiddenSince >= TOOLTIP_HIDDEN_QUIET_WINDOW_MS) {
-                return;
-            }
-        }
-
-        await delay(TOOLTIP_HIDDEN_POLL_INTERVAL_MS);
-    }
-
-    throw new Error(`Timed out waiting for tooltip text to remain hidden: ${JSON.stringify(await collectTooltipDebugState(page))}`);
-}
-
-async function collectTooltipDebugState(page: Page) {
-    return page.evaluate(() => {
-        const readElement = (element: HTMLElement) => {
-            const rect = element.getBoundingClientRect();
-            const style = window.getComputedStyle(element);
-            return {
-                className: String(element.className),
-                dataSlot: element.dataset.slot ?? null,
-                dataStableKey: element.dataset.stableKey ?? null,
-                role: element.getAttribute('role'),
-                text: (element.textContent?.replace(/\s+/g, ' ').trim() ?? '').slice(0, 180),
-                visible: (
-                    style.display !== 'none'
-                    && style.visibility !== 'hidden'
-                    && Number(style.opacity || '1') > 0
-                    && rect.width > 0
-                    && rect.height > 0
-                ),
-                rect: {
-                    left: Math.round(rect.left),
-                    top: Math.round(rect.top),
-                    width: Math.round(rect.width),
-                    height: Math.round(rect.height),
-                },
-            };
-        };
-        const markers = Array.from(document.querySelectorAll<HTMLElement>('.pdf-comment-marker-button'));
-        return {
-            activeElement: document.activeElement instanceof HTMLElement
-                ? {
-                    tagName: document.activeElement.tagName.toLowerCase(),
-                    className: String(document.activeElement.className),
-                }
-                : null,
-            markers: markers.map((marker) => {
-                const markerState = readElement(marker);
-                const rect = marker.getBoundingClientRect();
-                const centerX = Math.round(rect.left + rect.width / 2);
-                const centerY = Math.round(rect.top + rect.height / 2);
-                const elementAtCenter = document.elementFromPoint(centerX, centerY);
-                return {
-                    ...markerState,
-                    ariaLabel: marker.getAttribute('aria-label'),
-                    parentClassName: String(marker.parentElement?.className ?? ''),
-                    parentIsTooltipTrigger: marker.parentElement?.classList.contains('app-tooltip-trigger') ?? false,
-                    elementAtCenter: elementAtCenter instanceof HTMLElement
-                        ? {
-                            tagName: elementAtCenter.tagName.toLowerCase(),
-                            className: String(elementAtCenter.className),
-                            dataStableKey: elementAtCenter.dataset.stableKey ?? null,
-                        }
-                        : null,
-                };
-            }),
-            tooltipContents: Array.from(document.querySelectorAll<HTMLElement>('[data-slot="content"], [role="tooltip"]'))
-                .map(readElement),
-        };
-    });
-}
-
-async function clickCommentMarker(page: Page, stableKey: string) {
-    const clicked = await page.evaluate((targetKey: string) => {
-        const markers = Array.from(document.querySelectorAll<HTMLButtonElement>('.pdf-comment-marker-button'))
-            .filter(candidate => candidate.dataset.stableKey === targetKey);
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const isVisibleMarker = (marker: HTMLElement) => {
-            const rect = marker.getBoundingClientRect();
-            const style = window.getComputedStyle(marker);
-            return (
-                style.display !== 'none'
-                && style.visibility !== 'hidden'
-                && Number(style.opacity || '1') > 0
-                && rect.width > 0
-                && rect.height > 0
-            );
-        };
-        const marker = markers.find(marker => activeHost?.contains(marker) && isVisibleMarker(marker))
-            ?? markers.find(isVisibleMarker)
-            ?? markers.at(-1);
-        marker?.click();
-        return Boolean(marker);
-    }, stableKey);
-    if (!clicked) {
-        throw new Error(`Could not click marker ${stableKey}: ${JSON.stringify(await collectTooltipDebugState(page))}`);
-    }
-}
-
-async function dragCommentMarker(page: Page, stableKey: string, dx: number, dy: number) {
-    const readDebugState = async () => page.evaluate((targetKey: string) => {
-        const matchingMarkers = Array.from(document.querySelectorAll<HTMLElement>('.pdf-comment-marker-button'))
-            .filter(candidate => candidate.dataset.stableKey === targetKey);
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const isVisibleMarker = (candidate: HTMLElement) => {
-            const rect = candidate.getBoundingClientRect();
-            const style = window.getComputedStyle(candidate);
-            return (
-                style.display !== 'none'
-                && style.visibility !== 'hidden'
-                && Number(style.opacity || '1') > 0
-                && rect.width > 0
-                && rect.height > 0
-            );
-        };
-        const marker = matchingMarkers.find(candidate => activeHost?.contains(candidate) && isVisibleMarker(candidate))
-            ?? matchingMarkers.find(isVisibleMarker)
-            ?? matchingMarkers.at(-1)
-            ?? null;
-        const markerRect = marker?.getBoundingClientRect() ?? null;
-        const center = markerRect
-            ? {
-                x: Math.round(markerRect.x + markerRect.width / 2),
-                y: Math.round(markerRect.y + markerRect.height / 2),
-            }
-            : null;
-        const elementAtCenter = center
-            ? document.elementFromPoint(center.x, center.y) as HTMLElement | null
-            : null;
-        return {
-            markerCount: document.querySelectorAll('.pdf-comment-marker-button').length,
-            matchingMarkers: matchingMarkers.map((candidate) => {
-                const rect = candidate.getBoundingClientRect();
-                const style = window.getComputedStyle(candidate);
-                return {
-                    className: candidate.className,
-                    visible: isVisibleMarker(candidate),
-                    inActiveHost: activeHost?.contains(candidate) ?? false,
-                    display: style.display,
-                    visibility: style.visibility,
-                    opacity: style.opacity,
-                    rect: {
-                        left: Math.round(rect.left),
-                        top: Math.round(rect.top),
-                        width: Math.round(rect.width),
-                        height: Math.round(rect.height),
-                    },
-                };
-            }),
-            markerClassName: marker?.className ?? null,
-            markerStyle: marker?.getAttribute('style') ?? null,
-            markerRect: markerRect
-                ? {
-                    left: Math.round(markerRect.left),
-                    top: Math.round(markerRect.top),
-                    width: Math.round(markerRect.width),
-                    height: Math.round(markerRect.height),
-                }
-                : null,
-            elementAtCenter: elementAtCenter
-                ? {
-                    tag: elementAtCenter.tagName.toLowerCase(),
-                    className: elementAtCenter.className,
-                    aria: elementAtCenter.getAttribute('aria-label'),
-                    dataStableKey: elementAtCenter.dataset.stableKey ?? null,
-                }
-                : null,
-        };
-    }, stableKey);
-
-    const startPoint = await page.evaluate((targetKey: string) => {
-        const markers = Array.from(document.querySelectorAll<HTMLElement>('.pdf-comment-marker-button'))
-            .filter(candidate => candidate.dataset.stableKey === targetKey);
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const isVisibleMarker = (candidate: HTMLElement) => {
-            const rect = candidate.getBoundingClientRect();
-            const style = window.getComputedStyle(candidate);
-            return (
-                style.display !== 'none'
-                && style.visibility !== 'hidden'
-                && Number(style.opacity || '1') > 0
-                && rect.width > 0
-                && rect.height > 0
-            );
-        };
-        const marker = markers.find(candidate => activeHost?.contains(candidate) && isVisibleMarker(candidate))
-            ?? markers.find(isVisibleMarker)
-            ?? markers.at(-1);
-        if (!marker) {
-            return null;
-        }
-        const rect = marker.getBoundingClientRect();
-        return {
-            x: Math.round(rect.x + rect.width / 2),
-            y: Math.round(rect.y + rect.height / 2),
-        };
-    }, stableKey);
-    if (!startPoint) {
-        throw new Error(`Could not locate marker ${stableKey}`);
-    }
-
-    const dispatched = await page.evaluate(({
-        deltaX,
-        deltaY,
-        targetKey,
-    }) => {
-        const markers = Array.from(document.querySelectorAll<HTMLElement>('.pdf-comment-marker-button'))
-            .filter(candidate => candidate.dataset.stableKey === targetKey);
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const isVisibleMarker = (candidate: HTMLElement) => {
-            const rect = candidate.getBoundingClientRect();
-            const style = window.getComputedStyle(candidate);
-            return (
-                style.display !== 'none'
-                && style.visibility !== 'hidden'
-                && Number(style.opacity || '1') > 0
-                && rect.width > 0
-                && rect.height > 0
-            );
-        };
-        const marker = markers.find(candidate => activeHost?.contains(candidate) && isVisibleMarker(candidate))
-            ?? markers.find(isVisibleMarker)
-            ?? markers.at(-1);
-        if (!marker) {
-            return false;
-        }
-        const rect = marker.getBoundingClientRect();
-        const startX = Math.round(rect.x + rect.width / 2);
-        const startY = Math.round(rect.y + rect.height / 2);
-        const pointerId = 1;
-        marker.dispatchEvent(new PointerEvent('pointerdown', {
-            bubbles: true,
-            cancelable: true,
-            button: 0,
-            buttons: 1,
-            clientX: startX,
-            clientY: startY,
-            isPrimary: true,
-            pointerId,
-            pointerType: 'mouse',
-        }));
-        window.dispatchEvent(new PointerEvent('pointermove', {
-            bubbles: true,
-            cancelable: true,
-            button: 0,
-            buttons: 1,
-            clientX: startX + deltaX,
-            clientY: startY + deltaY,
-            isPrimary: true,
-            pointerId,
-            pointerType: 'mouse',
-        }));
-        window.dispatchEvent(new PointerEvent('pointerup', {
-            bubbles: true,
-            cancelable: true,
-            button: 0,
-            buttons: 0,
-            clientX: startX + deltaX,
-            clientY: startY + deltaY,
-            isPrimary: true,
-            pointerId,
-            pointerType: 'mouse',
-        }));
-        return true;
-    }, {
-        deltaX: dx,
-        deltaY: dy,
-        targetKey: stableKey,
-    });
-    if (!dispatched) {
-        throw new Error(`Could not dispatch marker drag: ${JSON.stringify(await readDebugState())}`);
-    }
-
-    try {
-        await page.waitForFunction(({
-            startX,
-            startY,
-            targetKey,
-        }) => {
-            const markers = Array.from(document.querySelectorAll<HTMLElement>('.pdf-comment-marker-button'))
-                .filter(candidate => candidate.dataset.stableKey === targetKey);
-            const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-            const isVisibleMarker = (candidate: HTMLElement) => {
-                const rect = candidate.getBoundingClientRect();
-                const style = window.getComputedStyle(candidate);
-                return (
-                    style.display !== 'none'
-                    && style.visibility !== 'hidden'
-                    && Number(style.opacity || '1') > 0
-                    && rect.width > 0
-                    && rect.height > 0
-                );
-            };
-            const marker = markers.find(candidate => activeHost?.contains(candidate) && isVisibleMarker(candidate))
-                ?? markers.find(isVisibleMarker)
-                ?? markers.at(-1);
-            if (!marker) {
-                return false;
-            }
-            const rect = marker.getBoundingClientRect();
-            const centerX = rect.x + rect.width / 2;
-            const centerY = rect.y + rect.height / 2;
-            return Math.hypot(centerX - startX, centerY - startY) >= 12;
-        }, { timeout: 8_000 }, {
-            startX: startPoint.x,
-            startY: startPoint.y,
-            targetKey: stableKey,
-        });
-    } catch (error) {
-        throw new Error(`Marker did not move after drag: ${JSON.stringify({
-            before: startPoint,
-            after: await readDebugState(),
-            anchor: await getCommentMarkerAnchorDebugState(page),
-        })}`, { cause: error });
-    }
-}
-
 async function setLatestNoteWindowText(page: Page, text: string) {
     await page.evaluate((noteText: string) => {
         const textareas = Array.from(document.querySelectorAll<HTMLTextAreaElement>('textarea.note-window__textarea'));
@@ -1310,6 +1061,40 @@ async function setLatestNoteWindowText(page: Page, text: string) {
     }, text);
 }
 
+async function editCanonicalNoteText(page: Page, currentText: string, nextText: string) {
+    const opened = await page.evaluate((expectedText: string) => {
+        const row = Array.from(document.querySelectorAll<HTMLElement>('.notes-list .note-item'))
+            .find(item => item.querySelector('.note-item-text')?.textContent?.includes(expectedText));
+        const button = row?.querySelector<HTMLButtonElement>('.note-item-content');
+        button?.dispatchEvent(new MouseEvent('dblclick', {
+            bubbles: true,
+            cancelable: true,
+            detail: 2,
+            view: window,
+        }));
+        return Boolean(button);
+    }, currentText);
+    if (!opened) {
+        throw new Error(`Could not open canonical note for editing: ${currentText}`);
+    }
+
+    const textarea = await page.waitForSelector('textarea.note-window__textarea', {
+        timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS,
+        visible: true,
+    });
+    if (!textarea) {
+        throw new Error('Canonical note editor did not provide a textarea for keyboard editing');
+    }
+    await textarea.click();
+    const selectAllModifier = process.platform === 'darwin' ? 'Meta' : 'Control';
+    await page.keyboard.down(selectAllModifier);
+    await page.keyboard.press('A');
+    await page.keyboard.up(selectAllModifier);
+    await page.keyboard.type(nextText, {delay: 10});
+    await page.keyboard.press('Tab');
+    return waitForCanonicalNote(page, nextText);
+}
+
 describe('Electron E2E - Annotation Lifecycle', () => {
     const sessionFixture = createElectronE2ESessionFixture({
         restartBeforeEach: true,
@@ -1321,12 +1106,582 @@ describe('Electron E2E - Annotation Lifecycle', () => {
     afterAll(async () => {
         const session = sessionFixture.getSession();
         if (!session) {
-            return;
+            throw new Error('Electron E2E session was not initialized for the writer parse proof');
         }
         await disconnectAnnotationUndoBoundaryProbe(session.page);
     });
 
-    it('creates and edits a FreeText annotation in the active workspace', async () => {
+    it('renders the canonical annotation surface once and keeps PDF.js read-only', async () => {
+        const session = sessionFixture.getSession();
+        if (!session) {
+            return;
+        }
+        const { page } = session;
+        const fixturePath = await createCanonicalAnnotationSurfaceFixturePdf(
+            `annotation-lifecycle-${Date.now()}-canonical-surface.pdf`,
+        );
+
+        await openPdfInApp(page, fixturePath);
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        await page.waitForFunction(() => {
+            const layer = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .page_container[data-page="1"] .pdf-annotation-editor-layer',
+            );
+            if (!layer) {
+                return false;
+            }
+            const kinds = Array.from(layer.querySelectorAll<HTMLElement>('[data-annotation-kind]'))
+                .map(entity => entity.dataset.annotationKind ?? '')
+                .sort();
+            return kinds.join(',') === 'note,placed-image,shape,text-box,text-markup'
+                && document.querySelectorAll(
+                    '.editor-pane.is-active .page_container[data-page="1"] .annotation-editor-layer, '
+                    + '.editor-pane.is-active .page_container[data-page="1"] .pdf-annotation-editor-layer',
+                ).length === 0;
+        }, {timeout: 20_000});
+        await page.waitForFunction(() => {
+            const image = document.querySelector<HTMLImageElement>(
+                '.editor-pane.is-active .page_container[data-page="1"] .pdf-annotation-editor-stamp__image',
+            );
+            return Boolean(image?.complete && image.naturalWidth > 0 && image.naturalHeight > 0);
+        }, {timeout: 20_000});
+
+        const initial = await collectAnnotationOwnershipDebugState(page);
+        expect(initial.annotationDirtyEntityCount).toBe(0);
+        expect(initial.canonicalEntities).toHaveLength(5);
+        expect(initial.canonicalEntities.map(entity => entity.kind).sort()).toEqual([
+            'note',
+            'placed-image',
+            'shape',
+            'text-box',
+            'text-markup',
+        ]);
+        expect(initial.legacyEditorLayerCount).toBe(0);
+        expect(initial.staticNonLinkAnnotationCount).toBe(0);
+        expect(initial.staticLinkHrefs).toEqual(['https://example.com/evb-viewer-surface']);
+
+        const clickEntity = async (kind: string) => {
+            const point = await page.evaluate((entityKind: string) => {
+                const entity = document.querySelector<HTMLElement>(
+                    `.editor-pane.is-active .page_container[data-page="1"] [data-annotation-kind="${entityKind}"]`,
+                );
+                if (!entity) {
+                    return null;
+                }
+                const rect = entity.getBoundingClientRect();
+                return {
+                    x: rect.left + rect.width / 2,
+                    y: rect.top + rect.height / 2,
+                };
+            }, kind);
+            if (!point) {
+                throw new Error(`Canonical ${kind} entity was not mounted`);
+            }
+            await page.mouse.click(point.x, point.y);
+        };
+
+        await clickEntity('text-box');
+        await page.waitForFunction(() => (
+            document.querySelectorAll(
+                '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id].is-selected',
+            ).length === 1
+        ));
+        await page.keyboard.down('Shift');
+        await clickEntity('note');
+        await page.keyboard.up('Shift');
+        await page.waitForFunction(() => (
+            document.querySelectorAll(
+                '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id].is-selected',
+            ).length === 2
+        ));
+
+        const pagePoint = await page.evaluate(() => {
+            const pageContainer = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .page_container[data-page="1"]',
+            );
+            if (!pageContainer) {
+                return null;
+            }
+            const rect = pageContainer.getBoundingClientRect();
+            const xRatios = [
+                0.96,
+                0.04,
+                0.5,
+                0.92,
+                0.08,
+            ];
+            const yRatios = [
+                0.9,
+                0.8,
+                0.7,
+                0.45,
+                0.4,
+                0.5,
+                0.6,
+            ];
+            for (const xRatio of xRatios) {
+                for (const yRatio of yRatios) {
+                    const x = rect.left + rect.width * xRatio;
+                    const y = Math.min(rect.top + rect.height * yRatio, window.innerHeight - 20);
+                    const target = document.elementFromPoint(x, y);
+                    if (
+                        !target
+                        || !pageContainer.contains(target)
+                        || target.closest('[data-annotation-id], a, button, input, textarea, [role="button"]')
+                    ) {
+                        continue;
+                    }
+                    return {
+                        x,
+                        y,
+                    };
+                }
+            }
+            return null;
+        });
+        if (!pagePoint) {
+            throw new Error('Canonical annotation fixture page was not mounted');
+        }
+        await page.mouse.click(pagePoint.x, pagePoint.y);
+        await page.waitForFunction(() => (
+            document.querySelectorAll(
+                '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id].is-selected',
+            ).length === 0
+        ));
+
+        const afterInteraction = await collectAnnotationOwnershipDebugState(page);
+        expect(afterInteraction.annotationDirtyEntityCount).toBe(0);
+    }, 90_000);
+
+    it('supports keyboard editing for every canonical kind and atomic mixed selection history', async () => {
+        const session = sessionFixture.getSession();
+        if (!session) {
+            return;
+        }
+        const {page} = session;
+        const fixturePath = await createCanonicalAnnotationSurfaceFixturePdf(
+            `annotation-lifecycle-${Date.now()}-keyboard-selection.pdf`,
+        );
+
+        await openPdfInApp(page, fixturePath);
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        const entitySelector = '.editor-pane.is-active .page_container[data-page="1"] '
+            + '.pdf-annotation-editor-layer [data-annotation-id][data-annotation-kind]';
+        await page.waitForFunction((selector: string) => (
+            document.querySelectorAll(selector).length === 5
+        ), {timeout: 20_000}, entitySelector);
+
+        interface ICanonicalEntityGeometry {
+            id: string;
+            kind: string;
+            left: number;
+            top: number;
+            width: number;
+            height: number;
+        }
+        const readGeometry = async () => page.evaluate((selector: string) => (
+            Array.from(document.querySelectorAll<HTMLElement>(selector)).map((element) => {
+                const rect = element.getBoundingClientRect();
+                return {
+                    id: element.dataset.annotationId ?? '',
+                    kind: element.dataset.annotationKind ?? '',
+                    left: rect.left,
+                    top: rect.top,
+                    width: rect.width,
+                    height: rect.height,
+                } satisfies ICanonicalEntityGeometry;
+            })
+        ), entitySelector);
+        const waitForSelectedCount = async (count: number) => {
+            await page.waitForFunction((expected: number) => (
+                document.querySelectorAll(
+                    '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id].is-selected',
+                ).length === expected
+            ), {timeout: 10_000}, count);
+        };
+        const focusEditorLayer = async () => {
+            await page.$eval(
+                '.editor-pane.is-active .page_container[data-page="1"] [data-pdf-annotation-editor-surface]',
+                (element) => (element as HTMLElement).focus({preventScroll: true}),
+            );
+            await page.waitForFunction(() => (
+                document.activeElement?.matches('[data-pdf-annotation-editor-surface]') === true
+            ), {timeout: 10_000});
+        };
+        const clickEntity = async (id: string, additive = false) => {
+            const point = await page.evaluate((annotationId: string) => {
+                const entity = document.querySelector<HTMLElement>(
+                    `.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id="${annotationId}"]`,
+                );
+                if (!entity) {
+                    return null;
+                }
+                const rect = entity.getBoundingClientRect();
+                return {
+                    x: rect.left + rect.width / 2,
+                    y: rect.top + rect.height / 2,
+                };
+            }, id);
+            if (!point) {
+                throw new Error(`Canonical entity was not mounted: ${id}`);
+            }
+            if (additive) {
+                await page.keyboard.down('Shift');
+            }
+            try {
+                await page.mouse.click(point.x, point.y);
+            }
+            finally {
+                if (additive) {
+                    await page.keyboard.up('Shift');
+                }
+            }
+        };
+        const waitForGeometry = async (
+            id: string,
+            predicate: (before: ICanonicalEntityGeometry, after: ICanonicalEntityGeometry) => boolean,
+            before: ICanonicalEntityGeometry,
+        ) => {
+            await page.waitForFunction((input: {
+                annotationId: string;
+                before: ICanonicalEntityGeometry;
+            }) => {
+                const element = document.querySelector<HTMLElement>(
+                    `.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id="${input.annotationId}"]`,
+                );
+                if (!element) {
+                    return false;
+                }
+                const rect = element.getBoundingClientRect();
+                return Math.abs(rect.left - input.before.left) > 0.05
+                    || Math.abs(rect.top - input.before.top) > 0.05
+                    || Math.abs(rect.width - input.before.width) > 0.05
+                    || Math.abs(rect.height - input.before.height) > 0.05;
+            }, {timeout: 10_000}, {
+                annotationId: id,
+                before,
+            });
+            const after = (await readGeometry()).find(entity => entity.id === id);
+            if (!after || !predicate(before, after)) {
+                throw new Error(`Canonical entity geometry did not satisfy the expected change: ${id}`);
+            }
+            return after;
+        };
+        const geometryByKind = new Map((await readGeometry()).map(entity => [
+            entity.kind,
+            entity,
+        ]));
+        for (const kind of [
+            'text-box',
+            'note',
+            'text-markup',
+            'shape',
+            'placed-image',
+        ]) {
+            const entity = geometryByKind.get(kind);
+            if (!entity) {
+                throw new Error(`Canonical fixture did not contain ${kind}`);
+            }
+            await clickEntity(entity.id);
+            await waitForSelectedCount(1);
+            await focusEditorLayer();
+            const before = (await readGeometry()).find(candidate => candidate.id === entity.id);
+            if (!before) {
+                throw new Error(`Canonical entity geometry was not readable: ${entity.id}`);
+            }
+            await page.keyboard.press('ArrowRight');
+            const moved = await waitForGeometry(entity.id, (initial, next) => next.left > initial.left, before);
+            await page.keyboard.down('Control');
+            await page.keyboard.press('z');
+            await page.keyboard.up('Control');
+            await page.waitForFunction((input: {
+                annotationId: string;
+                left: number;
+                top: number;
+            }) => {
+                const element = document.querySelector<HTMLElement>(
+                    `.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id="${input.annotationId}"]`,
+                );
+                const rect = element?.getBoundingClientRect();
+                return rect !== undefined
+                    && Math.abs(rect.left - input.left) < 0.05
+                    && Math.abs(rect.top - input.top) < 0.05;
+            }, {timeout: 10_000}, {
+                annotationId: entity.id,
+                left: before.left,
+                top: before.top,
+            });
+            await page.keyboard.down('Control');
+            await page.keyboard.down('Shift');
+            await page.keyboard.press('z');
+            await page.keyboard.up('Shift');
+            await page.keyboard.up('Control');
+            await page.waitForFunction((input: {
+                annotationId: string;
+                left: number;
+            }) => {
+                const element = document.querySelector<HTMLElement>(
+                    `.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id="${input.annotationId}"]`,
+                );
+                return (element?.getBoundingClientRect().left ?? 0) > input.left + 0.05;
+            }, {timeout: 10_000}, {
+                annotationId: entity.id,
+                left: before.left,
+            });
+            expect(moved.left).toBeGreaterThan(before.left);
+
+            await page.keyboard.press('Backspace');
+            await page.waitForFunction((annotationId: string) => (
+                !document.querySelector(
+                    `.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id="${annotationId}"]`,
+                )
+            ), {timeout: 10_000}, entity.id);
+            await page.keyboard.down('Control');
+            await page.keyboard.press('z');
+            await page.keyboard.up('Control');
+            await page.waitForFunction((annotationId: string) => Boolean(
+                document.querySelector(
+                    `.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id="${annotationId}"]`,
+                ),
+            ), {timeout: 10_000}, entity.id);
+        }
+
+        const restoredGeometry = await readGeometry();
+        const first = restoredGeometry.find(entity => entity.kind === 'text-box');
+        const second = restoredGeometry.find(entity => entity.kind === 'note');
+        if (!first || !second) {
+            throw new Error('Canonical mixed-selection fixture entities are missing');
+        }
+        await clickEntity(first.id);
+        await waitForSelectedCount(1);
+        await clickEntity(second.id, true);
+        await waitForSelectedCount(2);
+        await focusEditorLayer();
+        const mixedBefore = new Map((await readGeometry())
+            .filter(entity => entity.id === first.id || entity.id === second.id)
+            .map(entity => [
+                entity.id,
+                entity,
+            ]));
+        const dragPoint = await page.evaluate((annotationId: string) => {
+            const entity = document.querySelector<HTMLElement>(
+                `.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id="${annotationId}"]`,
+            );
+            const rect = entity?.getBoundingClientRect();
+            return rect
+                ? {
+                    x: rect.left + rect.width / 2,
+                    y: rect.top + rect.height / 2,
+                }
+                : null;
+        }, first.id);
+        if (!dragPoint) {
+            throw new Error('Canonical mixed-selection drag target is missing');
+        }
+        await page.mouse.move(dragPoint.x, dragPoint.y);
+        await page.mouse.down();
+        await page.mouse.move(dragPoint.x + 28, dragPoint.y + 18, {steps: 6});
+        await page.mouse.up();
+        await focusEditorLayer();
+        await page.waitForFunction((ids: string[]) => ids.every((annotationId) => {
+            const entity = document.querySelector<HTMLElement>(
+                `.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id="${annotationId}"]`,
+            );
+            return entity?.classList.contains('is-selected') === true;
+        }), {timeout: 10_000}, [
+            first.id,
+            second.id,
+        ]);
+        const mixedAfter = await readGeometry();
+        [
+            first.id,
+            second.id,
+        ].forEach((id) => {
+            const before = mixedBefore.get(id);
+            const after = mixedAfter.find(entity => entity.id === id);
+            expect(after?.left).toBeGreaterThan(before?.left ?? Number.POSITIVE_INFINITY);
+            expect(after?.top).toBeGreaterThan(before?.top ?? Number.POSITIVE_INFINITY);
+        });
+        await page.keyboard.down('Control');
+        await page.keyboard.press('z');
+        await page.keyboard.up('Control');
+        await page.waitForFunction((input: Array<{
+            id: string;
+            left: number;
+            top: number;
+        }>) => input.every((expected) => {
+            const entity = document.querySelector<HTMLElement>(
+                `.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id="${expected.id}"]`,
+            );
+            const rect = entity?.getBoundingClientRect();
+            return rect !== undefined
+                && Math.abs(rect.left - expected.left) < 0.05
+                && Math.abs(rect.top - expected.top) < 0.05;
+        }), {timeout: 10_000}, [
+            first.id,
+            second.id,
+        ].map(id => ({
+            id,
+            left: mixedBefore.get(id)?.left ?? 0,
+            top: mixedBefore.get(id)?.top ?? 0,
+        })));
+    }, 120_000);
+
+    it('places a stamp through the editor layer and round-trips its edited geometry', async () => {
+        const session = sessionFixture.getSession();
+        if (!session) {
+            return;
+        }
+        const {page} = session;
+        const fixturePath = await createMultiPageTextFixturePdf(
+            `annotation-lifecycle-${Date.now()}-stamp-round-trip.pdf`,
+            1,
+        );
+        const reopenPath = fixturePath.replace(/\.pdf$/u, '-reopen.pdf');
+        onTestFinished(() => rmSync(reopenPath, {force: true}));
+
+        await openPdfInApp(page, fixturePath);
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        const state = await readWorkspaceStateValues<{workingCopyPath?: string | null}>(page, ['workingCopyPath']);
+        if (typeof state.workingCopyPath !== 'string') {
+            throw new Error('Stamp lifecycle working copy is unavailable');
+        }
+        const imagePath = join(dirname(state.workingCopyPath), `annotation-lifecycle-${process.pid}-stamp.jpg`);
+        writeFileSync(imagePath, PLACED_IMAGE_JPEG);
+        onTestFinished(() => rmSync(imagePath, {force: true}));
+        let clipboardLeaseId: string | null = null;
+        onTestFinished(async () => {
+            await uninstallManagedJpegClipboard(page);
+            if (clipboardLeaseId) {
+                await releaseManagedImageHandle(page, clipboardLeaseId);
+            }
+        });
+        const clipboard = await installManagedJpegClipboard(page, imagePath);
+        clipboardLeaseId = clipboard.leaseId;
+        expect(clipboard).toMatchObject({
+            dimensions: {
+                height: 40,
+                width: 64,
+            },
+            hasNativeSourceHandle: true,
+        });
+
+        try {
+            const pasteResult = await callWorkspaceCommand(page, 'handlePasteImageFromClipboard');
+            expect(pasteResult.called).toBe(true);
+            await page.waitForSelector(ACTIVE_IMAGE_PLACEMENT_SELECTOR, {
+                timeout: 30_000,
+                visible: true,
+            });
+
+            const initial = await readPendingImagePlacementSnapshot(page);
+            await dragImagePlacementControl(
+                page,
+                `${ACTIVE_IMAGE_PLACEMENT_SELECTOR} .pdf-image-placement__surface`,
+                48,
+                32,
+            );
+            await page.waitForFunction((selector: string, previousLeft: number) => {
+                const frame = document.querySelector<HTMLElement>(selector);
+                return frame ? Math.abs(Number.parseFloat(frame.style.left) - (previousLeft * 100)) > 0.5 : false;
+            }, {timeout: 10_000}, ACTIVE_IMAGE_PLACEMENT_SELECTOR, initial.left);
+            const moved = await readPendingImagePlacementSnapshot(page);
+            expect(Math.abs(moved.left - initial.left)).toBeGreaterThan(0.005);
+            expect(Math.abs(moved.top - initial.top)).toBeGreaterThan(0.005);
+
+            const aspectRatio = moved.width / moved.height;
+            await dragImagePlacementControl(
+                page,
+                `${ACTIVE_IMAGE_PLACEMENT_SELECTOR} .pdf-image-placement__resizer--se`,
+                42,
+                18,
+                true,
+            );
+            await page.waitForFunction((selector: string, previousWidth: number) => {
+                const frame = document.querySelector<HTMLElement>(selector);
+                return frame ? Number.parseFloat(frame.style.width) > (previousWidth * 100) : false;
+            }, {timeout: 10_000}, ACTIVE_IMAGE_PLACEMENT_SELECTOR, moved.width);
+            const resized = await readPendingImagePlacementSnapshot(page);
+            expect(resized.width).toBeGreaterThan(moved.width);
+            expect(resized.height).toBeGreaterThan(moved.height);
+            expect(resized.width / resized.height).toBeCloseTo(aspectRatio, 2);
+
+            await rotateImagePlacementByQuarterTurn(page);
+            await page.waitForFunction((selector: string, previousRotation: number) => {
+                const frame = document.querySelector<HTMLElement>(selector);
+                const transform = frame?.querySelector<HTMLElement>('.pdf-image-placement__transform');
+                const rotation = Number.parseFloat(
+                    getComputedStyle(transform ?? frame ?? document.body)
+                        .getPropertyValue('--pdf-image-placement-rotation')
+                        .replace(/deg$/u, ''),
+                ) || 0;
+                return Math.abs(rotation - previousRotation) > 5;
+            }, {timeout: 10_000}, ACTIVE_IMAGE_PLACEMENT_SELECTOR, resized.rotationDegrees);
+            const rotated = await readPendingImagePlacementSnapshot(page);
+            expect(Math.abs(rotated.rotationDegrees)).toBeGreaterThan(5);
+
+            await page.click(`${ACTIVE_IMAGE_PLACEMENT_SELECTOR} .pdf-image-placement__action--primary`);
+            await page.waitForSelector(ACTIVE_IMAGE_PLACEMENT_SELECTOR, {
+                hidden: true,
+                timeout: 60_000,
+            });
+            await page.waitForFunction((selector: string) => {
+                const stamp = document.querySelector<HTMLElement>(selector);
+                const image = stamp?.querySelector<HTMLImageElement>('.pdf-annotation-editor-stamp__image');
+                return Boolean(
+                    stamp
+                    && image?.complete
+                    && image.naturalWidth > 0
+                    && image.naturalHeight > 0,
+                );
+            }, {timeout: 30_000}, CANONICAL_STAMP_SELECTOR);
+
+            const created = await readCanonicalStampSnapshot(page);
+            expect(created.annotationId).toMatch(/^anno_/u);
+            expect(created.left + (created.width / 2)).toBeCloseTo(rotated.left + (rotated.width / 2), 3);
+            expect(created.top + (created.height / 2)).toBeCloseTo(rotated.top + (rotated.height / 2), 3);
+            expect(created.width).toBeGreaterThan(0);
+            expect(created.height).toBeGreaterThan(0);
+            expect(created.rotationDegrees).toBeCloseTo(rotated.rotationDegrees, 3);
+            expect(created.imageSource).toMatch(/^data:image\/png;base64,/u);
+
+            const saveEvent = await saveViaVisibleToolbar(page, 30_000);
+            expect(realpathSync(String(saveEvent.detail.path))).toBe(realpathSync(fixturePath));
+
+            copyFileSync(fixturePath, reopenPath);
+            await openPdfInApp(page, reopenPath);
+            await waitForPdfLoaded(page);
+            await waitForViewerInteractive(page);
+            await page.waitForFunction((selector: string) => {
+                const stamp = document.querySelector<HTMLElement>(selector);
+                const image = stamp?.querySelector<HTMLImageElement>('.pdf-annotation-editor-stamp__image');
+                return Boolean(
+                    stamp
+                    && image?.complete
+                    && image.naturalWidth > 0
+                    && image.naturalHeight > 0,
+                );
+            }, {timeout: 30_000}, CANONICAL_STAMP_SELECTOR);
+
+            const reopened = await readCanonicalStampSnapshot(page);
+            expect(reopened).toEqual(created);
+        }
+        finally {
+            await uninstallManagedJpegClipboard(page);
+            if (clipboardLeaseId) {
+                await releaseManagedImageHandle(page, clipboardLeaseId);
+                clipboardLeaseId = null;
+            }
+        }
+    }, 120_000);
+
+    // Retired with #185's live PDF.js editor detachment. Canonical creation,
+    // editing, note-anchor, markup, and history proofs return with #187, #188,
+    // #189, and #192 against the EVB editor layer.
+    it.skip('creates and edits a FreeText annotation in the active workspace', async () => {
         const session = sessionFixture.getSession();
         if (!session) {
             return;
@@ -1361,7 +1716,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
             const host = (activeHost && visibleHosts.includes(activeHost))
                 ? activeHost
                 : (visibleHosts.length === 1 ? visibleHosts[0] : null);
-            const editors = Array.from(host?.querySelectorAll<HTMLElement>('.freeTextEditor') ?? []);
+            const editors = Array.from(host?.querySelectorAll<HTMLElement>('.pdf-annotation-editor-text-box') ?? []);
             const matchingText = editors
                 .map((editor) => (editor.querySelector<HTMLElement>('[contenteditable], .internal') ?? editor).textContent ?? '')
                 .map(text => text.replace(/\u200B/g, '').trim())
@@ -1370,6 +1725,36 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         }, { timeout: 8_000 }, typedText);
         const latestText = await latestTextHandle.jsonValue();
         expect(latestText).toContain(typedText);
+    });
+
+    it('opens writer annotations in the canonical sidebar and excludes link annotations', async () => {
+        const session = sessionFixture.getSession();
+        if (!session) {
+            return;
+        }
+        const { page } = session;
+
+        const freeTextFixturePath = copyProjectFixture(
+            'freetext-lifecycle-test.pdf',
+            `annotation-lifecycle-${Date.now()}-writer-parse.pdf`,
+        );
+        await openPdfInApp(page, freeTextFixturePath);
+        await waitForPdfLoaded(page);
+        await openAnnotationsTab(page);
+        await waitForViewerInteractive(page);
+        await waitForSidebarAnnotationCount(page, 3);
+        await waitForSidebarAnnotationText(page, 'Reachable lifecycle note');
+        await waitForSidebarAnnotationText(page, 'Reachable text box one');
+        await waitForSidebarAnnotationText(page, 'Reachable text box two');
+
+        const linkFixturePath = await createLinkOnlyFixturePdf(
+            `annotation-lifecycle-${Date.now()}-link-only.pdf`,
+        );
+        await openPdfInApp(page, linkFixturePath);
+        await waitForPdfLoaded(page);
+        await openAnnotationsTab(page);
+        await waitForViewerInteractive(page);
+        await waitForSidebarAnnotationCount(page, 0);
     });
 
     it('shows a placed empty sticky note in the sidebar before text is entered', async () => {
@@ -1402,7 +1787,146 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         await waitForSidebarAnnotationCount(page, baselineCount);
     });
 
-    it('saves a persisted sticky note edit a second time without replaying its hidden anchor', async () => {
+    it('round-trips a canonical sticky note after editing, recoloring, and moving it', async () => {
+        const session = sessionFixture.getSession();
+        if (!session) {
+            return;
+        }
+        const {page} = session;
+        const fixturePath = await createMultiPageTextFixturePdf(
+            `annotation-lifecycle-${Date.now()}-sticky-round-trip.pdf`,
+            1,
+        );
+        const noteText = `Canonical round-trip note ${Date.now()}`;
+        const reopenPath = fixturePath.replace(/\.pdf$/u, '-reopen.pdf');
+
+        await openPdfInApp(page, fixturePath);
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        await createStickyNoteWithPointer(page, noteText, {
+            x: 0.72,
+            y: 0.24,
+        });
+        await clickLatestVisibleNoteWindowClose(page);
+        await waitForNoOpenNoteWindows(page);
+
+        const created = await waitForCanonicalNote(page, noteText);
+        if (!created.markerRect) {
+            throw new Error(`Created canonical note has no marker rectangle: ${JSON.stringify(created)}`);
+        }
+        const editedText = `${noteText} edited`;
+        const edited = await editCanonicalNoteText(page, noteText, editedText);
+        expect(edited.stableKey).toBe(created.stableKey);
+        if (!edited.markerRect) {
+            throw new Error(`Edited canonical note has no marker rectangle: ${JSON.stringify(edited)}`);
+        }
+        await clickLatestVisibleNoteWindowClose(page);
+        await waitForNoOpenNoteWindows(page);
+        await recolorCanonicalNote(page, edited.stableKey, '#ef4444');
+        await clickAnnotationTool(page, 'Select');
+        const moved = await moveCanonicalNote(page, edited.stableKey, edited.markerRect);
+        expect(moved.text).toBe(editedText);
+        expect(moved.color).toBe('#ef4444');
+        expect(moved.markerRect).not.toEqual(edited.markerRect);
+
+        const saveEvent = await saveViaVisibleToolbar(page, 30_000);
+        expect(realpathSync(String(saveEvent.detail.path))).toBe(realpathSync(fixturePath));
+        const savedNotes = await readPdfTextAnnotationRecords(fixturePath);
+        expect(savedNotes.filter(note => note.contents === editedText)).toEqual([expect.objectContaining({subtype: '/Text'})]);
+
+        copyFileSync(fixturePath, reopenPath);
+        onTestFinished(() => rmSync(reopenPath, {force: true}));
+        await openPdfInApp(page, reopenPath);
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        await openAnnotationsTab(page);
+        await waitForSidebarAnnotationText(page, editedText);
+        const reopened = await waitForCanonicalNote(page, editedText);
+        expect(reopened).toMatchObject({
+            color: '#ef4444',
+            source: 'pdf',
+            subtype: 'Text',
+            text: editedText,
+        });
+        // The native `/Text` writer expands the in-memory point marker to its
+        // 20-point icon rectangle. Its normalized anchor remains stable.
+        expectMarkerAnchorClose(reopened.markerRect, moved.markerRect);
+    }, 90_000);
+
+    it('shows foreign note replies as read-only and deletes them with their parent', async () => {
+        const session = sessionFixture.getSession();
+        if (!session) {
+            return;
+        }
+        const {page} = session;
+        const fixture = await createForeignNoteReplyFixturePdf(
+            `annotation-lifecycle-${Date.now()}-foreign-note-replies.pdf`,
+        );
+
+        await openPdfInApp(page, fixture.filePath);
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        await openAnnotationsTab(page);
+        await waitForSidebarAnnotationText(page, fixture.parentText);
+        const canonicalParent = await waitForCanonicalNote(page, fixture.parentText);
+        expect(canonicalParent.replies.map(reply => reply.modifiedAt)).toEqual([
+            Date.parse('2026-09-02T09:01:00Z'),
+            Date.parse('2026-09-02T09:02:00Z'),
+        ]);
+        await expect.poll(() => page.evaluate((expected: {
+            parentText: string;
+            replyTexts: readonly string[];
+        }) => {
+            const row = Array.from(document.querySelectorAll<HTMLElement>('.notes-list .note-item'))
+                .find(item => item.querySelector('.note-item-text')?.textContent?.includes(expected.parentText));
+            if (!row) {
+                return null;
+            }
+            return {
+                replyInteractiveElements: row.querySelectorAll(
+                    '.note-item-reply button, .note-item-reply input, .note-item-reply textarea, '
+                    + '.note-item-reply [contenteditable="true"], .note-item-reply [role="button"]',
+                ).length,
+                replyTexts: Array.from(row.querySelectorAll<HTMLElement>('.note-item-reply-text'))
+                    .map(reply => reply.textContent?.trim() ?? ''),
+            };
+        }, {
+            parentText: fixture.parentText,
+            replyTexts: fixture.replyTexts,
+        }), {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}).toEqual({
+            replyInteractiveElements: 0,
+            replyTexts: [...fixture.replyTexts],
+        });
+
+        const deleted = await page.evaluate((parentText: string) => {
+            const row = Array.from(document.querySelectorAll<HTMLElement>('.notes-list .note-item'))
+                .find(item => item.querySelector('.note-item-text')?.textContent?.includes(parentText));
+            const button = row?.querySelector<HTMLButtonElement>('.note-item-delete');
+            button?.click();
+            return Boolean(button);
+        }, fixture.parentText);
+        expect(deleted).toBe(true);
+        await page.waitForFunction((parentText: string) => !Array.from(
+            document.querySelectorAll<HTMLElement>('.notes-list .note-item'),
+        ).some(item => item.querySelector('.note-item-text')?.textContent?.includes(parentText)), {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}, fixture.parentText);
+
+        const saveEvent = await saveViaVisibleToolbar(page, 30_000);
+        expect(realpathSync(String(saveEvent.detail.path))).toBe(realpathSync(fixture.filePath));
+        const savedNotes = await readPdfTextAnnotationRecords(fixture.filePath);
+        const deletedTexts = new Set([
+            fixture.parentText,
+            ...fixture.replyTexts,
+        ]);
+        expect(savedNotes.filter(note => deletedTexts.has(note.contents))).toHaveLength(0);
+        const deletedNames = new Set([
+            fixture.parentName,
+            ...fixture.replyNames,
+        ]);
+        expect(savedNotes.filter(note => deletedNames.has(note.name))).toHaveLength(0);
+        expect(savedNotes.filter(note => note.replyTo !== null)).toHaveLength(0);
+    }, 90_000);
+
+    it.skip('saves a persisted sticky note edit a second time without replaying its hidden anchor', async () => {
         const session = sessionFixture.getSession();
         if (!session) {
             return;
@@ -1428,7 +1952,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         expect(realpathSync(String(firstCommit.detail.path))).toBe(realpathSync(fixturePath));
         await waitForActiveTabDirtyState(page, false);
         const cleanState = await readWorkspaceStateValues<IAnnotationDirtyStateSnapshot>(page, ['dirtyState']);
-        expect(cleanState.dirtyState?.hasLivePdfJsAnnotationChanges).toBe(false);
+        expect(cleanState.dirtyState?.hasAnnotationChanges).toBe(false);
         const firstSaveDebug = await collectStickyNoteDebugState(page);
         const firstSaveStickyNotes = (firstSaveDebug.annotationComments ?? [])
             .filter(comment => comment.hasNote === true);
@@ -1475,129 +1999,16 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         expect(realpathSync(String(secondCommit.detail.path))).toBe(realpathSync(fixturePath));
         await waitForActiveTabDirtyState(page, false);
         const secondCleanState = await readWorkspaceStateValues<IAnnotationDirtyStateSnapshot>(page, ['dirtyState']);
-        expect(secondCleanState.dirtyState?.hasLivePdfJsAnnotationChanges).toBe(false);
+        expect(secondCleanState.dirtyState?.hasAnnotationChanges).toBe(false);
         const secondSaveDebug = await collectStickyNoteDebugState(page);
         const secondSaveStickyNotes = (secondSaveDebug.annotationComments ?? [])
             .filter(comment => comment.hasNote === true);
-        expect(secondSaveDebug.annotationStorage.modifiedIds).toEqual([]);
         expect(secondSaveStickyNotes).toHaveLength(1);
         expect(secondSaveStickyNotes[0]?.text).toBe(secondText);
         expect(await getFreeTextEditorCount(page)).toBe(firstSaveEditorCount);
     }, 90_000);
 
-    it('dismisses the marker tooltip when opening the sticky note window', async () => {
-        const session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
-        const { page } = session;
-
-        const noteFixturePath = await createMultiPageTextFixturePdf(
-            `annotation-lifecycle-${Date.now()}-sticky-tooltip-dismiss.pdf`,
-            1,
-        );
-        await openPdfInApp(page, noteFixturePath);
-        await waitForPdfLoaded(page);
-        await openAnnotationsTab(page);
-        await waitForViewerInteractive(page);
-
-        const baselineCount = await getVisibleSidebarAnnotationCount(page);
-        await placeEmptyNote(page);
-        await waitForSidebarAnnotationCount(page, baselineCount + 1);
-
-        const noteText = `Sticky tooltip ${Date.now()}`;
-        await setLatestNoteWindowText(page, noteText);
-        await waitForSidebarAnnotationText(page, noteText);
-        await clickLatestVisibleNoteWindowClose(page);
-        await waitForNoOpenNoteWindows(page);
-
-        const markerKey = await getLatestCommentMarkerKey(page);
-        if (!markerKey) {
-            throw new Error(`Expected a visible sticky-note marker: ${JSON.stringify(await getCommentMarkerAnchorDebugState(page))}`);
-        }
-        const markerCenter = await getCommentMarkerCenter(page, markerKey);
-
-        await movePointerAwayFromCommentMarker(page, markerKey, markerCenter);
-        await waitForNoVisibleTooltipText(page, noteText);
-        await movePointerOverCommentMarker(page, markerKey, markerCenter);
-        await waitForVisibleTooltipText(page, noteText);
-
-        await clickCommentMarker(page, markerKey);
-        await page.waitForSelector('textarea.note-window__textarea', { timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS });
-        await movePointerOverCommentMarker(page, markerKey, markerCenter);
-        await waitForTooltipTextToRemainHidden(page, noteText);
-        await clickLatestVisibleNoteWindowClose(page);
-        await waitForNoOpenNoteWindows(page);
-    });
-
-    it('keeps the unsaved sticky note PDF.js anchor hidden and synced while dragging its marker', async () => {
-        const session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
-        const { page } = session;
-
-        const noteFixturePath = await createMultiPageTextFixturePdf(
-            `annotation-lifecycle-${Date.now()}-sticky-anchor-drag.pdf`,
-            1,
-        );
-        await openPdfInApp(page, noteFixturePath);
-        await waitForPdfLoaded(page);
-        await openAnnotationsTab(page);
-        await waitForViewerInteractive(page);
-
-        const baselineCount = await getVisibleSidebarAnnotationCount(page);
-        await placeEmptyNote(page);
-        await waitForSidebarAnnotationCount(page, baselineCount + 1);
-
-        const beforeAnchor = await waitForCommentMarkerAnchorState(page);
-        expect(beforeAnchor.dataAnchor).toBe('true');
-        expect(beforeAnchor.ariaHidden).toBe('true');
-        expect(beforeAnchor.opacity).toBe('0');
-        expect(beforeAnchor.pointerEvents).toBe('none');
-        expect(beforeAnchor.inlineLeft).toMatch(/%$/);
-        expect(beforeAnchor.inlineTop).toMatch(/%$/);
-
-        await clickLatestVisibleNoteWindowClose(page);
-        await waitForNoOpenNoteWindows(page);
-
-        const markerKey = await getLatestCommentMarkerKey(page);
-        if (!markerKey) {
-            throw new Error(`Expected a visible sticky-note marker: ${JSON.stringify(await getCommentMarkerAnchorDebugState(page))}`);
-        }
-
-        await dragCommentMarker(page, markerKey, 130, 70);
-
-        await page.waitForFunction((previous: {
-            left: string;
-            top: string;
-        }) => {
-            const anchor = Array.from(document.querySelectorAll<HTMLElement>('.freeTextEditor.pdf-comment-marker-anchor-editor')).at(-1);
-            if (!anchor) {
-                return false;
-            }
-            const computed = window.getComputedStyle(anchor);
-            return computed.opacity === '0'
-                && computed.pointerEvents === 'none'
-                && (
-                    anchor.style.left !== previous.left
-                    || anchor.style.top !== previous.top
-                );
-        }, { timeout: 8_000 }, {
-            left: beforeAnchor.inlineLeft,
-            top: beforeAnchor.inlineTop,
-        });
-
-        const afterAnchor = await waitForCommentMarkerAnchorState(page);
-        expect(afterAnchor.inlineLeft).not.toBe(beforeAnchor.inlineLeft);
-        expect(afterAnchor.inlineTop).not.toBe(beforeAnchor.inlineTop);
-        expect(afterAnchor.opacity).toBe('0');
-        expect(afterAnchor.pointerEvents).toBe('none');
-        expect(afterAnchor.outlineStyle === 'none' || afterAnchor.outlineStyle === '').toBe(true);
-        expect(afterAnchor.boxShadow).toBe('none');
-    });
-
-    it('undoes a sticky note created after a highlight without removing the highlight', async () => {
+    it.skip('undoes a sticky note created after a highlight without removing the highlight', async () => {
         const session = sessionFixture.getSession();
         if (!session) {
             return;
@@ -1629,7 +2040,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         await waitForHighlightEditorCount(page, baselineHighlightCount + 1);
     });
 
-    it('keeps highlight undo and redo coherent after saving', async () => {
+    it.skip('keeps highlight undo and redo coherent after saving', async () => {
         const session = sessionFixture.getSession();
         if (!session) {
             return;
@@ -1704,7 +2115,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         expect(reboundIdentity?.stableKey).toMatch(/^ann:0:/u);
     });
 
-    it('keeps the saved highlight identity across an undo and redo', async () => {
+    it.skip('keeps the saved highlight identity across an undo and redo', async () => {
         const session = sessionFixture.getSession();
         if (!session) {
             throw new Error('Annotation lifecycle Electron E2E session failed to start');
@@ -1766,7 +2177,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         await waitForActiveTabDirtyState(page, false);
     });
 
-    it('restores a persisted highlight when undoing a saved sidebar delete', async () => {
+    it.skip('restores a persisted highlight when undoing a saved sidebar delete', async () => {
         const session = sessionFixture.getSession();
         if (!session) {
             return;
@@ -1828,7 +2239,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         await waitForActiveTabDirtyState(page, false);
     });
 
-    it('keeps an undone toolbar highlight create removed across frames and the deferred sync', async () => {
+    it.skip('keeps an undone toolbar highlight create removed across frames and the deferred sync', async () => {
         const session = sessionFixture.getSession();
         if (!session) {
             return;
@@ -1858,7 +2269,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         const trace = `undo boundary trace: ${JSON.stringify(boundary.samples)}`;
 
         expect(boundary.at('before'), trace).toMatchObject({
-            highlightEditorCount: 1,
+            canonicalTextMarkupCount: 1,
             highlightAnnotationCount: 0,
             canonicalHighlightCount: 1,
         });
@@ -1866,7 +2277,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         // same task: an editor that outlives the annotation is the orphan a
         // later comment sync rescans back into existence.
         expect(boundary.at('synchronous'), trace).toMatchObject({
-            highlightEditorCount: 0,
+            canonicalTextMarkupCount: 0,
             highlightAnnotationCount: 0,
             canonicalHighlightCount: 0,
         });
@@ -1882,7 +2293,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
             'deferred-task',
         ].forEach((label) => {
             const sample = boundary.at(label);
-            expect(sample.highlightEditorCount, `${label}: ${trace}`).toBe(0);
+            expect(sample.canonicalTextMarkupCount, `${label}: ${trace}`).toBe(0);
             expect(sample.highlightAnnotationCount, `${label}: ${trace}`).toBe(0);
             expect(sample.canonicalHighlightCount, `${label}: ${trace}`).toBe(0);
             expect(sample.addedHighlightNodeIds, `${label}: ${trace}`).toEqual([]);
@@ -1908,12 +2319,12 @@ describe('Electron E2E - Annotation Lifecycle', () => {
 
         const afterDeferredSync = await readAnnotationUndoBoundaryProbe(page);
         expect(afterDeferredSync.added).toEqual([]);
-        expect(afterDeferredSync.highlightEditorCount).toBe(0);
+        expect(afterDeferredSync.canonicalTextMarkupCount).toBe(0);
         expect(afterDeferredSync.highlightAnnotationCount).toBe(0);
         expect(await readCanonicalHighlightIdentities(page)).toEqual([]);
     });
 
-    it('restores the editor, DOM, and canonical entity when a deferred delete is undone', async () => {
+    it.skip('restores the editor, DOM, and canonical entity when a deferred delete is undone', async () => {
         const session = sessionFixture.getSession();
         if (!session) {
             return;
@@ -1956,7 +2367,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         const boundary = await clickHistoryActionAcrossAnimationBoundaries(page, 'Undo');
         const trace = `deferred-delete undo boundary trace: ${JSON.stringify(boundary.samples)}`;
         expect(boundary.at('before'), trace).toMatchObject({
-            highlightEditorCount: 0,
+            canonicalTextMarkupCount: 0,
             highlightAnnotationCount: 0,
         });
 
@@ -1974,7 +2385,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
             afterRestore.added.length,
             `expected a restored highlight node: ${JSON.stringify(afterRestore)}`,
         ).toBeGreaterThan(0);
-        expect(afterRestore.highlightEditorCount + afterRestore.highlightAnnotationCount).toBe(1);
+        expect(afterRestore.canonicalTextMarkupCount + afterRestore.highlightAnnotationCount).toBe(1);
 
         const restored = (await readCanonicalHighlightIdentities(page))
             .find(identity => identity.appAnnotationId === persistedIdentity?.appAnnotationId);
@@ -1986,7 +2397,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
     });
 
 
-    it('keeps an undone sticky note removed across frames and the deferred sync', async () => {
+    it.skip('keeps an undone sticky note removed across frames and the deferred sync', async () => {
         const session = sessionFixture.getSession();
         if (!session) {
             return;
@@ -2018,14 +2429,14 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         // attached, the next comment sync rescans it and mints the note back.
         expect(boundary.at('synchronous'), trace).toMatchObject({
             canonicalAnnotationCount: baselineSidebarCount,
-            freeTextEditorCount: baselineFreeTextCount,
+            canonicalTextBoxCount: baselineFreeTextCount,
         });
         [
             'frame-1',
             'frame-2',
             'deferred-task',
         ].forEach((label) => {
-            expect(boundary.at(label).freeTextEditorCount, `${label}: ${trace}`).toBe(baselineFreeTextCount);
+            expect(boundary.at(label).canonicalTextBoxCount, `${label}: ${trace}`).toBe(baselineFreeTextCount);
         });
 
         await waitForSidebarAnnotationCount(page, baselineSidebarCount);

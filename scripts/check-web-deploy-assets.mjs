@@ -1,4 +1,5 @@
 import {
+    readdir,
     readFile,
     stat,
 } from 'node:fs/promises';
@@ -41,6 +42,33 @@ export {
     REQUIRED_WEB_OUTPUT_CONTRACTS,
     REQUIRED_WEB_WASM_ASSETS,
 };
+
+const WEB_OUTPUT_FORBIDDEN_PATTERNS = [
+    /(?:^|\/)vendor\/(?:pdfjs-dist|pdf\.js|pdfjs-source)(?:\/|$)/u,
+    /(?:^|\/)pdfjs-dist(?:-codex-preview)?(?:\/|$)/u,
+    /\.(?:tgz|tar\.gz|patch|orig|rej|bak)$/iu,
+    /(?:^|\/)(?:[^/]+\.(?:d\.ts|d\.mts)|pdf\.sandbox\.mjs|pdf\.min\.mjs|pdf\.mjs\.map|pdf_viewer\.mjs\.map|pdf\.worker\.mjs\.map)$/iu,
+    /(?:^|\/)image_decoders(?:\/|$)/u,
+];
+
+export async function collectWebDeployOutputViolations(rootPath) {
+    const violations = [];
+    async function walk(directory, relativeDirectory = '') {
+        for (const entry of await readdir(directory, {withFileTypes: true})) {
+            const relativePath = path.posix.join(relativeDirectory, entry.name);
+            const absolutePath = path.join(directory, entry.name);
+            if (entry.isDirectory()) {
+                await walk(absolutePath, relativePath);
+                continue;
+            }
+            if (entry.isFile() && WEB_OUTPUT_FORBIDDEN_PATTERNS.some(pattern => pattern.test(relativePath))) {
+                violations.push(relativePath);
+            }
+        }
+    }
+    await walk(rootPath);
+    return violations.sort();
+}
 
 function isVercelBuildOutputEnv(env = process.env) {
     return env.VERCEL === '1' || env.NOW_BUILDER === '1';
@@ -216,6 +244,13 @@ export async function assertInitialRendererDependencyGraph(rootPath) {
 
 async function validateAssetRoot(rootPath, rootLabel, {requireOutputContracts = false} = {}) {
     await assertDirectory(rootPath, rootLabel);
+
+    const forbiddenOutput = requireOutputContracts
+        ? await collectWebDeployOutputViolations(rootPath)
+        : [];
+    if (forbiddenOutput.length > 0) {
+        throw new Error(`Web build output contains forbidden PDF.js artifacts: ${forbiddenOutput.join(', ')}`);
+    }
 
     const assets = [];
     for (const asset of REQUIRED_WEB_DEPLOY_ASSETS) {

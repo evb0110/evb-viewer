@@ -91,6 +91,14 @@ breakage during the effort is accepted.
 - Every temporary bridge between old and new ownership must state its removal
   condition, per the repository design rules.
 
+The EVB PDF.js renderer is consumed from the committed local tarball in
+`vendor/pdfjs-dist/`. It is built from the exact public fork commit recorded in
+that directory's `provenance.json`, verified before installation, and never
+published to npm. The complete package remains outside shipped web and
+Electron output. Only copied runtime workers, fonts, CMaps, Wasm, ICC assets,
+and sanitized viewer assets cross that boundary. Human legal review remains
+required for the fork notices and bundled third-party inventory.
+
 ## Revisit when
 
 After the cutover and writer consolidation, a renderer-attributable defect

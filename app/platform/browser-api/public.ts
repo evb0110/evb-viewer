@@ -4,10 +4,6 @@ export { browserHostCapability } from '@app/platform/browser-api/browserHostCapa
 export { browserOcrCapability } from '@app/platform/browser-api/browserOcrCapability';
 export { browserScanCleanupCapability } from '@app/platform/browser-api/browserScanCleanupCapability';
 export { browserSettingsCapability } from '@app/platform/browser-api/browserSettingsCapability';
-export {
-    BrowserWorkerClient,
-    canUseBrowserWorker,
-} from '@app/platform/browser-api/browserWorkerClient';
 export { createBrowserDocumentsCapability } from '@app/platform/browser-api/createBrowserDocumentsCapability';
 export { isBrowserFilePickerSetupDeniedError } from '@app/platform/browser-api/browserFilePickerAdapter';
 export { createBrowserSearchCapability } from '@app/platform/browser-api/createBrowserSearchCapability';
@@ -23,4 +19,3 @@ export {
 } from '@app/platform/browser-api/browserImageResourcePolicy';
 export type { IProbedBrowserImage } from '@app/platform/browser-api/browserImageResourcePolicy';
 export { toTransferableUint8Array } from '@app/platform/browser-api/toTransferableUint8Array';
-export type { IPendingBrowserWorkerRequest } from '@app/platform/browser-api/settleBrowserWorkerResult';

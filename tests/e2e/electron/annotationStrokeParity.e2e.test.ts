@@ -47,12 +47,12 @@ function readStrokePaintMetrics(): IStrokePaintMetrics {
         '.editor-pane.is-active .page_container[data-page="1"]',
     );
     const shapes = pageContainer?.querySelectorAll<SVGGElement>(
-        '.pdf-shape-overlay g[data-shape-id]',
+        '.pdf-annotation-editor-layer g[data-annotation-kind="shape"][data-annotation-id]',
     ) ?? [];
     const visual = pageContainer?.querySelector<SVGGeometryElement>([
-        '.pdf-shape-overlay g[data-shape-id] polyline:not(.shape-hit-target)',
-        '.pdf-shape-overlay g[data-shape-id] path:not(.shape-hit-target)',
-        '.pdf-shape-overlay g[data-shape-id] line:not(.shape-hit-target)',
+        '.pdf-annotation-editor-layer g[data-annotation-kind="shape"][data-annotation-id] polyline',
+        '.pdf-annotation-editor-layer g[data-annotation-kind="shape"][data-annotation-id] path',
+        '.pdf-annotation-editor-layer g[data-annotation-kind="shape"][data-annotation-id] line',
     ].join(',')) ?? null;
     const pageStyle = pageContainer ? window.getComputedStyle(pageContainer) : null;
     const parseStyleNumber = (property: string) => {

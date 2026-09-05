@@ -63,6 +63,7 @@ import {
 import {
     clickLatestVisibleNoteWindowClose,
     clickAnnotationTool,
+    createCanonicalTextBoxWithPointer,
     createFreeTextAnnotation,
     createFreeTextAnnotationWithPointer,
     createStickyNoteWithPointer,
@@ -180,13 +181,6 @@ interface ICommentAtPointViewer {commentAtPoint?: (
     options?: { preferTextAnchor?: boolean },
 ) => Promise<boolean>;}
 
-interface IPdfAnnotationModifiedIdsDebugState {ids?: Set<unknown>;}
-interface IPdfAnnotationSerializableDebugState {map?: Map<unknown, unknown>;}
-interface IPdfAnnotationStorageDebugState {
-    modifiedIds?: IPdfAnnotationModifiedIdsDebugState;
-    serializable?: IPdfAnnotationSerializableDebugState;
-}
-interface IPdfDocumentDebugState {annotationStorage?: IPdfAnnotationStorageDebugState;}
 interface IAgentActionResult extends Record<string, unknown> {
     comment?: Record<string, unknown>;
     created?: boolean;
@@ -222,10 +216,6 @@ interface IAnnotationIndexRead {
 interface IVerifiedStickyNote {
     annotation: IPdfAnnotationIndexEntry;
     annotationObject: string;
-    appearanceRef: {
-        generationNumber: number;
-        objectNumber: number
-    };
     name: string;
     popup: IPdfAnnotationIndexEntry;
     rect: [number, number, number, number];
@@ -349,7 +339,7 @@ async function startIssue139VisibilityProbe(
                 return;
             }
             const editors = Array.from(host.querySelectorAll<HTMLElement>(
-                '.freeTextEditor:not(.pdf-comment-marker-anchor-editor)',
+                '.freeTextEditor',
             ));
             const visibleEditors = editors.filter(editor => (
                 probeWindow.__issue139IsPainted?.(editor, host) === true
@@ -866,28 +856,24 @@ async function expectCleanAnnotationHydration(page: Page) {
             annotationDirty: boolean;
             fileDirty: boolean;
             hasAnnotationChanges: boolean;
-            hasLivePdfJsAnnotationChanges: boolean;
+            annotationDirtyEntityCount: number;
             hasPendingUnsavedChanges: boolean;
-            hasSavedPdfJsAnnotationBaselineChanges: boolean;
-            pdfJsAnnotationStorage: {
-                hasChanges: boolean;
-                ids: string[];
-            } | null;
         };}>(page, ['dirtyState']);
         const dirty = state.dirtyState;
-        return Boolean(dirty)
-            && dirty?.annotationDirty === false
-            && dirty.fileDirty === false
-            && dirty.hasAnnotationChanges === false
-            && dirty.hasLivePdfJsAnnotationChanges === false
-            && dirty.hasPendingUnsavedChanges === false
-            && dirty.hasSavedPdfJsAnnotationBaselineChanges === false
-            && dirty.pdfJsAnnotationStorage !== null
-            && (
-                dirty.pdfJsAnnotationStorage.hasChanges === false
-                && dirty.pdfJsAnnotationStorage.ids.length === 0
-            );
-    }, {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}).toBe(true);
+        return {
+            annotationDirty: dirty?.annotationDirty ?? null,
+            fileDirty: dirty?.fileDirty ?? null,
+            hasAnnotationChanges: dirty?.hasAnnotationChanges ?? null,
+            annotationDirtyEntityCount: dirty?.annotationDirtyEntityCount ?? null,
+            hasPendingUnsavedChanges: dirty?.hasPendingUnsavedChanges ?? null,
+        };
+    }, {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}).toSatisfy((state) => (
+        state.annotationDirty === false
+        && state.fileDirty === false
+        && state.hasAnnotationChanges === false
+        && state.annotationDirtyEntityCount === 0
+        && state.hasPendingUnsavedChanges === false
+    ));
 }
 
 async function readVisibleStickyNoteSession(page: Page, expectedText: string) {
@@ -906,8 +892,8 @@ async function readVisibleStickyNoteSession(page: Page, expectedText: string) {
             host?.querySelectorAll<HTMLTextAreaElement>('textarea.note-window__textarea') ?? [],
         ).find(candidate => candidate.value === text && isVisible(candidate)) ?? null;
         return {
-            markerCount: Array.from(host?.querySelectorAll<HTMLElement>(
-                '.pdf-comment-marker-button',
+            noteCount: Array.from(host?.querySelectorAll<HTMLElement>(
+                '.pdf-annotation-editor-note',
             ) ?? []).filter(isVisible).length,
             text: textarea?.value ?? null,
         };
@@ -933,7 +919,7 @@ async function readDocumentSaveIdentity(page: Page) {
 }
 
 interface ICanonicalImportedTextPopupComment extends Record<string, unknown> {
-    annotationName: string | null;
+    annotationId: string | null;
     hasNote: boolean | null;
     markerRect: {
         height: number;
@@ -957,7 +943,7 @@ async function readCanonicalImportedTextPopupComments(page: Page) {
                 ['annotationComments'],
             );
         return (state?.annotationComments ?? []).map(comment => ({
-            annotationName: comment.annotationName ?? null,
+            annotationId: comment.annotationId ?? null,
             hasNote: comment.hasNote ?? null,
             markerRect: comment.markerRect
                 ? {
@@ -977,25 +963,35 @@ async function readCanonicalImportedTextPopupComments(page: Page) {
     });
 }
 
+function resolveCanonicalImportedSubtype(fixture: IImportedTextPopupFixture) {
+    // Popup-backed Text and FreeText records are canonical notes. The store
+    // projects both through the note subtype, while text markup keeps its PDF
+    // subtype for the sidebar and renderer.
+    return fixture.pdfSubtype === 'Highlight' ? 'Highlight' : 'Text';
+}
+
 async function waitForCanonicalImportedTextPopupComment(
     page: Page,
     fixture: IImportedTextPopupFixture,
     timeoutMs = NOTE_TEXT_ENTRY_TIMEOUT_MS,
-    expectedSubtype = 'FreeText',
+    expectedSubtype = resolveCanonicalImportedSubtype(fixture),
 ) {
     await expect.poll(
         () => readCanonicalImportedTextPopupComments(page),
         {timeout: timeoutMs},
     ).toEqual([expect.objectContaining({
-        annotationName: fixture.annotationName,
+        annotationId: expect.any(String),
         hasNote: true,
+        pageIndex: 0,
+        pageNumber: 1,
         source: 'pdf',
+        stableKey: expect.stringMatching(/^ann:0:/u),
         subtype: expectedSubtype,
         text: fixture.text,
     })]);
 }
 
-async function moveImportedTextPopupMarker(
+async function moveImportedTextPopupNote(
     page: Page,
     comment: ICanonicalImportedTextPopupComment,
 ) {
@@ -1003,24 +999,37 @@ async function moveImportedTextPopupMarker(
     if (!before || !comment.stableKey) {
         throw new Error('Imported Text annotation has no canonical marker rectangle before move');
     }
-    try {
-        await page.waitForFunction((stableKey) => Array.from(
-            document.querySelectorAll<HTMLElement>('.pdf-comment-marker-button'),
-        ).some((marker) => {
-            const rect = marker.getBoundingClientRect();
-            const style = window.getComputedStyle(marker);
-            return marker.dataset.stableKey === stableKey
-                && style.display !== 'none'
+    const noteCenter = await page.evaluate((stableKey) => {
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const notes = Array.from(document.querySelectorAll<HTMLElement>(
+            '.pdf-annotation-editor-note',
+        )).filter(note => note.dataset.stableKey === stableKey);
+        const isVisible = (note: HTMLElement) => {
+            const rect = note.getBoundingClientRect();
+            const style = window.getComputedStyle(note);
+            return style.display !== 'none'
                 && style.visibility !== 'hidden'
                 && Number(style.opacity || '1') > 0
                 && rect.width > 0
                 && rect.height > 0;
-        }), {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}, comment.stableKey);
-    } catch (error) {
+        };
+        const note = notes.find(candidate => activeHost?.contains(candidate) && isVisible(candidate))
+            ?? notes.find(isVisible)
+            ?? null;
+        if (!note) {
+            return null;
+        }
+        const rect = note.getBoundingClientRect();
+        return {
+            x: rect.x + rect.width / 2,
+            y: rect.y + rect.height / 2,
+        };
+    }, comment.stableKey);
+    if (!noteCenter) {
         const debug = await page.evaluate(() => ({
-            markerKeys: Array.from(document.querySelectorAll<HTMLElement>('.pdf-comment-marker-button'))
-                .map(marker => marker.dataset.stableKey ?? null),
-            markerLayers: Array.from(document.querySelectorAll<HTMLElement>('.pdf-comment-marker-layer-vue'))
+            noteKeys: Array.from(document.querySelectorAll<HTMLElement>('.pdf-annotation-editor-note'))
+                .map(note => note.dataset.stableKey ?? null),
+            noteLayers: Array.from(document.querySelectorAll<HTMLElement>('.pdf-annotation-editor-layer'))
                 .map(layer => layer.outerHTML.slice(0, 2_000)),
             pageContainers: Array.from(document.querySelectorAll<HTMLElement>('.page_container'))
                 .slice(0, 4)
@@ -1029,84 +1038,30 @@ async function moveImportedTextPopupMarker(
                     rect: container.getBoundingClientRect().toJSON(),
                 })),
         }));
-        throw new Error(`Imported Text marker did not mount: ${JSON.stringify({
+        throw new Error(`Imported Text note did not mount: ${JSON.stringify({
             comment,
             debug,
-        })}`, {cause: error});
-    }
-    const dispatched = await page.evaluate((stableKey) => {
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const markers = Array.from(document.querySelectorAll<HTMLElement>('.pdf-comment-marker-button'))
-            .filter(marker => marker.dataset.stableKey === stableKey);
-        const isVisible = (marker: HTMLElement) => {
-            const rect = marker.getBoundingClientRect();
-            const style = window.getComputedStyle(marker);
-            return style.display !== 'none'
-                && style.visibility !== 'hidden'
-                && Number(style.opacity || '1') > 0
-                && rect.width > 0
-                && rect.height > 0;
-        };
-        const marker = markers.find(candidate => activeHost?.contains(candidate) && isVisible(candidate))
-            ?? markers.find(isVisible)
-            ?? null;
-        if (!marker) {
-            return false;
-        }
-        const rect = marker.getBoundingClientRect();
-        const startX = Math.round(rect.x + rect.width / 2);
-        const startY = Math.round(rect.y + rect.height / 2);
-        const pointerId = 1;
-        marker.dispatchEvent(new PointerEvent('pointerdown', {
-            bubbles: true,
-            button: 0,
-            buttons: 1,
-            cancelable: true,
-            clientX: startX,
-            clientY: startY,
-            isPrimary: true,
-            pointerId,
-            pointerType: 'mouse',
-        }));
-        window.dispatchEvent(new PointerEvent('pointermove', {
-            bubbles: true,
-            button: 0,
-            buttons: 1,
-            cancelable: true,
-            clientX: startX + 110,
-            clientY: startY + 70,
-            isPrimary: true,
-            pointerId,
-            pointerType: 'mouse',
-        }));
-        window.dispatchEvent(new PointerEvent('pointerup', {
-            bubbles: true,
-            button: 0,
-            buttons: 0,
-            cancelable: true,
-            clientX: startX + 110,
-            clientY: startY + 70,
-            isPrimary: true,
-            pointerId,
-            pointerType: 'mouse',
-        }));
-        return true;
-    }, comment.stableKey);
-    if (!dispatched) {
-        throw new Error(`Could not find the imported Text marker for ${comment.stableKey}`);
+        })}`);
     }
 
+    await page.mouse.move(noteCenter.x, noteCenter.y);
+    await page.mouse.down();
+    await page.mouse.move(noteCenter.x + 110, noteCenter.y + 70, {steps: 8});
+    await page.mouse.up();
+
     await expect.poll(async () => {
-        const markerRect = (await readCanonicalImportedTextPopupComments(page))[0]?.markerRect ?? null;
+        const markerRect = (await readCanonicalImportedTextPopupComments(page))
+            .find(candidate => candidate.stableKey === comment.stableKey)?.markerRect ?? null;
         return markerRect
             ? Math.hypot(markerRect.left - before.left, markerRect.top - before.top)
             : 0;
     }, {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}).toBeGreaterThan(0.01);
-    const movedMarkerRect = (await readCanonicalImportedTextPopupComments(page))[0]?.markerRect ?? null;
-    if (!movedMarkerRect) {
+    const movedNoteRect = (await readCanonicalImportedTextPopupComments(page))
+        .find(candidate => candidate.stableKey === comment.stableKey)?.markerRect ?? null;
+    if (!movedNoteRect) {
         throw new Error('Imported Text annotation lost its canonical marker rectangle after move');
     }
-    return movedMarkerRect;
+    return movedNoteRect;
 }
 
 function markerRectToPdfRect(markerRect: {
@@ -1531,17 +1486,6 @@ function parseQuadPointsFromQpdfObject(value: string): [number, number, number, 
     return points;
 }
 
-function parseAppearanceRefFromQpdfObject(value: string) {
-    const match = value.match(/\/AP\s*<<[\s\S]*?\/N\s+(\d+)\s+(\d+)\s+R/u);
-    if (!match) {
-        throw new Error(`Annotation object has no indirect normal appearance: ${value.slice(0, 1000)}`);
-    }
-    return {
-        objectNumber: Number(match[1]),
-        generationNumber: Number(match[2]),
-    };
-}
-
 function findQpdfLiteralStringEnd(value: string, start: number) {
     let depth = 0;
     let escaped = false;
@@ -1631,6 +1575,57 @@ function readQpdfDictionaryString(value: string, key: string) {
         return null;
     }
     return null;
+}
+
+function qpdfDictionaryHasKey(value: string, key: string) {
+    let dictionaryDepth = 0;
+    for (let index = 0; index < value.length; index += 1) {
+        const character = value[index];
+        const nextCharacter = value[index + 1];
+        if (character === '<' && nextCharacter === '<') {
+            dictionaryDepth += 1;
+            index += 1;
+            continue;
+        }
+        if (character === '>' && nextCharacter === '>') {
+            dictionaryDepth = Math.max(0, dictionaryDepth - 1);
+            index += 1;
+            continue;
+        }
+        if (character === '(') {
+            const end = findQpdfLiteralStringEnd(value, index);
+            if (end < 0) {
+                return false;
+            }
+            index = end;
+            continue;
+        }
+        if (character === '<') {
+            const end = value.indexOf('>', index + 1);
+            if (end < 0) {
+                return false;
+            }
+            index = end;
+            continue;
+        }
+        if (character !== '/' || dictionaryDepth !== 1) {
+            continue;
+        }
+
+        let nameEnd = index + 1;
+        while (nameEnd < value.length) {
+            const nameCharacter = value[nameEnd] ?? '';
+            if (/\s/u.test(nameCharacter) || '[]()<>/{}/'.includes(nameCharacter)) {
+                break;
+            }
+            nameEnd += 1;
+        }
+        if (value.slice(index + 1, nameEnd) === key) {
+            return true;
+        }
+        index = nameEnd - 1;
+    }
+    return false;
 }
 
 function decodeQpdfLiteralString(value: string) {
@@ -1728,7 +1723,7 @@ async function readOrdinaryFreeTextLiveState(page: Page, expectedText: string): 
             });
         const host = globalThis.__evbE2E.getActiveWorkspaceHost();
         const editorMatchCount = Array.from(host?.querySelectorAll<HTMLElement>(
-            '.freeTextEditor:not(.pdf-comment-marker-anchor-editor)',
+            '.freeTextEditor',
         ) ?? [])
             .filter(editor => normalize(editor.textContent) === expected)
             .length;
@@ -1921,7 +1916,7 @@ async function verifyStickyNoteStructure(
 
     const candidates = index.entries.filter(entry => (
         entry.pageIndex === expectedPageIndex
-        && entry.subtype === 'FreeText'
+        && entry.subtype === 'Text'
         && entry.popupRef !== null
         && typeof entry.name === 'string'
         && entry.name.length > 0
@@ -1973,21 +1968,15 @@ async function verifyStickyNoteStructure(
     expect(popupObject).toMatch(new RegExp(`/Parent\\s+${match.annotation.objectNumber}\\s+${match.annotation.generationNumber}\\s+R`, 'u'));
 
     const rect = parseRectFromQpdfObject(match.annotationObject);
-    const appearanceRef = parseAppearanceRefFromQpdfObject(match.annotationObject);
-    const appearanceObject = await readQpdfObject(filePath, appearanceRef, 'none');
-    const appearanceStream = await readQpdfObject(filePath, appearanceRef, 'filtered');
-    expect(appearanceObject).toMatch(/\/Type\s*\/XObject/u);
-    expect(appearanceObject).toMatch(/\/Subtype\s*\/Form/u);
-    expect(appearanceObject).toMatch(/\/BBox\s*\[\s*0\s+0\s+0\s+0\s*\]/u);
-    // Sticky-note FreeText annotations deliberately use a shared blank form.
-    // The visible marker is rendered by the comment UI, not by this PDF form.
-    expect(appearanceStream).toBe('');
+    // Native sticky notes use the PDF /Text annotation and leave appearance
+    // generation to the viewer. They must not carry the legacy blank form.
+    expect(qpdfDictionaryHasKey(match.annotationObject, 'AP')).toBe(false);
+    expect(match.annotationObject).toMatch(/\/Name\s*\/Note(?:\s|$)/u);
     expect(qpdfDictionaryContainsText(match.annotationObject, 'Contents', expectedText)).toBe(true);
     expect(match.annotationObject).toMatch(/\/NM\s*(?:\(|<)/u);
     return {
         annotation: match.annotation,
         annotationObject: match.annotationObject,
-        appearanceRef,
         name: match.annotation.name,
         popup,
         rect,
@@ -2739,7 +2728,7 @@ async function collectLargePdfAnnotationDebugState(page: Page) {
     const automationState = await readWorkspaceStateValues<{dirtyState?: {
         annotationDirty: boolean;
         hasAnnotationChanges: boolean;
-        hasLivePdfJsAnnotationChanges: boolean;
+        annotationDirtyEntityCount: number;
         hasPendingUnsavedChanges: boolean;
     };}>(page, ['dirtyState']);
     const workspaceDebug = await collectWorkspaceExposeDebugState(page, { requiredProperties: ['annotationComments'] });
@@ -2771,33 +2760,6 @@ async function collectLargePdfAnnotationDebugState(page: Page) {
         };
         const annotationComments = unwrap(setupState?.annotationComments);
         const noteWindows = unwrap(setupState?.sortedAnnotationNoteWindows) ?? unwrap(setupState?.annotationNoteWindows);
-        const pdfDocument = unwrap(setupState?.pdfDocument) as IPdfDocumentDebugState | null | undefined;
-        const serializableMap = pdfDocument?.annotationStorage?.serializable?.map;
-        const storageEntries = serializableMap instanceof Map
-            ? Array.from(serializableMap.entries()).map(([
-                key,
-                value,
-            ]) => {
-                const record = value as Record<string, unknown>;
-                const popup = record?.popup as Record<string, unknown> | undefined;
-                return {
-                    key: String(key),
-                    annotationType: record?.annotationType ?? null,
-                    id: record?.id ?? null,
-                    annotationId: record?.annotationId ?? null,
-                    annotationElementId: record?.annotationElementId ?? null,
-                    parentId: record?.parentId ?? null,
-                    deleted: record?.deleted ?? null,
-                    popup: popup
-                        ? {
-                            deleted: popup.deleted ?? null,
-                            contents: popup.contents ?? null,
-                        }
-                        : null,
-                    value: record?.value ?? null,
-                };
-            })
-            : [];
         return {
             annotationDirty: unwrap(setupState?.annotationDirty) ?? null,
             hasAnnotationChanges: typeof setupState?.hasAnnotationChanges === 'function'
@@ -2818,17 +2780,13 @@ async function collectLargePdfAnnotationDebugState(page: Page) {
             annotationComments: Array.isArray(annotationComments)
                 ? annotationComments.slice(-5).map(summarizeComment)
                 : null,
-            storage: {
-                modifiedIds: Array.from(pdfDocument?.annotationStorage?.modifiedIds?.ids ?? []).map(String),
-                serializableEntries: storageEntries,
-            },
         };
     });
     return {
         ...annotationDebug,
         annotationDirty: automationState.dirtyState?.annotationDirty ?? annotationDebug.annotationDirty,
         hasAnnotationChanges: automationState.dirtyState?.hasAnnotationChanges ?? annotationDebug.hasAnnotationChanges,
-        hasLivePdfJsAnnotationChanges: automationState.dirtyState?.hasLivePdfJsAnnotationChanges ?? null,
+        annotationDirtyEntityCount: automationState.dirtyState?.annotationDirtyEntityCount ?? null,
         hasPendingUnsavedChanges: automationState.dirtyState?.hasPendingUnsavedChanges ?? null,
         componentCount: workspaceDebug.componentCount,
         componentSamples: workspaceDebug.componentSamples,
@@ -2892,7 +2850,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
                 annotationDirty?: boolean;
                 fileDirty?: boolean;
                 hasAnnotationChanges?: boolean;
-                hasLivePdfJsAnnotationChanges?: boolean;
+                annotationDirtyEntityCount?: number;
                 hasPendingUnsavedChanges?: boolean;
             };}>(session.page, ['dirtyState']);
             const dirty = state.dirtyState;
@@ -2901,7 +2859,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
                     annotationDirty: dirty.annotationDirty,
                     fileDirty: dirty.fileDirty,
                     hasAnnotationChanges: dirty.hasAnnotationChanges,
-                    hasLivePdfJsAnnotationChanges: dirty.hasLivePdfJsAnnotationChanges,
+                    annotationDirtyEntityCount: dirty.annotationDirtyEntityCount,
                     hasPendingUnsavedChanges: dirty.hasPendingUnsavedChanges,
                 }
                 : null;
@@ -2909,7 +2867,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             annotationDirty: false,
             fileDirty: false,
             hasAnnotationChanges: false,
-            hasLivePdfJsAnnotationChanges: false,
+            annotationDirtyEntityCount: 0,
             hasPendingUnsavedChanges: false,
         });
 
@@ -3153,16 +3111,19 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             throw new Error(`Imported Text marker is unavailable: ${JSON.stringify(importedComment)}`);
         }
 
-        const movedMarkerRect = await moveImportedTextPopupMarker(
+        const movedMarkerRect = await moveImportedTextPopupNote(
             session.page,
             importedComment,
         );
-        const movedCanonical = (await readCanonicalImportedTextPopupComments(session.page))[0];
+        const movedCanonical = (await readCanonicalImportedTextPopupComments(session.page))
+            .find(candidate => candidate.stableKey === importedComment.stableKey);
         expect(movedCanonical).toMatchObject({
-            annotationName: fixture.annotationName,
+            hasNote: true,
             pageIndex: 0,
             pageNumber: 1,
+            source: 'pdf',
             stableKey: importedComment.stableKey,
+            subtype: 'Text',
         });
         expect(movedCanonical?.markerRect).toEqual(movedMarkerRect);
         expect(movedMarkerRect).not.toEqual(importedComment.markerRect);
@@ -3199,12 +3160,15 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             fixture,
             IMPORTED_TEXT_POPUP_TIMEOUT_MS,
         );
-        const restoredCanonical = (await readCanonicalImportedTextPopupComments(restartedSession.page))[0];
+        const restoredCanonical = (await readCanonicalImportedTextPopupComments(restartedSession.page))
+            .find(candidate => candidate.stableKey === importedComment.stableKey);
         expect(restoredCanonical).toMatchObject({
-            annotationName: fixture.annotationName,
+            hasNote: true,
             pageIndex: 0,
             pageNumber: 1,
+            source: 'pdf',
             stableKey: importedComment.stableKey,
+            subtype: 'Text',
         });
         if (!restoredCanonical?.markerRect) {
             throw new Error(`Restored Text marker has no rectangle: ${JSON.stringify(restoredCanonical)}`);
@@ -3222,7 +3186,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         expect(restartedPdfGeometry.pageNumber).toBe(restoredCanonical.pageNumber);
     }, IMPORTED_TEXT_POPUP_TIMEOUT_MS);
 
-    it('saves a toolbar note with multiple ordinary FreeText editors on a large PDF', async () => {
+    it('saves canonical notes and text boxes with multiple edits on a large PDF', async () => {
         const session = sessionFixture.getSession();
         if (!session) {
             return;
@@ -3232,14 +3196,13 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         const fixturePath = copyLargePdfFixture(`large-pdf-note-${Date.now()}.pdf`);
         const firstText = `фвыафыва ${Date.now()}`;
         const secondText = `second toolbar note ${Date.now()}`;
+        const firstTextBox = `first canonical text box ${Date.now()}`;
+        const secondTextBox = `second canonical text box ${Date.now()}`;
         const existingFixtureNotes = await readPdfNoteContents(fixturePath);
 
         await openPdfInApp(page, fixturePath, LARGE_PDF_TIMEOUT_MS);
         await waitForPdfLoaded(page, LARGE_PDF_TIMEOUT_MS);
         await waitForViewerInteractive(page, LARGE_PDF_TIMEOUT_MS);
-        await page.evaluate(() => {
-            (window as Window & {__diagnosticWarnAsWarn?: boolean}).__diagnosticWarnAsWarn = true;
-        });
 
         await createStickyNoteWithPointer(page, firstText, {
             x: 0.72,
@@ -3248,22 +3211,24 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         await clickLatestVisibleNoteWindowClose(page);
         await waitForNoOpenNoteWindows(page);
         await openAnnotationsTab(page, 30_000);
-        expect(await createFreeTextAnnotationWithPointer(
+        const firstTextBoxId = await createCanonicalTextBoxWithPointer(
             page,
-            `first editor ${Date.now()}`,
+            firstTextBox,
             {
                 x: 0.3,
                 y: 0.3,
             },
-        )).toBeGreaterThan(0);
-        expect(await createFreeTextAnnotationWithPointer(
+        );
+        expect(firstTextBoxId).toMatch(/^anno_/u);
+        const secondTextBoxId = await createCanonicalTextBoxWithPointer(
             page,
-            `second editor ${Date.now()}`,
+            secondTextBox,
             {
                 x: 0.7,
                 y: 0.6,
             },
-        )).toBeGreaterThan(0);
+        );
+        expect(secondTextBoxId).toMatch(/^anno_/u);
         const saveStartedAt = Date.now();
         try {
             const saveEvent = await saveViaVisibleToolbarWithDeadline(
@@ -3335,7 +3300,25 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             .toBe(false);
 
         const savedNotes = await expectPdfContainsE2ENote(savedPath, firstText);
-        expect(savedNotes.filter(note => note.contents === secondText)).toHaveLength(1);
+        expect(savedNotes.filter(note => note.contents === firstText)).toEqual([expect.objectContaining({
+            name: expect.stringMatching(/^anno_/u),
+            popup: expect.stringMatching(/\d+\s+\d+\s+R/u),
+            subtype: '/Text',
+        })]);
+        expect(savedNotes.filter(note => note.contents === secondText)).toEqual([expect.objectContaining({
+            name: expect.stringMatching(/^anno_/u),
+            subtype: '/Text',
+        })]);
+        expect(savedNotes.filter(note => note.contents === firstTextBox)).toEqual([expect.objectContaining({
+            name: firstTextBoxId,
+            popup: '',
+            subtype: '/FreeText',
+        })]);
+        expect(savedNotes.filter(note => note.contents === secondTextBox)).toEqual([expect.objectContaining({
+            name: secondTextBoxId,
+            popup: '',
+            subtype: '/FreeText',
+        })]);
         expect(savedNotes, JSON.stringify({
             savedPath,
             savedNotes: savedNotes.slice(0, 20),
@@ -3346,6 +3329,15 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         await openPdfInApp(page, reopenPath, LARGE_PDF_TIMEOUT_MS);
         await waitForPdfLoaded(page, LARGE_PDF_TIMEOUT_MS);
         await waitForViewerInteractive(page, LARGE_PDF_TIMEOUT_MS);
+        await openAnnotationsTab(page, 30_000);
+        await page.waitForFunction((expectedTexts: string[]) => expectedTexts.every(expectedText => (
+            Array.from(document.querySelectorAll<HTMLElement>(
+                '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id]',
+            )).some(entity => entity.textContent?.includes(expectedText))
+        )), {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}, [
+            firstTextBox,
+            secondTextBox,
+        ]);
         const reopenedNotes = await readPdfNoteContents(reopenPath);
         expect(reopenedNotes.filter(note => note.contents === firstText), JSON.stringify({
             reopenPath,
@@ -3355,6 +3347,14 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             reopenPath,
             reopenedNotes: reopenedNotes.slice(0, 20),
         })).toHaveLength(1);
+        expect(reopenedNotes.filter(note => note.contents === firstTextBox)).toEqual([expect.objectContaining({
+            name: firstTextBoxId,
+            subtype: '/FreeText',
+        })]);
+        expect(reopenedNotes.filter(note => note.contents === secondTextBox)).toEqual([expect.objectContaining({
+            name: secondTextBoxId,
+            subtype: '/FreeText',
+        })]);
         expect(reopenedNotes, JSON.stringify({
             reopenPath,
             reopenedNotes: reopenedNotes.slice(0, 20),
@@ -3434,11 +3434,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         await waitForSaveFrontierReady(freshSession.page, NOTE_TEXT_ENTRY_TIMEOUT_MS);
         interface IStickyDirtyState extends Record<string, unknown> {dirtyState?: {
             annotationDirty: boolean;
-            hasLivePdfJsAnnotationChanges: boolean;
-            pdfJsAnnotationStorage: {
-                hasChanges: boolean;
-                ids: string[]
-            } | null;
+            annotationDirtyEntityCount: number;
         };}
         await expect.poll(async () => {
             const [
@@ -3453,25 +3449,20 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             return {
                 annotationDirty: state.dirtyState?.annotationDirty ?? null,
                 creationFailureVisible,
-                hasLivePdfJsAnnotationChanges:
-                    state.dirtyState?.hasLivePdfJsAnnotationChanges ?? null,
-                storageEntryPresent: (state.dirtyState?.pdfJsAnnotationStorage?.ids.length ?? 0) > 0,
-                storageHasChanges: state.dirtyState?.pdfJsAnnotationStorage?.hasChanges ?? null,
+                annotationDirtyEntityCount: state.dirtyState?.annotationDirtyEntityCount ?? null,
             };
         }, {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}).toEqual({
             annotationDirty: true,
             creationFailureVisible: false,
-            hasLivePdfJsAnnotationChanges: true,
-            storageEntryPresent: true,
-            storageHasChanges: true,
+            annotationDirtyEntityCount: expect.any(Number),
         });
         const firstDirtyState = await readWorkspaceStateValues<IStickyDirtyState>(
             freshSession.page,
             ['dirtyState'],
         );
-        expect(firstDirtyState.dirtyState?.pdfJsAnnotationStorage?.ids.length ?? 0).toBeGreaterThan(0);
+        expect(firstDirtyState.dirtyState?.annotationDirtyEntityCount ?? 0).toBeGreaterThan(0);
         const firstLiveSession = await readVisibleStickyNoteSession(freshSession.page, firstText);
-        expect(firstLiveSession.markerCount).toBeGreaterThan(0);
+        expect(firstLiveSession.noteCount).toBeGreaterThan(0);
 
         const firstSaveStartedAt = Date.now();
         const firstSaveEvent = await saveViaVisibleToolbarWithDeadline(
@@ -3505,13 +3496,8 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
                     annotationDirty: boolean;
                     fileDirty: boolean;
                     hasAnnotationChanges: boolean;
-                    hasLivePdfJsAnnotationChanges: boolean;
+                    annotationDirtyEntityCount: number;
                     hasPendingUnsavedChanges: boolean;
-                    hasSavedPdfJsAnnotationBaselineChanges: boolean;
-                    pdfJsAnnotationStorage: {
-                        hasChanges: boolean;
-                        ids: string[];
-                    } | null;
                 };}>(freshSession.page, ['dirtyState']),
             ]);
             const dirty = workspace.dirtyState;
@@ -3520,14 +3506,9 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
                 currentPage: toolbar?.currentPage ?? null,
                 fileDirty: dirty?.fileDirty ?? null,
                 hasAnnotationChanges: dirty?.hasAnnotationChanges ?? null,
-                hasLivePdfJsAnnotationChanges: dirty?.hasLivePdfJsAnnotationChanges ?? null,
+                annotationDirtyEntityCount: dirty?.annotationDirtyEntityCount ?? null,
                 hasPendingUnsavedChanges: dirty?.hasPendingUnsavedChanges ?? null,
-                hasSavedPdfJsAnnotationBaselineChanges:
-                    dirty?.hasSavedPdfJsAnnotationBaselineChanges ?? null,
-                markerPresent: liveSession.markerCount > 0,
-                storageEntryPreserved: dirty?.pdfJsAnnotationStorage?.ids.some(
-                    id => firstDirtyState.dirtyState?.pdfJsAnnotationStorage?.ids.includes(id) === true,
-                ) ?? false,
+                notePresent: liveSession.noteCount > 0,
                 textPreserved: liveSession.text === firstText,
             };
         }, {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}).toEqual({
@@ -3535,11 +3516,9 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             currentPage: stickyPageNumber,
             fileDirty: false,
             hasAnnotationChanges: false,
-            hasLivePdfJsAnnotationChanges: false,
+            annotationDirtyEntityCount: 0,
             hasPendingUnsavedChanges: false,
-            hasSavedPdfJsAnnotationBaselineChanges: false,
-            markerPresent: true,
-            storageEntryPreserved: true,
+            notePresent: true,
             textPreserved: true,
         });
 
@@ -3595,17 +3574,11 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         const secondDirtyState = await readWorkspaceStateValues<{dirtyState?: {
             annotationDirty: boolean;
             hasAnnotationChanges: boolean;
-            hasLivePdfJsAnnotationChanges: boolean;
-            pdfJsAnnotationStorage: {
-                hasChanges: boolean;
-                ids: string[]
-            } | null;
+            annotationDirtyEntityCount: number;
         };}>(restartedSession.page, ['dirtyState']);
         expect(secondDirtyState.dirtyState?.annotationDirty).toBe(true);
         expect(secondDirtyState.dirtyState?.hasAnnotationChanges).toBe(true);
-        expect(secondDirtyState.dirtyState?.hasLivePdfJsAnnotationChanges).toBe(true);
-        expect(secondDirtyState.dirtyState?.pdfJsAnnotationStorage?.hasChanges).toBe(true);
-        expect(secondDirtyState.dirtyState?.pdfJsAnnotationStorage?.ids.length ?? 0).toBeGreaterThan(0);
+        expect(secondDirtyState.dirtyState?.annotationDirtyEntityCount ?? 0).toBeGreaterThan(0);
         await installStagedArtifactCapture(restartedSession.page);
         const secondSaveStartedAt = Date.now();
         const secondSavePromise = saveViaVisibleToolbarWithDeadline(
@@ -3853,7 +3826,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             return {
                 canonicalCount: Array.isArray(value) ? value.length : -1,
                 editorCount: host?.querySelectorAll(
-                    '.freeTextEditor:not(.pdf-comment-marker-anchor-editor)',
+                    '.freeTextEditor',
                 ).length ?? 0,
                 sidebarCount: host?.querySelectorAll('.notes-list .note-item').length ?? 0,
                 visualCount: host?.querySelectorAll(
@@ -3892,7 +3865,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
                 : comments;
             const host = globalThis.__evbE2E.getActiveWorkspaceHost();
             const editors = Array.from(host?.querySelectorAll<HTMLElement>(
-                '.freeTextEditor:not(.pdf-comment-marker-anchor-editor)',
+                '.freeTextEditor',
             ) ?? []);
             const annotationVisuals = Array.from(host?.querySelectorAll<HTMLElement>(
                 '.annotationLayer .freeTextAnnotation, .annotation-layer .freeTextAnnotation',
@@ -4246,7 +4219,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             const layer = host?.querySelector<HTMLElement>('.annotationEditorLayer, .annotation-editor-layer');
             return {
                 activeTool: host?.querySelector('.notes-panel .tool-button.is-active')?.getAttribute('data-tool') ?? null,
-                editorCount: host?.querySelectorAll('.freeTextEditor:not(.pdf-comment-marker-anchor-editor)').length ?? 0,
+                editorCount: host?.querySelectorAll('.freeTextEditor').length ?? 0,
                 layerClassName: layer?.className ?? null,
             };
         });
@@ -4254,10 +4227,10 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             editorHydrationDebugState,
             editorHydrationDomState,
         })).toBe(false);
-        expect(editorHydrationDebugState.hasLivePdfJsAnnotationChanges, JSON.stringify({
+        expect(editorHydrationDebugState.annotationDirtyEntityCount, JSON.stringify({
             editorHydrationDebugState,
             editorHydrationDomState,
-        })).toBe(false);
+        })).toBe(0);
         expect(editorHydrationDomState.activeTool, JSON.stringify({
             editorHydrationDebugState,
             editorHydrationDomState,
@@ -4300,7 +4273,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
                 return {
                     activeElement: document.activeElement?.outerHTML.slice(0, 1_000) ?? null,
                     activeTool: host?.querySelector('.notes-panel .tool-button.is-active')?.getAttribute('data-tool') ?? null,
-                    editorCount: host?.querySelectorAll('.freeTextEditor:not(.pdf-comment-marker-anchor-editor)').length ?? 0,
+                    editorCount: host?.querySelectorAll('.freeTextEditor').length ?? 0,
                     editors: Array.from(host?.querySelectorAll<HTMLElement>('.freeTextEditor') ?? []).map(editor => ({
                         id: editor.id,
                         text: editor.textContent ?? '',

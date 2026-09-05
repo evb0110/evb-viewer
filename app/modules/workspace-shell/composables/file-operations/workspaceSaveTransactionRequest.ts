@@ -17,7 +17,6 @@ import type {
 } from '@app/modules/workspace-shell/composables/file-operations/workspaceSavePlan';
 
 interface IWorkspaceSaveTransactionRequestDependencies {
-    annotations: {getSavedPdfJsAnnotationFingerprint?: () => string | null};
     metadata: {
         pageLabelRanges: {value: IPdfPageLabelRange[]};
         bookmarkItems: {value: IPdfBookmarkEntry[]};
@@ -27,7 +26,6 @@ interface IWorkspaceSaveTransactionRequestDependencies {
     pdf: {
         document: {value: PDFDocumentProxy | null};
         getSourceData: IPdfViewerSaveTransactionSource['getSourcePdfData'];
-        serializeForSave: NonNullable<IPdfViewerSaveTransactionSource['serializePdfForSave']>;
     };
     persistence: {
         trySavePdfNativeMutations?: unknown;
@@ -84,9 +82,7 @@ export function buildSaveTransactionRequest(
         mode: 'persist',
         saveMode: getSaveMode(plan),
         saveFlowMode: getSaveFlow(plan),
-        forcePdfjsMaterialize: plan.dirtyState.preservedAnnotationSource
-            || plan.dirtyState.savedPdfjsAnnotationBaseline,
-        savedPdfjsAnnotationFingerprint: deps.annotations.getSavedPdfJsAnnotationFingerprint?.() ?? null,
+        forceWriterSave: false,
         includeManagedShapes: body.includeManagedShapes,
         rewriteShapeState: plan.dirtyState.shapes,
         forceRewrite: body.forceRewrite,
@@ -94,16 +90,11 @@ export function buildSaveTransactionRequest(
         dirtyState: {
             annotationDirty: plan.dirtyState.annotationDirty,
             hasAnnotationChanges: plan.dirtyState.annotationChanges,
-            hasLivePdfJsAnnotationChanges: plan.dirtyState.livePdfJsAnnotations,
-            savedPdfjsAnnotationBaselineDirty: plan.dirtyState.savedPdfjsAnnotationBaseline,
             shapeStateDirty: plan.dirtyState.shapes,
         },
         nativeCapabilities,
         documentStructure,
-        source: {
-            getSourcePdfData: deps.pdf.getSourceData,
-            serializePdfForSave: deps.pdf.serializeForSave,
-        },
+        source: {getSourcePdfData: deps.pdf.getSourceData},
         workingPath: requiresNativePathBackedSave(plan)
             ? plan.target.expectedWorkingPath
             : null,

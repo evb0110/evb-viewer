@@ -75,6 +75,9 @@ export function createThumbnailCanvasStyle(aspectRatio: number | null | undefine
         : {};
 }
 
-export function createThumbnailItemStyle(top: number) {
-    return {transform: `translateY(${top}px)`};
+export function createThumbnailItemStyle(top: number, minHeight?: number) {
+    return {
+        minHeight: minHeight === undefined ? undefined : `${minHeight}px`,
+        transform: `translateY(${top}px)`,
+    };
 }

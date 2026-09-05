@@ -28,11 +28,11 @@ import { buildOcrTextLayerIndexText } from '@contracts/ocrText';
 import type { IPageText } from '@electron/search/pageText';
 import type { IOcrWord } from '@contracts/shared';
 import type { TOcrIndexRotation } from '@contracts/ocrIndex';
+import { assembleSearchablePageText } from '@pdf-core/pdfSearchCore';
 import {
-    assembleSearchablePageText,
     extractPdfjsWordBoxesFromOperatorList,
     getPdfjsPageViewBox,
-} from '@pdf-core';
+} from '@pdf-core/pdfjsTextGeometry';
 import { createPdfjsNodeDocumentOptions } from '@electron/search/createPdfjsNodeDocumentOptions';
 import {
     extractTextFromPdf,

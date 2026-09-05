@@ -1,4 +1,520 @@
 use super::*;
+use evb_native_support::output::write_bytes_atomically;
+use serde::Serialize;
+
+const CATALOG_WALK_DEPTH_LIMIT: usize = 256;
+const CATALOG_WALK_NODE_LIMIT: usize = 100_000;
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PdfCombineCatalog {
+    pub(crate) bookmarks: Vec<PdfCombineBookmarkEntry>,
+    pub(crate) page_labels: Vec<PdfCombinePageLabelRange>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PdfCombineBookmarkEntry {
+    pub(crate) title: String,
+    pub(crate) page_index: Option<u32>,
+    pub(crate) named_dest: Option<String>,
+    pub(crate) bold: bool,
+    pub(crate) italic: bool,
+    pub(crate) color: Option<String>,
+    pub(crate) items: Vec<PdfCombineBookmarkEntry>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PdfCombinePageLabelRange {
+    pub(crate) page_index: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) style: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) prefix: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) start: Option<u32>,
+}
+
+struct CatalogWalkState {
+    visited: HashSet<ObjectId>,
+    nodes: usize,
+}
+
+impl CatalogWalkState {
+    fn new() -> Self {
+        Self {
+            visited: HashSet::new(),
+            nodes: 0,
+        }
+    }
+
+    fn enter(&mut self, object: &Object) -> bool {
+        if self.nodes >= CATALOG_WALK_NODE_LIMIT {
+            return false;
+        }
+        if let Ok(object_id) = object.as_reference() {
+            if !self.visited.insert(object_id) {
+                return false;
+            }
+        }
+        self.nodes += 1;
+        true
+    }
+}
+
+struct RawPdfCombineBookmarkEntry {
+    title: String,
+    page_id: Option<ObjectId>,
+    items: Vec<RawPdfCombineBookmarkEntry>,
+    bold: bool,
+    italic: bool,
+    color: Option<String>,
+}
+
+/// Reads the subset of a source catalog that the PDF combine paths preserve.
+///
+/// The PDF catalog structures are attacker-controlled linked graphs. Cycles
+/// terminate the relevant walk, and both depth and node limits bound work on a
+/// large or malformed catalog. Page references are indexed only when an
+/// outline points at them, so a sparse page tree does not force a dense map.
+pub(crate) fn read_pdf_combine_catalog(
+    document: &impl PdfObjectSource,
+) -> Result<PdfCombineCatalog> {
+    let catalog = document.dictionary(document.root_id()?)?;
+    validate_pdf_combine_catalog(document, catalog)?;
+    let _page_resolver = PageTreeResolver::new(document)?;
+
+    let mut page_ids = HashSet::new();
+    let bookmarks = match catalog.get(b"Outlines") {
+        Ok(outlines_object) => {
+            let outlines = resolve_catalog_dictionary(document, outlines_object, "Outlines")?;
+            let first = outlines.get(b"First").ok().cloned();
+            let mut state = CatalogWalkState::new();
+            read_outline_items(
+                document,
+                catalog,
+                first.as_ref(),
+                0,
+                &mut state,
+                &mut page_ids,
+            )?
+        }
+        Err(_) => Vec::new(),
+    };
+
+    let page_indices = collect_catalog_page_indices(document, &page_ids)?;
+    let bookmarks = bookmarks
+        .into_iter()
+        .map(|bookmark| finalize_bookmark(bookmark, &page_indices))
+        .collect();
+
+    let page_labels = match catalog.get(b"PageLabels") {
+        Ok(page_labels_object) => read_page_label_ranges(document, page_labels_object)?,
+        Err(_) => Vec::new(),
+    };
+
+    Ok(PdfCombineCatalog {
+        bookmarks,
+        page_labels,
+    })
+}
+
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+#[allow(dead_code)]
+pub(crate) fn read_pdf_combine_catalog_from_bytes(data: &[u8]) -> Result<PdfCombineCatalog> {
+    let document = load_browser_pdf(data)?;
+    read_pdf_combine_catalog(&document)
+}
+
+pub(crate) fn write_pdf_combine_catalog_path(
+    input_path: &Path,
+    output_path: &Path,
+    qpdf_path: Option<&Path>,
+) -> Result<()> {
+    let incremental = load_incremental_pdf_path(input_path, qpdf_path)?;
+    let source = AppendedRevision::new(&incremental);
+    let catalog = read_pdf_combine_catalog(&source)?;
+    write_bytes_atomically(output_path, &serde_json::to_vec(&catalog)?)?;
+    Ok(())
+}
+
+fn validate_pdf_combine_catalog(
+    document: &impl PdfObjectSource,
+    catalog: &Dictionary,
+) -> Result<()> {
+    if catalog.has(b"AcroForm") {
+        return Err("PDF combine does not support source forms".into());
+    }
+    let names = match catalog.get(b"Names") {
+        Ok(names_object) => Some(resolve_catalog_dictionary(document, names_object, "Names")?),
+        Err(_) => None,
+    };
+    if catalog.has(b"AF") || names.is_some_and(|names| names.has(b"EmbeddedFiles")) {
+        return Err("PDF combine does not support source attachments".into());
+    }
+    if names.is_some_and(|names| names.has(b"JavaScript")) {
+        return Err("PDF combine does not support source JavaScript".into());
+    }
+    Ok(())
+}
+
+fn resolve_catalog_dictionary<'a>(
+    document: &'a impl PdfObjectSource,
+    object: &'a Object,
+    label: &str,
+) -> Result<&'a Dictionary> {
+    document
+        .resolved(object)?
+        .as_dict()
+        .map_err(|error| format!("PDF catalog /{label} must be a dictionary: {error}").into())
+}
+
+fn read_outline_items(
+    document: &impl PdfObjectSource,
+    catalog: &Dictionary,
+    first: Option<&Object>,
+    depth: usize,
+    state: &mut CatalogWalkState,
+    page_ids: &mut HashSet<ObjectId>,
+) -> Result<Vec<RawPdfCombineBookmarkEntry>> {
+    if depth >= CATALOG_WALK_DEPTH_LIMIT {
+        return Ok(Vec::new());
+    }
+
+    let mut output = Vec::new();
+    let mut current = first.cloned();
+    while let Some(current_object) = current {
+        if !state.enter(&current_object) {
+            break;
+        }
+        let Ok(dictionary) = resolve_catalog_dictionary(document, &current_object, "outline")
+        else {
+            break;
+        };
+        let title = dictionary
+            .get(b"Title")
+            .ok()
+            .and_then(|value| document.resolved(value).ok())
+            .and_then(pdf_string_to_text)
+            .unwrap_or_else(|| "Untitled".to_string());
+        let destination = dictionary.get(b"Dest").ok().cloned().or_else(|| {
+            dictionary
+                .get(b"A")
+                .ok()
+                .and_then(|action| {
+                    resolve_catalog_dictionary(document, action, "outline action").ok()
+                })
+                .and_then(|action| action.get(b"D").ok().cloned())
+        });
+        let page_id = destination
+            .as_ref()
+            .map(|value| destination_page_id(document, catalog, value))
+            .transpose()?
+            .flatten();
+        if let Some(page_id) = page_id {
+            page_ids.insert(page_id);
+        }
+        let first_child = dictionary.get(b"First").ok().cloned();
+        let next = dictionary.get(b"Next").ok().cloned();
+        let flags = dictionary
+            .get(b"F")
+            .ok()
+            .and_then(|value| document.resolved(value).ok())
+            .and_then(|value| value.as_i64().ok())
+            .unwrap_or_default();
+        output.push(RawPdfCombineBookmarkEntry {
+            title,
+            page_id,
+            items: read_outline_items(
+                document,
+                catalog,
+                first_child.as_ref(),
+                depth + 1,
+                state,
+                page_ids,
+            )?,
+            bold: flags & 2 != 0,
+            italic: flags & 1 != 0,
+            color: dictionary
+                .get(b"C")
+                .ok()
+                .and_then(|value| document.resolved(value).ok())
+                .and_then(pdf_color_to_hex),
+        });
+        current = next;
+    }
+    Ok(output)
+}
+
+fn destination_page_id(
+    document: &impl PdfObjectSource,
+    catalog: &Dictionary,
+    value: &Object,
+) -> Result<Option<ObjectId>> {
+    let mut destination = document.resolved(value)?.clone();
+    if let Some(name) = pdf_name_or_string(&destination) {
+        let Some(named_destination) = find_named_destination(document, catalog, &name)? else {
+            return Ok(None);
+        };
+        destination = document.resolved(&named_destination)?.clone();
+    }
+    if let Object::Dictionary(dictionary) = &destination {
+        let Some(value) = dictionary.get(b"D").ok().cloned() else {
+            return Ok(None);
+        };
+        destination = document.resolved(&value)?.clone();
+    }
+    let Object::Array(array) = &destination else {
+        return Ok(None);
+    };
+    let Some(first) = array.first() else {
+        return Ok(None);
+    };
+    Ok(first.as_reference().ok())
+}
+
+fn find_named_destination(
+    document: &impl PdfObjectSource,
+    catalog: &Dictionary,
+    name: &str,
+) -> Result<Option<Object>> {
+    if let Ok(dests_object) = catalog.get(b"Dests") {
+        let dests = resolve_catalog_dictionary(document, dests_object, "Dests")?;
+        if let Ok(destination) = dests.get(name.as_bytes()) {
+            return Ok(Some(destination.clone()));
+        }
+    }
+
+    let names_object = match catalog.get(b"Names") {
+        Ok(names_object) => names_object,
+        Err(_) => return Ok(None),
+    };
+    let names = resolve_catalog_dictionary(document, names_object, "Names")?;
+    let dests_object = match names.get(b"Dests") {
+        Ok(dests_object) => dests_object,
+        Err(_) => return Ok(None),
+    };
+    let mut state = CatalogWalkState::new();
+    find_named_destination_in_tree(document, dests_object, name, 0, &mut state)
+}
+
+fn find_named_destination_in_tree(
+    document: &impl PdfObjectSource,
+    node_object: &Object,
+    name: &str,
+    depth: usize,
+    state: &mut CatalogWalkState,
+) -> Result<Option<Object>> {
+    if depth >= CATALOG_WALK_DEPTH_LIMIT || !state.enter(node_object) {
+        return Ok(None);
+    }
+    let Ok(node) = resolve_catalog_dictionary(document, node_object, "destination name tree")
+    else {
+        return Ok(None);
+    };
+    if let Ok(entries_object) = node.get(b"Names") {
+        let Some(entries) = document
+            .resolved(entries_object)
+            .ok()
+            .and_then(|value| value.as_array().ok())
+        else {
+            return Ok(None);
+        };
+        for pair in entries.chunks_exact(2) {
+            if pdf_name_or_string(&pair[0]).as_deref() == Some(name) {
+                return Ok(Some(pair[1].clone()));
+            }
+        }
+    }
+    let Ok(kids_object) = node.get(b"Kids") else {
+        return Ok(None);
+    };
+    let Some(kids) = document
+        .resolved(kids_object)
+        .ok()
+        .and_then(|value| value.as_array().ok())
+    else {
+        return Ok(None);
+    };
+    for kid in kids {
+        if let Some(found) = find_named_destination_in_tree(document, kid, name, depth + 1, state)?
+        {
+            return Ok(Some(found));
+        }
+    }
+    Ok(None)
+}
+
+fn collect_catalog_page_indices(
+    document: &impl PdfObjectSource,
+    page_ids: &HashSet<ObjectId>,
+) -> Result<HashMap<ObjectId, u32>> {
+    if page_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let resolver = PageTreeResolver::new(document)?;
+    let mut output = HashMap::with_capacity(page_ids.len());
+    let mut page_index = 0_u32;
+    resolver.for_each_page_id_with_count(document, |page_id| {
+        if page_ids.contains(&page_id) {
+            output.insert(page_id, page_index);
+        }
+        page_index = page_index
+            .checked_add(1)
+            .ok_or("PDF catalog page index exceeded the supported integer range")?;
+        Ok(())
+    })?;
+    Ok(output)
+}
+
+fn finalize_bookmark(
+    bookmark: RawPdfCombineBookmarkEntry,
+    page_indices: &HashMap<ObjectId, u32>,
+) -> PdfCombineBookmarkEntry {
+    PdfCombineBookmarkEntry {
+        title: bookmark.title,
+        page_index: bookmark
+            .page_id
+            .and_then(|page_id| page_indices.get(&page_id).copied()),
+        named_dest: None,
+        bold: bookmark.bold,
+        italic: bookmark.italic,
+        color: bookmark.color,
+        items: bookmark
+            .items
+            .into_iter()
+            .map(|item| finalize_bookmark(item, page_indices))
+            .collect(),
+    }
+}
+
+fn pdf_color_to_hex(value: &Object) -> Option<String> {
+    let values = value.as_array().ok()?;
+    if values.len() != 3 {
+        return None;
+    }
+    let channels = values
+        .iter()
+        .map(|value| value.as_float().ok())
+        .collect::<Option<Vec<_>>>()?;
+    if channels.iter().any(|channel| !channel.is_finite()) {
+        return None;
+    }
+    Some(format!(
+        "#{:02x}{:02x}{:02x}",
+        (channels[0].clamp(0.0, 1.0) * 255.0).round() as u8,
+        (channels[1].clamp(0.0, 1.0) * 255.0).round() as u8,
+        (channels[2].clamp(0.0, 1.0) * 255.0).round() as u8,
+    ))
+}
+
+fn read_page_label_ranges(
+    document: &impl PdfObjectSource,
+    page_labels_object: &Object,
+) -> Result<Vec<PdfCombinePageLabelRange>> {
+    let mut entries = Vec::new();
+    let mut state = CatalogWalkState::new();
+    read_number_tree(document, page_labels_object, 0, &mut state, &mut entries)?;
+    entries.sort_by_key(|(page_index, _)| *page_index);
+    let mut output = Vec::new();
+    for (page_index, value) in entries {
+        let Ok(page_index) = u32::try_from(page_index) else {
+            continue;
+        };
+        let Ok(dictionary) = resolve_catalog_dictionary(document, &value, "PageLabel") else {
+            continue;
+        };
+        let style = dictionary
+            .get(b"S")
+            .ok()
+            .and_then(|value| document.resolved(value).ok())
+            .and_then(|value| value.as_name().ok())
+            .map(|value| String::from_utf8_lossy(value).into_owned());
+        let prefix = dictionary
+            .get(b"P")
+            .ok()
+            .and_then(|value| document.resolved(value).ok())
+            .and_then(|value| match value {
+                Object::String(_, _) => pdf_string_to_text(value),
+                _ => None,
+            });
+        let start = dictionary
+            .get(b"St")
+            .ok()
+            .and_then(|value| document.resolved(value).ok())
+            .and_then(|value| value.as_i64().ok())
+            .and_then(|value| u32::try_from(value).ok());
+        output.push(PdfCombinePageLabelRange {
+            page_index,
+            style,
+            prefix,
+            start,
+        });
+    }
+    Ok(output)
+}
+
+fn read_number_tree(
+    document: &impl PdfObjectSource,
+    node_object: &Object,
+    depth: usize,
+    state: &mut CatalogWalkState,
+    output: &mut Vec<(i64, Object)>,
+) -> Result<()> {
+    if depth >= CATALOG_WALK_DEPTH_LIMIT
+        || output.len() >= CATALOG_WALK_NODE_LIMIT
+        || !state.enter(node_object)
+    {
+        return Ok(());
+    }
+    let Ok(node) = resolve_catalog_dictionary(document, node_object, "PageLabels") else {
+        return Ok(());
+    };
+    if let Ok(nums_object) = node.get(b"Nums") {
+        let Some(nums) = document
+            .resolved(nums_object)
+            .ok()
+            .and_then(|value| value.as_array().ok())
+        else {
+            return Ok(());
+        };
+        for pair in nums.chunks_exact(2) {
+            if output.len() >= CATALOG_WALK_NODE_LIMIT {
+                break;
+            }
+            let Ok(start_page) = pair[0].as_i64() else {
+                continue;
+            };
+            output.push((start_page, pair[1].clone()));
+        }
+    }
+    if let Ok(kids_object) = node.get(b"Kids") {
+        let Some(kids) = document
+            .resolved(kids_object)
+            .ok()
+            .and_then(|value| value.as_array().ok())
+        else {
+            return Ok(());
+        };
+        for kid in kids {
+            read_number_tree(document, kid, depth + 1, state, output)?;
+            if output.len() >= CATALOG_WALK_NODE_LIMIT {
+                break;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn pdf_name_or_string(object: &Object) -> Option<String> {
+    pdf_string_to_text(object).or_else(|| {
+        object
+            .as_name()
+            .ok()
+            .map(|value| String::from_utf8_lossy(value).into_owned())
+    })
+}
 
 pub(crate) fn clamp_u32(value: u32, min: u32, max: u32) -> u32 {
     value.max(min).min(max)

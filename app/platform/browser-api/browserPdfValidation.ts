@@ -4,11 +4,11 @@ import type {
 } from '@contracts/pdfConformance';
 import { browserDocumentStore } from '@app/platform/browserDocumentStore';
 import {
-    buildPdfSaveRestrictions,
+    containsPdfEncryptMarker,
     createConservativePdfConformanceFallbackProfile,
     detectPdfaLevelFromPdfText,
-    hasPdfEncryptMarkersInPdfText,
     hasPdfSignatureMarkersInPdfText,
+    PDF_ENCRYPT_SCAN_REGION_BYTES,
 } from '@pdf-core/pdfConformanceHelpers';
 import {
     createPdfjsDocumentInit,
@@ -19,14 +19,9 @@ import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 import { BROWSER_MAX_FULL_READ_BYTES } from '@app/platform/browser/browserDocumentConstants';
 
 const pdfBinaryDecoder = new TextDecoder('latin1');
-const PDF_ENCRYPT_SCAN_REGION_BYTES = 32 * 1024;
 
 function decodePdfBinary(bytes: Uint8Array) {
     return pdfBinaryDecoder.decode(bytes);
-}
-
-export function containsPdfEncryptMarker(bytes: Uint8Array) {
-    return hasPdfEncryptMarkersInPdfText(decodePdfBinary(bytes));
 }
 
 function detectBrowserPdfaLevel(bytes: Uint8Array) {
@@ -63,6 +58,14 @@ function mergePdfMarkerRegions(head: Uint8Array, tail: Uint8Array) {
     return merged;
 }
 
+function buildMarkerOnlyConformanceProfile(bytes: Uint8Array): IPdfConformanceProfile {
+    return createConservativePdfConformanceFallbackProfile({
+        isSigned: detectBrowserSignatureMarkers(bytes),
+        isEncrypted: containsPdfEncryptMarker(bytes),
+        pdfaLevel: detectBrowserPdfaLevel(bytes),
+    });
+}
+
 export async function analyzeBrowserPdfConformance(path: string): Promise<IPdfConformanceProfile> {
     const {
         size,
@@ -72,57 +75,12 @@ export async function analyzeBrowserPdfConformance(path: string): Promise<IPdfCo
 
     if (size > BROWSER_MAX_FULL_READ_BYTES) {
         const markers = mergePdfMarkerRegions(head, tail);
-        const isEncrypted = containsPdfEncryptMarker(markers);
-        const pdfaLevel = detectBrowserPdfaLevel(markers);
-        const isSigned = detectBrowserSignatureMarkers(markers);
-        const baseProfile = {
-            isSigned,
-            isEncrypted,
-            isTagged: false,
-            pdfaLevel,
-            hasAcroForm: false,
-            hasXfa: false,
-            canIncrementalSave: !isEncrypted,
-        };
-
-        return {
-            ...baseProfile,
-            saveRestrictions: buildPdfSaveRestrictions(baseProfile),
-        };
+        return buildMarkerOnlyConformanceProfile(markers);
     }
 
     const bytes = await browserDocumentStore.read(path);
-
-    try {
-        await yieldToBrowser();
-        const { loadPdfStructure } = await import('@pdf-core/loadPdfStructure');
-        const {
-            doc,
-            acroForm,
-            structTreeRoot,
-            hasXfa,
-        } = await loadPdfStructure(bytes);
-        const baseProfile = {
-            isSigned: detectBrowserSignatureMarkers(bytes),
-            isEncrypted: doc.isEncrypted,
-            isTagged: structTreeRoot !== null,
-            pdfaLevel: detectBrowserPdfaLevel(bytes),
-            hasAcroForm: acroForm !== null,
-            hasXfa,
-            canIncrementalSave: !doc.isEncrypted && !hasXfa,
-        };
-
-        return {
-            ...baseProfile,
-            saveRestrictions: buildPdfSaveRestrictions(baseProfile),
-        };
-    } catch {
-        return createConservativePdfConformanceFallbackProfile({
-            isSigned: detectBrowserSignatureMarkers(bytes),
-            isEncrypted: containsPdfEncryptMarker(bytes),
-            pdfaLevel: detectBrowserPdfaLevel(bytes),
-        });
-    }
+    await yieldToBrowser();
+    return buildMarkerOnlyConformanceProfile(bytes);
 }
 
 type TPdfjsLoadingTask = ReturnType<Awaited<ReturnType<typeof getPdfjsLib>>['getDocument']>;

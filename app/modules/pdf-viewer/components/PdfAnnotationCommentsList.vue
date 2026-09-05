@@ -12,7 +12,7 @@
                 square
                 icon="i-ph-chat-circle-dots"
                 :aria-label="t('annotations.placeNoteOnPage')"
-                @click="placeNote"
+                @click="setTool('note')"
             />
             <UButton
                 type="button"
@@ -91,16 +91,19 @@
             class="notes-list app-scrollbar app-scroll-region--balanced"
         >
             <div v-bind="commentsWrapperProps">
-                <button
+                <div
                 v-for="virtualComment in virtualComments"
                 :key="virtualComment.data.stableKey"
-                type="button"
                 class="note-item flex flex-col"
                 :class="{ 'is-active': activeCommentStableKey === annotationIdForSummary(virtualComment.data) }"
-                :style="noteItemStyle"
-                @click="focusComment(virtualComment.data)"
-                @dblclick.prevent.stop="openComment(virtualComment.data)"
+                :style="noteItemStyle(virtualComment.data)"
             >
+                <button
+                    type="button"
+                    class="note-item-content flex flex-col"
+                    @click="focusComment(virtualComment.data)"
+                    @dblclick.prevent.stop="openComment(virtualComment.data)"
+                >
                 <template v-for="comment in [virtualComment.data]" :key="comment.stableKey">
                 <span class="note-item-top">
                     <span class="note-item-page">
@@ -122,15 +125,6 @@
                         :style="inlineChipStyle(comment)"
                         :aria-label="inlineChipAriaLabel(comment)"
                     />
-                    <button
-                        type="button"
-                        class="note-item-delete"
-                        :aria-label="t('annotations.delete')"
-                        @click.stop="deleteComment(comment)"
-                        @dblclick.stop.prevent
-                    >
-                        <UIcon name="i-ph-trash" />
-                    </button>
                 </span>
                 <span
                     v-if="hasShapeStylePreview(comment)"
@@ -169,8 +163,35 @@
                     </span>
                     <span v-if="commentTimeLabel(comment)">{{ commentTimeLabel(comment) }}</span>
                 </span>
+                <span
+                    v-if="comment.replies?.length"
+                    class="note-item-replies"
+                    data-testid="annotation-note-replies"
+                >
+                    <span
+                        v-for="(reply, replyIndex) in comment.replies"
+                        :key="`${comment.stableKey}-reply-${replyIndex}`"
+                        class="note-item-reply"
+                        data-testid="annotation-note-reply"
+                    >
+                        <span class="note-item-reply-author">
+                            {{ reply.author?.trim() || t('annotations.unknownAuthor') }}
+                        </span>
+                        <span class="note-item-reply-text">{{ reply.contents }}</span>
+                    </span>
+                </span>
                 </template>
-            </button>
+                </button>
+                <button
+                    type="button"
+                    class="note-item-delete"
+                    :aria-label="t('annotations.delete')"
+                    @click="deleteComment(virtualComment.data)"
+                    @dblclick.stop.prevent
+                >
+                    <UIcon name="i-ph-trash" />
+                </button>
+            </div>
             </div>
 
             <DocumentPanelEmptyState
@@ -200,6 +221,7 @@ import type {
     IAnnotationCommentSummary,
     IAnnotationInventoryCompleteness,
     TAnnotationCommentsStatus,
+    TAnnotationTool,
 } from '@app/types/annotations';
 import DocumentPanelEmptyState from '@app/components/document-viewer/DocumentPanelEmptyState.vue';
 import { annotationIdForSummary } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
@@ -277,7 +299,7 @@ const emit = defineEmits<{
     'focus-comment': [comment: IAnnotationCommentSummary];
     'open-note': [comment: IAnnotationCommentSummary];
     'delete-comment': [comment: IAnnotationCommentSummary];
-    'place-note': [];
+    'set-tool': [tool: TAnnotationTool];
     'retry-enrichment': [];
 }>();
 
@@ -310,17 +332,26 @@ const filteredComments = computed(() => {
 // ~11 px at 0.9 and gapped by ~11 px at 1.1 while the stride was hardcoded).
 const { rootFontSizePx } = useRootFontSize();
 const rowMetrics = computed(() => resolveAnnotationCommentRowMetrics(rootFontSizePx.value));
-const noteItemStyle = computed(() => ({
-    height: `${rowMetrics.value.rowHeightPx}px`,
-    marginBottom: `${rowMetrics.value.rowGapPx}px`,
-}));
+function rowMetricsFor(comment: IAnnotationCommentSummary) {
+    return resolveAnnotationCommentRowMetrics(rootFontSizePx.value, comment.replies ?? []);
+}
+function noteItemStyle(comment: IAnnotationCommentSummary) {
+    const metrics = rowMetricsFor(comment);
+    return {
+        height: `${metrics.rowHeightPx}px`,
+        marginBottom: `${metrics.rowGapPx}px`,
+    };
+}
 
 const {
     list: virtualComments,
     containerProps: commentsContainerProps,
     wrapperProps: commentsWrapperProps,
 } = useVirtualList(filteredComments, {
-    itemHeight: () => rowMetrics.value.rowStridePx,
+    itemHeight: index => {
+        const comment = filteredComments.value[index];
+        return comment ? rowMetricsFor(comment).rowStridePx : rowMetrics.value.rowStridePx;
+    },
     overscan: 6,
 });
 
@@ -602,8 +633,8 @@ function deleteComment(comment: IAnnotationCommentSummary) {
     emit('delete-comment', comment);
 }
 
-function placeNote() {
-    emit('place-note');
+function setTool(tool: TAnnotationTool) {
+    emit('set-tool', tool);
 }
 
 </script>
@@ -673,6 +704,9 @@ function placeNote() {
 }
 
 .note-item {
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
     position: relative;
     border: 1px solid var(--app-sidebar-border);
     border-radius: 0.55rem;
@@ -696,6 +730,18 @@ function placeNote() {
      */
     box-sizing: border-box;
     overflow: hidden;
+}
+
+.note-item-content {
+    flex: 1 1 auto;
+    min-width: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+    padding: 0;
+    gap: var(--app-sidebar-row-gap);
+    cursor: pointer;
 }
 
 .note-item:hover {
@@ -748,6 +794,10 @@ function placeNote() {
 .note-item-delete:hover {
     background: color-mix(in srgb, var(--ui-error) 15%, transparent);
     color: var(--ui-error);
+}
+
+.note-item-delete:focus-visible {
+    opacity: 1;
 }
 
 .note-item:hover .note-item-delete {
@@ -844,6 +894,36 @@ function placeNote() {
     gap: var(--app-sidebar-row-gap);
     font-size: var(--app-sidebar-caption-font-size);
     color: var(--ui-text-toned);
+}
+
+.note-item-replies {
+    display: flex;
+    flex-direction: column;
+    gap: var(--app-space-2xs);
+    min-width: 0;
+    padding-left: var(--app-space-md);
+    border-left: 2px solid var(--ui-border);
+}
+
+.note-item-reply {
+    display: flex;
+    flex-direction: column;
+    gap: var(--app-space-3xs);
+    min-width: 0;
+}
+
+.note-item-reply-author {
+    color: var(--ui-text-toned);
+    font-size: var(--app-sidebar-caption-font-size);
+    font-weight: 600;
+}
+
+.note-item-reply-text {
+    color: var(--ui-text-highlighted);
+    font-size: var(--app-sidebar-row-font-size);
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
 }
 
 .note-match {

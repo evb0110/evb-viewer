@@ -130,6 +130,15 @@
             @discard="resolveDirtyTabCloseDialog('discard')"
             @save="resolveDirtyTabCloseDialog('save')"
         />
+        <DocumentPasswordDialog />
+        <UnencryptedSaveDialog
+            :open="unencryptedSaveNoticeOpen"
+            :dont-show-again="unencryptedSaveNoticeDontShowAgain"
+            @update:open="handleUnencryptedSaveNoticeOpenUpdate"
+            @update:dont-show-again="handleUnencryptedSaveNoticeDontShowAgainUpdate"
+            @continue="confirmUnencryptedSaveNotice"
+            @cancel="cancelUnencryptedSaveNotice"
+        />
         <AppUpdatesDialog
             :open="updatesDialog.open"
             :title="updatesDialogBindings.updatesDialogTitle"
@@ -146,8 +155,8 @@
         />
     </div>
 </template>
-
 <script setup lang="ts">
+/* eslint-disable max-lines -- The shell hosts workspace, update, and global dialog composition. */
 import { useEventListener } from '@vueuse/core';
 import { logicNot } from '@vueuse/math';
 import { guardAsync } from '@app/utils/asyncGuard';
@@ -156,6 +165,8 @@ import { traceRendererStartup } from '@app/utils/traceRendererStartup';
 import { syncBrowserWindowTitle } from '@app/platform/browserWindowTabs';
 import AppUpdatesDialog from '@app/modules/workspace-shell/components/AppUpdatesDialog.vue';
 import DirtyTabCloseDialog from '@app/modules/workspace-shell/components/DirtyTabCloseDialog.vue';
+import DocumentPasswordDialog from '@app/modules/workspace-shell/components/DocumentPasswordDialog.vue';
+import UnencryptedSaveDialog from '@app/modules/workspace-shell/components/UnencryptedSaveDialog.vue';
 import EditorPanesHost from '@app/modules/workspace-shell/components/EditorPanesHost.vue';
 import { tabHasDocumentHint } from '@app/modules/workspace-shell/tabs/tabHasDocumentHint';
 import ShellWorkspaceToolbar from '@app/modules/workspace-shell/components/ShellWorkspaceToolbar.vue';
@@ -185,6 +196,7 @@ import { installAppShellE2EHooks } from '@app/modules/workspace-shell/automation
 import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
 import { useAppShellResilience } from '@app/modules/workspace-shell/composables/useAppShellResilience';
 import { useWorkspaceMemoryPressureMonitor } from '@app/modules/workspace-shell/composables/useWorkspaceMemoryPressureMonitor';
+import { useUnencryptedSaveNotice } from '@app/modules/workspace-shell/composables/useUnencryptedSaveNotice';
 import { useAppShellToolPages } from '@app/modules/workspace-shell/composables/useAppShellToolPages';
 import { useWindowTabTransfers } from '@app/modules/workspace-shell/composables/useWindowTabTransfers';
 import { useBrowserInstallHint } from '@app/modules/workspace-shell/composables/useBrowserInstallHint';
@@ -240,6 +252,22 @@ const {
     settings: appSettings,
     updateSetting,
 } = useSettings();
+const {
+    unencryptedSaveNoticeOpen,
+    unencryptedSaveNoticeDontShowAgain,
+    confirmUnencryptedSaveNotice,
+    cancelUnencryptedSaveNotice,
+} = useUnencryptedSaveNotice();
+
+function handleUnencryptedSaveNoticeOpenUpdate(open: boolean) {
+    if (!open) {
+        cancelUnencryptedSaveNotice();
+    }
+}
+
+function handleUnencryptedSaveNoticeDontShowAgainUpdate(value: boolean) {
+    unencryptedSaveNoticeDontShowAgain.value = value;
+}
 const analytics = useAnalytics();
 const activeToolPage = ref<'combine' | null>(null);
 const startSectionByTabId = ref<Record<string, TStartSection>>({});

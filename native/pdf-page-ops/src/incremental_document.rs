@@ -698,9 +698,14 @@ fn qpdf_dictionary_with_mode(value: &Value, allow_legacy_encoding: bool) -> Resu
         .ok_or("qpdf dictionary value is not an object")?;
     let mut dictionary = Dictionary::new();
     for (key, value) in values {
+        let decoded_key = decode_qpdf_name(key)?;
         dictionary.set(
-            decode_qpdf_name(key)?,
-            qpdf_object_with_mode(value, allow_legacy_encoding)?,
+            decoded_key.clone(),
+            if decoded_key == b"DA" {
+                qpdf_default_appearance_object(value, allow_legacy_encoding)?
+            } else {
+                qpdf_object_with_mode(value, allow_legacy_encoding)?
+            },
         );
     }
     Ok(dictionary)
@@ -782,6 +787,18 @@ fn qpdf_string_object_with_mode(value: &str, allow_legacy_encoding: bool) -> Res
     Err("qpdf JSON string has an unknown PDF encoding".into())
 }
 
+fn qpdf_default_appearance_object(value: &Value, allow_legacy_encoding: bool) -> Result<Object> {
+    if let Value::String(value) = value {
+        if let Some(appearance) = value.strip_prefix("u:") {
+            return Ok(Object::String(
+                appearance.as_bytes().to_vec(),
+                StringFormat::Literal,
+            ));
+        }
+    }
+    qpdf_object_with_mode(value, allow_legacy_encoding)
+}
+
 fn decode_qpdf_name(value: &str) -> Result<Vec<u8>> {
     let encoded = value.strip_prefix("n:").unwrap_or(value);
     let encoded = encoded
@@ -827,7 +844,10 @@ fn hex_value(value: u8) -> Result<u8> {
     }
 }
 
-fn read_terminal_xref(path: &Path, file_len: u64) -> Result<(u64, lopdf::xref::XrefType)> {
+pub(crate) fn read_terminal_xref(
+    path: &Path,
+    file_len: u64,
+) -> Result<(u64, lopdf::xref::XrefType)> {
     let mut file = File::open(path).map_err(io_domain_error)?;
     read_terminal_xref_from_file(&mut file, file_len)
 }
@@ -898,6 +918,24 @@ mod tests {
         assert_eq!(
             qpdf_string_object("b:00ff").unwrap(),
             Object::String(vec![0, 255], StringFormat::Hexadecimal)
+        );
+    }
+
+    #[test]
+    fn preserves_default_appearance_operators_from_qpdf_unicode_strings() {
+        let dictionary = qpdf_dictionary(&serde_json::json!({
+            "/DA": "u:/Helv 22 Tf 0.0667 0.0941 0.1529 rg",
+            "/Contents": "u:canonical text box",
+        }))
+        .unwrap();
+
+        assert_eq!(
+            dictionary.get(b"DA").unwrap().as_str().unwrap(),
+            b"/Helv 22 Tf 0.0667 0.0941 0.1529 rg",
+        );
+        assert_eq!(
+            dictionary.get(b"Contents").unwrap().as_str().unwrap(),
+            encode_pdf_text_string("canonical text box"),
         );
     }
 

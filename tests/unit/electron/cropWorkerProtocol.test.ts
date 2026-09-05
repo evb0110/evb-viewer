@@ -47,15 +47,6 @@ describe('decodeCropWorkerInput', () => {
             workingCopyPath: '/tmp/work.pdf',
             pages: [2],
         });
-        expect(decodeCropWorkerInput({
-            type: 'getPageGeometry',
-            workingCopyPath: '/tmp/work.pdf',
-            pageNumber: 4,
-        })).toEqual({
-            type: 'getPageGeometry',
-            workingCopyPath: '/tmp/work.pdf',
-            pageNumber: 4,
-        });
     });
 
     it.each([
@@ -113,13 +104,7 @@ describe('decodeCropWorkerInput', () => {
         {
             type: 'getPageGeometry',
             workingCopyPath: '/tmp/work.pdf',
-            pageNumber: 0,
-        },
-        {
-            type: 'getPageGeometry',
-            workingCopyPath: '/tmp/work.pdf',
             pageNumber: 1,
-            senderWebContentsId: '9',
         },
     ])('rejects malformed worker payloads (%j)', (value) => {
         expect(decodeCropWorkerInput(value)).toBeNull();

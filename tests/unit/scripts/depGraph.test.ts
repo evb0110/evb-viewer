@@ -805,7 +805,7 @@ describe('dependency graph', () => {
         expect(violations).toEqual([]);
     });
 
-    it('blocks direct PDF.js annotationStorage dirty-state access outside the save bridge', () => {
+    it('blocks direct PDF.js annotationStorage dirty-state access outside diagnostics', () => {
         expect(checkArchitectureBoundarySource(
             'app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts',
             'pdfDocument.value?.annotationStorage?.resetModified();',
@@ -814,7 +814,7 @@ describe('dependency graph', () => {
             source: 'app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts',
             target: 'app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts',
             specifier: 'source',
-            message: 'PDF.js annotationStorage dirty-state members must be accessed through the annotation save bridge.',
+            message: 'PDF.js annotationStorage internals may only be read by the retained runtime diagnostics module.',
         }]);
 
         expect(checkArchitectureBoundarySource(
@@ -825,7 +825,7 @@ describe('dependency graph', () => {
             source: 'app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts',
             target: 'app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts',
             specifier: 'source',
-            message: 'PDF.js annotationStorage dirty-state members must be accessed through the annotation save bridge.',
+            message: 'PDF.js annotationStorage internals may only be read by the retained runtime diagnostics module.',
         }]);
 
         expect(checkArchitectureBoundarySource(
@@ -836,16 +836,16 @@ describe('dependency graph', () => {
             source: 'app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts',
             target: 'app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts',
             specifier: 'source',
-            message: 'PDF.js annotationStorage dirty-state members must be accessed through the annotation save bridge.',
+            message: 'PDF.js annotationStorage internals may only be read by the retained runtime diagnostics module.',
         }]);
 
         expect(checkArchitectureBoundarySource(
-            'app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges.ts',
+            'app/modules/pdf-viewer/runtime/save/pdfjsAnnotationDiagnostics.ts',
             'const storage = document.annotationStorage;\nreturn storage?.serializable;',
         )).toEqual([]);
 
         expect(checkArchitectureBoundarySource(
-            'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationEditorBridge.ts',
+            'app/modules/pdf-viewer/runtime/save/pdfjsAnnotationDiagnostics.ts',
             'annotationStorage.onSetModified = handler;',
         )).toEqual([]);
     });
@@ -857,7 +857,7 @@ describe('dependency graph', () => {
         });
         const result = checkAnnotationDependencyGraph(graph, { includeDirectEdgeViolations: true });
 
-        expect(ANNOTATION_LATE_BOUND_EDGES.length).toBeGreaterThan(0);
+        expect(ANNOTATION_LATE_BOUND_EDGES).toEqual([]);
         expect(result.violations).toEqual([]);
         expect(result.cycles).toEqual([]);
         expect(result.inventory.lateBoundEdges.length).toBe(ANNOTATION_LATE_BOUND_EDGES.length);
@@ -867,12 +867,12 @@ describe('dependency graph', () => {
         expect(checkAnnotationDependencyEdge({
             source: 'app/modules/pdf-viewer/tools/usePdfShapeTool.ts',
             target: 'app/modules/pdf-viewer/runtime/annotations/fixtureRuntime.ts',
-            specifier: '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationCrud',
+            specifier: '@app/modules/pdf-viewer/runtime/annotations/useAnnotationCrud',
         })).toEqual([{
             rule: 'annotation-tools-to-runtime',
             source: 'app/modules/pdf-viewer/tools/usePdfShapeTool.ts',
             target: 'app/modules/pdf-viewer/runtime/annotations/fixtureRuntime.ts',
-            specifier: '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationCrud',
+            specifier: '@app/modules/pdf-viewer/runtime/annotations/useAnnotationCrud',
             message: 'PDF annotation tools must not import runtime annotation composables; share pure helpers through engine/types ports.',
         }]);
 
@@ -890,13 +890,13 @@ describe('dependency graph', () => {
 
         expect(checkAnnotationDependencyEdge({
             source: 'app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts',
-            target: 'app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute.ts',
-            specifier: '@app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute',
+            target: 'app/modules/pdf-viewer/runtime/save/nativeMutationProjection.ts',
+            specifier: '@app/modules/pdf-viewer/runtime/save/nativeMutationProjection',
         })).toEqual([{
             rule: 'annotation-save-public-entrypoint',
             source: 'app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts',
-            target: 'app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute.ts',
-            specifier: '@app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute',
+            target: 'app/modules/pdf-viewer/runtime/save/nativeMutationProjection.ts',
+            specifier: '@app/modules/pdf-viewer/runtime/save/nativeMutationProjection',
             message: 'Annotation save internals must be consumed through app/modules/pdf-viewer/public.',
         }]);
     });
@@ -904,13 +904,13 @@ describe('dependency graph', () => {
     it('reports annotation cycle paths for negative fixtures', () => {
         const fixtureGraph = { edges: [
             {
-                source: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationCrud.ts',
-                target: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationHighlight.ts',
+                source: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationCrud.ts',
+                target: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationHighlight.ts',
                 specifier: 'fixture-crud-to-highlight',
             },
             {
-                source: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationHighlight.ts',
-                target: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationCrud.ts',
+                source: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationHighlight.ts',
+                target: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationCrud.ts',
                 specifier: 'fixture-highlight-to-crud',
             },
         ] };
@@ -918,10 +918,10 @@ describe('dependency graph', () => {
 
         expect(result.violations).toEqual([{
             rule: 'annotation-dependency-cycle',
-            source: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationCrud.ts',
-            target: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationHighlight.ts',
+            source: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationCrud.ts',
+            target: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationHighlight.ts',
             specifier: 'direct import / late-bound annotation dependency graph',
-            message: 'Disallowed annotation dependency cycle: app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationCrud.ts -> app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationHighlight.ts -> app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationCrud.ts',
+            message: 'Disallowed annotation dependency cycle: app/modules/pdf-viewer/runtime/annotations/useAnnotationCrud.ts -> app/modules/pdf-viewer/runtime/annotations/useAnnotationHighlight.ts -> app/modules/pdf-viewer/runtime/annotations/useAnnotationCrud.ts',
         }]);
     });
 });

@@ -1,12 +1,9 @@
 import {randomUUID} from 'node:crypto';
-import {createReadStream} from 'node:fs';
 import {
     lstat,
     mkdtemp,
-    open,
     readdir,
     rm,
-    stat,
 } from 'node:fs/promises';
 import {join} from 'node:path';
 import type {
@@ -43,6 +40,16 @@ import {getAppTempDir} from '@electron/utils/appTempDir';
 import {createLogger} from '@electron/utils/createLogger';
 import {abortErrorFromSignal} from '@electron/utils/abort';
 import {isRecord} from '@contracts/runtimeGuards';
+import {
+    addSafePdfSidecarOffset,
+    assertPdfSidecarFitsSafeOffsetRange,
+    assertSafePdfSidecarOffset,
+    findPdfSidecarLineIndex,
+    parsePdfSidecarJsonLine,
+    readPdfSidecarLine,
+    scanPdfSidecarLines,
+    type IScannedPdfSidecar,
+} from '@electron/features/documents/main/pdfSidecarLineIndex';
 
 const ANNOTATION_INDEX_DIRECTORY_PREFIX = 'pdf-annotation-index-';
 const ANNOTATION_INDEX_FILE_NAME = 'index.jsonl';
@@ -57,21 +64,7 @@ const ANNOTATION_INDEX_SWEEP_MAX_ENTRIES = 200;
 const ANNOTATION_INDEX_NATIVE_TIMEOUT_MS = 30 * 60 * 1_000;
 const ANNOTATION_INDEX_NATIVE_STDOUT_BYTES = 64 * 1_024;
 const ANNOTATION_INDEX_NATIVE_STDERR_BYTES = 512 * 1_024;
-const MAX_SAFE_INTEGER_BIGINT = BigInt(Number.MAX_SAFE_INTEGER);
 const logger = createLogger('pdf-annotation-index');
-
-interface IAnnotationIndexLine {
-    offset: number;
-    byteLength: number;
-}
-
-interface IScannedAnnotationIndex {
-    dataStartOffset: number;
-    dataBytes: number;
-    pageCount: number;
-    entryCount: number;
-    lines: IAnnotationIndexLine[];
-}
 
 interface IAnnotationIndexSessionState {
     sessionId: string;
@@ -81,7 +74,7 @@ interface IAnnotationIndexSessionState {
     expectedRevisionToken: TDocumentRevisionToken;
     sidecarDirectory: string;
     sidecarPath: string;
-    index: IScannedAnnotationIndex;
+    index: IScannedPdfSidecar;
     abortController: AbortController;
     cancelGroup: string;
     operationPromise: Promise<void>;
@@ -95,21 +88,6 @@ const sessions = new Map<string, IAnnotationIndexSessionState>();
 
 function getOwnerId(context: IDocumentsSenderIdContext) {
     return context.senderId ?? -1;
-}
-
-function assertSafeOffset(value: number, fieldName: string) {
-    if (!Number.isSafeInteger(value) || value < 0) {
-        throw new RangeError(`${fieldName} must be a non-negative safe integer`);
-    }
-    return value;
-}
-
-function addSafeOffsets(left: number, right: number, fieldName: string) {
-    const result = left + right;
-    if (!Number.isSafeInteger(result) || result < 0) {
-        throw new RangeError(`${fieldName} exceeds the safe integer range`);
-    }
-    return result;
 }
 
 function decodeHeader(value: unknown) {
@@ -252,145 +230,12 @@ function decodeDataLine(value: unknown): IPdfAnnotationIndexEntry[] {
     return rawEntries.map(item => decodeEntry(item, pageIndex));
 }
 
-function parseJsonLine(bytes: Buffer, label: string) {
-    const withoutNewline = bytes[bytes.length - 1] === 0x0a
-        ? bytes.subarray(0, bytes.length - 1)
-        : bytes;
-    const jsonBytes = withoutNewline[withoutNewline.length - 1] === 0x0d
-        ? withoutNewline.subarray(0, withoutNewline.length - 1)
-        : withoutNewline;
-    if (jsonBytes.length === 0) {
-        throw new Error(`PDF annotation index sidecar contains an empty ${label} line`);
-    }
-    try {
-        return JSON.parse(jsonBytes.toString('utf8')) as unknown;
-    } catch (error) {
-        throw new Error(`PDF annotation index sidecar contains invalid JSON in its ${label} line`, {cause: error});
-    }
-}
-
-function scanSidecarLines(sidecarPath: string): Promise<IScannedAnnotationIndex> {
-    return new Promise((resolveScan, rejectScan) => {
-        const lines: IAnnotationIndexLine[] = [];
-        let stream: ReturnType<typeof createReadStream> | null = null;
-        let pending = Buffer.alloc(0) as Buffer;
-        let pendingStartOffset = 0;
-        let dataStartOffset = 0;
-        let totalBytes = 0;
-        let headerPageCount: number | null = null;
-        let entryCount = 0;
-        let headerSeen = false;
-        let settled = false;
-
-        const rejectOnce = (error: unknown) => {
-            if (settled) {
-                return;
-            }
-            settled = true;
-            stream?.destroy();
-            rejectScan(error);
-        };
-        const processLine = (line: Buffer, offset: number) => {
-            if (line.length === 0 || line.length > ANNOTATION_INDEX_LINE_MAX_BYTES) {
-                throw new Error(`PDF annotation index sidecar line exceeds ${ANNOTATION_INDEX_LINE_MAX_BYTES} bytes`);
-            }
-            const lineValue = parseJsonLine(line, headerSeen ? 'data' : 'header');
-            if (!headerSeen) {
-                headerPageCount = decodeHeader(lineValue).pageCount;
-                dataStartOffset = addSafeOffsets(offset, line.length, 'PDF annotation index offset');
-                headerSeen = true;
-                return;
-            }
-            const entries = decodeDataLine(lineValue);
-            entryCount = addSafeOffsets(entryCount, entries.length, 'PDF annotation index entry count');
-            lines.push({
-                offset: addSafeOffsets(offset, -dataStartOffset, 'PDF annotation index offset'),
-                byteLength: line.length,
-            });
-        };
-        const consume = (chunk: Buffer) => {
-            totalBytes = addSafeOffsets(totalBytes, chunk.length, 'PDF annotation index sidecar size');
-            pending = pending.length === 0 ? chunk : Buffer.concat([
-                pending,
-                chunk,
-            ]);
-            if (pending.length > ANNOTATION_INDEX_LINE_MAX_BYTES && pending.indexOf(0x0a) < 0) {
-                throw new Error(`PDF annotation index sidecar line exceeds ${ANNOTATION_INDEX_LINE_MAX_BYTES} bytes`);
-            }
-            let newlineIndex = pending.indexOf(0x0a);
-            while (newlineIndex >= 0) {
-                const lineLength = newlineIndex + 1;
-                const line = pending.subarray(0, lineLength);
-                processLine(line, pendingStartOffset);
-                pendingStartOffset = addSafeOffsets(pendingStartOffset, lineLength, 'PDF annotation index offset');
-                pending = pending.subarray(lineLength);
-                newlineIndex = pending.indexOf(0x0a);
-            }
-            if (pending.length > ANNOTATION_INDEX_LINE_MAX_BYTES) {
-                throw new Error(`PDF annotation index sidecar line exceeds ${ANNOTATION_INDEX_LINE_MAX_BYTES} bytes`);
-            }
-        };
-
-        stream = createReadStream(sidecarPath, {highWaterMark: 64 * 1_024});
-        stream.on('data', (chunk: Buffer | string) => {
-            try {
-                consume(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
-            } catch (error) {
-                rejectOnce(error);
-            }
-        });
-        stream.once('error', rejectOnce);
-        stream.once('end', () => {
-            if (settled) {
-                return;
-            }
-            try {
-                if (pending.length > 0) {
-                    processLine(pending, pendingStartOffset);
-                    pendingStartOffset = addSafeOffsets(pendingStartOffset, pending.length, 'PDF annotation index offset');
-                }
-                if (headerPageCount === null) {
-                    throw new Error('PDF annotation index sidecar is empty');
-                }
-                if (pendingStartOffset !== totalBytes) {
-                    throw new Error('PDF annotation index sidecar offset accounting failed');
-                }
-                settled = true;
-                resolveScan({
-                    dataStartOffset,
-                    dataBytes: addSafeOffsets(totalBytes, -dataStartOffset, 'PDF annotation index bytes'),
-                    pageCount: headerPageCount,
-                    entryCount,
-                    lines,
-                });
-            } catch (error) {
-                rejectOnce(error);
-            }
-        });
-    });
-}
-
 function parseChunkOptions(options: IPdfAnnotationIndexChunkOptions | undefined) {
     const chunkBytes = options?.chunkBytes ?? ANNOTATION_INDEX_LINE_MAX_BYTES;
     if (!Number.isSafeInteger(chunkBytes) || chunkBytes < 1 || chunkBytes > ANNOTATION_INDEX_LINE_MAX_BYTES) {
         throw new RangeError(`Annotation index chunkBytes must be between 1 and ${ANNOTATION_INDEX_LINE_MAX_BYTES}`);
     }
     return chunkBytes;
-}
-
-function findLineIndex(lines: readonly IAnnotationIndexLine[], offset: number) {
-    let low = 0;
-    let high = lines.length - 1;
-    while (low <= high) {
-        const middle = Math.floor((low + high) / 2);
-        const line = lines[middle]!;
-        if (line.offset === offset) {
-            return middle;
-        }
-        if (line.offset < offset) low = middle + 1;
-        else high = middle - 1;
-    }
-    return -1;
 }
 
 function assertSessionOwner(session: IAnnotationIndexSessionState, context: IDocumentsSenderIdContext) {
@@ -558,12 +403,18 @@ export async function beginPdfAnnotationIndex(
                 throw abortErrorFromSignal(abortController.signal);
             }
             await assertWorkingCopyRevisionCurrent(resolvedPath, expectedRevisionToken);
-            const sidecarStat = await stat(sidecarPath, {bigint: true});
-            if (sidecarStat.size > MAX_SAFE_INTEGER_BIGINT) {
-                throw new Error('PDF annotation index sidecar exceeds the safe offset range');
-            }
-            session.index = await scanSidecarLines(sidecarPath);
-            if (session.index.dataBytes !== Number(sidecarStat.size) - session.index.dataStartOffset) {
+            const sidecarSize = await assertPdfSidecarFitsSafeOffsetRange(
+                sidecarPath,
+                'PDF annotation index',
+            );
+            session.index = await scanPdfSidecarLines(sidecarPath, {
+                maxLineBytes: ANNOTATION_INDEX_LINE_MAX_BYTES,
+                label: 'PDF annotation index',
+                signal: abortController.signal,
+                decodeHeader: value => decodeHeader(value).pageCount,
+                decodeDataLine,
+            });
+            if (session.index.dataBytes !== sidecarSize - session.index.dataStartOffset) {
                 throw new Error('PDF annotation index sidecar changed while it was being indexed');
             }
             session.lastTouchedAt = Date.now();
@@ -610,7 +461,7 @@ export async function readPdfAnnotationIndexChunk(
     if (session.canceled || session.released) {
         throw new Error('PDF annotation index session is canceled');
     }
-    const requestedOffset = assertSafeOffset(offset, 'offset');
+    const requestedOffset = assertSafePdfSidecarOffset(offset, 'offset');
     const chunkBytes = parseChunkOptions(options);
     if (requestedOffset === session.index.dataBytes) {
         session.lastTouchedAt = Date.now();
@@ -622,7 +473,7 @@ export async function readPdfAnnotationIndexChunk(
             entries: [],
         };
     }
-    const lineIndex = findLineIndex(session.index.lines, requestedOffset);
+    const lineIndex = findPdfSidecarLineIndex(session.index.lines, requestedOffset);
     if (lineIndex < 0) {
         throw new RangeError('PDF annotation index offset must point to the beginning of a chunk line');
     }
@@ -630,29 +481,15 @@ export async function readPdfAnnotationIndexChunk(
     if (line.byteLength > chunkBytes) {
         throw new RangeError(`PDF annotation index line requires a chunk of at least ${line.byteLength} bytes`);
     }
-    const absoluteOffset = addSafeOffsets(session.index.dataStartOffset, requestedOffset, 'PDF annotation index offset');
-    const lineBytes = Buffer.allocUnsafe(line.byteLength);
-    const sidecarHandle = await open(session.sidecarPath, 'r');
-    try {
-        let bytesRead = 0;
-        while (bytesRead < line.byteLength) {
-            const readResult = await sidecarHandle.read(
-                lineBytes,
-                bytesRead,
-                line.byteLength - bytesRead,
-                absoluteOffset + bytesRead,
-            );
-            if (readResult.bytesRead === 0) {
-                throw new Error('PDF annotation index sidecar ended before the requested chunk');
-            }
-            bytesRead += readResult.bytesRead;
-        }
-    } finally {
-        await sidecarHandle.close();
-    }
-    const entries = decodeDataLine(parseJsonLine(lineBytes, 'data'));
+    const lineBytes = await readPdfSidecarLine(
+        session.sidecarPath,
+        session.index.dataStartOffset,
+        line,
+        'PDF annotation index',
+    );
+    const entries = decodeDataLine(parsePdfSidecarJsonLine(lineBytes, 'data'));
     const nextOffset = lineIndex + 1 < session.index.lines.length
-        ? addSafeOffsets(line.offset, line.byteLength, 'PDF annotation index offset')
+        ? addSafePdfSidecarOffset(line.offset, line.byteLength, 'PDF annotation index offset')
         : null;
     session.lastTouchedAt = Date.now();
     return {

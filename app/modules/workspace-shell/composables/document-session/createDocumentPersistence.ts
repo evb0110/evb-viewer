@@ -7,6 +7,7 @@ import type {
     IPdfNativeAnnotationIdentityBinding,
     IPdfNativeAnnotationDelete,
     IPdfNativeFreeTextNote,
+    IPdfNativePlacedImageGeometryUpdate,
     IPdfNativeMutationSet,
     IPdfNativeSaveResult,
     IPdfNoteGeometryUpdate,
@@ -22,8 +23,6 @@ import type {
     IPdfLoadedState,
 } from '@app/modules/workspace-shell/composables/document-session/createDocumentHistory';
 import { createDocumentPersistResults } from '@app/modules/workspace-shell/composables/document-session/createDocumentPersistResults';
-import { savePdfBytesAs } from '@app/services/pdf-file/savePdfBytesAs';
-import { savePdfBytesToWorkingCopy } from '@app/services/pdf-file/savePdfBytesToWorkingCopy';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getErrorMessage } from '@app/utils/error';
 import { runDetached } from '@app/utils/asyncGuard';
@@ -39,11 +38,11 @@ import {
 } from '@app/modules/workspace-shell/composables/document-session/adoptPathBackedPersistedState';
 import { BROWSER_MAX_FULL_READ_BYTES } from '@app/platform/browser/browserDocumentConstants';
 import {
-    collectExpectedNativeMarkupIdentityIds,
+    collectExpectedNativeIdentityIds,
     createDocumentMutationRevisionOptions,
     createNativeStagedCommitOptions,
-    haveSameNativeMarkupIdentityBindings,
-    validateNativeMarkupIdentityBindings,
+    haveSameNativeIdentityBindings,
+    validateNativeIdentityBindings,
 } from '@app/modules/workspace-shell/composables/document-session/nativePdfMutationCommit';
 
 interface IPdfPersistPhaseTiming {
@@ -416,15 +415,21 @@ export function createDocumentPersistence(
                 });
             }
 
-            const validation = await savePdfBytesToWorkingCopy(
+            const wrote = await getDocumentFilesCapability().writeFile(
                 workingPath,
                 data,
                 resolveDocumentMutationRevisionOptions({
                     expectedDocumentRevisionToken,
                     ...(opts?.changedObjectRefs?.length ? {changedObjectRefs: opts.changedObjectRefs} : {}),
+                    ...(opts?.commitCallbacks ? {commitCallbacks: opts.commitCallbacks} : {}),
                 }),
-                opts?.commitCallbacks,
             );
+            const validation = {
+                isValid: wrote,
+                tool: 'native' as const,
+                errors: wrote ? [] : [deps.t('errors.file.save')],
+                warnings: [],
+            };
             if (!state.isActiveWorkingCopy(workingPath)) {
                 BrowserLogger.debug('workspace', 'Skipped stale PDF save completion', {
                     workingPath,
@@ -701,6 +706,7 @@ export function createDocumentPersistence(
             verifyPathBeforeExpose?: (path: TDocumentRef, knownSize: number) => Promise<void>;
             assertBeforeExpose?: () => Promise<void> | void;
             geometryUpdates?: IPdfNoteGeometryUpdate[];
+            placedImageGeometryUpdates?: IPdfNativePlacedImageGeometryUpdate[];
             freeTextNotes?: IPdfNativeFreeTextNote[];
             deletes?: IPdfNativeAnnotationDelete[];
         },
@@ -708,6 +714,9 @@ export function createDocumentPersistence(
         return trySavePdfNativeMutations({
             ...(updates.length > 0 ? {updates} : {}),
             ...((opts.geometryUpdates?.length ?? 0) > 0 ? {geometryUpdates: opts.geometryUpdates} : {}),
+            ...((opts.placedImageGeometryUpdates?.length ?? 0) > 0
+                ? {placedImageGeometryUpdates: opts.placedImageGeometryUpdates}
+                : {}),
             ...((opts.freeTextNotes?.length ?? 0) > 0 ? {freeTextNotes: opts.freeTextNotes} : {}),
             ...((opts.deletes?.length ?? 0) > 0 ? {deletes: opts.deletes} : {}),
         }, opts);
@@ -728,21 +737,25 @@ export function createDocumentPersistence(
         const documentFiles = getDocumentFilesCapability();
         const updates = mutations.updates ?? [];
         const geometryUpdates = mutations.geometryUpdates ?? [];
+        const placedImageGeometryUpdates = mutations.placedImageGeometryUpdates ?? [];
         const freeTextNotes = mutations.freeTextNotes ?? [];
+        const textBoxes = mutations.textBoxes ?? [];
         const freeTextEditors = mutations.freeTextEditors ?? [];
         const deletes = mutations.deletes ?? [];
         const hasPageLabels = mutations.pageLabels !== undefined;
         const hasBookmarks = mutations.bookmarks !== undefined;
         const hasShapes = mutations.shapes !== undefined;
         const hasMarkup = mutations.markup !== undefined;
-        const expectedNativeMarkupIdentityIds = collectExpectedNativeMarkupIdentityIds(mutations);
+        const expectedNativeIdentityIds = collectExpectedNativeIdentityIds(mutations);
         const placedImages = mutations.placedImages ?? [];
         const hasPlacedImages = placedImages.length > 0;
         if (
             freeTextNotes.length === 0
+            && textBoxes.length === 0
             && freeTextEditors.length === 0
             && updates.length === 0
             && geometryUpdates.length === 0
+            && placedImageGeometryUpdates.length === 0
             && deletes.length === 0
             && !hasPageLabels
             && !hasBookmarks
@@ -762,10 +775,12 @@ export function createDocumentPersistence(
             && !hasMarkup
             && !hasPlacedImages
             && freeTextNotes.length === 0
+            && textBoxes.length === 0
             && freeTextEditors.length === 0
             && deletes.length === 0
             && updates.length > 0
             && geometryUpdates.length === 0
+            && placedImageGeometryUpdates.length === 0
             && typeof documentFiles.savePdfNoteTextUpdates === 'function'
         );
         const canUseLegacyNativeNoteChanges = (
@@ -774,7 +789,9 @@ export function createDocumentPersistence(
             && !hasShapes
             && !hasMarkup
             && !hasPlacedImages
+            && expectedNativeIdentityIds.length === 0
             && (geometryUpdates.length > 0 || freeTextNotes.length > 0 || deletes.length > 0)
+            && textBoxes.length === 0
             && freeTextEditors.length === 0
             && typeof documentFiles.savePdfNoteChanges === 'function'
         );
@@ -787,7 +804,9 @@ export function createDocumentPersistence(
                 hasLegacyNoteChanges: typeof documentFiles.savePdfNoteChanges === 'function',
                 updateCount: updates.length,
                 geometryUpdateCount: geometryUpdates.length,
+                placedImageGeometryUpdateCount: placedImageGeometryUpdates.length,
                 freeTextNoteCount: freeTextNotes.length,
+                textBoxCount: textBoxes.length,
                 freeTextEditorCount: freeTextEditors.length,
                 deleteCount: deletes.length,
             }));
@@ -834,11 +853,6 @@ export function createDocumentPersistence(
         };
 
         try {
-            const forceSaveAs = await measurePdfPersistPhase(
-                phaseTimings,
-                'should-force-save-as',
-                () => deps.shouldForceSaveAsForWorkingCopy(requestedSaveMode, workingPath),
-            );
             if (!state.isActiveWorkingCopy(workingPath)) {
                 BrowserLogger.debug('workspace', 'Skipped stale native PDF mutation save before write', {
                     workingPath,
@@ -848,12 +862,6 @@ export function createDocumentPersistence(
                 logRendererTimings('stale-before-write');
                 return createStalePersistResult(requestedSaveMode, false);
             }
-            if (forceSaveAs) {
-                BrowserLogger.diagnostic('workspace', 'Native PDF mutation persistence returned no result', {reason: 'force-save-as'});
-                logRendererTimings('force-save-as');
-                return null;
-            }
-
             const result = await measurePdfPersistPhase(
                 phaseTimings,
                 'native-ipc',
@@ -883,9 +891,9 @@ export function createDocumentPersistence(
                         }
                         let appliedIdentityBindings: IPdfNativeAnnotationIdentityBinding[];
                         try {
-                            appliedIdentityBindings = validateNativeMarkupIdentityBindings(
+                            appliedIdentityBindings = validateNativeIdentityBindings(
                                 applied.identityBindings,
-                                expectedNativeMarkupIdentityIds,
+                                expectedNativeIdentityIds,
                                 'Native staged identity bindings',
                             );
                             // The native writer validates the projected mutation set against
@@ -943,12 +951,12 @@ export function createDocumentPersistence(
                         if (!committed.applied || !committed.validation?.isValid) {
                             throw new NativeMutationPreExposeError('Targeted native mutation validation failed before commit');
                         }
-                        const committedIdentityBindings = validateNativeMarkupIdentityBindings(
+                        const committedIdentityBindings = validateNativeIdentityBindings(
                             committed.identityBindings,
-                            expectedNativeMarkupIdentityIds,
+                            expectedNativeIdentityIds,
                             'Native committed identity bindings',
                         );
-                        if (!haveSameNativeMarkupIdentityBindings(appliedIdentityBindings, committedIdentityBindings)) {
+                        if (!haveSameNativeIdentityBindings(appliedIdentityBindings, committedIdentityBindings)) {
                             throw new NativeMutationPreExposeError('Native identity bindings changed between staging and commit');
                         }
                         return committed;
@@ -979,9 +987,9 @@ export function createDocumentPersistence(
                 logRendererTimings('not-applied', {validation: result.validation});
                 return null;
             }
-            const materializedIdentityBindings = validateNativeMarkupIdentityBindings(
+            const materializedIdentityBindings = validateNativeIdentityBindings(
                 result.identityBindings,
-                expectedNativeMarkupIdentityIds,
+                expectedNativeIdentityIds,
                 'Native identity bindings',
             );
             if (result.syncError) {
@@ -1078,36 +1086,16 @@ export function createDocumentPersistence(
             const saveAsOptions = opts?.optimizeLossless === true
                 ? { optimizeLossless: true }
                 : undefined;
-            const saveAsResult = data
-                ? await savePdfBytesAs(
+            void data;
+            const saveAsResult = {
+                path: await getDocumentFilesCapability().savePdfAs(
                     workingPath,
-                    data,
                     saveAsOptions,
                     revisionOptions,
-                    opts?.commitCallbacks,
-                )
-                : {
-                    path: await getDocumentFilesCapability().savePdfAs(
-                        workingPath,
-                        saveAsOptions,
-                        revisionOptions,
-                    ),
-                    validation: null,
-                };
+                ),
+                validation: null,
+            };
             const savedPath = saveAsResult.path;
-            if (saveAsResult.validation && !saveAsResult.validation.isValid) {
-                state.error.value = saveAsResult.validation.errors.join('\n') || deps.t('errors.file.save');
-                if (savedPath && state.isActiveWorkingCopy(previousWorkingPath)) {
-                    // A legacy or compatibility main process can report a
-                    // post-commit refresh error as invalid validation. The
-                    // target is already durable, so keep renderer path state
-                    // aligned while leaving the working copy dirty for retry.
-                    state.originalPath.value = savedPath;
-                    state.requiresSaveAsOnFirstSave.value = false;
-                    return createPersistResult(false, requestedSaveMode, true, savedPath);
-                }
-                return createFailedPersistResult(requestedSaveMode, true);
-            }
             if (!state.isActiveWorkingCopy(previousWorkingPath)) {
                 BrowserLogger.debug('workspace', 'Skipped stale Save As completion', {
                     workingPath: previousWorkingPath,

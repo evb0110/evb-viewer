@@ -102,7 +102,7 @@ function createOptions() {
         bookmarkItems: ref([]),
         hasAnnotationChanges: vi.fn(() => false),
         persistAllAnnotationNotes: vi.fn(async () => true),
-        materializeAnnotationsForPageMutation: vi.fn(async () => true),
+        saveAnnotationsForPageMutation: vi.fn(async () => true),
         pickFileToOpen: vi.fn(async () => null),
         openFileWithViewerLifecycle: vi.fn(async () => openedOutcome),
         openFileDirectWithViewerLifecycle: vi.fn(async () => openedOutcome),

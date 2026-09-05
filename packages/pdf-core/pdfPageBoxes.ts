@@ -11,7 +11,13 @@ import {
 } from 'pdf-lib';
 import { safePdfDictLookupArray } from '@pdf-core/safePdfLookup';
 
+// Removal condition: pdf-page-ops gains an N-source Form XObject composition
+// operation, allowing the print path to stop using pdf-lib page geometry.
+
 export type IPdfPageBox = IPdfBox;
+
+// Keep pdf-lib here until pdf-page-ops gains the N-source Form XObject
+// composition needed by the print imposition path.
 
 export type TPdfRect = [number, number, number, number];
 

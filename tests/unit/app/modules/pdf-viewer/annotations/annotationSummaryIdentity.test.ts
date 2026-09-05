@@ -12,7 +12,7 @@ import type { IAnnotationCommentSummary } from '@app/types/annotations';
 function summary(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {
     return {
         id: 'editor-1',
-        stableKey: 'src:editor:0:editor-1',
+        stableKey: 'ann:0:editor-1',
         pageIndex: 0,
         pageNumber: 1,
         text: '',
@@ -75,7 +75,7 @@ describe('annotationSummaryIdentity', () => {
     it('keeps reference identity stable until annotation-name enrichment arrives', () => {
         const referenceSummary = summary({
             id: 'pdf:0:12R0',
-            stableKey: 'src:pdf:0:12R0',
+            stableKey: 'ann:0:12R0',
             source: 'pdf',
             annotationId: '12R0',
         });

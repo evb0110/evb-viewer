@@ -95,6 +95,7 @@ import { ANNOTATION_COLOR_SWATCHES } from '@app/constants/pdfColors';
 import { ANNOTATION_PROPERTY_RANGES } from '@app/constants/annotationDefaults';
 import { isAuthoringAnnotationTool } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isAuthoringAnnotationTool';
 import { isShapeTool } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isShapeTool';
+import type { ITextBoxEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 
 type TDrawStyle = 'pen' | 'pencil' | 'marker';
 
@@ -116,6 +117,7 @@ interface IDrawStylePreset {
 interface IProps {
     tool: TAnnotationTool;
     settings: IAnnotationSettings;
+    selectedTextBox?: Pick<ITextBoxEntity, 'fontSize' | 'color'> | null;
 }
 
 const { t } = useTypedI18n();
@@ -123,6 +125,7 @@ const { t } = useTypedI18n();
 const {
     settings,
     tool,
+    selectedTextBox = null,
 } = defineProps<IProps>();
 
 const emit = defineEmits<{
@@ -202,6 +205,9 @@ const activeWidthValue = computed(() => {
     if (!activeWidthControl.value) {
         return 0;
     }
+    if (tool === 'text' && selectedTextBox) {
+        return selectedTextBox.fontSize;
+    }
     return settings[activeWidthControl.value.key];
 });
 
@@ -215,6 +221,10 @@ const activeColorSwatch = computed(() => {
     }
 
     if (tool === 'text') {
+        return selectedTextBox?.color ?? settings.textColor;
+    }
+
+    if (tool === 'note') {
         return settings.textColor;
     }
 
@@ -280,6 +290,12 @@ function handleColorInput(color: string) {
     }
 
     if (tool === 'text') {
+        updateSetting('textColor', color);
+        emit('color-selected');
+        return;
+    }
+
+    if (tool === 'note') {
         updateSetting('textColor', color);
         emit('color-selected');
         return;

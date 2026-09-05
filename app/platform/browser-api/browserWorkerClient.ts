@@ -92,10 +92,6 @@ export class BrowserWorkerClient<
         return worker;
     }
 
-    public isActiveWorker(worker: Worker) {
-        return this.worker === worker;
-    }
-
     public hasWorker() {
         return this.worker !== null;
     }

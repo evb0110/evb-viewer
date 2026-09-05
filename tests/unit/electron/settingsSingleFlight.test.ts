@@ -15,6 +15,7 @@ import {
     vi,
 } from 'vitest';
 import type * as FsPromises from 'node:fs/promises';
+import type * as Os from 'node:os';
 
 function deferred<T>() {
     let resolve: (value: T) => void = () => {};
@@ -29,6 +30,7 @@ function deferred<T>() {
 
 const mocks = vi.hoisted(() => ({
     readFile: vi.fn(),
+    userInfo: vi.fn(),
     userDataPath: '',
 }));
 
@@ -38,6 +40,13 @@ vi.mock('node:fs/promises', async (importOriginal) => {
     return {
         ...actual,
         readFile: mocks.readFile,
+    };
+});
+vi.mock('node:os', async (importOriginal) => {
+    const actual = await importOriginal<typeof Os>();
+    return {
+        ...actual,
+        userInfo: mocks.userInfo,
     };
 });
 
@@ -50,6 +59,8 @@ describe('settings single-flight loading', () => {
         mocks.userDataPath = await mkdtemp(join(tmpdir(), 'evb-settings-single-flight-'));
         paths.push(mocks.userDataPath);
         await writeFile(join(mocks.userDataPath, 'settings.json'), '{}');
+        mocks.readFile.mockResolvedValue('{}');
+        mocks.userInfo.mockReturnValue({username: 'electron-user'});
     });
 
     afterEach(async () => {
@@ -130,6 +141,31 @@ describe('settings single-flight loading', () => {
             theme: 'dark',
         });
         expect(mocks.readFile).toHaveBeenCalledOnce();
+    });
+
+    it.each([
+        [
+            'missing',
+            {},
+        ],
+        [
+            'empty',
+            {authorName: ''},
+        ],
+    ])('uses the Electron OS username when authorName is %s', async (_label, payload) => {
+        mocks.readFile.mockResolvedValue(JSON.stringify(payload));
+        const {loadSettings} = await import('@electron/settings');
+
+        await expect(loadSettings()).resolves.toMatchObject({authorName: 'electron-user'});
+        expect(mocks.userInfo).toHaveBeenCalledOnce();
+    });
+
+    it('preserves an explicit authorName without consulting the OS username', async () => {
+        mocks.readFile.mockResolvedValue(JSON.stringify({authorName: 'Configured author'}));
+        const {loadSettings} = await import('@electron/settings');
+
+        await expect(loadSettings()).resolves.toMatchObject({authorName: 'Configured author'});
+        expect(mocks.userInfo).not.toHaveBeenCalled();
     });
 
     it('fails closed when an existing settings file cannot be read', async () => {

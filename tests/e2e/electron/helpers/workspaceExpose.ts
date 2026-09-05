@@ -29,6 +29,7 @@ export interface IFindWorkspaceExposeOptions {
 export interface IWorkspaceToolbarSnapshotRequirements {
     continuousScroll?: boolean;
     currentPage?: number;
+    effectiveZoom?: number;
     hasPdf?: boolean;
     minEffectiveZoom?: number;
     minTotalPages?: number;
@@ -213,6 +214,7 @@ export async function waitForWorkspaceToolbarSnapshot(
             && (typeof payload.requirements.currentPage !== 'number' || snapshot.currentPage === payload.requirements.currentPage)
             && (typeof payload.requirements.continuousScroll !== 'boolean' || snapshot.continuousScroll === payload.requirements.continuousScroll)
             && (typeof payload.requirements.minTotalPages !== 'number' || (snapshot.totalPages ?? 0) >= payload.requirements.minTotalPages)
+            && (typeof payload.requirements.effectiveZoom !== 'number' || Math.abs((snapshot.effectiveZoom ?? Number.NaN) - payload.requirements.effectiveZoom) <= 0.001)
             && (typeof payload.requirements.minEffectiveZoom !== 'number' || (snapshot.effectiveZoom ?? 0) >= payload.requirements.minEffectiveZoom)
             && (payload.requirements.zoomMode === undefined || snapshot.zoomMode === payload.requirements.zoomMode)
         );
@@ -234,6 +236,7 @@ export async function waitForWorkspaceToolbarSnapshot(
             && (typeof requirements.currentPage !== 'number' || snapshot.currentPage === requirements.currentPage)
             && (typeof requirements.continuousScroll !== 'boolean' || snapshot.continuousScroll === requirements.continuousScroll)
             && (typeof requirements.minTotalPages !== 'number' || snapshot.totalPages >= requirements.minTotalPages)
+            && (typeof requirements.effectiveZoom !== 'number' || Math.abs(snapshot.effectiveZoom - requirements.effectiveZoom) <= 0.001)
             && (typeof requirements.minEffectiveZoom !== 'number' || snapshot.effectiveZoom >= requirements.minEffectiveZoom)
             && (requirements.zoomMode === undefined || snapshot.zoomMode === requirements.zoomMode)
         ) {

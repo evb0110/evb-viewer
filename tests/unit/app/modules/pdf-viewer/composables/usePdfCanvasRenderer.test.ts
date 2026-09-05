@@ -129,6 +129,27 @@ describe('usePdfCanvasRenderer', () => {
         expect(result?.annotationCanvasMap).toBeNull();
     });
 
+    it('disables annotation appearances while the canonical projection is pending', async () => {
+        const { canvas } = installCanvasDocument();
+        const annotationProjectionReady = ref(false);
+        const pdfPage = createPdfPage({ getOperatorList: vi.fn() });
+        const renderer = usePdfCanvasRenderer({
+            outputScale: 1,
+            annotationProjectionReady,
+        });
+
+        const result = await renderer.renderCanvas(pdfPage as never, 1);
+
+        expect(pdfPage.getOperatorList).not.toHaveBeenCalled();
+        expect(pdfPage.render).toHaveBeenCalledWith(expect.objectContaining({
+            annotationMode: AnnotationMode.DISABLE,
+            canvas,
+        }));
+        const renderContext = cast<Array<[Record<string, unknown>]>>(pdfPage.render.mock.calls)[0]?.[0];
+        expect(renderContext).not.toHaveProperty('annotationCanvasMap');
+        expect(result?.annotationCanvasMap).toBeNull();
+    });
+
     it('applies the settled-render default canvas pixel budget', async () => {
         const {
             canvas,

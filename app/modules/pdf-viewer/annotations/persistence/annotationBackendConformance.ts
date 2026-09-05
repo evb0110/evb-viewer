@@ -3,18 +3,14 @@ import type {
     IAnnotationMutationStep,
     ISerializationPlan,
     IAnnotationReopenReader,
-} from '@app/modules/pdf-viewer/serialization/serializationPlan';
+} from '@app/modules/pdf-viewer/annotations/persistence/annotationSavePlan';
 import {
     SERIALIZATION_MUTATION_ORDER,
     verifyAnnotationSave,
-} from '@app/modules/pdf-viewer/serialization/serializationPlan';
+} from '@app/modules/pdf-viewer/annotations/persistence/annotationSavePlan';
 export type {IBackendAnnotationMutation} from '@app/modules/pdf-viewer/engine/annotations/persistence/backendAnnotationMutation';
 
-export const ANNOTATION_PERSISTENCE_BACKENDS = [
-    'native-append',
-    'pdf-lib-rewrite',
-    'pdfjs-save-document',
-] as const;
+export const ANNOTATION_PERSISTENCE_BACKENDS = ['native-append'] as const;
 
 export type TAnnotationPersistenceBackend = typeof ANNOTATION_PERSISTENCE_BACKENDS[number];
 

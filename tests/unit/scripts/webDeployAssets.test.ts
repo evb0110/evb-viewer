@@ -34,6 +34,7 @@ interface IWebDeployAssetsModule {
         modulePreloads: string[];
         staticAssets: string[];
     }>;
+    collectWebDeployOutputViolations: (rootPath: string) => Promise<string[]>;
     validateWebDeployAssets: (options?: {
         env?: NodeJS.ProcessEnv;
         outputRoots?: string[];
@@ -52,6 +53,7 @@ const {
     REQUIRED_WEB_OUTPUT_CONTRACTS,
     REQUIRED_WEB_WASM_ASSETS,
     assertInitialRendererDependencyGraph,
+    collectWebDeployOutputViolations,
     getExpectedWebDeployOutputRoots,
     getNodeServerBootTiming,
     parseWebDeployAssetOptions,
@@ -108,6 +110,39 @@ async function createTempProject() {
 }
 
 describe('web deploy assets check', () => {
+    it('rejects PDF.js package artifacts but allows copied PDF runtime assets', async () => {
+        const tempRoot = await mkdtemp(path.join(tmpdir(), 'evb-web-output-scan-'));
+        try {
+            await mkdir(path.join(tempRoot, 'public/pdf/cmaps'), {recursive: true});
+            await mkdir(path.join(tempRoot, 'vendor/pdfjs-dist/package'), {recursive: true});
+            await mkdir(path.join(tempRoot, 'vendor/pdfjs-dist-codex-preview/build'), {recursive: true});
+            await mkdir(path.join(tempRoot, 'vendor/djvujs'), {recursive: true});
+            await writeFile(path.join(tempRoot, 'pdfjs-dist.tgz'), 'archive');
+            await writeFile(path.join(tempRoot, 'vendor/pdfjs-dist/package/pdf.mjs'), 'package');
+            await writeFile(path.join(tempRoot, 'vendor/pdfjs-dist-codex-preview/build/pdf.mjs'), 'preview package');
+            await writeFile(path.join(tempRoot, 'vendor/djvujs/djvu.js'), 'runtime vendor');
+            await writeFile(path.join(tempRoot, 'public/pdf/cmaps/78-H.bcmap'), 'cmap');
+            await writeFile(path.join(tempRoot, 'public/pdf/pdf.worker.min.mjs'), 'worker');
+            await writeFile(path.join(tempRoot, 'public/pdf/pdf.sandbox.mjs'), 'alternate');
+            await writeFile(path.join(tempRoot, 'public/pdf/pdf.d.mts'), 'declaration');
+            await writeFile(path.join(tempRoot, 'public/pdf/pdf.mjs.map'), 'map');
+            await writeFile(path.join(tempRoot, 'public/pdf/pdf_viewer.mjs.map'), 'map');
+            await expect(collectWebDeployOutputViolations(tempRoot)).resolves.toEqual([
+                'pdfjs-dist.tgz',
+                'public/pdf/pdf.d.mts',
+                'public/pdf/pdf.mjs.map',
+                'public/pdf/pdf.sandbox.mjs',
+                'public/pdf/pdf_viewer.mjs.map',
+                'vendor/pdfjs-dist-codex-preview/build/pdf.mjs',
+                'vendor/pdfjs-dist/package/pdf.mjs',
+            ]);
+        } finally {
+            await rm(tempRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
     it('keeps the strict boot deadline except for slower Windows cold starts', () => {
         expect(getNodeServerBootTiming('linux')).toEqual({
             healthDeadlineMs: 8_000,

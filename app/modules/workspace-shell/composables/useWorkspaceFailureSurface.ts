@@ -21,7 +21,7 @@ import {
  * annotation leaves nothing behind to present, so it is told once and dropped
  * rather than parked in a container nothing reads.
  */
-type TWorkspaceFailureDomain = 'save' | 'annotation';
+type TWorkspaceFailureDomain = 'save' | 'annotation' | 'open';
 
 export type TWorkspaceSaveFailureReason =
     | 'validation-rejected'
@@ -32,12 +32,22 @@ export type TWorkspaceSaveFailureReason =
     | 'document-changed'
     | 'unexpected-error';
 
+type TWorkspaceOpenFailureReason = 'unsupported-encryption';
+
 export const useWorkspaceFailureSurface = () => {
     const { t } = useTypedI18n();
     const toast = useToast();
     const { presentFailureToast } = useFailureToast();
     const hasSaveFailureState = ref(false);
     const saveFailurePresentation = shallowRef<FailurePresentation | null>(null);
+
+    function describeOpenFailure(reason: TWorkspaceOpenFailureReason): string {
+        switch (reason) {
+            case 'unsupported-encryption':
+                return t('errors.file.unsupportedEncryption');
+        }
+    }
+
     // Only the operation reported last per domain, so a long session of failed
     // attempts cannot accumulate ids nothing will ever read again.
     const lastReportedOperationIds = new Map<TWorkspaceFailureDomain, string>();
@@ -177,6 +187,40 @@ export const useWorkspaceFailureSurface = () => {
         return true;
     }
 
+    function reportOpenFailure(
+        operationId: string,
+        reason: TWorkspaceOpenFailureReason,
+        detail?: string | null,
+    ) {
+        const description = detail ?? describeOpenFailure(reason);
+        if (isDuplicateFailure({
+            domain: 'open',
+            operationId,
+        })) {
+            return false;
+        }
+        lastReportedOperationIds.set('open', operationId);
+        const receipt = BrowserLogger.error(
+            'workspace',
+            'Workspace open failed',
+            {
+                operationId,
+                reason,
+                detail: description,
+            },
+            {
+                code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
+                context: {},
+            },
+        );
+        presentFailureToast({
+            failure: receipt,
+            title: t('errors.file.open'),
+            description,
+        });
+        return true;
+    }
+
     return {
         hasSaveFailure: computed(() => hasSaveFailureState.value),
         saveFailurePresentation,
@@ -184,6 +228,7 @@ export const useWorkspaceFailureSurface = () => {
         clearSaveFailure,
         reportSaveFailure,
         reportAnnotationFailure,
+        reportOpenFailure,
     };
 };
 

@@ -28,6 +28,7 @@ import type {
 } from '@app/modules/pdf-viewer/public';
 import {isPathPdfSource} from '@app/modules/pdf-viewer/public';
 import type { TPdfRasterDisplayProfile } from '@app/types/pdfRasterDisplayProfile';
+import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdfImagePlacement';
 import type {
     IPdfConformanceProfile,
     TPdfSaveMode,
@@ -126,6 +127,8 @@ export interface IDocumentSessionState {
     pdfReloadSrc: Ref<TPdfSource | null>;
     pdfSrc: Ref<TPdfSource | null>;
     pendingDjvu: Ref<TDocumentRef | null>;
+    /** True only after the current document completed a password-protected open. */
+    wasEncrypted: Ref<boolean>;
     requiresSaveAsOnFirstSave: Ref<boolean>;
     workingCopyPath: Ref<TDocumentRef | null>;
     documentRevisionInfo: Ref<IDocumentRevisionInfo | null>;
@@ -154,6 +157,7 @@ export function createDocumentSessionState(
     const pdfConformanceProfile = ref<IPdfConformanceProfile | null>(null);
     const lastSaveMode = ref<TPdfSaveMode>('rewrite');
     const requiresSaveAsOnFirstSave = ref(false);
+    const wasEncrypted = ref(false);
     const pendingDjvu = ref<TDocumentRef | null>(null);
     const openBatchProgress = ref<IOpenBatchProgressState | null>(null);
     const fileName = computed(
@@ -179,6 +183,7 @@ export function createDocumentSessionState(
         pendingDjvu.value = null;
         openBatchProgress.value = null;
         requiresSaveAsOnFirstSave.value = false;
+        wasEncrypted.value = false;
         lastSaveMode.value = 'rewrite';
     }
 
@@ -202,6 +207,7 @@ export function createDocumentSessionState(
         pdfSrc,
         pendingDjvu,
         requiresSaveAsOnFirstSave,
+        wasEncrypted,
         resetForClose,
         workingCopyPath,
         documentRevisionInfo,
@@ -521,7 +527,6 @@ export interface IWorkspaceDocumentDriverBindingOptions {
     onAnnotationContextMenu: unknown;
     onAnnotationModified: unknown;
     onAnnotationFailure: (failure: IAnnotationCreationFailureReport) => void;
-    onAnnotationNotePlacementChange: (value: boolean) => void;
     onAnnotationOpenNote: unknown;
     onAnnotationSetting: unknown;
     onAnnotationState: unknown;
@@ -532,7 +537,8 @@ export interface IWorkspaceDocumentDriverBindingOptions {
     onRasterSchedulerUpdate: (scheduler: IPdfPageRasterScheduler | null) => void;
     onEffectiveZoomUpdate: (value: number) => void;
     onFitModeUpdate: (value: TFitMode) => void;
-    onImagePlacementFinalize: unknown;
+    // eslint-disable-next-line @typescript-eslint/no-invalid-void-type
+    onImagePlacementFinalize: (payload: IPdfPlacedImageFinalizePayload) => void | Promise<boolean>;
     onInitialVisualPending: () => void;
     onInitialVisualReady: () => void;
     onLoadError: (error: unknown) => void;
@@ -605,6 +611,10 @@ export const useWorkspaceDocumentDriverBinding = (options: IWorkspaceDocumentDri
                     ? options.pdfOpeningRevisionToken.value
                     : options.documentRevisionToken.value,
                 authorName: options.authorName.value,
+                // Temporary direct command seam. #193 removes the legacy
+                // workspace stamp persistence route after writer ownership is
+                // complete.
+                finalizeImagePlacement: options.onImagePlacementFinalize,
             };
         }
 
@@ -663,10 +673,8 @@ export const useWorkspaceDocumentDriverBinding = (options: IWorkspaceDocumentDri
             annotationToolAutoReset: options.onAnnotationToolAutoReset,
             annotationToolCancel: options.onAnnotationToolCancel,
             annotationSetting: options.onAnnotationSetting,
-            annotationNotePlacementChange: options.onAnnotationNotePlacementChange,
             annotationFailure: options.onAnnotationFailure,
             shapeContextMenu: options.onShapeContextMenu,
-            imagePlacementFinalize: options.onImagePlacementFinalize,
         };
     });
 

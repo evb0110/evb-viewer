@@ -1,0 +1,130 @@
+{
+  "format": "evb-pdf-annotation-parse",
+  "schemaVersion": 1,
+  "pageCount": 1,
+  "chunkBytes": 524288,
+  "chunkIndex": 0,
+  "entries": [
+    {
+      "kind": "text-box",
+      "pageIndex": 0,
+      "objectNumber": 17,
+      "generationNumber": 0,
+      "name": "text-box-fixture",
+      "author": "Fixture Author",
+      "createdAt": 1788091200000,
+      "modifiedAt": 1788091260000,
+      "text": "Fixture text box",
+      "rect": {
+        "left": 0.1,
+        "top": 0.2,
+        "width": 0.3,
+        "height": 0.4
+      },
+      "rotation": 90,
+      "fontSize": 12,
+      "color": "#336699"
+    },
+    {
+      "kind": "note",
+      "pageIndex": 0,
+      "objectNumber": 18,
+      "generationNumber": 0,
+      "name": "note-fixture",
+      "author": null,
+      "createdAt": null,
+      "modifiedAt": null,
+      "position": {
+        "left": 0.4,
+        "top": 0.1,
+        "width": 0.1,
+        "height": 0.1
+      },
+      "contents": "Fixture note",
+      "color": "#ff0000",
+      "open": true,
+      "replies": []
+    },
+    {
+      "kind": "highlight",
+      "pageIndex": 0,
+      "objectNumber": 20,
+      "generationNumber": 0,
+      "name": "highlight-fixture",
+      "author": null,
+      "createdAt": null,
+      "modifiedAt": null,
+      "subtype": "Highlight",
+      "quadPoints": [
+        {
+          "left": 0.1,
+          "top": 0.2,
+          "width": 0.4,
+          "height": 0.05
+        }
+      ],
+      "color": "#ffcc00",
+      "opacity": 0.5,
+      "contents": "Fixture highlight"
+    },
+    {
+      "kind": "stamp",
+      "pageIndex": 0,
+      "objectNumber": 21,
+      "generationNumber": 0,
+      "name": "stamp-fixture",
+      "author": null,
+      "createdAt": null,
+      "modifiedAt": null,
+      "rect": {
+        "left": 0.1,
+        "top": 0.5,
+        "width": 0.3,
+        "height": 0.2
+      },
+      "rotation": 90,
+      "image": {
+        "objectNumber": 22,
+        "generationNumber": 0,
+        "byteLength": 128,
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "kind": "shape",
+      "pageIndex": 0,
+      "objectNumber": 23,
+      "generationNumber": 0,
+      "name": "shape-fixture",
+      "author": null,
+      "createdAt": null,
+      "modifiedAt": null,
+      "stableKey": "shape-fixture",
+      "pdfSubtype": "Line",
+      "type": "line",
+      "x": 0.1,
+      "y": 0.2,
+      "width": 0.7,
+      "height": 0.7,
+      "x2": 0.8,
+      "y2": 0.9,
+      "color": "#112233",
+      "fillColor": null,
+      "opacity": 0.75,
+      "strokeWidth": 2,
+      "points": null,
+      "strokes": null,
+      "lineStartStyle": "none",
+      "lineEndStyle": "closedArrow"
+    },
+    {
+      "kind": "foreign",
+      "pageIndex": 0,
+      "objectNumber": 19,
+      "generationNumber": 0,
+      "name": "foreign-fixture",
+      "subtype": "Link",
+      "reason": "Unsupported annotation subtype /Link"
+    }
+  ]
+}

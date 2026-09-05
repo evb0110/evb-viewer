@@ -105,7 +105,6 @@ const projectConfig = withNuxt(
                         group: [
                             '@i18n-core/*',
                             '@i18n-app/*',
-                            '@pdf-core/*',
                             '@releaseSelection/*',
                         ],
                         message: 'Import shared packages via their root entrypoint to keep package APIs slim.',
@@ -198,6 +197,15 @@ const projectConfig = withNuxt(
         ['electron/features/djvu/main/pdfExport.ts', 1288],
         ['packages/contracts/djvuPlatformFeature.ts', 1328],
         ['packages/contracts/ocrPlatformFeature.ts', 1368],
+        // The documents feature keeps its method codecs and result schemas
+        // together so the Electron and browser implementations cannot drift.
+        // Print, decrypt, and annotation capabilities account for this small
+        // amount of protocol growth beyond the shared file budget.
+        ['packages/contracts/documentsPlatformFeatureSchemas.ts', 1210],
+        // The documents API contract mirrors the native frame, the electron
+        // bridge, and the browser bridge in one file; the #171 decrypt and
+        // annotation capabilities are the growth this budget covers.
+        ['packages/contracts/electronApiDocuments.ts', 1225],
         // The v3 protocol contract is one shared schema with its native
         // counterpart; splitting it would fork the pairing rather than shorten
         // it. The staged Analyze input window and optional Mixed/split evidence

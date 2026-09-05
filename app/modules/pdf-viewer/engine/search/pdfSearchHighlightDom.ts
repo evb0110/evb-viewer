@@ -46,6 +46,17 @@ const textLayerTextMappingCache = new WeakMap<HTMLElement, {
     textContentItemsStr: readonly string[];
 }>();
 
+/** Returns the renderer's registered text mapping without creating another cache. */
+export function getTextLayerTextMapping(textLayerDiv: HTMLElement): ITextLayerTextMapping | null {
+    const mapping = textLayerTextMappingCache.get(textLayerDiv);
+    return mapping
+        ? {
+            textDivs: mapping.textDivs,
+            textContentItemsStr: mapping.textContentItemsStr,
+        }
+        : null;
+}
+
 function assembleTextLayerSearchText(index: ITextLayerIndexCacheEntry): IAssembledSearchablePageText {
     return assembleSearchablePageText(index.runs.map(run => ({text: run.kind === 'br' ? '\n' : run.text})));
 }

@@ -120,7 +120,34 @@ describe('computeInitialImagePlacementDimensions', () => {
         expect(dimensions?.height).toBeCloseTo(0.12, 3);
     });
 
-    it('keeps corner resizing locked to the current aspect ratio', () => {
+    it('keeps corner resizing locked to the current aspect ratio while Shift is held', () => {
+        const rect = resizeImagePlacementRect({
+            originRectPx: {
+                left: 120,
+                top: 80,
+                width: 160,
+                height: 80,
+            },
+            containerRect: {
+                left: 0,
+                top: 0,
+                width: 800,
+                height: 600,
+            },
+            handle: 'se',
+            startClientX: 0,
+            startClientY: 0,
+            clientX: 48,
+            clientY: 12,
+            shiftKey: true,
+        });
+
+        expect(rect.width / rect.height).toBeCloseTo(2, 4);
+        expect(rect.width).toBeGreaterThan(160);
+        expect(rect.height).toBeGreaterThan(80);
+    });
+
+    it('allows corner resizing to change the aspect ratio without Shift', () => {
         const rect = resizeImagePlacementRect({
             originRectPx: {
                 left: 120,
@@ -141,9 +168,10 @@ describe('computeInitialImagePlacementDimensions', () => {
             clientY: 12,
         });
 
-        expect(rect.width / rect.height).toBeCloseTo(2, 4);
-        expect(rect.width).toBeGreaterThan(160);
-        expect(rect.height).toBeGreaterThan(80);
+        expect(rect.width).toBe(208);
+        expect(rect.height).toBe(92);
+        expect(rect.left).toBe(120);
+        expect(rect.top).toBe(80);
     });
 
     it('allows side handles to resize a rotated image on a single axis', () => {
@@ -197,6 +225,7 @@ describe('computeInitialImagePlacementDimensions', () => {
             clientX: 420,
             clientY: 340,
             rotationDegrees: 30,
+            shiftKey: true,
         } satisfies Parameters<typeof resizeImagePlacementRect>[0];
         const rect = resizeImagePlacementRect(resizeOptions);
         const fixedCorner = getHandlePoint(resizeOptions.originRectPx, 'nw', 30);

@@ -369,18 +369,21 @@ export function registerDocumentsIpcAdapter(
             ...context,
             parentWindow: BrowserWindow.fromWebContents(context.sender),
         }),
-        openDocumentDirect: (context, filePath) =>
-            service.openDocumentDirect(context, filePath),
+        openDocumentDirect: (context, filePath, password) => password === undefined
+            ? service.openDocumentDirect(context, filePath)
+            : service.openDocumentDirect(context, filePath, password),
         openDocumentDirectBatch: (context, filePaths, requestId, batchOptions) =>
             service.openDocumentDirectBatch(context, filePaths, requestId, batchOptions),
         cancelOpenDocumentDirectBatch: (context, requestId) =>
             service.cancelOpenDocumentDirectBatch(context, requestId),
-        createWorkingCopyFromData: (context, fileName, data, originalPath) =>
-            service.createWorkingCopyFromData(context, fileName, data, originalPath),
-        createWorkingCopyFromPath: async (context, sourcePath, originalPath) => {
+        createWorkingCopyFromData: (context, fileName, data, originalPath, password) =>
+            service.createWorkingCopyFromData(context, fileName, data, originalPath, password),
+        createWorkingCopyFromPath: async (context, sourcePath, originalPath, password) => {
             const trustedSourcePath = await requireWorkingCopySourcePath(context, sourcePath);
-            return service.createWorkingCopyFromPath(context, trustedSourcePath, originalPath);
+            return service.createWorkingCopyFromPath(context, trustedSourcePath, originalPath, password);
         },
+        parsePdfAnnotations: (context, filePath, options) =>
+            service.parsePdfAnnotations(context, filePath, options),
         cleanupFile: (context, workingPath) =>
             service.cleanupFile(context, workingPath).then(() => undefined),
         cleanupOcrTemp: (context, filePath) =>
@@ -411,6 +414,14 @@ export function registerDocumentsIpcAdapter(
             service.releasePdfAnnotationIndex(context, sessionId),
         cancelPdfAnnotationIndex: (context, sessionId) =>
             service.cancelPdfAnnotationIndex(context, sessionId),
+        beginPdfAnnotationParse: (context, filePath, options) =>
+            service.beginPdfAnnotationParse(context, filePath, options),
+        readPdfAnnotationParseChunk: (context, sessionId, offset, options) =>
+            service.readPdfAnnotationParseChunk(context, sessionId, offset, options),
+        releasePdfAnnotationParse: (context, sessionId) =>
+            service.releasePdfAnnotationParse(context, sessionId),
+        cancelPdfAnnotationParse: (context, sessionId) =>
+            service.cancelPdfAnnotationParse(context, sessionId),
         beginPdfEmbeddedShapeIndex: (context, filePath, options) =>
             service.beginPdfEmbeddedShapeIndex(context, filePath, options),
         readPdfEmbeddedShapeIndexChunk: (context, sessionId, offset, options) =>

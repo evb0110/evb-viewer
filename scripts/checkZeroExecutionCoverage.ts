@@ -45,6 +45,26 @@ export const NON_UNIT_COVERAGE_ENTRYPOINTS = [
     'app/app.vue',
     'app/modules/pdf-viewer/components/PdfViewer.vue',
     'app/modules/pdf-viewer/components/annotations/PdfAnnotationNoteWindow.vue',
+    'app/modules/pdf-viewer/components/PdfAnnotationEditorLayer.vue',
+    // Worker entrypoints execute in browser/Electron worker bundles and are
+    // covered by the corresponding save, image, or page-ops acceptance lanes.
+    'app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations.worker.ts',
+    'app/platform/browser-api/browserPageOps.worker.ts',
+    'app/platform/browser-api/browserPdfCombine.worker.ts',
+    'app/modules/pdf-viewer/components/PdfAnnotationToolbar.vue',
+    'app/modules/pdf-viewer/components/PdfAnnotationSelectionHandles.vue',
+    'app/modules/pdf-viewer/components/PdfNoteAnnotation.vue',
+    'app/modules/pdf-viewer/components/PdfShapeAnnotation.vue',
+    'app/modules/pdf-viewer/components/PdfStampAnnotation.vue',
+    'app/modules/pdf-viewer/components/PdfTextBoxAnnotation.vue',
+    'app/modules/pdf-viewer/components/PdfTextMarkupAnnotation.vue',
+    'app/modules/pdf-viewer/components/PdfViewerPage.vue',
+    'app/modules/pdf-viewer/components/PdfViewerPortalLayers.vue',
+    'app/modules/pdf-viewer/components/PdfViewerViewport.vue',
+    'app/modules/pdf-viewer/runtime/rendering/createHiddenAnnotationLayerController.ts',
+    // These workspace dialogs are driven by the Electron save/open flows.
+    'app/modules/workspace-shell/components/DocumentPasswordDialog.vue',
+    'app/modules/workspace-shell/components/UnencryptedSaveDialog.vue',
     'app/modules/workspace-shell/components/AppShellRoot.vue',
     'app/modules/workspace-shell/composables/useAppShellResilience.ts',
     'app/modules/workspace-shell/useWorkspaceOrchestration.ts',
@@ -52,6 +72,8 @@ export const NON_UNIT_COVERAGE_ENTRYPOINTS = [
     'electron/main.ts',
     'electron/preload.ts',
     'electron/ocr/worker/runProductionOcrQualityCase.ts',
+    // This standalone builder creates a checked-in Electron lifecycle fixture.
+    'scripts/generate-freetext-lifecycle-fixture.mjs',
     'scripts/release/verifyPackagedCorePdfSmoke.ts',
     'scripts/release/verifyPackagedScanCleanup.ts',
     'scripts/test-ocr-quality-corpus.mjs',
@@ -225,7 +247,11 @@ async function collectProductionTypeScriptFiles(root: string, relativeDirectory:
         const relativePath = path.posix.join(relativeDirectory, entry.name);
         if (entry.isDirectory()) {
             files.push(...await collectProductionTypeScriptFiles(root, relativePath));
-        } else if (entry.isFile() && isZeroExecutionTripwireTarget(relativePath)) {
+        } else if (
+            entry.isFile()
+            && isZeroExecutionTripwireTarget(relativePath)
+            && !(NON_UNIT_COVERAGE_ENTRYPOINTS as readonly string[]).includes(relativePath)
+        ) {
             files.push(relativePath);
         }
     }

@@ -20,11 +20,14 @@ use std::{
     path::{Path, PathBuf},
 };
 
+mod annotation_identity;
 mod annotation_index;
+mod annotation_parse;
 mod annotations;
 mod catalog;
 mod cli;
 mod conformance;
+mod decrypt;
 mod dispatcher;
 mod incremental;
 mod incremental_document;
@@ -49,6 +52,8 @@ const MAX_AGGREGATE_TEXT_BYTES: usize = 64 * 1024 * 1024;
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 const PAGE_OP_WASM_MUTATION_HEADER_BYTES: usize = 12;
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+const PAGE_OP_WASM_MAX_INPUT_BYTES: usize = 512 * 1024 * 1024;
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 const PAGE_OP_WASM_MAX_OUTPUT_BYTES: usize = 512 * 1024 * 1024;
 
 fn read_json_sidecar<T: DeserializeOwned>(path: &std::path::Path, label: &str) -> Result<T> {
@@ -61,11 +66,14 @@ fn read_json_sidecar<T: DeserializeOwned>(path: &std::path::Path, label: &str) -
     })
 }
 
+pub(crate) use annotation_identity::*;
 pub(crate) use annotation_index::*;
+pub(crate) use annotation_parse::*;
 pub(crate) use annotations::*;
 pub(crate) use catalog::*;
 pub(crate) use cli::*;
 pub(crate) use conformance::*;
+pub(crate) use decrypt::*;
 pub(crate) use dispatcher::*;
 pub(crate) use incremental::*;
 pub(crate) use incremental_document::*;
@@ -101,8 +109,10 @@ mod tests {
     };
 
     include!("tests/support.rs");
+    include!("tests/decryption.rs");
     include!("tests/crop.rs");
     include!("tests/notes.rs");
+    include!("tests/identity_bindings.rs");
     include!("tests/placed_images.rs");
     include!("tests/markup_shapes.rs");
     include!("tests/catalog.rs");

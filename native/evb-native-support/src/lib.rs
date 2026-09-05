@@ -5,6 +5,7 @@ use thiserror::Error;
 pub mod bounded_io;
 pub mod generated_native_tool_protocols;
 pub mod output;
+pub mod pdf_catalog;
 pub mod wasm_request_allocation;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -27,6 +28,8 @@ impl NativeToolDescriptor {
 pub enum NativeErrorCode {
     #[error("encrypted")]
     Encrypted,
+    #[error("needs-password")]
+    NeedsPassword,
     #[error("too-large")]
     TooLarge,
     #[error("corrupt-xref")]
@@ -166,6 +169,7 @@ mod tests {
     fn preserves_typed_domain_codes_in_serialized_envelopes() {
         for code in [
             NativeErrorCode::Encrypted,
+            NativeErrorCode::NeedsPassword,
             NativeErrorCode::TooLarge,
             NativeErrorCode::CorruptXref,
             NativeErrorCode::UnsupportedFilter,

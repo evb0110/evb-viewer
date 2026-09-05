@@ -526,19 +526,6 @@ async function mapDjvuContentsToPdfBookmarks(
     return bookmarks;
 }
 
-export async function getBrowserDjvuBookmarksForCombine(djvuPath: TDocumentRef, signal?: AbortSignal) {
-    assertBrowserDjvuSource(djvuPath, 'bookmarks');
-    const worker = await createDjvuWorkerFromPath(djvuPath, signal ? { signal } : {});
-    try {
-        throwIfCanceled(signal);
-        const contents = await worker.doc.getContents().run().catch(() => null);
-        throwIfCanceled(signal);
-        return await mapDjvuContentsToPdfBookmarks(worker, contents, signal);
-    } finally {
-        worker.terminate();
-    }
-}
-
 async function createPdfRenderWorkers(options: {
     worker: IDjvuWorker;
     renderConcurrency: number;

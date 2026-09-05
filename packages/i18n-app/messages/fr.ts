@@ -1377,6 +1377,8 @@ export default {
         'author': 'Nom de l’auteur',
         'authorPlaceholder': 'Votre nom pour les annotations',
         'authorDescription': 'Affiché comme auteur des notes et commentaires.',
+        'suppressUnencryptedSaveNotice': 'Ne pas avertir avant de supprimer la protection par mot de passe du PDF',
+        'suppressUnencryptedSaveNoticeDescription': 'Le PDF enregistré ne nécessitera pas le mot de passe d’origine.',
         'theme': 'Thème',
         'themeLight': 'Clair',
         'themeDark': 'Sombre',
@@ -1518,6 +1520,12 @@ export default {
         'file': {
             'open': 'Échec de l’ouverture du fichier',
             'openNotFound': '« {name} » n’a pas pu être ouvert. Le fichier a peut-être été déplacé, supprimé ou son stockage a été effacé.',
+            'passwordPromptTitle': 'Mot de passe requis',
+            'passwordPromptDescription': 'Saisissez le mot de passe de « {name} » pour ouvrir ce PDF.',
+            'passwordPromptLabel': 'Mot de passe',
+            'passwordPromptOpen': 'Ouvrir',
+            'passwordPromptIncorrect': 'Ce mot de passe est incorrect. Réessayez.',
+            'unsupportedEncryption': 'Ce PDF utilise un chiffrement qu’EVB Viewer ne peut pas ouvrir.',
             'invalid': 'Fichier invalide ou inexistant',
             'emptyPdf': 'Le fichier PDF est vide (0 octet)',
             'noPages': 'Le PDF ne contient aucune page',
@@ -1531,6 +1539,10 @@ export default {
             'openNotes': 'Les notes ouvertes n’ont pas pu être enregistrées, le document n’a pas été écrit.',
             'documentChanged': 'Le document a changé avant la fin de l’enregistrement, rien n’a été écrit.',
             'notCompleted': 'Le document n’a pas pu être écrit.',
+            'unencryptedTitle': 'Enregistrer sans protection par mot de passe ?',
+            'unencryptedDescription': 'Ce PDF a été ouvert avec un mot de passe. Son enregistrement créera une copie sans protection par mot de passe.',
+            'unencryptedDontShowAgain': 'Ne plus afficher cet avertissement',
+            'unencryptedContinue': 'Continuer',
         },
         'export': {
             'images': 'Échec de l’export des images',
@@ -1539,6 +1551,7 @@ export default {
         'browser': {
             'filePickerSetupDenied': 'L’accès du navigateur aux fichiers a été refusé. Choisissez à nouveau Ouvrir pour utiliser le sélecteur compatible.',
             'largeSaveHandleHint': 'Utilisez un navigateur avec l’accès au système de fichiers local activé pour enregistrer de grands documents.',
+            'useNativeApp': 'Use the native app for files this large.',
         },
         'search': {
             'browserTooLarge': 'La recherche n’est pas disponible dans le navigateur pour les très gros documents.',

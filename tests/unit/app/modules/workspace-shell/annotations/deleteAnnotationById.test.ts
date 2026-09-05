@@ -22,7 +22,7 @@ vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {
 function createComment(overrides?: Partial<IAnnotationCommentSummary>): IAnnotationCommentSummary {
     return {
         id: 'note-1',
-        stableKey: 'uid:0:note-1',
+        stableKey: 'ann:0:note-1',
         pageIndex: 0,
         pageNumber: 1,
         text: 'note text',
@@ -45,7 +45,7 @@ describe('deleteAnnotationById', () => {
         const target = createComment();
         const other = createComment({
             id: 'note-2',
-            stableKey: 'uid:0:note-2',
+            stableKey: 'ann:0:note-2',
             uid: 'note-2',
         });
         const remove = vi.fn();

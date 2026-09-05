@@ -30,6 +30,7 @@ import {
     rememberValidatedTrustedPdfOpenGeometry,
 } from '@app/modules/pdf-viewer/runtime/lifecycle/pdfTrustedOpenGeometryCache';
 import {clearPdfValidationRevisionCacheForTests} from '@app/modules/workspace-shell/composables/document-session/pdfValidationRevisionCache';
+import {useDocumentPasswordPrompt} from '@app/modules/workspace-shell/composables/useDocumentPasswordPrompt';
 import { BrowserLogger } from '@app/utils/browserLogger';
 
 const mocks = vi.hoisted(() => ({
@@ -77,7 +78,14 @@ interface IResetHistoryTestOptions {
     isCurrent?: (() => boolean) | undefined;
 }
 
-function createOpenFlowHarness(options: {openSurface?: IDocumentOpenSurfaceSession;} = {}) {
+function createOpenFlowHarness(options: {
+    openSurface?: IDocumentOpenSurfaceSession;
+    reportOpenFailure?: (
+        operationId: string,
+        reason: 'unsupported-encryption',
+        detail?: string | null,
+    ) => boolean;
+} = {}) {
     const state = createDocumentSessionState({ isDesktopRuntime: ref(true) });
     const analyticsDocumentScope = {
         activate: vi.fn(),
@@ -107,9 +115,10 @@ function createOpenFlowHarness(options: {openSurface?: IDocumentOpenSurfaceSessi
         ensureHistoryBaselineForMutation: vi.fn(async () => true),
         incrementSessionVersion: vi.fn(),
         loadEpoch: createEpochGuard(),
-        openSurface: options.openSurface,
+        ...(options.openSurface === undefined ? {} : {openSurface: options.openSurface}),
         openEpoch: createEpochGuard(),
         pushHistorySnapshot: vi.fn(async () => true),
+        ...(options.reportOpenFailure === undefined ? {} : {reportOpenFailure: options.reportOpenFailure}),
         resetHistory: vi.fn(async (_snapshot, options?: IResetHistoryTestOptions) => options?.isCurrent?.() !== false),
         syncDirtyFromHistory: vi.fn(),
         t: ((key: string) => key) as TTranslateFn,
@@ -124,6 +133,19 @@ function createOpenFlowHarness(options: {openSurface?: IDocumentOpenSurfaceSessi
 }
 
 describe('createDocumentOpenFlow', () => {
+    it('clears the encryption witness when a document session closes', () => {
+        const state = createDocumentSessionState({ isDesktopRuntime: ref(true) });
+        state.wasEncrypted.value = true;
+
+        state.resetForClose();
+
+        expect(state.wasEncrypted.value).toBe(false);
+    });
+
+    afterEach(() => {
+        useDocumentPasswordPrompt().cancelPasswordPrompt();
+    });
+
     beforeEach(() => {
         vi.clearAllMocks();
         clearPdfValidationRevisionCacheForTests();
@@ -775,6 +797,146 @@ describe('createDocumentOpenFlow', () => {
         expect(state.failurePresentation.value?.failure).toBe(receipt);
     });
 
+    it('retries typed password failures until the writer-backed open succeeds', async () => {
+        const {
+            openFlow,
+            state,
+        } = createOpenFlowHarness();
+        const prompt = useDocumentPasswordPrompt();
+        const protectedPath = '/documents/protected.pdf';
+        const needsPassword: TOpenFileResult = {
+            kind: 'pdf-needs-password',
+            originalPath: protectedPath,
+        };
+        const openedPdf: TOpenFileResult = {
+            kind: 'pdf',
+            originalPath: protectedPath,
+            workingPath: '/tmp/protected-working.pdf',
+            wasEncrypted: true,
+        };
+        mocks.documentOpen.openDocumentDirect
+            .mockResolvedValueOnce(needsPassword)
+            .mockResolvedValueOnce(needsPassword)
+            .mockResolvedValueOnce(openedPdf);
+
+        const opening = openFlow.openFileDirect(protectedPath);
+        await vi.waitFor(() => {
+            expect(prompt.open.value).toBe(true);
+        });
+        expect(prompt.fileName.value).toBe('protected.pdf');
+        prompt.submitPassword('wrong-password');
+
+        await vi.waitFor(() => {
+            expect(prompt.open.value).toBe(true);
+            expect(prompt.errorMessage.value).toBe('errors.file.passwordPromptIncorrect');
+        });
+        prompt.submitPassword('correct-password');
+
+        await expect(opening).resolves.toMatchObject({
+            status: 'opened',
+            result: openedPdf,
+        });
+        expect(mocks.documentOpen.openDocumentDirect).toHaveBeenNthCalledWith(
+            1,
+            protectedPath,
+        );
+        expect(mocks.documentOpen.openDocumentDirect).toHaveBeenNthCalledWith(
+            2,
+            protectedPath,
+            'wrong-password',
+        );
+        expect(mocks.documentOpen.openDocumentDirect).toHaveBeenNthCalledWith(
+            3,
+            protectedPath,
+            'correct-password',
+        );
+        expect(state.originalPath.value).toBe(protectedPath);
+        expect(state.wasEncrypted.value).toBe(true);
+    });
+
+    it('cancels a password open without retaining or persisting the password', async () => {
+        const {
+            openFlow,
+            state,
+        } = createOpenFlowHarness();
+        const prompt = useDocumentPasswordPrompt();
+        const protectedPath = '/documents/protected.pdf';
+        mocks.documentOpen.openDocumentDirect.mockResolvedValueOnce({
+            kind: 'pdf-needs-password',
+            originalPath: protectedPath,
+        });
+
+        const opening = openFlow.openFileDirect(protectedPath);
+        await vi.waitFor(() => {
+            expect(prompt.open.value).toBe(true);
+        });
+        prompt.cancelPasswordPrompt();
+
+        await expect(opening).resolves.toEqual({status: 'cancelled'});
+        expect(mocks.documentOpen.openDocumentDirect).toHaveBeenCalledOnce();
+        expect(state.workingCopyPath.value).toBeNull();
+        expect(prompt.open.value).toBe(false);
+        expect(prompt.fileName.value).toBe('');
+        expect(prompt.errorMessage.value).toBeNull();
+    });
+
+    it('returns a stale outcome when a second open supersedes a password prompt', async () => {
+        const {openFlow} = createOpenFlowHarness();
+        const prompt = useDocumentPasswordPrompt();
+        const firstPath = '/documents/first-protected.pdf';
+        const secondPath = '/documents/second.pdf';
+        const secondResult: TOpenFileResult = {
+            kind: 'pdf',
+            originalPath: secondPath,
+            workingPath: '/tmp/second-working.pdf',
+        };
+        mocks.documentOpen.openDocumentDirect.mockImplementation(async (path: string) => (
+            path === firstPath
+                ? {
+                    kind: 'pdf-needs-password',
+                    originalPath: firstPath,
+                }
+                : secondResult
+        ));
+
+        const firstOpening = openFlow.openFileDirect(firstPath);
+        await vi.waitFor(() => {
+            expect(prompt.open.value).toBe(true);
+        });
+        const secondOpening = openFlow.openFileDirect(secondPath);
+
+        await expect(secondOpening).resolves.toMatchObject({
+            status: 'opened',
+            result: secondResult,
+        });
+        await expect(firstOpening).resolves.toMatchObject({status: 'stale'});
+    });
+
+    it('reports unsupported encryption without opening a password prompt', async () => {
+        const reportOpenFailure = vi.fn(() => true);
+        const {
+            openFlow,
+            state,
+        } = createOpenFlowHarness({reportOpenFailure});
+        const prompt = useDocumentPasswordPrompt();
+        const protectedPath = '/documents/unsupported.pdf';
+        mocks.documentOpen.openDocumentDirect.mockResolvedValueOnce({
+            kind: 'pdf-unsupported-encryption',
+            originalPath: protectedPath,
+        });
+
+        await expect(openFlow.openFileDirect(protectedPath)).resolves.toEqual({
+            status: 'failed',
+            error: 'errors.file.unsupportedEncryption',
+        });
+        expect(prompt.open.value).toBe(false);
+        expect(reportOpenFailure).toHaveBeenCalledWith(
+            expect.stringMatching(/^open:\d+$/u),
+            'unsupported-encryption',
+        );
+        expect(state.error.value).toBe('errors.file.unsupportedEncryption');
+    });
+
     it('retains the active PDF when a staged replacement fails parser validation', async () => {
         const {
             deps,
@@ -1005,6 +1167,7 @@ describe('createDocumentOpenFlow', () => {
             originalPath: '/stale.pdf',
             workingPath: '/tmp/stale-working.pdf',
             isGenerated: false,
+            wasEncrypted: true,
         };
         const freshResult: TOpenFileResult = {
             kind: 'pdf',
@@ -1035,6 +1198,7 @@ describe('createDocumentOpenFlow', () => {
         });
 
         expect(state.workingCopyPath.value).toBe('/tmp/fresh-working.pdf');
+        expect(state.wasEncrypted.value).toBe(false);
         expect(deps.cleanupAbandonedWorkingCopy).toHaveBeenCalledWith('/tmp/stale-working.pdf');
         expect(deps.cleanupAbandonedWorkingCopy).not.toHaveBeenCalledWith('/tmp/fresh-working.pdf');
     });

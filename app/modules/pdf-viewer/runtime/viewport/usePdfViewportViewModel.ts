@@ -49,7 +49,6 @@ interface IUsePdfViewportViewModelOptions {
         isAnySaving: ComputedRef<boolean>;
         isDragging: Ref<boolean>;
         isViewerPanDragModeActive: ComputedRef<boolean>;
-        isPlacingComment: Ref<boolean>;
         isSelectionMarkupToolActive: ComputedRef<boolean>;
         isTextSelectionModeActive: ComputedRef<boolean>;
         fitMode: ComputedRef<TFitMode>;
@@ -153,7 +152,6 @@ export const usePdfViewportViewModel = (options: IUsePdfViewportViewModelOptions
         'pdfViewer--saving': options.classState.isAnySaving.value,
         'is-dragging': options.classState.isDragging.value,
         'drag-mode': options.classState.isViewerPanDragModeActive.value,
-        'is-placing-comment': options.classState.isPlacingComment.value,
         'is-selection-markup-tool': options.classState.isSelectionMarkupToolActive.value,
         'is-text-selection-mode': options.classState.isTextSelectionModeActive.value,
         'pdfViewer--single-page': !options.continuousScroll.value,

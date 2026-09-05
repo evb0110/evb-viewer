@@ -120,6 +120,39 @@ describe('assert-packaged-app-contents', () => {
         ]));
     });
 
+    it('rejects vendor packages and archives while allowing copied PDF assets', async () => {
+        const { collectEntryViolations } = await loadPackagedContentsModule();
+        const problems = collectEntryViolations([
+            '/vendor/pdfjs-dist/pdfjs-dist-5.7.304-f029c046.tgz',
+            '/vendor/pdfjs-dist/package/build/pdf.mjs',
+            '/dist-electron/pdfjs-dist-codex-preview/build/pdf.mjs',
+            '/dist-electron/pdf.d.ts',
+            '/dist-electron/pdf.d.mts',
+            '/dist-electron/pdf.worker.mjs.map',
+            '/dist-electron/pdf_viewer.mjs.map',
+            '/dist-electron/pdfjs.patch',
+            '/dist-electron/pdf.sandbox.mjs',
+            '/dist-electron/pdf.min.mjs',
+            '/dist-electron/image_decoders/jpx.js',
+            '/dist-electron/pdf.worker.mjs',
+            '/nuxt-output/public/pdf/cmaps/78-H.bcmap',
+        ]);
+        expect(problems).toEqual(expect.arrayContaining([
+            'forbidden entry present: /vendor/pdfjs-dist/pdfjs-dist-5.7.304-f029c046.tgz',
+            'forbidden entry present: /vendor/pdfjs-dist/package/build/pdf.mjs',
+            'complete or alternate PDF.js package content should not ship: /dist-electron/pdfjs-dist-codex-preview/build/pdf.mjs',
+            'PDF.js declaration should not ship: /dist-electron/pdf.d.ts',
+            'PDF.js declaration should not ship: /dist-electron/pdf.d.mts',
+            'source map should not ship: /dist-electron/pdf.worker.mjs.map',
+            'source map should not ship: /dist-electron/pdf_viewer.mjs.map',
+            'PDF.js development artifact should not ship: /dist-electron/pdfjs.patch',
+            'complete or alternate PDF.js package content should not ship: /dist-electron/pdf.sandbox.mjs',
+            'complete or alternate PDF.js package content should not ship: /dist-electron/pdf.min.mjs',
+            'complete or alternate PDF.js package content should not ship: /dist-electron/image_decoders/jpx.js',
+        ]));
+        expect(problems).not.toContain('complete or alternate PDF.js package content should not ship: /nuxt-output/public/pdf/cmaps/78-H.bcmap');
+    });
+
     it('rejects staged private source directories by bounded path matching', async () => {
         const { collectEntryViolations } = await loadPackagedContentsModule();
 

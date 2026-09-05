@@ -228,7 +228,7 @@ describe('useAnnotationNoteWindows', () => {
     it('mirrors reopened editor-sourced notes with durable annotation ids into embedded serialization', () => {
         const comment = createComment({
             id: 'editor:0:pdfjs_internal_editor_0',
-            stableKey: 'uid:0:pdfjs_internal_editor_0',
+            stableKey: 'ann:0:pdfjs_internal_editor_0',
             annotationId: '3856R',
             uid: 'pdfjs_internal_editor_0',
             source: 'editor',
@@ -240,7 +240,7 @@ describe('useAnnotationNoteWindows', () => {
         } = createHarness(comment);
 
         windows.handleOpenAnnotationNote(comment);
-        const note = windows.findAnnotationNoteWindow('uid:0:pdfjs_internal_editor_0');
+        const note = windows.findAnnotationNoteWindow('ann:0:pdfjs_internal_editor_0');
         expect(note).not.toBeNull();
         if (!note) {
             return;
@@ -248,7 +248,7 @@ describe('useAnnotationNoteWindows', () => {
 
         note.draftText = 'Updated reopened note';
         note.dirty = true;
-        const saved = windows.persistAnnotationNote('uid:0:pdfjs_internal_editor_0');
+        const saved = windows.persistAnnotationNote('ann:0:pdfjs_internal_editor_0');
 
         expect(saved).toBe(true);
         expect(note.draftText).toBe('Updated reopened note');
@@ -262,7 +262,7 @@ describe('useAnnotationNoteWindows', () => {
     it('does not migrate pending text from a legacy binding without an explicit app annotation id', async () => {
         const initialComment = createComment({
             id: 'runtime-note',
-            stableKey: 'uid:0:pdfjs_internal_editor_0',
+            stableKey: 'ann:0:pdfjs_internal_editor_0',
             annotationId: '3856R',
             uid: 'pdfjs_internal_editor_0',
             source: 'pdf',
@@ -274,7 +274,7 @@ describe('useAnnotationNoteWindows', () => {
         } = createHarness(initialComment);
 
         windows.handleOpenAnnotationNote(initialComment);
-        const note = windows.findAnnotationNoteWindow('uid:0:pdfjs_internal_editor_0');
+        const note = windows.findAnnotationNoteWindow('ann:0:pdfjs_internal_editor_0');
         expect(note).not.toBeNull();
         if (!note) {
             return;
@@ -282,7 +282,7 @@ describe('useAnnotationNoteWindows', () => {
 
         note.draftText = 'Updated PDF note';
         note.dirty = true;
-        expect(windows.persistAnnotationNote('uid:0:pdfjs_internal_editor_0')).toBe(true);
+        expect(windows.persistAnnotationNote('ann:0:pdfjs_internal_editor_0')).toBe(true);
 
         deps.annotationComments.value = [createComment({
             ...initialComment,
@@ -299,7 +299,7 @@ describe('useAnnotationNoteWindows', () => {
     it('keeps replayable editor-only notes dirty when forced viewer persistence fails', () => {
         const comment = createComment({
             id: 'editor:0:pdfjs_internal_editor_0',
-            stableKey: 'uid:0:pdfjs_internal_editor_0',
+            stableKey: 'ann:0:pdfjs_internal_editor_0',
             annotationId: null,
             uid: 'pdfjs_internal_editor_0',
             source: 'editor',
@@ -312,7 +312,7 @@ describe('useAnnotationNoteWindows', () => {
         deps.updateAnnotationCommentInViewer.mockReturnValue(false);
 
         windows.handleOpenAnnotationNote(comment);
-        const note = windows.findAnnotationNoteWindow('uid:0:pdfjs_internal_editor_0');
+        const note = windows.findAnnotationNoteWindow('ann:0:pdfjs_internal_editor_0');
         expect(note).not.toBeNull();
         if (!note) {
             return;
@@ -320,7 +320,7 @@ describe('useAnnotationNoteWindows', () => {
 
         note.draftText = 'Unsaved sticky note text';
         note.dirty = true;
-        const saved = windows.persistAnnotationNote('uid:0:pdfjs_internal_editor_0');
+        const saved = windows.persistAnnotationNote('ann:0:pdfjs_internal_editor_0');
 
         expect(saved).toBe(false);
         expect(note.pendingEmbeddedSave).toBe(false);
@@ -462,7 +462,7 @@ describe('useAnnotationNoteWindows', () => {
     it('keeps locally saved new note comments as a read-only window projection', () => {
         const comment = createComment({
             id: 'editor:0:pdfjs_internal_editor_0',
-            stableKey: 'uid:0:pdfjs_internal_editor_0',
+            stableKey: 'ann:0:pdfjs_internal_editor_0',
             annotationId: null,
             uid: 'pdfjs_internal_editor_0',
             source: 'editor',
@@ -482,7 +482,7 @@ describe('useAnnotationNoteWindows', () => {
         deps.annotationComments.value = [];
 
         windows.handleOpenAnnotationNote(comment);
-        const note = windows.findAnnotationNoteWindow('uid:0:pdfjs_internal_editor_0');
+        const note = windows.findAnnotationNoteWindow('ann:0:pdfjs_internal_editor_0');
         expect(note).not.toBeNull();
         if (!note) {
             return;
@@ -490,7 +490,7 @@ describe('useAnnotationNoteWindows', () => {
 
         note.draftText = 'Replayable new note text';
         note.dirty = true;
-        const saved = windows.persistAnnotationNote('uid:0:pdfjs_internal_editor_0');
+        const saved = windows.persistAnnotationNote('ann:0:pdfjs_internal_editor_0');
 
         expect(saved).toBe(true);
         expect(note).toEqual(expect.objectContaining({
@@ -521,7 +521,7 @@ describe('useAnnotationNoteWindows', () => {
         });
         const newEditorNote = createComment({
             id: 'pdfjs_internal_editor_0',
-            stableKey: 'uid:0:pdfjs_internal_editor_0',
+            stableKey: 'ann:0:pdfjs_internal_editor_0',
             annotationId: null,
             uid: 'pdfjs_internal_editor_0',
             source: 'editor',
@@ -544,7 +544,7 @@ describe('useAnnotationNoteWindows', () => {
         ];
 
         windows.handleOpenAnnotationNote(newEditorNote);
-        const note = windows.findAnnotationNoteWindow('uid:0:pdfjs_internal_editor_0');
+        const note = windows.findAnnotationNoteWindow('ann:0:pdfjs_internal_editor_0');
         expect(note).not.toBeNull();
         if (!note) {
             return;
@@ -563,7 +563,7 @@ describe('useAnnotationNoteWindows', () => {
                 source: 'pdf',
             }),
             expect.objectContaining({
-                stableKey: 'uid:0:pdfjs_internal_editor_0',
+                stableKey: 'ann:0:pdfjs_internal_editor_0',
                 text: 'new editor note',
                 source: 'editor',
             }),
@@ -612,7 +612,7 @@ describe('useAnnotationNoteWindows', () => {
     it('does not retarget a fresh transient note window to an unrelated same-page annotation by text only', async () => {
         const transient = createComment({
             id: 'editor:0:pdfjs_internal_editor_0',
-            stableKey: 'uid:0:pdfjs_internal_editor_0',
+            stableKey: 'ann:0:pdfjs_internal_editor_0',
             annotationId: null,
             uid: 'pdfjs_internal_editor_0',
             source: 'editor',
@@ -649,14 +649,14 @@ describe('useAnnotationNoteWindows', () => {
         deps.annotationComments.value = [unrelated];
         await nextTick();
 
-        expect(windows.findAnnotationNoteWindow('uid:0:pdfjs_internal_editor_0')).not.toBeNull();
+        expect(windows.findAnnotationNoteWindow('ann:0:pdfjs_internal_editor_0')).not.toBeNull();
         expect(windows.findAnnotationNoteWindow('ann:0:4860R')).toBeNull();
     });
 
     it('keeps distinct same-source note windows separate even when their markers are nearby', () => {
         const first = createComment({
             id: 'editor:0:pdfjs_internal_editor_0',
-            stableKey: 'uid:0:pdfjs_internal_editor_0',
+            stableKey: 'ann:0:pdfjs_internal_editor_0',
             annotationId: null,
             uid: 'pdfjs_internal_editor_0',
             source: 'editor',
@@ -671,7 +671,7 @@ describe('useAnnotationNoteWindows', () => {
         });
         const second = createComment({
             id: 'editor:0:pdfjs_internal_editor_1',
-            stableKey: 'uid:0:pdfjs_internal_editor_1',
+            stableKey: 'ann:0:pdfjs_internal_editor_1',
             annotationId: null,
             uid: 'pdfjs_internal_editor_1',
             source: 'editor',
@@ -690,10 +690,10 @@ describe('useAnnotationNoteWindows', () => {
         windows.handleOpenAnnotationNote(second);
 
         expect(windows.annotationNoteWindows.value).toHaveLength(2);
-        expect(windows.findAnnotationNoteWindow('uid:0:pdfjs_internal_editor_0')).not.toBeNull();
-        expect(windows.findAnnotationNoteWindow('uid:0:pdfjs_internal_editor_1')).not.toBeNull();
-        expect(windows.annotationNotePositions.value['uid:0:pdfjs_internal_editor_1']?.y).toBeGreaterThanOrEqual(
-            (windows.annotationNotePositions.value['uid:0:pdfjs_internal_editor_0']?.y ?? 0) + 32,
+        expect(windows.findAnnotationNoteWindow('ann:0:pdfjs_internal_editor_0')).not.toBeNull();
+        expect(windows.findAnnotationNoteWindow('ann:0:pdfjs_internal_editor_1')).not.toBeNull();
+        expect(windows.annotationNotePositions.value['ann:0:pdfjs_internal_editor_1']?.y).toBeGreaterThanOrEqual(
+            (windows.annotationNotePositions.value['ann:0:pdfjs_internal_editor_0']?.y ?? 0) + 32,
         );
     });
 
@@ -706,7 +706,7 @@ describe('useAnnotationNoteWindows', () => {
         };
         const openEditorNote = createComment({
             id: 'editor:0:pdfjs_internal_editor_0',
-            stableKey: 'uid:0:pdfjs_internal_editor_0',
+            stableKey: 'ann:0:pdfjs_internal_editor_0',
             annotationId: null,
             uid: 'pdfjs_internal_editor_0',
             source: 'editor',
@@ -727,7 +727,7 @@ describe('useAnnotationNoteWindows', () => {
         const { windows } = createHarness(openEditorNote);
 
         windows.handleOpenAnnotationNote(openEditorNote);
-        const note = windows.findAnnotationNoteWindow('uid:0:pdfjs_internal_editor_0');
+        const note = windows.findAnnotationNoteWindow('ann:0:pdfjs_internal_editor_0');
         expect(note).not.toBeNull();
         if (!note) {
             return;
@@ -742,7 +742,7 @@ describe('useAnnotationNoteWindows', () => {
         const transient = createComment({
             appAnnotationId: 'anno-point-note',
             id: 'editor:0:pdfjs_internal_editor_0',
-            stableKey: 'uid:0:pdfjs_internal_editor_0',
+            stableKey: 'ann:0:pdfjs_internal_editor_0',
             annotationId: null,
             uid: 'pdfjs_internal_editor_0',
             source: 'editor',

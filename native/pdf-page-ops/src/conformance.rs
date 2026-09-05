@@ -6,7 +6,7 @@ const PDF_REFERENCE_LIMIT: usize = 128;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct PdfConformanceFacts {
+pub(crate) struct PdfConformanceFacts {
     is_signed: bool,
     is_encrypted: bool,
     is_tagged: bool,
@@ -65,6 +65,35 @@ fn optional_dictionary<'a>(
     })
 }
 
+pub(crate) fn pdf_conformance_facts(document: &Document) -> Result<PdfConformanceFacts> {
+    let root = document
+        .trailer
+        .get(b"Root")
+        .map_err(|error| format!("PDF trailer is missing /Root: {error}"))?;
+    let catalog =
+        optional_dictionary(document, Some(root), "catalog")?.ok_or("PDF catalog is missing")?;
+    let acro_form = optional_dictionary(document, catalog.get(b"AcroForm").ok(), "AcroForm")?;
+    let struct_tree_root = optional_dictionary(
+        document,
+        catalog.get(b"StructTreeRoot").ok(),
+        "StructTreeRoot",
+    )?;
+    Ok(PdfConformanceFacts {
+        is_signed: document.objects.values().any(|object| match object {
+            Object::Dictionary(dictionary) => dictionary_is_signature(document, dictionary),
+            Object::Stream(stream) => dictionary_is_signature(document, &stream.dict),
+            _ => false,
+        }),
+        is_encrypted: document
+            .trailer
+            .get(b"Encrypt")
+            .is_ok_and(|value| !matches!(value, Object::Null)),
+        is_tagged: struct_tree_root.is_some(),
+        has_acro_form: acro_form.is_some(),
+        has_xfa: acro_form.is_some_and(|dictionary| dictionary.has(b"XFA")),
+    })
+}
+
 pub(crate) fn write_pdf_conformance_path(
     input_path: &Path,
     output_path: &Path,
@@ -78,32 +107,7 @@ pub(crate) fn write_pdf_conformance_path(
     })?;
     let incremental = load_qpdf_structural_incremental_pdf(input_path, qpdf_path)?;
     let document = incremental.get_prev_documents();
-    let root = document
-        .trailer
-        .get(b"Root")
-        .map_err(|error| format!("qpdf structural trailer is missing /Root: {error}"))?;
-    let catalog = optional_dictionary(document, Some(root), "catalog")?
-        .ok_or("qpdf structural catalog is missing")?;
-    let acro_form = optional_dictionary(document, catalog.get(b"AcroForm").ok(), "AcroForm")?;
-    let struct_tree_root = optional_dictionary(
-        document,
-        catalog.get(b"StructTreeRoot").ok(),
-        "StructTreeRoot",
-    )?;
-    let facts = PdfConformanceFacts {
-        is_signed: document.objects.values().any(|object| match object {
-            Object::Dictionary(dictionary) => dictionary_is_signature(document, dictionary),
-            Object::Stream(stream) => dictionary_is_signature(document, &stream.dict),
-            _ => false,
-        }),
-        is_encrypted: document
-            .trailer
-            .get(b"Encrypt")
-            .is_ok_and(|value| !matches!(value, Object::Null)),
-        is_tagged: struct_tree_root.is_some(),
-        has_acro_form: acro_form.is_some(),
-        has_xfa: acro_form.is_some_and(|dictionary| dictionary.has(b"XFA")),
-    };
+    let facts = pdf_conformance_facts(document)?;
     write_bytes_atomically(output_path, &serde_json::to_vec(&facts)?)?;
     Ok(())
 }

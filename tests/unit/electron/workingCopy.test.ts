@@ -28,6 +28,7 @@ import {
 import { tmpdir } from 'os';
 import type { TOpenPath } from '@electron/file-access/openPathCapabilities';
 import {requireDocumentRevisionToken} from '@contracts';
+import {PDF_DECRYPT_PASSWORD_MAX_BYTES} from '@contracts/pdfDecryptSchemas';
 import type * as NodeChildProcess from 'node:child_process';
 import type * as NodeFs from 'fs';
 import type * as WorkingCopyStore from '@electron/file-access/workingCopyStore';
@@ -45,10 +46,6 @@ function setPlatform(platform: NodeJS.Platform) {
 
 vi.mock('electron', () => ({ app: { getPath: vi.fn((_name: string) => tempRoot) } }));
 
-vi.mock('@electron/utils/decryptPdfFileIfNeeded', () => ({
-    decryptPdfFileIfNeeded: vi.fn(async () => false),
-    isPdfFileEncrypted: vi.fn(async () => false),
-}));
 vi.mock('@electron/pdf/pdfPageCount', () => ({getPdfPageCount: vi.fn(async () => 1)}));
 
 describe('workingCopy', () => {
@@ -67,6 +64,75 @@ describe('workingCopy', () => {
             force: true,
             recursive: true,
         });
+    });
+
+    it('uses the native writer for an unprovided password on protected PDFs', async () => {
+        const previousCloneResult = process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT;
+        const writer = vi.fn(async () => ({
+            outcome: 'needs-password' as const,
+            wasEncrypted: true as const,
+            revision: null,
+        }));
+        vi.doMock('@electron/file-access/workingCopyDecryption', () => ({
+            decryptWorkingCopyWithWriter: writer,
+            PdfDecryptAttemptError: class PdfDecryptAttemptError extends Error {
+                readonly outcome: 'needs-password' | 'unsupported-encryption';
+
+                constructor(outcome: 'needs-password' | 'unsupported-encryption') {
+                    super(outcome);
+                    this.name = 'PdfDecryptAttemptError';
+                    this.outcome = outcome;
+                }
+            },
+        }));
+        vi.resetModules();
+
+        try {
+            process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'success';
+            const {createWorkingCopyWithOutcome} = await import('@electron/file-access/workingCopyCreation');
+            const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
+            const originalPath = join(tempRoot, 'protected.pdf');
+            writeFileSync(originalPath, Buffer.from('%PDF-1.7\n/Encrypt 1 0 R\n'));
+            const trustedOriginalPath = allowOpenPath(originalPath);
+            expect(trustedOriginalPath).not.toBeNull();
+
+            await expect(createWorkingCopyWithOutcome(trustedOriginalPath!, 7))
+                .rejects.toMatchObject({outcome: 'needs-password'});
+            expect(writer).toHaveBeenCalledWith(expect.any(String), undefined, undefined);
+        } finally {
+            if (previousCloneResult === undefined) {
+                delete process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT;
+            } else {
+                process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = previousCloneResult;
+            }
+            vi.doUnmock('@electron/file-access/workingCopyDecryption');
+            vi.resetModules();
+        }
+    });
+
+    it('rejects invalid passwords at the main-process working-copy boundary', async () => {
+        const {
+            handleCreateWorkingCopyFromData,
+            handleCreateWorkingCopyFromPath,
+        } = await import('@electron/features/documents/main/documentWorkingCopyHandlers');
+        const context = {senderId: 7} as Parameters<typeof handleCreateWorkingCopyFromData>[0];
+        const oversizedPassword = 'x'.repeat(PDF_DECRYPT_PASSWORD_MAX_BYTES + 1);
+        const protectedPath = join(tempRoot, 'protected.pdf');
+        writeFileSync(protectedPath, Buffer.from('%PDF-1.7'));
+
+        await expect(handleCreateWorkingCopyFromData(
+            context,
+            'protected.pdf',
+            Uint8Array.of(1),
+            undefined,
+            oversizedPassword,
+        )).rejects.toThrow(`PDF password exceeds the ${PDF_DECRYPT_PASSWORD_MAX_BYTES}-byte limit`);
+        await expect(handleCreateWorkingCopyFromPath(
+            context,
+            protectedPath as TOpenPath,
+            undefined,
+            null as never,
+        )).rejects.toThrow(`PDF password exceeds the ${PDF_DECRYPT_PASSWORD_MAX_BYTES}-byte limit`);
     });
 
     it('publishes unsupported durable PDFs as lazy without copying or fingerprinting', async () => {
@@ -418,33 +484,106 @@ describe('workingCopy', () => {
     it('keeps encrypted PDFs eager and captures a constant-time original stat witness', async () => {
         process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'unsupported';
         process.env.EVB_WORKING_COPY_MATERIALIZATION_MODE = 'lazy';
-        const {
-            decryptPdfFileIfNeeded,
-            isPdfFileEncrypted,
-        } = await import('@electron/utils/decryptPdfFileIfNeeded');
-        vi.mocked(isPdfFileEncrypted).mockResolvedValueOnce(true);
-        vi.mocked(decryptPdfFileIfNeeded).mockResolvedValueOnce(true);
-        const {createWorkingCopy} = await import('@electron/file-access/workingCopyCreation');
-        const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
-        const {getWorkingCopyBackingEntry} = await import('@electron/file-access/workingCopyStore');
-        const originalPath = join(tempRoot, 'encrypted-original.pdf');
-        writeFileSync(originalPath, Buffer.from('%PDF encrypted bytes /Encrypt'));
-        const trustedOriginalPath = allowOpenPath(originalPath);
-        expect(trustedOriginalPath).not.toBeNull();
+        const writer = vi.fn(async () => ({
+            outcome: 'decrypted' as const,
+            wasEncrypted: true as const,
+            revision: null,
+        }));
+        vi.doMock('@electron/file-access/workingCopyDecryption', () => ({
+            decryptWorkingCopyWithWriter: writer,
+            PdfDecryptAttemptError: class PdfDecryptAttemptError extends Error {
+                readonly outcome: 'needs-password' | 'unsupported-encryption';
 
-        const workingPath = await createWorkingCopy(trustedOriginalPath!, 7);
-
-        expect(existsSync(workingPath)).toBe(true);
-        expect(getWorkingCopyBackingEntry(workingPath, 7)).toMatchObject({
-            backingState: 'eager',
-            originalFileExpectation: {
-                ctimeNs: expect.stringMatching(/^\d+$/u),
-                deviceId: expect.stringMatching(/^\d+$/u),
-                inode: expect.stringMatching(/^\d+$/u),
-                mtimeNs: expect.stringMatching(/^\d+$/u),
-                size: readFileSync(originalPath).byteLength,
+                constructor(outcome: 'needs-password' | 'unsupported-encryption') {
+                    super(outcome);
+                    this.name = 'PdfDecryptAttemptError';
+                    this.outcome = outcome;
+                }
             },
-        });
+        }));
+        vi.resetModules();
+        try {
+            const {createWorkingCopy} = await import('@electron/file-access/workingCopyCreation');
+            const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
+            const {getWorkingCopyBackingEntry} = await import('@electron/file-access/workingCopyStore');
+            const originalPath = join(tempRoot, 'encrypted-original.pdf');
+            writeFileSync(originalPath, Buffer.from('%PDF encrypted bytes /Encrypt'));
+            const trustedOriginalPath = allowOpenPath(originalPath);
+            expect(trustedOriginalPath).not.toBeNull();
+
+            const workingPath = await createWorkingCopy(trustedOriginalPath!, 7);
+
+            expect(existsSync(workingPath)).toBe(true);
+            expect(getWorkingCopyBackingEntry(workingPath, 7)).toMatchObject({
+                backingState: 'eager',
+                originalFileExpectation: {
+                    ctimeNs: expect.stringMatching(/^\d+$/u),
+                    deviceId: expect.stringMatching(/^\d+$/u),
+                    inode: expect.stringMatching(/^\d+$/u),
+                    mtimeNs: expect.stringMatching(/^\d+$/u),
+                    size: readFileSync(originalPath).byteLength,
+                },
+            });
+            expect(writer).toHaveBeenCalledWith(expect.any(String), undefined, undefined);
+        } finally {
+            vi.doUnmock('@electron/file-access/workingCopyDecryption');
+            vi.resetModules();
+        }
+    });
+
+    it('removes a recreated encrypted working copy when the writer still needs a password', async () => {
+        process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'success';
+        const writer = vi.fn()
+            .mockResolvedValueOnce({
+                outcome: 'decrypted' as const,
+                wasEncrypted: true as const,
+                revision: null,
+            })
+            .mockResolvedValueOnce({
+                outcome: 'needs-password' as const,
+                wasEncrypted: true as const,
+                revision: null,
+            });
+        vi.doMock('@electron/file-access/workingCopyDecryption', () => ({
+            decryptWorkingCopyWithWriter: writer,
+            PdfDecryptAttemptError: class PdfDecryptAttemptError extends Error {
+                readonly outcome: 'needs-password' | 'unsupported-encryption';
+
+                constructor(outcome: 'needs-password' | 'unsupported-encryption') {
+                    super(outcome);
+                    this.name = 'PdfDecryptAttemptError';
+                    this.outcome = outcome;
+                }
+            },
+        }));
+        vi.resetModules();
+        try {
+            const {
+                createWorkingCopy,
+                ensureWorkingCopyDirectory,
+            } = await import('@electron/file-access/workingCopyCreation');
+            const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
+            const originalPath = join(tempRoot, 'recreated-encrypted.pdf');
+            writeFileSync(originalPath, Buffer.from('%PDF encrypted bytes /Encrypt'));
+            const trustedOriginalPath = allowOpenPath(originalPath);
+            expect(trustedOriginalPath).not.toBeNull();
+
+            const workingPath = await createWorkingCopy(trustedOriginalPath!, 7);
+            const workingDirectory = dirname(workingPath);
+            rmSync(workingDirectory, {
+                force: true,
+                recursive: true,
+            });
+
+            await expect(ensureWorkingCopyDirectory(workingPath, 7))
+                .rejects.toMatchObject({outcome: 'needs-password'});
+            expect(existsSync(workingPath)).toBe(false);
+            expect(existsSync(workingDirectory)).toBe(false);
+            expect(writer).toHaveBeenCalledTimes(2);
+        } finally {
+            vi.doUnmock('@electron/file-access/workingCopyDecryption');
+            vi.resetModules();
+        }
     });
 
     it('publishes a PDF working copy without starting page identity discovery and joins it before mutation', async () => {

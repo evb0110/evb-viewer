@@ -259,24 +259,39 @@ pub(crate) fn quad_points_object(values: &[f64]) -> Object {
 /// used to find an annotation after a native append. Keeping the editor id in
 /// `/NM` gives the next save a bounded page-local upsert key.
 pub(crate) fn markup_annotation_name(hint: &MarkupSubtypeHint) -> Option<String> {
-    let identity = hint
-        .id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .or_else(|| {
-            hint.annotation_id
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| {
-                    !value.is_empty() && parse_pdfjs_annotation_object_id(value).is_none()
-                })
-        })?;
-    Some(if identity.starts_with("evb-markup:") {
-        identity.to_string()
+    let identity = (if hint.source.as_deref() == Some("pdf") {
+        // Imported PDF annotations carry the PDF object reference in `id` and
+        // the editor's canonical identity in `app_annotation_id`. Newly
+        // authored editor annotations use `id` as their intended PDF name.
+        hint.app_annotation_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .or_else(|| {
+                hint.id
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+            })
     } else {
-        format!("evb-markup:{identity}")
+        hint.id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .or_else(|| {
+                hint.app_annotation_id
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+            })
     })
+    .or_else(|| {
+        hint.annotation_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty() && parse_pdfjs_annotation_object_id(value).is_none())
+    })?;
+    Some(identity.to_string())
 }
 
 fn candidate_markup_name(
@@ -286,8 +301,7 @@ fn candidate_markup_name(
     document
         .dictionary(candidate.object_id)
         .ok()
-        .and_then(|dict| dict.get(b"NM").ok())
-        .and_then(pdf_string_to_text)
+        .and_then(read_annotation_name)
 }
 
 fn find_named_markup_hint_for_candidate(
@@ -300,7 +314,10 @@ fn find_named_markup_hint_for_candidate(
         if state.consumed {
             return None;
         }
-        (markup_annotation_name(&state.hint).as_deref() == Some(candidate_name.as_str()))
+        markup_annotation_name(&state.hint)
+            .is_some_and(|hint_name| {
+                annotation_names_match(&candidate_name, &hint_name, &["evb-markup:"])
+            })
             .then_some(index)
     })
 }
@@ -464,6 +481,7 @@ pub(crate) fn apply_markup_rewrite_to_object(
     target_subtype: &str,
     color: Option<&str>,
     contents: Option<&str>,
+    identity_name: Option<&str>,
     modified_at: &str,
 ) -> Result<bool> {
     let target_color = resolve_hint_target_color(target_subtype, color);
@@ -502,11 +520,27 @@ pub(crate) fn apply_markup_rewrite_to_object(
     if contents.is_some() {
         modified = true;
     }
+    let identity_name = identity_name
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let identity_name_needs_write = identity_name.is_some()
+        && document
+            .get_dictionary(candidate.object_id)
+            .ok()
+            .and_then(read_annotation_name)
+            .is_none();
+    modified = identity_name_needs_write || modified;
     if !modified {
         return Ok(false);
     }
 
     let dict = document.get_dictionary_mut(candidate.object_id)?;
+    if identity_name_needs_write {
+        write_annotation_name(
+            dict,
+            identity_name.expect("identity name was checked before mutation"),
+        );
+    }
     if let Some(color) = target_color {
         write_markup_color(dict, color);
         if target_subtype == "Highlight" {
@@ -654,6 +688,7 @@ pub(crate) fn rewrite_page_markup_subtypes(
                 &hint.subtype,
                 hint.color.as_deref(),
                 hint.contents.as_deref(),
+                markup_annotation_name(&hint).as_deref(),
                 modified_at,
             )? || rewritten;
             continue;
@@ -670,6 +705,7 @@ pub(crate) fn rewrite_page_markup_subtypes(
                 &hint.subtype,
                 hint.color.as_deref(),
                 hint.contents.as_deref(),
+                markup_annotation_name(&hint).as_deref(),
                 modified_at,
             )? || rewritten;
             continue;
@@ -686,6 +722,7 @@ pub(crate) fn rewrite_page_markup_subtypes(
                 &hint.subtype,
                 hint.color.as_deref(),
                 hint.contents.as_deref(),
+                markup_annotation_name(&hint).as_deref(),
                 modified_at,
             )? || rewritten;
             continue;
@@ -697,6 +734,7 @@ pub(crate) fn rewrite_page_markup_subtypes(
                 document,
                 candidate,
                 override_subtype,
+                None,
                 None,
                 None,
                 modified_at,
@@ -723,6 +761,7 @@ pub(crate) fn rewrite_page_markup_subtypes(
             &hint.subtype,
             hint.color.as_deref(),
             hint.contents.as_deref(),
+            markup_annotation_name(&hint).as_deref(),
             modified_at,
         )? || rewritten;
     }
@@ -752,7 +791,7 @@ fn create_new_markup_annotations_with_bindings(
     page_view: PdfRect,
     page_rotation: i64,
     page_hints: &mut [MarkupHintState],
-    identity_bindings: &mut Vec<MarkupIdentityBinding>,
+    identity_bindings: &mut Vec<AnnotationIdentityBinding>,
 ) -> Result<bool> {
     create_new_markup_annotations_internal(
         document,
@@ -770,7 +809,7 @@ fn create_new_markup_annotations_internal(
     page_view: PdfRect,
     page_rotation: i64,
     page_hints: &mut [MarkupHintState],
-    mut identity_bindings: Option<&mut Vec<MarkupIdentityBinding>>,
+    mut identity_bindings: Option<&mut Vec<AnnotationIdentityBinding>>,
 ) -> Result<bool> {
     let mut created = Vec::new();
     for state in page_hints.iter_mut() {
@@ -795,7 +834,7 @@ fn create_new_markup_annotations_internal(
         state.consumed = true;
         created.push(object_id);
         if let Some(bindings) = identity_bindings.as_mut() {
-            bindings.push(MarkupIdentityBinding {
+            bindings.push(AnnotationIdentityBinding {
                 annotation_id: app_annotation_id
                     .expect("binding mode validates canonical annotation identity")
                     .to_string(),
@@ -816,6 +855,7 @@ pub(crate) fn apply_markup_rewrite_to_incremental_object(
     target_subtype: &str,
     color: Option<&str>,
     contents: Option<&str>,
+    identity_name: Option<&str>,
     modified_at: &str,
 ) -> Result<bool> {
     incremental.opt_clone_object_to_new_document(candidate.object_id)?;
@@ -825,6 +865,7 @@ pub(crate) fn apply_markup_rewrite_to_incremental_object(
         target_subtype,
         color,
         None,
+        identity_name,
         modified_at,
     )?;
     if let Some(contents) = contents {
@@ -872,6 +913,7 @@ pub(crate) fn rewrite_page_markup_subtypes_incremental(
                 &hint.subtype,
                 hint.color.as_deref(),
                 hint.contents.as_deref(),
+                markup_annotation_name(&hint).as_deref(),
                 modified_at,
             )? || rewritten;
             continue;
@@ -888,6 +930,7 @@ pub(crate) fn rewrite_page_markup_subtypes_incremental(
                 &hint.subtype,
                 hint.color.as_deref(),
                 hint.contents.as_deref(),
+                markup_annotation_name(&hint).as_deref(),
                 modified_at,
             )? || rewritten;
             continue;
@@ -904,6 +947,7 @@ pub(crate) fn rewrite_page_markup_subtypes_incremental(
                 &hint.subtype,
                 hint.color.as_deref(),
                 hint.contents.as_deref(),
+                markup_annotation_name(&hint).as_deref(),
                 modified_at,
             )? || rewritten;
             continue;
@@ -915,6 +959,7 @@ pub(crate) fn rewrite_page_markup_subtypes_incremental(
                 incremental,
                 candidate,
                 override_subtype,
+                None,
                 None,
                 None,
                 modified_at,
@@ -941,6 +986,7 @@ pub(crate) fn rewrite_page_markup_subtypes_incremental(
             &hint.subtype,
             hint.color.as_deref(),
             hint.contents.as_deref(),
+            markup_annotation_name(&hint).as_deref(),
             modified_at,
         )? || rewritten;
     }
@@ -970,7 +1016,7 @@ fn create_new_markup_annotations_incremental_with_bindings(
     page_view: PdfRect,
     page_rotation: i64,
     page_hints: &mut [MarkupHintState],
-    identity_bindings: &mut Vec<MarkupIdentityBinding>,
+    identity_bindings: &mut Vec<AnnotationIdentityBinding>,
 ) -> Result<bool> {
     create_new_markup_annotations_incremental_internal(
         incremental,
@@ -988,7 +1034,7 @@ fn create_new_markup_annotations_incremental_internal(
     page_view: PdfRect,
     page_rotation: i64,
     page_hints: &mut [MarkupHintState],
-    mut identity_bindings: Option<&mut Vec<MarkupIdentityBinding>>,
+    mut identity_bindings: Option<&mut Vec<AnnotationIdentityBinding>>,
 ) -> Result<bool> {
     let mut created = Vec::new();
     for state in page_hints.iter_mut() {
@@ -1018,7 +1064,7 @@ fn create_new_markup_annotations_incremental_internal(
         state.consumed = true;
         created.push(object_id);
         if let Some(bindings) = identity_bindings.as_mut() {
-            bindings.push(MarkupIdentityBinding {
+            bindings.push(AnnotationIdentityBinding {
                 annotation_id: app_annotation_id
                     .expect("binding mode validates canonical annotation identity")
                     .to_string(),
@@ -1045,7 +1091,7 @@ pub(crate) fn apply_markup_mutations_with_bindings(
     document: &mut Document,
     markup: &MarkupMutation,
     modified_at: &str,
-    identity_bindings: &mut Vec<MarkupIdentityBinding>,
+    identity_bindings: &mut Vec<AnnotationIdentityBinding>,
 ) -> Result<()> {
     apply_markup_mutations_internal(document, markup, modified_at, Some(identity_bindings))
 }
@@ -1054,7 +1100,7 @@ pub(crate) fn apply_markup_mutations_internal(
     document: &mut Document,
     markup: &MarkupMutation,
     modified_at: &str,
-    mut identity_bindings: Option<&mut Vec<MarkupIdentityBinding>>,
+    mut identity_bindings: Option<&mut Vec<AnnotationIdentityBinding>>,
 ) -> Result<()> {
     let (overrides, hints_by_page) = build_markup_inputs(markup)?;
     let page_resolver = PageTreeResolver::new(document)?;
@@ -1127,7 +1173,7 @@ pub(crate) fn apply_markup_mutations_incremental_with_bindings(
     incremental: &mut IncrementalDocument,
     markup: &MarkupMutation,
     modified_at: &str,
-    identity_bindings: &mut Vec<MarkupIdentityBinding>,
+    identity_bindings: &mut Vec<AnnotationIdentityBinding>,
 ) -> Result<()> {
     apply_markup_mutations_incremental_internal(
         incremental,
@@ -1141,7 +1187,7 @@ pub(crate) fn apply_markup_mutations_incremental_internal(
     incremental: &mut IncrementalDocument,
     markup: &MarkupMutation,
     modified_at: &str,
-    mut identity_bindings: Option<&mut Vec<MarkupIdentityBinding>>,
+    mut identity_bindings: Option<&mut Vec<AnnotationIdentityBinding>>,
 ) -> Result<()> {
     let (overrides, hints_by_page) = build_markup_inputs(markup)?;
     let page_targets = {

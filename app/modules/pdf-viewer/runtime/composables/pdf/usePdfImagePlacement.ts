@@ -16,13 +16,17 @@ import {
     PDF_IMAGE_PLACEMENT_RESOURCE_LIMITS,
     probeBrowserImageFile,
 } from '@app/platform/browser-api/public';
+import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 
 interface IUsePdfImagePlacementOptions {
     viewerContainer: Ref<HTMLElement | null>;
     currentPage: Ref<number>;
     numPages: Ref<number>;
     effectiveScale: Ref<number>;
-    emitFinalize: (payload: IPdfPlacedImageFinalizePayload) => void;
+    // The editor session owns the placement transaction and reports whether
+    // the draft can be released.
+    // eslint-disable-next-line @typescript-eslint/no-invalid-void-type
+    finalizePlacement: (payload: IPdfPlacedImageFinalizePayload) => void | boolean | Promise<boolean>;
     probeImage?: typeof probeBrowserImageFile;
     createPreview?: typeof createStaticBrowserImagePreview;
 }
@@ -155,7 +159,7 @@ export const usePdfImagePlacement = (options: IUsePdfImagePlacementOptions) => {
         currentPage,
         numPages,
         effectiveScale,
-        emitFinalize,
+        finalizePlacement,
         probeImage = probeBrowserImageFile,
         createPreview = createStaticBrowserImagePreview,
     } = options;
@@ -285,7 +289,15 @@ export const usePdfImagePlacement = (options: IUsePdfImagePlacementOptions) => {
             nativeSourceHandleOwner = null;
             isPendingImagePlacementFinalizing.value = false;
             return true;
-        } catch {
+        } catch (error) {
+            logPdfRenderTrace('pdf-image-placement-start-failed', {
+                error: error instanceof Error ? error.message : String(error),
+                fileName: file.name,
+                fileType: file.type,
+                hasNativeSourceHandle: Boolean(nativeSourceHandle),
+                pageNumber: target.pageNumber,
+                requestId,
+            });
             return false;
         } finally {
             if (imagePlacementAbortController === abortController) {
@@ -333,23 +345,54 @@ export const usePdfImagePlacement = (options: IUsePdfImagePlacementOptions) => {
         }
 
         const targetPixels = getPendingImagePlacementTargetPixels(placement);
+        const placementToken = placement.stableKey;
         isPendingImagePlacementFinalizing.value = true;
-        emitFinalize({
-            stableKey: placement.stableKey,
-            ...(placement.annotationId ? {annotationId: placement.annotationId} : {}),
-            pageNumber: placement.pageNumber,
-            x: placement.x,
-            y: placement.y,
-            width: placement.width,
-            height: placement.height,
-            rotationDegrees: placement.rotationDegrees,
-            fileName: placement.fileName,
-            mimeType: placement.mimeType,
-            bytes: placement.bytes.slice(),
-            ...(placement.nativeSourceHandle ? {nativeSourceHandle: placement.nativeSourceHandle} : {}),
-            targetPixelWidth: targetPixels.width,
-            targetPixelHeight: targetPixels.height,
-        });
+        // eslint-disable-next-line @typescript-eslint/no-invalid-void-type
+        let result: void | boolean | Promise<boolean>;
+        try {
+            result = finalizePlacement({
+                ...(placement.stableKey ? {stableKey: placement.stableKey} : {}),
+                ...(placement.annotationId ? {annotationId: placement.annotationId} : {}),
+                pageNumber: placement.pageNumber,
+                x: placement.x,
+                y: placement.y,
+                width: placement.width,
+                height: placement.height,
+                rotationDegrees: placement.rotationDegrees,
+                fileName: placement.fileName,
+                mimeType: placement.mimeType,
+                bytes: placement.bytes.slice(),
+                ...(placement.nativeSourceHandle ? {nativeSourceHandle: placement.nativeSourceHandle} : {}),
+                targetPixelWidth: targetPixels.width,
+                targetPixelHeight: targetPixels.height,
+            });
+        } catch (error) {
+            restorePendingImagePlacement();
+            throw error;
+        }
+        if (result instanceof Promise) {
+            void result.then(success => {
+                if (pendingImagePlacement.value?.stableKey !== placementToken) {
+                    return;
+                }
+                if (success) {
+                    clearPendingImagePlacement();
+                } else {
+                    restorePendingImagePlacement();
+                }
+            }).catch(() => {
+                if (pendingImagePlacement.value?.stableKey !== placementToken) {
+                    return;
+                }
+                restorePendingImagePlacement();
+            });
+            return;
+        }
+        if (result === false) {
+            restorePendingImagePlacement();
+            return;
+        }
+        clearPendingImagePlacement();
     }
 
     onScopeDispose(() => {

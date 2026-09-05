@@ -121,7 +121,10 @@ const BROWSER_FILE_PICKER_DESCRIPTION_MESSAGE_KEYS = {
 export function createBrowserDocumentsCapability(
     options: ICreateBrowserDocumentsCapabilityOptions,
 ): IBrowserDocumentCapabilities {
-    const errorMessageProvider = { largeSaveHandleHint: () => translateBrowserMessage('errors.browser.largeSaveHandleHint') };
+    const errorMessageProvider = {
+        largeSaveHandleHint: () => translateBrowserMessage('errors.browser.largeSaveHandleHint'),
+        useNativeApp: () => translateBrowserMessage('errors.browser.useNativeApp'),
+    };
     configureBrowserFilePickerMessages(errorMessageProvider);
     configureBrowserFilePickerDescriptions((key) =>
         translateBrowserMessage(BROWSER_FILE_PICKER_DESCRIPTION_MESSAGE_KEYS[key]),
@@ -162,6 +165,7 @@ export function createBrowserDocumentsCapability(
     const documentWorkingCopy = {
         createWorkingCopyFromData: fileCapability.createWorkingCopyFromData,
         createWorkingCopyFromPath: fileCapability.createWorkingCopyFromPath,
+        parsePdfAnnotations: fileCapability.parsePdfAnnotations,
         cleanupFile: fileCapability.cleanupFile,
         cleanupOcrTemp: fileCapability.cleanupOcrTemp,
     } satisfies IDocumentsWorkingCopyCapability;

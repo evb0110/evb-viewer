@@ -84,7 +84,7 @@ function runGit(cwd: string, arguments_: string[]) {
 }
 
 async function createRepository(prefix: string, extraArguments: string[] = []) {
-    const repository = await mkdtemp(join(tmpdir(), prefix));
+    const repository = await mkdtemp(join(getAbsoluteOsTemporaryDirectory(), prefix));
     runGit(repository, [
         'init',
         '--initial-branch=main',
@@ -102,6 +102,23 @@ async function createRepository(prefix: string, extraArguments: string[] = []) {
         'test@example.test',
     ]);
     return repository;
+}
+
+function getAbsoluteOsTemporaryDirectory() {
+    const configuredDirectory = tmpdir();
+    if (path.isAbsolute(configuredDirectory)) {
+        return configuredDirectory;
+    }
+
+    if (process.platform === 'win32') {
+        const systemRoot = process.env.SystemRoot;
+        return join(
+            systemRoot && path.isAbsolute(systemRoot) ? systemRoot : 'C:\\Windows',
+            'Temp',
+        );
+    }
+
+    return '/tmp';
 }
 
 async function removeRepository(repository: string) {
@@ -154,6 +171,34 @@ function runMain(arguments_: string[], cwd?: string) {
     } finally {
         process.exitCode = originalExitCode;
     }
+}
+
+function repositoryState(repository: string) {
+    return [
+        runGit(repository, [
+            'rev-parse',
+            '--is-inside-work-tree',
+        ]),
+        runGit(repository, [
+            'rev-parse',
+            '--is-bare-repository',
+        ]),
+        runGit(repository, [
+            'rev-parse',
+            'HEAD',
+        ]),
+        runGit(repository, [
+            'status',
+            '--porcelain=v1',
+            '--branch',
+        ]),
+    ];
+}
+
+function isWithinDirectory(directory: string, candidate: string) {
+    const relativePath = path.relative(directory, candidate);
+    return relativePath === ''
+        || (!relativePath.startsWith('..') && !path.isAbsolute(relativePath));
 }
 
 describe('commit attribution policy', () => {
@@ -247,6 +292,82 @@ describe('commit attribution policy', () => {
             }]);
         } finally {
             await removeRepository(repository);
+        }
+    });
+
+    it('keeps primary and linked worktrees intact when creating VCS fixtures', async () => {
+        const originalCwd = process.cwd();
+        const originalTmpdir = process.env.TMPDIR;
+        const fixtureDirectory = await mkdtemp(join(getAbsoluteOsTemporaryDirectory(), 'evb-attribution-worktrees-'));
+        const primary = join(fixtureDirectory, 'primary');
+        const linked = join(fixtureDirectory, 'linked');
+        let primaryFixture: string | undefined;
+        let linkedFixture: string | undefined;
+
+        try {
+            await mkdir(primary);
+            runGit(fixtureDirectory, [
+                'init',
+                '--initial-branch=main',
+                primary,
+            ]);
+            runGit(primary, [
+                'config',
+                'user.name',
+                'Test User',
+            ]);
+            runGit(primary, [
+                'config',
+                'user.email',
+                'test@example.test',
+            ]);
+            await writeFiles(primary, {'README.md': 'fixture host\n'});
+            runGit(primary, [
+                'add',
+                '--all',
+            ]);
+            runGit(primary, [
+                'commit',
+                '--message',
+                'Create fixture host',
+            ]);
+            runGit(primary, [
+                'worktree',
+                'add',
+                linked,
+                'HEAD',
+            ]);
+
+            const primaryState = repositoryState(primary);
+            const linkedState = repositoryState(linked);
+            process.env.TMPDIR = '.';
+
+            process.chdir(primary);
+            primaryFixture = await createRepository('evb-attribution-primary-');
+            process.chdir(linked);
+            linkedFixture = await createRepository('evb-attribution-linked-');
+
+            expect(path.isAbsolute(primaryFixture)).toBe(true);
+            expect(path.isAbsolute(linkedFixture)).toBe(true);
+            expect(isWithinDirectory(primary, primaryFixture)).toBe(false);
+            expect(isWithinDirectory(linked, linkedFixture)).toBe(false);
+            expect(repositoryState(primary)).toEqual(primaryState);
+            expect(repositoryState(linked)).toEqual(linkedState);
+
+        } finally {
+            if (originalTmpdir === undefined) {
+                delete process.env.TMPDIR;
+            } else {
+                process.env.TMPDIR = originalTmpdir;
+            }
+            process.chdir(originalCwd);
+            if (primaryFixture) {
+                await removeRepository(primaryFixture);
+            }
+            if (linkedFixture) {
+                await removeRepository(linkedFixture);
+            }
+            await removeTemporaryDirectory(fixtureDirectory);
         }
     });
 

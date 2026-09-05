@@ -32,6 +32,9 @@ import {
 } from '@pdf-core';
 import { assembleSearchablePdfStreaming } from '@electron/ocr/worker/assembleSearchablePdfStreaming';
 
+// Removal condition: pdf-page-ops gains an N-source Form XObject composition
+// operation and content-stream cleanup primitives for OCR layer replacement.
+
 const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
 export const MAX_OCR_PAGE_ARTIFACT_BYTES = 16 * 1024 * 1024;
 const TESSERACT_IMAGE_PAINT_RE = /^q\s+[\d.]+\s+0\s+0\s+[\d.]+\s+0\s+0\s+cm\s+\/Im\d+\s+Do\s+Q\r?\n/gm;
@@ -261,6 +264,8 @@ function isTextOnlyOcrStream(streamText: string, strippedText: string) {
 }
 
 function removePreviousOcrLayer(page: PDFPage) {
+    // Keep pdf-lib until native PDF assembly can merge OCR text Form XObjects
+    // while preserving the existing sanitization behavior.
     const {
         extGState,
         font,

@@ -11,6 +11,8 @@ minimumReleaseAgeExclude:
   # Grandfather versions already present in the reviewed pre-update lockfile.
   - picomatch@4.0.7
   - prosemirror-view@1.42.3
+  # Security fix for the qs advisories reported on 2026-09-02. Remove this
+  # exception after qs@6.16.0 has aged past the seven-day release hold.
   - "@opentelemetry/core@2.11.0"
   - qs@6.16.0
 

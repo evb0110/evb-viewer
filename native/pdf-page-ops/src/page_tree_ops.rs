@@ -68,10 +68,43 @@ const MAX_BROWSER_PAGE_LABEL_NUMBER: i64 = 1_000_000_000;
 
 pub(crate) fn load_browser_pdf(data: &[u8]) -> Result<Document> {
     let document = load_pdf_bytes(data)?;
-    if document.is_encrypted() {
-        return Err("Encrypted PDFs are not supported by browser page-op WASM".into());
-    }
+    assert_plaintext_base(
+        &document,
+        "Encrypted PDFs are not supported by browser page-op WASM",
+    )?;
     Ok(document)
+}
+
+/// Decrypts an encrypted browser PDF into plaintext bytes.
+///
+/// Returns the decrypted rewrite in the mutation frame with its actual page count,
+/// or the input bytes unchanged with `page_count = 0` when the input was never
+/// encrypted. A rejected password surfaces as `needs-password` and a
+/// public-key or unknown security handler as `unsupported-filter`, so the
+/// browser build exposes the same three outcomes as the native decrypt CLI.
+pub(crate) fn decrypt_browser_pdf_bytes(data: &[u8], password: &[u8]) -> Result<PageMutationBytes> {
+    let password =
+        std::str::from_utf8(password).map_err(|_| "Page-op WASM password must be UTF-8 text")?;
+    // An empty password is an empty-password attempt: lopdf then fails with
+    // InvalidPassword instead of returning a partially-loaded document, so the
+    // classification below reports needs-password.
+    let mut document = load_pdf_bytes_with_password(data, Some(password))?;
+    if document.was_encrypted() {
+        let page_count = u32::try_from(document.get_pages().len())
+            .map_err(|_| "Decrypted PDF page count exceeds u32")?;
+        let data = save_document_to_bytes(&mut document)?;
+        Ok(PageMutationBytes { data, page_count })
+    } else if document.is_encrypted() {
+        Err(domain_error(
+            NativeErrorCode::NeedsPassword,
+            "The supplied password was not accepted by the encrypted PDF",
+        ))
+    } else {
+        Ok(PageMutationBytes {
+            data: data.to_vec(),
+            page_count: 0,
+        })
+    }
 }
 
 pub(crate) fn save_document_to_bytes(document: &mut Document) -> Result<Vec<u8>> {
@@ -522,16 +555,19 @@ fn remap_browser_page_labels(
             prefix: label
                 .get(b"P")
                 .ok()
+                .and_then(|value| source.resolved(value).ok())
                 .and_then(|value| value.as_str().ok())
                 .map(|value| value.to_vec()),
             style: label
                 .get(b"S")
                 .ok()
+                .and_then(|value| source.resolved(value).ok())
                 .and_then(|value| value.as_name().ok())
                 .map(|value| value.to_vec()),
             start_number: label
                 .get(b"St")
                 .ok()
+                .and_then(|value| source.resolved(value).ok())
                 .and_then(|value| value.as_i64().ok())
                 .unwrap_or(1)
                 .clamp(1, MAX_BROWSER_PAGE_LABEL_NUMBER),

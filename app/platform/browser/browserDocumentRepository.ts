@@ -1,6 +1,8 @@
 import {
     BROWSER_DOCUMENT_CHUNK_SIZE,
     BROWSER_MAX_FULL_READ_BYTES,
+    DOCUMENT_CHUNKS_STORE,
+    DOCUMENTS_STORE,
 } from '@app/platform/browser/browserDocumentConstants';
 import {
     cloneBytes,
@@ -9,7 +11,9 @@ import {
 } from '@app/platform/browser/browserDocumentBytes';
 import {
     createBrowserDocumentEntry,
+    createEntryFromPersistedRecord,
     createPersistedBrowserDocumentRecord,
+    toPersistedDocumentRecord,
 } from '@app/platform/browser/browserDocumentRecords';
 import { createBrowserDocumentRef } from '@app/platform/browser/browserDocumentRefs';
 import {
@@ -19,6 +23,7 @@ import {
 } from '@app/platform/browser/browserDocumentStoragePolicy';
 import type {
     IBrowserDocumentEntry,
+    IBrowserPersistedDocumentRecord,
     ICreateStoredDocumentOptions,
     IRegisterFileOptions,
     IWriteDocumentOptions,
@@ -26,7 +31,9 @@ import type {
 import {
     deleteRecord,
     persistRecord,
+    runObjectStoresTransaction,
 } from '@app/platform/browser/browserDocumentIdb';
+import { createChunkKey } from '@app/platform/browser/browserDocumentChunks';
 import {
     assertBrowserDocumentChunkGenerationComplete,
     clearBrowserDocumentExternalChunkStorage,
@@ -41,13 +48,22 @@ import {
     readFileHandleMetadata,
     BrowserDocumentRecordStore,
 } from '@app/platform/browser/browserDocumentRecordStore';
+import {BrowserDocumentFileHandleRefs} from '@app/platform/browser/browserDocumentFileHandleRefs';
+import {
+    captureBrowserDocumentEntryStorageState,
+    restoreBrowserDocumentEntryStorageState,
+} from '@app/platform/browser/browserDocumentEntryStorageState';
 import {
     createBrowserDocumentContentToken,
+    createBrowserDocumentRevisionInfo,
     updateBrowserDocumentEntryContentToken,
 } from '@app/platform/browser/browserDocumentRevision';
 import { emitBrowserDocumentPersistenceWarning } from '@app/platform/browser/browserDocumentPersistenceWarnings';
+import {
+    parseDocumentRevisionToken,
+    type TDocumentRevisionToken,
+} from '@contracts/documentRevision';
 import {createBrowserFileContentWitness} from '@app/platform/browser/createBrowserFileContentWitness';
-import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 
 export interface IBrowserDocumentMutation {
     write(
@@ -93,157 +109,55 @@ function createBrowserFileDocumentEntry(
     };
 }
 
-function captureEntryStorageState(entry: IBrowserDocumentEntry) {
-    return {
-        storageMode: entry.storageMode,
-        chunkCount: entry.chunkCount,
-        chunkSize: entry.chunkSize,
-        chunkGeneration: entry.chunkGeneration,
-        fileSize: entry.fileSize,
-        fileLastModified: entry.fileLastModified,
-        updatedAt: entry.updatedAt,
-        contentToken: entry.contentToken,
-        contentRevision: entry.contentRevision,
-        data: entry.data,
-        fileSnapshot: entry.fileSnapshot,
-        sourceWitness: entry.sourceWitness,
-        pendingChunkGeneration: entry.pendingChunkGeneration,
-        pendingChunkCount: entry.pendingChunkCount,
-        pendingChunkSize: entry.pendingChunkSize,
-        pendingFileSize: entry.pendingFileSize,
-        pendingChunkUpdatedAt: entry.pendingChunkUpdatedAt,
-    };
+interface IBrowserStagedCommitResult {
+    targetEntry: IBrowserDocumentEntry;
+    previousTargetRevisionToken: TDocumentRevisionToken;
 }
 
-function restoreEntryStorageState(
-    entry: IBrowserDocumentEntry,
-    state: ReturnType<typeof captureEntryStorageState>,
+function getPersistedDocumentRevisionToken(
+    record: IBrowserPersistedDocumentRecord,
+    sourceRecord: IBrowserPersistedDocumentRecord | null,
 ) {
-    entry.storageMode = state.storageMode;
-    entry.chunkCount = state.chunkCount;
-    entry.chunkSize = state.chunkSize;
-    entry.fileSize = state.fileSize;
-    if (state.fileLastModified !== undefined) {
-        entry.fileLastModified = state.fileLastModified;
-    } else {
-        delete entry.fileLastModified;
+    const revisionRecord = record.storageMode === 'source-proxy'
+        ? sourceRecord
+        : record;
+    if (!revisionRecord) {
+        return null;
     }
-    entry.updatedAt = state.updatedAt;
-    entry.data = state.data;
-    if (state.fileSnapshot) {
-        entry.fileSnapshot = state.fileSnapshot;
-    } else {
-        delete entry.fileSnapshot;
+
+    return createBrowserDocumentRevisionInfo(
+        createEntryFromPersistedRecord(revisionRecord),
+        record.ref,
+    ).token;
+}
+
+function queuePersistedChunkDeletes(
+    store: IDBObjectStore,
+    record: IBrowserPersistedDocumentRecord,
+) {
+    const chunkCount = record.chunkCount ?? 0;
+    if (record.storageMode !== 'chunked' || chunkCount <= 0) {
+        return;
     }
-    if (state.chunkGeneration) {
-        entry.chunkGeneration = state.chunkGeneration;
-    } else {
-        delete entry.chunkGeneration;
-    }
-    if (state.contentToken) {
-        entry.contentToken = state.contentToken;
-    } else {
-        delete entry.contentToken;
-    }
-    if (state.contentRevision !== undefined) {
-        entry.contentRevision = state.contentRevision;
-    } else {
-        delete entry.contentRevision;
-    }
-    if (state.sourceWitness) {
-        entry.sourceWitness = true;
-    } else {
-        delete entry.sourceWitness;
-    }
-    if (state.pendingChunkGeneration) {
-        entry.pendingChunkGeneration = state.pendingChunkGeneration;
-    } else {
-        delete entry.pendingChunkGeneration;
-    }
-    if (state.pendingChunkCount !== undefined) {
-        entry.pendingChunkCount = state.pendingChunkCount;
-    } else {
-        delete entry.pendingChunkCount;
-    }
-    if (state.pendingChunkSize !== undefined) {
-        entry.pendingChunkSize = state.pendingChunkSize;
-    } else {
-        delete entry.pendingChunkSize;
-    }
-    if (state.pendingFileSize !== undefined) {
-        entry.pendingFileSize = state.pendingFileSize;
-    } else {
-        delete entry.pendingFileSize;
-    }
-    if (state.pendingChunkUpdatedAt !== undefined) {
-        entry.pendingChunkUpdatedAt = state.pendingChunkUpdatedAt;
-    } else {
-        delete entry.pendingChunkUpdatedAt;
+
+    for (let index = 0; index < chunkCount; index += 1) {
+        store.delete(createChunkKey(record.ref, index, record.chunkGeneration));
     }
 }
 
 export class BrowserDocumentStore extends BrowserDocumentRecordStore {
     private readonly fileRefs = new WeakMap<File, string>();
-    private readonly fileHandleRefs = new Map<FileSystemFileHandle, string>();
+    private readonly fileHandleRefs = new BrowserDocumentFileHandleRefs();
 
     protected override onDocumentRemoved(ref: string) {
-        this.forgetFileHandleRefs(ref);
-    }
-
-    private forgetFileHandleRefs(ref: string) {
-        for (const [
-            handle,
-            knownRef,
-        ] of this.fileHandleRefs) {
-            if (knownRef === ref) {
-                this.fileHandleRefs.delete(handle);
-            }
-        }
-    }
-
-    private updateFileHandleRef(ref: string, handle: FileSystemFileHandle | null) {
-        this.forgetFileHandleRefs(ref);
-        if (handle) {
-            this.fileHandleRefs.set(handle, ref);
-        }
-    }
-
-    private async findExistingFileHandleRef(handle: FileSystemFileHandle) {
-        let existingRef: string | null = null;
-        for (const [
-            knownHandle,
-            ref,
-        ] of this.fileHandleRefs) {
-            let sameEntry = knownHandle === handle;
-            if (!sameEntry) {
-                try {
-                    sameEntry = await knownHandle.isSameEntry?.(handle) ?? false;
-                } catch {
-                    sameEntry = false;
-                }
-            }
-            if (!sameEntry) {
-                try {
-                    sameEntry = await handle.isSameEntry?.(knownHandle) ?? false;
-                } catch {
-                    sameEntry = false;
-                }
-            }
-            if (!sameEntry) {
-                continue;
-            }
-            const entry = await this.ensureEntry(ref);
-            if (entry) {
-                existingRef ??= ref;
-                continue;
-            }
-            this.fileHandleRefs.delete(knownHandle);
-        }
-        return existingRef;
+        this.fileHandleRefs.forget(ref);
     }
 
     private async findExistingPhysicalFileHandleRef(handle: FileSystemFileHandle) {
-        const localRef = await this.findExistingFileHandleRef(handle);
+        const localRef = await this.fileHandleRefs.findExistingRef(
+            handle,
+            ref => this.ensureEntry(ref),
+        );
         if (localRef) {
             return localRef;
         }
@@ -381,7 +295,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
         }
         this.fileRefs.set(file, ref);
         if (options.saveHandle !== undefined) {
-            this.updateFileHandleRef(ref, options.saveHandle);
+            this.fileHandleRefs.update(ref, options.saveHandle);
         }
         if (changed) {
             await persistRecord(createPersistedBrowserDocumentRecord(entry, entry.data, false));
@@ -417,7 +331,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
 
         this.attachEntry(entry);
         this.fileRefs.set(file, ref);
-        this.updateFileHandleRef(ref, options.saveHandle ?? null);
+        this.fileHandleRefs.update(ref, options.saveHandle ?? null);
         try {
             await this.consumeFileIntoEntry(entry, file);
         } catch (error) {
@@ -576,6 +490,189 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
         return this.runRefMutation(ref, async () => this.writeUnlocked(ref, data, options));
     }
 
+    /**
+     * Promotes a staged browser record in one IndexedDB transaction. The
+     * revision checks and both record mutations share the transaction, so a
+     * concurrent tab cannot replace the staged bytes between validation and
+     * cleanup.
+     */
+    // fallow-ignore-next-line unused-class-member -- called through the staged-artifact store contract.
+    public async commitStagedDocument(
+        stagedRef: string,
+        targetRef: string,
+        data: Uint8Array,
+        expectedStagedRevisionToken: TDocumentRevisionToken,
+        expectedTargetRevisionToken: TDocumentRevisionToken,
+    ) {
+        const committedBytes = data.slice();
+        if (parseDocumentRevisionToken(expectedStagedRevisionToken) === null) {
+            throw new Error('Browser staged commit requires a staged document revision token');
+        }
+        if (parseDocumentRevisionToken(expectedTargetRevisionToken) === null) {
+            throw new Error('Browser staged commit requires a target document revision token');
+        }
+
+        const committed = await this.runRefMutationMany([
+            stagedRef,
+            targetRef,
+        ], async () => {
+            const result = await runObjectStoresTransaction<IBrowserStagedCommitResult | false>(
+                [
+                    DOCUMENTS_STORE,
+                    DOCUMENT_CHUNKS_STORE,
+                ],
+                'readwrite',
+                (transaction, setResult) => {
+                    const documents = transaction.objectStore(DOCUMENTS_STORE);
+                    const chunks = transaction.objectStore(DOCUMENT_CHUNKS_STORE);
+                    const rawRecords = new Map<string, unknown>();
+                    let stagedRead = false;
+                    let targetRead = false;
+                    let sourceReadsScheduled = false;
+                    let settled = false;
+
+                    const finish = (value: IBrowserStagedCommitResult | false) => {
+                        if (settled) {
+                            return;
+                        }
+                        settled = true;
+                        setResult(value);
+                    };
+                    const loadSourceRecordsAndCommit = () => {
+                        if (!stagedRead || !targetRead || settled) {
+                            return;
+                        }
+
+                        const stagedRecord = toPersistedDocumentRecord(rawRecords.get(stagedRef));
+                        const targetRecord = toPersistedDocumentRecord(rawRecords.get(targetRef));
+                        if (!stagedRecord || !targetRecord) {
+                            finish(false);
+                            return;
+                        }
+                        if (
+                            stagedRecord.ref !== stagedRef
+                            || targetRecord.ref !== targetRef
+                            || stagedRef === targetRef
+                        ) {
+                            finish(false);
+                            return;
+                        }
+
+                        const sourceRefs = [
+                            stagedRecord,
+                            targetRecord,
+                        ]
+                            .filter((record) => record.storageMode === 'source-proxy' && record.sourceRef)
+                            .map((record) => record.sourceRef as string)
+                            .filter((ref, index, refs) => refs.indexOf(ref) === index);
+                        if (!sourceReadsScheduled) {
+                            sourceReadsScheduled = true;
+                            for (const sourceRef of sourceRefs) {
+                                if (rawRecords.has(sourceRef)) {
+                                    continue;
+                                }
+                                const sourceRequest = documents.get(sourceRef) as IDBRequest<unknown>;
+                                sourceRequest.onsuccess = () => {
+                                    rawRecords.set(sourceRef, sourceRequest.result);
+                                    loadSourceRecordsAndCommit();
+                                };
+                                sourceRequest.onerror = () => finish(false);
+                            }
+                        }
+                        if (sourceRefs.some((sourceRef) => !rawRecords.has(sourceRef))) {
+                            return;
+                        }
+
+                        const stagedSourceRecord = stagedRecord.storageMode === 'source-proxy'
+                            ? toPersistedDocumentRecord(rawRecords.get(stagedRecord.sourceRef ?? ''))
+                            : null;
+                        const targetSourceRecord = targetRecord.storageMode === 'source-proxy'
+                            ? toPersistedDocumentRecord(rawRecords.get(targetRecord.sourceRef ?? ''))
+                            : null;
+                        const stagedRevisionToken = getPersistedDocumentRevisionToken(
+                            stagedRecord,
+                            stagedSourceRecord,
+                        );
+                        const targetRevisionToken = getPersistedDocumentRevisionToken(
+                            targetRecord,
+                            targetSourceRecord,
+                        );
+                        if (
+                            stagedRevisionToken !== expectedStagedRevisionToken
+                            || targetRevisionToken !== expectedTargetRevisionToken
+                            || stagedRecord.fileSize !== committedBytes.byteLength
+                        ) {
+                            finish(false);
+                            return;
+                        }
+
+                        const targetEntry = createEntryFromPersistedRecord(targetRecord);
+                        const previousTargetRevisionToken = expectedTargetRevisionToken;
+                        targetEntry.storageMode = 'inline';
+                        targetEntry.chunkCount = 0;
+                        targetEntry.chunkSize = BROWSER_DOCUMENT_CHUNK_SIZE;
+                        targetEntry.fileSize = committedBytes.byteLength;
+                        targetEntry.updatedAt = Date.now();
+                        targetEntry.data = committedBytes;
+                        delete targetEntry.chunkGeneration;
+                        updateBrowserDocumentEntryContentToken(targetEntry);
+
+                        queuePersistedChunkDeletes(chunks, targetRecord);
+                        queuePersistedChunkDeletes(chunks, stagedRecord);
+                        documents.put(createPersistedBrowserDocumentRecord(
+                            targetEntry,
+                            targetEntry.data,
+                            false,
+                        ));
+                        documents.delete(stagedRef);
+                        finish({
+                            targetEntry,
+                            previousTargetRevisionToken,
+                        });
+                    };
+
+                    const stagedRequest = documents.get(stagedRef) as IDBRequest<unknown>;
+                    stagedRequest.onsuccess = () => {
+                        rawRecords.set(stagedRef, stagedRequest.result);
+                        stagedRead = true;
+                        loadSourceRecordsAndCommit();
+                    };
+                    stagedRequest.onerror = () => finish(false);
+
+                    const targetRequest = documents.get(targetRef) as IDBRequest<unknown>;
+                    targetRequest.onsuccess = () => {
+                        rawRecords.set(targetRef, targetRequest.result);
+                        targetRead = true;
+                        loadSourceRecordsAndCommit();
+                    };
+                    targetRequest.onerror = () => finish(false);
+                },
+            );
+
+            if (result === null) {
+                throw new Error('IndexedDB browser staged commit did not commit');
+            }
+            if (result === false) {
+                throw new Error('Browser staged artifact content or revision changed during commit');
+            }
+
+            this.attachEntry(result.targetEntry);
+            this.dropLoadedEntry(stagedRef);
+            this.emitRevisionChangeForEntry(
+                result.targetEntry,
+                result.previousTargetRevisionToken,
+                'write',
+            );
+            return true;
+        });
+        if (committed) {
+            // Remove a stale recent-file entry after releasing the document
+            // locks. The recent-file cleanup can inspect this same ref.
+            await this.removeRecentFile(stagedRef);
+        }
+        return committed;
+    }
+
     public async writeForBootstrap(
         ref: string,
         data: Uint8Array | ArrayBuffer,
@@ -629,7 +726,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
             ? normalizePersistedWriteBytes(data, false)
             : normalizePersistedWriteBytes(data);
         const nextStorageMode = resolveByteBackedStorageMode(bytes.byteLength);
-        const previousEntryState = captureEntryStorageState(entry);
+        const previousEntryState = captureBrowserDocumentEntryStorageState(entry);
         const previousChunkGeneration = entry.chunkGeneration;
         const previousChunkCount = entry.storageMode === 'chunked' ? entry.chunkCount : 0;
         let stagedGeneration: string | undefined;
@@ -672,7 +769,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
             await deleteBrowserDocumentChunks(entry.ref, previousChunkCount, previousChunkGeneration)
                 .catch(() => undefined);
         } catch (error) {
-            restoreEntryStorageState(entry, previousEntryState);
+            restoreBrowserDocumentEntryStorageState(entry, previousEntryState);
             if (stagedGeneration && stagedGeneration !== previousChunkGeneration) {
                 await deleteBrowserDocumentChunks(entry.ref, stagedChunkCount, stagedGeneration)
                     .catch(() => undefined);
@@ -698,7 +795,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
         workingEntry.sourceRef = sourceRef;
         workingEntry.saveName = saveName;
         workingEntry.saveHandle = saveHandle ?? null;
-        this.updateFileHandleRef(workingRef, workingEntry.saveHandle);
+        this.fileHandleRefs.update(workingRef, workingEntry.saveHandle);
         workingEntry.sourceWitness = false;
         delete workingEntry.fileSnapshot;
         if (workingEntry.storageMode === 'handle') {
@@ -726,7 +823,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
         entry.saveName = saveName;
         entry.saveKind = saveKind;
         entry.saveHandle = saveHandle ?? null;
-        this.updateFileHandleRef(ref, entry.saveHandle);
+        this.fileHandleRefs.update(ref, entry.saveHandle);
         entry.sourceWitness = entry.kind === 'source' && Boolean(entry.saveHandle);
         await persistRecord(createPersistedBrowserDocumentRecord(entry, entry.data, false));
     }
@@ -761,7 +858,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
         }
 
         const {file} = await readFileHandleMetadata(entry.saveHandle);
-        const previousEntryState = captureEntryStorageState(entry);
+        const previousEntryState = captureBrowserDocumentEntryStorageState(entry);
         try {
             entry.sourceWitness = true;
             entry.storageMode = resolveByteBackedStorageMode(file.size);
@@ -770,7 +867,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
             entry.fileSize = file.size;
             await this.consumeFileIntoEntry(entry, file, { deleteRecordOnFailure: false });
         } catch (error) {
-            restoreEntryStorageState(entry, previousEntryState);
+            restoreBrowserDocumentEntryStorageState(entry, previousEntryState);
             throw error;
         }
     }
@@ -809,7 +906,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
         const previousToken = updateBrowserDocumentEntryContentToken(entry);
         if (options.saveHandle !== undefined) {
             entry.saveHandle = options.saveHandle;
-            this.updateFileHandleRef(ref, entry.saveHandle);
+            this.fileHandleRefs.update(ref, entry.saveHandle);
         }
         entry.sourceWitness = entry.kind === 'source' && Boolean(entry.saveHandle);
         if (options.saveName) {
@@ -882,7 +979,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
                 stagedGeneration,
                 options.chunkCount,
             );
-            const previousEntryState = captureEntryStorageState(entry);
+            const previousEntryState = captureBrowserDocumentEntryStorageState(entry);
             const previousFileName = entry.fileName;
             const previousSaveName = entry.saveName;
             const previousChunkCount = entry.storageMode === 'chunked' ? entry.chunkCount : 0;
@@ -904,7 +1001,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
             try {
                 await persistRecord(createPersistedBrowserDocumentRecord(entry, entry.data, false));
             } catch (error) {
-                restoreEntryStorageState(entry, previousEntryState);
+                restoreBrowserDocumentEntryStorageState(entry, previousEntryState);
                 entry.fileName = previousFileName;
                 if (previousSaveName) {
                     entry.saveName = previousSaveName;

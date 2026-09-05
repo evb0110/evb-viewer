@@ -45,7 +45,11 @@ export async function readPageAnnotationImageFileFromClipboard() {
         }
 
         const blob = await item.getType(mimeType);
-        return new File([blob], `clipboard-image.${extensionForMimeType(mimeType)}`, {
+        const FileConstructor = Reflect.get(globalThis, 'File') as typeof File | undefined;
+        if (!FileConstructor) {
+            return null;
+        }
+        return new FileConstructor([blob], `clipboard-image.${extensionForMimeType(mimeType)}`, {
             type: mimeType,
             lastModified: Date.now(),
         });

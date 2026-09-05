@@ -24,6 +24,7 @@ import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/
 import { createWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import { workspaceViewerChunkLoaders } from '@app/modules/workspace-shell/viewers/workspaceViewerChunkLoaders';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
+import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/public';
 import { cast } from '@tests/helpers/cast';
 
 interface IToolbarNavigationCommand {
@@ -279,11 +280,20 @@ describe('DocumentWorkspace navigation command', () => {
 
     it('shares one revision stream between the toolbar and the rest of the workspace', async () => {
         const workspace = await mountDocumentWorkspace();
-        const toolbarGoToPage = cast<(page: number) => void>(readToolbarAttrs()['onGoToPage']);
+        const toolbarGoToPage = cast<(page: number, options?: IScrollToPageOptions) => void>(readToolbarAttrs()['onGoToPage']);
+        const navigationOptions: IScrollToPageOptions = {
+            navigationSource: 'annotation',
+            markerRect: {
+                left: 0.25,
+                top: 0.7,
+                width: 0.2,
+                height: 0.1,
+            },
+        };
 
         workspace.expose.handleGoToPage(4);
         await nextTick();
-        toolbarGoToPage(9);
+        toolbarGoToPage(9, navigationOptions);
         await nextTick();
 
         // A second publisher would restart its own revisions, leaving the

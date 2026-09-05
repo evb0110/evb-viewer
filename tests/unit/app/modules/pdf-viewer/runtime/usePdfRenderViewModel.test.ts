@@ -56,7 +56,6 @@ function createHarness(options?: {
         effectiveScale: ref(1),
         continuousScroll: computed(() => false),
         numPages: ref(1_000),
-        markersByPage: ref(new Map<number, never[]>()),
         linksByPage: computed<Record<number, never[]>>(() => ({})),
     }));
 

@@ -5,6 +5,7 @@ import {
     DEFAULT_LOCALE,
     LOCALE_DEFINITIONS,
 } from './packages/i18n-core';
+import {isPdfjsPackageId} from './scripts/lib/pdfjs-package-path.mjs';
 import {
     isSentryDiagnosticsBuild,
     resolveSentryBuildIdentity,
@@ -502,6 +503,7 @@ export default defineNuxtConfig({
         'ph:tree-view',
         'ph:crosshair-simple',
         'ph:chat-circle',
+        'ph:chat-circle-text',
         'ph:chat',
         'ph:chat-circle-dots',
         'ph:sparkle',
@@ -599,7 +601,7 @@ export default defineNuxtConfig({
                     codeSplitting: {groups: [
                         {
                             name: 'vendor-pdfjs',
-                            test: /node_modules[\\/]pdfjs-dist[\\/]/,
+                            test: isPdfjsPackageId,
                         },
                         {
                             name: 'vendor-pdf-lib',
@@ -657,6 +659,14 @@ export default defineNuxtConfig({
 
     nitro: {
         sourceMap: sentryDiagnosticsEligible,
+        // The server-only PDF.js runtime uses a top-level dynamic import. The
+        // desktop build runs on Node 24, so keep Nitro's final server transform
+        // in an ESM target that preserves that syntax for prerendering.
+        esbuild: {
+            options: {
+                target: 'esnext',
+            },
+        },
         replace: {
             __EVB_SENTRY_NITRO_BUILD_CONFIGURATION__: JSON.stringify(sentryNitroBuildConfiguration),
         },

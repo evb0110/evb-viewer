@@ -21,6 +21,12 @@ interface IRestoreWorkspaceCheckpointOptions {
 const WORKSPACE_RESTORE_CONCURRENCY = 2;
 
 function getRestoreTarget(tab: IWorkspaceCheckpointTab): TDocumentRef | TOpenFileResult | null {
+    // A hard Electron restart loses the main-process working-copy registry.
+    // Clean tabs already have their durable state in sourceRef, so reopen them
+    // through the normal open path to recreate the registration and witness.
+    if (!tab.isDirty && tab.sourceRef) {
+        return tab.sourceRef;
+    }
     if (tab.workingCopyRef && tab.sourceRef) {
         return {
             kind: 'pdf',

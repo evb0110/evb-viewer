@@ -32,24 +32,51 @@ const mocks = vi.hoisted(() => {
     const copyFile = vi.fn(async () => undefined);
     const makeSiblingTempPath = vi.fn((targetPath: string) => `${targetPath}.tmp`);
     const mkdtemp = vi.fn(async () => '/tmp/native-assembler');
-    const readFile = vi.fn(async (path: string) => new Uint8Array(path.endsWith('input.pdf')
-        ? [
+    const readFile = vi.fn(async (path: string, encoding?: string) => {
+        if (path.endsWith('.json')) {
+            return encoding === 'utf8'
+                ? JSON.stringify({
+                    bookmarks: [{
+                        title: path.includes('/0.json') ? 'First' : 'Second',
+                        pageIndex: 0,
+                        namedDest: null,
+                        bold: false,
+                        italic: false,
+                        color: null,
+                        items: [],
+                    }],
+                    pageLabels: [{
+                        pageIndex: 0,
+                        style: 'D',
+                        start: 1,
+                    }],
+                })
+                : new Uint8Array();
+        }
+        return new Uint8Array(path.endsWith('input.pdf') ? [
             1,
             1,
             1,
-        ]
-        : [
+        ] : [
             8,
             8,
             8,
-        ]));
+        ]);
+    });
     const rm = vi.fn(async () => undefined);
+    const writeFile = vi.fn(async (_path: string, _data: string, _encoding: 'utf8') => undefined);
     const stat = vi.fn(async () => ({size: 3}));
     const statfs = vi.fn(async () => ({
         bavail: 1_000_000,
         bsize: 4096,
     }));
     const runQpdfCommand = vi.fn(async () => undefined);
+    const runNativeCommand = vi.fn(async (_command: string, args: string[]) => {
+        if (args[0] === 'read-catalog') {
+            return undefined;
+        }
+        return undefined;
+    });
     const assertNonEmptyPdfOutput = vi.fn(async () => undefined);
     const getPdfPageCount = vi.fn(async (path: string): Promise<number> => path.includes('/image-chunk-') ? 3 : 1);
     const getDjvuPageCount = vi.fn(async () => 2);
@@ -87,9 +114,11 @@ const mocks = vi.hoisted(() => {
         mkdtemp,
         readFile,
         rm,
+        writeFile,
         stat,
         statfs,
         runQpdfCommand,
+        runNativeCommand,
         assertNonEmptyPdfOutput,
         getPdfPageCount,
         getDjvuPageCount,
@@ -107,6 +136,7 @@ vi.mock('fs/promises', () => ({
     rm: mocks.rm,
     stat: mocks.stat,
     statfs: mocks.statfs,
+    writeFile: mocks.writeFile,
 }));
 
 vi.mock('@electron/utils/atomicReplace', () => ({
@@ -124,6 +154,9 @@ vi.mock('@electron/features/page-ops/publicNative', () => ({
     QPDF_TIMEOUT_MS: 120_000,
     runQpdfCommand: mocks.runQpdfCommand,
 }));
+vi.mock('@electron/features/page-ops/main/nativePageOpsPath', () => ({resolveNativePageOpsPath: () => process.env.EVB_TEST_NATIVE_PAGE_OPS === '1' ? '/tmp/page-ops' : null}));
+vi.mock('@electron/native-tools/runNativeCommand', () => ({runNativeCommand: mocks.runNativeCommand}));
+vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: () => ({qpdf: '/tmp/qpdf'})}));
 
 vi.mock('@electron/features/djvu/public', () => ({
     cancelConversion: mocks.cancelConversion,
@@ -172,6 +205,42 @@ describe('tryCreatePdfFromInputPathsNative', () => {
         expect(result).toBeNull();
         expect(mocks.mkdtemp).not.toHaveBeenCalled();
         expect(mocks.runQpdfCommand).not.toHaveBeenCalled();
+    });
+
+    it('applies read catalogs with page offsets after qpdf merges chunks', async () => {
+        vi.stubEnv('EVB_PDF_NATIVE_ASSEMBLER_ENABLE', '1');
+        vi.stubEnv('EVB_TEST_NATIVE_PAGE_OPS', '1');
+        mocks.getPdfPageCount.mockImplementation(async path => path.endsWith('final.pdf.tmp') ? 2 : 1);
+
+        await expect(tryWritePdfFromInputPathsNative(
+            [
+                '/tmp/first.pdf',
+                '/tmp/second.pdf',
+            ],
+            '/tmp/final.pdf',
+            {failureMode: 'capability-error'},
+        )).resolves.toBe(true);
+
+        expect(mocks.runQpdfCommand).toHaveBeenCalledOnce();
+        expect(mocks.runNativeCommand).toHaveBeenCalledWith(
+            '/tmp/page-ops',
+            expect.arrayContaining([
+                'save-mutations',
+                '--append',
+            ]),
+            expect.any(Object),
+        );
+        expect(mocks.writeFile).toHaveBeenCalledWith(
+            expect.stringContaining('mutations.json'),
+            expect.stringContaining('Second'),
+            'utf8',
+        );
+        const mutationWrite = mocks.writeFile.mock.calls.at(-1);
+        if (!mutationWrite) {
+            throw new Error('Expected the native assembler mutation file write');
+        }
+        const mutationJson = mutationWrite[1];
+        expect(mutationJson).toContain('"pageIndex":1');
     });
 
     it('reports native unavailability as a typed error in strict mode', async () => {
@@ -257,6 +326,7 @@ describe('tryCreatePdfFromInputPathsNative', () => {
 
     it('assembles PDF and DjVu paths through qpdf in strict file-backed mode', async () => {
         vi.stubEnv('EVB_PDF_NATIVE_ASSEMBLER_ENABLE', '1');
+        vi.stubEnv('EVB_TEST_NATIVE_PAGE_OPS', '1');
         mocks.getPdfPageCount.mockImplementation(async (path: string) => path.includes('final.pdf.tmp') ? 2 : 1);
 
         await expect(tryWritePdfFromInputPathsNative(

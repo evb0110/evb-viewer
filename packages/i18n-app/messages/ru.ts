@@ -1401,6 +1401,8 @@ export default {
         'author': 'Имя автора',
         'authorPlaceholder': 'Ваше имя для аннотаций',
         'authorDescription': 'Отображается как автор заметок и комментариев.',
+        'suppressUnencryptedSaveNotice': 'Не предупреждать перед снятием защиты паролем',
+        'suppressUnencryptedSaveNoticeDescription': 'Сохранённый PDF не потребует исходный пароль.',
         'theme': 'Тема',
         'themeLight': 'Светлая',
         'themeDark': 'Тёмная',
@@ -1542,6 +1544,12 @@ export default {
         'file': {
             'open': 'Не удалось открыть файл',
             'openNotFound': 'Не удалось открыть «{name}». Файл мог быть перемещён, удалён или его хранилище было очищено.',
+            'passwordPromptTitle': 'Требуется пароль',
+            'passwordPromptDescription': 'Введите пароль для «{name}», чтобы открыть этот PDF.',
+            'passwordPromptLabel': 'Пароль',
+            'passwordPromptOpen': 'Открыть',
+            'passwordPromptIncorrect': 'Неверный пароль. Попробуйте ещё раз.',
+            'unsupportedEncryption': 'Этот PDF использует шифрование, которое EVB Viewer не может открыть.',
             'invalid': 'Файл недействителен или не существует',
             'emptyPdf': 'PDF-файл пустой (0 байт)',
             'noPages': 'PDF не содержит страниц',
@@ -1555,6 +1563,10 @@ export default {
             'openNotes': 'Не удалось сохранить открытые заметки, поэтому документ не записан.',
             'documentChanged': 'Документ изменился до завершения сохранения, поэтому ничего не записано.',
             'notCompleted': 'Не удалось записать документ.',
+            'unencryptedTitle': 'Сохранить без защиты паролем?',
+            'unencryptedDescription': 'Этот PDF был открыт с паролем. Сохранение создаст копию без защиты паролем.',
+            'unencryptedDontShowAgain': 'Больше не показывать это предупреждение',
+            'unencryptedContinue': 'Продолжить',
         },
         'export': {
             'images': 'Не удалось экспортировать изображения',
@@ -1563,6 +1575,7 @@ export default {
         'browser': {
             'filePickerSetupDenied': 'Доступ браузера к файлам запрещён. Нажмите «Открыть» ещё раз, чтобы использовать совместимое окно выбора файла.',
             'largeSaveHandleHint': 'Используйте браузер с включённым локальным доступом к файловой системе, чтобы сохранять большие документы.',
+            'useNativeApp': 'Используйте нативное приложение для файлов такого размера.',
         },
         'search': {
             'browserTooLarge': 'Поиск недоступен в браузере для очень больших документов.',

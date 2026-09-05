@@ -22,16 +22,6 @@ import { createPrintableSourceDataResolver } from '@app/modules/workspace-shell/
 import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { TEST_PDF_SAVE_BYTE_ROUTE_DECISION } from '@tests/unit/app/modules/pdf-viewer/runtime/save/testPdfSaveByteRouteDecision';
 
-// The real transaction binds canonical identities off the main thread; the
-// print frontier test only needs the byte route, not a worker round trip.
-vi.mock(
-    '@app/modules/pdf-viewer/engine/pdf-serialization-worker-client/bindCanonicalAnnotationIdentitiesOffThread',
-    () => ({bindCanonicalAnnotationIdentitiesOffThread: vi.fn(async (data: Uint8Array) => ({
-        data,
-        identityBindings: [],
-    }))}),
-);
-
 const PRINT_FRONTIER_REVISION = requireDocumentRevisionToken('print-frontier-revision');
 
 interface IPrintTestViewer {runSaveTransaction(request: IPdfViewerSaveTransactionRequest): Promise<IPdfViewerSaveTransactionResult>;}
@@ -154,7 +144,7 @@ describe('createPrintableSourceDataResolver', () => {
         expect(leaseKinds).toEqual(['print-materialize']);
         expect(runSaveTransaction).toHaveBeenCalledWith({
             mode: 'print',
-            forcePdfjsMaterialize: true,
+            forceWriterSave: true,
             serializeResult: true,
             includeManagedShapes: true,
             rewriteShapeState: true,
@@ -395,8 +385,8 @@ describe('createPrintableSourceDataResolver', () => {
     it('opens the print frontier only after the in-flight save acknowledges, and materializes the acknowledged source', async () => {
         const controller = createWorkspaceDocumentController({tabId: 'tab-print'});
         const application = new AnnotationApplication('print-frontier-document');
-        const note = application.store.createStickyNote({
-            kind: 'sticky-note',
+        const note = application.store.createNote({
+            kind: 'note',
             identity: {id: asAnnotationId('print-frontier-note')},
             pageIndex: 0,
             revision: 0,
@@ -405,14 +395,15 @@ describe('createPrintableSourceDataResolver', () => {
             createdAt: null,
             modifiedAt: null,
             author: null,
-            text: 'unsaved note the print must not race',
-            anchor: {
+            contents: 'unsaved note the print must not race',
+            position: {
                 left: 0.1,
                 top: 0.2,
                 width: 0.01,
                 height: 0.01,
             },
             color: '#ffcc00',
+            open: false,
         });
         const unsavedSourceBytes = Uint8Array.of(1, 1, 1);
         const savedSourceBytes = Uint8Array.of(2, 2, 2);
@@ -422,11 +413,6 @@ describe('createPrintableSourceDataResolver', () => {
         const {runSaveTransaction} = usePdfViewerSaveTransaction({
             annotationApplication: shallowRef(application),
             documentRevisionToken: computed(() => PRINT_FRONTIER_REVISION),
-            materializePdfJsDocumentForInternalUse: async () => {
-                const entity = application.store.get(note.identity.id);
-                materializedPersistedRevisions.push(entity ? entity.persistedRevision : Number.NaN);
-                return documentBytes.value;
-            },
         });
         const runTransaction = vi.fn(async (request: IPdfViewerSaveTransactionRequest) => {
             events.push(`transaction-start:${request.mode}`);
@@ -473,7 +459,7 @@ describe('createPrintableSourceDataResolver', () => {
             'transaction-start:persist',
             'transaction-settled:persist',
         ]);
-        expect(materializedPersistedRevisions).toEqual([-1]);
+        expect(materializedPersistedRevisions).toEqual([]);
         expect(application.store.get(note.identity.id)).toMatchObject({persistedRevision: -1});
 
         durableWriteCompleted.resolve(undefined);
@@ -491,17 +477,14 @@ describe('createPrintableSourceDataResolver', () => {
         ]);
         // The print materialized the acknowledged frontier and the post-ack
         // source bytes, not the pre-acknowledgement snapshot the save owned.
-        expect(materializedPersistedRevisions).toEqual([
-            -1,
-            0,
-        ]);
+        expect(materializedPersistedRevisions).toEqual([]);
         expect(application.store.get(note.identity.id)).toMatchObject({persistedRevision: 0});
         expect(application.store.hasChangesSinceSavedBaseline()).toBe(false);
 
         expect(runTransaction).toHaveBeenCalledTimes(2);
         expect(runTransaction.mock.calls[1]?.[0]).toMatchObject({
             mode: 'print',
-            forcePdfjsMaterialize: true,
+            forceWriterSave: true,
             serializeResult: true,
         });
         // The print owns a post-acknowledgement frontier of its own.

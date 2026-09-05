@@ -24,8 +24,9 @@
             aria-hidden="true"
         >
             <PdfAnnotationStyleEditor
-                :tool="tool"
+                :tool="styleTool"
                 :settings="settings"
+                :selected-text-box="selectedTextBox"
                 @set-tool="setTool"
                 @update-setting="updateSetting"
             />
@@ -62,8 +63,9 @@
                     </div>
 
                     <PdfAnnotationStyleEditor
-                        :tool="tool"
+                        :tool="styleTool"
                         :settings="settings"
+                        :selected-text-box="selectedTextBox"
                         @set-tool="setTool"
                         @update-setting="updateSetting"
                         @color-selected="stylePopoverOpen = false"
@@ -82,7 +84,7 @@
             @focus-comment="focusComment"
             @open-note="openNote"
             @delete-comment="deleteComment"
-            @place-note="placeNote"
+            @set-tool="setTool"
             @retry-enrichment="retryEnrichment"
         />
     </div>
@@ -97,6 +99,7 @@ import type {
     TAnnotationTool,
 } from '@app/types/annotations';
 import type { IAnnotationEnrichmentState } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationEnrichmentPolicy';
+import type { ITextBoxEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import { PENDING_ANNOTATION_ENRICHMENT_STATE } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationEnrichmentPolicy';
 import { isAuthoringAnnotationTool } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isAuthoringAnnotationTool';
 import PdfAnnotationCommentsList from '@app/modules/pdf-viewer/components/PdfAnnotationCommentsList.vue';
@@ -112,6 +115,7 @@ interface IProps {
     inventory?: IAnnotationInventoryCompleteness | null | undefined;
     enrichmentState?: IAnnotationEnrichmentState | undefined;
     activeCommentStableKey?: string | null;
+    selectedTextBox?: Pick<ITextBoxEntity, 'fontSize' | 'color'> | null;
 }
 
 interface IPdfAnnotationToolbarExpose {getButtonEl(toolId: TAnnotationTool): HTMLElement | null;}
@@ -128,12 +132,16 @@ const {
     inventory = null,
     enrichmentState = PENDING_ANNOTATION_ENRICHMENT_STATE,
     activeCommentStableKey: rawActiveCommentStableKey = null,
+    selectedTextBox = null,
 } = defineProps<IProps>();
 const activeCommentStableKey = computed(() => rawActiveCommentStableKey ?? undefined);
-const showStyleEditor = computed(() => isAuthoringAnnotationTool(tool));
+const styleTool = computed<TAnnotationTool>(() => (
+    selectedTextBox !== null && (tool === 'select' || tool === 'none') ? 'text' : tool
+));
+const showStyleEditor = computed(() => isAuthoringAnnotationTool(styleTool.value));
 const stylePopoverOpen = ref(false);
 const toolbarRef = ref<IPdfAnnotationToolbarExpose | null>(null);
-const stylePopoverReference = computed(() => toolbarRef.value?.getButtonEl(tool) ?? null);
+const stylePopoverReference = computed(() => toolbarRef.value?.getButtonEl(styleTool.value) ?? null);
 const stylePopoverContent = {
     align: 'start' as const,
     side: 'bottom' as const,
@@ -152,7 +160,7 @@ const colorSettingKeys = new Set<keyof IAnnotationSettings>([
 let stylePopoverReopenTimer: ReturnType<typeof setTimeout> | null = null;
 
 const toolLabel = computed(() => {
-    switch (tool) {
+    switch (styleTool.value) {
         case 'draw':
             return t('annotations.draw');
         case 'text':
@@ -191,7 +199,6 @@ const emit = defineEmits<{
     'focus-comment': [comment: IAnnotationCommentSummary];
     'open-note': [comment: IAnnotationCommentSummary];
     'delete-comment': [comment: IAnnotationCommentSummary];
-    'place-note': [];
     'retry-enrichment': [];
 }>();
 
@@ -215,7 +222,10 @@ function clearStylePopoverReopenTimer() {
     stylePopoverReopenTimer = null;
 }
 
-watch(() => tool, async () => {
+watch(() => [
+    tool,
+    selectedTextBox,
+], async () => {
     clearStylePopoverReopenTimer();
     if (!showStyleEditor.value) {
         stylePopoverOpen.value = false;
@@ -265,10 +275,6 @@ function openNote(comment: IAnnotationCommentSummary) {
 
 function deleteComment(comment: IAnnotationCommentSummary) {
     emit('delete-comment', comment);
-}
-
-function placeNote() {
-    emit('place-note');
 }
 
 function retryEnrichment() {

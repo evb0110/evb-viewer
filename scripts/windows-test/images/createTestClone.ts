@@ -2,7 +2,6 @@ import { constants } from 'node:fs';
 import {
     cp,
     lstat,
-    mkdir,
     readdir,
     realpath,
     statfs,
@@ -128,7 +127,6 @@ export async function createTestClone(options: {
     if (await lstat(destination).catch(() => null)) {
         throw new Error('The clone destination already exists; preserved it without replacement.');
     }
-    await mkdir(destination);
     await cp(source, destination, {
         recursive: true,
         force: false,

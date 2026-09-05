@@ -3,7 +3,10 @@ import {
     expect,
     it,
 } from 'vitest';
-import { resolvePdfAnnotationPreviewText } from '@app/modules/pdf-viewer/engine/annotations/pdf-annotation-preview-text/resolvePdfAnnotationPreviewText';
+import {
+    resolvePdfAnnotationPreviewText,
+    resolvePdfAnnotationPreviewTextFromMarkerRects,
+} from '@app/modules/pdf-viewer/engine/annotations/pdf-annotation-preview-text/resolvePdfAnnotationPreviewText';
 
 const pageView = [
     0,
@@ -118,5 +121,32 @@ describe('resolvePdfAnnotationPreviewText', () => {
         );
 
         expect(preview).toBe('ABCDEFGH');
+    });
+
+    it('derives canonical selected text from marker rects and fails quietly without text', () => {
+        const preview = resolvePdfAnnotationPreviewTextFromMarkerRects(
+            'Highlight',
+            [{
+                left: 0.3,
+                top: 0.2,
+                width: 0.2,
+                height: 0.1,
+            }],
+            [lineTextItem],
+            viewport,
+        );
+
+        expect(preview).toBe('CD');
+        expect(resolvePdfAnnotationPreviewTextFromMarkerRects(
+            'Highlight',
+            [{
+                left: 0.7,
+                top: 0.8,
+                width: 0.1,
+                height: 0.1,
+            }],
+            [lineTextItem],
+            viewport,
+        )).toBeNull();
     });
 });

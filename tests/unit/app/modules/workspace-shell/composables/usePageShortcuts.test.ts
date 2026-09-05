@@ -42,11 +42,7 @@ function createDeps() {
         canSave: ref(true),
         showSettings: ref(false),
         annotationTool: ref<TAnnotationTool>('none'),
-        annotationPlacingPageNote: ref(false),
-        pdfViewerRef: ref({
-            cancelCommentPlacement: vi.fn(),
-            deleteSelectedShape: vi.fn(),
-        }),
+        pdfViewerRef: ref({deleteSelectedShape: vi.fn()}),
         shapePropertiesPopoverVisible: ref(false),
         annotationContextMenuVisible: ref(false),
         pageContextMenuVisible: ref(false),

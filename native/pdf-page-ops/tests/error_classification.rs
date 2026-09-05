@@ -18,6 +18,16 @@ fn path(label: &str, extension: &str) -> PathBuf {
     ))
 }
 
+struct RemovePdfFilesOnDrop<const N: usize>([PathBuf; N]);
+
+impl<const N: usize> Drop for RemovePdfFilesOnDrop<N> {
+    fn drop(&mut self) {
+        for path in &self.0 {
+            let _ = remove_file(path);
+        }
+    }
+}
+
 fn run_page_sizes(input: &Path, output: &Path) -> Output {
     Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
         .args(["page-sizes", "--input"])
@@ -517,4 +527,203 @@ fn save_mutations_reports_typed_aggregate_limit_for_nested_shape_sidecar() {
     let _ = remove_file(input);
     let _ = remove_file(output);
     let _ = remove_file(mutations);
+}
+
+#[test]
+fn save_mutations_cli_dispatches_text_box_and_identity_binding() {
+    let input = path("text-box-cli-input", "pdf");
+    let output = path("text-box-cli-output", "pdf");
+    let mutations = path("text-box-cli-mutations", "json");
+    let identity_bindings = path("text-box-cli-bindings", "json");
+
+    let _cleanup = RemovePdfFilesOnDrop([
+        input.clone(),
+        output.clone(),
+        mutations.clone(),
+        identity_bindings.clone(),
+    ]);
+
+    let mut document = Document::with_version("1.4");
+    let pages_id = document.new_object_id();
+    let page_id = document.add_object(dictionary! {
+        "Type" => "Page",
+        "Parent" => pages_id,
+        "MediaBox" => vec![0.into(), 0.into(), 200.into(), 100.into()],
+    });
+    document.objects.insert(
+        pages_id,
+        dictionary! {
+            "Type" => "Pages",
+            "Kids" => vec![Object::Reference(page_id)],
+            "Count" => 1,
+        }
+        .into(),
+    );
+    let catalog_id = document.add_object(dictionary! {
+        "Type" => "Catalog",
+        "Pages" => pages_id,
+    });
+    document.trailer.set("Root", catalog_id);
+    document.save(&input).unwrap();
+    std::fs::copy(&input, &output).unwrap();
+
+    write(
+        &mutations,
+        br#"{"textBoxes":[{"pageIndex":0,"stableKey":"cli-text-box","text":"CLI text box","rect":[10,20,100,60],"rotation":0,"fontSize":16,"color":[17,24,39],"author":"Ada Lovelace","createdAt":1780000000000,"modifiedAt":1780000060000}]}"#,
+    )
+    .unwrap();
+
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+        .args(["save-mutations", "--input"])
+        .arg(&input)
+        .arg("--output")
+        .arg(&output)
+        .arg("--mutations-file")
+        .arg(&mutations)
+        .args([
+            "--modified-at",
+            "D:20260831150000Z",
+            "--append",
+            "--identity-bindings-file",
+        ])
+        .arg(&identity_bindings)
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "save-mutations failed: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+
+    let saved = Document::load(&output).unwrap();
+    let bindings: Vec<Value> = serde_json::from_slice(&read(&identity_bindings).unwrap()).unwrap();
+    assert_eq!(bindings.len(), 1);
+    assert_eq!(bindings[0]["annotationId"], "cli-text-box");
+    let pdf_ref = bindings[0]["pdfRef"].as_str().unwrap();
+    let mut pdf_ref_parts = pdf_ref.split_whitespace();
+    let object_number = pdf_ref_parts.next().unwrap().parse::<u32>().unwrap();
+    let generation_number = pdf_ref_parts.next().unwrap().parse::<u16>().unwrap();
+    assert_eq!(pdf_ref_parts.next(), Some("R"));
+    let text_box = saved
+        .get_dictionary((object_number, generation_number))
+        .expect("identity binding should point to the saved text box");
+    let decode_pdf_text = |value: &[u8]| {
+        if !value.starts_with(&[0xfe, 0xff]) {
+            return String::from_utf8(value.to_vec()).unwrap();
+        }
+        let chunks = value[2..].chunks_exact(2);
+        assert!(
+            chunks.remainder().is_empty(),
+            "PDF UTF-16 string has an odd byte length"
+        );
+        let code_units = chunks
+            .map(|bytes| u16::from_be_bytes([bytes[0], bytes[1]]))
+            .collect::<Vec<_>>();
+        String::from_utf16(&code_units).unwrap()
+    };
+    assert_eq!(
+        decode_pdf_text(text_box.get(b"NM").unwrap().as_str().unwrap()),
+        "cli-text-box"
+    );
+    assert_eq!(
+        decode_pdf_text(text_box.get(b"T").unwrap().as_str().unwrap()),
+        "Ada Lovelace"
+    );
+    assert_eq!(
+        decode_pdf_text(text_box.get(b"CreationDate").unwrap().as_str().unwrap()),
+        "D:20260528202640Z"
+    );
+    assert_eq!(
+        decode_pdf_text(text_box.get(b"M").unwrap().as_str().unwrap()),
+        "D:20260528202740Z"
+    );
+    assert_eq!(
+        decode_pdf_text(text_box.get(b"Contents").unwrap().as_str().unwrap()),
+        "CLI text box"
+    );
+}
+
+#[test]
+fn save_mutations_cli_accepts_legacy_text_box_alias() {
+    let input = path("legacy-text-box-cli-input", "pdf");
+    let output = path("legacy-text-box-cli-output", "pdf");
+    let mutations = path("legacy-text-box-cli-mutations", "json");
+    let identity_bindings = path("legacy-text-box-cli-bindings", "json");
+
+    let _cleanup = RemovePdfFilesOnDrop([
+        input.clone(),
+        output.clone(),
+        mutations.clone(),
+        identity_bindings.clone(),
+    ]);
+    let mut document = Document::with_version("1.4");
+    let pages_id = document.new_object_id();
+    let page_id = document.add_object(dictionary! {
+        "Type" => "Page",
+        "Parent" => pages_id,
+        "MediaBox" => vec![0.into(), 0.into(), 200.into(), 100.into()],
+    });
+    document.objects.insert(
+        pages_id,
+        dictionary! {
+            "Type" => "Pages",
+            "Kids" => vec![Object::Reference(page_id)],
+            "Count" => 1,
+        }
+        .into(),
+    );
+    let catalog_id = document.add_object(dictionary! {
+        "Type" => "Catalog",
+        "Pages" => pages_id,
+    });
+    document.trailer.set("Root", catalog_id);
+    document.save(&input).unwrap();
+    std::fs::copy(&input, &output).unwrap();
+    write(
+        &mutations,
+        br#"{"freeTextEditors":[{"pageIndex":0,"stableKey":"legacy-cli-text-box","text":"Legacy CLI text box","rect":[10,20,100,60],"rotation":0,"fontSize":16,"color":[17,24,39],"author":"Ada Lovelace","createdAt":1780000000000,"modifiedAt":1780000060000}]}"#,
+    )
+    .unwrap();
+
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+        .args([
+            "save-mutations",
+            "--input",
+            input.to_str().unwrap(),
+            "--output",
+            output.to_str().unwrap(),
+            "--mutations-file",
+            mutations.to_str().unwrap(),
+            "--modified-at",
+            "D:20260831150000Z",
+            "--append",
+            "--identity-bindings-file",
+            identity_bindings.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "legacy save-mutations failed: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+
+    let bindings: Vec<Value> = serde_json::from_slice(&read(&identity_bindings).unwrap()).unwrap();
+    assert_eq!(bindings.len(), 1);
+    assert_eq!(bindings[0]["annotationId"], "legacy-cli-text-box");
+    let pdf_ref = bindings[0]["pdfRef"].as_str().unwrap();
+    let mut pdf_ref_parts = pdf_ref.split_whitespace();
+    let object_number = pdf_ref_parts.next().unwrap().parse::<u32>().unwrap();
+    let generation_number = pdf_ref_parts.next().unwrap().parse::<u16>().unwrap();
+    assert_eq!(pdf_ref_parts.next(), Some("R"));
+
+    let saved = Document::load(&output).unwrap();
+    let text_box = saved
+        .get_dictionary((object_number, generation_number))
+        .expect("legacy identity binding should point to the saved text box");
+    assert_eq!(
+        text_box.get(b"Subtype").unwrap().as_name().unwrap(),
+        b"FreeText"
+    );
+    assert!(text_box.get(b"Contents").is_ok());
 }

@@ -136,6 +136,12 @@ describe('web deploy source policy', () => {
         expect(isExcludedWebDeploySourcePath('HANDOFF.md', 'reports/../docs/scan-cleanup')).toBe(false);
     });
 
+    it('excludes PDF.js archives and the vendor tree from web source', () => {
+        expect(isExcludedWebDeploySourcePath('pdfjs-dist.tgz')).toBe(true);
+        expect(isExcludedWebDeploySourcePath('pdfjs-dist.tar.gz')).toBe(true);
+        expect(isExcludedWebDeploySourcePath('pdfjs-dist.tgz', 'vendor/pdfjs-dist')).toBe(true);
+    });
+
     it('does not count excluded local artifacts in the deploy source budget', async () => {
         const tempRoot = await createTempProject();
         try {

@@ -78,23 +78,3 @@ export function getOptionalFunction<TArgs extends unknown[] = unknown[], TResult
         ? candidate as (...args: TArgs) => TResult
         : null;
 }
-
-export function getOptionalNumberArray(
-    value: unknown,
-    key: PropertyKey,
-): number[] | null {
-    const candidate = getOptionalArray(value, key);
-    if (!candidate) {
-        return null;
-    }
-
-    const numbers: number[] = [];
-    for (const item of candidate) {
-        if (typeof item !== 'number' || !Number.isFinite(item)) {
-            return null;
-        }
-        numbers.push(item);
-    }
-
-    return numbers;
-}

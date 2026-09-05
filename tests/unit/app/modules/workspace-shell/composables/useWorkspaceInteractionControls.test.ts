@@ -65,7 +65,6 @@ function createInteractionControls(overrides: {
         canSave: ref(true),
         showSettings: ref(false),
         annotationTool: ref<TAnnotationTool>('none'),
-        annotationPlacingPageNote: ref(false),
         pdfViewerRef: ref(null),
         documentViewerRef: ref(null),
         shapePropertiesPopoverVisible: computed(() => false),

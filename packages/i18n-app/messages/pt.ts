@@ -1377,6 +1377,8 @@ export default {
         'author': 'Nome do Autor',
         'authorPlaceholder': 'O seu nome para anotações',
         'authorDescription': 'Apresentado como autor em notas adesivas e comentários.',
+        'suppressUnencryptedSaveNotice': 'Não avisar antes de remover a proteção por palavra-passe do PDF',
+        'suppressUnencryptedSaveNoticeDescription': 'O PDF guardado não exigirá a palavra-passe original.',
         'theme': 'Tema',
         'themeLight': 'Claro',
         'themeDark': 'Escuro',
@@ -1518,6 +1520,12 @@ export default {
         'file': {
             'open': 'Falha ao abrir ficheiro',
             'openNotFound': 'Não foi possível abrir "{name}". O ficheiro pode ter sido movido, eliminado ou o seu armazenamento foi limpo.',
+            'passwordPromptTitle': 'Palavra-passe necessária',
+            'passwordPromptDescription': 'Introduza a palavra-passe de "{name}" para abrir este PDF.',
+            'passwordPromptLabel': 'Palavra-passe',
+            'passwordPromptOpen': 'Abrir',
+            'passwordPromptIncorrect': 'A palavra-passe está incorreta. Tente novamente.',
+            'unsupportedEncryption': 'Este PDF usa uma encriptação que o EVB Viewer não consegue abrir.',
             'invalid': 'Ficheiro inválido ou inexistente',
             'emptyPdf': 'O ficheiro PDF está vazio (0 bytes)',
             'noPages': 'O PDF não contém páginas',
@@ -1531,6 +1539,10 @@ export default {
             'openNotes': 'Não foi possível guardar as notas abertas, por isso o documento não foi escrito.',
             'documentChanged': 'O documento mudou antes de o guardar terminar, por isso nada foi escrito.',
             'notCompleted': 'Não foi possível escrever o documento.',
+            'unencryptedTitle': 'Guardar sem proteção por palavra-passe?',
+            'unencryptedDescription': 'Este PDF foi aberto com uma palavra-passe. Ao guardá-lo, será criada uma cópia sem proteção por palavra-passe.',
+            'unencryptedDontShowAgain': 'Não mostrar novamente este aviso',
+            'unencryptedContinue': 'Continuar',
         },
         'export': {
             'images': 'Falha ao exportar imagens',
@@ -1539,6 +1551,7 @@ export default {
         'browser': {
             'filePickerSetupDenied': 'O acesso do navegador aos ficheiros foi negado. Escolha Abrir novamente para usar o seletor compatível.',
             'largeSaveHandleHint': 'Use um navegador com acesso ao sistema de ficheiros local ativado para guardar documentos grandes.',
+            'useNativeApp': 'Use the native app for files this large.',
         },
         'search': {
             'browserTooLarge': 'A pesquisa não está disponível no navegador para documentos muito grandes.',

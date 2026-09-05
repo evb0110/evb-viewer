@@ -17,6 +17,16 @@
             />
         </UFormField>
 
+        <div class="settings-field flex flex-col gap-1">
+            <UCheckbox
+                id="settings-suppress-unencrypted-save-notice"
+                :model-value="settings.suppressUnencryptedSaveNotice === true"
+                :label="t('settings.suppressUnencryptedSaveNotice')"
+                @update:model-value="emit('update:suppress-unencrypted-save-notice', $event === true)"
+            />
+            <p class="settings-field-hint">{{ t('settings.suppressUnencryptedSaveNoticeDescription') }}</p>
+        </div>
+
         <URadioGroup
             class="settings-field"
             :model-value="settings.theme"
@@ -90,6 +100,7 @@ defineProps<{
 
 const emit = defineEmits<{
     'update:author-name': [value: string];
+    'update:suppress-unencrypted-save-notice': [value: boolean];
     'update:theme': [value: TAppTheme];
     'update:locale': [value: string | { value: string }];
     'update:ui-scale': [value: TUiScalePreference];
