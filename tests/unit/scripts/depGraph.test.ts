@@ -1,4 +1,5 @@
 import {
+    afterEach,
     describe,
     expect,
     it,
@@ -6,6 +7,7 @@ import {
 import {
     mkdir,
     mkdtemp,
+    rm,
     writeFile,
 } from 'node:fs/promises';
 import {
@@ -35,9 +37,53 @@ const {
     pathToFileURL(resolve(process.cwd(), 'scripts/architecture/annotation-dependency-graph.mjs')).href
 );
 
+const temporaryProjectRoots: string[] = [];
+
+async function createTemporaryProjectRoot() {
+    const projectRoot = await mkdtemp(join(tmpdir(), 'evb-dep-graph-'));
+    temporaryProjectRoots.push(projectRoot);
+    return projectRoot;
+}
+
+afterEach(async () => {
+    const roots = temporaryProjectRoots.splice(0);
+    await Promise.all(roots.map(projectRoot => rm(projectRoot, {
+        force: true,
+        recursive: true,
+    })));
+});
+
 describe('dependency graph', () => {
+    it('blocks pdfjs-dist imports outside renderer and adapter roots', () => {
+        expect(checkArchitectureBoundarySource(
+            'app/utils/exportTextAsDocx.ts',
+            'import type { PDFPageProxy } from \'pdfjs-dist/types/src/display/api\';\n',
+        )).toEqual([{
+            rule: 'pdfjs-import-boundary',
+            source: 'app/utils/exportTextAsDocx.ts',
+            target: 'pdfjs-dist/types/src/display/api',
+            specifier: 'pdfjs-dist/types/src/display/api',
+            message: 'pdfjs-dist imports belong only in the renderer or its PDF.js adapter roots.',
+        }]);
+        expect(checkArchitectureBoundarySource(
+            'app/modules/pdf-viewer/runtime/rendering/example.ts',
+            'import * as pdfjs from \'pdfjs-dist\';\n',
+        )).toEqual([]);
+        expect(checkArchitectureBoundarySource(
+            'app/components/PdfViewer.vue',
+            '<script setup lang="ts">\nimport type { IPdfPage } from \'pdfjs-dist\';\n</script>',
+        )).toHaveLength(1);
+        expect(checkArchitectureBoundarySource(
+            'app/utils/pdfPrint.ts',
+            'const pdfjs = await import(\'pdfjs-dist/legacy/build/pdf.mjs\');\n',
+        )).toHaveLength(1);
+        expect(checkArchitectureBoundarySource(
+            'app/utils/pdfPrint.ts',
+            'const pdfjs = require(\'pdfjs-dist\');\n',
+        )).toHaveLength(1);
+    });
     it('fails when a configured root does not exist', async () => {
-        const projectRoot = await mkdtemp(join(tmpdir(), 'evb-dep-graph-'));
+        const projectRoot = await createTemporaryProjectRoot();
         await mkdir(join(projectRoot, 'packages/release-selection'), { recursive: true });
 
         await expect(buildDependencyGraph({
@@ -47,7 +93,7 @@ describe('dependency graph', () => {
     });
 
     it('includes the release-selection package root', async () => {
-        const projectRoot = await mkdtemp(join(tmpdir(), 'evb-dep-graph-'));
+        const projectRoot = await createTemporaryProjectRoot();
         await mkdir(join(projectRoot, 'packages/release-selection'), { recursive: true });
         await writeFile(join(projectRoot, 'packages/release-selection/index.ts'), 'export const releaseSelection = true;\n');
 
@@ -60,7 +106,7 @@ describe('dependency graph', () => {
     });
 
     it('accepts a source file as a configured root', async () => {
-        const projectRoot = await mkdtemp(join(tmpdir(), 'evb-dep-graph-'));
+        const projectRoot = await createTemporaryProjectRoot();
         await mkdir(join(projectRoot, 'app'), { recursive: true });
         await writeFile(join(projectRoot, 'app/session.ts'), 'export const session = true;\n');
 
@@ -73,7 +119,7 @@ describe('dependency graph', () => {
     });
 
     it('ignores generated Vercel output when scanning all architecture roots', async () => {
-        const projectRoot = await mkdtemp(join(tmpdir(), 'evb-dep-graph-'));
+        const projectRoot = await createTemporaryProjectRoot();
         await mkdir(join(projectRoot, 'landing/app'), { recursive: true });
         await mkdir(join(projectRoot, 'landing/.vercel/output/server'), { recursive: true });
         await writeFile(join(projectRoot, 'landing/app/app.ts'), 'export const app = true;\n');
@@ -88,7 +134,7 @@ describe('dependency graph', () => {
     });
 
     it('treats external scoped packages that share internal alias prefixes as external', async () => {
-        const projectRoot = await mkdtemp(join(tmpdir(), 'evb-dep-graph-'));
+        const projectRoot = await createTemporaryProjectRoot();
         await mkdir(join(projectRoot, 'scripts/release'), { recursive: true });
         await writeFile(
             join(projectRoot, 'scripts/release/assert-packaged-app-contents.mjs'),
@@ -104,7 +150,7 @@ describe('dependency graph', () => {
     });
 
     it('resolves @evb workspace package aliases into package graph edges', async () => {
-        const projectRoot = await mkdtemp(join(tmpdir(), 'evb-dep-graph-'));
+        const projectRoot = await createTemporaryProjectRoot();
         await mkdir(join(projectRoot, 'app'), { recursive: true });
         await mkdir(join(projectRoot, 'packages/contracts'), { recursive: true });
         await mkdir(join(projectRoot, 'packages/i18n-core'), { recursive: true });
@@ -144,7 +190,7 @@ describe('dependency graph', () => {
     });
 
     it('reports strongly connected import components as dependency cycles', async () => {
-        const projectRoot = await mkdtemp(join(tmpdir(), 'evb-dep-graph-'));
+        const projectRoot = await createTemporaryProjectRoot();
         await mkdir(join(projectRoot, 'app'), { recursive: true });
         await writeFile(join(projectRoot, 'app/a.ts'), 'import \'./b\';\nexport const a = true;\n');
         await writeFile(join(projectRoot, 'app/b.ts'), 'import \'./a\';\nexport const b = true;\n');
@@ -164,8 +210,46 @@ describe('dependency graph', () => {
         ]]);
     });
 
+    it('does not report type-only import cycles as runtime dependency cycles', async () => {
+        const projectRoot = await createTemporaryProjectRoot();
+        await mkdir(join(projectRoot, 'app'), { recursive: true });
+        await writeFile(join(projectRoot, 'app/a.ts'), 'import type { B } from \'./b\';\nexport const a = true;\n');
+        await writeFile(join(projectRoot, 'app/b.ts'), 'import type { A } from \'./a\';\nexport const b = true;\n');
+
+        const graph = await buildDependencyGraph({
+            projectRoot,
+            roots: ['app'],
+        });
+
+        expect(graph.cycles).toEqual([]);
+        expect(graph.edges).toHaveLength(2);
+    });
+
+    it('keeps a module with both type-only and runtime imports as a runtime edge', async () => {
+        const projectRoot = await createTemporaryProjectRoot();
+        await mkdir(join(projectRoot, 'app'), { recursive: true });
+        await writeFile(
+            join(projectRoot, 'app/a.ts'),
+            'import type { B } from \'./b\';\nimport { b } from \'./b\';\nexport const a = b as B;\n',
+        );
+        await writeFile(
+            join(projectRoot, 'app/b.ts'),
+            'import type { A } from \'./a\';\nimport { a } from \'./a\';\nexport const b = a as A;\n',
+        );
+
+        const graph = await buildDependencyGraph({
+            projectRoot,
+            roots: ['app'],
+        });
+
+        expect(graph.cycles).toEqual([{ files: [
+            'app/a.ts',
+            'app/b.ts',
+        ] }]);
+    });
+
     it('does not turn JSDoc module type imports into runtime dependency edges', async () => {
-        const projectRoot = await mkdtemp(join(tmpdir(), 'evb-dep-graph-'));
+        const projectRoot = await createTemporaryProjectRoot();
         await mkdir(join(projectRoot, 'packages/contracts/diagnostics'), { recursive: true });
         await writeFile(
             join(projectRoot, 'packages/contracts/diagnostics/identity.js'),

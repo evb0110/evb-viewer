@@ -1,6 +1,6 @@
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type { Ref } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
-import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { TWorkspaceUndoSource } from '@app/types/workspaceUndoSource';
 import type { IPdfReloadWaiterViewer } from '@app/modules/pdf-viewer/engine/pdf-reload-waiter/pdfReloadWaiterViewer';
 import { createPdfReloadWaiter } from '@app/modules/pdf-viewer/engine/pdf-reload-waiter/createPdfReloadWaiter';
@@ -19,7 +19,7 @@ type THistoryRoute = (
 const HISTORY_LOG_SECTION = 'pdf-history';
 
 export const usePdfHistory = (deps: {
-    pdfDocument: Ref<PDFDocumentProxy | null>;
+    pdfDocument: Ref<IPdfDocument | null>;
     pdfViewerRef: Ref<IPdfReloadWaiterViewer | null>;
     currentPage: Ref<number>;
     isAnySaving: Ref<boolean>;

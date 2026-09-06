@@ -1,3 +1,4 @@
+import type {IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 // @vitest-environment happy-dom
 
 import {
@@ -6,7 +7,6 @@ import {
     it,
     vi,
 } from 'vitest';
-import type { PDFPageProxy } from 'pdfjs-dist';
 import { cast } from '@tests/helpers/cast';
 import { usePdfRendererTextLayerController } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRendererTextLayerController';
 import type {
@@ -27,7 +27,7 @@ function createHarness() {
     // only when its content key changes, and relayouted otherwise.
     let renderedContentKey: string | null = null;
     const renderTextLayer = vi.fn(async (
-        _pdfPage: PDFPageProxy,
+        _pdfPage: IPdfPage,
         _textLayerDiv: HTMLElement,
         _viewport: unknown,
         _scale: number,
@@ -78,7 +78,7 @@ function createHarness() {
             1,
             {
                 container,
-                pdfPage: cast<PDFPageProxy>({pageNumber: 1}),
+                pdfPage: cast<IPdfPage>({pageNumber: 1}),
                 renderResult: cast<Parameters<typeof renderTextLayerForPage>[3]['renderResult']>({
                     canvas: document.createElement('canvas'),
                     viewport: {

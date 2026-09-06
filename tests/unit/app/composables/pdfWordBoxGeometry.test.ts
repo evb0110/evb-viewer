@@ -6,11 +6,82 @@ import {
     vi,
 } from 'vitest';
 import type { IOcrWord } from '@contracts/shared';
+import type {IPdfViewport} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import { cast } from '@tests/helpers/cast';
 
 vi.mock('@app/constants/storageKeys', () => ({STORAGE_KEYS: {OCR_DEBUG_BOXES: 'pdfOcrDebugBoxes'}}));
 
 const { isOcrDebugEnabled } = await import('@app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/isOcrDebugEnabled');
+const { transformOcrWordToViewport } = await import('@app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/transformOcrWordToViewport');
 const { transformWordBox } = await import('@app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/transformWordBox');
+
+describe('transformOcrWordToViewport', () => {
+    const baseWord: IOcrWord = {
+        text: 'hello',
+        x: 100,
+        y: 50,
+        width: 200,
+        height: 30,
+    };
+
+    it('maps OCR pixels through the PDF viewport', () => {
+        const viewport = cast<IPdfViewport>({convertToViewportRectangle: vi.fn((rect: readonly number[]) => [
+            rect[0]! + 10,
+            rect[1]! + 20,
+            rect[2]! + 10,
+            rect[3]! + 20,
+        ])});
+
+        expect(transformOcrWordToViewport(
+            baseWord,
+            {render: {imagePx: {
+                w: 1000,
+                h: 500,
+            }}},
+            2000,
+            1000,
+            viewport,
+        )).toEqual({
+            x: 210,
+            y: 860,
+            width: 400,
+            height: 60,
+        });
+        expect(viewport.convertToViewportRectangle).toHaveBeenCalledWith([
+            200,
+            840,
+            600,
+            900,
+        ]);
+    });
+
+    it('returns null when OCR render geometry is absent', () => {
+        const viewport = cast<IPdfViewport>({convertToViewportRectangle: vi.fn()});
+
+        expect(transformOcrWordToViewport(baseWord, {}, 2000, 1000, viewport)).toBeNull();
+        expect(viewport.convertToViewportRectangle).not.toHaveBeenCalled();
+    });
+
+    it('returns null when the viewport returns an invalid rectangle', () => {
+        const viewport = cast<IPdfViewport>({convertToViewportRectangle: vi.fn(() => [
+            0,
+            Number.NaN,
+            10,
+            20,
+        ])});
+
+        expect(transformOcrWordToViewport(
+            baseWord,
+            {render: {imagePx: {
+                w: 1000,
+                h: 500,
+            }}},
+            2000,
+            1000,
+            viewport,
+        )).toBeNull();
+    });
+});
 
 describe('transformWordBox', () => {
     const baseWord: IOcrWord = {

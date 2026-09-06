@@ -1,7 +1,7 @@
 import type {
-    PDFPageProxy,
-    RenderTask,
-} from 'pdfjs-dist';
+    IPdfPage,
+    IPdfRenderTask,
+} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type {
     MaybeRefOrGetter,
     Ref,
@@ -75,7 +75,7 @@ export interface IUsePdfPageRendererOptions {
 export interface ICancelableRenderTask {
     cancel: () => void;
     promise: Promise<unknown>;
-    onContinue?: RenderTask['onContinue'];
+    onContinue?: IPdfRenderTask['onContinue'];
 }
 
 export interface IActivePdfTextLayerTask {
@@ -94,7 +94,7 @@ export interface IPdfCanvasDomCommit {
 
 export interface IPdfLayerRenderResult {
     canvas: HTMLCanvasElement;
-    viewport: ReturnType<PDFPageProxy['getViewport']>;
+    viewport: ReturnType<IPdfPage['getViewport']>;
     annotationCanvasMap: Map<string, HTMLCanvasElement> | null;
     scaleX: number;
     scaleY: number;
@@ -108,7 +108,7 @@ export interface IPdfLayerRenderResult {
 
 export interface IPdfPageLayerRenderContext {
     container: HTMLElement;
-    pdfPage: PDFPageProxy;
+    pdfPage: IPdfPage;
     renderResult: IPdfLayerRenderResult;
     textLayerDiv: HTMLDivElement | null;
     annotationLayerInstance: unknown;

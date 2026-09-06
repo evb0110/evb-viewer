@@ -1,3 +1,4 @@
+import type {IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 // @vitest-environment happy-dom
 
 import {
@@ -8,7 +9,6 @@ import {
     vi,
 } from 'vitest';
 import { ref } from 'vue';
-import type { PDFPageProxy } from 'pdfjs-dist';
 import { cast } from '@tests/helpers/cast';
 import { requirePageIndex } from '@contracts/pageNumbers';
 import {requireDocumentRevisionToken} from '@contracts';
@@ -134,7 +134,7 @@ function domRectLike(options: {
 }
 
 function textLayerViewport(scale: number) {
-    return cast<ReturnType<PDFPageProxy['getViewport']>>({
+    return cast<ReturnType<IPdfPage['getViewport']>>({
         scale,
         rotation: 0,
         width: 100 * scale,
@@ -182,7 +182,7 @@ describe('usePdfTextLayerRenderer', () => {
             }],
             styles: {},
         };
-        const pdfPage = cast<PDFPageProxy>({
+        const pdfPage = cast<IPdfPage>({
             pageNumber: 1,
             getTextContent: vi.fn(async () => nativeTextContent),
             streamTextContent: vi.fn(),
@@ -232,7 +232,7 @@ describe('usePdfTextLayerRenderer', () => {
             }],
             styles: {},
         };
-        const pdfPage = cast<PDFPageProxy>({
+        const pdfPage = cast<IPdfPage>({
             pageNumber: 1,
             getTextContent: vi.fn(async () => nativeTextContent),
             streamTextContent: vi.fn(),
@@ -268,7 +268,7 @@ describe('usePdfTextLayerRenderer', () => {
             str: 'page text',
             hasEOL: false,
         }]}));
-        const pdfPage = cast<PDFPageProxy>({
+        const pdfPage = cast<IPdfPage>({
             pageNumber: 1,
             getTextContent: vi.fn(),
             streamTextContent,
@@ -305,7 +305,7 @@ describe('usePdfTextLayerRenderer', () => {
             str: 'page text',
             hasEOL: false,
         }]}));
-        const pdfPage = cast<PDFPageProxy>({
+        const pdfPage = cast<IPdfPage>({
             pageNumber: 1,
             getTextContent: vi.fn(),
             streamTextContent,
@@ -341,7 +341,7 @@ describe('usePdfTextLayerRenderer', () => {
             str: 'page text',
             hasEOL: false,
         }]}));
-        const pdfPage = cast<PDFPageProxy>({
+        const pdfPage = cast<IPdfPage>({
             pageNumber: 1,
             getTextContent: vi.fn(),
             streamTextContent,
@@ -969,12 +969,12 @@ describe('usePdfTextLayerRenderer', () => {
         textLayerDiv.textContent = 'stale';
 
         await renderer.renderTextLayer(
-            cast<PDFPageProxy>({
+            cast<IPdfPage>({
                 pageNumber: 1,
                 getTextContent: vi.fn().mockResolvedValue({items: []}),
             }),
             textLayerDiv,
-            cast<ReturnType<PDFPageProxy['getViewport']>>({
+            cast<ReturnType<IPdfPage['getViewport']>>({
                 width: 100,
                 height: 100,
                 userUnit: 1,

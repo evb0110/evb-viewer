@@ -1,3 +1,5 @@
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import { cast } from '@tests/helpers/cast';
 // @vitest-environment happy-dom
 
 import {
@@ -19,8 +21,6 @@ import {
 import {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type {IAnnotationCommentSummary} from '@app/types/annotations';
 import type { TPdfSource } from '@app/types/pdfUi';
-import type { PDFDocumentProxy } from 'pdfjs-dist';
-
 vi.mock('@app/services/pdfjs/getPdfjsViewerRuntimeProbeFailures', () => ({
     EventBus: vi.fn(),
     GenericL10n: vi.fn(),
@@ -79,7 +79,7 @@ function mountAnnotationSession(initial: {
     const originalPath = ref<string | null>(initial.originalPath ?? null);
     const workingCopyPath = ref<string | null>(initial.workingCopyPath ?? null);
     const src = shallowRef<TPdfSource | null>(initial.src ?? null);
-    const pdfDocument = shallowRef<PDFDocumentProxy | null>(null);
+    const pdfDocument = shallowRef<IPdfDocument | null>(null);
     const emitAnnotationComments = vi.fn();
     let session: ReturnType<typeof createPdfAnnotationSession> | undefined;
     const host = document.createElement('div');
@@ -293,14 +293,14 @@ describe('annotation document identity', () => {
                 size: 4,
             },
         });
-        const firstDocument = {
+        const firstDocument = cast<IPdfDocument>({
             fingerprints: ['first'],
             numPages: 1,
-        } as PDFDocumentProxy;
-        const reopenedDocument = {
+        });
+        const reopenedDocument = cast<IPdfDocument>({
             fingerprints: ['reopened'],
             numPages: 1,
-        } as PDFDocumentProxy;
+        });
 
         harness.syncPlacedImages(['44R']);
         expect(harness.canonicalAnnotationIds()).toEqual([]);

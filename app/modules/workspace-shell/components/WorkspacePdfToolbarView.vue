@@ -257,7 +257,8 @@
 </template>
 
 <script setup lang="ts">
-import type { PDFDocumentProxy } from 'pdfjs-dist';
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+
 import type { TDocumentRef } from '@contracts/documentRef';
 import type {
     TFitMode,
@@ -340,7 +341,7 @@ const {
         page: number;
         revision: number
     } | null | undefined;
-    ocrPdfDocument?: PDFDocumentProxy | null | undefined;
+    ocrPdfDocument?: IPdfDocument | null | undefined;
     ocrWorkingCopyPath?: TDocumentRef | null | undefined;
     ocrExternalError?: string | null | undefined;
     ocrIsExportingDocx?: boolean | undefined;

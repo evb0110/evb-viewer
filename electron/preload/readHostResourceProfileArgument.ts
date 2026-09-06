@@ -2,8 +2,7 @@ import {
     HOST_RESOURCE_PROFILE_ARGUMENT_PREFIX,
     decodeHostResourceProfileSnapshot,
 } from '@contracts/hostResourceProfile';
-
-const BASE64URL_PATTERN = /^[\w-]+$/u;
+import { decodeBase64UrlUtf8 } from '@electron/preload/decodeBase64UrlUtf8';
 
 export function readHostResourceProfileArgument(
     argv: readonly string[] = process.argv,
@@ -18,19 +17,13 @@ export function readHostResourceProfileArgument(
     const encodedSnapshot = matchingArguments[0]!.slice(
         HOST_RESOURCE_PROFILE_ARGUMENT_PREFIX.length,
     );
-    if (
-        !BASE64URL_PATTERN.test(encodedSnapshot)
-        || encodedSnapshot.length % 4 === 1
-    ) {
+    const decodedJson = decodeBase64UrlUtf8(encodedSnapshot);
+    if (decodedJson === null) {
         return null;
     }
 
     try {
-        const decodedBuffer = Buffer.from(encodedSnapshot, 'base64url');
-        if (decodedBuffer.toString('base64url') !== encodedSnapshot) {
-            return null;
-        }
-        const parsed: unknown = JSON.parse(decodedBuffer.toString('utf8'));
+        const parsed: unknown = JSON.parse(decodedJson);
         return decodeHostResourceProfileSnapshot(parsed);
     } catch {
         return null;

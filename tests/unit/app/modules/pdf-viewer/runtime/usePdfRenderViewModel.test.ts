@@ -1,3 +1,4 @@
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {
     describe,
     expect,
@@ -11,7 +12,6 @@ import {
     shallowRef,
 } from 'vue';
 import { usePdfRenderViewModel } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRenderViewModel';
-import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import type { TPdfSource } from '@app/types/pdfUi';
 import { cast } from '@tests/helpers/cast';
 import { createDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
@@ -36,7 +36,7 @@ function createHarness(options?: {
     const viewModel = scope.run(() => usePdfRenderViewModel({
         src: computed(() => null as TPdfSource | null),
         isLoading: ref(false),
-        pdfDocument: shallowRef<PDFDocumentProxy | null>(cast({})),
+        pdfDocument: shallowRef<IPdfDocument | null>(cast({})),
         getPage: vi.fn(async () => cast({})),
         openSurface: createDocumentOpenSurfaceSession(),
         isVisualReloadTransitionActive: ref(false),

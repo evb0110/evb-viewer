@@ -1,8 +1,8 @@
-import type {
-    PDFDocumentProxy,
-    PDFPageProxy,
-} from 'pdfjs-dist';
 import type { TDocumentRef } from '@contracts/documentRef';
+import type {
+    IPdfDocument,
+    IPdfPage,
+} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {
     assertDocumentPageNumber,
     type IDocumentPageRenderRequest,
@@ -12,9 +12,9 @@ import {
 
 interface ICreatePdfPageSourceOptions {
     documentRef: TDocumentRef;
-    pdfDocument: PDFDocumentProxy;
+    pdfDocument: IPdfDocument;
     /** Reuses the document session's bounded page-proxy owner for background metrics. */
-    getPage?: (pageNumber: number) => Promise<PDFPageProxy>;
+    getPage?: (pageNumber: number) => Promise<IPdfPage>;
     /** Delegates to the existing coordinated PDF.js path; the generic chassis never rasterizes PDF itself. */
     renderPage: (request: IDocumentPageRenderRequest) => Promise<IDocumentSurfaceLease>;
 }

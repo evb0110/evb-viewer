@@ -1,3 +1,4 @@
+import type {IPdfRenderTask} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {
     beforeEach,
     describe,
@@ -11,7 +12,6 @@ import {
     ref,
     shallowRef,
 } from 'vue';
-import type { RenderTask } from 'pdfjs-dist';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 const loggerError = vi.fn();
@@ -1533,7 +1533,7 @@ describe('PdfDocumentSession range loading', () => {
         const cancel = vi.fn(() => {
             events.push('render-cancel');
         });
-        const renderTask: RenderTask = {
+        const renderTask: IPdfRenderTask = {
             _internalRenderTask: null,
             cancel,
             imageCoordinates: null,

@@ -1,8 +1,8 @@
 import type {
-    TextContent,
-    TextItem,
-    TextStyle,
-} from 'pdfjs-dist/types/src/display/api';
+    IPdfTextContent,
+    IPdfTextItem,
+    IPdfTextStyle,
+} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type { IAnnotationMarkerRect } from '@app/types/annotations';
 import { normalizePageRotation } from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizePageRotation';
 import { toMarkerRectFromPdfRect } from '@app/modules/pdf-viewer/engine/annotation-geometry/toMarkerRectFromPdfRect';
@@ -32,7 +32,7 @@ export interface ITextLineBox {
 }
 
 export interface IBuildTextLineBoxesFromTextContentOptions {
-    readonly textContent: Pick<TextContent, 'items' | 'styles'>;
+    readonly textContent: Pick<IPdfTextContent, 'items' | 'styles'>;
     readonly textMapping: ITextLayerTextMapping;
     readonly pageView: readonly number[];
     readonly pageRotation?: TPageRotation;
@@ -43,7 +43,7 @@ interface IPoint {
     y: number;
 }
 
-function isTextItem(item: TextContent['items'][number]): item is TextItem {
+function isTextItem(item: IPdfTextContent['items'][number]): item is IPdfTextItem {
     return 'str' in item && typeof item.str === 'string';
 }
 
@@ -123,18 +123,18 @@ function lineBoxFromRun(run: ITextLineRun): ITextLineBox {
 }
 
 function styleForItem(
-    textContent: Pick<TextContent, 'styles'>,
-    item: TextItem,
-): TextStyle | null {
-    return textContent.styles[item.fontName] ?? null;
+    textContent: Pick<IPdfTextContent, 'styles'>,
+    item: IPdfTextItem,
+): IPdfTextStyle | null {
+    return item.fontName ? textContent.styles[item.fontName] ?? null : null;
 }
 
 function buildRun(
-    item: TextItem,
+    item: IPdfTextItem,
     itemIndex: number,
     textDiv: HTMLElement,
     text: string,
-    textContent: Pick<TextContent, 'styles'>,
+    textContent: Pick<IPdfTextContent, 'styles'>,
     pageView: readonly number[],
     pageRotation: TPageRotation,
 ): ITextLineBox | null {

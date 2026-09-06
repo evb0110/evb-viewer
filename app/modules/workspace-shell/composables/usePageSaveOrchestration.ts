@@ -1,10 +1,10 @@
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type {
     ComputedRef,
     Ref,
     ShallowRef,
 } from 'vue';
 import type {
-    PDFDocumentProxy,
     IPdfBookmarkEntry,
     IPdfPageLabelRange,
 } from '@app/types/pdfContracts';
@@ -38,7 +38,7 @@ type TPageSaveViewer = IPdfViewerExpose & {
 
 interface IPageSaveOrchestrationDeps {
     pdfData: Ref<Uint8Array | null>;
-    pdfDocument: ShallowRef<PDFDocumentProxy | null>;
+    pdfDocument: ShallowRef<IPdfDocument | null>;
     pdfViewerRef: Ref<TPageSaveViewer | null>;
     workingCopyPath: Ref<TDocumentRef | null>;
     originalPath: Ref<TDocumentRef | null>;

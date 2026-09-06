@@ -1,4 +1,4 @@
-import type { PDFDocumentProxy } from 'pdfjs-dist';
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type * as UTIFModule from 'utif';
 import {
     range,
@@ -194,7 +194,7 @@ function buildBrowserImageExportFileName(
 }
 
 async function withRenderedPdfPageCanvas<T>(
-    pdfDocument: Pick<PDFDocumentProxy, 'getPage'>,
+    pdfDocument: Pick<IPdfDocument, 'getPage'>,
     pageNumber: number,
     callback: (rendered: IRenderedPdfPageCanvas) => Promise<T> | T,
 ): Promise<T> {
@@ -235,7 +235,7 @@ async function withRenderedPdfPageCanvas<T>(
 }
 
 async function renderPdfPage(
-    pdfDocument: Pick<PDFDocumentProxy, 'getPage'>,
+    pdfDocument: Pick<IPdfDocument, 'getPage'>,
     pageNumber: number,
 ): Promise<IRenderedPdfPage> {
     return withRenderedPdfPageCanvas(
@@ -275,7 +275,7 @@ async function canvasToBlob(
 }
 
 async function renderPdfPageToImageBytes(
-    pdfDocument: Pick<PDFDocumentProxy, 'getPage'>,
+    pdfDocument: Pick<IPdfDocument, 'getPage'>,
     pageNumber: number,
     format: TBrowserImageExportFormat,
 ) {
@@ -306,7 +306,7 @@ async function renderPdfPageToImageBytes(
 }
 
 async function collectTiffPageDescriptors(
-    pdfDocument: Pick<PDFDocumentProxy, 'getPage'>,
+    pdfDocument: Pick<IPdfDocument, 'getPage'>,
     pageNumbers: number[],
 ) {
     const descriptors: IBrowserTiffPageDescriptor[] = [];
@@ -478,7 +478,7 @@ async function encodeRenderedTiffToBytes(
 }
 
 async function encodeTiffToWritable(
-    pdfDocument: Pick<PDFDocumentProxy, 'getPage'>,
+    pdfDocument: Pick<IPdfDocument, 'getPage'>,
     pageDescriptors: IBrowserTiffPageDescriptor[],
     encoder: ITiffEncoderModule,
     handle: FileSystemFileHandle,
@@ -494,7 +494,7 @@ async function encodeTiffToWritable(
 }
 
 async function encodeTiffToBytes(
-    pdfDocument: Pick<PDFDocumentProxy, 'getPage'>,
+    pdfDocument: Pick<IPdfDocument, 'getPage'>,
     pageDescriptors: IBrowserTiffPageDescriptor[],
     encoder: ITiffEncoderModule,
     onPageWritten?: (processed: number) => void,

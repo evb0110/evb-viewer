@@ -1,6 +1,5 @@
 import type * as Vue from 'vue';
 import { Mutex } from 'es-toolkit/promise';
-import type { RenderTask } from 'pdfjs-dist';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { TPdfRasterDisplayProfile } from '@app/types/pdfRasterDisplayProfile';
 import type * as PdfUi from '@app/types/pdfUi';
@@ -302,7 +301,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 render,
             };
         },
-        start: prepared => prepared.render.startRender() as RenderTask,
+        start: prepared => prepared.render.startRender(),
         onRenderStall: payload => handlePageRenderStall(payload),
         commit(prepared, demand) {
             if (!isPreparedRasterCurrent(prepared) || prepared.job.demand !== demand) {
@@ -576,8 +575,8 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 sourceId: 'pdf-viewport',
                 input: schedulableJobs.map(job => job.demand),
                 policy: {
-                    expand: input => input,
-                    compareWithinLane: (left, right) => left.ordinal - right.ordinal,
+                    expand: (input: readonly IPdfRasterDemand[]) => input,
+                    compareWithinLane: (left: IPdfRasterDemand, right: IPdfRasterDemand) => left.ordinal - right.ordinal,
                 },
                 target: viewportRasterTarget,
             });

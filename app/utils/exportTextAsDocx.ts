@@ -1,4 +1,4 @@
-import type { PDFDocumentProxy } from 'pdfjs-dist';
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { TTranslateFn } from '@i18n-app';
@@ -57,7 +57,7 @@ function hasNonEmptyPage(catalogPages: Array<{text: string}> | null) {
 export async function exportTextAsDocx(params: {
     workingCopyPath: TDocumentRef | null;
     documentRevisionToken: TDocumentRevisionToken | null;
-    pdfDocument: PDFDocumentProxy | null;
+    pdfDocument: IPdfDocument | null;
     hasRtl: boolean;
     buildDocx: TDocxBuilder;
     buildDocxChunks?: TDocxChunkBuilder;

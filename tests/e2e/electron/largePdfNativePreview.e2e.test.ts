@@ -12,6 +12,7 @@ import {
 } from 'vitest';
 import {
     createMultiPageTextFixturePdf,
+    resolveExactNativeLargePdfFixtureAvailability,
     resolveNativeLargePdfFixtureAvailability,
     selectFixtureDescribe,
 } from '@tests/e2e/electron/helpers/fixtures';
@@ -30,6 +31,11 @@ import {
     waitForWorkspaceToolbarSnapshot,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 import { waitForFunctionInPage } from '@tests/e2e/electron/helpers/pageRuntime';
+import {
+    readExactPdfFixtureIdentity,
+    resolveExactPdfFixtureExpectation,
+    validateExactPdfFixtureIdentity,
+} from '@scripts/ci/stageExactPdfFixture';
 
 const LARGE_PDF_TIMEOUT_MS = 360_000;
 const GENERATED_LARGE_PDF_PAGE_COUNT = 431;
@@ -37,7 +43,12 @@ const EXACT_DICTIONARY_PAGE_COUNT = 882;
 const NAVIGATION_ACCEPTANCE_PAGE = 64;
 const generatedLargePdf = resolveNativeLargePdfFixtureAvailability(GENERATED_LARGE_PDF_PAGE_COUNT);
 const largePdfDescribe = selectFixtureDescribe(describe, generatedLargePdf);
-const exactLargePdfPath = process.env.EVB_E2E_EXACT_NATIVE_PDF_PATH?.trim() ?? '';
+const exactFixtureProfile = process.env.EVB_EXACT_FIXTURE_PROFILE?.trim() ?? '';
+const exactNativePdf = resolveExactNativeLargePdfFixtureAvailability();
+const exactFixtureExpectation = exactFixtureProfile.length > 0
+    ? resolveExactPdfFixtureExpectation()
+    : null;
+const exactNativePreviewIt = exactFixtureProfile.length > 0 ? it : it.skip;
 
 interface IPdfNavigationFrame {
     committedPage: number | null;
@@ -501,7 +512,7 @@ async function assertFinalPdfjsCapabilities(
         }
         return {
             annotationEditorLayerCount: standardViewer?.querySelectorAll(
-                '.annotation-editor-layer, .annotationEditorLayer',
+                '.pdf-annotation-editor-layer',
             ).length ?? 0,
             layerStates: [...(standardViewer?.querySelectorAll<HTMLElement>('.page_container') ?? [])]
                 .map(container => ({
@@ -683,21 +694,28 @@ largePdfDescribe('Electron E2E - Large PDF native opening preview handoff', () =
         }
     }, LARGE_PDF_TIMEOUT_MS);
 
-    it.skipIf(exactLargePdfPath.length === 0)(
+    exactNativePreviewIt(
         'hands the exact production dictionary to PDF.js without a navigation flash',
         async () => {
             const session = sessionFixture.getSession();
             if (!session) {
                 throw new Error('Large-PDF Electron E2E session failed to start');
             }
+            if (!exactNativePdf.path) {
+                throw new Error(exactNativePdf.reason);
+            }
+
+            const sourceIdentity = await readExactPdfFixtureIdentity(exactNativePdf.path);
+            validateExactPdfFixtureIdentity(sourceIdentity, exactFixtureExpectation!);
+            expect(sourceIdentity.pages).toBe(EXACT_DICTIONARY_PAGE_COUNT);
 
             const trace = await openWithHandoffTrace(
                 session.page,
-                exactLargePdfPath,
-                () => assertNativeOpeningPreviewIsViewable(session.page, EXACT_DICTIONARY_PAGE_COUNT),
+                exactNativePdf.path,
+                () => assertNativeOpeningPreviewIsViewable(session.page, sourceIdentity.pages),
             );
             assertAtomicNativeToPdfjsHandoff(trace);
-            await assertFinalPdfjsCapabilities(session.page, EXACT_DICTIONARY_PAGE_COUNT, 4);
+            await assertFinalPdfjsCapabilities(session.page, sourceIdentity.pages, 4);
             await assertSkeletonFreePageJump(session.page, NAVIGATION_ACCEPTANCE_PAGE);
         },
         LARGE_PDF_TIMEOUT_MS,

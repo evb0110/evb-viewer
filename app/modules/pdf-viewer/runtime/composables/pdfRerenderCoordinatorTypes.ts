@@ -1,9 +1,9 @@
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type {
     ComputedRef,
     Ref,
 } from 'vue';
 import type {
-    PDFDocumentProxy,
     TFitMode,
     TPdfViewRotation,
     TPdfViewMode,
@@ -41,7 +41,7 @@ export interface IRerenderCoordinatorTransactionController {
     ) => boolean;
     isTransactionCurrent: (transactionId: number) => boolean;
     consumePagedTargetFitRenderHandoff?: ((options: {
-        document: PDFDocumentProxy;
+        document: IPdfDocument;
         fitMode: TFitMode;
         page: number;
         viewMode: TPdfViewMode;
@@ -52,7 +52,7 @@ export interface IRerenderCoordinatorTransactionController {
 
 export interface IUsePdfViewerRerenderCoordinatorOptions {
     viewerContainer: Ref<HTMLElement | null>;
-    pdfDocument: Ref<PDFDocumentProxy | null>;
+    pdfDocument: Ref<IPdfDocument | null>;
     isLoading: Ref<boolean>;
     numPages: Ref<number>;
     currentPage: Ref<number>;

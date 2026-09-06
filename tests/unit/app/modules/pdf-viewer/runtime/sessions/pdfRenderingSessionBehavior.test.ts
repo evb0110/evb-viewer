@@ -640,7 +640,7 @@ describe('PdfRenderingSession behavior', () => {
         }
     });
 
-    it('publishes queued work once, starts the actual RenderTask, and commits canvas before layers', async () => {
+    it('publishes queued work once, starts the actual render task, and commits canvas before layers', async () => {
         const fixture = createRenderingFixture({autoResolve: false});
         try {
             await vi.waitFor(() => expect(fixture.pdfPage.render).toHaveBeenCalledOnce());

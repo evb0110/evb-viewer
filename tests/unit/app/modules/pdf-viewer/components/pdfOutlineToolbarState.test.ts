@@ -1,3 +1,5 @@
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import { cast } from '@tests/helpers/cast';
 // @vitest-environment happy-dom
 
 import {
@@ -14,7 +16,6 @@ import {
     nextTick,
     reactive,
 } from 'vue';
-import type {PDFDocumentProxy} from 'pdfjs-dist';
 import PdfOutline from '@app/modules/pdf-viewer/components/PdfOutline.vue';
 import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
 
@@ -46,10 +47,10 @@ afterEach(() => {
 });
 
 function createPdfDocument(getOutline: () => Promise<unknown[] | null>) {
-    return {
+    return cast<IPdfDocument>({
         _transport: {},
         getOutline,
-    } as PDFDocumentProxy;
+    });
 }
 
 async function mountOutline(getOutline: () => Promise<unknown[] | null>) {

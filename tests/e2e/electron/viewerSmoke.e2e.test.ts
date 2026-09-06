@@ -4036,6 +4036,28 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
             const rect = sidebar?.getBoundingClientRect();
             return Boolean(rect && rect.width > 10 && rect.height > 10);
         }, {timeout: 10_000});
+        // The panel reaches its open size before the wrapper's documented
+        // width transition finishes. Wait for the final shared boundary before
+        // starting the drag.
+        await waitForFunctionInPage(session.page, () => {
+            const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+            const wrapper = host?.querySelector<HTMLElement>('.sidebar-wrapper');
+            const sash = wrapper?.querySelector<HTMLElement>('.sidebar-resizer');
+            const viewer = host?.querySelector<HTMLElement>('.workspace-main__viewer');
+            if (!wrapper || !sash || !viewer) {
+                return false;
+            }
+            const wrapperRect = wrapper.getBoundingClientRect();
+            const sashRect = sash.getBoundingClientRect();
+            const viewerRect = viewer.getBoundingClientRect();
+            return Boolean(
+                wrapperRect.width > 10
+                && sashRect.width > 0
+                && viewerRect.width > 10
+                && Math.abs(wrapperRect.right - sashRect.right) <= 1
+                && Math.abs(viewerRect.left - sashRect.right) <= 1,
+            );
+        }, {timeout: 10_000});
 
         const sidebarResize = await dragDocumentSidebarDividerBy(session, 120);
         const resizeDetail = JSON.stringify(sidebarResize);

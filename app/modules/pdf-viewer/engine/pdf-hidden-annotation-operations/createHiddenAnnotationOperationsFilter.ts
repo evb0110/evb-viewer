@@ -1,5 +1,7 @@
-import type { PDFPageProxy } from 'pdfjs-dist';
-import type { PDFOperatorList } from 'pdfjs-dist/types/src/display/api';
+import type {
+    IPdfOperatorList,
+    IPdfPage,
+} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import {
@@ -67,7 +69,7 @@ function processEndAnnotationOperator(state: IHiddenAnnotationScanState) {
 }
 
 function collectHiddenAnnotationOperatorIndices(
-    operatorList: PDFOperatorList,
+    operatorList: IPdfOperatorList,
     hiddenAnnotationIds: Set<string>,
 ) {
     if (hiddenAnnotationIds.size === 0) {
@@ -106,7 +108,7 @@ function collectHiddenAnnotationOperatorIndices(
 }
 
 export async function createHiddenAnnotationOperationsFilter(
-    pdfPage: PDFPageProxy,
+    pdfPage: IPdfPage,
     annotationMode: number,
     hiddenAnnotationIds?: Set<string>,
     coordination?: IHiddenAnnotationOperationsFilterOptions,

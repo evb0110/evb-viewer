@@ -1,3 +1,4 @@
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 // @vitest-environment happy-dom
 
 import {
@@ -7,7 +8,6 @@ import {
     vi,
 } from 'vitest';
 import { cast } from '@tests/helpers/cast';
-import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import {
     isPdfNavigationReady,
     resolvePdfNavigationAnchor,
@@ -90,7 +90,7 @@ describe('PDF navigation request resolver', () => {
                 destination: [1] as unknown[],
             },
         } as const;
-        const pdfDocument = cast<PDFDocumentProxy>({
+        const pdfDocument = cast<IPdfDocument>({
             numPages: 3,
             getDestination: vi.fn(async () => null),
             getPageIndex: vi.fn(async () => 1),

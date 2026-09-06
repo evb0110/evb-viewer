@@ -1,3 +1,4 @@
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {
     describe,
     expect,
@@ -17,7 +18,6 @@ import type { IBuildResizeAnchorContextOptions } from '@app/modules/pdf-viewer/r
 import type { IPdfNavigationState } from '@app/modules/pdf-viewer/runtime/navigation/createPdfNavigationMachineState';
 import type { IPdfSemanticAnchor } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportGeometry';
 import { PDF_RERENDER_SOURCE } from '@app/modules/pdf-viewer/runtime/rerender-protocol/pdfRerenderProtocol';
-import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import { cast } from '@tests/helpers/cast';
 
 /**
@@ -134,7 +134,7 @@ function createDeps(overrides: Partial<TCoordinatorDeps> = {}): TCoordinatorDeps
 
     const deps = {
         viewerContainer: ref(null),
-        pdfDocument: shallowRef<PDFDocumentProxy | null>(cast({})),
+        pdfDocument: shallowRef<IPdfDocument | null>(cast({})),
         isLoading: ref(false),
         numPages: ref(10),
         currentPage,
@@ -285,7 +285,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
 
     it('uses the visible current page as a trusted toolbar zoom anchor', async () => {
         const zoom = ref(1);
-        const pdfDocument = shallowRef<PDFDocumentProxy | null>(cast({}));
+        const pdfDocument = shallowRef<IPdfDocument | null>(cast({}));
         const currentPage = ref(157);
         const visibleRange = ref({
             start: 156,
@@ -370,7 +370,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
 
     it('keeps the visible page owner while gesture geometry changes', async () => {
         const zoom = ref(1);
-        const pdfDocument = shallowRef<PDFDocumentProxy | null>(cast({}));
+        const pdfDocument = shallowRef<IPdfDocument | null>(cast({}));
         const currentPage = ref(157);
         const visibleRange = ref({
             start: 156,
@@ -493,7 +493,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
         vi.useFakeTimers();
         try {
             const zoom = ref(1);
-            const pdfDocument = shallowRef<PDFDocumentProxy | null>(cast({id: 'old'}));
+            const pdfDocument = shallowRef<IPdfDocument | null>(cast({id: 'old'}));
             const submitZoomViewportStateIntent = vi.fn();
             const enqueueZoomSync = vi.fn();
             usePdfViewerRerenderCoordinator(createDeps({

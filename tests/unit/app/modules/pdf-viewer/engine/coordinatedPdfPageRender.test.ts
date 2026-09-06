@@ -1,3 +1,4 @@
+import type {IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {
     afterEach,
     describe,
@@ -5,7 +6,6 @@ import {
     it,
     vi,
 } from 'vitest';
-import type { PDFPageProxy } from 'pdfjs-dist';
 import {
     runCoordinatedPdfPageOperation,
     runCoordinatedPdfPageRender,
@@ -90,7 +90,7 @@ describe('runCoordinatedPdfPageRender', () => {
             priorityRelationship: 'lower',
         },
     ])('claims same-page render ownership before a $priorityRelationship-priority synchronous caller can overlap', async ({ waitingPriority }) => {
-        const page = cast<PDFPageProxy>({ pageNumber: 1 });
+        const page = cast<IPdfPage>({ pageNumber: 1 });
         const events: string[] = [];
         const firstTask = createRenderTask();
         const secondTask = createRenderTask();
@@ -133,7 +133,7 @@ describe('runCoordinatedPdfPageRender', () => {
     });
 
     it('claims same-page operation ownership before synchronous callers can overlap', async () => {
-        const page = cast<PDFPageProxy>({ pageNumber: 1 });
+        const page = cast<IPdfPage>({ pageNumber: 1 });
         const events: string[] = [];
         const firstOperation = createDeferred<string>();
         const secondOperation = createDeferred<string>();
@@ -175,7 +175,7 @@ describe('runCoordinatedPdfPageRender', () => {
     });
 
     it('preempts a synchronously queued lower-priority render but waits for settlement', async () => {
-        const page = cast<PDFPageProxy>({ pageNumber: 1 });
+        const page = cast<IPdfPage>({ pageNumber: 1 });
         const events: string[] = [];
         const thumbnailTask = createRenderTask({ settleOnCancel: false });
         const viewerTask = createRenderTask();
@@ -218,8 +218,8 @@ describe('runCoordinatedPdfPageRender', () => {
     });
 
     it('allows synchronous renders for different page proxies to overlap', async () => {
-        const firstPage = cast<PDFPageProxy>({ pageNumber: 1 });
-        const secondPage = cast<PDFPageProxy>({ pageNumber: 1 });
+        const firstPage = cast<IPdfPage>({ pageNumber: 1 });
+        const secondPage = cast<IPdfPage>({ pageNumber: 1 });
         const events: string[] = [];
         const firstTask = createRenderTask();
         const secondTask = createRenderTask();
@@ -261,7 +261,7 @@ describe('runCoordinatedPdfPageRender', () => {
 
     it('reports and cancels a wedged canvas task without releasing its page ownership', async () => {
         vi.useFakeTimers();
-        const page = cast<PDFPageProxy>({pageNumber: 7});
+        const page = cast<IPdfPage>({pageNumber: 7});
         const task = createRenderTask({settleOnCancel: false});
         const nextTask = createRenderTask();
         const events: IPdfRenderSupervisorEvent[] = [];
@@ -349,7 +349,7 @@ describe('runCoordinatedPdfPageRender', () => {
         const run = runCoordinatedPdfPageRender({
             owner: 'viewport',
             pageNumber: 1,
-            pdfPage: cast<PDFPageProxy>({pageNumber: 1}),
+            pdfPage: cast<IPdfPage>({pageNumber: 1}),
             priority: 100,
             startRender: () => task,
             watchdog: {
@@ -386,7 +386,7 @@ describe('runCoordinatedPdfPageRender', () => {
         const run = runCoordinatedPdfPageRender({
             owner: 'stale-viewport',
             pageNumber: 1,
-            pdfPage: cast<PDFPageProxy>({pageNumber: 1}),
+            pdfPage: cast<IPdfPage>({pageNumber: 1}),
             priority: 100,
             signal: controller.signal,
             startRender: () => task,
@@ -413,7 +413,7 @@ describe('runCoordinatedPdfPageRender', () => {
 
     it('does not arm a watchdog after synchronous preemption already cancelled the captured task', async () => {
         vi.useFakeTimers();
-        const page = cast<PDFPageProxy>({pageNumber: 1});
+        const page = cast<IPdfPage>({pageNumber: 1});
         const firstTask = createRenderTask({settleOnCancel: false});
         const secondTask = createRenderTask();
         const events: IPdfRenderSupervisorEvent[] = [];
@@ -468,7 +468,7 @@ describe('runCoordinatedPdfPageRender', () => {
         const run = runCoordinatedPdfPageRender({
             owner: 'viewport',
             pageNumber: 1,
-            pdfPage: cast<PDFPageProxy>({pageNumber: 1}),
+            pdfPage: cast<IPdfPage>({pageNumber: 1}),
             priority: 100,
             startRender: () => task,
             watchdog: {
@@ -501,7 +501,7 @@ describe('runCoordinatedPdfPageRender', () => {
         const run = runCoordinatedPdfPageRender({
             owner: 'viewport',
             pageNumber: 4,
-            pdfPage: cast<PDFPageProxy>({pageNumber: 4}),
+            pdfPage: cast<IPdfPage>({pageNumber: 4}),
             priority: 100,
             startRender: () => task,
             watchdog: {
@@ -530,7 +530,7 @@ describe('runCoordinatedPdfPageRender', () => {
     });
 
     it('releases same-page ownership when shouldStart rejects a render', async () => {
-        const page = cast<PDFPageProxy>({ pageNumber: 1 });
+        const page = cast<IPdfPage>({ pageNumber: 1 });
         const rejectedStart = vi.fn(() => createRenderTask());
 
         await expect(runCoordinatedPdfPageRender({
@@ -561,7 +561,7 @@ describe('runCoordinatedPdfPageRender', () => {
     });
 
     it('preempts a lower-priority thumbnail render when the viewer needs the same page', async () => {
-        const page = cast<PDFPageProxy>({ pageNumber: 1 });
+        const page = cast<IPdfPage>({ pageNumber: 1 });
         const events: string[] = [];
         const thumbnailTask = createRenderTask();
         const viewerTask = createRenderTask();
@@ -606,7 +606,7 @@ describe('runCoordinatedPdfPageRender', () => {
     });
 
     it('keeps a lower-priority thumbnail render waiting while a viewer render is active', async () => {
-        const page = cast<PDFPageProxy>({ pageNumber: 1 });
+        const page = cast<IPdfPage>({ pageNumber: 1 });
         const events: string[] = [];
         const viewerTask = createRenderTask();
         const thumbnailTask = createRenderTask();
@@ -650,7 +650,7 @@ describe('runCoordinatedPdfPageRender', () => {
     });
 
     it('aborts a queued render while it waits for the coordinated page turn', async () => {
-        const page = cast<PDFPageProxy>({ pageNumber: 1 });
+        const page = cast<IPdfPage>({ pageNumber: 1 });
         const events: string[] = [];
         const viewerTask = createRenderTask();
         const queuedTask = createRenderTask();
@@ -697,7 +697,7 @@ describe('runCoordinatedPdfPageRender', () => {
     });
 
     it('lets viewer preparation preempt a lower-priority thumbnail render', async () => {
-        const page = cast<PDFPageProxy>({ pageNumber: 1 });
+        const page = cast<IPdfPage>({ pageNumber: 1 });
         const events: string[] = [];
         const thumbnailTask = createRenderTask();
 
@@ -737,7 +737,7 @@ describe('runCoordinatedPdfPageRender', () => {
     });
 
     it('keeps coordinated operation ownership after abort until the operation settles', async () => {
-        const page = cast<PDFPageProxy>({ pageNumber: 1 });
+        const page = cast<IPdfPage>({ pageNumber: 1 });
         const events: string[] = [];
         const operation = createDeferred<string>();
         const operationAbortController = new AbortController();
@@ -790,7 +790,7 @@ describe('runCoordinatedPdfPageRender', () => {
     });
 
     it('exposes the exact operation settlement independently of its aborted caller', async () => {
-        const page = cast<PDFPageProxy>({pageNumber: 1});
+        const page = cast<IPdfPage>({pageNumber: 1});
         const operation = createDeferred<string>();
         const controller = new AbortController();
         const capturedSettlements: Array<Promise<void>> = [];

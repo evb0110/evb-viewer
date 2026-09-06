@@ -21,7 +21,3 @@ export type {
     TPdfSaveMode,
 } from '@contracts/pdfConformance';
 export type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
-export type {
-    PDFDocumentProxy,
-    PDFPageProxy,
-} from 'pdfjs-dist';

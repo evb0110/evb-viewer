@@ -1,3 +1,4 @@
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {
     describe,
     expect,
@@ -8,7 +9,6 @@ import {
     ref,
     shallowRef,
 } from 'vue';
-import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { usePdfViewerTransactionController } from '@app/modules/pdf-viewer/runtime/transactions/usePdfViewerTransactionController';
 import type { IPdfNavigationState } from '@app/modules/pdf-viewer/runtime/navigation/createPdfNavigationMachineState';
 import { cast } from '@tests/helpers/cast';
@@ -209,7 +209,7 @@ describe('usePdfViewerTransactionController', () => {
     });
 
     it('consumes active and settled paged-target fit render handoffs once', () => {
-        const document = cast<PDFDocumentProxy>({});
+        const document = cast<IPdfDocument>({});
         const controller = usePdfViewerTransactionController({
             navigationState: createNavigationState({
                 status: 'idle',

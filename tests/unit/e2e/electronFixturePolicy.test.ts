@@ -52,6 +52,7 @@ import {
     createLargeScannedFixturePdf,
     createMultiPageTextFixturePdf,
     type IFixtureDescribeSelector,
+    resolveExactNativeLargePdfFixtureAvailability,
     resolveScannedFixturePageMarkerRgb,
     resolveDjvuFixturePath,
     resolveLargePdfFixtureAvailability,
@@ -517,6 +518,30 @@ describe('Electron E2E fixture policy', () => {
             restoreEnvVar('EVB_E2E_LARGE_PDF_FIXTURE', previousFixture);
             restoreEnvVar('EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE', previousRequire);
         }
+    });
+
+    it('routes exact native-preview acceptance to the configured large fixture', () => {
+        const fixture = resolveExactNativeLargePdfFixtureAvailability({
+            EVB_EXACT_FIXTURE_PROFILE: 'localZaliznyak882',
+            EVB_E2E_LARGE_PDF_FIXTURE: 'tests/fixtures/electron/freetext-lifecycle-test.pdf',
+        });
+
+        expect(fixture).toEqual({
+            path: join(process.cwd(), 'tests/fixtures/electron/freetext-lifecycle-test.pdf'),
+            reason: `Using exact native-preview fixture: ${join(
+                process.cwd(),
+                'tests/fixtures/electron/freetext-lifecycle-test.pdf',
+            )}`,
+            required: true,
+        });
+    });
+
+    it('fails closed when an exact native-preview fixture is not configured', () => {
+        const fixture = resolveExactNativeLargePdfFixtureAvailability({EVB_EXACT_FIXTURE_PROFILE: 'localZaliznyak882'});
+
+        expect(fixture.path).toBeNull();
+        expect(fixture.required).toBe(true);
+        expect(fixture.reason).toContain('EVB_E2E_LARGE_PDF_FIXTURE');
     });
 
 });

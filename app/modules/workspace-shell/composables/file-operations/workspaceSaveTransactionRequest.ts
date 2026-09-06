@@ -1,5 +1,5 @@
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type {
-    PDFDocumentProxy,
     IPdfBookmarkEntry,
     IPdfPageLabelRange,
     TPdfSaveMode,
@@ -24,7 +24,7 @@ interface IWorkspaceSaveTransactionRequestDependencies {
         totalPages: {value: number};
     };
     pdf: {
-        document: {value: PDFDocumentProxy | null};
+        document: {value: IPdfDocument | null};
         getSourceData: IPdfViewerSaveTransactionSource['getSourcePdfData'];
     };
     persistence: {

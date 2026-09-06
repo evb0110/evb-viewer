@@ -1,3 +1,4 @@
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {
     describe,
     expect,
@@ -8,10 +9,8 @@ import {
     ref,
     shallowRef,
 } from 'vue';
-import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { useMetadataSession } from '@app/modules/workspace-shell/composables/useMetadataSession';
-import type { IPdfBookmarkEntry } from '@app/types/pdfContracts';
-
+import type {IPdfBookmarkEntry} from '@app/types/pdfContracts';
 function createBookmark(title: string): IPdfBookmarkEntry {
     return {
         title,
@@ -26,7 +25,7 @@ function createBookmark(title: string): IPdfBookmarkEntry {
 
 function createSession() {
     return useMetadataSession({
-        pdfDocument: shallowRef<PDFDocumentProxy | null>(null),
+        pdfDocument: shallowRef<IPdfDocument | null>(null),
         totalPages: ref(1),
         markDirty: vi.fn(),
         fileHistoryMutationVersion: ref(0),

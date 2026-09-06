@@ -1,4 +1,4 @@
-import type { PDFDocumentProxy } from 'pdfjs-dist';
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type { IWorkspaceSurfaceBudgetController } from '@app/utils/document-viewer/workspaceSurfaceBudget';
 import type {
     IDocumentPageRenderRequest,
@@ -10,7 +10,7 @@ const PDF_PAGE_SOURCE_MAX_PIXELS = 16 * 1024 * 1024;
 const PDF_PAGE_SOURCE_MAX_DIMENSION = 32_767;
 
 export async function renderPdfDocumentPageSource(options: {
-    document: PDFDocumentProxy;
+    document: IPdfDocument;
     request: IDocumentPageRenderRequest;
     scopeId: string;
     surfaceBudget: IWorkspaceSurfaceBudgetController;

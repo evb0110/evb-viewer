@@ -1,3 +1,7 @@
+import type {
+    IPdfDocument,
+    IPdfPage,
+} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {
     describe,
     expect,
@@ -5,14 +9,10 @@ import {
     vi,
 } from 'vitest';
 import type {
-    PDFDocumentProxy,
-    PDFPageProxy,
-} from 'pdfjs-dist';
-import type {
     IBookmarkIdentityInput,
     IBookmarkItem,
 } from '@app/types/pdfOutline';
-import type { IPdfBookmarkEntry } from '@app/types/pdfContracts';
+import type {IPdfBookmarkEntry} from '@app/types/pdfContracts';
 import {
     buildOutlineFromBookmarkEntries,
     buildResolvedOutline,
@@ -62,7 +62,7 @@ function collectIdsByTitlePath(
 }
 
 function createPdfDocumentStub() {
-    return cast<PDFDocumentProxy>({
+    return cast<IPdfDocument>({
         numPages: 10,
         getDestination: vi.fn(async (_name: string) => [
             {
@@ -72,7 +72,7 @@ function createPdfDocumentStub() {
             { name: 'Fit' },
         ]),
         getPageIndex: vi.fn(async (_ref: unknown) => 3),
-        getPage: vi.fn(async (_pageNumber: number) => cast<PDFPageProxy>({
+        getPage: vi.fn(async (_pageNumber: number) => cast<IPdfPage>({
             view: [
                 0,
                 0,

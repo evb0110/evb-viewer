@@ -1,7 +1,7 @@
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type { Ref } from 'vue';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { runGuardedTask } from '@app/utils/asyncGuard';
-import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import type { IPageRange } from '@app/types/pdfUi';
 import type {
     ICurrentPageSyncOptions,
@@ -59,7 +59,7 @@ interface IPendingZoomSyncOptions extends ICurrentPageSyncOptions {transactionId
 
 interface IUsePdfViewerZoomRerenderQueueOptions {
     performancePolicy: IPdfRenderPerformancePolicy;
-    pdfDocument: Ref<PDFDocumentProxy | null>;
+    pdfDocument: Ref<IPdfDocument | null>;
     isLoading: Ref<boolean>;
     viewerContainer: Ref<HTMLElement | null>;
     summarizeViewerMetricsForLog: (container: HTMLElement | null) => unknown;

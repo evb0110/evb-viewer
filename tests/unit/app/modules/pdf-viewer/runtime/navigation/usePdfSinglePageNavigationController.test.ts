@@ -1,3 +1,4 @@
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 // @vitest-environment happy-dom
 
 import {
@@ -13,7 +14,6 @@ import {
     ref,
     shallowRef,
 } from 'vue';
-import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import { buildPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/buildPageLayoutMetrics';
 import { getLayoutPageTop } from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
 import type { IPdfPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
@@ -107,7 +107,7 @@ describe('usePdfSinglePageNavigationController', () => {
                 viewMode: ref('single'),
                 continuousScroll: ref(true),
                 isLoading: ref(false),
-                pdfDocument: shallowRef({numPages: 3} as PDFDocumentProxy),
+                pdfDocument: shallowRef({numPages: 3} as IPdfDocument),
                 getMostVisiblePage: vi.fn(() => 1),
                 scrollToPageInternal: vi.fn(),
                 updateVisibleRange: vi.fn(),
@@ -313,7 +313,7 @@ describe('usePdfSinglePageNavigationController', () => {
                 viewMode: ref('single'),
                 continuousScroll: ref(true),
                 isLoading: ref(false),
-                pdfDocument: shallowRef({numPages: 3} as PDFDocumentProxy),
+                pdfDocument: shallowRef({numPages: 3} as IPdfDocument),
                 getMostVisiblePage: vi.fn(() => 1),
                 scrollToPageInternal: vi.fn(),
                 updateVisibleRange: vi.fn(),
@@ -463,7 +463,7 @@ describe('usePdfSinglePageNavigationController', () => {
                 viewMode: ref('single'),
                 continuousScroll: ref(true),
                 isLoading: ref(false),
-                pdfDocument: shallowRef({numPages: 2} as PDFDocumentProxy),
+                pdfDocument: shallowRef({numPages: 2} as IPdfDocument),
                 getMostVisiblePage: vi.fn(() => 1),
                 scrollToPageInternal: vi.fn(),
                 updateVisibleRange: vi.fn(),
@@ -572,7 +572,7 @@ describe('usePdfSinglePageNavigationController', () => {
                 viewMode: ref('single'),
                 continuousScroll: ref(true),
                 isLoading: ref(false),
-                pdfDocument: shallowRef({numPages: 2} as PDFDocumentProxy),
+                pdfDocument: shallowRef({numPages: 2} as IPdfDocument),
                 getMostVisiblePage: vi.fn(() => 1),
                 scrollToPageInternal: vi.fn(),
                 updateVisibleRange: vi.fn(),
@@ -680,7 +680,7 @@ describe('usePdfSinglePageNavigationController', () => {
                 viewMode: ref('single'),
                 continuousScroll: ref(false),
                 isLoading: ref(false),
-                pdfDocument: shallowRef({numPages: 3} as PDFDocumentProxy),
+                pdfDocument: shallowRef({numPages: 3} as IPdfDocument),
                 getMostVisiblePage: vi.fn(() => 1),
                 scrollToPageInternal: vi.fn(),
                 updateVisibleRange: vi.fn(),
@@ -772,7 +772,7 @@ describe('usePdfSinglePageNavigationController', () => {
                 viewMode: ref('single'),
                 continuousScroll: ref(false),
                 isLoading: ref(false),
-                pdfDocument: shallowRef({numPages: 5} as PDFDocumentProxy),
+                pdfDocument: shallowRef({numPages: 5} as IPdfDocument),
                 getMostVisiblePage: vi.fn(() => 1),
                 scrollToPageInternal: vi.fn(),
                 updateVisibleRange: vi.fn(),
@@ -896,7 +896,7 @@ describe('usePdfSinglePageNavigationController', () => {
                 continuousScroll: ref(true),
                 isResizeTransitionActive,
                 isLoading: ref(false),
-                pdfDocument: shallowRef({numPages: 2} as PDFDocumentProxy),
+                pdfDocument: shallowRef({numPages: 2} as IPdfDocument),
                 getMostVisiblePage: vi.fn(() => 1),
                 scrollToPageInternal: vi.fn(),
                 updateVisibleRange: vi.fn(),
@@ -1013,7 +1013,7 @@ describe('usePdfSinglePageNavigationController', () => {
                 viewMode: ref('single'),
                 continuousScroll: ref(true),
                 isLoading: ref(false),
-                pdfDocument: shallowRef({numPages: 6} as PDFDocumentProxy),
+                pdfDocument: shallowRef({numPages: 6} as IPdfDocument),
                 getMostVisiblePage: vi.fn(() => 3),
                 scrollToPageInternal: vi.fn(),
                 updateVisibleRange: vi.fn(),
@@ -1119,7 +1119,7 @@ describe('usePdfSinglePageNavigationController', () => {
                 viewMode: ref('single'),
                 continuousScroll: ref(true),
                 isLoading: ref(false),
-                pdfDocument: shallowRef(cast<PDFDocumentProxy>({
+                pdfDocument: shallowRef(cast<IPdfDocument>({
                     numPages: 2,
                     getDestination: vi.fn(async () => null),
                     getPageIndex: vi.fn(async () => 1),
@@ -1283,7 +1283,7 @@ describe('usePdfSinglePageNavigationController', () => {
                 viewMode: ref('single'),
                 continuousScroll: ref(true),
                 isLoading: ref(false),
-                pdfDocument: shallowRef({numPages: 3} as PDFDocumentProxy),
+                pdfDocument: shallowRef({numPages: 3} as IPdfDocument),
                 getMostVisiblePage: vi.fn(() => 1),
                 scrollToPageInternal: vi.fn(),
                 updateVisibleRange: vi.fn(),
@@ -1361,7 +1361,7 @@ describe('usePdfSinglePageNavigationController', () => {
         const numPages = ref(0);
         const isLoading = ref(true);
         const pageSlots = createPdfPageSlotRegistry();
-        const pdfDocument = shallowRef<PDFDocumentProxy | null>(null);
+        const pdfDocument = shallowRef<IPdfDocument | null>(null);
         const viewportWrites = createTestPdfViewportWritePort();
         const navigationFeedback = vi.fn();
         const committedWorkspacePage = ref(1);
@@ -1490,7 +1490,7 @@ describe('usePdfSinglePageNavigationController', () => {
             expect(viewportWrites.writes).toHaveLength(0);
             expect(prepareNavigationVisual).not.toHaveBeenCalled();
 
-            pdfDocument.value = {numPages: 10} as PDFDocumentProxy;
+            pdfDocument.value = {numPages: 10} as IPdfDocument;
             documentRevision.value = 2;
             isLoading.value = false;
 

@@ -1136,8 +1136,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
                 .sort();
             return kinds.join(',') === 'note,placed-image,shape,text-box,text-markup'
                 && document.querySelectorAll(
-                    '.editor-pane.is-active .page_container[data-page="1"] .annotation-editor-layer, '
-                    + '.editor-pane.is-active .page_container[data-page="1"] .pdf-annotation-editor-layer',
+                    '.editor-pane.is-active .page_container[data-page="1"] .annotation-editor-layer',
                 ).length === 0;
         }, {timeout: 20_000});
         await page.waitForFunction(() => {
@@ -1640,7 +1639,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
             }, {timeout: 30_000}, CANONICAL_STAMP_SELECTOR);
 
             const created = await readCanonicalStampSnapshot(page);
-            expect(created.annotationId).toMatch(/^anno_/u);
+            expect(created.annotationId).toMatch(/^placed-image-/u);
             expect(created.left + (created.width / 2)).toBeCloseTo(rotated.left + (rotated.width / 2), 3);
             expect(created.top + (created.height / 2)).toBeCloseTo(rotated.top + (rotated.height / 2), 3);
             expect(created.width).toBeGreaterThan(0);

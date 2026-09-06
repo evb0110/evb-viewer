@@ -1,4 +1,4 @@
-import type { PDFDocumentProxy } from 'pdfjs-dist';
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import { useTimeoutFn } from '@vueuse/core';
 import { uniq } from 'es-toolkit/array';
 import type { IOcrLanguage } from '@contracts/shared';
@@ -840,7 +840,7 @@ export const useOcr = () => {
      */
     async function exportDocx(
         workingCopyPath: TDocumentRef | null,
-        pdfDocument: PDFDocumentProxy | null = null,
+        pdfDocument: IPdfDocument | null = null,
     ) {
         if (isExporting.value) {
             return false;

@@ -1,3 +1,4 @@
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {
     describe,
     expect,
@@ -9,7 +10,6 @@ import {
     ref,
     shallowRef,
 } from 'vue';
-import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import { cast } from '@tests/helpers/cast';
 
 vi.mock('@app/utils/asyncHelpers', () => ({waitForVisualFrames: vi.fn(async () => {})}));
@@ -39,7 +39,7 @@ describe('usePdfViewerCurrentPageSync', () => {
                     end: 2,
                 }),
                 currentPage,
-                pdfDocument: shallowRef<PDFDocumentProxy | null>(cast({})),
+                pdfDocument: shallowRef<IPdfDocument | null>(cast({})),
                 isLoading: ref(false),
                 getMostVisiblePage: vi.fn(() => 2),
                 updateCurrentPage,
@@ -60,7 +60,7 @@ describe('usePdfViewerCurrentPageSync', () => {
     });
 
     it('invalidates stabilized current-page sync when the document changes mid-sample', async () => {
-        const pdfDocument = shallowRef<PDFDocumentProxy | null>(cast({}));
+        const pdfDocument = shallowRef<IPdfDocument | null>(cast({}));
         const emitCurrentPage = vi.fn();
         const getMostVisiblePage = vi.fn(() => 2);
         const scope = effectScope();
@@ -124,7 +124,7 @@ describe('usePdfViewerCurrentPageSync', () => {
                     end: 5,
                 }),
                 currentPage,
-                pdfDocument: shallowRef<PDFDocumentProxy | null>(cast({})),
+                pdfDocument: shallowRef<IPdfDocument | null>(cast({})),
                 isLoading: ref(false),
                 getMostVisiblePage: vi.fn(() => 1),
                 updateCurrentPage,
@@ -170,7 +170,7 @@ describe('usePdfViewerCurrentPageSync', () => {
                     end: 5,
                 }),
                 currentPage,
-                pdfDocument: shallowRef<PDFDocumentProxy | null>(cast({})),
+                pdfDocument: shallowRef<IPdfDocument | null>(cast({})),
                 isLoading: ref(false),
                 getMostVisiblePage,
                 updateCurrentPage: vi.fn(() => 1),

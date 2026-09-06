@@ -1,4 +1,4 @@
-import type { PDFPageProxy } from 'pdfjs-dist';
+import type {IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type { usePdfTextLayerRenderer } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfTextLayerRenderer';
 import type {
     IActivePdfTextLayerTask,
@@ -13,7 +13,7 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 
 interface ITextLayerRenderContext {
     container: HTMLElement;
-    pdfPage: PDFPageProxy;
+    pdfPage: IPdfPage;
     renderResult: {
         canvas: HTMLCanvasElement;
         viewport: Parameters<ReturnType<typeof usePdfTextLayerRenderer>['renderTextLayer']>[2];

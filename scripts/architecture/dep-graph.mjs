@@ -192,6 +192,45 @@ function extractImportSpecifiers(sourceText) {
     return specifiers;
 }
 
+function extractTypeOnlyImportSpecifiers(sourceText) {
+    const specifiers = [];
+    const sourceWithoutBlockComments = sourceText.replace(
+        /\/\*[\s\S]*?\*\//gu,
+        comment => comment.replace(/[^\r\n]/gu, ' '),
+    );
+    const patterns = [
+        /\bimport\s+type\b[\s\S]*?\bfrom\s*['"]([^'"]+)['"]/gu,
+        /\bexport\s+type\b[\s\S]*?\bfrom\s*['"]([^'"]+)['"]/gu,
+    ];
+    for (const pattern of patterns) {
+        for (const match of sourceWithoutBlockComments.matchAll(pattern)) {
+            specifiers.push(match[1]);
+        }
+    }
+    return specifiers;
+}
+
+function extractRuntimeImportSpecifiers(sourceText) {
+    const specifiers = [];
+    const sourceWithoutBlockComments = sourceText.replace(
+        /\/\*[\s\S]*?\*\//gu,
+        comment => comment.replace(/[^\r\n]/gu, ' '),
+    );
+    const patterns = [
+        /\bimport\s+(?!type\b)[\s\S]*?\bfrom\s*['"]([^'"]+)['"]/gu,
+        /\bimport\s*['"]([^'"]+)['"]/gu,
+        /\bexport\s+(?!type\b)[\s\S]*?\bfrom\s*['"]([^'"]+)['"]/gu,
+        /\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/gu,
+        /\brequire\s*\(\s*['"]([^'"]+)['"]\s*\)/gu,
+    ];
+    for (const pattern of patterns) {
+        for (const match of sourceWithoutBlockComments.matchAll(pattern)) {
+            specifiers.push(match[1]);
+        }
+    }
+    return specifiers;
+}
+
 async function resolveWithExtensions(projectRoot, basePath, resolutionCache) {
     const cacheKey = `${projectRoot}\0${basePath}`;
     if (resolutionCache?.has(cacheKey)) {
@@ -566,6 +605,7 @@ export async function buildDependencyGraph({
 
     const nodes = [];
     const edges = [];
+    const runtimeEdges = [];
     const unresolvedInternalImports = [];
     const resolutionCache = new Map();
 
@@ -573,6 +613,8 @@ export async function buildDependencyGraph({
         const absFile = path.join(projectRoot, file);
         const sourceText = await fs.readFile(absFile, 'utf8');
         const imports = extractImportSpecifiers(sourceText);
+        const typeOnlyImportSpecifiers = new Set(extractTypeOnlyImportSpecifiers(sourceText));
+        const runtimeImportSpecifiers = new Set(extractRuntimeImportSpecifiers(sourceText));
         const resolvedImports = await Promise.all(imports.map(async specifier => {
             const target = await resolveSpecifier({
                 sourceFile: file,
@@ -613,18 +655,25 @@ export async function buildDependencyGraph({
         }
 
         for (const item of internalImports) {
-            edges.push({
+            const edge = {
                 source: file,
                 target: item.target,
                 specifier: item.specifier,
-            });
+            };
+            edges.push(edge);
+            if (
+                !typeOnlyImportSpecifiers.has(item.specifier)
+                || runtimeImportSpecifiers.has(item.specifier)
+            ) {
+                runtimeEdges.push(edge);
+            }
         }
     }
 
     return {
         nodes,
         edges,
-        cycles: findStronglyConnectedComponents(nodes, edges).map(files => ({ files })),
+        cycles: findStronglyConnectedComponents(nodes, runtimeEdges).map(files => ({ files })),
         unresolvedInternalImports,
     };
 }

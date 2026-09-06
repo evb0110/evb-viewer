@@ -1,8 +1,8 @@
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type {
     Ref,
     ShallowRef,
 } from 'vue';
-import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import type { TPdfViewMode } from '@contracts/shared';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import type { IRenderVisiblePagesOptions } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/bindPdfOpenSurfaceRenderContext';
@@ -21,7 +21,7 @@ export interface IUsePdfSinglePageScrollOptions {
     continuousScroll: Ref<boolean>;
     isResizeTransitionActive?: Ref<boolean> | undefined;
     isLoading: Ref<boolean>;
-    pdfDocument: ShallowRef<PDFDocumentProxy | null>;
+    pdfDocument: ShallowRef<IPdfDocument | null>;
     getMostVisiblePage: (
         container: HTMLElement | null,
         numPages: number,

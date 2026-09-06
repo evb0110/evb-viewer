@@ -1,3 +1,4 @@
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {
     beforeEach,
     describe,
@@ -10,7 +11,6 @@ import {
     ref,
     shallowRef,
 } from 'vue';
-import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { usePageSaveOrchestration } from '@app/modules/workspace-shell/composables/usePageSaveOrchestration';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 import type {IWorkspaceSaveDependencies} from '@app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService';
@@ -51,7 +51,7 @@ vi.mock(
 function createDeps(overrides: Record<string, unknown> = {}) {
     return cast<Parameters<typeof usePageSaveOrchestration>[0]>({
         pdfData: ref(new Uint8Array([1])),
-        pdfDocument: shallowRef({numPages: 1} as PDFDocumentProxy),
+        pdfDocument: shallowRef({numPages: 1} as IPdfDocument),
         pdfViewerRef: ref({
             scrollToPage: vi.fn(),
             runSaveTransaction: vi.fn(),

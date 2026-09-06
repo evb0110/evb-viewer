@@ -1,13 +1,13 @@
+import type {
+    IPdfDocument,
+    IPdfPage,
+} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {
     describe,
     expect,
     it,
     vi,
 } from 'vitest';
-import type {
-    PDFDocumentProxy,
-    PDFPageProxy,
-} from 'pdfjs-dist';
 import type { IBookmarkItem } from '@app/types/pdfOutline';
 import {
     buildOutlineFromBookmarkEntries,
@@ -26,7 +26,7 @@ import {
 } from '@app/utils/pdfOutlineHelpers';
 import { cast } from '@tests/helpers/cast';
 
-type TOutlinePdfDocumentStub = Pick<PDFDocumentProxy, 'numPages' | 'getDestination' | 'getPageIndex' | 'getPage'>;
+type TOutlinePdfDocumentStub = Pick<IPdfDocument, 'numPages' | 'getDestination' | 'getPageIndex' | 'getPage'>;
 type TPdfPageView = [number, number, number, number];
 
 function createPdfPageStub(view: TPdfPageView = [
@@ -34,24 +34,24 @@ function createPdfPageStub(view: TPdfPageView = [
     0,
     612,
     792,
-]): PDFPageProxy {
-    return cast<PDFPageProxy>({
+]): IPdfPage {
+    return cast<IPdfPage>({
         view,
         getViewport: vi.fn(() => ({ height: view[3] - view[1] })),
     });
 }
 
-function createPdfDocumentStub(overrides: Partial<TOutlinePdfDocumentStub> = {}): PDFDocumentProxy {
+function createPdfDocumentStub(overrides: Partial<TOutlinePdfDocumentStub> = {}): IPdfDocument {
     const base: TOutlinePdfDocumentStub = {
         numPages: 10,
         getDestination: vi.fn(async (_name: string) => null),
         getPageIndex: vi.fn(async (_ref: unknown) => 0),
-        getPage: vi.fn(async (_pageNumber: number): Promise<PDFPageProxy> => createPdfPageStub()),
+        getPage: vi.fn(async (_pageNumber: number): Promise<IPdfPage> => createPdfPageStub()),
     };
     return {
         ...base,
         ...overrides,
-    } as PDFDocumentProxy;
+    } as IPdfDocument;
 }
 
 function createBookmark(id: string, pageIndex: number | null): IBookmarkItem {

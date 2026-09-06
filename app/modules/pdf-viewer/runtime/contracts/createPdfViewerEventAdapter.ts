@@ -1,3 +1,4 @@
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type {
     IAnnotationCommentSummary,
     IAnnotationEditorState,
@@ -9,7 +10,6 @@ import type { IAnnotationContextMenuPayload } from '@app/modules/pdf-viewer/engi
 import type { IAnnotationEnrichmentState } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationEnrichmentPolicy';
 import type { IAnnotationCreationFailureReport } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationCreationOutcome.types';
 import type {
-    PDFDocumentProxy,
     TFitMode,
     TZoomMode,
 } from '@app/types/pdfContracts';
@@ -24,7 +24,7 @@ export interface IPdfViewerEventAdapter {
     updateNavigationFeedbackPage(page: number | null): void;
     updateTotalPages(total: number): void;
     updateLoading(loading: boolean): void;
-    updateDocument(document: PDFDocumentProxy | null): void;
+    updateDocument(document: IPdfDocument | null): void;
     loading(loading: boolean): void;
     loadError(error: unknown): void;
     annotationState(state: IAnnotationEditorState): void;

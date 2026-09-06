@@ -1,10 +1,10 @@
+import type {IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {
     describe,
     expect,
     it,
     vi,
 } from 'vitest';
-import type { PDFPageProxy } from 'pdfjs-dist';
 import { createHiddenAnnotationOperationsFilter } from '@app/modules/pdf-viewer/engine/pdf-hidden-annotation-operations/createHiddenAnnotationOperationsFilter';
 import { cast } from '@tests/helpers/cast';
 
@@ -18,7 +18,7 @@ function createOperatorList() {
 describe('createHiddenAnnotationOperationsFilter', () => {
     it('filters the complete managed annotation appearance block', async () => {
         const filter = await createHiddenAnnotationOperationsFilter(
-            cast<PDFPageProxy>({
+            cast<IPdfPage>({
                 pageNumber: 1,
                 getOperatorList: vi.fn(async () => ({
                     fnArray: [
@@ -63,7 +63,7 @@ describe('createHiddenAnnotationOperationsFilter', () => {
 
     it('fails closed when managed appearance suppression cannot be prepared', async () => {
         await expect(createHiddenAnnotationOperationsFilter(
-            cast<PDFPageProxy>({
+            cast<IPdfPage>({
                 pageNumber: 1,
                 getOperatorList: vi.fn(async () => {
                     throw new Error('operator scan failed');
@@ -77,7 +77,7 @@ describe('createHiddenAnnotationOperationsFilter', () => {
     it('does not start the coordinated operator-list scan when the render is stale', async () => {
         const getOperatorList = vi.fn(async () => createOperatorList());
         const filter = await createHiddenAnnotationOperationsFilter(
-            cast<PDFPageProxy>({
+            cast<IPdfPage>({
                 pageNumber: 1,
                 getOperatorList,
             }),
@@ -97,7 +97,7 @@ describe('createHiddenAnnotationOperationsFilter', () => {
     it('drops a coordinated operator-list result when the render goes stale before completion', async () => {
         const getOperatorList = vi.fn(async () => createOperatorList());
         const filter = await createHiddenAnnotationOperationsFilter(
-            cast<PDFPageProxy>({
+            cast<IPdfPage>({
                 pageNumber: 1,
                 getOperatorList,
             }),

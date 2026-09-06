@@ -1,4 +1,4 @@
-import type { PDFPageProxy } from 'pdfjs-dist';
+import type {IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {
     afterEach,
     describe,
@@ -39,7 +39,7 @@ function createRenderTask() {
 }
 
 function createPdfPage() {
-    return {} as PDFPageProxy;
+    return {} as IPdfPage;
 }
 
 describe('runCoordinatedPdfPageRender', () => {

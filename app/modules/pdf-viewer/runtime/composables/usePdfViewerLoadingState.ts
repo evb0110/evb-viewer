@@ -1,15 +1,15 @@
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type {
     ComputedRef,
     Ref,
 } from 'vue';
 import type { TPdfSource } from '@app/types/pdfUi';
-import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { IDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 
 interface IUsePdfViewerLoadingStateOptions {
     src: ComputedRef<TPdfSource | null>;
     isLoading: Ref<boolean>;
-    pdfDocument: Ref<PDFDocumentProxy | null>;
+    pdfDocument: Ref<IPdfDocument | null>;
     currentPage: Ref<number>;
     openSurface: Pick<IDocumentOpenSurfaceSession, 'snapshot' | 'viewportSession'>;
     holdOverlayVisible?: Ref<boolean>;

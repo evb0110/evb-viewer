@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/* eslint-disable max-lines */
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
@@ -838,6 +839,73 @@ function parseSourceFiles(filePath, sourceText) {
     ));
 }
 
+const PDFJS_IMPORT_ALLOWED_ROOTS = [
+    'app/modules/pdf-viewer',
+    'app/services/pdfjs',
+    'app/utils/document-viewer/source',
+    'app/platform/browser-api/browserPdfjsDocumentInit.ts',
+    'electron/search',
+    'scripts/windows-test/oracles/pdfjsNodeRuntime.ts',
+    'tests/e2e/electron/helpers/fixtures.ts',
+    'tests/e2e/electron/quarantine/assistantBookmarksPersistence.e2e.test.ts',
+    'tests/helpers/renderPdfCanvasFidelityMetrics.ts',
+    'tests/unit/app/platform/pdfjsJbig2Consumer.test.ts',
+    'tests/unit/electron/ocrPdfAssembler.test.ts',
+    'tests/unit/app/modules/pdf-viewer/engine/createPdfRangeRequestBridge.test.ts',
+];
+
+function isPdfjsModuleSpecifier(node) {
+    return ts.isStringLiteral(node)
+        && (node.text === 'pdfjs-dist' || node.text.startsWith('pdfjs-dist/'));
+}
+
+function checkPdfjsImportBoundary(filePath, sourceFiles) {
+    if (PDFJS_IMPORT_ALLOWED_ROOTS.some(root => matchesRoot(filePath, root))) {
+        return [];
+    }
+    const violations = [];
+    for (const sourceFile of sourceFiles) {
+        function recordViolation(node) {
+            const specifier = node.text;
+            violations.push(createViolation({
+                rule: 'pdfjs-import-boundary',
+                source: filePath,
+                target: specifier,
+                specifier,
+                message: 'pdfjs-dist imports belong only in the renderer or its PDF.js adapter roots.',
+            }));
+        }
+
+        function visit(node) {
+            if (ts.isImportDeclaration(node) && isPdfjsModuleSpecifier(node.moduleSpecifier)) {
+                recordViolation(node.moduleSpecifier);
+            } else if (ts.isExportDeclaration(node) && node.moduleSpecifier && isPdfjsModuleSpecifier(node.moduleSpecifier)) {
+                recordViolation(node.moduleSpecifier);
+            } else if (
+                ts.isImportEqualsDeclaration(node)
+                && ts.isExternalModuleReference(node.moduleReference)
+                && isPdfjsModuleSpecifier(node.moduleReference.expression)
+            ) {
+                recordViolation(node.moduleReference.expression);
+            } else if (
+                ts.isCallExpression(node)
+                && node.arguments.length === 1
+                && isPdfjsModuleSpecifier(node.arguments[0])
+                && (
+                    node.expression.kind === ts.SyntaxKind.ImportKeyword
+                    || (ts.isIdentifier(node.expression) && node.expression.text === 'require')
+                )
+            ) {
+                recordViolation(node.arguments[0]);
+            }
+            ts.forEachChild(node, visit);
+        }
+
+        visit(sourceFile);
+    }
+    return violations;
+}
+
 function checkPlatformApiRuntimeGetterCall(filePath, sourceFiles = []) {
     if (
         !isAppProductionSource(filePath)
@@ -1456,6 +1524,15 @@ function checkFeatureBoundaryRule(edge, featureRule) {
         return null;
     }
 
+    // The document source owns the structural PDF contracts. Type-only imports
+    // from other app features are intentional consumers of that API.
+    if (
+        edge.target === 'app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource.ts'
+        && edge.specifier.includes('pdfDocumentSource')
+    ) {
+        return null;
+    }
+
     const relativePath = relativeWithinOwner(edge.target, featureRule.prefix, targetOwner);
     if (isAllowedPublicEntrypoint(relativePath, featureRule.allowedEntrypoints)) {
         return null;
@@ -1504,6 +1581,7 @@ function checkNode(filePath) {
 function checkSource(filePath, sourceText) {
     const sourceFiles = parseSourceFiles(filePath, sourceText);
     return [
+        ...checkPdfjsImportBoundary(filePath, sourceFiles),
         ...checkSentryBoundarySource(filePath, sourceFiles),
         ...checkAnnotationStoragePrivateAccess(filePath, sourceText),
         ...checkPlatformApiRuntimeGetterCall(filePath, sourceFiles),

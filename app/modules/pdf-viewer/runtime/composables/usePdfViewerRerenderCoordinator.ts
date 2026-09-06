@@ -1,9 +1,7 @@
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import { delay } from 'es-toolkit/promise';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import type {
-    PDFDocumentProxy,
-    TFitMode,
-} from '@app/types/pdfContracts';
+import type {TFitMode} from '@app/types/pdfContracts';
 import type { TPdfViewRotation } from '@contracts/shared';
 import type { IPageRange } from '@app/types/pdfUi';
 import type { ICurrentPageSyncOptions } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerCurrentPageSync';
@@ -77,7 +75,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
     let zoomOrchestrationGeneration = 0;
     let zoomOrchestrationDisposed = false;
     let pendingZoomOrchestration: {
-        document: PDFDocumentProxy | null;
+        document: IPdfDocument | null;
         previousZoom: number | null;
         zoomChanged: boolean;
         modeChangedToCustom: boolean;
@@ -207,7 +205,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
     function isViewerAsyncRunActive(
         runId: number,
         activeRunId: number,
-        document: PDFDocumentProxy | null,
+        document: IPdfDocument | null,
     ) {
         return runId === activeRunId
             && document !== null
@@ -295,7 +293,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
 
     function isCurrentPageFitRerenderRunActive(
         runId: number,
-        document: PDFDocumentProxy | null,
+        document: IPdfDocument | null,
         page: number,
     ) {
         return isViewerAsyncRunActive(runId, currentPageFitRerenderRunId, document)
@@ -325,7 +323,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
      */
     async function prepareFitPageRerenderLayout(
         runId: number,
-        document: PDFDocumentProxy | null,
+        document: IPdfDocument | null,
         page: number,
         isRunActive: () => boolean,
     ) {
@@ -530,7 +528,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         source: string,
         mode: TFitMode,
         runId: number,
-        document: PDFDocumentProxy | null,
+        document: IPdfDocument | null,
         physicalNavigationEpoch: number,
         isRunActive: () => boolean,
         options: {forceRerender?: boolean} = {},

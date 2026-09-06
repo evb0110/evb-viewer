@@ -8,6 +8,9 @@ import type {
     IShapeAnnotation,
     TMarkupSubtype,
 } from '@app/types/annotations';
+import type {IShapeEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {buildSerializationPlan} from '@app/modules/pdf-viewer/annotations/persistence/annotationSavePlan';
 import {
     buildNativeFreeTextNotesForSave,
     isReplayableEditorOnlyFreeTextNote,
@@ -20,6 +23,10 @@ import {
     isNativeShapeEligible,
     toNativeShapeAnnotation,
 } from '@app/modules/pdf-viewer/runtime/save/nativeShapeMutations';
+import {
+    buildNativePdfMutationProjection,
+    type IPdfSaveRouteCapabilities,
+} from '@app/modules/pdf-viewer/runtime/save/nativeMutationProjection';
 import {
     buildNativeMarkupMutationForSave,
     toNativeMarkupHint,
@@ -90,6 +97,80 @@ function createShape(overrides: Partial<IShapeAnnotation> = {}): IShapeAnnotatio
         pdfSubtype: 'Square',
         createdAt: 1781009077123,
         modifiedAt: 1781009077999,
+        ...overrides,
+    };
+}
+
+function createShapeEntity(overrides: Partial<IShapeEntity> = {}): IShapeEntity {
+    return {
+        kind: 'shape',
+        identity: {
+            id: asAnnotationId('shape-entity'),
+            pdfRef: '22R0',
+        },
+        pageIndex: 0,
+        revision: 1,
+        persistedRevision: 0,
+        deleted: false,
+        createdAt: 1781009077123,
+        modifiedAt: 1781009077999,
+        author: 'Tester',
+        tool: 'rectangle',
+        rect: {
+            left: 0.1,
+            top: 0.2,
+            width: 0.3,
+            height: 0.4,
+        },
+        strokeColor: '#00aaff',
+        strokeWidth: 2,
+        fill: null,
+        opacity: 0.75,
+        ...overrides,
+    };
+}
+
+function createNativeRouteCapabilities(
+    overrides: Partial<IPdfSaveRouteCapabilities> = {},
+): IPdfSaveRouteCapabilities {
+    return {
+        saveFlowMode: 'save',
+        availableBackends: ['native-append'],
+        nativeCapabilities: {
+            hasNativePdfMutationCapability: true,
+            canPersistNativeMetadataMutations: true,
+        },
+        dirtyState: {
+            annotationDirty: true,
+            hasAnnotationChanges: true,
+            shapeStateDirty: true,
+        },
+        documentStructure: {
+            pageLabelsDirty: false,
+            pageLabelRanges: [],
+            bookmarksDirty: false,
+            bookmarkItems: [],
+            untitledBookmarkLabel: 'Untitled',
+            totalPages: 1,
+        },
+        liveAnnotationChanges: {
+            ids: new Set(),
+            replayableEditorNoteIds: new Set(),
+            nativeFreeTextEditors: new Map(),
+            hasChanges: false,
+            hasUnknownChanges: false,
+            fingerprint: 'empty',
+        },
+        hasLoadedSource: true,
+        forceWriterSave: false,
+        rewriteShapeState: true,
+        totalPageCount: 1,
+        shapes: [createShape()],
+        deletedEmbeddedShapeAnnotationIds: [],
+        deletedEmbeddedShapeStableKeys: [],
+        markupSubtypeOverrides: undefined,
+        markupSubtypeHints: [],
+        nativeTextBoxes: [],
         ...overrides,
     };
 }
@@ -295,6 +376,48 @@ describe('native shape builders', () => {
                 annotationId: null,
                 stableKey: null,
                 pdfSubtype: 'Ink',
+            })],
+        });
+    });
+});
+
+describe('native PDF save route', () => {
+    it('admits managed shape mutations when the native shape payload is available', () => {
+        const shape = createShapeEntity();
+        const nativeShape = createShape({annotationId: shape.identity.pdfRef});
+        const plan = buildSerializationPlan(
+            {
+                documentRevisionToken: null,
+                epoch: 1,
+                entityBaselineHash: 'shape-baseline',
+                revisions: new Map([[
+                    shape.identity.id,
+                    shape.persistedRevision,
+                ]]),
+            },
+            [shape],
+            [shape],
+            {routeConstraints: {
+                allowedBackends: ['native-append'],
+                preserveLoadedSource: true,
+            }},
+        );
+
+        const decision = buildNativePdfMutationProjection(
+            plan,
+            createNativeRouteCapabilities({shapes: [nativeShape]}),
+        );
+
+        expect(decision.route).toBe('native-append');
+        if (decision.route !== 'native-append') {
+            throw new Error(`Expected native append, got ${decision.nativeRejection}`);
+        }
+        expect(decision.nativeMutationProjection.mutations.shapes).toMatchObject({
+            rewriteShapeState: true,
+            shapes: [expect.objectContaining({
+                annotationId: '22R',
+                stableKey: nativeShape.stableKey,
+                type: 'rectangle',
             })],
         });
     });

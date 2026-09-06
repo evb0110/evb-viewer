@@ -146,7 +146,7 @@ export interface INativeDjvuSearchFixtureAvailability extends IFixtureAvailabili
 }
 
 export interface IFixtureDescribeSelector {
-    (name: string, fn: () => void): unknown;
+    (name: string, fn: () => void, timeout?: number): unknown;
     skip: IFixtureDescribeSelector;
 }
 
@@ -555,6 +555,62 @@ export function resolveLargePdfFixtureAvailability(): IFixtureAvailability {
 
 export function resolveNativeLargePdfFixtureAvailability(pageCount?: number): IFixtureAvailability {
     return provisionLargePdfFixture('native-preview', NATIVE_LARGE_PDF_FIXTURE_BYTES, pageCount);
+}
+
+/**
+ * Resolve the caller-supplied exact fixture used by the native-preview lane.
+ * Exact runs must opt in with a manifest profile and may not silently fall
+ * back to the generated native-preview document.
+ */
+export function resolveExactNativeLargePdfFixtureAvailability(
+    env: NodeJS.ProcessEnv = process.env,
+): IFixtureAvailability {
+    const profile = env.EVB_EXACT_FIXTURE_PROFILE?.trim();
+    if (!profile) {
+        return {
+            path: null,
+            reason: 'Exact native-preview fixture is not enabled',
+            required: false,
+        };
+    }
+
+    const configuredPath = env[LARGE_PDF_FIXTURE_ENV_VAR]?.trim();
+    if (!configuredPath) {
+        return {
+            path: null,
+            reason: `${LARGE_PDF_FIXTURE_ENV_VAR} is required for exact native-preview acceptance`,
+            required: true,
+        };
+    }
+    if (/^(?:https?|file):\/\//u.test(configuredPath)) {
+        return {
+            path: null,
+            reason: `Exact native-preview fixture must be a local path: ${configuredPath}`,
+            required: true,
+        };
+    }
+
+    const absolutePath = resolve(configuredPath);
+    if (!existsSync(absolutePath)) {
+        return {
+            path: null,
+            reason: `Exact native-preview fixture does not exist: ${absolutePath}`,
+            required: true,
+        };
+    }
+    if (!statSync(absolutePath).isFile()) {
+        return {
+            path: null,
+            reason: `Exact native-preview fixture must point to a file: ${absolutePath}`,
+            required: true,
+        };
+    }
+
+    return {
+        path: absolutePath,
+        reason: `Using exact native-preview fixture: ${absolutePath}`,
+        required: true,
+    };
 }
 
 export function copyLargePdfFixture(targetFilename?: string) {

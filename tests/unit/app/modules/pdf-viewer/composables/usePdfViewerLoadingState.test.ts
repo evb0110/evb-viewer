@@ -1,3 +1,4 @@
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {
     describe,
     expect,
@@ -14,13 +15,11 @@ import {
     createDocumentOpenSurfaceSession,
     type IDocumentOpenSurfaceRenderFence,
 } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
-import type { PDFDocumentProxy } from '@app/types/pdfContracts';
-
 function createHarness() {
     const scope = effectScope();
     const src = shallowRef<Blob | null>(new Blob([new Uint8Array([1])], {type: 'application/pdf'}));
     const isLoading = ref(false);
-    const pdfDocument = shallowRef<PDFDocumentProxy | null>({} as PDFDocumentProxy);
+    const pdfDocument = shallowRef<IPdfDocument | null>({} as IPdfDocument);
     const currentPage = ref(1);
     const openSurface = createDocumentOpenSurfaceSession();
     const state = scope.run(() => usePdfViewerLoadingState({

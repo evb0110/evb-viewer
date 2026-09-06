@@ -1,3 +1,4 @@
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {
     describe,
     expect,
@@ -9,10 +10,9 @@ import {
     ref,
 } from 'vue';
 import type { Ref } from 'vue';
-import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { usePageLabelState } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageLabelState';
 import { resolveVisiblePageLabelsDuringMetadataRefresh } from '@app/modules/pdf-viewer/engine/page-labels/resolveVisiblePageLabelsDuringMetadataRefresh';
-import type { IPdfPageLabelRange } from '@app/types/pdfContracts';
+import type {IPdfPageLabelRange} from '@app/types/pdfContracts';
 import { PAGE_LABEL_DENSE_READ_MAX_PAGES } from '@app/utils/document-viewer/pageLabels';
 import { cast } from '@tests/helpers/cast';
 
@@ -31,7 +31,7 @@ function createPdfDocumentRef(
     numPages: number,
     getPageLabels: () => Promise<string[] | null>,
 ) {
-    return cast<Ref<PDFDocumentProxy | null>>(ref({
+    return cast<Ref<IPdfDocument | null>>(ref({
         numPages,
         getPageLabels,
     }));
@@ -134,18 +134,18 @@ describe('usePageLabelState', () => {
 
     it('ignores label sync results from a document that has been replaced', async () => {
         const staleLabels = createDeferred<string[] | null>();
-        const staleDocument = cast<PDFDocumentProxy>({
+        const staleDocument = cast<IPdfDocument>({
             numPages: 2,
             getPageLabels: vi.fn(() => staleLabels.promise),
         });
-        const freshDocument = cast<PDFDocumentProxy>({
+        const freshDocument = cast<IPdfDocument>({
             numPages: 2,
             getPageLabels: vi.fn(async () => [
                 'Cover',
                 'Body',
             ]),
         });
-        const pdfDocument = cast<Ref<PDFDocumentProxy | null>>(ref(staleDocument));
+        const pdfDocument = cast<Ref<IPdfDocument | null>>(ref(staleDocument));
         const state = usePageLabelState({
             pdfDocument,
             totalPages: ref(2),
@@ -178,7 +178,7 @@ describe('usePageLabelState', () => {
         const markDirty = vi.fn();
         const onPageLabelsDirty = vi.fn();
         const state = usePageLabelState({
-            pdfDocument: cast<Ref<PDFDocumentProxy | null>>(ref(null)),
+            pdfDocument: cast<Ref<IPdfDocument | null>>(ref(null)),
             totalPages: ref(5),
             markDirty,
             onPageLabelsDirty,
@@ -206,7 +206,7 @@ describe('usePageLabelState', () => {
     it('repairs missing visible labels when the canonical ranges are unchanged', () => {
         const onPageLabelsDirty = vi.fn();
         const state = usePageLabelState({
-            pdfDocument: cast<Ref<PDFDocumentProxy | null>>(ref(null)),
+            pdfDocument: cast<Ref<IPdfDocument | null>>(ref(null)),
             totalPages: ref(4),
             markDirty: vi.fn(),
             onPageLabelsDirty,
@@ -245,7 +245,7 @@ describe('usePageLabelState', () => {
 
     it('collapses default numbering edits back to null labels', () => {
         const state = usePageLabelState({
-            pdfDocument: cast<Ref<PDFDocumentProxy | null>>(ref(null)),
+            pdfDocument: cast<Ref<IPdfDocument | null>>(ref(null)),
             totalPages: ref(4),
             markDirty: vi.fn(),
         });
@@ -263,7 +263,7 @@ describe('usePageLabelState', () => {
 
     it('preserves labels while a loaded document is transiently unavailable', async () => {
         const state = usePageLabelState({
-            pdfDocument: cast<Ref<PDFDocumentProxy | null>>(ref(null)),
+            pdfDocument: cast<Ref<IPdfDocument | null>>(ref(null)),
             totalPages: ref(3),
             markDirty: vi.fn(),
         });
@@ -292,7 +292,7 @@ describe('usePageLabelState', () => {
 
     it('clears labels when no document pages remain', async () => {
         const state = usePageLabelState({
-            pdfDocument: cast<Ref<PDFDocumentProxy | null>>(ref(null)),
+            pdfDocument: cast<Ref<IPdfDocument | null>>(ref(null)),
             totalPages: ref(0),
             markDirty: vi.fn(),
         });
@@ -316,7 +316,7 @@ describe('usePageLabelState', () => {
         const onPageLabelsSynchronized = vi.fn();
         const onPageLabelsSaved = vi.fn();
         const state = usePageLabelState({
-            pdfDocument: cast<Ref<PDFDocumentProxy | null>>(ref(null)),
+            pdfDocument: cast<Ref<IPdfDocument | null>>(ref(null)),
             totalPages: ref(0),
             markDirty: vi.fn(),
             onPageLabelsSynchronized,
@@ -363,7 +363,7 @@ describe('usePageLabelState', () => {
     it('updates an xlarge model by ranges without creating a labels array', () => {
         const totalPages = 1_000_000;
         const state = usePageLabelState({
-            pdfDocument: cast<Ref<PDFDocumentProxy | null>>(ref(null)),
+            pdfDocument: cast<Ref<IPdfDocument | null>>(ref(null)),
             totalPages: ref(totalPages),
             markDirty: vi.fn(),
         });

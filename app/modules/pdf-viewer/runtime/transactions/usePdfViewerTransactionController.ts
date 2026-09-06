@@ -1,9 +1,9 @@
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type {
     Ref,
     ShallowRef,
 } from 'vue';
-import type { PDFDocumentProxy } from 'pdfjs-dist';
-import type { TFitMode } from '@app/types/pdfContracts';
+import type {TFitMode} from '@app/types/pdfContracts';
 import type { TPdfViewMode } from '@contracts/shared';
 import type { IPageRange } from '@app/types/pdfUi';
 import type { IPdfNavigationState } from '@app/modules/pdf-viewer/runtime/navigation/createPdfNavigationMachineState';
@@ -38,7 +38,7 @@ interface IUsePdfViewerTransactionControllerOptions {
     visibleRange: Ref<IPageRange>;
     numPages: Ref<number>;
     viewMode: Ref<TPdfViewMode>;
-    pdfDocument: ShallowRef<PDFDocumentProxy | null>;
+    pdfDocument: ShallowRef<IPdfDocument | null>;
     userViewportInteractionEpoch: Ref<number>;
     getDocumentLoadToken?: (() => number) | undefined;
     getDocumentVersion?: (() => number) | undefined;
@@ -60,7 +60,7 @@ interface IPdfViewerBeginTransactionOptions {
 }
 
 interface IPdfViewerConsumePagedTargetFitRenderHandoffOptions {
-    document: PDFDocumentProxy;
+    document: IPdfDocument;
     fitMode: TFitMode;
     page: number;
     viewMode: TPdfViewMode;

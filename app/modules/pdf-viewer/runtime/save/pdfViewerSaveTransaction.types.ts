@@ -75,7 +75,6 @@ export type TNativeSaveRouteRejection =
     | 'save-descriptors-unavailable'
     | 'not-save-mode'
     | 'native-save-capability-unavailable'
-    | 'managed-shapes-require-materialization'
     | 'saved-pdfjs-baseline-dirty-requires-materialization'
     | 'writer-save-required'
     | 'pending-texts-not-covered-by-native-mutations'

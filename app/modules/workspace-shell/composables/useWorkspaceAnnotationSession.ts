@@ -1,3 +1,4 @@
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type { Ref } from 'vue';
 import {
     syncRef,
@@ -10,12 +11,11 @@ import { useAnnotationNoteWindows } from '@app/modules/workspace-shell/composabl
 import { usePageAnnotationTools } from '@app/modules/workspace-shell/composables/usePageAnnotationTools';
 import type { IWorkspacePdfViewerAnnotationSessionPort } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import { hasAnnotationChanges as detectAnnotationChanges } from '@app/modules/workspace-shell/annotations/hasAnnotationChanges';
-import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import type { AnnotationId } from '@app/modules/pdf-viewer/public';
 
 interface IWorkspaceAnnotationSessionOptions {
     pdfViewerRef: Ref<IWorkspacePdfViewerAnnotationSessionPort | null>;
-    pdfDocument: Ref<PDFDocumentProxy | null>;
+    pdfDocument: Ref<IPdfDocument | null>;
     dragMode: Ref<boolean>;
 }
 

@@ -1,12 +1,10 @@
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type {
     ComputedRef,
     Ref,
     ShallowRef,
 } from 'vue';
-import type {
-    PDFDocumentProxy,
-    TPdfViewMode,
-} from '@app/types/pdfContracts';
+import type {TPdfViewMode} from '@app/types/pdfContracts';
 import type { IPageRange } from '@app/types/pdfUi';
 import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
 import { createDocumentViewerActivationRunGuard } from '@app/utils/document-viewer/lifecycle/createDocumentViewerActivationRunGuard';
@@ -19,7 +17,7 @@ import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 
 interface IUsePdfViewerActivationRestoreOptions {
     viewerContainer: Ref<HTMLElement | null>;
-    pdfDocument: ShallowRef<PDFDocumentProxy | null>;
+    pdfDocument: ShallowRef<IPdfDocument | null>;
     isActive: ComputedRef<boolean>;
     isLoading: Ref<boolean>;
     numPages: Ref<number>;

@@ -5,11 +5,7 @@ import pdfjsRuntime, {
     DrawLayer,
     TextLayer,
 } from '@app/services/pdfjs/runtimeLib';
-import type {
-    AnnotationEditorUIManager as TAnnotationEditorUIManager,
-    PDFDocumentProxy,
-    PDFPageProxy,
-} from 'pdfjs-dist';
+import type { AnnotationEditorUIManager as TAnnotationEditorUIManager } from 'pdfjs-dist';
 import type { AnnotationLayer as TAnnotationLayer } from 'pdfjs-dist/types/src/display/annotation_layer';
 import type { DrawLayer as TDrawLayer } from 'pdfjs-dist/types/src/display/draw_layer';
 import type { EventBus as TEventBus } from 'pdfjs-dist/types/web/event_utils';
@@ -18,6 +14,13 @@ import type {
     IPdfjsL10n,
     IPdfjsLinkService,
 } from '@app/types/pdfjs';
+import type {
+    IPdfAnnotation,
+    IPdfDocument,
+    IPdfPage,
+    IPdfTextContent,
+    IPdfViewport,
+} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 
 interface IPdfjsAnnotationEditorUiManagerCapabilities {
     cleanUndoStack?: ((type: unknown) => unknown) | undefined;
@@ -34,7 +37,7 @@ export interface ICreatePdfjsUiManagerOptions {
     commentManager?: unknown;
     signatureManager?: unknown;
     eventBus: TEventBus;
-    document: PDFDocumentProxy;
+    document: IPdfDocument;
     pageColors?: unknown;
     highlightColors: string;
     enableHighlightFloatingButton?: boolean;
@@ -47,21 +50,21 @@ export interface ICreatePdfjsUiManagerOptions {
 
 export interface ICreatePdfjsAnnotationLayerOptions {
     div: HTMLDivElement;
-    page: PDFPageProxy;
-    viewport: ReturnType<PDFPageProxy['getViewport']>;
+    page: IPdfPage;
+    viewport: IPdfViewport;
     annotationCanvasMap?: Map<string, HTMLCanvasElement> | null | undefined;
     annotationEditorUiManager: TAnnotationEditorUIManager | null;
     linkService: IPdfjsLinkService;
-    annotationStorage?: PDFDocumentProxy['annotationStorage'] | undefined;
+    annotationStorage?: unknown;
 }
 
 export interface IRenderPdfjsAnnotationLayerOptions {
-    annotations: Awaited<ReturnType<PDFPageProxy['getAnnotations']>>;
+    annotations: readonly IPdfAnnotation[];
     div: HTMLDivElement;
-    page: PDFPageProxy;
-    viewport: ReturnType<PDFPageProxy['getViewport']>;
+    page: IPdfPage;
+    viewport: IPdfViewport;
     linkService: IPdfjsLinkService;
-    annotationStorage?: PDFDocumentProxy['annotationStorage'] | undefined;
+    annotationStorage?: unknown;
     renderForms: boolean;
 }
 
@@ -70,10 +73,24 @@ export interface ICreatePdfjsEditorLayerOptions {
     uiManager: TAnnotationEditorUIManager;
     pageIndex: number;
     l10n: IPdfjsL10n;
-    viewport: ReturnType<PDFPageProxy['getViewport']>;
+    viewport: IPdfViewport;
     annotationLayer?: TAnnotationLayer | undefined;
     textLayer?: { div: HTMLDivElement } | undefined;
     drawLayer: TDrawLayer;
+}
+
+export interface ICreatePdfjsTextLayerOptions {
+    textContentSource: IPdfTextContent | ReadableStream;
+    container: HTMLElement;
+    viewport: IPdfViewport;
+}
+
+export interface IPdfTextLayer {
+    render(): Promise<unknown>;
+    update(options: {viewport: IPdfViewport}): void;
+    cancel(): void;
+    readonly textDivs: HTMLElement[];
+    readonly textContentItemsStr: string[];
 }
 
 function getUiManagerCapabilities(uiManager: TAnnotationEditorUIManager) {
@@ -137,13 +154,13 @@ export function renderPdfjsAnnotationLayer(
     options: IRenderPdfjsAnnotationLayerOptions,
 ) {
     return layer.render({
-        annotations: options.annotations,
+        annotations: options.annotations as never,
         viewport: options.viewport,
         div: options.div,
-        page: options.page,
+        page: options.page as never,
         linkService: options.linkService as never,
         renderForms: options.renderForms,
-        annotationStorage: options.annotationStorage,
+        annotationStorage: options.annotationStorage as never,
     });
 }
 
@@ -168,10 +185,10 @@ export function createPdfjsEditorLayer(options: ICreatePdfjsEditorLayerOptions) 
     });
 }
 
-export function createPdfjsTextLayer(
-    options: ConstructorParameters<typeof TextLayer>[0],
-) {
-    return new TextLayer(options);
+export function createPdfjsTextLayer(options: ICreatePdfjsTextLayerOptions): IPdfTextLayer {
+    return new TextLayer(
+        options as ConstructorParameters<typeof TextLayer>[0],
+    );
 }
 
 export function interceptPdfjsRegisterEditorTypes(

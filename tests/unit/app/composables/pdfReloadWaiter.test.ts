@@ -1,3 +1,4 @@
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {
     afterEach,
     describe,
@@ -9,7 +10,6 @@ import {
     ref,
     shallowRef,
 } from 'vue';
-import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { createPdfReloadWaiter } from '@app/modules/pdf-viewer/engine/pdf-reload-waiter/createPdfReloadWaiter';
 import { resolvePdfReloadPage } from '@app/modules/pdf-viewer/engine/pdf-reload-waiter/resolvePdfReloadPage';
 import { cast } from '@tests/helpers/cast';
@@ -25,7 +25,7 @@ describe('resolvePdfReloadPage', () => {
 
 describe('createPdfReloadWaiter', () => {
     it('restores the semantic page after the document reloads', async () => {
-        const pdfDocument = shallowRef<PDFDocumentProxy | null>(cast({ id: 'before' }));
+        const pdfDocument = shallowRef<IPdfDocument | null>(cast({ id: 'before' }));
         const scrollToPage = vi.fn();
         const waiter = createPdfReloadWaiter({
             pdfDocument,
@@ -40,7 +40,7 @@ describe('createPdfReloadWaiter', () => {
     });
 
     it('can wait for reload completion without restoring the viewport', async () => {
-        const pdfDocument = shallowRef<PDFDocumentProxy | null>(cast({ id: 'before' }));
+        const pdfDocument = shallowRef<IPdfDocument | null>(cast({ id: 'before' }));
         const scrollToPage = vi.fn();
         const resetSearchCache = vi.fn();
         const waiter = createPdfReloadWaiter({
@@ -58,7 +58,7 @@ describe('createPdfReloadWaiter', () => {
     });
 
     it('waits for viewer settle before restoring the page', async () => {
-        const pdfDocument = shallowRef<PDFDocumentProxy | null>(cast({ id: 'before' }));
+        const pdfDocument = shallowRef<IPdfDocument | null>(cast({ id: 'before' }));
         const scrollToPage = vi.fn();
         let settle = () => {};
         const settled = new Promise<void>((resolve) => {
@@ -83,7 +83,7 @@ describe('createPdfReloadWaiter', () => {
     });
 
     it('skips stale restoration after user viewport interaction', async () => {
-        const pdfDocument = shallowRef<PDFDocumentProxy | null>(cast({ id: 'before' }));
+        const pdfDocument = shallowRef<IPdfDocument | null>(cast({ id: 'before' }));
         const scrollToPage = vi.fn();
         let epoch = 1;
         let settle = () => {};
@@ -110,7 +110,7 @@ describe('createPdfReloadWaiter', () => {
     });
 
     it('contains page restoration failures', async () => {
-        const pdfDocument = shallowRef<PDFDocumentProxy | null>(cast({ id: 'before' }));
+        const pdfDocument = shallowRef<IPdfDocument | null>(cast({ id: 'before' }));
         const waiter = createPdfReloadWaiter({
             pdfDocument,
             pdfViewerRef: ref({scrollToPage: vi.fn(() => { throw new Error('restore failed'); })}),

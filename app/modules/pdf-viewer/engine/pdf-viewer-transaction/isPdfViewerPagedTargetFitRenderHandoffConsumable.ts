@@ -1,9 +1,9 @@
-import type { PDFDocumentProxy } from 'pdfjs-dist';
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type { TPdfViewMode } from '@contracts/shared';
 import type { IPdfViewerTransaction } from '@app/modules/pdf-viewer/engine/pdf-viewer-transaction/pdfViewerTransactionTypes';
 
 interface IPdfViewerPagedTargetFitRenderHandoffConsumableOptions {
-    document: PDFDocumentProxy;
+    document: IPdfDocument;
     documentLoadToken: number;
     documentVersion: number;
     fitMode: 'fit-width' | 'fit-height';

@@ -1,10 +1,10 @@
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type {
     Ref,
     ShallowRef,
 } from 'vue';
 import { delay } from 'es-toolkit/promise';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import type { IPageRange } from '@app/types/pdfUi';
 import type { ICurrentPageSyncOptions } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerCurrentPageSync';
 
@@ -41,7 +41,7 @@ interface IInitialRenderRecoveryContext {
 
 interface IUsePdfViewerInitialRenderRecoveryOptions {
     viewerContainer: Ref<HTMLElement | null>;
-    pdfDocument: ShallowRef<PDFDocumentProxy | null> | Ref<PDFDocumentProxy | null>;
+    pdfDocument: ShallowRef<IPdfDocument | null> | Ref<IPdfDocument | null>;
     numPages: Ref<number>;
     isLoading: Ref<boolean>;
     currentPage: Ref<number>;

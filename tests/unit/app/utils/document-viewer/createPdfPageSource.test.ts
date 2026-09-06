@@ -1,10 +1,10 @@
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {
     describe,
     expect,
     it,
     vi,
 } from 'vitest';
-import type {PDFDocumentProxy} from 'pdfjs-dist';
 import {createPdfPageSource} from '@app/utils/document-viewer/source/createPdfPageSource';
 
 describe('createPdfPageSource', () => {
@@ -17,7 +17,7 @@ describe('createPdfPageSource', () => {
             release: vi.fn(),
         };
         const renderPage = vi.fn(async () => lease);
-        const pdfDocument: PDFDocumentProxy = Object.assign(Object.create(null), {
+        const pdfDocument: IPdfDocument = Object.assign(Object.create(null), {
             numPages: 3,
             getPage: vi.fn(),
         });

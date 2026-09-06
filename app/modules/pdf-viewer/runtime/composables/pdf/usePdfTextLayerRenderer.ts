@@ -1,4 +1,8 @@
-import type { PDFPageProxy } from 'pdfjs-dist';
+/* eslint-disable max-lines */
+import type {
+    IPdfPage,
+    IPdfTextContent,
+} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type { MaybeRefOrGetter } from 'vue';
 import { tryOnScopeDispose } from '@vueuse/core';
 import { clamp } from 'es-toolkit/math';
@@ -9,7 +13,6 @@ import type {
 import type { IOcrWord } from '@contracts/shared';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import { buildOcrWordKey } from '@contracts/ocrText';
-import type { TextContent } from 'pdfjs-dist/types/src/display/api';
 import { usePdfSearchHighlight } from '@app/modules/pdf-viewer/runtime/composables/usePdfSearchHighlight';
 import { useTextLayerSelection } from '@app/modules/pdf-viewer/runtime/composables/useTextLayerSelection';
 import { usePdfWordBoxes } from '@app/modules/pdf-viewer/runtime/composables/usePdfWordBoxes';
@@ -38,7 +41,10 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import { measureDevPerf } from '@app/utils/devPerf';
 import { logPdfNav } from '@app/utils/logPdfNav';
 import { guardAsync } from '@app/utils/asyncGuard';
-import { createPdfjsTextLayer } from '@app/services/pdfjs/pdfViewerFacade';
+import {
+    createPdfjsTextLayer,
+    type IPdfTextLayer,
+} from '@app/services/pdfjs/pdfViewerFacade';
 import {
     applyPdfViewportWrite,
     type IPdfViewportWritePort,
@@ -47,8 +53,8 @@ import { PDF_PAGE_SCALE_CSS_VARS } from '@app/modules/pdf-viewer/engine/pdf-page
 const HIGHLIGHT_REFRESH_BUDGET_MS = 8;
 const HIGHLIGHT_REFRESH_MAX_PAGES_PER_SLICE = 4;
 interface IRenderedTextLayer {
-    textLayer: ReturnType<typeof createPdfjsTextLayer>;
-    pdfPage: PDFPageProxy;
+    textLayer: IPdfTextLayer;
+    pdfPage: IPdfPage;
     workingCopyPath: string | null;
     documentRevisionToken: TDocumentRevisionToken | null;
 }
@@ -330,21 +336,21 @@ export const usePdfTextLayerRenderer = (deps: {
         return true;
     }
 
-    function hasUsablePdfTextContent(textContent: TextContent | null) {
+    function hasUsablePdfTextContent(textContent: IPdfTextContent | null) {
         return Boolean(textContent?.items.some(item => (
             'str' in item
             && String(item.str ?? '').trim().length > 0
         )));
     }
 
-    async function getPdfjsTextContent(pdfPage: PDFPageProxy) {
+    async function getPdfjsTextContent(pdfPage: IPdfPage) {
         return pdfPage.getTextContent({
             includeMarkedContent: true,
             disableNormalization: true,
         });
     }
 
-    async function getPdfjsTextContentSource(pdfPage: PDFPageProxy): Promise<TTextLayerTextContentSource> {
+    async function getPdfjsTextContentSource(pdfPage: IPdfPage): Promise<TTextLayerTextContentSource> {
         if (typeof pdfPage.streamTextContent === 'function') {
             return pdfPage.streamTextContent({
                 includeMarkedContent: true,
@@ -777,9 +783,9 @@ export const usePdfTextLayerRenderer = (deps: {
     }
 
     async function renderTextLayer(
-        pdfPage: PDFPageProxy,
+        pdfPage: IPdfPage,
         textLayerDiv: HTMLElement,
-        viewport: ReturnType<PDFPageProxy['getViewport']>,
+        viewport: ReturnType<IPdfPage['getViewport']>,
         _scale: number,
         _userUnit: number,
         _totalScaleFactor: number,
@@ -1219,7 +1225,7 @@ export const usePdfTextLayerRenderer = (deps: {
         pageNumber: number,
         wcPath: string,
         documentRevisionToken: TDocumentRevisionToken,
-        viewport: ReturnType<PDFPageProxy['getViewport']>,
+        viewport: ReturnType<IPdfPage['getViewport']>,
         rawPageWidth: number,
         rawPageHeight: number,
     ) {
@@ -1246,7 +1252,7 @@ export const usePdfTextLayerRenderer = (deps: {
         context: {
             container: HTMLElement;
             renderResult: {
-                viewport: ReturnType<PDFPageProxy['getViewport']>;
+                viewport: ReturnType<IPdfPage['getViewport']>;
                 rawDims: {
                     pageWidth: number;
                     pageHeight: number;

@@ -1,13 +1,13 @@
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {
     describe,
     expect,
     it,
 } from 'vitest';
-import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { isPdfDocumentOperational } from '@app/services/pdfjs/isPdfDocumentOperational';
 
-function asPdfDocument(value: Record<string, unknown>): PDFDocumentProxy {
-    return Object.assign({} as PDFDocumentProxy, value);
+function asPdfDocument(value: Record<string, unknown>): IPdfDocument {
+    return Object.assign({} as IPdfDocument, value);
 }
 
 describe('documentAdapter', () => {

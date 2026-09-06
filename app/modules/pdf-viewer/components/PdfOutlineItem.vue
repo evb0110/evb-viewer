@@ -123,8 +123,9 @@
 </template>
 
 <script setup lang="ts">
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 
-import type { PDFDocumentProxy } from 'pdfjs-dist';
+
 import type {
     IBookmarkItem,
     IBookmarkMenuPayload,
@@ -144,7 +145,7 @@ interface IDragHoverPayload {
 
 interface IProps {
     item: IBookmarkItem;
-    pdfDocument: PDFDocumentProxy | null;
+    pdfDocument: IPdfDocument | null;
 }
 
 const {

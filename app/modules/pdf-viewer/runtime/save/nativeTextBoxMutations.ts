@@ -1,4 +1,4 @@
-import type {PDFPageProxy} from 'pdfjs-dist';
+import type {IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type { IPdfNativeTextBoxMutation } from '@contracts/electronApiDocuments';
 import { requirePageIndex } from '@contracts/pageNumbers';
 import type { ITextBoxEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
@@ -14,7 +14,7 @@ import {
     parsePdfAnnotationRef,
 } from '@app/utils/pdfAnnotationRefs';
 
-interface IPdfTextBoxPageReader {getPage(pageNumber: number): Promise<Pick<PDFPageProxy, 'rotate' | 'view'>>;}
+interface IPdfTextBoxPageReader {getPage(pageNumber: number): Promise<Pick<IPdfPage, 'rotate' | 'view'>>;}
 
 export function isReplayableCanonicalTextBox(comment: IAnnotationCommentSummary) {
     const markerRect = normalizeMarkerRect(comment.markerRect);
@@ -93,7 +93,7 @@ export async function collectNativeTextBoxMutationsForSave(
         return null;
     }
 
-    const pages = new Map<number, Promise<Pick<PDFPageProxy, 'rotate' | 'view'> | null>>();
+    const pages = new Map<number, Promise<Pick<IPdfPage, 'rotate' | 'view'> | null>>();
     const getPage = (pageIndex: number) => {
         const cached = pages.get(pageIndex);
         if (cached) {

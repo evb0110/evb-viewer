@@ -1,9 +1,9 @@
+import type {
+    IPdfDocument,
+    IPdfPage,
+} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import { groupBy } from 'es-toolkit/array';
 import { clamp } from 'es-toolkit/math';
-import type {
-    PDFDocumentProxy,
-    PDFPageProxy,
-} from 'pdfjs-dist';
 import { createRenderTaskHiddenAnnotationOperationsFilter } from '@app/modules/pdf-viewer/engine/pdf-hidden-annotation-operations/createRenderTaskHiddenAnnotationOperationsFilter';
 import { AnnotationMode } from '@app/services/pdfjs/runtimeLib';
 import { leasePdfDocumentPage } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
@@ -64,9 +64,9 @@ interface IPreparedThumbnailRaster {
         pixelWidth: number;
         scaleX: number;
         scaleY: number;
-        scaledViewport: ReturnType<PDFPageProxy['getViewport']>;
+        scaledViewport: ReturnType<IPdfPage['getViewport']>;
     };
-    page: PDFPageProxy;
+    page: IPdfPage;
     pageNumber: number;
     renderCanvas: HTMLCanvasElement;
     renderKey: string;
@@ -185,7 +185,7 @@ export const usePdfThumbnailRenderRuntime = (
     const pageRenderEpochs = new Map<number, number>();
     const renderedCanvases = new Map<number, HTMLCanvasElement>();
     let activeScheduler: IPdfPageRasterScheduler | null = null;
-    let activeDocument: PDFDocumentProxy | null = null;
+    let activeDocument: IPdfDocument | null = null;
     let reloadTransition = false;
     let pendingInvalidation: number[] | null = null;
 
@@ -319,7 +319,7 @@ export const usePdfThumbnailRenderRuntime = (
         return true;
     }
 
-    function resolveThumbnailRenderMetrics(page: PDFPageProxy, pageNumber: number) {
+    function resolveThumbnailRenderMetrics(page: IPdfPage, pageNumber: number) {
         const viewport = page.getViewport({scale: 1});
         updateThumbnailAspectRatioForPage(
             pageNumber,
@@ -578,7 +578,7 @@ export const usePdfThumbnailRenderRuntime = (
     const scheduleVisibleThumbnailRender = visibleThumbnailRenderScheduler.schedule;
 
     async function preloadThumbnailAspectRatio(
-        pdfDocument: PDFDocumentProxy,
+        pdfDocument: IPdfDocument,
         generation: number,
     ) {
         const pageNumber = clamp(

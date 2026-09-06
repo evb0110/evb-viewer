@@ -1,9 +1,8 @@
+import type {IPdfTextContent} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type {
     IPdfPageMatches,
     IPdfSearchMatch,
 } from '@app/types/pdfUi';
-import type { TextContent } from 'pdfjs-dist/types/src/display/api';
-
 export interface IHighlightDebugInfo {
     userUnit: number;
     totalScaleFactor: number;
@@ -31,7 +30,7 @@ export interface IHighlightDebugGuard {
     scale: number;
 }
 
-export type TTextLayerTextContentSource = TextContent | ReadableStream;
+export type TTextLayerTextContentSource = IPdfTextContent | ReadableStream;
 export type TPageMatchEntry = IPdfPageMatches['matches'][number];
 
 export interface IHighlightDebugRects {

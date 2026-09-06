@@ -106,6 +106,7 @@ describe('Electron E2E - Performance Profile Visuals', () => {
         expect(await readRootProfileSnapshot(session)).toMatchObject({
             appLowGraphics: true,
             profileAccessWasSynchronous: true,
+            profileTier: 'low',
             tierClasses: ['performance-tier-low'],
         });
         expectGraphicsTokens(await readGraphicsStyleSnapshot(session));
@@ -122,6 +123,7 @@ describe('Electron E2E - Performance Profile Visuals', () => {
         expect(await readRootProfileSnapshot(session)).toMatchObject({
             appLowGraphics: false,
             profileAccessWasSynchronous: true,
+            profileTier: 'medium',
             tierClasses: ['performance-tier-medium'],
         });
         expectGraphicsTokens(await readGraphicsStyleSnapshot(session));
@@ -161,6 +163,7 @@ describe('Electron E2E - Performance Profile Visuals', () => {
         expect(await readRootProfileSnapshot(session)).toMatchObject({
             appLowGraphics: false,
             profileAccessWasSynchronous: true,
+            profileTier: 'high',
             tierClasses: ['performance-tier-high'],
         });
         expectGraphicsTokens(await readGraphicsStyleSnapshot(session));

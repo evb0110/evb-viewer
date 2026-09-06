@@ -42,6 +42,22 @@ interface IStrokePaintMetrics {
     viewportWidth: number;
 }
 
+interface IBlueStrokePixelMetrics {
+    bounds: {
+        bottom: number;
+        left: number;
+        right: number;
+        top: number;
+    } | null;
+    count: number;
+}
+
+interface IPageSurfaceOrigin {
+    devicePixelRatio: number;
+    left: number;
+    top: number;
+}
+
 function readStrokePaintMetrics(): IStrokePaintMetrics {
     const pageContainer = document.querySelector<HTMLElement>(
         '.editor-pane.is-active .page_container[data-page="1"]',
@@ -104,6 +120,21 @@ function readStrokePaintMetrics(): IStrokePaintMetrics {
     };
 }
 
+function readPageSurfaceOrigin(): IPageSurfaceOrigin {
+    const pageContainer = document.querySelector<HTMLElement>(
+        '.editor-pane.is-active .page_container[data-page="1"]',
+    );
+    if (!pageContainer) {
+        throw new Error('Stroke parity page container is not mounted');
+    }
+    const rect = pageContainer.getBoundingClientRect();
+    return {
+        devicePixelRatio: window.devicePixelRatio,
+        left: rect.left,
+        top: rect.top,
+    };
+}
+
 async function waitForStrokeMetrics(
     readMetrics: () => Promise<IStrokePaintMetrics>,
     timeoutMs = 30_000,
@@ -125,7 +156,10 @@ async function setElectronZoom(page: ElectronPage) {
     expect(result.called).toBe(true);
 }
 
-async function countBlueStrokePixels(path: string) {
+async function readBlueStrokePixelMetrics(
+    path: string,
+    pageOrigin: IPageSurfaceOrigin,
+): Promise<IBlueStrokePixelMetrics> {
     const image = await loadImage(path);
     const canvas = createCanvas(image.width, image.height);
     const context = canvas.getContext('2d');
@@ -136,6 +170,10 @@ async function countBlueStrokePixels(path: string) {
     const startY = Math.floor(image.height * 0.4);
     const endY = Math.ceil(image.height * 0.9);
     let count = 0;
+    let left = image.width;
+    let top = image.height;
+    let right = -1;
+    let bottom = -1;
     for (let y = startY; y < endY; y += 1) {
         for (let x = startX; x < endX; x += 1) {
             const index = (y * image.width + x) * 4;
@@ -144,10 +182,23 @@ async function countBlueStrokePixels(path: string) {
             const blue = pixels[index + 2] ?? 0;
             if (blue > 165 && blue - red > 38 && blue - green > 8) {
                 count += 1;
+                left = Math.min(left, x);
+                top = Math.min(top, y);
+                right = Math.max(right, x);
+                bottom = Math.max(bottom, y);
             }
         }
     }
-    return count;
+    const ratio = pageOrigin.devicePixelRatio > 0 ? pageOrigin.devicePixelRatio : 1;
+    return {
+        bounds: count > 0 ? {
+            bottom: bottom / ratio - pageOrigin.top,
+            left: left / ratio - pageOrigin.left,
+            right: right / ratio - pageOrigin.left,
+            top: top / ratio - pageOrigin.top,
+        } : null,
+        count,
+    };
 }
 
 describe('Electron and Playwright annotation stroke parity', () => {
@@ -194,6 +245,7 @@ describe('Electron and Playwright annotation stroke parity', () => {
             height: 900,
             width: 1_440,
         });
+        const electronPageOrigin = await session.page.evaluate(readPageSurfaceOrigin);
         console.info(`STROKE_PARITY_STEP electron-metrics:complete ${JSON.stringify(electronMetrics)}`);
         await session.page.screenshot({
             path: ELECTRON_SCREENSHOT_PATH,
@@ -259,10 +311,8 @@ describe('Electron and Playwright annotation stroke parity', () => {
                 height: 900,
                 width: 1_440,
             });
-            await webPage.screenshot({
-                fullPage: true,
-                path: PLAYWRIGHT_SCREENSHOT_PATH,
-            });
+            const playwrightPageOrigin = await webPage.evaluate(readPageSurfaceOrigin);
+            await webPage.screenshot({path: PLAYWRIGHT_SCREENSHOT_PATH});
             console.info(`STROKE_PARITY_STEP playwright-measure:complete ${JSON.stringify(webMetrics)}`);
 
             console.info(`ANNOTATION_STROKE_PARITY ${JSON.stringify({
@@ -279,11 +329,43 @@ describe('Electron and Playwright annotation stroke parity', () => {
                 webMetrics.renderedStrokeWidth ?? 0,
                 5,
             );
-            const electronBluePixels = await countBlueStrokePixels(ELECTRON_SCREENSHOT_PATH);
-            const playwrightBluePixels = await countBlueStrokePixels(PLAYWRIGHT_SCREENSHOT_PATH);
-            expect(electronBluePixels).toBeGreaterThan(0);
-            expect(playwrightBluePixels).toBeGreaterThan(0);
-            expect(electronBluePixels).toBeCloseTo(playwrightBluePixels, -1);
+            const electronBluePixels = await readBlueStrokePixelMetrics(
+                ELECTRON_SCREENSHOT_PATH,
+                electronPageOrigin,
+            );
+            const playwrightBluePixels = await readBlueStrokePixelMetrics(
+                PLAYWRIGHT_SCREENSHOT_PATH,
+                playwrightPageOrigin,
+            );
+            expect(electronBluePixels.count).toBeGreaterThan(0);
+            expect(playwrightBluePixels.count).toBeGreaterThan(0);
+            // Electron and headless Chromium use different screenshot surfaces,
+            // so thresholded antialiasing can change coverage by a few pixels.
+            // Keep the content's location and extent strict while allowing the
+            // two screenshot surfaces to round an edge to adjacent pixels.
+            const electronBounds = electronBluePixels.bounds;
+            const playwrightBounds = playwrightBluePixels.bounds;
+            expect(electronBounds).not.toBeNull();
+            expect(playwrightBounds).not.toBeNull();
+            for (const edge of [
+                'bottom',
+                'left',
+                'right',
+                'top',
+            ] as const) {
+                expect(
+                    Math.abs(electronBounds![edge] - playwrightBounds![edge]),
+                    `${edge}: ${JSON.stringify({
+                        electronBounds,
+                        playwrightBounds,
+                    })}`,
+                ).toBeLessThanOrEqual(1);
+            }
+            const maxCoverageDrift = Math.ceil(Math.max(
+                electronBluePixels.count,
+                playwrightBluePixels.count,
+            ) * 0.005);
+            expect(Math.abs(electronBluePixels.count - playwrightBluePixels.count)).toBeLessThanOrEqual(maxCoverageDrift);
         } finally {
             await browser.close();
         }

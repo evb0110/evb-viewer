@@ -1,3 +1,4 @@
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type { IAnnotationContextMenuPayload } from '@app/modules/pdf-viewer/engine/annotationContextMenuPayload';
 import type { IAnnotationCreationFailureReport } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationCreationOutcome.types';
 import type {
@@ -11,7 +12,6 @@ import type {
 } from '@app/types/annotations';
 import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdfImagePlacement';
 import type {
-    PDFDocumentProxy,
     TFitMode,
     TPdfViewRotation,
     TPdfViewMode,
@@ -80,7 +80,7 @@ export interface IPdfViewerEmit {
     (e: 'update:navigationFeedbackPage', page: number | null): void;
     (e: 'update:totalPages', total: number): void;
     (e: 'update:loading', loading: boolean): void;
-    (e: 'update:document', document: PDFDocumentProxy | null): void;
+    (e: 'update:document', document: IPdfDocument | null): void;
     (e: 'update:rasterScheduler', scheduler: IPdfPageRasterScheduler | null): void;
     (e: 'loading', loading: boolean): void;
     (e: 'load-error', error: unknown): void;

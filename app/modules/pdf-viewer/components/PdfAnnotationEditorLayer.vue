@@ -12,7 +12,7 @@
         @pointerup="handlePointerUp"
         @pointercancel="handlePointerCancel"
         @click.stop="handleSurfaceClick"
-        @contextmenu.prevent.stop="handleSurfaceContextMenu"
+        @contextmenu.prevent="handleSurfaceContextMenu"
         @dblclick.stop="handleSurfaceDblClick"
         @keydown="handleKeydown"
     >
@@ -441,6 +441,10 @@ function handleTextBoxPointerDown(entity: ITextBoxEntity, event: PointerEvent) {
     if (event.button !== 0 || editingId.value === entity.identity.id) {
         return;
     }
+    // The child stops pointerdown so text editing controls do not trigger the
+    // surface handler. A click delivered after layer pointer capture still
+    // needs the child identity for the surface's selection fallback.
+    capturedClickAnnotationId = entity.identity.id;
     focusLayer();
     const point = pointFromEvent(event);
     if (!point) {
@@ -464,6 +468,9 @@ function handleNotePointerDown(entity: INoteEntity, event: PointerEvent) {
     if (event.button !== 0) {
         return;
     }
+    // The child stops pointerdown and the move gesture captures the pointer on
+    // the layer. Preserve the identity for the captured follow-up click.
+    capturedClickAnnotationId = entity.identity.id;
     focusLayer();
     const point = pointFromEvent(event);
     if (!point) {
@@ -706,11 +713,15 @@ function handleSurfaceClick(event: MouseEvent) {
         return;
     }
     const id = entityIdFromEvent(event) ?? capturedClickAnnotationId ?? textBoxIdAtPoint(event);
-    capturedClickAnnotationId = null;
     if (!id) {
+        capturedClickAnnotationId = null;
         surface.clearSelection();
         return;
     }
+    // A double-click may follow a pointer-captured click whose event target is
+    // this layer rather than the child entity. Keep the identity until the
+    // double-click handler consumes it or the next pointerdown replaces it.
+    capturedClickAnnotationId = id;
     surface.select([id], {additive: event.shiftKey});
 }
 
@@ -719,6 +730,14 @@ function handleSurfaceContextMenu(event: MouseEvent) {
     if (!id) {
         return;
     }
+    const entity = entities.value.find(candidate => candidate.identity.id === id);
+    if (entity?.kind !== 'shape') {
+        // Let the viewer's canonical comment handler build the context menu
+        // for notes, text boxes, and markups. Shapes keep their dedicated
+        // properties menu at this layer.
+        return;
+    }
+    event.stopPropagation();
     surface.select([id], {additive: event.shiftKey});
     surface.openShapeContextMenu({
         shapeId: id,
@@ -729,12 +748,14 @@ function handleSurfaceContextMenu(event: MouseEvent) {
 
 function handleSurfaceDblClick(event: MouseEvent) {
     const id = entityIdFromEvent(event) ?? textBoxIdAtPoint(event);
-    if (id) {
-        const entity = entities.value.find(candidate => candidate.identity.id === id);
+    const resolvedId = id ?? capturedClickAnnotationId;
+    capturedClickAnnotationId = null;
+    if (resolvedId) {
+        const entity = entities.value.find(candidate => candidate.identity.id === resolvedId);
         if (entity?.kind === 'text-box') {
-            beginTextBoxEdit(id);
+            beginTextBoxEdit(resolvedId);
         } else {
-            surface.openNote(id);
+            surface.openNote(resolvedId);
         }
     }
 }

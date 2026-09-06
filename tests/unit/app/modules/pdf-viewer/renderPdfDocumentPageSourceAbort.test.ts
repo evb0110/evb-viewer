@@ -1,3 +1,7 @@
+import type {
+    IPdfDocument,
+    IPdfPage,
+} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 // @vitest-environment happy-dom
 
 import {
@@ -7,10 +11,6 @@ import {
     it,
     vi,
 } from 'vitest';
-import type {
-    PDFDocumentProxy,
-    PDFPageProxy,
-} from 'pdfjs-dist';
 import { cast } from '@tests/helpers/cast';
 import { createWorkspaceSurfaceBudgetController } from '@app/modules/workspace-shell/memory/workspaceSurfaceBudgetController';
 import { renderPdfDocumentPageSource } from '@app/modules/pdf-viewer/runtime/renderPdfDocumentPageSource';
@@ -28,7 +28,7 @@ describe('renderPdfDocumentPageSource abort window', () => {
             .mockReturnValue(cast<CanvasRenderingContext2D>({}));
         const controller = new AbortController();
         const cancel = vi.fn();
-        const page = cast<PDFPageProxy>({
+        const page = cast<IPdfPage>({
             getViewport: ({scale}: {scale: number}) => ({
                 width: 100 * scale,
                 height: 200 * scale,
@@ -38,7 +38,7 @@ describe('renderPdfDocumentPageSource abort window', () => {
                 cancel,
             }),
         });
-        const document = cast<PDFDocumentProxy>({getPage: async () => {
+        const document = cast<IPdfDocument>({getPage: async () => {
             controller.abort(new DOMException('Navigated away', 'AbortError'));
             return page;
         }});

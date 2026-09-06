@@ -1,3 +1,4 @@
+import type {IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {
     createSSRApp,
     defineComponent,
@@ -11,7 +12,6 @@ import {
     vi,
 } from 'vitest';
 import { usePdfSkeletonInsets } from '@app/modules/pdf-viewer/runtime/skeleton/usePdfSkeletonInsets';
-import type { PDFPageProxy } from '@app/types/pdfContracts';
 import type { IContentInsets } from '@app/types/pdfUi';
 
 interface ISkeletonInsetsHarness {
@@ -47,7 +47,7 @@ describe('usePdfSkeletonInsets', () => {
     it('uses stable page-relative insets without probing page text', async () => {
         const { skeleton } = await mountSkeletonInsetsHarness();
         const getTextContent = vi.fn();
-        const pdfPage = Object.assign(Object.create(null) as PDFPageProxy, { getTextContent });
+        const pdfPage = Object.assign(Object.create(null) as IPdfPage, { getTextContent });
 
         await skeleton.computeSkeletonInsets(pdfPage, 1, () => 1);
 
@@ -70,7 +70,7 @@ describe('usePdfSkeletonInsets', () => {
 
     it('ignores stale skeleton inset computations', async () => {
         const { skeleton } = await mountSkeletonInsetsHarness();
-        const pdfPage = {} as PDFPageProxy;
+        const pdfPage = {} as IPdfPage;
 
         await skeleton.computeSkeletonInsets(pdfPage, 1, () => 2);
 
@@ -83,7 +83,7 @@ describe('usePdfSkeletonInsets', () => {
             basePageWidth,
             skeleton,
         } = await mountSkeletonInsetsHarness();
-        const pdfPage = {} as PDFPageProxy;
+        const pdfPage = {} as IPdfPage;
 
         await skeleton.computeSkeletonInsets(pdfPage, 1, () => 1);
         expect(skeleton.scaledSkeletonPadding.value).toEqual({

@@ -1,8 +1,8 @@
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type {
     ComputedRef,
     Ref,
 } from 'vue';
-import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { IPdfPageRasterScheduler } from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';
 import type {
     IAnnotationCommentSummary,
@@ -16,7 +16,7 @@ interface IPdfThumbnailRenderRuntimeSource {
         pages: number[];
     } | null | undefined>;
     isActive: ComputedRef<boolean>;
-    pdfDocument: ComputedRef<PDFDocumentProxy | null>;
+    pdfDocument: ComputedRef<IPdfDocument | null>;
     rasterScheduler: ComputedRef<IPdfPageRasterScheduler | null>;
     totalPages: ComputedRef<number>;
 }

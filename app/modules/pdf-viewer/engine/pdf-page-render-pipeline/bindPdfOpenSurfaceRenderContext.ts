@@ -1,10 +1,9 @@
+import type {
+    IPdfPage,
+    IPdfRenderTask,
+} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type { IPdfViewerTransactionRenderRequest } from '@app/modules/pdf-viewer/engine/pdf-viewer-transaction/pdfViewerTransactionTypes';
 import type { TPdfRenderContinuationPriority } from '@app/modules/pdf-viewer/engine/pdf-render-continuation-scheduler/pdfRenderContinuationScheduler';
-import type {
-    RenderTask,
-    PDFPageProxy,
-} from 'pdfjs-dist';
-
 export type TPdfPageRenderContentIntent =
     | 'full-visible'
     | 'canvas-only-buffer'
@@ -35,8 +34,8 @@ export interface IRenderVisiblePagesOptions {
         kind: 'required' | 'buffer' | 'prewarm';
         renderGeneration: number;
     };
-    rasterSchedulerTaskBridge?: {bind(task: RenderTask): void;};
-    rasterSchedulerPage?: PDFPageProxy;
+    rasterSchedulerTaskBridge?: {bind(task: IPdfRenderTask): void;};
+    rasterSchedulerPage?: IPdfPage;
     rasterDemandPages?: readonly number[];
     bufferMaxCanvasPixels?: number;
 }

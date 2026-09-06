@@ -1,8 +1,8 @@
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type { Ref } from 'vue';
 import { tryOnScopeDispose } from '@vueuse/core';
 import { isEqual } from 'es-toolkit/predicate';
-import type { PDFDocumentProxy } from 'pdfjs-dist';
-import type { IPdfPageLabelRange } from '@app/types/pdfContracts';
+import type {IPdfPageLabelRange} from '@app/types/pdfContracts';
 import {
     createPageLabelModel,
     derivePageLabelRangesFromLabels,
@@ -17,7 +17,7 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import { runGuardedTask } from '@app/utils/asyncGuard';
 
 export const usePageLabelState = (deps: {
-    pdfDocument: Ref<PDFDocumentProxy | null>;
+    pdfDocument: Ref<IPdfDocument | null>;
     totalPages: Ref<number>;
     markDirty: () => void;
     onPageLabelsSynchronized?: () => void;
@@ -64,7 +64,7 @@ export const usePageLabelState = (deps: {
             : null;
     }
 
-    async function syncPageLabelsFromDocument(doc: PDFDocumentProxy | null) {
+    async function syncPageLabelsFromDocument(doc: IPdfDocument | null) {
         const syncGeneration = ++pageLabelSyncGeneration;
         const isCurrentSync = () => (
             !disposed
@@ -183,7 +183,7 @@ export const usePageLabelState = (deps: {
         );
     }
 
-    function scheduleSyncPageLabelsFromDocument(doc: PDFDocumentProxy | null) {
+    function scheduleSyncPageLabelsFromDocument(doc: IPdfDocument | null) {
         runGuardedTask(() => syncPageLabelsFromDocument(doc), {
             category: 'background-diagnostic',
             scope: 'page-labels',

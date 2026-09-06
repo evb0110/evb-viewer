@@ -1,9 +1,9 @@
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type {
     IAnnotationCommentSummary,
     IAnnotationSettings,
 } from '@app/types/annotations';
-import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/scrollToPageOptions';
 import type { IPdfPageRasterScheduler } from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';
 import type { TDocumentPageLabelLookup } from '@app/utils/document-viewer/pageLabels';
@@ -13,7 +13,7 @@ import type {
 } from '@contracts/pageNumbers';
 
 export interface IPdfThumbnailsProps {
-    pdfDocument: PDFDocumentProxy | null;
+    pdfDocument: IPdfDocument | null;
     rasterScheduler: IPdfPageRasterScheduler | null;
     currentPage: number;
     totalPages: number;

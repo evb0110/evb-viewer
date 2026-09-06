@@ -1,4 +1,4 @@
-import type { RenderTask } from 'pdfjs-dist';
+import type {IPdfRenderTask} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
 
 const BEGIN_ANNOTATION_OP = 80;
@@ -9,7 +9,7 @@ interface IRuntimeOperatorList {
     argsArray: ArrayLike<unknown>;
 }
 
-function resolveRuntimeOperatorList(task: RenderTask | null): IRuntimeOperatorList | null {
+function resolveRuntimeOperatorList(task: IPdfRenderTask | null): IRuntimeOperatorList | null {
     if (!task || typeof task !== 'object') {
         return null;
     }
@@ -45,7 +45,7 @@ export function createRenderTaskHiddenAnnotationOperationsFilter(hiddenAnnotatio
     let hiddenDepth = 0;
 
     return {
-        bindTask(task: RenderTask) {
+        bindTask(task: IPdfRenderTask) {
             // pdf.js grows the render task's operator list in place, so the private
             // arrays resolved here stay valid for the whole render.
             operatorList = resolveRuntimeOperatorList(task);

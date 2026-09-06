@@ -1,7 +1,7 @@
 import type {
-    PDFPageProxy,
-    RenderTask,
-} from 'pdfjs-dist';
+    IPdfPage,
+    IPdfRenderTask,
+} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import {
     pdfRenderContinuationScheduler,
@@ -14,7 +14,7 @@ import { armPageStageDeadline } from '@app/modules/pdf-viewer/engine/pdf-page-re
 interface ICoordinatedPdfPageRenderTask {
     promise: Promise<unknown>;
     cancel: () => void;
-    onContinue?: RenderTask['onContinue'];
+    onContinue?: IPdfRenderTask['onContinue'];
 }
 
 interface IActivePdfPageOperation {
@@ -29,7 +29,7 @@ interface IActivePdfPageOperation {
 interface IRunCoordinatedPdfPageRenderOptions<TTask extends ICoordinatedPdfPageRenderTask> {
     owner: string;
     pageNumber: number;
-    pdfPage: PDFPageProxy;
+    pdfPage: IPdfPage;
     priority: number;
     signal?: AbortSignal | undefined;
     shouldStart?: (() => boolean) | undefined;
@@ -53,7 +53,7 @@ interface IRunCoordinatedPdfPageRenderOptions<TTask extends ICoordinatedPdfPageR
 interface IRunCoordinatedPdfPageOperationOptions<TResult> {
     owner: string;
     pageNumber: number;
-    pdfPage: PDFPageProxy;
+    pdfPage: IPdfPage;
     priority: number;
     signal?: AbortSignal | undefined;
     shouldStart?: (() => boolean) | undefined;
@@ -64,7 +64,7 @@ interface IRunCoordinatedPdfPageOperationOptions<TResult> {
 
 export type TPdfPageOperationSettlementCapture = (settlement: Promise<void>) => void;
 
-const activePageOperations = new WeakMap<PDFPageProxy, IActivePdfPageOperation>();
+const activePageOperations = new WeakMap<IPdfPage, IActivePdfPageOperation>();
 let nextRenderId = 0;
 
 function createCoordinatedRenderCancelledError(pageNumber: number, owner: string) {
@@ -126,7 +126,7 @@ function cancelPdfPageRender(cancel: (() => void) | undefined) {
 }
 
 async function waitForActiveOperation(
-    pdfPage: PDFPageProxy,
+    pdfPage: IPdfPage,
     activeOperation: IActivePdfPageOperation,
     owner: string,
     priority: number,
@@ -175,7 +175,7 @@ async function waitForActiveOperation(
 }
 
 async function waitForCoordinatedTurn(
-    pdfPage: PDFPageProxy,
+    pdfPage: IPdfPage,
     owner: string,
     pageNumber: number,
     priority: number,

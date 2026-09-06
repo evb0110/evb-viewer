@@ -1,3 +1,4 @@
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { IDebugLogEntry } from '@contracts/electronApiCommon';
 import type { TOcrProgressPhase } from '@contracts/electronApiOcr';
@@ -11,7 +12,6 @@ import {
     useClipboard,
     useTimeoutFn,
 } from '@vueuse/core';
-import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type {
     MaybeRefOrGetter,
     WritableComputedRef,
@@ -216,7 +216,7 @@ export interface IOcrPopupCompletePayload extends IOcrSearchablePdfResult {
 }
 
 export interface IOcrPopupPresenterContext {
-    pdfDocument: MaybeRefOrGetter<PDFDocumentProxy | null>;
+    pdfDocument: MaybeRefOrGetter<IPdfDocument | null>;
     currentPage: MaybeRefOrGetter<number>;
     totalPages: MaybeRefOrGetter<number>;
     workingCopyPath: MaybeRefOrGetter<TDocumentRef | null>;

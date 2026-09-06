@@ -1,3 +1,4 @@
+import type {IPdfViewport} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {
     afterEach,
     beforeEach,
@@ -6,7 +7,6 @@ import {
     it,
     vi,
 } from 'vitest';
-import type { PageViewport } from 'pdfjs-dist';
 import {requireDocumentRevisionToken} from '@contracts';
 import type { IOcrWord } from '@contracts/shared';
 
@@ -42,7 +42,7 @@ function createPageSnapshot(words: IOcrWord[]) {
     };
 }
 
-function createViewport(): PageViewport {
+function createViewport(): IPdfViewport {
     return {
         viewBox: [
             0,

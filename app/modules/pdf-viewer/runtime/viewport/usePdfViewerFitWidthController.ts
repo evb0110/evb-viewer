@@ -1,10 +1,10 @@
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type {
     ComputedRef,
     Ref,
     ShallowRef,
 } from 'vue';
 import type {
-    PDFDocumentProxy,
     TFitMode,
     TPdfViewMode,
     TZoomMode,
@@ -16,7 +16,7 @@ import type { TPdfRerenderSource } from '@app/modules/pdf-viewer/runtime/rerende
 
 interface IUsePdfViewerFitWidthControllerOptions {
     viewerContainer: Ref<HTMLElement | null>;
-    pdfDocument: ShallowRef<PDFDocumentProxy | null>;
+    pdfDocument: ShallowRef<IPdfDocument | null>;
     isLoading: Ref<boolean>;
     continuousScroll: ComputedRef<boolean>;
     fitMode: ComputedRef<TFitMode>;

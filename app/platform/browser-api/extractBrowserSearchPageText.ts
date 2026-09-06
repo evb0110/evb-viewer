@@ -1,4 +1,4 @@
-import type { PDFPageProxy } from 'pdfjs-dist';
+import type {IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 import { buildOcrTextLayerIndexText } from '@contracts/ocrText';
 import type { IOcrWord } from '@contracts/shared';
@@ -10,12 +10,12 @@ import {
 } from '@pdf-core/pdfjsTextGeometry';
 
 interface IBrowserSearchTextPageLike {
-    getTextContent: PDFPageProxy['getTextContent'];
-    cleanup?: PDFPageProxy['cleanup'];
+    getTextContent: IPdfPage['getTextContent'];
+    cleanup?: IPdfPage['cleanup'];
 }
 
 interface IBrowserSearchGeometryPageLike extends IBrowserSearchTextPageLike {
-    getOperatorList?: PDFPageProxy['getOperatorList'];
+    getOperatorList?: IPdfPage['getOperatorList'];
     view?: unknown;
 }
 

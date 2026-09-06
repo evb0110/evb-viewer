@@ -1,8 +1,10 @@
 import type {
-    PDFDocumentProxy,
-    PDFPageProxy,
-    RenderTask,
-} from 'pdfjs-dist';
+    IPdfDocument,
+    IPdfPage,
+    IPdfRenderTask,
+    IPdfDocumentPageLease,
+    TPdfDocumentPageLeaseRetention,
+} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {
     runCoordinatedPdfPageRender,
     type TPdfPageOperationSettlementCapture,
@@ -28,13 +30,6 @@ export type TPdfRasterLane =
     | 'thumbnail-current'
     | 'thumbnail-visible'
     | 'prefetch';
-
-export interface IPdfDocumentPageLease {
-    readonly page: PDFPageProxy;
-    release: () => void;
-}
-
-export type TPdfDocumentPageLeaseRetention = 'render-cache' | 'transient-background';
 
 export interface IPdfRasterDocumentFence {
     readonly loadToken: number;
@@ -62,11 +57,11 @@ export interface IPdfRasterRenderTarget<TPrepared> {
     readonly id: string;
     prepare(
         demand: IPdfRasterDemand,
-        page: PDFPageProxy,
+        page: IPdfPage,
         signal: AbortSignal,
         captureSettlement: TPdfPageOperationSettlementCapture,
     ): Promise<TPrepared | null>;
-    start(prepared: TPrepared, page: PDFPageProxy): RenderTask;
+    start(prepared: TPrepared, page: IPdfPage): IPdfRenderTask;
     commit(prepared: TPrepared, demand: IPdfRasterDemand): boolean;
     discard(prepared: TPrepared): void;
     onRenderStall?: ((payload: IPageRenderStallPayload) => void) | undefined;
@@ -969,10 +964,10 @@ export function createPdfPageRasterScheduler(
     };
 }
 
-const pdfDocumentRasterSchedulers = new WeakMap<PDFDocumentProxy, IPdfPageRasterScheduler>();
+const pdfDocumentRasterSchedulers = new WeakMap<IPdfDocument, IPdfPageRasterScheduler>();
 
 export function ensurePdfPageRasterScheduler(
-    document: PDFDocumentProxy,
+    document: IPdfDocument,
     options: {
         documentFence: IPdfRasterDocumentFence;
         leasePage: ICreatePdfPageRasterSchedulerOptions['leasePage'];
@@ -990,7 +985,7 @@ export function ensurePdfPageRasterScheduler(
     return scheduler;
 }
 
-export async function disposePdfPageRasterScheduler(document: PDFDocumentProxy) {
+export async function disposePdfPageRasterScheduler(document: IPdfDocument) {
     const scheduler = pdfDocumentRasterSchedulers.get(document);
     pdfDocumentRasterSchedulers.delete(document);
     await scheduler?.dispose();

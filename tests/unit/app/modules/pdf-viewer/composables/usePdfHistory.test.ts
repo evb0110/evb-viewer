@@ -1,3 +1,4 @@
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {
     beforeEach,
     describe,
@@ -10,7 +11,6 @@ import {
     ref,
 } from 'vue';
 import type { Ref } from 'vue';
-import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { usePdfHistory } from '@app/modules/pdf-viewer/runtime/composables/usePdfHistory';
 import type { TWorkspaceUndoSource } from '@app/types/workspaceUndoSource';
 import { cast } from '@tests/helpers/cast';
@@ -25,7 +25,7 @@ vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {
 
 function createMockDeps(overrides: Partial<Parameters<typeof usePdfHistory>[0]> = {}) {
     return cast<Parameters<typeof usePdfHistory>[0]>({
-        pdfDocument: ref<PDFDocumentProxy | null>(null),
+        pdfDocument: ref<IPdfDocument | null>(null),
         pdfViewerRef: ref<{scrollToPage: (page: number) => void} | null>(null),
         currentPage: ref(1),
         isAnySaving: ref(false),
@@ -315,7 +315,7 @@ describe('usePdfHistory', () => {
 
         const promise = waitForPdfReload(5);
 
-        deps.pdfDocument.value = { numPages: 10 } as PDFDocumentProxy;
+        deps.pdfDocument.value = { numPages: 10 } as IPdfDocument;
         await nextTick();
         await vi.advanceTimersByTimeAsync(32);
         await promise;
@@ -331,7 +331,7 @@ describe('usePdfHistory', () => {
 
         const promise = waitForPdfReload(5);
 
-        deps.pdfDocument.value = { numPages: 10 } as PDFDocumentProxy;
+        deps.pdfDocument.value = { numPages: 10 } as IPdfDocument;
         await nextTick();
         await vi.advanceTimersByTimeAsync(32);
         await promise;
@@ -340,8 +340,8 @@ describe('usePdfHistory', () => {
     });
 
     it('does not call scrollToPage if doc reference stays the same', async () => {
-        const doc = cast<PDFDocumentProxy>({ numPages: 3 });
-        const deps = createMockDeps({ pdfDocument: cast<Ref<PDFDocumentProxy | null>>(ref(doc)) });
+        const doc = cast<IPdfDocument>({ numPages: 3 });
+        const deps = createMockDeps({ pdfDocument: cast<Ref<IPdfDocument | null>>(ref(doc)) });
         const scrollToPage = vi.fn();
         deps.pdfViewerRef.value = {scrollToPage};
         const { waitForPdfReload } = usePdfHistory(deps);

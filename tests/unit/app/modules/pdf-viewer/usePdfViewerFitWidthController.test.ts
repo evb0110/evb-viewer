@@ -1,3 +1,4 @@
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {
     describe,
     expect,
@@ -12,7 +13,6 @@ import {
     shallowRef,
 } from 'vue';
 import { usePdfViewerFitWidthController } from '@app/modules/pdf-viewer/runtime/viewport/usePdfViewerFitWidthController';
-import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import { cast } from '@tests/helpers/cast';
 
 describe('usePdfViewerFitWidthController', () => {
@@ -28,7 +28,7 @@ describe('usePdfViewerFitWidthController', () => {
             scope.run(() => {
                 usePdfViewerFitWidthController({
                     viewerContainer,
-                    pdfDocument: shallowRef<PDFDocumentProxy | null>(cast({})),
+                    pdfDocument: shallowRef<IPdfDocument | null>(cast({})),
                     isLoading: ref(false),
                     continuousScroll: computed(() => true),
                     fitMode: computed(() => 'width' as const),
@@ -76,7 +76,7 @@ describe('usePdfViewerFitWidthController', () => {
             scope.run(() => {
                 usePdfViewerFitWidthController({
                     viewerContainer,
-                    pdfDocument: shallowRef<PDFDocumentProxy | null>(cast({})),
+                    pdfDocument: shallowRef<IPdfDocument | null>(cast({})),
                     isLoading: ref(false),
                     continuousScroll: computed(() => true),
                     fitMode: computed(() => 'width' as const),
@@ -124,7 +124,7 @@ describe('usePdfViewerFitWidthController', () => {
             scope.run(() => {
                 usePdfViewerFitWidthController({
                     viewerContainer,
-                    pdfDocument: shallowRef<PDFDocumentProxy | null>(cast({})),
+                    pdfDocument: shallowRef<IPdfDocument | null>(cast({})),
                     isLoading: ref(false),
                     continuousScroll: computed(() => true),
                     fitMode: computed(() => 'width' as const),

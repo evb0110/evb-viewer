@@ -577,3 +577,200 @@ this ledger's row is updated with the commit. Verification transcripts for
 this ledger live outside the repo (`/tmp/codex-skill/annot-*-last.md`,
 session artifacts); the evidence that matters is re-derivable from the
 citations above.
+
+## Acceptance entries
+
+### 2026-09-05, #350 legacy saved-note compatibility
+
+Status: In progress. Claimed by `evb0110` in Project 4. The issue is a child
+of #170 and is assigned to the Editor lane and Other box. It remains open until
+candidate and integrated-main verification pass.
+
+The supplied recording and logs reproduce deletion failures for saved legacy
+EVB notes on main at `25c6c974fd2eee8d3cb23c35abf49ecc33520642`. A real
+Electron pointer reproduction also fails on
+`2aecf52284ee29fdc818e03e45509705731314b6`. Both the sidebar Delete action
+and the note-window Delete action leave the note count unchanged. The warnings
+report `source=pdf`, `uid=null`, stable keys `ann:0:10909R` and
+`ann:0:10916R`, and no resolvable editor.
+
+The minimized fixture is
+`/home/ubuntu/rescue-research/annotation-audit-20260905/legacy-notes-minimal.pdf`
+(3,153 bytes, SHA-256
+`f6f4a9800e5cd65891b57136000e59f083fb0a91aa2fe2ee4811903e60a130da`). It
+contains two `/FreeText` plus `/Popup` legacy notes with `evb-note:` `/NM`
+values, tiny marker rectangles, and blank zero-BBox appearances. The reported
+book and recording were transferred privately to this VPS for the audit and
+were not uploaded publicly.
+
+Acceptance must prove canonical import and one durable identity across the
+selection, sidebar, overlay, and history; sidebar and popup deletion with the
+neighbor preserved; undo and redo; popup and reply cleanup; two save/reopen
+cycles without resurrection; ADR 0003 migration of an edited legacy note to
+`/Text`; preservation of an untouched legacy note; and comparison with a native
+`/Text` note. The first implementation check runs this minimized fixture on
+candidate `7466fc613f38460e08fe04beff54b46786cd6ba5` before any fallback is
+added. Candidate and integrated-main SHAs and red/green results will be added
+here when the gate closes.
+
+The candidate source comparison confirms that the cutover already recognizes
+legacy FreeText plus Popup plus blank AP notes, preserves their NM and PDF
+object reference, projects them into the canonical persisted Text-note view,
+and uses the embedded/native delete route. This is source evidence only. The
+old editor bridge must not return to this path.
+
+An early candidate pointer smoke run used the private source paths directly.
+It passed against the two-note reported file, but the app wrote incremental
+updates into both source files. The original files were recovered by proving
+that the expected byte-length prefixes still matched their supplied SHA-256
+values, then restoring those exact prefixes. No result from that contaminated
+run counts as acceptance. Every later mutating case must open a fresh working
+copy.
+
+The restored fixture checks are now:
+
+- `legacy-notes-minimal.pdf`: 3,153 bytes, SHA-256
+  `f6f4a9800e5cd65891b57136000e59f083fb0a91aa2fe2ee4811903e60a130da`.
+- `reported-notes.pdf`: 2,833,504 bytes, SHA-256
+  `8398f0bce24e1d229810f29dc7844aff68c1bbebb2d9e0527df0a801d1ccbd36`.
+
+The first clean minimal-file run also exposed a fixture-routing question. The
+original file and its object graph must be checked before calling a second
+note reachable or orphaned. That check remains part of worker 1's result.
+
+## Parallel acceptance workstreams
+
+On 2026-09-05 the coordinator reused four completed Luna read-only lanes and
+reassigned them under this thread. Two other completed lanes were retired.
+Each worker was told to preserve concurrent edits, avoid shared helpers and
+fixtures, and leave commits and GitHub state to the coordinator.
+
+| Worker | Scope and exact write ownership | Shared dependency | Current result |
+| --- | --- | --- | --- |
+| Peirce | Test environment and session readiness. `tests/e2e/electron/performanceProfileVisuals.e2e.test.ts`, `tests/e2e/electron/inactiveDjvuTabs.e2e.test.ts` for the cancellation case, `app/utils/performanceProfile.ts`, `app/plugins/performance-profile.client.ts`. | Must report changes needed in shared Electron helpers, runner, or pressure configuration. | Complete. The cancellation reproduction was a collected `page.evaluate` promise and the synchronous dispatch rewrite plus pre-deactivation image filter passed at `2026-09-06T00-13-48-965Z-3085920-d24dbce3`. The profile failure was traced to sandboxed preload decoding and fixed by the coordinator in the preload decoder. |
+| Euler | Annotation lifecycle and #350. `tests/e2e/electron/legacyNote350.e2e.test.ts`, `tests/e2e/electron/annotationLifecycle.e2e.test.ts`; product edits only if a focused proof requires `useAnnotationMutationService.ts` or `createPageAnnotationDeleteActions.ts`. | Coordinator owns shared helpers, fixture generators, save/session files, ledger, and GitHub state. | Complete. Clean fresh-copy legacy coverage passed for the minimized and supplied 383-page fixtures, with the virtualized hidden-sidebar-row failure classified and corrected in the test helper. |
+| Avicenna | Document opening and native services. `tests/e2e/electron/viewerSmoke.e2e.test.ts`, `tests/e2e/electron/djvuPrintHandoff.e2e.test.ts`, `tests/e2e/electron/inactiveDjvuTabs.e2e.test.ts`; product edits only in `app/modules/djvu-viewer/**`, `app/platform/browser-api/djvujsLoader.ts`, or `app/modules/workspace-shell/composables/document-session/nativePdfMutationCommit.ts` after proof. | Shared helper or runner changes return to the coordinator. | Complete. Added a settled sidebar-wrapper geometry wait in `viewerSmoke.e2e.test.ts`; the focused candidate passed. PNG, scan-cleanup, and print passed after native-tool provisioning. Cancellation remains with Peirce. |
+| Mendel | Viewport and navigation. `tests/e2e/electron/inactivePdfTabs.e2e.test.ts`, `tests/e2e/electron/prBlockingSmoke.e2e.test.ts`, `tests/e2e/electron/squigglyMarkup.e2e.test.ts`; product edits only in the assigned navigation, viewport, document-viewport, anchor-retention, and text-markup model directories. | Annotation-layer overlap is reported to the coordinator and worker 1. Shared helpers remain coordinator-owned. | Complete. No candidate-only split-pane regression was established. The squiggly failure was an obsolete absolute-zoom expectation, corrected to use the rendered CSS scale factor, and passed at `2026-09-05T21-28-37-686Z-2713498-6cd81665`. The page-7 reset passed its focused late-page check at `2026-09-05T20-40-02-811Z-2627764-2cf3b15c` and again under the final candidate at `2026-09-06T00-17-29-266Z-3096073-b93a3546`. |
+
+The coordinator queues expensive Electron and large-document runs centrally.
+Workers begin with source analysis and lightweight checks and return each
+failure's trigger, assertion, baseline/candidate distinction, root cause,
+smallest justified change, focused output, touched files, and remaining risk.
+
+Mendel's source comparison found the three owned E2E failures unchanged between
+baseline `3924b6a92` and candidate `7466fc613`; the relevant viewport unit checks
+passed. The split-pane run had no blank, loading, disconnect, page-change, or
+thumbnail-reset signals despite `maxAnchorDrift=0.379`. The page-7 reset trace
+showed the viewport authority at page 12 while page 7 was evicted. The
+squiggly timeout did not capture settled width or mounted-page evidence. No
+test assertion was weakened and no product edit was justified.
+
+Avicenna's completed audit found that the candidate and evidence roots lack the
+native image-combine and scan-cleanup binaries required by the PNG and scan
+cleanup tests. Those tests correctly reject the JavaScript fallback. The DjVu
+print run reached native page reading and then logged `TypeError: Object has
+been destroyed`; its retained artifact did not prove the reported combiner
+failure. The inactive-DjVu logs do not contain the asserted trusted-scroll
+count or the `Promise was collected` error. These failures need a centrally
+queued focused run or native-tool provisioning before any test assertion is
+changed.
+
+The coordinator then staged the native E2E tools with gate
+`2026-09-05T20-19-37-267Z-2591018-11d091c9.ndjson`. On the provisioned
+candidate, the PNG entry test passed at gate
+`2026-09-05T20-22-12-107Z-2595476-fb916845`, the Scan Cleanup skeleton and
+detection test passed at `2026-09-05T20-23-26-717Z-2597030-25c61c8c`, the
+native detail-tile test passed at `2026-09-05T20-24-44-030Z-2598375-bccecaad`,
+and the DjVu print handoff passed at
+`2026-09-05T20-25-50-368Z-2599601-b90a896b`. The cancellation test still
+fails with `Promise was collected` at
+`2026-09-05T20-27-47-100Z-2602475-ecb706a4` and is now owned by Peirce for
+session-lifetime diagnosis.
+
+After Avicenna's audit, the focused DjVu sidebar run reproduced the documented
+opening transition race at gate `2026-09-05T20-30-18-988Z-2606365-eb744b4d`:
+the inner sidebar was open while its outer wrapper still reported zero width.
+The worker added a local settled-boundary wait in the owned test, retaining
+the existing one-pixel geometry assertions. The corrected candidate passed at
+`2026-09-05T20-35-40-068Z-2617122-04dccbb4`.
+
+The focused squiggly-markup run remains red at
+`2026-09-05T20-31-58-222Z-2609410-5b63ac2e`. It times out at the existing
+`waitForPageWidthAtZoom` assertion after the 50% transition. Mendel is
+diagnosing the settled page width and effective zoom without weakening that
+assertion.
+
+### 2026-09-05, candidate acceptance follow-up
+
+The private source fixtures were rechecked after all mutating runs. The
+3,153-byte minimized fixture still hashes to
+`f6f4a9800e5cd65891b57136000e59f083fb0a91aa2fe2ee4811903e60a130da`, and the
+2,833,504-byte supplied fixture still hashes to
+`8398f0bce24e1d229810f29dc7844aff68c1bbebb2d9e0527df0a801d1ccbd36`.
+Every mutating test used a fresh temporary copy. The book and recording were
+transferred privately to this VPS for audit and were not uploaded publicly.
+
+Candidate `7466fc613f38460e08fe04beff54b46786cd6ba5` passed the complete #350
+suite, four tests, at gate
+`2026-09-05T21-27-05-508Z-2710062-417ebce7`. The minimized lifecycle test
+proved real pointer selection, sidebar selection and deletion, note-window
+deletion, undo and redo, editing with stable legacy identity, migration of the
+edited note to `/Text`, preservation of the untouched `/FreeText` neighbor,
+save and two reopen cycles without resurrection, and cleanup of the parent and
+`/Popup`. The reply fixture also passed with the reply removed and the neighbor
+intact. The supplied 383-page file passed its focused acceptance at
+`2026-09-05T21-26-02-447Z-2708424-400c26af` and the full candidate suite.
+
+The first clean minimal run initially failed because the test selected a hidden
+zero-sized virtualized sidebar row. The helper now selects only an onscreen
+row with a nonzero button rectangle. That was a fixture-routing failure, not a
+legacy-note product failure. The candidate source comparison and the green
+real-pointer run also confirm that the annotation layer's captured click keeps
+the canonical legacy identity through selection and note-window opening. The
+retiring PDF.js editor bridge was not restored.
+
+The remaining performance-profile failure had a separate environment cause.
+The sandboxed preload could not use Node `Buffer`, so it discarded the valid
+host-profile argument and the renderer detected the VPS as high tier. The
+browser-safe decoder fix covers both the host-profile and diagnostics-policy
+arguments. Unit coverage passed 25 tests, and all low, medium, and high visual
+profile checks passed at gate
+`2026-09-05T21-53-43-169Z-2769520-30f305a2`.
+
+Integrated-main verification, PR integration, and the remaining #196, #168,
+#167, and Project 4 closure checks remain open.
+
+### 2026-09-06, broad regression classification and candidate follow-up
+
+The exact private legacy-note fixture remains unchanged at 3,153 bytes with
+SHA-256 `f6f4a9800e5cd65891b57136000e59f083fb0a91aa2fe2ee4811903e60a130da`.
+The supplied reported-notes fixture remains unchanged at 2,833,504 bytes with
+SHA-256 `8398f0bce24e1d229810f29dc7844aff68c1bbebb2d9e0527df0a801d1ccbd36`.
+The source book and recording stayed private on the VPS and were not uploaded
+publicly.
+
+The candidate broad regression run at gate
+`2026-09-05T23-43-55-184Z-3030339-c030f60c` reported 65 passing tests, 18
+intentional skips, and four failures across three files. Focused reruns
+separated those failures. The inactive-DjVu cancellation failure was a probe
+bookkeeping defect: the observer counted image elements committed before tab
+deactivation. The probe now snapshots those elements and counts only new
+commits. Its focused rerun passed at
+`2026-09-06T00-13-48-965Z-3085920-d24dbce3`.
+
+The inactive-PDF split-close, inactive-DjVu split-close, and PR-blocking page-7
+reset failures reproduced only under the broad suite's concurrent load. Their
+existing assertions remain unchanged. Each focused rerun passed with the same
+candidate behavior at gates `2026-09-06T00-15-28-913Z-3093020-12bb1a6d`,
+`2026-09-06T00-16-28-012Z-3094780-fa27f541`, and
+`2026-09-06T00-17-29-266Z-3096073-b93a3546`, respectively. The broad failures
+remain recorded as load-sensitive risks and require a post-integration broad
+run. No failure was waived, no deadline was widened, and no fixture was
+substituted.
+
+The sticky-note context-menu fix and canonical-layer test corrections were
+focused-green before this follow-up. The candidate also retains the browser
+safe preload decoder, native managed-shape save projection, exact large-PDF
+fixture routing, and the complete #350 evidence recorded above. Candidate
+commit, PR integration, integrated-main verification, and the remaining #196,
+#168, #167, and Project 4 closure checks remain open.

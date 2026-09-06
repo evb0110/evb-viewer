@@ -1,4 +1,4 @@
-import type { PDFDocumentProxy } from '@app/types/pdfContracts';
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type {
     TFitMode,
     TPdfViewRotation,
@@ -140,7 +140,7 @@ export const useWorkspaceViewerShellState = (initialState?: ITabViewSessionState
     const viewRotation = ref<TPdfViewRotation>(initialState?.viewRotation ?? 0);
     const currentPage = ref(Math.max(1, Math.trunc(initialState?.currentPage ?? 1)));
     const totalPages = ref(0);
-    const pdfDocument = shallowRef<PDFDocumentProxy | null>(null);
+    const pdfDocument = shallowRef<IPdfDocument | null>(null);
 
     watch(totalPages, (pageCount) => {
         if (selectedPageSelection.value?.pageCount === pageCount) {

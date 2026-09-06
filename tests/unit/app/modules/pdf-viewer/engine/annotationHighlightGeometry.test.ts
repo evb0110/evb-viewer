@@ -1,3 +1,4 @@
+import type {IPdfTextContent} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 // @vitest-environment happy-dom
 
 import {
@@ -8,7 +9,6 @@ import {
     onTestFinished,
     vi,
 } from 'vitest';
-import type { TextContent } from 'pdfjs-dist/types/src/display/api';
 import { buildHighlightQuadsFromSelection } from '@app/modules/pdf-viewer/engine/annotation-highlight-geometry/buildHighlightQuadsFromSelection';
 import type {
     ITextLineBox,
@@ -116,7 +116,7 @@ describe('annotation highlight geometry', () => {
         const secondSpan = document.createElement('span');
         firstSpan.textContent = 'first';
         secondSpan.textContent = 'second';
-        const textContent: TextContent = {
+        const textContent: IPdfTextContent = {
             items: [
                 {
                     str: 'first',
@@ -227,7 +227,7 @@ describe('annotation highlight geometry', () => {
     it('uses the display axes for quarter-turned page text', () => {
         const span = document.createElement('span');
         span.textContent = 'rotated text';
-        const textContent: TextContent = {
+        const textContent: IPdfTextContent = {
             items: [{
                 str: 'raw text',
                 dir: 'ltr',
@@ -306,7 +306,7 @@ describe('annotation highlight geometry', () => {
         const range = document.createRange();
         range.selectNodeContents(span);
         expect(range.intersectsNode(textLayer)).toBe(true);
-        const textContent: TextContent = {
+        const textContent: IPdfTextContent = {
             items: [{
                 str: 'selected text',
                 dir: 'ltr',

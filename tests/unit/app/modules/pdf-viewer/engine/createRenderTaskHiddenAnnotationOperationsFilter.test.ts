@@ -1,14 +1,14 @@
+import type {IPdfRenderTask} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {
     describe,
     expect,
     it,
 } from 'vitest';
-import type { RenderTask } from 'pdfjs-dist';
 import { createRenderTaskHiddenAnnotationOperationsFilter } from '@app/modules/pdf-viewer/engine/pdf-hidden-annotation-operations/createRenderTaskHiddenAnnotationOperationsFilter';
 import { cast } from '@tests/helpers/cast';
 
 function createTask(fnArray: number[], argsArray: unknown[]) {
-    return cast<RenderTask>({_internalRenderTask: {operatorList: {
+    return cast<IPdfRenderTask>({_internalRenderTask: {operatorList: {
         fnArray,
         argsArray,
     }}});
@@ -54,7 +54,7 @@ describe('createRenderTaskHiddenAnnotationOperationsFilter', () => {
 
     it('reports an unsupported private render-task shape for narrow caller fallback', () => {
         const runtime = createRenderTaskHiddenAnnotationOperationsFilter(new Set(['12R']));
-        expect(runtime.bindTask(cast<RenderTask>({}))).toBe(false);
+        expect(runtime.bindTask(cast<IPdfRenderTask>({}))).toBe(false);
     });
 
     it('keeps every operator when the bound page carries no annotation boundaries', () => {

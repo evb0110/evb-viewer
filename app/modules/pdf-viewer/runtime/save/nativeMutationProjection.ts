@@ -87,7 +87,6 @@ export interface IPdfSaveRouteCapabilities {
     readonly liveAnnotationChanges: IPdfLiveAnnotationChangeSummary;
     readonly hasLoadedSource: boolean;
     readonly forceWriterSave: boolean;
-    readonly includeManagedShapesForLiveSource: boolean;
     readonly rewriteShapeState: boolean;
     readonly totalPageCount: number;
     readonly shapes: IShapeAnnotation[] | null;
@@ -576,9 +575,6 @@ function admitNativeAppendRoute(
     }
     if (!nativeCapabilities.hasNativePdfMutationCapability) {
         return 'native-save-capability-unavailable';
-    }
-    if (capabilities.includeManagedShapesForLiveSource) {
-        return 'managed-shapes-require-materialization';
     }
     return {
         nativeCapabilities,

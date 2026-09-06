@@ -118,8 +118,9 @@
 </template>
 
 <script setup lang="ts">
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 
-import type { PDFDocumentProxy } from 'pdfjs-dist';
+
 import type {
     IBookmarkItem,
     IBookmarkActivatePayload,
@@ -127,7 +128,7 @@ import type {
     IBookmarkIdentityInput,
     TBookmarkDisplayMode,
 } from '@app/types/pdfOutline';
-import type { IPdfBookmarkEntry } from '@app/types/pdfContracts';
+import type {IPdfBookmarkEntry} from '@app/types/pdfContracts';
 import type { IPdfBookmarkChangePayload } from '@app/types/pdfUi';
 import type {
     IDocumentBookmarkTreeItem,
@@ -162,7 +163,7 @@ import { areBookmarkEntriesEqual } from '@app/modules/pdf-viewer/engine/pdf-outl
 import { PDF_NATIVE_MUTATION_LIMITS } from '@contracts/nativePdfMutations';
 
 interface IProps {
-    pdfDocument: PDFDocumentProxy | null;
+    pdfDocument: IPdfDocument | null;
     currentPage: number;
     isEditMode: boolean;
     bookmarkItems?: IPdfBookmarkEntry[] | undefined;
@@ -720,7 +721,7 @@ function clearLoadedOutline() {
     setBookmarkBaseline();
 }
 
-function isStaleOutlineRun(runId: number, pdfDocument: PDFDocumentProxy) {
+function isStaleOutlineRun(runId: number, pdfDocument: IPdfDocument) {
     return (
         runId !== outlineRunId ||
         props.pdfDocument !== pdfDocument ||
@@ -728,7 +729,7 @@ function isStaleOutlineRun(runId: number, pdfDocument: PDFDocumentProxy) {
     );
 }
 
-async function resolveBookmarksFromPdf(pdfDocument: PDFDocumentProxy) {
+async function resolveBookmarksFromPdf(pdfDocument: IPdfDocument) {
     const result = await pdfDocument.getOutline();
     const rawOutline = parseOutlineItems(result);
     const destinationCache = new Map<string, unknown[] | null>();
@@ -761,7 +762,7 @@ function applyLoadedBookmarks(resolved: IBookmarkItem[]) {
 function handleOutlineLoadError(
     error: unknown,
     runId: number,
-    pdfDocument: PDFDocumentProxy,
+    pdfDocument: IPdfDocument,
 ) {
     if (isStaleOutlineRun(runId, pdfDocument)) {
         return;
@@ -788,7 +789,7 @@ function finishOutlineLoading(runId: number) {
     }
 }
 
-async function loadUsableOutline(pdfDocument: PDFDocumentProxy, runId: number) {
+async function loadUsableOutline(pdfDocument: IPdfDocument, runId: number) {
     beginOutlineLoading();
     outlineError.value = false;
     try {

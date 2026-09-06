@@ -1,4 +1,4 @@
-import type { PageViewport } from 'pdfjs-dist';
+import type {IPdfViewport} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { IOcrWord } from '@contracts/shared';
@@ -106,7 +106,7 @@ export const usePdfWordBoxes = () => {
         pageNumber: number,
         workingCopyPath: TDocumentRef | null,
         documentRevisionToken: TDocumentRevisionToken | null,
-        viewport: PageViewport,
+        viewport: IPdfViewport,
         pageWidth: number,
         pageHeight: number,
     ) {

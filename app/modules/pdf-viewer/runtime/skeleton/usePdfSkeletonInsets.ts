@@ -1,9 +1,9 @@
+import type {IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type {
     ComputedRef,
     InjectionKey,
     MaybeRefOrGetter,
 } from 'vue';
-import type { PDFPageProxy } from '@app/types/pdfContracts';
 import type { IContentInsets } from '@app/types/pdfUi';
 import { clamp } from 'es-toolkit/math';
 
@@ -97,7 +97,7 @@ export const usePdfSkeletonInsets = (
     }
 
     function computeSkeletonInsets(
-        pdfPage: PDFPageProxy,
+        pdfPage: IPdfPage,
         renderVersion: number,
         getCurrentVersion: () => number,
     ) {

@@ -1,5 +1,5 @@
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import { clamp } from 'es-toolkit/math';
-import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import type { IAnnotationMarkerRect } from '@app/types/annotations';
 import type { IPdfSemanticAnchor } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportGeometry';
 import type {
@@ -39,7 +39,7 @@ function normalizedPointRect(top: number): IAnnotationMarkerRect {
 
 export async function resolvePdfNavigationTarget(
     target: TPdfNavigationTarget,
-    pdfDocument: PDFDocumentProxy | null,
+    pdfDocument: IPdfDocument | null,
 ): Promise<IResolvedPdfNavigationTarget> {
     if (target.kind === 'page') {
         return {

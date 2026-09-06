@@ -108,8 +108,9 @@
 </template>
 
 <script setup lang="ts">
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 
-import type { PDFDocumentProxy } from 'pdfjs-dist';
+
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { IResolvedSearchMatchOptions } from '@contracts/search';
 import { PDF_SEARCH_MIN_QUERY_LENGTH } from '@contracts/search';
@@ -158,7 +159,7 @@ interface IProps {
     isOpen: boolean;
     isActive?: boolean | undefined;
     isResizing?: boolean | undefined;
-    pdfDocument: PDFDocumentProxy | null;
+    pdfDocument: IPdfDocument | null;
     rasterScheduler: IPdfPageRasterScheduler | null;
     currentPage: number;
     totalPages: number;

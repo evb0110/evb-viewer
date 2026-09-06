@@ -1,8 +1,8 @@
+import type {IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {
     createPdfjsDocumentInitFromBrowserDocument,
     getPdfjsLib,
 } from '@app/platform/browser-api/browserPdfjsDocumentInit';
-import type { PDFPageProxy } from 'pdfjs-dist';
 import type { TPdfjsTextOps } from '@pdf-core/pdfjsTextGeometry';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 import { extractBrowserSearchPageData } from '@app/platform/browser-api/extractBrowserSearchPageText';
@@ -13,7 +13,7 @@ import {validateBrowserSearchPageCount} from '@app/platform/browser-api/browserS
 interface ILoadedBrowserSearchDocument {
     pdfDocument: {
         numPages: number;
-        getPage: (pageNumber: number) => Promise<PDFPageProxy>;
+        getPage: (pageNumber: number) => Promise<IPdfPage>;
         destroy: () => Promise<void>;
     };
     pdfjsOps: TPdfjsTextOps;

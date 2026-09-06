@@ -1,4 +1,4 @@
-import type { PageViewport } from 'pdfjs-dist';
+import type {IPdfViewport} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type { IOcrWord } from '@contracts/shared';
 
 interface IOcrPageRenderGeometry {render?: {imagePx: {
@@ -11,7 +11,7 @@ export function transformOcrWordToViewport(
     ocrPageData: IOcrPageRenderGeometry,
     pageWidth: number,
     pageHeight: number,
-    viewport: PageViewport,
+    viewport: IPdfViewport,
 ): {
     x: number;
     y: number;

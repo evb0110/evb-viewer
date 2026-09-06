@@ -1,5 +1,5 @@
+import type {IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type { MaybeRefOrGetter } from 'vue';
-import type { PDFPageProxy } from 'pdfjs-dist';
 import type { usePdfAnnotationLayerRenderer } from '@app/modules/pdf-viewer/runtime/rendering/usePdfAnnotationLayerRenderer';
 import { PDF_PAGE_RENDER_TIMEOUT_MS } from '@app/constants/timeouts';
 import { withPageStageTimeout } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/withPageStageTimeout';
@@ -11,7 +11,7 @@ type TAnnotationLayerInstance = Awaited<
 
 interface IAnnotationRenderContext {
     container: HTMLElement;
-    pdfPage: PDFPageProxy;
+    pdfPage: IPdfPage;
     renderResult: {
         viewport: Parameters<ReturnType<typeof usePdfAnnotationLayerRenderer>['renderAnnotationLayer']>[2];
         annotationCanvasMap: Parameters<ReturnType<typeof usePdfAnnotationLayerRenderer>['renderAnnotationLayer']>[4];

@@ -1,3 +1,7 @@
+import type {
+    IPdfDocument,
+    IPdfPage,
+} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 // @vitest-environment happy-dom
 
 import {
@@ -7,10 +11,6 @@ import {
     it,
     vi,
 } from 'vitest';
-import type {
-    PDFDocumentProxy,
-    PDFPageProxy,
-} from 'pdfjs-dist';
 import type { PropType } from 'vue';
 import {
     createApp,
@@ -20,7 +20,7 @@ import {
     reactive,
 } from 'vue';
 import type { IBookmarkItem } from '@app/types/pdfOutline';
-import type { IPdfBookmarkEntry } from '@app/types/pdfContracts';
+import type {IPdfBookmarkEntry} from '@app/types/pdfContracts';
 import type { IPdfBookmarkChangePayload } from '@app/types/pdfUi';
 import type { IDocumentBookmarkTreeItem } from '@app/utils/document-viewer/bookmarks/documentBookmarks';
 import PdfOutline from '@app/modules/pdf-viewer/components/PdfOutline.vue';
@@ -161,7 +161,7 @@ function createEntry(
 }
 
 function createPdfDocumentStub(outline: unknown[]) {
-    return cast<PDFDocumentProxy>({
+    return cast<IPdfDocument>({
         numPages: 10,
         getOutline: vi.fn(async () => outline),
         getDestination: vi.fn(async (_name: string) => [
@@ -172,7 +172,7 @@ function createPdfDocumentStub(outline: unknown[]) {
             { name: 'Fit' },
         ]),
         getPageIndex: vi.fn(async (_ref: unknown) => 3),
-        getPage: vi.fn(async (_pageNumber: number) => cast<PDFPageProxy>({
+        getPage: vi.fn(async (_pageNumber: number) => cast<IPdfPage>({
             view: [
                 0,
                 0,
@@ -187,7 +187,7 @@ function createPdfDocumentStub(outline: unknown[]) {
 async function mountOutline(options: {
     bookmarkItems: IPdfBookmarkEntry[];
     isEditMode?: boolean;
-    pdfDocument?: PDFDocumentProxy | null;
+    pdfDocument?: IPdfDocument | null;
 }) {
     const state = reactive({
         bookmarkItems: options.bookmarkItems,

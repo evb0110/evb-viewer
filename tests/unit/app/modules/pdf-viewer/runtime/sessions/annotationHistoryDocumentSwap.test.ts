@@ -1,3 +1,4 @@
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 // @vitest-environment happy-dom
 
 import {
@@ -16,7 +17,6 @@ import {
     ref,
     shallowRef,
 } from 'vue';
-import type {PDFDocumentProxy} from 'pdfjs-dist';
 import {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type {INoteEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type {TPdfDocumentSession} from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
@@ -64,14 +64,14 @@ function note(id: string): INoteEntity {
 
 /** Enough of a proxy for identity comparisons; the session only swaps on it. */
 function createDocumentProxy(fingerprint: string) {
-    return cast<PDFDocumentProxy>({
+    return cast<IPdfDocument>({
         numPages: 1,
         fingerprints: [fingerprint],
     });
 }
 
 function mountAnnotationSession() {
-    const pdfDocument = shallowRef<PDFDocumentProxy | null>(null);
+    const pdfDocument = shallowRef<IPdfDocument | null>(null);
     let session: ReturnType<typeof createPdfAnnotationSession> | undefined;
     const host = document.createElement('div');
     document.body.append(host);

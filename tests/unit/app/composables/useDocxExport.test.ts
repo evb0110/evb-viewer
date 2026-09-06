@@ -1,3 +1,4 @@
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {
     beforeEach,
     describe,
@@ -5,7 +6,6 @@ import {
     it,
     vi,
 } from 'vitest';
-import type { PDFDocumentProxy } from 'pdfjs-dist';
 import {effectScope} from 'vue';
 import {requireDocumentRevisionToken} from '@contracts';
 import type {IDocxExportFileCapability} from '@contracts/docxExport';
@@ -86,7 +86,7 @@ describe('useDocxExport', () => {
         const result = await exportState.exportDocx({
             workingCopyPath: '/tmp/work.pdf',
             documentRevisionToken: TEST_DOCUMENT_REVISION,
-            pdfDocument: {} as PDFDocumentProxy,
+            pdfDocument: {} as IPdfDocument,
             selectedLanguages: ['heb'],
         });
 
@@ -153,7 +153,7 @@ describe('useDocxExport', () => {
         const result = await exportState.exportDocx({
             workingCopyPath: '/tmp/work.pdf',
             documentRevisionToken: TEST_DOCUMENT_REVISION,
-            pdfDocument: {} as PDFDocumentProxy,
+            pdfDocument: {} as IPdfDocument,
         });
 
         expect(result).toBe(true);
@@ -172,7 +172,7 @@ describe('useDocxExport', () => {
         const result = await exportState.exportDocx({
             workingCopyPath: '/tmp/work.pdf',
             documentRevisionToken: TEST_DOCUMENT_REVISION,
-            pdfDocument: {} as PDFDocumentProxy,
+            pdfDocument: {} as IPdfDocument,
         });
 
         expect(result).toBe(false);
@@ -193,7 +193,7 @@ describe('useDocxExport', () => {
         const result = await exportState.exportDocx({
             workingCopyPath: 'browser://documents/working/work.pdf',
             documentRevisionToken: TEST_DOCUMENT_REVISION,
-            pdfDocument: {} as PDFDocumentProxy,
+            pdfDocument: {} as IPdfDocument,
         });
 
         expect(result).toBe(false);
@@ -211,7 +211,7 @@ describe('useDocxExport', () => {
         const exportPromise = exportState.exportDocx({
             workingCopyPath: 'browser://documents/working/work.pdf',
             documentRevisionToken: TEST_DOCUMENT_REVISION,
-            pdfDocument: {} as PDFDocumentProxy,
+            pdfDocument: {} as IPdfDocument,
         });
         exportState.cancelDocxExport();
 
@@ -247,7 +247,7 @@ describe('useDocxExport', () => {
         const exportPromise = exportState.exportDocx({
             workingCopyPath: '/tmp/work.pdf',
             documentRevisionToken: TEST_DOCUMENT_REVISION,
-            pdfDocument: {} as PDFDocumentProxy,
+            pdfDocument: {} as IPdfDocument,
         });
 
         await writeStarted;
@@ -296,7 +296,7 @@ describe('useDocxExport', () => {
         const exportPromise = exportState.exportDocx({
             workingCopyPath: '/tmp/work.pdf',
             documentRevisionToken: TEST_DOCUMENT_REVISION,
-            pdfDocument: {} as PDFDocumentProxy,
+            pdfDocument: {} as IPdfDocument,
         });
 
         await writeStarted;

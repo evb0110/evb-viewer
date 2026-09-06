@@ -1,4 +1,4 @@
-import type {PDFPageProxy} from 'pdfjs-dist';
+import type {IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {
     describe,
     expect,
@@ -54,7 +54,7 @@ function planFor(entities: readonly ITextBoxEntity[]) {
 }
 
 function documentWithPages(
-    getPage: (pageNumber: number) => Promise<Pick<PDFPageProxy, 'rotate' | 'view'>>,
+    getPage: (pageNumber: number) => Promise<Pick<IPdfPage, 'rotate' | 'view'>>,
 ) {
     return {getPage};
 }

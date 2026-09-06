@@ -1,3 +1,4 @@
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {
     afterEach,
     describe,
@@ -10,7 +11,6 @@ import {
     shallowRef,
 } from 'vue';
 import { usePdfViewerZoomRerenderQueue } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerZoomRerenderQueue';
-import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import type { IPdfViewerTransaction } from '@app/modules/pdf-viewer/engine/pdf-viewer-transaction/pdfViewerTransactionTypes';
 import { cast } from '@tests/helpers/cast';
 import { resolvePdfRenderPerformancePolicy } from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
@@ -63,7 +63,7 @@ function createQueueHarness(overrides: Partial<TQueueOptions> = {}) {
     const setZoomRerenderBusy = vi.fn();
     const queue = usePdfViewerZoomRerenderQueue({
         performancePolicy,
-        pdfDocument: shallowRef<PDFDocumentProxy | null>(cast<PDFDocumentProxy>({ fingerprint: 'doc' })),
+        pdfDocument: shallowRef<IPdfDocument | null>(cast<IPdfDocument>({ fingerprint: 'doc' })),
         isLoading: ref(false),
         viewerContainer: ref(null),
         summarizeViewerMetricsForLog: () => ({}),

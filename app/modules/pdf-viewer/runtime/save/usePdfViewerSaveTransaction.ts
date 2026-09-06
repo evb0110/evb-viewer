@@ -1,7 +1,5 @@
-import type {
-    AnnotationEditorUIManager,
-    PDFDocumentProxy,
-} from 'pdfjs-dist';
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import type {AnnotationEditorUIManager} from 'pdfjs-dist';
 import type {
     ComputedRef,
     ShallowRef,
@@ -60,14 +58,14 @@ interface IUsePdfViewerSaveTransactionOptions {
      * Production sessions pass their live authorities. The callback variants
      * below remain only as narrow test/workspace-save seams.
      */
-    pdfDocument?: ShallowRef<PDFDocumentProxy | null>;
+    pdfDocument?: ShallowRef<IPdfDocument | null>;
     annotationUiManager?: ShallowRef<AnnotationEditorUIManager | null>;
     annotationApplication?: ShallowRef<AnnotationApplication>;
     documentRevisionToken?: ComputedRef<TDocumentRevisionToken | null>;
     documentSession?: Pick<TPdfDocumentSession, 'captureFence' | 'isCurrent'>;
     flushAnnotationMutationsForSave?: () => Promise<unknown>;
     commitPendingEditorDraftsForSave?: () => void;
-    getPdfDocument?: () => PDFDocumentProxy | null;
+    getPdfDocument?: () => IPdfDocument | null;
     getMarkupSubtypeOverrides?: () => Map<string, TMarkupSubtype> | undefined;
     getMarkupSubtypeHints?: () => IMarkupSubtypeHint[] | undefined;
     getAllShapes?: () => IShapeAnnotation[];
@@ -425,7 +423,6 @@ export const usePdfViewerSaveTransaction = (
             liveAnnotationChanges: emptyLiveAnnotationChanges,
             hasLoadedSource: Boolean(request.source),
             forceWriterSave: request.forceWriterSave === true,
-            includeManagedShapesForLiveSource: request.includeManagedShapes === true,
             rewriteShapeState: request.rewriteShapeState !== false,
             totalPageCount: Math.max(
                 request.documentStructure?.totalPages ?? 0,

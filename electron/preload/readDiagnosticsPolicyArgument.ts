@@ -3,8 +3,7 @@ import {
     createDiagnosticsStartupPolicy,
     type IDiagnosticsStartupPolicy,
 } from '@electron/platform-ipc/coreContract';
-
-const BASE64URL_PATTERN = /^[\w-]+$/u;
+import { decodeBase64UrlUtf8 } from '@electron/preload/decodeBase64UrlUtf8';
 
 export function readDiagnosticsPolicyArgument(
     argv: readonly string[] = process.argv,
@@ -15,16 +14,13 @@ export function readDiagnosticsPolicyArgument(
     }
 
     const encoded = matchingArguments[0]!.slice(DIAGNOSTICS_POLICY_ARGUMENT_PREFIX.length);
-    if (!BASE64URL_PATTERN.test(encoded) || encoded.length % 4 === 1) {
+    const decodedJson = decodeBase64UrlUtf8(encoded);
+    if (decodedJson === null) {
         return createDiagnosticsStartupPolicy('unknown');
     }
 
     try {
-        const decoded = Buffer.from(encoded, 'base64url');
-        if (decoded.toString('base64url') !== encoded) {
-            return createDiagnosticsStartupPolicy('unknown');
-        }
-        const parsed: unknown = JSON.parse(decoded.toString('utf8'));
+        const parsed: unknown = JSON.parse(decodedJson);
         if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)
             || Reflect.ownKeys(parsed).length !== 1
             || !Object.hasOwn(parsed, 'mode')) {

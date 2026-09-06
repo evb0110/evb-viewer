@@ -1,3 +1,7 @@
+import type {
+    IPdfTextContent,
+    IPdfTextItem,
+} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {
     beforeEach,
     describe,
@@ -5,10 +9,6 @@ import {
     it,
     vi,
 } from 'vitest';
-import type {
-    TextContent,
-    TextItem,
-} from 'pdfjs-dist/types/src/display/api';
 import {
     extractBrowserSearchPageData,
     extractBrowserSearchPageText,
@@ -39,7 +39,7 @@ describe('extractBrowserSearchPageText', () => {
     });
 
     it('keeps PDF.js text item offsets compatible with rendered text layers', async () => {
-        const makeTextItem = (str: string, hasEOL: boolean): TextItem => ({
+        const makeTextItem = (str: string, hasEOL: boolean): IPdfTextItem => ({
             str,
             hasEOL,
             dir: 'ltr',
@@ -48,7 +48,7 @@ describe('extractBrowserSearchPageText', () => {
             height: 0,
             fontName: 'f1',
         });
-        const textContent: TextContent = {
+        const textContent: IPdfTextContent = {
             items: [
                 makeTextItem('alpha', true),
                 makeTextItem('beta  gamma', false),
@@ -71,7 +71,7 @@ describe('extractBrowserSearchPageText', () => {
     });
 
     it('uses canonical joining and hyphenation while preserving source Unicode offsets', async () => {
-        const makeTextItem = (str: string, hasEOL = false): TextItem => ({
+        const makeTextItem = (str: string, hasEOL = false): IPdfTextItem => ({
             str,
             hasEOL,
             dir: 'ltr',
@@ -80,7 +80,7 @@ describe('extractBrowserSearchPageText', () => {
             height: 0,
             fontName: 'f1',
         });
-        const page = {getTextContent: vi.fn(async (): Promise<TextContent> => ({
+        const page = {getTextContent: vi.fn(async (): Promise<IPdfTextContent> => ({
             items: [
                 makeTextItem('Cafe\u0301'),
                 makeTextItem('ex-', true),
@@ -95,7 +95,7 @@ describe('extractBrowserSearchPageText', () => {
 
     it('collapses exact repeated hidden text streams before browser search indexes the page', async () => {
         const repeatedText = 'СЛОВАРЬ\nАРАБСКОЙ ХРЕСТОМАТИИ И КОРАНУ. СОСТАВИЛЪ ПРОФ. В. ГИРГАСЪ.\n';
-        const makeTextItem = (str: string): TextItem => ({
+        const makeTextItem = (str: string): IPdfTextItem => ({
             str,
             hasEOL: false,
             dir: 'ltr',
@@ -104,7 +104,7 @@ describe('extractBrowserSearchPageText', () => {
             height: 0,
             fontName: 'f1',
         });
-        const textContent: TextContent = {
+        const textContent: IPdfTextContent = {
             items: [
                 makeTextItem(repeatedText),
                 makeTextItem(repeatedText),

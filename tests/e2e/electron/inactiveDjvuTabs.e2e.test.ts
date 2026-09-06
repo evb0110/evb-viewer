@@ -60,6 +60,7 @@ interface IWorkspaceSurfacePressureWindow extends Window {
 
 interface IInactiveDjvuRenderCancellationProbe {
     committedPagesAfterDeactivation: number[];
+    committedImagesBeforeDeactivation: WeakSet<HTMLImageElement>;
     deactivated: boolean;
     observer: MutationObserver;
 }
@@ -324,6 +325,7 @@ async function installInactiveDjvuRenderCancellationProbe(session: IElectronE2ES
         }
         const probe: IInactiveDjvuRenderCancellationProbe = {
             committedPagesAfterDeactivation: [],
+            committedImagesBeforeDeactivation: new WeakSet(),
             deactivated: false,
             observer: new MutationObserver(() => {
                 if (!probe.deactivated) {
@@ -332,9 +334,10 @@ async function installInactiveDjvuRenderCancellationProbe(session: IElectronE2ES
                 const committedPages = Array.from(activeHost.querySelectorAll<HTMLImageElement>(
                     '[data-testid="document-page-source-image"].document-page-visual--committed'
                     + '[data-document-page-visual="committed"]',
-                )).map(image => Number(
-                    image.closest<HTMLElement>('[data-page-number]')?.dataset.pageNumber,
-                )).filter(Number.isFinite);
+                )).filter(image => !probe.committedImagesBeforeDeactivation.has(image))
+                    .map(image => Number(
+                        image.closest<HTMLElement>('[data-page-number]')?.dataset.pageNumber,
+                    )).filter(Number.isFinite);
                 probe.committedPagesAfterDeactivation.push(...committedPages);
             }),
         };
@@ -647,35 +650,54 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
         ];
         await installInactiveDjvuRenderCancellationProbe(session);
 
-        const transition = await session.page.evaluate(async (pages: number[]) => {
+        const commandDispatch = await session.page.evaluate((pages: number[]) => {
             const probe = (window as IInactiveDjvuRenderCancellationWindow)
                 .__inactiveDjvuRenderCancellationProbe;
             const api = (window as IE2EWindow).__evbTestApi;
             if (!probe || !api) {
-                return {
-                    commandAvailable: false,
-                    pendingPages: [] as number[],
-                    switchedTabs: false,
-                };
+                return false;
             }
             for (const page of pages) {
-                void api.callActiveWorkspaceCommand('handleGoToPage', [page]);
+                void api.callActiveWorkspaceCommand('handleGoToPage', [page]).catch(() => undefined);
             }
-            await Promise.resolve();
-            await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+            return true;
+        }, queuedPages);
+
+        if (commandDispatch) {
+            await session.page.waitForFunction((pages: number[]) => {
+                const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+                return Array.from(host?.querySelectorAll<HTMLElement>(
+                    '[data-testid="document-page-source-page"][data-page-source-visual="skeleton"]',
+                ) ?? []).some(page => pages.includes(Number(page.dataset.pageNumber)));
+            }, {timeout: DJVU_E2E_TIMEOUT_MS}, queuedPages);
+        }
+
+        const transition = await session.page.evaluate((commandAvailable: boolean) => {
+            const probe = (window as IInactiveDjvuRenderCancellationWindow)
+                .__inactiveDjvuRenderCancellationProbe;
             const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
             const pendingPages = Array.from(host?.querySelectorAll<HTMLElement>(
                 '[data-testid="document-page-source-page"][data-page-source-visual="skeleton"]',
             ) ?? []).map(page => Number(page.dataset.pageNumber));
             const tabs = Array.from(document.querySelectorAll<HTMLElement>('.tab-list .tab[data-tab-id]'));
+            if (probe) {
+                probe.committedImagesBeforeDeactivation = new WeakSet(
+                    Array.from(host?.querySelectorAll<HTMLImageElement>(
+                        '[data-testid="document-page-source-image"].document-page-visual--committed'
+                        + '[data-document-page-visual="committed"]',
+                    ) ?? []),
+                );
+            }
             tabs[1]?.click();
-            probe.deactivated = true;
+            if (probe) {
+                probe.deactivated = true;
+            }
             return {
-                commandAvailable: true,
+                commandAvailable: commandAvailable && Boolean(probe),
                 pendingPages,
                 switchedTabs: Boolean(tabs[1]),
             };
-        }, queuedPages);
+        }, commandDispatch);
 
         expect(transition.commandAvailable).toBe(true);
         expect(transition.switchedTabs).toBe(true);

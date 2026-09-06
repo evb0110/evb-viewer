@@ -1,14 +1,14 @@
-import type { PDFDocumentProxy } from 'pdfjs-dist';
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {
     getOptionalObject,
     isRecord,
 } from '@app/services/pdfjs/runtime';
 
-function isPdfDocumentDestroyed(pdfDocument: PDFDocumentProxy) {
+function isPdfDocumentDestroyed(pdfDocument: IPdfDocument) {
     return isRecord(pdfDocument) && pdfDocument['destroyed'] === true;
 }
 
-function getRuntimeTransport(pdfDocument: PDFDocumentProxy) {
+function getRuntimeTransport(pdfDocument: IPdfDocument) {
     if (!isRecord(pdfDocument) || !('_transport' in pdfDocument)) {
         return undefined;
     }
@@ -17,7 +17,7 @@ function getRuntimeTransport(pdfDocument: PDFDocumentProxy) {
     return transport;
 }
 
-function hasUsableDocumentTransport(pdfDocument: PDFDocumentProxy) {
+function hasUsableDocumentTransport(pdfDocument: IPdfDocument) {
     const transport: unknown = getOptionalObject(pdfDocument, '_transport') ?? getRuntimeTransport(pdfDocument);
 
     if (transport === null) {
@@ -35,7 +35,7 @@ function hasUsableDocumentTransport(pdfDocument: PDFDocumentProxy) {
     return true;
 }
 
-export function isPdfDocumentOperational(pdfDocument: PDFDocumentProxy) {
+export function isPdfDocumentOperational(pdfDocument: IPdfDocument) {
     if (isPdfDocumentDestroyed(pdfDocument)) {
         return false;
     }

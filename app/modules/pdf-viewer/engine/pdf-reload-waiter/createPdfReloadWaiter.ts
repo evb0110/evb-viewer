@@ -1,7 +1,7 @@
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type { Ref } from 'vue';
 import { until } from '@vueuse/core';
 import { delay } from 'es-toolkit/promise';
-import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { IPdfReloadWaiterViewer } from '@app/modules/pdf-viewer/engine/pdf-reload-waiter/pdfReloadWaiterViewer';
 import { BrowserLogger } from '@app/utils/browserLogger';
 
@@ -9,7 +9,7 @@ const PDF_DOCUMENT_RELOAD_TIMEOUT_MS = 8000;
 const PDF_VIEWER_LOAD_SETTLE_TIMEOUT_MS = 30000;
 
 interface ICreatePdfReloadWaiterOptions {
-    pdfDocument: Ref<PDFDocumentProxy | null>;
+    pdfDocument: Ref<IPdfDocument | null>;
     pdfViewerRef: Ref<IPdfReloadWaiterViewer | null>;
     resetSearchCache: () => void;
     pageToRestore: number;

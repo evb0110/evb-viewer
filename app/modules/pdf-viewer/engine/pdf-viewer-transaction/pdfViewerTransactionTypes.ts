@@ -1,4 +1,4 @@
-import type { PDFDocumentProxy } from 'pdfjs-dist';
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type { TPdfViewMode } from '@contracts/shared';
 import type { IPageRange } from '@app/types/pdfUi';
 import type { TPdfRerenderSource } from '@app/modules/pdf-viewer/engine/pdf-rerender-protocol/pdfRerenderProtocol';
@@ -53,7 +53,7 @@ export type TPdfViewerTransactionPriority =
     | 'warm'
     | 'recovery';
 
-export interface IPdfViewerTransactionDocumentRef extends IDocumentViewportDocumentRef<PDFDocumentProxy> {}
+export interface IPdfViewerTransactionDocumentRef extends IDocumentViewportDocumentRef<IPdfDocument> {}
 
 export interface IPdfViewerTransactionFitPlan {
     mode: 'none' | 'fit-width' | 'fit-height';
@@ -97,7 +97,7 @@ export interface IPdfViewerTransactionCancellation extends IDocumentViewportTran
 export interface IPdfViewerTransaction extends IDocumentViewportTransactionBase<
     TPdfViewerTransactionKind,
     TPdfViewerTransactionSource,
-    PDFDocumentProxy,
+    IPdfDocument,
     IPageRange,
     IPdfViewerTransactionRenderRequest,
     IPdfViewerTransactionFitPlan,

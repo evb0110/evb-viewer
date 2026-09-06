@@ -7,7 +7,7 @@ import {
 } from 'vitest';
 import { ref } from 'vue';
 import { usePdfFile } from '@app/modules/workspace-shell/composables/usePdfFile';
-import type { IPdfConformanceProfile } from '@app/types/pdfContracts';
+import type {IPdfConformanceProfile} from '@app/types/pdfContracts';
 import type { IPdfNativeMutationSet } from '@contracts/electronApiDocuments';
 import { requirePageIndex } from '@contracts/pageNumbers';
 import {requireDocumentRevisionToken} from '@contracts';

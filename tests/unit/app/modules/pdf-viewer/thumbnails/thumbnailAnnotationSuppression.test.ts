@@ -1,3 +1,7 @@
+import type {
+    IPdfDocument,
+    IPdfPage,
+} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 // @vitest-environment happy-dom
 
 import {
@@ -16,10 +20,6 @@ import {
     nextTick,
     ref,
 } from 'vue';
-import type {
-    PDFDocumentProxy,
-    PDFPageProxy,
-} from 'pdfjs-dist';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { cast } from '@tests/helpers/cast';
 
@@ -94,7 +94,7 @@ function createOperatorList(pageNumber: number) {
 }
 
 function createPdfPage(pageNumber: number) {
-    return cast<PDFPageProxy>({
+    return cast<IPdfPage>({
         pageNumber,
         getViewport: ({scale = 1}: {scale?: number} = {}) => ({
             width: 100 * scale,
@@ -242,7 +242,7 @@ function mountThumbnailRuntime(annotationComments: ReturnType<typeof ref<IAnnota
                 currentPage: computed(() => 1),
                 invalidationRequest: computed(() => invalidationRequest.value),
                 isActive: computed(() => true),
-                pdfDocument: computed(() => cast<PDFDocumentProxy>({numPages: TOTAL_PAGES})),
+                pdfDocument: computed(() => cast<IPdfDocument>({numPages: TOTAL_PAGES})),
                 rasterScheduler: computed(() => scheduler),
                 totalPages: computed(() => TOTAL_PAGES),
             },

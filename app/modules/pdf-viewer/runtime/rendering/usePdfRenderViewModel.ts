@@ -1,12 +1,14 @@
 import type {
+    IPdfDocument,
+    IPdfPage,
+} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import type {
     ComputedRef,
     Ref,
     ShallowRef,
 } from 'vue';
 import { usePdfViewerLoadingState } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerLoadingState';
 import type {
-    PDFDocumentProxy,
-    PDFPageProxy,
     TFitMode,
     TZoomMode,
 } from '@app/types/pdfContracts';
@@ -20,8 +22,8 @@ import type { IDocumentOpenSurfaceSession } from '@app/utils/document-viewer/cha
 interface IUsePdfRenderViewModelOptions {
     src: ComputedRef<TPdfSource | null>;
     isLoading: Ref<boolean>;
-    pdfDocument: ShallowRef<PDFDocumentProxy | null>;
-    getPage: (pageNumber: number) => Promise<PDFPageProxy>;
+    pdfDocument: ShallowRef<IPdfDocument | null>;
+    getPage: (pageNumber: number) => Promise<IPdfPage>;
     openSurface: Pick<IDocumentOpenSurfaceSession, 'snapshot' | 'viewportSession'>;
     isVisualReloadTransitionActive: Ref<boolean>;
     suppressLoadingOverlay: ComputedRef<boolean>;

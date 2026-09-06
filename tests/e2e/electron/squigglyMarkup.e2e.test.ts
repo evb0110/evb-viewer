@@ -389,12 +389,16 @@ describe('Electron E2E - EVB text markup', () => {
         await waitForRenderedTextSpans(page, [1]);
         await createTextMarkup(page, 'Highlight', 1, 0, 1, 2);
         await waitForEvbTextMarkupVisualCount(page, 1);
-        const baselinePageWidth = await page.$eval('.page_container[data-page="1"]', (element) => {
+        const basePageWidth = await page.$eval('.page_container[data-page="1"]', (element) => {
             const width = element.getBoundingClientRect().width;
             if (width <= 0) {
                 throw new Error('Rendered page has no measurable width');
             }
-            return width;
+            const scale = Number.parseFloat(getComputedStyle(element).getPropertyValue('--scale-factor'));
+            if (!Number.isFinite(scale) || scale <= 0) {
+                throw new Error(`Rendered page has no measurable scale: ${scale}`);
+            }
+            return width / scale;
         });
 
         const geometryByZoom = new Map<number, string>();
@@ -406,7 +410,7 @@ describe('Electron E2E - EVB text markup', () => {
             const result = await callWorkspaceCommand<boolean>(page, 'setCustomZoomFromDisplay', [zoom]);
             expect(result.called).toBe(true);
             await waitForWorkspaceToolbarSnapshot(page, {effectiveZoom: zoom}, {timeoutMs: 20_000});
-            await waitForPageWidthAtZoom(page, baselinePageWidth, zoom);
+            await waitForPageWidthAtZoom(page, basePageWidth, zoom);
             const visuals = await readEvbTextMarkupVisuals(page);
             expect(visuals).toHaveLength(1);
             expect(visuals[0]?.rects).toHaveLength(3);

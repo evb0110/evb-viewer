@@ -1,3 +1,4 @@
+import type {IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 // @vitest-environment happy-dom
 
 import {
@@ -7,7 +8,6 @@ import {
     vi,
 } from 'vitest';
 import { ref } from 'vue';
-import type { PDFPageProxy } from 'pdfjs-dist';
 import { cast } from '@tests/helpers/cast';
 import { usePdfRendererAnnotationLayerController } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRendererAnnotationLayerController';
 
@@ -51,7 +51,7 @@ describe('usePdfRendererAnnotationLayerController', () => {
             1,
             cast<Parameters<typeof harness.controller>[3]>({
                 container: harness.container,
-                pdfPage: cast<PDFPageProxy>({}),
+                pdfPage: cast<IPdfPage>({}),
                 renderResult: {
                     viewport: {
                         width: 100,

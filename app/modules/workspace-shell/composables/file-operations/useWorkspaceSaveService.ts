@@ -1,10 +1,10 @@
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 /* eslint-disable max-lines -- Save planning and persistence share one document ownership boundary. */
 import type {
     Ref,
     ShallowRef,
 } from 'vue';
 import type {
-    PDFDocumentProxy,
     IPdfBookmarkEntry,
     IPdfPageLabelRange,
     TPdfSaveMode,
@@ -122,7 +122,7 @@ export interface IWorkspaceSaveDependencies {
         getBookmarksSaveStateToken?: () => unknown;
     };
     pdf: {
-        document: ShallowRef<PDFDocumentProxy | null>;
+        document: ShallowRef<IPdfDocument | null>;
         commitEditorsForSave?: () => Promise<void>;
         runSaveTransaction: IPdfViewerSaveExpose['runSaveTransaction'];
         getSourceData: () => Promise<Uint8Array | null>;
