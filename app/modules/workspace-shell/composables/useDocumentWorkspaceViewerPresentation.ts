@@ -42,10 +42,16 @@ export function shouldShowDjvuConversionBanner(
 export const useDocumentWorkspaceViewerPresentation = (
     options: IUseDocumentWorkspaceViewerPresentationOptions,
 ) => {
+    const activeDriverCanPresentDocument = computed(() => (
+        options.activeViewerCapabilities.value?.closeableDocument === true
+    ));
     const showWorkspaceViewerDocument = computed(() => (
-        options.showStandardPdfViewer.value
-        || options.showNativePdfViewer.value
-        || options.showDjvuSource.value
+        activeDriverCanPresentDocument.value
+        && (
+            options.showStandardPdfViewer.value
+            || options.showNativePdfViewer.value
+            || options.showDjvuSource.value
+        )
     ));
     const showDjvuConversionUi = computed(() => (
         options.canUseDjvu
