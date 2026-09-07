@@ -555,7 +555,7 @@ describe('PdfAnnotationEditorLayer SVG events', () => {
         expect(harness.selectedIds.value).toEqual(new Set([createdTextBox.identity.id]));
     });
 
-    it('commits an inline text draft through the viewer save hook', async () => {
+    it('commits an existing inline text draft without changing its geometry through the viewer save hook', async () => {
         const harness = createCreationSurface();
         harness.activeToolValue.value = 'select';
         harness.entities.value = [createdTextBox];
@@ -575,6 +575,7 @@ describe('PdfAnnotationEditorLayer SVG events', () => {
 
         const textBox = host.querySelector<HTMLElement>('[data-annotation-id="created-text-box"]');
         expect(textBox).not.toBeNull();
+        expect(host.querySelector('.pdf-annotation-selection-handles')).not.toBeNull();
         textBox!.dispatchEvent(new MouseEvent('dblclick', {
             bubbles: true,
             detail: 2,
@@ -585,6 +586,19 @@ describe('PdfAnnotationEditorLayer SVG events', () => {
 
         const editor = host.querySelector<HTMLElement>('[contenteditable="true"]');
         expect(editor).not.toBeNull();
+        expect(host.querySelector('.pdf-annotation-selection-handles')).toBeNull();
+        const layer = host.querySelector<HTMLElement>('.pdf-annotation-editor-layer');
+        vi.spyOn(layer!, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 100, 100));
+        Object.defineProperties(editor!, {
+            scrollWidth: {
+                configurable: true,
+                value: 90,
+            },
+            scrollHeight: {
+                configurable: true,
+                value: 40,
+            },
+        });
         editor!.textContent = 'draft through save hook';
         editor!.dispatchEvent(new InputEvent('input', {
             bubbles: true,
@@ -603,5 +617,85 @@ describe('PdfAnnotationEditorLayer SVG events', () => {
         );
         expect(harness.clearTextBoxDraftPending).toHaveBeenCalledWith(createdTextBox.identity.id);
         expect(harness.hasPendingTextBoxDrafts()).toBe(false);
+    });
+
+    it('grows a click-created text box without moving its insertion edge', async () => {
+        const harness = createCreationSurface();
+        const host = document.createElement('div');
+        document.body.append(host);
+        const app = createApp({setup() {
+            provide(annotationEditorSurfaceKey, harness.surface);
+            return () => h(PdfAnnotationEditorLayer, {pageIndex: requirePageIndex(25)});
+        }});
+        app.mount(host);
+        onTestFinished(() => {
+            app.unmount();
+            host.remove();
+        });
+        await nextTick();
+
+        const layer = host.querySelector<HTMLElement>('.pdf-annotation-editor-layer');
+        const background = host.querySelector<HTMLElement>('.pdf-annotation-editor-surface__background');
+        expect(layer).not.toBeNull();
+        expect(background).not.toBeNull();
+        vi.spyOn(layer!, 'getBoundingClientRect').mockReturnValue({
+            bottom: 100,
+            height: 100,
+            left: 0,
+            right: 100,
+            top: 0,
+            width: 100,
+            x: 0,
+            y: 0,
+            toJSON: () => ({}),
+        });
+
+        background!.dispatchEvent(new PointerEvent('pointerdown', {
+            bubbles: true,
+            button: 0,
+            clientX: 20,
+            clientY: 20,
+            pointerId: 22,
+        }));
+        layer!.dispatchEvent(new PointerEvent('pointerup', {
+            bubbles: true,
+            button: 0,
+            clientX: 20,
+            clientY: 20,
+            pointerId: 22,
+        }));
+        await nextTick();
+
+        const editor = host.querySelector<HTMLElement>('[contenteditable="true"]');
+        expect(editor).not.toBeNull();
+        expect(host.querySelector('.pdf-annotation-selection-handles')).toBeNull();
+        Object.defineProperty(editor!, 'scrollWidth', {
+            configurable: true,
+            value: 90,
+        });
+        Object.defineProperty(editor!, 'scrollHeight', {
+            configurable: true,
+            value: 40,
+        });
+        editor!.textContent = 'a long click-created draft';
+        editor!.dispatchEvent(new InputEvent('input', {
+            bubbles: true,
+            inputType: 'insertText',
+            data: 'a long click-created draft',
+        }));
+        harness.commitPendingTextBoxDraftsForSave();
+
+        expect(harness.commitGesture).toHaveBeenCalledWith(
+            createdTextBox.identity.id,
+            expect.objectContaining({
+                text: 'a long click-created draft',
+                rect: expect.objectContaining({
+                    left: 0.2,
+                    width: 0.8,
+                }),
+            }),
+        );
+        const patch = harness.commitGesture.mock.calls.at(-1)?.[1] as {rect?: {height?: number}} | undefined;
+        expect(patch?.rect?.height).toBeGreaterThan(0.1);
     });
 });

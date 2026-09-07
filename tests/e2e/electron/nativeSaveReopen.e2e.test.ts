@@ -677,7 +677,7 @@ describe('Electron E2E - native save and reopen', () => {
         await openAnnotationsTab(session.page, 30_000);
         await clickAnnotationTool(session.page, 'Text');
 
-        const creationPoint = await readPagePoint(session.page, 0.62, 0.52);
+        const creationPoint = await readPagePoint(session.page, 0.10, 0.52);
         expect(creationPoint).not.toBeNull();
         if (!creationPoint) {
             throw new Error('The empty fixture page was not mounted');
@@ -734,6 +734,15 @@ describe('Electron E2E - native save and reopen', () => {
         ), {timeout: 20_000}).toBe(typedText);
 
         await clickAnnotationTool(session.page, 'Select');
+        const selectionTarget = await readTextBoxScreenPoints(session.page);
+        expect(selectionTarget).not.toBeNull();
+        if (!selectionTarget) {
+            throw new Error('The restored text box did not expose a selection target');
+        }
+        await session.page.mouse.click(
+            selectionTarget.box.left + selectionTarget.box.width / 2,
+            selectionTarget.box.top + selectionTarget.box.height / 2,
+        );
         await session.page.waitForFunction((id: string) => Array.from(document.querySelectorAll<HTMLElement>(
             '[data-annotation-kind="text-box"]',
         )).some(entity => entity.dataset.annotationId === id && entity.classList.contains('is-selected')), {timeout: 20_000}, annotationId);

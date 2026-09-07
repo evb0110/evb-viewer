@@ -13,6 +13,8 @@ import {
     h,
     nextTick,
     reactive,
+    ref,
+    watch,
 } from 'vue';
 import type {
     IAnnotationSettings,
@@ -115,10 +117,27 @@ const PopoverStub = defineComponent({
         },
     },
     emits: ['update:open'],
-    setup: (props, {slots}) => () => h('div', {'data-popover-stub': ''}, [
-        slots.default?.(),
-        props.open ? slots.content?.() : null,
-    ]),
+    setup: (props, {slots}) => {
+        const element = ref<HTMLElement | null>(null);
+        watch(() => props.open, async (open) => {
+            if (!open) {
+                return;
+            }
+            await nextTick();
+            const event = new Event('openAutoFocus', {cancelable: true});
+            props.content.onOpenAutoFocus?.(event);
+            if (!event.defaultPrevented) {
+                element.value?.querySelector<HTMLButtonElement>('.annotation-style-popover-close')?.focus();
+            }
+        });
+        return () => h('div', {
+            ref: element,
+            'data-popover-stub': '',
+        }, [
+            slots.default?.(),
+            props.open ? slots.content?.() : null,
+        ]);
+    },
 });
 
 interface IHarnessState {
@@ -131,6 +150,8 @@ interface IHarnessState {
 const activeUnmounts = new Set<() => void>();
 
 async function settle() {
+    await nextTick();
+    await nextTick();
     await nextTick();
     await nextTick();
 }
@@ -183,6 +204,40 @@ afterEach(() => {
 });
 
 describe('PdfAnnotationsPanel style popover lifecycle', () => {
+    it('keeps a newly focused annotation editor focused when selection opens styles', async () => {
+        const {
+            host,
+            state,
+        } = mountPanel();
+        const layer = document.createElement('div');
+        layer.className = 'pdf-annotation-editor-layer';
+        const editor = document.createElement('div');
+        editor.contentEditable = 'true';
+        editor.tabIndex = 0;
+        layer.append(editor);
+        host.append(layer);
+        editor.focus();
+
+        state.tool = 'text';
+        await settle();
+
+        expect(host.querySelector('.annotation-style-popover')).not.toBeNull();
+        expect(document.activeElement).toBe(editor);
+    });
+
+    it('keeps normal style-control autofocus for toolbar activation', async () => {
+        const {
+            host,
+            state,
+        } = mountPanel();
+        host.querySelector<HTMLButtonElement>('[data-toolbar-text]')?.focus();
+
+        state.tool = 'text';
+        await settle();
+
+        expect(document.activeElement).toBe(host.querySelector('.annotation-style-popover-close'));
+    });
+
     it('dismisses the body popover while annotations are hidden and reopens on return', async () => {
         const {
             host,

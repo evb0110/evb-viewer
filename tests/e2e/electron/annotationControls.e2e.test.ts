@@ -42,6 +42,32 @@ interface IManagedShape {
     strokes?: unknown[][];
 }
 
+interface ITextBoxGeometrySnapshot {
+    editing: boolean;
+    editorClientHeight: number;
+    editorClientWidth: number;
+    editorScrollHeight: number;
+    editorScrollWidth: number;
+    focused: boolean;
+    fontSize: number;
+    id: string;
+    page: {
+        bottom: number;
+        left: number;
+        right: number;
+        top: number;
+    };
+    rect: {
+        bottom: number;
+        height: number;
+        left: number;
+        right: number;
+        top: number;
+        width: number;
+    };
+    text: string;
+}
+
 async function waitForAnnotationPointerReady(page: Page, timeoutMs = POINTER_READY_TIMEOUT_MS) {
     await page.waitForFunction(() => {
         const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
@@ -223,6 +249,48 @@ async function readTextBoxCenter(page: Page, annotationId: string) {
         return {
             x: rect.left + rect.width / 2,
             y: rect.top + rect.height / 2,
+        };
+    }, annotationId);
+}
+
+async function readTextBoxGeometry(page: Page, annotationId: string) {
+    return page.evaluate((id: string): ITextBoxGeometrySnapshot | null => {
+        const textBox = Array.from(document.querySelectorAll<HTMLElement>(
+            '[data-annotation-kind="text-box"]',
+        )).find(candidate => candidate.dataset.annotationId === id);
+        const pageContainer = textBox?.closest<HTMLElement>('.page_container');
+        if (!textBox || !pageContainer) {
+            return null;
+        }
+
+        const editor = textBox.querySelector<HTMLElement>('[contenteditable="true"]');
+        const rect = textBox.getBoundingClientRect();
+        const pageRect = pageContainer.getBoundingClientRect();
+        const styles = window.getComputedStyle(textBox);
+        return {
+            editing: textBox.classList.contains('is-editing'),
+            editorClientHeight: editor?.clientHeight ?? 0,
+            editorClientWidth: editor?.clientWidth ?? 0,
+            editorScrollHeight: editor?.scrollHeight ?? 0,
+            editorScrollWidth: editor?.scrollWidth ?? 0,
+            focused: editor !== null && document.activeElement === editor,
+            fontSize: Number.parseFloat(styles.fontSize),
+            id,
+            page: {
+                bottom: pageRect.bottom,
+                left: pageRect.left,
+                right: pageRect.right,
+                top: pageRect.top,
+            },
+            rect: {
+                bottom: rect.bottom,
+                height: rect.height,
+                left: rect.left,
+                right: rect.right,
+                top: rect.top,
+                width: rect.width,
+            },
+            text: (editor?.textContent ?? textBox.textContent ?? '').replace(/[\u200B\uFEFF]/gu, ''),
         };
     }, annotationId);
 }
@@ -412,5 +480,253 @@ describe('Electron E2E - annotation controls', () => {
         expect(inkShape?.opacity).toBeCloseTo(0.42, 2);
         expect(inkShape?.strokes?.[0]?.length ?? 0).toBeGreaterThan(1);
         expect(await readActiveAnnotationTool(page)).toBe('draw');
+    });
+
+    it('keeps delayed text creation focused while the style popover reopens', async () => {
+        const session = sessionFixture.getSession();
+        if (!session) {
+            return;
+        }
+        const {page} = session;
+        const fixturePath = await createBlankFixturePdf(`annotation-controls-${Date.now()}-delayed-text.pdf`);
+        onTestFinished(() => rmSync(fixturePath, {force: true}));
+
+        await openPdfInApp(page, fixturePath);
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        await openAnnotationsTab(page);
+        await waitForViewerInteractive(page);
+        await clickAnnotationTool(page, 'Text');
+
+        const editorSelector = '.editor-pane.is-active .page_container[data-page="1"] '
+            + '.pdf-annotation-editor-text-box.is-editing [contenteditable="true"]';
+
+        for (let attempt = 0; attempt < 8; attempt += 1) {
+            if (attempt > 0) {
+                await page.keyboard.press('Escape');
+                await clickAnnotationTool(page, 'Select');
+                await page.waitForFunction((selector: string) => (
+                    document.querySelector(selector) === null
+                ), {timeout: STYLE_UPDATE_TIMEOUT_MS}, editorSelector);
+                await clickAnnotationTool(page, 'Text');
+            }
+
+            await page.waitForSelector('.annotation-style-popover', {
+                visible: true,
+                timeout: STYLE_UPDATE_TIMEOUT_MS,
+            });
+            const point = await page.evaluate(() => {
+                const layer = document.querySelector<HTMLElement>(
+                    '.editor-pane.is-active .page_container[data-page="1"] .pdf-annotation-editor-layer',
+                );
+                const rect = layer?.getBoundingClientRect();
+                if (!rect || rect.width <= 0 || rect.height <= 0) {
+                    return null;
+                }
+                return {
+                    x: rect.left + rect.width * 0.42,
+                    y: rect.top + rect.height * 0.34,
+                };
+            });
+            if (!point) {
+                throw new Error('The text annotation layer did not expose a drawable point');
+            }
+
+            await page.mouse.click(point.x, point.y, {delay: 100});
+            await page.evaluate(() => new Promise<void>(resolve => {
+                setTimeout(resolve, 300);
+            }));
+            const focusSnapshot = await page.evaluate((selector: string) => {
+                const editor = document.querySelector<HTMLElement>(selector);
+                const activeElement = document.activeElement as HTMLElement | null;
+                return {
+                    activeClass: activeElement?.className ?? '',
+                    activeTag: activeElement?.tagName ?? '',
+                    editorPresent: editor !== null,
+                    focused: editor !== null && activeElement === editor,
+                };
+            }, editorSelector);
+            expect(focusSnapshot, `Text editor focus was lost on delayed attempt ${attempt}: ${JSON.stringify(focusSnapshot)}`)
+                .toMatchObject({
+                    editorPresent: true,
+                    focused: true,
+                });
+
+            // Deliberately do not call page.focus here. The keystrokes must use
+            // the focus produced by the real pointer sequence.
+            const text = `Delayed text ${attempt}`;
+            await page.keyboard.type(text, {delay: 5});
+            const editorText = await page.evaluate((selector: string) => (
+                document.querySelector<HTMLElement>(selector)?.textContent
+                    ?.replace(/[\u200B\uFEFF]/gu, '')
+                    .trim()
+                ?? null
+            ), editorSelector);
+            expect(editorText, `Text editor did not receive delayed input on attempt ${attempt}`).toBe(text);
+            await page.keyboard.press('Escape');
+            await clickAnnotationTool(page, 'Select');
+            await page.waitForFunction((selector: string) => (
+                document.querySelector(selector) === null
+            ), {timeout: STYLE_UPDATE_TIMEOUT_MS}, editorSelector);
+        }
+    });
+
+    it('creates a compact text box that grows and commits its text geometry at the page edge', async () => {
+        const session = sessionFixture.getSession();
+        if (!session) {
+            return;
+        }
+        const {page} = session;
+        const fixturePath = await createBlankFixturePdf(`annotation-controls-${Date.now()}-text-geometry.pdf`);
+        onTestFinished(() => rmSync(fixturePath, {force: true}));
+
+        await openPdfInApp(page, fixturePath);
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        await openAnnotationsTab(page);
+        await waitForViewerInteractive(page);
+        await clickAnnotationTool(page, 'Text');
+        await waitForAnnotationPointerReady(page);
+
+        await page.evaluate(() => {
+            document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .page_container[data-page="1"]',
+            )?.scrollIntoView({
+                block: 'end',
+                inline: 'center',
+            });
+        });
+        await page.evaluate(async () => {
+            await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+        });
+        const clickPoint = await page.evaluate(() => {
+            const layer = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .page_container[data-page="1"] .pdf-annotation-editor-layer',
+            );
+            const rect = layer?.getBoundingClientRect();
+            if (!rect || rect.width <= 0 || rect.height <= 0) {
+                return null;
+            }
+            const margin = 24;
+            const clamp = (value: number, minimum: number, maximum: number) => (
+                Math.min(Math.max(value, minimum), maximum)
+            );
+            return {
+                x: clamp(rect.left + rect.width * 0.82, margin, window.innerWidth - margin),
+                y: clamp(rect.top + rect.height * 0.9, margin, window.innerHeight - margin),
+            };
+        });
+        if (!clickPoint) {
+            throw new Error('The text annotation layer did not expose a page-edge point');
+        }
+
+        await page.mouse.click(clickPoint.x, clickPoint.y, {delay: 100});
+        const editorSelector = '.editor-pane.is-active .page_container[data-page="1"] '
+            + '.pdf-annotation-editor-text-box.is-editing [contenteditable="true"]';
+        await page.waitForSelector(editorSelector, {
+            visible: true,
+            timeout: STYLE_UPDATE_TIMEOUT_MS,
+        });
+        const textBoxId = await page.evaluate(() => document.querySelector<HTMLElement>(
+            '.editor-pane.is-active .page_container[data-page="1"] '
+                + '.pdf-annotation-editor-text-box.is-editing',
+        )?.dataset.annotationId ?? null);
+        if (!textBoxId) {
+            throw new Error('The click-created text box did not expose an annotation id');
+        }
+        await page.waitForFunction((selector: string) => (
+            document.querySelector(selector) !== null
+            && document.activeElement === document.querySelector(selector)
+        ), {timeout: STYLE_UPDATE_TIMEOUT_MS}, editorSelector);
+
+        const initial = await readTextBoxGeometry(page, textBoxId);
+        if (!initial) {
+            throw new Error('The click-created text box geometry was unavailable');
+        }
+        expect(initial.editing).toBe(true);
+        expect(initial.focused).toBe(true);
+        expect(initial.fontSize).toBeGreaterThan(0);
+        expect(initial.rect.width / initial.fontSize).toBeGreaterThan(1.8);
+        expect(initial.rect.width / initial.fontSize).toBeLessThan(2.3);
+        expect(initial.rect.height / initial.fontSize).toBeGreaterThan(1.4);
+        expect(initial.rect.height / initial.fontSize).toBeLessThan(1.95);
+        expect(Math.abs(initial.rect.left - clickPoint.x)).toBeLessThanOrEqual(3);
+        expect(Math.abs(initial.rect.top - clickPoint.y)).toBeLessThanOrEqual(3);
+        expect(initial.rect.width).toBeLessThan((initial.page.right - initial.page.left) * 0.25);
+        expect(initial.rect.height).toBeLessThan((initial.page.bottom - initial.page.top) * 0.1);
+
+        // The editor must receive input through the focus from the pointer path.
+        // Calling page.focus here would hide the creation and autofocus regression.
+        const firstLine = 'A wider first line';
+        await page.keyboard.type(firstLine, {delay: 4});
+        await page.waitForFunction((options: {
+            id: string;
+            text: string;
+        }) => {
+            const entity = document.querySelector<HTMLElement>(
+                `[data-annotation-kind="text-box"][data-annotation-id="${options.id}"]`,
+            );
+            return entity?.textContent?.replace(/[\u200B\uFEFF]/gu, '') === options.text;
+        }, {timeout: STYLE_UPDATE_TIMEOUT_MS}, {
+            id: textBoxId,
+            text: firstLine,
+        });
+        const afterFirstLine = await readTextBoxGeometry(page, textBoxId);
+        if (!afterFirstLine) {
+            throw new Error('The text box disappeared after its first input');
+        }
+        expect(afterFirstLine.rect.width).toBeGreaterThan(initial.rect.width + 1);
+
+        const continuation = ' near the lower right corner, this sentence wraps onto several lines while staying inside the PDF page.';
+        await page.keyboard.press('End');
+        await page.keyboard.type(continuation, {delay: 2});
+        const expectedText = firstLine + continuation;
+        await page.waitForFunction((options: {
+            id: string;
+            text: string;
+        }) => {
+            const entity = document.querySelector<HTMLElement>(
+                `[data-annotation-kind="text-box"][data-annotation-id="${options.id}"]`,
+            );
+            return entity?.textContent?.replace(/[\u200B\uFEFF]/gu, '') === options.text;
+        }, {timeout: STYLE_UPDATE_TIMEOUT_MS}, {
+            id: textBoxId,
+            text: expectedText,
+        });
+        const beforeCommit = await readTextBoxGeometry(page, textBoxId);
+        if (!beforeCommit) {
+            throw new Error('The text box geometry was unavailable before commit');
+        }
+        expect(beforeCommit.rect.height).toBeGreaterThan(afterFirstLine.rect.height + 2);
+        expect(beforeCommit.rect.left).toBeGreaterThanOrEqual(beforeCommit.page.left - 2);
+        expect(beforeCommit.rect.top).toBeGreaterThanOrEqual(beforeCommit.page.top - 2);
+        expect(beforeCommit.rect.right).toBeLessThanOrEqual(beforeCommit.page.right + 2);
+        expect(beforeCommit.rect.bottom).toBeLessThanOrEqual(beforeCommit.page.bottom + 2);
+        expect(beforeCommit.editorScrollWidth).toBeLessThanOrEqual(beforeCommit.editorClientWidth + 2);
+        expect(beforeCommit.editorScrollHeight).toBeLessThanOrEqual(beforeCommit.editorClientHeight + 2);
+
+        const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
+        await page.keyboard.down(modifier);
+        try {
+            await page.keyboard.press('Enter');
+        } finally {
+            await page.keyboard.up(modifier);
+        }
+        await page.waitForFunction((id: string) => {
+            const entity = document.querySelector<HTMLElement>(
+                `[data-annotation-kind="text-box"][data-annotation-id="${id}"]`,
+            );
+            return entity !== null && !entity.classList.contains('is-editing');
+        }, {timeout: STYLE_UPDATE_TIMEOUT_MS}, textBoxId);
+        const committed = await readTextBoxGeometry(page, textBoxId);
+        if (!committed) {
+            throw new Error('The committed text box geometry was unavailable');
+        }
+        expect(committed.editing).toBe(false);
+        expect(committed.text).toBe(expectedText);
+        expect(Math.abs(committed.rect.left - beforeCommit.rect.left)).toBeLessThanOrEqual(2);
+        expect(Math.abs(committed.rect.top - beforeCommit.rect.top)).toBeLessThanOrEqual(2);
+        expect(Math.abs(committed.rect.width - beforeCommit.rect.width)).toBeLessThanOrEqual(2);
+        expect(Math.abs(committed.rect.height - beforeCommit.rect.height)).toBeLessThanOrEqual(2);
     });
 });

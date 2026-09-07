@@ -150,6 +150,13 @@ const stylePopoverContent = {
     side: 'bottom' as const,
     sideOffset: 4,
     collisionPadding: 12,
+    onOpenAutoFocus(event: Event) {
+        // Selection can reopen styles while a new text editor takes focus.
+        // Stealing that focus blurs and discards its still-empty draft.
+        if (document.activeElement?.closest('.pdf-annotation-editor-layer')) {
+            event.preventDefault();
+        }
+    },
 };
 const colorSettingKeys = new Set<keyof IAnnotationSettings>([
     'highlightColor',

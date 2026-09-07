@@ -1,5 +1,6 @@
 import { clamp } from 'es-toolkit/math';
 import type { IAnnotationMarkerRect } from '@app/types/annotations';
+import type { TPageRotation } from '@app/modules/pdf-viewer/engine/annotation-geometry/pageRotation';
 
 export type TAnnotationResizeHandle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
 
@@ -41,6 +42,45 @@ function rectFromEdges(left: number, top: number, right: number, bottom: number)
         width: Math.max(0, right - left),
         height: Math.max(0, bottom - top),
     };
+}
+
+export interface IDefaultTextBoxRectOptions {
+    readonly pageView?: readonly number[] | null | undefined;
+    readonly pageRotation?: TPageRotation | undefined;
+    readonly fontSize?: number | undefined;
+}
+
+const DEFAULT_TEXT_BOX_FONT_SIZE = 14;
+const DEFAULT_TEXT_BOX_WIDTH_EM = 2;
+const DEFAULT_TEXT_BOX_HEIGHT_EM = 1.65;
+const FALLBACK_PAGE_WIDTH = 612;
+const FALLBACK_PAGE_HEIGHT = 792;
+
+function pageDimensions(
+    pageView: readonly number[] | null | undefined,
+    pageRotation: TPageRotation,
+) {
+    const xMin = pageView?.[0] ?? 0;
+    const yMin = pageView?.[1] ?? 0;
+    const xMax = pageView?.[2] ?? FALLBACK_PAGE_WIDTH;
+    const yMax = pageView?.[3] ?? FALLBACK_PAGE_HEIGHT;
+    const width = xMax - xMin;
+    const height = yMax - yMin;
+    if (!Number.isFinite(width) || width <= 0 || !Number.isFinite(height) || height <= 0) {
+        return {
+            width: FALLBACK_PAGE_WIDTH,
+            height: FALLBACK_PAGE_HEIGHT,
+        };
+    }
+    return pageRotation === 90 || pageRotation === 270
+        ? {
+            width: height,
+            height: width,
+        }
+        : {
+            width,
+            height,
+        };
 }
 
 export function moveAnnotationRect(
@@ -134,17 +174,39 @@ export function createAnnotationRectFromPoints(
 
 export function createDefaultTextBoxRect(
     point: IAnnotationEditorPoint,
-    width = 0.28,
-    height = 0.1,
+    options: IDefaultTextBoxRectOptions = {},
 ): IAnnotationMarkerRect {
-    const safeWidth = clamp(finiteOr(width, 0.28), 0, 1);
-    const safeHeight = clamp(finiteOr(height, 0.1), 0, 1);
+    const fontSize = Math.max(1, finiteOr(options.fontSize ?? DEFAULT_TEXT_BOX_FONT_SIZE, DEFAULT_TEXT_BOX_FONT_SIZE));
+    const page = pageDimensions(options.pageView, options.pageRotation ?? 0);
+    const safeWidth = clamp(fontSize * DEFAULT_TEXT_BOX_WIDTH_EM / page.width, 0, 1);
+    const safeHeight = clamp(fontSize * DEFAULT_TEXT_BOX_HEIGHT_EM / page.height, 0, 1);
     const nextPoint = clampPoint(point);
     return {
-        left: clamp(nextPoint.x - safeWidth / 2, 0, 1 - safeWidth),
-        top: clamp(nextPoint.y - safeHeight / 2, 0, 1 - safeHeight),
+        left: clamp(nextPoint.x, 0, 1 - safeWidth),
+        top: clamp(nextPoint.y, 0, 1 - safeHeight),
         width: safeWidth,
         height: safeHeight,
+    };
+}
+
+export function expandTextBoxRectToContentSize(
+    rect: IAnnotationMarkerRect,
+    contentWidth: number,
+    contentHeight: number,
+): IAnnotationMarkerRect {
+    const normalized = normalizeRect(rect);
+    const width = clamp(
+        Math.max(normalized.width, finiteOr(contentWidth, normalized.width)),
+        0,
+        Math.max(0, 1 - normalized.left),
+    );
+    const height = clamp(Math.max(normalized.height, finiteOr(contentHeight, normalized.height)), 0, 1);
+    return {
+        ...normalized,
+        left: normalized.left,
+        top: clamp(normalized.top, 0, Math.max(0, 1 - height)),
+        width,
+        height,
     };
 }
 

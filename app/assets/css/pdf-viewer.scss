@@ -342,6 +342,7 @@
     overflow: hidden;
     padding: 0.15em 0.3em;
     border: 1px solid transparent;
+    line-height: 1.2;
     white-space: pre-wrap;
     user-select: text;
     cursor: move;
@@ -354,8 +355,10 @@
 }
 
 .pdfViewer .pdf-annotation-editor-text-box__editor {
+    box-sizing: border-box;
     width: 100%;
     height: 100%;
+    line-height: inherit;
     outline: none;
     white-space: pre-wrap;
     overflow-wrap: anywhere;

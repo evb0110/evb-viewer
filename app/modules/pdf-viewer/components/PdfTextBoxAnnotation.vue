@@ -1,5 +1,6 @@
 <template>
     <div
+        ref="rootRef"
         class="pdf-annotation-editor-entity pdf-annotation-editor-text-box"
         :class="{
             'is-selected': selected,
@@ -34,26 +35,44 @@ import type { ITextBoxEntity } from '@app/modules/pdf-viewer/engine/annotations/
 import { toPdfScaledCssLength } from '@app/modules/pdf-viewer/engine/pdf-page-scale/pdfPageScale';
 import type { IAnnotationMarkerRect } from '@app/types/annotations';
 import { useTextBoxInlineEdit } from '@app/modules/pdf-viewer/annotations/editor/useTextBoxInlineEdit';
+import {
+    annotationRectsEqual,
+    expandTextBoxRectToContentSize,
+} from '@app/modules/pdf-viewer/engine/annotation-editor-geometry/annotationEditorGeometry';
+
+interface ITextBoxCommitDraft {
+    readonly text: string;
+    readonly rect?: IAnnotationMarkerRect;
+}
 
 const props = defineProps<{
     entity: ITextBoxEntity;
     selected: boolean;
     editing?: boolean;
+    autoSizeDraft?: boolean;
     displayRect?: IAnnotationMarkerRect | undefined;
 }>();
 const emit = defineEmits<{
     'pointer-down': [event: PointerEvent];
     edit: [];
     'draft-change': [];
-    commit: [text: string];
+    commit: [draft: ITextBoxCommitDraft];
     cancel: [];
 }>();
 const { t } = useTypedI18n();
 const editing = computed(() => props.editing ?? false);
+const rootRef = ref<HTMLElement | null>(null);
+const draftRect = ref<IAnnotationMarkerRect | null>(null);
 const inlineEdit = useTextBoxInlineEdit({
     entity: computed(() => props.entity),
     editing,
-    onCommit: text => emit('commit', text),
+    onCommit: text => {
+        const rect = draftRectForContent();
+        emit('commit', {
+            text,
+            ...(rect ? {rect} : {}),
+        });
+    },
     onCancel: () => emit('cancel'),
 });
 const {
@@ -64,18 +83,97 @@ const {
     handleBlur,
 } = inlineEdit;
 
+watch(editing, () => {
+    draftRect.value = null;
+});
+
+function pixels(value: string) {
+    const parsed = Number.parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function draftRectForContent(): IAnnotationMarkerRect | undefined {
+    const root = rootRef.value;
+    const editor = editorRef.value;
+    const page = root?.closest<HTMLElement>('.pdf-annotation-editor-layer');
+    const pageRect = page?.getBoundingClientRect();
+    if (
+        !props.autoSizeDraft
+        || !root
+        || !editor
+        || !pageRect
+        || pageRect.width <= 0
+        || pageRect.height <= 0
+        || !Number.isFinite(pageRect.width)
+        || !Number.isFinite(pageRect.height)
+    ) {
+        return undefined;
+    }
+    const styles = getComputedStyle(root);
+    const extraWidth = pixels(styles.paddingLeft)
+        + pixels(styles.paddingRight)
+        + pixels(styles.borderLeftWidth)
+        + pixels(styles.borderRightWidth);
+    const extraHeight = pixels(styles.paddingTop)
+        + pixels(styles.paddingBottom)
+        + pixels(styles.borderTopWidth)
+        + pixels(styles.borderBottomWidth);
+
+    const rootWidth = root.style.width;
+    const rootHeight = root.style.height;
+    const editorWidth = editor.style.width;
+    const editorHeight = editor.style.height;
+    const editorWhiteSpace = editor.style.whiteSpace;
+    const editorOverflowWrap = editor.style.overflowWrap;
+    let next = draftRect.value ?? props.entity.rect;
+    try {
+        root.style.width = 'max-content';
+        root.style.height = 'auto';
+        editor.style.width = 'max-content';
+        editor.style.height = 'auto';
+        editor.style.whiteSpace = 'pre';
+        editor.style.overflowWrap = 'normal';
+        const intrinsicWidth = (editor.scrollWidth + extraWidth) / pageRect.width;
+        const current = draftRect.value ?? props.entity.rect;
+        const width = Math.min(
+            Math.max(current.width, intrinsicWidth),
+            Math.max(0, 1 - current.left),
+        );
+
+        root.style.width = `${width * pageRect.width}px`;
+        editor.style.width = '100%';
+        editor.style.height = 'auto';
+        editor.style.whiteSpace = 'pre-wrap';
+        editor.style.overflowWrap = 'anywhere';
+        const contentHeight = (editor.scrollHeight + extraHeight) / pageRect.height;
+        next = expandTextBoxRectToContentSize(current, width, contentHeight);
+    } finally {
+        root.style.width = rootWidth;
+        root.style.height = rootHeight;
+        editor.style.width = editorWidth;
+        editor.style.height = editorHeight;
+        editor.style.whiteSpace = editorWhiteSpace;
+        editor.style.overflowWrap = editorOverflowWrap;
+    }
+    draftRect.value = next;
+    return annotationRectsEqual(next, props.entity.rect) ? undefined : next;
+}
+
 function handleInputEvent(event: Event) {
     handleInput(event);
+    if (props.autoSizeDraft) {
+        draftRectForContent();
+    }
     emit('draft-change');
 }
 
 interface IPdfTextBoxAnnotationExpose {commitDraft: () => void;}
 
 const rectStyle = computed(() => ({
-    left: `${(props.displayRect ?? props.entity.rect).left * 100}%`,
-    top: `${(props.displayRect ?? props.entity.rect).top * 100}%`,
-    width: `${(props.displayRect ?? props.entity.rect).width * 100}%`,
-    height: `${(props.displayRect ?? props.entity.rect).height * 100}%`,
+    left: `${(draftRect.value ?? props.displayRect ?? props.entity.rect).left * 100}%`,
+    top: `${(draftRect.value ?? props.displayRect ?? props.entity.rect).top * 100}%`,
+    width: `${(draftRect.value ?? props.displayRect ?? props.entity.rect).width * 100}%`,
+    height: `${(draftRect.value ?? props.displayRect ?? props.entity.rect).height * 100}%`,
     color: props.entity.color ?? 'var(--ui-text)',
     fontSize: toPdfScaledCssLength(props.entity.fontSize),
     transform: `rotate(${props.entity.rotation}deg)`,

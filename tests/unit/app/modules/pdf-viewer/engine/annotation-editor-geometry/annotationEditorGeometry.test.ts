@@ -8,6 +8,7 @@ import {
     annotationRectContainsPoint,
     createAnnotationRectFromPoints,
     createDefaultTextBoxRect,
+    expandTextBoxRectToContentSize,
     moveAnnotationRect,
 } from '@app/modules/pdf-viewer/engine/annotation-editor-geometry/annotationEditorGeometry';
 import {nudgeMarkerRectByPdfPoints} from '@app/modules/pdf-viewer/engine/annotation-editor-geometry/nudgeMarkerRectByPdfPoints';
@@ -253,11 +254,147 @@ describe('annotation editor geometry', () => {
         expectRect(createDefaultTextBoxRect({
             x: 0.99,
             y: 0.01,
+        }, {
+            pageView: [
+                0,
+                0,
+                612,
+                792,
+            ],
+            fontSize: 14,
+        }), {
+            left: 1 - (14 * 2 / 612),
+            top: 0.01,
+            width: 14 * 2 / 612,
+            height: 14 * 1.65 / 792,
+        });
+    });
+
+    it('uses a compact one-line default rectangle anchored at the pointer', () => {
+        expectRect(createDefaultTextBoxRect({
+            x: 0.5,
+            y: 0.5,
+        }, {
+            pageView: [
+                0,
+                0,
+                612,
+                792,
+            ],
+            fontSize: 14,
+        }), {
+            left: 0.5,
+            top: 0.5,
+            width: 14 * 2 / 612,
+            height: 14 * 1.65 / 792,
+        });
+    });
+
+    it('converts the same PDF-space dimensions on portrait and landscape pages', () => {
+        const portrait = createDefaultTextBoxRect({
+            x: 0.5,
+            y: 0.5,
+        }, {
+            pageView: [
+                0,
+                0,
+                612,
+                792,
+            ],
+            fontSize: 18,
+        });
+        const landscape = createDefaultTextBoxRect({
+            x: 0.5,
+            y: 0.5,
+        }, {
+            pageView: [
+                0,
+                0,
+                792,
+                612,
+            ],
+            fontSize: 18,
+        });
+        expect(portrait.width * 612).toBeCloseTo(landscape.width * 792);
+        expect(portrait.height * 792).toBeCloseTo(landscape.height * 612);
+        expect(portrait.width * 612).toBeCloseTo(18 * 2);
+        expect(portrait.height * 792).toBeCloseTo(18 * 1.65);
+    });
+
+    it('scales the PDF-space default dimensions with the selected font size', () => {
+        const small = createDefaultTextBoxRect({
+            x: 0.2,
+            y: 0.2,
+        }, {
+            pageView: [
+                0,
+                0,
+                612,
+                792,
+            ],
+            fontSize: 12,
+        });
+        const large = createDefaultTextBoxRect({
+            x: 0.2,
+            y: 0.2,
+        }, {
+            pageView: [
+                0,
+                0,
+                612,
+                792,
+            ],
+            fontSize: 24,
+        });
+        expect(large.width * 612).toBeCloseTo(small.width * 612 * 2);
+        expect(large.height * 792).toBeCloseTo(small.height * 792 * 2);
+    });
+
+    it('clamps the anchored default rectangle inside the page at an edge click', () => {
+        expectRect(createDefaultTextBoxRect({
+            x: 0.99,
+            y: 0.99,
+        }, {
+            pageView: [
+                0,
+                0,
+                612,
+                792,
+            ],
+            fontSize: 14,
+        }), {
+            left: 1 - (14 * 2 / 612),
+            top: 1 - (14 * 1.65 / 792),
+            width: 14 * 2 / 612,
+            height: 14 * 1.65 / 792,
+        });
+    });
+
+    it('grows a new text box upward when multiline content reaches the page edge', () => {
+        expectRect(expandTextBoxRectToContentSize({
+            left: 0.2,
+            top: 0.9,
+            width: 0.2,
+            height: 0.05,
         }, 0.3, 0.2), {
-            left: 0.7,
-            top: 0,
+            left: 0.2,
+            top: 0.8,
             width: 0.3,
             height: 0.2,
+        });
+    });
+
+    it('keeps the insertion edge fixed when content reaches the page edge', () => {
+        expectRect(expandTextBoxRectToContentSize({
+            left: 0.8,
+            top: 0.2,
+            width: 0.1,
+            height: 0.1,
+        }, 0.9, 0.4), {
+            left: 0.8,
+            top: 0.2,
+            width: 0.2,
+            height: 0.4,
         });
     });
 

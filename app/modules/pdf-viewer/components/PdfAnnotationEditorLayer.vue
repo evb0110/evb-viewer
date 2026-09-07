@@ -53,6 +53,7 @@
                 :entity="entity"
                 :selected="isSelected(entity.identity.id)"
                 :editing="editingId === entity.identity.id"
+                :auto-size-draft="autoSizeTextBoxIds.has(entity.identity.id)"
                 :display-rect="displayRectFor(entity)"
                 @pointer-down="handleTextBoxPointerDown(entity, $event)"
                 @edit="beginTextBoxEdit(entity.identity.id)"
@@ -83,7 +84,7 @@
                 aria-hidden="true"
             />
             <PdfAnnotationSelectionHandles
-                :entity="selectedEntity"
+                :entity="selectedHandleEntity"
                 :display-rect="selectedDisplayRect"
                 @resize-start="handleResizeStart"
             />
@@ -134,6 +135,7 @@ import {
 } from '@app/modules/pdf-viewer/annotations/editor/useAnnotationPointerGesture';
 import { useAnnotationKeyboardCommands } from '@app/modules/pdf-viewer/annotations/editor/useAnnotationKeyboardCommands';
 import type {
+    IAnnotationMarkerRect,
     IShapeAnnotation,
     TAnnotationTool,
 } from '@app/types/annotations';
@@ -157,6 +159,7 @@ const isCreating = ref(false);
 const creatingTool = ref<Extract<TAnnotationTool, 'text' | 'note' | 'draw' | 'rectangle' | 'circle' | 'line' | 'arrow'> | null>(null);
 const shapeDraft = ref<IShapeAnnotation | null>(null);
 const newTextBoxIds = new Set<AnnotationId>();
+const autoSizeTextBoxIds = reactive(new Set<AnnotationId>());
 interface IPdfTextBoxAnnotationExpose {commitDraft: () => void;}
 const textBoxRefs = new Map<AnnotationId, IPdfTextBoxAnnotationExpose>();
 let suppressNextClick = false;
@@ -194,6 +197,12 @@ const selectedIds = computed(() => surface.selectedIds.value);
 const selectedEntity = computed(() => {
     const selectedId = [...selectedIds.value][0];
     return entities.value.find(entity => entity.identity.id === selectedId) ?? null;
+});
+const selectedHandleEntity = computed(() => {
+    const entity = selectedEntity.value;
+    return entity?.kind === 'text-box' && editingId.value === entity.identity.id
+        ? null
+        : entity;
 });
 const moveDelta = computed(() => {
     const draggedEntity = entities.value.find(entity => entity.identity.id === draggedAnnotationId.value);
@@ -656,13 +665,18 @@ function handlePointerUp(event: PointerEvent) {
             }
             return;
         }
+        const pageGeometry = surface.getPageGeometry(props.pageIndex);
         const rect = tool === 'note'
             ? completion.hasMoved
                 ? completion.rect
                 : markerRectFromPoint(completion.start.x, completion.start.y)
             : completion.hasMoved
                 ? completion.rect
-                : createDefaultTextBoxRect(completion.start);
+                : createDefaultTextBoxRect(completion.start, {
+                    pageView: pageGeometry?.pageView,
+                    pageRotation: pageGeometry?.rotation,
+                    fontSize: surface.settings.value?.textSize,
+                });
         if (!rect) {
             return;
         }
@@ -670,6 +684,9 @@ function handlePointerUp(event: PointerEvent) {
         if (created) {
             if (created.kind === 'text-box') {
                 newTextBoxIds.add(created.identity.id);
+                if (!completion.hasMoved) {
+                    autoSizeTextBoxIds.add(created.identity.id);
+                }
                 editingId.value = created.identity.id;
             } else {
                 surface.openNote(created.identity.id);
@@ -809,23 +826,40 @@ function currentTextBox(annotationId: AnnotationId) {
     )) ?? null;
 }
 
-function commitTextBox(annotationId: AnnotationId, text: string) {
+function commitTextBox(
+    annotationId: AnnotationId,
+    draft: {
+        text: string;
+        rect?: IAnnotationMarkerRect;
+    },
+) {
     if (editingId.value !== annotationId) {
         return;
     }
     const entity = currentTextBox(annotationId);
     if (!entity) {
         surface.clearTextBoxDraftPending(annotationId);
+        newTextBoxIds.delete(annotationId);
+        autoSizeTextBoxIds.delete(annotationId);
         editingId.value = null;
         return;
     }
-    if (newTextBoxIds.has(annotationId) && text.trim().length === 0) {
+    if (newTextBoxIds.has(annotationId) && draft.text.trim().length === 0) {
         surface.discardUnsavedAnnotation(annotationId);
-    } else if (entity.text !== text) {
-        surface.commitGesture(annotationId, {text});
+    } else {
+        const rect = autoSizeTextBoxIds.has(annotationId) ? draft.rect : undefined;
+        const textChanged = entity.text !== draft.text;
+        const rectChanged = rect !== undefined && !annotationRectsEqual(entity.rect, rect);
+        if (textChanged || rectChanged) {
+            surface.commitGesture(annotationId, {
+                ...(textChanged ? {text: draft.text} : {}),
+                ...(rectChanged ? {rect} : {}),
+            });
+        }
     }
     surface.clearTextBoxDraftPending(annotationId);
     newTextBoxIds.delete(annotationId);
+    autoSizeTextBoxIds.delete(annotationId);
     editingId.value = null;
 }
 
@@ -839,6 +873,7 @@ function cancelTextBox(annotationId: AnnotationId) {
     }
     surface.clearTextBoxDraftPending(annotationId);
     newTextBoxIds.delete(annotationId);
+    autoSizeTextBoxIds.delete(annotationId);
     editingId.value = null;
 }
 
@@ -853,6 +888,7 @@ onBeforeUnmount(() => {
     unregisterTextBoxDraftCommitter = null;
     newTextBoxIds.forEach(annotationId => surface.discardUnsavedAnnotation(annotationId));
     newTextBoxIds.clear();
+    autoSizeTextBoxIds.clear();
     textBoxRefs.clear();
     editingId.value = null;
     pointerGesture.cancel();
