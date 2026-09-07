@@ -4,6 +4,30 @@ tests/e2e/electron/annotationControls.e2e.test.ts
   s_e6afbc66b58e4d::t_cb6468aebe63f5 683,694-707,726-737,741,743,769
   s_e6afbc66b58e4d::t_881aa94c614fee 708
   s_e6afbc66b58e4d::t_4c108677948d46 709-725
+native/scan-cleanup/src/protocol/manifest_v3.rs
+  s_c63d7a8363f7e9::t_393951da31912d 302,304,306-307
+  s_0eef0df46a6ce9::t_88895d3a1e36d5 760
+  s_0eef0df46a6ce9::t_98e77487f1b75e 761
+app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts
+  s_7c59d6a080976e::t_00e19a23879d12 74
+  s_7c59d6a080976e::t_b70d25dc73e0c2 66,67,69-72
+  s_7c59d6a080976e::t_c6d2bfcc6b9a32 80
+tests/unit/electron/runNativeToolCommand.test.ts
+  s_0eef0df46a6ce9::t_274846ce9f9319 283-284
+scan-cleanup-core/runScanCleanupConversion.ts
+  s_0eef0df46a6ce9::t_23dbf394c7c6ac 2912-2913
+docs/architecture/assistant-production-files.txt
+  s_51a499e8a9abb4::t_debfb9f1daa9ee 70
+tests/unit/app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow.test.ts
+  s_42ecbf4c9cb42a::t_96cf7561f9d00c 29
+tests/unit/electron/scanCleanupPipeline.test.ts
+  s_0eef0df46a6ce9::t_90d8b921d85ffb 5342
+electron/ocr/languageModels.ts
+  s_6d332b0dd28a5f::t_1df853005143ba 1-44,46-977
+electron/platform-ipc/registerFeatureIpcAdapters.ts
+  s_2f4b494e70ad0e::t_944bf82134dce4 58,60
+tests/unit/electron/windowCloseHandshake.test.ts
+  s_2f4b494e70ad0e::t_e97e575d2f55af 18
 ---
 {
   "schema_version": "authorship/3.0.0",
@@ -11,6 +35,110 @@ tests/e2e/electron/annotationControls.e2e.test.ts
   "base_commit_sha": "efea01b3bd9b3399e8e8467c28f1dcfd4430b288",
   "prompts": {},
   "sessions": {
+    "s_0eef0df46a6ce9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07c93-fb5c-7210-a225-da996191963d",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_2f4b494e70ad0e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d10-9ff2-72f1-ac55-155a17b0b60e",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_347e732a1d9c6e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d1c-7c23-7e41-9874-034631f4c64c",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": null
+    },
+    "s_42ecbf4c9cb42a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07cac-e171-7471-886d-bb857acd61ce",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_51a499e8a9abb4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d0b-4b64-7a40-997f-da3c61110b88",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_5d7aa6125305e8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d9e-19cb-7091-bd9d-27b6a5c7edb3",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_6ae4600f2e6f51": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07a8b-4796-70c1-a9b8-d4353d48d8d3",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_6d332b0dd28a5f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d82-5d43-7ba1-b991-adaa2cbaa241",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_7c59d6a080976e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07cbf-10ef-7da3-9c45-6d08ef5d28b2",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_7e9c5e22befab4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07a92-1a56-7723-abaa-5efa6f6010cd",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_9c9547d7d84891": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d9b-eb9e-7871-8fa4-9a0fcc84cba7",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_a2d0d49a269ebb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07cb3-0877-7343-85f3-b25147cac768",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
     "s_e6afbc66b58e4d": {
       "agent_id": {
         "tool": "codex",
