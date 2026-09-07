@@ -133,11 +133,15 @@ function draftRectForContent(): IAnnotationMarkerRect | undefined {
         editor.style.height = 'auto';
         editor.style.whiteSpace = 'pre';
         editor.style.overflowWrap = 'normal';
-        const intrinsicWidth = (editor.scrollWidth + extraWidth) / pageRect.width;
-        const current = draftRect.value ?? props.entity.rect;
+        const intrinsicEditorWidth = Math.max(
+            editor.scrollWidth,
+            editor.getBoundingClientRect().width,
+        );
+        const intrinsicWidth = (Math.ceil(intrinsicEditorWidth) + extraWidth) / pageRect.width;
+        const baseRect = props.entity.rect;
         const width = Math.min(
-            Math.max(current.width, intrinsicWidth),
-            Math.max(0, 1 - current.left),
+            Math.max(baseRect.width, intrinsicWidth),
+            Math.max(0, 1 - baseRect.left),
         );
 
         root.style.width = `${width * pageRect.width}px`;
@@ -146,7 +150,7 @@ function draftRectForContent(): IAnnotationMarkerRect | undefined {
         editor.style.whiteSpace = 'pre-wrap';
         editor.style.overflowWrap = 'anywhere';
         const contentHeight = (editor.scrollHeight + extraHeight) / pageRect.height;
-        next = expandTextBoxRectToContentSize(current, width, contentHeight);
+        next = expandTextBoxRectToContentSize(baseRect, width, contentHeight);
     } finally {
         root.style.width = rootWidth;
         root.style.height = rootHeight;

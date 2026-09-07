@@ -680,7 +680,7 @@ describe('Electron E2E - annotation controls', () => {
         const continuation = ' near the lower right corner, this sentence wraps onto several lines while staying inside the PDF page.';
         await page.keyboard.press('End');
         await page.keyboard.type(continuation, {delay: 2});
-        const expectedText = firstLine + continuation;
+        const multilineText = firstLine + continuation;
         await page.waitForFunction((options: {
             id: string;
             text: string;
@@ -691,13 +691,56 @@ describe('Electron E2E - annotation controls', () => {
             return entity?.textContent?.replace(/[\u200B\uFEFF]/gu, '') === options.text;
         }, {timeout: STYLE_UPDATE_TIMEOUT_MS}, {
             id: textBoxId,
-            text: expectedText,
+            text: multilineText,
+        });
+        const multiline = await readTextBoxGeometry(page, textBoxId);
+        if (!multiline) {
+            throw new Error('The text box geometry was unavailable before commit');
+        }
+        expect(multiline.rect.height).toBeGreaterThan(afterFirstLine.rect.height + 2);
+        expect(multiline.rect.left).toBeGreaterThanOrEqual(multiline.page.left - 2);
+        expect(multiline.rect.top).toBeGreaterThanOrEqual(multiline.page.top - 2);
+        expect(multiline.rect.right).toBeLessThanOrEqual(multiline.page.right + 2);
+        expect(multiline.rect.bottom).toBeLessThanOrEqual(multiline.page.bottom + 2);
+        expect(multiline.editorScrollWidth).toBeLessThanOrEqual(multiline.editorClientWidth + 2);
+        expect(multiline.editorScrollHeight).toBeLessThanOrEqual(multiline.editorClientHeight + 2);
+
+        const replacementText = 'Text';
+        await page.evaluate((id: string) => {
+            const editor = document.querySelector<HTMLElement>(
+                `[data-annotation-kind="text-box"][data-annotation-id="${id}"] [contenteditable="true"]`,
+            );
+            if (!editor) {
+                throw new Error('The active text editor was unavailable for replacement');
+            }
+            editor.focus();
+            const selection = window.getSelection();
+            if (!selection) {
+                throw new Error('The active text editor selection was unavailable for replacement');
+            }
+            const range = document.createRange();
+            range.selectNodeContents(editor);
+            selection.removeAllRanges();
+            selection.addRange(range);
+        }, textBoxId);
+        await page.keyboard.type(replacementText, {delay: 4});
+        await page.waitForFunction((options: {
+            id: string;
+            text: string;
+        }) => {
+            const entity = document.querySelector<HTMLElement>(
+                `[data-annotation-kind="text-box"][data-annotation-id="${options.id}"]`,
+            );
+            return entity?.textContent?.replace(/[\u200B\uFEFF]/gu, '') === options.text;
+        }, {timeout: STYLE_UPDATE_TIMEOUT_MS}, {
+            id: textBoxId,
+            text: replacementText,
         });
         const beforeCommit = await readTextBoxGeometry(page, textBoxId);
         if (!beforeCommit) {
-            throw new Error('The text box geometry was unavailable before commit');
+            throw new Error('The text box geometry was unavailable after single-line replacement');
         }
-        expect(beforeCommit.rect.height).toBeGreaterThan(afterFirstLine.rect.height + 2);
+        expect(beforeCommit.rect.height).toBeLessThanOrEqual(initial.rect.height + 2);
         expect(beforeCommit.rect.left).toBeGreaterThanOrEqual(beforeCommit.page.left - 2);
         expect(beforeCommit.rect.top).toBeGreaterThanOrEqual(beforeCommit.page.top - 2);
         expect(beforeCommit.rect.right).toBeLessThanOrEqual(beforeCommit.page.right + 2);
@@ -723,7 +766,7 @@ describe('Electron E2E - annotation controls', () => {
             throw new Error('The committed text box geometry was unavailable');
         }
         expect(committed.editing).toBe(false);
-        expect(committed.text).toBe(expectedText);
+        expect(committed.text).toBe(replacementText);
         expect(Math.abs(committed.rect.left - beforeCommit.rect.left)).toBeLessThanOrEqual(2);
         expect(Math.abs(committed.rect.top - beforeCommit.rect.top)).toBeLessThanOrEqual(2);
         expect(Math.abs(committed.rect.width - beforeCommit.rect.width)).toBeLessThanOrEqual(2);
