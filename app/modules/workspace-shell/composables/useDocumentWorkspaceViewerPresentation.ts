@@ -1,9 +1,5 @@
 import type { Ref } from 'vue';
-
-interface IViewerCapabilities {
-    conversionBanner?: boolean;
-    conversionDialog?: boolean;
-}
+import type { IWorkspaceViewerCapabilities } from '@app/types/workspaceExpose';
 
 interface IConversionState {isConverting: boolean;}
 
@@ -16,7 +12,7 @@ interface IDjvuConversionBannerPresentation {
 }
 
 interface IUseDocumentWorkspaceViewerPresentationOptions {
-    activeViewerCapabilities: Readonly<Ref<IViewerCapabilities | null>>;
+    activeViewerCapabilities: Readonly<Ref<IWorkspaceViewerCapabilities | null>>;
     canUseDjvu: boolean;
     conversionState: Readonly<Ref<IConversionState>>;
     documentOpenReady: Readonly<Ref<boolean>>;

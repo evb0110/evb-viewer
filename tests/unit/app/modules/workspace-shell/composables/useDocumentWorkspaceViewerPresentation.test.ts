@@ -8,6 +8,7 @@ import {
     shouldShowDjvuConversionBanner,
     useDocumentWorkspaceViewerPresentation,
 } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceViewerPresentation';
+import {createDefaultWorkspaceViewerCapabilities} from '@app/types/workspaceExpose';
 
 describe('shouldShowDjvuConversionBanner', () => {
     const readyPresentation = {
@@ -49,6 +50,7 @@ describe('shouldShowDjvuConversionBanner', () => {
 describe('useDocumentWorkspaceViewerPresentation', () => {
     const baseOptions = {
         activeViewerCapabilities: ref({
+            ...createDefaultWorkspaceViewerCapabilities(),
             closeableDocument: true,
             conversionBanner: false,
             conversionDialog: false,
