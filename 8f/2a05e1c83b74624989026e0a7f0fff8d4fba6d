@@ -1,0 +1,33 @@
+tests/unit/electron/scanCleanupMainBindings.test.ts
+  s_c63d7a8363f7e9::t_39a63daf996969 1-2,12-22
+  s_c63d7a8363f7e9::t_917f3d7eb9fc53 9
+  s_c63d7a8363f7e9::t_7b75388d2ea19a 3-8,10-11,23,26,28-34,36-37
+  s_c63d7a8363f7e9::t_aa16df6ad89ce2 24-25,27,35
+docs/architecture/project6-ticket333-registration-table-inventory-2026-09-07.md
+  s_c63d7a8363f7e9::t_7b75388d2ea19a 295-355
+electron/platform-ipc/registerFeatureIpcAdapters.ts
+  s_c63d7a8363f7e9::t_e12a005e387aa2 126-140,149,175-177
+electron/features/scan-cleanup/scanCleanupMainBindings.ts
+  s_c63d7a8363f7e9::t_a59c6f34d3dcc2 28
+  s_c63d7a8363f7e9::t_917f3d7eb9fc53 9
+  s_c63d7a8363f7e9::t_7b75388d2ea19a 27,29-30
+  s_c63d7a8363f7e9::t_aa16df6ad89ce2 25-26
+electron/features/scan-cleanup/createScanCleanupMainBindingsDisposer.ts
+  s_c63d7a8363f7e9::t_917f3d7eb9fc53 1-11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "8f2a05e1c83b74624989026e0a7f0fff8d4fba6d",
+  "prompts": {},
+  "sessions": {
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
