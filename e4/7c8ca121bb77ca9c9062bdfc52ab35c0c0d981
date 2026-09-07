@@ -1,0 +1,89 @@
+packages/scan-cleanup/adapters/index.ts
+  s_8e49417b9c002c::t_063ee41ee06ff3 1,5
+  s_8e49417b9c002c::t_bec35cfd374c93 2-4
+scripts/build-electron.mjs
+  s_8e49417b9c002c::t_66d4c8a6312415 86,98
+packages/scan-cleanup/tsconfig.json
+  s_8e49417b9c002c::t_7758f174206d03 1-15,17-20
+  s_8e49417b9c002c::t_063ee41ee06ff3 16
+tests/unit/scripts/checkZeroExecutionCoverage.test.ts
+  s_8e49417b9c002c::t_a221515c159461 59-60,188-189
+  s_8e49417b9c002c::t_2827d1aeae08da 344
+packages/scan-cleanup/core/pdfPageSizes.ts
+  s_8e49417b9c002c::t_64272fe947b3f8 1-2
+  s_8e49417b9c002c::t_7c45a1af56a53a 3-1408
+scripts/vitestResolveAlias.ts
+  s_8e49417b9c002c::t_bec35cfd374c93 16
+  s_8e49417b9c002c::t_9a6a3e672cbf85 14-15
+tsconfig.scripts.json
+  s_8e49417b9c002c::t_7758f174206d03 17
+scripts/scan-cleanup-line-budget.mjs
+  s_8e49417b9c002c::t_d66cdfe1571135 67-71,894,899,902-903,905
+  s_8e49417b9c002c::t_64330c5f5aa67a 895-898
+  s_8e49417b9c002c::t_a7a83c5362dd57 53,57
+  s_8e49417b9c002c::t_64272fe947b3f8 900-901
+packages/scan-cleanup/package.json
+  s_8e49417b9c002c::t_7758f174206d03 1-5,7-8,10-16
+  s_8e49417b9c002c::t_bec35cfd374c93 6
+  s_8e49417b9c002c::t_f6e46cd43440be 9
+tsconfig.workspace-paths.json
+  s_8e49417b9c002c::t_7758f174206d03 18-20,22
+  s_8e49417b9c002c::t_bec35cfd374c93 21
+packages/scan-cleanup/index.ts
+  s_8e49417b9c002c::t_063ee41ee06ff3 1-2
+packages/contracts/scan-cleanup/nativeProtocolV3.ts
+  s_8e49417b9c002c::t_66d4c8a6312415 899
+scripts/diagnostics/scan-cleanup-corpus-verify.mjs
+  s_8e49417b9c002c::t_66d4c8a6312415 181,183,187
+packages/scan-cleanup/core/detection.ts
+  s_8e49417b9c002c::t_7c45a1af56a53a 3-1833
+  s_8e49417b9c002c::t_64272fe947b3f8 1-2
+packages/scan-cleanup/core/index.ts
+  s_8e49417b9c002c::t_f10a0dc2dccdb2 1-19
+scan-cleanup-line-budget-baseline.json
+  s_8e49417b9c002c::t_a7a83c5362dd57 19,23
+tests/unit/scripts/checkCoverageRatchet.test.ts
+  s_8e49417b9c002c::t_a221515c159461 59-60,73-74,124-125
+packages/scan-cleanup/core/runScanCleanupConversion.ts
+  s_8e49417b9c002c::t_64272fe947b3f8 1-2
+  s_8e49417b9c002c::t_7c45a1af56a53a 3-3438
+vitest.config.ts
+  s_8e49417b9c002c::t_9a6a3e672cbf85 18
+scripts/diagnostics/scan-cleanup-preview-harness.mjs
+  s_8e49417b9c002c::t_66d4c8a6312415 89-93,95
+scripts/checkZeroExecutionCoverage.ts
+  s_8e49417b9c002c::t_9a6a3e672cbf85 229
+scripts/checkCoverageRatchet.ts
+  s_8e49417b9c002c::t_9a6a3e672cbf85 65-66
+scripts/architecture/boundary-check.mjs
+  s_8e49417b9c002c::t_8a4d4070ebba19 167-175,1490
+scripts/diagnostics/scan-cleanup-word-loss-audit.mjs
+  s_8e49417b9c002c::t_66d4c8a6312415 28
+electron/appVersion.ts
+  s_8e49417b9c002c::t_66d4c8a6312415 28
+tests/unit/scripts/scanCleanupLineBudget.test.ts
+  s_8e49417b9c002c::t_2827d1aeae08da 381-382
+  s_8e49417b9c002c::t_0710ab48cc6088 105-106,169-170,182-183,193,220-221,356-357
+packages/scan-cleanup/README.md
+  s_8e49417b9c002c::t_bec35cfd374c93 1-7
+coverage-baseline.json
+  s_8e49417b9c002c::t_a7a83c5362dd57 78,90
+pnpm-lock.yaml
+  s_8e49417b9c002c::t_56dc25339cbae3 511-518
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "e47c8ca121bb77ca9c9062bdfc52ab35c0c0d981",
+  "prompts": {},
+  "sessions": {
+    "s_8e49417b9c002c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07db6-b548-7e11-b34f-ffefc7d6cfbf",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
