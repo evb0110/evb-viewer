@@ -1,0 +1,54 @@
+.github/workflows/ci.yml
+  s_dcfb50e58a179c::t_52b7df465dca5c 1018
+  s_dcfb50e58a179c::t_44bb5d8dabaa40 802-803
+  s_dcfb50e58a179c::t_ac39e3245bdb28 986
+  s_dcfb50e58a179c::t_4ad615232605a4 524-525
+  s_dcfb50e58a179c::t_5466edd55f6773 1073-1074
+  s_dcfb50e58a179c::t_bafb711468c2bc 902
+  s_dcfb50e58a179c::t_e6eaea0b3811d5 958
+  s_dcfb50e58a179c::t_f34da4324ee9d4 775-776
+  s_dcfb50e58a179c::t_54ff7163ec41b6 1049
+  s_dcfb50e58a179c::t_0a1503d2c986cf 897-898
+  s_dcfb50e58a179c::t_11624a864f6615 930
+  s_dcfb50e58a179c::t_55767640d852a0 981-982
+  s_dcfb50e58a179c::t_6f620dcf912b9c 1078
+  s_dcfb50e58a179c::t_662c3f546a31db 71-72,191-192,195,248-249,280-281
+  s_dcfb50e58a179c::t_97b2dbcf2ac9d0 1044-1045
+  s_dcfb50e58a179c::t_9fec2aae77c3ea 671-672
+  s_dcfb50e58a179c::t_5acadcfdc0d8b7 380-381
+  s_dcfb50e58a179c::t_2fe0f46f89890b 581-582
+  s_dcfb50e58a179c::t_97209dfebab628 1013-1014
+  s_dcfb50e58a179c::t_f46d863be59758 549-550
+  s_dcfb50e58a179c::t_6da63ac54a1038 925-926
+  s_dcfb50e58a179c::t_1ca1782741e284 356-357
+  s_dcfb50e58a179c::t_0e5fb363fb85c4 450-451
+  s_dcfb50e58a179c::t_76ed7ec909a7c7 487-488
+  s_dcfb50e58a179c::t_865499b4155a0f 953-954
+docs/architecture/project6-324-ci-workflow-consolidation-20260908.md
+  s_dcfb50e58a179c::t_48d662d4cf9099 63-69
+  s_dcfb50e58a179c::t_c5b1d42fc1a009 1-62
+.github/actions/setup-ci-env/action.yml
+  s_dcfb50e58a179c::t_662c3f546a31db 1-21,23-35
+  s_dcfb50e58a179c::t_fcc1266c39acaf 22
+tests/unit/scripts/project6-324-ciWorkflowContract.test.ts
+  s_dcfb50e58a179c::t_48d662d4cf9099 93-97
+  s_dcfb50e58a179c::t_b0491b2d9555b8 54
+  s_dcfb50e58a179c::t_7da1878ad18cb1 104
+  s_dcfb50e58a179c::t_5d5db0118a86b8 1-53,55-92,98-103,105-116
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "3bb4793f2f3f5eb4d65efee1c44e71800ede43ce",
+  "prompts": {},
+  "sessions": {
+    "s_dcfb50e58a179c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a081bd-ea1c-70d2-aee5-cd5a30c21aba",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
