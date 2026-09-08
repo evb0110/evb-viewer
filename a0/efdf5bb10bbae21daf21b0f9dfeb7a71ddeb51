@@ -1,0 +1,39 @@
+tests/e2e/electron/annotationTextInteraction.e2e.test.ts
+  s_e6afbc66b58e4d::t_c65e0eb9f5de29 336-338,346,355,369-370,376-377
+  s_e6afbc66b58e4d::t_2c0e34332b075b 342-345,348-351,361-365
+  s_e6afbc66b58e4d::t_3f13aed6a0fc40 332-335,339-341,347,352-354,356-360,366-368,371-375
+tests/unit/app/modules/pdf-viewer/components/pdfAnnotationEditorLayerEvents.test.ts
+  s_e6afbc66b58e4d::t_90820d03acc70d 1257-1259,1261,1271,1308-1316,1318,1325,1349,1382,1384,1389,1401-1403,1484-1485
+  s_e6afbc66b58e4d::t_85f6933b6e1511 1435-1440
+  s_e6afbc66b58e4d::t_d8e226b86ea71c 1237,1240,1441-1442
+  s_e6afbc66b58e4d::t_6eb0d30ff1039e 36,1234,1236,1239,1242-1255,1260,1272,1279-1303,1327-1328,1330-1331,1334,1350,1354-1373,1385-1386,1423-1428,1433-1434,1444,1449
+  s_e6afbc66b58e4d::t_2738daa8ef125a 38,1262-1270,1273-1278,1304,1329,1332-1333,1335-1336,1338-1348,1352-1353,1374-1376,1381,1392,1396-1400,1404-1414,1417-1422,1429,1450,1453-1459,1461-1464,1471
+  s_e6afbc66b58e4d::t_5cc3173a0ad7f9 1256,1305-1307,1317,1319-1324,1326,1337,1351,1383,1387-1388,1390-1391,1393-1395,1415-1416,1430-1432,1443,1445-1448,1451-1452,1460,1465-1470,1472-1483
+  s_e6afbc66b58e4d::t_fe61013684c76e 1235,1238,1241,1377-1380
+app/modules/pdf-viewer/annotations/editor/isReleasedMouseCapture.ts
+  s_e6afbc66b58e4d::t_3366fcea03b476 1-7
+app/modules/pdf-viewer/components/PdfAnnotationEditorLayer.vue
+  s_e6afbc66b58e4d::t_3366fcea03b476 15,147,872-876
+  s_e6afbc66b58e4d::t_a8396fadaf9bb5 877-879
+tests/unit/app/components/pdfImagePlacementOverlay.test.ts
+  s_e6afbc66b58e4d::t_b56cef2bf7bfa8 96-100,113-165,176-179,184,192-199,204-215
+  s_e6afbc66b58e4d::t_0be2fd318b0f62 101-112,166-175,180-183,185-187,200-203
+app/modules/pdf-viewer/components/PdfImagePlacementOverlay.vue
+  s_e6afbc66b58e4d::t_bccfc3734e7474 75,492-498
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "a0efdf5bb10bbae21daf21b0f9dfeb7a71ddeb51",
+  "prompts": {},
+  "sessions": {
+    "s_e6afbc66b58e4d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07cdb-5143-7e02-a580-29471422fbfa",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
