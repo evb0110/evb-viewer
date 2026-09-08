@@ -1,0 +1,37 @@
+electron/features/ocr/worker/indexWriterV4.ts
+  s_c63d7a8363f7e9::t_dce51c5e0c7309 1-2640
+tests/unit/electron/fileOpsPathSecurity.test.ts
+  s_c63d7a8363f7e9::t_dce51c5e0c7309 161
+tests/unit/electron/ocrCatalogRevisionRebind.test.ts
+  s_c63d7a8363f7e9::t_dce51c5e0c7309 21
+tests/unit/electron/ocrIndexWriterV4.test.ts
+  s_c63d7a8363f7e9::t_dce51c5e0c7309 44
+electron/features/ocr/main/documentTextCatalog.ts
+  s_c63d7a8363f7e9::t_dce51c5e0c7309 57
+electron/features/ocr/main/recoverPreparedOcrRevisionTransition.ts
+  s_c63d7a8363f7e9::t_dce51c5e0c7309 21
+tests/unit/electron/ocrReplacementOwnershipAlias.test.ts
+  s_c63d7a8363f7e9::t_dce51c5e0c7309 83
+electron/features/ocr/public.ts
+  s_c63d7a8363f7e9::t_668105d4a5d6b3 9-35
+electron/ocr/worker/writeOcrIndexes.ts
+  s_c63d7a8363f7e9::t_668105d4a5d6b3 11
+electron/features/documents/main/documentFileWriteHandlers.ts
+  s_c63d7a8363f7e9::t_668105d4a5d6b3 58-64
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "8e91f99e54bcb2dcee803c3998b8d1c7ede3d6f1",
+  "prompts": {},
+  "sessions": {
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
