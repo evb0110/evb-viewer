@@ -1,0 +1,34 @@
+README.md
+  s_a2d0d49a269ebb::t_4fa88b1480f55b 254-257
+eslint.internal-mock-allowlist-baseline.mjs
+  s_a2d0d49a269ebb::t_ce57fa1b00e92d 1-2,1315
+  s_a2d0d49a269ebb::t_637865af981f76 3-1314
+tests/unit/scripts/eslintPluginCustom.test.ts
+  s_a2d0d49a269ebb::t_76357c466ed12f 163
+  s_a2d0d49a269ebb::t_9cf29aaee23a90 15,17,132,134,139-141,143,148-149,155-162,164
+  s_a2d0d49a269ebb::t_e90eb1d1b9ad09 16
+  s_a2d0d49a269ebb::t_637865af981f76 133,135-138,142,144-147
+  s_a2d0d49a269ebb::t_61022918566751 165-167
+eslint-plugin-custom.mjs
+  s_a2d0d49a269ebb::t_637865af981f76 104-107,156-162,164-165
+  s_a2d0d49a269ebb::t_853fdbcc703278 100-103,108-117,176-184,224-229
+  s_a2d0d49a269ebb::t_a610851fdc2ada 145-146
+eslint.config.mjs
+  s_a2d0d49a269ebb::t_37af25f380872b 7,410-413
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "dbecc28a3a213bdec17f84ec0f1e44cfb06f3e83",
+  "prompts": {},
+  "sessions": {
+    "s_a2d0d49a269ebb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07cb3-0877-7343-85f3-b25147cac768",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

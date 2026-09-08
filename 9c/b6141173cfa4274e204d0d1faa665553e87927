@@ -1,0 +1,45 @@
+.devkit/analysis/project6/project6-307-bounded-correction.md
+  s_42ecbf4c9cb42a::t_29c2cba3f459ca 5-7,10,14,39-41,46
+app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow.ts
+  s_42ecbf4c9cb42a::t_bacbcfeef1f79a 115-120,299-303,442
+app/modules/workspace-shell/composables/useDocumentWorkspaceSplitRestore.ts
+  s_42ecbf4c9cb42a::t_5b6a45ba00d22e 42,182,186
+app/modules/workspace-shell/composables/useWindowTabTransfers.ts
+  s_42ecbf4c9cb42a::t_018cdb041338c8 424-432
+app/modules/workspace-shell/composables/useWorkspaceSplitPayload.ts
+  s_42ecbf4c9cb42a::t_4ed7b76e90be16 30,329,331,352,358,362,378,382-388,390,397
+app/modules/workspace-shell/expose/createDeferredWorkspaceExposeProxy.ts
+  s_42ecbf4c9cb42a::t_94f50de3f9aaac 25,282,284,287-295,299,302,306
+app/types/workspaceExpose.ts
+  s_42ecbf4c9cb42a::t_0aba0c7218fb89 23,226
+tests/unit/app/modules/workspace-shell/composables/createWorkspaceExpose.test.ts
+  s_42ecbf4c9cb42a::t_6d148feb40bc9a 103
+tests/unit/app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow.test.ts
+  s_42ecbf4c9cb42a::t_959ed7cfeea0e4 29-32,995-1017
+tests/unit/app/modules/workspace-shell/composables/useDocumentWorkspaceSplitRestore.test.ts
+  s_42ecbf4c9cb42a::t_a407f1600d4ea5 17,116,186-193
+tests/unit/app/modules/workspace-shell/composables/useWindowTabTransfers.test.ts
+  s_42ecbf4c9cb42a::t_05fc52164a2566 42,52-94,101-145,484-491,598-605,730-737
+tests/unit/app/modules/workspace-shell/composables/useWorkspaceSplitPayload.test.ts
+  s_42ecbf4c9cb42a::t_cd8341e9557bad 307-348
+tests/unit/app/modules/workspace-shell/composables/workspaceExposeContract.test.ts
+  s_42ecbf4c9cb42a::t_b7fd085d90cab7 151
+tests/unit/app/modules/workspace-shell/expose/createDeferredWorkspaceExposeProxy.test.ts
+  s_42ecbf4c9cb42a::t_50a13713a357de 21,341-367
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "9cb6141173cfa4274e204d0d1faa665553e87927",
+  "prompts": {},
+  "sessions": {
+    "s_42ecbf4c9cb42a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07cac-e171-7471-886d-bb857acd61ce",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

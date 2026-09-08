@@ -1,0 +1,29 @@
+electron/features/search/extractTextWithPdfjs.ts
+  s_cf236b178e7f63::t_a83e8fd4a93856 151,153
+  s_cf236b178e7f63::t_a9ddf4b422933d 31-34,150,152,154-156,203,287
+  s_c63d7a8363f7e9::t_50f3847001f22c 35,39,71-83,216,221,251,258-259
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "35174eb1537070d88d24b1eab5216ef7d39c2195",
+  "prompts": {},
+  "sessions": {
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_cf236b178e7f63": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0786e-ff24-7610-ae47-435cbff9d48e",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

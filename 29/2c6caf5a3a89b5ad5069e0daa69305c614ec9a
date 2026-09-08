@@ -1,0 +1,33 @@
+electron/features/agent/createAssistantSessionTurnCoordinator.ts
+  s_51a499e8a9abb4::t_ba02feb6ebd2d4 84,86-87,90,92,103-115,122-126
+  s_51a499e8a9abb4::t_03c6f1a0ea3389 137-141,143-144,153-156,158
+electron/features/agent/assistantService.ts
+  s_51a499e8a9abb4::t_3769bed5b26119 533-549,762,897,1064-1068,1091-1095
+  s_51a499e8a9abb4::t_eb70f9e053bd0a 325-326,349,522,618,639,944,958
+  s_51a499e8a9abb4::t_270b97ee27ef7a 510
+  s_51a499e8a9abb4::t_dc0cba939bcf05 288
+  s_51a499e8a9abb4::t_8755c135824456 264-268,274-276,281-287,289-296,298-299,770-771,798,800,814,839,846,854,873,906,913,917,925,950,963
+  s_51a499e8a9abb4::t_9f4849a99dcab7 269-273,277-280
+  s_51a499e8a9abb4::t_81e297ae916bbd 256,346,367-368,488,506-509
+  s_51a499e8a9abb4::t_3ef3b77ec96780 297
+  s_51a499e8a9abb4::t_082bbd8b8ad9c1 221,254,773
+electron/features/agent/mcpServer.ts
+  s_51a499e8a9abb4::t_ba02feb6ebd2d4 230-231,235,250,252-253,255,257,270-271
+  s_51a499e8a9abb4::t_9f4849a99dcab7 236-249
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "292c6caf5a3a89b5ad5069e0daa69305c614ec9a",
+  "prompts": {},
+  "sessions": {
+    "s_51a499e8a9abb4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d0b-4b64-7a40-997f-da3c61110b88",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

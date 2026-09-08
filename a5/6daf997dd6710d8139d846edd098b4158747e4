@@ -1,0 +1,21 @@
+scripts/architecture/formatComparisonRule.mjs
+  s_6ae4600f2e6f51::t_2957a2e48255b4 143-146,272-275
+tests/unit/scripts/formatComparisonRule.test.ts
+  s_6ae4600f2e6f51::t_2957a2e48255b4 51,61-62
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "a56daf997dd6710d8139d846edd098b4158747e4",
+  "prompts": {},
+  "sessions": {
+    "s_6ae4600f2e6f51": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07a8b-4796-70c1-a9b8-d4353d48d8d3",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

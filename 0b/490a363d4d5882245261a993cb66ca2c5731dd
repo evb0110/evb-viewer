@@ -1,0 +1,33 @@
+app/modules/workspace-shell/useWorkspaceOrchestration.ts
+  s_42ecbf4c9cb42a::t_a537f45a3e8184 143,878
+tests/unit/app/modules/workspace-shell/composables/useWorkspaceSplitPayload.test.ts
+  s_42ecbf4c9cb42a::t_e77c22a5eb95d2 298,311-312,316-317,320,322,341,349
+  s_42ecbf4c9cb42a::t_569d734e141ab4 128
+  s_42ecbf4c9cb42a::t_6c697e844cf37a 329
+  s_42ecbf4c9cb42a::t_93e61ce7018de9 363,378,499,530
+  s_42ecbf4c9cb42a::t_ed6e16accfd82e 344
+packages/contracts/windowTabs.ts
+  s_42ecbf4c9cb42a::t_a537f45a3e8184 57
+app/modules/workspace-shell/composables/useWorkspaceSplitPayload.ts
+  s_42ecbf4c9cb42a::t_a537f45a3e8184 52,126,384
+.devkit/analysis/project6/project6-307-bounded-correction.md
+  s_42ecbf4c9cb42a::t_a7bd6d2f68ecae 8,15,40,42,49-52
+app/modules/workspace-shell/composables/useWorkspaceInteractionControls.ts
+  s_42ecbf4c9cb42a::t_a537f45a3e8184 79,129,277
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "0b490a363d4d5882245261a993cb66ca2c5731dd",
+  "prompts": {},
+  "sessions": {
+    "s_42ecbf4c9cb42a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07cac-e171-7471-886d-bb857acd61ce",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

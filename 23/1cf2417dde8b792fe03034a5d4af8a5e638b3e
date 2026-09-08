@@ -1,0 +1,19 @@
+docs/architecture/project6-317-rebase-integration-blocker.md
+  s_a2d0d49a269ebb::t_5dbfe7d960182a 1-80
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "231cf2417dde8b792fe03034a5d4af8a5e638b3e",
+  "prompts": {},
+  "sessions": {
+    "s_a2d0d49a269ebb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07cb3-0877-7343-85f3-b25147cac768",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

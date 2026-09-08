@@ -1,0 +1,37 @@
+electron/platform-ipc/registerIpcHandlers.ts
+  s_c63d7a8363f7e9::t_7f78fd626269a7 2
+.fallowrc.json
+  s_c63d7a8363f7e9::t_2746fbee3a250f 96-99,163-164
+  s_c63d7a8363f7e9::t_7f78fd626269a7 84-86,165-167
+  s_e6afbc66b58e4d::t_8c5e04020f2b8b 168
+electron/native-tools/runNativeToolCommand.ts
+  s_c63d7a8363f7e9::t_7f78fd626269a7 58
+electron/features/scan-cleanup/scanCleanupRasterRetention.ts
+  s_c63d7a8363f7e9::t_bd068dd23b5315 173-201,779,781-785,792,794-797,801
+electron/features/agent/assistantMcpSessionScope.ts
+  s_c63d7a8363f7e9::t_7f78fd626269a7 120
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "fb57425a5c36bdf83966fe1adb8712a3f91d7578",
+  "prompts": {},
+  "sessions": {
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_e6afbc66b58e4d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07cdb-5143-7e02-a580-29471422fbfa",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

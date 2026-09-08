@@ -1,0 +1,20 @@
+native/scan-cleanup/src/engine/output_geometry.rs
+  s_ecb10d3801a59d::t_c1a405da57fe1b 1759-1763,1765-1767,1769-1771,1774-1785,1804,1806,1812,1815,1820-1823,1871-1874,1877-1879,1881
+  s_ecb10d3801a59d::t_e32f825aeef413 1754-1758,1764,1768,1772-1773,1786-1803,1866-1870,1875-1876,1880
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "847b5400f9141319901d274ca766e458b0dd0e8d",
+  "prompts": {},
+  "sessions": {
+    "s_ecb10d3801a59d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07811-7527-7863-8fd2-8f8d811d7186",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

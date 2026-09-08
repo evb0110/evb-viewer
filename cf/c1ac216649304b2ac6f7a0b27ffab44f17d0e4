@@ -1,0 +1,43 @@
+docs/research/annotation-system-rework-2026-09-08.md
+  s_e6afbc66b58e4d::t_7df9225f5f7c0b 93-96
+app/modules/workspace-shell/composables/usePageAnnotationTools.ts
+  s_e6afbc66b58e4d::t_7df9225f5f7c0b 68
+tests/unit/app/modules/workspace-shell/composables/usePageAnnotationTools.test.ts
+  s_e6afbc66b58e4d::t_c07d22633d131d 117-118,120-121,123,125-128,130-133,135
+  s_e6afbc66b58e4d::t_aab514ae17c9f6 122,129,134
+  s_e6afbc66b58e4d::t_08f250d2a71c5b 119
+  s_e6afbc66b58e4d::t_cc868073c7b345 124
+tests/unit/app/modules/pdf-viewer/components/pdfAnnotationsPanel.test.ts
+  s_e6afbc66b58e4d::t_c07d22633d131d 138-140,142-151
+  s_e6afbc66b58e4d::t_9f854a72dbd765 141
+tests/e2e/electron/annotationLifecycle.e2e.test.ts
+  s_e6afbc66b58e4d::t_88cb998c214ed0 1994-2012
+  s_e6afbc66b58e4d::t_fd86f7210bdc6a 2040-2042
+  s_e6afbc66b58e4d::t_7df9225f5f7c0b 2013-2015,2017-2024,2026-2031
+  s_e6afbc66b58e4d::t_3d84f4953aea3e 1978-1979,1981-1993,2038-2039,2043-2064,2066-2071,2073-2075
+  s_e6afbc66b58e4d::t_7c0a93428da5e6 2032-2037
+  s_e6afbc66b58e4d::t_12841edec7d4de 1980
+  s_e6afbc66b58e4d::t_28110987505763 2016
+  s_e6afbc66b58e4d::t_eb9747214607ba 2025
+  s_e6afbc66b58e4d::t_25f079634bbcdc 2065
+  s_e6afbc66b58e4d::t_e290dd5fae411a 2072
+  s_e6afbc66b58e4d::t_05ed85ee0f489b 2076-2077
+app/modules/pdf-viewer/components/PdfAnnotationsPanel.vue
+  s_e6afbc66b58e4d::t_7df9225f5f7c0b 8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "cfc1ac216649304b2ac6f7a0b27ffab44f17d0e4",
+  "prompts": {},
+  "sessions": {
+    "s_e6afbc66b58e4d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07cdb-5143-7e02-a580-29471422fbfa",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

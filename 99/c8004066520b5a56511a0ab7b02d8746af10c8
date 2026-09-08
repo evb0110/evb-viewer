@@ -1,0 +1,97 @@
+electron/features/scan-cleanup/scanCleanupPreviewShared.ts
+  s_018fca800fff45::t_2dba2fe91b594d 13
+  s_018fca800fff45::t_42f67bcd69b8d0 514-516,587
+  s_018fca800fff45::t_a3b9d91dc571b5 305
+  s_018fca800fff45::t_a897e22bb8e320 569-574,589,607
+electron/features/scan-cleanup/scanCleanupPreviewLifecycle.ts
+  s_018fca800fff45::t_5831ef24e94254 57
+electron/features/scan-cleanup/createScanCleanupService.ts
+  s_018fca800fff45::t_301263702fae23 318,332
+scan-cleanup-core/rasterLayerDimensions.ts
+  s_018fca800fff45::t_f9a204148bba06 2
+  s_018fca800fff45::t_7daedfe6a4e7a2 216,229,233
+  s_018fca800fff45::t_05859f4488915f 4,13-14
+  s_018fca800fff45::t_1770505613a215 5-12,48,136
+  s_018fca800fff45::t_1bc7847525dcfc 15,34,215,228,232,253
+  s_c63d7a8363f7e9::t_e8e2d1aba6378f 3
+tests/unit/electron/scanCleanupPreviewIpcScenarios.ts
+  s_018fca800fff45::t_e5445161daf3ac 29,438
+  s_018fca800fff45::t_f9a204148bba06 226-229
+tests/unit/electron/scanCleanupDetection.test.ts
+  s_018fca800fff45::t_e75ec88edbf95a 76-78,81-82
+  s_018fca800fff45::t_78ae8805bb307f 52-55
+  s_018fca800fff45::t_fd2e5110f2818a 2
+  s_018fca800fff45::t_a85a254326d915 4,21,48,68,73-75,83-86
+  s_018fca800fff45::t_ec1cee3e26155b 8,43-47,49,57-58,63-67,88,632,750,869,1324,1415,1491,1633
+  s_018fca800fff45::t_f9a204148bba06 59-62,79-80
+  s_018fca800fff45::t_ef602410d14cec 50-51,56
+  s_018fca800fff45::t_68b2f34881e35d 69-72,87
+scan-cleanup-core/rasterValidation.ts
+  s_018fca800fff45::t_7daedfe6a4e7a2 151
+  s_018fca800fff45::t_f9a204148bba06 7-10
+  s_018fca800fff45::t_714fb44998dd95 19,150
+electron/features/scan-cleanup/scanCleanupPreviewRenderingOwner.ts
+  s_018fca800fff45::t_3a9b79214e35be 278
+  s_018fca800fff45::t_a3b9d91dc571b5 252,267,277,279-288,490
+  s_018fca800fff45::t_a897e22bb8e320 405
+electron/features/scan-cleanup/scanCleanupRasterRetention.ts
+  s_018fca800fff45::t_42a2429c3df49e 646-652,696-702
+tests/unit/electron/scanCleanupService.test.ts
+  s_018fca800fff45::t_301263702fae23 35
+tests/unit/electron/scanCleanupPreviewRenderingScenarios.ts
+  s_018fca800fff45::t_f9a204148bba06 272-275
+  s_018fca800fff45::t_6e9f5ba36358b6 30,485
+electron/features/scan-cleanup/scanCleanupPreviewCompositionDefaults.ts
+  s_018fca800fff45::t_42f67bcd69b8d0 52,81-84
+  s_018fca800fff45::t_a897e22bb8e320 191
+tests/unit/electron/scanCleanupDetectionStagedWindow.test.ts
+  s_018fca800fff45::t_bc6008d33c2dd3 8,40-45,53-54,59-64,289
+  s_018fca800fff45::t_f9a204148bba06 55-58
+  s_018fca800fff45::t_78ae8805bb307f 48-51
+  s_018fca800fff45::t_fd2e5110f2818a 4,65-66,290
+  s_018fca800fff45::t_ef602410d14cec 46-47,52
+tests/unit/electron/scanCleanupRasterRetentionScenarios.ts
+  s_018fca800fff45::t_f9a204148bba06 203-206
+  s_018fca800fff45::t_6e9f5ba36358b6 32,415
+tests/unit/electron/scanCleanupPreviewCompositionScenarios.ts
+  s_018fca800fff45::t_6e9f5ba36358b6 32,473
+  s_018fca800fff45::t_bed9317a975823 42-45
+  s_018fca800fff45::t_537147b1f45f1d 237-240
+tests/unit/electron/scanCleanupDetectionLifecycleScenarios.ts
+  s_018fca800fff45::t_6e9f5ba36358b6 35,464
+  s_018fca800fff45::t_537147b1f45f1d 251-254
+tests/unit/electron/scanCleanupPipeline.test.ts
+  s_018fca800fff45::t_301263702fae23 30
+electron/features/scan-cleanup/scanCleanupDetectionLifecycle.ts
+  s_018fca800fff45::t_42f67bcd69b8d0 25,384
+  s_018fca800fff45::t_a897e22bb8e320 389
+  s_018fca800fff45::t_bc9480f232d154 400-403,405,410
+scan-cleanup-core/detection.ts
+  s_018fca800fff45::t_a82ff4d307f95e 52
+  s_018fca800fff45::t_714fb44998dd95 443
+  s_018fca800fff45::t_42a2429c3df49e 899-902
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "99c8004066520b5a56511a0ab7b02d8746af10c8",
+  "prompts": {},
+  "sessions": {
+    "s_018fca800fff45": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077ec-6efd-75b1-9f8f-75fb221f1ed6",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,20 @@
+docs/architecture/project6-ticket333-registration-table-inventory-2026-09-07.md
+  s_2f4b494e70ad0e::t_27632988e331d1 1-73,75-202
+  s_2f4b494e70ad0e::t_d53fba1ab82960 74
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "c103535e26804441b24ed4547cd4c3af3a7ffd8c",
+  "prompts": {},
+  "sessions": {
+    "s_2f4b494e70ad0e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d10-9ff2-72f1-ac55-155a17b0b60e",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

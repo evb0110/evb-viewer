@@ -1,0 +1,118 @@
+electron/ocr/worker/indexWriter.ts
+  s_cf236b178e7f63::t_f5e80da0f738db 46
+  s_cf236b178e7f63::t_3f46790332d58a 42-45
+  s_cf236b178e7f63::t_76dce4a3472708 47
+tests/unit/scripts/checkZeroExecutionCoverage.test.ts
+  s_cf236b178e7f63::t_eb45d1c187bcb8 51,61
+tests/unit/electron/ocrMixedDocumentCorpus.test.ts
+  s_cf236b178e7f63::t_aaaa470ae9aeae 71
+tests/unit/electron/documentRevisionStore.test.ts
+  s_cf236b178e7f63::t_c9cdcdc4305457 603
+tests/unit/electron/pageIdentityStore.test.ts
+  s_cf236b178e7f63::t_b94a325c52350b 47,215,1119,1136,1200,1212-1214
+tests/unit/electron/ocrIndexWriterPath.test.ts
+  s_cf236b178e7f63::t_1dcee19bb5bb19 87-92
+  s_cf236b178e7f63::t_c9cdcdc4305457 82
+  s_cf236b178e7f63::t_e93d95fea4c0e3 83-86
+tests/unit/architecture/xlargeDocumentPathArchitecture.test.ts
+  s_cf236b178e7f63::t_eb45d1c187bcb8 397
+electron/features/search/searchIndexOperationPolicy.ts
+  s_cf236b178e7f63::t_6d9acf9784fb77 17
+tests/unit/electron/rebindSearchIndexes.test.ts
+  s_cf236b178e7f63::t_bbf475b7269f7f 28
+  s_cf236b178e7f63::t_4ac1b68788c9b6 29
+  s_cf236b178e7f63::t_9c7931b66e5237 30-31
+electron/features/search/public.ts
+  s_cf236b178e7f63::t_41ef9b678a3cd4 60-61,68
+  s_cf236b178e7f63::t_9d4f5d7212112d 1
+  s_cf236b178e7f63::t_8f693b0cece684 28,40,90
+  s_cf236b178e7f63::t_ce008cb80ea66f 8,25,27,29-33,36-39,41-44,47-49,54-57,62-66,69-72
+  s_cf236b178e7f63::t_ef8b593d1c0d85 50
+  s_68a77ac542fc85::t_dc6fa0c10a9bdb 102-106
+electron/file-access/pageIdentityStore.ts
+  s_cf236b178e7f63::t_3f46790332d58a 28-29
+  s_cf236b178e7f63::t_603b38d7c2de8f 32
+  s_cf236b178e7f63::t_8b969b3740d21c 33-35
+tests/unit/electron/ocrIndexWriterSidecar.test.ts
+  s_cf236b178e7f63::t_bc25997dc3c98c 20-22,29
+  s_cf236b178e7f63::t_c9cdcdc4305457 23
+tests/unit/electron/ocrDocumentTextCatalogAgreement.test.ts
+  s_cf236b178e7f63::t_7ebe0f09c61763 191-193
+  s_cf236b178e7f63::t_e48e6f50fa14e4 14,178
+  s_cf236b178e7f63::t_8eeef39069fa7b 13
+  s_cf236b178e7f63::t_b3477575bfc04c 179-180,182-184,189-190
+  s_cf236b178e7f63::t_e93d95fea4c0e3 177,181
+  s_cf236b178e7f63::t_1dcee19bb5bb19 185-188
+tests/unit/electron/ocrPdfAssembler.test.ts
+  s_cf236b178e7f63::t_c9cdcdc4305457 42
+tests/unit/electron/xlargeSearchRouting.test.ts
+  s_cf236b178e7f63::t_4ac1b68788c9b6 14
+packages/electron-worker-bundles/electronWorkerBundles.js
+  s_cf236b178e7f63::t_eb45d1c187bcb8 61
+scripts/architecture/boundary-check.mjs
+  s_cf236b178e7f63::t_eb45d1c187bcb8 827
+electron/features/search/xlargeSearchClassification.ts
+  s_cf236b178e7f63::t_1fd89118b46849 1-77
+electron/file-access/workingCopyMutationQueue.ts
+  s_cf236b178e7f63::t_3f46790332d58a 8
+electron/file-access/workingCopyContentTransitionJournal.ts
+  s_cf236b178e7f63::t_3f46790332d58a 23
+electron/file-access/rebindDocumentTextCatalogIfPresent.ts
+  s_cf236b178e7f63::t_ef8b593d1c0d85 4
+.fallowrc.json
+  s_cf236b178e7f63::t_eb45d1c187bcb8 31
+tests/unit/electron/realWorkerProtocols.test.ts
+  s_cf236b178e7f63::t_eb45d1c187bcb8 32
+tests/e2e/electron/helpers/fixtures.ts
+  s_cf236b178e7f63::t_c9cdcdc4305457 40
+tests/unit/electron/ocrDocumentTextCatalogV4Consumer.test.ts
+  s_cf236b178e7f63::t_aaaa470ae9aeae 86
+  s_cf236b178e7f63::t_c9cdcdc4305457 87-89
+electron/features/search/worker.ts
+  s_cf236b178e7f63::t_262945ad375f25 6-8,25-28,31
+  s_cf236b178e7f63::t_871718e7c40d1b 32-33
+  s_68a77ac542fc85::t_63f53b9bbb740b 35-37,39,271,352
+electron/ocr/documentTextCatalog.ts
+  s_cf236b178e7f63::t_f5e80da0f738db 45-47
+  s_cf236b178e7f63::t_351d9a98d0bb91 48
+  s_cf236b178e7f63::t_74620ab835fd89 49
+scripts/windows-test/registry/changeSelector.ts
+  s_cf236b178e7f63::t_eb45d1c187bcb8 113
+tests/unit/electron/workingCopyMutationQueue.test.ts
+  s_cf236b178e7f63::t_c9cdcdc4305457 48
+electron/features/search/publicNative.ts
+  s_cf236b178e7f63::t_3f46790332d58a 12-13,16,23
+  s_cf236b178e7f63::t_ef8b593d1c0d85 5-7,20,28,42,44,48-49,51-52,56
+  s_cf236b178e7f63::t_e77db4afc28926 15
+  s_cf236b178e7f63::t_40ba3d9ed87cbd 1-3,17-19,21-22,24-27,29-30
+  s_cf236b178e7f63::t_98d07b326f7c46 4
+  s_cf236b178e7f63::t_4e43af5c55266a 14
+  s_cf236b178e7f63::t_74620ab835fd89 31-34,40-41,43,45-47,50,53
+  s_cf236b178e7f63::t_bf916f92228c73 8,11
+  s_cf236b178e7f63::t_d32350e6219f1e 54-55
+  s_cf236b178e7f63::t_f566deabeab134 57
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "4449fb20703182e3dc1eb3958f612f774dde9d2b",
+  "prompts": {},
+  "sessions": {
+    "s_68a77ac542fc85": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07b21-2393-7941-8128-2f6fb9f8a52a",
+        "model": "unknown"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_cf236b178e7f63": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0786e-ff24-7610-ae47-435cbff9d48e",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

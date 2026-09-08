@@ -1,0 +1,33 @@
+scan-cleanup-core/detection.ts
+  s_018fca800fff45::t_db01bdf14bf45c 422
+  s_c63d7a8363f7e9::t_3a8b81921f338b 3
+electron/features/scan-cleanup/scanCleanupPreviewRenderingPipeline.ts
+  s_018fca800fff45::t_a65b49ff11a080 514
+scan-cleanup-core/rasterValidation.ts
+  s_018fca800fff45::t_db01bdf14bf45c 16
+  s_018fca800fff45::t_5b7c58435dd0b8 150,153
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "e9a847c055253f2c32f042700e9d93fa4ea886cd",
+  "prompts": {},
+  "sessions": {
+    "s_018fca800fff45": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077ec-6efd-75b1-9f8f-75fb221f1ed6",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

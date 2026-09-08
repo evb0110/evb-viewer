@@ -1,0 +1,40 @@
+native/scan-cleanup/src/engine/output_geometry.rs
+  s_dcc6defac936b2::t_4fe9154aa6c830 962
+  s_dcc6defac936b2::t_605615be460f97 1016-1049
+  s_dcc6defac936b2::t_a74d949d6135d9 954
+native/scan-cleanup/src/adapters/batch_cli.rs
+  s_dcc6defac936b2::t_56e5ed0ed6581f 2387
+  s_dcc6defac936b2::t_4fe9154aa6c830 1757-1759
+  s_dcc6defac936b2::t_46a7ad46b82ab0 9-12,14-15
+  s_dcc6defac936b2::t_9f5d1cab2a14bb 700
+  s_dcc6defac936b2::t_9819e7681020fe 1890,1993-1994,2077,2181
+  s_dcc6defac936b2::t_74afcfe8cba7c0 2160-2161,2163,2166,2169,2172,2175,2178
+  s_dcc6defac936b2::t_20d084f2545614 1753-1756
+  s_dcc6defac936b2::t_1373636f41f77d 1783
+tests/unit/scripts/scanCleanupCorpusPlan.test.ts
+  s_c63d7a8363f7e9::t_f8fc851cc8a136 21-25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "97b341cdf4a89692a2a3a4dca1bd9fa21eae2775",
+  "prompts": {},
+  "sessions": {
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_dcc6defac936b2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c6-6997-78f1-aa1b-45a3adb5a218",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

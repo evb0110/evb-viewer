@@ -1,0 +1,23 @@
+docs/architecture/project6-306-workspace-driver-capability-inventory.md
+  s_6ae4600f2e6f51::t_211629006eb5e9 97
+  s_6ae4600f2e6f51::t_465aafa520213d 90,127,129-130,138-139,146,179
+  s_6ae4600f2e6f51::t_ed175728375d80 12,14-16,20
+  s_6ae4600f2e6f51::t_92c5142b85c162 389,391-392
+  s_6ae4600f2e6f51::t_bb4622f5ca851e 192
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "ea3b92f81e2d4cb4138d5c256c329d3bbcb02e9a",
+  "prompts": {},
+  "sessions": {
+    "s_6ae4600f2e6f51": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07a8b-4796-70c1-a9b8-d4353d48d8d3",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

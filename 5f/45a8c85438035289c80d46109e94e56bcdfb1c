@@ -1,0 +1,25 @@
+tests/unit/electron/scanCleanupMainBindings.test.ts
+  s_2f4b494e70ad0e::t_64ea2db27ff0b9 8,10-16,18-24,28-31,38-41
+  s_2f4b494e70ad0e::t_85d92bd7e9f8d6 1-7,9,17,25-27,32-37,42-44
+electron/features/scan-cleanup/scanCleanupMainBindings.ts
+  s_2f4b494e70ad0e::t_e5919c6048590e 18,24-29,48-52
+docs/architecture/project6-ticket333-registration-table-inventory-2026-09-07.md
+  s_2f4b494e70ad0e::t_69a23e986bf28a 295-351,354-355
+  s_2f4b494e70ad0e::t_2b600c9830c9de 352-353
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "5f45a8c85438035289c80d46109e94e56bcdfb1c",
+  "prompts": {},
+  "sessions": {
+    "s_2f4b494e70ad0e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d10-9ff2-72f1-ac55-155a17b0b60e",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": null
+    }
+  }
+}

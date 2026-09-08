@@ -1,0 +1,217 @@
+packages/scan-cleanup/core/runLosslessScanCleanup.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 35,39-41,47-48,55,73-76,80,84,88,92-93,98
+packages/scan-cleanup/core/runScanCleanupConversion.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 51,72,77,84,92-93,100,104-105,112,119,123-124,135,146-147,152,157,162,169-173,178,185
+  s_8e49417b9c002c::t_cf9e9f4473a7ca 190
+electron/ocr/worker/pdfPageSizeProbe.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 7-8
+tests/unit/electron/scanCleanupService.test.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 36-37
+scripts/scanCleanupDetectionCache.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 28-29,34
+tests/unit/electron/pdfPageSizeStreaming.test.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 22-23
+packages/scan-cleanup/core/resolveRasterHandoff.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 2
+packages/scan-cleanup/adapters/index.ts
+  s_8e49417b9c002c::t_69c989e8b24dd1 1,5
+tests/unit/electron/scanCleanupWarningEvents.test.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 9
+tests/unit/app/modules/scan-cleanup/scanCleanupPreviewCache.test.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 19
+packages/scan-cleanup/core/createPagePlanResolver.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 8-10
+packages/scan-cleanup/core/createScanCleanupProgressReporter.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 9
+tests/unit/electron/scanCleanupEffectiveOptions.test.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 12
+electron/features/scan-cleanup/scanCleanupDetectionLifecycle.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 18,42
+tests/unit/electron/scanCleanupStagedRasterWindow.test.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 7
+tests/unit/electron/scanCleanupSourceMrcGeometry.test.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 6,10
+tests/unit/electron/scanCleanupPipeline.test.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 44-45,53-56,60,64-65,73,77-78
+tests/unit/electron/scanCleanupDetectionPlan.test.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 12,20
+electron/features/scan-cleanup/worker/runScanCleanupSidecar.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 30-31
+scripts/scanCleanupCliAdapters.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 37-39,46
+electron/features/scan-cleanup/scanCleanupPreviewRenderingPipeline.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 18,22,26,29,34
+packages/scan-cleanup/core/placementAnchors.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 19
+tests/unit/electron/scanCleanupRenderers.test.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 9-10,17
+packages/scan-cleanup/core/fileBackedResultStore.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 12
+tests/unit/scripts/scanCleanupStagedWindowEndToEnd.test.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 23-24
+tests/unit/electron/scanCleanupPreviewRenderingScenarios.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 45-46
+packages/scan-cleanup/core/assertScanCleanupPathWithinRoot.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 14
+packages/scan-cleanup/core/rasterValidation.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 6,10-11
+electron/features/scan-cleanup/scanCleanupPreviewShared.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 42,53,78-79
+tests/unit/electron/scanCleanupDurability.test.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 24
+electron/features/scan-cleanup/scanCleanupPreviewCompositionDefaults.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 39,45-46
+tests/unit/electron/scanCleanupDocumentCanvas.test.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 33,40
+packages/scan-cleanup/core/assembleCompactScanCleanupPages.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 21,26-27,32-33
+packages/scan-cleanup/core/index.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 4-8,11-19
+tests/e2e/electron/quarantine/scanCleanupUniformity.e2e.test.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 35,47-49,394
+tests/unit/electron/scanCleanupProgressReporter.test.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 16
+packages/scan-cleanup/core/provenanceStamp.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 27,31
+electron/pdf/pdfPageSizes.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 9-10
+electron/features/scan-cleanup/resolveScanCleanupRasterPageSizeStore.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 5
+electron/features/scan-cleanup/scanCleanupPreviewPolicy.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 14,18
+tests/unit/electron/scanCleanupCompletedPageProgress.test.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 7
+tests/unit/electron/pdfMrcExtraction.test.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 16
+tests/unit/electron/scanCleanupCoreStreamingCoverage.test.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 38-39,48-49,56
+scripts/flattenLayeredManifestPage.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 2
+electron/features/scan-cleanup/worker/main.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 15
+packages/scan-cleanup/core/sourceDpiDetection.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 7
+  s_8e49417b9c002c::t_cf9e9f4473a7ca 12,16
+scripts/scan-cleanup-convert.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 31,35-38,42,47,53,66-67
+packages/scan-cleanup/index.ts
+  s_8e49417b9c002c::t_69c989e8b24dd1 1-2
+tests/unit/scripts/scanCleanupWordLossAudit.test.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 35
+packages/scan-cleanup/core/sourceTextLayer.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 1-2,6-8
+tests/unit/packages/rasterLayerDimensions.test.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 17
+tests/unit/electron/scanCleanupPipelineWarningCapabilities.test.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 7-9
+tests/unit/electron/scanCleanupProvenanceStamp.test.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 18,39
+tests/unit/electron/scanCleanupPageBatches.test.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 6,10
+packages/scan-cleanup/core/policy/effectiveOptions.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 20
+electron/features/scan-cleanup/createScanCleanupService.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 63
+electron/features/scan-cleanup/scanCleanupRasterRetention.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 5,11-12,20-21
+electron/features/scan-cleanup/scanCleanupPreviewRenderer.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 9,27,43-45,59-60
+tests/unit/scripts/scanCleanupDiagnosticsManifestRoots.test.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 17-18
+tests/unit/electron/scanCleanupDetection.test.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 25,38-39
+tests/unit/electron/ocrWorkerPopplerStage.test.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 26
+electron/features/scan-cleanup/detectionResultStoreDescriptor.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 16-17
+tests/unit/electron/scanCleanupDetectionResultStoreDescriptor.test.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 16
+electron/features/scan-cleanup/scanCleanupRasterRetentionIo.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 12
+packages/scan-cleanup/core/buildScanCleanupSourceMrcForegroundPdfMatrix.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 2-3
+tests/unit/electron/scanCleanupResultStore.test.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 23,27-29,35-36
+packages/scan-cleanup/core/policy/scanCleanupRepresentationPolicy.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 6
+electron/native-tools/createPdfCombineProgressHandler.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 1
+electron/features/scan-cleanup/scanCleanupMainBindings.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 14
+tests/unit/electron/scanCleanupTextLayer.test.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 4-6
+packages/scan-cleanup/README.md
+  s_8e49417b9c002c::t_69c989e8b24dd1 7
+tests/unit/electron/scanCleanupPlacementAnchors.test.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 10,15
+electron/features/scan-cleanup/scanCleanupRasterMeasurement.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 10
+packages/scan-cleanup/core/createStagedRasterWindow.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 2
+packages/scan-cleanup/core/buildManifest.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 9,15-17
+tests/unit/electron/scanCleanupSplitContiguousPageRuns.test.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 6
+electron/features/scan-cleanup/detectionResultStoreRegistry.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 2
+tests/unit/electron/runLosslessScanCleanup.test.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 21-22,28-30
+tests/unit/electron/scanCleanupNativeManifestBuilder.test.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 33-37
+tests/unit/scripts/scanCleanupDetectionCache.test.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 14-15,24
+packages/scan-cleanup/core/policy/buildNativeScanCleanupManifest.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 28-29,34
+packages/scan-cleanup/core/detection.ts
+  s_8e49417b9c002c::t_cf9e9f4473a7ca 67
+  s_8e49417b9c002c::t_9e69f93cfbc361 22,27-28,41,45,49-50,54,61,72,76-79
+scripts/createCliRetention.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 11-12,16
+packages/scan-cleanup/core/pageBatches.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 5
+packages/scan-cleanup/core/types.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 17
+tests/unit/electron/resolveRasterHandoff.test.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 13
+electron/features/scan-cleanup/createScanCleanupRasterBatchRenderer.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 6-8,13
+electron/features/scan-cleanup/worker/runScanCleanupPipeline.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 11,22-23,30,82
+packages/scan-cleanup/core/pdfPageSizes.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 20
+  s_8e49417b9c002c::t_cf9e9f4473a7ca 28
+electron/ocr/worker/popplerStage.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 17-19
+packages/scan-cleanup/adapters/createScanCleanupRenderers.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 7,11,13,17
+packages/scan-cleanup/core/policy/documentCanvas.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 21,25
+packages/scan-cleanup/core/preserveScanCleanupJsonEvidence.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 13
+scripts/vitestResolveAlias.ts
+  s_8e49417b9c002c::t_69c989e8b24dd1 15-16
+packages/scan-cleanup/adapters/extractPdfMrcLayers.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 19,21
+tests/unit/electron/ocrWorkerPageProcessing.test.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 59
+tests/unit/electron/scanCleanupDetectionStagedWindow.test.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 25,33-34
+electron/pdf/sourceDpiDetection.ts
+  s_8e49417b9c002c::t_9e69f93cfbc361 6-7
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "f0c1557e35be07bf923f84bd3168732383cd4dd9",
+  "prompts": {},
+  "sessions": {
+    "s_8e49417b9c002c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07db6-b548-7e11-b34f-ffefc7d6cfbf",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

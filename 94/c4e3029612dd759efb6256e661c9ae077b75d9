@@ -1,0 +1,35 @@
+tests/unit/app/modules/workspace-shell/composables/useWorkspaceSplitCache.test.ts
+  s_42ecbf4c9cb42a::t_de658976b21f72 82-83
+  s_42ecbf4c9cb42a::t_c40c2dba70d855 61-81,84-87
+tests/unit/contracts/windowTabsPlatformFeature.test.ts
+  s_42ecbf4c9cb42a::t_c40c2dba70d855 6,68-111
+  s_e6afbc66b58e4d::t_8ff3f46a38c27b 112-113
+packages/contracts/windowTabsValidation.ts
+  s_42ecbf4c9cb42a::t_c493aed46fd533 137,154
+app/modules/workspace-shell/composables/useWorkspaceSplitCache.ts
+  s_42ecbf4c9cb42a::t_c493aed46fd533 68
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "94c4e3029612dd759efb6256e661c9ae077b75d9",
+  "prompts": {},
+  "sessions": {
+    "s_42ecbf4c9cb42a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07cac-e171-7471-886d-bb857acd61ce",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_e6afbc66b58e4d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07cdb-5143-7e02-a580-29471422fbfa",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,22 @@
+docs/architecture/project6-325-binary-provenance-platform-inventory.md
+  s_7e9c5e22befab4::t_930ef5dc2c3584 275
+  s_7e9c5e22befab4::t_f35400b81e68aa 7,152,199,246,250,252,273,294,297-299,302,335
+  s_7e9c5e22befab4::t_5b33f09db00229 77,191,205,224
+  s_7e9c5e22befab4::t_3b26a87813c6b8 274
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "b7351b7984b31af32e653d9534bc54dfedceb952",
+  "prompts": {},
+  "sessions": {
+    "s_7e9c5e22befab4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07a92-1a56-7723-abaa-5efa6f6010cd",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

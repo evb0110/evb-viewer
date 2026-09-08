@@ -1,0 +1,23 @@
+app/modules/pdf-viewer/components/PdfCropOverlay.vue
+  s_e6afbc66b58e4d::t_a743f232961672 88
+app/assets/css/pdf-viewer.scss
+  s_e6afbc66b58e4d::t_a743f232961672 260
+app/modules/pdf-viewer/components/PdfRegionSnipOverlay.vue
+  s_e6afbc66b58e4d::t_a743f232961672 137
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "e447d231b6080391427890a2bd42e6a2cca663a4",
+  "prompts": {},
+  "sessions": {
+    "s_e6afbc66b58e4d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07cdb-5143-7e02-a580-29471422fbfa",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

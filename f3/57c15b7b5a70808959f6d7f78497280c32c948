@@ -1,0 +1,20 @@
+native/scan-cleanup/src/engine/output_geometry.rs
+  s_dcc6defac936b2::t_a5e2d187f716ca 184,213-220
+  s_dcc6defac936b2::t_70f9c8dafedebc 208-212,231-233,323
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f357c15b7b5a70808959f6d7f78497280c32c948",
+  "prompts": {},
+  "sessions": {
+    "s_dcc6defac936b2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c6-6997-78f1-aa1b-45a3adb5a218",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

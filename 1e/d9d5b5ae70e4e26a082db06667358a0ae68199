@@ -1,0 +1,79 @@
+electron/bootstrap/mainProcess.ts
+  s_2f4b494e70ad0e::t_6c8a5d503d97fb 36,468,505,661-664,830-833
+  s_2f4b494e70ad0e::t_8a7fde2d64442e 1-35,37-467,469-504,506-660,665-829,834-851
+electron/platform-ipc/featureRegistrationTable.ts
+  s_2f4b494e70ad0e::t_eeb257e8c9fdb5 37,254
+  s_2f4b494e70ad0e::t_4d21d35d741c62 54
+  s_2f4b494e70ad0e::t_0ee2fe744cd5ec 34,36,38,43-46,253,264
+electron/platform-ipc/registerIpcHandlers.ts
+  s_2f4b494e70ad0e::t_169eaa540e63cf 2
+  s_2f4b494e70ad0e::t_c0ddaf780e8139 10-13
+tests/unit/electron/ipcRegistrySecurity.test.ts
+  s_2f4b494e70ad0e::t_16937b7c416e12 298
+  s_2f4b494e70ad0e::t_26a1a5ca4d4b81 16,178,225,240,275-281
+  s_2f4b494e70ad0e::t_b1a35df6f85aad 282,284-297,299-300
+  s_2f4b494e70ad0e::t_5c5faf0adac9a7 173-174
+  s_2f4b494e70ad0e::t_012092c61022ae 19,172
+  s_2f4b494e70ad0e::t_675cccf01894ad 283
+electron/window.ts
+  s_2f4b494e70ad0e::t_6cbe40b129e05d 615
+  s_2f4b494e70ad0e::t_f2336759c3ffb1 30,140,142-145,147
+electron/platform-ipc/rendererLogBridge.ts
+  s_2f4b494e70ad0e::t_fb00986233f4ea 439
+  s_2f4b494e70ad0e::t_e98c5bf092bc56 430
+electron/platform-ipc/registerCoreIpcHandlers.ts
+  s_2f4b494e70ad0e::t_8e0889215d5ee2 129-133,146-150,167-171
+  s_2f4b494e70ad0e::t_0bd47c97cfbaf8 33,47,93,143,164
+tests/unit/electron/featureRegistrationTable.test.ts
+  s_2f4b494e70ad0e::t_762fbfacc8cba3 10,103-110
+  s_c63d7a8363f7e9::t_bdde94732b4476 111
+tests/unit/electron/windowCloseHandshake.test.ts
+  s_2f4b494e70ad0e::t_78f6f469ad2125 18,31,97,113,128-137
+  s_c63d7a8363f7e9::t_b345c5979cccca 138-139
+electron/bootstrap/requestShutdownSaveFlush.ts
+  s_2f4b494e70ad0e::t_19424623328968 12,39,191-196
+electron/window/windowCloseHandshake.ts
+  s_2f4b494e70ad0e::t_35170606de1c95 13,23,149-154
+tests/unit/electron/mainShutdownOrder.test.ts
+  s_2f4b494e70ad0e::t_efc2797a4723cd 11,25,43
+tests/unit/electron/requestShutdownSaveFlush.test.ts
+  s_2f4b494e70ad0e::t_6820831f6856ea 13,95-112
+  s_2f4b494e70ad0e::t_3b21d150493a82 113-114
+electron/main.ts
+  s_2f4b494e70ad0e::t_8a7fde2d64442e 1
+electron/platform-ipc/registerRendererDiagnosticBridge.ts
+  s_2f4b494e70ad0e::t_7ad6a7900ea1ff 27,189
+electron/platform-ipc/rawIpcRegistration.ts
+  s_2f4b494e70ad0e::t_e184a27f88d256 1-48
+docs/architecture/project6-ticket333-registration-table-inventory-2026-09-07.md
+  s_2f4b494e70ad0e::t_57de6840d77193 203-234,238,241,245-246
+  s_2f4b494e70ad0e::t_8fc25735e492c2 235-237
+  s_2f4b494e70ad0e::t_56d2cfc704e866 239-240,242-244
+electron/platform-ipc/registerFeatureIpcAdapters.ts
+  s_2f4b494e70ad0e::t_0fc58a72075808 9,101-118
+  s_2f4b494e70ad0e::t_9c4aab88d35e0a 8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "1ed9d5b5ae70e4e26a082db06667358a0ae68199",
+  "prompts": {},
+  "sessions": {
+    "s_2f4b494e70ad0e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d10-9ff2-72f1-ac55-155a17b0b60e",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,41 @@
+native/scan-cleanup/src/engine/output_geometry.rs
+  s_dcc6defac936b2::t_b507095f511b1e 986,990-994,999,1011
+  s_dcc6defac936b2::t_82770220ef8916 2308-2309,2360,3304-3305
+  s_dcc6defac936b2::t_a96d7a3fd414e6 1060
+  s_dcc6defac936b2::t_62e44b1658b5ec 3606-3607
+  s_dcc6defac936b2::t_a2fdf9b9f28f00 2683,2753-2758
+  s_dcc6defac936b2::t_33cb7cbac45ce6 1003
+  s_dcc6defac936b2::t_27f50b37d65bdb 1851-1872
+  s_dcc6defac936b2::t_3706894384b413 1447,1474-1475
+  s_dcc6defac936b2::t_03d1c57072ad2d 1025-1026,1043
+native/scan-cleanup/src/engine/staged_input.rs
+  s_dcc6defac936b2::t_d4fe167def5277 477,480,543,545
+native/scan-cleanup/src/adapters/batch_cli.rs
+  s_dcc6defac936b2::t_9d4ff790f1a191 1759-1765,1767-1772,1778,1780-1783
+  s_dcc6defac936b2::t_9d9b08a4446d9a 609-615,618,1072
+  s_dcc6defac936b2::t_d9530a98ed8cbc 411-413,415,417-422,425-426
+  s_dcc6defac936b2::t_6a87311299339e 918-922
+  s_dcc6defac936b2::t_633c1e13505fb4 1152,1178,1217
+  s_dcc6defac936b2::t_49bd9199494c3d 931-936
+  s_dcc6defac936b2::t_03d1c57072ad2d 9-13
+  s_dcc6defac936b2::t_33cb7cbac45ce6 400-403
+  s_dcc6defac936b2::t_091724fac63c95 1758
+  s_dcc6defac936b2::t_192122f45254ea 1037,1040
+  s_dcc6defac936b2::t_e23cec86d88505 923-930,937-938,1470-1475,1503-1508,1537-1542
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "55d455ef0c26a92bc17de18562dcdb182220e8c3",
+  "prompts": {},
+  "sessions": {
+    "s_dcc6defac936b2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c6-6997-78f1-aa1b-45a3adb5a218",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,32 @@
+tests/unit/electron/tesseract.test.ts
+  s_6d332b0dd28a5f::t_95a8094623078b 176,203,235,289,331,377
+electron/ocr/worker/runProductionOcrQualityCase.ts
+  s_6d332b0dd28a5f::t_95a8094623078b 12
+tests/unit/electron/ocrWorkerTesseractRunner.test.ts
+  s_6d332b0dd28a5f::t_95a8094623078b 10
+tests/unit/electron/ocrWorkerPageProcessing.test.ts
+  s_6d332b0dd28a5f::t_95a8094623078b 60
+electron/features/ocr/worker/tesseractRunner.ts
+  s_6d332b0dd28a5f::t_95a8094623078b 1-14,18-584
+  s_6d332b0dd28a5f::t_fc68883ec86c06 15-17
+electron/ocr/worker/main.ts
+  s_6d332b0dd28a5f::t_95a8094623078b 56
+tests/unit/electron/ocrWorkerTesseractRunnerAbort.test.ts
+  s_6d332b0dd28a5f::t_95a8094623078b 10
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "0a973cef7b33a0fcc467af7cad09422ea3fa1cfd",
+  "prompts": {},
+  "sessions": {
+    "s_6d332b0dd28a5f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d82-5d43-7ba1-b991-adaa2cbaa241",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

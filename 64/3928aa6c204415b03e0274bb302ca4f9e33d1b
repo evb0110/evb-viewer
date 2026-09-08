@@ -1,0 +1,119 @@
+tests/unit/electron/scanCleanupPreviewIpcAdapter.test.ts
+  s_018fca800fff45::t_2da8a463e518ff 7-8,45-51,74-75,80-94,107,120-126,128-133,135-166
+  s_018fca800fff45::t_419a1c3c6388c3 76-79
+  s_018fca800fff45::t_41296bd09955c1 127
+  s_018fca800fff45::t_5049261cc14f5e 134
+tests/unit/electron/scanCleanupPreviewIpcScenarios.ts
+  s_018fca800fff45::t_4ef5f4c0a4102d 225
+  s_018fca800fff45::t_79b16da8d2635e 227
+tests/unit/electron/scanCleanupRasterRetentionScenarios.ts
+  s_018fca800fff45::t_8880c2cdb3c517 202
+  s_018fca800fff45::t_79b16da8d2635e 204
+scan-cleanup-core/detection.ts
+  s_018fca800fff45::t_ef7cd912e0546a 733-734,935
+  s_018fca800fff45::t_e508d2d84f4cf0 1,421,441
+  s_018fca800fff45::t_977339c58727e2 426,440
+  s_018fca800fff45::t_50e425b3c53d8f 442
+  s_018fca800fff45::t_82c4d700f54288 382-385
+  s_018fca800fff45::t_a204b78a2a4a78 381,901
+  s_018fca800fff45::t_9a2c1ad297b95c 422-425,429-432,436-439
+  s_018fca800fff45::t_920d5c7eee50b4 1089,1100,1140,1149,1168,1223,1657
+  s_018fca800fff45::t_07c65e3b90f5f2 1447,1537,1608,1724,1757-1758,1764,1766,1768,1812
+  s_018fca800fff45::t_67b7242eb4952a 443-445
+  s_018fca800fff45::t_a51049fc6ae943 731-732
+  s_018fca800fff45::t_30bfdfe6814481 44,427-428,433-435,1473
+  s_018fca800fff45::t_ea81d421ec2f76 1523
+electron/features/scan-cleanup/scanCleanupRasterMeasurement.ts
+  s_018fca800fff45::t_2141f5a74d8e6a 2-5,8-16,82-114,116-125,129-177
+  s_018fca800fff45::t_238857f0018bf8 6-7,115,126-128
+  s_018fca800fff45::t_0911f5de1eb2aa 178-180
+  s_018fca800fff45::t_0106e6ed2b781b 181
+tests/unit/electron/scanCleanupDetectionLifecycleScenarios.ts
+  s_018fca800fff45::t_49e9d858a2ceed 250
+  s_018fca800fff45::t_4ef5f4c0a4102d 251
+  s_018fca800fff45::t_d5483cef822c69 1324-1325,1381-1382
+  s_018fca800fff45::t_f5d9f53d854adb 1367-1374,1402-1409
+  s_018fca800fff45::t_79b16da8d2635e 253
+tests/unit/electron/scanCleanupPreviewComposition.test.ts
+  s_018fca800fff45::t_4190ca11d6bc53 38,117-119
+tests/unit/electron/scanCleanupPreviewCompositionScenarios.ts
+  s_018fca800fff45::t_786e7ee8613820 1817-1818,1823-1824,1831-1836,1838-1841,1844-1847,1851,1853-1859,1861-1864,1866-1869,1871,1873-1874,1877-1883,1890-1893,1903-1908,1910,1912,1917,1919-1920,1922,1924,1929,1931-1932,1935-1947,1949,1951-1952,1954-1955,1961-1964,1967-1968,1970-1973,1975-1976,1978-2011,2014-2015,2019,2023-2030,2035-2037
+  s_018fca800fff45::t_8d085f66b9e2d1 1933-1934,1948,1950,1953,1969,1974
+  s_018fca800fff45::t_b0f261af7b2edf 245-257
+  s_018fca800fff45::t_f7b16b3684fb0d 6,1852,1860,1865,1870,1889,1909,1911,1916,1918,1921,1923,1928,1930,1977,2022
+  s_018fca800fff45::t_7bfa6bb9b1fe65 1848-1849
+  s_018fca800fff45::t_be2c3dbbea3eee 1830,1894-1902
+  s_018fca800fff45::t_0b4bfd6752ef17 24
+  s_018fca800fff45::t_4190ca11d6bc53 1850,2012-2013,2016
+  s_018fca800fff45::t_93353be2da3fbf 1872,1875-1876
+  s_018fca800fff45::t_85973bc0e2d15c 1819-1822,1825-1829,1884-1888,1913-1915,1925-1927,1956-1960
+  s_018fca800fff45::t_6215b5e35d81a4 41,233,235-244
+  s_018fca800fff45::t_cb0aa71d886fb4 1842-1843,1965-1966,2017-2018,2020-2021,2031-2034
+  s_018fca800fff45::t_b7dd74cea6298e 1837
+  s_018fca800fff45::t_91340c02b5af2f 234
+  s_018fca800fff45::t_79b16da8d2635e 259
+electron/features/scan-cleanup/scanCleanupPreviewRenderingOwner.ts
+  s_018fca800fff45::t_4fb6a246d2bf81 420
+  s_018fca800fff45::t_a51049fc6ae943 31,202-203
+electron/features/scan-cleanup/scanCleanupRasterRetentionIo.ts
+  s_018fca800fff45::t_cba9bb0d9ade59 159-166,172-174,181-182
+  s_018fca800fff45::t_30bfdfe6814481 167-171,175-180
+electron/features/scan-cleanup/scanCleanupPreviewRenderer.ts
+  s_018fca800fff45::t_ed4e1b9e4655dd 87
+  s_018fca800fff45::t_a22dfecab549b1 122-125,280,359,402,446,448,466,984-989
+scan-cleanup-core/rasterValidation.ts
+  s_018fca800fff45::t_50e425b3c53d8f 16,153
+  s_018fca800fff45::t_2c5a423f2ebf79 17-19,154
+electron/features/scan-cleanup/scanCleanupPreviewShared.ts
+  s_018fca800fff45::t_79b16da8d2635e 532,572-573
+  s_018fca800fff45::t_a51049fc6ae943 576
+  s_018fca800fff45::t_2c5a423f2ebf79 263
+  s_018fca800fff45::t_e323d3292322cc 582
+  s_018fca800fff45::t_f8a697914bb4d2 577
+tests/unit/architecture/xlargeDocumentPathArchitecture.test.ts
+  s_018fca800fff45::t_1850fbda7c7ac1 210
+electron/features/scan-cleanup/scanCleanupPreviewCompositionDefaults.ts
+  s_018fca800fff45::t_79b16da8d2635e 97
+electron/features/scan-cleanup/scanCleanupDetectionLifecycle.ts
+  s_018fca800fff45::t_50e425b3c53d8f 413
+  s_018fca800fff45::t_82c4d700f54288 437-442
+  s_018fca800fff45::t_e323d3292322cc 408-411
+  s_018fca800fff45::t_a51049fc6ae943 49,387-388
+electron/features/scan-cleanup/scanCleanupRasterRetention.ts
+  s_018fca800fff45::t_30bfdfe6814481 52-56,825-828
+  s_018fca800fff45::t_f5d5733b0ceabf 67-72,596-597,783,791,879,882
+  s_018fca800fff45::t_82c4d700f54288 829-831
+  s_018fca800fff45::t_cb803793e92576 4,45,245-252,254
+  s_018fca800fff45::t_341f3133301de7 66,782,790
+  s_018fca800fff45::t_f5d9f53d854adb 582-585
+  s_018fca800fff45::t_cba9bb0d9ade59 39,51
+  s_018fca800fff45::t_bd10aa67a177c8 253
+  s_018fca800fff45::t_59c47dba0f490b 586-587
+tests/unit/electron/scanCleanupPreviewRenderingScenarios.ts
+  s_018fca800fff45::t_79b16da8d2635e 274
+  s_018fca800fff45::t_4d571aca23ff4f 271
+  s_018fca800fff45::t_18aa58cc88249b 272
+electron/features/scan-cleanup/scanCleanupPreviewRenderingPipeline.ts
+  s_018fca800fff45::t_d665e706af8a62 504
+  s_018fca800fff45::t_ed4e1b9e4655dd 49
+  s_018fca800fff45::t_30bfdfe6814481 512-515
+  s_018fca800fff45::t_52ee330f3dde8a 396-397
+electron/features/scan-cleanup/resolveScanCleanupRasterPageSizeStore.ts
+  s_018fca800fff45::t_79b16da8d2635e 54-56,65
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "643928aa6c204415b03e0274bb302ca4f9e33d1b",
+  "prompts": {},
+  "sessions": {
+    "s_018fca800fff45": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077ec-6efd-75b1-9f8f-75fb221f1ed6",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,25 @@
+scripts/check-unit-test-line-budget.mjs
+  s_347e732a1d9c6e::t_e4bc91123762d1 11,21
+scripts/unit-test-size-policy.mjs
+  s_347e732a1d9c6e::t_e4bc91123762d1 2,15-17
+  s_347e732a1d9c6e::t_8accefe11047ea 18
+tests/unit/scripts/unitTestSizePolicyBehavior.test.ts
+  s_347e732a1d9c6e::t_3c119e11e981c0 10,40-46
+  s_347e732a1d9c6e::t_ad02d6d4509b20 47
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "a05bd03451bfe1156853d1a841fe1965c9ac9e57",
+  "prompts": {},
+  "sessions": {
+    "s_347e732a1d9c6e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d1c-7c23-7e41-9874-034631f4c64c",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

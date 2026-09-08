@@ -1,0 +1,65 @@
+tests/unit/electron/scanCleanupPreviewRendering.test.ts
+  s_018fca800fff45::t_5b82ca98717177 4,6-8,12-18
+tests/unit/electron/scanCleanupPreviewComposition.test.ts
+  s_018fca800fff45::t_5b82ca98717177 4,6-7,11-16
+tests/unit/architecture/xlargeDocumentPathArchitecture.test.ts
+  s_018fca800fff45::t_725537c527be1c 209
+electron/features/scan-cleanup/scanCleanupDetectionLifecycle.ts
+  s_018fca800fff45::t_b18a0fcaa3ddd2 389
+electron/features/scan-cleanup/scanCleanupPreviewLifecycle.ts
+  s_018fca800fff45::t_b18a0fcaa3ddd2 60
+electron/features/scan-cleanup/scanCleanupPreviewShared.ts
+  s_018fca800fff45::t_ff54d621826515 563
+  s_018fca800fff45::t_67049f3a60e922 492
+  s_018fca800fff45::t_b18a0fcaa3ddd2 555,742
+tests/unit/electron/scanCleanupDetectionLifecycle.test.ts
+  s_018fca800fff45::t_5b82ca98717177 4,6-8,12-18
+tests/unit/electron/scanCleanupRasterRetention.test.ts
+  s_018fca800fff45::t_5b82ca98717177 4,6-7,11-15
+electron/features/scan-cleanup/scanCleanupPreviewRenderer.ts
+  s_018fca800fff45::t_ff54d621826515 575,584
+  s_018fca800fff45::t_1bda0a293f24fa 94
+  s_73daf3d725a0e4::t_da10c1235aeff9 86
+tests/unit/electron/scanCleanupPreviewScenarioHarness.ts
+  s_018fca800fff45::t_ff54d621826515 485
+  s_018fca800fff45::t_50c01fecda5421 2393
+electron/features/scan-cleanup/scanCleanupPreviewSupport.ts
+  s_018fca800fff45::t_c3bdcbea2ee296 7-8
+  s_018fca800fff45::t_c83157b53f2363 5-6,9,29-30
+tests/unit/electron/scanCleanupPreviewIpcAdapter.test.ts
+  s_018fca800fff45::t_67049f3a60e922 4,8,15
+  s_018fca800fff45::t_c6374f298c6d1a 6-7,12-13,16-22
+  s_73daf3d725a0e4::t_e877a8587ff895 14
+electron/features/scan-cleanup/scanCleanupPreviewRenderingPipeline.ts
+  s_018fca800fff45::t_af50405f2a0b7e 551,561
+  s_018fca800fff45::t_f0608077c697bd 1-550,552-560,562-586
+electron/features/scan-cleanup/scanCleanupPreviewRenderingOwner.ts
+  s_018fca800fff45::t_b18a0fcaa3ddd2 350
+  s_018fca800fff45::t_9979fcc1173410 34
+  s_018fca800fff45::t_489fb3c94f9c68 327
+  s_73daf3d725a0e4::t_aca79184fdad97 35
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "7eff030c2c6f8307d38336b5300916f6d857dd8a",
+  "prompts": {},
+  "sessions": {
+    "s_018fca800fff45": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077ec-6efd-75b1-9f8f-75fb221f1ed6",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_73daf3d725a0e4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a078ce-db71-7c53-bf22-fe740ab9233b",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,61 @@
+electron/bootstrap/mainProcess.ts
+  s_2f4b494e70ad0e::t_9952f8d2c2b4d3 247,582-585,835-840
+tests/unit/electron/mainFailureReporter.test.ts
+  s_2f4b494e70ad0e::t_fe17cefee6d5ad 42
+electron/platform-ipc/registerFeatureIpcAdapters.ts
+  s_2f4b494e70ad0e::t_944bf82134dce4 9,16-25,28-47,52-56,131-132,147-149,151,154,159-160,162,164
+  s_2f4b494e70ad0e::t_ce2fd30d2ac903 51
+  s_2f4b494e70ad0e::t_c2b43ce8a36881 26-27,48-50,140-141,143,150
+  s_2f4b494e70ad0e::t_3f789f993a4db2 142
+  s_2f4b494e70ad0e::t_e5d2e009a4882c 161
+docs/architecture/project6-ticket333-registration-table-inventory-2026-09-07.md
+  s_2f4b494e70ad0e::t_70ad5dfedadaad 247-294
+tests/unit/electron/featureRegistrationTable.test.ts
+  s_2f4b494e70ad0e::t_bafd36cd72e458 111,114-128
+  s_2f4b494e70ad0e::t_e7f0eb96a69a8b 5,129-152,154-155
+  s_2f4b494e70ad0e::t_b55f8042409cb2 153
+  s_2f4b494e70ad0e::t_88c1bf86ad8af7 12
+electron/platform-ipc/registerIpcHandlers.ts
+  s_2f4b494e70ad0e::t_62d920f114aaec 10
+tests/unit/electron/focusWindowForUserPolicy.test.ts
+  s_2f4b494e70ad0e::t_bb8aad26a683e4 11,15,20,24-27
+  s_2f4b494e70ad0e::t_c13d68d52a3a07 28-29
+electron/window/windowCloseHandshake.ts
+  s_2f4b494e70ad0e::t_05b1a8827fc41e 34,148,153
+electron/platform-ipc/rawIpcRegistration.ts
+  s_2f4b494e70ad0e::t_1fe22e435ef8ad 27-28,33,35,38,42-44,47,49-52
+tests/unit/electron/startupCrashMarker.test.ts
+  s_2f4b494e70ad0e::t_80b8a2892beb73 405,430
+tests/unit/electron/windowCloseHandshake.test.ts
+  s_2f4b494e70ad0e::t_e97e575d2f55af 20,25-26,28-29,32-34,38,47,99
+  s_2f4b494e70ad0e::t_5ec9637d707db9 21-24,27
+  s_2f4b494e70ad0e::t_bd9806f45d2f23 127,154-157,159-181,183-185,187-194
+  s_2f4b494e70ad0e::t_55e8f881a3c784 86-98,195
+  s_2f4b494e70ad0e::t_6556079ba4b5c8 35,44
+  s_2f4b494e70ad0e::t_a9f950cf0183c4 158
+  s_2f4b494e70ad0e::t_fd8b8123b10e4e 182
+  s_2f4b494e70ad0e::t_c637e14ba6a3b7 186
+  s_2f4b494e70ad0e::t_3be17eb53d5b3b 196
+tests/unit/electron/mainShutdownOrder.test.ts
+  s_2f4b494e70ad0e::t_52296f21e63c2d 42-43,47-52
+  s_2f4b494e70ad0e::t_4d4129110e5ecb 44-46
+electron/platform-ipc/featureRegistrationTable.ts
+  s_2f4b494e70ad0e::t_2aeddf4f504ffd 57,257-260
+  s_2f4b494e70ad0e::t_8b75dc9981a870 54-56
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "9de5679e11484d4fb276fa655eda0a665dec4355",
+  "prompts": {},
+  "sessions": {
+    "s_2f4b494e70ad0e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d10-9ff2-72f1-ac55-155a17b0b60e",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

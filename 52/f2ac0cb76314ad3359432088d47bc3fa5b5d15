@@ -1,0 +1,55 @@
+electron/features/agent/assistantMcpSessionScope.ts
+  s_51a499e8a9abb4::t_36f4da7fa30010 81,83
+  s_51a499e8a9abb4::t_0abefcb6734d59 120
+  s_51a499e8a9abb4::t_0dae89c106d901 75-80,82,84-85
+electron/features/agent/codexAssistant.ts
+  s_51a499e8a9abb4::t_0c026282d242cb 1
+docs/architecture/assistant-production-files.txt
+  s_51a499e8a9abb4::t_debfb9f1daa9ee 64,67,73,87
+  s_51a499e8a9abb4::t_2495d4054d2149 107
+electron/features/agent/lazyAgentAssistant.ts
+  s_51a499e8a9abb4::t_02adbd4ad718f1 6,13
+electron/features/agent/assistantService.ts
+  s_51a499e8a9abb4::t_73a9d304f7c173 84,347,1186-1190
+  s_51a499e8a9abb4::t_cb23468fb2d670 95
+  s_51a499e8a9abb4::t_fc6e41cdc34be3 1-79,91-93,96-298,314-340,343,346,348-350,352-758,762-795,797-798,800-806,808-866,868-879,881-1185,1191-1192
+  s_51a499e8a9abb4::t_021ff5f54c0f59 80-83,341-342,344-345,351
+  s_51a499e8a9abb4::t_4b9a16dfb5bcd7 299-313
+  s_51a499e8a9abb4::t_f5b767628da924 94
+  s_51a499e8a9abb4::t_980fe0898a3e75 85-90
+  s_51a499e8a9abb4::t_5e6f9083775075 759-761
+  s_51a499e8a9abb4::t_db432baa7fb550 796,799,807,867,880
+electron/features/agent/createCodexAssistantAdapter.ts
+  s_51a499e8a9abb4::t_f512444172012c 37
+  s_51a499e8a9abb4::t_c322442a441ec5 1-16,21-26,29-36,38-56,66-126,129-142,144-187
+  s_51a499e8a9abb4::t_36f4da7fa30010 17-20,27-28,57-65,127-128,143
+electron/features/agent/runAssistantShutdownStep.ts
+  s_51a499e8a9abb4::t_73a9d304f7c173 1,3-9,11-14
+  s_51a499e8a9abb4::t_36f4da7fa30010 2,10
+tests/unit/electron/lazyAgentAssistant.test.ts
+  s_51a499e8a9abb4::t_02adbd4ad718f1 29
+electron/features/agent/assistantResultHelpers.ts
+  s_51a499e8a9abb4::t_f512444172012c 1-4,12
+  s_51a499e8a9abb4::t_980fe0898a3e75 5-11,13-25,27-30,32-34
+  s_51a499e8a9abb4::t_b0bab46777bd8c 26,31
+electron/features/agent/mcpServer.ts
+  s_51a499e8a9abb4::t_58eee70ebcecdc 12
+  s_51a499e8a9abb4::t_0dae89c106d901 29
+  s_51a499e8a9abb4::t_36f4da7fa30010 395
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "52f2ac0cb76314ad3359432088d47bc3fa5b5d15",
+  "prompts": {},
+  "sessions": {
+    "s_51a499e8a9abb4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d0b-4b64-7a40-997f-da3c61110b88",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

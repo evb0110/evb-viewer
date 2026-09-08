@@ -1,0 +1,21 @@
+eslint-plugin-custom.mjs
+  s_a2d0d49a269ebb::t_293f479e355dd0 98-102
+tests/unit/scripts/eslintPluginCustom.test.ts
+  s_a2d0d49a269ebb::t_4ef4f1e1ca8a69 101-106
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "5dfe0c1b6410e455ab96a1fe276df67507f93469",
+  "prompts": {},
+  "sessions": {
+    "s_a2d0d49a269ebb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07cb3-0877-7343-85f3-b25147cac768",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

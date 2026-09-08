@@ -1,0 +1,45 @@
+electron/features/scan-cleanup/scanCleanupPreviewRenderer.ts
+  s_018fca800fff45::t_00113ec5bf99df 104,937
+  s_018fca800fff45::t_d040446a014401 105,115,118,964
+  s_018fca800fff45::t_f4f193dba94e7a 106,957-962
+  s_018fca800fff45::t_41440de9dc975a 103,381,952,956,963
+electron/features/scan-cleanup/scanCleanupDetectionLifecycle.ts
+  s_018fca800fff45::t_d040446a014401 417,426
+electron/features/scan-cleanup/scanCleanupPreviewRenderingOwner.ts
+  s_018fca800fff45::t_41440de9dc975a 63
+  s_018fca800fff45::t_78df8a939e1bca 121-122,411
+  s_018fca800fff45::t_00113ec5bf99df 67-71
+  s_018fca800fff45::t_f4f193dba94e7a 64,77-89,123,138-139
+  s_018fca800fff45::t_d040446a014401 266-270,410
+electron/features/scan-cleanup/scanCleanupRasterRetention.ts
+  s_018fca800fff45::t_822383afbe92aa 191
+  s_018fca800fff45::t_2ff9a0ae464221 650-653,655
+  s_018fca800fff45::t_5b6adaf60bac9b 186
+  s_018fca800fff45::t_d040446a014401 198-199,202,860-862,866-868,901,905-908,912
+  s_018fca800fff45::t_ac41c543928324 360,519,531,577
+  s_018fca800fff45::t_8167decb050464 49-52,234,244
+  s_018fca800fff45::t_3b17ab2f427a72 206-207,227
+  s_018fca800fff45::t_c79d600b4409dd 863-865,909-911
+tests/unit/electron/scanCleanupPreview.test.ts
+  s_018fca800fff45::t_dddfa77100e0cf 30
+electron/features/scan-cleanup/scanCleanupRasterMeasurement.ts
+  s_018fca800fff45::t_8167decb050464 1-66
+electron/features/scan-cleanup/scanCleanupPreviewShared.ts
+  s_018fca800fff45::t_d040446a014401 201,219,269-270
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "c5111726ed9de21043edc2e3b4db78967e370476",
+  "prompts": {},
+  "sessions": {
+    "s_018fca800fff45": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077ec-6efd-75b1-9f8f-75fb221f1ed6",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

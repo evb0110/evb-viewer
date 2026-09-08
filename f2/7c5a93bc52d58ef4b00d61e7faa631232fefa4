@@ -1,0 +1,33 @@
+tests/unit/electron/scanCleanupPreviewCompositionScenarios.ts
+  s_018fca800fff45::t_c85f7fa29978cf 883-884
+  s_018fca800fff45::t_b4de6132f83b40 853-856
+tests/unit/electron/scanCleanupPreviewRenderingScenarios.ts
+  s_018fca800fff45::t_c85f7fa29978cf 594-595,630-631
+  s_018fca800fff45::t_b4de6132f83b40 571-574
+tests/unit/electron/scanCleanupRasterRetentionScenarios.ts
+  s_018fca800fff45::t_a8c7c2d48e4839 1707
+  s_018fca800fff45::t_fc02c946fc536d 1706
+electron/features/scan-cleanup/scanCleanupRasterRetention.ts
+  s_018fca800fff45::t_f615470f3d9bb3 67,74-84,652-654,660,663,707-709,715,718,809-813,855-860,874-875,880-881,922-923,926,971-972
+  s_018fca800fff45::t_821dde3f6de072 814,816-822,827-830,832-854
+electron/features/scan-cleanup/scanCleanupMainBindings.ts
+  s_018fca800fff45::t_821dde3f6de072 48
+  s_018fca800fff45::t_b6d718ad2dd18f 20
+  s_018fca800fff45::t_f615470f3d9bb3 21-23,28,47
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "f27c5a93bc52d58ef4b00d61e7faa631232fefa4",
+  "prompts": {},
+  "sessions": {
+    "s_018fca800fff45": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077ec-6efd-75b1-9f8f-75fb221f1ed6",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": null
+    }
+  }
+}

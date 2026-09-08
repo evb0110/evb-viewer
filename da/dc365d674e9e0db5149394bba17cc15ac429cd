@@ -1,0 +1,27 @@
+native/protocol-fixtures/scan-cleanup-manifest-v3-newer-to-older.json
+  s_c63d7a8363f7e9::t_d45f930a002142 1-25
+native/protocol-fixtures/scan-cleanup-manifest-v3-older-to-newer.json
+  s_c63d7a8363f7e9::t_dcdf451bc09098 1-15
+native/scan-cleanup/src/protocol/manifest_v3.rs
+  s_c63d7a8363f7e9::t_393951da31912d 9,123,130,140,149-150,181-182,200-201,215-216,233-234,263-264,302-585,1007-1062,1083,1089-1097,1099,1101
+packages/contracts/nativeToolProtocols.ts
+  s_c63d7a8363f7e9::t_b59885fdfd6e61 34-39
+tests/unit/electron/protocolHandshakeCancellation.test.ts
+  s_c63d7a8363f7e9::t_13c247cf1627c0 10-15,99-129
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "dadc365d674e9e0db5149394bba17cc15ac429cd",
+  "prompts": {},
+  "sessions": {
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

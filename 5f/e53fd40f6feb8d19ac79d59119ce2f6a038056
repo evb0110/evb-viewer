@@ -1,0 +1,45 @@
+tests/unit-line-count-baseline.json
+  s_347e732a1d9c6e::t_fe789a62d35fb2 1-16
+eslint.config.mjs
+  s_e6afbc66b58e4d::t_24ad0761b5559f 8,258-261,266,272
+  s_347e732a1d9c6e::t_36020f76550fbf 9-11,28-29,244-257,262-265,267-271
+scripts/check-unit-test-line-budget.mjs
+  s_347e732a1d9c6e::t_fe789a62d35fb2 1,13-24,29,34,40-41
+  s_347e732a1d9c6e::t_975f7374d862a2 2-12,25-28,30-33,35-39,42-52
+scripts/unit-test-size-policy.mjs
+  s_347e732a1d9c6e::t_308bac20ec3a69 14,111
+  s_347e732a1d9c6e::t_e36522430275e0 9-10
+  s_347e732a1d9c6e::t_975f7374d862a2 16-108,113-205,214-217,220,222,231
+  s_347e732a1d9c6e::t_36020f76550fbf 1-2,208-210
+  s_347e732a1d9c6e::t_fe789a62d35fb2 3-8,11-13,15,109-110,112,206-207,211-213,218-219,221,223-230,232-235
+tests/unit/scripts/unitTestSizePolicyBehavior.test.ts
+  s_347e732a1d9c6e::t_975f7374d862a2 1-10,13-14,16-19,25-29,34-37
+  s_347e732a1d9c6e::t_74b5480e73a3de 12,15,20-24,32,38-39
+  s_347e732a1d9c6e::t_cba102bcd47e75 11
+  s_347e732a1d9c6e::t_d77ad13acc9a9a 33
+  s_347e732a1d9c6e::t_308bac20ec3a69 30-31
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "5fe53fd40f6feb8d19ac79d59119ce2f6a038056",
+  "prompts": {},
+  "sessions": {
+    "s_347e732a1d9c6e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d1c-7c23-7e41-9874-034631f4c64c",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": null
+    },
+    "s_e6afbc66b58e4d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07cdb-5143-7e02-a580-29471422fbfa",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,19 @@
+tests/unit/scripts/scanCleanupStagedWindowEndToEnd.test.ts
+  s_018fca800fff45::t_1641eec6cc33ce 2,5,8,10,26,44-58,210
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "41316ebabd2bfebc89705ac4ca044a84d12749ab",
+  "prompts": {},
+  "sessions": {
+    "s_018fca800fff45": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077ec-6efd-75b1-9f8f-75fb221f1ed6",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,25 @@
+tests/unit/app/modules/workspace-shell/composables/usePageSaveOrchestration.test.ts
+  s_7c59d6a080976e::t_dec5969ad60647 146-149
+tests/unit/app/modules/workspace-shell/composables/file-operations/workspaceSaveFailureSurfacing.test.ts
+  s_7c59d6a080976e::t_d7fce310287178 64
+  s_7c59d6a080976e::t_dec5969ad60647 48-49,52,55-63,65,67-73,83-87,92-93
+  s_7c59d6a080976e::t_0e0832d33694a8 88-91
+  s_7c59d6a080976e::t_f96e8713f14b01 74-82
+  s_7c59d6a080976e::t_5e8274f3b6ead7 50-51,53-54,66
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "726768873b62c8b6151582b32cb00e2877da1f41",
+  "prompts": {},
+  "sessions": {
+    "s_7c59d6a080976e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07cbf-10ef-7da3-9c45-6d08ef5d28b2",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

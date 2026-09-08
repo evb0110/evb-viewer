@@ -1,0 +1,96 @@
+electron/search/searchIndexTypes.ts
+  s_cf236b178e7f63::t_e492fbfa3a02e5 1-25
+electron/search/searchIndexSidecarLegacy.ts
+  s_cf236b178e7f63::t_7bd5ec73279a28 1-18,20-56,57-182
+electron/search/extractTextWithPdfjs.ts
+  s_cf236b178e7f63::t_58d80da03026f8 1-10,12-27,29-30,32,33-34,37-39,41-66,80-204,206-209,211-239,241-246,249-289,291-299,301-329,331-336,339-355
+electron/search/worker.ts
+  s_cf236b178e7f63::t_7bd5ec73279a28 1-5,7-12,14-20,22,23,24,30,31,45-61,63-204,206-209,218-272,274-353,355-913,914-916
+electron/search/worker/ensureSearchIndex.ts
+  s_cf236b178e7f63::t_51923ae60575e1 1-6,8-9,11-12,14-135,137-265,267-301,303-508
+electron/search/xlargeIndexBuilder.ts
+  s_cf236b178e7f63::t_7bd5ec73279a28 1-6,8-213,215-219,220-240,242-272
+  s_cf236b178e7f63::t_55d5e973687f22 241
+electron/search/rebindSearchIndexes.ts
+  s_cf236b178e7f63::t_51923ae60575e1 1-5,10-12,15-21,23-69
+electron/search/xlargeSearchRouting.ts
+  s_cf236b178e7f63::t_58d80da03026f8 1-10,12-132,134-160,163-171,174-179,189-235,237
+electron/search/searchIndexOperationPolicy.ts
+  s_cf236b178e7f63::t_51923ae60575e1 1-16,18-291
+electron/search/stringifyLegacyJsonSearchIndex.ts
+  s_cf236b178e7f63::t_58d80da03026f8 2-57,59-68,70-119
+electron/search/domPolyfill.ts
+  s_cf236b178e7f63::t_bf89620942f19c 1-20
+electron/search/loadPdfjsTextExtractor.ts
+  s_cf236b178e7f63::t_51923ae60575e1 1-3,5-10,12-13
+electron/search/nativeSearchIndex.ts
+  s_cf236b178e7f63::t_51923ae60575e1 1-13,15-110
+electron/search/nativeSearch.ts
+  s_cf236b178e7f63::t_58d80da03026f8 1-10,13-39,47-51,53-276,277-663,665-702
+electron/search/pageText.ts
+  s_cf236b178e7f63::t_bf89620942f19c 1-4
+electron/search/createPdfjsNodeDocumentOptions.ts
+  s_cf236b178e7f63::t_bf89620942f19c 1-80
+electron/search/searchIndexSidecar.ts
+  s_cf236b178e7f63::t_51923ae60575e1 1-22,24-27,29-1061
+electron/search/tryRunPersistentNativeSearch.ts
+  s_cf236b178e7f63::t_bf89620942f19c 1-477
+electron/search/searchIndexSidecarIo.ts
+  s_cf236b178e7f63::t_bf89620942f19c 1-53
+electron/search/worker/searchMatch.ts
+  s_cf236b178e7f63::t_bf89620942f19c 1-4,6-8,10-36
+electron/search/extractTextFromPdf.ts
+  s_cf236b178e7f63::t_58d80da03026f8 1-14,17-212,214-236,237-269,271-335
+electron/search/indexBuilder.ts
+  s_cf236b178e7f63::t_7bd5ec73279a28 1-22,26-38,42-44,46-52,54-56,58-374,376-394,396-799
+electron/search/parseSearchWorkerInboundMessage.ts
+  s_cf236b178e7f63::t_1e8c835583ab9b 18,31-32,33-35
+tests/unit/scripts/scanCleanupCorpusPlan.test.ts
+  s_c63d7a8363f7e9::t_fc4336b2bc36ec 11-14,17-18,20-24
+scripts/scan-cleanup-line-budget.mjs
+  s_c63d7a8363f7e9::t_fc4336b2bc36ec 487-489,492
+tests/unit/scripts/scanCleanupLineBudget.test.ts
+  s_c63d7a8363f7e9::t_fc4336b2bc36ec 172,186,205-210,485,488-505
+native/scan-cleanup/src/engine/output_geometry.rs
+  s_dcc6defac936b2::t_a74d949d6135d9 954
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "e87f988fbde157e3b085209ede54a14cfba9f329",
+  "prompts": {},
+  "sessions": {
+    "s_7e9c5e22befab4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07a92-1a56-7723-abaa-5efa6f6010cd",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_cf236b178e7f63": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0786e-ff24-7610-ae47-435cbff9d48e",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_dcc6defac936b2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c6-6997-78f1-aa1b-45a3adb5a218",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

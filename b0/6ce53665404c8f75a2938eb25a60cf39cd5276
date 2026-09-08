@@ -1,0 +1,35 @@
+electron/main.ts
+  s_c63d7a8363f7e9::t_737b131d2789cc 36-38,581-584
+  s_c63d7a8363f7e9::t_b712a7c9d83776 35
+electron/platform-ipc/featureIpcAdapters.ts
+  s_c63d7a8363f7e9::t_55176c5c1b66a2 1-4
+tests/unit/electron/ipcRegistrySecurity.test.ts
+  s_c63d7a8363f7e9::t_cbcf3c00cf5a98 77
+  s_c63d7a8363f7e9::t_f35d6597e505e2 78-88
+  s_c63d7a8363f7e9::t_05b46f918660bf 157
+  s_c63d7a8363f7e9::t_aadd9a3101d634 16,76,108-109,251,275-299
+  s_c63d7a8363f7e9::t_cd86ac4e036603 300
+electron/platform-ipc/registerFeatureIpcAdapters.ts
+  s_c63d7a8363f7e9::t_cbcf3c00cf5a98 122
+  s_c63d7a8363f7e9::t_f44e0e29693539 109-116
+  s_c63d7a8363f7e9::t_ebb6975a6e530c 120-121,123
+  s_c63d7a8363f7e9::t_112b3dcb22a111 91-96,104-105,118-119,124-135,144,182
+electron/platform-ipc/registerIpcHandlers.ts
+  s_c63d7a8363f7e9::t_1264af578541dd 9-10
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "b06ce53665404c8f75a2938eb25a60cf39cd5276",
+  "prompts": {},
+  "sessions": {
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,21 @@
+app/modules/workspace-shell/composables/useDocumentWorkspaceViewerPresentation.ts
+  s_6ae4600f2e6f51::t_3a7fec9e23403d 2,15
+tests/unit/app/modules/workspace-shell/composables/useDocumentWorkspaceViewerPresentation.test.ts
+  s_6ae4600f2e6f51::t_3a7fec9e23403d 11,53
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "7b23c90b0ada2ab6accc4564af55b7213118b5c6",
+  "prompts": {},
+  "sessions": {
+    "s_6ae4600f2e6f51": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07a8b-4796-70c1-a9b8-d4353d48d8d3",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

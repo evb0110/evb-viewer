@@ -1,0 +1,55 @@
+electron/features/ocr/main/jobManager.ts
+  s_6d332b0dd28a5f::t_c43dbaccb58db3 17
+tests/unit/electron/ocrJobManager.test.ts
+  s_6d332b0dd28a5f::t_c43dbaccb58db3 102
+tests/unit/electron/ocrRunOcrAbortWindow.test.ts
+  s_6d332b0dd28a5f::t_c43dbaccb58db3 21,23,28
+tests/unit/electron/ocrPaths.test.ts
+  s_6d332b0dd28a5f::t_c43dbaccb58db3 77,89,106,124,174,202,218,234,255
+  s_6d332b0dd28a5f::t_d4ebdba58df57a 27
+tests/unit/electron/ocrCreateWorker.test.ts
+  s_6d332b0dd28a5f::t_c43dbaccb58db3 22
+tests/unit/electron/getOcrWorkerMessageDisposition.test.ts
+  s_6d332b0dd28a5f::t_c43dbaccb58db3 6
+electron/features/ocr/main/createOcrWorker.worker.ts
+  s_6d332b0dd28a5f::t_c43dbaccb58db3 13
+electron/features/ocr/main/runOcr.ts
+  s_6d332b0dd28a5f::t_c43dbaccb58db3 3-4,7-8
+electron/features/ocr/languageModels.ts
+  s_6d332b0dd28a5f::t_c43dbaccb58db3 49
+tests/unit/electron/ocrResourceBase.test.ts
+  s_6d332b0dd28a5f::t_c43dbaccb58db3 31,39,47
+tests/unit/electron/ocrWorkerTesseractRunnerAbort.test.ts
+  s_6d332b0dd28a5f::t_c43dbaccb58db3 29,34
+tests/unit/electron/tesseractLanguageConfig.test.ts
+  s_6d332b0dd28a5f::t_c43dbaccb58db3 15
+electron/ocr/worker/tesseractRunner.ts
+  s_6d332b0dd28a5f::t_516ec3cf958024 15-19
+electron/features/ocr/public.ts
+  s_6d332b0dd28a5f::t_6c2c92c389d854 7-8
+  s_6d332b0dd28a5f::t_07e4d2869a85c5 6
+electron/features/ocr/main/ocrWorkerResourceMessages.ts
+  s_6d332b0dd28a5f::t_c43dbaccb58db3 5
+electron/features/ocr/main/paths.ts
+  s_6d332b0dd28a5f::t_c43dbaccb58db3 1-348
+electron/features/ocr/main/prepareLanguageModelsForJob.modelPrep.ts
+  s_6d332b0dd28a5f::t_c43dbaccb58db3 9
+tests/unit/electron/tesseract.test.ts
+  s_6d332b0dd28a5f::t_c43dbaccb58db3 42-43
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "f3f133eb901c2d9ca73d24927d6e3421932dbad5",
+  "prompts": {},
+  "sessions": {
+    "s_6d332b0dd28a5f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d82-5d43-7ba1-b991-adaa2cbaa241",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

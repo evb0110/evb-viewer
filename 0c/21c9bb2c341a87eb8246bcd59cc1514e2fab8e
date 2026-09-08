@@ -1,0 +1,34 @@
+app/modules/workspace-shell/composables/useWorkspaceViewerVisibility.ts
+  s_6ae4600f2e6f51::t_edc725543c1ea1 26-30
+tests/unit/app/modules/workspace-shell/composables/useDocumentWorkspaceViewerPresentation.test.ts
+  s_6ae4600f2e6f51::t_98883d001c9648 48-67,69-86
+  s_6ae4600f2e6f51::t_980303b3924cf2 1
+  s_6ae4600f2e6f51::t_6678b63865ce8f 7-10,68
+tests/unit/app/modules/workspace-shell/viewers/documentWorkspacePageSourceIntegration.test.ts
+  s_6ae4600f2e6f51::t_980303b3924cf2 170-181
+  s_6ae4600f2e6f51::t_cd1aaa8c836239 32,49-52,56-58,102-105,115,169,182-189
+app/modules/workspace-shell/composables/useDocumentWorkspaceViewerPresentation.ts
+  s_6ae4600f2e6f51::t_0b66732e39e036 45-47,49-54
+app/modules/workspace-shell/components/DocumentViewerChassis.vue
+  s_6ae4600f2e6f51::t_2d953033cff800 134-135,138,164-168,170-171,173-174,176,473,502,639
+tests/unit/app/modules/workspace-shell/composables/useWorkspaceViewerVisibility.test.ts
+  s_6ae4600f2e6f51::t_3c0ee9029547f3 64
+  s_6ae4600f2e6f51::t_872f310e506c78 1-51,56-63,65-96
+  s_6ae4600f2e6f51::t_980303b3924cf2 52-55
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "0c21c9bb2c341a87eb8246bcd59cc1514e2fab8e",
+  "prompts": {},
+  "sessions": {
+    "s_6ae4600f2e6f51": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07a8b-4796-70c1-a9b8-d4353d48d8d3",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

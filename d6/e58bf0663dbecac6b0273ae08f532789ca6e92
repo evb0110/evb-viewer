@@ -1,0 +1,107 @@
+tests/unit/electron/scanCleanupPreviewIpcAdapter.test.ts
+  s_018fca800fff45::t_0ef7c9cfb5bf06 5,8-31
+tests/unit/electron/scanCleanupPreviewRendering.test.ts
+  s_018fca800fff45::t_0ef7c9cfb5bf06 5,8-36
+electron/features/scan-cleanup/scanCleanupPreviewShared.ts
+  s_018fca800fff45::t_8b07ab0f580350 209-222,224-235,240,259-265
+  s_018fca800fff45::t_47ea2e6c3745f7 241-244,246-253,255-258
+  s_018fca800fff45::t_2027911e1b0027 559
+  s_018fca800fff45::t_91b0a97e713e7b 300-301
+  s_018fca800fff45::t_d4ce2498d343dc 236-239
+  s_018fca800fff45::t_7e5aa330d9e8aa 547-552,554-558,565
+  s_018fca800fff45::t_918bb75a44643d 553
+  s_018fca800fff45::t_e93ada41cebc74 299
+  s_018fca800fff45::t_60f2e5aec42e16 561-564
+  s_018fca800fff45::t_3b4d44762f0e87 245,254,560
+  s_018fca800fff45::t_0ef2ae6726bb64 223
+electron/features/scan-cleanup/scanCleanupPreviewSupport.ts
+  s_018fca800fff45::t_3bd80dd8a7086d 46,105,416
+tests/unit/electron/scanCleanupPreviewComposition.test.ts
+  s_018fca800fff45::t_0ef7c9cfb5bf06 5,8-30,34-39
+tests/unit/electron/scanCleanupPreviewScenarioHarness.ts
+  s_018fca800fff45::t_ce2d729cd42ab3 48,498,742,889,1005,1042,1347,1374,1382,1400,1419,1442,1481,1603,1652,1716,1748,1795,1841,1960,2161,2193,2318,2405,2462,2483,2511,2555,2590,2687,2722,2815,2939,3018,3125,3224,3263,3293,3325,3366,3398,3435,3483,3528,3550,3593,3624,3674,3715,3742,3783,3798,3837,3901,3928,4094,4258,4291,4325,4380,4424,4529,4584,4707,4797,4874,4933,4999,5051,5083,5216,5276,5337,5373,5393,5403,5527,5598,5629,5666,5724,5809,5843,5890,5963,6082,6138,6176,6222,6291,6401,6494,6597,6643,6689,6728,6751,6789,6882,6929,6976,7002,7042,7079,7113,7161,7185
+  s_018fca800fff45::t_d4ce2498d343dc 41
+  s_018fca800fff45::t_7a2c834eb505bc 42-46
+  s_018fca800fff45::t_e5fc9a3da835fb 1747,1805
+tests/unit/electron/scanCleanupPreview.test.ts
+  s_018fca800fff45::t_ef8b84088519e2 59
+  s_018fca800fff45::t_7d50b0a6ff7a18 22-23,25,27
+electron/features/scan-cleanup/scanCleanupDetectionLifecycle.ts
+  s_018fca800fff45::t_918bb75a44643d 41
+  s_018fca800fff45::t_af4331f15f9b47 175,390
+  s_018fca800fff45::t_8b07ab0f580350 42,176
+  s_018fca800fff45::t_91b0a97e713e7b 174
+electron/features/scan-cleanup/scanCleanupPreviewLifecycle.ts
+  s_018fca800fff45::t_c2f35bbbe1f09b 17,21,24,57,61,63
+  s_018fca800fff45::t_918bb75a44643d 12,60
+  s_018fca800fff45::t_af4331f15f9b47 62
+electron/features/scan-cleanup/scanCleanupRasterRetention.ts
+  s_018fca800fff45::t_237367afb52217 3-4
+  s_018fca800fff45::t_20596d44e6bbc3 39
+  s_018fca800fff45::t_7a087a23a4be98 101
+  s_018fca800fff45::t_9c2e82ac081956 722-730,735-756,762-764,768-782,790
+  s_018fca800fff45::t_8b07ab0f580350 47,112
+  s_018fca800fff45::t_d4ce2498d343dc 29,37,40-43,71-74,103,105-108,731-734,757-761,765-767,783-789,886-889
+  s_018fca800fff45::t_fd7413a0b38806 85
+  s_018fca800fff45::t_2027911e1b0027 48,111
+  s_018fca800fff45::t_91b0a97e713e7b 110
+  s_018fca800fff45::t_af48df983b65fe 883-885,890-897
+  s_018fca800fff45::t_3ba32516d258e5 50-70,75-84,86-100,102,104,109
+  s_018fca800fff45::t_ed38ebe1c51509 899-901
+  s_018fca800fff45::t_8a330087e2ac52 44-46
+  s_018fca800fff45::t_2ff0ed20119662 49
+tests/unit/electron/scanCleanupDetectionLifecycle.test.ts
+  s_018fca800fff45::t_77af0593f4482e 5,8-28
+tests/unit/electron/scanCleanupRasterRetention.test.ts
+  s_018fca800fff45::t_0ef7c9cfb5bf06 5,8-24
+electron/features/scan-cleanup/scanCleanupPreviewRenderer.ts
+  s_018fca800fff45::t_0637d9481abb7b 338,377,421,437
+  s_018fca800fff45::t_8b07ab0f580350 75,98
+  s_018fca800fff45::t_d4ce2498d343dc 261
+  s_018fca800fff45::t_2027911e1b0027 74,100
+  s_018fca800fff45::t_c2f35bbbe1f09b 95
+  s_018fca800fff45::t_ecf99d14dc5390 102,112,950-955
+electron/features/scan-cleanup/scanCleanupPreviewIpcAdapter.ts
+  s_018fca800fff45::t_c2f35bbbe1f09b 5,8,11
+  s_018fca800fff45::t_4c92256790d839 14
+electron/features/scan-cleanup/scanCleanupPreviewRenderingOwner.ts
+  s_018fca800fff45::t_55fc067599473b 391,393-394,399
+  s_018fca800fff45::t_e93ada41cebc74 201,397,405,407
+  s_018fca800fff45::t_1c08fee6f53d91 202
+  s_018fca800fff45::t_cf740f9a915940 330-343,380-382
+  s_018fca800fff45::t_54f91c12babc43 124
+  s_018fca800fff45::t_0182b40d295405 230,235,253,279
+  s_018fca800fff45::t_e1052ccb5c7c15 305,376,392,395,406
+  s_018fca800fff45::t_c5ff67de7f6e0b 78,377-378
+  s_018fca800fff45::t_b94f1a25ff1323 329
+  s_018fca800fff45::t_34206ab6e1fbef 375,379,388
+  s_018fca800fff45::t_b96b69b65e48cf 387
+  s_018fca800fff45::t_0fe61f7a53d4b4 413
+  s_018fca800fff45::t_8b07ab0f580350 24,61
+  s_018fca800fff45::t_c2f35bbbe1f09b 33,59
+  s_018fca800fff45::t_d4ce2498d343dc 57,71-74,81-86,356-359,372-373,383-386
+  s_018fca800fff45::t_66195471a3d608 65-70,75-77,79-80,87-90
+  s_018fca800fff45::t_0b94e4af8601a2 306-328,344-355,360-371,389,398
+  s_018fca800fff45::t_2027911e1b0027 23,60
+  s_018fca800fff45::t_a8d121372c5295 11-16,50-56
+tests/e2e/electron/quarantine/scanCleanupUniformity.e2e.test.ts
+  s_018fca800fff45::t_d4ce2498d343dc 40
+  s_018fca800fff45::t_7a2c834eb505bc 41
+  s_018fca800fff45::t_ce2d729cd42ab3 852
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "d6e58bf0663dbecac6b0273ae08f532789ca6e92",
+  "prompts": {},
+  "sessions": {
+    "s_018fca800fff45": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077ec-6efd-75b1-9f8f-75fb221f1ed6",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
