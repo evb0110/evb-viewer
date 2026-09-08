@@ -1,0 +1,42 @@
+app/modules/workspace-shell/useWorkspaceOrchestration.ts
+  s_ed33dfabbb7b97::t_08b1b0c3086683 455-460,462-496
+  s_ed33dfabbb7b97::t_a0107abd3912c6 447,461,688,862
+  s_ed33dfabbb7b97::t_ce75a8f55171d2 1162-1163
+  s_ed33dfabbb7b97::t_8a5886b55ef4c2 510-517
+tests/unit/app/modules/workspace-shell/composables/useWorkspaceExport.test.ts
+  s_ed33dfabbb7b97::t_d3ae417c652813 64-65,82-84,150-153,158
+  s_ed33dfabbb7b97::t_d923c048b7c4b2 88-91,146-149,154-157
+  s_ed33dfabbb7b97::t_d8dfcfa96caf07 160-162
+  s_ed33dfabbb7b97::t_9f183b3dc2975b 76-81,85,145,159,163-176
+  s_ed33dfabbb7b97::t_caa4079c3cc2aa 177-178
+app/modules/workspace-shell/composables/useWorkspaceExport.ts
+  s_ed33dfabbb7b97::t_df3b711b51c1ba 461,465-466,483,510,514-515,533,570,594
+  s_ed33dfabbb7b97::t_0f3e9cd0cc8fe9 74-77,94,121-124,146-149,152-154,406-410,423,428,435
+  s_ed33dfabbb7b97::t_0906545aac1448 138-142,396,399,442
+tests/unit/app/modules/workspace-shell/viewers/workspaceDocumentDriver.test.ts
+  s_ed33dfabbb7b97::t_d923c048b7c4b2 214-217,233-237
+  s_ed33dfabbb7b97::t_0c6b6ad3c21058 225-232,238-243
+  s_ed33dfabbb7b97::t_6113cf48a5727f 244
+app/modules/workspace-shell/viewers/workspaceDocumentDriver.ts
+  s_ed33dfabbb7b97::t_8bb348a463cc1a 245,256-258,313-316,461-464,466-467,470-471
+  s_ed33dfabbb7b97::t_b529107b289818 255,312,523,536
+  s_ed33dfabbb7b97::t_3102c375c8b313 450,457-459,473-474
+  s_ed33dfabbb7b97::t_a8b4c853c6b670 524-535
+  s_ed33dfabbb7b97::t_a49f6094baed8e 326,465,468-469
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "d26772217e23c5ddacee40941a639ba2c87185a1",
+  "prompts": {},
+  "sessions": {
+    "s_ed33dfabbb7b97": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07dd4-f923-7033-9adc-ebeac0c9fcdb",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
