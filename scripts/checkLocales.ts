@@ -167,11 +167,17 @@ function assertParity(
     }
 }
 
-function assertPlaceholderParity(
-    label: string,
+type TComparableLeafCallback = (
+    locale: string,
+    dottedPath: string,
+    expectedMessage: TTranslationLeaf,
+    actualMessage: TTranslationLeaf,
+) => void;
+
+function forEachComparableLeaf(
     schema: unknown,
     localeMessages: Record<string, unknown>,
-    errors: string[],
+    callback: TComparableLeafCallback,
 ) {
     const expectedPaths = collectLeafPaths(schema);
 
@@ -187,16 +193,51 @@ function assertPlaceholderParity(
                 continue;
             }
 
-            const expectedPlaceholders = extractPlaceholdersFromLeaf(expectedMessage);
-            const actualPlaceholders = extractPlaceholdersFromLeaf(actualMessage);
-
-            if (!isEqual(expectedPlaceholders, actualPlaceholders)) {
-                errors.push(
-                    `${label} locale "${locale}" placeholder mismatch at "${dottedPath}": expected=${formatKeyList(expectedPlaceholders)}; actual=${formatKeyList(actualPlaceholders)}`,
-                );
-            }
+            callback(locale, dottedPath, expectedMessage, actualMessage);
         }
     }
+}
+
+function assertPlaceholderParity(
+    label: string,
+    schema: unknown,
+    localeMessages: Record<string, unknown>,
+    errors: string[],
+) {
+    forEachComparableLeaf(schema, localeMessages, (locale, dottedPath, expectedMessage, actualMessage) => {
+        const expectedPlaceholders = extractPlaceholdersFromLeaf(expectedMessage);
+        const actualPlaceholders = extractPlaceholdersFromLeaf(actualMessage);
+
+        if (!isEqual(expectedPlaceholders, actualPlaceholders)) {
+            errors.push(
+                `${label} locale "${locale}" placeholder mismatch at "${dottedPath}": expected=${formatKeyList(expectedPlaceholders)}; actual=${formatKeyList(actualPlaceholders)}`,
+            );
+        }
+    });
+}
+
+type TLocaleLeafKind = 'string' | 'plural';
+
+function getLeafKind(leaf: TTranslationLeaf): TLocaleLeafKind {
+    return typeof leaf === 'string' ? 'string' : 'plural';
+}
+
+function assertLeafKindParity(
+    label: string,
+    schema: unknown,
+    localeMessages: Record<string, unknown>,
+    errors: string[],
+) {
+    forEachComparableLeaf(schema, localeMessages, (locale, dottedPath, expectedMessage, actualMessage) => {
+        const expectedKind = getLeafKind(expectedMessage);
+        const actualKind = getLeafKind(actualMessage);
+
+        if (expectedKind !== actualKind) {
+            errors.push(
+                `${label} locale "${locale}" message kind mismatch at "${dottedPath}": expected=${expectedKind}; actual=${actualKind}`,
+            );
+        }
+    });
 }
 
 function assertLocaleMetadataParity(
@@ -296,6 +337,7 @@ export function checkLocaleParity(
 ): string[] {
     const errors: string[] = [];
     assertParity(label, schema, localeMessages, errors, allowlist);
+    assertLeafKindParity(label, schema, localeMessages, errors);
     assertPlaceholderParity(label, schema, localeMessages, errors);
     return errors;
 }

@@ -4,18 +4,12 @@ import type {
 } from '@i18n-app';
 import {
     DEFAULT_LOCALE,
-    LOCALE_CODES,
     createTypedI18nComposer,
     formatTranslationLeaf,
     getNestedTranslationLeaf,
     normalizeTranslationParams,
+    resolveLocale,
 } from '@i18n-core';
-
-const SUPPORTED_LOCALES = new Set<string>(LOCALE_CODES);
-
-function isSupportedLocale(locale: string): locale is TLocale {
-    return SUPPORTED_LOCALES.has(locale);
-}
 
 type TResolvedTranslationLeaf = NonNullable<ReturnType<typeof getNestedTranslationLeaf>> | string;
 
@@ -65,12 +59,7 @@ function resolveTranslationLeaf(
 export const useTypedI18n = () => {
     const composer = useI18n();
     const typedComposer = createTypedI18nComposer<typeof composer, typeof composer.t, TLocale>(composer);
-    const locale = computed<TLocale>(() => (
-        typeof composer.locale.value === 'string'
-            && isSupportedLocale(composer.locale.value)
-            ? composer.locale.value
-            : DEFAULT_LOCALE
-    ));
+    const locale = computed<TLocale>(() => resolveLocale(composer.locale.value));
     const t: TTranslateFn = (key, ...args) => {
         const params = normalizeTranslationParams(args[0]);
         const currentLocale = locale.value;

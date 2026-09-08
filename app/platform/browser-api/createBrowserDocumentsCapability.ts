@@ -48,11 +48,12 @@ import type {
 } from '@i18n-app';
 import {
     DEFAULT_LOCALE,
-    LOCALE_CODES,
     formatTranslationLeaf,
     getNestedTranslationLeaf,
+    isSupportedLocale,
     isLocaleMessageSource,
     normalizeTranslationParams,
+    resolveLocale,
 } from '@i18n-core';
 import { safeDecodeURIComponent } from '@app/utils/browserSafe';
 import type { TDocumentRef } from '@contracts/documentRef';
@@ -72,8 +73,6 @@ export interface IBrowserDocumentCapabilities {
     pageOps: IPageOpsCapability;
 }
 
-const SUPPORTED_LOCALES = new Set<string>(LOCALE_CODES);
-
 function getBrowserLocale(): TLocale {
     const cookieMatch = typeof document !== 'undefined'
         ? document.cookie.match(/(?:^|;\s*)i18n_redirected=([^;]+)/u)
@@ -82,15 +81,14 @@ function getBrowserLocale(): TLocale {
         ? safeDecodeURIComponent(cookieMatch[1])
         : null;
 
-    if (cookieLocale && SUPPORTED_LOCALES.has(cookieLocale)) {
-        return cookieLocale as TLocale;
+    if (cookieLocale) {
+        if (isSupportedLocale(cookieLocale)) {
+            return resolveLocale(cookieLocale);
+        }
     }
 
-    const navigatorLocale = typeof navigator !== 'undefined'
-        ? navigator.language.split('-')[0]
-        : null;
-    return navigatorLocale && SUPPORTED_LOCALES.has(navigatorLocale)
-        ? navigatorLocale as TLocale
+    return typeof navigator !== 'undefined'
+        ? resolveLocale(navigator.language)
         : DEFAULT_LOCALE;
 }
 

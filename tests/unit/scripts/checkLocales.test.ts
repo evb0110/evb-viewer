@@ -7,6 +7,7 @@ import {
     checkLocaleParity,
     checkNoEnglishSchemaFallbackImport,
 } from '@scripts/checkLocales';
+import { plural } from '@i18n-core';
 
 const schema = {
     actions: {
@@ -43,6 +44,15 @@ describe('locale parity checker', () => {
             },
             title: 'Ejemplo',
         }})).toEqual([]);
+    });
+
+    it('reports message kind mismatches', () => {
+        const pluralSchema = {actions: {selected: plural({
+            one: '{count} page',
+            other: '{count} pages',
+        })}};
+
+        expect(checkLocaleParity('desktop', pluralSchema, {ru: {actions: {selected: 'Выбрано: {count} стр.'}}})).toEqual(['desktop locale "ru" message kind mismatch at "actions.selected": expected=plural; actual=string']);
     });
 
     it('rejects English fallback aliases for the landing target', () => {

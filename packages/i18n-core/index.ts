@@ -1,6 +1,8 @@
 export {
     DEFAULT_LOCALE,
+    isSupportedLocale,
     LOCALE_CODES,
+    resolveLocale,
     type TLocale,
 } from '@evb/i18n-core/localeCodes';
 

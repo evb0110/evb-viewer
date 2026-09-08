@@ -13,11 +13,13 @@ export type TLocaleSchemaFrom<TNode> = {
 };
 
 export type TLocaleMessagesShapeFrom<TNode> = {
-    [TKey in keyof TNode]: TNode[TKey] extends TTranslationLeaf
-        ? TTranslationLeaf
-        : TNode[TKey] extends object
-            ? TLocaleMessagesShapeFrom<TNode[TKey]>
-            : never;
+    [TKey in keyof TNode]: TNode[TKey] extends IPluralMessage
+        ? IPluralMessage
+        : TNode[TKey] extends string
+            ? string
+            : TNode[TKey] extends object
+                ? TLocaleMessagesShapeFrom<TNode[TKey]>
+                : never;
 };
 
 export type TTranslationKeyFromNode<TNode extends object> = {

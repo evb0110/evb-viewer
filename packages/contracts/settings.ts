@@ -1,6 +1,6 @@
 import {
     DEFAULT_LOCALE,
-    LOCALE_CODES,
+    resolveLocale,
     type TLocale,
 } from '@i18n-core';
 import {
@@ -125,12 +125,6 @@ export function assertSupportedSettingsSchema(raw: unknown): asserts raw is unkn
     }
 }
 
-const SUPPORTED_LOCALES = new Set<string>(LOCALE_CODES);
-
-function isLocale(locale: string): locale is TLocale {
-    return SUPPORTED_LOCALES.has(locale);
-}
-
 function isDefaultZoomPreset(value: string): value is ISettingsData['defaultZoomPreset'] {
     return DEFAULT_ZOOM_PRESETS.has(value);
 }
@@ -156,11 +150,7 @@ export function normalizeTheme(theme: unknown): ISettingsData['theme'] {
 }
 
 export function normalizeLocale(locale: unknown): TLocale {
-    if (!isString(locale)) {
-        return DEFAULT_LOCALE;
-    }
-
-    return isLocale(locale) ? locale : DEFAULT_LOCALE;
+    return resolveLocale(locale);
 }
 
 function isHexColor(value: string) {

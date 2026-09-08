@@ -1,45 +1,51 @@
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import type { IAnnotationContextMenuState } from '@app/types/pdfContextMenu';
 import { usePositionedMenu } from '@app/composables/usePositionedMenu';
+import { annotationKindLabelFromSubtype } from '@app/services/pdf/annotationSubtype';
 
-interface IContextMenuDeleteLabels {
-    annotation: string;
+export interface IContextMenuDeleteLabels {
     delete: string;
-    image: string;
-    stickyNote: string;
+    deleteAnnotation: string;
+    deleteImage: string;
+    deleteStickyNote: string;
+    deleteHighlight: string;
+    deleteUnderline: string;
+    deleteStrikethrough: string;
+    deleteSquiggly: string;
 }
 
-const MARKUP_DELETE_SUBTYPES = new Set([
-    'highlight',
-    'underline',
-    'strikeout',
-    'squiggly',
-]);
+interface IContextMenuDeleteComment {
+    annotationKind?: IAnnotationCommentSummary['annotationKind'];
+    text: string;
+    subtype?: string | null | undefined;
+    hasNote?: boolean;
+}
 
-function normalizeCommentSubtype(comment: IAnnotationCommentSummary) {
+type TMarkupDeleteLabel = 'deleteHighlight' | 'deleteUnderline' | 'deleteStrikethrough' | 'deleteSquiggly';
+
+const MARKUP_DELETE_LABEL_BY_SUBTYPE: Readonly<Record<string, TMarkupDeleteLabel>> = {
+    highlight: 'deleteHighlight',
+    underline: 'deleteUnderline',
+    strikeout: 'deleteStrikethrough',
+    strikethrough: 'deleteStrikethrough',
+    squiggly: 'deleteSquiggly',
+};
+
+function normalizeCommentSubtype(comment: {subtype?: string | null | undefined;}) {
     return (comment.subtype ?? '').trim().toLowerCase();
 }
 
-function formatDeleteLabel(label: string, labels: IContextMenuDeleteLabels) {
-    return `${labels.delete} ${label}`;
-}
-
-function resolveMarkupDeleteLabel(comment: IAnnotationCommentSummary, labels: IContextMenuDeleteLabels) {
-    if (comment.text.trim().length > 0 || !MARKUP_DELETE_SUBTYPES.has(normalizeCommentSubtype(comment))) {
+function resolveMarkupDeleteLabel(comment: IContextMenuDeleteComment, labels: IContextMenuDeleteLabels) {
+    if (comment.text.trim().length > 0) {
         return null;
     }
-    const kindLabel = comment.kindLabel?.trim();
-    return formatDeleteLabel(kindLabel && kindLabel.length > 0 ? kindLabel : labels.annotation, labels);
+
+    const labelKey = MARKUP_DELETE_LABEL_BY_SUBTYPE[normalizeCommentSubtype(comment)];
+    return labelKey ? labels[labelKey] : null;
 }
 
-function resolveDefaultDeleteTargetLabel(comment: IAnnotationCommentSummary, labels: IContextMenuDeleteLabels) {
-    const subtype = normalizeCommentSubtype(comment);
-    const isExplicitNote = comment.hasNote === true || subtype === 'popup' || subtype === 'text';
-    return isExplicitNote ? labels.stickyNote : labels.annotation;
-}
-
-function resolveContextMenuDeleteActionLabel(
-    comment: IAnnotationCommentSummary | null,
+export function resolveContextMenuDeleteActionLabel(
+    comment: IContextMenuDeleteComment | null,
     labels: IContextMenuDeleteLabels,
 ) {
     if (!comment) {
@@ -47,8 +53,8 @@ function resolveContextMenuDeleteActionLabel(
     }
 
     const subtype = normalizeCommentSubtype(comment);
-    if (subtype === 'stamp') {
-        return formatDeleteLabel(labels.image, labels);
+    if (comment.annotationKind === 'placed-image' || subtype === 'stamp') {
+        return labels.deleteImage;
     }
 
     const markupLabel = resolveMarkupDeleteLabel(comment, labels);
@@ -56,7 +62,11 @@ function resolveContextMenuDeleteActionLabel(
         return markupLabel;
     }
 
-    return formatDeleteLabel(resolveDefaultDeleteTargetLabel(comment, labels), labels);
+    const isExplicitNote = comment.annotationKind === 'note'
+        || comment.hasNote === true
+        || subtype === 'popup'
+        || subtype === 'text';
+    return isExplicitNote ? labels.deleteStickyNote : labels.deleteAnnotation;
 }
 
 export const useAnnotationContextMenu = () => {
@@ -107,27 +117,40 @@ export const useAnnotationContextMenu = () => {
         && Number.isFinite(annotationContextMenu.value.pageY)
     ));
 
-    const annotationContextMenuIsImage = computed(() => (
-        (annotationContextMenu.value.comment?.subtype ?? '').trim().toLowerCase() === 'stamp'
-    ));
+    const annotationContextMenuIsImage = computed(() => {
+        const comment = annotationContextMenu.value.comment;
+        return comment?.annotationKind === 'placed-image'
+            || normalizeCommentSubtype(comment ?? {}) === 'stamp';
+    });
 
     const contextMenuAnnotationLabel = computed(() => {
         const comment = annotationContextMenu.value.comment;
         if (!comment) {
             return t('annotations.annotationLabel');
         }
-        if ((comment.subtype ?? '').trim().toLowerCase() === 'stamp') {
+        const subtype = normalizeCommentSubtype(comment);
+        if (comment.annotationKind === 'placed-image' || subtype === 'stamp') {
             return t('annotations.imageLabel');
         }
-        return comment.kindLabel ?? comment.subtype ?? t('annotations.annotationLabel');
+        if (comment.annotationKind === 'text-box') {
+            return t('annotations.text');
+        }
+        const kindLabel = comment.kindLabel?.trim();
+        return kindLabel && kindLabel.length > 0
+            ? kindLabel
+            : t(annotationKindLabelFromSubtype(subtype).key);
     });
 
     const contextMenuDeleteActionLabel = computed(() => {
         return resolveContextMenuDeleteActionLabel(annotationContextMenu.value.comment, {
-            annotation: t('annotations.annotationLabel'),
             delete: t('annotations.delete'),
-            image: t('annotations.imageLabel'),
-            stickyNote: t('annotations.stickyNoteLabel'),
+            deleteAnnotation: t('contextMenu.deleteAnnotation'),
+            deleteImage: t('contextMenu.deleteImage'),
+            deleteStickyNote: t('contextMenu.deleteStickyNote'),
+            deleteHighlight: t('contextMenu.deleteHighlight'),
+            deleteUnderline: t('contextMenu.deleteUnderline'),
+            deleteStrikethrough: t('contextMenu.deleteStrikethrough'),
+            deleteSquiggly: t('contextMenu.deleteSquiggly'),
         });
     });
 

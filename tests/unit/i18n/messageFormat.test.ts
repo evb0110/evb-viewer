@@ -4,6 +4,7 @@ import {
     normalizeTranslationParams,
     plural,
 } from '@i18n-core';
+import { LOCALE_MESSAGES } from '@i18n-app';
 import {
     describe,
     expect,
@@ -25,6 +26,17 @@ describe('message formatting', () => {
         expect(formatTranslationLeaf(leaf, { count: 2 }, 'ru')).toBe('2 files few');
         expect(formatTranslationLeaf(leaf, { count: 5 }, 'ru')).toBe('5 files many');
         expect(formatTranslationLeaf(leaf, { count: 3 }, 'en')).toBe('3 files');
+    });
+
+    it('formats the Russian scan cleanup selection message with the correct case', () => {
+        const selected = LOCALE_MESSAGES.ru.scanCleanup.settings.scope.selected;
+
+        expect(formatTranslationLeaf(selected, {count: 1}, 'ru')).toBe('Выбрана: 1 страница');
+        expect(formatTranslationLeaf(selected, {count: 2}, 'ru')).toBe('Выбрано: 2 страницы');
+        expect(formatTranslationLeaf(selected, {count: 5}, 'ru')).toBe('Выбрано: 5 страниц');
+        expect(formatTranslationLeaf(selected, {count: 21}, 'ru')).toBe('Выбрана: 21 страница');
+        expect(formatTranslationLeaf(selected, {count: 22}, 'ru')).toBe('Выбрано: 22 страницы');
+        expect(formatTranslationLeaf(selected, {count: 25}, 'ru')).toBe('Выбрано: 25 страниц');
     });
 
     it('continues to support legacy pipe-delimited messages', () => {

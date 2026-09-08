@@ -10,11 +10,13 @@ import {
     formatTranslationLeaf,
     getNestedTranslationLeaf,
     normalizeTranslationParams,
+    resolveLocale,
 } from '~/i18n/core';
 
 export function useTypedI18n() {
     const composer = useI18n() as TI18nComposer;
     const typedComposer = createTypedI18nComposer<typeof composer, typeof composer.t, TLocale>(composer);
+    const locale = computed<TLocale>(() => resolveLocale(composer.locale.value));
     const baseTranslate = composer.t.bind(composer);
     const t: TTranslateFn = (key, ...args) => {
         const params = normalizeTranslationParams(args[0]);
@@ -26,19 +28,18 @@ export function useTypedI18n() {
             return translated;
         }
 
-        const locale = typeof composer.locale.value === 'string'
-            ? composer.locale.value
-            : DEFAULT_LOCALE;
-        const primaryMessages = composer.getLocaleMessage(locale);
+        const currentLocale = locale.value;
+        const primaryMessages = composer.getLocaleMessage(currentLocale);
         const fallbackMessages = composer.getLocaleMessage(DEFAULT_LOCALE);
         const primary = getNestedTranslationLeaf(primaryMessages, key);
         const fallback = getNestedTranslationLeaf(fallbackMessages, key);
         const leaf = primary ?? fallback ?? key;
-        return formatTranslationLeaf(leaf, params, locale);
+        return formatTranslationLeaf(leaf, params, currentLocale);
     };
 
     return {
         ...typedComposer,
+        locale,
         t,
     };
 }
