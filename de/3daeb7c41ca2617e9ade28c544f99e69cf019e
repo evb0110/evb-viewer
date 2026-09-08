@@ -1,0 +1,70 @@
+packages/i18n-app/messages/nl.ts
+  s_c63d7a8363f7e9::t_8c348fc7569625 674-676,715-716
+app/modules/pdf-viewer/runtime/usePdfViewerPublicApiController.ts
+  s_c63d7a8363f7e9::t_8c348fc7569625 334
+packages/i18n-app/messages/it.ts
+  s_c63d7a8363f7e9::t_8c348fc7569625 674-676,715-716
+packages/i18n-app/messages/pt.ts
+  s_c63d7a8363f7e9::t_8c348fc7569625 674-676,715-716
+app/modules/pdf-viewer/components/PdfAnnotationStyleEditor.vue
+  s_c63d7a8363f7e9::t_8c348fc7569625 36,38-61,199,209,249,258,551-562
+  s_c63d7a8363f7e9::t_1191ec6fcfcaeb 563
+app/modules/pdf-viewer/runtime/contracts/pdfViewerExpose.types.ts
+  s_c63d7a8363f7e9::t_8c348fc7569625 183
+packages/i18n-app/messages/fr.ts
+  s_c63d7a8363f7e9::t_8c348fc7569625 674-676,715-716
+app/modules/pdf-viewer/components/PdfAnnotationEditorLayer.vue
+  s_c63d7a8363f7e9::t_8c348fc7569625 212-213
+packages/i18n-app/messages/ru.ts
+  s_c63d7a8363f7e9::t_8c348fc7569625 209-211,250-251
+app/modules/pdf-viewer/components/PdfSidebar.vue
+  s_c63d7a8363f7e9::t_8c348fc7569625 22,197,218
+packages/i18n-app/messages/en.ts
+  s_c63d7a8363f7e9::t_8c348fc7569625 209-211,250-251
+packages/i18n-app/messages/ptBr.ts
+  s_c63d7a8363f7e9::t_8c348fc7569625 674-676,715-716
+app/modules/workspace-shell/types/workspacePdfViewerPorts.types.ts
+  s_c63d7a8363f7e9::t_8c348fc7569625 43
+app/modules/workspace-shell/components/DocumentWorkspace.vue
+  s_c63d7a8363f7e9::t_8c348fc7569625 139
+tests/unit/app/modules/pdf-viewer/components/pdfAnnotationCommentsListEmptyState.test.ts
+  s_c63d7a8363f7e9::t_8c348fc7569625 1-178
+tests/unit/app/components/pdfAnnotationStyleEditor.test.ts
+  s_c63d7a8363f7e9::t_8c348fc7569625 70,80,103,301,321,333,349,353,358-394
+  s_c63d7a8363f7e9::t_6fd404708d3d66 395
+app/modules/pdf-viewer/components/PdfAnnotationCommentsList.vue
+  s_c63d7a8363f7e9::t_8c348fc7569625 215-230,441-444
+  s_c63d7a8363f7e9::t_e9fad4b73a7ac1 445
+tests/unit/app/modules/pdf-viewer/components/pdfAnnotationEditorLayerPlacementInteractions.test.ts
+  s_c63d7a8363f7e9::t_d9630c163a7c6e 33-36,476,536-547,558,564-565,603-617
+app/modules/pdf-viewer/components/PdfAnnotationsPanel.vue
+  s_c63d7a8363f7e9::t_8c348fc7569625 32,82,98
+app/types/annotations.ts
+  s_c63d7a8363f7e9::t_8c348fc7569625 166
+app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface.ts
+  s_c63d7a8363f7e9::t_8c348fc7569625 43-44,103,299-307,454-514,516-527,529-536,538-581,585,1101
+packages/i18n-app/messages/de.ts
+  s_c63d7a8363f7e9::t_8c348fc7569625 674-676,715-716
+tests/e2e/electron/annotationTextInteraction.e2e.test.ts
+  s_c63d7a8363f7e9::t_8c348fc7569625 466-590
+tests/unit/app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface.test.ts
+  s_c63d7a8363f7e9::t_8c348fc7569625 15-16,21-28,55-58,66-78,88-89,112-437
+packages/i18n-app/messages/es.ts
+  s_c63d7a8363f7e9::t_8c348fc7569625 674-676,715-716
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "de3daeb7c41ca2617e9ade28c544f99e69cf019e",
+  "prompts": {},
+  "sessions": {
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
