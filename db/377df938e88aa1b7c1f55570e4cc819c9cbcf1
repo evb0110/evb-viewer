@@ -1,0 +1,66 @@
+tests/integration/native/nativePlacedImageLifecycle.test.ts
+  s_e6afbc66b58e4d::t_fa17a7818a29e3 270-273,275-276
+native/pdf-page-ops/src/tests/support.rs
+  s_e6afbc66b58e4d::t_2a14d1d61f7970 113-132
+  s_e6afbc66b58e4d::t_b573315420a6a1 102-105,110
+  s_e6afbc66b58e4d::t_46345ab929d117 111-112
+tests/unit/app/modules/pdf-viewer/runtime/sessions/annotationDocumentIdentity.test.ts
+  s_e6afbc66b58e4d::t_6f5161a922af7c 488-543
+  s_e6afbc66b58e4d::t_c4090b3c1db56a 484-487,544-555
+native/pdf-page-ops/tests/fixtures/annotation-round-trip-editable-shape.pdf.hex
+  s_e6afbc66b58e4d::t_ae386fb1f085a1 1-23
+tests/unit/app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface.test.ts
+  s_e6afbc66b58e4d::t_6f5161a922af7c 604-615
+  s_e6afbc66b58e4d::t_3704faea9ab5bb 52,63,77,594-603,616-624
+tests/unit/app/modules/pdf-viewer/annotations/annotationSavePlan.test.ts
+  s_e6afbc66b58e4d::t_556ac325727119 169-174,176-180
+  s_e6afbc66b58e4d::t_3ab764d6f8b2e4 192
+  s_e6afbc66b58e4d::t_c941268f809a89 8,89-97,103-105,107,115-117,119-123,125-148,150-161,164-168,181-189,191,193-195,197-206,208-216,218-220,222-229
+  s_e6afbc66b58e4d::t_d24f2df095fa2b 102,113,124
+  s_e6afbc66b58e4d::t_b9f84d9cd91796 98-101,106,108-112,114,118,149,162-163,175,190,196,207,217,221,230
+app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession.ts
+  s_e6afbc66b58e4d::t_68c020510c465b 253-258
+  s_e6afbc66b58e4d::t_079232fd4414ff 232,272,365-369
+tests/e2e/electron/nativeSaveReopen.e2e.test.ts
+  s_e6afbc66b58e4d::t_17dc8fe8e83074 686-688,693-708,727-734
+  s_e6afbc66b58e4d::t_30fd0ffbf79333 454-455
+  s_e6afbc66b58e4d::t_fc3384e5ace74e 440,1037,1045
+  s_e6afbc66b58e4d::t_1b964151acfa4b 451
+  s_e6afbc66b58e4d::t_7e67c7667e68a0 872
+  s_e6afbc66b58e4d::t_e7a22d57e66bf9 439,441-446,449-450,452-453,545-546,1044,1046-1047
+  s_e6afbc66b58e4d::t_795f4cdaf06a54 689-692
+  s_e6afbc66b58e4d::t_f33a21ca72798b 869,876
+  s_e6afbc66b58e4d::t_01473ca4e4fba4 27,722,1075
+  s_e6afbc66b58e4d::t_65618b7ca5a88c 286,366,413,779,1020
+app/modules/pdf-viewer/annotations/persistence/annotationSavePlan.ts
+  s_e6afbc66b58e4d::t_556ac325727119 223,226
+  s_e6afbc66b58e4d::t_9bd960d55c4c72 222,224-225,227,231,299
+native/pdf-page-ops/tests/annotation_round_trip.rs
+  s_e6afbc66b58e4d::t_fa17a7818a29e3 1002
+  s_e6afbc66b58e4d::t_fe6e254147d4c7 666-669,709-712,968-976,1150-1158,1175-1185,1424-1442
+tests/unit/app/services/pdf-save/nativePdfMutationProjection.test.ts
+  s_e6afbc66b58e4d::t_556ac325727119 15,444-460,462-472,474-479,481-491,493-498,500-510
+  s_e6afbc66b58e4d::t_a7c854edfc8529 461,473,480,492,499
+app/modules/pdf-viewer/components/PdfAnnotationEditorLayer.vue
+  s_e6afbc66b58e4d::t_3a02399e7161f9 69
+app/modules/pdf-viewer/components/PdfTextBoxAnnotation.vue
+  s_e6afbc66b58e4d::t_5b07dd37cc6e97 72,229
+app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface.ts
+  s_e6afbc66b58e4d::t_ff8505da4a684c 112,197,478,537,542-544,557
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "db377df938e88aa1b7c1f55570e4cc819c9cbcf1",
+  "prompts": {},
+  "sessions": {
+    "s_e6afbc66b58e4d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07cdb-5143-7e02-a580-29471422fbfa",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
