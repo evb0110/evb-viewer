@@ -50,6 +50,8 @@ electron/features/documents/main/registerDocumentRevisionInvalidationEffects.ts
   s_6d332b0dd28a5f::t_0e898f875225fd 2
 electron/features/ocr/main/jobManager.ts
   s_6d332b0dd28a5f::t_46c80b1ce9c451 1-1041
+electron/bootstrap/mainProcess.ts
+  s_c63d7a8363f7e9::t_25a1e7c1f57474 65
 ---
 {
   "schema_version": "authorship/3.0.0",
@@ -61,6 +63,14 @@ electron/features/ocr/main/jobManager.ts
       "agent_id": {
         "tool": "codex",
         "id": "01a07d82-5d43-7ba1-b991-adaa2cbaa241",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
         "model": "gpt-5.6-luna"
       },
       "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
