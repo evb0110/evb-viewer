@@ -212,9 +212,22 @@
             <DocumentPanelEmptyState
                 v-if="showEmptyState"
                 icon="i-ph-note"
-                :title="t('annotations.noAnnotationsFound')"
-                :description="t('annotations.noAnnotationsHint')"
-            />
+                :title="normalizedQuery ? t('annotations.noMatchingAnnotations') : t('annotations.noAnnotationsFound')"
+                :description="normalizedQuery || incompleteInventory || enrichmentNotice ? '' : t('annotations.noAnnotationsHint')"
+            >
+                <template v-if="normalizedQuery" #action>
+                    <UButton
+                        type="button"
+                        class="notes-empty-clear-search"
+                        color="neutral"
+                        variant="outline"
+                        size="sm"
+                        @click="clearSearch"
+                    >
+                        {{ t('search.clearSearchLabel') }}
+                    </UButton>
+                </template>
+            </DocumentPanelEmptyState>
             <div
                 v-else-if="showLoadingState"
                 class="notes-loading-state"
@@ -424,6 +437,11 @@ const inventoryNoticeDetails = computed(() => {
     return details;
 });
 
+
+function clearSearch() {
+    query.value = '';
+    searchInputRef.value?.focus();
+}
 
 async function onSearchButtonClick() {
     if (!searchVisible.value) {

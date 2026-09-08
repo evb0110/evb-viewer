@@ -463,6 +463,131 @@ describe('Electron E2E - text interaction contract', () => {
         expect(moved.text).toBe('Edge');
     });
 
+    it('rotates text at the page edge with pointer buttons, wraps, undoes, and saves its orientation', async () => {
+        const {
+            page,
+            path,
+        } = await openFixture(false, 0.9);
+        const rotationValue = '.editor-pane.is-active [data-annotation-rotation-value]';
+        if (process.env.EVB_TEXT_INTERACTION_EVIDENCE === '1') {
+            await page.screenshot({path: '.devkit/annotation-rotation-controls/empty-list.png'});
+        }
+        async function expectRotation(targetPage: Page, expected: number) {
+            await expect.poll(() => targetPage.$eval(rotationValue, element => Number.parseFloat(element.textContent ?? ''))).toBe(expected);
+            await expect.poll(() => targetPage.$eval(BOX, element => {
+                const matrix = new DOMMatrix(getComputedStyle(element).transform);
+                return (Math.round(Math.atan2(matrix.b, matrix.a) * 180 / Math.PI) + 360) % 360;
+            })).toBe(expected);
+            const bounds = await targetPage.$eval(BOX, element => {
+                const box = element.getBoundingClientRect();
+                const pageRect = element.closest('.page_container')!.getBoundingClientRect();
+                return [
+                    box.left - pageRect.left,
+                    box.top - pageRect.top,
+                    pageRect.right - box.right,
+                    pageRect.bottom - box.bottom,
+                ];
+            });
+            for (const distance of bounds) expect(distance).toBeGreaterThanOrEqual(-1);
+        }
+        async function dragGrip(dx: number, dy: number) {
+            const start = await page.$eval('.editor-pane.is-active [data-pdf-annotation-move-handle]', element => {
+                const rect = element.getBoundingClientRect();
+                const x = rect.x + rect.width / 2;
+                const y = rect.y + rect.height / 2;
+                if (!element.contains(document.elementFromPoint(x, y))) throw new Error('Rotated text move grip is obstructed');
+                return {
+                    x,
+                    y,
+                };
+            });
+            await page.mouse.move(start.x, start.y);
+            await page.mouse.down();
+            await page.mouse.move(start.x + dx, start.y + dy, {steps: 8});
+            const preview = await frame(page);
+            await page.mouse.up();
+            // Pointerup commits synchronously. Let Vue remove the preview
+            // before polling the rendered canonical geometry.
+            await page.evaluate(async () => {
+                await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+            });
+            await expect.poll(async () => {
+                const current = await frame(page);
+                return Math.max(Math.abs(current.x - preview.x), Math.abs(current.y - preview.y));
+            }).toBeLessThan(0.5);
+            const committed = await frame(page);
+            expect(committed.x).toBeCloseTo(preview.x, 0);
+            expect(committed.y).toBeCloseTo(preview.y, 0);
+            return committed;
+        }
+        await startText(page);
+        await page.keyboard.type('Поворот текста');
+        await modifiedKey(page, 'Enter');
+        await page.evaluate(async () => {
+            await document.fonts.ready;
+            await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+        });
+        const pageRect = await page.$eval('.editor-pane.is-active .page_container[data-page="1"]', element => {
+            const rect = element.getBoundingClientRect();
+            return {
+                left: rect.left,
+                top: rect.top,
+                right: rect.right,
+            };
+        });
+        const original = await frame(page);
+        const edge = await dragGrip(pageRect.right - original.x - original.width - 2, pageRect.top - original.y + 2);
+        expect(edge.y - pageRect.top).toBeCloseTo(2, 0);
+        expect(pageRect.right - edge.x - edge.width).toBeCloseTo(2, 0);
+        await expectRotation(page, 0);
+        for (const rotation of [
+            90,
+            180,
+            270,
+            0,
+        ]) {
+            await clickVisibleAnnotationControl(page, '.editor-pane.is-active [data-annotation-rotate="cw"]');
+            await expectRotation(page, rotation);
+            if (rotation === 90 && process.env.EVB_TEXT_INTERACTION_EVIDENCE === '1') {
+                await page.screenshot({path: '.devkit/annotation-rotation-controls/rotation-controls.png'});
+            }
+        }
+        // CDP key events do not invoke Electron's native menu accelerators
+        // while focus is in the sidebar. Exercise the real Undo control.
+        await clickVisibleAnnotationControl(page, '.toolbar button[aria-label="Undo"]');
+        await expectRotation(page, 270);
+        await clickVisibleAnnotationControl(page, '.editor-pane.is-active [data-annotation-rotate="ccw"]');
+        await expectRotation(page, 180);
+        await clickVisibleAnnotationControl(page, '.editor-pane.is-active [data-annotation-rotate="cw"]');
+        await expectRotation(page, 270);
+        await page.mouse.click(pageRect.left + 40, pageRect.top + 200);
+        await page.waitForFunction(selector => !document.querySelector(selector)?.classList.contains('is-selected'), {}, BOX);
+        await clickVisibleAnnotationControl(page, BOX);
+        await expectRotation(page, 270);
+        const beforeMove = await frame(page);
+        const moved = await dragGrip(-50, 50);
+        expect(moved.x - beforeMove.x).toBeCloseTo(-50, 0);
+        expect(moved.y - beforeMove.y).toBeCloseTo(50, 0);
+        await expectRotation(page, 270);
+        await saveViaWindowHandle(page, 30_000);
+        const restarted = await sessions.restart({hard: true});
+        if (!restarted) throw new Error('Rotated text save reopen did not start');
+        await restarted.page.setViewport({
+            width: 1920,
+            height: 1080,
+            deviceScaleFactor: 1,
+        });
+        await openPdfInApp(restarted.page, path);
+        await waitForPdfLoaded(restarted.page);
+        await waitForViewerInteractive(restarted.page);
+        await openAnnotationsTab(restarted.page);
+        await callWorkspaceCommand(restarted.page, 'setCustomZoomFromDisplay', [0.9]);
+        await restarted.page.waitForFunction(() => document.querySelector('.zoom-controls-display-value')?.textContent?.trim() === '90%');
+        await clickVisibleAnnotationControl(restarted.page, BOX);
+        await expectRotation(restarted.page, 270);
+        expect((await frame(restarted.page)).text).toBe('Поворот текста');
+    }, 120_000);
+
     it('scales glyphs with corner handles, reflows with side handles, and saves that appearance', async () => {
         const {
             page,

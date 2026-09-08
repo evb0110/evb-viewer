@@ -40,7 +40,10 @@ import type {
     ITextMarkupEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {usePdfAnnotationEditorSurface} from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
-import { rotateAnnotationPoint } from '@app/modules/pdf-viewer/engine/annotation-editor-geometry/annotationEditorGeometry';
+import {
+    rotateAnnotationPoint,
+    rotatedAnnotationBounds,
+} from '@app/modules/pdf-viewer/engine/annotation-editor-geometry/annotationEditorGeometry';
 import {requirePageIndex} from '@contracts/pageNumbers';
 
 function createApp(...args: Parameters<typeof createVueApp>) {
@@ -1105,6 +1108,7 @@ describe('PdfAnnotationEditorLayer SVG events', () => {
     it.each(([
         'move',
         'resize',
+        'rotate',
     ] as const).flatMap(gesture =>
         ([
             'type',
@@ -1164,12 +1168,18 @@ describe('PdfAnnotationEditorLayer SVG events', () => {
         const id = surface.editingId.value;
         expect(id).not.toBeNull();
         const initial = surface.getEntitiesForPage(0)[0] as ITextBoxEntity;
-        const control = host.querySelector<HTMLElement>(gesture === 'resize' ? '[data-pdf-annotation-resize-handle="e"]' : '[data-pdf-annotation-move-handle]')!;
-        expect(control).not.toBeNull();
-        const startX = gesture === 'resize' ? (initial.rect.left + initial.rect.width) * 100 : 40;
-        const endX = startX + 20;
-        control.dispatchEvent(pointer('pointerdown', startX, 30));
-        layer.dispatchEvent(pointer('pointermove', endX, 40));
+        let endX = 0;
+        if (gesture === 'rotate') {
+            expect(surface.canRotateSelectedAnnotations(90)).toBe(true);
+            expect(surface.updateSelectedAnnotationProperties({rotationDelta: 90})).toBe(true);
+        } else {
+            const control = host.querySelector<HTMLElement>(gesture === 'resize' ? '[data-pdf-annotation-resize-handle="e"]' : '[data-pdf-annotation-move-handle]')!;
+            expect(control).not.toBeNull();
+            const startX = gesture === 'resize' ? (initial.rect.left + initial.rect.width) * 100 : 40;
+            endX = startX + 20;
+            control.dispatchEvent(pointer('pointerdown', startX, 30));
+            layer.dispatchEvent(pointer('pointermove', endX, 40));
+        }
         await nextTick();
         expect(surface.getEntitiesForPage(0)).toHaveLength(1);
         expect(surface.editingId.value).toBe(id);
@@ -1180,13 +1190,14 @@ describe('PdfAnnotationEditorLayer SVG events', () => {
             top: textBox.style.top,
             width: textBox.style.width,
         };
-        layer.dispatchEvent(pointer('pointerup', endX, 40));
+        if (gesture !== 'rotate') layer.dispatchEvent(pointer('pointerup', endX, 40));
         await nextTick();
         await nextTick();
         expect(surface.editingId.value).toBe(id);
         expect(document.activeElement).toBe(editor);
         const entity = surface.getEntitiesForPage(0)[0] as ITextBoxEntity;
-        expect(gesture === 'move' ? entity.rect.left : entity.rect.width)
+        if (gesture === 'rotate') expect(entity.rotation).toBe(90);
+        else expect(gesture === 'move' ? entity.rect.left : entity.rect.width)
             .toBeGreaterThan(gesture === 'move' ? initial.rect.left : initial.rect.width);
         expect({
             left: textBox.style.left,
@@ -1224,8 +1235,21 @@ describe('PdfAnnotationEditorLayer SVG events', () => {
         await nextTick();
         const committed = surface.getEntitiesForPage(0)[0] as ITextBoxEntity;
         expect(committed.text).toBe('typed after gesture');
-        expect(committed.rect.left).toBeCloseTo(entity.rect.left);
-        expect(committed.rect.top).toBeCloseTo(entity.rect.top);
+        expect(committed.rotation).toBe(entity.rotation);
+        if (gesture === 'rotate') {
+            const bounds = rotatedAnnotationBounds(committed.rect, committed.rotation, {
+                width: 100,
+                height: 100,
+            });
+            expect(bounds.left).toBeGreaterThanOrEqual(-1e-12);
+            expect(bounds.top).toBeGreaterThanOrEqual(-1e-12);
+            expect(bounds.left + bounds.width).toBeLessThanOrEqual(1 + 1e-12);
+            expect(bounds.top + bounds.height).toBeLessThanOrEqual(1 + 1e-12);
+            expect(committed.fontSize).toBe(entity.fontSize);
+        } else {
+            expect(committed.rect.left).toBeCloseTo(entity.rect.left);
+            expect(committed.rect.top).toBeCloseTo(entity.rect.top);
+        }
         if (gesture === 'resize') expect(committed.rect.width).toBeCloseTo(entity.rect.width);
         expect(surface.hasPendingTextBoxDrafts()).toBe(false);
         expect(surface.editingId.value).toBeNull();

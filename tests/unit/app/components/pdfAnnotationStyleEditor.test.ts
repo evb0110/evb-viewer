@@ -67,6 +67,7 @@ const activeUnmounts = new Set<() => void>();
 interface IMountEditorOptions {
     tool?: TAnnotationTool;
     selectedAnnotations?: readonly AnnotationEntity[];
+    canRotate?: (delta: -90 | 90) => boolean;
     selectedTextBox?: {
         color: string;
         fontSize: number;
@@ -76,6 +77,7 @@ interface IMountEditorOptions {
 function mountEditor({
     tool = 'text',
     selectedAnnotations = [],
+    canRotate = () => true,
     selectedTextBox = {
         color: '#123456',
         fontSize: 14,
@@ -98,6 +100,7 @@ function mountEditor({
         settings: {...DEFAULT_ANNOTATION_SETTINGS},
         selectedTextBox,
         selectedAnnotations,
+        canRotate,
         tool,
         onUpdateProperties: (updates: IAnnotationPropertyUpdate) => propertyUpdates.push(updates),
         onSetTool: setTool,
@@ -295,10 +298,7 @@ describe('PdfAnnotationStyleEditor', () => {
     it.each([
         {
             entity: selectedText,
-            controls: [
-                'annotations.textSize',
-                'annotations.rotation',
-            ],
+            controls: ['annotations.textSize'],
         },
         {
             entity: selectedNote,
@@ -318,7 +318,7 @@ describe('PdfAnnotationStyleEditor', () => {
         },
         {
             entity: selectedImage,
-            controls: ['annotations.rotation'],
+            controls: [],
         },
     ])('shows supported canonical properties for $entity.kind', ({
         entity,
@@ -330,6 +330,7 @@ describe('PdfAnnotationStyleEditor', () => {
         });
         const inputs = Array.from(host.querySelectorAll<HTMLInputElement>('input[aria-label]'));
         expect(inputs.map(input => input.getAttribute('aria-label'))).toEqual(controls);
+        expect(host.querySelectorAll('[data-annotation-rotate]')).toHaveLength(entity.kind === 'text-box' || entity.kind === 'placed-image' ? 2 : 0);
         expect(host.querySelectorAll('.swatch').length > 0).toBe(entity.kind !== 'placed-image');
     });
 
@@ -345,13 +346,51 @@ describe('PdfAnnotationStyleEditor', () => {
         expect(host.querySelector<HTMLInputElement>('input[aria-label="annotations.textSize"]')?.value).toBe('18');
         host.querySelector<HTMLButtonElement>('button[aria-label="#22c55e"]')?.click();
         changeNumber(host, 'annotations.textSize', '26');
-        changeNumber(host, 'annotations.rotation', '180');
+        host.querySelector<HTMLButtonElement>('[data-annotation-rotate="cw"]')?.click();
         expect(propertyUpdates).toEqual([
             {color: '#22c55e'},
             {fontSize: 26},
-            {rotation: 180},
+            {rotationDelta: 90},
         ]);
         expect(updates).toEqual([]);
+    });
+
+    it('shows the current angle and offers relative quarter turns without a number input', () => {
+        const {
+            host,
+            propertyUpdates,
+        } = mountEditor({selectedAnnotations: [{
+            ...selectedImage,
+            rotation: 37.125,
+        }]});
+        expect(host.querySelector('input[aria-label="annotations.rotation"]')).toBeNull();
+        expect(host.querySelector('[data-annotation-rotation-value]')?.textContent?.trim()).toBe('37.13°');
+        host.querySelector<HTMLButtonElement>('[data-annotation-rotate="ccw"]')?.click();
+        host.querySelector<HTMLButtonElement>('[data-annotation-rotate="cw"]')?.click();
+        expect(propertyUpdates).toEqual([
+            {rotationDelta: -90},
+            {rotationDelta: 90},
+        ]);
+    });
+
+    it('keeps mixed orientations explicit and disables turns that cannot fit', () => {
+        const {
+            host,
+            propertyUpdates,
+        } = mountEditor({
+            selectedAnnotations: [
+                selectedText,
+                selectedImage,
+            ],
+            canRotate: delta => delta === -90,
+        });
+        expect(host.querySelector('[data-annotation-rotation-value]')?.textContent?.trim()).toBe('annotations.mixedValues');
+        const clockwise = host.querySelector<HTMLButtonElement>('[data-annotation-rotate="cw"]')!;
+        expect(clockwise.disabled).toBe(true);
+        clockwise.click();
+        expect(propertyUpdates).toEqual([]);
+        host.querySelector<HTMLButtonElement>('[data-annotation-rotate="ccw"]')?.click();
+        expect(propertyUpdates).toEqual([{rotationDelta: -90}]);
     });
 
     it('shows custom selected colors as the active swatch', () => {

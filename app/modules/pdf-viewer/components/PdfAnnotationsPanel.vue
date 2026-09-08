@@ -29,6 +29,7 @@
                 :tool="tool"
                 :settings="settings"
                 :selected-annotations="propertySelection"
+                :can-rotate="canRotateAnnotations"
                 @update-setting="emit('update-setting', $event)"
                 @update-properties="emit('update-properties', $event)"
             />
@@ -78,6 +79,7 @@ interface IProps {
     inventory?: IAnnotationInventoryCompleteness | null | undefined;
     enrichmentState?: IAnnotationEnrichmentState | undefined;
     selectedAnnotations?: readonly AnnotationEntity[];
+    canRotateAnnotations?: ((delta: -90 | 90) => boolean) | undefined;
 }
 
 const { settings: appSettings } = useSettings();
@@ -93,6 +95,7 @@ const {
     inventory = null,
     enrichmentState = PENDING_ANNOTATION_ENRICHMENT_STATE,
     selectedAnnotations = [],
+    canRotateAnnotations = undefined,
 } = defineProps<IProps>();
 const propertySelection = computed(() => tool === 'select' || tool === 'none' ? selectedAnnotations : []);
 const propertiesLabel = computed(() => propertySelection.value.length > 0

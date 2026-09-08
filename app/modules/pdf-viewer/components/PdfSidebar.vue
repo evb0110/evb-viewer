@@ -19,6 +19,7 @@
                 :inventory="annotationInventory"
                 :enrichment-state="annotationEnrichmentState"
                 :selected-annotations="selectedAnnotations"
+                :can-rotate-annotations="canRotateAnnotations"
                 :keep-active="annotationKeepActive"
                 @set-tool="updateAnnotationTool"
                 @update:keep-active="updateAnnotationKeepActive"
@@ -193,6 +194,7 @@ interface IProps {
     annotationInventory?: IAnnotationInventoryCompleteness | null | undefined;
     annotationEnrichmentState?: IAnnotationEnrichmentState | undefined;
     selectedAnnotations?: readonly AnnotationEntity[] | undefined;
+    canRotateAnnotations?: ((delta: -90 | 90) => boolean) | undefined;
     bookmarkEditMode: boolean;
     bookmarkItems: IPdfBookmarkEntry[];
     bookmarksDirty: boolean;
@@ -213,6 +215,7 @@ const { t } = useTypedI18n();
 const {
     activeTab: activeTabProp = undefined,
     selectedAnnotations = [],
+    canRotateAnnotations = undefined,
     annotationTool,
     annotationKeepActive,
     annotationSettings,

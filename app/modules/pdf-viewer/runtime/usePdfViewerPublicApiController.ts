@@ -331,6 +331,7 @@ export const usePdfViewerPublicApiController = (
         },
         selectedAnnotations: computed(() => annotationRuntime.annotationEditorSurface.getSelectedAnnotations()),
         updateSelectedAnnotationProperties: annotationRuntime.annotationEditorSurface.updateSelectedAnnotationProperties,
+        canRotateSelectedAnnotations: annotationRuntime.annotationEditorSurface.canRotateSelectedAnnotations,
         prepareAnnotationToolChange: annotationRuntime.annotationEditorSurface.prepareToolChange,
         handleAnnotationEscape: annotationRuntime.annotationEditorSurface.handleEscape,
         selectedTextBox: computed(() => annotationRuntime.annotationEditorSurface.getSelectedTextBox()),

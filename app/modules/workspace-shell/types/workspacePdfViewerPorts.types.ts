@@ -40,6 +40,7 @@ export interface IWorkspacePdfViewerAnnotationToolsPort extends
     Pick<IPdfViewerAnnotationCommandExpose,
         'selectedAnnotations'
         | 'updateSelectedAnnotationProperties'
+        | 'canRotateSelectedAnnotations'
         | 'prepareAnnotationToolChange'
         | 'selectedTextBox'
         | 'getSelectedTextBox'

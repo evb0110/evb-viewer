@@ -33,13 +33,32 @@
                     @change="emit('update-properties', {fill: inputValue($event)})" />
                 <button type="button" @click="emit('update-properties', {fill: null})">{{ t('annotations.noFill') }}</button>
             </div>
-            <label v-if="selectionHasRotation" class="style-row">
+            <div v-if="selectionHasRotation && canRotate" class="style-row">
                 <span class="style-label">{{ t('annotations.rotation') }}</span>
-                <input
-                    type="number" class="annotation-property-number" :aria-label="t('annotations.rotation')" min="0" max="270" step="90"
-                    :value="selectionRotation" :placeholder="t('annotations.mixedValues')"
-                    @change="updateSelectedNumber('rotation', $event, 0, 270)" />
-            </label>
+                <div class="style-rotation-control">
+                    <AppTooltip :text="t('annotations.rotateCounterclockwise', {degrees: 90})">
+                        <UButton
+                            type="button" class="style-step-button" icon="i-ph-arrow-counter-clockwise"
+                            variant="ghost" color="neutral" size="sm" square
+                            data-annotation-rotate="ccw"
+                            :aria-label="t('annotations.rotateCounterclockwise', {degrees: 90})"
+                            :disabled="!canRotate?.(-90)"
+                            @click="emit('update-properties', {rotationDelta: -90})" />
+                    </AppTooltip>
+                    <output class="style-rotation-value" data-annotation-rotation-value :aria-label="t('annotations.rotation')" aria-live="polite">
+                        {{ selectionRotation === null ? t('annotations.mixedValues') : `${Math.round(selectionRotation * 100) / 100}°` }}
+                    </output>
+                    <AppTooltip :text="t('annotations.rotateClockwise', {degrees: 90})">
+                        <UButton
+                            type="button" class="style-step-button" icon="i-ph-arrow-clockwise"
+                            variant="ghost" color="neutral" size="sm" square
+                            data-annotation-rotate="cw"
+                            :aria-label="t('annotations.rotateClockwise', {degrees: 90})"
+                            :disabled="!canRotate?.(90)"
+                            @click="emit('update-properties', {rotationDelta: 90})" />
+                    </AppTooltip>
+                </div>
+            </div>
         </template>
         <template v-else-if="hasStyleControls">
             <div class="swatch-row">
@@ -177,6 +196,7 @@ interface IProps {
     settings: IAnnotationSettings;
     selectedTextBox?: Pick<ITextBoxEntity, 'fontSize' | 'color'> | null;
     selectedAnnotations?: readonly AnnotationEntity[];
+    canRotate?: ((delta: -90 | 90) => boolean) | undefined;
 }
 
 const { t } = useTypedI18n();
@@ -186,6 +206,7 @@ const {
     tool,
     selectedTextBox = null,
     selectedAnnotations = [],
+    canRotate = undefined,
 } = defineProps<IProps>();
 
 const emit = defineEmits<{
@@ -225,7 +246,7 @@ const selectionFill = computed(() => commonSelectionValue(entity => entity.kind 
 const selectionHasRotation = computed(() => selectedAnnotations.every(entity => entity.kind === 'text-box' || entity.kind === 'placed-image'));
 const selectionRotation = computed(() => commonSelectionValue(entity => entity.kind === 'text-box' || entity.kind === 'placed-image' ? entity.rotation : null));
 
-function updateSelectedNumber(key: keyof IAnnotationPropertyUpdate, event: Event, min: number, max: number, divisor = 1) {
+function updateSelectedNumber(key: 'fontSize' | 'strokeWidth' | 'opacity', event: Event, min: number, max: number, divisor = 1) {
     if (inputValue(event).trim() === '') {
         return;
     }
@@ -234,7 +255,7 @@ function updateSelectedNumber(key: keyof IAnnotationPropertyUpdate, event: Event
         return;
     }
     const bounded = Math.max(min, Math.min(max, value)) / divisor;
-    emit('update-properties', {[key]: key === 'rotation' ? Math.round(bounded / 90) * 90 : bounded});
+    emit('update-properties', {[key]: bounded});
 }
 async function updateSelectedWidth(event: Event) {
     if (selectionWidthProperty.value === 'fontSize') updateSelectedNumber('fontSize', event, 8, 72);
@@ -525,6 +546,19 @@ function applyDrawStyle(style: TDrawStyle) {
 .style-row-width {
     align-items: stretch;
     min-width: 0;
+}
+
+.style-rotation-control {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--app-space-sm);
+}
+
+.style-rotation-value {
+    min-width: var(--app-pdf-annotation-properties-value-min-width);
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+    font-size: var(--app-text-size-secondary);
 }
 
 .style-label {

@@ -180,6 +180,7 @@ export interface IPdfViewerAnnotationCommandExpose {
     focusSelectedAnnotation?: (annotationId: string) => boolean;
     editAnnotationTextBox?: (comment: IAnnotationCommentSummary) => Promise<void>;
     updateSelectedAnnotationProperties?: (updates: IAnnotationPropertyUpdate) => boolean;
+    canRotateSelectedAnnotations?: (delta: -90 | 90) => boolean;
     prepareAnnotationToolChange?: () => void;
     handleAnnotationEscape?: () => boolean;
     selectedTextBox?: Pick<ITextBoxEntity, 'fontSize' | 'color'> | null;

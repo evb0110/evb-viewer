@@ -209,6 +209,8 @@ onMounted(() => {
         cancelTextDraft: () => { if (editingId.value !== null) { cancelTextBox(editingId.value); } },
         cancelPointerGesture: cancelPointerGesture,
         focus: focusLayer,
+        getTextBoxDraftRect: annotationId => textBoxRefs.get(annotationId)?.getDraftRect() ?? null,
+        prepareGeometryChange: prepareTextBoxGeometryChange,
         fitTextBox: entity => {
             const fit = textBoxRefs.get(entity.identity.id)?.fitRectToContent;
             return fit ? fit(entity.rect, undefined, entity.fontSize) : entity.rect;

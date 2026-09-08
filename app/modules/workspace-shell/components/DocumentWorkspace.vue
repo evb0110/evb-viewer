@@ -136,6 +136,7 @@
                     :annotation-inventory="annotationInventory"
                     :annotation-enrichment-state="annotationEnrichmentState"
                     :selected-annotations="annotationSession.selectedAnnotations.value"
+                    :can-rotate-annotations="pdfViewerRef?.canRotateSelectedAnnotations"
                     :bookmark-edit-mode="bookmarkEditMode"
                     :bookmark-items="bookmarkItems"
                     :bookmarks-dirty="bookmarksDirty"

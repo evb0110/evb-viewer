@@ -40,6 +40,8 @@ export interface IAnnotationPageInteraction {
     cancelPointerGesture(): void;
     focus(): void;
     fitTextBox?(entity: ITextBoxEntity): ITextBoxEntity['rect'] | null;
+    getTextBoxDraftRect?(annotationId: AnnotationId): IAnnotationMarkerRect | null;
+    prepareGeometryChange?(): void;
 }
 
 export interface IAnnotationTextEditPoint {
@@ -98,6 +100,7 @@ export interface IAnnotationEditorSurface {
     focusSelectedAnnotation(annotationId: AnnotationId): boolean;
     handleEscape(): boolean;
     getSelectedAnnotations(): readonly AnnotationEntity[];
+    canRotateSelectedAnnotations(delta: -90 | 90): boolean;
     updateSelectedAnnotationProperties(updates: IAnnotationPropertyUpdate): boolean;
     readonly entitiesByPage: Readonly<Ref<ReadonlyMap<number, readonly AnnotationEntity[]>>>;
     readonly selectedIds: Readonly<Ref<ReadonlySet<AnnotationId>>>;
@@ -293,6 +296,15 @@ export const usePdfAnnotationEditorSurface = (
         if (editingPageIndex !== null) pageInteractions.get(editingPageIndex)?.commitTextDraft();
     }
 
+    function prepareTextGeometryChange() {
+        if (editingPageIndex === null) {
+            return;
+        }
+        const interaction = pageInteractions.get(editingPageIndex);
+        if (interaction?.prepareGeometryChange) interaction.prepareGeometryChange();
+        else interaction?.commitTextDraft();
+    }
+
     function cancelPointerSession() {
         const pageIndex = pointerPageIndex;
         pointerPageIndex = null;
@@ -439,41 +451,138 @@ export const usePdfAnnotationEditorSurface = (
         });
     }
 
-    function updateSelectedAnnotationProperties(updates: IAnnotationPropertyUpdate) {
-        let changed = false;
-        (options.runHistoryTransaction ?? ((action: () => void) => action()))(() => {
-            for (const entity of getSelectedAnnotations()) {
-                const patch: {-readonly [K in keyof TAnnotationGesturePatch]: TAnnotationGesturePatch[K]} = {};
-                if (updates.color !== undefined) {
-                    if (entity.kind === 'shape') patch.strokeColor = updates.color;
-                    else if (entity.kind !== 'placed-image') patch.color = updates.color;
+    function fitRotatedRectToPage(pageIndex: number, rect: IAnnotationMarkerRect, rotation: number) {
+        const geometry = options.getPageGeometry?.(pageIndex);
+        if (!geometry || geometry.pageView.length < 4
+            || !geometry.pageView.slice(0, 4).every(Number.isFinite)
+            || geometry.pageView[2]! <= geometry.pageView[0]!
+            || geometry.pageView[3]! <= geometry.pageView[1]!
+            || !Number.isFinite(rotation)
+            || !Number.isFinite(rect.left) || !Number.isFinite(rect.top)
+            || !Number.isFinite(rect.width) || !Number.isFinite(rect.height)
+            || rect.width <= 0 || rect.height <= 0) {
+            return null;
+        }
+        const page = annotationPageDimensions(geometry.pageView, geometry.rotation);
+        const bounds = rotatedAnnotationBounds(rect, rotation, page);
+        // Admit floating-point rounding at an exact page edge, never a visible
+        // overflow. The writer applies its own PDF-coordinate edge tolerance.
+        if (!Object.values(bounds).every(Number.isFinite) || bounds.width > 1 + 1e-12 || bounds.height > 1 + 1e-12) {
+            return null;
+        }
+        const deltaX = bounds.left < 0 ? -bounds.left : Math.min(0, 1 - bounds.left - bounds.width);
+        const deltaY = bounds.top < 0 ? -bounds.top : Math.min(0, 1 - bounds.top - bounds.height);
+        return deltaX === 0 && deltaY === 0 ? rect : {
+            ...rect,
+            left: rect.left + deltaX,
+            top: rect.top + deltaY,
+        };
+    }
+
+    function planSelectedAnnotationProperties(updates: IAnnotationPropertyUpdate, includeTextDraft = false) {
+        const hasRotation = updates.rotation !== undefined || updates.rotationDelta !== undefined;
+        if (updates.rotation !== undefined && updates.rotationDelta !== undefined) {
+            return null;
+        }
+        const entities = getSelectedAnnotations();
+        if (hasRotation && entities.some(entity => entity.kind !== 'text-box' && entity.kind !== 'placed-image')) {
+            return null;
+        }
+        const planned: Array<{
+            id: AnnotationId;
+            patch: TAnnotationGesturePatch;
+            imageRotation?: number
+        }> = [];
+        for (const entity of entities) {
+            const patch: {-readonly [K in keyof TAnnotationGesturePatch]: TAnnotationGesturePatch[K]} = {};
+            let imageRotation: number | undefined;
+            if (includeTextDraft && entity.kind === 'text-box' && entity.identity.id === editingId.value) {
+                const draftRect = pageInteractions.get(entity.pageIndex)?.getTextBoxDraftRect?.(entity.identity.id);
+                if (draftRect) patch.rect = {...draftRect};
+            }
+            if (updates.color !== undefined) {
+                if (entity.kind === 'shape') patch.strokeColor = updates.color;
+                else if (entity.kind !== 'placed-image') patch.color = updates.color;
+            }
+            if (updates.fontSize !== undefined && entity.kind === 'text-box') {
+                const fittedRect = pageInteractions.get(entity.pageIndex)?.fitTextBox?.({
+                    ...entity,
+                    fontSize: updates.fontSize,
+                });
+                if (fittedRect !== null) {
+                    patch.fontSize = updates.fontSize;
+                    if (fittedRect && !annotationRectsEqual(entity.rect, fittedRect)) patch.rect = fittedRect;
                 }
-                if (updates.fontSize !== undefined && entity.kind === 'text-box') {
-                    const fittedRect = pageInteractions.get(entity.pageIndex)?.fitTextBox?.({
-                        ...entity,
-                        fontSize: updates.fontSize,
-                    });
-                    if (fittedRect !== null) {
-                        patch.fontSize = updates.fontSize;
-                        if (fittedRect && !annotationRectsEqual(entity.rect, fittedRect)) patch.rect = fittedRect;
+            }
+            if (updates.opacity !== undefined && (entity.kind === 'shape' || entity.kind === 'text-markup')) patch.opacity = updates.opacity;
+            if (entity.kind === 'shape') {
+                if (updates.strokeWidth !== undefined) patch.strokeWidth = updates.strokeWidth;
+                if (updates.fill !== undefined) patch.fill = updates.fill;
+            }
+            if (hasRotation && (entity.kind === 'text-box' || entity.kind === 'placed-image')) {
+                const rawRotation = updates.rotation ?? entity.rotation + (updates.rotationDelta ?? 0);
+                const rotation = ((rawRotation % 360) + 360) % 360;
+                const fittedRect = fitRotatedRectToPage(entity.pageIndex, patch.rect ?? entity.rect, rotation);
+                if (!fittedRect) {
+                    return null;
+                }
+                if (!annotationRectsEqual(entity.rect, fittedRect)) patch.rect = fittedRect;
+                if (entity.kind === 'text-box') {
+                    if (rotation !== 0 && rotation !== 90 && rotation !== 180 && rotation !== 270) {
+                        return null;
                     }
+                    patch.rotation = rotation;
+                } else {
+                    imageRotation = rotation;
                 }
-                if (updates.opacity !== undefined && (entity.kind === 'shape' || entity.kind === 'text-markup')) patch.opacity = updates.opacity;
-                if (entity.kind === 'shape') {
-                    if (updates.strokeWidth !== undefined) patch.strokeWidth = updates.strokeWidth;
-                    if (updates.fill !== undefined) patch.fill = updates.fill;
-                }
-                if (updates.rotation !== undefined && (entity.kind === 'text-box' || entity.kind === 'placed-image')) patch.rotation = updates.rotation;
-                if (Object.entries(patch).some(([
-                    key,
-                    value,
-                ]) => Reflect.get(entity, key) !== value)) {
-                    commitGesture(entity.identity.id, patch);
-                    changed = true;
+            }
+            if (Object.entries(patch).some(([
+                key,
+                value,
+            ]) => Reflect.get(entity, key) !== value)
+                    || imageRotation !== undefined && entity.kind === 'placed-image' && imageRotation !== entity.rotation) {
+                planned.push({
+                    id: entity.identity.id,
+                    patch,
+                    ...(imageRotation === undefined ? {} : {imageRotation}),
+                });
+            }
+        }
+        return planned;
+    }
+
+    function canRotateSelectedAnnotations(delta: -90 | 90) {
+        const planned = planSelectedAnnotationProperties({rotationDelta: delta}, true);
+        return planned !== null && planned.length > 0;
+    }
+
+    function updateSelectedAnnotationProperties(updates: IAnnotationPropertyUpdate) {
+        if (updates.rotation !== undefined && updates.rotationDelta !== undefined) {
+            return false;
+        }
+        const hasRotation = updates.rotation !== undefined || updates.rotationDelta !== undefined;
+        if (hasRotation) prepareTextGeometryChange();
+        const planned = planSelectedAnnotationProperties(updates, hasRotation);
+        if (!planned?.length) {
+            return false;
+        }
+        (options.runHistoryTransaction ?? ((action: () => void) => action()))(() => {
+            for (const {
+                id,
+                patch,
+                imageRotation,
+            } of planned) {
+                if (imageRotation === undefined) commitGesture(id, patch);
+                else {
+                    store().updatePlacedImage(id, {
+                        ...patch,
+                        rotation: imageRotation,
+                    });
+                    options.emitAnnotationModified?.();
                 }
             }
         });
-        return changed;
+        return true;
     }
 
     function clearPendingTextBoxDrafts() {
@@ -989,6 +1098,7 @@ export const usePdfAnnotationEditorSurface = (
         focusSelectedAnnotation,
         handleEscape,
         getSelectedAnnotations,
+        canRotateSelectedAnnotations,
         updateSelectedAnnotationProperties,
         entitiesByPage,
         selectedIds,

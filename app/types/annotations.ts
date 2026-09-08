@@ -163,6 +163,7 @@ export interface IAnnotationPropertyUpdate {
     strokeWidth?: number;
     fill?: string | null;
     rotation?: 0 | 90 | 180 | 270;
+    rotationDelta?: -90 | 90;
 }
 
 export interface IAnnotationEditorState {
