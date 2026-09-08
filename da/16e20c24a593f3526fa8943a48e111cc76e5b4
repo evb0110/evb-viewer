@@ -1,0 +1,25 @@
+tests/unit/electron/pageIdentityStoreRevision.test.ts
+  s_7fed30ae324e17::t_19adb3a43bda5d 38,44
+  s_7fed30ae324e17::t_deeb508bd454c3 41-42,446-448
+electron/file-access/pageIdentityStore.ts
+  s_7fed30ae324e17::t_deeb508bd454c3 28-29,35
+  s_7fed30ae324e17::t_19adb3a43bda5d 40
+tests/unit/electron/documentRevisionStore.test.ts
+  s_7fed30ae324e17::t_6a9d5f7e4cee45 688,760,765,820
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "da16e20c24a593f3526fa8943a48e111cc76e5b4",
+  "prompts": {},
+  "sessions": {
+    "s_7fed30ae324e17": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a081bd-1bcd-76f2-b177-b060e50f19ec",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
