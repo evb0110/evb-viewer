@@ -1,0 +1,22 @@
+electron/pdf/nativeToolPaths.ts
+  s_c63d7a8363f7e9::t_7b9bca0b3f61ad 37-41
+electron/features/search/extractTextWithPdfjs.ts
+  s_c63d7a8363f7e9::t_7b2394683e6f01 4-7
+  s_c63d7a8363f7e9::t_7b9bca0b3f61ad 53-54,62-64
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "6dce96c1b54587c4344a70e95c327d5dd5a0139e",
+  "prompts": {},
+  "sessions": {
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
