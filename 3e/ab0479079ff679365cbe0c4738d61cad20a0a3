@@ -1,0 +1,70 @@
+app/platform/browser/browserRecentFilesStore.ts
+  s_eeaeaf82a39760::t_d143933c77b5de 33,60
+  s_eeaeaf82a39760::t_8a4270cb65ca5c 51
+tests/integration/browser/browserDocumentMaintenanceAcceptance.test.ts
+  s_eeaeaf82a39760::t_bf33130f133214 87,92,97,105,117
+  s_eeaeaf82a39760::t_d7eeaf8dd6d72f 121-127,137-140,144-153
+  s_eeaeaf82a39760::t_3a6c7788de6127 128-136,141-143,154-155
+  s_eeaeaf82a39760::t_f0499db9454aac 156-164
+  s_eeaeaf82a39760::t_7f5938a9cc0b7a 1-62,64-74,79-86,88-91,93-96,98-99,101-102,104,106-116,118-120,165-169
+tests/integration/browser/browserDjvuFinalizationAcceptance.test.ts
+  s_eeaeaf82a39760::t_6b9184893afda9 98-100
+tests/integration/browser/browserDocumentSourceVersionAcceptanceEntry.ts
+  s_eeaeaf82a39760::t_4dde9c853cd527 1-2
+tests/unit/app/platform/browserPlatformTestDoubles.ts
+  s_eeaeaf82a39760::t_4dde9c853cd527 24
+tests/integration/browser/browserDocumentMaintenanceAcceptanceEntry.ts
+  s_eeaeaf82a39760::t_f0499db9454aac 128-160,166
+  s_eeaeaf82a39760::t_3a6c7788de6127 165
+  s_eeaeaf82a39760::t_fd946b7d9e389a 7-10,39-40,46-47,49,52-55
+  s_eeaeaf82a39760::t_7f5938a9cc0b7a 1-4,11-38,56-91,93-100,102-103,113-115,118-127,161-163
+  s_eeaeaf82a39760::t_3baa162f255623 104-112,117
+  s_eeaeaf82a39760::t_c8c8ff4266b1c7 6,48
+  s_eeaeaf82a39760::t_945f0152cb9a41 5,41-45,50-51
+  s_eeaeaf82a39760::t_5626d4df574a44 164
+app/platform/browser/browserDocumentMaintenance.ts
+  s_eeaeaf82a39760::t_4c11fcb1ab4a35 379
+  s_eeaeaf82a39760::t_05d28ae742418e 46-47,150,219
+  s_eeaeaf82a39760::t_8a4270cb65ca5c 34,193,251-253,255-265,267,376-378
+  s_eeaeaf82a39760::t_d143933c77b5de 33,237-242,245-246,248,254,266,268-269,330,365-366
+tests/integration/browser/browserDjvuFinalizationAcceptanceEntry.ts
+  s_eeaeaf82a39760::t_18e51b16d506b5 76
+  s_eeaeaf82a39760::t_6b9184893afda9 37-45,66-68
+tests/integration/browser/realIndexedDbMigration.test.ts
+  s_eeaeaf82a39760::t_1ebf62e797b96f 16-18,36,70-91,93-145,147-149,151-193,195-200,202-207,209-232,234,236,243-244,246-262,304-307,309-312,316,321-328
+  s_eeaeaf82a39760::t_d3a44bbf42b80f 208,737,746-747,782,788,976,985-986,990
+  s_eeaeaf82a39760::t_92a09013b2c3bc 146,237-242,319,795,997
+  s_eeaeaf82a39760::t_a5d378174ba09f 69,92,194,201
+  s_eeaeaf82a39760::t_5f01969d96a181 233,235,245,263-299,308,313-315,318
+  s_eeaeaf82a39760::t_41db7c09c6740a 300-303,317,320
+  s_eeaeaf82a39760::t_cafe70b62edd3e 736,738-745,748-752,783-784,786-787,793-794,796-798
+  s_eeaeaf82a39760::t_066a7577cb188f 150
+  s_eeaeaf82a39760::t_2a3280a57828f2 805-808
+  s_eeaeaf82a39760::t_10c9cebafa08f0 975,977-984,987-989,995-996,998-1000
+tests/unit/app/platform/browserDocumentMaintenance.test.ts
+  s_eeaeaf82a39760::t_c494ecc4cce0eb 14,29,106
+  s_eeaeaf82a39760::t_5d123bdda8fce1 363-374,452-459
+  s_eeaeaf82a39760::t_2fdff572df5096 76-82
+  s_eeaeaf82a39760::t_7258b846e7262f 21-24,35,43
+  s_eeaeaf82a39760::t_da14f8a58cebee 108-110
+  s_eeaeaf82a39760::t_8a4270cb65ca5c 83
+  s_eeaeaf82a39760::t_246f4829172825 415-418,421,423-427
+  s_eeaeaf82a39760::t_cb36d03a114c12 361-362,375-414,419-420,422,428-451,460-466
+  s_eeaeaf82a39760::t_801219bc9f7fa2 62
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "3eab0479079ff679365cbe0c4738d61cad20a0a3",
+  "prompts": {},
+  "sessions": {
+    "s_eeaeaf82a39760": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a082ec-5467-7781-b1ae-dc0400cb33d2",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
