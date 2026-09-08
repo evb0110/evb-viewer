@@ -1,0 +1,28 @@
+tests/integration/browser/pdfTextSelection.test.ts
+  s_9c3988b68eb587::t_9bdfe3a3101e10 142-145
+  s_9c3988b68eb587::t_14d8279b1fb9b0 9,70-71,73-82,90,109,141,151-152,154
+  s_9c3988b68eb587::t_faeaa6a978d4ab 158-159
+  s_9c3988b68eb587::t_436f622f24faab 160,162
+  s_9c3988b68eb587::t_b5d312fdad3e32 1-8,10-68,83-89,91-108,110-127,132-140,156-157,161,163-176,181-185,196-198,200-201,205-209
+  s_9c3988b68eb587::t_d3980dce864a03 69,186-187,189-195,202,204
+  s_9c3988b68eb587::t_b74a59a44152af 72,146-150,153,155,188,199,203
+  s_9c3988b68eb587::t_6e1aa08716b48b 128-131,177-180
+app/assets/css/pdf-viewer.scss
+  s_9c3988b68eb587::t_82925804abdf22 267-272
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "e261f098018f108245f945730691ded1b656b443",
+  "prompts": {},
+  "sessions": {
+    "s_9c3988b68eb587": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08308-a8fe-7453-ac30-bfb46fac8c52",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
