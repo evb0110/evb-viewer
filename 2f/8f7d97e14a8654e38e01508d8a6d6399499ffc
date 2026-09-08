@@ -1,0 +1,22 @@
+tests/unit/app/modules/workspace-shell/composables/useWorkspacePrintDriverFallback.test.ts
+  s_ed33dfabbb7b97::t_5ecf757737e690 116
+  s_ed33dfabbb7b97::t_a13364ef79816a 1-18,32-57,63-115,117-158
+  s_ed33dfabbb7b97::t_c619af5226dbad 21-29
+  s_ed33dfabbb7b97::t_07301e44bdeec8 19-20,30-31,58-62
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "2f8f7d97e14a8654e38e01508d8a6d6399499ffc",
+  "prompts": {},
+  "sessions": {
+    "s_ed33dfabbb7b97": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07dd4-f923-7033-9adc-ebeac0c9fcdb",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
