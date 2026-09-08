@@ -105,4 +105,61 @@ describe('browser source version acceptance in Chromium', () => {
             await browser.close();
         }
     }, 120_000);
+
+    it('uses the real Chromium picker and Recent Files path for replacement and retry scenarios', async () => {
+        const browser = await chromium.launch({headless: true});
+        try {
+            const page = await browser.newPage();
+            await page.goto(origin);
+            await page.addScriptTag({path: bundlePath});
+            const result = await page.evaluate(async () => {
+                const run = Reflect.get(globalThis, '__evbRunBrowserPickerAndRecentAcceptance');
+                if (typeof run !== 'function') {
+                    throw new Error('Browser picker acceptance entry point was not installed');
+                }
+                return run();
+            });
+            expect(result).toEqual(expect.objectContaining({
+                changedSizeReplacement: true,
+                dirtyFirstUnchanged: true,
+                denied: true,
+                equalSizeReplacement: true,
+                largeRange: [
+                    66,
+                    66,
+                    66,
+                    66,
+                    66,
+                    66,
+                    66,
+                    36,
+                ],
+                recentReopened: true,
+                retryComplete: true,
+                firstPrefix: [
+                    37,
+                    80,
+                    68,
+                    70,
+                    45,
+                ],
+                secondPrefix: [
+                    37,
+                    80,
+                    68,
+                    70,
+                    45,
+                ],
+                thirdPrefix: [
+                    37,
+                    80,
+                    68,
+                    70,
+                    45,
+                ],
+            }));
+        } finally {
+            await browser.close();
+        }
+    }, 120_000);
 });

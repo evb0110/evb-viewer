@@ -987,12 +987,28 @@ describe('browser document IndexedDB migration in Chromium', () => {
                 ready: true,
                 transactionAdmitted: false,
             });
+            await armRecoveryTransactionAdmissionBarrier(pageA);
+            await startHeartbeatAtAdmissionBarrier(
+                pageA,
+                'window:issue-489-claim-first',
+                selectedForClaimFirst.generation,
+                30_002,
+            );
+            await waitForRecoveryTransactionAdmissionBarrier(pageA);
+            expect(await readRecoveryTransactionAdmissionBarrier(pageA)).toEqual({
+                ready: true,
+                transactionAdmitted: false,
+            });
             const claimedFirst = await releaseRecoveryTransactionAdmissionBarrier(pageB);
             expect(claimedFirst.result).toEqual({
                 claimed: true,
                 generation: 2,
             });
             expect(claimedFirst.transactionAdmitted).toBe(true);
+            expect(await readRecoveryTransactionAdmissionBarrier(pageA)).toEqual({
+                ready: true,
+                transactionAdmitted: false,
+            });
             const claimedTarget = await pageB.evaluate(async () => {
                 const store = Reflect.get(globalThis, 'EvbBrowserWorkspaceRecovery') as {loadBrowserWorkspaceRecovery: (ownerId: string) => Promise<unknown>};
                 return store.loadBrowserWorkspaceRecovery('window:issue-489-b');
@@ -1004,6 +1020,12 @@ describe('browser document IndexedDB migration in Chromium', () => {
                 checkpoint: initialCheckpoint,
             }));
 
+            const fencedHeartbeat = await releaseRecoveryTransactionAdmissionBarrier(pageA);
+            expect(fencedHeartbeat.result).toEqual({
+                saved: false,
+                generation: 0,
+            });
+            expect(fencedHeartbeat.transactionAdmitted).toBe(true);
             const fencedOldOwner = await pageA.evaluate(async ({
                 checkpoint,
                 generation,
@@ -1011,10 +1033,6 @@ describe('browser document IndexedDB migration in Chromium', () => {
                 pdfRef,
             }) => {
                 const store = Reflect.get(globalThis, 'EvbBrowserWorkspaceRecovery') as {
-                    touchBrowserWorkspaceRecovery: (
-                        ownerId: string,
-                        generation: number,
-                    ) => Promise<unknown>;
                     saveBrowserWorkspaceRecovery: (
                         ownerId: string,
                         generation: number,
@@ -1032,7 +1050,6 @@ describe('browser document IndexedDB migration in Chromium', () => {
                 Date.now = () => 30_002;
                 try {
                     return {
-                        heartbeat: await store.touchBrowserWorkspaceRecovery('window:issue-489-claim-first', generation),
                         update: await store.saveBrowserWorkspaceRecovery(
                             'window:issue-489-claim-first',
                             generation,
@@ -1055,7 +1072,10 @@ describe('browser document IndexedDB migration in Chromium', () => {
                 leaseRevision: selectedForClaimFirst.leaseRevision,
                 pdfRef: ISSUE_489_PDF_REF,
             });
-            expect(fencedOldOwner).toEqual({
+            expect({
+                heartbeat: fencedHeartbeat.result,
+                ...fencedOldOwner,
+            }).toEqual({
                 heartbeat: {
                     saved: false,
                     generation: 0,
