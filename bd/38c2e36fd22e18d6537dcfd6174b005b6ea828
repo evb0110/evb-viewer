@@ -1,0 +1,39 @@
+native/pdf-page-ops/Cargo.toml
+  s_e6afbc66b58e4d::t_8d80acbfd9339f 18-19
+native/pdf-page-ops/src/text_box_font.rs
+  s_e6afbc66b58e4d::t_4b5d4cdacb2570 761,791
+  s_e6afbc66b58e4d::t_89445fc8c53c9f 452-455,461,465-466,469,473-475,491-500
+  s_e6afbc66b58e4d::t_a29cf9b4c07ac2 724-725
+  s_e6afbc66b58e4d::t_7e77e57f292156 728-730
+  s_e6afbc66b58e4d::t_8d80acbfd9339f 4,7,9,22-23,32,37,49,52,95-96,152,155,180-189,191,223-224,265-266
+  s_e6afbc66b58e4d::t_2a94a7ef654237 654-655,659-691,693-706,708-723,726-727,735-736
+  s_e6afbc66b58e4d::t_c1cd68244f9251 656-658
+  s_e6afbc66b58e4d::t_4558356618f222 487-490
+  s_e6afbc66b58e4d::t_4e3d78f4c59fad 6
+  s_e6afbc66b58e4d::t_18fa6d51d80637 8
+  s_e6afbc66b58e4d::t_a400b0186c715b 190
+  s_e6afbc66b58e4d::t_27cb1da829010f 653
+  s_e6afbc66b58e4d::t_8e3f741dda84f2 692
+  s_e6afbc66b58e4d::t_34b3a0c9c5caa5 707
+  s_e6afbc66b58e4d::t_47d0a449526cf7 731-734
+native/pdf-page-ops/tests/fixtures/portable-text-font-contract.json
+  s_e6afbc66b58e4d::t_7e77e57f292156 1-767
+native/Cargo.lock
+  s_e6afbc66b58e4d::t_7b79f058a5f122 57-70,255,261,336-344,368-380,524-529,617-618,620,623-624,695-704
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "bd38c2e36fd22e18d6537dcfd6174b005b6ea828",
+  "prompts": {},
+  "sessions": {
+    "s_e6afbc66b58e4d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07cdb-5143-7e02-a580-29471422fbfa",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
