@@ -1975,6 +1975,106 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         await waitForSidebarAnnotationCount(page, 0);
     });
 
+    it.each([
+        'sidebar',
+        'toolbar',
+    ] as const)('exits note placement after a %s note even when Keep active is enabled', async (entry) => {
+        const session = sessionFixture.getSession();
+        if (!session) throw new Error('Annotation lifecycle session did not start');
+        const {page} = session;
+        const fixture = await createMultiPageTextFixturePdf(`one-shot-note-${entry}-${Date.now()}.pdf`, 1);
+        onTestFinished(() => rmSync(fixture, {force: true}));
+        await openPdfInApp(page, fixture);
+        await waitForPdfLoaded(page);
+        await clickAnnotationTool(page, 'Select');
+        await setAnnotationKeepActiveWithPointer(page, true);
+        if (entry === 'sidebar') {
+            await clickAnnotationTool(page, 'Note');
+        } else {
+            const overflowPoint = await page.waitForFunction(() => {
+                for (const button of document.querySelectorAll<HTMLElement>('header.toolbar .toolbar-icon-button')) {
+                    const rect = button.getBoundingClientRect();
+                    const x = rect.left + rect.width / 2;
+                    const y = rect.top + rect.height / 2;
+                    const hit = document.elementFromPoint(x, y);
+                    if (rect.width > 0 && rect.height > 0 && hit && button.contains(hit)) {
+                        return {
+                            x,
+                            y,
+                        };
+                    }
+                }
+                return false;
+            });
+            const overflow = await overflowPoint.jsonValue();
+            await overflowPoint.dispose();
+            if (!overflow) throw new Error('Visible toolbar menu is unavailable');
+            await page.mouse.click(overflow.x, overflow.y);
+            const menuPoint = await page.waitForFunction(() => {
+                const item = Array.from(document.querySelectorAll<HTMLElement>('.overflow-menu-item'))
+                    .find(candidate => candidate.textContent?.trim() === 'Add note');
+                if (!item) {
+                    return false;
+                }
+                const rect = item.getBoundingClientRect();
+                const x = rect.left + rect.width / 2;
+                const y = rect.top + rect.height / 2;
+                const hit = document.elementFromPoint(x, y);
+                return rect.width > 0 && hit && item.contains(hit) ? {
+                    x,
+                    y,
+                } : false;
+            });
+            const target = await menuPoint.jsonValue();
+            await menuPoint.dispose();
+            if (!target) throw new Error('Add note menu item is unavailable');
+            await page.mouse.click(target.x, target.y);
+            await page.waitForFunction(() => Array.from(document.querySelectorAll<HTMLElement>('.overflow-menu')).every(menu => {
+                const rect = menu.getBoundingClientRect();
+                const style = getComputedStyle(menu);
+                return rect.width === 0 || rect.height === 0
+                    || style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0;
+            }));
+        }
+        const point = await resolvePageNotePoint(page);
+        if (!point) {
+            throw new Error('Note placement point is unavailable');
+        }
+        await page.mouse.click(point.x, point.y);
+        await page.waitForFunction(() => document.activeElement?.matches('textarea.note-window__textarea') === true);
+        await expect.poll(() => page.$eval('.editor-pane.is-active .notes-panel .tool-button.is-active', button => button.getAttribute('data-tool'))).toBe('select');
+        const text = `One note from ${entry}`;
+        await page.keyboard.type(text);
+        await clickLatestVisibleNoteWindowClose(page);
+        await waitForNoOpenNoteWindows(page);
+        await waitForSidebarAnnotationText(page, text);
+        const notes = await readCanonicalNoteSnapshots(page);
+        expect(notes).toHaveLength(1);
+        const clearPoint = await page.evaluate(() => {
+            const layer = document.querySelector<HTMLElement>('.editor-pane.is-active .pdf-annotation-editor-layer');
+            if (!layer) throw new Error('Annotation layer is absent');
+            const rect = layer.getBoundingClientRect();
+            const x = rect.left + rect.width * 0.8;
+            const y = rect.top + Math.min(rect.height, window.innerHeight - rect.top - 30) * 0.7;
+            const hit = document.elementFromPoint(x, y);
+            if (!hit || !layer.contains(hit) || hit.closest('[data-annotation-kind]')) {
+                throw new Error('The follow-up click must hit an empty part of the annotation layer');
+            }
+            return {
+                x,
+                y,
+            };
+        });
+        await page.mouse.click(clearPoint.x, clearPoint.y);
+        await expectCanonicalCountsAcrossFrames(page, {
+            markup: 0,
+            notes: 1,
+            cards: 1,
+        });
+        await waitForNoOpenNoteWindows(page);
+        expect(await readCanonicalNoteSnapshots(page)).toEqual(notes);
+    });
+
     it('shows a placed empty sticky note in the sidebar before text is entered', async () => {
         const session = sessionFixture.getSession();
         if (!session) {

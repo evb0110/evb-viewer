@@ -135,6 +135,20 @@ afterEach(() => {
 });
 
 describe('PdfAnnotationsPanel inline inspector', () => {
+    it('offers Keep active for repeatable tools but not one-shot notes', async () => {
+        const {
+            host,
+            state,
+        } = mountPanel();
+        expect(host.querySelector('.annotation-tool-options')).not.toBeNull();
+        state.tool = 'note';
+        await nextTick();
+        expect(host.querySelector('.annotation-tool-options')).toBeNull();
+        state.tool = 'draw';
+        await nextTick();
+        expect(host.querySelector('.annotation-tool-options')).not.toBeNull();
+    });
+
     it('renders exactly one live inspector within the panel and removes hidden controls', async () => {
         const {
             host,

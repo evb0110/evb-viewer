@@ -65,7 +65,7 @@ export const usePageAnnotationTools = (deps: IPageAnnotationToolsDeps) => {
     }
 
     function handleAnnotationToolAutoReset() {
-        if (annotationKeepActive.value) {
+        if (annotationKeepActive.value && annotationTool.value !== 'note') {
             return;
         }
         annotationTool.value = 'select';

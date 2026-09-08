@@ -90,8 +90,10 @@ One document-level interaction controller owns active text editing and the
 active pointer operation. Changing tools commits text once, cancels an unfinished
 pointer operation, clears the old selection, and arms the requested tool.
 Escape cancels the current operation before changing selection or tool state.
-Successful creation returns to Select unless Keep active is enabled. A text
-operation completes when the draft commits.
+Note placement returns to Select immediately and leaves the new note open for
+typing. Notes do not inherit the repeat setting from other tools. Other tools
+return to Select unless Keep active is enabled. A text operation completes when
+the draft commits.
 
 The text frame remains visible while typing. The caret stays inside it. Editing
 and committed text use the same font and wrapping rules. A deliberate manual

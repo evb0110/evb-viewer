@@ -5,7 +5,7 @@
             @set-tool="setTool"
         />
 
-        <div class="annotation-tool-options">
+        <div v-if="tool !== 'note'" class="annotation-tool-options">
             <UCheckbox
                 v-model="keepActiveModel"
                 color="neutral"

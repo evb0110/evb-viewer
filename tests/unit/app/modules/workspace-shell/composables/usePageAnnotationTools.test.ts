@@ -93,7 +93,6 @@ function createHarness() {
 describe('usePageAnnotationTools', () => {
     it.each([
         'text',
-        'note',
         'draw',
         'rectangle',
         'circle',
@@ -115,6 +114,25 @@ describe('usePageAnnotationTools', () => {
             expect(tools.annotationTool.value).toBe('select');
         },
     );
+    it.each([
+        true,
+        false,
+    ])('exits note placement after creation with Keep active=%s', (keepActive) => {
+        const {
+            deps,
+            tools,
+            viewer,
+        } = createHarness();
+        tools.annotationKeepActive.value = keepActive;
+        tools.handleAnnotationToolChange('note');
+        viewer.prepareAnnotationToolChange.mockClear();
+        deps.closeAnnotationContextMenu.mockClear();
+        tools.handleAnnotationToolAutoReset();
+        expect(tools.annotationTool.value).toBe('select');
+        expect(tools.annotationKeepActive.value).toBe(keepActive);
+        expect(viewer.prepareAnnotationToolChange).not.toHaveBeenCalled();
+        expect(deps.closeAnnotationContextMenu).toHaveBeenCalledOnce();
+    });
     it('switches tools and clears context state', () => {
         const {
             deps,
