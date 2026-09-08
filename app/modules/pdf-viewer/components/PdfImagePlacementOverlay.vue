@@ -72,6 +72,7 @@
 </template>
 
 <script setup lang="ts">
+import { isReleasedMouseCapture } from '@app/modules/pdf-viewer/annotations/editor/isReleasedMouseCapture';
 import { useEventListener } from '@vueuse/core';
 import type {
     IPdfImagePlacementDraft,
@@ -488,7 +489,13 @@ function handleWindowPointerCancel(event: PointerEvent) {
 }
 
 useEventListener(interactionWindowTarget, 'pointercancel', handleWindowPointerCancel);
-useEventListener(interactionWindowTarget, 'lostpointercapture', handleWindowPointerCancel);
+useEventListener(interactionWindowTarget, 'lostpointercapture', (event: PointerEvent) => {
+    if (isReleasedMouseCapture(event)) {
+        handleWindowPointerUp(event);
+    } else {
+        handleWindowPointerCancel(event);
+    }
+});
 
 watch([
     () => placement?.stableKey,

@@ -12,7 +12,7 @@
         @pointermove="handlePointerMove"
         @pointerup="handlePointerUp"
         @pointercancel="handlePointerCancel"
-        @lostpointercapture="handlePointerCancel"
+        @lostpointercapture="handleLostPointerCapture"
         @click.stop="handleSurfaceClick"
         @contextmenu.prevent="handleSurfaceContextMenu"
         @dblclick.stop="handleSurfaceDblClick"
@@ -144,6 +144,7 @@ import {
 } from '@app/modules/pdf-viewer/engine/annotation-editor-geometry/annotationEditorGeometry';
 import { markerRectFromPoint } from '@app/modules/pdf-viewer/engine/annotations/pdf-page-point-resolver/markerRectFromPoint';
 import { useAnnotationCreationTools } from '@app/modules/pdf-viewer/annotations/editor/useAnnotationCreationTools';
+import { isReleasedMouseCapture } from '@app/modules/pdf-viewer/annotations/editor/isReleasedMouseCapture';
 import {
     rectForMovableEntity,
     useAnnotationPointerGesture,
@@ -865,6 +866,14 @@ function handlePointerUp(event: PointerEvent) {
             autoSizeTextBoxIds.delete(completion.gesture.entity.identity.id);
         }
         surface.commitGesture(completion.gesture, patch);
+    }
+}
+
+function handleLostPointerCapture(event: PointerEvent) {
+    if (isReleasedMouseCapture(event)) {
+        handlePointerUp(event);
+    } else {
+        handlePointerCancel(event);
     }
 }
 

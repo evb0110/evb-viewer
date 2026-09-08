@@ -93,10 +93,126 @@ function mountOverlay(busy = false, echoRectangleUpdates = false) {
         host,
         updates,
         currentPlacement,
+        unmount,
+    };
+}
+
+const gestureHandles = [
+    [
+        'move',
+        '.pdf-image-placement__surface',
+    ],
+    [
+        'resize',
+        '.pdf-image-placement__resizer--se',
+    ],
+    [
+        'rotate',
+        '.pdf-image-placement__rotate-handle',
+    ],
+] as const;
+
+async function completeImageGesture(selector: string, ending: 'pointerup' | 'lostpointercapture' | 'pointercancel', buttons = 0) {
+    const overlay = mountOverlay(false, true);
+    const frame = overlay.host.querySelector<HTMLElement>('.pdf-image-placement')!;
+    vi.spyOn(frame.parentElement!, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 600, 800));
+    const handle = overlay.host.querySelector<HTMLElement>(selector)!;
+    handle.setPointerCapture = vi.fn();
+    handle.hasPointerCapture = vi.fn(() => false);
+    handle.dispatchEvent(new PointerEvent('pointerdown', {
+        pointerId: 1,
+        pointerType: 'mouse',
+        button: 0,
+        buttons: 1,
+        clientX: 200,
+        clientY: 300,
+        bubbles: true,
+    }));
+    await nextTick();
+    window.dispatchEvent(new PointerEvent('pointermove', {
+        pointerId: 1,
+        pointerType: 'mouse',
+        button: -1,
+        buttons: 1,
+        clientX: 225,
+        clientY: 325,
+    }));
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+    await nextTick();
+    const preview = overlay.updates.at(-1);
+    expect(preview).toBeDefined();
+
+    // Leave a move queued when capture disappears. Completion must consume the
+    // release coordinates, and cancellation must discard the queued update.
+    const releasePoint = {
+        pointerId: 1,
+        pointerType: 'mouse',
+        clientX: 260,
+        clientY: 350,
+    };
+    window.dispatchEvent(new PointerEvent('pointermove', {
+        ...releasePoint,
+        button: -1,
+        buttons: 1,
+    }));
+    window.dispatchEvent(new PointerEvent(ending, {
+        ...releasePoint,
+        button: ending === 'pointerup' ? 0 : -1,
+        buttons,
+    }));
+    await nextTick();
+    const final = overlay.updates.at(-1);
+    const updateCount = overlay.updates.length;
+    window.dispatchEvent(new PointerEvent('pointermove', {
+        ...releasePoint,
+        button: -1,
+        buttons: 0,
+    }));
+    window.dispatchEvent(new PointerEvent('pointerup', {
+        ...releasePoint,
+        button: 0,
+        buttons: 0,
+    }));
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+    await nextTick();
+    expect(overlay.updates).toHaveLength(updateCount);
+    expect(document.documentElement.hasAttribute('data-pdf-image-placement-cursor')).toBe(false);
+    expect(overlay.events).toEqual({
+        cancel: 0,
+        finalize: 0,
+    });
+    overlay.unmount();
+    return {
+        preview,
+        final,
     };
 }
 
 describe('PdfImagePlacementOverlay', () => {
+    it.each(gestureHandles)('finishes %s at released-mouse capture loss before pointerup', async (_mode, selector) => {
+        const normal = await completeImageGesture(selector, 'pointerup');
+        const lostCapture = await completeImageGesture(selector, 'lostpointercapture');
+        expect(normal.final).not.toEqual(normal.preview);
+        expect(lostCapture.final).toEqual(normal.final);
+    });
+
+    it.each(gestureHandles)('rolls back %s on genuine cancellation or capture loss while held', async (_mode, selector) => {
+        for (const ending of [
+            'pointercancel',
+            'lostpointercapture',
+        ] as const) {
+            const result = await completeImageGesture(selector, ending, ending === 'pointercancel' ? 0 : 1);
+            expect(result.final).not.toEqual(result.preview);
+            expect(result.final).toEqual({
+                x: placement.x,
+                y: placement.y,
+                width: placement.width,
+                height: placement.height,
+                rotationDegrees: placement.rotationDegrees,
+            });
+        }
+    });
+
     it('renders the pending image and routes placement actions', () => {
         const {
             events,

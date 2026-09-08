@@ -329,6 +329,52 @@ describe('Electron E2E - text interaction contract', () => {
         expect((await frame(page)).text).toBe('Edited text');
     });
 
+    it('commits a mouse drag when capture is lost immediately before pointerup', async () => {
+        const {page} = await openFixture(false, 2.92);
+        await startText(page);
+        await page.keyboard.type('Released mouse');
+        const grip = '.editor-pane.is-active [data-pdf-annotation-move-handle]';
+        const start = await page.$eval(grip, element => {
+            const rect = element.getBoundingClientRect();
+            const x = rect.x + rect.width / 2;
+            const y = rect.y + rect.height / 2;
+            if (!element.contains(document.elementFromPoint(x, y))) throw new Error('Text move grip is obstructed');
+            return {
+                x,
+                y,
+            };
+        });
+        const before = await frame(page);
+        const end = {
+            x: start.x - 180,
+            y: start.y + 30,
+        };
+        await page.mouse.move(start.x, start.y);
+        await page.mouse.down();
+        await page.mouse.move(end.x, end.y, {steps: 8});
+        const preview = await frame(page);
+        expect(preview.x - before.x).toBeCloseTo(-180, 0);
+        const cdp = await page.createCDPSession();
+        // macOS can report released buttons on the final move before pointerup.
+        // Chromium then drops capture before delivering that move and release.
+        await cdp.send('Input.dispatchMouseEvent', {
+            type: 'mouseMoved',
+            x: end.x,
+            y: end.y,
+            button: 'none',
+            buttons: 0,
+        });
+        await page.mouse.up();
+        await cdp.detach();
+        const released = await frame(page);
+        expect(released.x).toBeCloseTo(preview.x, 0);
+        expect(released.y).toBeCloseTo(preview.y, 0);
+        await modifiedKey(page, 'KeyZ');
+        const undone = await frame(page);
+        expect(undone.x).toBeCloseTo(before.x, 0);
+        expect(undone.text).toBe('Released mouse');
+    });
+
     it('deactivates every annotation instrument by clicking its active button again', async () => {
         const {page} = await openFixture(true);
         for (const tool of [
