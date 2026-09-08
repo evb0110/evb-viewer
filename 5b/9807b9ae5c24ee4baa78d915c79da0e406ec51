@@ -1,0 +1,73 @@
+scripts/release/assert-packaged-app-contents.mjs
+  s_8b2fc8d1cff890::t_3835c79c0f79dd 109
+  s_8b2fc8d1cff890::t_a0016a129d7dfd 9-12
+  s_8b2fc8d1cff890::t_a257b062bafd51 19-22
+  s_8b2fc8d1cff890::t_5219b7c5f42f5f 31,113
+  s_8b2fc8d1cff890::t_34d6076e3908b9 100-101,285
+  s_8b2fc8d1cff890::t_8a29dc581949a3 18,43,102-108,110-112,114-123
+scripts/stage-wasm-artifacts.mjs
+  s_8b2fc8d1cff890::t_530171709d9219 24-27
+  s_8b2fc8d1cff890::t_3835c79c0f79dd 28,45-46
+  s_8b2fc8d1cff890::t_8ea86d41321337 2-6,10-13,20-23,34-37
+  s_8b2fc8d1cff890::t_e7d20d57ff3955 30-31,38-40,51
+  s_8b2fc8d1cff890::t_b1adfa55bf5165 1,7-9,14-19,29,32-33,52-63
+  s_8b2fc8d1cff890::t_893e83efac9771 41-44,47-50
+package.json
+  s_8b2fc8d1cff890::t_618f4f72b7db48 29
+scripts/build-wasm-artifacts.mjs
+  s_8b2fc8d1cff890::t_8ea86d41321337 3-7,26-29,35-39,51-52,54-55,57-60
+  s_8b2fc8d1cff890::t_e7d20d57ff3955 47-48,53
+  s_8b2fc8d1cff890::t_b1adfa55bf5165 1-2,8-18,20-25,30-34,40-46,49-50,56,61-67,72-77
+  s_8b2fc8d1cff890::t_6dadabab2a10b4 19
+  s_8b2fc8d1cff890::t_9de71e1522bff7 68-71
+scripts/build-wasm-tool.mjs
+  s_8b2fc8d1cff890::t_e7d20d57ff3955 52
+  s_8b2fc8d1cff890::t_2ed784f2081956 36,51,53,91
+.github/actions/setup-release-env/action.yml
+  s_8b2fc8d1cff890::t_bcc65a5d3eda87 138-141,143-144
+  s_8b2fc8d1cff890::t_618f4f72b7db48 142
+.github/workflows/ci.yml
+  s_8b2fc8d1cff890::t_3709d19d793794 436,438-439,441,469-470
+  s_8b2fc8d1cff890::t_618f4f72b7db48 437,440
+scripts/cargo-artifacts.mjs
+  s_8b2fc8d1cff890::t_2ed784f2081956 26-30
+  s_8b2fc8d1cff890::t_6dadabab2a10b4 31
+  s_8b2fc8d1cff890::t_e6e4a56744491b 44-46
+  s_8b2fc8d1cff890::t_5219b7c5f42f5f 24-25,32-37
+docs/local-gates.md
+  s_8b2fc8d1cff890::t_ec39352138c94a 246-247
+  s_8b2fc8d1cff890::t_c548866779b843 248-255
+tests/unit/scripts/wasmArtifactFlow.test.ts
+  s_8b2fc8d1cff890::t_d0073138aa0bff 9-13,15-19,28-31,114-121
+  s_8b2fc8d1cff890::t_a0016a129d7dfd 1-6,21-24,52-62,77-86,99-108
+  s_8b2fc8d1cff890::t_c42433ae7f59b2 76
+  s_8b2fc8d1cff890::t_5219b7c5f42f5f 42-43,63
+  s_8b2fc8d1cff890::t_42594a7eaf04e5 87,94-98,109-111
+  s_8b2fc8d1cff890::t_39e4b02f8027fa 7-8,14,20,25-27,32-41,44-51,64-66,88-92,113,122-124
+  s_8b2fc8d1cff890::t_893e83efac9771 70-73
+  s_8b2fc8d1cff890::t_3835c79c0f79dd 67-69,74-75,93,112,125-134
+scripts/release/policy.mjs
+  s_8b2fc8d1cff890::t_5219b7c5f42f5f 265-266
+  s_8b2fc8d1cff890::t_530171709d9219 267-269,329-332
+scripts/ensure-wasm-artifacts.mjs
+  s_8b2fc8d1cff890::t_8ea86d41321337 4-7
+  s_8b2fc8d1cff890::t_bcc65a5d3eda87 1-3,8-22
+tests/unit/scripts/cargoArtifacts.test.ts
+  s_8b2fc8d1cff890::t_62d81c990665bd 124-132
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "5b9807b9ae5c24ee4baa78d915c79da0e406ec51",
+  "prompts": {},
+  "sessions": {
+    "s_8b2fc8d1cff890": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08327-6800-7fa1-b685-6d11e18dac99",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
