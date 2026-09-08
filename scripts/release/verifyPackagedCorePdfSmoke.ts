@@ -25,6 +25,7 @@ import {
 } from '@pdf-core/pdfCombineCatalog';
 import {writePdfBookmarkOutlines} from '@pdf-core/writePdfBookmarkOutlines';
 import {assertNoPackagedRendererFailures} from '@scripts/release/assertNoPackagedRendererFailures';
+import {preparePackagedAutomationLaunch} from '@scripts/release/preparePackagedAutomationLaunch';
 import {waitForPackagedCdpEndpoint} from '@scripts/release/waitForPackagedCdpEndpoint';
 import {
     findFreePort,
@@ -224,12 +225,9 @@ async function run() {
     const cdpPort = await findFreePort();
     await createFixturePdf(fixturePath);
 
-    const child = spawn(executablePath, [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        `--remote-debugging-port=${cdpPort}`,
-        `--user-data-dir=${userDataPath}`,
-    ], {
+    const launch = preparePackagedAutomationLaunch({
+        executablePath,
+        workDirectory,
         env: {
             ...process.env,
             EVB_ALLOW_MULTI_AUTOMATION_SESSIONS: '1',
@@ -239,6 +237,14 @@ async function run() {
             EVB_AUTOMATION_USER_DATA_DIR: userDataPath,
             EVB_ENABLE_RENDERER_FILE_OPEN_HELPER: '1',
         },
+    });
+    const child = spawn(launch.executablePath, [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        `--remote-debugging-port=${cdpPort}`,
+        `--user-data-dir=${userDataPath}`,
+    ], {
+        env: launch.env,
         stdio: [
             'ignore',
             'pipe',
@@ -389,16 +395,21 @@ async function run() {
         } else if (child.exitCode === null) {
             child.kill('SIGKILL');
         }
-        try {
-            await rm(workDirectory, {
-                force: true,
-                maxRetries: 10,
-                recursive: true,
-                retryDelay: 200,
-            });
-            await assertPathAbsent(workDirectory, 'temporary smoke directory');
-        } catch (error) {
-            console.warn(`Packaged smoke cleanup left temporary files at ${workDirectory}:`, error);
+        if (typeof child.pid === 'number' && isProcessAlive(child.pid)) {
+            recordCleanupError(new Error(`Packaged smoke process remained alive; preserving ${workDirectory}`));
+            console.error(`Packaged smoke process remained alive; preserving its launch copy at ${workDirectory}`);
+        } else {
+            try {
+                await rm(workDirectory, {
+                    force: true,
+                    maxRetries: 10,
+                    recursive: true,
+                    retryDelay: 200,
+                });
+                await assertPathAbsent(workDirectory, 'temporary smoke directory');
+            } catch (error) {
+                console.warn(`Packaged smoke cleanup left temporary files at ${workDirectory}:`, error);
+            }
         }
     }
 

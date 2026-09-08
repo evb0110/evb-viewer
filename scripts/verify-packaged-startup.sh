@@ -42,26 +42,53 @@ if [ -z "$app_path" ] || [ ! -d "$app_path" ]; then
   exit 1
 fi
 
-log_dir="${TMPDIR:-/tmp}/electron-logs"
-rm -rf "$log_dir"
-mkdir -p "$log_dir"
-
 app_exec="$app_path/Contents/MacOS/EVB Viewer"
-app_pid=""
+artifact_root="${EVB_PACKAGED_STARTUP_ARTIFACT_DIR:-.devkit/test/packaged-core-pdf-smoke}"
+mkdir -p "$artifact_root"
+artifact_dir="$(mktemp -d "$artifact_root/packaged-startup-$platform-$arch.XXXXXX")"
+log_dir="$artifact_dir/electron-logs"
+task_dir="$(mktemp -d "${TMPDIR:-/tmp}/evb-packaged-startup-$platform-$arch.XXXXXX")"
+mkdir -p "$log_dir"
+runner_pid=""
 cleanup() {
-  if [ -n "$app_pid" ] && kill -0 "$app_pid" >/dev/null 2>&1; then
-    kill "$app_pid" >/dev/null 2>&1 || true
-    sleep 1
+  local exit_code=$?
+  trap - EXIT INT TERM
+  if [ -n "$runner_pid" ]; then
+    if kill -0 "$runner_pid" >/dev/null 2>&1; then
+      kill -TERM "$runner_pid" >/dev/null 2>&1 || true
+    fi
+    wait "$runner_pid" >/dev/null 2>&1 || true
   fi
+  if [ -n "$task_dir" ] && [ -d "$task_dir" ]; then
+    # The runner retains its launch copy if shutdown could not be verified.
+    # Keep that directory too; removing it could break a surviving owned app.
+    if find "$task_dir" -maxdepth 1 -name 'hidden-packaged-app-*' | grep -q .; then
+      echo "Preserved packaged startup workspace for unfinished cleanup: $task_dir"
+    else
+      rm -rf "$task_dir"
+    fi
+  fi
+  return "$exit_code"
 }
 trap cleanup EXIT
+forward_signal() {
+  local signal="$1"
+  if [ -n "$runner_pid" ] && kill -0 "$runner_pid" >/dev/null 2>&1; then
+    kill "-$signal" "$runner_pid" >/dev/null 2>&1 || true
+  fi
+}
+trap 'forward_signal INT; exit 130' INT
+trap 'forward_signal TERM; exit 143' TERM
 
-EVB_ALLOW_MULTI_AUTOMATION_SESSIONS=1 \
-EVB_AUTOMATION_HIDE_WINDOW=1 \
-EVB_AUTOMATION_NO_FOCUS=1 \
 EVB_STARTUP_TRACE=1 \
-env -u ELECTRON_RUN_AS_NODE "$app_exec" &
-app_pid=$!
+EVB_FILE_LOG_DIR="$log_dir" \
+node --import tsx scripts/release/runPackagedAutomation.ts \
+  --executable "$app_exec" \
+  --work-directory "$task_dir" \
+  -- \
+  --no-sandbox \
+  --disable-setuid-sandbox &
+runner_pid=$!
 
 main_log="$log_dir/main.log"
 window_log="$log_dir/window.log"
@@ -76,12 +103,12 @@ while [ "$SECONDS" -lt "$deadline" ]; do
     renderer_ready=1
   fi
 
-  if [ "$renderer_ready" -eq 1 ] && kill -0 "$app_pid" >/dev/null 2>&1; then
+  if [ "$renderer_ready" -eq 1 ] && kill -0 "$runner_pid" >/dev/null 2>&1; then
     ready=1
     break
   fi
 
-  if ! kill -0 "$app_pid" >/dev/null 2>&1; then
+  if ! kill -0 "$runner_pid" >/dev/null 2>&1; then
     break
   fi
 

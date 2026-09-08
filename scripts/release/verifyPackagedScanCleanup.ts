@@ -25,6 +25,7 @@ import {
     isProcessAlive,
     killPids,
 } from '@scripts/electron-run/electronRunProcessTree';
+import {preparePackagedAutomationLaunch} from '@scripts/release/preparePackagedAutomationLaunch';
 import {
     evaluateInPage,
     installPageEvaluationShims,
@@ -282,6 +283,12 @@ async function waitForProcessExit(pid: number, timeoutMs: number) {
         await delay(100);
     }
     return !isProcessAlive(pid);
+}
+
+async function waitForProcessTreeExit(pids: number[], timeoutMs: number) {
+    const uniquePids = [...new Set(pids)];
+    const results = await Promise.all(uniquePids.map(pid => waitForProcessExit(pid, timeoutMs)));
+    return results.every(Boolean);
 }
 
 async function detectionSample(page: Page): Promise<IDetectionSample | null> {
@@ -739,12 +746,9 @@ async function run() {
     // the first tab.
     await copyFile(args.sourcePath, geometryCopyPath);
     const cdpPort = await findFreePort();
-    const child = spawn(args.executablePath, [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        `--remote-debugging-port=${cdpPort}`,
-        `--user-data-dir=${userDataPath}`,
-    ], {
+    const launch = preparePackagedAutomationLaunch({
+        executablePath: args.executablePath,
+        workDirectory: args.artifactDir,
         env: {
             ...process.env,
             EVB_ALLOW_MULTI_AUTOMATION_SESSIONS: '1',
@@ -757,6 +761,14 @@ async function run() {
             EVB_SCAN_CLEANUP_EVIDENCE_DIR: nativeMetadataPath,
             ELECTRON_FILE_LOG_LEVEL: 'debug',
         },
+    });
+    const child = spawn(launch.executablePath, [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        `--remote-debugging-port=${cdpPort}`,
+        `--user-data-dir=${userDataPath}`,
+    ], {
+        env: launch.env,
         stdio: [
             'ignore',
             'pipe',
@@ -910,18 +922,32 @@ async function run() {
         await writeFile(path.join(args.artifactDir, 'packaged-stdout.log'), stdout);
         await writeFile(path.join(args.artifactDir, 'packaged-stderr.log'), stderr);
         await browser?.disconnect().catch(() => {});
-        if (typeof child.pid === 'number' && isProcessAlive(child.pid)) {
+        let processTreeExited = true;
+        if (typeof child.pid === 'number') {
             // Closing the browser asks every deliberately dirty harness tab to
             // save and turns teardown into an unrelated Save As workflow.
-            // This process tree and its isolated profile belong solely to the
-            // verifier, so terminate it directly after all artifacts are safe.
-            killPids([
+            // Capture the complete owned tree before killing it, then await each
+            // PID so the copied bundle cannot be removed while a helper still
+            // has files open.
+            const processTreePids = [
                 ...collectDescendantPidsUnix(child.pid),
                 child.pid,
-            ], {signal: 'SIGKILL'});
-            await waitForProcessExit(child.pid, 5_000);
+            ];
+            if (processTreePids.some(pid => isProcessAlive(pid))) {
+                killPids(processTreePids, {signal: 'SIGKILL'});
+            }
+            processTreeExited = await waitForProcessTreeExit(processTreePids, 5_000);
         } else if (child.exitCode === null) {
             child.kill('SIGKILL');
+            processTreeExited = false;
+        }
+        if (!processTreeExited) {
+            console.error(`Packaged scan-cleanup process tree remained alive; preserving its launch copy at ${String(launch.bundleDirectory)}.`);
+        } else if (launch.bundleDirectory) {
+            await rm(launch.bundleDirectory, {
+                force: true,
+                recursive: true,
+            });
         }
     }
 }

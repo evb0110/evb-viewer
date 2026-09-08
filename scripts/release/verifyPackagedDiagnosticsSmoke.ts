@@ -30,6 +30,7 @@ import {
     isProcessAlive,
     killProcessTree,
 } from '@scripts/electron-run/electronRunProcessTree';
+import {preparePackagedAutomationLaunch} from '@scripts/release/preparePackagedAutomationLaunch';
 import {
     waitForPackagedCdpEndpoint,
     waitForPackagedRendererPage,
@@ -80,6 +81,8 @@ interface IRunningSession {
     page: Page;
     userDataPath: string;
 }
+
+type TPackagedAutomationLaunch = ReturnType<typeof preparePackagedAutomationLaunch>;
 
 const activeSessions = new Set<IRunningSession>();
 
@@ -166,7 +169,7 @@ async function waitForExit(pid: number) {
 }
 
 async function startSession(
-    executablePath: string,
+    launch: TPackagedAutomationLaunch,
     root: string,
     name: string,
     preference: TClientDiagnosticsPreference,
@@ -176,22 +179,18 @@ async function startSession(
     const auditPath = path.join(userDataPath, 'diagnostics-audit.jsonl');
     await writePreference(userDataPath, preference);
     const cdpPort = await findFreePort();
-    const child = spawn(executablePath, [
+    const child = spawn(launch.executablePath, [
         '--no-sandbox',
         '--disable-setuid-sandbox',
         `--remote-debugging-port=${cdpPort}`,
         `--user-data-dir=${userDataPath}`,
     ], {
         env: {
-            ...process.env,
+            ...launch.env,
             EVB_ALLOW_MULTI_AUTOMATION_SESSIONS: '1',
-            EVB_AUTOMATION_HIDE_WINDOW: '1',
-            EVB_AUTOMATION_NO_FOCUS: '1',
             EVB_AUTOMATION_SESSION_NAME: `packaged-diagnostics-${name}`,
             EVB_AUTOMATION_USER_DATA_DIR: userDataPath,
             EVB_DIAGNOSTICS_CANARY_AUDIT_FILE: auditPath,
-            EVB_ENABLE_DIAGNOSTICS_CANARY: '1',
-            EVB_ENABLE_RENDERER_FILE_OPEN_HELPER: '1',
             ...(options.disableAdapter ? {EVB_DIAGNOSTICS_CANARY_DISABLE_ADAPTER: '1'} : {}),
         },
         stdio: [
@@ -237,14 +236,14 @@ async function startSession(
 }
 
 async function stopSession(session: IRunningSession) {
-    try {
-        await session.browser.close().catch(() => {});
-        if (!await waitForExit(session.child.pid!)) {
-            await killProcessTree(session.child.pid!, 1_500).catch(() => {});
-        }
-    } finally {
-        activeSessions.delete(session);
+    await session.browser.close().catch(() => {});
+    if (!await waitForExit(session.child.pid!)) {
+        await killProcessTree(session.child.pid!, 1_500);
     }
+    if (isProcessAlive(session.child.pid!)) {
+        throw new Error('Packaged diagnostics process remained alive after cleanup.');
+    }
+    activeSessions.delete(session);
 }
 
 async function assertNoDelivery(session: IRunningSession, label: string) {
@@ -384,8 +383,8 @@ async function runGrantedMatrix(session: IRunningSession) {
     }
 }
 
-async function runStartupMarkerMatrix(executablePath: string, root: string) {
-    const crashed = await startSession(executablePath, root, 'startup-marker', 'granted', {disableAdapter: true});
+async function runStartupMarkerMatrix(launch: TPackagedAutomationLaunch, root: string) {
+    const crashed = await startSession(launch, root, 'startup-marker', 'granted', {disableAdapter: true});
     await crashed.page.evaluate(() => {
         void (window as ICanaryWindow).__evbDiagnosticsCanaryMain!.trigger('crash-main');
     });
@@ -400,7 +399,7 @@ async function runStartupMarkerMatrix(executablePath: string, root: string) {
         throw new Error('Startup marker canary did not persist its one-shot marker');
     }
 
-    const replayed = await startSession(executablePath, root, 'startup-marker', 'granted');
+    const replayed = await startSession(launch, root, 'startup-marker', 'granted');
     await waitForAudit(replayed.auditPath, entries => entries.some(entry => (
         entry.phase === REQUIRED_DELIVERY_PHASE && entry.code === 'MAIN_STARTUP_CRASH'
     )));
@@ -413,17 +412,30 @@ async function runStartupMarkerMatrix(executablePath: string, root: string) {
 async function run() {
     const executablePath = await resolveExecutablePath();
     const root = await mkdtemp(path.join(tmpdir(), 'evb-packaged-diagnostics-'));
+    const launch = preparePackagedAutomationLaunch({
+        executablePath,
+        workDirectory: root,
+        env: {
+            ...process.env,
+            EVB_ALLOW_MULTI_AUTOMATION_SESSIONS: '1',
+            EVB_AUTOMATION_HIDE_WINDOW: '1',
+            EVB_AUTOMATION_NO_FOCUS: '1',
+            EVB_ENABLE_DIAGNOSTICS_CANARY: '1',
+            EVB_ENABLE_RENDERER_FILE_OPEN_HELPER: '1',
+        },
+    });
     let passed = false;
+    const cleanupErrors: Error[] = [];
     try {
-        const unknown = await startSession(executablePath, root, 'unknown', 'unknown');
+        const unknown = await startSession(launch, root, 'unknown', 'unknown');
         await assertNoDelivery(unknown, 'Unknown preference');
         await stopSession(unknown);
 
-        const denied = await startSession(executablePath, root, 'denied', 'denied');
+        const denied = await startSession(launch, root, 'denied', 'denied');
         await assertNoDelivery(denied, 'Denied preference');
         await stopSession(denied);
 
-        const granted = await startSession(executablePath, root, 'granted', 'unknown');
+        const granted = await startSession(launch, root, 'granted', 'unknown');
         await runGrantedMatrix(granted);
         const entriesBeforeClose = (await readAudit(granted.auditPath)).length;
         await stopSession(granted);
@@ -432,21 +444,50 @@ async function run() {
             throw new Error('Packaged app emitted a close-time diagnostics envelope');
         }
 
-        await runStartupMarkerMatrix(executablePath, root);
+        await runStartupMarkerMatrix(launch, root);
         process.stdout.write('Packaged diagnostics consent matrix passed\n');
         passed = true;
     } finally {
+        let sessionsQuiescent = true;
         for (const session of [...activeSessions]) {
-            await stopSession(session);
+            try {
+                await stopSession(session);
+            } catch (error) {
+                sessionsQuiescent = false;
+                cleanupErrors.push(error instanceof Error ? error : new Error(String(error)));
+            }
+            if (typeof session.child.pid === 'number' && isProcessAlive(session.child.pid)) {
+                sessionsQuiescent = false;
+            }
         }
-        if (!passed && process.argv.includes('--keep-temp-on-failure')) {
+        if (sessionsQuiescent && launch.bundleDirectory) {
+            try {
+                await rm(launch.bundleDirectory, {
+                    force: true,
+                    recursive: true,
+                });
+            } catch (error) {
+                cleanupErrors.push(error instanceof Error ? error : new Error(String(error)));
+            }
+        }
+        if (!sessionsQuiescent) {
+            process.stderr.write(`Preserved diagnostics work directory while a session remained active: ${root}\n`);
+        } else if (!passed && process.argv.includes('--keep-temp-on-failure')) {
             process.stderr.write(`Preserved failed diagnostics profile at ${root}\n`);
         } else {
-            await rm(root, {
-                recursive: true,
-                force: true,
-            });
+            try {
+                await rm(root, {
+                    recursive: true,
+                    force: true,
+                });
+            } catch (error) {
+                cleanupErrors.push(error instanceof Error ? error : new Error(String(error)));
+            }
         }
+        for (const error of cleanupErrors) console.error('Packaged diagnostics cleanup failed:', error);
+    }
+    if (cleanupErrors.length > 0) {
+        throw new AggregateError(cleanupErrors, 'Packaged diagnostics cleanup failed.');
     }
 }
 

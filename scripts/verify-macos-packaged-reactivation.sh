@@ -31,14 +31,18 @@ if [ ! -x "$app_exec" ]; then
   exit 1
 fi
 
-local_production_identity_test=0
-if [ "${CI:-}" != "true" ]; then
-  if [ "${EVB_ALLOW_PRODUCTION_BUNDLE_IDENTITY_TEST:-}" != "1" ]; then
-    echo "Error: this diagnostic exercises the production bundle identity through Dock and LaunchServices"
-    echo "Use an ephemeral CI host, or set EVB_ALLOW_PRODUCTION_BUNDLE_IDENTITY_TEST=1 after explicit approval."
-    exit 1
-  fi
-  local_production_identity_test=1
+local_production_identity_test=1
+github_hosted_ci=0
+if [ "${CI:-}" = "true" ] \
+  && [ "${GITHUB_ACTIONS:-}" = "true" ] \
+  && [ "${RUNNER_ENVIRONMENT:-}" = "github-hosted" ]; then
+  github_hosted_ci=1
+  local_production_identity_test=0
+fi
+if [ "$github_hosted_ci" -ne 1 ] && [ "${EVB_ALLOW_PRODUCTION_BUNDLE_IDENTITY_TEST:-}" != "1" ]; then
+  echo "Error: this diagnostic exercises the production bundle identity through Dock and LaunchServices"
+  echo "Use a GitHub-hosted CI runner, or set EVB_ALLOW_PRODUCTION_BUNDLE_IDENTITY_TEST=1 after explicit approval."
+  exit 1
 fi
 
 accessibility_enabled="$(osascript -e 'tell application "System Events" to get UI elements enabled' 2>/dev/null || true)"

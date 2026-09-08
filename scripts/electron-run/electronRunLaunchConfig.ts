@@ -1,10 +1,12 @@
 import { execFileSync } from 'node:child_process';
 import {
     existsSync,
+    lstatSync,
     mkdirSync,
     mkdtempSync,
     readdirSync,
     readFileSync,
+    realpathSync,
     renameSync,
     rmSync,
     statSync,
@@ -219,9 +221,7 @@ export function buildHeadlessAutomationEnv(env: NodeJS.ProcessEnv = process.env)
         ...env,
         EVB_AUTOMATION_NO_FOCUS: '1',
         EVB_AUTOMATION_HIDE_WINDOW: '1',
-        EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: env.EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE === '0'
-            ? '0'
-            : '1',
+        EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: '1',
     } satisfies NodeJS.ProcessEnv;
 }
 
@@ -290,10 +290,8 @@ export function shouldUseMacOSHiddenAppLauncher(
     platform = process.platform,
 ) {
     // JS-level dock hiding runs after launch, which can still flash a Dock icon.
-    // The copied LSUIElement bundle is opt-in for automation paths that need
-    // truly dockless macOS startup.
+    // Hidden automation cannot opt out of launch-time Dock suppression.
     return platform === 'darwin'
-        && env.EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE === '1'
         && (env.EVB_AUTOMATION_HIDE_WINDOW === '1' || env.EVB_AUTOMATION_NO_FOCUS === '1');
 }
 
@@ -352,6 +350,9 @@ export function buildElectronExecutablePath(options?: {
 }
 
 function setMacOSAutomationAgentMode(infoPlistPath: string) {
+    if (!lstatSync(infoPlistPath).isFile()) {
+        throw new Error(`Automation Info.plist must be a regular copied file: ${infoPlistPath}`);
+    }
     const replaceArgs = [
         '-replace',
         'LSUIElement',
@@ -481,6 +482,34 @@ function isMacOSHiddenAppBundleComplete(bundlePaths: ReturnType<typeof buildMacO
     return existsSync(bundlePaths.executablePath) && existsSync(bundlePaths.infoPlistPath);
 }
 
+function assertMacOSAutomationAgentMode(infoPlistPath: string) {
+    let agentMode: string | undefined;
+    try {
+        agentMode = execFileSync('/usr/bin/plutil', [
+            '-extract',
+            'LSUIElement',
+            'raw',
+            '-expect',
+            'bool',
+            '-o',
+            '-',
+            infoPlistPath,
+        ], {
+            encoding: 'utf8',
+            stdio: [
+                'ignore',
+                'pipe',
+                'pipe',
+            ],
+        }).trim();
+    } catch {
+        // Missing or malformed launch metadata must never fall back to a regular app.
+    }
+    if (agentMode !== 'true') {
+        throw new Error(`Refusing macOS automation launch without LSUIElement=true: ${infoPlistPath}`);
+    }
+}
+
 function cloneMacOSAppBundle(sourceAppPath: string, destinationAppPath: string) {
     // cp -c clones through APFS clonefile(2): the bundle shares its blocks with
     // node_modules until a file changes, so a 280 MiB app costs kilobytes.
@@ -535,6 +564,7 @@ export function prepareMacOSHiddenAppBundle(options: {
 }) {
     const bundlePaths = buildMacOSHiddenAppBundlePaths(options);
     if (isMacOSHiddenAppBundleComplete(bundlePaths)) {
+        assertMacOSAutomationAgentMode(bundlePaths.infoPlistPath);
         return bundlePaths;
     }
 
@@ -546,8 +576,10 @@ export function prepareMacOSHiddenAppBundle(options: {
         destinationRoot: stagingRoot,
     });
     try {
-        cloneMacOSAppBundle(options.sourceAppPath, stagingPaths.appPath);
+        // Clone the real directory, never a symlink that would redirect plist edits to the source.
+        cloneMacOSAppBundle(realpathSync(options.sourceAppPath), stagingPaths.appPath);
         setMacOSAutomationAgentMode(stagingPaths.infoPlistPath);
+        assertMacOSAutomationAgentMode(stagingPaths.infoPlistPath);
         publishStagedMacOSHiddenAppBundle(stagingRoot, options.destinationRoot, bundlePaths);
     } catch (error) {
         rmSync(stagingRoot, {
@@ -556,6 +588,7 @@ export function prepareMacOSHiddenAppBundle(options: {
         });
         throw error;
     }
+    assertMacOSAutomationAgentMode(bundlePaths.infoPlistPath);
     return bundlePaths;
 }
 

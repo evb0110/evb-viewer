@@ -35,16 +35,22 @@ that works in this repository, including orchestrators that drive other agents.
   is in [Electron session lifecycle](electron-session-lifecycle.md). Follow it
   when starting an agent or E2E session so app-temp namespaces have a known
   owner and a matching teardown path.
+- Before launch, follow [Hidden Electron automation](hidden-electron-automation.md),
+  including packaged tests. Runtime hiding cannot prevent macOS Dock registration.
 - The hidden macOS launcher bundle is shared per installed Electron version at
   `.devkit/tmp/electron-e2e-hidden-app/electron-<version>/` and is created with
   an APFS clone, so it costs kilobytes, not 280 MiB. Every launch removes the
   bundle directories of other versions and legacy per-run copies. The launcher
   owns that directory: anything else placed under it is deleted on the next
   launch, so keep investigation output elsewhere in `.devkit`. Do not add
-  per-run or per-session copies of Electron anywhere.
+  per-run or per-session copies of development Electron. Packaged automation
+  uses one run-owned APFS copy of its exact artifact through the shared packaged
+  launcher. Remove that copy after its process tree exits; retain only reports
+  and profiles needed for evidence.
 - Stop every `electron:run` session in the stage that created it
-  (`pnpm electron:run -s <name> stop`). At a stage boundary, `ls .devkit/sessions`
-  and `pgrep -fl automation-electron-app-entry` must come up empty. The e2e
+  (`pnpm electron:run -s <name> stop`). At a stage boundary, verify that the
+  stage's owned processes have exited. Preserve the user's default dev session
+  and other tasks' active sessions. The e2e
   global setup prunes `e2e-*` sessions older than 24 hours; it does not touch
   the `default` session or anything a live process still owns.
 

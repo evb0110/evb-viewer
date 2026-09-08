@@ -1391,6 +1391,9 @@ describe('CI topology policy', () => {
         ]) {
             expect(verifier).toContain('EVB_AUTOMATION_HIDE_WINDOW: \'1\'');
             expect(verifier).toContain('EVB_AUTOMATION_NO_FOCUS: \'1\'');
+            expect(verifier).toContain('preparePackagedAutomationLaunch');
+            expect(verifier).toContain('workDirectory');
+            expect(verifier).toContain('launch.executablePath');
         }
         expect(packagedSmoke).toContain('assertPathAbsent(workDirectory, \'temporary smoke directory\')');
         expect(packagedSmoke).toContain('did not exit after cleanup');

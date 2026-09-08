@@ -1,9 +1,20 @@
+import {
+    chmodSync,
+    existsSync,
+    mkdirSync,
+    mkdtempSync,
+    rmSync,
+    writeFileSync,
+} from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
     describe,
     expect,
     it,
 } from 'vitest';
+import {runPackagedPolicyScript} from '@tests/unit/scripts/helpers/runPackagedPolicyScript';
 
 describe('macOS packaged-reactivation diagnostic policy', () => {
     it('isolates and identifies the exact packaged canary before terminating it', async () => {
@@ -14,6 +25,9 @@ describe('macOS packaged-reactivation diagnostic policy', () => {
         expect(script).toContain('--user-data-dir="$user_data_dir"');
         expect(script).toContain('EVB_REACTIVATION_APP_PATH:-release/mac-$arch/EVB Viewer.app');
         expect(script).toContain('EVB_ALLOW_PRODUCTION_BUNDLE_IDENTITY_TEST');
+        expect(script).toContain('[ "${GITHUB_ACTIONS:-}" = "true" ]');
+        expect(script).toContain('[ "${RUNNER_ENVIRONMENT:-}" = "github-hosted" ]');
+        expect(script).toContain('if [ "$github_hosted_ci" -ne 1 ]');
         expect(script).toContain('defaults export com.apple.dock "$dock_snapshot"');
         expect(script).toContain('dock_item_preexisted');
         expect(script).toContain('Delete :persistent-apps:$dock_index');
@@ -53,6 +67,36 @@ describe('macOS packaged-reactivation diagnostic policy', () => {
         expect(script).toContain('assert_bundle_replaceable');
         expect(script).toContain('exited app bundle can be moved for replacement');
         expect(script).toContain('open -a "$app_path"');
+    });
+
+    it.skipIf(process.platform !== 'darwin')('denies untrusted CI before any packaged launch', () => {
+        const root = mkdtempSync(join(tmpdir(), 'evb-reactivation-policy-'));
+        const appPath = join(root, 'EVB Viewer.app');
+        const executablePath = join(appPath, 'Contents', 'MacOS', 'EVB Viewer');
+        try {
+            mkdirSync(join(appPath, 'Contents', 'MacOS'), {recursive: true});
+            writeFileSync(executablePath, '#!/bin/sh\n: > "$0.launched"\nexit 0\n');
+            chmodSync(executablePath, 0o755);
+            writeFileSync(join(appPath, 'Contents', 'Info.plist'), '<?xml version="1.0"?>'
+                + '<plist version="1.0"><dict><key>CFBundleExecutable</key><string>EVB Viewer</string>'
+                + '<key>CFBundleIdentifier</key><string>test.evb.denied</string>'
+                + '<key>CFBundlePackageType</key><string>APPL</string></dict></plist>');
+
+            const result = runPackagedPolicyScript('scripts/verify-macos-packaged-reactivation.sh', [
+                'mac',
+                'arm64',
+            ], {EVB_REACTIVATION_APP_PATH: appPath});
+
+            expect(result.status).toBe(1);
+            expect(result.blockedCommands).toBe('');
+            expect(existsSync(`${executablePath}.launched`)).toBe(false);
+            expect(`${result.stdout}${result.stderr}`).toContain('production bundle identity');
+        } finally {
+            rmSync(root, {
+                force: true,
+                recursive: true,
+            });
+        }
     });
 
     it('retains isolated logs and requires the packaged-ready marker', async () => {

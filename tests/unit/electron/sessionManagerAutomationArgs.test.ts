@@ -415,7 +415,7 @@ describe('sessionManager automation launch args', () => {
             EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: '1',
         });
 
-        expect(buildHeadlessAutomationEnv({ EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: '0' }).EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE).toBe('0');
+        expect(buildHeadlessAutomationEnv({ EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: '0' }).EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE).toBe('1');
     });
 
     it('keeps ordinary macOS E2E automation hidden despite hostile environment overrides', () => {
@@ -483,11 +483,16 @@ describe('sessionManager automation launch args', () => {
         });
     });
 
-    it('uses the hidden macOS app bundle only when explicitly requested', () => {
+    it('requires a dockless bundle for every hidden macOS launch', () => {
         expect(shouldUseMacOSHiddenAppLauncher({
             EVB_AUTOMATION_HIDE_WINDOW: '1',
             EVB_AUTOMATION_NO_FOCUS: '1',
-        }, 'darwin')).toBe(false);
+        }, 'darwin')).toBe(true);
+
+        expect(shouldUseMacOSHiddenAppLauncher({
+            EVB_AUTOMATION_HIDE_WINDOW: '1',
+            EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: '0',
+        }, 'darwin')).toBe(true);
 
         expect(shouldUseMacOSHiddenAppLauncher({
             EVB_AUTOMATION_HIDE_WINDOW: '1',

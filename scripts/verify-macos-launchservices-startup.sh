@@ -18,9 +18,15 @@ if [ "$platform" != "mac" ] || [ "$RELEASE_HOST_PLATFORM" != "mac" ]; then
   exit 1
 fi
 
-if [ "${CI:-}" != "true" ] && [ "${EVB_ALLOW_PRODUCTION_BUNDLE_IDENTITY_TEST:-}" != "1" ]; then
+github_hosted_ci=0
+if [ "${CI:-}" = "true" ] \
+  && [ "${GITHUB_ACTIONS:-}" = "true" ] \
+  && [ "${RUNNER_ENVIRONMENT:-}" = "github-hosted" ]; then
+  github_hosted_ci=1
+fi
+if [ "$github_hosted_ci" -ne 1 ] && [ "${EVB_ALLOW_PRODUCTION_BUNDLE_IDENTITY_TEST:-}" != "1" ]; then
   echo "Error: this diagnostic exercises the production bundle identity through LaunchServices"
-  echo "Run it on an ephemeral CI host, or set EVB_ALLOW_PRODUCTION_BUNDLE_IDENTITY_TEST=1 after approving the local LaunchServices test."
+  echo "Run it on a GitHub-hosted CI runner, or set EVB_ALLOW_PRODUCTION_BUNDLE_IDENTITY_TEST=1 after approving the local LaunchServices test."
   exit 1
 fi
 

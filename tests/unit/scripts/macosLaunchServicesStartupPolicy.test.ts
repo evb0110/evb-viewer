@@ -1,9 +1,10 @@
+import { readFile } from 'node:fs/promises';
 import {
     describe,
     expect,
     it,
 } from 'vitest';
-import { readFile } from 'node:fs/promises';
+import {runPackagedPolicyScript} from '@tests/unit/scripts/helpers/runPackagedPolicyScript';
 
 describe('macOS LaunchServices packaged-startup policy', () => {
     it('installs a quarantined DMG copy and terminates only its tokenized process', async () => {
@@ -13,6 +14,9 @@ describe('macOS LaunchServices packaged-startup policy', () => {
         expect(script).toContain('--user-data-dir="$profile_dir"');
         expect(script).toContain('EVB_LAUNCHSERVICES_DMG_PATH');
         expect(script).toContain('EVB_ALLOW_PRODUCTION_BUNDLE_IDENTITY_TEST');
+        expect(script).toContain('[ "${GITHUB_ACTIONS:-}" = "true" ]');
+        expect(script).toContain('[ "${RUNNER_ENVIRONMENT:-}" = "github-hosted" ]');
+        expect(script).toContain('if [ "$github_hosted_ci" -ne 1 ]');
         expect(script).toContain('xattr -w com.apple.quarantine');
         expect(script).toContain('hdiutil attach -nobrowse -readonly');
         expect(script).toContain('ditto "$source_app" "$app_path"');
@@ -43,5 +47,16 @@ describe('macOS LaunchServices packaged-startup policy', () => {
         expect(script).toContain('unregister_bundle "$app_path"');
         expect(script).toContain('unregister_bundle "$source_app"');
         expect(script).toMatch(/unregister_bundle "\$source_app"\s+hdiutil detach "\$mount_point"/u);
+    });
+
+    it.skipIf(process.platform !== 'darwin')('denies untrusted CI before any LaunchServices launch', () => {
+        const result = runPackagedPolicyScript('scripts/verify-macos-launchservices-startup.sh', [
+            'mac',
+            'arm64',
+        ]);
+
+        expect(result.status).toBe(1);
+        expect(result.blockedCommands).toBe('');
+        expect(`${result.stdout}${result.stderr}`).toContain('production bundle identity');
     });
 });
