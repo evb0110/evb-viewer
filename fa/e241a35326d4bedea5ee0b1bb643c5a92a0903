@@ -13,8 +13,10 @@ electron/features/search/worker.ts
   s_cf236b178e7f63::t_97f9de09adff45 30
   s_cf236b178e7f63::t_7e0587bd4ed307 269,350
   s_cf236b178e7f63::t_bb0e185ecf48c5 36
+  s_c63d7a8363f7e9::t_a581fd937e95d4 39-40,58,201,206-213
 electron/features/search/public.ts
   s_cf236b178e7f63::t_131aa52dbc7dd4 20
+  s_c63d7a8363f7e9::t_a581fd937e95d4 19
 electron/features/search/worker/ensureSearchIndex.ts
   s_cf236b178e7f63::t_51923ae60575e1 1-6,9-12,14-135,137-265,267-508
   s_cf236b178e7f63::t_064f6d2b6ac2b7 7-8
@@ -78,6 +80,7 @@ electron/features/search/nativeSearch.ts
   s_cf236b178e7f63::t_58d80da03026f8 1-11,13-40,45-274,278-664,666-703
   s_cf236b178e7f63::t_064f6d2b6ac2b7 41-43
   s_cf236b178e7f63::t_55d5e973687f22 275-277
+  s_c63d7a8363f7e9::t_a581fd937e95d4 12,44
 tests/unit/electron/searchIndexBudget.test.ts
   s_cf236b178e7f63::t_8bca811c5883cd 22,92,115,150,181,216,313
 electron/features/agent/documentText.ts
@@ -121,6 +124,7 @@ tests/unit/electron/searchIndexJsonIdentity.test.ts
 electron/features/search/extractTextFromPdf.ts
   s_cf236b178e7f63::t_bb0e185ecf48c5 237-238
   s_cf236b178e7f63::t_58d80da03026f8 1-14,16-212,214-236,239-271,273-337
+  s_c63d7a8363f7e9::t_a581fd937e95d4 15,213
 electron/features/search/indexBuilder.ts
   s_cf236b178e7f63::t_064f6d2b6ac2b7 46
   s_cf236b178e7f63::t_7bd5ec73279a28 1-45,47-374,376-394,396-799
@@ -133,6 +137,14 @@ tests/unit/electron/nativeSearchIndex.test.ts
   "base_commit_sha": "fae241a35326d4bedea5ee0b1bb643c5a92a0903",
   "prompts": {},
   "sessions": {
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
     "s_cf236b178e7f63": {
       "agent_id": {
         "tool": "codex",
