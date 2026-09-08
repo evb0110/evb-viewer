@@ -1,0 +1,41 @@
+native/scan-cleanup/src/engine/render.rs
+  s_ecb10d3801a59d::t_49abe8b63c3631 4152
+native/scan-cleanup/src/engine/render_tests.rs
+  s_ecb10d3801a59d::t_ccf4617da75a5d 40,51,109
+native/scan-cleanup/src/engine/render/region_rendering.rs
+  s_ecb10d3801a59d::t_96c181c9ad8f61 265
+  s_ecb10d3801a59d::t_93a60e41aab327 2706-2708,2710-2711,2714-2715,2717,2723,2725-2730,2733,2741-2748,2750-2752
+  s_ecb10d3801a59d::t_40a3ab508f60de 2104-2107,2112-2113,2115,2117-2135,2201-2212,2215-2216,2218,2220-2221,2223-2251,2253-2254,2256-2369
+  s_ecb10d3801a59d::t_b5a726ef6abaca 250,301,549
+  s_ecb10d3801a59d::t_aa77e78fc0a5e3 227,233,243,260-262,294,311-313,359,393-394,507
+  s_ecb10d3801a59d::t_8f87ff0a5abe0b 127,138-139,141,203
+  s_ecb10d3801a59d::t_763bb73d611df2 216,228
+  s_ecb10d3801a59d::t_2324ec8719ac7a 215,217-226,229-232,234-242,244-249,251-259,263-264,266-274,276-293,295-300,302-310,314-330,332-358,360-392,395-506,508-513,515-519,540-543,551,553-555
+  s_ecb10d3801a59d::t_27c9a591c2d888 331
+  s_ecb10d3801a59d::t_81cdcd342a8104 514,520-539,544-548,550,552
+  s_ecb10d3801a59d::t_db621980918c6b 2149-2157,2190-2192
+  s_ecb10d3801a59d::t_8699fa279cd179 140
+  s_ecb10d3801a59d::t_6a669a95481a85 2004-2103,2108-2111,2114,2116,2136,2138-2140
+  s_ecb10d3801a59d::t_3e88c777a56f05 2186
+  s_ecb10d3801a59d::t_99b769518434eb 2499
+  s_ecb10d3801a59d::t_0e2b282506e1c0 2189
+  s_ecb10d3801a59d::t_c228c6f70a42c4 2704-2705,2749
+  s_ecb10d3801a59d::t_44acd4246cbe29 2718
+  s_ecb10d3801a59d::t_17632018bf6e3e 275,2653
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0f30f01c3fa3e6adad16e3237450c09fcdd2af19",
+  "prompts": {},
+  "sessions": {
+    "s_ecb10d3801a59d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07811-7527-7863-8fd2-8f8d811d7186",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

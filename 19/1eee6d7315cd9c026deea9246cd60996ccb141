@@ -1,0 +1,30 @@
+native/scan-cleanup/src/engine/output_geometry.rs
+  s_dcc6defac936b2::t_a74d949d6135d9 918
+  s_dcc6defac936b2::t_4fe9154aa6c830 926
+  s_dcc6defac936b2::t_605615be460f97 980-985,987-989,995-998,1000,1004-1006,1770,1786
+  s_dcc6defac936b2::t_27f50b37d65bdb 1889,1890-1911,1771,1787
+  s_dcc6defac936b2::t_b507095f511b1e 986,990-994,999,1011
+  s_dcc6defac936b2::t_33cb7cbac45ce6 1003
+  s_dcc6defac936b2::t_03d1c57072ad2d 1025-1026,1043,1768,1880
+  s_dcc6defac936b2::t_a96d7a3fd414e6 1060
+  s_dcc6defac936b2::t_3706894384b413 1447,1474-1475
+  s_dcc6defac936b2::t_82770220ef8916 2347-2348,2399,3343-3344
+  s_dcc6defac936b2::t_a2fdf9b9f28f00 2722,2792-2797
+  s_dcc6defac936b2::t_62e44b1658b5ec 3645-3646
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "191eee6d7315cd9c026deea9246cd60996ccb141",
+  "prompts": {},
+  "sessions": {
+    "s_dcc6defac936b2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c6-6997-78f1-aa1b-45a3adb5a218",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
