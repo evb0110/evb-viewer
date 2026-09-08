@@ -121,6 +121,15 @@ describe('Cargo artifact staging', () => {
             'two',
         ], 'expected usage'))
             .toThrow('expected usage');
+        expect(() => parseCargoToolBuildRequest([
+            'pdf-page-ops',
+            '--output-dir=',
+        ], 'expected usage')).toThrow('expected usage');
+        expect(() => parseCargoToolBuildRequest([
+            'pdf-page-ops',
+            '--output-dir=one',
+            '--output-dir=two',
+        ], 'expected usage')).toThrow('expected usage');
     });
 
     it('accepts native batches while rejecting ambiguous all-plus-explicit requests', () => {

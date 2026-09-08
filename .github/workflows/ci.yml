@@ -433,6 +433,12 @@ jobs:
       - name: Install Rust lint components
         run: rustup component add rustfmt clippy
 
+      - name: Build source-verified browser WASM artifacts
+        run: node scripts/build-wasm-artifacts.mjs --output-dir=.tmp/wasm-artifacts
+
+      - name: Stage source-verified browser WASM artifacts
+        run: node scripts/stage-wasm-artifacts.mjs .tmp/wasm-artifacts
+
       - name: Restore Rust build caches
         # Push-lane accelerator only. The manual maintenance lanes stay cache-cold on
         # purpose as the cache-poisoning tripwire.
@@ -460,6 +466,8 @@ jobs:
           manifest-path: native/Cargo.toml
 
       - name: Strict build
+        env:
+          EVB_WASM_ARTIFACT_DIR: .tmp/wasm-artifacts
         run: pnpm run build:strict
 
       # Release-check command promoted from release time; push CI's gates_ok

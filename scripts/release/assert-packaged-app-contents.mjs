@@ -6,12 +6,20 @@ import {
     statSync,
 } from 'node:fs';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import {
+    fileURLToPath,
+    pathToFileURL,
+} from 'node:url';
 import {
     collectPublicArtifactContentViolations,
     isForbiddenPublicArtifactPath,
     shouldScanPublicArtifactContent,
 } from '../check-build-artifacts-hygiene.mjs';
+import { WASM_ARTIFACTS } from '../wasm-artifacts.mjs';
+import {
+    computeWasmSourceFingerprint,
+    getWasmArtifactFingerprint,
+} from '../wasm-fingerprint.mjs';
 
 /** @typedef {{fileName: string}} IWorkerBundle */
 
@@ -20,6 +28,7 @@ const { WORKER_BUNDLES } = /** @type {{WORKER_BUNDLES: IWorkerBundle[]}} */ (awa
 ));
 
 const RELEASE_DIR = path.resolve(process.cwd(), process.argv[2] ?? 'release');
+const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
 export const REQUIRED_ASAR_ENTRIES = [
     '/package.json',
@@ -31,6 +40,7 @@ export const REQUIRED_ASAR_ENTRIES = [
     '/nuxt-output/public/electron/index.html',
     '/nuxt-output/public/index.html',
     '/nuxt-output/public/_nuxt',
+    ...WASM_ARTIFACTS.map(artifact => `/nuxt-output/public/${artifact.publicRelativePath.replace('public/', '')}`),
 ];
 
 export const REQUIRED_ASAR_PREFIXES = ['/dist-electron/main-chunk-'];
@@ -85,6 +95,30 @@ function findAsarArchives(rootDir) {
     }
 
     return archives;
+}
+
+/** @param {string} asarPath @param {typeof import('@electron/asar').default} asar @returns {Promise<string[]>} */
+async function collectWasmIdentityViolations(asarPath, asar) {
+    const problems = [];
+    for (const artifact of WASM_ARTIFACTS) {
+        const entry = `nuxt-output/public/${artifact.publicRelativePath.replace('public/', '')}`;
+        let bytes;
+        try {
+            bytes = asar.extractFile(asarPath, entry);
+        } catch {
+            problems.push(`cannot extract packaged WASM artifact: ${entry}`);
+            continue;
+        }
+        const expected = await computeWasmSourceFingerprint(artifact, {
+            projectRoot: PROJECT_ROOT,
+            rustflags: artifact.rustflags.join(' '),
+        });
+        const actual = getWasmArtifactFingerprint(bytes);
+        if (actual !== expected) {
+            problems.push(`packaged WASM fingerprint mismatch: ${entry}`);
+        }
+    }
+    return problems;
 }
 
 /** @param {string} entry */
@@ -248,6 +282,7 @@ export async function main() {
             ...collectEntryViolations(entries),
             ...collectUnpackedViolations(asarPath),
             ...contentProblems,
+            ...(await collectWasmIdentityViolations(asarPath, asar)),
         ];
         if (problems.length > 0) {
             failures.push({

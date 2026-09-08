@@ -21,14 +21,29 @@ export function parseCargoToolBuildRequest(argv, usage) {
     }
 
     const dryRun = argv.includes('--dry-run');
-    const positional = argv.filter(arg => arg !== '--dry-run');
-    if (positional.length !== 1) {
+    const outputDirArguments = argv.filter(arg => arg.startsWith('--output-dir='));
+    const outputDirArgument = outputDirArguments[0];
+    const unsupportedOptions = argv.filter(arg => (
+        arg.startsWith('-')
+        && arg !== '--dry-run'
+        && !arg.startsWith('--output-dir=')
+    ));
+    const positional = argv.filter(arg => arg !== '--' && arg !== '--dry-run' && !arg.startsWith('--output-dir='));
+    if (
+        unsupportedOptions.length > 0
+        || positional.length !== 1
+        || outputDirArguments.length > 1
+        || outputDirArgument === '--output-dir='
+    ) {
         throw new Error(usage);
     }
 
     return {
         dryRun,
         help: false,
+        ...(outputDirArgument
+            ? {outputDir: outputDirArgument.slice('--output-dir='.length)}
+            : {}),
         toolId: positional[0],
     };
 }
