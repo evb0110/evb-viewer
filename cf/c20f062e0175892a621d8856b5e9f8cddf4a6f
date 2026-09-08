@@ -1,0 +1,22 @@
+scripts/architecture/boundary-check.mjs
+  s_c63d7a8363f7e9::t_365501c9f9cb2f 39-45,437-450,1588
+tests/unit/scripts/retiredElectronFeaturePaths.test.ts
+  s_c63d7a8363f7e9::t_9418bd1e4e2fd7 6-17
+  s_c63d7a8363f7e9::t_6d6918f192f215 1-5
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "cfc20f062e0175892a621d8856b5e9f8cddf4a6f",
+  "prompts": {},
+  "sessions": {
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
