@@ -64,10 +64,7 @@ import {
     type TDocumentRevisionToken,
 } from '@contracts/documentRevision';
 import {createBrowserFileContentWitness} from '@app/platform/browser/createBrowserFileContentWitness';
-import {
-    parseDocumentRef,
-    type TDocumentRef,
-} from '@contracts/documentRef';
+import type {TDocumentRef} from '@contracts/documentRef';
 
 export interface IBrowserDocumentMutation {
     write(
@@ -153,17 +150,6 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
 
     protected override onDocumentRemoved(ref: string) {
         this.fileHandleRefs.forget(ref);
-    }
-
-    private async findExistingPhysicalFileHandleRef(handle: FileSystemFileHandle) {
-        const localRef = await this.fileHandleRefs.findExistingRef(
-            handle,
-            ref => this.ensureEntry(ref),
-        );
-        if (localRef) {
-            return parseDocumentRef(localRef);
-        }
-        return parseDocumentRef(await this.findPersistedFileHandleRef(handle));
     }
 
     /**
@@ -318,16 +304,12 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
                 created: false,
             };
         }
-        if (options.saveHandle) {
-            const existingRef = await this.findExistingPhysicalFileHandleRef(options.saveHandle);
-            if (existingRef) {
-                await this.applyFileRegistrationOptions(existingRef, file, options);
-                return {
-                    ref: existingRef,
-                    created: false,
-                };
-            }
-        }
+        // A newly selected File always becomes a new source version. The
+        // bounded witness cannot prove equality for large files, so reusing a
+        // physical-handle ref could bind fresh bytes to an old ref. Keep the
+        // old ref intact so dirty dependents retain their immutable source and
+        // conflict authority; the handle map below moves physical identity to
+        // this newly ingested version.
         const ref = createBrowserDocumentRef(file.name);
         const entry = createBrowserFileDocumentEntry(ref, file, options);
 

@@ -12,6 +12,7 @@ const recoveryMocks = vi.hoisted(() => ({
     claimBrowserWorkspaceRecoveryOwner: vi.fn(),
     loadBrowserWorkspaceRecoveries: vi.fn(),
     loadBrowserWorkspaceRecovery: vi.fn(),
+    RECOVERY_OWNER_LEASE_TIMEOUT_MS: 30_000,
 }));
 
 vi.mock('@app/platform/browser/browserWorkspaceRecoveryStore', () => recoveryMocks);
@@ -233,6 +234,7 @@ describe('browserWindowTabsCapability', () => {
                 tabs: [],
             },
             snapshotRefs: [],
+            leaseRevision: 7,
             updatedAt: 1,
         };
         const olderOrphan = {
@@ -259,6 +261,7 @@ describe('browserWindowTabsCapability', () => {
             'window:321',
             'window:444',
             7,
+            7,
         );
         expect(recoveryMocks.claimBrowserWorkspaceRecoveryOwner).not.toHaveBeenCalledWith(
             'window:111',
@@ -280,6 +283,7 @@ describe('browserWindowTabsCapability', () => {
                 tabs: [],
             },
             snapshotRefs: [],
+            leaseRevision: 7,
             updatedAt: Number.MAX_SAFE_INTEGER,
         }]);
         const {browserWindowTabsCapability} = await import('@app/platform/browserWindowTabs');
@@ -300,6 +304,7 @@ describe('browserWindowTabsCapability', () => {
                 tabs: [],
             },
             snapshotRefs: [],
+            leaseRevision: 7,
             updatedAt: 99_999,
         }]);
         const {browserWindowTabsCapability} = await import('@app/platform/browserWindowTabs');
@@ -324,6 +329,7 @@ describe('browserWindowTabsCapability', () => {
                 tabs: [],
             },
             snapshotRefs: [],
+            leaseRevision: 7,
             updatedAt: 69_999,
         };
         recoveryMocks.loadBrowserWorkspaceRecoveries.mockResolvedValue([orphan]);
@@ -339,6 +345,7 @@ describe('browserWindowTabsCapability', () => {
         expect(recoveryMocks.claimBrowserWorkspaceRecoveryOwner).toHaveBeenCalledWith(
             'window:321',
             'window:444',
+            7,
             7,
         );
     });

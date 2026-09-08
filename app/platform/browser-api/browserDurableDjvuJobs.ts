@@ -153,7 +153,7 @@ export class BrowserDurableDjvuJobs {
             this.#terminalJobs.delete(jobId);
         }
         const timer = setTimeout(() => this.#deleteTerminalJob(jobId, promise), this.terminalJobTtlMs);
-        timer.unref();
+        timer.unref?.();
         this.#terminalJobs.set(jobId, {
             kind,
             promise,

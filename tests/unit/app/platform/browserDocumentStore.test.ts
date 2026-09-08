@@ -11,6 +11,7 @@ import {
     BrowserDocumentStore,
 } from '@app/platform/browserDocumentStore';
 import {
+    createFileSystemFileHandle,
     FakeIndexedDbFactory,
     MemoryStorage,
 } from '@tests/unit/app/platform/browserPlatformTestDoubles';
@@ -24,39 +25,6 @@ const PDF_SOURCE_OPTIONS = {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-interface IFileSystemFileHandleFixtureOptions {
-    readonly name: string;
-    readonly getFile?: FileSystemFileHandle['getFile'];
-    readonly isSameEntry?: FileSystemFileHandle['isSameEntry'];
-}
-
-function createEmptyFileSystemWritableFileStream(): FileSystemWritableFileStream {
-    const writable = Object.assign(new WritableStream(), {
-        abort: async (_reason?: unknown) => {},
-        close: async () => {},
-        seek: async (_position: number) => {},
-        truncate: async (_size: number) => {},
-        write: async (_chunk: FileSystemWriteChunkType) => {},
-    });
-    return writable satisfies FileSystemWritableFileStream;
-}
-
-function createFileSystemFileHandle(
-    options: IFileSystemFileHandleFixtureOptions,
-): FileSystemFileHandle {
-    const handle = {
-        kind: 'file',
-        name: options.name,
-        getFile: options.getFile ?? (async () => new File([], options.name)),
-        isSameEntry: options.isSameEntry ?? (async (_other: FileSystemHandle) => false),
-        createWritable: async () => createEmptyFileSystemWritableFileStream(),
-        createSyncAccessHandle: async () => {
-            throw new Error('Synchronous access is not part of this file handle fixture');
-        },
-    } satisfies FileSystemFileHandle;
-    return handle;
 }
 
 function createStoredPdf(
@@ -110,20 +78,23 @@ describe('BrowserDocumentStore', () => {
         });
     });
 
-    it('dedupes a reopened physical file handle across browser windows', async () => {
+    it('opens a fresh source version when a physical handle is reopened', async () => {
         const persistedHandle = createFileSystemFileHandle({
             name: 'same-entry.pdf',
-            getFile: vi.fn(async () => new File([Uint8Array.of(1)], 'same-entry.pdf')),
+            getFile: vi.fn(async () => new File([Uint8Array.of(1)], 'same-entry.pdf', {lastModified: 7})),
             isSameEntry: vi.fn(async (_candidate: FileSystemHandle) => false),
         });
         const reopenedHandle = createFileSystemFileHandle({
             name: 'same-entry.pdf',
-            getFile: vi.fn(async () => new File([Uint8Array.of(1)], 'same-entry.pdf')),
+            getFile: vi.fn(async () => new File([Uint8Array.of(1)], 'same-entry.pdf', {lastModified: 7})),
             isSameEntry: vi.fn(async (candidate: FileSystemHandle) => candidate === persistedHandle),
         });
         const firstWindow = new BrowserDocumentStore();
         const firstRef = await firstWindow.registerFile(
-            new File([Uint8Array.of(1)], 'same-entry.pdf', {type: 'application/pdf'}),
+            new File([Uint8Array.of(1)], 'same-entry.pdf', {
+                type: 'application/pdf',
+                lastModified: 7,
+            }),
             {
                 kind: 'source',
                 saveKind: 'pdf',
@@ -133,7 +104,10 @@ describe('BrowserDocumentStore', () => {
 
         const secondWindow = new BrowserDocumentStore();
         const secondRef = await secondWindow.registerFile(
-            new File([Uint8Array.of(1)], 'same-entry.pdf', {type: 'application/pdf'}),
+            new File([Uint8Array.of(1)], 'same-entry.pdf', {
+                type: 'application/pdf',
+                lastModified: 7,
+            }),
             {
                 kind: 'source',
                 saveKind: 'pdf',
@@ -141,8 +115,9 @@ describe('BrowserDocumentStore', () => {
             },
         );
 
-        expect(secondRef).toBe(firstRef);
-        expect(reopenedHandle.isSameEntry).toHaveBeenCalledWith(persistedHandle);
+        expect(secondRef).not.toBe(firstRef);
+        await expect(firstWindow.read(firstRef)).resolves.toEqual(Uint8Array.of(1));
+        await expect(secondWindow.read(secondRef)).resolves.toEqual(Uint8Array.of(1));
     });
 
     it('forgets a replaced file handle before deduping a later registration', async () => {
@@ -271,7 +246,7 @@ describe('BrowserDocumentStore', () => {
         await expect(store.read(secondRef)).resolves.toEqual(Uint8Array.of(4, 5, 6));
     });
 
-    it('dedupes two handles for the same physical browser file', async () => {
+    it('keeps physical-handle authority while opening a replaced source version', async () => {
         const firstFile = new File([Uint8Array.of(1, 2, 3)], 'same-entry.pdf', { type: 'application/pdf' });
         const secondFile = new File([Uint8Array.of(4, 5, 6)], 'same-entry.pdf', { type: 'application/pdf' });
         const firstHandle = createFileSystemFileHandle({
@@ -292,10 +267,11 @@ describe('BrowserDocumentStore', () => {
             saveHandle: secondHandle,
         });
 
-        expect(secondRef).toBe(firstRef);
+        expect(secondRef).not.toBe(firstRef);
         await store.touchRecentFile(secondRef);
-        expect(store.getRecentFiles().map(file => file.originalPath)).toEqual([firstRef]);
+        expect(store.getRecentFiles().map(file => file.originalPath)).toEqual([secondRef]);
         await expect(store.read(firstRef)).resolves.toEqual(Uint8Array.of(1, 2, 3));
+        await expect(store.read(secondRef)).resolves.toEqual(Uint8Array.of(4, 5, 6));
     });
 
     it('rejects a same-size same-mtime source replacement using the content witness', async () => {

@@ -14,6 +14,7 @@ interface IBrowserWorkspaceRecoveryRecord {
     id: string;
     ownerId: string;
     generation: number;
+    leaseRevision: number;
     checkpoint: IWorkspaceCheckpoint;
     snapshotRefs: TDocumentRef[];
     updatedAt: number;
@@ -22,6 +23,7 @@ interface IBrowserWorkspaceRecoveryRecord {
 interface IBrowserWorkspaceRecoverySnapshot {
     ownerId: string;
     generation: number;
+    leaseRevision: number;
     checkpoint: IWorkspaceCheckpoint;
     snapshotRefs: TDocumentRef[];
     updatedAt: number;
@@ -47,12 +49,30 @@ export type TBrowserWorkspaceRecoveryClaimResult =
         generation: number
     };
 
+export const RECOVERY_OWNER_LEASE_TIMEOUT_MS = 30_000;
+
 function getRecoveryRecordId(ownerId: string) {
     return `owner:${ownerId}`;
 }
 
 function isValidOwnerId(value: unknown): value is string {
     return typeof value === 'string' && value.length > 0 && value.length <= 128;
+}
+
+function decodeLeaseRevision(record: Record<string, unknown>): number | null {
+    if (record.leaseRevision === undefined) {
+        const updatedAt = record.updatedAt;
+        return typeof updatedAt === 'number'
+            && Number.isSafeInteger(updatedAt)
+            && updatedAt >= 0
+            ? updatedAt
+            : 0;
+    }
+    return typeof record.leaseRevision === 'number'
+        && Number.isSafeInteger(record.leaseRevision)
+        && record.leaseRevision >= 0
+        ? record.leaseRevision
+        : null;
 }
 
 function decodeRecoveryRecord(value: unknown): IBrowserWorkspaceRecoverySnapshot | null {
@@ -62,12 +82,14 @@ function decodeRecoveryRecord(value: unknown): IBrowserWorkspaceRecoverySnapshot
     const record = value as Record<string, unknown>;
     const checkpoint = decodeWorkspaceCheckpoint(record.checkpoint);
     const snapshotRefs = record.snapshotRefs;
+    const leaseRevision = decodeLeaseRevision(record);
     if (
         !isValidOwnerId(record.ownerId)
         || record.id !== getRecoveryRecordId(record.ownerId)
         || typeof record.generation !== 'number'
         || !Number.isSafeInteger(record.generation)
         || record.generation <= 0
+        || leaseRevision === null
         || !checkpoint
         || !Array.isArray(snapshotRefs)
         || snapshotRefs.some((ref: unknown) => parseDocumentRef(ref) === null)
@@ -82,6 +104,7 @@ function decodeRecoveryRecord(value: unknown): IBrowserWorkspaceRecoverySnapshot
     return {
         ownerId: record.ownerId,
         generation: record.generation,
+        leaseRevision,
         checkpoint,
         snapshotRefs: Array.from(new Set(snapshotRefs.flatMap((ref: unknown) => {
             const parsed = parseDocumentRef(ref);
@@ -176,12 +199,13 @@ export async function saveBrowserWorkspaceRecovery(
     checkpoint: IWorkspaceCheckpoint,
     snapshotRefs: TDocumentRef[],
 ): Promise<TBrowserWorkspaceRecoveryMutationResult> {
-    return mutateBrowserWorkspaceRecovery(ownerId, expectedGeneration, (store, id, _current, currentGeneration) => {
+    return mutateBrowserWorkspaceRecovery(ownerId, expectedGeneration, (store, id, current, currentGeneration) => {
         const generation = currentGeneration + 1;
         const record: IBrowserWorkspaceRecoveryRecord = {
             id,
             ownerId,
             generation,
+            leaseRevision: (current?.leaseRevision ?? 0) + 1,
             checkpoint,
             snapshotRefs: Array.from(new Set(snapshotRefs)),
             updatedAt: Date.now(),
@@ -217,6 +241,7 @@ export async function touchBrowserWorkspaceRecovery(
             id,
             ownerId: current.ownerId,
             generation: current.generation,
+            leaseRevision: current.leaseRevision + 1,
             checkpoint: current.checkpoint,
             snapshotRefs: current.snapshotRefs,
             updatedAt: Date.now(),
@@ -229,6 +254,7 @@ export async function claimBrowserWorkspaceRecoveryOwner(
     sourceOwnerId: string,
     targetOwnerId: string,
     expectedGeneration: number,
+    expectedLeaseRevision?: number,
 ): Promise<TBrowserWorkspaceRecoveryClaimResult> {
     if (
         !isValidOwnerId(sourceOwnerId)
@@ -236,6 +262,10 @@ export async function claimBrowserWorkspaceRecoveryOwner(
         || sourceOwnerId === targetOwnerId
         || !Number.isSafeInteger(expectedGeneration)
         || expectedGeneration <= 0
+        || (
+            expectedLeaseRevision !== undefined
+            && (!Number.isSafeInteger(expectedLeaseRevision) || expectedLeaseRevision < 0)
+        )
     ) {
         throw new TypeError('Browser recovery claim owners and generation must be valid.');
     }
@@ -251,7 +281,20 @@ export async function claimBrowserWorkspaceRecoveryOwner(
                 const source = records
                     .map(decodeRecoveryRecord)
                     .find(record => record?.ownerId === sourceOwnerId) ?? null;
-                if (!source || source.generation !== expectedGeneration) {
+                const now = Date.now();
+                if (
+                    !source
+                    || source.ownerId !== sourceOwnerId
+                    || source.generation !== expectedGeneration
+                    || (
+                        expectedLeaseRevision !== undefined
+                        && source.leaseRevision !== expectedLeaseRevision
+                    )
+                    || (
+                        source.updatedAt <= now
+                        && now - source.updatedAt < RECOVERY_OWNER_LEASE_TIMEOUT_MS
+                    )
+                ) {
                     setResult({
                         claimed: false,
                         generation: source?.generation ?? 0,
@@ -274,6 +317,7 @@ export async function claimBrowserWorkspaceRecoveryOwner(
                     id: targetId,
                     ownerId: targetOwnerId,
                     generation,
+                    leaseRevision: source.leaseRevision + 1,
                     checkpoint: source.checkpoint,
                     snapshotRefs: source.snapshotRefs,
                     updatedAt: Date.now(),

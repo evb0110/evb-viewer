@@ -14,6 +14,7 @@ import {
     claimBrowserWorkspaceRecoveryOwner,
     loadBrowserWorkspaceRecoveries,
     loadBrowserWorkspaceRecovery,
+    RECOVERY_OWNER_LEASE_TIMEOUT_MS,
 } from '@app/platform/browser/browserWorkspaceRecoveryStore';
 
 const WINDOW_TABS_CHANNEL = 'evb-viewer:browserWindowTabs';
@@ -23,7 +24,6 @@ const WINDOW_TABS_STATE_KEY = '__evbBrowserWindowTabsState';
 const DEFAULT_TRANSFER_TIMEOUT_MS = 12_000;
 const INCOMING_TRANSFER_NONCE_TTL_MS = 60_000;
 const DISCOVERY_SETTLE_DELAY_MS = 60;
-const RECOVERY_OWNER_LEASE_TIMEOUT_MS = 30_000;
 const FALLBACK_WINDOW_TITLE = 'EVB Viewer';
 const CLOSE_CURRENT_WINDOW_TIMEOUT_MS = 150;
 const TRANSFER_MESSAGE_SCHEMA_VERSION = 1;
@@ -910,6 +910,7 @@ export const browserWindowTabsCapability: IWindowTabsCapability = {
             orphan.ownerId,
             ownerId,
             orphan.generation,
+            orphan.leaseRevision,
         );
         return outcome.claimed ? orphan.checkpoint : null;
     },

@@ -14,6 +14,40 @@ export class MemoryStorage {
         this.data.set(key, value);
     }
 }
+
+export interface IFileSystemFileHandleFixtureOptions {
+    readonly name: string;
+    readonly getFile?: FileSystemFileHandle['getFile'];
+    readonly isSameEntry?: FileSystemFileHandle['isSameEntry'];
+}
+
+export function createEmptyFileSystemWritableFileStream(): FileSystemWritableFileStream {
+    const writable = Object.assign(new WritableStream(), {
+        abort: async (_reason?: unknown) => {},
+        close: async () => {},
+        seek: async (_position: number) => {},
+        truncate: async (_size: number) => {},
+        write: async (_chunk: FileSystemWriteChunkType) => {},
+    });
+    return writable satisfies FileSystemWritableFileStream;
+}
+
+export function createFileSystemFileHandle(
+    options: IFileSystemFileHandleFixtureOptions,
+): FileSystemFileHandle {
+    const handle = {
+        kind: 'file',
+        name: options.name,
+        getFile: options.getFile ?? (async () => new File([], options.name)),
+        isSameEntry: options.isSameEntry ?? (async (_other: FileSystemHandle) => false),
+        createWritable: async () => createEmptyFileSystemWritableFileStream(),
+        createSyncAccessHandle: async () => {
+            throw new Error('Synchronous access is not part of this file handle fixture');
+        },
+    } satisfies FileSystemFileHandle;
+    return handle;
+}
+
 class FakeIdbRequest<T> extends EventTarget implements IDBRequest<T> {
     public result!: T;
     public error: DOMException | null = null;
