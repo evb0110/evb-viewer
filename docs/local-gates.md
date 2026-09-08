@@ -243,10 +243,16 @@ from 105 s sequential to 28 s.
 library tests spend their time in image code, and at `opt-level = 0` that one
 crate took 89 s of a 195 s native stage; at `opt-level = 1` the test body runs
 in about 7 s. Debug assertions and overflow checks stay on. The browser WASM
-fingerprint covers all of `native/`, so any edit to that manifest, including
-a profile change, needs `node scripts/build-wasm-tool.mjs <family>` for
-`pdf-image-combine` and `pdf-page-ops` and a commit of the re-stamped
-`public/wasm` files, or `build:strict` reports stale artifacts.
+fingerprint covers all of `native/`. `node scripts/build-wasm-artifacts.mjs`
+rebuilds both browser artifacts before every strict build. The committed `public/wasm`
+copies are advisory fallbacks for web-only development without Rust. They are
+never accepted by `build:strict` or a release package unless their stamped
+fingerprints match the current sources. CI builds them in a temporary artifact
+directory, writes a manifest, stages that directory with source and fingerprint
+checks, then runs the same strict check. Developers need the pinned Rust
+toolchain and the `wasm32-unknown-unknown` target for strict builds and
+packaging. A web-only session can use the committed fallback, but it cannot
+produce a strict desktop build without Rust.
 
 ## Release verification
 

@@ -33,6 +33,7 @@ Use --dry-run to resolve and print the build plan without invoking Cargo.`;
 export function createWasmToolBuildPlan({
     artifact,
     env = process.env,
+    outputDir = undefined,
     projectRoot: root,
 }) {
     return {
@@ -47,7 +48,9 @@ export function createWasmToolBuildPlan({
             WASM_TARGET,
             '--lib',
         ],
-        destinationPath: path.join(root, artifact.publicRelativePath),
+        destinationPath: outputDir
+            ? path.join(outputDir, path.basename(artifact.publicRelativePath))
+            : path.join(root, artifact.publicRelativePath),
         label: artifact.label,
         manifestPath: artifact.manifestPath,
         requiredExports: artifact.requiredExports,
@@ -85,6 +88,7 @@ export async function runWasmToolBuilder(argv = process.argv.slice(2)) {
     } = await resolveTool(request.toolId);
     const plan = createWasmToolBuildPlan({
         artifact,
+        outputDir: request.outputDir ? path.resolve(projectRoot, request.outputDir) : undefined,
         projectRoot,
     });
     if (request.dryRun) {

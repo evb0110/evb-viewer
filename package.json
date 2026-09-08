@@ -26,7 +26,7 @@
     "deploy:landing": "node scripts/deployVercelPrivate.mjs --target=landing",
     "deploy:landing:prod": "node scripts/deployVercelPrivate.mjs --target=landing --prod --logs",
     "build": "pnpm run generate:build-artifacts && pnpm exec nuxi build && node scripts/stageDesktopRendererSourcemaps.mjs && node scripts/prune-build-artifacts.mjs && node scripts/check-web-deploy-assets.mjs",
-    "build:desktop": "pnpm run check:wasm:strict && pnpm run build:desktop:no-wasm-check",
+    "build:desktop": "node scripts/ensure-wasm-artifacts.mjs && pnpm run check:wasm:strict && pnpm run build:desktop:no-wasm-check",
     "build:desktop:no-wasm-check": "pnpm run build && pnpm run build:electron && pnpm run build:native",
     "build:strict": "node scripts/validation-gates.mjs heavy --id=build-strict --weight=1 -- node scripts/run-build-strict.mjs",
     "build:strict:no-wasm-check": "node scripts/validation-gates.mjs heavy --id=build-strict-no-wasm --weight=1 -- node scripts/run-build-strict.mjs --skip-wasm-check",

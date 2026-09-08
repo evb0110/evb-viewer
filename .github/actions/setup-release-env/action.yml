@@ -135,6 +135,13 @@ runs:
       shell: bash
       run: rustup target add ${{ inputs.rust-targets }}
 
+    - name: Build source-verified browser WASM artifacts
+      if: inputs.rust-targets != '' && contains(inputs.rust-targets, 'wasm32-unknown-unknown')
+      shell: bash
+      run: |
+        node scripts/build-wasm-artifacts.mjs --output-dir=.tmp/wasm-artifacts
+        echo 'EVB_WASM_ARTIFACT_DIR=.tmp/wasm-artifacts' >> "$GITHUB_ENV"
+
     - name: Install apt packages
       if: runner.os == 'Linux' && inputs.apt-packages != ''
       shell: bash
