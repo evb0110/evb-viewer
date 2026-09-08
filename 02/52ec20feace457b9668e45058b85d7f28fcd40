@@ -1,0 +1,38 @@
+electron/ocr/worker/indexWriter.ts
+  s_cf236b178e7f63::t_e13d80012c4b46 57-60
+tests/unit/electron/ocrDocumentTextCatalogV4Consumer.test.ts
+  s_cf236b178e7f63::t_e13d80012c4b46 108
+  s_cf236b178e7f63::t_70d50e27c0bcba 79-80
+electron/features/search/xlargeIndexBuilder.ts
+  s_cf236b178e7f63::t_e13d80012c4b46 8
+electron/features/search/indexBuilder.ts
+  s_cf236b178e7f63::t_e13d80012c4b46 49
+tests/unit/electron/ocrMixedDocumentCorpus.test.ts
+  s_cf236b178e7f63::t_e13d80012c4b46 74
+tests/unit/electron/pageIdentityStore.test.ts
+  s_cf236b178e7f63::t_e13d80012c4b46 44-45
+electron/file-access/rebindDocumentTextCatalogIfPresent.ts
+  s_cf236b178e7f63::t_e13d80012c4b46 3
+tests/unit/electron/xlargeIndexBuilder.test.ts
+  s_cf236b178e7f63::t_e13d80012c4b46 36
+electron/file-access/pageIdentityStore.ts
+  s_cf236b178e7f63::t_e13d80012c4b46 26,69
+tests/unit/electron/ocrDocumentTextCatalogAgreement.test.ts
+  s_cf236b178e7f63::t_e13d80012c4b46 20
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "0252ec20feace457b9668e45058b85d7f28fcd40",
+  "prompts": {},
+  "sessions": {
+    "s_cf236b178e7f63": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0786e-ff24-7610-ae47-435cbff9d48e",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
