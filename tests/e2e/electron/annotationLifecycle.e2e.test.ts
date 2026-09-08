@@ -1929,6 +1929,24 @@ describe('Electron E2E - Annotation Lifecycle', () => {
             }
             expect(await readCanonicalStampPixels(page)).toEqual(createdPixels);
         }
+        catch (error) {
+            console.log('[stamp lifecycle failure]', await page.evaluate((selector: string) => ({
+                title: document.title,
+                runtimeError: document.querySelector('.runtime-error-reports')?.textContent?.trim(),
+                stamps: Array.from(document.querySelectorAll(selector)).map(stamp => {
+                    const image = stamp.querySelector<HTMLImageElement>('.pdf-annotation-editor-stamp__image');
+                    return {
+                        id: stamp.getAttribute('data-annotation-id'),
+                        source: image?.getAttribute('src')?.slice(0, 160),
+                        complete: image?.complete,
+                        width: image?.naturalWidth,
+                        height: image?.naturalHeight,
+                        text: stamp.textContent,
+                    };
+                }),
+            }), CANONICAL_STAMP_SELECTOR).catch(() => null));
+            throw error;
+        }
         finally {
             await uninstallManagedJpegClipboard(page);
             if (clipboardLeaseId) {
@@ -1952,10 +1970,76 @@ describe('Electron E2E - Annotation Lifecycle', () => {
 
         const baselineCount = await getFreeTextEditorCount(page);
         const typedText = `Annotation lifecycle free text ${Date.now()}`;
-        // The armed Text tool must author at this point even though the
-        // fixture already contains an imported FreeText underneath it.
         await waitForNoOpenNoteWindows(page);
-        const createdCount = await createFreeTextAnnotation(page, typedText);
+        await clickAnnotationTool(page, 'Text');
+        const importedSelector = '.editor-pane.is-active .page_container[data-page="1"] .pdf-annotation-editor-text-box';
+        const imported = await page.$eval(importedSelector, element => {
+            element.scrollIntoView({
+                block: 'center',
+                inline: 'center',
+            });
+            const rect = element.getBoundingClientRect();
+            const x = rect.left + rect.width / 2;
+            const y = rect.top + rect.height / 2;
+            if (!element.contains(document.elementFromPoint(x, y))) {
+                throw new Error('Imported text selection target is obstructed');
+            }
+            return {
+                id: element.getAttribute('data-annotation-id'),
+                x,
+                y,
+            };
+        });
+        await page.mouse.click(imported.x, imported.y);
+        await expect.poll(() => page.$eval(importedSelector, element => ({
+            id: element.getAttribute('data-annotation-id'),
+            selected: element.classList.contains('is-selected'),
+            editing: element.classList.contains('is-editing'),
+        }))).toEqual({
+            id: imported.id,
+            selected: true,
+            editing: false,
+        });
+        expect(await getFreeTextEditorCount(page)).toBe(baselineCount);
+
+        const placement = await page.$eval('.editor-pane.is-active .page_container[data-page="1"]', async element => {
+            element.scrollIntoView({
+                block: 'center',
+                inline: 'center',
+            });
+            await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+            const layer = element.querySelector<HTMLElement>('.pdf-annotation-editor-layer');
+            const viewer = element.closest<HTMLElement>('.pdfViewer');
+            if (!layer || !viewer) throw new Error('Text creation page is unavailable');
+            const rect = layer.getBoundingClientRect();
+            const viewport = viewer.getBoundingClientRect();
+            for (const y of [
+                0.5,
+                0.65,
+                0.8,
+                0.4,
+            ]) {
+                for (const x of [
+                    0.7,
+                    0.5,
+                    0.3,
+                ]) {
+                    const clientX = Math.round(rect.left + rect.width * x);
+                    const clientY = Math.round(rect.top + rect.height * y);
+                    if (clientX < viewport.left + 24 || clientX > viewport.right - 24
+                        || clientY < viewport.top + 24 || clientY > viewport.bottom - 24) continue;
+                    const hit = document.elementFromPoint(clientX, clientY);
+                    if (hit?.classList.contains('pdf-annotation-editor-surface__background') && layer.contains(hit)) {
+                        return {
+                            x,
+                            y,
+                        };
+                    }
+                }
+            }
+            throw new Error('No hit-tested background point is available for text creation');
+        });
+        const createdCount = await createFreeTextAnnotation(page, typedText, placement);
         expect(createdCount).toBeGreaterThan(baselineCount);
 
         await waitForActiveWorkspaceHost(page);

@@ -112,6 +112,11 @@ watch(() => props.entity.fontSize, async () => {
     if (editing.value) { await nextTick(); draftRectForContent(); }
 });
 
+watch(() => props.entity.rect, async () => {
+    draftRect.value = null;
+    if (editing.value) { await nextTick(); draftRectForContent(); }
+});
+
 function pixels(value: string) {
     const parsed = Number.parseFloat(value);
     return Number.isFinite(parsed) ? parsed : 0;
@@ -242,7 +247,7 @@ function fitRectToContent(rect: IAnnotationMarkerRect, handle?: TAnnotationResiz
     const pageWidth = swapped ? bounds.height : bounds.width;
     const pageHeight = swapped ? bounds.width : bounds.height;
     const measurement = root.cloneNode(false) as HTMLElement;
-    measurement.textContent = editing.value ? inlineEdit.draftText.value : props.entity.text;
+    measurement.textContent = (editing.value ? inlineEdit.draftText.value : props.entity.text) || '\u00a0';
     measurement.removeAttribute('data-annotation-id');
     Object.assign(measurement.style, {
         width: `${rect.width * pageWidth}px`,
@@ -293,14 +298,16 @@ function fitRectToContent(rect: IAnnotationMarkerRect, handle?: TAnnotationResiz
 
 interface IPdfTextBoxAnnotationExpose {
     commitDraft: () => void;
+    getDraftRect: () => IAnnotationMarkerRect;
+    getDraftText: () => string;
     fitRectToContent: (rect: IAnnotationMarkerRect, handle?: TAnnotationResizeHandle, fontSize?: number) => IAnnotationMarkerRect | null;
 }
 
 const rectStyle = computed(() => ({
-    left: `${(draftRect.value ?? props.displayRect ?? props.entity.rect).left * 100}%`,
-    top: `${(draftRect.value ?? props.displayRect ?? props.entity.rect).top * 100}%`,
-    width: `${(draftRect.value ?? props.displayRect ?? props.entity.rect).width * 100}%`,
-    height: `${(draftRect.value ?? props.displayRect ?? props.entity.rect).height * 100}%`,
+    left: `${(props.displayRect ?? draftRect.value ?? props.entity.rect).left * 100}%`,
+    top: `${(props.displayRect ?? draftRect.value ?? props.entity.rect).top * 100}%`,
+    width: `${(props.displayRect ?? draftRect.value ?? props.entity.rect).width * 100}%`,
+    height: `${(props.displayRect ?? draftRect.value ?? props.entity.rect).height * 100}%`,
     color: props.entity.color ?? 'var(--ui-text)',
     fontSize: toPdfScaledCssLength(props.displayFontSize ?? props.entity.fontSize),
     transform: `rotate(${props.entity.rotation}deg)`,
@@ -321,6 +328,8 @@ function handleEdit(event: MouseEvent) {
 
 defineExpose<IPdfTextBoxAnnotationExpose>({
     commitDraft: commit,
+    getDraftRect: () => draftRect.value ?? props.entity.rect,
+    getDraftText: () => inlineEdit.draftText.value,
     fitRectToContent,
 });
 </script>

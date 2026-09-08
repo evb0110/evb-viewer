@@ -8,8 +8,9 @@ import {
 } from 'vitest';
 import {
     computed,
-    createApp,
+    createApp as createVueApp,
     effectScope,
+    defineComponent,
     h,
     nextTick,
     provide,
@@ -31,6 +32,16 @@ import {
     asAnnotationId,
     type ITextMarkupEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+
+function createApp(...args: Parameters<typeof createVueApp>) {
+    const app = createVueApp(...args);
+    app.component('UIcon', {render: () => h('span')});
+    app.component('AppTooltip', defineComponent({
+        inheritAttrs: false,
+        setup: (_props, {slots}) => () => slots.default?.(),
+    }));
+    return app;
+}
 
 async function mountLayer(tool: TAnnotationTool = 'select', viewRotation: 0 | 90 | 180 | 270 = 0) {
     const application = shallowRef(new AnnotationApplication('geometry-rendering'));

@@ -5,6 +5,7 @@ import {BrowserLogger} from '@app/utils/browserLogger';
 import {AnnotationMode} from '@app/services/pdfjs/runtimeLib';
 import {resolvePdfJsStampImageDataUrl} from '@app/modules/pdf-viewer/runtime/annotations/resolvePdfJsStampImageDataUrl';
 import {pageIndexToPageNumber} from '@contracts/pageNumbers';
+import {resolvePdfjsOperatorListObjects} from '@app/services/pdfjs/resolvePdfjsOperatorListObjects';
 
 // Canvas data URLs contain ASCII base64, so their string length is their byte
 // length. Keep one document's resolved stamp images bounded while letting the
@@ -95,6 +96,10 @@ export function createPdfAnnotationStampImageResolver(documentSession: Pick<TPdf
         }
         const request = (async () => {
             let lease: Awaited<ReturnType<TPdfDocumentSession['leasePage']>> | null = null;
+            const controller = new AbortController();
+            const stopWatchingDocument = watch(documentSession.pdfDocument, current => {
+                if (current !== pdfDocument) controller.abort();
+            }, {flush: 'sync'});
             try {
                 lease = await documentSession.leasePage(
                     pageIndexToPageNumber(entity.pageIndex),
@@ -103,16 +108,23 @@ export function createPdfAnnotationStampImageResolver(documentSession: Pick<TPdf
                 if (documentSession.pdfDocument.value !== pdfDocument) {
                     return null;
                 }
-                await lease.page.getOperatorList({annotationMode: AnnotationMode.ENABLE});
+                const operatorList = await lease.page.getOperatorList({annotationMode: AnnotationMode.ENABLE});
                 if (documentSession.pdfDocument.value !== pdfDocument) {
                     return null;
                 }
-                const dataUrl = resolvePdfJsStampImageDataUrl(lease.page, sourceImage);
+                const objects = await resolvePdfjsOperatorListObjects(lease.page, operatorList, controller.signal);
+                if (documentSession.pdfDocument.value !== pdfDocument || controller.signal.aborted) {
+                    return null;
+                }
+                const dataUrl = resolvePdfJsStampImageDataUrl({objs: objects}, sourceImage);
                 if (dataUrl) {
                     cachedImages.set(imageRef, dataUrl);
                 }
                 return dataUrl;
             } catch (error) {
+                if (controller.signal.aborted) {
+                    return null;
+                }
                 BrowserLogger.warn(
                     'pdf-annotations',
                     `Failed to resolve persisted stamp image on page ${String(entity.pageIndex + 1)}`,
@@ -120,6 +132,7 @@ export function createPdfAnnotationStampImageResolver(documentSession: Pick<TPdf
                 );
                 return null;
             } finally {
+                stopWatchingDocument();
                 lease?.release();
             }
         })();

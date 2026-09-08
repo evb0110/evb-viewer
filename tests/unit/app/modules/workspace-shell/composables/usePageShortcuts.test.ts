@@ -3,6 +3,7 @@ import {
     describe,
     expect,
     it,
+    onTestFinished,
     vi,
 } from 'vitest';
 import {
@@ -522,6 +523,71 @@ describe('usePageShortcuts', () => {
         Object.defineProperty(event, 'isComposing', {value: true});
         capturedOnEventFired?.(event);
         expect(deps.closeAnnotationContextMenu).not.toHaveBeenCalled();
+        expect(deps.handleAnnotationToolChange).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        false,
+        true,
+    ])('leaves editable Escape to the focused text editor with menus open %s', async menusOpen => {
+        const deps = createDeps();
+        deps.annotationTool.value = 'text';
+        deps.annotationContextMenuVisible.value = menusOpen;
+        deps.pageContextMenuVisible.value = menusOpen;
+        const handleAnnotationEscape = vi.fn(() => true);
+        const viewer = {
+            ...deps.pdfViewerRef.value,
+            handleAnnotationEscape,
+        };
+        const {usePageShortcuts} = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
+        usePageShortcuts({
+            ...deps,
+            pdfViewerRef: ref(viewer),
+        });
+        const fakeInput = {
+            isContentEditable: true,
+            closest: () => null,
+        };
+        // eslint-disable-next-line @typescript-eslint/no-extraneous-class
+        vi.stubGlobal('HTMLElement', class HTMLElementStub {});
+        onTestFinished(() => { vi.unstubAllGlobals(); });
+        Object.setPrototypeOf(fakeInput, HTMLElement.prototype);
+        const preventDefault = vi.fn();
+        capturedOnEventFired?.(createKeyboardEventFixture({
+            key: 'Escape',
+            target: fakeInput,
+            preventDefault,
+        }));
+        expect(handleAnnotationEscape).not.toHaveBeenCalled();
+        expect(deps.handleAnnotationToolChange).not.toHaveBeenCalled();
+        expect(preventDefault).not.toHaveBeenCalled();
+        expect(deps.closeAnnotationContextMenu).toHaveBeenCalledTimes(Number(menusOpen));
+        expect(deps.closePageContextMenu).toHaveBeenCalledTimes(Number(menusOpen));
+    });
+
+    it('deactivates the annotation tool when Escape has no editor interaction to finish', async () => {
+        const deps = createDeps();
+        deps.annotationTool.value = 'draw';
+        const {usePageShortcuts} = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
+        usePageShortcuts(deps);
+        capturedOnEventFired?.(createKeyboardEventFixture({key: 'Escape'}));
+        expect(deps.handleAnnotationToolChange).toHaveBeenCalledWith('none');
+    });
+
+    it('finishes the current editor interaction before cancelling its tool on Escape', async () => {
+        const deps = createDeps();
+        deps.annotationTool.value = 'text';
+        const handleAnnotationEscape = vi.fn(() => true);
+        const {usePageShortcuts} = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
+        usePageShortcuts({
+            ...deps,
+            pdfViewerRef: ref({
+                ...deps.pdfViewerRef.value,
+                handleAnnotationEscape,
+            }),
+        });
+        capturedOnEventFired?.(createKeyboardEventFixture({key: 'Escape'}));
+        expect(handleAnnotationEscape).toHaveBeenCalledOnce();
         expect(deps.handleAnnotationToolChange).not.toHaveBeenCalled();
     });
 

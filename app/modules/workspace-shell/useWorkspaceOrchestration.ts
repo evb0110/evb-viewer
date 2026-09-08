@@ -611,6 +611,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     });
     const annotationActions = usePageAnnotationActions({
         pdfViewerRef,
+        annotationTool,
         annotationActiveCommentStableKey,
         annotationContextMenu,
         showSidebar,

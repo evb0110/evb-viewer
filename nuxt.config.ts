@@ -511,6 +511,7 @@ export default defineNuxtConfig({
         'ph:download-simple',
         'ph:moon',
         'ph:arrows-out-line-horizontal',
+        'ph:arrows-out-cardinal',
         'ph:arrows-out-line-vertical',
         'ph:sidebar-simple',
         'ph:pen-nib',

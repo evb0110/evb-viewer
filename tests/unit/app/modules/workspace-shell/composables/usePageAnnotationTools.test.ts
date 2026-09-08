@@ -149,6 +149,19 @@ describe('usePageAnnotationTools', () => {
         expect(deps.closeAnnotationContextMenu).toHaveBeenCalledOnce();
     });
 
+    it.each([
+        'highlight',
+        'note',
+        'stamp',
+    ] as const)(
+        'keeps explicit %s activation idempotent for action and agent commands', (tool) => {
+            const {tools} = createHarness();
+            tools.handleAnnotationToolChange(tool);
+            tools.handleAnnotationToolChange(tool);
+            expect(tools.annotationTool.value).toBe(tool);
+        },
+    );
+
     it('keeps shape selection when select mode is activated', () => {
         const {
             viewer,

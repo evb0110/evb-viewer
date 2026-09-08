@@ -737,7 +737,9 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
             parse: parseEmptyAgentActionInput,
             async run(_input, _actionId, context) {
                 context?.assertCurrentDocument();
-                await handleQuickNoteAction();
+                if (annotationTool.value !== 'note') {
+                    await handleQuickNoteAction();
+                }
                 await nextTick();
                 return {annotationTool: annotationTool.value};
             },

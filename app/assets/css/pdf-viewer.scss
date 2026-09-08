@@ -505,6 +505,33 @@
     pointer-events: none;
     outline: 1px solid var(--app-toolbar-focus-ring);
     box-sizing: border-box;
+    z-index: calc(var(--app-z-pdf-annotation-editor-layer) + 1);
+}
+
+.pdfViewer .pdf-annotation-move-handle {
+    position: absolute;
+    left: 50%;
+    bottom: 100%;
+    margin-bottom: var(--app-space-sm);
+    display: grid;
+    place-items: center;
+    width: var(--app-space-16xl);
+    height: var(--app-space-16xl);
+    padding: 0;
+    border: 1px solid var(--app-toolbar-focus-ring);
+    border-radius: var(--app-radius-xs);
+    background: var(--ui-bg);
+    color: var(--ui-text);
+    font-size: var(--app-space-12xl);
+    transform: translateX(-50%);
+    pointer-events: auto;
+    cursor: move;
+    touch-action: none;
+}
+
+.pdfViewer .pdf-annotation-move-handle:focus-visible {
+    outline: 2px solid var(--ui-primary);
+    outline-offset: 2px;
 }
 
 .pdfViewer .pdf-annotation-selection-handle {

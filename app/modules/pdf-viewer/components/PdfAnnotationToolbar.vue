@@ -107,7 +107,7 @@ const toolItems = computed<IToolItem[]>(() => [
 ]);
 
 function setTool(toolId: TAnnotationTool) {
-    emit('set-tool', toolId);
+    emit('set-tool', tool.value === toolId ? 'select' : toolId);
 }
 
 </script>

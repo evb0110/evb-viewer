@@ -19,6 +19,7 @@ import { createPageAnnotationDeleteActions } from '@app/modules/workspace-shell/
 
 interface IPageAnnotationActionsDeps {
     pdfViewerRef: Ref<TPageAnnotationActionsPdfViewer | null>;
+    annotationTool: Ref<TAnnotationTool>;
     annotationActiveCommentStableKey: Ref<string | null>;
     annotationContextMenu: Ref<{
         visible: boolean;
@@ -109,7 +110,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         const previousSidebarTab = sidebarTab.value;
         try {
             dragMode.value = false;
-            handleAnnotationToolChange('note');
+            handleAnnotationToolChange(deps.annotationTool.value === 'note' ? 'select' : 'note');
         } finally {
             await nextTick();
             showSidebar.value = previousSidebarVisibility;

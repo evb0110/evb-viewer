@@ -242,6 +242,23 @@ function createAgentOptions(
 }
 
 describe('useDocumentWorkspaceAgent', () => {
+    it('keeps explicit note placement actions armed across repeated calls', async () => {
+        const annotationTool = ref<TAnnotationTool>('select');
+        const handleQuickNoteAction = vi.fn(async () => {
+            annotationTool.value = annotationTool.value === 'note' ? 'select' : 'note';
+        });
+        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+            annotationTool,
+            handleQuickNoteAction,
+        }));
+
+        await agent.runAgentAction('annotation.create_note', {});
+        expect(annotationTool.value).toBe('note');
+        await agent.runAgentAction('annotation.start_note_placement', {});
+        expect(annotationTool.value).toBe('note');
+        expect(handleQuickNoteAction).toHaveBeenCalledTimes(1);
+    });
+
     it('keeps primary renderer action handlers aligned with advertised capabilities', () => {
         const advertisedRendererActionIds = AGENT_CAPABILITY_TEMPLATES
             .map(template => template.id)

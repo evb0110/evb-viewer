@@ -140,6 +140,7 @@ describe('pdfViewerFacade', () => {
             drawLayer,
         }));
         expect(runtimeMocks.DrawLayer).toHaveBeenCalledOnce();
+        expect(runtimeMocks.DrawLayer).toHaveBeenCalledWith({pageIndex: 0});
         expect(runtimeMocks.TextLayer).toHaveBeenCalledWith({});
         expect(getPdfjsEditorCompatibilityRuntime()).toEqual({
             version: '6.3.311',

@@ -992,15 +992,34 @@ runLegacyFixtureDescribe('Electron E2E - #350 legacy saved notes', () => {
         expect(menuVisible, JSON.stringify({outsidePoint})).toBe(false);
 
         await openDocumentSidebarTab(session.page, 'Pages');
-        const thumbnail = await session.page.waitForSelector(
-            '.editor-pane.is-active .pdf-thumbnail[data-page="1"]',
-            {visible: true},
-        );
-        const thumbnailRect = await thumbnail!.boundingBox();
-        expect(thumbnailRect).not.toBeNull();
+        const thumbnailPointHandle = await session.page.waitForFunction(() => {
+            const thumbnail = document.querySelector<HTMLElement>('.editor-pane.is-active .pdf-thumbnail[data-page="1"]');
+            const wrapper = thumbnail?.closest('.sidebar-wrapper');
+            const content = thumbnail?.closest('.sidebar-wrapper__content');
+            if (!thumbnail || !wrapper || !content) {
+                return false;
+            }
+            // The content reaches its full width before the clipping wrapper
+            // finishes opening. Wait until the actual target is exposed.
+            if (wrapper.getBoundingClientRect().width < content.getBoundingClientRect().width - 1) {
+                return false;
+            }
+            const rect = thumbnail.getBoundingClientRect();
+            const x = rect.x + rect.width / 2;
+            const y = rect.y + rect.height / 2;
+            return rect.width > 0 && rect.height > 0 && thumbnail.contains(document.elementFromPoint(x, y))
+                ? {
+                    x,
+                    y,
+                }
+                : false;
+        });
+        const thumbnailPoint = await thumbnailPointHandle.jsonValue();
+        await thumbnailPointHandle.dispose();
+        if (!thumbnailPoint) throw new Error('Page thumbnail is not hit-testable');
         await session.page.mouse.click(
-            thumbnailRect!.x + thumbnailRect!.width / 2,
-            thumbnailRect!.y + thumbnailRect!.height / 2,
+            thumbnailPoint.x,
+            thumbnailPoint.y,
             {button: 'right'},
         );
         await session.page.waitForSelector('.page-context-menu', {visible: true});

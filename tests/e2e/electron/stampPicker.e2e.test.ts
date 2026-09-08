@@ -92,12 +92,20 @@ describe('stamp placement through the native picker', () => {
         if (!reopenedSession) {
             throw new Error('Fresh Electron process failed to start');
         }
+        await openPdfInApp(reopenedSession.page, fixturePath);
         await waitForPdfLoaded(reopenedSession.page);
         await waitForViewerInteractive(reopenedSession.page);
         await reopenedSession.page.waitForSelector(CANONICAL_STAMP_SELECTOR, {
             timeout: 30_000,
             visible: true,
         });
+        await reopenedSession.page.waitForFunction((selector, count) => {
+            const stamps = [...document.querySelectorAll(selector)];
+            return stamps.length === count && stamps.every(stamp => {
+                const image = stamp.querySelector<HTMLImageElement>('.pdf-annotation-editor-stamp__image');
+                return image?.complete && image.naturalWidth > 0 && image.naturalHeight > 0;
+            });
+        }, {timeout: 30_000}, CANONICAL_STAMP_SELECTOR, initialStampCount + 1);
         expect((await readPdfAnnotationSummary(fixturePath)).bySubtype.Stamp).toBe(initialStampCount + 1);
     }, 120_000);
 });

@@ -10,7 +10,7 @@ import {
 } from 'vitest';
 import {
     computed,
-    createApp,
+    createApp as createVueApp,
     defineComponent,
     effectScope,
     h,
@@ -40,6 +40,16 @@ import type {
 import {usePdfAnnotationEditorSurface} from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
 import { rotateAnnotationPoint } from '@app/modules/pdf-viewer/engine/annotation-editor-geometry/annotationEditorGeometry';
 import {requirePageIndex} from '@contracts/pageNumbers';
+
+function createApp(...args: Parameters<typeof createVueApp>) {
+    const app = createVueApp(...args);
+    app.component('UIcon', {render: () => h('span')});
+    app.component('AppTooltip', defineComponent({
+        inheritAttrs: false,
+        setup: (_props, {slots}) => () => slots.default?.(),
+    }));
+    return app;
+}
 
 const annotationId = 'reopened-markup' as ITextMarkupEntity['identity']['id'];
 
@@ -650,6 +660,7 @@ describe('PdfAnnotationEditorLayer SVG events', () => {
         const measuredHeight = vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockImplementation(function (this: HTMLElement) {
             return Number.parseFloat(this.style.width) < 300 ? 180 : 60;
         });
+        onTestFinished(() => measuredHeight.mockRestore());
         const narrow = exposed.value!.fitRectToContent({
             ...createdTextBox.rect,
             width: 0.2,
@@ -926,7 +937,7 @@ describe('PdfAnnotationEditorLayer SVG events', () => {
             'rectangle',
             'note',
         ],
-    ] as const)('creates with armed %s over an existing %s', async (armedTool, targetKind) => {
+    ] as const)('moves with armed %s over an existing %s without creating', async (armedTool, targetKind) => {
         const application = shallowRef(new AnnotationApplication('overlapping-placement'));
         const scope = effectScope();
         const surface = scope.run(() => usePdfAnnotationEditorSurface({
@@ -962,11 +973,6 @@ describe('PdfAnnotationEditorLayer SVG events', () => {
             provide(annotationEditorSurfaceKey, surface);
             return () => h(PdfAnnotationEditorLayer, {pageIndex: requirePageIndex(0)});
         }});
-        app.component('UIcon', {render: () => h('span')});
-        app.component('AppTooltip', defineComponent({
-            inheritAttrs: false,
-            setup: (_props, {slots}) => () => slots.default?.(),
-        }));
         app.mount(host);
         onTestFinished(() => {app.unmount(); scope.stop(); host.remove();});
         await nextTick();
@@ -988,9 +994,12 @@ describe('PdfAnnotationEditorLayer SVG events', () => {
             pointerId: 41,
         }));
         await nextTick();
-        expect(surface.getEntitiesForPage(0)).toHaveLength(2);
-        const created = surface.getEntitiesForPage(0).find(candidate => candidate.identity.id !== existing.identity.id);
-        expect(created?.kind).toBe(armedTool === 'text' ? 'text-box' : armedTool === 'note' ? 'note' : 'shape');
+        expect(surface.getEntitiesForPage(0)).toHaveLength(1);
+        expect(surface.selectedIds.value).toEqual(new Set([existing.identity.id]));
+        const moved = surface.getEntitiesForPage(0)[0]!;
+        const rect = moved.kind === 'text-box' ? moved.rect : moved.kind === 'note' ? moved.position : null;
+        expect(rect?.left).toBeCloseTo(0.3);
+        expect(rect?.top).toBeCloseTo(0.3);
     });
 
     it('consumes a stationary placement click after focus without hit-testing the new empty draft', async () => {
@@ -1091,6 +1100,135 @@ describe('PdfAnnotationEditorLayer SVG events', () => {
         expect(surface.getEntitiesForPage(0)).toHaveLength(0);
     });
 
+    it.each(([
+        'move',
+        'resize',
+    ] as const).flatMap(gesture =>
+        ([
+            'type',
+            'save',
+            'blur',
+            'escape',
+        ] as const).map(completion => ({
+            gesture,
+            completion,
+        })),
+    ))('keeps a fresh empty draft editable through $gesture before $completion', async ({
+        gesture,
+        completion,
+    }) => {
+        const application = shallowRef(new AnnotationApplication('empty-geometry'));
+        const scope = effectScope();
+        const surface = scope.run(() => usePdfAnnotationEditorSurface({
+            annotationApplication: application,
+            activeTool: computed(() => 'text' as const),
+            settings: computed(() => DEFAULT_ANNOTATION_SETTINGS),
+            getPageGeometry: () => ({
+                pageView: [
+                    0,
+                    0,
+                    100,
+                    100,
+                ],
+                rotation: 0,
+            }),
+        }))!;
+        const host = document.createElement('div');
+        document.body.append(host);
+        const app = createApp({setup() {
+            provide(annotationEditorSurfaceKey, surface);
+            return () => h(PdfAnnotationEditorLayer, {pageIndex: requirePageIndex(0)});
+        }});
+        app.mount(host);
+        onTestFinished(() => {app.unmount(); scope.stop(); host.remove();});
+        await nextTick();
+        const layer = host.querySelector<HTMLElement>('.pdf-annotation-editor-layer')!;
+        vi.spyOn(layer, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 100, 100));
+        function pointer(type: string, x: number, y: number) {
+            return new PointerEvent(type, {
+                bubbles: true,
+                cancelable: true,
+                button: 0,
+                clientX: x,
+                clientY: y,
+                pointerId: 60,
+            });
+        }
+        layer.dispatchEvent(pointer('pointerdown', 20, 20));
+        layer.dispatchEvent(pointer('pointerup', 20, 20));
+        await nextTick();
+        await nextTick();
+        const editor = host.querySelector<HTMLElement>('[contenteditable="true"]')!;
+        const id = surface.editingId.value;
+        expect(id).not.toBeNull();
+        const initial = surface.getEntitiesForPage(0)[0] as ITextBoxEntity;
+        const control = host.querySelector<HTMLElement>(gesture === 'resize' ? '[data-pdf-annotation-resize-handle="e"]' : '[data-pdf-annotation-move-handle]')!;
+        expect(control).not.toBeNull();
+        const startX = gesture === 'resize' ? (initial.rect.left + initial.rect.width) * 100 : 40;
+        const endX = startX + 20;
+        control.dispatchEvent(pointer('pointerdown', startX, 30));
+        layer.dispatchEvent(pointer('pointermove', endX, 40));
+        await nextTick();
+        expect(surface.getEntitiesForPage(0)).toHaveLength(1);
+        expect(surface.editingId.value).toBe(id);
+        expect(document.activeElement).toBe(editor);
+        const textBox = host.querySelector<HTMLElement>('[data-annotation-kind="text-box"]')!;
+        const preview = {
+            left: textBox.style.left,
+            top: textBox.style.top,
+            width: textBox.style.width,
+        };
+        layer.dispatchEvent(pointer('pointerup', endX, 40));
+        await nextTick();
+        await nextTick();
+        expect(surface.editingId.value).toBe(id);
+        expect(document.activeElement).toBe(editor);
+        const entity = surface.getEntitiesForPage(0)[0] as ITextBoxEntity;
+        expect(gesture === 'move' ? entity.rect.left : entity.rect.width)
+            .toBeGreaterThan(gesture === 'move' ? initial.rect.left : initial.rect.width);
+        expect({
+            left: textBox.style.left,
+            top: textBox.style.top,
+            width: textBox.style.width,
+        }).toEqual(preview);
+        if (completion !== 'type') {
+            if (completion === 'save') surface.commitPendingTextBoxDraftsForSave();
+            else if (completion === 'blur') layer.focus();
+            else editor.dispatchEvent(new KeyboardEvent('keydown', {
+                bubbles: true,
+                key: 'Escape',
+            }));
+            await nextTick();
+            expect(surface.getEntitiesForPage(0)).toHaveLength(0);
+            expect(surface.hasPendingTextBoxDrafts()).toBe(false);
+            expect(surface.editingId.value).toBeNull();
+            expect(application.value.store.dirtyEntities()).toHaveLength(0);
+            expect(surface.undo()).toBe(false);
+            return;
+        }
+        Object.defineProperties(editor, {
+            scrollWidth: {
+                configurable: true,
+                value: 95,
+            },
+            scrollHeight: {
+                configurable: true,
+                value: 15,
+            },
+        });
+        editor.textContent = 'typed after gesture';
+        editor.dispatchEvent(new InputEvent('input', {bubbles: true}));
+        surface.commitPendingTextBoxDraftsForSave();
+        await nextTick();
+        const committed = surface.getEntitiesForPage(0)[0] as ITextBoxEntity;
+        expect(committed.text).toBe('typed after gesture');
+        expect(committed.rect.left).toBeCloseTo(entity.rect.left);
+        expect(committed.rect.top).toBeCloseTo(entity.rect.top);
+        if (gesture === 'resize') expect(committed.rect.width).toBeCloseTo(entity.rect.width);
+        expect(surface.hasPendingTextBoxDrafts()).toBe(false);
+        expect(surface.editingId.value).toBeNull();
+    });
+
     it('commits an existing inline text draft with measured height and its manual width through the viewer save hook', async () => {
         const harness = createCreationSurface();
         harness.activeToolValue.value = 'select';
@@ -1122,7 +1260,7 @@ describe('PdfAnnotationEditorLayer SVG events', () => {
 
         const editor = host.querySelector<HTMLElement>('[contenteditable="true"]');
         expect(editor).not.toBeNull();
-        expect(host.querySelector('.pdf-annotation-selection-handles')).toBeNull();
+        expect(host.querySelector('.pdf-annotation-selection-handles')).not.toBeNull();
         const layer = host.querySelector<HTMLElement>('.pdf-annotation-editor-layer');
         vi.spyOn(layer!, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 100, 100));
         Object.defineProperties(editor!, {
@@ -1210,7 +1348,7 @@ describe('PdfAnnotationEditorLayer SVG events', () => {
 
         const editor = host.querySelector<HTMLElement>('[contenteditable="true"]');
         expect(editor).not.toBeNull();
-        expect(host.querySelector('.pdf-annotation-selection-handles')).toBeNull();
+        expect(host.querySelector('.pdf-annotation-selection-handles')).not.toBeNull();
         Object.defineProperty(editor!, 'scrollWidth', {
             configurable: true,
             value: 90,

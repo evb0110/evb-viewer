@@ -165,7 +165,7 @@ export function renderPdfjsAnnotationLayer(
 }
 
 export function createPdfjsDrawLayer() {
-    return new DrawLayer();
+    return new DrawLayer({pageIndex: 0});
 }
 
 export function createPdfjsEditorLayer(options: ICreatePdfjsEditorLayerOptions) {

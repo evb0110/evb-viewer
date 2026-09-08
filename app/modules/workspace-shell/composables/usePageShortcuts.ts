@@ -120,7 +120,7 @@ export const usePageShortcuts = <TDeps extends IPageShortcutsDeps>(deps: TDeps) 
         openSearch,
     } = deps;
 
-    function handleEscape() {
+    function handleEscape(isEditing = false) {
         const hadOpenMenu = annotationContextMenuVisible.value || pageContextMenuVisible.value;
         if (annotationContextMenuVisible.value) {
             closeAnnotationContextMenu();
@@ -128,7 +128,7 @@ export const usePageShortcuts = <TDeps extends IPageShortcutsDeps>(deps: TDeps) 
         if (pageContextMenuVisible.value) {
             closePageContextMenu();
         }
-        if (hadOpenMenu) {
+        if (hadOpenMenu || isEditing) {
             return;
         }
         if (deps.pdfViewerRef.value?.handleAnnotationEscape?.()) {
@@ -339,7 +339,7 @@ export const usePageShortcuts = <TDeps extends IPageShortcutsDeps>(deps: TDeps) 
         }
 
         if (event.key === 'Escape') {
-            handleEscape();
+            handleEscape(isEditingText(event.target));
             return;
         }
 

@@ -97,27 +97,24 @@ export async function setAnnotationColor(page: Page, colorHex: string) {
 
 /** Click a visible, unobstructed control without a DOM click or command fallback. */
 export async function clickVisibleAnnotationControl(page: Page, selector: string, clickCount = 1) {
-    await page.waitForSelector(selector, {
-        visible: true,
-        timeout: 20_000,
-    });
-    const point = await page.evaluate((targetSelector: string) => {
-        const target = document.querySelector<HTMLElement>(targetSelector);
-        if (!target) {
-            throw new Error(`Annotation control is absent: ${targetSelector}`);
+    const pointHandle = await page.waitForFunction((targetSelector: string) => {
+        for (const target of document.querySelectorAll<HTMLElement>(targetSelector)) {
+            const rect = target.getBoundingClientRect();
+            const x = rect.left + rect.width / 2;
+            const y = rect.top + rect.height / 2;
+            const hit = document.elementFromPoint(x, y);
+            if (rect.width > 0 && rect.height > 0 && hit && target.contains(hit)) {
+                return {
+                    x,
+                    y,
+                };
+            }
         }
-        const rect = target.getBoundingClientRect();
-        const x = rect.left + rect.width / 2;
-        const y = rect.top + rect.height / 2;
-        const hit = document.elementFromPoint(x, y);
-        if (rect.width <= 0 || rect.height <= 0 || !hit || !target.contains(hit)) {
-            throw new Error(`Annotation control is not hit-testable: ${targetSelector}; hit=${hit?.outerHTML.slice(0, 300)}`);
-        }
-        return {
-            x,
-            y,
-        };
-    }, selector);
+        return false;
+    }, {timeout: 20_000}, selector);
+    const point = await pointHandle.jsonValue();
+    await pointHandle.dispose();
+    if (!point) throw new Error(`Annotation control is not hit-testable: ${selector}`);
     await page.mouse.click(point.x, point.y, {
         count: clickCount,
         delay: 50,

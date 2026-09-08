@@ -237,7 +237,7 @@ describe('PdfAnnotationsPanel inline inspector', () => {
         expect(settingUpdates).toEqual([]);
     });
 
-    it('keeps an already active toolbar tool armed and preserves toolbar focus', async () => {
+    it('deactivates an already active toolbar tool and preserves toolbar focus', async () => {
         const {
             host,
             state,
@@ -250,9 +250,9 @@ describe('PdfAnnotationsPanel inline inspector', () => {
         button.focus();
         button.click();
         await nextTick();
-        expect(tools).toEqual(['text']);
-        expect(state.tool).toBe('text');
-        expect(button.getAttribute('aria-pressed')).toBe('true');
+        expect(tools).toEqual(['select']);
+        expect(state.tool).toBe('select');
+        expect(button.getAttribute('aria-pressed')).toBe('false');
         expect(document.activeElement).toBe(button);
     });
 

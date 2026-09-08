@@ -447,6 +447,38 @@ describe('usePageAnnotationActions', () => {
         expect(deps.sidebarTab.value).toBe('bookmarks');
     });
 
+    it('toggles top toolbar note placement off on a repeated click without changing the sidebar', async () => {
+        const {
+            deps,
+            actions,
+            viewer,
+        } = createHarness();
+        deps.showSidebar.value = false;
+        deps.sidebarTab.value = 'bookmarks';
+        await actions.handleQuickNoteAction();
+        expect(deps.annotationTool.value).toBe('note');
+        await actions.handleQuickNoteAction();
+        expect(deps.annotationTool.value).toBe('select');
+        expect(deps.showSidebar.value).toBe(false);
+        expect(deps.sidebarTab.value).toBe('bookmarks');
+        expect(viewer.commentSelection).not.toHaveBeenCalled();
+        await actions.handleQuickNoteAction();
+        expect(deps.annotationTool.value).toBe('note');
+    });
+
+    it('deactivates note placement selected from another control and switches from another tool', async () => {
+        const {
+            deps,
+            actions,
+        } = createHarness();
+        deps.annotationTool.value = 'note';
+        await actions.handleQuickNoteAction();
+        expect(deps.annotationTool.value).toBe('select');
+        deps.annotationTool.value = 'text';
+        await actions.handleQuickNoteAction();
+        expect(deps.annotationTool.value).toBe('note');
+    });
+
     it('reveals the inline inspector for explicit shape properties', () => {
         const {
             deps,
