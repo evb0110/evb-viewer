@@ -1,0 +1,33 @@
+electron/file-access/rebindDocumentTextCatalogIfPresent.ts
+  s_c63d7a8363f7e9::t_0b0268c2b82d96 3
+electron/features/documents/main/registerDocumentRevisionInvalidationEffects.ts
+  s_c63d7a8363f7e9::t_0b0268c2b82d96 2
+electron/features/documents/main/documentFileWriteHandlers.ts
+  s_c63d7a8363f7e9::t_0b0268c2b82d96 64
+electron/features/ocr/public/index.ts
+  s_c63d7a8363f7e9::t_0b0268c2b82d96 1-10
+electron/features/documents/main/handleCleanupOcrTemp.ts
+  s_c63d7a8363f7e9::t_0b0268c2b82d96 7
+electron/file-access/pageIdentityStore.ts
+  s_c63d7a8363f7e9::t_0b0268c2b82d96 26
+tests/unit/electron/documentRevisionInvalidationEffects.test.ts
+  s_c63d7a8363f7e9::t_0b0268c2b82d96 31
+electron/features/ocr/main/createPendingResultFileStore.ts
+  s_c63d7a8363f7e9::t_0b0268c2b82d96 4
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "37cb3559591984e4ecb25319f254c8266200bb58",
+  "prompts": {},
+  "sessions": {
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

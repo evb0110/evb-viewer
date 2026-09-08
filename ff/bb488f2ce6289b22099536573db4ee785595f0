@@ -1,0 +1,55 @@
+electron/features/ocr/worker/popplerStage.ts
+  s_c63d7a8363f7e9::t_497b8543b37688 1-146
+tests/unit/electron/ocrSupersessionPageSelection.test.ts
+  s_c63d7a8363f7e9::t_497b8543b37688 53
+tests/unit/electron/ocrWorkerPageSizeFallback.test.ts
+  s_c63d7a8363f7e9::t_497b8543b37688 15
+electron/features/scan-cleanup/worker/runScanCleanupPipeline.ts
+  s_c63d7a8363f7e9::t_497b8543b37688 15
+electron/features/ocr/worker/pdfPageSizeProbe.ts
+  s_c63d7a8363f7e9::t_497b8543b37688 1-119
+electron/ocr/worker/runProductionOcrQualityCase.ts
+  s_c63d7a8363f7e9::t_497b8543b37688 8
+tests/unit/electron/ocrStreamingPdfAssembler.test.ts
+  s_c63d7a8363f7e9::t_497b8543b37688 20,23
+tests/unit/electron/ocrWorkerPdfPageCount.test.ts
+  s_c63d7a8363f7e9::t_497b8543b37688 12
+electron/features/ocr/worker/selectOcrPagesForSupersession.ts
+  s_c63d7a8363f7e9::t_497b8543b37688 15-16
+electron/features/ocr/worker/pageTextClassifier.ts
+  s_c63d7a8363f7e9::t_497b8543b37688 1-277
+electron/features/ocr/worker/tryPreprocessOcrImage.ts
+  s_c63d7a8363f7e9::t_497b8543b37688 1-230
+electron/ocr/worker/pdfAssembler.ts
+  s_c63d7a8363f7e9::t_497b8543b37688 26
+electron/features/ocr/worker/runOcrCommand.ts
+  s_c63d7a8363f7e9::t_497b8543b37688 1-15
+tests/unit/electron/ocrWorkerPopplerStage.test.ts
+  s_c63d7a8363f7e9::t_497b8543b37688 15,25
+electron/ocr/worker/main.ts
+  s_c63d7a8363f7e9::t_497b8543b37688 57,73,86
+tests/unit/electron/ocrWorkerPreprocessOcrImage.test.ts
+  s_c63d7a8363f7e9::t_497b8543b37688 16,36,116,159,196,222,254,290,327,348
+tests/unit/electron/ocrWorkerPageProcessing.test.ts
+  s_c63d7a8363f7e9::t_497b8543b37688 58
+tests/unit/electron/ocrPageTextClassifier.test.ts
+  s_c63d7a8363f7e9::t_497b8543b37688 25
+electron/ocr/worker/assembleSearchablePdfStreaming.ts
+  s_c63d7a8363f7e9::t_497b8543b37688 10
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "ffbb488f2ce6289b22099536573db4ee785595f0",
+  "prompts": {},
+  "sessions": {
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

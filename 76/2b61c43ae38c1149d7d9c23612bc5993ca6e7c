@@ -1,0 +1,64 @@
+tests/unit/app/modules/workspace-shell/composables/createDocumentPersistence.test.ts
+  s_c63d7a8363f7e9::t_ce4df2b5e21a80 18-23
+tests/unit/app/modules/workspace-shell/composables/useAnnotationNoteWindowsTestFixtures.ts
+  s_c63d7a8363f7e9::t_4f513bf7fbdd50 1-43
+tests/unit/app/modules/workspace-shell/composables/usePageShortcuts.test.ts
+  s_c63d7a8363f7e9::t_b95aa4ed25b9fe 20
+tests/unit/app/modules/pdf-viewer/components/pdfAnnotationEditorLayerPlacement.test.ts
+  s_c63d7a8363f7e9::t_d0f192d0c2bf08 26-29
+  s_c63d7a8363f7e9::t_fb3569123c811e 1-25,30-621
+tests/unit/app/services/pdf-save/createComment.ts
+  s_c63d7a8363f7e9::t_69b41345f487a9 1-31
+tests/unit/app/services/pdf-save/nativeMarkupMutationProjection.test.ts
+  s_c63d7a8363f7e9::t_09262b3b149bad 1-278
+electron/features/documents/public/pdfSaveAsOptimization.ts
+  s_c63d7a8363f7e9::t_24b1f659c15f1b 1-5
+tests/unit/app/modules/workspace-shell/composables/createNativeMarkupMutations.ts
+  s_c63d7a8363f7e9::t_ce4df2b5e21a80 1-57
+tests/unit/app/services/pdf-save/nativePdfMutationProjection.test.ts
+  s_c63d7a8363f7e9::t_69b41345f487a9 42
+  s_c63d7a8363f7e9::t_17687288ea8f08 39
+electron/features/documents/main/documentSaveDialogHandlers.ts
+  s_c63d7a8363f7e9::t_24b1f659c15f1b 19
+tests/unit/app/modules/pdf-viewer/components/pdfAnnotationEditorLayerEventFixtures.ts
+  s_c63d7a8363f7e9::t_decd7c54f3441c 1-6,11-12,15-274
+  s_c63d7a8363f7e9::t_887c115ab6f586 7-10
+  s_c63d7a8363f7e9::t_d0f192d0c2bf08 13-14
+app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts
+  s_c63d7a8363f7e9::t_e12782ced176d7 90,92
+electron/features/documents/main/documentSave.service.ts
+  s_c63d7a8363f7e9::t_24b1f659c15f1b 43
+tests/unit/app/modules/workspace-shell/composables/createPointerDownEvent.ts
+  s_c63d7a8363f7e9::t_b95aa4ed25b9fe 1-12
+tests/unit/electron/documentsSavePdfAs.test.ts
+  s_c63d7a8363f7e9::t_24b1f659c15f1b 114
+tests/unit/electron/preloadFileClient.test.ts
+  s_c63d7a8363f7e9::t_1e6fc5a0ff0d15 43
+tests/unit/electron/waitForCondition.ts
+  s_c63d7a8363f7e9::t_ad50373ad00d3e 1-13
+tests/unit/app/modules/workspace-shell/composables/useAnnotationNoteWindows.test.ts
+  s_c63d7a8363f7e9::t_b95aa4ed25b9fe 15-18
+app/modules/workspace-shell/composables/file-operations/workspaceSaveExecutionSupport.ts
+  s_c63d7a8363f7e9::t_0c34259b604412 9,49-60,62-118
+  s_c63d7a8363f7e9::t_08326427aa8a8e 3
+  s_c63d7a8363f7e9::t_5c18ca6725393b 4-6,61
+  s_c63d7a8363f7e9::t_39b237bcc3a0cb 2
+app/services/pdfjs/pdfViewerFacade.ts
+  s_c63d7a8363f7e9::t_964f7cab133ed2 168
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "762b61c43ae38c1149d7d9c23612bc5993ca6e7c",
+  "prompts": {},
+  "sessions": {
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
