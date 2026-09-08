@@ -1,0 +1,407 @@
+app/modules/workspace-shell/useWorkspaceOrchestration.ts
+  s_ed33dfabbb7b97::t_08b1b0c3086683 456-461,463-497
+  s_ed33dfabbb7b97::t_a0107abd3912c6 448,462,689,863
+  s_ed33dfabbb7b97::t_ce75a8f55171d2 1164-1165
+  s_ed33dfabbb7b97::t_8a5886b55ef4c2 511-518
+tests/unit/app/modules/workspace-shell/composables/useWorkspaceExport.test.ts
+  s_ed33dfabbb7b97::t_d3ae417c652813 64-65,82-84,150-153,158
+  s_ed33dfabbb7b97::t_d923c048b7c4b2 88-91,146-149,154-157
+  s_ed33dfabbb7b97::t_d8dfcfa96caf07 160-162
+  s_ed33dfabbb7b97::t_9f183b3dc2975b 76-81,85,145,159,163-176
+  s_ed33dfabbb7b97::t_caa4079c3cc2aa 177-178
+app/modules/workspace-shell/composables/useWorkspaceExport.ts
+  s_ed33dfabbb7b97::t_df3b711b51c1ba 461,465-466,483,510,514-515,533,570,594
+  s_ed33dfabbb7b97::t_0f3e9cd0cc8fe9 74-77,94,121-124,146-149,152-154,406-410,423,428,435
+  s_ed33dfabbb7b97::t_0906545aac1448 138-142,396,399,442
+tests/unit/app/modules/workspace-shell/viewers/workspaceDocumentDriver.test.ts
+  s_ed33dfabbb7b97::t_d923c048b7c4b2 214-217,233-237
+  s_ed33dfabbb7b97::t_0c6b6ad3c21058 225-232,238-243
+  s_ed33dfabbb7b97::t_6113cf48a5727f 244
+app/modules/workspace-shell/viewers/workspaceDocumentDriver.ts
+  s_ed33dfabbb7b97::t_8bb348a463cc1a 245,256-258,313-316,461-464,466-467,470-471
+  s_ed33dfabbb7b97::t_b529107b289818 255,312,523,536
+  s_ed33dfabbb7b97::t_3102c375c8b313 450,457-459,473-474
+  s_ed33dfabbb7b97::t_a8b4c853c6b670 524-535
+  s_ed33dfabbb7b97::t_a49f6094baed8e 326,465,468-469
+electron/features/search/searchIndexTypes.ts
+  s_cf236b178e7f63::t_e492fbfa3a02e5 1-25
+tests/unit/electron/searchIndexBuilderCancellation.test.ts
+  s_cf236b178e7f63::t_8bca811c5883cd 50,52,62,153,189,206,222,237,277,342,375,410,444,505,530,580,640,799,882,990,1069,1234
+electron/features/search/searchIndexSidecarLegacy.ts
+  s_cf236b178e7f63::t_7bd5ec73279a28 1-19,21-57,59-184
+  s_cf236b178e7f63::t_55d5e973687f22 20,58
+electron/features/search/extractTextWithPdfjs.ts
+  s_cf236b178e7f63::t_58d80da03026f8 1-30,36,37-38,40-70,84-149,157-202,204-215,217-220,222-250,252-257,260-286,288-300,302-310,312-340,342-347,350-366
+electron/features/search/worker.ts
+  s_cf236b178e7f63::t_7bd5ec73279a28 1-5,9-23,38,41,43,46-62,63-204,206-209,216-270,272-351,353-911,913-915
+  s_cf236b178e7f63::t_7404c9e4a96e59 24,29,34
+  s_cf236b178e7f63::t_97f9de09adff45 30
+  s_cf236b178e7f63::t_bb0e185ecf48c5 40
+  s_cf236b178e7f63::t_262945ad375f25 6-8,25-28,31
+  s_cf236b178e7f63::t_871718e7c40d1b 32-33
+  s_68a77ac542fc85::t_63f53b9bbb740b 35-37,39,271,352
+electron/features/search/worker/ensureSearchIndex.ts
+  s_cf236b178e7f63::t_51923ae60575e1 1-6,9-12,14-135,137-265,267-508
+  s_cf236b178e7f63::t_064f6d2b6ac2b7 7-8
+  s_cf236b178e7f63::t_91df6f4a745132 13
+tests/unit/electron/searchWorkerCancellation.test.ts
+  s_cf236b178e7f63::t_8bca811c5883cd 37,98
+electron/features/search/xlargeIndexBuilder.ts
+  s_cf236b178e7f63::t_684906bdf37051 220
+  s_cf236b178e7f63::t_7bd5ec73279a28 1-213,215-219,221-241,245-276
+  s_cf236b178e7f63::t_55d5e973687f22 214,242-244
+electron/features/search/searchIndexSchemaVersion.ts
+  s_cf236b178e7f63::t_064f6d2b6ac2b7 1
+electron/features/search/rebindSearchIndexes.ts
+  s_cf236b178e7f63::t_064f6d2b6ac2b7 6-7
+  s_cf236b178e7f63::t_51923ae60575e1 1-5,8-67
+tests/unit/electron/searchResultGeometry.test.ts
+  s_cf236b178e7f63::t_8bca811c5883cd 8
+electron/features/search/xlargeSearchRouting.ts
+  s_cf236b178e7f63::t_5613c3ba3b431e 91-95,105-106
+  s_cf236b178e7f63::t_58d80da03026f8 1-10,11-24,25-71,84-90,96-104,107-112,114-157,161-163
+  s_cf236b178e7f63::t_1e8c835583ab9b 72-74,76-83,113,158-160
+  s_cf236b178e7f63::t_b84109a8e5a00b 75
+tests/unit/electron/nativeSearch.test.ts
+  s_cf236b178e7f63::t_8bca811c5883cd 24,39,45,194,211,233,255
+electron/features/search/searchIndexOperationPolicy.ts
+  s_cf236b178e7f63::t_51923ae60575e1 1-16,18-291
+  s_cf236b178e7f63::t_6d9acf9784fb77 17
+tests/unit/electron/searchMatch.test.ts
+  s_cf236b178e7f63::t_8bca811c5883cd 16
+tests/unit/electron/xlargeSearchRouting.test.ts
+  s_cf236b178e7f63::t_8bca811c5883cd 19
+  s_cf236b178e7f63::t_dff7687fc73d50 153
+  s_cf236b178e7f63::t_9c5a32817873ee 88-97,99-110,112-114,116-141,143-152,154-172,174-183,185-194
+  s_cf236b178e7f63::t_012da691bdc8b4 98
+  s_cf236b178e7f63::t_5fc3371f663233 111
+  s_cf236b178e7f63::t_58799f73399472 115
+  s_cf236b178e7f63::t_a32c2523446059 142
+  s_cf236b178e7f63::t_7ef327a93cc7e0 173
+  s_cf236b178e7f63::t_1f655fca279a5d 184
+  s_cf236b178e7f63::t_4ac1b68788c9b6 14
+tests/e2e/electron/quarantine/assistantBookmarksPersistence.e2e.test.ts
+  s_cf236b178e7f63::t_8bca811c5883cd 9
+electron/features/search/stringifyLegacyJsonSearchIndex.ts
+  s_cf236b178e7f63::t_58d80da03026f8 1-57,59-68,70-119
+tests/unit/electron/searchIndexSidecar.test.ts
+  s_cf236b178e7f63::t_8bca811c5883cd 36
+electron/features/search/publicNative.ts
+  s_cf236b178e7f63::t_131aa52dbc7dd4 5,41,45
+  s_cf236b178e7f63::t_064f6d2b6ac2b7 46
+  s_cf236b178e7f63::t_35bbf7ce16960d 10,41-44,67
+  s_cf236b178e7f63::t_3f46790332d58a 22,29
+  s_cf236b178e7f63::t_ef8b593d1c0d85 26,34,52,57,59-60,64
+  s_cf236b178e7f63::t_40ba3d9ed87cbd 1,3-4,23-25,27-28,31-33,35-36
+  s_cf236b178e7f63::t_98d07b326f7c46 5
+  s_cf236b178e7f63::t_74620ab835fd89 37,39-40,46-47,53,55,58
+  s_cf236b178e7f63::t_bf916f92228c73 9,13
+  s_cf236b178e7f63::t_d32350e6219f1e 62
+  s_cf236b178e7f63::t_f566deabeab134 65
+  s_cf236b178e7f63::t_6582a7ac7c2d49 15,49,51
+  s_cf236b178e7f63::t_a2c8891e4c7302 2,14,18,21,30,38,48,50,54,56,61
+  s_cf236b178e7f63::t_05c49c8bd0ddd5 16-17,19-20,63
+  s_cf236b178e7f63::t_554a32f2c7a6b9 6-7
+tests/unit/electron/pdfTextExtractorCancellation.test.ts
+  s_cf236b178e7f63::t_8bca811c5883cd 33,44,89,210,249
+  s_cf236b178e7f63::t_9c5a32817873ee 165-178,180-183,185-187,189-199,201-208
+  s_cf236b178e7f63::t_530709cd4f619e 179
+  s_cf236b178e7f63::t_c5bf8f5368e71a 184
+  s_cf236b178e7f63::t_471ac60d9b1d4d 188
+  s_cf236b178e7f63::t_b947dc6de669b4 200
+tests/unit/electron/searchWorkerWarmupAndCache.test.ts
+  s_cf236b178e7f63::t_8bca811c5883cd 40,45,59,159,207,269,316,409,490,523,582,625,643,699,733,784,867,931,995,1036
+electron/features/search/domPolyfill.ts
+  s_cf236b178e7f63::t_bf89620942f19c 1-20
+electron/features/search/loadPdfjsTextExtractor.ts
+  s_cf236b178e7f63::t_51923ae60575e1 1-13
+electron/features/search/nativeSearchIndex.ts
+  s_cf236b178e7f63::t_51923ae60575e1 1-110
+tests/unit/electron/xlargeIndexBuilder.test.ts
+  s_cf236b178e7f63::t_8bca811c5883cd 24,37,122,161,189,209,245,282,324,326,391,393
+tests/unit/electron/agentDocumentTextSearchValidation.test.ts
+  s_cf236b178e7f63::t_064f6d2b6ac2b7 14,24-27,43
+  s_cf236b178e7f63::t_8bca811c5883cd 65,69,71,73
+  s_cf236b178e7f63::t_60e912c14996b7 28-30,44-45,56-57
+  s_cf236b178e7f63::t_ad435ee48049dc 31-33,51-55
+electron/features/search/nativeSearch.ts
+  s_cf236b178e7f63::t_58d80da03026f8 1-11,13-40,45-274,278-664,666-703
+  s_cf236b178e7f63::t_064f6d2b6ac2b7 41-43
+  s_cf236b178e7f63::t_55d5e973687f22 275-277
+tests/unit/electron/searchIndexBudget.test.ts
+  s_cf236b178e7f63::t_8bca811c5883cd 22,92,115,150,181,216,313
+electron/features/agent/documentText.ts
+  s_cf236b178e7f63::t_9ee418476bbee1 28-30
+  s_cf236b178e7f63::t_131aa52dbc7dd4 15-21
+  s_cf236b178e7f63::t_a399824674068c 31
+electron/features/search/pageText.ts
+  s_cf236b178e7f63::t_bf89620942f19c 1-4
+electron/features/search/createPdfjsNodeDocumentOptions.ts
+  s_cf236b178e7f63::t_bf89620942f19c 1-80
+electron/features/search/searchIndexSidecar.ts
+  s_cf236b178e7f63::t_51923ae60575e1 1-1061
+tests/unit/electron/xlargeNativeSearch.test.ts
+  s_cf236b178e7f63::t_8bca811c5883cd 32,38,128,156,173
+electron/features/search/tryRunPersistentNativeSearch.ts
+  s_cf236b178e7f63::t_bf89620942f19c 1-477
+tests/unit/electron/nativeSearchInvocation.test.ts
+  s_cf236b178e7f63::t_8bca811c5883cd 29,34,127,180,197,245,266,302,350,407
+tests/unit/electron/pdfjsTextExtractorCancellation.test.ts
+  s_cf236b178e7f63::t_8bca811c5883cd 37,63,75,96,150,210,251,296
+tests/unit/electron/persistentNativeSearchService.test.ts
+  s_cf236b178e7f63::t_8bca811c5883cd 60,76,94,131,157,175,197,232,269,290,328,363
+electron/features/search/searchIndexBuilderPublic.ts
+  s_cf236b178e7f63::t_f094ed400e63df 1-3
+  s_cf236b178e7f63::t_131aa52dbc7dd4 4-17
+electron/features/search/searchIndexSidecarIo.ts
+  s_cf236b178e7f63::t_bf89620942f19c 1-53
+electron/features/search/worker/searchMatch.ts
+  s_cf236b178e7f63::t_bf89620942f19c 1-4,6-8,10-36
+electron/features/search/parseSearchWorkerInboundMessage.ts
+  s_cf236b178e7f63::t_bb0e185ecf48c5 1,7-8,15-16,36
+  s_cf236b178e7f63::t_709be11491b5bf 27-31,33-35,37,39-41
+  s_cf236b178e7f63::t_51923ae60575e1 2-6,9-14,17-18,42-82
+  s_cf236b178e7f63::t_064f6d2b6ac2b7 38
+  s_cf236b178e7f63::t_1e8c835583ab9b 19-26,32
+tests/unit/electron/rebindSearchIndexes.test.ts
+  s_cf236b178e7f63::t_db1c2198031efa 36-37
+  s_cf236b178e7f63::t_8bca811c5883cd 20-21,26-27
+  s_cf236b178e7f63::t_bbf475b7269f7f 28
+  s_cf236b178e7f63::t_4ac1b68788c9b6 29
+  s_cf236b178e7f63::t_9c7931b66e5237 30-31
+tests/unit/electron/searchIndexJsonIdentity.test.ts
+  s_cf236b178e7f63::t_8bca811c5883cd 56
+  s_cf236b178e7f63::t_db1c2198031efa 24
+electron/features/search/extractTextFromPdf.ts
+  s_cf236b178e7f63::t_58d80da03026f8 1-14,16-212,214-236,237-269,271-335
+electron/features/search/indexBuilder.ts
+  s_cf236b178e7f63::t_064f6d2b6ac2b7 46
+  s_cf236b178e7f63::t_7bd5ec73279a28 1-45,47-374,376-394,396-799
+tests/unit/electron/nativeSearchIndex.test.ts
+  s_cf236b178e7f63::t_8bca811c5883cd 20-21
+tests/unit/electron/searchWorkerInboundValidation.test.ts
+  s_cf236b178e7f63::t_9c5a32817873ee 1-3,5-19,21-55
+  s_cf236b178e7f63::t_9eeed3fb5fc9ca 4
+  s_cf236b178e7f63::t_451da6a5e31023 20
+electron/features/search/public.ts
+  s_cf236b178e7f63::t_b55609af4c2019 2-7
+  s_cf236b178e7f63::t_019a5c01e87921 34,35,45-46,51,52,53,58-59,87-89,93-99,100-101,107
+  s_cf236b178e7f63::t_d0abe3be903808 73-86
+  s_cf236b178e7f63::t_86b886c4755b1a 91-92
+  s_cf236b178e7f63::t_41ef9b678a3cd4 60-61,68
+  s_cf236b178e7f63::t_9d4f5d7212112d 1
+  s_cf236b178e7f63::t_8f693b0cece684 28,40,90
+  s_cf236b178e7f63::t_ce008cb80ea66f 8,25,27,29-33,36-39,41-44,47-49,54-57,62-66,69-72
+  s_cf236b178e7f63::t_ef8b593d1c0d85 50
+  s_68a77ac542fc85::t_dc6fa0c10a9bdb 102-106
+electron/ocr/worker/indexWriter.ts
+  s_cf236b178e7f63::t_f5e80da0f738db 46
+  s_cf236b178e7f63::t_3f46790332d58a 42-45
+  s_cf236b178e7f63::t_76dce4a3472708 47
+  s_cf236b178e7f63::t_7191ab89f70561 55
+tests/unit/scripts/checkZeroExecutionCoverage.test.ts
+  s_cf236b178e7f63::t_eb45d1c187bcb8 51,61
+tests/unit/electron/documentRevisionStore.test.ts
+  s_cf236b178e7f63::t_c9cdcdc4305457 603
+tests/unit/electron/pageIdentityStore.test.ts
+  s_cf236b178e7f63::t_b94a325c52350b 47,215,1119,1136,1200,1212-1214
+tests/unit/electron/ocrIndexWriterPath.test.ts
+  s_cf236b178e7f63::t_1dcee19bb5bb19 87-92
+  s_cf236b178e7f63::t_c9cdcdc4305457 82
+  s_cf236b178e7f63::t_e93d95fea4c0e3 83-86
+tests/unit/architecture/xlargeDocumentPathArchitecture.test.ts
+  s_cf236b178e7f63::t_eb45d1c187bcb8 384
+electron/file-access/pageIdentityStore.ts
+  s_cf236b178e7f63::t_3f46790332d58a 28-29
+  s_cf236b178e7f63::t_603b38d7c2de8f 32
+  s_cf236b178e7f63::t_8b969b3740d21c 33-35
+tests/unit/electron/ocrIndexWriterSidecar.test.ts
+  s_cf236b178e7f63::t_bc25997dc3c98c 20-22,29
+  s_cf236b178e7f63::t_c9cdcdc4305457 23
+tests/unit/electron/ocrDocumentTextCatalogAgreement.test.ts
+  s_cf236b178e7f63::t_7ebe0f09c61763 191-193
+  s_cf236b178e7f63::t_e48e6f50fa14e4 14,178
+  s_cf236b178e7f63::t_8eeef39069fa7b 13
+  s_cf236b178e7f63::t_b3477575bfc04c 179-180,182-184,189-190
+  s_cf236b178e7f63::t_e93d95fea4c0e3 177,181
+  s_cf236b178e7f63::t_1dcee19bb5bb19 185-188
+tests/unit/electron/ocrPdfAssembler.test.ts
+  s_cf236b178e7f63::t_c9cdcdc4305457 42
+packages/electron-worker-bundles/electronWorkerBundles.js
+  s_cf236b178e7f63::t_eb45d1c187bcb8 61
+scripts/architecture/boundary-check.mjs
+  s_cf236b178e7f63::t_eb45d1c187bcb8 836
+electron/features/search/xlargeSearchClassification.ts
+  s_cf236b178e7f63::t_1fd89118b46849 1-77
+electron/file-access/workingCopyMutationQueue.ts
+  s_cf236b178e7f63::t_3f46790332d58a 8
+electron/file-access/workingCopyContentTransitionJournal.ts
+  s_cf236b178e7f63::t_3f46790332d58a 23
+electron/file-access/rebindDocumentTextCatalogIfPresent.ts
+  s_cf236b178e7f63::t_ef8b593d1c0d85 4
+.fallowrc.json
+  s_cf236b178e7f63::t_eb45d1c187bcb8 31
+tests/unit/electron/realWorkerProtocols.test.ts
+  s_cf236b178e7f63::t_eb45d1c187bcb8 32
+tests/e2e/electron/helpers/fixtures.ts
+  s_cf236b178e7f63::t_c9cdcdc4305457 40
+scripts/windows-test/registry/changeSelector.ts
+  s_cf236b178e7f63::t_eb45d1c187bcb8 113
+tests/unit/electron/workingCopyMutationQueue.test.ts
+  s_cf236b178e7f63::t_c9cdcdc4305457 48
+tests/unit/electron/publicNativeLazyImports.test.ts
+  s_cf236b178e7f63::t_554a32f2c7a6b9 3-7
+  s_cf236b178e7f63::t_cc34ac37c0c3f0 1-2,8-21
+electron/platform-ipc/registerFeatureIpcAdapters.ts
+  s_2f4b494e70ad0e::t_24c5c99c94170f 50
+tests/unit/electron/featureRegistrationTable.test.ts
+  s_c63d7a8363f7e9::t_61a0dd60dccb7f 12
+electron/ocr/ocrResourceGovernor.ts
+  s_6d332b0dd28a5f::t_46c80b1ce9c451 1-5,7-190
+electron/ocr/ocrWorkerResourceMessages.ts
+  s_6d332b0dd28a5f::t_46c80b1ce9c451 1-5,7-9,11-154
+electron/ocr/ocrJobWorkerLifecycle.ts
+  s_6d332b0dd28a5f::t_46c80b1ce9c451 1-9,11-14,16,18-436
+electron/ocr/prepareLanguageModelsForJob.modelPrep.ts
+  s_6d332b0dd28a5f::t_46c80b1ce9c451 1-3,5-10,12-58
+electron/ocr/jobManager.config.ts
+  s_6d332b0dd28a5f::t_46c80b1ce9c451 1,3-18
+electron/ocr/ocrQueueCapacity.ts
+  s_6d332b0dd28a5f::t_46c80b1ce9c451 1-4,6-8,10-51
+electron/ocr/createOcrWorkingCopyInvalidationController.ts
+  s_6d332b0dd28a5f::t_46c80b1ce9c451 1-3,5-49
+electron/ocr/jobManager.ts
+  s_6d332b0dd28a5f::t_46c80b1ce9c451 1-8,11-15,17-18,22-24,27-29,31-35,37-43,45-69,71-73,75-78,80-1041
+electron/ocr/paths.ts
+  s_6d332b0dd28a5f::t_c43dbaccb58db3 1-18,20-348
+electron/ocr/worker/persistOcrPageCheckpoint.ts
+  s_6d332b0dd28a5f::t_1819db8e911182 1-9,11-57
+electron/ocr/worker/popplerStage.ts
+  s_c63d7a8363f7e9::t_497b8543b37688 1-5,7-13,15-146
+electron/ocr/worker/pdfPageSizeProbe.ts
+  s_c63d7a8363f7e9::t_497b8543b37688 1,3-119
+electron/ocr/worker/pageTextClassifier.ts
+  s_c63d7a8363f7e9::t_497b8543b37688 2-277
+electron/ocr/worker/tryPreprocessOcrImage.ts
+  s_c63d7a8363f7e9::t_497b8543b37688 1,3-230
+electron/ocr/worker/runOcrCommand.ts
+  s_c63d7a8363f7e9::t_497b8543b37688 1-15
+electron/ocr/worker/pdfAssembler.ts
+  s_6d332b0dd28a5f::t_f4d02b6d5a4998 1-25,27-33,35-500
+electron/ocr/worker/tesseractRunner.ts
+  s_6d332b0dd28a5f::t_95a8094623078b 1-14,16-18,21-584
+electron/ocr/documentTextCatalog.ts
+  s_c63d7a8363f7e9::t_45889ede2f38dd 1-52,54-60,62-846
+electron/ocr/ocrCatalogV4.ts
+  s_c63d7a8363f7e9::t_45889ede2f38dd 1-52,54-58,60-1758
+electron/ocr/ocrIndexV3Stream.ts
+  s_c63d7a8363f7e9::t_45889ede2f38dd 1-799
+electron/ocr/worker/indexWriterV4.ts
+  s_c63d7a8363f7e9::t_dce51c5e0c7309 1-86,88,90-93,95-2640
+pnpm-lock.yaml
+  s_9a361ad4c844c0::t_662ca5d04ffa84 10648,10650,10768,11057,11063-11064,11228,11231-11232,11245,11247,11254,11314,11317-11318,11331,11333,11340,11480-11481,11660,11662,11678,11723,11725,11741,11863,11865,11868-11869,16674,16864,16866,16878,16881,16885-16886,16903,16905,16907-16909,16912-16913,16940,16954,16957,17045,17047,17049-17051,17053-17055,17082,17096,17099,17187,17190-17191,17196,17207,17522,19240,19249
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "a3d9188c8143fc4bec290d67a7ba42e782bae58b",
+  "prompts": {},
+  "sessions": {
+    "s_018fca800fff45": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077ec-6efd-75b1-9f8f-75fb221f1ed6",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_2f4b494e70ad0e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d10-9ff2-72f1-ac55-155a17b0b60e",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": null
+    },
+    "s_68a77ac542fc85": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07b21-2393-7941-8128-2f6fb9f8a52a",
+        "model": "unknown"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_6ae4600f2e6f51": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07a8b-4796-70c1-a9b8-d4353d48d8d3",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_6d332b0dd28a5f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d82-5d43-7ba1-b991-adaa2cbaa241",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_7e9c5e22befab4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07a92-1a56-7723-abaa-5efa6f6010cd",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_8e49417b9c002c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07db6-b548-7e11-b34f-ffefc7d6cfbf",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_9a361ad4c844c0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0809c-3fa6-7503-8d13-43e6ebb2b0a2",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_cf236b178e7f63": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0786e-ff24-7610-ae47-435cbff9d48e",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_e6afbc66b58e4d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07cdb-5143-7e02-a580-29471422fbfa",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_ed33dfabbb7b97": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07dd4-f923-7033-9adc-ebeac0c9fcdb",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
