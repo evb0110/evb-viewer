@@ -1,8 +1,12 @@
 //! Portable text-box layout and PDF fonts. The renderer loads these exact font
 //! bytes. Shaping never depends on fonts installed on the host.
 use super::*;
+use harfrust::{Direction, ShapeOptions, Shaper, ShaperData, UnicodeBuffer};
 use lopdf::dictionary;
-use rustybuzz::{Direction, Face, UnicodeBuffer};
+use skrifa::{
+    instance::{LocationRef, Size},
+    FontRef, GlyphId, MetadataProvider,
+};
 use std::ops::Range;
 use unicode_bidi::{BidiInfo, ParagraphInfo};
 use unicode_normalization::UnicodeNormalization;
@@ -15,8 +19,8 @@ pub(crate) const LINE_HEIGHT: f64 = 1.35;
 pub(crate) const PADDING_X: f64 = 0.3;
 pub(crate) const PADDING_Y: f64 = 0.15;
 
-fn face() -> Face<'static> {
-    Face::from_slice(FONT, 0).expect("the bundled DejaVu Sans font is valid")
+fn face() -> FontRef<'static> {
+    FontRef::from_index(FONT, 0).expect("the bundled DejaVu Sans font is valid")
 }
 
 fn invisible(character: char) -> bool {
@@ -25,11 +29,12 @@ fn invisible(character: char) -> bool {
 
 pub(crate) fn validate_text(text: &str) -> Result<()> {
     let font = face();
+    let charmap = font.charmap();
     for character in text.chars() {
         if invisible(character) {
             continue;
         }
-        if character.is_control() || font.glyph_index(character).is_none() {
+        if character.is_control() || charmap.map(character).is_none() {
             return Err(format!(
                 "Text box font DejaVu Sans does not support U+{:04X}",
                 u32::from(character)
@@ -41,10 +46,10 @@ pub(crate) fn validate_text(text: &str) -> Result<()> {
 }
 
 pub(crate) fn baseline_from_top(font_size: f64) -> f64 {
-    let font = face();
+    let metrics = face().metrics(Size::unscaled(), LocationRef::default());
     (PADDING_Y
         + LINE_HEIGHT / 2.0
-        + f64::from(font.ascender() + font.descender()) / (2.0 * f64::from(font.units_per_em())))
+        + f64::from(metrics.ascent + metrics.descent) / (2.0 * f64::from(metrics.units_per_em)))
         * font_size
 }
 
@@ -87,7 +92,8 @@ fn script_runs(text: &str, range: Range<usize>) -> Vec<Range<usize>> {
 }
 
 fn shape_line(
-    font: &Face<'_>,
+    font: &Shaper<'_>,
+    space_advance: f64,
     text: &str,
     bidi: &BidiInfo<'_>,
     paragraph: &ParagraphInfo,
@@ -143,14 +149,10 @@ fn shape_line(
             } else {
                 Direction::LeftToRight
             });
-            let shaped = rustybuzz::shape(font, &[], buffer);
+            let shaped = font.shape(buffer, ShapeOptions::default());
             for (info, position) in shaped.glyph_infos().iter().zip(shaped.glyph_positions()) {
                 if segment.as_bytes().get(info.cluster as usize) == Some(&b'\t') {
-                    let space = font
-                        .glyph_index(' ')
-                        .and_then(|id| font.glyph_hor_advance(id))
-                        .unwrap_or(0);
-                    let tab_stop = 4.0 * f64::from(space) * scale;
+                    let tab_stop = 4.0 * space_advance * scale;
                     if tab_stop > 0.0 {
                         advance = ((advance / tab_stop).floor() + 1.0) * tab_stop;
                     }
@@ -175,6 +177,18 @@ fn shape_line(
 
 pub(crate) fn layout(text: &str, width: f64, font_size: f64) -> Vec<Line> {
     let font = face();
+    static SHAPER_DATA: std::sync::OnceLock<ShaperData> = std::sync::OnceLock::new();
+    let shaper = SHAPER_DATA
+        .get_or_init(|| ShaperData::new(&font))
+        .shaper(&font)
+        .build();
+    let glyph_metrics = font.glyph_metrics(Size::unscaled(), LocationRef::default());
+    let space_advance = f64::from(
+        font.charmap()
+            .map(' ')
+            .and_then(|id| glyph_metrics.advance_width(id))
+            .unwrap_or(0.0),
+    );
     // Match CSS segment-break normalization. Contents retains the original text.
     let normalized = text
         .replace("\r\n", "\n")
@@ -206,7 +220,8 @@ pub(crate) fn layout(text: &str, width: f64, font_size: f64) -> Vec<Line> {
                 let trimmed = paragraph_text[boundaries[start]..boundaries[end]]
                     .trim_end_matches([' ', '\t']);
                 shape_line(
-                    &font,
+                    &shaper,
+                    space_advance,
                     paragraph_text,
                     &bidi,
                     paragraph,
@@ -247,7 +262,8 @@ pub(crate) fn layout(text: &str, width: f64, font_size: f64) -> Vec<Line> {
                     .unwrap_or(fit)
             };
             result.push(shape_line(
-                &font,
+                &shaper,
+                space_advance,
                 paragraph_text,
                 &bidi,
                 paragraph,
@@ -433,27 +449,30 @@ fn compressed_stream(document: &mut Document, dictionary: Dictionary, bytes: Vec
 
 pub(crate) fn embed_font(document: &mut Document) -> ObjectId {
     let font = face();
-    let units = f64::from(font.units_per_em());
-    let metric = |value: i16| number_object(f64::from(value) * 1000.0 / units);
+    let metrics = font.metrics(Size::unscaled(), LocationRef::default());
+    let glyph_metrics = font.glyph_metrics(Size::unscaled(), LocationRef::default());
+    let units = f64::from(metrics.units_per_em);
+    let metric = |value: f32| number_object(f64::from(value) * 1000.0 / units);
     let program = compressed_stream(
         document,
         lopdf::dictionary! { "Length1" => FONT.len() as i64 },
         FONT.to_vec(),
     );
-    let bounds = font.global_bounding_box();
+    let bounds = metrics.bounds.expect("the bundled font has global bounds");
     let descriptor = document.add_object(lopdf::dictionary! {
         "Type" => "FontDescriptor", "FontName" => "DejaVuSans", "Flags" => 32,
         "FontBBox" => vec![metric(bounds.x_min), metric(bounds.y_min), metric(bounds.x_max), metric(bounds.y_max)],
-        "ItalicAngle" => 0, "Ascent" => metric(font.ascender()), "Descent" => metric(font.descender()),
-        "CapHeight" => metric(font.capital_height().unwrap_or(font.ascender())), "StemV" => 80,
+        "ItalicAngle" => 0, "Ascent" => metric(metrics.ascent), "Descent" => metric(metrics.descent),
+        "CapHeight" => metric(metrics.cap_height.unwrap_or(metrics.ascent)), "StemV" => 80,
         "FontFile2" => program,
     });
-    let widths: Vec<Object> = (0..font.number_of_glyphs())
+    let widths: Vec<Object> = (0..metrics.glyph_count)
         .map(|id| {
             number_object(
                 f64::from(
-                    font.glyph_hor_advance(rustybuzz::ttf_parser::GlyphId(id))
-                        .unwrap_or(0),
+                    glyph_metrics
+                        .advance_width(GlyphId::new(u32::from(id)))
+                        .unwrap_or(0.0),
                 ) * 1000.0
                     / units,
             )
@@ -465,27 +484,20 @@ pub(crate) fn embed_font(document: &mut Document) -> ObjectId {
         "FontDescriptor" => descriptor, "CIDToGIDMap" => "Identity",
         "W" => vec![Object::Integer(0), Object::Array(widths)],
     });
-    let mut mapping = BTreeMap::<u16, String>::new();
-    if let Some(cmap) = font.tables().cmap {
-        for table in cmap
-            .subtables
-            .into_iter()
-            .filter(|table| table.is_unicode())
-        {
-            table.codepoints(|codepoint| {
-                if let Some(character) = char::from_u32(codepoint) {
-                    if let Some(glyph) = font.glyph_index(character) {
-                        // Presentation forms and standard ligatures extract as
-                        // their logical Unicode sequence even without ActualText.
-                        let text = if matches!(codepoint, 0xfb00..=0xfdff | 0xfe70..=0xfeff) {
-                            character.to_string().nfkc().collect()
-                        } else {
-                            character.to_string()
-                        };
-                        mapping.entry(glyph.0).or_insert(text);
-                    }
-                }
-            });
+    // The bundled font's format-4 cmap maps U+0000 to glyph 0. Preserve the
+    // previous writer's entry so existing embedded font graphs remain reusable;
+    // skrifa intentionally omits .notdef from its public mapping iterator.
+    let mut mapping = BTreeMap::<u16, String>::from([(0, "\0".to_string())]);
+    for (codepoint, glyph) in font.charmap().mappings() {
+        if let Some(character) = char::from_u32(codepoint) {
+            // Presentation forms and standard ligatures extract as
+            // their logical Unicode sequence even without ActualText.
+            let text = if matches!(codepoint, 0xfb00..=0xfdff | 0xfe70..=0xfeff) {
+                character.to_string().nfkc().collect()
+            } else {
+                character.to_string()
+            };
+            mapping.entry(glyph.to_u32() as u16).or_insert(text);
         }
     }
     let mut cmap = String::from("/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n/CMapName /EVBDejaVuSans def\n/CMapType 2 def\n1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n");
@@ -639,6 +651,90 @@ mod tests {
     use super::*;
 
     #[test]
+    fn portable_font_preserves_shaping_and_embedding_contract() {
+        use sha2::{Digest, Sha256};
+        // Captured with rustybuzz 0.20.1 and ttf-parser 0.25.1 before migration.
+        // Match glyph placement and the complete width/CMap tables exactly so
+        // dependency updates cannot silently change existing PDF appearances.
+        let samples = [
+            ("AV office ffi", 500.0),
+            ("Привет мир", 500.0),
+            ("Cafe\u{301} naïve Ελληνικά", 500.0),
+            ("שָׁלוֹם", 500.0),
+            ("العَرَبِيَّة سلام", 500.0),
+            ("Latin שלום العربية 123", 500.0),
+            ("a\tb\t c", 500.0),
+            ("Cafe\u{301}  Привет мир\nשלום abc 123\nالعربية", 60.0),
+        ];
+        let layouts: Vec<_> = samples.into_iter().map(|(text, width)| {
+            let lines: Vec<_> = layout(text, width, 16.0).into_iter().map(|line| {
+                let glyphs: Vec<_> = line.glyphs.into_iter().map(|glyph| {
+                    serde_json::json!([glyph.id, glyph.x, glyph.y])
+                }).collect();
+                serde_json::json!({"text": line.text, "width": line.width, "rtl": line.rtl, "glyphs": glyphs})
+            }).collect();
+            serde_json::json!({"input": text, "width": width, "lines": lines})
+        }).collect();
+        let mut document = Document::new();
+        let id = embed_font(&mut document);
+        let font = document.get_dictionary(id).unwrap();
+        let cmap = document
+            .get_object(font.get(b"ToUnicode").unwrap().as_reference().unwrap())
+            .unwrap()
+            .as_stream()
+            .unwrap()
+            .decompressed_content()
+            .unwrap();
+        let descendant = document
+            .get_dictionary(
+                font.get(b"DescendantFonts").unwrap().as_array().unwrap()[0]
+                    .as_reference()
+                    .unwrap(),
+            )
+            .unwrap();
+        let widths: Vec<_> = descendant.get(b"W").unwrap().as_array().unwrap()[1]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|value| value.as_float().unwrap())
+            .collect();
+        let descriptor = document
+            .get_dictionary(
+                descendant
+                    .get(b"FontDescriptor")
+                    .unwrap()
+                    .as_reference()
+                    .unwrap(),
+            )
+            .unwrap();
+        let bounds: Vec<_> = descriptor
+            .get(b"FontBBox")
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|value| value.as_float().unwrap())
+            .collect();
+        let contract = serde_json::json!({
+            "baseline16": baseline_from_top(16.0),
+            "bounds": bounds,
+            "ascent": descriptor.get(b"Ascent").unwrap().as_float().unwrap(),
+            "descent": descriptor.get(b"Descent").unwrap().as_float().unwrap(),
+            "capHeight": descriptor.get(b"CapHeight").unwrap().as_float().unwrap(),
+            "widthsSha256": Sha256::digest(serde_json::to_vec(&widths).unwrap()).iter().map(|byte| format!("{byte:02x}")).collect::<String>(),
+            "cmapSha256": Sha256::digest(cmap).iter().map(|byte| format!("{byte:02x}")).collect::<String>(),
+            "layouts": layouts,
+        });
+        let expected: serde_json::Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/portable-text-font-contract.json"
+        ))
+        .unwrap();
+        for (key, value) in contract.as_object().unwrap() {
+            assert_eq!(value, &expected[key], "font contract field {key}");
+        }
+    }
+
+    #[test]
     fn shapes_cyrillic_diacritics_hebrew_arabic_and_mixed_runs() {
         for text in [
             "Привет мир",
@@ -662,7 +758,7 @@ mod tests {
         let font = face();
         assert_ne!(
             arabic[0].glyphs.last().unwrap().id,
-            font.glyph_index('س').unwrap().0,
+            font.charmap().map('س').unwrap().to_u32() as u16,
             "Arabic initial letter must use its contextual form"
         );
     }
@@ -692,7 +788,7 @@ mod tests {
         let lines = layout("extra\u{00ad}ordinary", 107.4, 21.0);
         assert_eq!(lines.len(), 2);
         assert_eq!(lines[0].text, "extra\u{00ad}");
-        let hyphen = face().glyph_index('-').unwrap().0;
+        let hyphen = face().charmap().map('-').unwrap().to_u32() as u16;
         assert_eq!(lines[0].glyphs.last().unwrap().id, hyphen);
         assert!(lines[0].width <= 107.4);
         let unbroken = layout("extra\u{00ad}ordinary", 400.0, 21.0);
