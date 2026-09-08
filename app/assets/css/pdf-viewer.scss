@@ -257,6 +257,7 @@
     z-index: var(--app-z-pdf-annotation-editor-layer);
     pointer-events: none;
     overflow: visible;
+    outline: none;
 }
 
 .pdfViewer .pdf-annotation-editor-layer.is-interactive {

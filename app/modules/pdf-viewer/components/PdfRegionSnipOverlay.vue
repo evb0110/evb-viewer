@@ -134,16 +134,12 @@ const {handleKeyboardKey} = usePdfSelectionOverlayFocus({
     overflow: hidden;
     pointer-events: none;
     user-select: none;
+    outline: none;
 }
 
 .snip-overlay.is-active {
     pointer-events: auto;
     cursor: crosshair;
-}
-
-.snip-overlay:focus-visible {
-    outline: 2px solid var(--app-toolbar-focus-ring);
-    outline-offset: -2px;
 }
 
 .snip-selection,
