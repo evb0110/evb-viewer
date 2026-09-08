@@ -1,0 +1,65 @@
+electron/features/documents/main/documentFileWriteHandlers.ts
+  s_c63d7a8363f7e9::t_5de57b52e85696 58-59
+electron/features/ocr/main/ocrOperations.ts
+  s_c63d7a8363f7e9::t_45889ede2f38dd 33
+electron/features/ocr/main/documentTextCatalog.ts
+  s_c63d7a8363f7e9::t_45889ede2f38dd 1-846
+electron/file-access/pageIdentityStore.ts
+  s_c63d7a8363f7e9::t_45889ede2f38dd 26
+tests/unit/electron/fileOpsPathSecurity.test.ts
+  s_c63d7a8363f7e9::t_45889ede2f38dd 160
+tests/unit/electron/ocrMixedDocumentCorpus.test.ts
+  s_c63d7a8363f7e9::t_45889ede2f38dd 74
+electron/features/ocr/main/ocrCatalogV4.ts
+  s_c63d7a8363f7e9::t_45889ede2f38dd 1-1758
+tests/unit/electron/ocrCatalogRevisionRebind.test.ts
+  s_c63d7a8363f7e9::t_45889ede2f38dd 19-20
+electron/ocr/worker/indexWriter.ts
+  s_c63d7a8363f7e9::t_45889ede2f38dd 57-59
+electron/features/search/xlargeIndexBuilder.ts
+  s_c63d7a8363f7e9::t_45889ede2f38dd 8
+tests/unit/electron/ocrCatalogV4.test.ts
+  s_c63d7a8363f7e9::t_45889ede2f38dd 39
+tests/unit/electron/ocrDocumentTextCatalogV4Consumer.test.ts
+  s_c63d7a8363f7e9::t_45889ede2f38dd 79-80,108
+electron/features/search/indexBuilder.ts
+  s_c63d7a8363f7e9::t_45889ede2f38dd 49
+electron/ocr/worker/indexWriterV4.ts
+  s_c63d7a8363f7e9::t_45889ede2f38dd 87,89,94
+tests/unit/electron/ocrIndexWriterV4.test.ts
+  s_c63d7a8363f7e9::t_45889ede2f38dd 32
+electron/file-access/rebindDocumentTextCatalogIfPresent.ts
+  s_c63d7a8363f7e9::t_45889ede2f38dd 3
+tests/unit/electron/ocrIpcHandlers.test.ts
+  s_c63d7a8363f7e9::t_45889ede2f38dd 81
+tests/unit/electron/pageIdentityStore.test.ts
+  s_c63d7a8363f7e9::t_45889ede2f38dd 44
+tests/unit/electron/ocrDocumentTextCatalogAgreement.test.ts
+  s_c63d7a8363f7e9::t_45889ede2f38dd 20
+tests/unit/electron/xlargeIndexBuilder.test.ts
+  s_c63d7a8363f7e9::t_bcbc292ce6849e 36
+electron/features/ocr/worker/selectOcrPagesForSupersession.ts
+  s_c63d7a8363f7e9::t_45889ede2f38dd 23
+tests/unit/electron/ocrReplacementOwnershipAlias.test.ts
+  s_c63d7a8363f7e9::t_45889ede2f38dd 117
+electron/features/ocr/main/ocrIndexV3Stream.ts
+  s_c63d7a8363f7e9::t_45889ede2f38dd 1-799
+tests/unit/electron/searchIndexBuilderCancellation.test.ts
+  s_c63d7a8363f7e9::t_45889ede2f38dd 78
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "4d62d13bb26fe70ead8dce8b059d73144beb2402",
+  "prompts": {},
+  "sessions": {
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

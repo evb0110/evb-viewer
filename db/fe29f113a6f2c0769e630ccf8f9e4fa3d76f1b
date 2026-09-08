@@ -1,0 +1,21 @@
+electron/features/ocr/workerPublic.ts
+  s_c63d7a8363f7e9::t_79fce9ae07ddfc 1-6
+electron/ocr/worker/tesseractRunner.ts
+  s_c63d7a8363f7e9::t_79fce9ae07ddfc 19
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "dbfe29f113a6f2c0769e630ccf8f9e4fa3d76f1b",
+  "prompts": {},
+  "sessions": {
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
