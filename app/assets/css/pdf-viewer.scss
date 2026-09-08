@@ -264,6 +264,12 @@
     pointer-events: auto;
 }
 
+.pdfViewer.is-text-selection-mode .pdf-annotation-editor-layer,
+.pdfViewer.is-selection-markup-tool .pdf-annotation-editor-layer {
+    /* Let text drags reach the text layer; annotation entities opt back into pointer events. */
+    pointer-events: none;
+}
+
 .pdfViewer .pdf-annotation-editor-surface__svg,
 .pdfViewer .pdf-annotation-editor-surface__html {
     position: absolute;
