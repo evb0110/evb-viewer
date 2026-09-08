@@ -11,10 +11,15 @@ import {
 
 const CHANNEL_NAME = 'evb-browser-maintenance-acceptance';
 
-function waitForMessage(channel: BroadcastChannel, expected: string) {
-    return new Promise<void>((resolve) => {
+function waitForMessage(channel: BroadcastChannel, expected: string, timeoutMs = 30_000) {
+    return new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => {
+            channel.removeEventListener('message', onMessage);
+            reject(new Error(`Timed out waiting for maintenance message: ${expected}`));
+        }, timeoutMs);
         const onMessage = (event: MessageEvent<unknown>) => {
             if (event.data === expected) {
+                clearTimeout(timer);
                 channel.removeEventListener('message', onMessage);
                 resolve();
             }
@@ -35,6 +40,7 @@ async function readProof(ref: string) {
 async function runTouchWindow(refs: string[]) {
     const channel = new BroadcastChannel(CHANNEL_NAME);
     try {
+        channel.postMessage('touch-listener-ready');
         await waitForMessage(channel, 'snapshot-ready');
         await runSerializedRecentFilesStorageMutation(currentFiles => ({
             files: [
@@ -62,8 +68,9 @@ async function runTouchWindow(refs: string[]) {
 
 async function runMaintenanceWindow(refs: string[]) {
     const channel = new BroadcastChannel(CHANNEL_NAME);
-    writeRecentFilesToStorage([]);
     try {
+        await waitForMessage(channel, 'touch-listener-ready');
+        writeRecentFilesToStorage([]);
         await sweepBrowserDocumentMaintenance(new Map(), {beforeDestructiveTransaction: async () => {
             channel.postMessage('snapshot-ready');
             await waitForMessage(channel, 'touch-committed');

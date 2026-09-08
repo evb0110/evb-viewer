@@ -73,7 +73,7 @@ async function runBrowserDjvuFinalizationAcceptance() {
         };
     } finally {
         browserDurableDjvuJobs.clearForTests();
-        await browserDjvuCapability.releaseViewingPath(sourcePath);
+        await browserDjvuCapability.releaseViewingPath(sourcePath).catch(() => undefined);
         await browserDocumentStore.remove(outputPath).catch(() => undefined);
         await browserDocumentStore.remove(sourcePath).catch(() => undefined);
     }

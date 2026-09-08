@@ -85,16 +85,16 @@ describe('browser document maintenance acceptance in Chromium', () => {
                 return run();
             });
             const retainedRefs = setup.refs.slice(0, 2);
-            const touch = pageB.evaluate(async (refs: string[]) => {
-                const run = Reflect.get(globalThis, '__evbRunMaintenanceTouchWindow');
-                if (typeof run !== 'function') throw new Error('Maintenance touch entry point missing');
-                return run(refs);
-            }, retainedRefs);
             const maintenance = pageA.evaluate(async (refs: string[]) => {
                 const run = Reflect.get(globalThis, '__evbRunMaintenanceWindow');
                 if (typeof run !== 'function') throw new Error('Maintenance entry point missing');
                 return run(refs);
             }, setup.refs);
+            const touch = pageB.evaluate(async (refs: string[]) => {
+                const run = Reflect.get(globalThis, '__evbRunMaintenanceTouchWindow');
+                if (typeof run !== 'function') throw new Error('Maintenance touch entry point missing');
+                return run(refs);
+            }, retainedRefs);
             const [
                 touchResult,
                 maintenanceResult,
@@ -114,7 +114,7 @@ describe('browser document maintenance acceptance in Chromium', () => {
                     length: 8,
                     prefix: setup.hashes.chunkedPrefix,
                 },
-                recentFiles: expect.arrayContaining(retainedRefs),
+                recentFiles: retainedRefs,
             });
             await pageA.reload();
             await pageA.addScriptTag({path: bundlePath});

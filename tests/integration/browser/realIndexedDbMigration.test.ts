@@ -241,14 +241,15 @@ async function startClaimAtAdmissionBarrier(
             leaseRevision: number,
         ) => Promise<unknown>};
         const originalDateNow = Date.now;
-        Date.now = () => claimNow;
+        const installedDateNow = () => claimNow;
+        Date.now = installedDateNow;
         barrier.operation = store.claimBrowserWorkspaceRecoveryOwner(
             sourceOwner,
             targetOwner,
             expectedGeneration,
             expectedLeaseRevision,
         ).finally(() => {
-            Date.now = originalDateNow;
+            if (Date.now === installedDateNow) Date.now = originalDateNow;
         });
     }, {
         barrierGlobal: CLAIM_ADMISSION_BARRIER_GLOBAL,
@@ -281,12 +282,13 @@ async function startHeartbeatAtAdmissionBarrier(
             generation: number,
         ) => Promise<unknown>};
         const originalDateNow = Date.now;
-        Date.now = () => heartbeatNow;
+        const installedDateNow = () => heartbeatNow;
+        Date.now = installedDateNow;
         barrier.operation = store.touchBrowserWorkspaceRecovery(
             heartbeatOwner,
             heartbeatGeneration,
         ).finally(() => {
-            Date.now = originalDateNow;
+            if (Date.now === installedDateNow) Date.now = originalDateNow;
         });
     }, {
         barrierGlobal: CLAIM_ADMISSION_BARRIER_GLOBAL,

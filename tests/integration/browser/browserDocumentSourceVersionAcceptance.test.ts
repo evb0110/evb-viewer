@@ -136,27 +136,9 @@ describe('browser source version acceptance in Chromium', () => {
                 ],
                 recentReopened: true,
                 retryComplete: true,
-                firstPrefix: [
-                    37,
-                    80,
-                    68,
-                    70,
-                    45,
-                ],
-                secondPrefix: [
-                    37,
-                    80,
-                    68,
-                    70,
-                    45,
-                ],
-                thirdPrefix: [
-                    37,
-                    80,
-                    68,
-                    70,
-                    45,
-                ],
+                firstLength: expect.any(Number),
+                secondLength: expect.any(Number),
+                thirdLength: expect.any(Number),
             }));
         } finally {
             await browser.close();

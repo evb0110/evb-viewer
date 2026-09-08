@@ -40,6 +40,7 @@ import type {
 import type { IBrowserPersistedDocumentRecordsLoadResult } from '@app/platform/browser/browserPersistedDocumentRecordsLoadResult';
 import { yieldToBrowser } from '@app/utils/yieldToBrowser';
 import { loadBrowserWorkspaceRecoveryLeasedRefs } from '@app/platform/browser/browserWorkspaceRecoveryStore';
+import {BrowserLogger} from '@app/utils/browserLogger';
 
 const BROWSER_STAGED_CHUNK_GRACE_MS = 10 * 60 * 1_000;
 
@@ -258,7 +259,17 @@ export async function sweepBrowserDocumentMaintenance(
                     } = pruneRecentFiles(recentFilesAtAdmission);
                     let recentFilesForDecision = recentFiles;
                     if (evictedRefs.length > 0 || recentFiles.length !== recentFilesAtAdmission.length) {
-                        if (!writeRecentFilesToStorage(recentFiles)) {
+                        let recentFilesPersisted = false;
+                        try {
+                            recentFilesPersisted = writeRecentFilesToStorage(recentFiles);
+                        } catch (error) {
+                            BrowserLogger.warn(
+                                'browser-document-maintenance',
+                                'Recent Files persistence failed during destructive admission',
+                                error,
+                            );
+                        }
+                        if (!recentFilesPersisted) {
                             // A failed localStorage write cannot authorize eviction.
                             recentFilesForDecision = recentFilesAtAdmission;
                         }
@@ -376,7 +387,13 @@ export async function sweepBrowserDocumentMaintenance(
         await runSerializedRecentFilesStorageMutation(currentFiles => ({
             files: currentFiles.filter(candidate => !deletedRefs.has(candidate.originalPath)),
             value: undefined,
-        })).catch(() => undefined);
+        })).catch(error => {
+            BrowserLogger.warn(
+                'browser-document-maintenance',
+                'Recent Files cleanup failed after document deletion',
+                error,
+            );
+        });
     }
 }
 

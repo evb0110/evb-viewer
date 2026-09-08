@@ -106,86 +106,95 @@ async function runBrowserPickerAndRecentAcceptance() {
         configurable: true,
         value: async () => [handle],
     });
-    const openPickedFile = async () => {
-        const picked = (await pickFiles({accept: 'application/pdf'}))[0];
-        if (!picked) throw new Error('Picker did not return a file');
-        return browserDocumentStore.registerFile(picked.file, {
-            kind: 'source',
-            saveKind: 'pdf',
-            ...(picked.handle ? {saveHandle: picked.handle} : {}),
-        });
-    };
-    const firstRef = await openPickedFile();
-    const dirtyRef = await browserDocumentStore.cloneAsWorkingCopy(firstRef);
-    const dirtyBytes = Uint8Array.of(37, 80, 68, 70, 1);
-    await browserDocumentStore.writeForBootstrap(dirtyRef, dirtyBytes, 'browser-picker-acceptance');
-    const firstWorkingBytes = await browserDocumentStore.read(firstRef);
-    currentFile = new File([secondPdf], currentFile.name, {
-        lastModified: 200,
-        type: 'application/pdf',
-    });
-    const secondRef = await openPickedFile();
-    const secondWorkingBytes = await browserDocumentStore.read(secondRef);
-    const retainedDirtyBytes = await browserDocumentStore.read(dirtyRef);
-    await browserDocumentStore.touchRecentFile(secondRef);
-    const recent = browserDocumentStore.getRecentFiles();
-    const recentPath = recent[0]?.originalPath;
-    if (!recentPath) throw new Error('Recent Files did not contain the reopened PDF');
-    const recentBytes = await browserDocumentStore.read(recentPath);
-    currentFile = new File([changedSizePdf.buffer as ArrayBuffer], currentFile.name, {
-        lastModified: 300,
-        type: 'application/pdf',
-    });
-    const thirdRef = await openPickedFile();
-    const thirdWorkingBytes = await browserDocumentStore.read(thirdRef);
-
-    const largeBytes = new Uint8Array(16 * 1024 * 1024 + 33);
-    largeBytes.fill(0x42);
-    largeBytes[largeBytes.length - 1] = 0x24;
-    const largeFile = new File([largeBytes], 'large-chunked-source.pdf', {lastModified: 400});
-    const largeRef = await browserDocumentStore.registerFile(largeFile, {
-        kind: 'source',
-        saveKind: 'pdf',
-    });
-    const largeRange = await browserDocumentStore.readRange(largeRef, largeBytes.length - 8, 8);
-
-    const deniedFile = new File([firstPdf], 'denied-picker-source.pdf', {lastModified: 500});
-    Object.defineProperty(deniedFile, 'arrayBuffer', {
-        configurable: true,
-        value: async () => { throw new DOMException('Read permission denied', 'NotAllowedError'); },
-    });
-    let denied = false;
     try {
-        await browserDocumentStore.registerFile(deniedFile, {
+        const openPickedFile = async () => {
+            const picked = (await pickFiles({accept: 'application/pdf'}))[0];
+            if (!picked) throw new Error('Picker did not return a file');
+            const ref = await browserDocumentStore.registerFile(picked.file, {
+                kind: 'source',
+                saveKind: 'pdf',
+                ...(picked.handle ? {saveHandle: picked.handle} : {}),
+            });
+            return ref;
+        };
+        const firstRef = await openPickedFile();
+        const dirtyRef = await browserDocumentStore.cloneAsWorkingCopy(firstRef);
+        const dirtyBytes = Uint8Array.of(37, 80, 68, 70, 1);
+        await browserDocumentStore.writeForBootstrap(dirtyRef, dirtyBytes, 'browser-picker-acceptance');
+        const firstWorkingBytes = await browserDocumentStore.read(firstRef);
+        currentFile = new File([secondPdf], currentFile.name, {
+            lastModified: 200,
+            type: 'application/pdf',
+        });
+        const secondRef = await openPickedFile();
+        const secondWorkingBytes = await browserDocumentStore.read(secondRef);
+        const retainedDirtyBytes = await browserDocumentStore.read(dirtyRef);
+        await browserDocumentStore.touchRecentFile(secondRef);
+        const recent = browserDocumentStore.getRecentFiles();
+        const recentPath = recent[0]?.originalPath;
+        if (!recentPath) throw new Error('Recent Files did not contain the reopened PDF');
+        const recentBytes = await browserDocumentStore.read(recentPath);
+        const changedSizeFileBytes = changedSizePdf.slice().buffer as ArrayBuffer;
+        currentFile = new File([changedSizeFileBytes], currentFile.name, {
+            lastModified: 300,
+            type: 'application/pdf',
+        });
+        const thirdRef = await openPickedFile();
+        const thirdWorkingBytes = await browserDocumentStore.read(thirdRef);
+
+        const largeBytes = new Uint8Array(16 * 1024 * 1024 + 33);
+        largeBytes.fill(0x42);
+        largeBytes[largeBytes.length - 1] = 0x24;
+        const largeFile = new File([largeBytes], 'large-chunked-source.pdf', {lastModified: 400});
+        const largeRef = await browserDocumentStore.registerFile(largeFile, {
             kind: 'source',
             saveKind: 'pdf',
         });
-    } catch (error) {
-        denied = error instanceof DOMException && error.name === 'NotAllowedError';
+        const largeRange = await browserDocumentStore.readRange(largeRef, largeBytes.length - 8, 8);
+
+        const deniedFile = new File([firstPdf], 'denied-picker-source.pdf', {lastModified: 500});
+        Object.defineProperty(deniedFile, 'arrayBuffer', {
+            configurable: true,
+            value: async () => { throw new DOMException('Read permission denied', 'NotAllowedError'); },
+        });
+        let denied = false;
+        try {
+            await browserDocumentStore.registerFile(deniedFile, {
+                kind: 'source',
+                saveKind: 'pdf',
+            });
+        } catch (error) {
+            denied = error instanceof DOMException && error.name === 'NotAllowedError';
+        }
+        const retryRef = await browserDocumentStore.registerFile(
+            new File([firstPdf], deniedFile.name, {lastModified: 501}),
+            {
+                kind: 'source',
+                saveKind: 'pdf',
+            },
+        );
+        const retryBytes = await browserDocumentStore.read(retryRef);
+        return {
+            firstLength: firstWorkingBytes.length,
+            secondLength: secondWorkingBytes.length,
+            thirdLength: thirdWorkingBytes.length,
+            firstPrefix: Array.from(firstWorkingBytes.slice(0, 5)),
+            secondPrefix: Array.from(secondWorkingBytes.slice(0, 5)),
+            thirdPrefix: Array.from(thirdWorkingBytes.slice(0, 5)),
+            dirtyFirstUnchanged: Array.from(retainedDirtyBytes).join(',') === Array.from(dirtyBytes).join(','),
+            recentReopened: recentPath === secondRef && recentBytes.length === secondWorkingBytes.length,
+            equalSizeReplacement: secondWorkingBytes.length === firstWorkingBytes.length
+            && Array.from(secondWorkingBytes).join(',') !== Array.from(firstWorkingBytes).join(','),
+            changedSizeReplacement: thirdWorkingBytes.length !== secondWorkingBytes.length,
+            largeRange: Array.from(largeRange),
+            denied,
+            retryComplete: retryBytes.length === firstPdf.length,
+        };
+    } finally {
+        // The browser context owns this isolated IndexedDB fixture and closes
+        // immediately after the acceptance journey completes.
+        Reflect.deleteProperty(window, 'showOpenFilePicker');
     }
-    const retryRef = await browserDocumentStore.registerFile(
-        new File([firstPdf], deniedFile.name, {lastModified: 501}),
-        {
-            kind: 'source',
-            saveKind: 'pdf',
-        },
-    );
-    const retryBytes = await browserDocumentStore.read(retryRef);
-    return {
-        firstLength: firstWorkingBytes.length,
-        secondLength: secondWorkingBytes.length,
-        thirdLength: thirdWorkingBytes.length,
-        firstPrefix: Array.from(firstWorkingBytes.slice(0, 5)),
-        secondPrefix: Array.from(secondWorkingBytes.slice(0, 5)),
-        thirdPrefix: Array.from(thirdWorkingBytes.slice(0, 5)),
-        dirtyFirstUnchanged: Array.from(retainedDirtyBytes).join(',') === Array.from(dirtyBytes).join(','),
-        recentReopened: recentPath === secondRef && recentBytes.length === secondWorkingBytes.length,
-        equalSizeReplacement: secondPdf.length === firstPdf.length,
-        changedSizeReplacement: changedSizePdf.length !== secondPdf.length,
-        largeRange: Array.from(largeRange),
-        denied,
-        retryComplete: retryBytes.length === firstPdf.length,
-    };
 }
 
 Reflect.set(globalThis, '__evbRunBrowserDocumentSourceVersionAcceptance', runBrowserDocumentSourceVersionAcceptance);

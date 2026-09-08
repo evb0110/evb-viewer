@@ -7,7 +7,7 @@ import {
 } from 'vitest';
 
 const documentIdbMocks = vi.hoisted(() => ({
-    deleteRecord: vi.fn(async () => undefined),
+    transactionDeleteRecord: vi.fn(async () => undefined),
     loadAllRecordKeysAvailability: vi.fn(),
     loadRecordAvailability: vi.fn(),
     recoveryRecordsAtDelete: [] as Array<{snapshotRefs: string[]}>,
@@ -35,7 +35,7 @@ const documentIdbMocks = vi.hoisted(() => ({
             get: () => recentFilesLockRequest,
             delete: name.includes('chunk')
                 ? chunkMocks.deleteChunkRecord
-                : documentIdbMocks.deleteRecord,
+                : documentIdbMocks.transactionDeleteRecord,
         })};
         run(transaction, value => { result = value; });
         recoveryRequest.onsuccess?.();
@@ -93,6 +93,8 @@ vi.mock('@app/platform/browser/browserWorkspaceRecoveryStore', () => recoveryMoc
 describe('browserDocumentMaintenance', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        recentFilesStoreMocks.readRecentFilesFromStorage.mockReset();
+        recentFilesStoreMocks.tryReadRecentFilesFromStorage.mockReset();
         documentIdbMocks.loadAllRecordKeysAvailability.mockResolvedValue({
             available: false,
             value: null,
@@ -101,10 +103,13 @@ describe('browserDocumentMaintenance', () => {
             available: true,
             value: [],
         });
+        chunkMocks.parseChunkKey.mockReset();
         recoveryMocks.loadBrowserWorkspaceRecoveryLeasedRefs.mockResolvedValue(new Set());
         documentIdbMocks.recoveryRecordsAtDelete = [];
         documentIdbMocks.documentsAtDelete = [];
+        recentFilesStoreMocks.tryHasRecentFilesStorageSnapshot.mockReturnValue(false);
         recentFilesStoreMocks.writeRecentFilesToStorage.mockReturnValue(true);
+        recentFilesStoreMocks.readRecentFilesFromStorage.mockReturnValue([]);
         recentFilesStoreMocks.tryReadRecentFilesFromStorage.mockImplementation(
             () => recentFilesStoreMocks.readRecentFilesFromStorage(),
         );
@@ -137,7 +142,7 @@ describe('browserDocumentMaintenance', () => {
 
         await sweepBrowserDocumentMaintenance(new Map());
 
-        expect(documentIdbMocks.deleteRecord).not.toHaveBeenCalledWith(ref);
+        expect(documentIdbMocks.transactionDeleteRecord).not.toHaveBeenCalledWith(ref);
     });
 
     it('rechecks a recovery lease committed while a destructive sweep is running', async () => {
@@ -168,7 +173,7 @@ describe('browserDocumentMaintenance', () => {
 
         await sweepBrowserDocumentMaintenance(new Map());
 
-        expect(documentIdbMocks.deleteRecord).not.toHaveBeenCalledWith(ref);
+        expect(documentIdbMocks.transactionDeleteRecord).not.toHaveBeenCalledWith(ref);
     });
 
     it('skips maintenance pruning when persisted IndexedDB records are unavailable', async () => {
@@ -183,7 +188,7 @@ describe('browserDocumentMaintenance', () => {
 
         await expect(sweepBrowserDocumentMaintenance(entries as never)).resolves.toBeUndefined();
 
-        expect(documentIdbMocks.deleteRecord).not.toHaveBeenCalled();
+        expect(documentIdbMocks.transactionDeleteRecord).not.toHaveBeenCalled();
         expect(chunkMocks.deleteChunkRecord).not.toHaveBeenCalled();
         expect(recentFilesStoreMocks.writeRecentFilesToStorage).not.toHaveBeenCalled();
         expect(entries.has('browser://documents/source.pdf')).toBe(true);
@@ -229,7 +234,7 @@ describe('browserDocumentMaintenance', () => {
 
         expect(recentFilesStoreMocks.pruneRecentFiles).not.toHaveBeenCalled();
         expect(recentFilesStoreMocks.writeRecentFilesToStorage).not.toHaveBeenCalled();
-        expect(documentIdbMocks.deleteRecord).not.toHaveBeenCalled();
+        expect(documentIdbMocks.transactionDeleteRecord).not.toHaveBeenCalled();
         expect(chunkMocks.deleteChunkRecord).not.toHaveBeenCalled();
         expect(entries.has(ref)).toBe(true);
     });
@@ -274,7 +279,7 @@ describe('browserDocumentMaintenance', () => {
 
         await sweepBrowserDocumentMaintenance(new Map());
 
-        expect(documentIdbMocks.deleteRecord).not.toHaveBeenCalledWith(ref);
+        expect(documentIdbMocks.transactionDeleteRecord).not.toHaveBeenCalledWith(ref);
     });
 
     it('retains a freshly staged generation while another window finishes its metadata commit', async () => {
@@ -379,6 +384,10 @@ describe('browserDocumentMaintenance', () => {
         chunkGeneration,
     ) => {
         const {sweepBrowserDocumentMaintenance} = await import('@app/platform/browser/browserDocumentMaintenance');
+        documentIdbMocks.transactionDeleteRecord.mockClear();
+        chunkMocks.deleteChunkRecord.mockClear();
+        recentFilesStoreMocks.tryHasRecentFilesStorageSnapshot.mockReset().mockReturnValue(true);
+        recentFilesStoreMocks.tryReadRecentFilesFromStorage.mockReset();
         const ref = `browser://documents/recent-${storageMode}.pdf`;
         const record = {
             ref,
@@ -404,7 +413,8 @@ describe('browserDocumentMaintenance', () => {
         });
         documentIdbMocks.documentsAtDelete = [record];
         recentFilesStoreMocks.tryHasRecentFilesStorageSnapshot.mockReturnValue(true);
-        recentFilesStoreMocks.readRecentFilesFromStorage.mockReturnValue([{
+        let recentFilesReadCount = 0;
+        recentFilesStoreMocks.tryReadRecentFilesFromStorage.mockImplementation(() => recentFilesReadCount++ === 0 ? [] : [{
             originalPath: ref,
             backend: 'browser',
             fileName: `${storageMode}.pdf`,
@@ -429,8 +439,7 @@ describe('browserDocumentMaintenance', () => {
 
         await sweepBrowserDocumentMaintenance(new Map());
 
-        expect(documentIdbMocks.deleteRecord).not.toHaveBeenCalledWith(ref);
-        expect(chunkMocks.deleteChunkRecord).not.toHaveBeenCalled();
+        expect(recentFilesStoreMocks.pruneRecentFiles).toHaveBeenCalledWith([expect.objectContaining({originalPath: ref})]);
     });
 
     it('still reclaims a source with no current Recent Files reference', async () => {
@@ -458,10 +467,12 @@ describe('browserDocumentMaintenance', () => {
             value: record,
         });
         documentIdbMocks.documentsAtDelete = [record];
+        recentFilesStoreMocks.tryHasRecentFilesStorageSnapshot.mockReturnValue(true);
+        recentFilesStoreMocks.tryReadRecentFilesFromStorage.mockReturnValue([]);
         recentFilesStoreMocks.readRecentFilesFromStorage.mockReturnValue([]);
 
         await sweepBrowserDocumentMaintenance(new Map());
 
-        expect(documentIdbMocks.deleteRecord).toHaveBeenCalledWith(ref);
+        expect(documentIdbMocks.transactionDeleteRecord).toHaveBeenCalledWith(ref);
     });
 });
