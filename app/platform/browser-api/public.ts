@@ -9,7 +9,6 @@ export { isBrowserFilePickerSetupDeniedError } from '@app/platform/browser-api/b
 export { createBrowserSearchCapability } from '@app/platform/browser-api/createBrowserSearchCapability';
 export { createDjvuPagePreviewSourceFromPath } from '@app/platform/browser-api/createDjvuWorkerFromPath';
 export { createNativePdfPreviewSourceFromPath } from '@app/platform/browser-api/createNativePdfPreviewSourceFromPath';
-export { decodeBrowserImageBlob } from '@app/platform/browser-api/decodeBrowserImageBlob';
 export {
     ASSISTANT_IMAGE_RESOURCE_LIMITS,
     createStaticBrowserImagePreview,

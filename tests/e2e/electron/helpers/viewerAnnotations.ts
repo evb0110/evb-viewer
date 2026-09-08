@@ -459,84 +459,6 @@ export async function createCanonicalTextBoxWithPointer(
     return annotationId;
 }
 
-async function getVisibleHighlightEditorCounts(page: Page) {
-    return page.evaluate(() => {
-        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-            .filter((candidate) => {
-                const rect = candidate.getBoundingClientRect();
-                const style = window.getComputedStyle(candidate);
-                return (
-                    style.display !== 'none'
-                    && style.visibility !== 'hidden'
-                    && rect.width > 100
-                    && rect.height > 100
-                );
-            });
-        return visibleHosts.map(host => host.querySelectorAll('.pdf-annotation-editor-text-markup, .highlightAnnotation').length);
-    });
-}
-
-export async function getVisibleHighlightEditorCount(page: Page) {
-    const counts = await getVisibleHighlightEditorCounts(page);
-    return Math.max(0, ...counts);
-}
-
-export async function waitForHighlightEditorCount(page: Page, expectedCount: number) {
-    const startedAt = Date.now();
-    let counts = await getVisibleHighlightEditorCounts(page);
-    while (Date.now() - startedAt < 20_000) {
-        if (
-            (expectedCount === 0 && counts.every(count => count === 0))
-            || (expectedCount > 0 && counts.some(count => count === expectedCount))
-        ) {
-            return;
-        }
-        await delay(150);
-        counts = await getVisibleHighlightEditorCounts(page);
-    }
-    const details = await page.evaluate(() => Array.from(document.querySelectorAll<HTMLElement>('.pdf-annotation-editor-text-markup, .highlightAnnotation'))
-        .map(editor => ({
-            id: editor.id,
-            label: editor.getAttribute('aria-label'),
-            page: editor.closest<HTMLElement>('.page_container')?.dataset.page ?? null,
-            visible: (() => {
-                const rect = editor.getBoundingClientRect();
-                const style = window.getComputedStyle(editor);
-                return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
-            })(),
-        })));
-    const workspaceDebug = await page.evaluate(() => {
-        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-            .filter((host) => {
-                const rect = host.getBoundingClientRect();
-                const style = window.getComputedStyle(host);
-                return (
-                    rect.width > 100
-                    && rect.height > 100
-                    && style.display !== 'none'
-                    && style.visibility !== 'hidden'
-                );
-            });
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const host = activeHost && visibleHosts.includes(activeHost)
-            ? activeHost
-            : (visibleHosts[0] ?? null);
-        return {
-            visibleHostCount: visibleHosts.length,
-            activeHostVisible: Boolean(activeHost && visibleHosts.includes(activeHost)),
-            pageContainers: Array.from(host?.querySelectorAll<HTMLElement>('.page_container') ?? [])
-                .map(pageContainer => ({
-                    page: pageContainer.dataset.page ?? null,
-                    rendered: pageContainer.classList.contains('page_container--rendered'),
-                    highlightCount: pageContainer.querySelectorAll('.pdf-annotation-editor-text-markup, .highlightAnnotation').length,
-                })),
-        };
-    });
-    throw new Error(
-        `Expected visible highlight count ${expectedCount}, got [${counts.join(', ')}]: ${JSON.stringify(details)}; workspace=${JSON.stringify(workspaceDebug)}`,
-    );
-}
-
 export async function waitForPdfAnnotationSubtypeCount(filePath: string, subtype: string, expectedCount: number) {
     const startedAt = Date.now();
     let lastSummary = await readPdfAnnotationSummary(filePath);
@@ -548,86 +470,6 @@ export async function waitForPdfAnnotationSubtypeCount(filePath: string, subtype
         lastSummary = await readPdfAnnotationSummary(filePath);
     }
     throw new Error(`Expected ${expectedCount} ${subtype} annotations on disk, got ${lastSummary.bySubtype[subtype] ?? 0}`);
-}
-
-export async function createHighlightWithPdfjsManager(page: Page) {
-    const before = await getVisibleHighlightEditorCount(page);
-    await clickAnnotationTool(page, 'Highlight');
-
-    let selectionResult = 'missing-text';
-    const startedAt = Date.now();
-    while (Date.now() - startedAt < 8_000 && selectionResult !== 'ok') {
-        selectionResult = await page.evaluate(() => {
-            const isVisible = (candidate: HTMLElement) => {
-                const rect = candidate.getBoundingClientRect();
-                const style = window.getComputedStyle(candidate);
-                return (
-                    style.display !== 'none'
-                    && style.visibility !== 'hidden'
-                    && rect.width > 100
-                    && rect.height > 100
-                );
-            };
-            const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-                .filter(isVisible);
-            const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-            const matchingHosts = visibleHosts
-                .filter(candidate => candidate.querySelector('.pdf-annotation-editor-layer, .annotation-editor-layer'));
-            const host = ((activeHost && visibleHosts.includes(activeHost)) ? activeHost : null)
-                ?? (matchingHosts.length === 1 ? matchingHosts[0] : null)
-                ?? (visibleHosts.length === 1 ? visibleHosts[0] : null);
-            if (!host) {
-                return 'missing-host';
-            }
-
-            const textNodes = Array.from(host.querySelectorAll<HTMLElement>(
-                '.page_container--rendered .text-layer span',
-            ))
-                .map((span) => {
-                    const node = Array.from(span.childNodes)
-                        .find(candidate => candidate.nodeType === Node.TEXT_NODE);
-                    return {
-                        node,
-                        text: node?.textContent ?? '',
-                    };
-                })
-                .filter(({
-                    node,
-                    text,
-                }) => node && text.trim().length > 4);
-            const first = textNodes[0];
-            if (!first?.node) {
-                return 'missing-text';
-            }
-
-            const range = document.createRange();
-            range.setStart(first.node, 0);
-            range.setEnd(first.node, first.text.length);
-            const selection = document.getSelection();
-            selection?.removeAllRanges();
-            selection?.addRange(range);
-            return selection?.toString().trim() ? 'ok' : 'empty-selection';
-        });
-        if (selectionResult !== 'ok') {
-            await delay(150);
-        }
-    }
-
-    if (selectionResult !== 'ok') {
-        throw new Error(`Unable to select text for highlight: ${selectionResult}`);
-    }
-
-    let commandResult;
-    try {
-        commandResult = await callWorkspaceCommand<boolean>(page, 'highlightSelection');
-    } finally {
-        await page.evaluate(() => document.getSelection()?.removeAllRanges());
-    }
-    if (!commandResult.called || commandResult.value !== true) {
-        throw new Error(`Unable to create highlight through workspace command: ${JSON.stringify(commandResult)}`);
-    }
-    await waitForHighlightEditorCount(page, before + 1);
-    return getVisibleHighlightEditorCount(page);
 }
 
 export async function waitForNoOpenNoteWindows(page: Page) {
@@ -712,7 +554,7 @@ export async function clickLatestVisibleNoteWindowClose(page: Page) {
     await page.mouse.click(point.x, point.y);
 }
 
-export async function collectStickyNoteDebugState(page: Page) {
+async function collectStickyNoteDebugState(page: Page) {
     const workspaceDebug = await collectWorkspaceExposeDebugState(page, { requiredProperties: ['annotationComments'] });
     const domDebug = await page.evaluate(() => {
         const unwrap = (value: unknown) => (

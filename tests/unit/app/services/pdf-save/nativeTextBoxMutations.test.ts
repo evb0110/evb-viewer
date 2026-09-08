@@ -62,6 +62,59 @@ function documentWithPages(
 }
 
 describe('native canonical text-box mutations', () => {
+    it.each([
+        [
+            0,
+            [
+                70,
+                580,
+                220,
+                660,
+            ],
+        ],
+        [
+            90,
+            [
+                130,
+                100,
+                190,
+                300,
+            ],
+        ],
+        [
+            180,
+            [
+                400,
+                180,
+                550,
+                260,
+            ],
+        ],
+        [
+            270,
+            [
+                430,
+                540,
+                490,
+                740,
+            ],
+        ],
+    ] as const)('preserves PDF coordinates on a %s-degree page with an offset CropBox', async (rotate, expectedRect) => {
+        const result = await collectNativeTextBoxMutationsForSave(
+            documentWithPages(async () => ({
+                rotate,
+                view: [
+                    10,
+                    20,
+                    610,
+                    820,
+                ],
+            })),
+            planFor([textBox('offset-page-box')]),
+        );
+        expect(result?.[0]?.rect).toEqual(expectedRect.map(value => expect.closeTo(value, 8)));
+    });
+
     it('projects dirty canonical geometry, style, and compact object references', async () => {
         const getPage = vi.fn(async () => ({
             rotate: 0,

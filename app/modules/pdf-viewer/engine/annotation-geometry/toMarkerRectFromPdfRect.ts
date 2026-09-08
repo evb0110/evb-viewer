@@ -1,70 +1,14 @@
-import type { IPageRectBounds } from '@app/modules/pdf-viewer/engine/annotation-geometry/pageRectBounds';
+import { getPageRectBounds } from '@app/modules/pdf-viewer/engine/annotation-geometry/getPageRectBounds';
 import type { IAnnotationMarkerRect } from '@app/types/annotations';
 import {
     normalizeMarkerRectBounds,
     orderPdfRectBounds,
 } from '@app/utils/pdfMarkerRect';
 import type { TPageRotation } from '@app/modules/pdf-viewer/engine/annotation-geometry/pageRotation';
+import { toMarkerPointInPageBounds } from '@app/modules/pdf-viewer/engine/annotation-geometry/toMarkerPointFromPdfPoint';
 import { normalizePageRotation } from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizePageRotation';
 
 export const MIN_MARKER_RECT_SIZE = 0.0016;
-
-
-function getPageRectBounds(pageView: number[] | null | undefined): IPageRectBounds | null {
-    if (!pageView || pageView.length < 4) {
-        return null;
-    }
-
-    const xMin = pageView[0] ?? 0;
-    const yMin = pageView[1] ?? 0;
-    const xMax = pageView[2] ?? 0;
-    const yMax = pageView[3] ?? 0;
-    const pageWidth = xMax - xMin;
-    const pageHeight = yMax - yMin;
-    if (!Number.isFinite(pageWidth) || !Number.isFinite(pageHeight) || pageWidth <= 0 || pageHeight <= 0) {
-        return null;
-    }
-
-    return {
-        xMin,
-        yMin,
-        width: pageWidth,
-        height: pageHeight,
-    };
-}
-
-function toMarkerPointFromPdfPointInternal(
-    x: number,
-    y: number,
-    bounds: IPageRectBounds,
-    pageRotation: TPageRotation,
-) {
-    const normX = (x - bounds.xMin) / bounds.width;
-    const normY = (y - bounds.yMin) / bounds.height;
-
-    switch (pageRotation) {
-        case 90:
-            return {
-                x: normY,
-                y: normX,
-            };
-        case 180:
-            return {
-                x: 1 - normX,
-                y: normY,
-            };
-        case 270:
-            return {
-                x: 1 - normY,
-                y: 1 - normX,
-            };
-        case 0:
-            return {
-                x: normX,
-                y: 1 - normY,
-            };
-    }
-}
 
 export function toMarkerRectFromPdfRect(
     rect: number[] | null | undefined,
@@ -90,10 +34,10 @@ export function toMarkerRectFromPdfRect(
     const normalizedRotation = normalizePageRotation(pageRotation);
 
     const cornerPoints = [
-        toMarkerPointFromPdfPointInternal(minX, minY, bounds, normalizedRotation),
-        toMarkerPointFromPdfPointInternal(minX, maxY, bounds, normalizedRotation),
-        toMarkerPointFromPdfPointInternal(maxX, minY, bounds, normalizedRotation),
-        toMarkerPointFromPdfPointInternal(maxX, maxY, bounds, normalizedRotation),
+        toMarkerPointInPageBounds(minX, minY, bounds, normalizedRotation),
+        toMarkerPointInPageBounds(minX, maxY, bounds, normalizedRotation),
+        toMarkerPointInPageBounds(maxX, minY, bounds, normalizedRotation),
+        toMarkerPointInPageBounds(maxX, maxY, bounds, normalizedRotation),
     ];
 
     const markerLeft = Math.min(...cornerPoints.map(point => point.x));

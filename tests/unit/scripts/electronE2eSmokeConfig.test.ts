@@ -411,7 +411,8 @@ describe('electron e2e Vitest project topology', () => {
         expect(largePdfSource).toContain('.pdf-annotation-editor-layer');
         expect(largePdfSource).toContain('qpdfDictionaryContainsText(annotationObject, \'Contents\', expectedText)');
         expect(largePdfSource).not.toContain('qpdfObjectContainsText');
-        expect(activationSource).toContain('await (target.tab as ElementHandle<Element>).click();');
+        expect(activationSource).toContain('await page.mouse.click(');
+        expect(activationSource).toContain('document.elementFromPoint(');
         expect(activationSource).not.toContain('page.evaluate');
         expect(activationSource).not.toContain('dispatchEvent');
     });

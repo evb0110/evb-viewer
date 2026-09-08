@@ -189,21 +189,6 @@ describe('Electron E2E fixture policy', () => {
         expect(source).toContain('.every(page => page === 18)');
     });
 
-    it('awaits the deferred highlight command before clearing selection', async () => {
-        const source = await readFile(
-            join(process.cwd(), 'tests/e2e/electron/helpers/viewerAnnotations.ts'),
-            'utf8',
-        );
-        const start = source.indexOf('export async function createHighlightWithPdfjsManager');
-        const end = source.indexOf('export async function waitForNoOpenNoteWindows', start);
-        const helper = source.slice(start, end);
-
-        expect(helper).toContain('await clickAnnotationTool(page, \'Highlight\')');
-        expect(helper).toContain('await callWorkspaceCommand<boolean>(page, \'highlightSelection\')');
-        expect(helper.indexOf('await callWorkspaceCommand<boolean>(page, \'highlightSelection\')'))
-            .toBeLessThan(helper.lastIndexOf('document.getSelection()?.removeAllRanges()'));
-    });
-
     it('rejects OCR completion artifacts that do not contain the expected semantic text', async () => {
         const outputPath = await createMultiPageTextFixturePdf('unit-ocr-semantic-output.pdf', 1);
 
