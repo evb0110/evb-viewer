@@ -130,9 +130,14 @@ describe('browser document maintenance acceptance in Chromium', () => {
                 if (typeof read !== 'function' || typeof exists !== 'function') {
                     throw new Error('Maintenance read entry point missing after reload');
                 }
+                const persistedRecent = Reflect.get(globalThis, '__evbReadPersistedMaintenanceRecent');
+                if (typeof persistedRecent !== 'function') {
+                    throw new Error('Maintenance persisted Recent entry point missing after reload');
+                }
                 return {
                     retained: await Promise.all(retained.map(ref => read(ref))),
                     orphanExists: await exists(orphan),
+                    persistedRecent: await persistedRecent(),
                 };
             }, {
                 orphan: setup.refs[2],
@@ -152,6 +157,21 @@ describe('browser document maintenance acceptance in Chromium', () => {
                         prefix: setup.hashes.chunkedPrefix,
                     },
                 ],
+                persistedRecent: {
+                    refs: retainedRefs,
+                    proofs: [
+                        {
+                            exists: true,
+                            length: 8,
+                            prefix: setup.hashes.inlinePrefix,
+                        },
+                        {
+                            exists: true,
+                            length: 8,
+                            prefix: setup.hashes.chunkedPrefix,
+                        },
+                    ],
+                },
             });
             const persistence = await pageA.evaluate(async (ref: string) => {
                 const run = Reflect.get(globalThis, '__evbRunRecentPersistenceFailureRetry');

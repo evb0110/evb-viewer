@@ -194,7 +194,7 @@ export async function openDocumentPaths(
     }
 
     if (normalizedPaths.length === 1 && isPdfFileName(firstFileName)) {
-        const sourcePath = firstPath;
+        const sourcePath = await browserDocumentStore.refreshSourceVersionIfChanged(firstPath);
         const { size } = await browserDocumentStore.stat(sourcePath);
         if (size > BROWSER_MAX_FULL_READ_BYTES) {
             throw buildBrowserLargeJobError(

@@ -61,7 +61,7 @@ import {
     tryRunBrowserPageOpsWithWasm,
 } from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
 import { decodeBrowserPdfAnnotationsOutput } from '@app/platform/browser-api/decodeBrowserPdfAnnotationsOutput';
-import { writeRecentFilesToStorage } from '@app/platform/browser/browserRecentFilesStore';
+import {runSerializedRecentFilesStorageMutation} from '@app/platform/browser/browserRecentFilesStore';
 import {
     commitBrowserStoreStagedArtifact,
     createBrowserStoreStagedArtifact,
@@ -1083,7 +1083,10 @@ export function createBrowserDocumentsFileCapability(
                 }
 
                 if (shouldBackfillStorage) {
-                    writeRecentFilesToStorage(validatedFiles);
+                    await runSerializedRecentFilesStorageMutation(() => ({
+                        files: validatedFiles,
+                        value: undefined,
+                    }));
                 }
 
                 return validatedFiles;

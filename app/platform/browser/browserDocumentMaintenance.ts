@@ -324,24 +324,20 @@ export async function sweepBrowserDocumentMaintenance(
                         ))
                         .map(record => record.ref),
                 );
-                const brokenChunkRefsSet = new Set(brokenChunkRefs);
-                const finalRefs = new Set(Array.from(refsToRemoveSet).filter(ref => {
-                    if (leasedRefs.has(ref) || transactionPendingChunkGenerationsByRef.has(ref)) {
-                        return false;
-                    }
-                    const transactionRecord = transactionRecordsByRef.get(ref);
-                    if (!transactionRecord) {
-                        return false;
-                    }
-                    if (brokenChunkRefsSet.has(ref)) {
-                        return transactionBrokenChunkRefs.has(ref);
-                    }
-                    return shouldRemovePersistedRecord(
-                        transactionRecord,
+                const transactionRefsToRemove = transactionRecords
+                    .filter(record => shouldRemovePersistedRecord(
+                        record,
                         transactionRecentRefs,
                         transactionNonWorkingDependentCounts,
-                    );
-                }));
+                    ))
+                    .filter(record => !leasedRefs.has(record.ref))
+                    .filter(record => !transactionPendingChunkGenerationsByRef.has(record.ref))
+                    .filter(record => !pendingRefs.has(record.ref))
+                    .map(record => record.ref);
+                const finalRefs = new Set([
+                    ...transactionRefsToRemove,
+                    ...transactionBrokenChunkRefs,
+                ]);
                 finalRefs.forEach(ref => documentsStore.delete(ref));
                 for (const chunkKey of chunkKeys) {
                     if (pendingRefs.has(chunkKey.ref)) continue;

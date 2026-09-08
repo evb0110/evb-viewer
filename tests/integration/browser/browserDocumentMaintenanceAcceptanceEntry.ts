@@ -37,11 +37,22 @@ async function readProof(ref: string) {
     };
 }
 
+async function readPersistedRecentProof() {
+    const recentFiles = await browserDocumentStore.recoverRecentFilesIfStorageMissing();
+    const refs = recentFiles.slice(0, 2).map(file => file.originalPath);
+    return {
+        refs,
+        proofs: await Promise.all(refs.map(readProof)),
+    };
+}
+
 async function runTouchWindow(refs: string[]) {
     const channel = new BroadcastChannel(CHANNEL_NAME);
+    const readyBeacon = window.setInterval(() => channel.postMessage('touch-listener-ready'), 50);
     try {
         channel.postMessage('touch-listener-ready');
         await waitForMessage(channel, 'snapshot-ready');
+        window.clearInterval(readyBeacon);
         await runSerializedRecentFilesStorageMutation(currentFiles => ({
             files: [
                 ...refs.map((ref, index) => {
@@ -62,6 +73,7 @@ async function runTouchWindow(refs: string[]) {
         channel.postMessage('touch-committed');
         return {recentFiles: browserDocumentStore.getRecentFiles().map(file => file.originalPath)};
     } finally {
+        window.clearInterval(readyBeacon);
         channel.close();
     }
 }
@@ -169,5 +181,6 @@ Reflect.set(globalThis, '__evbCreateMaintenanceAcceptanceDocuments', createAccep
 Reflect.set(globalThis, '__evbRunMaintenanceWindow', runMaintenanceWindow);
 Reflect.set(globalThis, '__evbRunMaintenanceTouchWindow', runTouchWindow);
 Reflect.set(globalThis, '__evbReadMaintenanceDocument', readProof);
+Reflect.set(globalThis, '__evbReadPersistedMaintenanceRecent', readPersistedRecentProof);
 Reflect.set(globalThis, '__evbExistsMaintenanceDocument', (ref: string) => browserDocumentStore.exists(ref));
 Reflect.set(globalThis, '__evbRunRecentPersistenceFailureRetry', runRecentPersistenceFailureRetry);

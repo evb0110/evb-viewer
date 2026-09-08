@@ -197,5 +197,51 @@ async function runBrowserPickerAndRecentAcceptance() {
     }
 }
 
+async function runBrowserRealInputPickerRecentAcceptance() {
+    const first = (await pickFiles({
+        accept: 'application/pdf',
+        preferFileSystemAccess: false,
+    }))[0];
+    if (!first) throw new Error('Real Chromium input picker returned no first file');
+    const firstRef = await browserDocumentStore.registerFile(first.file, {
+        kind: 'source',
+        saveKind: 'pdf',
+    });
+    const dirtyRef = await browserDocumentStore.cloneAsWorkingCopy(firstRef);
+    await browserDocumentStore.writeForBootstrap(dirtyRef, Uint8Array.of(1, 2, 3), 'real-picker-acceptance');
+    const second = (await pickFiles({
+        accept: 'application/pdf',
+        preferFileSystemAccess: false,
+    }))[0];
+    if (!second) throw new Error('Real Chromium input picker returned no replacement file');
+    const secondRef = await browserDocumentStore.registerFile(second.file, {
+        kind: 'source',
+        saveKind: 'pdf',
+    });
+    await browserDocumentStore.touchRecentFile(secondRef);
+    const recent = await browserDocumentStore.recoverRecentFilesIfStorageMissing();
+    const recentRef = recent[0]?.originalPath;
+    if (!recentRef) throw new Error('Real picker did not persist Recent Files');
+    const [
+        firstBytes,
+        secondBytes,
+        recentBytes,
+        dirtyBytes,
+    ] = await Promise.all([
+        browserDocumentStore.read(firstRef),
+        browserDocumentStore.read(secondRef),
+        browserDocumentStore.read(recentRef),
+        browserDocumentStore.read(dirtyRef),
+    ]);
+    return {
+        dirtyBytes: Array.from(dirtyBytes),
+        firstLength: firstBytes.length,
+        recentRefIsReplacement: recentRef === secondRef,
+        recentBytes: Array.from(recentBytes.slice(0, 8)),
+        secondLength: secondBytes.length,
+    };
+}
+
 Reflect.set(globalThis, '__evbRunBrowserDocumentSourceVersionAcceptance', runBrowserDocumentSourceVersionAcceptance);
 Reflect.set(globalThis, '__evbRunBrowserPickerAndRecentAcceptance', runBrowserPickerAndRecentAcceptance);
+Reflect.set(globalThis, '__evbRunBrowserRealInputPickerRecentAcceptance', runBrowserRealInputPickerRecentAcceptance);

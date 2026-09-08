@@ -49,6 +49,7 @@ import {
     BrowserDocumentRecordStore,
 } from '@app/platform/browser/browserDocumentRecordStore';
 import {BrowserDocumentFileHandleRefs} from '@app/platform/browser/browserDocumentFileHandleRefs';
+import {runSerializedRecentFilesStorageMutation} from '@app/platform/browser/browserRecentFilesStore';
 import {
     captureBrowserDocumentEntryStorageState,
     restoreBrowserDocumentEntryStorageState,
@@ -292,6 +293,38 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
 
     public async registerFile(file: File, options: IRegisterFileOptions = {}): Promise<TDocumentRef> {
         return (await this.registerFileWithOwnership(file, options)).ref;
+    }
+
+    /**
+     * Rebind a Recent Files source when its persisted file handle now points
+     * at different bytes. Keep the old ref so dirty dependents retain their
+     * immutable source and revision authority.
+     */
+    public async refreshSourceVersionIfChanged(ref: TDocumentRef): Promise<TDocumentRef> {
+        const entry = await this.requireEntry(ref);
+        if (!entry.saveHandle || (!entry.sourceWitness && entry.storageMode !== 'handle')) {
+            return ref;
+        }
+        const metadata = await readFileHandleMetadata(entry.saveHandle);
+        const contentToken = await createBrowserFileContentWitness(metadata.file);
+        if (
+            entry.fileSize === metadata.size
+            && entry.fileLastModified === metadata.lastModified
+            && entry.contentToken === contentToken
+        ) {
+            return ref;
+        }
+        const freshRef = await this.registerFile(metadata.file, {
+            kind: 'source',
+            saveKind: entry.saveKind,
+            saveHandle: entry.saveHandle,
+        });
+        await runSerializedRecentFilesStorageMutation(currentFiles => ({
+            files: currentFiles.filter(candidate => candidate.originalPath !== ref),
+            value: undefined,
+        }));
+        await this.touchRecentFile(freshRef);
+        return freshRef;
     }
 
     public async registerFileWithOwnership(file: File, options: IRegisterFileOptions = {}) {
