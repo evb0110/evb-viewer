@@ -1,0 +1,53 @@
+app/platform/browser-api/browserDurableDjvuJobs.ts
+  s_c63d7a8363f7e9::t_36defed9bd3d54 156
+app/assets/css/pdf-viewer.scss
+  s_c63d7a8363f7e9::t_36defed9bd3d54 267-272
+tests/integration/browser/pdfTextSelection.test.ts
+  s_c63d7a8363f7e9::t_36defed9bd3d54 1-209
+tests/unit/app/platform/browserDurableDjvuJobs.test.ts
+  s_c63d7a8363f7e9::t_36defed9bd3d54 16-57,69,147-300
+  s_c63d7a8363f7e9::t_f5d5c665c271f5 301
+tests/unit/app/platform/browserPlatformTestDoubles.ts
+  s_c63d7a8363f7e9::t_36defed9bd3d54 17-50
+tests/unit/app/platform/browserWorkspaceRecoveryStore.test.ts
+  s_c63d7a8363f7e9::t_36defed9bd3d54 17-20,75,148,158-235,237,242-256,258-263
+tests/integration/browser/realIndexedDbMigration.test.ts
+  s_c63d7a8363f7e9::t_36defed9bd3d54 30-64,212,254-290,339-833
+  s_c63d7a8363f7e9::t_91b59d57b872ad 834-836
+tests/unit/app/platform/browserWindowTabs.test.ts
+  s_c63d7a8363f7e9::t_36defed9bd3d54 15,237,264,286,307,332,349
+tests/unit/app/platform/browserDocumentStore.test.ts
+  s_c63d7a8363f7e9::t_36defed9bd3d54 14,81,84,89,94-97,107-110,118-120,249,270,272,274
+tests/integration/browser/browserDjvuFinalizationAcceptance.test.ts
+  s_c63d7a8363f7e9::t_36defed9bd3d54 1-107
+app/platform/browserWindowTabs.ts
+  s_c63d7a8363f7e9::t_36defed9bd3d54 17,913
+app/platform/browser/browserWorkspaceRecoveryStore.ts
+  s_c63d7a8363f7e9::t_36defed9bd3d54 17,26,52-53,62-77,85,92,107,202,208,244,257,265-268,284-297,320
+tests/integration/browser/browserDjvuFinalizationAcceptanceEntry.ts
+  s_c63d7a8363f7e9::t_36defed9bd3d54 1-69
+tests/integration/browser/browserDocumentSourceVersionAcceptance.test.ts
+  s_c63d7a8363f7e9::t_36defed9bd3d54 1-108
+tests/integration/browser/browserDocumentSourceVersionAcceptanceEntry.ts
+  s_c63d7a8363f7e9::t_36defed9bd3d54 1-62
+tests/unit/app/platform/browserDocumentRepository.test.ts
+  s_c63d7a8363f7e9::t_36defed9bd3d54 1-81
+app/platform/browser/browserDocumentRepository.ts
+  s_c63d7a8363f7e9::t_36defed9bd3d54 67,307-312
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "43cdc3820117872776f7a4ee6e9c70df516bf2d6",
+  "prompts": {},
+  "sessions": {
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
