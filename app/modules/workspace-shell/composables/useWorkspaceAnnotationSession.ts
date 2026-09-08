@@ -117,6 +117,10 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
         }) ?? null;
     }
 
+    function focusAnnotationNote(annotationId: string) {
+        return pdfViewerRef.value?.focusSelectedAnnotation?.(annotationId) ?? false;
+    }
+
     const {
         annotationNoteWindows,
         annotationNotePositions,
@@ -143,7 +147,8 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
                 ? pdfViewerRef.value?.updateAnnotationComment(comment, text) ?? false
                 : false;
         },
-        isAnnotationCommentSyncReady: () => Boolean(pdfDocument.value),
+        isAnnotationCommentSyncReady: () => Boolean(pdfDocument.value) && annotationCommentsStatus.value === 'ready',
+        getDeletedCanonicalAnnotationIds: () => pdfViewerRef.value?.getDeletedCanonicalAnnotationIds?.() ?? [],
     });
 
     const hasOpenAnnotationNotes = ref(false);
@@ -155,6 +160,7 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
         annotationDirty.value
         || hasAnnotationChanges()
     ));
+    const selectedAnnotations = computed(() => pdfViewerRef.value?.selectedAnnotations ?? []);
     const selectedTextBox = computed(() => (
         pdfViewerRef.value?.selectedTextBox
         ?? null
@@ -175,6 +181,7 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
         clearAnnotationChanges,
         hasAnnotationChanges,
         hasPendingAnnotationChanges: hasPendingTabChanges,
+        selectedAnnotations,
         selectedTextBox,
         annotationTool,
         annotationKeepActive,
@@ -214,6 +221,7 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
         closeAnnotationNote,
         closeAllAnnotationNotes,
         openAnnotationNoteWindow,
+        focusAnnotationNote,
         removeAnnotationNoteWindow,
         setAnnotationNoteWindowError,
         bringAnnotationNoteToFront,

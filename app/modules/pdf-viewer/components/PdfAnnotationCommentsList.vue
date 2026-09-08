@@ -93,8 +93,10 @@
             <div v-bind="commentsWrapperProps">
                 <div
                 v-for="virtualComment in virtualComments"
-                :key="virtualComment.data.stableKey"
+                :key="annotationIdForSummary(virtualComment.data)"
                 class="note-item flex flex-col"
+                :data-annotation-id="annotationIdForSummary(virtualComment.data)"
+                :data-annotation-kind="virtualComment.data.annotationKind"
                 :class="{ 'is-active': activeCommentStableKey === annotationIdForSummary(virtualComment.data) }"
                 :style="noteItemStyle(virtualComment.data)"
             >
@@ -102,9 +104,10 @@
                     type="button"
                     class="note-item-content flex flex-col"
                     @click="focusComment(virtualComment.data)"
-                    @dblclick.prevent.stop="openComment(virtualComment.data)"
+                                @dblclick.prevent.stop="openComment(virtualComment.data)"
+                                @keydown.enter.stop.prevent="openComment(virtualComment.data)"
                 >
-                <template v-for="comment in [virtualComment.data]" :key="comment.stableKey">
+                <template v-for="comment in [virtualComment.data]" :key="annotationIdForSummary(comment)">
                 <span class="note-item-top">
                     <span class="note-item-page">
                         <template v-for="(part, index) in highlightTextParts(pageLabel(comment))" :key="`page-${comment.stableKey}-${index}`">
@@ -113,6 +116,7 @@
                         </template>
                     </span>
                     <span class="note-item-type">
+                        <UIcon v-if="isStampSubtype(normalizedSubtype(comment))" name="i-ph-image" aria-hidden="true" />
                         <template v-for="(part, index) in highlightTextParts(commentTypeLabel(comment))" :key="`type-${comment.stableKey}-${index}`">
                             <span v-if="!part.match">{{ part.text }}</span>
                             <mark v-else class="note-match">{{ part.text }}</mark>
@@ -134,6 +138,12 @@
                     <span
                         class="note-item-shape-stroke"
                         :style="shapeStrokeStyle(comment)"
+                        aria-hidden="true"
+                    />
+                    <span
+                        v-if="hasShapeFill(comment)"
+                        class="note-item-shape-fill"
+                        :style="{backgroundColor: comment.fillColor ?? undefined, opacity: shapeOpacity(comment)}"
                         aria-hidden="true"
                     />
                     <span class="note-item-shape-style-text">
@@ -177,7 +187,12 @@
                         <span class="note-item-reply-author">
                             {{ reply.author?.trim() || t('annotations.unknownAuthor') }}
                         </span>
-                        <span class="note-item-reply-text">{{ reply.contents }}</span>
+                        <span class="note-item-reply-text">
+                            <template v-for="(part, index) in highlightTextParts(reply.contents)" :key="index">
+                                <span v-if="!part.match">{{ part.text }}</span>
+                                <mark v-else class="note-match">{{ part.text }}</mark>
+                            </template>
+                        </span>
                     </span>
                 </span>
                 </template>
@@ -234,7 +249,6 @@ import {
     splitByQueryMatches,
 } from '@app/utils/pdfAnnotationComments';
 import { isNoteEligibleComment } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isNoteEligibleComment';
-import { isPointNoteMarkerSizedRect } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/pointNoteMarkerPolicy';
 import type { IAnnotationEnrichmentState } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationEnrichmentPolicy';
 import { PENDING_ANNOTATION_ENRICHMENT_STATE } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationEnrichmentPolicy';
 import {
@@ -298,6 +312,7 @@ const enrichmentNotice = computed(() => {
 const emit = defineEmits<{
     'focus-comment': [comment: IAnnotationCommentSummary];
     'open-note': [comment: IAnnotationCommentSummary];
+    'edit-text-box': [comment: IAnnotationCommentSummary];
     'delete-comment': [comment: IAnnotationCommentSummary];
     'set-tool': [tool: TAnnotationTool];
     'retry-enrichment': [];
@@ -323,7 +338,15 @@ const normalizedQuery = computed(() => query.value.trim().toLowerCase());
 const sortedComments = computed(() => comments.slice().sort(compareAnnotationCommentSummaries));
 
 const filteredComments = computed(() => {
-    return sortedComments.value.filter(comment => matchesCommentQuery(comment, normalizedQuery.value, authorName.value));
+    return sortedComments.value.filter(comment => (
+        matchesCommentQuery(comment, normalizedQuery.value, comment.source === 'editor' ? authorName.value : null)
+        || [
+            commentTypeLabel(comment),
+            pageLabel(comment),
+            annotationPreview(comment),
+        ]
+            .some(label => label.toLowerCase().includes(normalizedQuery.value))
+    ));
 });
 
 // One authoritative scaled source for the row: the virtual stride, the rendered
@@ -412,6 +435,9 @@ async function onSearchButtonClick() {
 }
 
 function commentTypeLabel(comment: IAnnotationCommentSummary) {
+    if (comment.annotationKind === 'text-box') {
+        return t('annotations.text');
+    }
     const kind = comment.kindLabel?.trim();
     if (kind) {
         return kind;
@@ -423,6 +449,9 @@ function commentTypeLabel(comment: IAnnotationCommentSummary) {
 function annotationPreview(comment: IAnnotationCommentSummary) {
     const text = getAnnotationCommentPreviewText(comment);
     if (!text) {
+        if (comment.annotationKind === 'placed-image' || isStampSubtype(normalizedSubtype(comment))) {
+            return t('annotations.imageLabel');
+        }
         return isNoteEligibleComment(comment)
             ? t('annotations.emptyNote')
             : t('annotations.emptyAnnotation');
@@ -502,27 +531,8 @@ function normalizedSubtype(comment: IAnnotationCommentSummary) {
     return (comment.subtype ?? '').trim().toLowerCase();
 }
 
-function isInlineNoteSubtype(subtype: string) {
-    return subtype === 'freetext' || subtype === 'typewriter' || subtype === 'note-inline';
-}
-
-function isStickyNoteSubtype(subtype: string) {
-    return subtype === 'text' || subtype === 'note-linked';
-}
-
 function isStampSubtype(subtype: string) {
     return subtype === 'stamp';
-}
-
-function isPointLikeInlineNote(comment: IAnnotationCommentSummary) {
-    if (!isInlineNoteSubtype(normalizedSubtype(comment))) {
-        return false;
-    }
-    if (comment.hasNote === true) {
-        return true;
-    }
-
-    return isPointNoteMarkerSizedRect(comment.markerRect);
 }
 
 function hasUserPreviewText(comment: IAnnotationCommentSummary) {
@@ -556,28 +566,7 @@ function textMarkupStyle(comment: IAnnotationCommentSummary) {
 }
 
 function inlineChipKind(comment: IAnnotationCommentSummary) {
-    if (!comment.color) {
-        return null;
-    }
-
-    if (hasShapeStylePreview(comment) || textMarkupKind(comment)) {
-        return null;
-    }
-
-    const subtype = normalizedSubtype(comment);
-
-    if (isStickyNoteSubtype(subtype) || isStampSubtype(subtype)) {
-        return null;
-    }
-    if (isPointLikeInlineNote(comment)) {
-        return null;
-    }
-
-    if (isInlineNoteSubtype(subtype) || comment.source === 'shape') {
-        return 'solid';
-    }
-
-    return null;
+    return comment.color && !isStampSubtype(normalizedSubtype(comment)) ? 'solid' : null;
 }
 
 function inlineChipStyle(comment: IAnnotationCommentSummary) {
@@ -595,7 +584,7 @@ function authorLabel(comment: IAnnotationCommentSummary) {
     if (commentAuthor) {
         return commentAuthor;
     }
-    const configuredAuthor = authorName.value?.trim();
+    const configuredAuthor = comment.source === 'editor' ? authorName.value?.trim() : null;
     return configuredAuthor && configuredAuthor.length > 0
         ? configuredAuthor
         : t('annotations.unknownAuthor');
@@ -624,7 +613,9 @@ function focusComment(comment: IAnnotationCommentSummary) {
 
 function openComment(comment: IAnnotationCommentSummary) {
     emit('focus-comment', comment);
-    if (isNoteEligibleComment(comment)) {
+    if (comment.annotationKind === 'text-box') {
+        emit('edit-text-box', comment);
+    } else if (isNoteEligibleComment(comment)) {
         emit('open-note', comment);
     }
 }
@@ -771,6 +762,9 @@ function setTool(tool: TAnnotationTool) {
 }
 
 .note-item-type {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--app-space-2xs);
     color: var(--ui-text-muted);
 }
 
@@ -841,6 +835,13 @@ function setTool(tool: TAnnotationTool) {
     white-space: nowrap;
 }
 
+.note-item-shape-fill {
+    flex: 0 0 var(--app-icon-size-xs);
+    height: var(--app-icon-size-xs);
+    border: 1px solid var(--ui-border);
+    border-radius: var(--app-radius-sm);
+}
+
 .note-item-color-chip {
     --note-item-chip-color: currentcolor;
 
@@ -854,6 +855,7 @@ function setTool(tool: TAnnotationTool) {
     height: var(--app-icon-size-xs);
     border-radius: 0.18rem;
     background: var(--note-item-chip-color);
+    box-shadow: inset 0 0 0 1px var(--ui-border);
 }
 
 .note-item-text-mark {

@@ -89,7 +89,12 @@ export interface IMountAnnotationCommentsListOptions {
     clientHeightPx?: number;
 }
 
-interface IAnnotationCommentsListHarnessEvents {deleted: IAnnotationCommentSummary[];}
+interface IAnnotationCommentsListHarnessEvents {
+    deleted: IAnnotationCommentSummary[];
+    focused: IAnnotationCommentSummary[];
+    opened: IAnnotationCommentSummary[];
+    edited: IAnnotationCommentSummary[];
+}
 
 export function mountAnnotationCommentsList({
     activeIndex = null,
@@ -105,13 +110,32 @@ export function mountAnnotationCommentsList({
         comments,
         status: 'ready' as const,
     });
-    const events: IAnnotationCommentsListHarnessEvents = {deleted: []};
+    const events: IAnnotationCommentsListHarnessEvents = {
+        deleted: [],
+        focused: [],
+        opened: [],
+        edited: [],
+    };
     const app = createApp(defineComponent({setup: () => () => h(PdfAnnotationCommentsList, {
         ...viewProps,
         onDeleteComment: (comment: IAnnotationCommentSummary) => events.deleted.push(comment),
+        onFocusComment: (comment: IAnnotationCommentSummary) => events.focused.push(comment),
+        onOpenNote: (comment: IAnnotationCommentSummary) => events.opened.push(comment),
+        onEditTextBox: (comment: IAnnotationCommentSummary) => events.edited.push(comment),
     })}));
     app.component('UButton', defineComponent({setup: () => () => h('button')}));
     app.component('UIcon', defineComponent({setup: () => () => h('span')}));
+    app.component('UInput', defineComponent({
+        props: {modelValue: {
+            type: String,
+            default: '',
+        }},
+        emits: ['update:modelValue'],
+        setup: (props, {emit}) => () => h('input', {
+            value: props.modelValue,
+            onInput: (event: Event) => emit('update:modelValue', (event.target as HTMLInputElement).value),
+        }),
+    }));
     app.mount(host);
 
     const container = host.querySelector<HTMLElement>('.notes-list');
@@ -136,6 +160,10 @@ export function mountAnnotationCommentsList({
         events,
         host,
         unmount,
+        async setComments(nextComments: readonly IAnnotationCommentSummary[]) {
+            viewProps.comments = nextComments;
+            await nextTick();
+        },
         async scrollTo(offsetPx: number) {
             container.scrollTop = offsetPx;
             container.dispatchEvent(new Event('scroll'));

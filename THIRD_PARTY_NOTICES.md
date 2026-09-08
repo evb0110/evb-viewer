@@ -14,6 +14,16 @@ This file is a practical index of the major third-party components and assets th
 - qpdf binaries are bundled under `resources/qpdf/`.
 - DjVuLibre binaries are bundled under `resources/djvulibre/`.
 
+## Annotation font
+
+The annotation editor and native PDF writer use the unchanged DejaVu Sans 2.37
+font from https://github.com/dejavu-fonts/dejavu-fonts/releases/tag/version_2_37.
+The font and full redistribution license are in `public/fonts/annotation/`.
+The source receipt is `resources/third-party-notices/DejaVu-source.txt`. Desktop
+resources also include the license at
+`resources/third-party-notices/licenses/DejaVu.txt`. The writer embeds the font
+in saved PDFs so text does not depend on installed system fonts.
+
 ## Package Dependencies
 
 Application and development dependencies are declared in `package.json`, workspace package manifests, and `landing/package.json`. Refresh this notice whenever bundled native resources, vendored browser assets, or license-carrying package artifacts change.

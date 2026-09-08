@@ -128,6 +128,7 @@ export function createLazyBrowserPlatformApiGenerated({
     const documentMenuOnMenuToggleAssistantMethod = lazyEvent(pathDescriptors.documentMenu.onMenuToggleAssistant.path);
     const documentMenuOnMenuUndoMethod = lazyEvent(pathDescriptors.documentMenu.onMenuUndo.path);
     const documentMenuOnMenuRedoMethod = lazyEvent(pathDescriptors.documentMenu.onMenuRedo.path);
+    const documentMenuOnMenuSelectAllMethod = lazyEvent(pathDescriptors.documentMenu.onMenuSelectAll.path);
     const documentMenuOnMenuDeletePagesMethod = lazyEvent(pathDescriptors.documentMenu.onMenuDeletePages.path);
     const documentMenuOnMenuExtractPagesMethod = lazyEvent(pathDescriptors.documentMenu.onMenuExtractPages.path);
     const documentMenuOnMenuRotateCwMethod = lazyEvent(pathDescriptors.documentMenu.onMenuRotateCw.path);
@@ -381,6 +382,7 @@ export function createLazyBrowserPlatformApiGenerated({
         onMenuToggleAssistant: documentMenuOnMenuToggleAssistantMethod,
         onMenuUndo: documentMenuOnMenuUndoMethod,
         onMenuRedo: documentMenuOnMenuRedoMethod,
+        onMenuSelectAll: documentMenuOnMenuSelectAllMethod,
         onMenuDeletePages: documentMenuOnMenuDeletePagesMethod,
         onMenuExtractPages: documentMenuOnMenuExtractPagesMethod,
         onMenuRotateCw: documentMenuOnMenuRotateCwMethod,

@@ -64,8 +64,20 @@ export function toPdfRectFromMarkerRect(
     markerRect: IAnnotationMarkerRect | null | undefined,
     pageView: number[] | null | undefined,
     pageRotation: TPageRotation = 0,
+    options: {preserveUnrotatedBounds?: boolean} = {},
 ): [number, number, number, number] | null {
-    const normalized = normalizeMarkerRect(markerRect);
+    // Rotated text/image rectangles describe unrotated dimensions. Their
+    // unrotated bounds can cross a page edge while all visible corners fit.
+    // Native admission validates the transformed rectangle before writing.
+    const normalized = options.preserveUnrotatedBounds
+        ? markerRect && [
+            markerRect.left,
+            markerRect.top,
+            markerRect.width,
+            markerRect.height,
+        ].every(Number.isFinite)
+            && markerRect.width > 0 && markerRect.height > 0 ? markerRect : null
+        : normalizeMarkerRect(markerRect);
     const bounds = getPageRectBounds(pageView);
     if (!normalized || !bounds) {
         return null;

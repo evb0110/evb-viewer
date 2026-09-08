@@ -5,7 +5,10 @@ import {
     it,
     vi,
 } from 'vitest';
-import { effectScope } from 'vue';
+import {
+    computed,
+    effectScope,
+} from 'vue';
 import type {
     IAnnotationGesture,
     IAnnotationEditorSurface,
@@ -97,7 +100,21 @@ function pointer(clientX: number, clientY: number, pointerId = 1) {
 function createHarness(scopes: Set<ReturnType<typeof effectScope>>) {
     const scope = effectScope();
     scopes.add(scope);
-    const surfaceMethods: Pick<IAnnotationEditorSurface, 'beginMove' | 'beginResize'> = {
+    const surfaceMethods: Pick<IAnnotationEditorSurface, 'beginMove' | 'beginResize' | 'entitiesByPage' | 'selectedIds' | 'getPageGeometry'> = {
+        entitiesByPage: computed(() => new Map([[
+            0,
+            [gesture.entity],
+        ]])),
+        selectedIds: computed(() => new Set([gesture.annotationId])),
+        getPageGeometry: () => ({
+            pageView: [
+                0,
+                0,
+                612,
+                792,
+            ],
+            rotation: 0,
+        }),
         beginMove: vi.fn(() => gesture),
         beginResize: vi.fn(() => ({
             ...gesture,

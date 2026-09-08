@@ -82,21 +82,8 @@ export async function setAnnotationColor(page: Page, colorHex: string) {
     await openAnnotationsTab(page);
     const activeTool = await getActiveToolLabel(page);
 
-    const updated = await page.evaluate((targetColor: string) => {
-        const host = globalThis.__evbE2E.getActiveWorkspaceHost();
-        const swatches = Array.from(host?.querySelectorAll<HTMLButtonElement>('.notes-panel .swatch') ?? []);
-        const normalise = (c: string) => c.toLowerCase().trim();
-        const swatch = swatches.find((btn) => normalise(btn.getAttribute('aria-label') ?? '') === normalise(targetColor));
-        if (!swatch) {
-            return false;
-        }
-        swatch.click();
-        return true;
-    }, colorHex);
-
-    if (!updated) {
-        throw new Error('Annotation color swatch not found');
-    }
+    await clickVisibleAnnotationControl(page,
+        `.editor-pane.is-active .notes-panel .swatch[aria-label="${colorHex}"]`);
 
     if (activeTool) {
         await waitForActiveAnnotationTool(page, activeTool, Math.min(DEFAULT_TIMEOUT_MS, 4_000));
@@ -105,6 +92,163 @@ export async function setAnnotationColor(page: Page, colorHex: string) {
     await page.evaluate(async () => {
         await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
         await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+    });
+}
+
+/** Click a visible, unobstructed control without a DOM click or command fallback. */
+export async function clickVisibleAnnotationControl(page: Page, selector: string, clickCount = 1) {
+    await page.waitForSelector(selector, {
+        visible: true,
+        timeout: 20_000,
+    });
+    const point = await page.evaluate((targetSelector: string) => {
+        const target = document.querySelector<HTMLElement>(targetSelector);
+        if (!target) {
+            throw new Error(`Annotation control is absent: ${targetSelector}`);
+        }
+        const rect = target.getBoundingClientRect();
+        const x = rect.left + rect.width / 2;
+        const y = rect.top + rect.height / 2;
+        const hit = document.elementFromPoint(x, y);
+        if (rect.width <= 0 || rect.height <= 0 || !hit || !target.contains(hit)) {
+            throw new Error(`Annotation control is not hit-testable: ${targetSelector}; hit=${hit?.outerHTML.slice(0, 300)}`);
+        }
+        return {
+            x,
+            y,
+        };
+    }, selector);
+    await page.mouse.click(point.x, point.y, {
+        count: clickCount,
+        delay: 50,
+    });
+}
+
+export async function setAnnotationKeepActiveWithPointer(page: Page, enabled: boolean) {
+    const selector = '.editor-pane.is-active .annotation-tool-options [role="checkbox"], .editor-pane.is-active .annotation-tool-options input[type="checkbox"]';
+    await page.waitForSelector(selector, {
+        visible: true,
+        timeout: 20_000,
+    });
+    const read = () => page.$eval(selector, checkbox => checkbox instanceof HTMLInputElement
+        ? checkbox.checked : checkbox.getAttribute('aria-checked') === 'true');
+    if (await read() !== enabled) await clickVisibleAnnotationControl(page, selector);
+    await page.waitForFunction((input: {
+        selector: string;
+        enabled: boolean
+    }) => {
+        const checkbox = document.querySelector(input.selector);
+        return (checkbox instanceof HTMLInputElement ? checkbox.checked : checkbox?.getAttribute('aria-checked') === 'true') === input.enabled;
+    }, {timeout: 10_000}, {
+        selector,
+        enabled,
+    });
+}
+
+/** Native editing commands preserve the focus established by the actual click. */
+export async function selectAllFocusedAnnotationText(page: Page) {
+    await page.waitForFunction(() => {
+        const active = document.activeElement;
+        return active instanceof HTMLTextAreaElement
+            || (active instanceof HTMLElement && active.isContentEditable);
+    }, {timeout: 10_000});
+    if (process.platform === 'darwin') {
+        const client = await page.createCDPSession();
+        try {
+            await client.send('Input.dispatchKeyEvent', {
+                type: 'keyDown',
+                key: 'a',
+                code: 'KeyA',
+                modifiers: 4,
+                windowsVirtualKeyCode: 65,
+                commands: ['selectAll'],
+            });
+            await client.send('Input.dispatchKeyEvent', {
+                type: 'keyUp',
+                key: 'a',
+                code: 'KeyA',
+                modifiers: 4,
+                windowsVirtualKeyCode: 65,
+            });
+        } finally {
+            await client.detach();
+        }
+    } else {
+        await page.keyboard.down('Control');
+        try {
+            await page.keyboard.press('A');
+        } finally {
+            await page.keyboard.up('Control');
+        }
+    }
+}
+
+/** Author markup with a real text drag. DOM ranges are measured, never selected. */
+export async function createTextMarkupWithPointer(
+    page: Page,
+    tool: 'Highlight' | 'Underline' | 'Strikethrough' | 'Squiggly' = 'Highlight',
+    spanIndex = 0,
+    pageNumber = 1,
+) {
+    await clickAnnotationTool(page, tool);
+    const geometry = await page.evaluate((input: {
+        spanIndex: number;
+        pageNumber: number
+    }) => {
+        const host = document.querySelector('.editor-pane.is-active .workspace-host');
+        const targetPage = host?.querySelector(`.page_container[data-page="${input.pageNumber}"]`);
+        const spans = Array.from(targetPage?.querySelectorAll<HTMLElement>('.text-layer span') ?? [])
+            .filter(span => (span.textContent?.trim().length ?? 0) > 3);
+        const span = spans[input.spanIndex];
+        const node = span?.firstChild;
+        if (!(node instanceof Text) || node.length < 4) {
+            throw new Error('The pointer markup fixture has no suitable text span');
+        }
+        const startRange = document.createRange();
+        startRange.setStart(node, 0);
+        startRange.setEnd(node, 1);
+        const endRange = document.createRange();
+        endRange.setStart(node, node.length - 1);
+        endRange.setEnd(node, node.length);
+        const start = startRange.getBoundingClientRect();
+        const end = endRange.getBoundingClientRect();
+        const points = [
+            {
+                x: start.left + 0.5,
+                y: start.top + start.height / 2,
+            },
+            {
+                x: end.right - 0.5,
+                y: end.top + end.height / 2,
+            },
+        ];
+        for (const point of points) {
+            const hit = document.elementFromPoint(point.x, point.y);
+            if (!hit || !span?.contains(hit)) {
+                throw new Error(`Text drag endpoint is obstructed: ${hit?.outerHTML.slice(0, 200)}`);
+            }
+        }
+        return {
+            before: targetPage?.querySelectorAll('[data-annotation-kind="text-markup"]').length ?? 0,
+            points,
+        };
+    }, {
+        spanIndex,
+        pageNumber,
+    });
+    await page.mouse.move(geometry.points[0]!.x, geometry.points[0]!.y);
+    await page.mouse.down();
+    await page.mouse.move(geometry.points[1]!.x, geometry.points[1]!.y, {steps: 16});
+    await page.mouse.up();
+    await page.waitForFunction((input: {
+        before: number;
+        pageNumber: number
+    }) => (
+        (document.querySelector(`.editor-pane.is-active .page_container[data-page="${input.pageNumber}"]`)
+            ?.querySelectorAll('[data-annotation-kind="text-markup"]').length ?? 0) === input.before + 1
+    ), {timeout: 20_000}, {
+        before: geometry.before,
+        pageNumber,
     });
 }
 
@@ -279,12 +423,16 @@ export async function createCanonicalTextBoxWithPointer(
     await page.mouse.click(point.x, point.y);
 
     const editorSelector = `.editor-pane.is-active .page_container[data-page="${pageNumber}"] `
-        + '.pdf-annotation-editor-text-box.is-selected [contenteditable="true"]';
+        + '.pdf-annotation-editor-text-box.is-editing [contenteditable="true"]';
     await page.waitForSelector(editorSelector, {
         timeout: 30_000,
         visible: true,
     });
-    await page.focus(editorSelector);
+    // Assert that the placement click established editor focus. Repairing focus
+    // here would hide a broken click-to-type interaction from persistence tests.
+    await page.waitForFunction((selector: string) => (
+        document.activeElement === document.querySelector(selector)
+    ), {timeout: 30_000}, editorSelector);
     await page.keyboard.type(text, {delay: 10});
     const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
     await page.keyboard.down(modifier);
@@ -518,7 +666,7 @@ export async function waitForNoOpenNoteWindows(page: Page) {
 }
 
 export async function clickLatestVisibleNoteWindowClose(page: Page) {
-    const clicked = await page.evaluate(() => {
+    const point = await page.evaluate(() => {
         const isVisible = (candidate: HTMLElement) => {
             const rect = candidate.getBoundingClientRect();
             const style = window.getComputedStyle(candidate);
@@ -545,12 +693,23 @@ export async function clickLatestVisibleNoteWindowClose(page: Page) {
                     : []
             ))
             .at(-1);
-        closeButton?.click();
-        return Boolean(closeButton);
+        if (!closeButton) {
+            return null;
+        }
+        const rect = closeButton.getBoundingClientRect();
+        const x = rect.left + rect.width / 2;
+        const y = rect.top + rect.height / 2;
+        const hit = document.elementFromPoint(x, y);
+        if (!hit || !closeButton.contains(hit)) throw new Error('The note close button is obstructed');
+        return {
+            x,
+            y,
+        };
     });
-    if (!clicked) {
+    if (!point) {
         throw new Error(`Could not close a visible note window: ${JSON.stringify(await collectStickyNoteDebugState(page))}`);
     }
+    await page.mouse.click(point.x, point.y);
 }
 
 export async function collectStickyNoteDebugState(page: Page) {

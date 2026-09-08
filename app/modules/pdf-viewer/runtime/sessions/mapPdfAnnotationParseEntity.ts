@@ -60,6 +60,7 @@ export function mapPdfAnnotationParseEntity(
                 position: {...entry.position},
                 color: entry.color,
                 open: entry.open,
+                ...(entry.recoveryData === undefined ? {} : {recoveryData: entry.recoveryData}),
                 replies: entry.replies.map(reply => ({
                     ...reply,
                     createdAt: reply.createdAt === null ? null : createEpochMs(reply.createdAt),
@@ -85,26 +86,47 @@ export function mapPdfAnnotationParseEntity(
                 rotation: entry.rotation,
                 image: {...entry.image},
             };
-        case 'shape':
+        case 'shape': {
+            // The native shape parser reports ordered /L endpoints separately
+            // from absolute width/height. Retain their direction before taking
+            // the bounding rect used by selection and resizing.
+            const linePoints = entry.type === 'line' || entry.type === 'arrow'
+                ? [
+                    {
+                        x: entry.x,
+                        y: entry.y,
+                    },
+                    {
+                        x: entry.x2 ?? entry.x + entry.width,
+                        y: entry.y2 ?? entry.y + entry.height,
+                    },
+                ]
+                : null;
             return {
                 ...parsedEntityBase(entry),
                 kind: 'shape',
                 tool: entry.type === 'polyline' || entry.type === 'polygon'
                     ? 'draw'
                     : entry.type,
+                pdfSubtype: entry.pdfSubtype,
+                ...(entry.lineStartStyle === null ? {} : {lineStartStyle: entry.lineStartStyle}),
+                ...(entry.lineEndStyle === null ? {} : {lineEndStyle: entry.lineEndStyle}),
                 rect: {
-                    left: entry.x,
-                    top: entry.y,
+                    left: linePoints ? Math.min(linePoints[0]!.x, linePoints[1]!.x) : entry.x,
+                    top: linePoints ? Math.min(linePoints[0]!.y, linePoints[1]!.y) : entry.y,
                     width: entry.width,
                     height: entry.height,
                 },
-                ...(entry.points === null ? {} : {points: entry.points.map(point => ({...point}))}),
+                ...(linePoints
+                    ? {points: linePoints}
+                    : entry.points === null ? {} : {points: entry.points.map(point => ({...point}))}),
                 ...(entry.strokes === null ? {} : {strokes: entry.strokes.map(stroke => stroke.map(point => ({...point})))}),
                 strokeColor: entry.color,
                 strokeWidth: entry.strokeWidth,
                 fill: entry.fillColor,
                 opacity: entry.opacity,
             };
+        }
     }
 }
 

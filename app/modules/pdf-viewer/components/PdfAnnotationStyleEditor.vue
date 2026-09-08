@@ -1,6 +1,44 @@
 <template>
-    <div class="annotation-style-editor flex flex-col gap-2" :class="{ 'is-idle': !hasStyleControls }">
-        <template v-if="hasStyleControls">
+    <div class="annotation-style-editor flex flex-col gap-2" :class="{ 'is-idle': !hasStyleControls && selectedAnnotations.length === 0 }">
+        <template v-if="selectedAnnotations.length > 0">
+            <div v-if="selectionHasColor" class="swatch-row">
+                <button
+                    v-for="swatch in selectionColorSwatches" :key="swatch" type="button" class="swatch"
+                    :class="{ 'is-active': swatch === selectionColor }" :style="{ backgroundColor: swatch }"
+                    :aria-label="swatch" :aria-pressed="swatch === selectionColor"
+                    @click="emit('update-properties', {color: swatch})" />
+            </div>
+            <label v-if="selectionWidthProperty" class="style-row">
+                <span class="style-label">{{ selectionWidthProperty === 'fontSize' ? t('annotations.textSize') : t('annotations.stroke') }}</span>
+                <input
+                    type="number" class="annotation-property-number" :aria-label="selectionWidthProperty === 'fontSize' ? t('annotations.textSize') : t('annotations.stroke')"
+                    :min="selectionWidthProperty === 'fontSize' ? 8 : 0.5" :max="selectionWidthProperty === 'fontSize' ? 72 : 24" step="0.5"
+                    :value="selectionWidth" :placeholder="t('annotations.mixedValues')"
+                    @change="updateSelectedWidth($event)" />
+            </label>
+            <label v-if="selectionHasOpacity" class="style-row">
+                <span class="style-label">{{ t('annotations.opacity') }}</span>
+                <input
+                    type="number" class="annotation-property-number" :aria-label="t('annotations.opacity')" min="0" max="100" step="5"
+                    :value="selectionOpacity" :placeholder="t('annotations.mixedValues')"
+                    @change="updateSelectedNumber('opacity', $event, 0, 100, 100)" />
+            </label>
+            <div v-if="selectionHasFill" class="style-row">
+                <span class="style-label">{{ t('annotations.fillColor') }}</span>
+                <input
+                    type="color" :aria-label="t('annotations.fillColor')" :value="selectionFill ?? '#ffffff'"
+                    @change="emit('update-properties', {fill: inputValue($event)})" />
+                <button type="button" @click="emit('update-properties', {fill: null})">{{ t('annotations.noFill') }}</button>
+            </div>
+            <label v-if="selectionHasRotation" class="style-row">
+                <span class="style-label">{{ t('annotations.rotation') }}</span>
+                <input
+                    type="number" class="annotation-property-number" :aria-label="t('annotations.rotation')" min="0" max="270" step="90"
+                    :value="selectionRotation" :placeholder="t('annotations.mixedValues')"
+                    @change="updateSelectedNumber('rotation', $event, 0, 270)" />
+            </label>
+        </template>
+        <template v-else-if="hasStyleControls">
             <div class="swatch-row">
                 <AppTooltip
                     v-for="swatch in displayColorSwatches"
@@ -62,6 +100,19 @@
                 </div>
             </div>
 
+            <label v-if="opacitySettingKey" class="style-row">
+                <span class="style-label">{{ t('annotations.opacity') }}</span>
+                <input
+                    type="range" min="0" max="100" step="5" :aria-label="t('annotations.opacity')"
+                    :value="Number(settings[opacitySettingKey]) * 100" @input="updateDefaultOpacity($event)" />
+            </label>
+            <div v-if="isShapeTool(tool) && tool !== 'draw'" class="style-row">
+                <span class="style-label">{{ t('annotations.fillColor') }}</span>
+                <input
+                    type="color" :aria-label="t('annotations.fillColor')" :value="settings.shapeFillColor === 'transparent' ? '#ffffff' : settings.shapeFillColor"
+                    @input="updateSetting('shapeFillColor', inputValue($event))" />
+                <button type="button" @click="updateSetting('shapeFillColor', 'transparent')">{{ t('annotations.noFill') }}</button>
+            </div>
             <div v-if="tool === 'draw'" class="draw-style-row flex flex-col">
                 <span class="style-label">{{ t('annotations.penType') }}</span>
                 <div class="draw-style-list">
@@ -89,13 +140,17 @@
 <script setup lang="ts">
 import type {
     IAnnotationSettings,
+    IAnnotationPropertyUpdate,
     TAnnotationTool,
 } from '@app/types/annotations';
 import { ANNOTATION_COLOR_SWATCHES } from '@app/constants/pdfColors';
 import { ANNOTATION_PROPERTY_RANGES } from '@app/constants/annotationDefaults';
 import { isAuthoringAnnotationTool } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isAuthoringAnnotationTool';
 import { isShapeTool } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isShapeTool';
-import type { ITextBoxEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import type {
+    ITextBoxEntity,
+    AnnotationEntity,
+} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 
 type TDrawStyle = 'pen' | 'pencil' | 'marker';
 
@@ -118,6 +173,7 @@ interface IProps {
     tool: TAnnotationTool;
     settings: IAnnotationSettings;
     selectedTextBox?: Pick<ITextBoxEntity, 'fontSize' | 'color'> | null;
+    selectedAnnotations?: readonly AnnotationEntity[];
 }
 
 const { t } = useTypedI18n();
@@ -126,15 +182,75 @@ const {
     settings,
     tool,
     selectedTextBox = null,
+    selectedAnnotations = [],
 } = defineProps<IProps>();
 
 const emit = defineEmits<{
     'color-selected': [];
+    'update-properties': [updates: IAnnotationPropertyUpdate];
     'update-setting': [payload: {
         key: keyof IAnnotationSettings;
         value: IAnnotationSettings[keyof IAnnotationSettings];
     }];
 }>();
+
+function inputValue(event: Event) {
+    return (event.target as HTMLInputElement).value;
+}
+
+function commonSelectionValue<T>(read: (entity: AnnotationEntity) => T): T | null {
+    const values = selectedAnnotations.map(read);
+    return values.length > 0 && values.every(value => value === values[0]) ? values[0]! : null;
+}
+const selectionHasColor = computed(() => selectedAnnotations.every(entity => entity.kind !== 'placed-image'));
+const selectionColor = computed(() => commonSelectionValue(entity => entity.kind === 'shape' ? entity.strokeColor : entity.kind === 'placed-image' ? null : entity.color));
+const selectionColorSwatches = computed(() => {
+    const color = selectionColor.value;
+    return color && !colorSwatches.some(swatch => swatch.toLowerCase() === color.toLowerCase()) ? [
+        color,
+        ...colorSwatches,
+    ] : colorSwatches;
+});
+const selectionWidthProperty = computed(() => selectedAnnotations.every(entity => entity.kind === 'text-box') ? 'fontSize'
+    : selectedAnnotations.every(entity => entity.kind === 'shape') ? 'strokeWidth' : null);
+const selectionWidth = computed(() => commonSelectionValue(entity => entity.kind === 'text-box' ? entity.fontSize : entity.kind === 'shape' ? entity.strokeWidth : null));
+const selectionHasOpacity = computed(() => selectedAnnotations.every(entity => entity.kind === 'shape' || entity.kind === 'text-markup'));
+const selectionOpacity = computed(() => commonSelectionValue(entity => entity.kind === 'shape' || entity.kind === 'text-markup' ? Math.round((entity.opacity ?? 1) * 100) : null));
+const selectionHasFill = computed(() => selectedAnnotations.every(entity => entity.kind === 'shape'));
+const selectionFill = computed(() => commonSelectionValue(entity => entity.kind === 'shape' ? entity.fill : null));
+const selectionHasRotation = computed(() => selectedAnnotations.every(entity => entity.kind === 'text-box' || entity.kind === 'placed-image'));
+const selectionRotation = computed(() => commonSelectionValue(entity => entity.kind === 'text-box' || entity.kind === 'placed-image' ? entity.rotation : null));
+
+function updateSelectedNumber(key: keyof IAnnotationPropertyUpdate, event: Event, min: number, max: number, divisor = 1) {
+    if (inputValue(event).trim() === '') {
+        return;
+    }
+    const value = Number(inputValue(event));
+    if (!Number.isFinite(value)) {
+        return;
+    }
+    const bounded = Math.max(min, Math.min(max, value)) / divisor;
+    emit('update-properties', {[key]: key === 'rotation' ? Math.round(bounded / 90) * 90 : bounded});
+}
+function updateSelectedWidth(event: Event) {
+    if (selectionWidthProperty.value === 'fontSize') updateSelectedNumber('fontSize', event, 8, 72);
+    if (selectionWidthProperty.value === 'strokeWidth') updateSelectedNumber('strokeWidth', event, 0.5, 24);
+}
+const opacitySettingKey = computed(() => {
+    switch (tool) {
+        case 'draw': return 'inkOpacity';
+        case 'highlight': return 'highlightOpacity';
+        case 'underline': return 'underlineOpacity';
+        case 'strikethrough': return 'strikethroughOpacity';
+        case 'squiggly': return 'squigglyOpacity';
+        case 'rectangle': case 'circle': case 'line': case 'arrow': return 'shapeOpacity';
+        case 'text': case 'stamp': case 'select': case 'none': case 'note': return null;
+    }
+});
+function updateDefaultOpacity(event: Event) {
+    const key = opacitySettingKey.value;
+    if (key) updateSetting(key, Number(inputValue(event)) / 100);
+}
 
 const colorSwatches = ANNOTATION_COLOR_SWATCHES;
 const hasStyleControls = computed(() => isAuthoringAnnotationTool(tool));
@@ -224,7 +340,7 @@ const activeColorSwatch = computed(() => {
     }
 
     if (tool === 'note') {
-        return settings.textColor;
+        return settings.noteColor ?? '#f59e0b';
     }
 
     if (tool === 'strikethrough') {
@@ -295,7 +411,7 @@ function handleColorInput(color: string) {
     }
 
     if (tool === 'note') {
-        updateSetting('textColor', color);
+        updateSetting('noteColor', color);
         emit('color-selected');
         return;
     }
@@ -360,6 +476,14 @@ function applyDrawStyle(style: TDrawStyle) {
 </script>
 
 <style scoped>
+.annotation-property-number {
+    width: var(--app-annotation-property-input-width);
+    border: 1px solid var(--ui-border);
+    border-radius: var(--app-radius-md);
+    background: var(--ui-bg);
+    color: var(--ui-text);
+}
+
 .annotation-style-editor {
     min-height: 0;
 }
@@ -385,7 +509,15 @@ function applyDrawStyle(style: TDrawStyle) {
 }
 
 .style-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
     gap: 0.35rem;
+}
+
+.style-row-width {
+    align-items: stretch;
+    min-width: 0;
 }
 
 .style-label {
@@ -395,7 +527,7 @@ function applyDrawStyle(style: TDrawStyle) {
 
 .swatch-row {
     display: flex;
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
     gap: 0.3rem;
 }
 
@@ -414,12 +546,6 @@ function applyDrawStyle(style: TDrawStyle) {
     box-shadow:
         0 0 0 1px var(--app-sidebar-bg),
         0 0 0 3px var(--ui-text);
-}
-
-@media (width <= 360px) {
-    .swatch-row {
-        flex-wrap: wrap;
-    }
 }
 
 .style-range {
@@ -447,11 +573,14 @@ function applyDrawStyle(style: TDrawStyle) {
 
 .style-width-control {
     display: flex;
+    width: 100%;
+    min-width: 0;
     align-items: center;
     gap: 0.45rem;
 }
 
 .style-step-button {
+    flex: 0 0 var(--app-annotation-action-size);
     border: 1px solid var(--ui-border);
     border-radius: 0.4rem;
     background: var(--ui-bg);

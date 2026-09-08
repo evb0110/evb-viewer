@@ -1011,6 +1011,44 @@ mod tests {
     }
 
     #[test]
+    fn wasm_inline_png_save_returns_editable_stamp_and_source_identity() {
+        use crate::{
+            collect_parsed_annotations, sha256_hex, validate_recovery_image,
+            PdfAnnotationParseEntry,
+        };
+        use base64::Engine;
+        let input = test_pdf_bytes();
+        let png = include_bytes!("../../evb-raster-io/tests/fixtures/rgba8.png");
+        let payload = serde_json::to_vec(&serde_json::json!({
+            "modifiedAt": "D:20260908120000Z",
+            "mutations": { "placedImages": [{
+                "pageIndex": 0, "stableKey": "wasm-inline-png", "x": 0.1, "y": 0.1,
+                "width": 0.5, "height": 0.5, "mimeType": "image/png",
+                "byteLength": png.len(), "sha256": sha256_hex(png),
+                "bytesBase64": base64::engine::general_purpose::STANDARD.encode(png)
+            }] }
+        }))
+        .unwrap();
+        let output = run_request(&mutation_save_request(&input, &payload)).unwrap();
+        assert_eq!(&output[..4], &RESPONSE_NATIVE_MUTATIONS.to_le_bytes());
+        let data_len = u32::from_le_bytes(output[8..12].try_into().unwrap()) as usize;
+        let saved = &output[NATIVE_MUTATION_RESPONSE_HEADER_BYTES
+            ..NATIVE_MUTATION_RESPONSE_HEADER_BYTES + data_len];
+        let document = Document::load_mem(saved).unwrap();
+        let entries = collect_parsed_annotations(&document, "D:20260908120000Z").unwrap();
+        let stamp = entries
+            .iter()
+            .find_map(|entry| match entry {
+                PdfAnnotationParseEntry::Stamp(stamp) => Some(stamp),
+                _ => None,
+            })
+            .expect("portable PNG is editable after save");
+        assert_eq!(stamp.image.sha256, sha256_hex(png));
+        assert_eq!(stamp.image.byte_length, png.len() as u64);
+        validate_recovery_image(&document, &stamp.image).unwrap();
+    }
+
+    #[test]
     fn wasm_native_mutation_dates_require_valid_calendar_and_timezone_values() {
         for value in [
             "D:20260230000000Z",

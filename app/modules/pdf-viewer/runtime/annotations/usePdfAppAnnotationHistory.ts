@@ -77,7 +77,10 @@ export const usePdfAppAnnotationHistory = (options: {
         if (shouldTransferPendingCommands) {
             const pendingCommands = [...undoStack];
             pendingCommands.forEach(pushCommand);
+        } else {
+            undoStack.forEach(command => command.onDiscard?.());
         }
+        redoStack.forEach(command => command.onDiscard?.());
         undoStack.length = 0;
         redoStack.length = 0;
         syncDepths();
@@ -96,6 +99,7 @@ export const usePdfAppAnnotationHistory = (options: {
         while (stack.length > MAX_HISTORY_DEPTH || retainedBytes > MAX_ANNOTATION_HISTORY_BYTES) {
             const removed = stack.shift();
             retainedBytes -= Math.max(0, removed?.estimatedBytes ?? DEFAULT_COMMAND_BYTES);
+            removed?.onDiscard?.();
         }
     }
 
@@ -121,6 +125,7 @@ export const usePdfAppAnnotationHistory = (options: {
             workspaceCommandSink.register({
                 source: 'annotation',
                 estimatedBytes: Math.max(0, command.estimatedBytes ?? DEFAULT_COMMAND_BYTES),
+                onDiscard: command.onDiscard,
                 entityIds: command.annotationIds,
                 undo: () => replayWorkspaceCommand(command.undo),
                 cmd: () => replayWorkspaceCommand(command.cmd),
@@ -130,7 +135,7 @@ export const usePdfAppAnnotationHistory = (options: {
             return;
         }
         undoStack.push(command);
-        redoStack.length = 0;
+        redoStack.splice(0).forEach(entry => entry.onDiscard?.());
         trimHistory();
         syncDepths();
         annotationHistoryMutationVersion.value += 1;
@@ -149,12 +154,18 @@ export const usePdfAppAnnotationHistory = (options: {
         const keep = (command: IPdfAppAnnotationHistoryCommand) => (
             !command.annotationIds?.some(id => ids.has(id))
         );
+        transactionCommands.filter(command => !keep(command)).forEach(command => command.onDiscard?.());
         transactionCommands = transactionCommands.filter(keep);
         if (workspaceCommandSink) {
             workspaceCommandSink.forget('annotation', ids);
         } else {
+            const discarded = [
+                ...undoStack,
+                ...redoStack,
+            ].filter(command => !keep(command));
             undoStack.splice(0, undoStack.length, ...undoStack.filter(keep));
             redoStack.splice(0, redoStack.length, ...redoStack.filter(keep));
+            discarded.forEach(command => command.onDiscard?.());
         }
         syncDepths();
         annotationHistoryResetVersion.value += 1;
@@ -223,6 +234,7 @@ export const usePdfAppAnnotationHistory = (options: {
                 total + Math.max(0, command.estimatedBytes ?? DEFAULT_COMMAND_BYTES)
             ), 0),
             annotationIds: Array.from(new Set(commands.flatMap(command => command.annotationIds ?? []))),
+            onDiscard: () => commands.forEach(command => command.onDiscard?.()),
         });
     }
 
@@ -267,8 +279,11 @@ export const usePdfAppAnnotationHistory = (options: {
     }
 
     function poisonHistory() {
-        undoStack.length = 0;
-        redoStack.length = 0;
+        [
+            ...undoStack.splice(0),
+            ...redoStack.splice(0),
+            ...transactionCommands,
+        ].forEach(command => command.onDiscard?.());
         transactionCommands = [];
         syncDepths();
         annotationHistoryResetVersion.value += 1;
@@ -355,8 +370,12 @@ export const usePdfAppAnnotationHistory = (options: {
     }
 
     function clear() {
-        undoStack.length = 0;
-        redoStack.length = 0;
+        [
+            ...undoStack.splice(0),
+            ...redoStack.splice(0),
+            ...transactionCommands,
+        ].forEach(command => command.onDiscard?.());
+        transactionCommands = [];
         syncDepths();
         annotationHistoryResetVersion.value += 1;
         workspaceCommandSink?.reset('annotation');

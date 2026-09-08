@@ -301,9 +301,15 @@ describe('AnnotationStore public API', () => {
         const after = store.get(entity.identity.id);
 
         expect(store.undo()).toBe(true);
-        expect(store.get(entity.identity.id)).toEqual(before);
+        expect(store.get(entity.identity.id)).toEqual({
+            ...before,
+            revision: 2,
+        });
         expect(store.redo()).toBe(true);
-        expect(store.get(entity.identity.id)).toEqual(after);
+        expect(store.get(entity.identity.id)).toEqual({
+            ...after,
+            revision: 3,
+        });
     });
 
     it('deletes in history and restores the exact entity on undo and redo', () => {
@@ -318,7 +324,10 @@ describe('AnnotationStore public API', () => {
         });
         expect(store.list()).toEqual([]);
         expect(store.undo()).toBe(true);
-        expect(store.get(entity.identity.id)).toEqual(before);
+        expect(store.get(entity.identity.id)).toEqual({
+            ...before,
+            revision: 2,
+        });
         expect(store.redo()).toBe(true);
         expect(store.get(entity.identity.id)).toMatchObject({deleted: true});
     });

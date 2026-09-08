@@ -135,8 +135,7 @@
                     :annotation-comments-status="annotationCommentsStatus"
                     :annotation-inventory="annotationInventory"
                     :annotation-enrichment-state="annotationEnrichmentState"
-                    :annotation-active-comment-stable-key="annotationActiveCommentStableKey"
-                    :selected-text-box="selectedTextBox"
+                    :selected-annotations="annotationSession.selectedAnnotations.value"
                     :bookmark-edit-mode="bookmarkEditMode"
                     :bookmark-items="bookmarkItems"
                     :bookmarks-dirty="bookmarksDirty"
@@ -159,6 +158,8 @@
                     @update:annotation-tool="handleAnnotationToolChange"
                     @update:annotation-keep-active="annotationKeepActive = $event"
                     @annotation-setting="handleAnnotationSettingChange"
+                    @annotation-edit-text-box="handleAnnotationToolChange('select'); pdfViewerRef?.editAnnotationTextBox?.($event)"
+                    @annotation-properties="pdfViewerRef?.updateSelectedAnnotationProperties?.($event)"
                     @update:selected-thumbnail-pages="handleSelectedThumbnailPagesUpdate"
                     @update:selected-page-selection="setSelectedPageSelection"
                     @annotation-focus-comment="annotationSession.handleAnnotationFocusComment"
@@ -289,15 +290,10 @@
             :page-context-menu-style="pageContextMenuStyle"
             :is-page-operation-in-progress="isPageOperationInProgress"
             :is-djvu-mode="isDjvuMode"
-            :selected-shape-for-properties="selectedShapeForProperties"
-            :shape-properties-x="shapePropertiesPopover.x"
-            :shape-properties-y="shapePropertiesPopover.y"
-            :selected-text-markup-for-properties="selectedTextMarkupForProperties"
-            :text-markup-properties-x="textMarkupPropertiesPopover.x"
-            :text-markup-properties-y="textMarkupPropertiesPopover.y"
             @update-note-text="updateAnnotationNoteText"
             @update-note-position="updateAnnotationNotePosition"
             @minimize-note="minimizeAnnotationNote"
+            @return-note-focus="annotationSession.focusAnnotationNote"
             @restore-note="restoreAnnotationNote"
             @delete-annotation="annotationSession.handleDeleteAnnotationById"
             @focus-note="bringAnnotationNoteToFront"
@@ -320,12 +316,6 @@
             @page-insert-after="documentControls.handlePageContextMenuInsertAfter"
             @page-select-all="documentControls.handlePageContextMenuSelectAll"
             @page-invert-selection="documentControls.handlePageContextMenuInvertSelection"
-            @shape-update="annotationSession.handleShapePropertyUpdate"
-            @shape-delete="annotationSession.handleDeleteSelectedShape"
-            @shape-close="annotationSession.closeShapeProperties"
-            @text-markup-color-update="annotationSession.handleTextMarkupColorUpdate"
-            @text-markup-opacity-update="annotationSession.handleTextMarkupOpacityUpdate"
-            @text-markup-close="annotationSession.closeTextMarkupProperties"
         />
         <DjvuConversionOverlay
             v-if="showDjvuConversionUi"
@@ -795,8 +785,6 @@ const {
     annotationCommentsStatus,
     annotationInventory,
     annotationEnrichmentState,
-    annotationActiveCommentStableKey,
-    selectedTextBox,
     thumbnailHiddenAnnotationIds,
     markAnnotationCommentsLoading,
     annotationDirty,
@@ -811,10 +799,6 @@ const {
     restoreAnnotationNote,
     bringAnnotationNoteToFront,
     isSameAnnotationComment,
-    shapePropertiesPopover,
-    selectedShapeForProperties,
-    textMarkupPropertiesPopover,
-    selectedTextMarkupForProperties,
 } = annotationSession;
 const {
     pageContextMenu,
@@ -1347,8 +1331,6 @@ const {
     canUndo,
     canRedo,
     closeAllDropdowns,
-    closeShapeProperties: annotationSession.closeShapeProperties,
-    closeTextMarkupProperties: annotationSession.closeTextMarkupProperties,
     continuousScroll,
     viewerCapabilities: computed(() => activeDriverCapabilities.value ?? createDefaultWorkspaceViewerCapabilities()),
     currentPage,

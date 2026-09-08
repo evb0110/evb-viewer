@@ -134,6 +134,7 @@
 
     fn rectangle_shape(stable_key: &str, color: &str) -> ShapeAnnotation {
         ShapeAnnotation {
+            author: None,
             shape_type: "rectangle".to_string(),
             page_index: 0,
             x: 0.1,
@@ -165,6 +166,7 @@
             ShapePoint {x: 0.3, y: 0.72},
         ];
         ShapeAnnotation {
+            author: None,
             shape_type: "polyline".to_string(),
             page_index: 0,
             x: 0.1,

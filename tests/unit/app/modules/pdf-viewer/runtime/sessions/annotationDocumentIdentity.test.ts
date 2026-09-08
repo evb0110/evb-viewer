@@ -22,6 +22,7 @@ import {
 } from 'vue';
 import {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type {IAnnotationCommentSummary} from '@app/types/annotations';
+import type {IPdfPlacedImageFinalizePayload} from '@app/types/pdfImagePlacement';
 import type { TPdfSource } from '@app/types/pdfUi';
 vi.mock('@app/services/pdfjs/getPdfjsViewerRuntimeProbeFailures', () => ({
     EventBus: vi.fn(),
@@ -74,6 +75,7 @@ afterEach(() => {
 });
 
 function mountAnnotationSession(initial: {
+    authorName?: string | null;
     originalPath?: string | null;
     workingCopyPath?: string | null;
     src?: TPdfSource | null;
@@ -83,6 +85,7 @@ function mountAnnotationSession(initial: {
     const src = shallowRef<TPdfSource | null>(initial.src ?? null);
     const pdfDocument = shallowRef<IPdfDocument | null>(null);
     const emitAnnotationComments = vi.fn();
+    const viewRotation = ref<0 | 90 | 180 | 270>(0);
     let session: ReturnType<typeof createPdfAnnotationSession> | undefined;
     const host = document.createElement('div');
     document.body.append(host);
@@ -90,7 +93,12 @@ function mountAnnotationSession(initial: {
         session = createPdfAnnotationSession({
             document: {
                 pdfDocument,
-                numPages: ref(0),
+                numPages: ref(1),
+                pageMetrics: ref([{
+                    width: 600,
+                    height: 800,
+                    rotation: 0,
+                }]),
                 registerDisposable: vi.fn(),
                 subscribe: vi.fn(() => vi.fn()),
                 captureFence: vi.fn(() => ({
@@ -120,6 +128,7 @@ function mountAnnotationSession(initial: {
                 renderVisiblePages: vi.fn(),
                 renderedPageStateVersion: ref(0),
             },
+            viewRotation: computed(() => viewRotation.value),
             viewerContainer: ref(null),
             originalPath: computed(() => originalPath.value),
             src: computed(() => src.value),
@@ -133,7 +142,7 @@ function mountAnnotationSession(initial: {
             annotationCursorMode: computed(() => false),
             annotationKeepActive: computed(() => false),
             annotationSettings: computed(() => null),
-            authorName: computed(() => null),
+            authorName: computed(() => initial.authorName ?? null),
             stopDrag: vi.fn(),
             clearPendingImagePlacement: vi.fn(),
             emitAnnotationModified: vi.fn(),
@@ -163,6 +172,8 @@ function mountAnnotationSession(initial: {
     }
     const activeSession = session;
     return {
+        session: activeSession,
+        viewRotation,
         originalPath,
         workingCopyPath,
         src,
@@ -340,5 +351,133 @@ describe('annotation document identity', () => {
         expect(harness.canonicalAnnotationIds()).toEqual([]);
         expect(harness.projectedComments()).toEqual([]);
         expect(harness.hasCanonicalChanges()).toBe(false);
+    });
+});
+
+
+function imagePlacement(overrides: Partial<IPdfPlacedImageFinalizePayload> = {}): IPdfPlacedImageFinalizePayload {
+    return {
+        pageNumber: 1,
+        viewRotation: 0,
+        x: 0.2,
+        y: 0.2,
+        width: 0.25,
+        height: 0.125,
+        rotationDegrees: 17,
+        bytes: Uint8Array.of(1, 2, 3),
+        sourcePixelWidth: 2,
+        sourcePixelHeight: 1,
+        mimeType: 'image/png',
+        fileName: 'stamp.png',
+        targetPixelWidth: 200,
+        targetPixelHeight: 100,
+        ...overrides,
+    };
+}
+
+describe('canonical image placement', () => {
+    it('creates and replaces images in the same undo history as unsaved text', async () => {
+        const {session} = mountAnnotationSession();
+        const store = session.annotationApplication.value.store;
+        const text = session.annotationEditorSurface.createTextBoxAt(0, {
+            left: 0.1,
+            top: 0.1,
+            width: 0.2,
+            height: 0.1,
+        }, {text: 'unsaved text'});
+        expect(await session.finalizeImagePlacement(imagePlacement())).toBe(true);
+        const image = store.list().find(entity => entity.kind === 'placed-image')!;
+        expect(image).toMatchObject({
+            rotation: 17,
+            image: {
+                kind: 'raster',
+                dataBase64: 'AQID',
+            },
+        });
+        expect(await session.finalizeImagePlacement(imagePlacement({
+            appAnnotationId: image.identity.id,
+            bytes: Uint8Array.of(4, 5, 6),
+            rotationDegrees: 43,
+        }))).toBe(true);
+        expect(store.list()).toHaveLength(2);
+        expect(store.get(image.identity.id)).toMatchObject({
+            rotation: 43,
+            image: {dataBase64: 'BAUG'},
+        });
+        await store.undo();
+        expect(store.get(image.identity.id)).toMatchObject({
+            rotation: 17,
+            image: {dataBase64: 'AQID'},
+        });
+        await store.undo();
+        expect(store.list().map(entity => entity.identity.id)).toEqual([text.identity.id]);
+        await store.undo();
+        expect(store.list()).toEqual([]);
+        await store.redo();
+        await store.redo();
+        await store.redo();
+        expect(store.get(text.identity.id)).toMatchObject({text: 'unsaved text'});
+        expect(store.get(image.identity.id)).toMatchObject({
+            rotation: 43,
+            image: {dataBase64: 'BAUG'},
+        });
+    });
+
+    it.each([
+        {
+            authorName: '  Image author  ',
+            expected: 'Image author',
+        },
+        {
+            authorName: '   ',
+            expected: null,
+        },
+    ])('normalizes the new image author $authorName', async ({
+        authorName,
+        expected,
+    }) => {
+        const {session} = mountAnnotationSession({authorName});
+        expect(await session.finalizeImagePlacement(imagePlacement())).toBe(true);
+        expect(session.annotationApplication.value.store.list()[0]?.author).toBe(expected);
+    });
+
+    it.each([
+        90,
+        180,
+    ] as const)('uses the draft coordinate rotation when the current view is %i', async currentViewRotation => {
+        const {
+            session,
+            viewRotation,
+        } = mountAnnotationSession();
+        viewRotation.value = currentViewRotation;
+        expect(await session.finalizeImagePlacement(imagePlacement({
+            rotationDegrees: 25,
+            viewRotation: 90,
+        }))).toBe(true);
+        const image = session.annotationApplication.value.store.list()[0];
+        expect(image).toMatchObject({rotation: 295});
+        if (image?.kind !== 'placed-image') throw new Error('Missing stamp');
+        expect(image.rect.width * 600).toBeCloseTo(0.25 * 800);
+        expect(image.rect.height * 800).toBeCloseTo(0.125 * 600);
+    });
+
+    it('does not mutate either document when the session changes during image encoding', async () => {
+        const harness = mountAnnotationSession({workingCopyPath: '/managed/first.pdf'});
+        const oldStore = harness.session.annotationApplication.value.store;
+        const finalization = harness.session.finalizeImagePlacement(imagePlacement());
+        harness.workingCopyPath.value = '/managed/second.pdf';
+        await nextTick();
+        expect(await finalization).toBe(false);
+        expect(oldStore.list()).toEqual([]);
+        expect(harness.session.annotationApplication.value.store.list()).toEqual([]);
+    });
+
+    it('leaves the store unchanged when an in-flight placement is canceled', async () => {
+        const {session} = mountAnnotationSession();
+        const controller = new AbortController();
+        const finalization = session.finalizeImagePlacement(imagePlacement({signal: controller.signal}));
+        controller.abort();
+        expect(await finalization).toBe(false);
+        expect(session.annotationApplication.value.store.list()).toEqual([]);
     });
 });

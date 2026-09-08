@@ -21,9 +21,6 @@ export { usePageLabelState } from '@app/modules/pdf-viewer/runtime/composables/p
 export { usePageOperations } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageOperations';
 export { usePdfHistory } from '@app/modules/pdf-viewer/runtime/composables/usePdfHistory';
 export { usePdfSearch } from '@app/modules/pdf-viewer/runtime/composables/usePdfSearch';
-export { usePdfPlacedImagePersistence } from '@app/modules/pdf-viewer/runtime/composables/pdf/pdfDocumentPersistence';
-export type { TPdfPlacedImageEmbeddingResult } from '@app/modules/pdf-viewer/runtime/composables/pdf/pdfDocumentPersistence';
-export { isPdfPlacedImageNativePathResult } from '@app/modules/pdf-viewer/runtime/composables/pdf/pdfDocumentPersistence';
 export type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 export {annotationIdForSummary} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
 export {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
@@ -59,3 +56,5 @@ export { clampPdfManualZoom } from '@app/modules/pdf-viewer/runtime/zoom/resolve
 export { readPrevalidatedTrustedPdfOpenGeometry } from '@app/modules/pdf-viewer/public/openGeometry';
 export {isPathPdfSource} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfNativePreviewRouting';
 export type { IPdfPageRasterScheduler } from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';
+
+export { createPdfSourceDataReader } from '@app/modules/pdf-viewer/runtime/composables/pdf/createPdfSourceDataReader';

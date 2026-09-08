@@ -12,7 +12,7 @@ import {readFileSync} from 'node:fs';
 
 function rustPaleCollapseWarning(pageNumber: number, half: string) {
     const source = readFileSync(
-        new URL('../../../native/scan-cleanup/src/engine/render.rs', import.meta.url),
+        new URL('../../../native/scan-cleanup/src/engine/render/region_rendering.rs', import.meta.url),
         'utf8',
     );
     const templates = [...source.matchAll(

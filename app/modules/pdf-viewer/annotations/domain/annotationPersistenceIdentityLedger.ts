@@ -108,7 +108,6 @@ export class AnnotationPersistenceIdentityLedger {
                 return {
                     ...live,
                     deleted: true,
-                    revision: live.revision + 1,
                 };
             }
             return snapshot;

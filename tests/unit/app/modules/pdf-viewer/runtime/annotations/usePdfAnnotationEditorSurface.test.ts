@@ -45,16 +45,20 @@ function baseEntity(id: string, pageIndex = 0) {
 
 function createSurfaceHarness() {
     const annotationApplication = shallowRef(new AnnotationApplication('surface-test'));
+    const isActive = shallowRef(true);
     const emitAnnotationModified = vi.fn();
     const emitShapeContextMenu = vi.fn();
+    const onCreationCompleted = vi.fn();
     const scope = effectScope();
     activeScopes.add(scope);
     const surface = scope.run(() => usePdfAnnotationEditorSurface({
         annotationApplication,
+        isActive: computed(() => isActive.value),
         activeTool: computed<TAnnotationTool>(() => 'select'),
         settings: computed(() => DEFAULT_ANNOTATION_SETTINGS),
         emitAnnotationModified,
         emitShapeContextMenu,
+        onCreationCompleted,
     }))!;
     const stop = () => {
         if (!activeScopes.delete(scope)) {
@@ -64,8 +68,10 @@ function createSurfaceHarness() {
     };
     return {
         annotationApplication,
+        isActive,
         emitAnnotationModified,
         emitShapeContextMenu,
+        onCreationCompleted,
         surface,
         stop,
     };
@@ -74,6 +80,256 @@ function createSurfaceHarness() {
 const activeScopes = new Set<ReturnType<typeof effectScope>>();
 
 describe('usePdfAnnotationEditorSurface', () => {
+    it('returns focus only to the still-selected annotation without replacing a multi-selection', () => {
+        const {
+            surface,
+            isActive,
+        } = createSurfaceHarness();
+        const first = surface.createNoteAt(0, rect);
+        const second = surface.createNoteAt(0, rect);
+        const focus = vi.fn();
+        surface.registerPageInteraction(0, {
+            commitTextDraft: vi.fn(),
+            cancelTextDraft: vi.fn(),
+            cancelPointerGesture: vi.fn(),
+            focus,
+        });
+        surface.select([
+            first.identity.id,
+            second.identity.id,
+        ]);
+        expect(surface.focusSelectedAnnotation(first.identity.id)).toBe(true);
+        expect(focus).toHaveBeenCalledOnce();
+        expect(surface.selectedIds.value).toEqual(new Set([
+            first.identity.id,
+            second.identity.id,
+        ]));
+        surface.select([second.identity.id]);
+        expect(surface.focusSelectedAnnotation(first.identity.id)).toBe(false);
+        expect(focus).toHaveBeenCalledOnce();
+        isActive.value = false;
+        expect(surface.focusSelectedAnnotation(second.identity.id)).toBe(false);
+        expect(focus).toHaveBeenCalledOnce();
+    });
+
+    it('completes a new text creation only after its accepted draft, never on cancellation', () => {
+        const {
+            surface,
+            onCreationCompleted,
+        } = createSurfaceHarness();
+        const box = surface.createTextBoxAt(0, rect);
+        surface.beginTextEditing(box.identity.id);
+        expect(onCreationCompleted).not.toHaveBeenCalled();
+        surface.endTextEditing(box.identity.id, {
+            created: true,
+            cancelled: true,
+        });
+        expect(onCreationCompleted).not.toHaveBeenCalled();
+        surface.beginTextEditing(box.identity.id);
+        surface.endTextEditing(box.identity.id, {created: true});
+        expect(onCreationCompleted).toHaveBeenCalledExactlyOnceWith('text');
+    });
+
+    it('Escape cancels the pointer operation before touching selection or the active text session', () => {
+        const {
+            surface,
+            onCreationCompleted,
+        } = createSurfaceHarness();
+        const box = surface.createTextBoxAt(0, rect);
+        const cancelPointerGesture = vi.fn();
+        const cancelTextDraft = vi.fn(() => surface.endTextEditing(box.identity.id, {cancelled: true}));
+        surface.registerPageInteraction(0, {
+            commitTextDraft: vi.fn(),
+            cancelTextDraft,
+            cancelPointerGesture,
+            focus: vi.fn(),
+        });
+        surface.beginTextEditing(box.identity.id);
+        surface.beginPointerInteraction(0);
+        expect(surface.handleEscape()).toBe(true);
+        expect(cancelPointerGesture).toHaveBeenCalledOnce();
+        expect(cancelTextDraft).not.toHaveBeenCalled();
+        expect(surface.selectedIds.value.has(box.identity.id)).toBe(true);
+        expect(surface.handleEscape()).toBe(true);
+        expect(cancelTextDraft).toHaveBeenCalledOnce();
+        expect(surface.editingId.value).toBeNull();
+        expect(surface.handleEscape()).toBe(true);
+        expect(surface.selectedIds.value.size).toBe(0);
+        expect(onCreationCompleted).not.toHaveBeenCalled();
+    });
+
+    it('owns one text session and cancels a captured gesture before a tool change', () => {
+        const { surface } = createSurfaceHarness();
+        const box = surface.createTextBoxAt(0, rect);
+        const events: string[] = [];
+        surface.registerPageInteraction(0, {
+            commitTextDraft: () => {
+                events.push('commit');
+                surface.endTextEditing(box.identity.id, {restoreFocus: false});
+            },
+            cancelTextDraft: () => events.push('cancel-text'),
+            cancelPointerGesture: () => events.push('cancel-pointer'),
+            focus: () => events.push('focus'),
+        });
+        surface.beginTextEditing(box.identity.id);
+        surface.beginPointerInteraction(0);
+        surface.prepareToolChange();
+        expect(events).toEqual([
+            'commit',
+            'cancel-pointer',
+        ]);
+        expect(surface.editingId.value).toBeNull();
+        expect(surface.selectedIds.value.size).toBe(0);
+        expect(surface.cancelActiveInteraction()).toBe(false);
+    });
+
+    it('suspends a hidden document by committing text and cancelling its gesture without tool completion', async () => {
+        const {
+            surface,
+            onCreationCompleted,
+        } = createSurfaceHarness();
+        const box = surface.createTextBoxAt(0, rect);
+        const focus = vi.fn();
+        const cancelPointerGesture = vi.fn();
+        const commitTextDraft = vi.fn(() => surface.endTextEditing(box.identity.id, {created: true}));
+        surface.registerPageInteraction(0, {
+            commitTextDraft,
+            cancelTextDraft: vi.fn(),
+            cancelPointerGesture,
+            focus,
+        });
+        surface.beginTextEditing(box.identity.id);
+        surface.beginPointerInteraction(0);
+        surface.suspendInteraction();
+        await Promise.resolve();
+        expect(commitTextDraft).toHaveBeenCalledOnce();
+        expect(cancelPointerGesture).toHaveBeenCalledOnce();
+        expect(surface.selectedIds.value.has(box.identity.id)).toBe(true);
+        expect(onCreationCompleted).not.toHaveBeenCalled();
+        expect(focus).not.toHaveBeenCalled();
+    });
+
+    it('applies explicit common properties to the whole canonical selection without changing defaults', () => {
+        const {
+            surface,
+            annotationApplication,
+        } = createSurfaceHarness();
+        const box = surface.createTextBoxAt(0, rect);
+        const note = surface.createNoteAt(0, rect);
+        surface.select([
+            box.identity.id,
+            note.identity.id,
+        ]);
+        expect(surface.updateSelectedAnnotationProperties({color: '#123456'})).toBe(true);
+        expect(annotationApplication.value.store.get(box.identity.id)).toMatchObject({color: '#123456'});
+        expect(annotationApplication.value.store.get(note.identity.id)).toMatchObject({color: '#123456'});
+        expect(surface.settings.value).toEqual(DEFAULT_ANNOTATION_SETTINGS);
+    });
+
+    it('does not mark unchanged font size and equal measured geometry as modified', () => {
+        const {
+            surface,
+            emitAnnotationModified,
+        } = createSurfaceHarness();
+        const box = surface.createTextBoxAt(0, rect);
+        surface.registerPageInteraction(0, {
+            commitTextDraft: vi.fn(),
+            cancelTextDraft: vi.fn(),
+            cancelPointerGesture: vi.fn(),
+            focus: vi.fn(),
+            fitTextBox: entity => ({...entity.rect}),
+        });
+        surface.select([box.identity.id]);
+        emitAnnotationModified.mockClear();
+        expect(surface.updateSelectedAnnotationProperties({fontSize: box.fontSize})).toBe(false);
+        expect(emitAnnotationModified).not.toHaveBeenCalled();
+    });
+
+    it('fits selected text to a new font size before one canonical update', () => {
+        const {
+            surface,
+            annotationApplication,
+        } = createSurfaceHarness();
+        const box = surface.createTextBoxAt(0, rect);
+        const fitTextBox = vi.fn(() => ({
+            ...rect,
+            height: 0.15,
+        }));
+        surface.registerPageInteraction(0, {
+            commitTextDraft: vi.fn(),
+            cancelTextDraft: vi.fn(),
+            cancelPointerGesture: vi.fn(),
+            focus: vi.fn(),
+            fitTextBox,
+        });
+        surface.select([box.identity.id]);
+        const before = annotationApplication.value.store.get(box.identity.id)!.revision;
+        surface.updateSelectedAnnotationProperties({fontSize: 32});
+        expect(fitTextBox).toHaveBeenCalledWith(expect.objectContaining({fontSize: 32}));
+        expect(annotationApplication.value.store.get(box.identity.id)).toMatchObject({
+            fontSize: 32,
+            rect: {
+                ...rect,
+                height: 0.15,
+            },
+            revision: before + 1,
+        });
+    });
+
+    it('clears a moving page preview when its interaction host unmounts', () => {
+        const {surface} = createSurfaceHarness();
+        const cancelPointerGesture = vi.fn();
+        const interaction = {
+            commitTextDraft: vi.fn(),
+            cancelTextDraft: vi.fn(),
+            cancelPointerGesture,
+            focus: vi.fn(),
+        };
+        const unregisterMovingPage = surface.registerPageInteraction(0, interaction);
+        const unregisterOtherPage = surface.registerPageInteraction(1, {
+            ...interaction,
+            cancelPointerGesture: vi.fn(),
+        });
+        surface.beginPointerInteraction(0);
+        surface.setSelectionMoveDelta({
+            x: 0.1,
+            y: 0.2,
+        });
+        unregisterOtherPage();
+        expect(surface.selectionMoveDelta.value).toEqual({
+            x: 0.1,
+            y: 0.2,
+        });
+        expect(cancelPointerGesture).not.toHaveBeenCalled();
+        unregisterMovingPage();
+        expect(surface.selectionMoveDelta.value).toBeNull();
+        expect(cancelPointerGesture).toHaveBeenCalledOnce();
+        expect(surface.cancelActiveInteraction()).toBe(false);
+    });
+
+    it('clears the shared selection preview when its pointer operation ends or cancels', () => {
+        const {surface} = createSurfaceHarness();
+        surface.beginPointerInteraction(0);
+        surface.setSelectionMoveDelta({
+            x: 0.1,
+            y: 0.2,
+        });
+        surface.endPointerInteraction(1);
+        expect(surface.selectionMoveDelta.value).toEqual({
+            x: 0.1,
+            y: 0.2,
+        });
+        surface.endPointerInteraction(0);
+        expect(surface.selectionMoveDelta.value).toBeNull();
+        surface.beginPointerInteraction(0);
+        surface.setSelectionMoveDelta({
+            x: 0.2,
+            y: 0.1,
+        });
+        surface.cancelActiveInteraction();
+        expect(surface.selectionMoveDelta.value).toBeNull();
+    });
+
     afterEach(() => {
         for (const scope of activeScopes) {
             scope.stop();

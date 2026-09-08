@@ -395,6 +395,43 @@ pub(crate) fn parse_shape_index_entry(
     page_view: PdfRect,
     page_rotation: i64,
 ) -> std::result::Result<EmbeddedShapeIndexEntry, String> {
+    if let Ok(style) = dict.get(b"BS") {
+        let style = document
+            .resolved(style)
+            .map_err(|error| error.to_string())?
+            .as_dict()
+            .map_err(|error| error.to_string())?;
+        if style.get(b"S").ok().is_some_and(|value| {
+            document
+                .resolved(value)
+                .ok()
+                .and_then(|value| value.as_name().ok())
+                != Some(b"S")
+        }) {
+            return Err("Shape border style is not representable by the editor".to_string());
+        }
+    } else if resolved_array_for_key(document, dict, b"Border").is_some_and(|values| {
+        values.get(3).is_some_and(|value| {
+            document
+                .resolved(value)
+                .ok()
+                .and_then(|value| value.as_array().ok())
+                .is_none_or(|dash| !dash.is_empty())
+        })
+    }) {
+        return Err("Dashed shape borders are not representable by the editor".to_string());
+    }
+    if matches!(subtype, "Line" | "PolyLine") {
+        if let Some(endings) = resolved_array_for_key(document, dict, b"LE") {
+            if endings.len() != 2
+                || endings
+                    .iter()
+                    .any(|value| line_ending_style(document, Some(value)).is_none())
+            {
+                return Err("Shape line endings are not representable by the editor".to_string());
+            }
+        }
+    }
     match subtype {
         "Square" | "Circle" => parse_rect_shape(
             document,
@@ -877,37 +914,9 @@ pub(crate) fn read_shape_opacity(document: &impl PdfObjectSource, dict: &Diction
 }
 
 fn read_shape_stroke_width(document: &impl PdfObjectSource, dict: &Dictionary) -> f64 {
-    if let Some(border) = resolved_array_for_key(document, dict, b"Border") {
-        if border.len() >= 3 {
-            if let Some(width) = resolved_number(document, &border[2]).filter(|value| *value >= 0.0)
-            {
-                return width;
-            }
-        }
-    }
-    if let Some(border_style) = dict
-        .get(b"BS")
-        .ok()
-        .and_then(|object| document.resolved(object).ok())
-        .and_then(|object| object.as_dict().ok())
-    {
-        if let Some(width) = border_style
-            .get(b"W")
-            .ok()
-            .and_then(|object| document.resolved(object).ok())
-            .and_then(|object| object_to_f64(object).ok())
-            .filter(|value| value.is_finite() && *value >= 0.0)
-        {
-            return width;
-        }
-    }
-    1.0
-}
-
-fn resolved_number(document: &impl PdfObjectSource, object: &Object) -> Option<f64> {
-    let resolved = document.resolved(object).ok()?;
-    let value = object_to_f64(resolved).ok()?;
-    value.is_finite().then_some(value)
+    shape_stroke_width(document, dict)
+        .filter(|value| value.is_finite() && *value >= 0.0)
+        .unwrap_or(1.0)
 }
 
 fn read_line_ending_styles(

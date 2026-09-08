@@ -42,11 +42,8 @@ vi.mock(
 );
 vi.mock('@app/utils/platformDocuments', () => ({getDocumentFilesCapability: () => ({statFile: platformMocks.statFile})}));
 vi.mock(
-    '@app/modules/pdf-viewer/runtime/composables/pdf/pdfDocumentPersistence',
-    () => ({usePdfPlacedImagePersistence: () => ({
-        getSourcePdfData: vi.fn(async () => new Uint8Array([1])),
-        embedPlacedImageToPage: vi.fn(),
-    })}),
+    '@app/modules/pdf-viewer/runtime/composables/pdf/createPdfSourceDataReader',
+    () => ({createPdfSourceDataReader: () => vi.fn(async () => new Uint8Array([1]))}),
 );
 
 function createDeps(overrides: Record<string, unknown> = {}) {

@@ -29,6 +29,7 @@ const { isPdfjsPackagePath } = await import(
 const {
     absoluteSourceMapPath,
     inspectArchive,
+    parseArchiveListing,
     parseManifest,
     verify,
 } = await import(
@@ -67,6 +68,80 @@ describe('PDF.js provenance attack fixtures', () => {
         await writeFile(join(root, 'package', 'file.js'), 'fixture');
         return root;
     }
+
+    it.each([
+        '-rw-r--r-- 0/0 7 1985-10-26 08:15 package/file with spaces.js',
+        '-rw-r--r--  0 evb staff 7 Sep  8 03:02 package/file with spaces.js',
+        '-rw-r--r--  0 0 0 7 Oct 26  1985 package/file with spaces.js',
+    ])('reads GNU and BSD archive metadata: %s', (listing) => {
+        expect(parseArchiveListing(`${listing}\n`)).toEqual([{
+            type: 'file',
+            size: 7,
+            path: 'file with spaces.js',
+        }]);
+    });
+
+    it.each([
+        'package/../outside',
+        '/tmp/outside',
+        'package/C:/outside',
+        'package/file.js.orig',
+    ])('rejects unsafe paths in both listing formats: %s', (path) => {
+        for (const prefix of [
+            '-rw-r--r-- 0/0 7 1985-10-26 08:15 ',
+            '-rw-r--r--  0 evb staff 7 Sep  8 03:02 ',
+        ]) {
+            expect(() => parseArchiveListing(`${prefix}${path}\n`)).toThrow(/unsafe archive path|backup\/patch artifact/u);
+        }
+    });
+
+    it.each([
+        '-rw-r--r-- 0/0 7 1985-10-26 08:15 package/file.js',
+        '-rw-r--r--  0 evb staff 7 Sep  8 03:02 package/file.js',
+    ])('rejects duplicate rows in both listing formats: %s', (row) => {
+        expect(() => parseArchiveListing(`${row}\n${row}\n`)).toThrow(/duplicate entries/u);
+    });
+
+    it.each([
+        'd',
+        'l',
+        'h',
+        'p',
+        'b',
+        'c',
+    ])('rejects entry type %s in both listing formats', (type) => {
+        for (const metadata of [
+            '0/0 7 1985-10-26 08:15',
+            '0 evb staff 7 Sep  8 03:02',
+        ]) {
+            expect(() => parseArchiveListing(`${type}rw-r--r-- ${metadata} package/file.js\n`))
+                .toThrow(`unsupported entry type ${type}`);
+        }
+    });
+
+    it('reads regular-file metadata through the host tar implementation', async () => {
+        const root = await fixtureRoot();
+        const archive = join(root, 'regular.tgz');
+        try {
+            execFileSync('tar', [
+                '-czf',
+                archive,
+                '-C',
+                root,
+                'package/file.js',
+            ]);
+            expect(inspectArchive(archive)).toEqual([{
+                type: 'file',
+                size: 7,
+                path: 'file.js',
+            }]);
+        } finally {
+            await rm(root, {
+                recursive: true,
+                force: true,
+            });
+        }
+    });
 
     const archiveFixtures: Array<[string, TFixturePreparation]> = [
         [
@@ -113,7 +188,8 @@ describe('PDF.js provenance attack fixtures', () => {
                     archive,
                     '-C',
                     root,
-                    'package',
+                    'package/file.js',
+                    `package/${kind === 'symlink' ? 'link' : kind}`,
                 ];
             execFileSync('tar', args);
             expect(() => inspectArchive(archive)).toThrow(/unsupported entry type|duplicate/u);

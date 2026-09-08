@@ -1,8 +1,9 @@
 use super::*;
+use base64::Engine;
 use sha2::{Digest, Sha256};
 
-const MAX_PLACED_IMAGE_BYTES: u64 = 128 * 1024 * 1024;
-const MAX_PLACED_IMAGE_AGGREGATE_BYTES: u64 = 512 * 1024 * 1024;
+pub(crate) const MAX_PLACED_IMAGE_BYTES: u64 = 128 * 1024 * 1024;
+pub(crate) const MAX_PLACED_IMAGE_AGGREGATE_BYTES: u64 = 512 * 1024 * 1024;
 const PLACED_IMAGE_READ_CHUNK_BYTES: usize = 64 * 1024;
 
 fn digest_hex(digest: &[u8]) -> String {
@@ -72,7 +73,19 @@ pub(crate) fn validate_placed_image_payloads_with_limits_and_open(
                 "Placed image sidecar hash does not match its manifest",
             ));
         }
-        let image_len = fs::metadata(&image.bytes_path)?.len();
+        let image_len = if let Some(encoded) = &image.bytes_base64 {
+            if !image.bytes_path.as_os_str().is_empty()
+                || encoded.len() as u64 != image.byte_length.div_ceil(3) * 4
+            {
+                return Err(domain_error(
+                    NativeErrorCode::InvalidRequest,
+                    "Placed image must have exactly one source with matching encoded length",
+                ));
+            }
+            image.byte_length
+        } else {
+            fs::metadata(&image.bytes_path)?.len()
+        };
         if image_len == 0 || image_len > max_image_bytes {
             return Err(domain_error(
                 NativeErrorCode::TooLarge,
@@ -114,6 +127,25 @@ pub(crate) fn validate_placed_image_payloads_with_limits_and_open(
                     "Invalid placed image byte length",
                 )
             })?;
+            if let Some(encoded) = &image.bytes_base64 {
+                base64::engine::general_purpose::STANDARD
+                    .decode_vec(encoded, &mut bytes)
+                    .map_err(|_| {
+                        domain_error(
+                            NativeErrorCode::InvalidRequest,
+                            "Invalid placed image base64",
+                        )
+                    })?;
+                if bytes.len() != capacity
+                    || !sha256_hex(&bytes).eq_ignore_ascii_case(&image.sha256)
+                {
+                    return Err(domain_error(
+                        NativeErrorCode::InvalidRequest,
+                        "Placed image inline payload does not match its manifest",
+                    ));
+                }
+                return Ok(bytes);
+            }
             let mut reader = open(&image.bytes_path)?.take(admitted_len.saturating_add(1));
             let mut hasher = Sha256::new();
             let mut chunk = [0u8; PLACED_IMAGE_READ_CHUNK_BYTES];
@@ -165,6 +197,7 @@ pub(crate) struct PlacedImageGeometry {
     pub(crate) width: f64,
     pub(crate) height: f64,
     pub(crate) rotation_degrees: f64,
+    pub(crate) source_rotation: f64,
 }
 
 pub(crate) fn parse_jpeg_info(bytes: &[u8]) -> Result<JpegInfo> {
@@ -282,7 +315,13 @@ pub(crate) fn placed_image_geometry(
     page_view: PdfRect,
     page_rotation: i64,
 ) -> Result<PlacedImageGeometry> {
-    let pdf_rect = marker_rect_to_pdf_rect(
+    if image
+        .rotation_degrees
+        .is_some_and(|degrees| !degrees.is_finite())
+    {
+        return Err("Invalid placed image rotation".into());
+    }
+    let pdf_rect = marker_rect_to_pdf_rect_unbounded(
         MarkerRect {
             left: image.x,
             top: image.y,
@@ -292,15 +331,19 @@ pub(crate) fn placed_image_geometry(
         page_view,
         page_rotation,
     )?;
-    let x = pdf_rect.x1.min(pdf_rect.x2);
-    let y = pdf_rect.y1.min(pdf_rect.y2);
-    let width = (pdf_rect.x2 - pdf_rect.x1).abs();
-    let height = (pdf_rect.y2 - pdf_rect.y1).abs();
+    let base_width = pdf_rect.width();
+    let base_height = pdf_rect.height();
+    let (width, height) = if matches!(normalize_page_rotation(page_rotation), 90 | 270) {
+        (base_height, base_width)
+    } else {
+        (base_width, base_height)
+    };
     if width <= 0.0 || height <= 0.0 {
         return Err("Invalid placed image dimensions".into());
     }
 
-    let rotation_degrees = 0.0 - image.rotation_degrees.unwrap_or(0.0);
+    let source_rotation = image.rotation_degrees.unwrap_or(0.0).rem_euclid(360.0);
+    let rotation_degrees = normalize_page_rotation(page_rotation) as f64 - source_rotation;
     let radians = rotation_degrees.to_radians();
     let abs_cos = radians.cos().abs();
     let abs_sin = radians.sin().abs();
@@ -314,16 +357,24 @@ pub(crate) fn placed_image_geometry(
     let rotated_half_height = ((width / 2.0) * sin) + ((height / 2.0) * cos);
     let image_x = bbox_center_x - rotated_half_width;
     let image_y = bbox_center_y - rotated_half_height;
-    let rect_offset_x = (bbox_width - width) / 2.0;
-    let rect_offset_y = (bbox_height - height) / 2.0;
-
+    let center_x = (pdf_rect.x1 + pdf_rect.x2) / 2.0;
+    let center_y = (pdf_rect.y1 + pdf_rect.y2) / 2.0;
+    let rect = PdfRect {
+        x1: center_x - bbox_width / 2.0,
+        y1: center_y - bbox_height / 2.0,
+        x2: center_x + bbox_width / 2.0,
+        y2: center_y + bbox_height / 2.0,
+    };
+    let tolerance = page_view.width().max(page_view.height()) * 1e-6;
+    if rect.x1 < page_view.x1 - tolerance
+        || rect.y1 < page_view.y1 - tolerance
+        || rect.x2 > page_view.x2 + tolerance
+        || rect.y2 > page_view.y2 + tolerance
+    {
+        return Err("Placed image rotated footprint exceeds the page bounds".into());
+    }
     Ok(PlacedImageGeometry {
-        rect: PdfRect {
-            x1: x - rect_offset_x,
-            y1: y - rect_offset_y,
-            x2: x + width + rect_offset_x,
-            y2: y + height + rect_offset_y,
-        },
+        rect,
         bbox_width,
         bbox_height,
         image_x,
@@ -331,6 +382,7 @@ pub(crate) fn placed_image_geometry(
         width,
         height,
         rotation_degrees,
+        source_rotation,
     })
 }
 
@@ -435,6 +487,10 @@ pub(crate) fn build_placed_image_stamp_dict(
     dict.set("Type", Object::Name(b"Annot".to_vec()));
     dict.set("Subtype", Object::Name(b"Stamp".to_vec()));
     dict.set("Rect", rect_object(geometry.rect));
+    dict.set(
+        "EVBImageRotation",
+        Object::string_literal(geometry.source_rotation.to_string()),
+    );
     dict.set("AP", Object::Dictionary(ap_dict));
     dict.set("F", Object::Integer(4));
     dict.set(
@@ -449,13 +505,19 @@ pub(crate) fn build_placed_image_stamp_dict(
             StringFormat::Hexadecimal,
         ),
     );
+    if let Some(author) = image.author.as_deref() {
+        dict.set(
+            "T",
+            Object::String(encode_pdf_text_string(author), StringFormat::Hexadecimal),
+        );
+    }
     dict.set("Name", Object::Name(b"Approved".to_vec()));
     dict.set(PLACED_IMAGE_MARKER_KEY, Object::Boolean(true));
     dict.set("M", Object::string_literal(modified_at.as_bytes().to_vec()));
     dict
 }
 
-fn resolve_placed_image_target(
+pub(crate) fn resolve_placed_image_target(
     document: &impl PdfObjectSource,
     page_id: ObjectId,
     image: &PlacedImage,
@@ -540,10 +602,23 @@ fn patch_placed_image_stamp_dict(
     appearance_ref: ObjectId,
     expected_name: &str,
     modified_at: &str,
+    author: Option<&str>,
 ) {
     let mut ap_dict = Dictionary::new();
     ap_dict.set("N", Object::Reference(appearance_ref));
+    if let Some(author) = author {
+        dict.set(
+            "T",
+            Object::String(encode_pdf_text_string(author), StringFormat::Hexadecimal),
+        );
+    }
+    dict.set("EVBPlacedImage", Object::Boolean(true));
+    dict.remove(b"Rotate");
     dict.set("Rect", rect_object(geometry.rect));
+    dict.set(
+        "EVBImageRotation",
+        Object::string_literal(geometry.source_rotation.to_string()),
+    );
     dict.set("AP", Object::Dictionary(ap_dict));
     let flags = dict
         .get(b"F")
@@ -592,14 +667,18 @@ pub(crate) fn apply_placed_images(
     {
         let page_view = resolve_page_view(document, page_id)?;
         let page_rotation = resolve_page_rotation(document, page_id)?;
-        let jpeg_info = parse_jpeg_info(&image_bytes)?;
         let geometry = placed_image_geometry(image, page_view, page_rotation)?;
         let expected_name = placed_image_annotation_name(image, index, chunk_index, modified_at);
         let existing_stamp_ref =
             resolve_placed_image_target(document, page_id, image, &expected_name)?;
         let existing_appearance = existing_stamp_ref
             .and_then(|stamp_ref| placed_image_appearance_refs(document, stamp_ref));
-        let image_stream = build_jpeg_image_stream(image_bytes, &jpeg_info);
+        let (mut image_stream, mask_stream) = build_placed_raster_streams(image_bytes, image)?;
+        if let Some(mask) = mask_stream {
+            image_stream
+                .dict
+                .set("SMask", Object::Reference(document.add_object(mask)));
+        }
         let image_ref = if let Some((_, image_ref)) = existing_appearance {
             document.set_object(image_ref, Object::Stream(image_stream));
             image_ref
@@ -623,6 +702,7 @@ pub(crate) fn apply_placed_images(
                 appearance_ref,
                 &expected_name,
                 modified_at,
+                image.author.as_deref(),
             );
             stamp_ref
         } else {
@@ -652,10 +732,137 @@ pub(crate) fn apply_placed_images(
     Ok(())
 }
 
+pub(crate) fn placed_image_geometry_probe(update: &PlacedImageGeometryUpdate) -> PlacedImage {
+    PlacedImage {
+        author: update.author.clone(),
+        page_index: update.page_index,
+        stable_key: update.stable_key.clone(),
+        annotation_id: update.annotation_id.clone(),
+        x: update.x,
+        y: update.y,
+        width: update.width,
+        height: update.height,
+        rotation_degrees: update.rotation_degrees,
+        mime_type: "image/jpeg".to_string(),
+        bytes_path: PathBuf::new(),
+        bytes_base64: None,
+        byte_length: 0,
+        sha256: String::new(),
+        validated_bytes: std::cell::RefCell::new(None),
+    }
+}
+
+pub(crate) fn materialize_stamp_recovery_sources(
+    incremental: &mut IncrementalDocument,
+    path: &Path,
+    qpdf_path: Option<&Path>,
+    updates: &[PlacedImageGeometryUpdate],
+) -> Result<()> {
+    let Some(qpdf_path) = qpdf_path else {
+        return Ok(());
+    };
+    let mut seen = HashSet::new();
+    let mut remaining = MAX_PLACED_IMAGE_AGGREGATE_BYTES as usize;
+    for source in updates
+        .iter()
+        .filter_map(|update| update.source_image.as_ref())
+    {
+        let image_ref = (
+            u32::try_from(source.object_number)?,
+            u16::try_from(source.generation_number)?,
+        );
+        let mask = incremental
+            .get_prev_documents()
+            .get_object(image_ref)?
+            .as_stream()?
+            .dict
+            .get(b"SMask")
+            .ok()
+            .and_then(|value| value.as_reference().ok());
+        for reference in std::iter::once(image_ref).chain(mask) {
+            if !seen.insert(reference) {
+                continue;
+            }
+            if remaining == 0 {
+                return Err("Stamp recovery sources exceed the aggregate byte ceiling".into());
+            }
+            incremental.materialize_base_stream(
+                path,
+                qpdf_path,
+                reference,
+                remaining.min(MAX_PLACED_IMAGE_BYTES as usize),
+            )?;
+            let size = incremental
+                .get_prev_documents()
+                .get_object(reference)?
+                .as_stream()?
+                .content
+                .len();
+            remaining = remaining
+                .checked_sub(size)
+                .ok_or("Stamp recovery sources exceed the aggregate byte ceiling")?;
+        }
+        validate_recovery_image(&AppendedRevision::new(incremental), source)?;
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_recovery_image(
+    document: &impl PdfObjectSource,
+    source: &PdfAnnotationParseStampImage,
+) -> Result<ObjectId> {
+    let image_ref = (
+        u32::try_from(source.object_number)?,
+        u16::try_from(source.generation_number)?,
+    );
+    let stream = document.object(image_ref)?.as_stream()?;
+    let (byte_length, sha256) = placed_raster_source_identity(document, stream)?;
+    if stream.dict.get(b"Subtype")?.as_name()? != b"Image"
+        || byte_length != source.byte_length
+        || sha256 != source.sha256
+    {
+        return Err("Placed image recovery source identity does not match".into());
+    }
+    Ok(image_ref)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn recreate_placed_image(
+    document: &mut Document,
+    update: &PlacedImageGeometryUpdate,
+    probe: &PlacedImage,
+    geometry: &PlacedImageGeometry,
+    page_id: ObjectId,
+    image_ref: ObjectId,
+    modified_at: &str,
+    identity_bindings: &mut Option<&mut Vec<AnnotationIdentityBinding>>,
+) -> Result<ObjectId> {
+    if update.annotation_id.is_some()
+        || update
+            .stable_key
+            .as_deref()
+            .is_none_or(|key| key.trim().is_empty())
+    {
+        return Err("Placed image recovery requires an unbound stable identity".into());
+    }
+    let appearance_ref = document.add_object(build_placed_image_appearance_stream(
+        image_ref,
+        geometry,
+        &format!("Im{}", image_ref.0),
+    ));
+    let mut stamp =
+        build_placed_image_stamp_dict(probe, geometry, appearance_ref, 0, 0, modified_at);
+    stamp.set("P", Object::Reference(page_id));
+    let stamp_ref = document.add_object(stamp);
+    report_stamp_identity_binding(identity_bindings, probe, stamp_ref);
+    Ok(stamp_ref)
+}
+
 pub(crate) fn apply_placed_image_geometry_updates(
     document: &mut Document,
     updates: &[PlacedImageGeometryUpdate],
     modified_at: &str,
+    identity_bindings: &mut Option<&mut Vec<AnnotationIdentityBinding>>,
 ) -> Result<()> {
     let page_map = document.get_pages();
     for update in updates {
@@ -666,24 +873,36 @@ pub(crate) fn apply_placed_image_geometry_updates(
         let page_id = resolve_page_id(&page_map, page_number)?;
         let page_view = resolve_page_view(document, page_id)?;
         let page_rotation = resolve_page_rotation(document, page_id)?;
-        let probe = PlacedImage {
-            page_index: update.page_index,
-            stable_key: update.stable_key.clone(),
-            annotation_id: update.annotation_id.clone(),
-            x: update.x,
-            y: update.y,
-            width: update.width,
-            height: update.height,
-            rotation_degrees: update.rotation_degrees,
-            mime_type: "image/jpeg".to_string(),
-            bytes_path: PathBuf::new(),
-            byte_length: 0,
-            sha256: String::new(),
-            validated_bytes: std::cell::RefCell::new(None),
-        };
+        let probe = placed_image_geometry_probe(update);
         let expected_name = update.stable_key.as_deref().unwrap_or_default();
-        let stamp_ref = resolve_placed_image_target(document, page_id, &probe, expected_name)?
-            .ok_or("Placed image geometry target was not found")?;
+        let geometry = placed_image_geometry(&probe, page_view, page_rotation)?;
+        let stamp_ref = match resolve_placed_image_target(document, page_id, &probe, expected_name)?
+        {
+            Some(reference) => reference,
+            None => {
+                let source = update
+                    .source_image
+                    .as_ref()
+                    .ok_or("Placed image geometry target was not found")?;
+                let image_ref = validate_recovery_image(document, source)?;
+                let stamp_ref = recreate_placed_image(
+                    document,
+                    update,
+                    &probe,
+                    &geometry,
+                    page_id,
+                    image_ref,
+                    modified_at,
+                    identity_bindings,
+                )?;
+                let mut annots = get_page_annots(document, page_id)?;
+                annots.push(Object::Reference(stamp_ref));
+                document
+                    .get_dictionary_mut(page_id)?
+                    .set("Annots", Object::Array(annots));
+                continue;
+            }
+        };
         let (appearance_ref, image_ref) = placed_image_appearance_refs(document, stamp_ref)
             .ok_or("Placed image appearance resources are unavailable")?;
         let geometry = placed_image_geometry(&probe, page_view, page_rotation)?;
@@ -696,7 +915,14 @@ pub(crate) fn apply_placed_image_geometry_updates(
             )),
         );
         let stamp = document.get_dictionary_mut(stamp_ref)?;
-        patch_placed_image_stamp_dict(stamp, &geometry, appearance_ref, expected_name, modified_at);
+        patch_placed_image_stamp_dict(
+            stamp,
+            &geometry,
+            appearance_ref,
+            expected_name,
+            modified_at,
+            update.author.as_deref(),
+        );
     }
     Ok(())
 }
@@ -736,7 +962,6 @@ pub(crate) fn apply_placed_images_incremental(
     {
         let page_view = resolve_page_view(incremental.get_prev_documents(), page_id)?;
         let page_rotation = resolve_page_rotation(incremental.get_prev_documents(), page_id)?;
-        let jpeg_info = parse_jpeg_info(&image_bytes)?;
         let geometry = placed_image_geometry(image, page_view, page_rotation)?;
         let expected_name = placed_image_annotation_name(image, index, chunk_index, modified_at);
         let existing_stamp_ref = resolve_placed_image_target(
@@ -748,7 +973,13 @@ pub(crate) fn apply_placed_images_incremental(
         let existing_appearance = existing_stamp_ref.and_then(|stamp_ref| {
             placed_image_appearance_refs(&AppendedRevision::new(incremental), stamp_ref)
         });
-        let image_stream = build_jpeg_image_stream(image_bytes, &jpeg_info);
+        let (mut image_stream, mask_stream) = build_placed_raster_streams(image_bytes, image)?;
+        if let Some(mask) = mask_stream {
+            image_stream.dict.set(
+                "SMask",
+                Object::Reference(incremental.new_document.add_object(mask)),
+            );
+        }
         let image_ref = if let Some((_, image_ref)) = existing_appearance {
             incremental
                 .new_document
@@ -777,6 +1008,7 @@ pub(crate) fn apply_placed_images_incremental(
                 appearance_ref,
                 &expected_name,
                 modified_at,
+                image.author.as_deref(),
             );
             stamp_ref
         } else {
@@ -812,6 +1044,7 @@ pub(crate) fn apply_placed_image_geometry_updates_incremental(
     incremental: &mut IncrementalDocument,
     updates: &[PlacedImageGeometryUpdate],
     modified_at: &str,
+    identity_bindings: &mut Option<&mut Vec<AnnotationIdentityBinding>>,
 ) -> Result<()> {
     let page_map = incremental.get_prev_documents().get_pages();
     for update in updates {
@@ -822,29 +1055,43 @@ pub(crate) fn apply_placed_image_geometry_updates_incremental(
         let page_id = resolve_page_id(&page_map, page_number)?;
         let page_view = resolve_page_view(incremental.get_prev_documents(), page_id)?;
         let page_rotation = resolve_page_rotation(incremental.get_prev_documents(), page_id)?;
-        let probe = PlacedImage {
-            page_index: update.page_index,
-            stable_key: update.stable_key.clone(),
-            annotation_id: update.annotation_id.clone(),
-            x: update.x,
-            y: update.y,
-            width: update.width,
-            height: update.height,
-            rotation_degrees: update.rotation_degrees,
-            mime_type: "image/jpeg".to_string(),
-            bytes_path: PathBuf::new(),
-            byte_length: 0,
-            sha256: String::new(),
-            validated_bytes: std::cell::RefCell::new(None),
-        };
+        let probe = placed_image_geometry_probe(update);
         let expected_name = update.stable_key.as_deref().unwrap_or_default();
-        let stamp_ref = resolve_placed_image_target(
+        let geometry = placed_image_geometry(&probe, page_view, page_rotation)?;
+        let stamp_ref = match resolve_placed_image_target(
             &AppendedRevision::new(incremental),
             page_id,
             &probe,
             expected_name,
-        )?
-        .ok_or("Placed image geometry target was not found")?;
+        )? {
+            Some(reference) => reference,
+            None => {
+                let source = update
+                    .source_image
+                    .as_ref()
+                    .ok_or("Placed image geometry target was not found")?;
+                let image_ref =
+                    validate_recovery_image(&AppendedRevision::new(incremental), source)?;
+                let mut annots = get_page_annots(&AppendedRevision::new(incremental), page_id)?;
+                let stamp_ref = recreate_placed_image(
+                    &mut incremental.new_document,
+                    update,
+                    &probe,
+                    &geometry,
+                    page_id,
+                    image_ref,
+                    modified_at,
+                    identity_bindings,
+                )?;
+                annots.push(Object::Reference(stamp_ref));
+                incremental.opt_clone_object_to_new_document(page_id)?;
+                incremental
+                    .new_document
+                    .get_dictionary_mut(page_id)?
+                    .set("Annots", Object::Array(annots));
+                continue;
+            }
+        };
         let (appearance_ref, image_ref) =
             placed_image_appearance_refs(&AppendedRevision::new(incremental), stamp_ref)
                 .ok_or("Placed image appearance resources are unavailable")?;
@@ -859,7 +1106,14 @@ pub(crate) fn apply_placed_image_geometry_updates_incremental(
         );
         incremental.opt_clone_object_to_new_document(stamp_ref)?;
         let stamp = incremental.new_document.get_dictionary_mut(stamp_ref)?;
-        patch_placed_image_stamp_dict(stamp, &geometry, appearance_ref, expected_name, modified_at);
+        patch_placed_image_stamp_dict(
+            stamp,
+            &geometry,
+            appearance_ref,
+            expected_name,
+            modified_at,
+            update.author.as_deref(),
+        );
     }
     Ok(())
 }

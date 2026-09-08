@@ -294,7 +294,7 @@ describe('AnnotationStore save identity rebase', () => {
         expect(store.redo()).toBe(true);
         expect(store.get(note.identity.id)).toMatchObject({
             identity: {pdfRef: '12R'},
-            persistedRevision: 1,
+            persistedRevision: 3,
             contents: 'saved text',
         });
         expect(store.get(note.identity.id)?.identity.pdfRef).toBe('12R');
@@ -318,7 +318,7 @@ describe('AnnotationStore save identity rebase', () => {
         expect(store.redo()).toBe(true);
         expect(store.get(markup.identity.id)).toMatchObject({
             identity: {pdfRef: '31R'},
-            persistedRevision: 0,
+            persistedRevision: 2,
         });
         expect(store.get(markup.identity.id)?.identity.pdfRef).toBe('31R');
         // The saved file still holds the annotation, so the redone entity is
@@ -365,7 +365,7 @@ describe('AnnotationStore save identity rebase', () => {
         expect(store.redo()).toBe(true);
         expect(store.get(note.identity.id)).toMatchObject({
             identity: {pdfRef: '44R'},
-            persistedRevision: 1,
+            persistedRevision: 3,
             contents: 'second',
         });
         expect(store.hasChangesSinceSavedBaseline()).toBe(true);
@@ -395,7 +395,7 @@ describe('AnnotationStore save identity rebase', () => {
         expect(store.redo()).toBe(true);
         expect(store.get(note.identity.id)).toMatchObject({
             deleted: true,
-            persistedRevision: -1,
+            persistedRevision: 3,
         });
         expect(store.get(note.identity.id)?.identity.pdfRef).toBeUndefined();
         expect(store.countDirtyPersistedDeletions()).toBe(0);
@@ -451,11 +451,11 @@ describe('AnnotationStore save identity rebase', () => {
         expect(store.redo()).toBe(true);
         expect(store.get(created.identity.id)).toMatchObject({
             identity: {pdfRef: '8R'},
-            persistedRevision: 0,
+            persistedRevision: 2,
         });
         expect(store.get(existing.identity.id)).toMatchObject({
             deleted: true,
-            persistedRevision: -1,
+            persistedRevision: 3,
         });
         expect(store.get(existing.identity.id)?.identity.pdfRef).toBeUndefined();
     });
@@ -587,12 +587,12 @@ describe('AnnotationStore save identity rebase', () => {
         expect(store.redo()).toBe(true);
         expect(store.get(first.identity.id)).toMatchObject({
             identity: {pdfRef: '11R'},
-            persistedRevision: 1,
+            persistedRevision: 3,
             contents: 'first text',
         });
         expect(store.get(second.identity.id)).toMatchObject({
             identity: {pdfRef: '12R'},
-            persistedRevision: 1,
+            persistedRevision: 3,
             contents: 'second text',
         });
         expect(store.hasChangesSinceSavedBaseline()).toBe(false);

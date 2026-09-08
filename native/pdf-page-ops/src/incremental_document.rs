@@ -74,6 +74,26 @@ impl IncrementalDocument {
         self.previous_last_byte
     }
 
+    pub(crate) fn materialize_base_stream(
+        &mut self,
+        path: &Path,
+        qpdf_path: &Path,
+        object_id: ObjectId,
+        max_bytes: usize,
+    ) -> Result<()> {
+        if !self.unavailable_base_streams.contains(&object_id) {
+            return Ok(());
+        }
+        let bytes = read_qpdf_stream_bounded(path, qpdf_path, object_id, max_bytes)?;
+        let stream = self
+            .previous_document
+            .get_object_mut(object_id)?
+            .as_stream_mut()?;
+        stream.set_content(bytes);
+        self.unavailable_base_streams.remove(&object_id);
+        Ok(())
+    }
+
     pub(crate) fn opt_clone_object_to_new_document(&mut self, object_id: ObjectId) -> Result<()> {
         if self.new_document.has_object(object_id) {
             return Ok(());
@@ -230,8 +250,21 @@ pub(crate) fn load_qpdf_structural_incremental_pdf(
         ));
     }
 
-    let (mut document, unavailable_base_streams) =
+    let (mut document, mut unavailable_base_streams) =
         parse_qpdf_structure(&temp.structure, Some(path))?;
+    for object_id in crate::text_box_font::candidate_streams(&document) {
+        if !unavailable_base_streams.contains(&object_id) {
+            continue;
+        }
+        // A stale or externally changed font falls back to fresh embedding.
+        // Only fully recovered streams can participate in identity validation.
+        if let Ok(bytes) = read_qpdf_stream_bounded(path, qpdf_path, object_id, 1024 * 1024) {
+            if let Ok(Object::Stream(stream)) = document.get_object_mut(object_id) {
+                stream.set_content(bytes);
+                unavailable_base_streams.remove(&object_id);
+            }
+        }
+    }
     let (previous_xref_start, xref_type) = read_terminal_xref(path, previous_len)?;
     document.xref_start = usize::try_from(previous_xref_start)
         .map_err(|_| "Previous PDF xref offset exceeds this platform's address space")?;
@@ -251,6 +284,85 @@ pub(crate) fn load_qpdf_structural_incremental_pdf(
         unavailable_base_streams,
         new_document,
     })
+}
+
+/// Reads one encoded PDF stream with bounded memory and a subprocess deadline.
+/// Callers select a small number of resource references after structural parsing.
+pub(crate) fn read_qpdf_stream_bounded(
+    path: &Path,
+    qpdf_path: &Path,
+    object_id: ObjectId,
+    max_bytes: usize,
+) -> Result<Vec<u8>> {
+    let temp = TempQpdfFiles::create()?;
+    let diagnostics = create_private_temp_file(&temp.diagnostics)?;
+    let mut child = Command::new(qpdf_path)
+        .arg("--suppress-recovery")
+        .arg(format!("--show-object={},{}", object_id.0, object_id.1))
+        .arg("--raw-stream-data")
+        .arg("--")
+        .arg(path)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::from(diagnostics))
+        .spawn()
+        .map_err(io_domain_error)?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or("qpdf stream reader has no stdout")?;
+    let limit = u64::try_from(max_bytes)?
+        .checked_add(1)
+        .ok_or("Invalid stream byte limit")?;
+    let (send, receive) = std::sync::mpsc::channel();
+    let reader = thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let result = stdout.take(limit).read_to_end(&mut bytes).map(|_| bytes);
+        let _ = send.send(result);
+    });
+    let started = Instant::now();
+    let mut output = None;
+    let result = loop {
+        if output.is_none() {
+            match receive.try_recv() {
+                Ok(Ok(bytes)) => {
+                    if bytes.len() > max_bytes {
+                        break Err("qpdf resource stream exceeds its byte limit".into());
+                    }
+                    output = Some(bytes);
+                }
+                Ok(Err(error)) => break Err(io_domain_error(error)),
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    break Err("qpdf resource reader stopped".into())
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+            }
+        }
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                if !status.success() && status.code() != Some(3) {
+                    break Err("qpdf resource stream read failed".into());
+                }
+                if let Some(bytes) = output.take() {
+                    break Ok(bytes);
+                }
+            }
+            Ok(None) => {}
+            Err(error) => break Err(io_domain_error(error)),
+        }
+        if started.elapsed() > QPDF_STRUCTURE_TIMEOUT
+            || fs::metadata(&temp.diagnostics)
+                .is_ok_and(|metadata| metadata.len() > MAX_QPDF_DIAGNOSTIC_BYTES as u64)
+        {
+            break Err("qpdf resource stream read exceeded its resource limit".into());
+        }
+        thread::sleep(Duration::from_millis(10));
+    };
+    if result.is_err() {
+        let _ = child.kill();
+    }
+    let _ = child.wait();
+    let _ = reader.join();
+    result
 }
 
 fn create_private_temp_file(path: &Path) -> Result<File> {
@@ -1053,6 +1165,56 @@ mod tests {
         let _ = fs::remove_file(&input_path);
         let _ = fs::remove_file(&qpdf_path);
         result
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn materialized_stream_updates_declared_length_before_clone_and_save() {
+        use std::os::unix::fs::PermissionsExt;
+        let nonce = qpdf_temp_nonce().unwrap();
+        let qpdf_path = std::env::temp_dir().join(format!("evb-qpdf-stream-length-{nonce}"));
+        fs::write(&qpdf_path, "#!/bin/sh\nprintf 'recovered bytes'\n").unwrap();
+        fs::set_permissions(&qpdf_path, fs::Permissions::from_mode(0o700)).unwrap();
+        let mut document = Document::with_version("1.4");
+        let root = document.add_object(dictionary! {"Type" => "Catalog"});
+        document.trailer.set("Root", root);
+        let stream_id = document.add_object(Stream::with_position(
+            dictionary! {"Length" => 0, "Filter" => "DCTDecode"},
+            0,
+        ));
+        let mut incremental = IncrementalDocument::from_document(document, 0, None);
+        incremental.unavailable_base_streams.insert(stream_id);
+        incremental
+            .materialize_base_stream(Path::new("unused.pdf"), &qpdf_path, stream_id, 1024)
+            .unwrap();
+        fs::remove_file(qpdf_path).unwrap();
+        incremental
+            .opt_clone_object_to_new_document(stream_id)
+            .unwrap();
+        let stream = incremental
+            .new_document
+            .get_object(stream_id)
+            .unwrap()
+            .as_stream()
+            .unwrap();
+        assert_eq!(stream.content, b"recovered bytes");
+        assert_eq!(stream.dict.get(b"Length").unwrap().as_i64().unwrap(), 15);
+        assert_eq!(
+            stream.dict.get(b"Filter").unwrap().as_name().unwrap(),
+            b"DCTDecode"
+        );
+        let mut bytes = Vec::new();
+        incremental.previous_document.save_to(&mut bytes).unwrap();
+        let reparsed = Document::load_mem(&bytes).unwrap();
+        assert_eq!(
+            reparsed
+                .get_object(stream_id)
+                .unwrap()
+                .as_stream()
+                .unwrap()
+                .content,
+            b"recovered bytes"
+        );
     }
 
     #[cfg(unix)]

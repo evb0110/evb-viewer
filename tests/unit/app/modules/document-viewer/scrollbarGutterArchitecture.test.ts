@@ -49,6 +49,7 @@ describe('balanced scrollbar-gutter architecture', () => {
         const locallyBalanced = [
             'app/app.vue',
             'app/assets/css/main.css',
+            'app/components/AppFailureAlert.vue',
             'app/components/AppFatalRuntimeDialog.vue',
             'app/components/AppToolPageShell.vue',
             'app/components/combine/CombinePdfPage.vue',
@@ -137,13 +138,14 @@ describe('balanced scrollbar-gutter architecture', () => {
         for (const path of [
             'app/modules/agent-panel/components/AssistantEffortSwitcher.vue',
             'app/modules/agent-panel/components/AssistantModelSwitcher.vue',
-            'app/modules/pdf-viewer/components/PdfAnnotationsPanel.vue',
             'app/modules/pdf-viewer/components/PdfContextMenuBase.vue',
             'app/modules/pdf-viewer/components/PdfZoomDropdown.vue',
         ]) {
             expect(read(path), path).toContain(floatingOwnerClass);
         }
         expect(read('app/modules/agent-panel/components/AssistantSpeedSwitcher.vue'))
+            .not.toContain('app-floating-scroll-region');
+        expect(read('app/modules/pdf-viewer/components/PdfAnnotationsPanel.vue'))
             .not.toContain('app-floating-scroll-region');
     });
 

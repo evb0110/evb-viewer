@@ -1,0 +1,12 @@
+DejaVu Sans 2.37, unchanged upstream font.
+Source: https://github.com/dejavu-fonts/dejavu-fonts/releases/tag/version_2_37
+Archive: dejavu-fonts-ttf-2.37.tar.bz2
+Path in archive: dejavu-fonts-ttf-2.37/ttf/DejaVuSans.ttf
+SHA-256: 7da195a74c55bef988d0d48f9508bd5d849425c1770dba5d7bfc6ce9ed848954
+Redistribution and embedding terms are in LICENSE.txt.
+
+EVB's annotation editor loads this font, and the native writer embeds the same
+bytes in the PDF. Keep packages/contracts/firstUnsupportedAnnotationCharacter.ts in agreement
+with the font when replacing it. Its generated ranges describe the Unicode
+cmap; native admission also checks the font directly. Missing glyphs fail before
+save instead of depending on the current machine's font fallback.

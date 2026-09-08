@@ -140,6 +140,12 @@ pub(crate) fn shape_pdf_date(timestamp: Option<u64>, fallback: &str) -> String {
 }
 
 pub(crate) fn set_shape_dates(dict: &mut Dictionary, shape: &ShapeAnnotation, modified_at: &str) {
+    if let Some(author) = shape.author.as_deref() {
+        dict.set(
+            "T",
+            Object::String(encode_pdf_text_string(author), StringFormat::Hexadecimal),
+        );
+    }
     let created = shape_pdf_date(shape.created_at.or(shape.modified_at), modified_at);
     let modified = shape_pdf_date(shape.modified_at, &created);
     dict.set("CreationDate", Object::string_literal(created.into_bytes()));
@@ -147,6 +153,7 @@ pub(crate) fn set_shape_dates(dict: &mut Dictionary, shape: &ShapeAnnotation, mo
 }
 
 pub(crate) fn set_shape_style(dict: &mut Dictionary, shape: &ShapeAnnotation) {
+    dict.remove(b"BS");
     set_rgb_color(dict, "C", Some(&shape.color));
     dict.set("CA", number_object(shape.opacity));
     dict.set(
@@ -319,7 +326,7 @@ pub(crate) fn is_imported_shape_rect_unchanged(
 
 const SHAPE_SEMANTIC_NUMBER_EPSILON: f64 = 0.0001;
 
-fn equivalent_pdf_objects(
+pub(crate) fn equivalent_pdf_objects(
     document: &impl PdfObjectSource,
     left: &Object,
     right: &Object,
@@ -354,7 +361,7 @@ fn equivalent_pdf_objects(
     }
 }
 
-fn equivalent_shape_field(
+pub(crate) fn equivalent_shape_field(
     document: &impl PdfObjectSource,
     before: &Dictionary,
     after: &Dictionary,
@@ -367,26 +374,28 @@ fn equivalent_shape_field(
     }
 }
 
-fn shape_stroke_width(document: &impl PdfObjectSource, dict: &Dictionary) -> Option<f64> {
-    if let Ok(border) = dict.get(b"Border") {
-        if let Some(values) = document
-            .resolved(border)
-            .ok()
-            .and_then(|value| value.as_array().ok())
-        {
-            if let Some(width) = values
-                .get(2)
+pub(crate) fn shape_stroke_width(
+    document: &impl PdfObjectSource,
+    dict: &Dictionary,
+) -> Option<f64> {
+    if let Ok(style) = dict.get(b"BS") {
+        let style = document.resolved(style).ok()?.as_dict().ok()?;
+        return Some(
+            style
+                .get(b"W")
+                .ok()
                 .and_then(|value| document.resolved(value).ok())
                 .and_then(|value| object_to_f64(value).ok())
-            {
-                return Some(width);
-            }
-        }
+                .unwrap_or(1.0),
+        );
     }
-    let border_style = dict.get(b"BS").ok()?.clone();
-    let border_style = document.resolved(&border_style).ok()?.as_dict().ok()?;
-    let width = border_style.get(b"W").ok()?;
-    object_to_f64(document.resolved(width).ok()?).ok()
+    dict.get(b"Border")
+        .ok()
+        .and_then(|value| document.resolved(value).ok())
+        .and_then(|value| value.as_array().ok())
+        .and_then(|values| values.get(2))
+        .and_then(|value| document.resolved(value).ok())
+        .and_then(|value| object_to_f64(value).ok())
 }
 
 fn shape_semantic_change(

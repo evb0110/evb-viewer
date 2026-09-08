@@ -2,6 +2,7 @@ import type { TPageNumber } from '@contracts/pageNumbers';
 
 import type {
     IAnnotationCommentSummary,
+    IAnnotationPropertyUpdate,
     IAnnotationMarkerRect,
     IShapeAnnotation,
     TShapeAnnotationPatch,
@@ -23,7 +24,10 @@ import type {IWorkspaceCommandSink} from '@app/types/workspaceCommand';
 import type { TDocumentSidebarTab } from '@app/utils/document-viewer/sidebar/documentSidebarTabs';
 import type { TAnnotationCreationFailureReason } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationCreationOutcome.types';
 import type {IPdfAnnotationStorageDebugState} from '@app/modules/pdf-viewer/runtime/save/pdfjsAnnotationDiagnostics';
-import type { ITextBoxEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import type {
+    ITextBoxEntity,
+    AnnotationEntity,
+} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 
 export type TPdfSidebarTab = TDocumentSidebarTab;
 export type TAgentTextMarkupKind = 'highlight' | 'underline' | 'strikethrough' | 'squiggly';
@@ -170,6 +174,14 @@ export interface IPdfViewerAnnotationCommandExpose {
         cmd: () => void;
         undo: () => void;
     }) => void;
+    selectedAnnotations?: readonly AnnotationEntity[];
+    selectAllAnnotations?: () => boolean;
+    selectAnnotationById?: (annotationId: string) => boolean;
+    focusSelectedAnnotation?: (annotationId: string) => boolean;
+    editAnnotationTextBox?: (comment: IAnnotationCommentSummary) => Promise<void>;
+    updateSelectedAnnotationProperties?: (updates: IAnnotationPropertyUpdate) => boolean;
+    prepareAnnotationToolChange?: () => void;
+    handleAnnotationEscape?: () => boolean;
     selectedTextBox?: Pick<ITextBoxEntity, 'fontSize' | 'color'> | null;
     getSelectedTextBox?: () => ITextBoxEntity | null;
     updateSelectedTextBoxProperties?: (
@@ -242,6 +254,7 @@ export interface IPdfViewerImagePlacementExpose {
             pageNumber?: TPageNumber | null;
             pageX?: number | null;
             pageY?: number | null;
+            appAnnotationId?: string;
             stableKey?: string;
             annotationId?: string | null;
         },

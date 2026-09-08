@@ -45,7 +45,7 @@ import type {
     TAnnotationCreationOutcome,
 } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationCreationOutcome.types';
 import {
-    mintAnnotationId,
+    asAnnotationId,
     normalizeAnnotationText,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {
@@ -82,6 +82,8 @@ import type {
     ICreateTextMarkupFromTextResult,
 } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerExpose.types';
 import type {IPdfPlacedImageFinalizePayload} from '@app/types/pdfImagePlacement';
+import {unrotateAnnotationPlacementRect} from '@app/modules/pdf-viewer/engine/annotation-editor-geometry/annotationEditorGeometry';
+import {preparePdfAnnotationRaster} from '@app/modules/pdf-viewer/runtime/annotations/preparePdfAnnotationRaster';
 export interface ICreatePdfAnnotationSessionOptions {
     document: TPdfDocumentSession;
     viewport: TPdfViewportSession;
@@ -96,6 +98,7 @@ export interface ICreatePdfAnnotationSessionOptions {
     isActive: ComputedRef<boolean>;
     bufferPages: ComputedRef<number>;
     annotationTool: ComputedRef<TAnnotationTool>;
+    viewRotation?: ComputedRef<0 | 90 | 180 | 270>;
     annotationCursorMode: ComputedRef<boolean>;
     annotationKeepActive: ComputedRef<boolean>;
     annotationSettings: ComputedRef<IAnnotationSettings | null>;
@@ -109,16 +112,14 @@ export interface ICreatePdfAnnotationSessionOptions {
     emitAnnotationOpenNote: (comment: IAnnotationCommentSummary) => void;
     emitAnnotationContextMenu: (payload: IAnnotationContextMenuPayload) => void;
     emitAnnotationToolAutoReset: () => void;
+    emitAnnotationToolCancel?: () => void;
     emitAnnotationSetting: (payload: TAnnotationSettingChange) => void;
     emitAnnotationCommentClick: (comment: IAnnotationCommentSummary) => void;
     reportAnnotationFailure?: (failure: IAnnotationCreationFailureReport) => void;
     emitShapeContextMenu: Parameters<typeof usePdfShapeTool>[0]['emitShapeContextMenu'];
     /** Renderer-owned PDF link state consumed by the portal overlay. */
     linkAnnotations?: Ref<ILinkAnnotation[]> | undefined;
-    // Temporary command seam. #193 removes the legacy workspace persistence
-    // route once the writer owns stamp byte storage end to end.
-    // eslint-disable-next-line @typescript-eslint/no-invalid-void-type
-    finalizeImagePlacement?: ((payload: IPdfPlacedImageFinalizePayload) => void | Promise<boolean>) | undefined;
+
 }
 interface IAnnotationStoreDocumentIdentityInput {
     workingCopyPath: string | null;
@@ -232,7 +233,6 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         isAnySaving: options.isAnySaving,
         annotationProjection,
         ingestSummaries: () => undefined,
-        getShapeAnnotationCommentSummaries: shapeTool.getShapeAnnotationCommentSummaries,
         emitAnnotationComments: options.emitAnnotationComments,
     });
     const {
@@ -351,7 +351,11 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
     });
     const annotationEditorSurface = usePdfAnnotationEditorSurface({
         annotationApplication,
+        isActive: options.isActive,
         activeTool: options.annotationTool,
+        authorName: options.authorName,
+        onCreationCompleted: options.emitAnnotationToolAutoReset,
+        onToolCancel: options.emitAnnotationToolCancel,
         settings: options.annotationSettings,
         resolveStampImage,
         emitAnnotationModified: options.emitAnnotationModified,
@@ -364,12 +368,14 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             if (!metric) {
                 return null;
             }
+            const userUnit = metric.userUnit && metric.userUnit > 0 ? metric.userUnit : 1;
             return {
+                viewRotation: options.viewRotation?.value ?? 0,
                 pageView: [
                     0,
                     0,
-                    metric.width,
-                    metric.height,
+                    (metric.rotation === 90 || metric.rotation === 270 ? metric.height : metric.width) / userUnit,
+                    (metric.rotation === 90 || metric.rotation === 270 ? metric.width : metric.height) / userUnit,
                 ],
                 rotation: ([
                     0,
@@ -393,6 +399,9 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             }
         },
     });
+    watch(options.isActive, (isActive) => {
+        if (!isActive) annotationEditorSurface.suspendInteraction();
+    }, {flush: 'sync'});
     commitPendingEditorDraftsForSave = annotationEditorSurface.commitPendingTextBoxDraftsForSave;
     provide(annotationEditorSurfaceKey, annotationEditorSurface);
     async function createSelectionMarkup(
@@ -402,6 +411,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
     ): Promise<TAnnotationCreationOutcome> {
         const geometry = await resolvePdfAnnotationSelectionGeometry({
             documentSession,
+            getViewRotation: () => options.viewRotation?.value ?? 0,
             viewerContainer: options.viewerContainer.value,
             range,
         });
@@ -428,6 +438,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
                 },
             )
         )));
+        if (created.length > 0) annotationEditorSurface.completeCreation(options.annotationTool.value);
         const createdIds = created.map(entity => entity.identity.id);
         annotationEditorSurface.select(createdIds);
         options.emitAnnotationModified();
@@ -1081,15 +1092,16 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             void annotationProjection.value;
             return annotationApplication.value.store.hasChangesSinceSavedBaseline('shape');
         },
-        getDeletedCanonicalAnnotationIds: () => Array.from(new Set(
-            annotationApplication.value.store
+        getDeletedCanonicalAnnotationIds: () => Array.from(new Set([
+            ...annotationApplication.value.store.deletedAnnotationIds(),
+            ...annotationApplication.value.store
                 .list({includeDeleted: true})
                 .filter(entity => entity.deleted)
                 .flatMap(entity => [
                     entity.identity.id,
                     entity.identity.pdfRef,
                 ].filter((value): value is string => Boolean(value))),
-        )),
+        ])),
         getDeletedPersistedCanonicalAnnotationCount: () => annotationApplication.value.store
             .countDirtyPersistedDeletions(),
         annotationCommentModel,
@@ -1117,17 +1129,57 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         scheduleSetAnnotationTool,
         ...saveTransaction,
         finalizeImagePlacement: async (payload: IPdfPlacedImageFinalizePayload) => {
-            const finalizer = options.finalizeImagePlacement;
-            if (!finalizer) {
+            const application = annotationApplication.value;
+            const fence = documentSession.captureFence();
+            const documentIdentity = annotationDocumentIdentity.value;
+            if (options.isAnySaving.value || payload.signal?.aborted) {
                 return false;
             }
-            const canonicalPayload = payload.annotationId
-                ? payload
-                : {
-                    ...payload,
-                    stableKey: payload.stableKey ?? mintAnnotationId(),
-                };
-            return await finalizer(canonicalPayload) ?? true;
+            const pageNumber = requirePageNumber(payload.pageNumber, documentSession.numPages.value);
+            const pageIndex = pageNumberToPageIndex(pageNumber);
+            const viewRotation = payload.viewRotation;
+            const metric = documentSession.pageMetrics.value[pageIndex];
+            if (!metric) {
+                return false;
+            }
+            const id = payload.appAnnotationId ? asAnnotationId(payload.appAnnotationId) : null;
+            const previous = id ? application.store.get(id) : null;
+            if (id && (!previous || previous.deleted || previous.kind !== 'placed-image' || previous.pageIndex !== pageIndex)) {
+                return false;
+            }
+            try {
+                const image = await preparePdfAnnotationRaster(payload);
+                if (payload.signal?.aborted || options.isAnySaving.value
+                    || annotationApplication.value !== application
+                    || annotationDocumentIdentity.value !== documentIdentity
+                    || !documentSession.isCurrent(fence)
+                    || (id && application.store.get(id)?.revision !== previous?.revision)) {
+                    return false;
+                }
+                const rect = unrotateAnnotationPlacementRect({
+                    left: payload.x,
+                    top: payload.y,
+                    width: payload.width,
+                    height: payload.height,
+                }, viewRotation, metric);
+                const rotation = ((payload.rotationDegrees - viewRotation) % 360 + 360) % 360;
+                annotationEditorSurface.commitPendingTextBoxDraftsForSave();
+                const created = id
+                    ? application.store.updatePlacedImage(id, {
+                        rect,
+                        rotation,
+                        image,
+                    })
+                    : annotationEditorSurface.createStampAt(pageIndex, rect, image, {rotation});
+                annotationEditorSurface.select([created.identity.id]);
+                options.emitAnnotationToolAutoReset();
+                return true;
+            } catch (error) {
+                if (!payload.signal?.aborted) {
+                    BrowserLogger.warn('annotations', 'Failed to create image annotation', error);
+                }
+                return false;
+            }
         },
     };
 };

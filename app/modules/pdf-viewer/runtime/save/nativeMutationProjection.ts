@@ -56,6 +56,7 @@ import {
 } from '@app/modules/pdf-viewer/annotations/persistence/nativeFreeTextNoteProjection';
 import {isReplayableCanonicalTextBox} from '@app/modules/pdf-viewer/runtime/save/nativeTextBoxMutations';
 import type {
+    IPdfNativePlacedImage,
     IPdfNativePlacedImageGeometryUpdate,
     IPdfNativeTextBoxMutation,
 } from '@contracts/electronApiDocuments';
@@ -603,19 +604,44 @@ function buildNativePlacedImageGeometryUpdates(
     return plan.entities
         .filter((entity): entity is IPlacedImageEntity => (
             entity.kind === 'placed-image' && !entity.deleted && isActuallyChangedEntity(entity)
+            && !('kind' in entity.image)
         ))
-        .map(entity => ({
+        .flatMap(entity => 'kind' in entity.image ? [] : [{
             pageIndex: requirePageIndex(entity.pageIndex),
             stableKey: entity.identity.id,
-            annotationId: entity.identity.pdfRef
-                ? normalizePdfJsAnnotationId(entity.identity.pdfRef)
-                : null,
+            author: entity.author,
+            ...(entity.identity.pdfRef
+                ? {annotationId: normalizePdfJsAnnotationId(entity.identity.pdfRef)}
+                : {sourceImage: {...entity.image}}),
             x: entity.rect.left,
             y: entity.rect.top,
             width: entity.rect.width,
             height: entity.rect.height,
             rotationDegrees: entity.rotation,
-        }));
+        }]);
+}
+
+function buildNativePlacedImages(plan: ISerializationPlan): IPdfNativePlacedImage[] {
+    return plan.expected.flatMap(entity => {
+        if (entity.kind !== 'placed-image' || entity.deleted || !isActuallyChangedEntity(entity) || !('kind' in entity.image)) {
+            return [];
+        }
+        return [{
+            pageIndex: requirePageIndex(entity.pageIndex),
+            stableKey: entity.identity.id,
+            author: entity.author,
+            ...(entity.identity.pdfRef ? {annotationId: normalizePdfJsAnnotationId(entity.identity.pdfRef)} : {}),
+            x: entity.rect.left,
+            y: entity.rect.top,
+            width: entity.rect.width,
+            height: entity.rect.height,
+            rotationDegrees: entity.rotation,
+            mimeType: entity.image.mimeType,
+            bytesBase64: entity.image.dataBase64,
+            byteLength: entity.image.byteLength,
+            sha256: entity.image.sha256,
+        }];
+    });
 }
 
 function addCommentIdentityAliases(ids: Set<string>, comment: IAnnotationCommentSummary) {
@@ -883,7 +909,23 @@ function buildClassifiedNativeMutationProjection(
     }
     const noteGeometryUpdates = noteGeometryUpdatesResult?.value ?? [];
     const placedImageGeometryUpdates = buildNativePlacedImageGeometryUpdates(plan);
-    const freeTextNotes = freeTextNotesResult?.value ?? [];
+    const placedImages = buildNativePlacedImages(plan);
+    const imageMutationCount = placedImageGeometryUpdates.length + placedImages.length;
+    const recoverableNotes = new Map<string, string>(plan.expected.flatMap(entity => (
+        entity.kind === 'note' && !entity.deleted && !entity.identity.pdfRef && entity.recoveryData
+            ? [[
+                entity.identity.id,
+                entity.recoveryData,
+            ] as const]
+            : []
+    )));
+    const freeTextNotes = (freeTextNotesResult?.value ?? []).map(note => {
+        const recoveryData = recoverableNotes.get(note.stableKey);
+        return recoveryData === undefined ? note : {
+            ...note,
+            recoveryData,
+        };
+    });
     const freeTextEditors = replayAllowed
         ? Array.from(canonical.liveAnnotationChanges.nativeFreeTextEditors.values())
         : [];
@@ -958,7 +1000,7 @@ function buildClassifiedNativeMutationProjection(
         + annotationDeletes.length
         + noteGeometryUpdates.length;
     if (capabilities.forceWriterSave && nativeNoteMutationCount === 0 && !hasMarkupMutations
-        && placedImageGeometryUpdates.length === 0) {
+        && imageMutationCount === 0) {
         return 'writer-save-required';
     }
     if (!arePendingTextsCoveredByNativeChanges({
@@ -972,7 +1014,7 @@ function buildClassifiedNativeMutationProjection(
         return 'pending-deletes-not-covered-by-native-mutations';
     }
     if (annotationWorkDirty && nativeNoteMutationCount === 0 && !hasMarkupMutations
-        && placedImageGeometryUpdates.length === 0) {
+        && imageMutationCount === 0) {
         return 'annotation-work-not-covered-by-native-mutations';
     }
 
@@ -1013,7 +1055,7 @@ function buildClassifiedNativeMutationProjection(
         return 'native-structured-save-capability-unavailable';
     }
     if (nativeNoteMutationCount === 0 && !hasMetadataMutations && !hasShapeMutations && !hasMarkupMutations
-        && placedImageGeometryUpdates.length === 0) {
+        && imageMutationCount === 0) {
         return 'no-native-mutations-projected';
     }
 
@@ -1032,6 +1074,7 @@ function buildClassifiedNativeMutationProjection(
             ...(shapes ? {shapes} : {}),
             ...(markup ? {markup} : {}),
             ...(placedImageGeometryUpdates.length > 0 ? {placedImageGeometryUpdates} : {}),
+            ...(placedImages.length > 0 ? {placedImages} : {}),
         },
         placedImageGeometryUpdates,
         noteTextUpdates,

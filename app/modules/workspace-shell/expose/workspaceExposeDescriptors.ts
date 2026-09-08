@@ -176,6 +176,17 @@ export const workspaceExposeCommandRegistry = defineWorkspaceExposeCommandRegist
         },
     },
     {
+        name: 'handleSelectAll',
+        kind: 'sync',
+        group: 'file',
+        real: 'custom',
+        deferred: 'mountWaitSyncVoid',
+        menu: {
+            actionName: 'select-all',
+            register: 'onMenuSelectAll',
+        },
+    },
+    {
         name: 'handleOpenFileFromUi',
         kind: 'async',
         group: 'file',

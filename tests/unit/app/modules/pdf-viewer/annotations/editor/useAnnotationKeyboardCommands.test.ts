@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import {
     describe,
     expect,
@@ -16,6 +17,8 @@ function harness() {
         nudgeSelectionByPdfPoints: vi.fn(),
         undo: vi.fn(() => true),
         redo: vi.fn(() => true),
+        selectAll: vi.fn(() => true),
+        handleEscape: vi.fn(() => true),
     };
 }
 
@@ -128,4 +131,47 @@ describe('useAnnotationKeyboardCommands', () => {
         expect(surface.nudgeSelectionByPdfPoints).not.toHaveBeenCalled();
         expect(event.preventDefault).not.toHaveBeenCalled();
     });
+    it.each([
+        'input',
+        'textarea',
+        'select',
+        'contenteditable',
+    ])('leaves native Select All in %s', (kind) => {
+        const surface = harness();
+        const commands = useAnnotationKeyboardCommands({surface});
+        const host = document.createElement(kind === 'contenteditable' ? 'div' : kind);
+        if (kind === 'contenteditable') host.contentEditable = 'true';
+        const target = kind === 'contenteditable' ? host.appendChild(document.createElement('span')) : host;
+        const event = new KeyboardEvent('keydown', {
+            key: 'a',
+            metaKey: true,
+            cancelable: true,
+        });
+        Object.defineProperty(event, 'target', {value: target});
+        expect(commands.handleKeydown(event)).toBe(false);
+        expect(event.defaultPrevented).toBe(false);
+        expect(surface.selectAll).not.toHaveBeenCalled();
+    });
+
+    it('routes Select All from the focused annotation layer and ignores composing keys', () => {
+        const surface = harness();
+        const commands = useAnnotationKeyboardCommands({surface});
+        const event = new KeyboardEvent('keydown', {
+            key: 'a',
+            metaKey: true,
+            cancelable: true,
+        });
+        Object.defineProperty(event, 'target', {value: document.createElement('div')});
+        expect(commands.handleKeydown(event)).toBe(true);
+        expect(event.defaultPrevented).toBe(true);
+        expect(surface.selectAll).toHaveBeenCalledOnce();
+        const composing = new KeyboardEvent('keydown', {
+            key: 'Escape',
+            isComposing: true,
+            cancelable: true,
+        });
+        expect(commands.handleKeydown(composing)).toBe(false);
+        expect(surface.handleEscape).not.toHaveBeenCalled();
+    });
+
 });

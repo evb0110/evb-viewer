@@ -7,7 +7,7 @@ import {
 } from 'vitest';
 
 describe('native placed-image IPC boundary', () => {
-    it('carries only a managed binary handle from renderer to main', async () => {
+    it('carries bounded inline raster bytes or a managed binary handle from renderer to main', async () => {
         const [
             contract,
             preload,
@@ -19,7 +19,8 @@ describe('native placed-image IPC boundary', () => {
         ]);
 
         const placedImageContract = contract.match(/export interface IPdfNativePlacedImage[\s\S]*?\n\}/u)?.[0] ?? '';
-        expect(placedImageContract).toContain('source: IManagedTempFileHandle');
+        expect(placedImageContract).toContain('source?: IManagedTempFileHandle');
+        expect(placedImageContract).toContain('bytesBase64?: string');
         expect(placedImageContract).not.toMatch(/\bbytes\b|Uint8Array|number\[\]/u);
 
         const mutationInvokeBlock = preload.match(/savePdfNativeMutations:[\s\S]*?applyPdfNativeMutationsToWorkingCopy:/u)?.[0] ?? '';

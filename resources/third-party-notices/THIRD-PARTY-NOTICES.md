@@ -37,6 +37,13 @@ texts are included in the `licenses/` directory alongside this file.
   (`licenses/GPL-2.0.txt`)
 - Bundled as: `djvulibre/<platform>-<arch>` binaries and support libraries.
 
+## DejaVu Sans 2.37
+
+- Upstream: https://github.com/dejavu-fonts/dejavu-fonts
+- License: Bitstream Vera font license and DejaVu public-domain changes.
+  The complete notice is in `licenses/DejaVu.txt`.
+- Bundled as: the annotation editor font and font bytes in the native PDF writer.
+
 ## Source availability
 
 Poppler and DjVuLibre are distributed under the GNU GPL. EVB Viewer bundles

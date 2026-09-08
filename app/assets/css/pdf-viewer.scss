@@ -1,3 +1,11 @@
+@font-face {
+    font-family: "EVB Annotation Sans";
+    src: url("/fonts/annotation/DejaVuSans.ttf") format("truetype");
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+}
+
 /* ── Page Container & Canvas ───────────────────────────────────────── */
 
 .page_container {
@@ -298,32 +306,66 @@
     cursor: pointer;
 }
 
-.pdfViewer .pdf-annotation-editor-text-markup rect {
-    fill: var(--annotation-color);
-    fill-opacity: var(--annotation-opacity);
+.pdfViewer .pdf-annotation-editor-text-markup [data-annotation-hit-target] {
+    fill: transparent;
     stroke: transparent;
+    pointer-events: all;
 }
 
-.pdfViewer .pdf-annotation-editor-text-markup.is-selected rect {
+.pdfViewer .pdf-annotation-editor-text-markup [data-annotation-visual] {
+    fill: var(--annotation-color);
+    opacity: var(--annotation-opacity);
+    pointer-events: none;
+}
+
+.pdfViewer .pdf-annotation-editor-text-markup line[data-annotation-visual],
+.pdfViewer .pdf-annotation-editor-text-markup path[data-annotation-visual] {
+    fill: none;
+    stroke: var(--annotation-color);
+    stroke-width: var(--annotation-markup-stroke-width);
+    vector-effect: non-scaling-stroke;
+}
+
+.pdfViewer .pdf-annotation-editor-text-markup.is-selected [data-annotation-hit-target] {
     stroke: var(--app-toolbar-focus-ring);
-    stroke-width: 0.002;
+    stroke-width: 1px;
+    vector-effect: non-scaling-stroke;
 }
 
-.pdfViewer .pdf-annotation-editor-shape line,
-.pdfViewer .pdf-annotation-editor-shape ellipse,
-.pdfViewer .pdf-annotation-editor-shape polyline,
-.pdfViewer .pdf-annotation-editor-shape rect {
+.pdfViewer .pdf-annotation-editor-shape__visual {
     fill: var(--annotation-fill);
-    fill-opacity: var(--annotation-opacity);
     stroke: var(--annotation-stroke);
     stroke-width: var(--annotation-stroke-width);
+    opacity: var(--annotation-opacity);
+    pointer-events: none;
+}
+
+.pdfViewer .pdf-annotation-editor-shape__hit {
+    fill: transparent;
+    stroke: transparent;
+    stroke-width: var(--annotation-hit-width);
+    pointer-events: all;
+}
+
+.pdfViewer .pdf-annotation-editor-shape__hit line,
+.pdfViewer .pdf-annotation-editor-shape__hit polyline {
+    fill: none;
+    pointer-events: stroke;
+}
+
+.pdfViewer .pdf-annotation-editor-shape__visual > *,
+.pdfViewer .pdf-annotation-editor-shape__hit > * {
     vector-effect: non-scaling-stroke;
+    stroke-linecap: round;
+    stroke-linejoin: round;
 }
 
 .pdfViewer .pdf-annotation-editor-shape__arrowhead {
     fill: var(--annotation-stroke);
-    fill-opacity: var(--annotation-opacity);
-    stroke: none;
+}
+
+.pdfViewer .pdf-annotation-editor-shape__arrowhead.is-open {
+    fill: none;
 }
 
 .pdfViewer .pdf-annotation-editor-surface__html {
@@ -341,15 +383,21 @@
 .pdfViewer .pdf-annotation-editor-text-box {
     overflow: hidden;
     padding: 0.15em 0.3em;
-    border: 1px solid transparent;
-    line-height: 1.2;
+    border: 0;
+    outline: 1px solid transparent;
+    font-family: "EVB Annotation Sans", sans-serif;
+    line-height: 1.35;
     white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    unicode-bidi: plaintext;
+    tab-size: 4;
     user-select: text;
     cursor: move;
 }
 
 .pdfViewer .pdf-annotation-editor-text-box.is-editing {
     overflow: visible;
+    outline: 1px solid var(--app-toolbar-focus-ring);
     cursor: text;
     z-index: var(--app-z-pdf-annotation-editor-layer);
 }
@@ -358,8 +406,11 @@
     box-sizing: border-box;
     width: 100%;
     height: 100%;
-    line-height: inherit;
     outline: none;
+    font: inherit;
+    color: inherit;
+    unicode-bidi: plaintext;
+    tab-size: inherit;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
     user-select: text;
@@ -373,7 +424,10 @@
     pointer-events: none;
 }
 
-.pdfViewer .pdf-annotation-editor-text-box.is-selected,
+.pdfViewer .pdf-annotation-editor-text-box.is-selected {
+    outline-color: var(--app-toolbar-focus-ring);
+}
+
 .pdfViewer .pdf-annotation-editor-note.is-selected,
 .pdfViewer .pdf-annotation-editor-stamp.is-selected {
     border-color: var(--app-toolbar-focus-ring);
@@ -386,10 +440,10 @@
     width: var(--app-note-anchor-size);
     height: var(--app-note-anchor-size);
     padding: 0;
-    border: 1px solid color-mix(in srgb, var(--ui-warning) 62%, var(--ui-border) 38%);
+    border: 1px solid color-mix(in srgb, var(--annotation-note-color) 62%, var(--ui-border) 38%);
     border-radius: var(--app-radius-full);
-    background: color-mix(in srgb, var(--ui-warning) 20%, var(--ui-bg) 80%);
-    color: color-mix(in srgb, var(--ui-warning) 58%, var(--ui-text) 42%);
+    background: color-mix(in srgb, var(--annotation-note-color) 20%, var(--ui-bg) 80%);
+    color: color-mix(in srgb, var(--annotation-note-color) 58%, var(--ui-text) 42%);
     cursor: pointer;
     opacity: 0.82;
     transform: translate(-50%, -50%);
@@ -402,15 +456,15 @@
 }
 
 .pdfViewer .pdf-annotation-editor-note:hover {
-    background: color-mix(in srgb, var(--ui-warning) 30%, var(--ui-bg) 70%);
-    border-color: color-mix(in srgb, var(--ui-warning) 75%, var(--ui-border) 25%);
+    background: color-mix(in srgb, var(--annotation-note-color) 30%, var(--ui-bg) 70%);
+    border-color: color-mix(in srgb, var(--annotation-note-color) 75%, var(--ui-border) 25%);
     transform: translate(-50%, calc(-50% - 1px));
     opacity: 0.95;
 }
 
 .pdfViewer .pdf-annotation-editor-note.is-selected {
-    border-color: color-mix(in srgb, var(--ui-warning) 75%, var(--ui-border) 25%);
-    background: color-mix(in srgb, var(--ui-warning) 30%, var(--ui-bg) 70%);
+    border-color: color-mix(in srgb, var(--annotation-note-color) 75%, var(--ui-border) 25%);
+    background: color-mix(in srgb, var(--annotation-note-color) 30%, var(--ui-bg) 70%);
     opacity: 0.92;
 }
 
@@ -448,13 +502,14 @@
 .pdfViewer .pdf-annotation-selection-handles {
     position: absolute;
     pointer-events: none;
-    border: 1px solid var(--app-toolbar-focus-ring);
+    outline: 1px solid var(--app-toolbar-focus-ring);
+    box-sizing: border-box;
 }
 
 .pdfViewer .pdf-annotation-selection-handle {
     position: absolute;
-    width: 0.42rem;
-    height: 0.42rem;
+    width: 0.625rem;
+    height: 0.625rem;
     border: 1px solid var(--app-toolbar-focus-ring);
     border-radius: var(--app-pdf-annotation-handle-radius);
     background: var(--ui-bg);

@@ -72,7 +72,6 @@
 </template>
 
 <script setup lang="ts">
-import { clamp } from 'es-toolkit/math';
 import { useEventListener } from '@vueuse/core';
 import type {
     IPdfImagePlacementDraft,
@@ -286,10 +285,10 @@ function toNormalizedRect(
     rotationDegrees?: number,
 ): IPdfImagePlacementRectUpdate {
     const update: IPdfImagePlacementRectUpdate = {
-        x: clamp(rectPx.left / containerRect.width, 0, 1),
-        y: clamp(rectPx.top / containerRect.height, 0, 1),
-        width: clamp(rectPx.width / containerRect.width, 0, 1),
-        height: clamp(rectPx.height / containerRect.height, 0, 1),
+        x: rectPx.left / containerRect.width,
+        y: rectPx.top / containerRect.height,
+        width: rectPx.width / containerRect.width,
+        height: rectPx.height / containerRect.height,
     };
     if (typeof rotationDegrees === 'number' && Number.isFinite(rotationDegrees)) {
         update.rotationDegrees = rotationDegrees;
@@ -302,7 +301,7 @@ function startInteraction(
     event: PointerEvent,
     handle?: TImagePlacementResizeHandle,
 ) {
-    if (!placement || busy) {
+    if (!placement || busy || event.button !== 0) {
         return;
     }
 
@@ -341,6 +340,7 @@ function startInteraction(
 function stopInteraction() {
     imagePlacementMove.cancel();
     const interaction = activeInteraction;
+    activeInteraction = null;
     if (
         interaction?.captureElement
         && interaction.captureElement.hasPointerCapture(interaction.pointerId)
@@ -348,7 +348,6 @@ function stopInteraction() {
         interaction.captureElement.releasePointerCapture(interaction.pointerId);
     }
 
-    activeInteraction = null;
     interactionWindowTarget.value = undefined;
     clearGlobalInteractionCursor();
     removeVirtualCursor();
@@ -475,18 +474,29 @@ function handleWindowPointerUp(event: PointerEvent) {
 
 useEventListener(interactionWindowTarget, 'pointermove', imagePlacementMove.schedule);
 useEventListener(interactionWindowTarget, 'pointerup', handleWindowPointerUp);
-useEventListener(interactionWindowTarget, 'pointercancel', handleWindowPointerUp);
-
-watch(() => [
-    placement !== null,
-    busy,
-] as const, ([
-    hasPlacement,
-    isBusy,
-]) => {
-    if (!hasPlacement || isBusy) {
-        stopInteraction();
+function handleWindowPointerCancel(event: PointerEvent) {
+    const interaction = activeInteraction;
+    if (!interaction || event.pointerId !== interaction.pointerId) {
+        return;
     }
+    stopInteraction();
+    emit('updateRect', toNormalizedRect(
+        interaction.containerRect,
+        interaction.originRectPx,
+        interaction.originRotationDegrees,
+    ));
+}
+
+useEventListener(interactionWindowTarget, 'pointercancel', handleWindowPointerCancel);
+useEventListener(interactionWindowTarget, 'lostpointercapture', handleWindowPointerCancel);
+
+watch([
+    () => placement?.stableKey,
+    () => placement?.previewUrl,
+    () => placement?.viewRotation,
+    () => busy,
+], () => {
+    stopInteraction();
 });
 
 function isEditableTarget(target: EventTarget | null) {

@@ -1003,6 +1003,7 @@ export const DOCUMENT_MENU_PLATFORM_FEATURE = definePlatformFeature({
         onMenuToggleAssistant: defineEvent('onMenuToggleAssistant', 'menu:toggleAssistant', noPayload),
         onMenuUndo: defineEvent('onMenuUndo', 'menu:undo', noPayload),
         onMenuRedo: defineEvent('onMenuRedo', 'menu:redo', noPayload),
+        onMenuSelectAll: defineEvent('onMenuSelectAll', 'menu:select-all', noPayload),
         onMenuDeletePages: defineEvent('onMenuDeletePages', 'menu:deletePages', noPayload),
         onMenuExtractPages: defineEvent('onMenuExtractPages', 'menu:extractPages', noPayload),
         onMenuRotateCw: defineEvent('onMenuRotateCw', 'menu:rotateCw', noPayload),

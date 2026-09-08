@@ -373,6 +373,29 @@ describe('annotation highlight geometry', () => {
             disableNormalization: true,
         });
         expect(release).toHaveBeenCalledTimes(1);
+
+        const staleSurface = document.createElement('div');
+        staleSurface.dataset.pdfAnnotationEditorSurface = '';
+        staleSurface.dataset.viewRotation = '180';
+        page.append(staleSurface);
+        expect(await resolvePdfAnnotationSelectionGeometry({
+            documentSession,
+            viewerContainer: viewer,
+            range,
+            getViewRotation: () => 0,
+        })).toEqual(result);
+
+        let ownedRotation = 0;
+        getTextContent.mockImplementationOnce(async () => {
+            ownedRotation = 90;
+            return textContent;
+        });
+        expect(await resolvePdfAnnotationSelectionGeometry({
+            documentSession,
+            viewerContainer: viewer,
+            range,
+            getViewRotation: () => ownedRotation,
+        })).toEqual({status: 'stale'});
     });
 
     it('maps every text-markup tool to its PDF subtype', () => {

@@ -93,6 +93,7 @@ export function isNativeShapeEligible(shape: IShapeAnnotation, totalPageCount: n
 export function toNativeShapeAnnotation(shape: IShapeAnnotation): IPdfNativeShapeAnnotation {
     const nativeShape: IPdfNativeShapeAnnotation = {
         type: shape.type,
+        ...(shape.author === undefined ? {} : {author: shape.author}),
         pageIndex: requirePageIndex(shape.pageIndex),
         x: shape.x,
         y: shape.y,

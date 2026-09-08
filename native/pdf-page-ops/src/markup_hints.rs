@@ -35,7 +35,6 @@ pub(crate) const COLOR_MATCH_WEIGHT: f64 = 1.5;
 pub(crate) const PAGE_MARKUP_INDEX_MATCH_BONUS: f64 = 0.25;
 pub(crate) const PAGE_MARKUP_INDEX_MISMATCH_PENALTY: f64 = 0.08;
 pub(crate) const MAX_RGB_DISTANCE: f64 = 441.6729559300637;
-pub(crate) const HIGHLIGHT_DISPLAY_OPACITY: f64 = 0.35;
 pub(crate) const SQUIGGLY_APPEARANCE_STROKE_WIDTH: f64 = 1.0;
 pub(crate) const SQUIGGLY_APPEARANCE_MAX_AMPLITUDE: f64 = 2.0;
 pub(crate) const SQUIGGLY_APPEARANCE_MIN_AMPLITUDE: f64 = 0.6;
@@ -318,24 +317,11 @@ pub(crate) fn parse_css_rgb_color(value: Option<&str>) -> Option<RgbColor> {
 }
 
 pub(crate) fn resolve_hint_target_color(
-    target_subtype: &str,
+    _target_subtype: &str,
     color: Option<&str>,
 ) -> Option<RgbColor> {
-    let parsed = parse_css_rgb_color(color)?;
-    if target_subtype != "Highlight" {
-        return Some(parsed);
-    }
-    let blend = |channel: u8| -> u8 {
-        ((f64::from(channel) * HIGHLIGHT_DISPLAY_OPACITY)
-            + (255.0 * (1.0 - HIGHLIGHT_DISPLAY_OPACITY)))
-            .round()
-            .clamp(0.0, 255.0) as u8
-    };
-    Some(RgbColor {
-        r: blend(parsed.r),
-        g: blend(parsed.g),
-        b: blend(parsed.b),
-    })
+    // /C stores authored RGB. /CA independently controls transparency.
+    parse_css_rgb_color(color)
 }
 
 pub(crate) fn write_markup_color(dict: &mut Dictionary, color: RgbColor) {
@@ -417,6 +403,7 @@ pub(crate) fn merge_subtype_hints(
             .or_else(|| incoming.annotation_id.clone()),
         color: existing.color.clone().or_else(|| incoming.color.clone()),
         opacity: existing.opacity.or(incoming.opacity),
+        author: existing.author.clone().or_else(|| incoming.author.clone()),
         contents: existing
             .contents
             .clone()

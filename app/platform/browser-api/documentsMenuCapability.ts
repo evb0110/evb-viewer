@@ -56,6 +56,7 @@ export const browserDocumentsMenuCapability = {
     onMenuToggleAssistant: noopUnsubscribe,
     onMenuUndo: noopUnsubscribe,
     onMenuRedo: noopUnsubscribe,
+    onMenuSelectAll: noopUnsubscribe,
     onMenuDeletePages: noopUnsubscribe,
     onMenuExtractPages: noopUnsubscribe,
     onMenuRotateCw: noopUnsubscribe,

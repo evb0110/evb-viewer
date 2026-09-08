@@ -7,6 +7,8 @@ export interface IWorkspaceCommandRegistration {
     canUndo?: (() => boolean) | undefined;
     canRedo?: (() => boolean) | undefined;
     estimatedBytes?: number;
+    /** Releases producer-owned recovery state when this command leaves history. */
+    onDiscard?: (() => void) | undefined;
     /**
      * Entities this command replays, named in the producer's own id space. Hard
      * removal of any of them invalidates the command; the ledger uses this as

@@ -80,18 +80,6 @@ const WHOLE_DOCUMENT_ALLOWLIST: readonly IWholeDocumentAllowlistEntry[] = [
     },
     {
         module:
-      'app/modules/pdf-viewer/runtime/composables/pdf/pdfDocumentPersistence.ts',
-        primitive: 'readDocumentBytes',
-        occurrences: 1,
-        maximumBytesClassifier:
-      'BROWSER_MAX_FULL_READ_BYTES, 16 MiB nonnative compatibility fallback; native path must fail closed',
-        reason:
-      'Legacy serialization and placed-image recovery paths ask the renderer for whole working-copy bytes.',
-        removalCondition:
-      'Remove the reads when every path-backed serialization recovery returns a path or bounded chunks.',
-    },
-    {
-        module:
       'app/modules/pdf-viewer/runtime/composables/pdf/createPdfSourceDataReader.ts',
         primitive: 'readDocumentBytes',
         occurrences: 1,
@@ -220,10 +208,9 @@ const KNOWN_NON_DOCUMENT_READS: readonly IKnownNonDocumentRead[] = [
 
 const KNOWN_ARRAY_BUFFER_EXCEPTIONS: readonly IKnownNonDocumentRead[] = [
     {
-        module:
-      'app/modules/pdf-viewer/runtime/composables/pdf/pdfDocumentPersistence.ts',
-        pattern: /new Uint8Array\(await blob\.arrayBuffer\(\)\)/u,
-        reason: 'Placed image Blob, not a document PDF.',
+        module: 'app/modules/pdf-viewer/runtime/annotations/preparePdfAnnotationRaster.ts',
+        pattern: /new Uint8Array\(await png\.arrayBuffer\(\)\)/u,
+        reason: 'Bounded image raster encoded as PNG, not a document PDF.',
     },
     {
         module:

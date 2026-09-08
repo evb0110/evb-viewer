@@ -19,6 +19,7 @@ export interface IAnnotationNoteWindowViewModel extends IAnnotationNoteWindowSta
     pageIndex: number;
     pageNumber: number;
     author: string | null;
+    color?: string | null;
     createdAt: number | null;
     modifiedAt: number | null;
     markerRect: IAnnotationMarkerRect | null;

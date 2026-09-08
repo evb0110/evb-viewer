@@ -9,6 +9,8 @@ export interface IPdfAppAnnotationHistoryCommand {
     undo: (registerFailureRollback?: TRegisterAnnotationHistoryFailureRollback) => void;
     /** Includes retained checkpoints/closures; unknown commands use 1 KiB. */
     estimatedBytes?: number;
+    /** Called once when the owning timeline releases this command. */
+    onDiscard?: (() => void) | undefined;
     /** Canonical entities whose hard removal invalidates this command. */
     annotationIds?: readonly AnnotationId[];
 }
@@ -82,14 +84,19 @@ export class LocalAnnotationHistoryAuthority implements IAnnotationHistoryAuthor
     get canRedo() { return this.#redo.length > 0; }
     registerCommand(command: IPdfAppAnnotationHistoryCommand) {
         this.#undo.push(command);
-        this.#redo.length = 0;
+        this.#redo.splice(0).forEach(discardCommand);
     }
     forgetCommands(ids: ReadonlySet<AnnotationId>) {
         const keep = (command: IPdfAppAnnotationHistoryCommand) => (
             !command.annotationIds?.some(id => ids.has(id))
         );
+        const discarded = [
+            ...this.#undo,
+            ...this.#redo,
+        ].filter(command => !keep(command));
         this.#undo.splice(0, this.#undo.length, ...this.#undo.filter(keep));
         this.#redo.splice(0, this.#redo.length, ...this.#redo.filter(keep));
+        discarded.forEach(discardCommand);
     }
     undo() {
         const command = this.#undo.at(-1);
@@ -118,10 +125,20 @@ export class LocalAnnotationHistoryAuthority implements IAnnotationHistoryAuthor
         } catch (error) {
             const failure = buildAnnotationHistoryReplayFailure(error, rollbacks);
             if (isAnnotationHistoryPoisoningError(failure)) {
-                this.#undo.length = 0;
-                this.#redo.length = 0;
+                [
+                    ...this.#undo.splice(0),
+                    ...this.#redo.splice(0),
+                ].forEach(discardCommand);
             }
             throw failure;
         }
+    }
+}
+
+function discardCommand(command: IPdfAppAnnotationHistoryCommand) {
+    try {
+        command.onDiscard?.();
+    } catch {
+        // Release every retained command and preserve the original replay error.
     }
 }

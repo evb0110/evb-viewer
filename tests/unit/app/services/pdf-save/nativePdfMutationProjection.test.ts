@@ -8,8 +8,16 @@ import type {
     IShapeAnnotation,
     TMarkupSubtype,
 } from '@app/types/annotations';
-import type {IShapeEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
-import {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import type {
+    IShapeEntity,
+    INoteEntity,
+    IPlacedImageEntity,
+} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {AnnotationApplication} from '@app/modules/pdf-viewer/annotations/annotationApplication';
+import {
+    asAnnotationId,
+    toLegacyShapeAnnotation,
+} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {buildSerializationPlan} from '@app/modules/pdf-viewer/annotations/persistence/annotationSavePlan';
 import {
     buildNativeFreeTextNotesForSave,
@@ -32,7 +40,10 @@ import {
     toNativeMarkupHint,
 } from '@app/modules/pdf-viewer/annotations/persistence/nativeMarkupProjection';
 import { nativeNoteGeometryProjection } from '@app/modules/pdf-viewer/annotations/persistence/nativeNoteGeometryProjection';
-import { PDF_NATIVE_MUTATION_LIMITS } from '@contracts/nativePdfMutations';
+import {
+    PDF_NATIVE_MUTATION_LIMITS,
+    normalizePdfNativeMutationSet,
+} from '@contracts/nativePdfMutations';
 import {requirePageIndex} from '@contracts/pageNumbers';
 import {requireEpochMs} from '@contracts/timestamps';
 
@@ -360,6 +371,20 @@ describe('native shape builders', () => {
         expect(nativeShape.points).not.toBe(shape.points);
     });
 
+    it('preserves a canonical shape author through the rendering and native transport projections', () => {
+        const entity = createShapeEntity({author: 'Анна כהן'});
+        const projected = buildNativeShapesMutationForSave({
+            shapeStateDirty: true,
+            rewriteShapeState: true,
+            totalPageCount: 1,
+            shapes: [toLegacyShapeAnnotation(entity)],
+            deletedAnnotationIds: [],
+            deletedStableKeys: [],
+        });
+        const normalized = normalizePdfNativeMutationSet({shapes: projected}, 'shape author');
+        expect(normalized.shapes?.shapes[0]?.author).toBe(entity.author);
+    });
+
     it('returns null when any dirty shape is not native-eligible', () => {
         const mutation = buildNativeShapesMutationForSave({
             shapeStateDirty: true,
@@ -415,6 +440,183 @@ describe('native shape builders', () => {
 });
 
 describe('native PDF save route', () => {
+    function projectRecovery(entity: INoteEntity | IPlacedImageEntity) {
+        const app = new AnnotationApplication('recovery');
+        app.store.import(entity);
+        const decision = buildNativePdfMutationProjection(app.beginSave().plan, createNativeRouteCapabilities({
+            dirtyState: {
+                annotationDirty: true,
+                hasAnnotationChanges: true,
+                shapeStateDirty: false,
+            },
+            shapes: [],
+        }));
+        if (decision.route !== 'native-append') {
+            throw new Error(`Expected native append, got ${decision.nativeRejection}`);
+        }
+        return normalizePdfNativeMutationSet(decision.nativeMutationProjection.mutations, 'image author');
+    }
+
+    function recoveryImage(): IPlacedImageEntity {
+        return {
+            kind: 'placed-image',
+            identity: {id: asAnnotationId('restored-stamp')},
+            pageIndex: requirePageIndex(0),
+            revision: 2,
+            persistedRevision: -1,
+            deleted: false,
+            author: 'Анна כהן',
+            createdAt: null,
+            modifiedAt: null,
+            rect: {
+                left: 0.2,
+                top: 0.2,
+                width: 0.3,
+                height: 0.3,
+            },
+            rotation: 25,
+            image: {
+                objectNumber: 42,
+                generationNumber: 0,
+                byteLength: 20,
+                sha256: 'a'.repeat(64),
+            },
+        };
+    }
+
+    it('restores an unbound stamp from its retained image without reviving the retired annotation reference', () => {
+        const entity = recoveryImage();
+        expect(projectRecovery(entity).placedImageGeometryUpdates).toEqual([{
+            pageIndex: 0,
+            stableKey: 'restored-stamp',
+            author: entity.author,
+            sourceImage: entity.image,
+            x: 0.2,
+            y: 0.2,
+            width: 0.3,
+            height: 0.3,
+            rotationDegrees: 25,
+        }]);
+    });
+
+    it('projects an authored raster as native image creation and replacement', () => {
+        const entity: IPlacedImageEntity = {
+            ...recoveryImage(),
+            image: {
+                kind: 'raster',
+                mimeType: 'image/png',
+                dataBase64: 'cG5n',
+                byteLength: 3,
+                sha256: 'b'.repeat(64),
+                width: 10,
+                height: 10,
+            },
+        };
+        const created = projectRecovery(entity);
+        expect(created.placedImageGeometryUpdates).toBeUndefined();
+        expect(created.placedImages).toEqual([{
+            pageIndex: 0,
+            stableKey: 'restored-stamp',
+            author: entity.author,
+            x: 0.2,
+            y: 0.2,
+            width: 0.3,
+            height: 0.3,
+            rotationDegrees: 25,
+            mimeType: 'image/png',
+            bytesBase64: 'cG5n',
+            byteLength: 3,
+            sha256: 'b'.repeat(64),
+        }]);
+        const replaced = projectRecovery({
+            ...entity,
+            identity: {
+                ...entity.identity,
+                pdfRef: '10 0 R',
+            },
+        });
+        expect(replaced.placedImages?.[0]?.annotationId).toBe('10R');
+        expect(replaced.placedImages?.[0]?.author).toBe(entity.author);
+    });
+
+    it('does not rewrite a saved raster present in a reconciliation save plan', () => {
+        const saved: IPlacedImageEntity = {
+            ...recoveryImage(),
+            persistedRevision: 2,
+            identity: {
+                id: asAnnotationId('saved-raster'),
+                pdfRef: '10 0 R',
+            },
+            image: {
+                kind: 'raster',
+                mimeType: 'image/png',
+                dataBase64: 'cG5n',
+                byteLength: 3,
+                sha256: 'b'.repeat(64),
+                width: 10,
+                height: 10,
+            },
+        };
+        const note: INoteEntity = {
+            kind: 'note',
+            identity: {id: asAnnotationId('edited-note')},
+            pageIndex: saved.pageIndex,
+            revision: 0,
+            persistedRevision: -1,
+            deleted: false,
+            createdAt: null,
+            modifiedAt: null,
+            author: null,
+            contents: 'new note',
+            position: saved.rect,
+            color: '#ffff00',
+            open: false,
+        };
+        const app = new AnnotationApplication('reconciliation');
+        app.store.import(saved);
+        app.store.createNote(note);
+        const session = app.beginSave();
+        const plan = buildSerializationPlan(session.frontier, [
+            saved,
+            note,
+        ], app.store.list());
+        const result = buildNativePdfMutationProjection(plan, createNativeRouteCapabilities({shapes: []}));
+        expect(result.route).toBe('native-append');
+        if (result.route !== 'native-append') throw new Error('Expected native save');
+        expect(result.nativeMutationProjection.mutations.placedImages).toBeUndefined();
+        expect(result.nativeMutationProjection.mutations.freeTextNotes).toHaveLength(1);
+    });
+
+    it('includes a retained note thread graph only when recreating an unbound note', () => {
+        const stamp = recoveryImage();
+        const note: INoteEntity = {
+            kind: 'note',
+            identity: stamp.identity,
+            pageIndex: stamp.pageIndex,
+            revision: 2,
+            persistedRevision: -1,
+            deleted: false,
+            author: null,
+            createdAt: null,
+            modifiedAt: null,
+            contents: 'restored parent',
+            position: stamp.rect,
+            color: '#ffff00',
+            open: false,
+            recoveryData: '0011',
+        };
+        expect(projectRecovery(note).freeTextNotes?.[0]?.recoveryData).toBe('0011');
+        const changed = projectRecovery({
+            ...note,
+            persistedRevision: 0,
+            identity: {
+                ...note.identity,
+                pdfRef: '10 0 R',
+            },
+        });
+        expect(changed.freeTextNotes).toBeUndefined();
+    });
+
     it('admits managed shape mutations when the native shape payload is available', () => {
         const shape = createShapeEntity();
         const nativeShape = createShape({annotationId: shape.identity.pdfRef});

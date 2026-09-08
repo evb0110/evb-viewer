@@ -294,6 +294,29 @@ pub(crate) fn marker_rect_to_pdf_rect(
     page_rotation: i64,
 ) -> Result<PdfRect> {
     validate_marker_rect(marker_rect)?;
+    marker_rect_to_pdf_rect_unbounded(marker_rect, page_view, page_rotation)
+}
+
+/// Canonical rotated annotations retain their unrotated rectangle. Its
+/// bounds may extend outside the page while all painted corners fit inside.
+pub(crate) fn marker_rect_to_pdf_rect_unbounded(
+    marker_rect: MarkerRect,
+    page_view: PdfRect,
+    page_rotation: i64,
+) -> Result<PdfRect> {
+    if ![
+        marker_rect.left,
+        marker_rect.top,
+        marker_rect.width,
+        marker_rect.height,
+    ]
+    .iter()
+    .all(|value| value.is_finite())
+        || marker_rect.width <= 0.0
+        || marker_rect.height <= 0.0
+    {
+        return Err("Invalid annotation rectangle".into());
+    }
     let marker_right = marker_rect.left + marker_rect.width;
     let marker_bottom = marker_rect.top + marker_rect.height;
     let points = [
@@ -331,6 +354,16 @@ pub(crate) fn marker_rect_to_pdf_rect(
 /// `marker_rect_to_pdf_rect` so parse and write cannot quietly choose different
 /// rotation conventions.
 pub(crate) fn pdf_rect_to_marker_rect(
+    rect: PdfRect,
+    page_view: PdfRect,
+    page_rotation: i64,
+) -> Result<MarkerRect> {
+    let marker_rect = pdf_rect_to_marker_rect_unbounded(rect, page_view, page_rotation)?;
+    validate_marker_rect(marker_rect)?;
+    Ok(marker_rect)
+}
+
+pub(crate) fn pdf_rect_to_marker_rect_unbounded(
     rect: PdfRect,
     page_view: PdfRect,
     page_rotation: i64,
@@ -382,7 +415,6 @@ pub(crate) fn pdf_rect_to_marker_rect(
         width,
         height,
     };
-    validate_marker_rect(marker_rect)?;
     Ok(marker_rect)
 }
 

@@ -13,284 +13,246 @@ import {
     h,
     nextTick,
     reactive,
-    ref,
-    watch,
 } from 'vue';
+import { requirePageIndex } from '@contracts/pageNumbers';
 import type {
+    IAnnotationPropertyUpdate,
     IAnnotationSettings,
     TAnnotationCommentsStatus,
     TAnnotationTool,
 } from '@app/types/annotations';
-import type { ITextBoxEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {
+    asAnnotationId,
+    type AnnotationEntity,
+    type ITextBoxEntity,
+} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import PdfAnnotationsPanel from '@app/modules/pdf-viewer/components/PdfAnnotationsPanel.vue';
 
 vi.mock('@app/composables/useSettings', () => ({useSettings: () => ({settings: {authorName: null}})}));
 vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string) => key})}));
 vi.mock('@app/modules/pdf-viewer/components/PdfAnnotationCommentsList.vue', () => ({default: {render: () => null}}));
-vi.mock('@app/modules/pdf-viewer/components/PdfAnnotationStyleEditor.vue', async () => {
-    const vue = await import('vue');
-    return {default: vue.defineComponent({setup: () => () => vue.h('div', {'data-style-editor-stub': ''})})};
-});
-vi.mock('@app/modules/pdf-viewer/components/PdfAnnotationToolbar.vue', async () => {
-    const vue = await import('vue');
-    return {default: vue.defineComponent({
-        props: {
-            tool: {
-                type: String,
-                required: true,
-            },
-            stylePopoverOpen: {
-                type: Boolean,
-                default: false,
-            },
-        },
-        setup: (_props, {expose}) => {
-            const button = vue.ref<HTMLButtonElement | null>(null);
-            vue.onMounted(() => {
-                if (button.value === null) {
-                    return;
-                }
-                button.value.getBoundingClientRect = () => ({
-                    bottom: 40,
-                    height: 40,
-                    left: 0,
-                    right: 40,
-                    top: 0,
-                    width: 40,
-                    x: 0,
-                    y: 0,
-                    toJSON: () => ({}),
-                });
-            });
-            expose({getButtonEl: (toolId: TAnnotationTool) => toolId === 'text' ? button.value : null});
-            return () => vue.h('button', {
-                ref: button,
-                'data-toolbar-text': '',
-                type: 'button',
-            }, 'text');
-        },
-    })};
-});
 
-const ButtonStub = defineComponent({
-    inheritAttrs: false,
-    setup: (_props, {attrs}) => () => h('button', {
-        ...attrs,
-        type: 'button',
-    }),
-});
+const TooltipStub = defineComponent({setup: (_props, {slots}) => () => h('span', slots.default?.())});
+const ButtonStub = defineComponent({setup: (_props, {attrs}) => () => h('button', {
+    ...attrs,
+    type: 'button',
+})});
+const InputStub = defineComponent({setup: (_props, {attrs}) => () => h('input', attrs)});
+const IconStub = defineComponent({setup: () => () => h('span')});
 
-const CheckboxStub = defineComponent({
-    inheritAttrs: false,
-    setup: (_props, {attrs}) => () => h('input', {
-        ...attrs,
-        type: 'checkbox',
-    }),
-});
-
-const IconStub = defineComponent({
-    props: {name: {
-        type: String,
-        default: '',
-    }},
-    setup: props => () => h('span', {'data-icon': props.name}),
-});
-
-const PopoverStub = defineComponent({
-    props: {
-        content: {
-            type: Object,
-            default: () => ({}),
+function textBox(overrides: Partial<ITextBoxEntity> = {}): ITextBoxEntity {
+    return {
+        kind: 'text-box',
+        identity: {id: asAnnotationId('selected-text')},
+        pageIndex: requirePageIndex(0),
+        revision: 0,
+        persistedRevision: 0,
+        deleted: false,
+        createdAt: null,
+        modifiedAt: null,
+        author: null,
+        text: 'Selected text',
+        rect: {
+            left: 0.1,
+            top: 0.2,
+            width: 0.3,
+            height: 0.1,
         },
-        open: {
-            type: Boolean,
-            default: false,
-        },
-        portal: {
-            type: String,
-            default: '',
-        },
-        reference: {
-            type: Object,
-            default: null,
-        },
-    },
-    emits: ['update:open'],
-    setup: (props, {slots}) => {
-        const element = ref<HTMLElement | null>(null);
-        watch(() => props.open, async (open) => {
-            if (!open) {
-                return;
-            }
-            await nextTick();
-            const event = new Event('openAutoFocus', {cancelable: true});
-            props.content.onOpenAutoFocus?.(event);
-            if (!event.defaultPrevented) {
-                element.value?.querySelector<HTMLButtonElement>('.annotation-style-popover-close')?.focus();
-            }
-        });
-        return () => h('div', {
-            ref: element,
-            'data-popover-stub': '',
-        }, [
-            slots.default?.(),
-            props.open ? slots.content?.() : null,
-        ]);
-    },
-});
+        rotation: 0,
+        fontSize: 14,
+        color: '#123456',
+        ...overrides,
+    };
+}
 
 interface IHarnessState {
     commentsStatus: TAnnotationCommentsStatus;
     isVisible: boolean;
     tool: TAnnotationTool;
-    selectedTextBox: Pick<ITextBoxEntity, 'fontSize' | 'color'> | null;
+    selectedAnnotations: AnnotationEntity[];
 }
 
 const activeUnmounts = new Set<() => void>();
-
-async function settle() {
-    await nextTick();
-    await nextTick();
-    await nextTick();
-    await nextTick();
-}
 
 function mountPanel() {
     const state = reactive<IHarnessState>({
         commentsStatus: 'ready',
         isVisible: true,
-        tool: 'none',
-        selectedTextBox: {
-            color: '#123456',
-            fontSize: 14,
-        },
+        tool: 'select',
+        selectedAnnotations: [textBox()],
     });
+    const settingUpdates: unknown[] = [];
+    const propertyUpdates: IAnnotationPropertyUpdate[] = [];
+    const tools: TAnnotationTool[] = [];
     const host = document.createElement('div');
     document.body.append(host);
     const app = createApp(defineComponent({setup: () => () => h(PdfAnnotationsPanel, {
-        isVisible: state.isVisible,
-        tool: state.tool,
+        ...state,
         keepActive: false,
         settings: {...DEFAULT_ANNOTATION_SETTINGS} satisfies IAnnotationSettings,
         comments: [],
-        commentsStatus: state.commentsStatus,
-        selectedTextBox: state.selectedTextBox,
+        onSetTool: (tool: TAnnotationTool) => {
+            tools.push(tool);
+            state.tool = tool;
+        },
+        onUpdateSetting: (update: unknown) => settingUpdates.push(update),
+        onUpdateProperties: (update: IAnnotationPropertyUpdate) => propertyUpdates.push(update),
     })}));
+    app.component('AppTooltip', TooltipStub);
     app.component('UButton', ButtonStub);
-    app.component('UCheckbox', CheckboxStub);
+    app.component('UCheckbox', InputStub);
+    app.component('USlider', InputStub);
     app.component('UIcon', IconStub);
-    app.component('UPopover', PopoverStub);
     app.mount(host);
-
     const unmount = () => {
         app.unmount();
         host.remove();
         activeUnmounts.delete(unmount);
     };
     activeUnmounts.add(unmount);
-
     return {
         host,
         state,
-        unmount,
+        tools,
+        settingUpdates,
+        propertyUpdates,
     };
 }
 
+function inspector(host: HTMLElement) {
+    return host.querySelector<HTMLElement>('[data-annotation-inspector]');
+}
+
+function numberInput(host: HTMLElement, label: string) {
+    const input = host.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`);
+    if (!input) throw new Error(`Missing inspector input ${label}`);
+    return input;
+}
+
 afterEach(() => {
-    for (const unmount of [...activeUnmounts]) {
-        unmount();
-    }
+    for (const unmount of [...activeUnmounts]) unmount();
 });
 
-describe('PdfAnnotationsPanel style popover lifecycle', () => {
-    it('keeps a newly focused annotation editor focused when selection opens styles', async () => {
+describe('PdfAnnotationsPanel inline inspector', () => {
+    it('renders exactly one live inspector within the panel and removes hidden controls', async () => {
         const {
             host,
             state,
         } = mountPanel();
-        const layer = document.createElement('div');
-        layer.className = 'pdf-annotation-editor-layer';
-        const editor = document.createElement('div');
-        editor.contentEditable = 'true';
-        editor.tabIndex = 0;
-        layer.append(editor);
-        host.append(layer);
-        editor.focus();
-
-        state.tool = 'text';
-        await settle();
-
-        expect(host.querySelector('.annotation-style-popover')).not.toBeNull();
-        expect(document.activeElement).toBe(editor);
-    });
-
-    it('keeps normal style-control autofocus for toolbar activation', async () => {
-        const {
-            host,
-            state,
-        } = mountPanel();
-        host.querySelector<HTMLButtonElement>('[data-toolbar-text]')?.focus();
-
-        state.tool = 'text';
-        await settle();
-
-        expect(document.activeElement).toBe(host.querySelector('.annotation-style-popover-close'));
-    });
-
-    it('dismisses the body popover while annotations are hidden and reopens on return', async () => {
-        const {
-            host,
-            state,
-        } = mountPanel();
-
-        state.tool = 'text';
-        await settle();
-
-        expect(host.querySelector('.annotation-style-popover')).not.toBeNull();
+        expect(document.querySelectorAll('[data-annotation-inspector]')).toHaveLength(1);
+        expect(host.querySelectorAll('.annotation-style-editor')).toHaveLength(1);
+        expect(host.contains(inspector(host))).toBe(true);
+        expect(document.querySelector('.annotation-style-popover, .annotation-style-cache')).toBeNull();
 
         state.isVisible = false;
-        await settle();
-
-        expect(host.querySelector('.annotation-style-popover')).toBeNull();
+        await nextTick();
+        expect(document.querySelector('[data-annotation-inspector]')).toBeNull();
+        expect(host.querySelector('.annotation-style-editor')).toBeNull();
 
         state.isVisible = true;
-        await settle();
-
-        expect(host.querySelector('.annotation-style-popover')).not.toBeNull();
+        await nextTick();
+        expect(document.querySelectorAll('[data-annotation-inspector]')).toHaveLength(1);
+        expect(host.querySelectorAll('.annotation-style-editor')).toHaveLength(1);
     });
 
-    it('stays closed when document annotation loading races with a tool change', async () => {
+    it('preserves the focused control when selected entity properties change', async () => {
         const {
             host,
             state,
         } = mountPanel();
+        const input = numberInput(host, 'annotations.textSize');
+        const panel = inspector(host);
+        input.focus();
 
-        state.tool = 'text';
-        await settle();
-        expect(host.querySelector('.annotation-style-popover')).not.toBeNull();
+        state.selectedAnnotations = [textBox({
+            fontSize: 18,
+            revision: 1,
+        })];
+        await nextTick();
 
-        state.commentsStatus = 'loading';
-        state.tool = 'draw';
-        await settle();
-
-        expect(host.querySelector('.annotation-style-popover')).toBeNull();
+        expect(inspector(host)).toBe(panel);
+        expect(numberInput(host, 'annotations.textSize')).toBe(input);
+        expect(input.value).toBe('18');
+        expect(document.activeElement).toBe(input);
     });
 
-    it('opens a tool selected during loading once annotations are ready', async () => {
+    it.each([
+        'select',
+        'none',
+    ] as const)('shows selected properties in %s mode', async (tool) => {
         const {
             host,
             state,
         } = mountPanel();
+        state.tool = tool;
+        await nextTick();
+        expect(inspector(host)?.dataset.target).toBe('selection');
+        expect(numberInput(host, 'annotations.textSize').value).toBe('14');
+    });
 
-        state.commentsStatus = 'loading';
+    it('edits defaults while a creation tool is armed even with an existing selection', async () => {
+        const {
+            host,
+            state,
+            settingUpdates,
+            propertyUpdates,
+        } = mountPanel();
         state.tool = 'text';
-        await settle();
-        expect(host.querySelector('.annotation-style-popover')).toBeNull();
+        await nextTick();
+        expect(inspector(host)?.dataset.target).toBe('defaults');
+        expect(host.querySelector('.style-label')?.textContent).toContain(String(DEFAULT_ANNOTATION_SETTINGS.textSize));
+        host.querySelector<HTMLButtonElement>('button[aria-label="annotations.increaseWidth"]')?.click();
+        expect(settingUpdates).toEqual([{
+            key: 'textSize',
+            value: DEFAULT_ANNOTATION_SETTINGS.textSize + 1,
+        }]);
+        expect(propertyUpdates).toEqual([]);
+    });
 
+    it('emits selected property changes separately from defaults', () => {
+        const {
+            host,
+            settingUpdates,
+            propertyUpdates,
+        } = mountPanel();
+        const input = numberInput(host, 'annotations.textSize');
+        input.value = '24';
+        input.dispatchEvent(new Event('change', {bubbles: true}));
+        expect(propertyUpdates).toEqual([{fontSize: 24}]);
+        expect(settingUpdates).toEqual([]);
+    });
+
+    it('keeps an already active toolbar tool armed and preserves toolbar focus', async () => {
+        const {
+            host,
+            state,
+            tools,
+        } = mountPanel();
+        state.tool = 'text';
+        await nextTick();
+        const button = host.querySelector<HTMLButtonElement>('button[data-tool="text"]');
+        if (!button) throw new Error('Missing text tool button');
+        button.focus();
+        button.click();
+        await nextTick();
+        expect(tools).toEqual(['text']);
+        expect(state.tool).toBe('text');
+        expect(button.getAttribute('aria-pressed')).toBe('true');
+        expect(document.activeElement).toBe(button);
+    });
+
+    it('keeps the same inspector through comment loading and updates', async () => {
+        const {
+            host,
+            state,
+        } = mountPanel();
+        const panel = inspector(host);
+        state.commentsStatus = 'loading';
+        await nextTick();
+        expect(inspector(host)).toBe(panel);
         state.commentsStatus = 'ready';
-        await settle();
-
-        expect(host.querySelector('.annotation-style-popover')).not.toBeNull();
+        await nextTick();
+        expect(inspector(host)).toBe(panel);
     });
 });

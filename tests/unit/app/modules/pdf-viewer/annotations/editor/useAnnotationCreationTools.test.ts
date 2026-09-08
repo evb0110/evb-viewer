@@ -11,6 +11,7 @@ import type {
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type { IAnnotationEditorSurface } from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
 import { useAnnotationCreationTools } from '@app/modules/pdf-viewer/annotations/editor/useAnnotationCreationTools';
+import {computed} from 'vue';
 import {requirePageIndex} from '@contracts/pageNumbers';
 
 const entity = {
@@ -72,6 +73,33 @@ const stamp = {
 } satisfies IPlacedImageEntity;
 
 describe('useAnnotationCreationTools', () => {
+    it.each([
+        'rectangle',
+        'circle',
+    ] as const)('keeps the original %s anchor through reverse drag and duplicate release', tool => {
+        const tools = useAnnotationCreationTools({surface: {settings: computed(() => null)} as IAnnotationEditorSurface});
+        const origin = {
+            x: 0.8,
+            y: 0.8,
+        };
+        let draft = tools.beginShape(0, tool, origin)!;
+        for (const value of [
+            0.6,
+            0.4,
+            0.4,
+        ]) draft = tools.updateShape(draft, {
+            x: value,
+            y: value,
+        }, origin);
+        const created = tools.finishShape(draft);
+        expect(created?.rect).toEqual({
+            left: 0.4,
+            top: 0.4,
+            width: 0.4,
+            height: 0.4,
+        });
+    });
+
     it('creates and selects only the text tool entity', () => {
         const createTextBoxAt = vi.fn(() => entity);
         const createNoteAt = vi.fn(() => note);

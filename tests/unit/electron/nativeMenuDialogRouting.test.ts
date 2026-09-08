@@ -226,8 +226,10 @@ describe('native menu and dialog routing', () => {
         let saveDialogResult: string | null = null;
         const print = vi.fn(async () => undefined);
         const deletePages = vi.fn();
+        const selectAllAnnotations = vi.fn();
         const workspace = createWorkspaceExposeFixture({
             handleDeletePages: deletePages,
+            handleSelectAll: selectAllAnnotations,
             handlePrint: print,
             handleSaveAs: async () => {
                 saveDialogResult = await documents.savePdfDialog('native-route-output.pdf');
@@ -313,6 +315,17 @@ describe('native menu and dialog routing', () => {
         await flushCommandRoute();
         expect(print).toHaveBeenCalledOnce();
         expect(deletePages).toHaveBeenCalledOnce();
+
+        vi.mocked(window.webContents.executeJavaScript).mockResolvedValueOnce(true);
+        findMenuItem('menu.edit', 'menu.selectAll').click?.({}, window);
+        await flushCommandRoute();
+        expect(selectAllAnnotations).toHaveBeenCalledOnce();
+        expect(window.webContents.selectAll).not.toHaveBeenCalled();
+
+        findMenuItem('menu.edit', 'menu.selectAll').click?.({}, window);
+        await flushCommandRoute();
+        expect(window.webContents.selectAll).toHaveBeenCalledOnce();
+        expect(selectAllAnnotations).toHaveBeenCalledOnce();
     });
 
     it('keeps native About and opens Acknowledgements as a local renderer page', async () => {

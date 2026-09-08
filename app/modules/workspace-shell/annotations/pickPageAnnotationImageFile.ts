@@ -79,18 +79,13 @@ export async function pickPageAnnotationImageFile() {
         if (bytes.byteLength !== size || bytes.byteLength > PDF_IMAGE_PLACEMENT_RESOURCE_LIMITS.maxEncodedBytes) {
             throw new RangeError('ERR_BROWSER_IMAGE_ENCODED_SIZE_TOO_LARGE');
         }
-        const nativeSourceHandle = typeof documentFiles.createManagedTempFileHandle === 'function'
-            ? await documentFiles.createManagedTempFileHandle(imagePath).catch(() => null)
-            : null;
         const mimeType = mimeTypeFromPath(imagePath);
         const fileName = imagePath.split(/[\\/]/).pop() ?? `image.${extensionForMimeType(mimeType)}`;
         const file = new File([bytes as BlobPart], fileName, {
             type: mimeType,
             lastModified: Date.now(),
         });
-        return nativeSourceHandle
-            ? Object.assign(file, {nativeSourceHandle})
-            : file;
+        return file;
     } finally {
         if (isBrowserDocumentRef(imagePath)) {
             await getDocumentWorkingCopyCapability().cleanupFile(imagePath).catch(() => {});

@@ -251,6 +251,7 @@ export class AnnotationStore {
     readonly #history: IAnnotationHistoryAuthority;
     readonly #saveFrontiers = new WeakMap<IAnnotationSaveFrontier, true>();
     readonly #persistenceIdentities = new AnnotationPersistenceIdentityLedger();
+    readonly #retainedHistoryTargets = new Map<AnnotationId, number>();
     readonly #selectedIds = new Set<AnnotationId>();
     #foreign: readonly IPdfForeignAnnotationRecord[] = [];
     #savedSemanticSnapshot = new Map<AnnotationId, ISavedSemanticEntry>();
@@ -277,6 +278,14 @@ export class AnnotationStore {
     get(id: AnnotationId) {
         const entity = this.#entities.get(id);
         return entity ? cloneEntity(entity) : null;
+    }
+
+    /** Includes creations removed by undo while their redo commands remain. */
+    deletedAnnotationIds(): readonly AnnotationId[] {
+        return [
+            ...Array.from(this.#entities.values()).filter(entity => entity.deleted).map(entity => entity.identity.id),
+            ...Array.from(this.#retainedHistoryTargets.keys()).filter(id => !this.#entities.has(id)),
+        ];
     }
 
     resolveExternal(bindings: Omit<IAnnotationIdentity, 'id'>): AnnotationId | null {
@@ -531,7 +540,7 @@ export class AnnotationStore {
 
     updateShape(
         id: AnnotationId,
-        patch: Partial<Pick<IShapeEntity, 'tool' | 'rect' | 'points' | 'strokes' | 'strokeColor' | 'strokeWidth' | 'fill' | 'opacity'>>,
+        patch: Partial<Pick<IShapeEntity, 'tool' | 'pdfSubtype' | 'lineStartStyle' | 'lineEndStyle' | 'rect' | 'points' | 'strokes' | 'strokeColor' | 'strokeWidth' | 'fill' | 'opacity'>>,
     ) {
         return this.#update<IShapeEntity>(id, 'shape', entity => ({
             ...entity,
@@ -604,6 +613,18 @@ export class AnnotationStore {
         this.#entities.forEach((current, id) => {
             const parsed = parsedById.get(id);
             if (!parsed) {
+                // A committed deletion is absent from the parse by design.
+                // Keep its command target so undo can recreate it without a
+                // retired PDF ref, including after repeated saves.
+                if (current.deleted && current.persistedRevision >= 0 && !isDirty(current)
+                    && this.#retainedHistoryTargets.has(id)) {
+                    next.set(id, cloneEntity(current));
+                    nextBaseline.set(id, {
+                        kind: current.kind,
+                        fingerprint: semanticEntityFingerprint(current),
+                    });
+                    return;
+                }
                 const materializedLocalShapeTombstone = current.kind === 'shape'
                     && current.deleted
                     && current.identity.pdfRef === undefined
@@ -834,6 +855,7 @@ export class AnnotationStore {
         this.#savedSemanticSnapshot = semanticSnapshot(this.#entities.values());
         this.#persistenceIdentities.clear();
         this.#saveFrontiers.delete(frontier);
+        this.#pruneUnretainedSavedDeletions();
         if (updates.length) {
             this.#mutationEpoch += 1;
             this.#emit();
@@ -980,12 +1002,38 @@ export class AnnotationStore {
             })), mode, registerFailureRollback);
         };
         apply('after', 'commit');
+        entries.forEach(({id}) => this.#retainedHistoryTargets.set(id, (this.#retainedHistoryTargets.get(id) ?? 0) + 1));
         this.#history.registerCommand({
             cmd: register => apply('after', 'replay', register),
             undo: register => apply('before', 'replay', register),
             estimatedBytes: estimateRetainedAnnotationBytes(entries),
             annotationIds: entries.map(entry => entry.id),
+            onDiscard: () => {
+                entries.forEach(({id}) => {
+                    const remaining = (this.#retainedHistoryTargets.get(id) ?? 1) - 1;
+                    if (remaining > 0) this.#retainedHistoryTargets.set(id, remaining);
+                    else this.#retainedHistoryTargets.delete(id);
+                });
+                if (this.#pruneUnretainedSavedDeletions()) {
+                    this.#mutationEpoch += 1;
+                    this.#emit();
+                }
+            },
         });
+    }
+
+    #pruneUnretainedSavedDeletions() {
+        let pruned = false;
+        this.#entities.forEach((entity, id) => {
+            if (!entity.deleted || isDirty(entity) || this.#retainedHistoryTargets.has(id)) {
+                return;
+            }
+            this.#entities.delete(id);
+            this.#savedSemanticSnapshot.delete(id);
+            this.#persistenceIdentities.forget(id);
+            pruned = true;
+        });
+        return pruned;
     }
 
     #applyHistoryEntries(
@@ -994,9 +1042,27 @@ export class AnnotationStore {
         registerFailureRollback?: TRegisterAnnotationHistoryFailureRollback,
     ) {
         const previousEpoch = this.#mutationEpoch;
-        const applied = mode === 'commit'
+        const rebased = mode === 'commit'
             ? entries
             : this.#persistenceIdentities.rebaseReplay(entries, id => this.#entities.get(id));
+        const applied = rebased.map(entry => {
+            if (!entry.after) {
+                return entry;
+            }
+            const revision = mode === 'commit'
+                ? entry.after.revision
+                : Math.max(entry.before?.revision ?? -1, entry.after.revision, entry.after.persistedRevision) + 1;
+            const matchesSaved = this.#savedSemanticSnapshot.get(entry.id)?.fingerprint
+                === semanticEntityFingerprint(entry.after);
+            return {
+                ...entry,
+                after: {
+                    ...entry.after,
+                    revision,
+                    persistedRevision: matchesSaved ? revision : entry.after.persistedRevision,
+                },
+            };
+        });
         this.#replaceEntities(applied);
         this.#mutationEpoch += 1;
         registerFailureRollback?.(() => {

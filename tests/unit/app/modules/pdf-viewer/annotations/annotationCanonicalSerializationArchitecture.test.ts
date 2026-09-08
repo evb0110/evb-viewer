@@ -71,13 +71,15 @@ describe('canonical annotation serialization architecture', () => {
         expect(contents).toContain('onAnnotationFailure: failureSurface.reportAnnotationFailure');
     });
 
-    it('keeps workspace annotation projections out of the PDF serializer', () => {
-        const contents = source('app/modules/pdf-viewer/runtime/composables/pdf/pdfDocumentPersistence.ts');
+    it('creates image annotations in the canonical store without a workspace PDF writer', () => {
+        const contents = source('app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession.ts');
         expect(contents).not.toContain('annotationComments: Ref<');
         expect(contents).not.toContain('getAnnotationCommentsSnapshot');
         expect(contents).not.toContain('mergeAnnotationCommentSaveSnapshot');
         expect(contents).not.toContain('applyAnnotationPayload');
-        expect(contents).toContain('consumeNativePdfMutationProjection');
+        expect(contents).toContain('annotationEditorSurface.createStampAt');
+        expect(contents).toContain('application.store.updatePlacedImage');
+        expect(contents).not.toContain('options.finalizeImagePlacement');
     });
 
     it('routes print serialization through the canonical viewer transaction', () => {

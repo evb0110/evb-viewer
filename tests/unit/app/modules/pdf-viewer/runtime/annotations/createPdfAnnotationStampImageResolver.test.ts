@@ -1,4 +1,7 @@
-import {ref} from 'vue';
+import {
+    computed,
+    ref,
+} from 'vue';
 import {
     describe,
     expect,
@@ -37,6 +40,28 @@ const entity = {
 } as IPlacedImageEntity;
 
 describe('createPdfAnnotationStampImageResolver document ownership', () => {
+    it('displays an unsaved raster from canonical bytes without reading the PDF', async () => {
+        const leasePage = vi.fn();
+        const resolveImage = createPdfAnnotationStampImageResolver({
+            pdfDocument: computed(() => null),
+            leasePage,
+        });
+        const raster: IPlacedImageEntity = {
+            ...entity,
+            image: {
+                kind: 'raster',
+                mimeType: 'image/png',
+                dataBase64: 'AQID',
+                byteLength: 3,
+                sha256: 'a'.repeat(64),
+                width: 2,
+                height: 1,
+            },
+        };
+        expect(await resolveImage(raster)).toBe('data:image/png;base64,AQID');
+        expect(leasePage).not.toHaveBeenCalled();
+    });
+
     it('does not resolve or cache a stamp after the document changes during page parsing', async () => {
         const firstDocument = {};
         const replacementDocument = {};

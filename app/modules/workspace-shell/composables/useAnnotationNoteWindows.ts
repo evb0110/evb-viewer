@@ -23,6 +23,7 @@ interface IAnnotationNoteWindowRuntime {
     pageIndex: number;
     pageNumber: number;
     author: string | null;
+    color: string | null;
     createdAt: number | null;
     modifiedAt: number | null;
     markerRect: IAnnotationCommentSummary['markerRect'];
@@ -49,6 +50,7 @@ export interface IAnnotationNoteWindowDeps {
         text: string,
     ) => boolean | Promise<boolean>;
     isAnnotationCommentSyncReady?: () => boolean;
+    getDeletedCanonicalAnnotationIds?: () => readonly string[];
 }
 
 function commandId(comment: IAnnotationCommentSummary): AnnotationId {
@@ -62,7 +64,7 @@ function commentsHaveSameIdentity(left: IAnnotationCommentSummary, right: IAnnot
 export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
     const {t} = useTypedI18n();
     const states = ref<IAnnotationNoteWindowState[]>([]);
-    const runtime = new Map<AnnotationId, IAnnotationNoteWindowRuntime>();
+    const runtime = reactive(new Map<AnnotationId, IAnnotationNoteWindowRuntime>());
     const timers = new Map<AnnotationId, ReturnType<typeof setTimeout>>();
     const disappearanceTimers = new Map<AnnotationId, ReturnType<typeof setTimeout>>();
     let nextOrder = 0;
@@ -111,6 +113,10 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             author: {
                 enumerable: true,
                 get: () => metadata.author,
+            },
+            color: {
+                enumerable: true,
+                get: () => metadata.color,
             },
             createdAt: {
                 enumerable: true,
@@ -220,6 +226,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         metadata.pageIndex = comment.pageIndex;
         metadata.pageNumber = comment.pageNumber;
         metadata.author = comment.author ?? null;
+        metadata.color = comment.color;
         metadata.createdAt = comment.createdAt ?? metadata.createdAt;
         metadata.modifiedAt = comment.modifiedAt ?? null;
         metadata.markerRect = comment.markerRect ? {...comment.markerRect} : null;
@@ -233,6 +240,9 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             return;
         }
         const annotationId = commandId(comment);
+        if (deps.getDeletedCanonicalAnnotationIds?.().includes(annotationId)) {
+            return;
+        }
         const existing = stateById(annotationId);
         if (existing) {
             existing.minimized = false;
@@ -258,6 +268,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             pageIndex: comment.pageIndex,
             pageNumber: comment.pageNumber,
             author: comment.author ?? null,
+            color: comment.color,
             createdAt: comment.createdAt ?? null,
             modifiedAt: comment.modifiedAt ?? null,
             markerRect: comment.markerRect ? {...comment.markerRect} : null,
@@ -394,6 +405,10 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             return true;
         }
         const id = resolveId(value) ?? asAnnotationId(value);
+        if (deps.getDeletedCanonicalAnnotationIds?.().includes(id)) {
+            removeAnnotationNoteWindow(id);
+            return true;
+        }
         const state = stateById(id);
         const metadata = runtime.get(id);
         if (!state || !metadata || !metadata.dirty) {
@@ -569,6 +584,10 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
     }
 
     const stopAnnotationCommentsWatch = watch(deps.annotationComments, (comments) => {
+        const deletedIds = new Set(deps.getDeletedCanonicalAnnotationIds?.() ?? []);
+        states.value.filter(state => deletedIds.has(state.annotationId)).forEach(state => {
+            deleteAnnotationNoteWindow(asAnnotationId(state.annotationId));
+        });
         if (!deps.isAnnotationCommentSyncReady?.() && deps.isAnnotationCommentSyncReady) {
             return;
         }
@@ -580,6 +599,13 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
                 return;
             }
             applyCommentSnapshot(metadata, comment);
+            const state = stateById(id);
+            if (state) {
+                if (!metadata.dirty) {
+                    state.draftText = comment.text;
+                }
+                metadata.dirty = state.draftText !== comment.text;
+            }
             clearDisappearanceTimer(id);
         });
         states.value.filter(state => !ids.has(asAnnotationId(state.annotationId))).forEach((state) => {

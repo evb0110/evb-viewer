@@ -132,8 +132,6 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
         canUndo,
         canRedo,
         closeAllDropdowns,
-        closeShapeProperties,
-        closeTextMarkupProperties,
         continuousScroll,
         currentPage,
         documentIdentity,
@@ -442,8 +440,6 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
             parse: parseEmptyAgentActionInput,
             async run() {
                 closeAllDropdowns();
-                closeShapeProperties();
-                closeTextMarkupProperties();
                 await nextTick();
                 return {};
             },

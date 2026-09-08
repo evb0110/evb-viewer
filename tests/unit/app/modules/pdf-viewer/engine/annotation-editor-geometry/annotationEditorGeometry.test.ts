@@ -5,6 +5,14 @@ import {
 } from 'vitest';
 import {
     applyAnnotationHandleResize,
+    rotateAnnotationPoint,
+    rotateAnnotationPlacementRect,
+    unrotateAnnotationPlacementRect,
+    rotatedAnnotationBounds,
+    rotateAnnotationRect,
+    rotateAnnotationPointAround,
+    resizeRotatedAnnotationRect,
+    clampAnnotationMoveDelta,
     annotationRectContainsPoint,
     createAnnotationRectFromPoints,
     createDefaultTextBoxRect,
@@ -415,5 +423,119 @@ describe('annotation editor geometry', () => {
             x: 0.5,
             y: 0.51,
         })).toBe(false);
+    });
+});
+
+
+describe('annotation display geometry', () => {
+    it.each([
+        0,
+        90,
+        180,
+        270,
+    ])('round trips display points and rectangles at %s degrees', rotation => {
+        const point = {
+            x: 0.2,
+            y: 0.3,
+        };
+        const projected = rotateAnnotationPoint(point, rotation);
+        const restored = rotateAnnotationPoint(projected, -rotation);
+        expect(restored.x).toBeCloseTo(point.x);
+        expect(restored.y).toBeCloseTo(point.y);
+        expectRect(rotateAnnotationRect(rotateAnnotationRect(rect, rotation), -rotation), rect);
+    });
+
+    it('constrains a group once so every selected annotation keeps its relative position', () => {
+        const delta = clampAnnotationMoveDelta([
+            rect,
+            {
+                left: 0.8,
+                top: 0.1,
+                width: 0.1,
+                height: 0.1,
+            },
+        ], {
+            x: 0.3,
+            y: -0.3,
+        });
+        expect(delta.x).toBeCloseTo(0.1);
+        expect(delta.y).toBeCloseTo(-0.1);
+    });
+
+    it.each([
+        90,
+        180,
+        270,
+        35,
+    ])('holds the opposite physical corner fixed while resizing an entity rotated %s degrees', rotation => {
+        const page = {
+            width: 600,
+            height: 900,
+        };
+        const center = {
+            x: rect.left + rect.width / 2,
+            y: rect.top + rect.height / 2,
+        };
+        const originalAnchor = rotateAnnotationPointAround({
+            x: rect.left,
+            y: rect.top,
+        }, center, rotation, page);
+        const pointer = rotateAnnotationPointAround({
+            x: 0.7,
+            y: 0.6,
+        }, center, rotation, page);
+        const resized = resizeRotatedAnnotationRect(rect, 'se', pointer, rotation, page);
+        const nextCenter = {
+            x: resized.left + resized.width / 2,
+            y: resized.top + resized.height / 2,
+        };
+        const anchor = rotateAnnotationPointAround({
+            x: resized.left,
+            y: resized.top,
+        }, nextCenter, rotation, page);
+        expect(anchor.x).toBeCloseTo(originalAnchor.x);
+        expect(anchor.y).toBeCloseTo(originalAnchor.y);
+        expect(resized.width).toBeCloseTo(0.5);
+        expect(resized.height).toBeCloseTo(0.3);
+    });
+});
+
+
+describe('rotated annotation edge constraints', () => {
+    it.each([
+        90,
+        180,
+        270,
+        35,
+    ])('keeps resized painted corners inside the page at %s degrees', rotation => {
+        const page = {
+            width: 600,
+            height: 900,
+        };
+        const resized = resizeRotatedAnnotationRect(rect, 'se', {
+            x: 1.5,
+            y: 1.5,
+        }, rotation, page);
+        const bounds = rotatedAnnotationBounds(resized, rotation, page);
+        expect(bounds.left).toBeGreaterThanOrEqual(-1e-7);
+        expect(bounds.top).toBeGreaterThanOrEqual(-1e-7);
+        expect(bounds.left + bounds.width).toBeLessThanOrEqual(1 + 1e-7);
+        expect(bounds.top + bounds.height).toBeLessThanOrEqual(1 + 1e-7);
+    });
+    it.each([
+        0,
+        90,
+        180,
+        270,
+    ])('round trips separately rotated image/text placement dimensions at view %s', rotation => {
+        const page = {
+            width: 600,
+            height: 900,
+        };
+        const display = rotateAnnotationPlacementRect(rect, rotation, page);
+        expectRect(unrotateAnnotationPlacementRect(display, rotation, page), rect);
+        const swapped = rotation % 180 !== 0;
+        expect(display.width * (swapped ? page.height : page.width)).toBeCloseTo(rect.width * page.width);
+        expect(display.height * (swapped ? page.width : page.height)).toBeCloseTo(rect.height * page.height);
     });
 });

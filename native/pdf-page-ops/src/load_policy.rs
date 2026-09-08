@@ -102,6 +102,28 @@ pub(crate) fn load_pdf_bytes(bytes: &[u8]) -> Result<Document> {
 /// load, and `validate_loaded_document` still runs after it. Callers that admit
 /// an encrypted base must therefore re-check `assert_plaintext_base` before
 /// writing anything onto it.
+/// Native annotation history contains a small PDF object graph without a
+/// page tree. Apply the same lexer and structural admission as document loads.
+pub(crate) fn preflight_pdf_object_graph(
+    bytes: &[u8],
+    max_bytes: usize,
+    max_objects: usize,
+) -> Result<()> {
+    if bytes.len() > max_bytes {
+        return Err(limit_error("PDF object graph exceeds its byte ceiling"));
+    }
+    preflight_pdf_structure(
+        bytes,
+        PdfLoadPolicy {
+            max_encoded_bytes: max_bytes,
+            max_decompressed_stream_bytes: max_bytes,
+            max_objects,
+            max_pages: None,
+            max_structural_nesting: 64,
+        },
+    )
+}
+
 pub(crate) fn load_pdf_bytes_with_policy_and_password(
     bytes: &[u8],
     policy: PdfLoadPolicy,

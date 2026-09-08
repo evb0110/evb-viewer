@@ -93,7 +93,10 @@ export function collectMarkupSubtypeHints(
             color: shouldCollectMarkupSubtypeHintColor(comment, options.includeContents === true)
                 ? comment.color
                 : null,
-            ...(options.includeContents ? {contents: comment.text} : {}),
+            ...(options.includeContents ? {
+                contents: comment.text,
+                author: comment.author,
+            } : {}),
             ...(options.includeContents ? {opacity: comment.opacity ?? null} : {}),
             id: comment.id,
             subtype,

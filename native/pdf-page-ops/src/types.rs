@@ -874,6 +874,10 @@ pub(crate) struct NativeMutationsFile {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct PlacedImageGeometryUpdate {
+    #[serde(default)]
+    pub(crate) author: Option<String>,
+    #[serde(default)]
+    pub(crate) source_image: Option<PdfAnnotationParseStampImage>,
     pub(crate) page_index: u32,
     #[serde(default)]
     pub(crate) stable_key: Option<String>,
@@ -922,6 +926,8 @@ pub(crate) struct MarkerRect {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct TextNote {
+    #[serde(default)]
+    pub(crate) recovery_data: Option<String>,
     pub(crate) page_index: u32,
     pub(crate) stable_key: String,
     pub(crate) text: String,
@@ -1007,6 +1013,8 @@ pub(crate) struct MarkupMutation {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct PlacedImage {
+    #[serde(default)]
+    pub(crate) author: Option<String>,
     pub(crate) page_index: u32,
     #[serde(default)]
     pub(crate) stable_key: Option<String>,
@@ -1018,7 +1026,10 @@ pub(crate) struct PlacedImage {
     pub(crate) height: f64,
     pub(crate) rotation_degrees: Option<f64>,
     pub(crate) mime_type: String,
+    #[serde(default)]
     pub(crate) bytes_path: PathBuf,
+    #[serde(default)]
+    pub(crate) bytes_base64: Option<String>,
     pub(crate) byte_length: u64,
     pub(crate) sha256: String,
     #[serde(skip)]
@@ -1044,6 +1055,8 @@ pub(crate) struct MarkupSubtypeHint {
     pub(crate) opacity: Option<f64>,
     #[serde(default)]
     pub(crate) contents: Option<String>,
+    #[serde(default)]
+    pub(crate) author: Option<String>,
     #[serde(default)]
     pub(crate) id: Option<String>,
     #[serde(default)]
@@ -1072,6 +1085,8 @@ pub(crate) struct ShapePoint {
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct ShapeAnnotation {
+    #[serde(default)]
+    pub(crate) author: Option<String>,
     #[serde(rename = "type")]
     pub(crate) shape_type: String,
     pub(crate) page_index: u32,

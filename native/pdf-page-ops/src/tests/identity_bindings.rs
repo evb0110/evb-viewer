@@ -3,6 +3,7 @@
     /// feeds, so the app can refresh its object references after every save.
     fn binding_note() -> FreeTextNote {
         FreeTextNote {
+            recovery_data: None,
             page_index: 0,
             stable_key: "uid:0:note-one".to_string(),
             text: "hello".to_string(),

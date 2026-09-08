@@ -41,6 +41,7 @@ interface IViewportDomSnapshot { pageContainers: Map<number, HTMLElement> }
 
 interface IConnectorLine {
     annotationId: string;
+    color: string | null;
     path: string;
 }
 
@@ -341,6 +342,7 @@ function getNoteRenderSignature(note: IAnnotationNoteWindowEntry) {
     return [
         note.annotationId,
         note.pageNumber,
+        note.color ?? '',
         rect?.left ?? '',
         rect?.top ?? '',
         rect?.width ?? '',
@@ -446,6 +448,7 @@ export function createAnnotationOverlayRuntime(options: IAnnotationOverlayRuntim
             const markerStart = getConnectorStart(marker, noteAnchor);
             return [{
                 annotationId: note.annotationId,
+                color: note.color ?? null,
                 path: `M ${markerStart.x} ${markerStart.y} L ${noteAnchor.x} ${noteAnchor.y}`,
             }];
         });
@@ -475,6 +478,7 @@ export function createAnnotationOverlayRuntime(options: IAnnotationOverlayRuntim
             return {display: 'none'};
         }
         return {
+            '--annotation-note-color': note.color ?? 'var(--ui-warning)',
             left: `${clamp((markerRect.left + markerRect.width) * 100, 1, 99)}%`,
             top: `${clamp(markerRect.top * 100, 1, 99)}%`,
             zIndex: String(resolveNoteWindowAnchorZIndex(note.order)),

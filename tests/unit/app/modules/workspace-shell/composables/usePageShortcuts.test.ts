@@ -46,12 +46,10 @@ function createDeps() {
         showSettings: ref(false),
         annotationTool: ref<TAnnotationTool>('none'),
         pdfViewerRef: ref({deleteSelectedShape: vi.fn()}),
-        shapePropertiesPopoverVisible: ref(false),
         annotationContextMenuVisible: ref(false),
         pageContextMenuVisible: ref(false),
         closeAnnotationContextMenu: vi.fn(),
         closePageContextMenu: vi.fn(),
-        closeShapeProperties: vi.fn(),
         openSearch: vi.fn(),
         openAnnotations: vi.fn(),
         handleAnnotationToolChange: vi.fn(),
@@ -514,6 +512,19 @@ describe('usePageShortcuts', () => {
         expect(deps.openSearch).toHaveBeenCalledOnce();
     });
 
+    it('preserves an input method Escape before workspace cancellation', async () => {
+        const deps = createDeps();
+        deps.annotationTool.value = 'text';
+        deps.annotationContextMenuVisible.value = true;
+        const { usePageShortcuts } = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
+        usePageShortcuts(deps);
+        const event = createKeyboardEventFixture({key: 'Escape'});
+        Object.defineProperty(event, 'isComposing', {value: true});
+        capturedOnEventFired?.(event);
+        expect(deps.closeAnnotationContextMenu).not.toHaveBeenCalled();
+        expect(deps.handleAnnotationToolChange).not.toHaveBeenCalled();
+    });
+
     it('handles Escape to close context menus', async () => {
         const deps = createDeps();
         deps.annotationContextMenuVisible.value = true;
@@ -873,7 +884,6 @@ describe('usePageShortcuts', () => {
 
     it('closes visible shortcut menus on outside pointerdown', async () => {
         const deps = createDeps();
-        deps.shapePropertiesPopoverVisible.value = true;
         deps.annotationContextMenuVisible.value = true;
         deps.pageContextMenuVisible.value = true;
         const { usePageShortcuts } = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
@@ -886,7 +896,6 @@ describe('usePageShortcuts', () => {
 
         capturedPointerDown?.(createPointerDownEvent(target));
 
-        expect(deps.closeShapeProperties).toHaveBeenCalledOnce();
         expect(deps.closeAnnotationContextMenu).toHaveBeenCalledOnce();
         expect(deps.closePageContextMenu).toHaveBeenCalledOnce();
     });

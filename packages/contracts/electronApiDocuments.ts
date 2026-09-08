@@ -23,6 +23,7 @@ import type {
     IMarkerRect,
     IPoint2D,
 } from '@contracts/geometry';
+import type { IPdfAnnotationStampImageReference } from '@contracts/pdfAnnotationParseTypes';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
 import type {
     IPdfPageLabelsMutation,
@@ -611,6 +612,7 @@ export interface IPdfNoteGeometryUpdate {
 export type IPdfNativeFreeTextNoteMarkerRect = IMarkerRect;
 
 export interface IPdfNativeFreeTextNote {
+    recoveryData?: string;
     pageIndex: TPageIndex;
     stableKey: string;
     text: string;
@@ -666,6 +668,7 @@ export type TPdfNativeShapeLineEndStyle = TPdfAnnotationLineEndStyle;
 export type IPdfNativeShapePoint = IPoint2D;
 
 export interface IPdfNativeShapeAnnotation {
+    author?: string | null;
     id?: string;
     type: TPdfNativeShapeType;
     pageIndex: TPageIndex;
@@ -703,6 +706,7 @@ export type TPdfNativeMarkupSubtype = TPdfAnnotationMarkupSubtype;
 export type IPdfNativeMarkupMarkerRect = IMarkerRect;
 
 export interface IPdfNativeMarkupSubtypeHint {
+    author?: string | null;
     subtype: TPdfNativeMarkupSubtype;
     pageIndex: TPageIndex;
     markerRect: IPdfNativeMarkupMarkerRect;
@@ -726,15 +730,21 @@ export interface IPdfNativeMarkupMutation {
 }
 
 export interface IPdfNativePlacedImage extends IPdfBox {
+    author?: string | null;
     pageIndex: TPageIndex;
     stableKey?: string;
     annotationId?: string | null;
     rotationDegrees?: number | null;
-    mimeType: 'image/jpeg';
-    source: IManagedTempFileHandle;
+    mimeType: 'image/jpeg' | 'image/png';
+    source?: IManagedTempFileHandle;
+    bytesBase64?: string;
+    byteLength?: number;
+    sha256?: string;
 }
 
 export interface IPdfNativePlacedImageGeometryUpdate extends IPdfBox {
+    author?: string | null;
+    sourceImage?: IPdfAnnotationStampImageReference;
     pageIndex: TPageIndex;
     stableKey?: string;
     annotationId?: string | null;
@@ -894,6 +904,7 @@ export interface IDocumentsMenuCapability {
     onMenuToggleAssistant: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
     onMenuUndo: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
     onMenuRedo: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
+    onMenuSelectAll: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
     onMenuDeletePages: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
     onMenuExtractPages: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
     onMenuRotateCw: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;

@@ -8,6 +8,7 @@ import type {
     TEmbeddedPdfShapeSubtype,
     TShapeType,
     TDrawableShapeType,
+    TLineEndStyle,
     TMarkupSubtype,
 } from '@app/types/annotations';
 import type {
@@ -34,6 +35,19 @@ export type IAnnotationReply = IPdfAnnotationNoteReply;
 
 /** The image object reference returned by the writer for a stamp. */
 export type IAnnotationImageReference = IPdfAnnotationStampImageReference;
+
+/** Original image bytes retained by canonical commands until and after save. */
+export interface IAnnotationRasterImage {
+    readonly kind: 'raster';
+    readonly mimeType: 'image/png' | 'image/jpeg';
+    readonly dataBase64: string;
+    readonly byteLength: number;
+    readonly sha256: string;
+    readonly width: number;
+    readonly height: number;
+}
+
+export type TAnnotationImage = IAnnotationImageReference | IAnnotationRasterImage;
 
 interface IAnnotationEntityBase {
     readonly identity: IAnnotationIdentity;
@@ -63,6 +77,8 @@ export interface INoteEntity extends IAnnotationEntityBase {
     readonly open: boolean;
     /** Derived from the document on open. Replies are excluded from equality. */
     readonly replies?: readonly IAnnotationReply[];
+    /** Bounded native recovery graph, retained for undo after a saved deletion. */
+    readonly recoveryData?: string;
 }
 
 export interface ITextMarkupEntity extends IAnnotationEntityBase {
@@ -81,8 +97,8 @@ export interface ITextMarkupEntity extends IAnnotationEntityBase {
 export interface IPlacedImageEntity extends IAnnotationEntityBase {
     readonly kind: 'placed-image';
     readonly rect: IAnnotationMarkerRect;
-    readonly rotation: TAnnotationRotation;
-    readonly image: IAnnotationImageReference;
+    readonly rotation: number;
+    readonly image: TAnnotationImage;
 }
 
 export interface IShapeEntity extends IAnnotationEntityBase {
@@ -90,6 +106,10 @@ export interface IShapeEntity extends IAnnotationEntityBase {
     /** The authored stable key has been observed in a committed PDF parse. */
     readonly materialized?: boolean;
     readonly tool: TDrawableShapeType;
+    /** Imported shape semantics that the drawing-tool name cannot express. */
+    readonly pdfSubtype?: TEmbeddedPdfShapeSubtype;
+    readonly lineStartStyle?: TLineEndStyle;
+    readonly lineEndStyle?: TLineEndStyle;
     readonly rect: IAnnotationMarkerRect;
     readonly points?: readonly IShapePoint[];
     readonly strokes?: ReadonlyArray<readonly IShapePoint[]>;
@@ -143,7 +163,8 @@ export function toLegacyShapeAnnotation(entity: IShapeEntity): IShapeAnnotation 
         : null;
     return {
         id: entity.identity.id,
-        type: toLegacyShapeType(entity.tool),
+        author: entity.author,
+        type: entity.pdfSubtype === 'Polygon' ? 'polygon' : toLegacyShapeType(entity.tool),
         pageIndex: entity.pageIndex,
         x: lineEndpoints?.x ?? entity.rect.left,
         y: lineEndpoints?.y ?? entity.rect.top,
@@ -160,9 +181,9 @@ export function toLegacyShapeAnnotation(entity: IShapeEntity): IShapeAnnotation 
         points: entity.points?.map(point => ({...point})),
         strokes: entity.strokes?.map(stroke => stroke.map(point => ({...point}))),
         annotationId: entity.identity.pdfRef ?? null,
-        pdfSubtype: toLegacyShapeSubtype(entity.tool),
-        lineStartStyle: 'none',
-        lineEndStyle: entity.tool === 'arrow' ? 'closedArrow' : 'none',
+        pdfSubtype: entity.pdfSubtype ?? toLegacyShapeSubtype(entity.tool),
+        lineStartStyle: entity.lineStartStyle ?? 'none',
+        lineEndStyle: entity.lineEndStyle ?? (entity.tool === 'arrow' ? 'closedArrow' : 'none'),
         createdAt: entity.createdAt,
         modifiedAt: entity.modifiedAt,
         stableKey: toLegacyShapeStableKey(entity.identity.id),
@@ -360,10 +381,8 @@ function normalizeText(value: string | null) {
     return value === null ? null : normalizeAnnotationText(value);
 }
 
-function normalizeImageReference(image: IAnnotationImageReference) {
+function normalizeImageReference(image: TAnnotationImage) {
     return {
-        objectNumber: image.objectNumber,
-        generationNumber: image.generationNumber,
         byteLength: image.byteLength,
         sha256: image.sha256.toLowerCase(),
     };
@@ -419,6 +438,9 @@ function canonicalSemanticEntity(entity: AnnotationEntity) {
             return {
                 ...semanticBase(entity),
                 tool: entity.tool,
+                pdfSubtype: entity.pdfSubtype ?? toLegacyShapeSubtype(entity.tool),
+                lineStartStyle: entity.lineStartStyle ?? 'none',
+                lineEndStyle: entity.lineEndStyle ?? (entity.tool === 'arrow' ? 'closedArrow' : 'none'),
                 rect: quantizeRect(entity.rect),
                 points: quantizePoints(entity.points),
                 strokes: quantizeStrokes(entity.strokes),

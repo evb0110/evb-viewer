@@ -561,6 +561,85 @@ describe('native PDF mutation contracts', () => {
         )]);
     });
 
+    it('admits portable PNG and JPEG data without native source handles', () => {
+        for (const mimeType of [
+            'image/png',
+            'image/jpeg',
+        ]) {
+            const image = {
+                ...validImage,
+                source: undefined,
+                mimeType,
+                bytesBase64: 'AQID',
+                byteLength: 3,
+                sha256: 'AB'.repeat(32),
+            };
+            const normalized = normalizePdfNativeMutationSet({placedImages: [image]}, 'mutations');
+            expect(normalized.placedImages?.[0]).toMatchObject({
+                mimeType,
+                bytesBase64: 'AQID',
+                byteLength: 3,
+                sha256: 'ab'.repeat(32),
+            });
+            expect(normalized.placedImages?.[0]).not.toHaveProperty('source');
+        }
+    });
+
+    it('splits inline image bytes before they exceed the native JSON sidecar budget', () => {
+        const normalized = normalizePdfNativeMutationSet({placedImages: [{
+            ...validImage,
+            source: undefined,
+            bytesBase64: 'AQID',
+            byteLength: 3,
+            sha256: 'a'.repeat(64),
+        }]}, 'mutations');
+        const images = normalized.placedImages ?? [];
+        for (const image of images) {
+            image.bytesBase64 = 'A'.repeat(Math.ceil(PDF_NATIVE_MUTATION_LIMITS.placedImageBytes / 3) * 4);
+        }
+        const chunks = splitPdfNativeMutationSetIntoBoundedChunks({placedImages: [
+            ...images,
+            ...images,
+        ]});
+        expect(chunks).toHaveLength(2);
+        expect(chunks.map(chunk => chunk.placedImages?.length)).toEqual([
+            1,
+            1,
+        ]);
+        expect(chunks[1]?.continuation?.family).toBe('placedImages');
+    });
+
+    it('takes legacy handle metadata from the managed source', () => {
+        const normalized = normalizePdfNativeMutationSet({placedImages: [{
+            ...validImage,
+            byteLength: 99,
+            sha256: '0'.repeat(64),
+        }]}, 'mutations');
+        expect(normalized.placedImages?.[0]?.source).toEqual(validImage.source);
+        expect(normalized.placedImages?.[0]).not.toHaveProperty('byteLength');
+        expect(normalized.placedImages?.[0]).not.toHaveProperty('sha256');
+    });
+
+    it.each([
+        {source: validImage.source},
+        {
+            bytesBase64: 'AQI=',
+            byteLength: 3,
+        },
+        {bytesBase64: '!!!='},
+        {byteLength: PDF_NATIVE_MUTATION_LIMITS.placedImageBytes + 1},
+        {sha256: 'not-a-sha256'},
+    ])('rejects invalid inline image admission %j', (invalid) => {
+        expect(() => normalizePdfNativeMutationSet({placedImages: [{
+            ...validImage,
+            source: undefined,
+            bytesBase64: 'AQID',
+            byteLength: 3,
+            sha256: 'ab'.repeat(32),
+            ...invalid,
+        }]}, 'mutations')).toThrow();
+    });
+
     it('accepts native mutation bounds that exactly touch normalized page edges', () => {
         const normalized = normalizePdfNativeMutationSet({
             freeTextNotes: [{
@@ -647,5 +726,24 @@ describe('native PDF mutation contracts', () => {
             x: 0.75,
             width: 0.26,
         }]}, 'mutations')).toThrow('must fit inside the normalized page bounds');
+    });
+});
+
+describe('rotated placed image canonical bounds', () => {
+    it('preserves unrotated bounds when native page geometry must validate the painted corners', () => {
+        const mutations = normalizePdfNativeMutationSet({placedImages: [{
+            ...validImage,
+            x: -0.05,
+            y: 0.4,
+            width: 0.3,
+            height: 0.05,
+            rotationDegrees: 90,
+        }]}, 'mutations');
+        expect(mutations.placedImages?.[0]).toMatchObject({
+            x: -0.05,
+            y: 0.4,
+            width: 0.3,
+            height: 0.05,
+        });
     });
 });

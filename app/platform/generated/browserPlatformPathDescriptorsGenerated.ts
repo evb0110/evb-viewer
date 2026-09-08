@@ -131,6 +131,7 @@ export const browserPlatformPathDescriptorsGenerated = {
         onMenuToggleAssistant: {kind: 'event', path: ["documentMenu","onMenuToggleAssistant"]},
         onMenuUndo: {kind: 'event', path: ["documentMenu","onMenuUndo"]},
         onMenuRedo: {kind: 'event', path: ["documentMenu","onMenuRedo"]},
+        onMenuSelectAll: {kind: 'event', path: ["documentMenu","onMenuSelectAll"]},
         onMenuDeletePages: {kind: 'event', path: ["documentMenu","onMenuDeletePages"]},
         onMenuExtractPages: {kind: 'event', path: ["documentMenu","onMenuExtractPages"]},
         onMenuRotateCw: {kind: 'event', path: ["documentMenu","onMenuRotateCw"]},

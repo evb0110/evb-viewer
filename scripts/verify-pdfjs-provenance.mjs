@@ -141,13 +141,28 @@ export function parseManifest(text) {
 export { absoluteSourceMapPath };
 
 export function inspectArchive(candidateArchivePath) {
-    const entries = [];
     const listing = execFileSync('tar', [
         '-tvzf',
         candidateArchivePath,
-    ], {encoding: 'utf8'});
+    ], {
+        encoding: 'utf8',
+        env: {
+            ...process.env,
+            LC_ALL: 'C',
+        },
+    });
+    return parseArchiveListing(listing);
+}
+
+export function parseArchiveListing(listing) {
+    const entries = [];
+    // GNU tar combines owner/group; BSD tar adds a link count and uses a
+    // month/day/time-or-year date. Keep their grammars separate so metadata
+    // cannot become part of the path that passes the safety checks below.
+    const gnuRow = /^(?<type>.)(?:\S*)\s+\S+\/\S+\s+(?<size>\d+)\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\s+(?<path>.+)$/u;
+    const bsdRow = /^(?<type>.)(?:\S*)\s+\d+\s+\S+\s+\S+\s+(?<size>\d+)\s+[A-Z][a-z]{2}\s+\d{1,2}\s+(?:\d{2}:\d{2}|\d{4})\s+(?<path>.+)$/u;
     for (const line of listing.trimEnd().split('\n')) {
-        const match = line.match(/^(?<type>.)(?:\S*)\s+\S+\s+(?<size>\d+)\s+\S+\s+\S+\s+(?<path>.+)$/u);
+        const match = line.match(gnuRow) ?? line.match(bsdRow);
         assert(match, `unreadable archive listing row: ${line}`);
         const path = match.groups.path.replaceAll('\\', '/');
         assert(match.groups.type === '-', `archive contains unsupported entry type ${match.groups.type}: ${path}`);

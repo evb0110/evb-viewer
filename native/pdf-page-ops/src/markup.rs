@@ -455,6 +455,12 @@ fn create_markup_annotation(
     if let Some(color) = target_color {
         write_markup_color(&mut dict, color);
     }
+    if let Some(author) = hint.author.as_deref() {
+        dict.set(
+            "T",
+            Object::String(encode_pdf_text_string(author), StringFormat::Hexadecimal),
+        );
+    }
     if let Some(contents) = hint.contents.as_deref() {
         dict.set(
             "Contents",
@@ -493,6 +499,7 @@ pub(crate) fn apply_markup_rewrite_to_object(
         color,
         None,
         contents,
+        None,
         identity_name,
         modified_at,
     )
@@ -505,6 +512,7 @@ fn apply_markup_rewrite_to_object_with_opacity(
     color: Option<&str>,
     opacity: Option<f64>,
     contents: Option<&str>,
+    author: Option<&str>,
     identity_name: Option<&str>,
     modified_at: &str,
 ) -> Result<bool> {
@@ -541,7 +549,7 @@ fn apply_markup_rewrite_to_object_with_opacity(
     if target_color.is_some() {
         modified = true;
     }
-    if contents.is_some() {
+    if contents.is_some() || author.is_some() {
         modified = true;
     }
     if opacity.is_some() {
@@ -562,6 +570,12 @@ fn apply_markup_rewrite_to_object_with_opacity(
     }
 
     let dict = document.get_dictionary_mut(candidate.object_id)?;
+    if let Some(author) = author {
+        dict.set(
+            "T",
+            Object::String(encode_pdf_text_string(author), StringFormat::Hexadecimal),
+        );
+    }
     if identity_name_needs_write {
         write_annotation_name(
             dict,
@@ -719,6 +733,7 @@ pub(crate) fn rewrite_page_markup_subtypes(
                 hint.color.as_deref(),
                 hint.opacity,
                 hint.contents.as_deref(),
+                hint.author.as_deref(),
                 markup_annotation_name(&hint).as_deref(),
                 modified_at,
             )? || rewritten;
@@ -737,6 +752,7 @@ pub(crate) fn rewrite_page_markup_subtypes(
                 hint.color.as_deref(),
                 hint.opacity,
                 hint.contents.as_deref(),
+                hint.author.as_deref(),
                 markup_annotation_name(&hint).as_deref(),
                 modified_at,
             )? || rewritten;
@@ -755,6 +771,7 @@ pub(crate) fn rewrite_page_markup_subtypes(
                 hint.color.as_deref(),
                 hint.opacity,
                 hint.contents.as_deref(),
+                hint.author.as_deref(),
                 markup_annotation_name(&hint).as_deref(),
                 modified_at,
             )? || rewritten;
@@ -795,6 +812,7 @@ pub(crate) fn rewrite_page_markup_subtypes(
             hint.color.as_deref(),
             hint.opacity,
             hint.contents.as_deref(),
+            hint.author.as_deref(),
             markup_annotation_name(&hint).as_deref(),
             modified_at,
         )? || rewritten;
@@ -899,6 +917,7 @@ pub(crate) fn apply_markup_rewrite_to_incremental_object(
         color,
         None,
         contents,
+        None,
         identity_name,
         modified_at,
     )
@@ -911,6 +930,7 @@ fn apply_markup_rewrite_to_incremental_object_with_opacity(
     color: Option<&str>,
     opacity: Option<f64>,
     contents: Option<&str>,
+    author: Option<&str>,
     identity_name: Option<&str>,
     modified_at: &str,
 ) -> Result<bool> {
@@ -922,6 +942,7 @@ fn apply_markup_rewrite_to_incremental_object_with_opacity(
         color,
         opacity,
         None,
+        author,
         identity_name,
         modified_at,
     )?;
@@ -971,6 +992,7 @@ pub(crate) fn rewrite_page_markup_subtypes_incremental(
                 hint.color.as_deref(),
                 hint.opacity,
                 hint.contents.as_deref(),
+                hint.author.as_deref(),
                 markup_annotation_name(&hint).as_deref(),
                 modified_at,
             )? || rewritten;
@@ -989,6 +1011,7 @@ pub(crate) fn rewrite_page_markup_subtypes_incremental(
                 hint.color.as_deref(),
                 hint.opacity,
                 hint.contents.as_deref(),
+                hint.author.as_deref(),
                 markup_annotation_name(&hint).as_deref(),
                 modified_at,
             )? || rewritten;
@@ -1007,6 +1030,7 @@ pub(crate) fn rewrite_page_markup_subtypes_incremental(
                 hint.color.as_deref(),
                 hint.opacity,
                 hint.contents.as_deref(),
+                hint.author.as_deref(),
                 markup_annotation_name(&hint).as_deref(),
                 modified_at,
             )? || rewritten;
@@ -1047,6 +1071,7 @@ pub(crate) fn rewrite_page_markup_subtypes_incremental(
             hint.color.as_deref(),
             hint.opacity,
             hint.contents.as_deref(),
+            hint.author.as_deref(),
             markup_annotation_name(&hint).as_deref(),
             modified_at,
         )? || rewritten;

@@ -131,11 +131,7 @@ pub(crate) fn validate_text_boxes(editors: &[TextBoxMutation]) -> Result<()> {
         if !editor.font_size.is_finite() || editor.font_size <= 0.0 || editor.font_size > 512.0 {
             return Err("Invalid text box font size".into());
         }
-        if !editor.text.chars().all(|character| {
-            character == '\n' || character == '\t' || (' '..='~').contains(&character)
-        }) {
-            return Err("Text box text is unsupported by the bounded Helvetica appearance".into());
-        }
+        crate::text_box_font::validate_text(&editor.text)?;
     }
     Ok(())
 }
@@ -573,15 +569,23 @@ pub(crate) fn validate_placed_images(images: &[PlacedImage]) -> Result<()> {
         {
             return Err("Invalid placed image annotation id".into());
         }
-        if !image.mime_type.eq_ignore_ascii_case("image/jpeg") {
-            return Err("Native placed images only support JPEG payloads".into());
+        if !image.mime_type.eq_ignore_ascii_case("image/jpeg")
+            && !image.mime_type.eq_ignore_ascii_case("image/png")
+        {
+            return Err("Native placed images only support PNG and JPEG payloads".into());
         }
-        validate_marker_rect(MarkerRect {
-            left: image.x,
-            top: image.y,
-            width: image.width,
-            height: image.height,
-        })?;
+        if ![image.x, image.y, image.width, image.height]
+            .iter()
+            .all(|value| value.is_finite())
+            || image.width <= 0.0
+            || image.height <= 0.0
+            || !(0.0..=1.0).contains(&(image.x + image.width / 2.0))
+            || !(0.0..=1.0).contains(&(image.y + image.height / 2.0))
+        {
+            return Err("Invalid placed image canonical rectangle".into());
+        }
+        // Actual rotated corners need the page dimensions and are admitted
+        // by placed_image_geometry before the writer changes any objects.
         if image
             .rotation_degrees
             .is_some_and(|rotation| !rotation.is_finite())
@@ -590,6 +594,17 @@ pub(crate) fn validate_placed_images(images: &[PlacedImage]) -> Result<()> {
         }
     }
     let payloads = validate_placed_image_payloads(images)?;
+    let mut decoded_bytes = 0_u64;
+    for (image, bytes) in images.iter().zip(&payloads) {
+        decoded_bytes =
+            decoded_bytes.saturating_add(placed_raster_decoded_bytes(bytes, &image.mime_type)?);
+        if decoded_bytes > MAX_PLACED_IMAGE_AGGREGATE_BYTES {
+            return Err(domain_error(
+                NativeErrorCode::TooLarge,
+                "Placed images exceed the aggregate decoded-byte admission ceiling",
+            ));
+        }
+    }
     for (image, bytes) in images.iter().zip(payloads) {
         *image.validated_bytes.borrow_mut() = Some(bytes);
     }
@@ -1022,6 +1037,7 @@ mod bounded_input_tests {
 
     fn ink_shape_with_strokes(strokes: Vec<Vec<ShapePoint>>) -> ShapeAnnotation {
         ShapeAnnotation {
+            author: None,
             shape_type: "polyline".to_string(),
             page_index: 0,
             x: 0.1,

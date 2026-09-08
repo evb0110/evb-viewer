@@ -476,13 +476,25 @@ describe('scan-cleanup line budget', () => {
         expect(split.productionLines).toEqual([6]);
     });
 
-    it('keeps the render module imports after its cfg(test) use in production', async () => {
+    it('separates render production imports from its test-only re-export', async () => {
         const source = await readFile(join(process.cwd(), 'native/scan-cleanup/src/engine/render.rs'), 'utf8');
         const split = module.splitRustTestCodeLines(source);
-        expect(split.testCodeLines).toContain(0);
-        expect(split.testCodeLines).toContain(1);
-        expect(split.productionLines).toContain(2);
-        expect(split.productionLines).toContain(3);
+        const lines = source.split('\n');
+        for (const statement of [
+            'pub use crate::domain::geometry::{AppliedMargins, PageHalf};',
+            'use crate::engine::prepare::{build_analysis_level, AnalysisLevel};',
+        ]) {
+            const index = lines.indexOf(statement);
+            expect(index).toBeGreaterThanOrEqual(0);
+            expect(split.productionLines).toContain(index);
+            expect(split.testCodeLines).not.toContain(index);
+        }
+        const testImport = lines.indexOf('pub(crate) use render_tests::analyze_page_with_document_prior_cached;');
+        expect(testImport).toBeGreaterThan(0);
+        expect(lines[testImport - 1]).toBe('#[cfg(test)]');
+        expect(split.testCodeLines).toContain(testImport - 1);
+        expect(split.testCodeLines).toContain(testImport);
+        expect(split.productionLines).not.toContain(testImport);
     });
 
     it('validates the complete baseline shape before comparison', () => {
@@ -644,20 +656,69 @@ describe('scan-cleanup line budget', () => {
         expect(`${result.stdout}${result.stderr}`).toContain('only valid with --update-baseline');
     });
 
-    it('fails closed for an unavailable explicit base ref and accepts the bootstrap base', () => {
+    it('fails closed for an unavailable explicit base ref and accepts bootstrap only within budget', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-bootstrap-'));
+        temporaryDirectories.push(root);
+        await mkdir(join(root, homePaths.app), {recursive: true});
+        const hooksPath = join(root, 'empty-hooks');
+        await mkdir(hooksPath);
+        const sourcePath = join(root, homePaths.app, 'app.ts');
+        await writeFile(sourcePath, 'const app = 1;\n');
+        execFileSync('git', [
+            'init',
+            '-q',
+        ], {cwd: root});
+        execFileSync('git', [
+            'add',
+            '--all',
+        ], {cwd: root});
+        execFileSync('git', [
+            '-c',
+            'user.name=Line budget test',
+            '-c',
+            'user.email=line-budget@example.test',
+            '-c',
+            'commit.gpgsign=false',
+            '-c',
+            `core.hooksPath=${hooksPath}`,
+            'commit',
+            '-qm',
+            'Create source fixture without a baseline',
+        ], {cwd: root});
+        await writeFile(join(root, 'scan-cleanup-line-budget-baseline.json'), JSON.stringify(baseline({app: 1}, 1)));
+        const command = join(process.cwd(), 'scripts/validation-gates.mjs');
         const invalid = spawnSync(process.execPath, [
-            'scripts/validation-gates.mjs',
+            command,
             'scan-cleanup-lines',
             '--base-ref=not-a-real-commit',
-        ], {encoding: 'utf8'});
+        ], {
+            cwd: root,
+            encoding: 'utf8',
+        });
         expect(invalid.status).toBe(1);
         expect(`${invalid.stdout}${invalid.stderr}`).toContain('Cannot verify scan-cleanup baseline base ref');
         const bootstrap = spawnSync(process.execPath, [
-            'scripts/validation-gates.mjs',
+            command,
             'scan-cleanup-lines',
-            '--base-ref=35b9779d0ef97cff342b0d8c414d771c8561a9e0',
-        ], {encoding: 'utf8'});
-        expect(bootstrap.status).toBe(0);
+            '--base-ref=HEAD',
+        ], {
+            cwd: root,
+            encoding: 'utf8',
+        });
+        expect(bootstrap.status, `${bootstrap.stdout}${bootstrap.stderr}`).toBe(0);
         expect(bootstrap.stdout).toContain('bootstrap, no baseline at ref');
+        await writeFile(sourcePath, 'const app = 1;\nconst growth = 2;\n');
+        const overBudget = spawnSync(process.execPath, [
+            command,
+            'scan-cleanup-lines',
+            '--base-ref=HEAD',
+        ], {
+            cwd: root,
+            encoding: 'utf8',
+        });
+        expect(overBudget.status).toBe(1);
+        expect(overBudget.stdout).toContain('bootstrap, no baseline at ref');
+        expect(overBudget.stderr).toContain('Scan-cleanup line budget exceeded');
+        expect(overBudget.stderr).toContain('production total grew by 1 code lines');
     });
 });

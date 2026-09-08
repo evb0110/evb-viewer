@@ -48,6 +48,55 @@ describe('native PDF text-box mutation contracts', () => {
         expect(legacy.freeTextEditors).toBeUndefined();
     });
 
+    it.each([
+        'Привет мир',
+        'Cafe\u0301 naïve Ελληνικά',
+        'שָׁלוֹם',
+        'العَرَبِيَّة',
+        'Latin שלום العربية 123\nSecond line\tПривет',
+    ])('preserves portable Unicode text unchanged: %s', (text) => {
+        const normalized = normalizePdfNativeMutationSet({textBoxes: [{
+            ...textBox,
+            text,
+        }]}, 'mutations');
+        expect(normalized.textBoxes?.[0]?.text).toBe(text);
+    });
+
+    it.each([
+        [
+            '中文',
+            'U+4E2D',
+        ],
+        [
+            '\ud800',
+            'U+D800',
+        ],
+        [
+            'text\u0000',
+            'U+0000',
+        ],
+    ])('rejects unavailable glyphs and malformed Unicode before save: %s', (text, codepoint) => {
+        expect(() => normalizePdfNativeMutationSet({textBoxes: [{
+            ...textBox,
+            text,
+        }]}, 'mutations'))
+            .toThrow(codepoint);
+    });
+
+    it('applies the native UTF-8 byte limit to multibyte text', () => {
+        const accepted = 'Я'.repeat(PDF_NATIVE_MUTATION_LIMITS.textBoxTextBytes / 2);
+        expect(normalizePdfNativeMutationSet({textBoxes: [{
+            ...textBox,
+            text: accepted,
+        }]}, 'mutations')
+            .textBoxes?.[0]?.text).toBe(accepted);
+        expect(() => normalizePdfNativeMutationSet({textBoxes: [{
+            ...textBox,
+            text: `${accepted}Я`,
+        }]}, 'mutations'))
+            .toThrow('64 KiB UTF-8');
+    });
+
     it('rejects a payload that supplies both text-box keys', () => {
         expect(() => normalizePdfNativeMutationSet({
             textBoxes: [textBox],

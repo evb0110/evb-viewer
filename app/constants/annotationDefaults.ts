@@ -15,6 +15,7 @@ export const DEFAULT_ANNOTATION_SETTINGS = {
     inkColor: '#e11d48',
     inkOpacity: 0.9,
     inkThickness: 1,
+    noteColor: '#f59e0b',
     textColor: '#111827',
     textSize: 22,
     shapeColor: '#2563eb',

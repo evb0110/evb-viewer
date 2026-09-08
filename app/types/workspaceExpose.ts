@@ -163,6 +163,7 @@ export interface IWorkspaceFilePort {
     handlePrintCurrentPage: () => void | Promise<void>;
     handleUndo: () => void;
     handleRedo: () => void;
+    handleSelectAll: () => void;
     handleOpenFileFromUi: () => Promise<boolean>;
     handleCombineImages: () => Promise<boolean>;
     handleOpenFileDirectWithPersist: (path: TDocumentRef) => Promise<boolean>;

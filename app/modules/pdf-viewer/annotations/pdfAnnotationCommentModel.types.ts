@@ -10,7 +10,6 @@ export interface IPdfAnnotationCommentModel {
     activeCommentStableKey: Ref<string | null>;
     emitCommentsForSidebar: (
         comments: readonly IAnnotationCommentSummary[],
-        options?: { includeShapes?: boolean },
     ) => void;
     upsertComment(comment: IAnnotationCommentSummary): void;
     toTextMarkupSubtype(comment: IAnnotationCommentSummary): TMarkupSubtype | null;

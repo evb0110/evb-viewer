@@ -12,8 +12,9 @@ import type { TPdfAnnotationSession } from '@app/modules/pdf-viewer/runtime/sess
 import type { IPdfViewerExpose } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerExpose.types';
 import type { TAnnotationCreationFailureReason } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationCreationOutcome.types';
 import { projectAnnotationCreationOutcome } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/projectAnnotationCreationOutcome';
+import { asAnnotationId } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
-import { toShapeAnnotationCommentSummary } from '@app/modules/pdf-viewer/engine/annotations/shape-annotation-comments/toShapeAnnotationCommentSummary';
+import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { getPageContainerByNumber } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/getPageContainerByNumber';
 import { toSelectedTextMarkupComment } from '@app/modules/pdf-viewer/annotations/usePdfAnnotationColorCommands';
 import { cloneSparsePageMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
@@ -27,6 +28,7 @@ type TPdfViewerPublicApiRefBackedKeys =
     | 'hasShapes'
     | 'isCapturingRegion'
     | 'isCropSelecting'
+    | 'selectedAnnotations'
     | 'selectedTextBox'
     | 'selectedShapeId';
 
@@ -257,7 +259,7 @@ export const usePdfViewerPublicApiController = (
             const pageNumber = normalizePublicPageNumber(target.pageNumber);
             const result = (
                 created: boolean,
-                shape: ReturnType<typeof toShapeAnnotationCommentSummary> | null,
+                shape: IAnnotationCommentSummary | null,
                 reason?: string,
             ) => ({
                 created,
@@ -287,7 +289,8 @@ export const usePdfViewerPublicApiController = (
             }
 
             shapeTool.handleShapeCreated(shape);
-            return result(true, toShapeAnnotationCommentSummary(shape));
+            return result(true, annotationSession.annotationApplication.value.listCommentSummaries()
+                .find(comment => comment.appAnnotationId === shape.id) ?? null);
         },
         annotationHistoryMutationVersion: annotationSession.appAnnotationHistory.annotationHistoryMutationVersion,
         annotationHistoryResetVersion: annotationSession.appAnnotationHistory.annotationHistoryResetVersion,
@@ -301,6 +304,35 @@ export const usePdfViewerPublicApiController = (
         getDeletedPersistedCanonicalAnnotationCount: annotationRuntime.getDeletedPersistedCanonicalAnnotationCount,
         setWorkspaceCommandSink: annotationSession.appAnnotationHistory.setWorkspaceCommandSink,
         registerAnnotationHistoryCommand: annotationRuntime.registerShapeHistoryCommand,
+        selectAllAnnotations: () => {
+            const focused = typeof document === 'undefined' ? null : document.activeElement;
+            if (!(focused instanceof HTMLElement) || !focused.closest('.pdf-annotation-editor-layer')
+                || focused.isContentEditable || focused.closest('input, textarea, select, [contenteditable="true"]')) {
+                return false;
+            }
+            return annotationRuntime.annotationEditorSurface.selectAll();
+        },
+        focusSelectedAnnotation: (annotationId: string) => annotationRuntime.annotationEditorSurface.focusSelectedAnnotation(asAnnotationId(annotationId)),
+        selectAnnotationById: (annotationId: string) => {
+            const id = asAnnotationId(annotationId);
+            const entity = annotationSession.annotationApplication.value.store.get(id);
+            if (!entity || entity.deleted) {
+                return false;
+            }
+            annotationRuntime.annotationEditorSurface.select([id]);
+            return true;
+        },
+        editAnnotationTextBox: async (comment) => {
+            if (!comment.appAnnotationId) {
+                return;
+            }
+            await focusAnnotationComment(comment);
+            annotationRuntime.annotationEditorSurface.beginTextEditing(asAnnotationId(comment.appAnnotationId));
+        },
+        selectedAnnotations: computed(() => annotationRuntime.annotationEditorSurface.getSelectedAnnotations()),
+        updateSelectedAnnotationProperties: annotationRuntime.annotationEditorSurface.updateSelectedAnnotationProperties,
+        prepareAnnotationToolChange: annotationRuntime.annotationEditorSurface.prepareToolChange,
+        handleAnnotationEscape: annotationRuntime.annotationEditorSurface.handleEscape,
         selectedTextBox: computed(() => annotationRuntime.annotationEditorSurface.getSelectedTextBox()),
         getSelectedTextBox: annotationRuntime.annotationEditorSurface.getSelectedTextBox,
         updateSelectedTextBoxProperties: annotationRuntime.annotationEditorSurface.updateSelectedTextBoxProperties,

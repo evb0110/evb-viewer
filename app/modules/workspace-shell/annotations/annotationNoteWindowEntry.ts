@@ -5,6 +5,7 @@ export interface IAnnotationNoteWindowEntry {
     pageIndex: number;
     pageNumber: number;
     author: string | null;
+    color?: string | null;
     createdAt: number | null;
     modifiedAt: number | null;
     markerRect: IAnnotationCommentSummary['markerRect'];

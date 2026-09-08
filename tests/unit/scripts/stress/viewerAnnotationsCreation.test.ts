@@ -95,20 +95,19 @@ describe('free text stress creation', () => {
         );
         expect(fakePage.mouse.click).toHaveBeenNthCalledWith(1, toolbarPoint.x, toolbarPoint.y);
         expect(fakePage.mouse.click).toHaveBeenNthCalledWith(2, pagePoint.x, pagePoint.y);
-        expect(waitOptions).toHaveLength(3);
+        expect(waitOptions).toHaveLength(4);
         expect(waitOptions.every(options => options.timeout === 30_000)).toBe(true);
         expect(waitArguments[1]).toEqual([2]);
-        expect(waitArguments[2]).toEqual(['stress note 1']);
+        expect(waitArguments[2]).toEqual(['.editor-pane.is-active .page_container[data-page="2"] .pdf-annotation-editor-text-box.is-editing [contenteditable="true"]']);
+        expect(waitArguments[3]).toEqual(['stress note 1']);
         expect(fakePage.waitForSelector).toHaveBeenCalledWith(
-            '.editor-pane.is-active .page_container[data-page="2"] .pdf-annotation-editor-text-box.is-selected [contenteditable="true"]',
+            '.editor-pane.is-active .page_container[data-page="2"] .pdf-annotation-editor-text-box.is-editing [contenteditable="true"]',
             {
                 timeout: 30_000,
                 visible: true,
             },
         );
-        expect(fakePage.focus).toHaveBeenCalledWith(
-            '.editor-pane.is-active .page_container[data-page="2"] .pdf-annotation-editor-text-box.is-selected [contenteditable="true"]',
-        );
+        expect(fakePage.focus).not.toHaveBeenCalled();
         expect(fakePage.keyboard.type).toHaveBeenCalledWith('stress note 1', {delay: 10});
         expect(fakePage.keyboard.press).toHaveBeenCalledWith('Enter');
     });

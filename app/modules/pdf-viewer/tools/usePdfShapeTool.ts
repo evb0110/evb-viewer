@@ -4,7 +4,6 @@ import type {
     ShallowRef,
 } from 'vue';
 import { useAnnotationShapes } from '@app/modules/pdf-viewer/tools/useAnnotationShapes';
-import { toShapeAnnotationCommentSummary } from '@app/modules/pdf-viewer/engine/annotations/shape-annotation-comments/toShapeAnnotationCommentSummary';
 import { usePdfSelectedShapeCommands } from '@app/modules/pdf-viewer/tools/usePdfSelectedShapeCommands';
 import { usePdfShapeContext } from '@app/modules/pdf-viewer/tools/usePdfShapeContext';
 import { isSelectionInteractionTool } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isSelectionInteractionTool';
@@ -108,14 +107,10 @@ export const usePdfShapeTool = (options: IUsePdfShapeToolOptions) => {
     });
 
     function getShapeAnnotationCommentSummaries() {
-        return shapeComposable.getAllShapes().map((shape, index) => toShapeAnnotationCommentSummary(shape, index));
+        return options.annotationApplication.value.listCommentSummaries().filter(comment => comment.annotationKind === 'shape');
     }
 
-    /**
-     * Sidebar shape rows carry the same external identity the store bound for
-     * the shape, never a canonical `appAnnotationId`. Both sides therefore
-     * resolve through the application, and an unresolvable row matches nothing.
-     */
+    /** Resolve sidebar commands through the same canonical identity as page selection. */
     function findShapeForAnnotationComment(comment: IAnnotationCommentSummary) {
         if (comment.source !== 'shape') {
             return null;

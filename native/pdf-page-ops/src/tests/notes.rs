@@ -1096,6 +1096,7 @@ fn appends_free_text_note_delete_by_stable_key_as_incremental_revision() {
         &NativeMutationsFile {
             updates: Vec::new(),
             free_text_notes: vec![FreeTextNote {
+                recovery_data: None,
                 page_index: 0,
                 stable_key: "uid:0:pdfjs_internal_editor_0".to_string(),
                 text: "delete me".to_string(),
@@ -1176,6 +1177,7 @@ fn appends_free_text_note_as_text_annotation_for_legacy_callers() {
         &NativeMutationsFile {
             updates: Vec::new(),
             free_text_notes: vec![FreeTextNote {
+                recovery_data: None,
                 page_index: 0,
                 stable_key: "uid:0:pdfjs_internal_editor_0".to_string(),
                 text: "native editor note".to_string(),
@@ -1282,6 +1284,7 @@ fn canonical_notes_input_also_writes_a_text_annotation() {
         &output_path,
         &NativeMutationsFile {
             notes: vec![TextNote {
+                recovery_data: None,
                 page_index: 0,
                 stable_key: "canonical-note".to_string(),
                 text: "canonical text".to_string(),
@@ -1791,8 +1794,12 @@ fn appends_and_updates_visible_free_text_editor_as_incremental_revision() {
         .unwrap();
     let appearance_text = String::from_utf8_lossy(&appearance.content);
     assert!(appearance_text.contains("0.9608 0.6196 0.0431 rg"));
-    assert!(appearance_text.contains("(saved) Tj"));
-    assert!(appearance_text.contains("(text) Tj"));
+    let actual_text: String = lopdf::content::Content::decode(&appearance.content).unwrap().operations
+        .iter().filter(|operation| operation.operator == "BDC")
+        .filter_map(|operation| operation.operands.get(1).and_then(|object| object.as_dict().ok()))
+        .filter_map(|properties| properties.get(b"ActualText").ok().and_then(pdf_string_to_text))
+        .collect();
+    assert_eq!(actual_text, "saved text");
 
 }
 
@@ -1896,12 +1903,12 @@ fn text_box_create_round_trips_canonical_properties_and_metadata() {
     assert!(appearance_text.matches(" Tj").count() > 1);
     for line in wrap_free_text_lines(text, 100.0, 16.0) {
         // This mirrors the writer's line-break measurement; rendered fit is checked by the PDF appearance assertions above.
-        assert!(free_text_line_width(&line, 16.0) <= 100.0);
+        assert!(free_text_line_width(line.trim_end(), 16.0) <= 100.0);
     }
     let lines = wrap_free_text_lines("aaa    bbb", 35.0, 16.0);
-    assert_eq!(lines, vec!["aaa", "bbb"]);
+    assert_eq!(lines.concat(), "aaa    bbb");
     for line in lines {
-        assert!(free_text_line_width(&line, 16.0) <= 35.0);
+        assert!(free_text_line_width(line.trim_end(), 16.0) <= 35.0);
     }
 }
 
@@ -2100,7 +2107,7 @@ fn updates_foreign_text_box_in_place_and_preserves_unowned_keys_and_popup() {
     assert_unowned_keys_unchanged(
         &before,
         after,
-        &[b"Rect", b"Contents", b"M", b"Rotate", b"DA", b"AP"],
+        &[b"Rect", b"Contents", b"M", b"Rotate", b"DA", b"AP", b"EVBTextGeometry"],
     )
     .unwrap();
     assert_eq!(pdf_string_to_text(after.get(b"T").unwrap()).as_deref(), Some("Foreign author"));
@@ -2257,6 +2264,7 @@ fn incremental_mixed_free_text_mutations_preserve_every_page_annotation() {
         &pdf_path,
         &NativeMutationsFile {
             free_text_notes: vec![FreeTextNote {
+                recovery_data: None,
                 page_index: 0,
                 stable_key: "uid:0:pdfjs_internal_editor_0".to_string(),
                 text: "popup note".to_string(),
@@ -2385,6 +2393,7 @@ fn repeated_free_text_note_append_updates_existing_named_note() {
         &NativeMutationsFile {
             updates: Vec::new(),
             free_text_notes: vec![FreeTextNote {
+                recovery_data: None,
                 page_index: 0,
                 stable_key: "uid:0:pdfjs_internal_editor_0".to_string(),
                 text: "first text".to_string(),
@@ -2411,6 +2420,7 @@ fn repeated_free_text_note_append_updates_existing_named_note() {
         &NativeMutationsFile {
             updates: Vec::new(),
             free_text_notes: vec![FreeTextNote {
+                recovery_data: None,
                 page_index: 0,
                 stable_key: "uid:0:pdfjs_internal_editor_0".to_string(),
                 text: "second text".to_string(),
@@ -2485,6 +2495,7 @@ fn same_page_free_text_batch_indexes_initial_annots_once_and_preserves_order() {
 
     let notes: Vec<FreeTextNote> = (0..28)
         .map(|index| FreeTextNote {
+            recovery_data: None,
             page_index: 0,
             stable_key: format!("existing-{index}"),
             text: format!("updated-{index}"),
@@ -2538,6 +2549,7 @@ fn incremental_same_batch_duplicate_note_reuses_the_indexed_annotation() {
     let notes: Vec<FreeTextNote> = ["first", "second"]
         .into_iter()
         .map(|text| FreeTextNote {
+            recovery_data: None,
             page_index: 0,
             stable_key: "same-batch".to_string(),
             text: text.to_string(),
@@ -2775,4 +2787,108 @@ fn reports_an_unreadable_append_payload_as_an_invalid_request() {
 
     let _ = remove_file(pdf_path);
     let _ = remove_file(mutations_path);
+}
+
+#[test]
+fn unicode_text_boxes_append_reopen_and_share_one_embedded_font() {
+    let (mut document, page_id) = create_test_document();
+    let pdf_path = temp_pdf_path("unicode-text-box-font-reuse");
+    let _cleanup = RemovePdfFilesOnDrop([pdf_path.clone()]);
+    let mut original = Vec::new();
+    document.save_to(&mut original).unwrap();
+    write(&pdf_path, &original).unwrap();
+    for (index, text) in ["Cafe\u{301} Привет שָׁלוֹם", "العَرَبِيَّة Latin 123\nשלום"].iter().enumerate() {
+        let before = fs::read(&pdf_path).unwrap();
+        append_native_mutations(&pdf_path, &pdf_path, &NativeMutationsFile {
+            text_boxes: vec![TextBoxMutation {
+                page_index: 0,
+                stable_key: format!("unicode-{index}"),
+                annotation_id: None,
+                text: text.to_string(),
+                rect: [10.0, 10.0, 180.0, 90.0],
+                rotation: 0,
+                font_size: 16.0,
+                color: [17, 24, 39],
+                author: None,
+                created_at: None,
+                modified_at: None,
+            }],
+            ..NativeMutationsFile::default()
+        }, "D:20260908000000Z").unwrap();
+        let saved_bytes = fs::read(&pdf_path).unwrap();
+        assert_eq!(&saved_bytes[..before.len()], before.as_slice());
+        let saved = Document::load(&pdf_path).unwrap();
+        let font_count = saved.objects.values().filter(|object| object.as_dict().ok()
+            .is_some_and(|dict| dict.has(b"EVBTextFontVersion"))).count();
+        assert_eq!(font_count, 1, "a subsequent save must reuse the existing embedded font");
+        let annots = get_page_annots(&saved, page_id).unwrap();
+        assert_eq!(annots.len(), index + 1);
+        let annotation = saved.get_dictionary(annots[index].as_reference().unwrap()).unwrap();
+        assert_eq!(annotation.get(b"Contents").ok().and_then(pdf_string_to_text).as_deref(), Some(*text));
+        crate::text_box_font::validate_appearance_font(&saved, annotation).unwrap();
+    }
+}
+
+#[test]
+fn text_box_rotation_preserves_canonical_rect_for_every_page_rotation() {
+    for page_rotation in [0, 90, 180, 270] {
+        for rotation in [0, 90, 180, 270] {
+            let (mut document, page_id) = create_test_document();
+            document.get_dictionary_mut(page_id).unwrap().set("Rotate", page_rotation);
+            let editor = TextBoxMutation {
+                page_index: 0, stable_key: "rotated-text".to_string(), annotation_id: None,
+                text: "Привет שלום".to_string(), rect: [60.0, 25.0, 140.0, 75.0], rotation,
+                font_size: 10.0, color: [0, 0, 0], author: None, created_at: None, modified_at: None,
+            };
+            let mutation = NativeMutationsFile { text_boxes: vec![editor], ..Default::default() };
+            apply_native_mutations(&mut document, &mutation, "D:20260908000000Z").unwrap();
+            validate_text_box_document_postconditions(&document, &mutation.text_boxes, "D:20260908000000Z").unwrap();
+            let parsed = collect_parsed_annotations(&document, "D:20260908000000Z").unwrap();
+            let text = parsed.iter().find_map(|entry| match entry { PdfAnnotationParseEntry::TextBox(value) => Some(value), _ => None }).unwrap();
+            assert_eq!(text.rotation, i64::from(rotation));
+            let expected = pdf_rect_to_marker_rect(PdfRect { x1: 60.0, y1: 25.0, x2: 140.0, y2: 75.0 },
+                resolve_page_view(&document, page_id).unwrap(), page_rotation).unwrap();
+            assert_approximately(text.rect.left, expected.left);
+            assert_approximately(text.rect.top, expected.top);
+            assert_approximately(text.rect.width, expected.width);
+            assert_approximately(text.rect.height, expected.height);
+            let id = get_page_annots(&document, page_id).unwrap()[0].as_reference().unwrap();
+            let dict = document.get_dictionary_mut(id).unwrap();
+            // An external viewer moved the visible annotation, leaving EVB's
+            // private geometry stale. It must never override that external edit.
+            dict.set("Rect", rect_object(PdfRect { x1: 61.0, y1: 26.0, x2: 141.0, y2: 76.0 }));
+            let parsed = collect_parsed_annotations(&document, "D:20260908000000Z").unwrap();
+            assert!(!parsed.iter().any(|entry| matches!(entry, PdfAnnotationParseEntry::TextBox(_))));
+        }
+    }
+}
+
+#[test]
+fn rotated_text_box_accepts_canonical_rect_outside_page_when_visible_bounds_fit() {
+    let (mut document, _) = create_test_document();
+    let editor = TextBoxMutation {
+        page_index: 0, stable_key: "rotated-edge-text".to_string(), annotation_id: None,
+        text: "Edge".to_string(), rect: [-15.0, 40.0, 65.0, 60.0], rotation: 90,
+        font_size: 10.0, color: [0, 0, 0], author: None, created_at: None, modified_at: None,
+    };
+    let mutation = NativeMutationsFile { text_boxes: vec![editor], ..Default::default() };
+    apply_native_mutations(&mut document, &mutation, "D:20260908000000Z").unwrap();
+    let parsed = collect_parsed_annotations(&document, "D:20260908000000Z").unwrap();
+    let text = parsed.iter().find_map(|entry| match entry { PdfAnnotationParseEntry::TextBox(value) => Some(value), _ => None }).unwrap();
+    assert_approximately(text.rect.left, -0.075);
+    assert_approximately(text.rect.width, 0.4);
+}
+
+#[test]
+fn unsupported_imported_text_rotation_stays_foreign_without_blocking_other_annotations() {
+    let (mut document, page_id) = create_test_document();
+    let unsupported = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "FreeText", "NM" => Object::string_literal("diagonal-text"),
+        "Rect" => vec![Object::Integer(10), Object::Integer(10), Object::Integer(80), Object::Integer(40)],
+        "Rotate" => 45, "Contents" => Object::string_literal("Keep the foreign appearance"),
+        "DA" => Object::string_literal("/Helv 12 Tf 0 0 0 rg"),
+    });
+    document.get_dictionary_mut(page_id).unwrap().set("Annots", vec![Object::Reference(unsupported)]);
+    let parsed = collect_parsed_annotations(&document, "D:20260908000000Z").unwrap();
+    assert!(matches!(&parsed[0], PdfAnnotationParseEntry::Foreign(value) if value.name == "diagonal-text"));
 }

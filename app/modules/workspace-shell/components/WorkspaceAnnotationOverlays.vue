@@ -1,11 +1,12 @@
 <template>
     <div v-show="visible" class="workspace-annotation-overlays-root">
     <PdfAnnotationNoteWindow
-        v-for="note in visibleAnnotationNoteWindows"
+        v-for="(note, noteIndex) in visibleAnnotationNoteWindows"
         :key="note.annotationId"
         :annotation-id="note.annotationId"
         :page-number="requirePageNumber(note.pageNumber)"
         :author="note.author"
+        :color="note.color ?? null"
         :created-at="note.createdAt"
         :modified-at="note.modifiedAt"
         :text="note.draftText"
@@ -13,13 +14,13 @@
         :error="note.error"
         :position="annotationNotePositions[note.annotationId] ?? null"
         :z-index="NOTE_WINDOW.ACTIVE_Z_INDEX_BASE + Math.min(
-            Math.max(0, note.order),
+            noteIndex,
             NOTE_WINDOW.ACTIVE_Z_INDEX_SLOTS - 1,
         )"
         :bounds-root="annotationViewportRoot ?? null"
         @update:text="emit('update-note-text', note.annotationId, $event)"
         @update:position="handleNotePositionUpdate(note.annotationId, $event)"
-        @minimize="emit('minimize-note', note.annotationId)"
+        @minimize="handleNoteMinimize(note.annotationId, $event)"
         @delete="emit('delete-annotation', note.annotationId)"
         @focus="emit('focus-note', note.annotationId)"
     />
@@ -79,12 +80,14 @@
             v-for="line in connectorLines"
             :key="`connector-halo-${line.annotationId}`"
             :d="line.path"
+            :style="{'--annotation-note-color': line.color ?? 'var(--ui-warning)'}"
             class="pdf-note-connector-halo"
         />
         <path
             v-for="line in connectorLines"
             :key="`connector-${line.annotationId}`"
             :d="line.path"
+            :style="{'--annotation-note-color': line.color ?? 'var(--ui-warning)'}"
             class="pdf-note-connector-path"
         />
     </svg>
@@ -124,22 +127,6 @@
         @select-all="emit('page-select-all')"
         @invert-selection="emit('page-invert-selection')"
     />
-    <PdfAnnotationProperties
-        :shape="selectedShapeForProperties"
-        :x="shapePropertiesX"
-        :y="shapePropertiesY"
-        @update="emit('shape-update', $event)"
-        @close="emit('shape-close')"
-        @delete="emit('shape-delete')"
-    />
-    <PdfTextMarkupAnnotationProperties
-        :markup="selectedTextMarkupForProperties"
-        :x="textMarkupPropertiesX"
-        :y="textMarkupPropertiesY"
-        @update-color="emit('text-markup-color-update', $event)"
-        @update-opacity="emit('text-markup-opacity-update', $event)"
-        @close="emit('text-markup-close')"
-    />
     </div>
 </template>
 
@@ -147,19 +134,12 @@
 import { requirePageNumber } from '@contracts/pageNumbers';
 import { PdfAnnotationContextMenu } from '@app/modules/pdf-viewer/public/component-exports/pdfAnnotationContextMenu';
 import { PdfAnnotationNoteWindow } from '@app/modules/pdf-viewer/public/component-exports/pdfAnnotationNoteWindow';
-import { PdfAnnotationProperties } from '@app/modules/pdf-viewer/public/component-exports/pdfAnnotationProperties';
 import { PdfPageContextMenu } from '@app/modules/pdf-viewer/public/component-exports/pdfPageContextMenu';
-import { PdfTextMarkupAnnotationProperties } from '@app/modules/pdf-viewer/public/component-exports/pdfTextMarkupAnnotationProperties';
 import type {
     IAnnotationContextMenuState,
     IPageContextMenuState,
 } from '@app/types/pdfContextMenu';
-import type {
-    IShapeAnnotation,
-    ITextMarkupAnnotationProperties,
-    TAnnotationTool,
-    TShapeAnnotationPatch,
-} from '@app/types/annotations';
+import type { TAnnotationTool } from '@app/types/annotations';
 import type { IAnnotationNotePosition } from '@app/types/annotationNoteWindow';
 import { NOTE_WINDOW } from '@app/constants/pdfLayout';
 import type { IAnnotationNoteWindowEntry } from '@app/modules/workspace-shell/annotations/annotationNoteWindowEntry';
@@ -190,18 +170,13 @@ const {
     pageContextMenuStyle: Record<string, string>;
     isPageOperationInProgress: boolean;
     isDjvuMode: boolean;
-    selectedShapeForProperties: IShapeAnnotation | null;
-    shapePropertiesX: number;
-    shapePropertiesY: number;
-    selectedTextMarkupForProperties: ITextMarkupAnnotationProperties | null;
-    textMarkupPropertiesX: number;
-    textMarkupPropertiesY: number;
 }>();
 
 const emit = defineEmits<{
     'update-note-text': [annotationId: string, text: string];
     'update-note-position': [annotationId: string, position: IAnnotationNotePosition];
     'minimize-note': [annotationId: string];
+    'return-note-focus': [annotationId: string];
     'restore-note': [annotationId: string];
     'delete-annotation': [annotationId: string];
     'focus-note': [annotationId: string];
@@ -224,12 +199,6 @@ const emit = defineEmits<{
     'page-insert-after': [];
     'page-select-all': [];
     'page-invert-selection': [];
-    'shape-update': [updates: TShapeAnnotationPatch];
-    'shape-close': [];
-    'shape-delete': [];
-    'text-markup-color-update': [color: string];
-    'text-markup-opacity-update': [opacity: number];
-    'text-markup-close': [];
 }>();
 
 const { t } = useTypedI18n();
@@ -262,6 +231,19 @@ function handleNotePositionUpdate(annotationId: string, position: IAnnotationNot
     scheduleConnectorRefreshBurst(2);
 }
 
+async function handleNoteMinimize(annotationId: string, focusDocument: Document | null) {
+    emit('minimize-note', annotationId);
+    await nextTick();
+    if (
+        visible
+        && focusDocument
+        && focusDocument.activeElement === focusDocument.body
+        && sortedAnnotationNoteWindows.some(note => note.annotationId === annotationId && note.isMinimized)
+    ) {
+        emit('return-note-focus', annotationId);
+    }
+}
+
 function handleAnchorClick(note: IAnnotationNoteWindowEntry) {
     traceAnchorInteraction('anchor clicked', note);
     emit('restore-note', note.annotationId);
@@ -281,9 +263,9 @@ function handleAnchorClick(note: IAnnotationNoteWindowEntry) {
     align-items: center;
     justify-content: center;
     border-radius: var(--app-radius-full);
-    border: 1px solid color-mix(in srgb, var(--ui-warning) 62%, var(--ui-border) 38%);
-    background: color-mix(in srgb, var(--ui-warning) 20%, var(--ui-bg) 80%);
-    color: color-mix(in srgb, var(--ui-warning) 58%, var(--ui-text) 42%);
+    border: 1px solid color-mix(in srgb, var(--annotation-note-color) 62%, var(--ui-border) 38%);
+    background: color-mix(in srgb, var(--annotation-note-color) 20%, var(--ui-bg) 80%);
+    color: color-mix(in srgb, var(--annotation-note-color) 58%, var(--ui-text) 42%);
     cursor: pointer;
     transform: translate(-50%, -50%);
     opacity: 0.82;
@@ -295,8 +277,8 @@ function handleAnchorClick(note: IAnnotationNoteWindowEntry) {
 }
 
 .pdf-note-minimized-indicator:hover {
-    background: color-mix(in srgb, var(--ui-warning) 30%, var(--ui-bg) 70%);
-    border-color: color-mix(in srgb, var(--ui-warning) 75%, var(--ui-border) 25%);
+    background: color-mix(in srgb, var(--annotation-note-color) 30%, var(--ui-bg) 70%);
+    border-color: color-mix(in srgb, var(--annotation-note-color) 75%, var(--ui-border) 25%);
     transform: translate(-50%, calc(-50% - 1px));
     opacity: 0.95;
 }
@@ -314,9 +296,9 @@ function handleAnchorClick(note: IAnnotationNoteWindowEntry) {
     align-items: center;
     justify-content: center;
     border-radius: var(--app-radius-full);
-    border: 1.5px solid color-mix(in srgb, var(--ui-warning) 75%, var(--ui-border) 25%);
-    background: color-mix(in srgb, var(--ui-warning) 30%, var(--ui-bg) 70%);
-    color: color-mix(in srgb, var(--ui-warning) 65%, var(--ui-text) 35%);
+    border: 1.5px solid color-mix(in srgb, var(--annotation-note-color) 75%, var(--ui-border) 25%);
+    background: color-mix(in srgb, var(--annotation-note-color) 30%, var(--ui-bg) 70%);
+    color: color-mix(in srgb, var(--annotation-note-color) 65%, var(--ui-text) 35%);
     cursor: default;
     transform: translate(-50%, -50%);
     opacity: 0.92;
@@ -335,7 +317,7 @@ function handleAnchorClick(note: IAnnotationNoteWindowEntry) {
 
 .pdf-note-connector-halo {
     fill: none;
-    stroke: color-mix(in srgb, var(--ui-bg) 88%, var(--ui-warning) 12%);
+    stroke: color-mix(in srgb, var(--ui-bg) 88%, var(--annotation-note-color) 12%);
     stroke-width: 3.5;
     stroke-linecap: round;
     stroke-dasharray: 6 4;
@@ -344,7 +326,7 @@ function handleAnchorClick(note: IAnnotationNoteWindowEntry) {
 
 .pdf-note-connector-path {
     fill: none;
-    stroke: color-mix(in srgb, var(--ui-warning) 72%, var(--ui-text) 28%);
+    stroke: color-mix(in srgb, var(--annotation-note-color) 72%, var(--ui-text) 28%);
     stroke-width: 1.75;
     stroke-linecap: round;
     stroke-dasharray: 6 4;

@@ -1,3 +1,4 @@
+import { firstUnsupportedAnnotationCharacter } from '@contracts/firstUnsupportedAnnotationCharacter';
 /* eslint-disable max-lines -- Native mutation validation and bounded continuation must share the exact protocol limits. */
 import type {
     Merge,
@@ -52,6 +53,7 @@ export const PDF_NATIVE_MUTATION_LIMITS = {
     noteGeometryUpdates: 256,
     noteChanges: 256,
     textBoxes: 256,
+    textBoxTextBytes: 64 * 1024,
     /** @deprecated Use textBoxes. */
     freeTextEditors: 256,
     noteTextLength: 64 * 1024,
@@ -69,6 +71,8 @@ export const PDF_NATIVE_MUTATION_LIMITS = {
     placedImages: 16,
     placedImageBytes: 128 * 1024 * 1024,
     placedImagesTotalBytes: 512 * 1024 * 1024,
+    // Native sidecars admit 256 MiB. Leave 64 MiB for other mutation families.
+    placedImagesInlineChunkBytes: 192 * 1024 * 1024,
     placedImageGeometryUpdates: 256,
 } as const;
 
@@ -91,7 +95,7 @@ const PDF_NATIVE_ROTATIONS = [
 type TPdfNativeValidationErrorKind = 'typeError' | 'error';
 export type IPdfNativePlacedImageNativeToolPayload = Simplify<
     Omit<SetRequired<IPdfNativePlacedImage, 'rotationDegrees'>, 'source'> & {
-        bytesPath: string;
+        bytesPath?: string;
         byteLength: number;
         sha256: string;
     }
@@ -137,6 +141,38 @@ interface IPdfNativeShapePointState {count: number;}
 
 interface IPdfNativePlacedImageByteState {totalBytes: number;}
 
+function normalizePlacedImageBox(value: Record<string, unknown>, label: string, options: IPdfNativeValidationOptions) {
+    const coordinate = (key: string) => {
+        const item = value[key];
+        if (typeof item !== 'number' || !isNativeF32(item)) {
+            fail(`${label}.${key} must be a finite native number`, options);
+        }
+        return item;
+    };
+    const x = coordinate('x');
+    const y = coordinate('y');
+    const width = coordinate('width');
+    const height = coordinate('height');
+    if (width <= 0 || height <= 0 || x + width / 2 < 0 || x + width / 2 > 1
+        || y + height / 2 < 0 || y + height / 2 > 1
+        || ((value.rotationDegrees ?? 0) === 0 && !isPdfNativeNormalizedBoxInsidePageBounds({
+            x,
+            y,
+            width,
+            height,
+        }))) {
+        fail(`${label} must fit inside the normalized page bounds after rotation`, options);
+    }
+    // Rotation uses physical page dimensions. The native writer validates
+    // the painted corners once it resolves the target page.
+    return {
+        x,
+        y,
+        width,
+        height,
+    };
+}
+
 function normalizePlacedImageGeometryUpdates(
     value: unknown,
     label: string,
@@ -164,25 +200,35 @@ function normalizePlacedImageGeometryUpdates(
         if (stableKey !== undefined && (typeof stableKey !== 'string' || stableKey.trim().length === 0)) {
             fail(`${label}[${index}].stableKey must be a non-empty string`, options);
         }
-        const x = normalizeFiniteUnitNumber(item.x, `${label}[${index}].x`, options);
-        const y = normalizeFiniteUnitNumber(item.y, `${label}[${index}].y`, options);
-        const width = normalizeFiniteUnitNumber(item.width, `${label}[${index}].width`, options);
-        const height = normalizeFiniteUnitNumber(item.height, `${label}[${index}].height`, options);
-        if (!isPdfNativeNormalizedBoxInsidePageBounds({
+        const {
             x,
             y,
             width,
             height,
-        })) {
-            fail(`${label}[${index}] must fit inside the normalized page bounds`, options);
-        }
+        } = normalizePlacedImageBox(item, `${label}[${index}]`, options);
         const rotationDegrees = item.rotationDegrees;
         if (rotationDegrees !== undefined && rotationDegrees !== null
             && (typeof rotationDegrees !== 'number' || !isNativeF32(rotationDegrees))) {
             fail(`${label}[${index}].rotationDegrees must be a finite number or null`, options);
         }
+        const sourceImage = item.sourceImage;
+        if (sourceImage !== undefined && (!isRecord(sourceImage)
+            || !Number.isSafeInteger(sourceImage.objectNumber) || Number(sourceImage.objectNumber) <= 0
+            || !Number.isSafeInteger(sourceImage.generationNumber) || Number(sourceImage.generationNumber) < 0
+            || !Number.isSafeInteger(sourceImage.byteLength) || Number(sourceImage.byteLength) <= 0
+            || typeof sourceImage.sha256 !== 'string' || !/^[0-9a-f]{64}$/u.test(sourceImage.sha256)
+            || annotationId != null || stableKey === undefined)) {
+            fail(`${label}[${index}].sourceImage must identify an unbound image recovery source`, options);
+        }
         return {
             pageIndex: requirePageIndex(pageIndex),
+            ...(item.author === undefined ? {} : {author: normalizeOptionalString(item.author, `${label}[${index}].author`, options)}),
+            ...(sourceImage === undefined ? {} : {sourceImage: {
+                objectNumber: Number(sourceImage.objectNumber),
+                generationNumber: Number(sourceImage.generationNumber),
+                byteLength: Number(sourceImage.byteLength),
+                sha256: String(sourceImage.sha256),
+            }}),
             ...(stableKey === undefined ? {} : {stableKey: stableKey.trim()}),
             ...(annotationId === undefined ? {} : {annotationId}),
             x,
@@ -399,9 +445,15 @@ function normalizeFreeTextNotes(
         if (note.text.length > PDF_NATIVE_MUTATION_LIMITS.noteTextLength) {
             fail(`${label}[${index}].text must contain at most ${PDF_NATIVE_MUTATION_LIMITS.noteTextLength} characters`, options);
         }
+        if (note.recoveryData !== undefined && (typeof note.recoveryData !== 'string'
+            || note.recoveryData.length > 2 * 1024 * 1024
+            || note.recoveryData.length % 2 !== 0 || !/^[0-9a-f]+$/u.test(note.recoveryData))) {
+            fail(`${label}[${index}].recoveryData must be a bounded native recovery graph`, options);
+        }
         return {
             pageIndex: requirePageIndex(note.pageIndex),
             stableKey,
+            ...(note.recoveryData === undefined ? {} : {recoveryData: note.recoveryData}),
             text: note.text,
             markerRect: normalizeFreeTextNoteMarkerRect(note.markerRect, `${label}[${index}].markerRect`, options),
             author: normalizeOptionalString(note.author, `${label}[${index}].author`, options),
@@ -454,12 +506,13 @@ function normalizeTextBoxes(
         if (typeof editor.text !== 'string' || editor.text.length > PDF_NATIVE_MUTATION_LIMITS.noteTextLength) {
             fail(`${label}[${index}].text must be a string with at most ${PDF_NATIVE_MUTATION_LIMITS.noteTextLength} characters`, options);
         }
-        if (!Array.from(editor.text).every(character => (
-            character === '\n'
-            || character === '\t'
-            || (character.charCodeAt(0) >= 0x20 && character.charCodeAt(0) <= 0x7e)
-        ))) {
-            fail(`${label}[${index}].text contains characters unsupported by the bounded Helvetica appearance`, options);
+        if (new TextEncoder().encode(editor.text).byteLength > PDF_NATIVE_MUTATION_LIMITS.textBoxTextBytes) {
+            fail(`${label}[${index}].text exceeds the 64 KiB UTF-8 admission ceiling`, options);
+        }
+        const unsupportedCharacter = firstUnsupportedAnnotationCharacter(editor.text);
+        if (unsupportedCharacter !== undefined) {
+            const codepoint = unsupportedCharacter.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0');
+            fail(`${label}[${index}].text uses U+${codepoint}, which the text box font DejaVu Sans does not support`, options);
         }
         if (!Array.isArray(editor.rect) || editor.rect.length !== 4) {
             fail(`${label}[${index}].rect must be a finite PDF rectangle with positive width and height`, options);
@@ -914,6 +967,7 @@ function normalizeShapeAnnotation(
     const strokes = normalizeShapeStrokes(value.strokes, `${label}.strokes`, state, options, shapeState);
     const shape: IPdfNativeShapeAnnotation = {
         type,
+        ...(value.author === undefined ? {} : {author: normalizeOptionalString(value.author, `${label}.author`, options)}),
         pageIndex: requirePageIndex(pageIndex),
         x: normalizeFiniteUnitNumber(value.x, `${label}.x`, options),
         y: normalizeFiniteUnitNumber(value.y, `${label}.y`, options),
@@ -1070,6 +1124,9 @@ function normalizeMarkupHint(
         markupGeometry: normalizeMarkupGeometry(value.markupGeometry, `${label}.markupGeometry`, options),
         ...(value.appAnnotationId === undefined ? {} : {appAnnotationId: canonicalAppAnnotationId}),
         annotationId: normalizeMarkupOptionalString(value.annotationId, `${label}.annotationId`, options),
+        ...(value.author === undefined
+            ? {}
+            : {author: normalizeMarkupOptionalString(value.author, `${label}.author`, options)}),
         color: normalizeMarkupOptionalString(value.color, `${label}.color`, options),
         ...(value.contents === undefined
             ? {}
@@ -1157,18 +1214,12 @@ function normalizePlacedImage(
     if (typeof pageIndex !== 'number' || !Number.isSafeInteger(pageIndex) || pageIndex < 0) {
         fail(`${label}.pageIndex must be a non-negative safe integer`, options);
     }
-    const x = normalizeFiniteUnitNumber(value.x, `${label}.x`, options);
-    const y = normalizeFiniteUnitNumber(value.y, `${label}.y`, options);
-    const width = normalizeFiniteUnitNumber(value.width, `${label}.width`, options);
-    const height = normalizeFiniteUnitNumber(value.height, `${label}.height`, options);
-    if (!isPdfNativeNormalizedBoxInsidePageBounds({
+    const {
         x,
         y,
         width,
         height,
-    })) {
-        fail(`${label} must fit inside the normalized page bounds`, options);
-    }
+    } = normalizePlacedImageBox(value, label, options);
     const rotationDegrees = value.rotationDegrees ?? null;
     if (
         rotationDegrees !== null
@@ -1176,8 +1227,8 @@ function normalizePlacedImage(
     ) {
         fail(`${label}.rotationDegrees must be a finite number or null`, options);
     }
-    if (value.mimeType !== 'image/jpeg') {
-        fail(`${label}.mimeType must be image/jpeg`, options);
+    if (value.mimeType !== 'image/jpeg' && value.mimeType !== 'image/png') {
+        fail(`${label}.mimeType must be image/jpeg or image/png`, options);
     }
     const stableKey = value.stableKey === undefined
         ? undefined
@@ -1190,7 +1241,8 @@ function normalizePlacedImage(
     }
     const normalizedStableKey = stableKey === null ? undefined : stableKey?.trim();
     const annotationId = normalizeOptionalString(value.annotationId, `${label}.annotationId`, options);
-    const normalized = {
+    const normalized: SetRequired<IPdfNativePlacedImage, 'rotationDegrees'> = {
+        ...(value.author === undefined ? {} : {author: normalizeOptionalString(value.author, `${label}.author`, options)}),
         pageIndex: requirePageIndex(pageIndex),
         ...(normalizedStableKey === undefined ? {} : {stableKey: normalizedStableKey}),
         ...(value.annotationId === undefined ? {} : {annotationId}),
@@ -1199,9 +1251,35 @@ function normalizePlacedImage(
         width,
         height,
         rotationDegrees,
-        mimeType: 'image/jpeg' as const,
+        mimeType: value.mimeType,
     };
 
+    if (value.bytesBase64 !== undefined) {
+        const {
+            bytesBase64,
+            byteLength,
+            sha256,
+        } = value;
+        if (value.source !== undefined
+            || typeof byteLength !== 'number' || !Number.isSafeInteger(byteLength)
+            || byteLength <= 0 || byteLength > PDF_NATIVE_MUTATION_LIMITS.placedImageBytes
+            || typeof bytesBase64 !== 'string' || bytesBase64.length !== Math.ceil(byteLength / 3) * 4
+            || !/^[A-Za-z0-9+/]*={0,2}$/.test(bytesBase64)
+            || bytesBase64.length / 4 * 3 - (bytesBase64.endsWith('==') ? 2 : bytesBase64.endsWith('=') ? 1 : 0) !== byteLength
+            || typeof sha256 !== 'string' || !/^[a-fA-F0-9]{64}$/.test(sha256)) {
+            fail(`${label} must contain exactly one bounded image source with its length and SHA-256`, options);
+        }
+        byteState.totalBytes += byteLength;
+        if (byteState.totalBytes > PDF_NATIVE_MUTATION_LIMITS.placedImagesTotalBytes) {
+            fail(`placed image bytes must total at most ${PDF_NATIVE_MUTATION_LIMITS.placedImagesTotalBytes} bytes`, options);
+        }
+        return {
+            ...normalized,
+            bytesBase64,
+            byteLength,
+            sha256: sha256.toLowerCase(),
+        };
+    }
     const imageSource = normalizePlacedImageSource(value.source, `${label}.source`, options);
     byteState.totalBytes += imageSource.byteLength;
     if (byteState.totalBytes > PDF_NATIVE_MUTATION_LIMITS.placedImagesTotalBytes) {
@@ -1818,7 +1896,20 @@ export function splitPdfNativeMutationSetIntoBoundedChunks(
             }));
     const shapeChunks = shapesMutation === undefined ? [] : splitShapeMutation(shapesMutation);
     const markupChunks = mutations.markup === undefined ? [] : splitMarkupMutation(mutations.markup);
-    const imageChunks = sliceIntoChunks(mutations.placedImages ?? [], PDF_NATIVE_MUTATION_LIMITS.placedImages);
+    const imageChunks: IPdfNativePlacedImage[][] = [[]];
+    let imageChunkBytes = 0;
+    for (const image of mutations.placedImages ?? []) {
+        const encodedBytes = image.bytesBase64?.length ?? 0;
+        let chunk = imageChunks[imageChunks.length - 1]!;
+        if (chunk.length >= PDF_NATIVE_MUTATION_LIMITS.placedImages
+            || (chunk.length > 0 && imageChunkBytes + encodedBytes > PDF_NATIVE_MUTATION_LIMITS.placedImagesInlineChunkBytes)) {
+            chunk = [];
+            imageChunks.push(chunk);
+            imageChunkBytes = 0;
+        }
+        chunk.push(image);
+        imageChunkBytes += encodedBytes;
+    }
 
     const chunks: TPdfNativeMutationChunk[] = [];
     const base: TPdfNativeMutationChunk = {};

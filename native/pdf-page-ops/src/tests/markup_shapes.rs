@@ -44,6 +44,7 @@ fn appends_markup_subtype_rewrite_as_incremental_revision() {
                     annotation_id: Some(format_pdfjs_annotation_ref(markup_id)),
                     color: Some("#00ff00".to_string()),
                     opacity: Some(0.45),
+                    author: None,
                     contents: None,
                     id: None,
                     page_markup_index: Some(0),
@@ -145,6 +146,7 @@ fn resolves_a_legacy_markup_prefix_without_rewriting_it() {
         app_annotation_id: None,
         annotation_id: None,
         color: Some("#00ff00".to_string()),
+        author: None,
         contents: None,
         id: Some("legacy-markup".to_string()),
         page_markup_index: Some(0),
@@ -208,6 +210,7 @@ fn creates_new_text_markup_annotations_with_quad_geometry() {
         annotation_id: None,
         app_annotation_id: None,
         color: Some(color.to_string()),
+        author: None,
         contents: None,
         id: Some(id.to_string()),
         page_markup_index: None,
@@ -294,6 +297,7 @@ fn recreates_markup_after_deleted_pdf_ref_without_null_override_failure() {
             app_annotation_id: Some("annotation-1".to_string()),
             annotation_id: None,
             color: Some("#ff0000".to_string()),
+            author: None,
             contents: None,
             id: Some(format_pdfjs_annotation_ref(markup_id)),
             page_markup_index: None,
@@ -345,6 +349,7 @@ fn emits_exact_identity_binding_for_new_native_markup() {
             app_annotation_id: Some("app-annotation-1".to_string()),
             annotation_id: None,
             color: Some("#ff0000".to_string()),
+            author: None,
             contents: None,
             id: Some("new-highlight".to_string()),
             page_markup_index: None,
@@ -404,6 +409,7 @@ fn rejects_new_native_markup_without_a_canonical_identity_binding() {
             app_annotation_id: None,
             annotation_id: None,
             color: Some("#ff0000".to_string()),
+            author: None,
             contents: None,
             id: Some("new-highlight".to_string()),
             page_markup_index: None,
@@ -502,6 +508,7 @@ fn appends_and_upserts_all_new_text_markup_subtypes() {
                 app_annotation_id: None,
                 annotation_id: None,
                 color: Some(color.to_string()),
+                author: None,
                 contents: None,
                 id: Some(id.to_string()),
                 page_markup_index: None,
@@ -593,6 +600,7 @@ fn appends_highlight_color_rewrite_as_display_rgb() {
                     app_annotation_id: None,
                     annotation_id: Some(format_pdfjs_annotation_ref(markup_id)),
                     color: Some("#ff0000".to_string()),
+                    author: None,
                     contents: None,
                     id: None,
                     page_markup_index: Some(0),
@@ -612,8 +620,8 @@ fn appends_highlight_color_rewrite_as_display_rgb() {
     let markup = loaded.get_dictionary(markup_id).unwrap();
     let color = markup.get(b"C").unwrap().as_array().unwrap();
     assert_approximately(color[0].as_float().unwrap() as f64, 1.0);
-    assert_approximately(color[1].as_float().unwrap() as f64, 166.0 / 255.0);
-    assert_approximately(color[2].as_float().unwrap() as f64, 166.0 / 255.0);
+    assert_approximately(color[1].as_float().unwrap() as f64, 0.0);
+    assert_approximately(color[2].as_float().unwrap() as f64, 0.0);
     assert!(markup.get(b"CA").is_err());
 
     let _ = remove_file(pdf_path);
@@ -646,6 +654,7 @@ fn opacity_only_markup_rewrite_drops_a_foreign_appearance() {
                 annotation_id: Some(format_pdfjs_annotation_ref(markup_id)),
                 color: None,
                 opacity: Some(0.45),
+                author: None,
                 contents: None,
                 id: None,
                 page_markup_index: Some(0),
@@ -687,6 +696,7 @@ fn recreates_managed_markup_after_an_incremental_delete_retired_its_object() {
                 app_annotation_id: Some(app_annotation_id.to_string()),
                 annotation_id: None,
                 color: Some("#ffd400".to_string()),
+                author: None,
                 contents: Some(String::new()),
                 id: Some("9R".to_string()),
                 page_markup_index: Some(0),
@@ -797,6 +807,7 @@ fn imported_markup_note_mutation(markup_id: ObjectId) -> NativeMutationsFile {
                 app_annotation_id: None,
                 annotation_id: Some(format_pdfjs_annotation_ref(markup_id)),
                 color: None,
+                author: None,
                 contents: Some("edited imported markup note".to_string()),
                 id: None,
                 page_markup_index: Some(0),
@@ -965,6 +976,7 @@ fn rewrites_high_index_markup_by_page_hint_without_a_page_walk() {
             app_annotation_id: None,
             annotation_id: None,
             color: Some("#336699".to_string()),
+            author: None,
             contents: None,
             id: Some("high-index-page-hint".to_string()),
             page_markup_index: Some(0),
@@ -1054,6 +1066,7 @@ fn stale_markup_page_hint_uses_the_annotation_owner_without_a_page_walk() {
             app_annotation_id: None,
             annotation_id: Some(format_pdfjs_annotation_ref(markup_id)),
             color: Some("#00ff00".to_string()),
+            author: None,
             contents: None,
             id: Some("stale-markup-page-hint".to_string()),
             page_markup_index: Some(0),
@@ -1273,6 +1286,7 @@ fn test_markup_hint(index: usize) -> MarkupSubtypeHint {
         app_annotation_id: None,
         annotation_id: None,
         color: Some("#ffff00".to_string()),
+        author: None,
         contents: None,
         id: Some(format!("hint-{index}")),
         page_markup_index: Some(index as u32),
@@ -1425,6 +1439,7 @@ fn spatial_markup_assignment_preserves_best_geometry_matches() {
             app_annotation_id: None,
             annotation_id: None,
             color: Some("#336699".to_string()),
+            author: None,
             contents: None,
             id: Some(format!("spatial-{index}")),
             page_markup_index: Some(index as u32),

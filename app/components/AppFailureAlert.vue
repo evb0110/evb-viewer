@@ -12,7 +12,7 @@
                 <p>{{ presentation.description }}</p>
                 <details class="text-sm">
                     <summary class="cursor-pointer font-medium">{{ t('errors.runtime.details') }}</summary>
-                    <pre class="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words">{{ technicalDetails }}</pre>
+                    <pre class="app-scrollbar app-scroll-region--balanced mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words">{{ technicalDetails }}</pre>
                 </details>
             </div>
         </template>

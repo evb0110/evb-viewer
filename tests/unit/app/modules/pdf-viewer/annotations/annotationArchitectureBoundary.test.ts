@@ -236,7 +236,6 @@ describe('annotation architecture boundaries', () => {
         expect(noteWindowSource).not.toMatch(/\bcommentProjection\b|\bnote\.comment\b/);
         expect(noteWindowSource).not.toMatch(/legacyStableKey/);
         expect(noteWindowSource).not.toMatch(/pendingText\s*=\s*new Map<string/);
-        expect(noteWindowSource).toContain('const runtime = new Map<AnnotationId');
     });
 
     it('routes every annotation feature PDF.js internal through the leased bridge', () => {
@@ -290,16 +289,12 @@ describe('annotation architecture boundaries', () => {
         expect(policy).toContain('export const POINT_NOTE_MARKER_MAX_NORMALIZED_SIZE = 0.02;');
         expect(policy).toContain('export const POINT_NOTE_MARKER_SIZE_ROUNDING_TOLERANCE = Number.EPSILON * 16;');
 
-        // Import classification, list classification, the editor bridge, and
-        // the save pipeline must agree, so none of them may keep a private
-        // copy of the threshold.
-        const callSites = [
-            'app/modules/pdf-viewer/components/PdfAnnotationCommentsList.vue',
-            'app/modules/pdf-viewer/engine/annotations/toFreeTextNoteMarkerRect.ts',
-        ];
-        for (const path of callSites) {
-            expect(read(path)).toContain('annotation-rules/pointNoteMarkerPolicy\'');
-        }
+        // Legacy marker conversion keeps one threshold. Canonical sidebar
+        // rows already know their kind and must not classify it from geometry.
+        expect(read('app/modules/pdf-viewer/engine/annotations/toFreeTextNoteMarkerRect.ts'))
+            .toContain('annotation-rules/pointNoteMarkerPolicy\'');
+        expect(read('app/modules/pdf-viewer/components/PdfAnnotationCommentsList.vue'))
+            .not.toContain('pointNoteMarkerPolicy');
 
         const redeclarations = sourceFiles('app/modules/pdf-viewer')
             .filter(path => path !== policyPath)

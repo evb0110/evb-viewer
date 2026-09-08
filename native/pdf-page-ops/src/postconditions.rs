@@ -65,6 +65,11 @@ pub(crate) fn validate_appended_revision_postconditions(
         &mutations.placed_images,
         placed_image_chunk_index(mutations),
         modified_at,
+    )?;
+    validate_placed_image_geometry_postconditions(
+        document,
+        &mutations.placed_image_geometry_updates,
+        modified_at,
     )
 }
 
@@ -336,6 +341,9 @@ pub(crate) fn validate_text_note_document_postconditions(
         }
 
         let annot_ref = matching_refs[0];
+        if let Some(data) = note.recovery_data.as_deref() {
+            validate_note_recovery(document, data, annot_ref, &annots)?;
+        }
         let annot_dict = document.dictionary(annot_ref)?;
         if annotation_subtype(annot_dict) != "text" {
             return Err("Text note annotation has the wrong subtype".into());
@@ -480,6 +488,24 @@ pub(crate) fn validate_text_box_document_postconditions(
         }
         let actual_rect = parse_rect(dict.get(b"Rect")?)?;
         validate_rect_approximately(actual_rect, expected_rect, "FreeText editor Rect")?;
+        let page_rotation = resolve_page_rotation(document, page_id)?;
+        let source_rect = crate::text_box_font::stored_source_rect(
+            document,
+            dict,
+            actual_rect,
+            i64::from(editor.rotation),
+            page_rotation,
+        )?;
+        validate_rect_approximately(
+            source_rect,
+            PdfRect {
+                x1: editor.rect[0],
+                y1: editor.rect[1],
+                x2: editor.rect[2],
+                y2: editor.rect[3],
+            },
+            "FreeText canonical Rect",
+        )?;
         let rotation = dict.get(b"Rotate")?.as_i64()?;
         if rotation != i64::from(editor.rotation) {
             return Err("FreeText editor rotation did not match the requested rotation".into());
@@ -492,6 +518,7 @@ pub(crate) fn validate_text_box_document_postconditions(
         let expected_color = editor.color.map(|component| f64::from(component) / 255.0);
         validate_text_box_default_appearance(default_appearance, editor.font_size, expected_color)?;
         validate_appearance(document, dict)?;
+        crate::text_box_font::validate_appearance_font(document, dict)?;
     }
     Ok(())
 }
@@ -670,6 +697,107 @@ pub(crate) fn validate_placed_image_document_postconditions(
         if !found {
             return Err("Placed image stamp annotation was not found".into());
         }
+        let stamp = resolve_placed_image_target(document, page_id, image, &expected_name)?
+            .ok_or("Saved image target is missing")?;
+        let (appearance, image_ref) = placed_image_appearance_refs(document, stamp)
+            .ok_or("Saved image resources are missing")?;
+        let stream = document.object(image_ref)?.as_stream()?;
+        let (byte_length, sha256) = placed_raster_source_identity(document, stream)?;
+        if byte_length != image.byte_length || !sha256.eq_ignore_ascii_case(&image.sha256) {
+            return Err("Saved image payload differs from the request".into());
+        }
+        validate_placed_image_transform(document, appearance, image_ref, &expected_geometry)?;
+        validate_placed_image_rotation_metadata(document.dictionary(stamp)?, &expected_geometry)?;
+        if image.author.is_some() {
+            validate_optional_author(
+                document.dictionary(stamp)?,
+                image.author.as_deref(),
+                "Placed image",
+            )?;
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_placed_image_geometry_postconditions(
+    document: &impl PdfObjectSource,
+    updates: &[PlacedImageGeometryUpdate],
+    modified_at: &str,
+) -> Result<()> {
+    if updates.is_empty() {
+        return Ok(());
+    }
+    let pages = PageTreeResolver::new(document)?;
+    for update in updates {
+        let page_id = pages.page_id(
+            document,
+            update
+                .page_index
+                .checked_add(1)
+                .ok_or("Invalid image page")?,
+        )?;
+        let probe = placed_image_geometry_probe(update);
+        let name = update.stable_key.as_deref().unwrap_or_default();
+        let stamp = resolve_placed_image_target(document, page_id, &probe, name)?
+            .ok_or("Saved image geometry target is missing")?;
+        let geometry = placed_image_geometry(
+            &probe,
+            resolve_page_view(document, page_id)?,
+            resolve_page_rotation(document, page_id)?,
+        )?;
+        validate_placed_image_annotation(document, stamp, name, geometry.rect, modified_at)?;
+        let (appearance_ref, image_ref) = placed_image_appearance_refs(document, stamp)
+            .ok_or("Saved image resources are missing")?;
+        if let Some(source) = &update.source_image {
+            if validate_recovery_image(document, source)? != image_ref {
+                return Err("Restored stamp references the wrong image".into());
+            }
+        }
+        validate_placed_image_transform(document, appearance_ref, image_ref, &geometry)?;
+        validate_placed_image_rotation_metadata(document.dictionary(stamp)?, &geometry)?;
+        if update.author.is_some() {
+            validate_optional_author(
+                document.dictionary(stamp)?,
+                update.author.as_deref(),
+                "Placed image",
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_placed_image_rotation_metadata(
+    dict: &Dictionary,
+    geometry: &PlacedImageGeometry,
+) -> Result<()> {
+    let authored = dict
+        .get(b"EVBImageRotation")
+        .ok()
+        .and_then(pdf_string_to_text)
+        .and_then(|value| value.parse::<f64>().ok());
+    if authored != Some(geometry.source_rotation) {
+        return Err("Placed image authored rotation differs from the request".into());
+    }
+    Ok(())
+}
+
+fn validate_placed_image_transform(
+    document: &impl PdfObjectSource,
+    appearance_ref: ObjectId,
+    image_ref: ObjectId,
+    geometry: &PlacedImageGeometry,
+) -> Result<()> {
+    let actual = document.object(appearance_ref)?.as_stream()?;
+    let expected =
+        build_placed_image_appearance_stream(image_ref, geometry, &format!("Im{}", image_ref.0));
+    for key in [b"BBox".as_slice(), b"Matrix"] {
+        if !equivalent_shape_field(document, &actual.dict, &expected.dict, key)? {
+            return Err("Placed image appearance geometry differs from the request".into());
+        }
+    }
+    let bytes = actual.decompressed_content_with_limit(1024 * 1024)?;
+    if bytes != expected.content {
+        return Err("Placed image appearance transform differs from the request".into());
     }
     Ok(())
 }
@@ -1171,6 +1299,8 @@ pub(crate) fn validate_shapes_document_postconditions(
         .filter_map(|shape| normalize_managed_shape_stable_key(shape.stable_key.as_deref()))
         .collect();
     let mut found_stable_keys = HashSet::new();
+    let mut refs_by_key: HashMap<(ObjectId, String), Vec<ObjectId>> = HashMap::new();
+    let mut refs_by_page: HashMap<ObjectId, Vec<ObjectId>> = HashMap::new();
     let page_resolver = PageTreeResolver::new(document)?;
     let mut touched_page_ids = HashSet::new();
     for shape in &shapes.shapes {
@@ -1202,7 +1332,12 @@ pub(crate) fn validate_shapes_document_postconditions(
             let Ok(dict) = document.dictionary(object_id) else {
                 continue;
             };
+            refs_by_page.entry(page_id).or_default().push(object_id);
             if let Some(stable_key) = read_shape_stable_key(dict) {
+                refs_by_key
+                    .entry((page_id, stable_key.clone()))
+                    .or_default()
+                    .push(object_id);
                 if deleted_refs.stable_keys.contains(&stable_key) {
                     return Err(
                         "Deleted stable-key shape is still referenced from page Annots".into(),
@@ -1227,6 +1362,106 @@ pub(crate) fn validate_shapes_document_postconditions(
             return Err(format!("Saved shape stable key {stable_key} was not found").into());
         }
     }
+    for shape in &shapes.shapes {
+        let page_id = page_resolver.page_id(
+            document,
+            shape
+                .page_index
+                .checked_add(1)
+                .ok_or("Invalid shape page")?,
+        )?;
+        let stable_key = normalize_managed_shape_stable_key(shape.stable_key.as_deref());
+        let requested_ref = shape
+            .annotation_id
+            .as_deref()
+            .and_then(parse_pdfjs_annotation_object_id);
+        let matches = if let Some(key) = stable_key {
+            refs_by_key
+                .get(&(page_id, key))
+                .cloned()
+                .unwrap_or_default()
+        } else if let Some(reference) = requested_ref {
+            refs_by_page
+                .get(&page_id)
+                .into_iter()
+                .flatten()
+                .filter(|id| **id == reference)
+                .copied()
+                .collect()
+        } else {
+            let view = resolve_page_view(document, page_id)?;
+            let rotation = resolve_page_rotation(document, page_id)?;
+            refs_by_page
+                .get(&page_id)
+                .into_iter()
+                .flatten()
+                .filter(|id| {
+                    document.dictionary(**id).is_ok_and(|dict| {
+                        validate_shape_semantics(document, dict, shape, view, rotation).is_ok()
+                    })
+                })
+                .copied()
+                .collect()
+        };
+        if matches.len() != 1 {
+            return Err("Saved shape identity is missing or ambiguous".into());
+        }
+        validate_shape_semantics(
+            document,
+            document.dictionary(matches[0])?,
+            shape,
+            resolve_page_view(document, page_id)?,
+            resolve_page_rotation(document, page_id)?,
+        )?;
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_shape_semantics(
+    document: &impl PdfObjectSource,
+    dict: &Dictionary,
+    shape: &ShapeAnnotation,
+    view: PdfRect,
+    rotation: i64,
+) -> Result<()> {
+    if shape.author.is_some() {
+        validate_optional_author(dict, shape.author.as_deref(), "Shape")?;
+    }
+    let mut expected = create_shape_annotation_dict(shape, view, rotation, "")?;
+    // Preserve admitted imported rectangles extending beyond the crop box.
+    if matches!(shape.shape_type.as_str(), "rectangle" | "circle") {
+        expected.set("Rect", dict.get(b"Rect")?.clone());
+        set_rect_shape_fields(
+            &mut expected,
+            shape,
+            view,
+            rotation,
+            read_shape_annotation_rect(document, dict),
+        )?;
+    }
+    for key in [
+        b"Subtype".as_slice(),
+        b"Rect",
+        b"L",
+        b"Vertices",
+        b"InkList",
+        b"C",
+        b"IC",
+        b"CA",
+        b"LE",
+        b"BS",
+    ] {
+        if !equivalent_shape_field(document, dict, &expected, key)? {
+            return Err(format!(
+                "Saved shape /{} differs from the request",
+                String::from_utf8_lossy(key)
+            )
+            .into());
+        }
+    }
+    if (shape_stroke_width(document, dict).unwrap_or(1.0) - shape.stroke_width).abs() > 0.0001 {
+        return Err("Saved shape stroke width differs from the request".into());
+    }
     Ok(())
 }
 
@@ -1249,6 +1484,7 @@ pub(crate) fn validate_markup_target(
     color: Option<&str>,
     opacity: Option<f64>,
     contents: Option<&str>,
+    author: Option<&str>,
 ) -> Result<()> {
     let dict = document.dictionary(object_id)?;
     if target_subtype != "Highlight" {
@@ -1279,6 +1515,16 @@ pub(crate) fn validate_markup_target(
             .and_then(|object| object_to_f64(object).ok());
         if actual_opacity.is_none_or(|actual| (actual - expected_opacity).abs() > 0.01) {
             return Err("Text-markup target opacity did not match requested value".into());
+        }
+    }
+    if let Some(expected_author) = author {
+        let actual_author = dict
+            .get(b"T")
+            .ok()
+            .and_then(|object| document.resolved(object).ok())
+            .and_then(pdf_string_to_text);
+        if actual_author.as_deref() != Some(expected_author) {
+            return Err("Text-markup target author did not match requested value".into());
         }
     }
     if let Some(expected_contents) = contents {
@@ -1350,7 +1596,7 @@ pub(crate) fn validate_markup_document_postconditions(
         {
             continue;
         }
-        validate_markup_target(document, object_id, subtype, None, None, None)?;
+        validate_markup_target(document, object_id, subtype, None, None, None, None)?;
     }
     for hint in &markup.hints {
         match hint
@@ -1366,6 +1612,7 @@ pub(crate) fn validate_markup_document_postconditions(
                     hint.color.as_deref(),
                     hint.opacity,
                     hint.contents.as_deref(),
+                    hint.author.as_deref(),
                 )?;
             }
             None => {
@@ -1421,6 +1668,7 @@ fn validate_new_markup_target(
         hint.opacity
             .or_else(|| (hint.subtype == "Highlight").then_some(1.0)),
         hint.contents.as_deref(),
+        hint.author.as_deref(),
     )?;
     let page_view = resolve_page_view(document, page_id)?;
     let page_rotation = resolve_page_rotation(document, page_id)?;

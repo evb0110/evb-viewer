@@ -171,3 +171,34 @@ describe('native canonical text-box mutations', () => {
         )).resolves.toBeNull();
     });
 });
+
+
+describe('rotated text-box native projection', () => {
+    it('preserves a rotated box whose unrotated rectangle crosses the CropBox edge', async () => {
+        const getPage = vi.fn(async () => ({
+            rotate: 0,
+            view: [
+                10,
+                20,
+                610,
+                920,
+            ],
+        }));
+        const entity = textBox('rotated-edge', {
+            rotation: 90,
+            rect: {
+                left: -0.05,
+                top: 0.4,
+                width: 0.3,
+                height: 0.05,
+            },
+        });
+        const result = await collectNativeTextBoxMutationsForSave(documentWithPages(getPage), planFor([entity]));
+        expect(result?.[0]?.rect[0]).toBeCloseTo(-20);
+        expect(result?.[0]?.rect[2]).toBeCloseTo(160);
+        expect(result?.[0]?.rotation).toBe(90);
+        // Width remains 180pt. Clamping left to zero would silently move it.
+        if (!result?.[0]) throw new Error('Native text mutation missing');
+        expect(result[0].rect[2] - result[0].rect[0]).toBeCloseTo(180);
+    });
+});

@@ -54,7 +54,7 @@ import type { TWorkspaceOrchestration } from '@app/modules/workspace-shell/useWo
 import { stepPdfViewRotation } from '@app/utils/pdfViewRotation';
 
 export interface ICreateWorkspaceExposeDeps extends
-    IWorkspaceFilePort,
+    Omit<IWorkspaceFilePort, 'handleSelectAll'>,
     IWorkspaceExportPort,
     IWorkspaceAgentPort {
     hasPdf: Ref<boolean>;
@@ -465,6 +465,7 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
             () => deps.handleCropPages(pages, margins),
         ),
         handleSave: handleSaveFromCommandSurface,
+        handleSelectAll: () => { deps.pdfAutomationViewerRef?.value?.selectAllAnnotations?.(); },
         handleRepairSave: handleRepairSaveFromCommandSurface,
         handleOptimizePdfForInteraction: handleOptimizePdfForInteractionFromCommandSurface,
         handleZoomIn: () => {

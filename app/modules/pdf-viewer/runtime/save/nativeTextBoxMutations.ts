@@ -36,7 +36,7 @@ function toNativeTextBox(
     pageView: readonly number[],
     pageRotation: TPageRotation,
 ): IPdfNativeTextBoxMutation | null {
-    const rect = toPdfRectFromMarkerRect(entity.rect, [...pageView], pageRotation);
+    const rect = toPdfRectFromMarkerRect(entity.rect, [...pageView], pageRotation, {preserveUnrotatedBounds: true});
     const color = entity.color === null
         ? {
             r: 0,

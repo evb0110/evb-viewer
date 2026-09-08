@@ -373,7 +373,6 @@ describe('menu per-window document state', () => {
             'cut',
             'copy',
             'paste',
-            'selectAll',
         ]));
     });
 
@@ -493,6 +492,50 @@ describe('menu per-window document state', () => {
 
         expect(window.webContents.undo).toHaveBeenCalledOnce();
         expect(window.webContents.send).not.toHaveBeenCalledWith('menu:undo');
+    });
+
+    it.each([
+        true,
+        false,
+    ])('routes Select All to the focused annotation editor only when eligible=%s', async (annotationFocused) => {
+        const window = mocks.createWindow(1, 'Window');
+        window.webContents.executeJavaScript.mockResolvedValueOnce(annotationFocused);
+        mocks.windows.push(window);
+        mocks.focusWindow(window);
+        setupMenu();
+        setMenuDocumentState(1, true);
+
+        const item = getEditMenuSubmenu(getLastMenuTemplate())
+            .find(candidate => candidate.label === 'menu.selectAll');
+        expect(item).toBeDefined();
+        item?.click?.({}, window);
+        await waitForMenuClickTasks();
+
+        if (annotationFocused) {
+            expect(window.webContents.send).toHaveBeenCalledWith('menu:select-all');
+            expect(window.webContents.selectAll).not.toHaveBeenCalled();
+        } else {
+            expect(window.webContents.selectAll).toHaveBeenCalledOnce();
+            expect(window.webContents.send).not.toHaveBeenCalledWith('menu:select-all');
+        }
+    });
+
+    it('does not run Select All after its target window closes', async () => {
+        const window = mocks.createWindow(1, 'Window');
+        window.webContents.executeJavaScript.mockImplementationOnce(async () => {
+            window.close();
+            return false;
+        });
+        mocks.windows.push(window);
+        mocks.focusWindow(window);
+        setupMenu();
+        const item = getEditMenuSubmenu(getLastMenuTemplate())
+            .find(candidate => candidate.label === 'menu.selectAll');
+        expect(item).toBeDefined();
+        item?.click?.({}, window);
+        await waitForMenuClickTasks();
+        expect(window.webContents.selectAll).not.toHaveBeenCalled();
+        expect(window.webContents.send).not.toHaveBeenCalled();
     });
 
     it('does not invoke native undo when the window closes during the text focus probe', async () => {

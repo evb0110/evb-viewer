@@ -23,6 +23,7 @@ use std::{
 mod annotation_identity;
 mod annotation_index;
 mod annotation_parse;
+mod annotation_recovery;
 mod annotations;
 mod catalog;
 mod cli;
@@ -38,11 +39,13 @@ mod markup_hints;
 mod page_geometry;
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 mod page_tree_ops;
+mod placed_image_raster;
 mod placed_images;
 mod postconditions;
 mod shape_index;
 mod shapes;
 mod split_pages;
+mod text_box_font;
 mod text_layer;
 mod types;
 
@@ -69,6 +72,7 @@ fn read_json_sidecar<T: DeserializeOwned>(path: &std::path::Path, label: &str) -
 pub(crate) use annotation_identity::*;
 pub(crate) use annotation_index::*;
 pub(crate) use annotation_parse::*;
+pub(crate) use annotation_recovery::*;
 pub(crate) use annotations::*;
 pub(crate) use catalog::*;
 pub(crate) use cli::*;
@@ -84,6 +88,7 @@ pub(crate) use markup_hints::*;
 pub(crate) use page_geometry::*;
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 pub(crate) use page_tree_ops::*;
+pub(crate) use placed_image_raster::*;
 pub(crate) use placed_images::*;
 pub(crate) use postconditions::*;
 pub(crate) use shape_index::*;
@@ -115,6 +120,8 @@ mod tests {
     include!("tests/dispatcher.rs");
     include!("tests/identity_bindings.rs");
     include!("tests/placed_images.rs");
+    include!("tests/placed_image_raster.rs");
+    include!("tests/annotation_recovery.rs");
     include!("tests/markup_shapes.rs");
     include!("tests/catalog.rs");
     include!("tests/page_tree_ops.rs");

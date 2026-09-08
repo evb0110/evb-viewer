@@ -19,13 +19,9 @@ import type {
     TAnnotationTool,
 } from '@app/types/annotations';
 import {annotationIdForSummary} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
-import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdfImagePlacement';
-import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
-import type { TPdfPlacedImageEmbeddingResult } from '@app/modules/pdf-viewer/public';
 import { requireDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRef } from '@contracts/documentRef';
 import { requireEpochMs } from '@contracts/timestamps';
-import { requireDocumentRevisionToken } from '@contracts';
 import { usePageAnnotationActions } from '@app/modules/workspace-shell/composables/usePageAnnotationActions';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 import { createTestDomRect } from '@tests/helpers/domGeometryTestHarness';
@@ -78,29 +74,6 @@ function createEditorOpenNote(
         ...overrides,
     };
 }
-
-function placedImagePayload(rotationDegrees = 0): IPdfPlacedImageFinalizePayload {
-    return {
-        pageNumber: 4,
-        x: 0.1,
-        y: 0.2,
-        width: 0.3,
-        height: 0.15,
-        rotationDegrees,
-        fileName: 'image.png',
-        mimeType: 'image/png',
-        bytes: Uint8Array.of(1, 2, 3),
-        targetPixelWidth: 240,
-        targetPixelHeight: 120,
-    };
-}
-
-type TRunWithDocumentOperationLease = <T>(
-    kind: TDocumentOperationKind,
-    operation: () => Promise<T>,
-) => Promise<T>;
-
-type TRunWithDocumentOperationLeaseMock = TRunWithDocumentOperationLease & {mockImplementationOnce: (implementation: TRunWithDocumentOperationLease) => TRunWithDocumentOperationLeaseMock;};
 
 async function waitForCondition(condition: () => boolean, timeoutMs = 300) {
     const intervalMs = 5;
@@ -179,6 +152,7 @@ function createHarness() {
         undeleteEmbeddedAnnotationDeferred: vi.fn(),
         updateSelectedTextMarkupAnnotationColor: vi.fn(() => true),
         updateTextMarkupAnnotationColor: vi.fn(() => true),
+        selectAnnotationById: vi.fn(() => true),
         selectedShapeId: null as string | null,
         updateShape: vi.fn(),
         getSelectedShape: vi.fn(() => selectedShape.value),
@@ -206,6 +180,7 @@ function createHarness() {
                 pageNumber?: number | null;
                 pageX?: number | null;
                 pageY?: number | null;
+                appAnnotationId?: string;
                 stableKey?: string;
                 annotationId?: string | null;
             },
@@ -222,14 +197,6 @@ function createHarness() {
         dragMode.value = false;
     });
 
-    const runWithDocumentOperationLease: TRunWithDocumentOperationLeaseMock = vi.fn(async <T>(
-        _kind: TDocumentOperationKind,
-        operation: () => Promise<T>,
-    ) => operation()) as TRunWithDocumentOperationLeaseMock;
-    const embedPlacedImageToPage = vi.fn<(
-        data: Uint8Array | null,
-        placement: IPdfPlacedImageFinalizePayload,
-    ) => Promise<TPdfPlacedImageEmbeddingResult>>(async () => Uint8Array.of(7, 7));
     const deps = {
         pdfViewerRef: ref(viewer),
         annotationTool,
@@ -278,8 +245,6 @@ function createHarness() {
         getAnnotationCommentsSnapshot: vi.fn((): IAnnotationCommentSummary[] => []),
         getAnnotationCommentsStatusSnapshot: vi.fn((): TAnnotationCommentsStatus => 'loading'),
         getEmbeddedMutationBaseData: vi.fn(async () => Uint8Array.of(6, 6)),
-        embedPlacedImageToPage,
-        runWithDocumentOperationLease,
     };
 
     return {
@@ -304,6 +269,19 @@ afterEach(() => {
 });
 
 describe('usePageAnnotationActions', () => {
+    it('enters Select before focusing an annotation activated from the sidebar', async () => {
+        const {
+            deps,
+            actions,
+            viewer,
+        } = createHarness();
+        const comment = createComment('sidebar-selection');
+        await actions.handleAnnotationFocusComment(comment);
+        expect(deps.handleAnnotationToolChange).toHaveBeenCalledExactlyOnceWith('select');
+        expect(deps.handleAnnotationToolChange.mock.invocationCallOrder[0]).toBeLessThan(viewer.focusAnnotationComment.mock.invocationCallOrder[0]!);
+        expect(viewer.focusAnnotationComment).toHaveBeenCalledWith(comment);
+    });
+
     it('keeps a newly opened editor note in the sidebar cache before text is entered', () => {
         vi.useFakeTimers();
         vi.setSystemTime(new Date('2026-05-26T12:00:00Z'));
@@ -469,14 +447,10 @@ describe('usePageAnnotationActions', () => {
         expect(deps.sidebarTab.value).toBe('bookmarks');
     });
 
-    it('clamps shape context menu popover coordinates to viewport bounds', () => {
-        vi.stubGlobal('window', {
-            innerWidth: 320,
-            innerHeight: 220,
-        });
-
+    it('reveals the inline inspector for explicit shape properties', () => {
         const {
             deps,
+            viewer,
             actions,
         } = createHarness();
 
@@ -487,82 +461,15 @@ describe('usePageAnnotationActions', () => {
         });
 
         expect(deps.closeAnnotationContextMenu).toHaveBeenCalledOnce();
-        expect(actions.shapePropertiesPopover.value).toEqual({
-            visible: true,
-            x: 52,
-            y: 8,
-        });
+        expect(deps.handleAnnotationToolChange).toHaveBeenCalledWith('select');
+        expect(viewer.selectAnnotationById).toHaveBeenCalledWith('shape-1');
+        expect(deps.handleAnnotationToolChange).toHaveBeenCalledBefore(viewer.selectAnnotationById);
+        expect(deps.showSidebar.value).toBe(true);
+        expect(deps.sidebarTab.value).toBe('annotations');
+        expect('shapePropertiesPopover' in actions).toBe(false);
     });
 
-    it('updates selected shape properties when selectedShapeId is exposed as unwrapped value', () => {
-        const {
-            deps,
-            viewer,
-            actions,
-        } = createHarness();
-
-        viewer.selectedShapeId = 'shape-1';
-
-        actions.handleShapePropertyUpdate({ strokeWidth: 7.5 });
-
-        expect(deps.annotationSettings.value.shapeStrokeWidth).toBe(7.5);
-        expect(viewer.updateShape).toHaveBeenCalledWith('shape-1', { strokeWidth: 7.5 });
-    });
-
-    it('updates draw defaults when the selected shape is an ink drawing', () => {
-        const {
-            deps,
-            viewer,
-            selectedShape,
-            actions,
-        } = createHarness();
-
-        selectedShape.value = {
-            id: 'shape-ink',
-            type: 'polyline',
-            pageIndex: 0,
-            x: 0.2,
-            y: 0.2,
-            width: 0.2,
-            height: 0.2,
-            color: '#e11d48',
-            opacity: 0.9,
-            strokeWidth: 2,
-            source: 'embedded',
-            pdfSubtype: 'Ink',
-            points: [
-                {
-                    x: 0.2,
-                    y: 0.2,
-                },
-                {
-                    x: 0.4,
-                    y: 0.4,
-                },
-            ],
-            strokes: [[
-                {
-                    x: 0.2,
-                    y: 0.2,
-                },
-                {
-                    x: 0.4,
-                    y: 0.4,
-                },
-            ]],
-        };
-        deps.pdfViewerRef.value = {
-            ...viewer,
-            selectedShapeId: 'shape-ink',
-        };
-
-        actions.handleShapePropertyUpdate({ opacity: 0.45 });
-
-        expect(deps.annotationSettings.value.inkOpacity).toBe(0.45);
-        expect(viewer.updateShape).toHaveBeenCalledWith('shape-ink', { opacity: 0.45 });
-    });
-
-    it('opens shape properties automatically for a newly selected shape', async () => {
+    it('keeps selection and shape changes free of automatic property popovers', async () => {
         const {
             deps,
             viewer,
@@ -615,24 +522,49 @@ describe('usePageAnnotationActions', () => {
         await nextTick();
         await nextTick();
 
-        expect(actions.selectedShapeForProperties.value?.id).toBe('shape-1');
-        expect(actions.shapePropertiesPopover.value.visible).toBe(true);
-        expect(actions.shapePropertiesPopover.value.x).toBeGreaterThan(580);
-        expect(actions.shapePropertiesPopover.value.y).toBeGreaterThanOrEqual(200);
+        expect('shapePropertiesPopover' in actions).toBe(false);
+        expect('textMarkupPropertiesPopover' in actions).toBe(false);
+        expect(deps.showSidebar.value).toBe(false);
+        expect(viewerContainer.value.addEventListener).not.toHaveBeenCalled();
+
+        selectedShape.value.color = '#ef4444';
+        await nextTick();
+
+        expect(deps.showSidebar.value).toBe(false);
+        expect(viewerContainer.value.addEventListener).not.toHaveBeenCalled();
     });
 
-    it('creates markup from context menu and resets tool when keep-active is disabled', async () => {
+    it('preserves the tool chosen by successful markup creation completion', async () => {
         const {
             deps,
             viewer,
             actions,
         } = createHarness();
+        viewer.highlightSelection.mockImplementationOnce(async () => {
+            deps.annotationTool.value = 'select';
+            return true;
+        });
 
         await actions.createContextMenuMarkup('underline');
 
         expect(deps.handleAnnotationToolChange).toHaveBeenCalledWith('underline');
         expect(viewer.highlightSelection).toHaveBeenCalledOnce();
-        expect(deps.annotationTool.value).toBe('none');
+        expect(deps.annotationTool.value).toBe('select');
+        expect(deps.closeAnnotationContextMenu).toHaveBeenCalledOnce();
+    });
+
+    it('keeps the markup tool armed when selection markup creation fails', async () => {
+        const {
+            deps,
+            viewer,
+            actions,
+        } = createHarness();
+        viewer.highlightSelection.mockResolvedValueOnce(false);
+
+        await actions.createContextMenuMarkup('underline');
+
+        expect(viewer.highlightSelection).toHaveBeenCalledOnce();
+        expect(deps.annotationTool.value).toBe('underline');
         expect(deps.closeAnnotationContextMenu).toHaveBeenCalledOnce();
     });
 
@@ -654,7 +586,7 @@ describe('usePageAnnotationActions', () => {
             subtype: 'Squiggly',
         },
     ] as const)(
-        'updates %s materialized context menu color without reloading and records history',
+        'updates $subtype context color with undo without changing creation defaults',
         async ({
             settingsKey,
             subtype,
@@ -681,7 +613,7 @@ describe('usePageAnnotationActions', () => {
             );
             expect(deps.annotationContextMenu.value.comment?.color).toBe('#ef4444');
             expect(deps.annotationContextMenu.value.comment?.colorEdited).toBe(true);
-            expect(deps.annotationSettings.value[settingsKey]).toBe('#ef4444');
+            expect(deps.annotationSettings.value[settingsKey]).toBe(DEFAULT_ANNOTATION_SETTINGS[settingsKey]);
             expect(deps.loadPdfFromData).not.toHaveBeenCalled();
             expect(viewer.registerAnnotationHistoryCommand).toHaveBeenCalledOnce();
             const historyCommand = viewer.registerAnnotationHistoryCommand.mock.calls[0]?.[0];
@@ -702,6 +634,7 @@ describe('usePageAnnotationActions', () => {
                 }),
                 '#ef4444',
             );
+            expect(deps.annotationSettings.value).toEqual(DEFAULT_ANNOTATION_SETTINGS);
         },
     );
 
@@ -824,8 +757,7 @@ describe('usePageAnnotationActions', () => {
                 pageNumber: 7,
                 pageX: 0.4,
                 pageY: 0.4,
-                stableKey: 'placed-image-app-1',
-                annotationId: '44R',
+                appAnnotationId: 'anno-reopened-image',
             },
         );
     });
@@ -849,6 +781,25 @@ describe('usePageAnnotationActions', () => {
             {pageNumber: 31},
         );
         expect(deps.closeAnnotationContextMenu).toHaveBeenCalledOnce();
+    });
+
+    it('ignores an image picked after the active document changes', async () => {
+        const {
+            viewer,
+            actions,
+            deps,
+        } = createHarness();
+        const {documentFiles} = installSplitImagePickerPlatform('/tmp/test.png');
+        const read = Promise.withResolvers<Uint8Array<ArrayBuffer>>();
+        documentFiles.readFile.mockImplementationOnce(() => read.promise);
+        const insertion = actions.insertImageFromFileAt(2, 0.25, 0.5);
+        await vi.waitFor(() => expect(documentFiles.readFile).toHaveBeenCalledOnce());
+        const original = deps.workingCopyPath.value;
+        deps.workingCopyPath.value = requireDocumentRef('/tmp/another.pdf');
+        deps.workingCopyPath.value = original;
+        read.resolve(Uint8Array.of(1, 2, 3));
+        await insertion;
+        expect(viewer.startImagePlacement).not.toHaveBeenCalled();
     });
 
     it('contains image picker read failures without tearing down the document workspace', async () => {
@@ -886,180 +837,6 @@ describe('usePageAnnotationActions', () => {
         expect(documentFiles.statFile).toHaveBeenCalledWith(imagePath);
         expect(documentFiles.readFile).toHaveBeenCalledWith(imagePath);
         expect(documentWorkingCopy.cleanupFile).toHaveBeenCalledWith(imagePath);
-    });
-
-    it('finalizes a placed image by embedding it into the reloaded PDF', async () => {
-        const {
-            deps,
-            viewer,
-            actions,
-        } = createHarness();
-        const finalized = await actions.handleFinalizePlacedImage(placedImagePayload(90));
-
-        expect(finalized).toBe(true);
-        expect(deps.embedPlacedImageToPage).toHaveBeenCalledWith(Uint8Array.of(6, 6), expect.objectContaining({
-            pageNumber: 4,
-            rotationDegrees: 90,
-            targetPixelWidth: 240,
-            targetPixelHeight: 120,
-        }));
-        expect(deps.waitForPdfReload).toHaveBeenCalledWith(4);
-        expect(deps.loadPdfFromData).toHaveBeenCalledWith(Uint8Array.of(7, 7), {
-            pushHistory: true,
-            persistWorkingCopy: true,
-        });
-        expect(viewer.clearPendingImagePlacement).toHaveBeenCalledOnce();
-        expect(viewer.saveDocument).not.toHaveBeenCalled();
-    });
-
-    it('reloads the working-copy path after native placed-image persistence', async () => {
-        const {
-            deps,
-            viewer,
-            actions,
-        } = createHarness();
-        deps.workingCopyPath.value = requireDocumentRef('/tmp/work.pdf');
-        deps.embedPlacedImageToPage.mockResolvedValueOnce({
-            kind: 'native-path',
-            path: requireDocumentRef('/tmp/work.pdf'),
-            revisionToken: requireDocumentRevisionToken('drt1:test:placed-image-native'),
-        });
-
-        const finalized = await actions.handleFinalizePlacedImage(placedImagePayload(90));
-
-        expect(finalized).toBe(true);
-        expect(deps.loadPdfFromPath).toHaveBeenCalledWith('/tmp/work.pdf', {markDirty: true});
-        expect(deps.loadPdfFromData).not.toHaveBeenCalled();
-        expect(viewer.clearPendingImagePlacement).toHaveBeenCalledOnce();
-    });
-
-    it('restores the image draft when native placement fails before reload', async () => {
-        const {
-            deps,
-            viewer,
-            actions,
-        } = createHarness();
-        deps.workingCopyPath.value = requireDocumentRef('/tmp/work.pdf');
-        deps.embedPlacedImageToPage.mockRejectedValueOnce(new Error('native placement failed'));
-
-        await expect(actions.handleFinalizePlacedImage(placedImagePayload(90))).resolves.toBe(false);
-
-        expect(viewer.restorePendingImagePlacement).toHaveBeenCalledOnce();
-        expect(viewer.clearPendingImagePlacement).not.toHaveBeenCalled();
-        expect(deps.loadPdfFromPath).not.toHaveBeenCalled();
-        expect(deps.loadPdfFromData).not.toHaveBeenCalled();
-    });
-
-    it.each([
-        {
-            label: 'clean',
-            pendingAnnotations: false,
-        },
-        {
-            label: 'pending annotations',
-            pendingAnnotations: true,
-        },
-    ])('keeps $label native placed-image finalization path-backed for large documents', async ({pendingAnnotations}) => {
-        const {
-            deps,
-            actions,
-        } = createHarness();
-        deps.workingCopyPath.value = requireDocumentRef('/tmp/large-work.pdf');
-        const appliedMutations: string[] = [];
-        deps.saveAnnotationsForPageMutation.mockImplementationOnce(async () => {
-            if (pendingAnnotations) {
-                appliedMutations.push('annotations');
-            }
-            return true;
-        });
-        deps.embedPlacedImageToPage.mockImplementationOnce(async (data, _placement) => {
-            expect(data).toBeNull();
-            appliedMutations.push('placed-image');
-            return {
-                kind: 'native-path',
-                path: requireDocumentRef('/tmp/large-work.pdf'),
-                revisionToken: requireDocumentRevisionToken('drt1:test:large-placed-image'),
-            };
-        });
-
-        const finalized = await actions.handleFinalizePlacedImage(placedImagePayload(90));
-
-        expect(finalized).toBe(true);
-        expect(deps.saveAnnotationsForPageMutation).toHaveBeenCalledOnce();
-        expect(deps.getEmbeddedMutationBaseData).not.toHaveBeenCalled();
-        expect(deps.embedPlacedImageToPage).toHaveBeenCalledWith(null, expect.any(Object));
-        expect(deps.loadPdfFromPath).toHaveBeenCalledWith('/tmp/large-work.pdf', {markDirty: true});
-        expect(deps.loadPdfFromData).not.toHaveBeenCalled();
-        expect(appliedMutations).toEqual(pendingAnnotations
-            ? [
-                'annotations',
-                'placed-image',
-            ]
-            : ['placed-image']);
-    });
-
-    it('runs placed image working-copy writes through the document operation lease', async () => {
-        const {
-            deps,
-            actions,
-        } = createHarness();
-        const leaseGate = Promise.withResolvers<undefined>();
-        deps.runWithDocumentOperationLease.mockImplementationOnce(async <T>(
-            kind: TDocumentOperationKind,
-            operation: () => Promise<T>,
-        ) => {
-            expect(kind).toBe('page-operation');
-            await leaseGate.promise;
-            return operation();
-        });
-
-        const finalizePromise = actions.handleFinalizePlacedImage(placedImagePayload(90));
-        await Promise.resolve();
-
-        expect(deps.runWithDocumentOperationLease).toHaveBeenCalledWith('page-operation', expect.any(Function));
-        expect(deps.getEmbeddedMutationBaseData).not.toHaveBeenCalled();
-        expect(deps.loadPdfFromData).not.toHaveBeenCalled();
-
-        leaseGate.resolve(undefined);
-        await expect(finalizePromise).resolves.toBe(true);
-
-        expect(deps.loadPdfFromData).toHaveBeenCalledWith(Uint8Array.of(7, 7), {
-            pushHistory: true,
-            persistWorkingCopy: true,
-        });
-    });
-
-    it('clears pending image placement when finalization resolves after the working copy changes', async () => {
-        const {
-            deps,
-            viewer,
-            actions,
-        } = createHarness();
-        deps.embedPlacedImageToPage.mockImplementationOnce(async () => {
-            deps.workingCopyPath.value = requireDocumentRef('browser://documents/other.pdf');
-            return Uint8Array.of(7, 7);
-        });
-
-        const finalized = await actions.handleFinalizePlacedImage(placedImagePayload(0));
-
-        expect(finalized).toBe(false);
-        expect(viewer.clearPendingImagePlacement).toHaveBeenCalledOnce();
-        expect(viewer.restorePendingImagePlacement).not.toHaveBeenCalled();
-        expect(deps.loadPdfFromData).not.toHaveBeenCalled();
-    });
-
-    it('uses planned embedded mutation bytes before finalizing placed images', async () => {
-        const {
-            deps,
-            viewer,
-            actions,
-        } = createHarness();
-        deps.getEmbeddedMutationBaseData.mockResolvedValueOnce(Uint8Array.of(9, 9));
-
-        await actions.handleFinalizePlacedImage(placedImagePayload(0));
-
-        expect(viewer.saveDocument).not.toHaveBeenCalled();
-        expect(deps.embedPlacedImageToPage).toHaveBeenCalledWith(Uint8Array.of(9, 9), expect.any(Object));
     });
 
     it('serializes delete requests through a single queue', async () => {

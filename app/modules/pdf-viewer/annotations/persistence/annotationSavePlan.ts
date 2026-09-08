@@ -189,6 +189,9 @@ const FIELDS: Record<AnnotationEntity['kind'], readonly string[]> = {
     ],
     shape: [
         'tool',
+        'pdfSubtype',
+        'lineStartStyle',
+        'lineEndStyle',
         'rect',
         'points',
         'strokes',

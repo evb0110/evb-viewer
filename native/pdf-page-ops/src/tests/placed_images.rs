@@ -36,6 +36,8 @@
         write(&bytes_path, &bytes).unwrap();
         PLACED_IMAGE_TEMP_FILES.with(|files| files.borrow_mut().push(bytes_path.clone()));
         PlacedImage {
+            author: None,
+            bytes_base64: None,
             page_index: 0,
             stable_key: None,
             annotation_id: None,
@@ -541,9 +543,10 @@
 
         let deleted = Document::load(&pdf_path).unwrap();
         assert!(get_page_annots(&deleted, page_id).unwrap().is_empty());
-        for object_id in [stamp_ref, appearance_refs.0, appearance_refs.1] {
-            assert!(matches!(deleted.get_object(object_id), Ok(Object::Null) | Err(_)));
-        }
+        assert!(matches!(deleted.get_object(stamp_ref), Ok(Object::Null) | Err(_)));
+        // Appearance and image XObjects can be shared by surviving stamps.
+        assert!(deleted.get_object(appearance_refs.0).unwrap().as_stream().is_ok());
+        assert!(deleted.get_object(appearance_refs.1).unwrap().as_stream().is_ok());
 
         let _ = remove_file(pdf_path);
     }

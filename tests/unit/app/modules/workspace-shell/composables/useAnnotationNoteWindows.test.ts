@@ -543,6 +543,15 @@ describe('useAnnotationNoteWindows', () => {
             existingPdfNote,
             newEditorNote,
         ];
+        deps.updateAnnotationCommentInViewer.mockImplementation((annotationId, text) => {
+            deps.annotationComments.value = deps.annotationComments.value.map(comment => (
+                comment.appAnnotationId === annotationId ? {
+                    ...comment,
+                    text,
+                } : comment
+            ));
+            return true;
+        });
 
         windows.handleOpenAnnotationNote(newEditorNote);
         const note = windows.findAnnotationNoteWindow('ann:0:pdfjs_internal_editor_0');
@@ -565,7 +574,7 @@ describe('useAnnotationNoteWindows', () => {
             }),
             expect.objectContaining({
                 stableKey: 'ann:0:pdfjs_internal_editor_0',
-                text: 'new editor note',
+                text: 'saved new editor note',
                 source: 'editor',
             }),
         ]));

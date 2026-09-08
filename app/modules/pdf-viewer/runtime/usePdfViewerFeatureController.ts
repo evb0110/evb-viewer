@@ -148,6 +148,8 @@ export const usePdfViewerFeatureController = (
         currentPage: viewerCurrentPage,
         numPages: documentSession.numPages,
         effectiveScale: viewerEffectiveScale,
+        viewRotation,
+        getPageDimensions: pageNumber => documentSession.pageMetrics.value[pageNumber - 1] ?? null,
         finalizePlacement: payload => annotationSessionRef.value?.finalizeImagePlacement(payload)
             ?? Promise.resolve(false),
     });
@@ -333,13 +335,14 @@ export const usePdfViewerFeatureController = (
         emitAnnotationEnrichmentState: viewerEvents.annotationEnrichmentState,
         emitAnnotationOpenNote: viewerEvents.annotationOpenNote,
         emitAnnotationContextMenu: viewerEvents.annotationContextMenu,
+        viewRotation,
         emitAnnotationToolAutoReset: viewerEvents.annotationToolAutoReset,
+        emitAnnotationToolCancel: viewerEvents.annotationToolCancel,
         emitAnnotationSetting: viewerEvents.annotationSetting,
         emitAnnotationCommentClick: viewerEvents.annotationCommentClick,
         reportAnnotationFailure: viewerEvents.annotationFailure,
         emitShapeContextMenu: viewerEvents.shapeContextMenu,
         linkAnnotations,
-        finalizeImagePlacement: props.finalizeImagePlacement,
     });
     annotationSessionRef.value = annotationSession;
 

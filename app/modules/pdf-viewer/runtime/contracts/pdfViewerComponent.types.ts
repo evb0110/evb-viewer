@@ -10,7 +10,6 @@ import type {
     TAnnotationSettingChange,
     TAnnotationTool,
 } from '@app/types/annotations';
-import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdfImagePlacement';
 import type {
     TFitMode,
     TPdfViewRotation,
@@ -60,15 +59,7 @@ export interface IPdfViewerProps {
     originalPath?: string | null | undefined;
     documentRevisionToken?: TDocumentRevisionToken | null | undefined;
     authorName?: string | null | undefined;
-    /**
-     * Completes a pending stamp through the owning document session.
-     *
-     * This command stays here until #193 removes the legacy workspace stamp
-     * persistence route. It is deliberately a prop rather than a viewer
-     * event so the editor layer remains the only caller-facing owner.
-     */
-    // eslint-disable-next-line @typescript-eslint/no-invalid-void-type
-    finalizeImagePlacement?: ((payload: IPdfPlacedImageFinalizePayload) => void | Promise<boolean>) | undefined;
+
 }
 
 export interface IPdfViewerEmit {

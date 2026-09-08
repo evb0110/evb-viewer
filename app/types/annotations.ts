@@ -13,6 +13,7 @@ import type {
 import type { IPdfNativeShapeAnnotation } from '@contracts/electronApiDocuments';
 import type { TEpochMs } from '@contracts/timestamps';
 import type { IPdfAnnotationNoteReply } from '@contracts/pdfAnnotationParseTypes';
+import type { AnnotationEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type {
     Except,
     TaggedUnion,
@@ -131,6 +132,7 @@ export type TAnnotationSettingChange = {
 }[keyof IAnnotationSettings];
 
 export interface IAnnotationSettings {
+    noteColor?: string;
     highlightColor: string;
     highlightOpacity: number;
     highlightThickness: number;
@@ -151,6 +153,16 @@ export interface IAnnotationSettings {
     shapeFillColor: string;
     shapeOpacity: number;
     shapeStrokeWidth: number;
+}
+
+/** Properties edited against an explicit canonical annotation selection. */
+export interface IAnnotationPropertyUpdate {
+    color?: string;
+    fontSize?: number;
+    opacity?: number;
+    strokeWidth?: number;
+    fill?: string | null;
+    rotation?: 0 | 90 | 180 | 270;
 }
 
 export interface IAnnotationEditorState {
@@ -191,6 +203,7 @@ export interface ILinkAnnotation {
 
 interface IAnnotationCommentSummaryFields {
     appAnnotationId?: string;
+    annotationKind?: AnnotationEntity['kind'];
     id: string;
     stableKey: TAnnotationStableKey;
     sortIndex?: number | null;

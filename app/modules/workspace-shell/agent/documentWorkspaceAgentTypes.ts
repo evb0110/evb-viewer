@@ -41,8 +41,6 @@ export interface IUseDocumentWorkspaceAgentOptions {
     canUndo: Ref<boolean>;
     canRedo: Ref<boolean>;
     closeAllDropdowns: () => void;
-    closeShapeProperties: () => void;
-    closeTextMarkupProperties: () => void;
     continuousScroll: Ref<boolean>;
     currentPage: Ref<number>;
     documentIdentity: Ref<IDocumentRevisionInfo | null>;

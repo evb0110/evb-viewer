@@ -14,7 +14,7 @@ import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { TRequestId } from '@contracts/shared';
 import type { IPdfOptimizeOptions } from '@contracts/electronApiDocuments';
 import {
-    usePdfPlacedImagePersistence,
+    createPdfSourceDataReader,
     resolvePdfReloadPage,
     createPdfReloadWaiter,
     resolvePdfViewerSaveTransactionFinalBytes,
@@ -134,10 +134,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         runWithDocumentOperationLease,
     } = deps;
 
-    const {
-        getSourcePdfData,
-        embedPlacedImageToPage,
-    } = usePdfPlacedImagePersistence({
+    const getSourcePdfData = createPdfSourceDataReader({
         pdfData,
         workingCopyPath,
         documentRevisionToken,
@@ -415,23 +412,8 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
             : createRecoverySnapshotBytesUnlocked();
     }
 
-    async function getEmbeddedMutationBaseData() {
-        if (!hasAnnotationChanges()) {
-            return getSourcePdfData();
-        }
-
-        const result = await pdfViewerRef.value?.runSaveTransaction({
-            mode: 'embedded-mutation',
-            forceWriterSave: true,
-            serializeResult: false,
-        });
-        return resolvePdfViewerSaveTransactionFinalBytes(result);
-    }
-
     return {
         getSourcePdfData,
-        getEmbeddedMutationBaseData,
-        embedPlacedImageToPage,
         handleSave,
         handleRepairSave,
         handleOptimizePdfForInteraction,

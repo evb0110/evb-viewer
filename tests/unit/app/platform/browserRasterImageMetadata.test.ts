@@ -14,9 +14,13 @@ import {
     assertBrowserCombinedPdfPageCount,
     consumeBrowserDecodedWorkingSet,
 } from '@app/platform/browser-api/createCombinedPdfFromPaths';
+import {
+    probeBrowserImageFile,
+    PDF_IMAGE_PLACEMENT_RESOURCE_LIMITS,
+} from '@app/platform/browser-api/browserImageResourcePolicy';
 import { BROWSER_MAX_FULL_READ_BYTES } from '@app/platform/browser/browserDocumentConstants';
 
-function jpegWithExifOrientation(orientation: 3 | 6 | 8) {
+function jpegWithExifOrientation(orientation: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8) {
     return new Uint8Array([
         0xff,
         0xd8,
@@ -82,15 +86,25 @@ function jpegWithExifOrientation(orientation: 3 | 6 | 8) {
 
 describe('browserRasterImageMetadata', () => {
     it.each([
+        1,
+        2,
         3,
+        4,
+        5,
         6,
+        7,
         8,
-    ] as const)('reads JPEG EXIF orientation %i before decode', (orientation) => {
+    ] as const)('reads JPEG EXIF orientation %i before decode', async (orientation) => {
         expect(readBrowserRasterImageMetadata(jpegWithExifOrientation(orientation), '.jpg')).toMatchObject({
             width: 800,
             height: 1200,
             orientation,
         });
+        const file = new File([jpegWithExifOrientation(orientation)], 'oriented.jpg', {type: 'image/jpeg'});
+        const probed = await probeBrowserImageFile(file, PDF_IMAGE_PLACEMENT_RESOURCE_LIMITS);
+        expect(probed.width).toBe(orientation >= 5 ? 1200 : 800);
+        expect(probed.height).toBe(orientation >= 5 ? 800 : 1200);
+        expect(probed.orientation ?? 1).toBe(orientation);
     });
 
     it('reads WebP extended canvas dimensions before decode', () => {

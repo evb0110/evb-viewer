@@ -170,8 +170,6 @@ function createAgentOptions(
         canUndo: ref(false),
         canRedo: ref(false),
         closeAllDropdowns: vi.fn(),
-        closeShapeProperties: vi.fn(),
-        closeTextMarkupProperties: vi.fn(),
         continuousScroll: ref(false),
         currentPage: ref(1),
         documentIdentity: ref<IDocumentRevisionInfo | null>(null),

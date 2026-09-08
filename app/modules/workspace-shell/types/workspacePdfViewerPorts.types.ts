@@ -24,7 +24,7 @@ export type IWorkspacePdfViewerRegionCapturePort = IPdfViewerRegionCaptureExpose
 
 export interface IWorkspacePdfViewerShortcutsPort extends Pick<IPdfViewerShapeExpose,
     'deleteSelectedShape'
-> {}
+>, Pick<IPdfViewerAnnotationCommandExpose, 'handleAnnotationEscape'> {}
 
 export interface IWorkspacePdfViewerPageOpsPort extends
     Pick<IPdfViewerExpose, 'invalidatePages'>,
@@ -38,7 +38,10 @@ export interface IWorkspacePdfViewerAnnotationToolsPort extends
         | 'updateShape'
     >,
     Pick<IPdfViewerAnnotationCommandExpose,
-        'selectedTextBox'
+        'selectedAnnotations'
+        | 'updateSelectedAnnotationProperties'
+        | 'prepareAnnotationToolChange'
+        | 'selectedTextBox'
         | 'getSelectedTextBox'
         | 'updateSelectedTextBoxProperties'
     > {}
@@ -57,7 +60,7 @@ export interface IWorkspacePdfViewerAnnotationChangesPort extends
 
 export interface IWorkspacePdfViewerAnnotationNotesPort extends Pick<IPdfViewerAnnotationCommentExpose,
     'updateAnnotationComment'
-> {}
+>, Pick<IPdfViewerAnnotationCommandExpose, 'getDeletedCanonicalAnnotationIds' | 'focusSelectedAnnotation'> {}
 
 export interface IWorkspacePdfViewerAgentAnnotationNotePort extends
     Pick<IPdfViewerAnnotationCommentExpose,
@@ -93,6 +96,7 @@ export interface IWorkspacePdfViewerExposeAutomationPort extends
         'commentAtPoint'
         | 'getAnnotationStorageDebugState'
         | 'highlightSelection'
+        | 'selectAllAnnotations'
     >>,
     Partial<Pick<IPdfViewerShapeExpose,
         'getAllShapes'

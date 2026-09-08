@@ -64,10 +64,11 @@ const handlesStyle = computed(() => rect.value ? {
     top: `${rect.value.top * 100}%`,
     width: `${rect.value.width * 100}%`,
     height: `${rect.value.height * 100}%`,
+    transform: `rotate(${props.entity && 'rotation' in props.entity ? props.entity.rotation : 0}deg)`,
 } : undefined);
 
 function handlePointerDown(handle: TAnnotationResizeHandle, event: PointerEvent) {
-    if (props.entity?.kind === 'text-box' || props.entity?.kind === 'placed-image') {
+    if (props.entity?.kind === 'text-box' || props.entity?.kind === 'placed-image' || props.entity?.kind === 'shape') {
         emit('resize-start', handle, event);
     }
 }

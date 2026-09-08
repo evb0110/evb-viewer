@@ -11,6 +11,7 @@ export interface IBrowserImageResourceLimits {
 }
 
 export interface IProbedBrowserImage {
+    orientation?: number;
     bytes: Uint8Array;
     width: number;
     height: number;
@@ -351,6 +352,7 @@ export async function probeBrowserImageFile(
         width: number;
         height: number;
         frameCount: number;
+        orientation?: number;
     } | null = null;
     if (extension === '.svg' || extension === '.svgz') {
         let svgBytes = bytes;
@@ -370,8 +372,9 @@ export async function probeBrowserImageFile(
         const rasterMetadata = readBrowserRasterImageMetadata(bytes, extension);
         if (rasterMetadata) {
             metadata = {
-                width: rasterMetadata.width,
-                height: rasterMetadata.height,
+                width: rasterMetadata.orientation >= 5 ? rasterMetadata.height : rasterMetadata.width,
+                height: rasterMetadata.orientation >= 5 ? rasterMetadata.width : rasterMetadata.height,
+                ...(rasterMetadata.orientation === 1 ? {} : {orientation: rasterMetadata.orientation}),
                 frameCount: extension === '.png'
                     ? countPngFrames(bytes)
                     : extension === '.gif'

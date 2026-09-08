@@ -49,7 +49,6 @@ function createModel() {
         isAnySaving: ref(false),
         annotationProjection,
         ingestSummaries: comments => { annotationProjection.value = comments.map(value => ({...value})); },
-        getShapeAnnotationCommentSummaries: () => [],
         emitAnnotationComments: comments => emitted.push(comments),
     });
     return {

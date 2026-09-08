@@ -70,7 +70,7 @@ describe('useTextBoxInlineEdit', () => {
         editor.handleBlur();
 
         expect(commit).toHaveBeenCalledOnce();
-        expect(commit).toHaveBeenCalledWith('after');
+        expect(commit).toHaveBeenCalledWith('after', {restoreFocus: false});
         expect(cancel).not.toHaveBeenCalled();
     });
 
@@ -100,4 +100,35 @@ describe('useTextBoxInlineEdit', () => {
         expect(cancel).toHaveBeenCalledOnce();
         expect(commit).not.toHaveBeenCalled();
     });
+    it.each([
+        'Escape',
+        'Enter',
+    ])('leaves composing %s to the input method', async (key) => {
+        const editing = ref(true);
+        const commit = vi.fn();
+        const cancel = vi.fn();
+        const preventDefault = vi.fn();
+        const scope = effectScope();
+        scopes.add(scope);
+        const editor = scope.run(() => useTextBoxInlineEdit({
+            entity: computed(() => entity.value),
+            editing,
+            onCommit: commit,
+            onCancel: cancel,
+        }))!;
+        await Promise.resolve();
+        editor.handleKeydown({
+            key,
+            isComposing: true,
+            ctrlKey: true,
+            metaKey: false,
+            preventDefault,
+        });
+        expect(commit).not.toHaveBeenCalled();
+        expect(cancel).not.toHaveBeenCalled();
+        expect(preventDefault).not.toHaveBeenCalled();
+        editor.handleBlur();
+        expect(commit).toHaveBeenCalledOnce();
+    });
+
 });

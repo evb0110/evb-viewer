@@ -6,74 +6,71 @@
         :data-pdf-annotation-id="entity.identity.pdfRef"
         data-annotation-kind="shape"
         :style="shapeStyle"
-        aria-label="Shape annotation"
     >
-        <template v-if="entity.tool === 'line' || entity.tool === 'arrow'">
+        <g
+            v-for="pass in renderPasses"
+            :key="pass"
+            :data-annotation-hit-target="pass === 'hit' ? '' : undefined"
+            :data-annotation-visual="pass === 'visual' ? '' : undefined"
+            :class="`pdf-annotation-editor-shape__${pass}`"
+        >
             <line
-                :x1="line.x1"
-                :y1="line.y1"
-                :x2="line.x2"
-                :y2="line.y2"
+                v-if="entity.tool === 'line' || entity.tool === 'arrow'"
+                :x1="line.x1" :y1="line.y1" :x2="line.x2" :y2="line.y2"
             />
-            <polygon
-                v-if="entity.tool === 'arrow' && arrowHeadPoints"
-                class="pdf-annotation-editor-shape__arrowhead"
-                :points="arrowHeadPoints"
-            />
-        </template>
             <ellipse
-            v-else-if="entity.tool === 'circle'"
-            :cx="entity.rect.left + entity.rect.width / 2"
-            :cy="entity.rect.top + entity.rect.height / 2"
-            :rx="Math.abs(entity.rect.width / 2)"
+                v-else-if="entity.tool === 'circle'"
+                :cx="entity.rect.left + entity.rect.width / 2"
+                :cy="entity.rect.top + entity.rect.height / 2"
+                :rx="Math.abs(entity.rect.width / 2)"
                 :ry="Math.abs(entity.rect.height / 2)"
-        />
-        <template v-else-if="entity.tool === 'draw'">
-            <polyline
-                v-for="(stroke, index) in drawableStrokePointSets"
-                :key="`${entity.identity.id}-stroke-${index}`"
-                :points="formatPoints(stroke)"
             />
-        </template>
-        <rect
-            v-else
-            :x="entity.rect.left"
-            :y="entity.rect.top"
-            :width="entity.rect.width"
-            :height="entity.rect.height"
-        />
+            <template v-else-if="entity.tool === 'draw'">
+                <component
+                    :is="entity.pdfSubtype === 'Polygon' ? 'polygon' : 'polyline'"
+                    v-for="(stroke, index) in drawableStrokePointSets"
+                    :key="index"
+                    :points="formatPoints(stroke)"
+                />
+            </template>
+            <rect v-else :x="entity.rect.left" :y="entity.rect.top" :width="entity.rect.width" :height="entity.rect.height" />
+            <template v-if="pass === 'visual'">
+                <component
+                    :is="head.closed ? 'polygon' : 'polyline'"
+                    v-for="(head, index) in arrowHeads"
+                    :key="`head-${index}`"
+                    class="pdf-annotation-editor-shape__arrowhead"
+                    :class="{'is-open': !head.closed}"
+                    :points="head.points"
+                />
+            </template>
+        </g>
     </g>
 </template>
 
 <script setup lang="ts">
 import type { IShapeEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import { toPdfScaledCssLength } from '@app/modules/pdf-viewer/engine/pdf-page-scale/pdfPageScale';
+import type { IAnnotationPageDimensions } from '@app/modules/pdf-viewer/engine/annotation-editor-geometry/annotationEditorGeometry';
 
 const props = defineProps<{
     entity: IShapeEntity;
     selected: boolean;
+    pageSize?: IAnnotationPageDimensions
 }>();
-
-const strokePointSets = computed(() => {
-    if (props.entity.strokes && props.entity.strokes.length > 0) {
-        return props.entity.strokes;
-    }
-    return props.entity.points ? [props.entity.points] : [];
-});
+const renderPasses = [
+    'hit',
+    'visual',
+] as const;
+const strokePointSets = computed(() => props.entity.strokes?.length ? props.entity.strokes : props.entity.points ? [props.entity.points] : []);
 const drawableStrokePointSets = computed(() => strokePointSets.value.filter(points => points.length > 1));
-const linePoints = computed(() => (
-    props.entity.points && props.entity.points.length > 0
-        ? props.entity.points
-        : props.entity.strokes?.[0] ?? []
-));
-
+const linePoints = computed(() => props.entity.points?.length ? props.entity.points : props.entity.strokes?.[0] ?? []);
 function formatPoints(points: ReadonlyArray<{
     x: number;
     y: number
 }>) {
     return points.map(point => `${point.x},${point.y}`).join(' ');
 }
-
 const line = computed(() => {
     const first = linePoints.value[0];
     const last = linePoints.value.at(-1);
@@ -84,45 +81,66 @@ const line = computed(() => {
         y2: last?.y ?? props.entity.rect.top + props.entity.rect.height,
     };
 });
-
-const arrowHeadPoints = computed(() => {
-    if (props.entity.tool !== 'arrow') {
-        return null;
+const arrowHeads = computed(() => {
+    if (props.entity.tool !== 'line' && props.entity.tool !== 'arrow') {
+        return [];
     }
-    const dx = line.value.x2 - line.value.x1;
-    const dy = line.value.y2 - line.value.y1;
-    const length = Math.hypot(dx, dy);
-    if (length <= 0) {
-        return null;
-    }
-    const headLength = Math.min(length * 0.25, 0.04);
-    const headHalfWidth = headLength * 0.45;
-    const unitX = dx / length;
-    const unitY = dy / length;
-    const baseX = line.value.x2 - unitX * headLength;
-    const baseY = line.value.y2 - unitY * headLength;
-    const perpendicularX = -unitY * headHalfWidth;
-    const perpendicularY = unitX * headHalfWidth;
-    return formatPoints([
+    const page = props.pageSize ?? {
+        width: 612,
+        height: 792,
+    };
+    const endpoints = [
         {
-            x: line.value.x2,
-            y: line.value.y2,
+            x: line.value.x1 * page.width,
+            y: line.value.y1 * page.height,
         },
         {
-            x: baseX + perpendicularX,
-            y: baseY + perpendicularY,
+            x: line.value.x2 * page.width,
+            y: line.value.y2 * page.height,
         },
-        {
-            x: baseX - perpendicularX,
-            y: baseY - perpendicularY,
-        },
-    ]);
+    ] as const;
+    const styles = [
+        props.entity.lineStartStyle ?? 'none',
+        props.entity.lineEndStyle ?? (props.entity.tool === 'arrow' ? 'closedArrow' : 'none'),
+    ];
+    return styles.flatMap((style, index) => {
+        if (style === 'none') {
+            return [];
+        }
+        const tip = endpoints[index === 0 ? 0 : 1];
+        const other = endpoints[index === 0 ? 1 : 0];
+        const length = Math.hypot(tip.x - other.x, tip.y - other.y);
+        if (!length) {
+            return [];
+        }
+        const headLength = Math.min(length * 0.4, Math.max(6, props.entity.strokeWidth * 10));
+        const halfWidth = headLength * 0.35;
+        const ux = (tip.x - other.x) / length;
+        const uy = (tip.y - other.y) / length;
+        return [{
+            closed: style === 'closedArrow',
+            points: formatPoints([
+                {
+                    x: tip.x - ux * headLength - uy * halfWidth,
+                    y: tip.y - uy * headLength + ux * halfWidth,
+                },
+                tip,
+                {
+                    x: tip.x - ux * headLength + uy * halfWidth,
+                    y: tip.y - uy * headLength - ux * halfWidth,
+                },
+            ].map(point => ({
+                x: point.x / page.width,
+                y: point.y / page.height,
+            }))),
+        }];
+    });
 });
-
 const shapeStyle = computed(() => ({
     '--annotation-stroke': props.entity.strokeColor,
-    '--annotation-fill': props.entity.fill ?? 'transparent',
+    '--annotation-fill': props.entity.fill ?? 'none',
     '--annotation-opacity': String(props.entity.opacity),
     '--annotation-stroke-width': toPdfScaledCssLength(props.entity.strokeWidth),
+    '--annotation-hit-width': `max(14px, ${toPdfScaledCssLength(props.entity.strokeWidth, 10)})`,
 }));
 </script>

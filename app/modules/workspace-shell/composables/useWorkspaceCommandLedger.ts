@@ -7,6 +7,7 @@ interface IWorkspaceCommand {
     readonly checkpoint: number;
     readonly inverse: 'undo';
     readonly estimatedBytes: number;
+    readonly onDiscard: (() => void) | undefined;
     canUndo(): boolean;
     canRedo(): boolean;
     undo(): Promise<boolean>;
@@ -32,6 +33,7 @@ export const useWorkspaceCommandLedger = () => {
             checkpoint: commands.value.length,
             inverse: 'undo',
             estimatedBytes: Math.max(0, input.estimatedBytes ?? DEFAULT_WORKSPACE_COMMAND_BYTES),
+            onDiscard: input.onDiscard,
             canUndo: input.canUndo ?? (() => true),
             canRedo: input.canRedo ?? (() => true),
             undo: async () => (await input.undo()) === true,
@@ -41,8 +43,10 @@ export const useWorkspaceCommandLedger = () => {
 
     function recordEntry(command: IWorkspaceCommand) {
         if (isExecutingCommand) {
+            command.onDiscard?.();
             return;
         }
+        const discarded = commands.value.slice(commandIndex.value + 1);
         const nextCommands = commands.value.slice(0, commandIndex.value + 1);
         nextCommands.push(command);
         let retainedBytes = nextCommands.reduce((total, entry) => total + entry.estimatedBytes, 0);
@@ -52,9 +56,11 @@ export const useWorkspaceCommandLedger = () => {
         ) {
             const removed = nextCommands.shift();
             retainedBytes -= removed?.estimatedBytes ?? 0;
+            if (removed) discarded.push(removed);
         }
         commands.value = nextCommands;
         commandIndex.value = commands.value.length - 1;
+        discarded.forEach(entry => entry.onDiscard?.());
     }
 
     function registerCommand(input: IWorkspaceCommandRegistration) {
@@ -67,8 +73,10 @@ export const useWorkspaceCommandLedger = () => {
         }
 
         let removedAppliedCommands = 0;
+        const discarded: IWorkspaceCommand[] = [];
         const nextCommands = commands.value.filter((command, index) => {
             const removed = shouldRemove(command);
+            if (removed) discarded.push(command);
             if (removed && index <= commandIndex.value) {
                 removedAppliedCommands += 1;
             }
@@ -76,6 +84,7 @@ export const useWorkspaceCommandLedger = () => {
         });
 
         commands.value = nextCommands;
+        discarded.forEach(command => command.onDiscard?.());
         if (nextCommands.length === 0) {
             commandIndex.value = -1;
             return;
@@ -88,8 +97,10 @@ export const useWorkspaceCommandLedger = () => {
     }
 
     function resetTimeline() {
+        const discarded = commands.value;
         commands.value = [];
         commandIndex.value = -1;
+        discarded.forEach(command => command.onDiscard?.());
     }
 
     function resetSource(source?: TWorkspaceUndoSource) {
@@ -152,9 +163,10 @@ export const useWorkspaceCommandLedger = () => {
     // timeline and the cursor lands on the entry below the one it occupied.
     function retireCommandAt(position: number) {
         const nextCommands = commands.value.slice();
-        nextCommands.splice(position, 1);
+        const [discarded] = nextCommands.splice(position, 1);
         commands.value = nextCommands;
         commandIndex.value = Math.min(position - 1, nextCommands.length - 1);
+        discarded?.onDiscard?.();
     }
 
     async function undoTimeline() {

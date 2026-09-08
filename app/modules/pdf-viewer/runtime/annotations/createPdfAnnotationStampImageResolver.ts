@@ -65,16 +65,20 @@ export function createPdfStampImageCache(
     };
 }
 
-export function createPdfAnnotationStampImageResolver(documentSession: TPdfDocumentSession) {
+export function createPdfAnnotationStampImageResolver(documentSession: Pick<TPdfDocumentSession, 'pdfDocument' | 'leasePage'>) {
     const stampImageCacheByDocument = new WeakMap<object, IPdfStampImageCache>();
     const stampImageRequestsByDocument = new WeakMap<object, Map<string, Promise<string | null>>>();
 
     return async function resolveStampImage(entity: IPlacedImageEntity) {
+        const sourceImage = entity.image;
+        if ('kind' in sourceImage) {
+            return `data:${sourceImage.mimeType};base64,${sourceImage.dataBase64}`;
+        }
         const pdfDocument = documentSession.pdfDocument.value;
         if (!pdfDocument) {
             return null;
         }
-        const imageRef = formatPdfJsAnnotationRef(entity.image);
+        const imageRef = formatPdfJsAnnotationRef(sourceImage);
         const cachedImages = stampImageCacheByDocument.get(pdfDocument)
             ?? createPdfStampImageCache();
         stampImageCacheByDocument.set(pdfDocument, cachedImages);
@@ -103,7 +107,7 @@ export function createPdfAnnotationStampImageResolver(documentSession: TPdfDocum
                 if (documentSession.pdfDocument.value !== pdfDocument) {
                     return null;
                 }
-                const dataUrl = resolvePdfJsStampImageDataUrl(lease.page, entity.image);
+                const dataUrl = resolvePdfJsStampImageDataUrl(lease.page, sourceImage);
                 if (dataUrl) {
                     cachedImages.set(imageRef, dataUrl);
                 }

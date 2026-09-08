@@ -9,6 +9,7 @@ import type {
 export type TMarkupSubtypeHintSource = 'editor-live' | IAnnotationCommentSummary['source'];
 
 export interface IMarkupSubtypeHint {
+    author?: string | null;
     subtype: TMarkupSubtype;
     pageIndex: TPageIndex;
     markerRect: IAnnotationMarkerRect;

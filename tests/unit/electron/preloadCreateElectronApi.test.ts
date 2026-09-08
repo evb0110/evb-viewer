@@ -156,6 +156,7 @@ const documentsClientMock = vi.hoisted(() => ({
     onMenuToggleAssistant: vi.fn(),
     onMenuUndo: vi.fn(),
     onMenuRedo: vi.fn(),
+    onMenuSelectAll: vi.fn(),
     onMenuDeletePages: vi.fn(),
     onMenuExtractPages: vi.fn(),
     onMenuRotateCw: vi.fn(),

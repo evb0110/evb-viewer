@@ -13,9 +13,12 @@ import type {
 } from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
 import type { IAnnotationMarkerRect } from '@app/types/annotations';
 import {
-    applyAnnotationHandleResize,
+    annotationPageDimensions,
+    clampAnnotationMoveDelta,
+    resizeRotatedAnnotationRect,
+    rotatedAnnotationBounds,
     createAnnotationRectFromPoints,
-    moveAnnotationRect,
+
 } from '@app/modules/pdf-viewer/engine/annotation-editor-geometry/annotationEditorGeometry';
 import type {
     IAnnotationEditorPoint,
@@ -40,6 +43,7 @@ interface IActiveAnnotationPointerGesture {
     startClient: IAnnotationPointerEvent;
     gesture?: IAnnotationGesture;
     handle?: TAnnotationResizeHandle;
+    moveBounds?: readonly IAnnotationMarkerRect[];
 }
 
 export interface IAnnotationPointerGestureCompletion {
@@ -54,6 +58,9 @@ export interface IAnnotationPointerGestureCompletion {
 
 export interface IAnnotationPointerGesture {
     readonly isActive: ComputedRef<boolean>;
+    readonly mode: ComputedRef<TAnnotationPointerGestureMode | null>;
+    readonly resizeHandle: ComputedRef<TAnnotationResizeHandle | null>;
+    readonly start: ComputedRef<IAnnotationEditorPoint | null>;
     readonly previewRect: ComputedRef<IAnnotationMarkerRect | null>;
     beginCreate(point: IAnnotationEditorPoint, event: IAnnotationPointerEvent): boolean;
     beginMove(annotationId: AnnotationId, point: IAnnotationEditorPoint, event: IAnnotationPointerEvent): boolean;
@@ -114,6 +121,13 @@ export const useAnnotationPointerGesture = (
 ): IAnnotationPointerGesture => {
     const active = shallowRef<IActiveAnnotationPointerGesture | null>(null);
     const isActive = computed(() => active.value !== null);
+    const mode = computed(() => active.value?.mode ?? null);
+    const resizeHandle = computed(() => active.value?.handle ?? null);
+    const start = computed(() => active.value?.start ?? null);
+    function pageDimensions(pageIndex = options.pageIndex) {
+        const geometry = options.surface.getPageGeometry(pageIndex);
+        return annotationPageDimensions(geometry?.pageView, geometry?.rotation ?? 0);
+    }
     const previewRect = computed(() => {
         const interaction = active.value;
         if (!interaction) {
@@ -129,14 +143,19 @@ export const useAnnotationPointerGesture = (
             return null;
         }
         if (interaction.mode === 'move') {
-            return moveAnnotationRect(
-                rect,
-                interaction.current.x - interaction.start.x,
-                interaction.current.y - interaction.start.y,
-            );
+            const delta = clampAnnotationMoveDelta(interaction.moveBounds ?? [rect], {
+                x: interaction.current.x - interaction.start.x,
+                y: interaction.current.y - interaction.start.y,
+            });
+            return {
+                ...rect,
+                left: rect.left + delta.x,
+                top: rect.top + delta.y,
+            };
         }
         return interaction.handle
-            ? applyAnnotationHandleResize(rect, interaction.handle, interaction.current)
+            ? resizeRotatedAnnotationRect(rect, interaction.handle, interaction.current,
+                interaction.gesture && 'rotation' in interaction.gesture.entity ? interaction.gesture.entity.rotation : 0, pageDimensions())
             : rect;
     });
 
@@ -168,6 +187,10 @@ export const useAnnotationPointerGesture = (
             return false;
         }
         active.value = {
+            moveBounds: [...options.surface.entitiesByPage.value.values()].flat().filter(entity => options.surface.selectedIds.value.has(entity.identity.id) || entity.identity.id === annotationId).flatMap(entity => {
+                const bounds = rectForMovableEntity(entity);
+                return bounds ? [rotatedAnnotationBounds(bounds, 'rotation' in entity ? entity.rotation : 0, pageDimensions(entity.pageIndex))] : [];
+            }),
             mode: 'move',
             pageIndex: options.pageIndex,
             pointerId: event.pointerId,
@@ -251,6 +274,9 @@ export const useAnnotationPointerGesture = (
 
     return {
         isActive,
+        mode,
+        resizeHandle,
+        start,
         previewRect,
         beginCreate,
         beginMove,

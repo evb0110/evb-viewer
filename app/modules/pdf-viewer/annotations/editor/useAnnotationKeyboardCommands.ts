@@ -4,6 +4,7 @@ import {BrowserLogger} from '@app/utils/browserLogger';
 
 interface IAnnotationKeyboardEvent {
     readonly key: string;
+    readonly isComposing?: boolean;
     readonly target: EventTarget | null;
     readonly altKey: boolean;
     readonly ctrlKey: boolean;
@@ -22,6 +23,8 @@ interface IAnnotationKeyboardSurface {
     nudgeSelectionByPdfPoints: IAnnotationEditorSurface['nudgeSelectionByPdfPoints'];
     undo: IAnnotationEditorSurface['undo'];
     redo: IAnnotationEditorSurface['redo'];
+    handleEscape?: IAnnotationEditorSurface['handleEscape'];
+    selectAll?: IAnnotationEditorSurface['selectAll'];
 }
 
 interface IUseAnnotationKeyboardCommandsOptions {
@@ -33,7 +36,7 @@ interface IUseAnnotationKeyboardCommandsOptions {
 function isEditableTarget(target: EventTarget | null) {
     return typeof HTMLElement !== 'undefined'
         && target instanceof HTMLElement
-        && (target.isContentEditable || [
+        && (target.isContentEditable || Boolean(target.closest('[contenteditable="true"], [contenteditable=""]')) || [
             'INPUT',
             'TEXTAREA',
             'SELECT',
@@ -43,10 +46,27 @@ function isEditableTarget(target: EventTarget | null) {
 export const useAnnotationKeyboardCommands = (
     options: IUseAnnotationKeyboardCommandsOptions,
 ): IAnnotationKeyboardCommands => ({handleKeydown(event) {
-    if (isEditableTarget(event.target)) {
+    if (event.isComposing || isEditableTarget(event.target)) {
         return false;
     }
     const modifier = event.metaKey || event.ctrlKey;
+    if (event.key === 'Escape' && options.surface.handleEscape?.()) {
+        event.preventDefault();
+        event.stopPropagation();
+        return true;
+    }
+    if (modifier && !event.altKey && event.key.toLowerCase() === 'a' && options.surface.selectAll?.()) {
+        event.preventDefault();
+        event.stopPropagation();
+        return true;
+    }
+    if (event.ctrlKey && !event.metaKey && !event.altKey && event.key.toLowerCase() === 'y') {
+        const handled = options.surface.redo();
+        event.preventDefault();
+        event.stopPropagation();
+        if (handled instanceof Promise) void handled.catch(error => BrowserLogger.warn('annotations', 'Keyboard history action failed', error));
+        return true;
+    }
     if (modifier && !event.altKey && event.key.toLowerCase() === 'z') {
         const handled = event.shiftKey ? options.surface.redo() : options.surface.undo();
         if (handled instanceof Promise) {

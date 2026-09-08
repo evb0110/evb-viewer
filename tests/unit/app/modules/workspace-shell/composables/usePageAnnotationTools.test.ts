@@ -67,6 +67,7 @@ function createTextBoxEntity(): ITextBoxEntity {
 function createHarness() {
     const viewer = {
         clearSelectedShape: vi.fn(),
+        prepareAnnotationToolChange: vi.fn(),
         selectedShapeId: null as string | null,
         getSelectedShape: vi.fn<() => IShapeAnnotation | null>(() => null),
         updateShape: vi.fn(),
@@ -90,6 +91,30 @@ function createHarness() {
 }
 
 describe('usePageAnnotationTools', () => {
+    it.each([
+        'text',
+        'note',
+        'draw',
+        'rectangle',
+        'circle',
+        'line',
+        'arrow',
+        'highlight',
+        'underline',
+        'strikethrough',
+        'squiggly',
+        'stamp',
+    ] as const)(
+        'applies Keep active consistently after completed %s creation', (tool) => {
+            const {tools} = createHarness();
+            tools.annotationTool.value = tool;
+            tools.handleAnnotationToolAutoReset();
+            expect(tools.annotationTool.value).toBe(tool);
+            tools.annotationKeepActive.value = false;
+            tools.handleAnnotationToolAutoReset();
+            expect(tools.annotationTool.value).toBe('select');
+        },
+    );
     it('switches tools and clears context state', () => {
         const {
             deps,
@@ -98,6 +123,7 @@ describe('usePageAnnotationTools', () => {
         } = createHarness();
 
         tools.handleAnnotationToolChange('highlight');
+        expect(viewer.prepareAnnotationToolChange).toHaveBeenCalledOnce();
 
         expect(tools.annotationTool.value).toBe('highlight');
         expect(deps.dragMode.value).toBe(false);
@@ -116,7 +142,7 @@ describe('usePageAnnotationTools', () => {
         expect(viewer.clearSelectedShape).not.toHaveBeenCalled();
     });
 
-    it('clears shape selection when annotation tool is cancelled', () => {
+    it('ends the active interaction when annotation tool is cancelled', () => {
         const {
             viewer,
             tools,
@@ -124,7 +150,8 @@ describe('usePageAnnotationTools', () => {
 
         tools.handleAnnotationToolCancel();
 
-        expect(viewer.clearSelectedShape).toHaveBeenCalledOnce();
+        expect(viewer.prepareAnnotationToolChange).toHaveBeenCalledOnce();
+        expect(tools.annotationTool.value).toBe('select');
     });
 
     it('auto-resets draw tools into select mode without forcing a clearSelectedShape call', () => {
@@ -142,7 +169,7 @@ describe('usePageAnnotationTools', () => {
         expect(viewer.clearSelectedShape).not.toHaveBeenCalled();
     });
 
-    it('propagates shape setting updates to selected shape', () => {
+    it('keeps shape defaults separate from the current selection', () => {
         const {
             viewer,
             tools,
@@ -161,11 +188,10 @@ describe('usePageAnnotationTools', () => {
 
         expect(tools.annotationSettings.value.shapeStrokeWidth).toBe(5);
         expect(tools.annotationSettings.value.shapeFillColor).toBe('transparent');
-        expect(viewer.updateShape).toHaveBeenNthCalledWith(1, 'shape-1', { strokeWidth: 5 });
-        expect(viewer.updateShape).toHaveBeenNthCalledWith(2, 'shape-1', { fillColor: undefined });
+        expect(viewer.updateShape).not.toHaveBeenCalled();
     });
 
-    it('updates selected shape when viewer exposes unwrapped selectedShapeId value', () => {
+    it('does not mutate an unwrapped shape selection when changing defaults', () => {
         const {
             viewer,
             tools,
@@ -178,10 +204,9 @@ describe('usePageAnnotationTools', () => {
             value: '#10b981',
         });
 
-        expect(viewer.updateShape).toHaveBeenCalledWith('shape-public-instance', { color: '#10b981' });
     });
 
-    it('propagates draw style updates to selected ink shapes', () => {
+    it('keeps draw defaults separate from selected ink shapes', () => {
         const {
             viewer,
             tools,
@@ -199,11 +224,9 @@ describe('usePageAnnotationTools', () => {
             value: 0.4,
         });
 
-        expect(viewer.updateShape).toHaveBeenNthCalledWith(1, 'ink-shape-1', { strokeWidth: 6 });
-        expect(viewer.updateShape).toHaveBeenNthCalledWith(2, 'ink-shape-1', { opacity: 0.4 });
     });
 
-    it('routes text size and color changes to the selected canonical text box', () => {
+    it('keeps text defaults separate from selected canonical text boxes', () => {
         const {
             viewer,
             tools,
@@ -220,9 +243,8 @@ describe('usePageAnnotationTools', () => {
             value: '#ef4444',
         });
 
-        expect(viewer.updateSelectedTextBoxProperties).toHaveBeenNthCalledWith(1, {fontSize: 22});
-        expect(viewer.updateSelectedTextBoxProperties).toHaveBeenNthCalledWith(2, {color: '#ef4444'});
         expect(viewer.updateShape).not.toHaveBeenCalled();
+        expect(viewer.updateSelectedTextBoxProperties).not.toHaveBeenCalled();
     });
 
     it('tracks dirty state across editor undo transitions and save/reset', () => {

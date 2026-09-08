@@ -1,3 +1,4 @@
+import type { IAnnotationTextEditPoint } from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
 import type {
     ComputedRef,
     Ref,
@@ -10,7 +11,8 @@ import {
 interface ITextBoxInlineEditOptions {
     entity: ComputedRef<ITextBoxEntity>;
     editing: Readonly<Ref<boolean>>;
-    onCommit: (text: string) => void;
+    caretPoint?: Readonly<Ref<IAnnotationTextEditPoint | null>>;
+    onCommit: (text: string, options?: {restoreFocus: boolean}) => void;
     onCancel: () => void;
 }
 
@@ -21,6 +23,7 @@ interface ITextBoxInputEvent {
 
 interface ITextBoxKeydownEvent {
     key: string;
+    isComposing?: boolean;
     ctrlKey: boolean;
     metaKey: boolean;
     preventDefault: () => void;
@@ -32,7 +35,7 @@ export interface ITextBoxInlineEdit {
     commit(): void;
     handleInput(event: ITextBoxInputEvent): void;
     handleKeydown(event: ITextBoxKeydownEvent): void;
-    handleBlur(): void;
+    handleBlur(event?: Pick<FocusEvent, 'relatedTarget'>): void;
 }
 
 function readEditorText(element: HTMLElement) {
@@ -40,7 +43,7 @@ function readEditorText(element: HTMLElement) {
     return normalizeAnnotationText(typeof innerText === 'string' ? innerText : element.textContent ?? '');
 }
 
-function selectEditorContents(element: HTMLElement) {
+function placeEditorCaret(element: HTMLElement, point: IAnnotationTextEditPoint | null) {
     if (typeof document === 'undefined' || typeof window === 'undefined') {
         return;
     }
@@ -49,8 +52,15 @@ function selectEditorContents(element: HTMLElement) {
     if (!selection) {
         return;
     }
+    const position = point ? document.caretPositionFromPoint?.(point.clientX, point.clientY) : null;
     const range = document.createRange();
-    range.selectNodeContents(element);
+    if (position && element.contains(position.offsetNode)) {
+        range.setStart(position.offsetNode, position.offset);
+        range.collapse(true);
+    } else {
+        range.selectNodeContents(element);
+        range.collapse(false);
+    }
     selection.removeAllRanges();
     selection.addRange(range);
 }
@@ -73,7 +83,7 @@ export const useTextBoxInlineEdit = (
         await nextTick();
         if (options.editing.value && editorRef.value) {
             editorRef.value.textContent = draftText.value;
-            selectEditorContents(editorRef.value);
+            placeEditorCaret(editorRef.value, options.caretPoint?.value ?? null);
         }
     }
 
@@ -104,12 +114,12 @@ export const useTextBoxInlineEdit = (
         draftText.value = readEditorText(target);
     }
 
-    function commit() {
+    function commit(restoreFocus = false) {
         if (!options.editing.value || completed) {
             return;
         }
         completed = true;
-        options.onCommit(draftText.value);
+        options.onCommit(draftText.value, {restoreFocus});
     }
 
     function cancel() {
@@ -122,7 +132,7 @@ export const useTextBoxInlineEdit = (
     }
 
     function handleKeydown(event: ITextBoxKeydownEvent) {
-        if (!options.editing.value) {
+        if (event.isComposing || !options.editing.value) {
             return;
         }
         if (event.key === 'Escape') {
@@ -132,19 +142,45 @@ export const useTextBoxInlineEdit = (
         }
         if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
             event.preventDefault();
+            commit(true);
+        }
+    }
+
+    function isInspectorTarget(target: EventTarget | null | undefined) {
+        return typeof HTMLElement !== 'undefined'
+            && target instanceof HTMLElement
+            && Boolean(target.closest('[data-annotation-inspector]'));
+    }
+
+    function isTextContextTarget(target: EventTarget | null | undefined) {
+        return isInspectorTarget(target)
+            || (typeof Node !== 'undefined' && target instanceof Node && Boolean(editorRef.value?.contains(target)));
+    }
+
+    function handleContextFocusOut(event: FocusEvent) {
+        if (options.editing.value && isInspectorTarget(event.target) && !isTextContextTarget(event.relatedTarget)) {
             commit();
         }
     }
 
-    function handleBlur() {
+    watch(options.editing, (editing) => {
+        if (typeof document === 'undefined') {
+            return;
+        }
+        if (editing) document.addEventListener('focusout', handleContextFocusOut);
+        else document.removeEventListener('focusout', handleContextFocusOut);
+    }, {immediate: true});
+
+    function handleBlur(event?: Pick<FocusEvent, 'relatedTarget'>) {
         if (ignoreBlur) {
             ignoreBlur = false;
             return;
         }
-        commit();
+        if (!isInspectorTarget(event?.relatedTarget)) commit();
     }
 
     onScopeDispose(() => {
+        if (typeof document !== 'undefined') document.removeEventListener('focusout', handleContextFocusOut);
         completed = true;
         ignoreBlur = true;
     });

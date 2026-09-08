@@ -539,6 +539,7 @@ async function persistNativeMutationProjection(
     if (
         projection.hasMetadataMutations
         || projection.hasShapeMutations
+        || (projection.mutations.placedImages?.length ?? 0) > 0
         || (projection.textBoxes?.length ?? 0) > 0
         || projection.freeTextEditors.length > 0
         || !deps.persistence.trySaveEmbeddedNoteTextUpdates

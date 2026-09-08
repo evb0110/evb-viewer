@@ -1,5 +1,4 @@
 import {
-    afterAll,
     describe,
     expect,
     it,
@@ -7,6 +6,7 @@ import {
 } from 'vitest';
 import {
     copyFileSync,
+    mkdtempSync,
     realpathSync,
     rmSync,
     writeFileSync,
@@ -15,6 +15,7 @@ import {
     dirname,
     join,
 } from 'node:path';
+import { tmpdir } from 'node:os';
 import { delay } from 'es-toolkit/promise';
 import type { Page } from 'puppeteer-core';
 import {
@@ -35,22 +36,17 @@ import {
 } from '@tests/e2e/electron/helpers/fixtures';
 import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
-    clickHistoryActionAcrossAnimationBoundaries,
     clickAnnotationTool,
     clickLatestVisibleNoteWindowClose,
     collectAnnotationOwnershipDebugState,
-    collectStickyNoteDebugState,
     createCanonicalTextBoxWithPointer,
+    createTextMarkupWithPointer,
+    clickVisibleAnnotationControl,
+    selectAllFocusedAnnotationText,
+    setAnnotationKeepActiveWithPointer,
     createStickyNoteWithPointer,
     createFreeTextAnnotation,
-    createHighlightWithPdfjsManager,
-    disconnectAnnotationUndoBoundaryProbe,
     getFreeTextEditorCount,
-    getVisibleHighlightEditorCount,
-    readAnnotationSyncRequestSeq,
-    readAnnotationUndoBoundaryProbe,
-    waitForAnnotationSyncIdle,
-    waitForHighlightEditorCount,
     waitForNoOpenNoteWindows,
     waitForPdfAnnotationSubtypeCount,
 } from '@tests/e2e/electron/helpers/viewerAnnotations';
@@ -61,18 +57,155 @@ import {
     saveViaWindowHandle,
     waitForPdfLoaded,
     waitForViewerInteractive,
-    waitForWorkspaceHistorySettled,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import { waitForActiveWorkspaceHost } from '@tests/e2e/electron/helpers/viewerDom';
 import {
     callWorkspaceCommand,
-    collectWorkspaceExposeDebugState,
-    getWorkspaceToolbarSnapshot,
     installWorkspaceExposeProbe,
     readWorkspaceStateValues,
     type IWorkspaceExposeProbeWindow,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
-import { getErrorMessage } from '@contracts/getErrorMessage';
+
+const POINTER_STYLE_CASES = [
+    {
+        tool: 'Draw',
+        preset: 'Pen',
+        subtype: 'Ink',
+    },
+    {
+        tool: 'Draw',
+        preset: 'Pencil',
+        subtype: 'Ink',
+    },
+    {
+        tool: 'Draw',
+        preset: 'Marker',
+        subtype: 'Ink',
+    },
+    {
+        tool: 'Rectangle',
+        subtype: 'Square',
+    },
+    {
+        tool: 'Circle',
+        subtype: 'Circle',
+    },
+    {
+        tool: 'Line',
+        subtype: 'Line',
+    },
+    {
+        tool: 'Arrow',
+        subtype: 'Line',
+    },
+    {
+        tool: 'Highlight',
+        subtype: 'Highlight',
+    },
+    {
+        tool: 'Underline',
+        subtype: 'Underline',
+    },
+    {
+        tool: 'Strikethrough',
+        subtype: 'StrikeOut',
+    },
+    {
+        tool: 'Squiggly',
+        subtype: 'Squiggly',
+    },
+] as const;
+
+function isMarkupTool(tool: string): tool is 'Highlight' | 'Underline' | 'Strikethrough' | 'Squiggly' {
+    return [
+        'Highlight',
+        'Underline',
+        'Strikethrough',
+        'Squiggly',
+    ].includes(tool);
+}
+
+async function readPaintedAnnotation(page: Page) {
+    return page.evaluate(() => {
+        const entity = document.querySelector<SVGElement>('.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="shape"], .editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="text-markup"]');
+        const visual = entity?.querySelector<SVGElement>('[data-annotation-visual]');
+        const pageRect = entity?.closest('.page_container')?.getBoundingClientRect();
+        const card = entity ? document.querySelector<HTMLElement>(`.editor-pane.is-active .note-item[data-annotation-id="${entity.dataset.annotationId}"]`) : null;
+        const chip = card?.querySelector<HTMLElement>('.note-item-color-chip');
+        if (!entity || !visual || !pageRect || !chip) {
+            return null;
+        }
+        const style = getComputedStyle(visual);
+        const rect = entity.getBoundingClientRect();
+        return {
+            id: entity.dataset.annotationId,
+            kind: entity.dataset.annotationKind,
+            subtype: entity.dataset.markupSubtype ?? null,
+            color: entity.dataset.annotationKind === 'shape' || visual.tagName.toLowerCase() !== 'rect' ? style.stroke : style.fill,
+            opacity: Number(style.opacity),
+            cardColor: getComputedStyle(chip).backgroundColor,
+            chipWidth: chip.getBoundingClientRect().width,
+            left: (rect.left - pageRect.left) / pageRect.width,
+            top: (rect.top - pageRect.top) / pageRect.height,
+            width: rect.width / pageRect.width,
+            height: rect.height / pageRect.height,
+        };
+    });
+}
+
+async function annotationPointerTarget(page: Page, selector = '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="shape"], .editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="text-markup"]') {
+    return page.evaluate((entitySelector: string) => {
+        const entity = document.querySelector<HTMLElement | SVGElement>(entitySelector);
+        const rect = entity?.getBoundingClientRect();
+        if (!entity || !rect) throw new Error('No authored annotation to select');
+        // Hollow circles/rectangles and diagonal lines have different hit areas.
+        // Sample the actual visible entity; never call its handlers directly.
+        for (const [
+            rx,
+            ry,
+        ] of [
+                [
+                    0.5,
+                    0.5,
+                ],
+                [
+                    0.5,
+                    0,
+                ],
+                [
+                    0,
+                    0.5,
+                ],
+                [
+                    1,
+                    0.5,
+                ],
+                [
+                    0.5,
+                    1,
+                ],
+                [
+                    0.25,
+                    0.25,
+                ],
+                [
+                    0.75,
+                    0.75,
+                ],
+            ]) {
+            const x = rect.left + rect.width * rx!;
+            const y = rect.top + rect.height * ry!;
+            const hit = document.elementFromPoint(x, y);
+            if (hit && entity.contains(hit)) {
+                return {
+                    x,
+                    y,
+                };
+            }
+        }
+        throw new Error(`Authored ${entity.dataset.annotationKind} has no reachable pointer target`);
+    }, selector);
+}
 
 const NOTE_TEXT_ENTRY_TIMEOUT_MS = 20_000;
 const COMMAND_MODIFIER = process.platform === 'darwin' ? 'Meta' : 'Control';
@@ -175,9 +308,14 @@ async function dragImagePlacementControl(
     });
     const center = await page.$eval(selector, element => {
         const rect = element.getBoundingClientRect();
+        const frame = element.closest<HTMLElement>('.pdf-image-placement');
+        const container = frame?.parentElement?.getBoundingClientRect();
+        if (!container) throw new Error('Image placement container is missing');
         return {
             x: rect.left + rect.width / 2,
             y: rect.top + rect.height / 2,
+            containerWidth: container.width,
+            containerHeight: container.height,
         };
     });
     if (holdShift) {
@@ -193,6 +331,7 @@ async function dragImagePlacementControl(
             await page.keyboard.up('Shift');
         }
     }
+    return center;
 }
 
 async function rotateImagePlacementByQuarterTurn(page: Page) {
@@ -268,14 +407,32 @@ async function readCanonicalStampSnapshot(page: Page): Promise<IStampVisualSnaps
     });
 }
 
+async function readCanonicalStampPixels(page: Page) {
+    return page.$eval(CANONICAL_STAMP_SELECTOR, async element => {
+        const image = element.querySelector<HTMLImageElement>('.pdf-annotation-editor-stamp__image');
+        if (!image?.complete || image.naturalWidth === 0) throw new Error('Stamp image has not decoded');
+        const canvas = document.createElement('canvas');
+        canvas.width = image.naturalWidth;
+        canvas.height = image.naturalHeight;
+        const context = canvas.getContext('2d');
+        if (!context) throw new Error('Cannot read decoded stamp pixels');
+        context.drawImage(image, 0, 0);
+        const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+        const digest = await crypto.subtle.digest('SHA-256', new Uint8Array(pixels));
+        return {
+            width: canvas.width,
+            height: canvas.height,
+            rgbaSha256: Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join(''),
+        };
+    });
+}
+
 async function releaseManagedImageHandle(page: Page, leaseId: string) {
     const managedLeaseId = requireLeaseId(leaseId);
     await page.evaluate(async (id: TLeaseId) => {
         await window.electronAPI?.documentFiles.releaseManagedTempFileHandle?.(id);
     }, managedLeaseId);
 }
-
-interface IAnnotationDirtyStateSnapshot extends Record<string, unknown> {dirtyState?: {hasAnnotationChanges?: boolean;};}
 
 async function waitForActiveTabDirtyState(page: Page, expectedDirty: boolean) {
     const startedAt = Date.now();
@@ -301,102 +458,136 @@ async function waitForActiveTabDirtyState(page: Page, expectedDirty: boolean) {
     throw new Error(`Expected active tab dirty=${expectedDirty}, got ${actualDirty}; debug=${JSON.stringify(debugState)}`);
 }
 
-async function clickEnabledToolbarAction(page: Page, label: string) {
-    const clickedButton = await page.evaluate((targetLabel: string) => {
-        const isVisible = (candidate: HTMLElement) => {
-            const rect = candidate.getBoundingClientRect();
-            const style = window.getComputedStyle(candidate);
-            return (
-                style.display !== 'none'
-                && style.visibility !== 'hidden'
-                && rect.width > 0
-                && rect.height > 0
-            );
-        };
-        const button = Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label]'))
-            .find(candidate => (
-                candidate.getAttribute('aria-label')?.trim() === targetLabel
-                && isVisible(candidate)
-                && !candidate.disabled
-                && candidate.getAttribute('aria-disabled') !== 'true'
-            ));
-        button?.click();
-        return Boolean(button);
-    }, label);
-    if (clickedButton) {
-        return;
+function preserveFixtureAcrossRestart(path: string) {
+    const directory = mkdtempSync(join(tmpdir(), 'evb-annotation-reopen-'));
+    const target = join(directory, 'saved.pdf');
+    copyFileSync(path, target);
+    onTestFinished(() => rmSync(directory, {
+        recursive: true,
+        force: true,
+    }));
+    return target;
+}
+
+async function moveFocusedTextCaretToEnd(page: Page) {
+    await page.waitForFunction(() => document.activeElement?.getAttribute('contenteditable') === 'true');
+    if (process.platform === 'darwin') {
+        const client = await page.createCDPSession();
+        try {
+            await client.send('Input.dispatchKeyEvent', {
+                type: 'keyDown',
+                key: 'End',
+                commands: ['moveToEndOfDocument'],
+            });
+            await client.send('Input.dispatchKeyEvent', {
+                type: 'keyUp',
+                key: 'End',
+            });
+        } finally {
+            await client.detach();
+        }
+    } else {
+        await page.keyboard.down('Control');
+        await page.keyboard.press('End');
+        await page.keyboard.up('Control');
     }
+}
 
-    const commandName = label === 'Undo'
-        ? 'handleUndo'
-        : label === 'Redo'
-            ? 'handleRedo'
-            : null;
-    const canRunKey = label === 'Undo'
-        ? 'canUndo'
-        : label === 'Redo'
-            ? 'canRedo'
-            : null;
-    const toolbarSnapshot = await getWorkspaceToolbarSnapshot(page);
-    const commandResult = commandName && canRunKey && toolbarSnapshot?.[canRunKey] === true
-        ? await callWorkspaceCommand(page, commandName)
-        : { called: false };
+async function readAnnotationInteractionDiagnostic(page: Page) {
+    await installWorkspaceExposeProbe(page);
+    return page.evaluate(() => ({
+        active: {
+            tag: document.activeElement?.tagName,
+            class: document.activeElement?.getAttribute('class'),
+            annotationId: document.activeElement?.closest('[data-annotation-id]')?.getAttribute('data-annotation-id'),
+        },
+        selected: Array.from(document.querySelectorAll('.pdf-annotation-editor-layer .is-selected')).map(element => ({
+            id: element.getAttribute('data-annotation-id'),
+            kind: element.getAttribute('data-annotation-kind'),
+        })),
+        buttons: Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label]')).filter(button => /Undo|Redo/.test(button.getAttribute('aria-label') ?? '')).map(button => ({
+            label: button.getAttribute('aria-label'),
+            disabled: button.disabled,
+            ariaDisabled: button.getAttribute('aria-disabled'),
+            bounds: button.getBoundingClientRect().toJSON(),
+        })),
+        workspace: (window as IWorkspaceExposeProbeWindow).__evbTestApi?.collectWorkspaceDebugState?.(),
+    }));
+}
 
-    if (!commandResult.called) {
-        const buttonState = await page.evaluate((targetLabel: string) => {
-            const isVisible = (candidate: HTMLElement) => {
-                const rect = candidate.getBoundingClientRect();
-                const style = window.getComputedStyle(candidate);
-                return (
-                    style.display !== 'none'
-                    && style.visibility !== 'hidden'
-                    && rect.width > 0
-                    && rect.height > 0
-                );
-            };
-            return { buttons: Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label]'))
-                .filter(button => button.getAttribute('aria-label')?.trim() === targetLabel)
-                .map(button => ({
-                    visible: isVisible(button),
-                    disabled: button.disabled,
-                    ariaDisabled: button.getAttribute('aria-disabled'),
-                    text: button.textContent?.trim() ?? '',
-                })) };
-        }, label);
-        const debugState = {
-            ...buttonState,
-            toolbarSnapshot,
-            workspaceDebug: await collectWorkspaceExposeDebugState(page),
-        };
-        throw new Error(`Enabled toolbar action not found: ${label}: ${JSON.stringify(debugState)}`);
+async function clickEnabledToolbarAction(page: Page, label: string) {
+    try {
+        // Responsive layouts can mount hidden toolbar copies. Resolve the
+        // enabled, visible button instead of waiting on the first DOM match.
+        const target = await page.waitForFunction((name: string) => {
+            const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label]'));
+            for (const button of buttons) {
+                if (button.getAttribute('aria-label') !== name || button.disabled || button.getAttribute('aria-disabled') === 'true') continue;
+                const rect = button.getBoundingClientRect();
+                const style = getComputedStyle(button);
+                if (rect.width <= 0 || rect.height <= 0 || style.visibility === 'hidden' || style.display === 'none') continue;
+                const x = rect.left + rect.width / 2;
+                const y = rect.top + rect.height / 2;
+                const hit = document.elementFromPoint(x, y);
+                if (hit && button.contains(hit)) {
+                    return {
+                        x,
+                        y,
+                    };
+                }
+            }
+            return false;
+        }, {timeout: 20_000}, label);
+        const point = await target.jsonValue();
+        await target.dispose();
+        if (!point) throw new Error(`No visible enabled ${label} button`);
+        await page.mouse.click(point.x, point.y);
+    } catch (error) {
+        throw new Error(`Visible ${label} failed: ${JSON.stringify(await readAnnotationInteractionDiagnostic(page))}`, {cause: error});
     }
 }
 
 async function clickFirstSidebarAnnotationDelete(page: Page) {
-    const result = await page.evaluate(() => {
-        const isVisible = (candidate: HTMLElement) => {
-            const rect = candidate.getBoundingClientRect();
-            const style = window.getComputedStyle(candidate);
-            return (
-                style.display !== 'none'
-                && style.visibility !== 'hidden'
-                && rect.width > 100
-                && rect.height > 100
-            );
-        };
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const host = (activeHost && isVisible(activeHost))
-            ? activeHost
-            : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).find(isVisible);
-        const buttons = Array.from(host?.querySelectorAll<HTMLButtonElement>('.pdf-sidebar .note-item-delete') ?? [])
-            .filter(button => !button.disabled && button.offsetParent !== null);
-        buttons[0]?.click();
-        return buttons.length;
-    });
+    await clickVisibleAnnotationControl(page, '.editor-pane.is-active .pdf-sidebar .note-item-delete');
+}
 
-    if (result < 1) {
-        throw new Error('No visible sidebar annotation delete button found');
-    }
+async function expectCanonicalCountsAcrossFrames(page: Page, expected: {
+    markup: number;
+    notes: number;
+    cards: number
+}) {
+    await page.waitForFunction((counts: {
+        markup: number;
+        notes: number;
+        cards: number
+    }) => {
+        const host = document.querySelector('.editor-pane.is-active .workspace-host');
+        return host?.querySelectorAll('.pdf-annotation-editor-layer [data-annotation-kind="text-markup"]').length === counts.markup
+            && host.querySelectorAll('.pdf-annotation-editor-layer [data-annotation-kind="note"]').length === counts.notes
+            && host.querySelectorAll('.note-item').length === counts.cards;
+    }, {timeout: 20_000}, expected);
+    const samples = await page.evaluate(async () => {
+        const read = () => {
+            const host = document.querySelector('.editor-pane.is-active .workspace-host');
+            return {
+                markup: host?.querySelectorAll('.pdf-annotation-editor-layer [data-annotation-kind="text-markup"]').length ?? -1,
+                notes: host?.querySelectorAll('.pdf-annotation-editor-layer [data-annotation-kind="note"]').length ?? -1,
+                cards: host?.querySelectorAll('.note-item').length ?? -1,
+            };
+        };
+        const result = [read()];
+        for (let frame = 0; frame < 8; frame += 1) {
+            await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+            result.push(read());
+        }
+        await new Promise<void>(resolve => setTimeout(resolve, 350));
+        result.push(read());
+        return result;
+    });
+    for (const sample of samples) expect(sample).toEqual(expected);
+    const ownership = await collectAnnotationOwnershipDebugState(page);
+    expect(ownership.canonicalEntities).toHaveLength(expected.markup + expected.notes);
+    expect(ownership.legacyEditorLayerCount).toBe(0);
 }
 
 async function resolvePageNotePoint(page: Page) {
@@ -432,85 +623,6 @@ async function resolvePageNotePoint(page: Page) {
             y,
         };
     });
-}
-
-async function tryCreatePageNoteViaContextMenu(page: Page) {
-    const point = await resolvePageNotePoint(page);
-    if (!point) {
-        return null;
-    }
-
-    await page.mouse.click(point.x, point.y, { button: 'right' });
-    const created = await page.evaluate(() => {
-        const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>(
-            '.annotation-context-menu .pdf-context-menu__action',
-        ));
-        const button = buttons.find(candidate =>
-            (candidate.textContent ?? '').trim().toLowerCase() === 'add note here',
-        );
-        if (!button || button.disabled) {
-            return false;
-        }
-        button.click();
-        return true;
-    });
-
-    if (!created) {
-        return null;
-    }
-
-    try {
-        await page.waitForSelector('textarea.note-window__textarea', { timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS });
-    } catch {
-        throw new Error(`Context-menu note action did not open a note window: ${JSON.stringify(await collectStickyNoteDebugState(page))}`);
-    }
-    return point;
-}
-
-async function tryCreatePageNoteViaSidebarButton(page: Page) {
-    const point = await resolvePageNotePoint(page);
-    if (!point) {
-        return null;
-    }
-
-    const started = await page.evaluate(() => {
-        const isVisible = (candidate: HTMLElement) => {
-            const rect = candidate.getBoundingClientRect();
-            const style = window.getComputedStyle(candidate);
-            return (
-                style.display !== 'none'
-                && style.visibility !== 'hidden'
-                && rect.width > 0
-                && rect.height > 0
-            );
-        };
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const host = activeHost && isVisible(activeHost)
-            ? activeHost
-            : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).find(isVisible);
-        const button = Array.from(host?.querySelectorAll<HTMLButtonElement>(
-            '.notes-list-header .notes-header-btn',
-        ) ?? [])
-            .filter(button => !button.disabled && isVisible(button))
-            .find((button) => {
-                const label = (button.getAttribute('aria-label') ?? '').trim().toLowerCase();
-                return label.startsWith('place note') || label.includes('place note on page');
-            });
-        button?.click();
-        return Boolean(button);
-    });
-
-    if (!started) {
-        return null;
-    }
-
-    await page.mouse.click(point.x, point.y);
-    try {
-        await page.waitForSelector('textarea.note-window__textarea', { timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS });
-    } catch {
-        return null;
-    }
-    return point;
 }
 
 async function getVisibleSidebarAnnotationCount(page: Page) {
@@ -675,22 +787,29 @@ async function recolorCanonicalNote(page: Page, stableKey: string, color: string
             visible: true,
         },
     );
-    const clicked = await page.evaluate((targetColor: string) => {
-        const button = Array.from(document.querySelectorAll<HTMLButtonElement>(
-            '.annotation-context-menu-color-button',
-        )).find(candidate => (
-            candidate.getAttribute('aria-label')?.trim().toLowerCase() === targetColor.toLowerCase()
-        ));
-        button?.click();
-        return Boolean(button);
-    }, color);
-    if (!clicked) {
-        throw new Error(`Canonical note color swatch was not available: ${color}`);
-    }
+    await clickVisibleAnnotationControl(page, `.annotation-context-menu-color-button[aria-label="${color}"]`);
     await expect.poll(
         async () => (await readCanonicalNoteSnapshots(page)).find(note => note.stableKey === stableKey)?.color ?? null,
         {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS},
     ).toBe(color);
+}
+
+async function readNoteColorPresentation(page: Page, stableKey: string) {
+    return page.evaluate((key: string) => {
+        const marker = Array.from(document.querySelectorAll<HTMLElement>('.editor-pane.is-active .pdf-annotation-editor-note'))
+            .find(note => note.dataset.stableKey === key);
+        const id = marker?.dataset.annotationId;
+        const chip = id ? document.querySelector<HTMLElement>(`.editor-pane.is-active .note-item[data-annotation-id="${id}"] .note-item-color-chip`) : null;
+        const noteWindow = document.querySelector<HTMLElement>('.editor-pane.is-active .note-window');
+        const title = noteWindow?.querySelector<HTMLElement>('.note-window__title');
+        return {
+            chip: chip ? getComputedStyle(chip).backgroundColor : null,
+            markerColor: marker ? getComputedStyle(marker).getPropertyValue('--annotation-note-color').trim() : null,
+            windowColor: noteWindow ? getComputedStyle(noteWindow).getPropertyValue('--annotation-note-color').trim() : null,
+            windowBorder: noteWindow ? getComputedStyle(noteWindow).borderTopColor : null,
+            titleBackground: title ? getComputedStyle(title).backgroundColor : null,
+        };
+    }, stableKey);
 }
 
 async function moveCanonicalNote(page: Page, stableKey: string, before: NonNullable<ICanonicalNoteSnapshot['markerRect']>) {
@@ -812,6 +931,7 @@ async function waitForSidebarAnnotationText(page: Page, expectedText: string) {
 }
 
 async function openCanonicalTextBoxEditor(page: Page, annotationId: string) {
+    await clickAnnotationTool(page, 'Select');
     const centerHandle = await page.waitForFunction((expectedId: string) => {
         const entity = Array.from(document.querySelectorAll<HTMLElement>(
             '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="text-box"]',
@@ -857,286 +977,61 @@ async function readCanonicalTextBoxEditorState(page: Page, annotationId: string)
     }, annotationId);
 }
 
-async function openThumbnailsTab(page: Page) {
-    const result = await page.evaluate(() => {
-        const isVisible = (candidate: HTMLElement) => {
-            const rect = candidate.getBoundingClientRect();
-            const style = window.getComputedStyle(candidate);
-            return (
-                style.display !== 'none'
-                && style.visibility !== 'hidden'
-                && rect.width > 0
-                && rect.height > 0
-            );
-        };
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const host = activeHost && isVisible(activeHost)
-            ? activeHost
-            : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).find(isVisible);
-        const sidebar = host?.querySelector<HTMLElement>('.pdf-sidebar');
-        const tabList = sidebar?.querySelector<HTMLElement>('[role="tablist"]') ?? sidebar?.firstElementChild;
-        const roleTabs = Array.from(tabList?.querySelectorAll<HTMLElement>('[role="tab"]') ?? [])
-            .filter(isVisible);
-        const tabs = roleTabs.length > 0
-            ? roleTabs
-            : Array.from(tabList?.querySelectorAll<HTMLElement>('button') ?? [])
-                .filter(isVisible);
-        const pagesTab = tabs.find(tab => (
-            (tab.textContent ?? '').includes('Pages')
-            || (tab.getAttribute('aria-label') ?? '').includes('Pages')
-            || (tab.getAttribute('title') ?? '').includes('Pages')
-        )) ?? tabs[1] ?? null;
-        const rect = pagesTab?.getBoundingClientRect();
-        return {
-            clicked: Boolean(pagesTab),
-            clickPoint: rect
-                ? {
-                    x: rect.left + rect.width / 2,
-                    y: rect.top + rect.height / 2,
-                }
-                : null,
-            tabCount: tabs.length,
-            tabText: tabs.map(tab => tab.textContent?.replace(/\s+/g, ' ').trim() ?? ''),
-        };
-    });
-
-    if (!result.clicked || !result.clickPoint) {
-        throw new Error(`Could not open thumbnails tab: ${JSON.stringify(result)}`);
-    }
-    await page.mouse.click(result.clickPoint.x, result.clickPoint.y);
-
-    try {
-        await page.waitForFunction(() => {
-            const isVisible = (candidate: HTMLElement) => {
-                const rect = candidate.getBoundingClientRect();
-                const style = window.getComputedStyle(candidate);
-                return (
-                    style.display !== 'none'
-                    && style.visibility !== 'hidden'
-                    && rect.width > 0
-                    && rect.height > 0
-                );
-            };
-            const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-            const host = activeHost && isVisible(activeHost)
-                ? activeHost
-                : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).find(isVisible);
-            const thumbnail = host?.querySelector<HTMLElement>('.pdf-sidebar-pages-thumbnails .pdf-thumbnail.is-active');
-            const canvas = thumbnail?.querySelector<HTMLCanvasElement>('canvas') ?? null;
-            return Boolean(thumbnail && canvas && isVisible(thumbnail) && isVisible(canvas));
-        }, { timeout: 8_000 });
-    } catch {
-        const debug = await page.evaluate(() => Array.from(document.querySelectorAll<HTMLElement>('.pdf-sidebar'))
-            .map((sidebar) => {
-                const isVisible = (candidate: HTMLElement) => {
-                    const rect = candidate.getBoundingClientRect();
-                    const style = window.getComputedStyle(candidate);
-                    return (
-                        style.display !== 'none'
-                        && style.visibility !== 'hidden'
-                        && rect.width > 0
-                        && rect.height > 0
-                    );
-                };
-                const tabs = Array.from(sidebar.querySelectorAll<HTMLElement>('[role="tab"], button'))
-                    .map(tab => ({
-                        visible: isVisible(tab),
-                        text: tab.textContent?.replace(/\s+/g, ' ').trim() ?? '',
-                        aria: tab.getAttribute('aria-label') ?? null,
-                        title: tab.getAttribute('title') ?? null,
-                        selected: tab.getAttribute('aria-selected') ?? null,
-                        state: tab.getAttribute('data-state') ?? null,
-                        classes: tab.className,
-                    }));
-                const pages = sidebar.querySelector<HTMLElement>('.pdf-sidebar-pages');
-                const pagesRect = pages?.getBoundingClientRect();
-                return {
-                    sidebarVisible: isVisible(sidebar),
-                    tabs,
-                    pagesDisplay: pages ? window.getComputedStyle(pages).display : null,
-                    pagesRect: pagesRect
-                        ? {
-                            width: Math.round(pagesRect.width),
-                            height: Math.round(pagesRect.height),
-                        }
-                        : null,
-                };
-            }));
-        throw new Error(`Could not open visible thumbnails tab: clicked=${JSON.stringify(result)} debug=${JSON.stringify(debug)}`);
-    }
-}
-
-async function getActiveThumbnailYellowPixelCount(page: Page) {
-    return page.evaluate(() => {
-        const isVisible = (candidate: HTMLElement) => {
-            const rect = candidate.getBoundingClientRect();
-            const style = window.getComputedStyle(candidate);
-            return (
-                style.display !== 'none'
-                && style.visibility !== 'hidden'
-                && rect.width > 0
-                && rect.height > 0
-            );
-        };
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const host = activeHost && isVisible(activeHost)
-            ? activeHost
-            : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).find(isVisible);
-        const canvas = host?.querySelector<HTMLCanvasElement>(
-            '.pdf-sidebar-pages-thumbnails .pdf-thumbnail.is-active canvas',
-        ) ?? null;
-        if (
-            !canvas
-            || !isVisible(canvas)
-            || canvas.width <= 0
-            || canvas.height <= 0
-            || canvas.dataset.thumbnailRendered !== 'true'
-        ) {
-            return null;
-        }
-        const context = canvas.getContext('2d', { willReadFrequently: true });
-        if (!context) {
-            return null;
-        }
-        const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
-        let yellowPixels = 0;
-        for (let index = 0; index < pixels.length; index += 4) {
-            const red = pixels[index] ?? 0;
-            const green = pixels[index + 1] ?? 0;
-            const blue = pixels[index + 2] ?? 0;
-            const alpha = pixels[index + 3] ?? 0;
-            if (
-                alpha > 120
-                && red > 190
-                && green > 155
-                && blue < 205
-                && red - blue > 35
-                && green - blue > 10
-            ) {
-                yellowPixels += 1;
-            }
-        }
-        return yellowPixels;
-    });
-}
-
-async function waitForActiveThumbnailYellowPixelCount(
-    page: Page,
-    predicate: (count: number) => boolean,
-    label: string,
-) {
-    const startedAt = Date.now();
-    let count = await getActiveThumbnailYellowPixelCount(page);
-    while (Date.now() - startedAt < 12_000) {
-        if (typeof count === 'number' && predicate(count)) {
-            return count;
-        }
-        await delay(200);
-        count = await getActiveThumbnailYellowPixelCount(page);
-    }
-    const debug = await page.evaluate(() => {
-        const isVisible = (candidate: HTMLElement) => {
-            const rect = candidate.getBoundingClientRect();
-            const style = window.getComputedStyle(candidate);
-            return (
-                style.display !== 'none'
-                && style.visibility !== 'hidden'
-                && rect.width > 0
-                && rect.height > 0
-            );
-        };
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const host = activeHost && isVisible(activeHost)
-            ? activeHost
-            : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).find(isVisible);
-        const thumbnails = Array.from(host?.querySelectorAll<HTMLElement>(
-            '.pdf-sidebar-pages-thumbnails .pdf-thumbnail',
-        ) ?? []);
-        return {
-            hostVisible: Boolean(host),
-            activeTabButton: Array.from(host?.querySelectorAll<HTMLElement>('[role="tab"], button') ?? [])
-                .filter(isVisible)
-                .map(button => ({
-                    text: button.textContent?.replace(/\s+/g, ' ').trim() ?? '',
-                    aria: button.getAttribute('aria-label') ?? null,
-                    selected: button.getAttribute('aria-selected') ?? null,
-                    state: button.getAttribute('data-state') ?? null,
-                }))
-                .slice(0, 8),
-            thumbnails: thumbnails.map((thumbnail) => {
-                const rect = thumbnail.getBoundingClientRect();
-                const canvas = thumbnail.querySelector<HTMLCanvasElement>('canvas');
-                return {
-                    page: thumbnail.dataset.page ?? null,
-                    active: thumbnail.classList.contains('is-active'),
-                    visible: isVisible(thumbnail),
-                    rect: {
-                        width: Math.round(rect.width),
-                        height: Math.round(rect.height),
-                    },
-                    canvasWidth: canvas?.width ?? null,
-                    canvasHeight: canvas?.height ?? null,
-                    rendered: canvas?.dataset.thumbnailRendered ?? null,
-                    renderKey: canvas?.dataset.thumbnailRenderKey ?? null,
-                };
-            }),
-        };
-    });
-    throw new Error(`Timed out waiting for thumbnail yellow pixels (${label}); last count=${count}; debug=${JSON.stringify(debug)}`);
-}
-
 async function placeEmptyNote(page: Page) {
-    const contextMenuPoint = await tryCreatePageNoteViaContextMenu(page);
-    if (contextMenuPoint) {
-        return;
+    await clickAnnotationTool(page, 'Note');
+    const point = await resolvePageNotePoint(page);
+    if (!point) throw new Error('No visible page point for note placement');
+    const hit = await page.evaluate(({
+        x,
+        y,
+    }) => {
+        const element = document.elementFromPoint(x, y);
+        const layer = element?.closest('.pdf-annotation-editor-layer');
+        return {
+            point: {
+                x,
+                y,
+            },
+            tag: element?.tagName,
+            class: element?.getAttribute('class'),
+            annotationId: element?.closest('[data-annotation-id]')?.getAttribute('data-annotation-id'),
+            layerClass: layer?.getAttribute('class'),
+            pointerEvents: layer ? getComputedStyle(layer).pointerEvents : null,
+        };
+    }, point);
+    await page.mouse.click(point.x, point.y);
+    try {
+        await page.waitForSelector('textarea.note-window__textarea', {
+            visible: true,
+            timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS,
+        });
+        await page.waitForFunction(() => document.activeElement?.matches('textarea.note-window__textarea') === true,
+            {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS});
+    } catch (error) {
+        throw new Error(`Pointer note creation failed: ${JSON.stringify({
+            hit,
+            state: await readAnnotationInteractionDiagnostic(page),
+        })}`, {cause: error});
     }
-
-    const sidebarPoint = await tryCreatePageNoteViaSidebarButton(page);
-    if (sidebarPoint) {
-        return;
-    }
-
-    throw new Error(`Could not create sticky note through visible controls: ${JSON.stringify(await collectStickyNoteDebugState(page))}`);
 }
 
 async function setLatestNoteWindowText(page: Page, text: string) {
-    await page.evaluate((noteText: string) => {
-        const textareas = Array.from(document.querySelectorAll<HTMLTextAreaElement>('textarea.note-window__textarea'));
-        const textarea = textareas.at(-1) ?? null;
-        if (!textarea) {
-            throw new Error('No note window textarea found');
-        }
-        const setter = Object.getOwnPropertyDescriptor(
-            HTMLTextAreaElement.prototype,
-            'value',
-        )?.set;
-        setter?.call(textarea, noteText);
-        textarea.dispatchEvent(new InputEvent('input', {
-            bubbles: true,
-            data: noteText,
-            inputType: 'insertText',
-        }));
-        textarea.dispatchEvent(new Event('change', { bubbles: true }));
-    }, text);
+    await clickVisibleAnnotationControl(page, '.editor-pane.is-active textarea.note-window__textarea');
+    await selectAllFocusedAnnotationText(page);
+    await page.keyboard.type(text, {delay: 10});
+    await page.waitForFunction((expected: string) => (
+        document.querySelector<HTMLTextAreaElement>('.editor-pane.is-active textarea.note-window__textarea')?.value === expected
+    ), {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}, text);
 }
 
 async function editCanonicalNoteText(page: Page, currentText: string, nextText: string) {
-    const opened = await page.evaluate((expectedText: string) => {
-        const row = Array.from(document.querySelectorAll<HTMLElement>('.notes-list .note-item'))
+    const id = await page.evaluate((expectedText: string) => {
+        const row = Array.from(document.querySelectorAll<HTMLElement>('.editor-pane.is-active .notes-list .note-item'))
             .find(item => item.querySelector('.note-item-text')?.textContent?.includes(expectedText));
-        const button = row?.querySelector<HTMLButtonElement>('.note-item-content');
-        button?.dispatchEvent(new MouseEvent('dblclick', {
-            bubbles: true,
-            cancelable: true,
-            detail: 2,
-            view: window,
-        }));
-        return Boolean(button);
+        return row?.dataset.annotationId;
     }, currentText);
-    if (!opened) {
-        throw new Error(`Could not open canonical note for editing: ${currentText}`);
-    }
-
+    if (!id) throw new Error(`Could not find the canonical note card: ${currentText}`);
+    await clickVisibleAnnotationControl(page, `.editor-pane.is-active .note-item[data-annotation-id="${id}"] .note-item-content`, 2);
     const textarea = await page.waitForSelector('textarea.note-window__textarea', {
         timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS,
         visible: true,
@@ -1145,26 +1040,7 @@ async function editCanonicalNoteText(page: Page, currentText: string, nextText: 
         throw new Error('Canonical note editor did not provide a textarea for keyboard editing');
     }
     await textarea.click();
-    const client = await page.createCDPSession();
-    const modifier = process.platform === 'darwin' ? 4 : 2;
-    try {
-        await client.send('Input.dispatchKeyEvent', {
-            type: 'keyDown',
-            key: 'a',
-            code: 'KeyA',
-            modifiers: modifier,
-            commands: ['selectAll'],
-        });
-        await client.send('Input.dispatchKeyEvent', {
-            type: 'keyUp',
-            key: 'a',
-            code: 'KeyA',
-            modifiers: modifier,
-        });
-    }
-    finally {
-        await client.detach();
-    }
+    await selectAllFocusedAnnotationText(page);
     await page.keyboard.type(nextText, {delay: 10});
     await page.keyboard.press('Tab');
     return waitForCanonicalNote(page, nextText);
@@ -1177,15 +1053,161 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         sessionName: () => `e2e-annotation-lifecycle-${Date.now()}`,
     });
 
-    // The undo boundary probe keeps its MutationObserver attached past the
-    // sampled boundaries, so release it before the session shuts down.
-    afterAll(async () => {
+    it('creates every shape, draw preset and markup with matching styles, undo, save and hard reopen', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            throw new Error('Electron E2E session was not initialized for the writer parse proof');
+        if (!session) throw new Error('Annotation lifecycle session did not start');
+        const {page} = session;
+        const saved: Array<{
+            path: string;
+            subtype: string;
+            paint: NonNullable<Awaited<ReturnType<typeof readPaintedAnnotation>>>
+        }> = [];
+        for (const [
+            caseIndex,
+            scenario,
+        ] of POINTER_STYLE_CASES.entries()) {
+            console.info(`[annotation matrix] ${caseIndex + 1}/${POINTER_STYLE_CASES.length} ${scenario.tool}${'preset' in scenario ? ` ${scenario.preset}` : ''}`);
+            if (caseIndex > 0) await sessionFixture.restart();
+            const fixturePath = await createMultiPageTextFixturePdf(`annotation-all-tools-${caseIndex}-${Date.now()}.pdf`, 1);
+            onTestFinished(() => rmSync(fixturePath, {force: true}));
+            await openPdfInApp(page, fixturePath);
+            await waitForPdfLoaded(page);
+            await waitForViewerInteractive(page);
+            await openAnnotationsTab(page);
+            await setAnnotationKeepActiveWithPointer(page, false);
+            await clickAnnotationTool(page, scenario.tool);
+            const inspector = '.editor-pane.is-active [data-annotation-inspector]';
+            await page.waitForSelector(`${inspector}[data-target="defaults"]`, {visible: true});
+            await clickVisibleAnnotationControl(page, `${inspector} .swatch[aria-label="#06b6d4"]`);
+            if ('preset' in scenario) {
+                const presetIndex = [
+                    'Pen',
+                    'Pencil',
+                    'Marker',
+                ].indexOf(scenario.preset) + 1;
+                await clickVisibleAnnotationControl(page, `${inspector} .draw-style-button:nth-child(${presetIndex})`);
+            }
+            if (isMarkupTool(scenario.tool)) {
+                await createTextMarkupWithPointer(page, scenario.tool);
+            } else {
+                const bounds = await page.$eval('.editor-pane.is-active .page_container[data-page="1"] .pdf-annotation-editor-layer', layer => layer.getBoundingClientRect().toJSON());
+                // Alternate drag direction, including the reverse Line/Arrow path.
+                const reverse = caseIndex % 2 === 0;
+                const start = {
+                    x: bounds.left + bounds.width * (reverse ? 0.62 : 0.34),
+                    y: bounds.top + bounds.height * (reverse ? 0.55 : 0.36),
+                };
+                const end = {
+                    x: bounds.left + bounds.width * (reverse ? 0.34 : 0.62),
+                    y: bounds.top + bounds.height * (reverse ? 0.36 : 0.55),
+                };
+                await page.mouse.move(start.x, start.y);
+                await page.mouse.down();
+                await page.mouse.move(end.x, end.y, {steps: 20});
+                await page.mouse.up();
+            }
+            await page.waitForSelector('.editor-pane.is-active .tool-button[data-tool="select"].is-active');
+            await expect.poll(async () => (await readPaintedAnnotation(page))?.cardColor).toBe('rgb(6, 182, 212)');
+            const initial = await readPaintedAnnotation(page);
+            expect(initial?.color, JSON.stringify(scenario)).toBe('rgb(6, 182, 212)');
+            expect(initial?.chipWidth).toBeGreaterThan(0);
+            if (isMarkupTool(scenario.tool)) expect(initial?.subtype).toBe(scenario.subtype);
+
+            const target = await annotationPointerTarget(page);
+            await page.mouse.click(target.x, target.y);
+            await page.waitForSelector(`${inspector}[data-target="selection"]`, {visible: true});
+            await clickVisibleAnnotationControl(page, `${inspector} .swatch[aria-label="#8b5cf6"]`);
+            await expect.poll(async () => (await readPaintedAnnotation(page))?.color).toBe('rgb(139, 92, 246)');
+            expect((await readPaintedAnnotation(page))?.cardColor).toBe('rgb(139, 92, 246)');
+            const opacitySelector = `${inspector} input[type="number"][aria-label^="Opacity"]`;
+            const opacityControl = await page.$eval(opacitySelector, element => {
+                const input = element as HTMLInputElement;
+                return {
+                    value: input.valueAsNumber,
+                    min: Number(input.min),
+                    step: Number(input.step),
+                };
+            });
+            // Native number inputs snap off-grid values such as Marker 42%
+            // to the next lower supported step, 40%, rather than subtracting 5.
+            const expectedOpacityPercent = opacityControl.min
+                + (Math.ceil((opacityControl.value - opacityControl.min) / opacityControl.step) - 1) * opacityControl.step;
+            expect(expectedOpacityPercent).toBeLessThan(opacityControl.value);
+            await clickVisibleAnnotationControl(page, opacitySelector);
+            await page.keyboard.press('ArrowDown');
+            await page.keyboard.press('Tab');
+            expect(await page.$eval(opacitySelector, element => (element as HTMLInputElement).valueAsNumber)).toBe(expectedOpacityPercent);
+            await expect.poll(async () => (await readPaintedAnnotation(page))?.opacity).toBeCloseTo(expectedOpacityPercent / 100, 5);
+            // Reacquire focus by clicking the annotation, then use the keyboard.
+            const moveTarget = await annotationPointerTarget(page);
+            await page.mouse.click(moveTarget.x, moveTarget.y);
+            const beforeMove = await readPaintedAnnotation(page);
+            await page.keyboard.press('ArrowRight');
+            await expect.poll(async () => (await readPaintedAnnotation(page))?.left).toBeGreaterThan(beforeMove!.left);
+            if (!isMarkupTool(scenario.tool)) {
+                const beforeResize = await readPaintedAnnotation(page);
+                const handle = '.editor-pane.is-active [data-pdf-annotation-resize-handle="se"]';
+                await page.waitForSelector(handle, {visible: true});
+                const resize = await page.$eval(handle, element => {
+                    const rect = element.getBoundingClientRect();
+                    const x = rect.left + rect.width / 2;
+                    const y = rect.top + rect.height / 2;
+                    if (!element.contains(document.elementFromPoint(x, y))) throw new Error('Shape resize handle is obstructed');
+                    return {
+                        x,
+                        y,
+                    };
+                });
+                await page.mouse.move(resize.x, resize.y);
+                await page.mouse.down();
+                await page.mouse.move(resize.x + 24, resize.y + 18, {steps: 10});
+                await page.mouse.up();
+                await expect.poll(async () => (await readPaintedAnnotation(page))?.width).toBeGreaterThan(beforeResize!.width);
+            }
+            const edited = await readPaintedAnnotation(page);
+            await clickFirstSidebarAnnotationDelete(page);
+            await page.waitForSelector('.editor-pane.is-active .pdf-annotation-editor-entity', {hidden: true});
+            await clickEnabledToolbarAction(page, 'Undo');
+            await expect.poll(() => readPaintedAnnotation(page)).toEqual(edited);
+            await saveViaVisibleToolbar(page, 30_000);
+            await waitForActiveTabDirtyState(page, false);
+            await waitForPdfAnnotationSubtypeCount(fixturePath, scenario.subtype, 1);
+            const paint = await readPaintedAnnotation(page);
+            if (!paint) throw new Error(`Saved ${scenario.tool} disappeared`);
+            saved.push({
+                path: preserveFixtureAcrossRestart(fixturePath),
+                subtype: scenario.subtype,
+                paint,
+            });
         }
-        await disconnectAnnotationUndoBoundaryProbe(session.page);
-    });
+        const restarted = await sessionFixture.restart({hard: true});
+        if (!restarted) throw new Error('All-tools hard reopen did not start');
+        for (const sample of saved) {
+            console.info(`[annotation matrix reopen] ${sample.subtype}`);
+            await sessionFixture.restart();
+            await openPdfInApp(restarted.page, sample.path);
+            await waitForPdfLoaded(restarted.page);
+            await openAnnotationsTab(restarted.page);
+            await expect.poll(async () => (await readPaintedAnnotation(restarted.page))?.cardColor).toBe(sample.paint.cardColor);
+            const reopened = await readPaintedAnnotation(restarted.page);
+            expect(reopened).toMatchObject({
+                kind: sample.paint.kind,
+                subtype: sample.paint.subtype,
+                color: sample.paint.color,
+                cardColor: sample.paint.cardColor,
+            });
+            for (const key of [
+                'left',
+                'top',
+                'width',
+                'height',
+                'opacity',
+            ] as const) {
+                expect(reopened?.[key], `${sample.subtype} reopened ${key}`).toBeCloseTo(sample.paint[key], 3);
+            }
+            await waitForPdfAnnotationSubtypeCount(sample.path, sample.subtype, 1);
+        }
+    }, 360_000);
 
     it('renders the canonical annotation surface once and keeps PDF.js read-only', async () => {
         const session = sessionFixture.getSession();
@@ -1376,32 +1398,23 @@ describe('Electron E2E - Annotation Lifecycle', () => {
                 ).length === expected
             ), {timeout: 10_000}, count);
         };
-        const focusEditorLayer = async () => {
-            await page.$eval(
-                '.editor-pane.is-active .page_container[data-page="1"] [data-pdf-annotation-editor-surface]',
-                (element) => (element as HTMLElement).focus({preventScroll: true}),
-            );
-            await page.waitForFunction(() => (
-                document.activeElement?.matches('[data-pdf-annotation-editor-surface]') === true
-            ), {timeout: 10_000});
+        const expectEditorLayerFocused = async (context = 'mixed selection') => {
+            try {
+                await page.waitForFunction(() => {
+                    const active = document.activeElement;
+                    return active instanceof HTMLElement
+                        && !active.isContentEditable
+                        && !(active instanceof HTMLInputElement)
+                        && !(active instanceof HTMLTextAreaElement)
+                        && active.closest('[data-pdf-annotation-editor-surface]') !== null;
+                }, {timeout: 10_000});
+            } catch (error) {
+                throw new Error(`Natural annotation keyboard focus lost after ${context}: ${JSON.stringify(await readAnnotationInteractionDiagnostic(page))}`, {cause: error});
+            }
         };
         const clickEntity = async (id: string, additive = false) => {
-            const point = await page.evaluate((annotationId: string) => {
-                const entity = document.querySelector<HTMLElement>(
-                    `.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id="${annotationId}"]`,
-                );
-                if (!entity) {
-                    return null;
-                }
-                const rect = entity.getBoundingClientRect();
-                return {
-                    x: rect.left + rect.width / 2,
-                    y: rect.top + rect.height / 2,
-                };
-            }, id);
-            if (!point) {
-                throw new Error(`Canonical entity was not mounted: ${id}`);
-            }
+            const point = await annotationPointerTarget(page,
+                `.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id="${id}"]`);
             if (additive) {
                 await page.keyboard.down('Shift');
             }
@@ -1469,7 +1482,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
             // pointer away before reading layout geometry so the undo checks
             // compare the annotation position rather than hover styling.
             await page.mouse.move(0, 0);
-            await focusEditorLayer();
+            await expectEditorLayerFocused(`${kind} ${entity.id}`);
             const before = (await readGeometry()).find(candidate => candidate.id === entity.id);
             if (!before) {
                 throw new Error(`Canonical entity geometry was not readable: ${entity.id}`);
@@ -1541,7 +1554,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         await waitForSelectedCount(1);
         await clickEntity(second.id, true);
         await waitForSelectedCount(2);
-        await focusEditorLayer();
+        await expectEditorLayerFocused();
         const mixedBefore = new Map((await readGeometry())
             .filter(entity => entity.id === first.id || entity.id === second.id)
             .map(entity => [
@@ -1567,7 +1580,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         await page.mouse.down();
         await page.mouse.move(dragPoint.x + 28, dragPoint.y + 18, {steps: 6});
         await page.mouse.up();
-        await focusEditorLayer();
+        await expectEditorLayerFocused();
         await page.waitForFunction((ids: string[]) => ids.every((annotationId) => {
             const entity = document.querySelector<HTMLElement>(
                 `.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id="${annotationId}"]`,
@@ -1661,19 +1674,27 @@ describe('Electron E2E - Annotation Lifecycle', () => {
             });
 
             const initial = await readPendingImagePlacementSnapshot(page);
-            await dragImagePlacementControl(
+            const drag = await dragImagePlacementControl(
                 page,
                 `${ACTIVE_IMAGE_PLACEMENT_SELECTOR} .pdf-image-placement__surface`,
                 48,
                 32,
             );
-            await page.waitForFunction((selector: string, previousLeft: number) => {
-                const frame = document.querySelector<HTMLElement>(selector);
-                return frame ? Math.abs(Number.parseFloat(frame.style.left) - (previousLeft * 100)) > 0.5 : false;
-            }, {timeout: 10_000}, ACTIVE_IMAGE_PLACEMENT_SELECTOR, initial.left);
+            const expectedLeft = Math.min(1 - initial.width, initial.left + 48 / drag.containerWidth);
+            const expectedTop = Math.min(1 - initial.height, initial.top + 32 / drag.containerHeight);
+            await expect.poll(async () => {
+                const value = await readPendingImagePlacementSnapshot(page);
+                return Math.max(
+                    Math.abs(value.left - expectedLeft) * drag.containerWidth,
+                    Math.abs(value.top - expectedTop) * drag.containerHeight,
+                );
+            }, {message: JSON.stringify({
+                initial,
+                drag,
+                expectedLeft,
+                expectedTop,
+            })}).toBeLessThanOrEqual(1);
             const moved = await readPendingImagePlacementSnapshot(page);
-            expect(Math.abs(moved.left - initial.left)).toBeGreaterThan(0.005);
-            expect(Math.abs(moved.top - initial.top)).toBeGreaterThan(0.005);
 
             const aspectRatio = moved.width / moved.height;
             await dragImagePlacementControl(
@@ -1723,13 +1744,15 @@ describe('Electron E2E - Annotation Lifecycle', () => {
             }, {timeout: 30_000}, CANONICAL_STAMP_SELECTOR);
 
             const created = await readCanonicalStampSnapshot(page);
-            expect(created.annotationId).toMatch(/^placed-image-/u);
+            expect(created.annotationId).toBeTypeOf('string');
+            expect(created.annotationId?.length).toBeGreaterThan(0);
             expect(created.left + (created.width / 2)).toBeCloseTo(rotated.left + (rotated.width / 2), 3);
             expect(created.top + (created.height / 2)).toBeCloseTo(rotated.top + (rotated.height / 2), 3);
             expect(created.width).toBeGreaterThan(0);
             expect(created.height).toBeGreaterThan(0);
             expect(created.rotationDegrees).toBeCloseTo(rotated.rotationDegrees, 3);
-            expect(created.imageSource).toMatch(/^data:image\/png;base64,/u);
+            expect(created.imageSource).toBe(`data:image/jpeg;base64,${PLACED_IMAGE_JPEG.toString('base64')}`);
+            const createdPixels = await readCanonicalStampPixels(page);
 
             const saveEvent = await saveViaVisibleToolbar(page, 30_000);
             expect(realpathSync(String(saveEvent.detail.path))).toBe(realpathSync(fixturePath));
@@ -1750,7 +1773,14 @@ describe('Electron E2E - Annotation Lifecycle', () => {
             }, {timeout: 30_000}, CANONICAL_STAMP_SELECTOR);
 
             const reopened = await readCanonicalStampSnapshot(page);
-            expect(reopened).toEqual(created);
+            // Native import can expose a PNG preview of the saved JPEG. Compare
+            // decoded pixels exactly, alongside unchanged identity and geometry.
+            expect(reopened.imageSource).toMatch(/^data:image\/(?:png|jpeg);base64,/u);
+            expect(reopened).toEqual({
+                ...created,
+                imageSource: reopened.imageSource,
+            });
+            expect(await readCanonicalStampPixels(page)).toEqual(createdPixels);
         }
         finally {
             await uninstallManagedJpegClipboard(page);
@@ -1761,10 +1791,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         }
     }, 120_000);
 
-    // Retired with #185's live PDF.js editor detachment. Canonical creation,
-    // editing, note-anchor, markup, and history proofs return with #187, #188,
-    // #189, and #192 against the EVB editor layer.
-    it.skip('creates and edits a FreeText annotation in the active workspace', async () => {
+    it('creates and edits a text box through the active workspace pointer path', async () => {
         const session = sessionFixture.getSession();
         if (!session) {
             return;
@@ -1778,6 +1805,9 @@ describe('Electron E2E - Annotation Lifecycle', () => {
 
         const baselineCount = await getFreeTextEditorCount(page);
         const typedText = `Annotation lifecycle free text ${Date.now()}`;
+        // The armed Text tool must author at this point even though the
+        // fixture already contains an imported FreeText underneath it.
+        await waitForNoOpenNoteWindows(page);
         const createdCount = await createFreeTextAnnotation(page, typedText);
         expect(createdCount).toBeGreaterThan(baselineCount);
 
@@ -1836,7 +1866,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         });
 
         await openCanonicalTextBoxEditor(page, annotationId);
-        await page.keyboard.press('End');
+        await moveFocusedTextCaretToEnd(page);
         await page.keyboard.type(' first', {delay: 10});
         await expect.poll(
             () => readCanonicalTextBoxEditorState(page, annotationId),
@@ -1866,7 +1896,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         })]);
 
         await openCanonicalTextBoxEditor(page, annotationId);
-        await page.keyboard.press('End');
+        await moveFocusedTextCaretToEnd(page);
         await page.keyboard.type(' second', {delay: 10});
         await expect.poll(
             () => readCanonicalTextBoxEditorState(page, annotationId),
@@ -1991,6 +2021,8 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         await openPdfInApp(page, fixturePath);
         await waitForPdfLoaded(page);
         await waitForViewerInteractive(page);
+        await clickAnnotationTool(page, 'Note');
+        await clickVisibleAnnotationControl(page, '.editor-pane.is-active [data-annotation-inspector] .swatch[aria-label="#f59e0b"]');
         await createStickyNoteWithPointer(page, noteText, {
             x: 0.72,
             y: 0.24,
@@ -2053,9 +2085,18 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         if (!edited.markerRect) {
             throw new Error(`Edited canonical note has no marker rectangle: ${JSON.stringify(edited)}`);
         }
+        const oldPresentation = await readNoteColorPresentation(page, edited.stableKey);
+        await recolorCanonicalNote(page, edited.stableKey, '#ef4444');
+        await expect.poll(() => readNoteColorPresentation(page, edited.stableKey)).toMatchObject({
+            chip: 'rgb(239, 68, 68)',
+            markerColor: '#ef4444',
+            windowColor: '#ef4444',
+        });
+        const newPresentation = await readNoteColorPresentation(page, edited.stableKey);
+        expect(newPresentation.titleBackground).not.toBe(oldPresentation.titleBackground);
+        expect(newPresentation.windowBorder).not.toBe(oldPresentation.windowBorder);
         await clickLatestVisibleNoteWindowClose(page);
         await waitForNoOpenNoteWindows(page);
-        await recolorCanonicalNote(page, edited.stableKey, '#ef4444');
         await clickAnnotationTool(page, 'Select');
         const moved = await moveCanonicalNote(page, edited.stableKey, edited.markerRect);
         expect(moved.text).toBe(editedText);
@@ -2081,6 +2122,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
             subtype: 'Text',
             text: editedText,
         });
+        expect((await readNoteColorPresentation(page, reopened.stableKey)).chip).toBe('rgb(239, 68, 68)');
         // The native `/Text` writer expands the in-memory point marker to its
         // 20-point icon rectangle. Its normalized anchor remains stable.
         expectMarkerAnchorClose(reopened.markerRect, moved.markerRect);
@@ -2131,14 +2173,10 @@ describe('Electron E2E - Annotation Lifecycle', () => {
             replyTexts: [...fixture.replyTexts],
         });
 
-        const deleted = await page.evaluate((parentText: string) => {
-            const row = Array.from(document.querySelectorAll<HTMLElement>('.notes-list .note-item'))
-                .find(item => item.querySelector('.note-item-text')?.textContent?.includes(parentText));
-            const button = row?.querySelector<HTMLButtonElement>('.note-item-delete');
-            button?.click();
-            return Boolean(button);
-        }, fixture.parentText);
-        expect(deleted).toBe(true);
+        const parentId = await page.evaluate((parentText: string) => Array.from(document.querySelectorAll<HTMLElement>('.notes-list .note-item'))
+            .find(item => item.querySelector('.note-item-text')?.textContent?.includes(parentText))?.dataset.annotationId, fixture.parentText);
+        if (!parentId) throw new Error('The foreign note card has no canonical identity');
+        await clickVisibleAnnotationControl(page, `.note-item[data-annotation-id="${parentId}"] .note-item-delete`);
         await page.waitForFunction((parentText: string) => !Array.from(
             document.querySelectorAll<HTMLElement>('.notes-list .note-item'),
         ).some(item => item.querySelector('.note-item-text')?.textContent?.includes(parentText)), {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}, fixture.parentText);
@@ -2159,529 +2197,230 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         expect(savedNotes.filter(note => note.replyTo !== null)).toHaveLength(0);
     }, 90_000);
 
-    it.skip('saves a persisted sticky note edit a second time without replaying its hidden anchor', async () => {
+    it('saves a persisted note edit twice without creating a hidden text box', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
-        const { page } = session;
-        const fixturePath = await createMultiPageTextFixturePdf(
-            `annotation-lifecycle-${Date.now()}-sticky-second-save.pdf`,
-            1,
-        );
-        const firstText = `Sticky first save ${Date.now()}`;
-        const secondText = `${firstText} edited`;
-
+        if (!session) throw new Error('Annotation lifecycle session did not start');
+        const {page} = session;
+        const fixturePath = await createMultiPageTextFixturePdf(`annotation-note-two-saves-${Date.now()}.pdf`, 1);
+        onTestFinished(() => rmSync(fixturePath, {force: true}));
         await openPdfInApp(page, fixturePath);
         await waitForPdfLoaded(page);
         await waitForViewerInteractive(page);
-        await createStickyNoteWithPointer(page, firstText, {
+        await createStickyNoteWithPointer(page, 'First note draft', {
             x: 0.72,
             y: 0.24,
         });
-        await waitForActiveTabDirtyState(page, true);
-
-        const firstCommit = await saveViaVisibleToolbar(page, 30_000);
-        expect(realpathSync(String(firstCommit.detail.path))).toBe(realpathSync(fixturePath));
+        await saveViaVisibleToolbar(page, 30_000);
         await waitForActiveTabDirtyState(page, false);
-        const cleanState = await readWorkspaceStateValues<IAnnotationDirtyStateSnapshot>(page, ['dirtyState']);
-        expect(cleanState.dirtyState?.hasAnnotationChanges).toBe(false);
-        const firstSaveDebug = await collectStickyNoteDebugState(page);
-        const firstSaveStickyNotes = (firstSaveDebug.annotationComments ?? [])
-            .filter(comment => comment.hasNote === true);
-        expect(firstSaveStickyNotes).toHaveLength(1);
-        expect(firstSaveStickyNotes[0]?.text).toBe(firstText);
-        const firstSaveEditorCount = await getFreeTextEditorCount(page);
-
-        const textarea = await page.waitForSelector('textarea.note-window__textarea', {
-            timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS,
-            visible: true,
-        });
-        if (!textarea) {
-            throw new Error('Saved sticky note did not retain its visible editor');
-        }
-        await textarea.click({
-            count: 3,
-            delay: 80,
-        });
-        const selectedText = await textarea.evaluate(input => ({
-            end: input.selectionEnd,
-            length: input.value.length,
-            start: input.selectionStart,
-        }));
-        expect(selectedText).toEqual({
-            end: firstText.length,
-            length: firstText.length,
-            start: 0,
-        });
-        await page.keyboard.type(secondText, {delay: 10});
-        await page.keyboard.press('Tab');
-        await waitForActiveTabDirtyState(page, true);
-
-        const preSecondSaveDebug = await collectStickyNoteDebugState(page);
-        let secondCommit;
-        try {
-            secondCommit = await saveViaVisibleToolbar(page, 30_000);
-        } catch (error) {
-            throw new Error(`Second sticky-note save failed: ${JSON.stringify({
-                cause: getErrorMessage(error),
-                debug: await collectStickyNoteDebugState(page),
-                preSecondSaveDebug,
-            })}`, {cause: error});
-        }
-        expect(realpathSync(String(secondCommit.detail.path))).toBe(realpathSync(fixturePath));
-        await waitForActiveTabDirtyState(page, false);
-        const secondCleanState = await readWorkspaceStateValues<IAnnotationDirtyStateSnapshot>(page, ['dirtyState']);
-        expect(secondCleanState.dirtyState?.hasAnnotationChanges).toBe(false);
-        const secondSaveDebug = await collectStickyNoteDebugState(page);
-        const secondSaveStickyNotes = (secondSaveDebug.annotationComments ?? [])
-            .filter(comment => comment.hasNote === true);
-        expect(secondSaveStickyNotes).toHaveLength(1);
-        expect(secondSaveStickyNotes[0]?.text).toBe(secondText);
-        expect(await getFreeTextEditorCount(page)).toBe(firstSaveEditorCount);
-    }, 90_000);
-
-    it.skip('undoes a sticky note created after a highlight without removing the highlight', async () => {
-        const session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
-        const { page } = session;
-
-        const noteFixturePath = await createMultiPageTextFixturePdf(
-            `annotation-lifecycle-${Date.now()}-highlight-then-note-undo.pdf`,
-            1,
-        );
-        await openPdfInApp(page, noteFixturePath);
-        await waitForPdfLoaded(page);
-        await openAnnotationsTab(page);
-        await waitForViewerInteractive(page);
-
-        const baselineHighlightCount = await getVisibleHighlightEditorCount(page);
-        const baselineSidebarCount = await getVisibleSidebarAnnotationCount(page);
-        await createHighlightWithPdfjsManager(page);
-        await waitForHighlightEditorCount(page, baselineHighlightCount + 1);
-        await waitForSidebarAnnotationCount(page, baselineSidebarCount + 1);
-
-        await placeEmptyNote(page);
-        await waitForSidebarAnnotationCount(page, baselineSidebarCount + 2);
-
-        await clickEnabledToolbarAction(page, 'Undo');
-
-        await waitForNoOpenNoteWindows(page);
-        await waitForSidebarAnnotationCount(page, baselineSidebarCount + 1);
-        await waitForHighlightEditorCount(page, baselineHighlightCount + 1);
-    });
-
-    it.skip('keeps highlight undo and redo coherent after saving', async () => {
-        const session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
-        const { page } = session;
-
-        const highlightFixturePath = await createMultiPageTextFixturePdf(
-            `annotation-lifecycle-${Date.now()}-highlight.pdf`,
-            1,
-        );
-        await openPdfInApp(page, highlightFixturePath);
-        await waitForPdfLoaded(page);
-        await openAnnotationsTab(page);
-
-        const baselineCount = await getVisibleHighlightEditorCount(page);
-        const createdCount = await createHighlightWithPdfjsManager(page);
-        expect(createdCount).toBeGreaterThan(baselineCount);
-        await waitForActiveTabDirtyState(page, true);
-        await openThumbnailsTab(page);
-        await waitForActiveThumbnailYellowPixelCount(
-            page,
-            count => count > 80,
-            'live highlight visible before save',
-        );
-        await openAnnotationsTab(page);
-
-        await saveViaWindowHandle(page);
-        await waitForHighlightEditorCount(page, baselineCount + 1);
-        await waitForPdfAnnotationSubtypeCount(highlightFixturePath, 'Highlight', 1);
-        await waitForActiveTabDirtyState(page, false);
-        const [savedIdentity] = await waitForCanonicalHighlightIdentity(
-            page,
-            identities => identities.length === 1 && identities[0]?.source === 'pdf',
-            'the saved highlight to carry its persisted identity',
-        );
-        expect(savedIdentity?.annotationId).toEqual(expect.any(String));
-        expect(savedIdentity?.stableKey).toMatch(/^ann:0:/u);
-
-        await clickEnabledToolbarAction(page, 'Undo');
-        await waitForHighlightEditorCount(page, baselineCount);
-        await waitForActiveTabDirtyState(page, true);
-        await openThumbnailsTab(page);
-        await waitForActiveThumbnailYellowPixelCount(
-            page,
-            count => count < 20,
-            'undone live highlight hidden before save',
-        );
-        await openAnnotationsTab(page);
-
-        await saveViaWindowHandle(page);
-        const deletedSummary = await waitForPdfAnnotationSubtypeCount(highlightFixturePath, 'Highlight', 0);
-        expect(deletedSummary.bySubtype.Highlight ?? 0).toBe(0);
-        await waitForHighlightEditorCount(page, baselineCount);
-        await waitForActiveTabDirtyState(page, false);
-
-        await clickEnabledToolbarAction(page, 'Redo');
-        await waitForHighlightEditorCount(page, baselineCount + 1);
-        await waitForActiveTabDirtyState(page, true);
-
-        await saveViaWindowHandle(page);
-        const summary = await waitForPdfAnnotationSubtypeCount(highlightFixturePath, 'Highlight', 1);
-        expect(summary.bySubtype.Highlight ?? 0).toBe(1);
-        await waitForActiveTabDirtyState(page, false);
-        // The intervening save wrote the document without the undone create, so
-        // the redone annotation was rebound to the ref this revision holds.
-        const [reboundIdentity] = await waitForCanonicalHighlightIdentity(
-            page,
-            identities => identities.length === 1 && identities[0]?.source === 'pdf',
-            'the re-saved highlight to carry a persisted identity again',
-        );
-        expect(reboundIdentity?.annotationId).toEqual(expect.any(String));
-        expect(reboundIdentity?.stableKey).toMatch(/^ann:0:/u);
-    });
-
-    it.skip('keeps the saved highlight identity across an undo and redo', async () => {
-        const session = sessionFixture.getSession();
-        if (!session) {
-            throw new Error('Annotation lifecycle Electron E2E session failed to start');
-        }
-        const { page } = session;
-
-        const highlightFixturePath = await createMultiPageTextFixturePdf(
-            `annotation-lifecycle-${Date.now()}-highlight-identity.pdf`,
-            1,
-        );
-        await openPdfInApp(page, highlightFixturePath);
-        await waitForPdfLoaded(page);
-        await openAnnotationsTab(page);
-
-        const baselineCount = await getVisibleHighlightEditorCount(page);
-        await createHighlightWithPdfjsManager(page);
-        await waitForHighlightEditorCount(page, baselineCount + 1);
-
-        await saveViaWindowHandle(page);
-        await waitForPdfAnnotationSubtypeCount(highlightFixturePath, 'Highlight', 1);
-        await waitForActiveTabDirtyState(page, false);
-        const [savedIdentity] = await waitForCanonicalHighlightIdentity(
-            page,
-            identities => identities.length === 1 && identities[0]?.source === 'pdf',
-            'the saved highlight to carry its persisted identity',
-        );
-        // The comparisons below are only evidence if the save actually bound a
-        // ref: matching two absent ids would pass while proving nothing.
-        expect(savedIdentity?.annotationId).toEqual(expect.any(String));
-        expect(savedIdentity?.appAnnotationId).toEqual(expect.any(String));
-
-        await clickEnabledToolbarAction(page, 'Undo');
-        await waitForHighlightEditorCount(page, baselineCount);
-        await clickEnabledToolbarAction(page, 'Redo');
-        await waitForHighlightEditorCount(page, baselineCount + 1);
-
-        // No save ran between the undo and the redo, so the file still holds the
-        // annotation the acknowledgement bound: the redone entity has to come
-        // back as that saved annotation, not as a fresh unsaved one.
-        const redoneIdentities = await waitForCanonicalHighlightIdentity(
-            page,
-            identities => identities.some(identity => (
-                identity.appAnnotationId === savedIdentity?.appAnnotationId
-            )),
-            'the redone highlight to be projected under its canonical id',
-        );
-        const redoneIdentity = redoneIdentities.find(identity => (
-            identity.appAnnotationId === savedIdentity?.appAnnotationId
-        ));
-        expect(redoneIdentity).toMatchObject({
-            annotationId: savedIdentity?.annotationId,
-            source: 'pdf',
-            stableKey: savedIdentity?.stableKey,
-        });
-
-        await saveViaWindowHandle(page);
-        const summary = await waitForPdfAnnotationSubtypeCount(highlightFixturePath, 'Highlight', 1);
-        expect(summary.bySubtype.Highlight ?? 0).toBe(1);
-        await waitForActiveTabDirtyState(page, false);
-    });
-
-    it.skip('restores a persisted highlight when undoing a saved sidebar delete', async () => {
-        const session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
-        const { page } = session;
-
-        const highlightFixturePath = await createMultiPageTextFixturePdf(
-            `annotation-lifecycle-${Date.now()}-persisted-highlight-delete.pdf`,
-            1,
-        );
-        await openPdfInApp(page, highlightFixturePath);
-        await waitForPdfLoaded(page);
-        await openAnnotationsTab(page);
-
-        const baselineCount = await getVisibleHighlightEditorCount(page);
-        await createHighlightWithPdfjsManager(page);
-        await saveViaWindowHandle(page);
-        await waitForPdfAnnotationSubtypeCount(highlightFixturePath, 'Highlight', 1);
-        await waitForActiveTabDirtyState(page, false);
-
-        const reopenFixturePath = highlightFixturePath.replace(/\.pdf$/u, '-reopen.pdf');
-        copyFileSync(highlightFixturePath, reopenFixturePath);
-        await openPdfInApp(page, reopenFixturePath);
-        await waitForPdfLoaded(page);
-        await openAnnotationsTab(page);
-        await waitForHighlightEditorCount(page, baselineCount + 1);
-        await openThumbnailsTab(page);
-        const highlightedThumbnailYellowCount = await waitForActiveThumbnailYellowPixelCount(
-            page,
-            count => count > 80,
-            'persisted highlight visible in thumbnail',
-        );
-        await openAnnotationsTab(page);
-
-        await clickFirstSidebarAnnotationDelete(page);
-        await waitForHighlightEditorCount(page, baselineCount);
-        await waitForActiveTabDirtyState(page, true);
-        await openThumbnailsTab(page);
-        const deletedThumbnailYellowCount = await waitForActiveThumbnailYellowPixelCount(
-            page,
-            count => count <= Math.max(20, Math.floor(highlightedThumbnailYellowCount * 0.25)),
-            'deleted persisted highlight hidden in thumbnail',
-        );
-        expect(deletedThumbnailYellowCount).toBeLessThan(highlightedThumbnailYellowCount);
-        await openAnnotationsTab(page);
-
-        await saveViaWindowHandle(page);
-        await waitForPdfAnnotationSubtypeCount(reopenFixturePath, 'Highlight', 0);
-        await waitForActiveTabDirtyState(page, false);
-
-        await clickEnabledToolbarAction(page, 'Undo');
-        await waitForHighlightEditorCount(page, baselineCount + 1);
-        await waitForActiveTabDirtyState(page, true);
-        await waitForWorkspaceHistorySettled(page);
-
-        await saveViaWindowHandle(page);
-        const restoredSummary = await waitForPdfAnnotationSubtypeCount(reopenFixturePath, 'Highlight', 1);
-        expect(restoredSummary.bySubtype.Highlight ?? 0).toBe(1);
-        await waitForActiveTabDirtyState(page, false);
-    });
-
-    it.skip('keeps an undone toolbar highlight create removed across frames and the deferred sync', async () => {
-        const session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
-        const { page } = session;
-
-        const fixturePath = await createMultiPageTextFixturePdf(
-            `annotation-lifecycle-${Date.now()}-undo-create-orphan.pdf`,
-            1,
-        );
-        await openPdfInApp(page, fixturePath);
-        await waitForPdfLoaded(page);
-        await openAnnotationsTab(page);
-        await waitForViewerInteractive(page);
-
-        const baselineSidebarCount = await getVisibleSidebarAnnotationCount(page);
-        await createHighlightWithPdfjsManager(page);
-        await waitForHighlightEditorCount(page, 1);
-        await waitForSidebarAnnotationCount(page, baselineSidebarCount + 1);
-        await waitForCanonicalHighlightIdentity(
-            page,
-            identities => identities.length === 1,
-            'the live highlight to be projected canonically',
-        );
-
-        const boundary = await clickHistoryActionAcrossAnimationBoundaries(page, 'Undo');
-        const trace = `undo boundary trace: ${JSON.stringify(boundary.samples)}`;
-
-        expect(boundary.at('before'), trace).toMatchObject({
-            canonicalTextMarkupCount: 1,
-            highlightAnnotationCount: 0,
-            canonicalHighlightCount: 1,
-        });
-        // One undo has to retire the annotation and its PDF.js editor in the
-        // same task: an editor that outlives the annotation is the orphan a
-        // later comment sync rescans back into existence.
-        expect(boundary.at('synchronous'), trace).toMatchObject({
-            canonicalTextMarkupCount: 0,
-            highlightAnnotationCount: 0,
-            canonicalHighlightCount: 0,
-        });
-        // Removal records are delivered after the synchronous task, so the
-        // first frame is the earliest sample that can name the removed node.
-        expect(boundary.at('frame-1').removedHighlightNodeIds, trace).toHaveLength(1);
-        // Same layer tags before and after: the editor node went away, the
-        // editor layer did not get torn down and rebuilt under it.
-        expect(boundary.at('frame-2').editorLayerTags, trace).toEqual(boundary.at('before').editorLayerTags);
-        [
-            'frame-1',
-            'frame-2',
-            'deferred-task',
-        ].forEach((label) => {
-            const sample = boundary.at(label);
-            expect(sample.canonicalTextMarkupCount, `${label}: ${trace}`).toBe(0);
-            expect(sample.highlightAnnotationCount, `${label}: ${trace}`).toBe(0);
-            expect(sample.canonicalHighlightCount, `${label}: ${trace}`).toBe(0);
-            expect(sample.addedHighlightNodeIds, `${label}: ${trace}`).toEqual([]);
-        });
-
-        await waitForCanonicalHighlightIdentity(
-            page,
-            identities => identities.length === 0,
-            'the undone highlight to leave the canonical projection',
-        );
-        // A later annotation mutation forces a full deferred comment sync to
-        // run and finish after the undo. If the editor had survived, that scan
-        // would recreate the entity it carries.
-        const syncBaselineSeq = await readAnnotationSyncRequestSeq(page);
-        await placeEmptyNote(page);
-        await waitForSidebarAnnotationCount(page, baselineSidebarCount + 1);
         await clickLatestVisibleNoteWindowClose(page);
         await waitForNoOpenNoteWindows(page);
-        // The sidebar settles from the canonical projection, which the sync's
-        // editor scan could still overwrite once its PDF snapshot resolves, so
-        // the resurrection check waits for that sync to actually finish.
-        await waitForAnnotationSyncIdle(page, syncBaselineSeq);
+        await editCanonicalNoteText(page, 'First note draft', 'Second note draft');
+        await saveViaVisibleToolbar(page, 30_000);
+        await waitForActiveTabDirtyState(page, false);
+        expect(await getFreeTextEditorCount(page)).toBe(0);
+        const records = await readPdfTextAnnotationRecords(fixturePath);
+        expect(records.filter(record => record.subtype === '/Text')).toEqual([expect.objectContaining({contents: 'Second note draft'})]);
+        expect(records.filter(record => record.subtype === '/FreeText')).toHaveLength(0);
+        const reopenPath = preserveFixtureAcrossRestart(fixturePath);
+        const restarted = await sessionFixture.restart({hard: true});
+        if (!restarted) throw new Error('Hard note reopen did not start');
+        await openPdfInApp(restarted.page, reopenPath);
+        await waitForPdfLoaded(restarted.page);
+        await openAnnotationsTab(restarted.page);
+        await waitForSidebarAnnotationText(restarted.page, 'Second note draft');
+        expect(await readCanonicalNoteSnapshots(restarted.page)).toHaveLength(1);
+    }, 120_000);
 
-        const afterDeferredSync = await readAnnotationUndoBoundaryProbe(page);
-        expect(afterDeferredSync.added).toEqual([]);
-        expect(afterDeferredSync.canonicalTextMarkupCount).toBe(0);
-        expect(afterDeferredSync.highlightAnnotationCount).toBe(0);
-        expect(await readCanonicalHighlightIdentities(page)).toEqual([]);
-    });
-
-    it.skip('restores the editor, DOM, and canonical entity when a deferred delete is undone', async () => {
+    it('undoes a note created after a pointer highlight without removing that highlight', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
-        const { page } = session;
-
-        const fixturePath = await createMultiPageTextFixturePdf(
-            `annotation-lifecycle-${Date.now()}-deferred-delete-undo.pdf`,
-            1,
-        );
+        if (!session) throw new Error('Annotation lifecycle session did not start');
+        const {page} = session;
+        const fixturePath = await createMultiPageTextFixturePdf(`annotation-mixed-create-undo-${Date.now()}.pdf`, 1);
+        onTestFinished(() => rmSync(fixturePath, {force: true}));
         await openPdfInApp(page, fixturePath);
         await waitForPdfLoaded(page);
-        await openAnnotationsTab(page);
         await waitForViewerInteractive(page);
+        await createTextMarkupWithPointer(page);
+        const [highlight] = await readCanonicalHighlightIdentities(page);
+        await placeEmptyNote(page);
+        await waitForSidebarAnnotationCount(page, 2);
+        await clickEnabledToolbarAction(page, 'Undo');
+        await waitForNoOpenNoteWindows(page);
+        await expectCanonicalCountsAcrossFrames(page, {
+            markup: 1,
+            notes: 0,
+            cards: 1,
+        });
+        expect(await readCanonicalHighlightIdentities(page)).toEqual([highlight]);
+    });
 
-        await createHighlightWithPdfjsManager(page);
-        await saveViaWindowHandle(page);
+    it('keeps saved highlight create undo and redo coherent across intervening saves', async () => {
+        const session = sessionFixture.getSession();
+        if (!session) throw new Error('Annotation lifecycle session did not start');
+        const {page} = session;
+        const fixturePath = await createMultiPageTextFixturePdf(`annotation-save-undo-redo-${Date.now()}.pdf`, 1);
+        onTestFinished(() => rmSync(fixturePath, {force: true}));
+        await openPdfInApp(page, fixturePath);
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        await createTextMarkupWithPointer(page);
+        await saveViaVisibleToolbar(page, 30_000);
+        await waitForPdfAnnotationSubtypeCount(fixturePath, 'Highlight', 1);
+        await clickEnabledToolbarAction(page, 'Undo');
+        await expectCanonicalCountsAcrossFrames(page, {
+            markup: 0,
+            notes: 0,
+            cards: 0,
+        });
+        await saveViaVisibleToolbar(page, 30_000);
+        await waitForPdfAnnotationSubtypeCount(fixturePath, 'Highlight', 0);
+        await clickEnabledToolbarAction(page, 'Redo');
+        await expectCanonicalCountsAcrossFrames(page, {
+            markup: 1,
+            notes: 0,
+            cards: 1,
+        });
+        await saveViaVisibleToolbar(page, 30_000);
         await waitForPdfAnnotationSubtypeCount(fixturePath, 'Highlight', 1);
         await waitForActiveTabDirtyState(page, false);
-
-        const reopenFixturePath = fixturePath.replace(/\.pdf$/u, '-reopen.pdf');
-        copyFileSync(fixturePath, reopenFixturePath);
-        await openPdfInApp(page, reopenFixturePath);
-        await waitForPdfLoaded(page);
-        await openAnnotationsTab(page);
-        await waitForViewerInteractive(page);
-        await waitForHighlightEditorCount(page, 1);
-        const [persistedIdentity] = await waitForCanonicalHighlightIdentity(
-            page,
-            identities => identities.length === 1 && identities[0]?.source === 'pdf',
-            'the reopened highlight to carry its persisted identity',
-        );
-
-        // The sidebar delete of a persisted annotation takes the deferred path:
-        // a canonical tombstone plus DOM removal, with no save in between.
-        await clickFirstSidebarAnnotationDelete(page);
-        await waitForHighlightEditorCount(page, 0);
-        await waitForActiveTabDirtyState(page, true);
-
-        const boundary = await clickHistoryActionAcrossAnimationBoundaries(page, 'Undo');
-        const trace = `deferred-delete undo boundary trace: ${JSON.stringify(boundary.samples)}`;
-        expect(boundary.at('before'), trace).toMatchObject({
-            canonicalTextMarkupCount: 0,
-            highlightAnnotationCount: 0,
+        const reopenPath = preserveFixtureAcrossRestart(fixturePath);
+        const restarted = await sessionFixture.restart({hard: true});
+        if (!restarted) throw new Error('Hard highlight reopen did not start');
+        await openPdfInApp(restarted.page, reopenPath);
+        await waitForPdfLoaded(restarted.page);
+        await openAnnotationsTab(restarted.page);
+        await expectCanonicalCountsAcrossFrames(restarted.page, {
+            markup: 1,
+            notes: 0,
+            cards: 1,
         });
+    }, 120_000);
 
-        await waitForCanonicalHighlightIdentity(
-            page,
-            identities => identities.some(identity => (
-                identity.appAnnotationId === persistedIdentity?.appAnnotationId
-            )),
-            'the undone delete to restore the canonical entity',
-        );
-        await waitForHighlightEditorCount(page, 1);
-
-        const afterRestore = await readAnnotationUndoBoundaryProbe(page);
-        expect(
-            afterRestore.added.length,
-            `expected a restored highlight node: ${JSON.stringify(afterRestore)}`,
-        ).toBeGreaterThan(0);
-        expect(afterRestore.canonicalTextMarkupCount + afterRestore.highlightAnnotationCount).toBe(1);
-
-        const restored = (await readCanonicalHighlightIdentities(page))
-            .find(identity => identity.appAnnotationId === persistedIdentity?.appAnnotationId);
-        expect(restored).toMatchObject({
-            annotationId: persistedIdentity?.annotationId,
-            source: 'pdf',
-            stableKey: persistedIdentity?.stableKey,
-        });
-    });
-
-
-    it.skip('keeps an undone sticky note removed across frames and the deferred sync', async () => {
+    it('keeps the saved highlight identity across undo and redo without another save', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
-        const { page } = session;
-
-        const fixturePath = await createMultiPageTextFixturePdf(
-            `annotation-lifecycle-${Date.now()}-undo-note-orphan.pdf`,
-            1,
-        );
+        if (!session) throw new Error('Annotation lifecycle session did not start');
+        const {page} = session;
+        const fixturePath = await createMultiPageTextFixturePdf(`annotation-saved-identity-${Date.now()}.pdf`, 1);
+        onTestFinished(() => rmSync(fixturePath, {force: true}));
         await openPdfInApp(page, fixturePath);
         await waitForPdfLoaded(page);
-        await openAnnotationsTab(page);
         await waitForViewerInteractive(page);
-
-        const baselineSidebarCount = await getVisibleSidebarAnnotationCount(page);
-        const baselineFreeTextCount = await getFreeTextEditorCount(page);
-        await placeEmptyNote(page);
-        await waitForSidebarAnnotationCount(page, baselineSidebarCount + 1);
-        expect(await getFreeTextEditorCount(page)).toBe(baselineFreeTextCount + 1);
-        await clickLatestVisibleNoteWindowClose(page);
-        await waitForNoOpenNoteWindows(page);
-
-        const boundary = await clickHistoryActionAcrossAnimationBoundaries(page, 'Undo');
-        const trace = `sticky-note undo boundary trace: ${JSON.stringify(boundary.samples)}`;
-        expect(boundary.at('before').canonicalAnnotationCount, trace).toBe(baselineSidebarCount + 1);
-        // A FreeText anchor editor has no PDF.js creation command of its own, so
-        // the canonical undo is the only thing that can retire it. If it stays
-        // attached, the next comment sync rescans it and mints the note back.
-        expect(boundary.at('synchronous'), trace).toMatchObject({
-            canonicalAnnotationCount: baselineSidebarCount,
-            canonicalTextBoxCount: baselineFreeTextCount,
+        await createTextMarkupWithPointer(page);
+        await saveViaVisibleToolbar(page, 30_000);
+        await waitForActiveTabDirtyState(page, false);
+        const [saved] = await waitForCanonicalHighlightIdentity(page,
+            identities => identities.length === 1 && Boolean(identities[0]?.annotationId), 'saved canonical highlight identity');
+        expect(saved?.appAnnotationId).toEqual(expect.any(String));
+        expect(saved?.annotationId).toEqual(expect.any(String));
+        await clickEnabledToolbarAction(page, 'Undo');
+        await expectCanonicalCountsAcrossFrames(page, {
+            markup: 0,
+            notes: 0,
+            cards: 0,
         });
-        [
-            'frame-1',
-            'frame-2',
-            'deferred-task',
-        ].forEach((label) => {
-            expect(boundary.at(label).canonicalTextBoxCount, `${label}: ${trace}`).toBe(baselineFreeTextCount);
+        await clickEnabledToolbarAction(page, 'Redo');
+        await expectCanonicalCountsAcrossFrames(page, {
+            markup: 1,
+            notes: 0,
+            cards: 1,
         });
-
-        await waitForSidebarAnnotationCount(page, baselineSidebarCount);
-        // Force a full comment sync to run and finish after the undo.
-        const syncBaselineSeq = await readAnnotationSyncRequestSeq(page);
-        await createHighlightWithPdfjsManager(page);
-        await waitForSidebarAnnotationCount(page, baselineSidebarCount + 1);
-        // Same reason as the highlight scenario: only the sync ledger proves
-        // the pass that rescans the editor layer has completed.
-        await waitForAnnotationSyncIdle(page, syncBaselineSeq);
-        expect(await getFreeTextEditorCount(page)).toBe(baselineFreeTextCount);
+        expect(await readCanonicalHighlightIdentities(page)).toEqual([saved]);
+        await waitForActiveTabDirtyState(page, false);
+        await waitForPdfAnnotationSubtypeCount(fixturePath, 'Highlight', 1);
     });
 
+    it('restores a persisted highlight after saving its sidebar deletion and undoing', async () => {
+        const session = sessionFixture.getSession();
+        if (!session) throw new Error('Annotation lifecycle session did not start');
+        const {page} = session;
+        const fixturePath = await createMultiPageTextFixturePdf(`annotation-saved-delete-${Date.now()}.pdf`, 1);
+        onTestFinished(() => rmSync(fixturePath, {force: true}));
+        await openPdfInApp(page, fixturePath);
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        await createTextMarkupWithPointer(page);
+        await saveViaVisibleToolbar(page, 30_000);
+        const reopenPath = preserveFixtureAcrossRestart(fixturePath);
+        const restarted = await sessionFixture.restart({hard: true});
+        if (!restarted) throw new Error('Hard persisted-highlight reopen did not start');
+        const reopenedPage = restarted.page;
+        await openPdfInApp(reopenedPage, reopenPath);
+        await waitForPdfLoaded(reopenedPage);
+        await openAnnotationsTab(reopenedPage);
+        await expectCanonicalCountsAcrossFrames(reopenedPage, {
+            markup: 1,
+            notes: 0,
+            cards: 1,
+        });
+        await clickFirstSidebarAnnotationDelete(reopenedPage);
+        await expectCanonicalCountsAcrossFrames(reopenedPage, {
+            markup: 0,
+            notes: 0,
+            cards: 0,
+        });
+        await saveViaVisibleToolbar(reopenedPage, 30_000);
+        await waitForPdfAnnotationSubtypeCount(reopenPath, 'Highlight', 0);
+        await clickEnabledToolbarAction(reopenedPage, 'Undo');
+        await expectCanonicalCountsAcrossFrames(reopenedPage, {
+            markup: 1,
+            notes: 0,
+            cards: 1,
+        });
+        await saveViaVisibleToolbar(reopenedPage, 30_000);
+        await waitForPdfAnnotationSubtypeCount(reopenPath, 'Highlight', 1);
+        await waitForActiveTabDirtyState(reopenedPage, false);
+    }, 120_000);
 
+    // Replaces the retired PDF.js deferred-sync proofs for both create kinds.
+    for (const kind of [
+        'highlight',
+        'note',
+    ] as const) {
+        it(`keeps an undone ${kind} creation absent through subsequent animation frames`, async () => {
+            const session = sessionFixture.getSession();
+            if (!session) throw new Error('Annotation lifecycle session did not start');
+            const {page} = session;
+            const reopenPath = await createMultiPageTextFixturePdf(`annotation-no-revival-${kind}-${Date.now()}.pdf`, 1);
+            onTestFinished(() => rmSync(reopenPath, {force: true}));
+            await openPdfInApp(page, reopenPath);
+            await waitForPdfLoaded(page);
+            await waitForViewerInteractive(page);
+            if (kind === 'highlight') await createTextMarkupWithPointer(page);
+            else await placeEmptyNote(page);
+            await waitForSidebarAnnotationCount(page, 1);
+            await clickEnabledToolbarAction(page, 'Undo');
+            await expectCanonicalCountsAcrossFrames(page, {
+                markup: 0,
+                notes: 0,
+                cards: 0,
+            });
+            await clickEnabledToolbarAction(page, 'Redo');
+            await expectCanonicalCountsAcrossFrames(page, {
+                markup: kind === 'highlight' ? 1 : 0,
+                notes: kind === 'note' ? 1 : 0,
+                cards: 1,
+            });
+        });
+    }
+
+    it('restores one canonical entity and one painted markup when a deletion is undone immediately', async () => {
+        const session = sessionFixture.getSession();
+        if (!session) throw new Error('Annotation lifecycle session did not start');
+        const {page} = session;
+        const fixturePath = await createMultiPageTextFixturePdf(`annotation-immediate-delete-undo-${Date.now()}.pdf`, 1);
+        onTestFinished(() => rmSync(fixturePath, {force: true}));
+        await openPdfInApp(page, fixturePath);
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        await createTextMarkupWithPointer(page);
+        const [identity] = await readCanonicalHighlightIdentities(page);
+        await clickFirstSidebarAnnotationDelete(page);
+        await clickEnabledToolbarAction(page, 'Undo');
+        await expectCanonicalCountsAcrossFrames(page, {
+            markup: 1,
+            notes: 0,
+            cards: 1,
+        });
+        expect(await readCanonicalHighlightIdentities(page)).toEqual([identity]);
+    });
 });

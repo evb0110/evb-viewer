@@ -14,7 +14,6 @@ interface IUsePdfAnnotationCommentModelOptions {
     isAnySaving: Ref<boolean>;
     annotationProjection: Ref<IAnnotationCommentSummary[]>;
     ingestSummaries: (comments: readonly IAnnotationCommentSummary[]) => void;
-    getShapeAnnotationCommentSummaries: () => IAnnotationCommentSummary[];
     emitAnnotationComments: (comments: IAnnotationCommentSummary[]) => void;
     shouldSuppressSidebarComment?: (comment: IAnnotationCommentSummary) => boolean;
 }
@@ -41,18 +40,9 @@ export const usePdfAnnotationCommentModel = (options: IUsePdfAnnotationCommentMo
     const activeCommentStableKey = ref<string | null>(null);
     const annotationCommentsCache = options.annotationProjection;
 
-    function emitCommentsForSidebar(
-        comments: readonly IAnnotationCommentSummary[],
-        emitOptions: {includeShapes?: boolean} = {},
-    ) {
+    function emitCommentsForSidebar(comments: readonly IAnnotationCommentSummary[]) {
         const visible = comments.filter(comment => !options.shouldSuppressSidebarComment?.(comment));
-        const projected = emitOptions.includeShapes === false
-            ? visible
-            : [
-                ...visible,
-                ...options.getShapeAnnotationCommentSummaries(),
-            ];
-        options.emitAnnotationComments(projected.map(cloneSnapshot).sort(compareAnnotationCommentSummaries));
+        options.emitAnnotationComments(visible.map(cloneSnapshot).sort(compareAnnotationCommentSummaries));
     }
 
     function upsertComment(comment: IAnnotationCommentSummary) {

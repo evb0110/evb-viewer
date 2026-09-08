@@ -15,7 +15,10 @@ import {
 } from '@app/utils/pdfViewMode';
 import { shouldHandleRendererMenuAccelerators } from '@app/utils/shouldHandleRendererMenuAccelerators';
 
-interface IPdfViewerForShortcuts {deleteSelectedShape: () => void;}
+interface IPdfViewerForShortcuts {
+    deleteSelectedShape: () => void;
+    handleAnnotationEscape?: () => boolean;
+}
 
 interface IPageShortcutsDeps {
     isActive: Ref<boolean>;
@@ -31,12 +34,10 @@ interface IPageShortcutsDeps {
     canSave: Ref<boolean>;
     annotationTool: Ref<TAnnotationTool>;
     pdfViewerRef: Ref<IPdfViewerForShortcuts | null>;
-    shapePropertiesPopoverVisible: Ref<boolean>;
     annotationContextMenuVisible: Ref<boolean>;
     pageContextMenuVisible: Ref<boolean>;
     closeAnnotationContextMenu: () => void;
     closePageContextMenu: () => void;
-    closeShapeProperties: () => void;
     openSearch: () => void;
     handleAnnotationToolChange: (tool: TAnnotationTool) => void;
     handleZoomIn: () => void;
@@ -112,24 +113,26 @@ export const usePageShortcuts = <TDeps extends IPageShortcutsDeps>(deps: TDeps) 
         pdfSrc,
         canPrint,
         annotationTool,
-        shapePropertiesPopoverVisible,
         annotationContextMenuVisible,
         pageContextMenuVisible,
         closeAnnotationContextMenu,
         closePageContextMenu,
-        closeShapeProperties,
         openSearch,
     } = deps;
 
     function handleEscape() {
-        if (shapePropertiesPopoverVisible.value) {
-            closeShapeProperties();
-        }
+        const hadOpenMenu = annotationContextMenuVisible.value || pageContextMenuVisible.value;
         if (annotationContextMenuVisible.value) {
             closeAnnotationContextMenu();
         }
         if (pageContextMenuVisible.value) {
             closePageContextMenu();
+        }
+        if (hadOpenMenu) {
+            return;
+        }
+        if (deps.pdfViewerRef.value?.handleAnnotationEscape?.()) {
+            return;
         }
         if (annotationTool.value !== 'none') {
             deps.handleAnnotationToolChange('none');
@@ -321,7 +324,7 @@ export const usePageShortcuts = <TDeps extends IPageShortcutsDeps>(deps: TDeps) 
     }
 
     function handleKeyboardShortcut(event: KeyboardEvent) {
-        if (event.defaultPrevented) {
+        if (event.defaultPrevented || event.isComposing) {
             return;
         }
         suppressBrowserDefaultForConflictingAccelerator(event);
@@ -409,9 +412,6 @@ export const usePageShortcuts = <TDeps extends IPageShortcutsDeps>(deps: TDeps) 
 
         const target = targetAsElement(event.target);
 
-        if (shapePropertiesPopoverVisible.value && !target?.closest('.annotation-properties')) {
-            closeShapeProperties();
-        }
         if (annotationContextMenuVisible.value && !target?.closest('.annotation-context-menu')) {
             closeAnnotationContextMenu();
         }

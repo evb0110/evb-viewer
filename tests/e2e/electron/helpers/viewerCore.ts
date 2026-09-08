@@ -1,7 +1,4 @@
-import type {
-    ElementHandle,
-    Page,
-} from 'puppeteer-core';
+import type { Page } from 'puppeteer-core';
 import {realpath} from 'node:fs/promises';
 import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
 import { delay } from 'es-toolkit/promise';
@@ -1114,7 +1111,37 @@ async function tryActivateAnnotationsTab(page: Page) {
         return 'missing-target';
     }
 
-    await (target.tab as ElementHandle<Element>).click();
+    // A sidebar transition can expose a tab's layout box while the page
+    // still receives pointer events there. Wait for a stable, hittable tab
+    // before sending the real pointer click.
+    const point = await target.tab.evaluate(async (element) => {
+        let previous = element.getBoundingClientRect();
+        for (let frame = 0; frame < 3; frame += 1) {
+            await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+            const current = element.getBoundingClientRect();
+            if (Math.abs(current.left - previous.left) > 0.5
+                || Math.abs(current.top - previous.top) > 0.5
+                || Math.abs(current.width - previous.width) > 0.5
+                || Math.abs(current.height - previous.height) > 0.5) {
+                return null;
+            }
+            previous = current;
+        }
+        const x = previous.left + previous.width / 2;
+        const y = previous.top + previous.height / 2;
+        const hit = document.elementFromPoint(x, y);
+        if (previous.width <= 8 || previous.height <= 8 || !hit || !element.contains(hit)) {
+            return null;
+        }
+        return {
+            x,
+            y,
+        };
+    });
+    if (!point) {
+        return 'tab-not-ready-for-pointer';
+    }
+    await page.mouse.click(point.x, point.y);
     return 'clicked';
 }
 

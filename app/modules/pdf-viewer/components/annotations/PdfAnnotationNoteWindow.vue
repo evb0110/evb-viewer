@@ -78,6 +78,7 @@ interface IProps {
     annotationId: string;
     pageNumber: TPageNumber;
     author: string | null;
+    color?: string | null;
     createdAt: number | null;
     modifiedAt: number | null;
     text: string;
@@ -92,6 +93,7 @@ const {
     annotationId,
     pageNumber,
     author,
+    color = null,
     createdAt,
     modifiedAt,
     text,
@@ -105,7 +107,7 @@ const {
 const emit = defineEmits<{
     'update:text': [value: string];
     'update:position': [value: IAnnotationNotePosition];
-    minimize: [];
+    minimize: [focusDocument: Document | null];
     delete: [];
     focus: [];
 }>();
@@ -138,7 +140,9 @@ function deleteNote() {
 }
 
 function minimizeNote() {
-    emit('minimize');
+    const root = noteWindowRef.value;
+    const focusDocument = root?.contains(root.ownerDocument.activeElement) ? root.ownerDocument : null;
+    emit('minimize', focusDocument);
 }
 
 function updateText(event: Event) {
@@ -150,18 +154,13 @@ const timeFormatter = new Intl.DateTimeFormat(undefined, {
     timeStyle: 'short',
 });
 
-const { settings } = useSettings();
-
 const title = computed(() => t('noteWindow.popUpNote', { page: pageNumber }));
 const authorText = computed(() => {
     const commentAuthor = author?.trim();
     if (commentAuthor) {
         return commentAuthor;
     }
-    const settingsAuthor = settings.value.authorName.trim();
-    return settingsAuthor && settingsAuthor.length > 0
-        ? settingsAuthor
-        : t('noteWindow.unknownAuthor');
+    return t('noteWindow.unknownAuthor');
 });
 const timestampText = computed(() => {
     const timestamp = modifiedAt ?? createdAt;
@@ -172,6 +171,7 @@ const timestampText = computed(() => {
 });
 
 const windowStyle = computed(() => ({
+    '--annotation-note-color': color ?? 'var(--ui-warning)',
     left: `${offsetX.value}px`,
     top: `${offsetY.value}px`,
     width: `${width.value}px`,
@@ -479,9 +479,9 @@ watch(
 <style scoped>
 .note-window {
     --note-bg: var(--app-pdf-note-bg);
-    --note-border: var(--app-pdf-note-border);
-    --note-title-bg: var(--app-pdf-note-title-bg);
-    --note-title-border: var(--app-pdf-note-title-border);
+    --note-border: color-mix(in srgb, var(--annotation-note-color) 62%, var(--ui-border));
+    --note-title-bg: color-mix(in srgb, var(--annotation-note-color) 18%, var(--ui-bg));
+    --note-title-border: color-mix(in srgb, var(--annotation-note-color) 42%, var(--ui-border));
     --note-text: var(--app-pdf-note-text);
     --note-text-heading: var(--app-pdf-note-text-heading);
     --note-text-secondary: var(--app-pdf-note-text-secondary);

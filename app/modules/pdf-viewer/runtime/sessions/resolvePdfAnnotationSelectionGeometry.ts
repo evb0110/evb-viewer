@@ -1,3 +1,4 @@
+import {rotateAnnotationRect} from '@app/modules/pdf-viewer/engine/annotation-editor-geometry/annotationEditorGeometry';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { normalizePageRotation } from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizePageRotation';
 import { getTextLayerTextMapping } from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightDom';
@@ -28,6 +29,7 @@ export interface IResolvePdfAnnotationSelectionGeometryOptions {
     readonly documentSession: TPdfDocumentSession;
     readonly viewerContainer: HTMLElement | null;
     readonly range: Range;
+    readonly getViewRotation?: () => number;
 }
 
 function selectionPageCandidates(
@@ -68,6 +70,9 @@ export async function resolvePdfAnnotationSelectionGeometry(
         range,
     } = options;
     const fence = documentSession.captureFence();
+    const viewRotation = options.getViewRotation?.() ?? 0;
+    const isCurrent = () => documentSession.isCurrent(fence)
+        && (options.getViewRotation?.() ?? 0) === viewRotation;
     const candidates = selectionPageCandidates(range, options.viewerContainer);
     if (candidates.length === 0) {
         return {
@@ -86,21 +91,21 @@ export async function resolvePdfAnnotationSelectionGeometry(
         let lease: Awaited<ReturnType<TPdfDocumentSession['leasePage']>> | null = null;
         try {
             lease = await documentSession.leasePage(requirePageNumber(candidate.pageNumber));
-            if (!documentSession.isCurrent(fence)) {
+            if (!isCurrent()) {
                 return {status: 'stale'};
             }
             const textContent = await lease.page.getTextContent({
                 includeMarkedContent: true,
                 disableNormalization: true,
             });
-            if (!documentSession.isCurrent(fence)) {
+            if (!isCurrent()) {
                 return {status: 'stale'};
             }
             const lineBoxes = mergeLineBoxesOnBaseline(buildTextLineBoxesFromTextContent({
                 textContent,
                 textMapping,
                 pageView: [...lease.page.view],
-                pageRotation: normalizePageRotation(lease.page.rotate),
+                pageRotation: normalizePageRotation(lease.page.rotate + viewRotation),
             }));
             if (lineBoxes.length === 0) {
                 continue;
@@ -111,7 +116,7 @@ export async function resolvePdfAnnotationSelectionGeometry(
                 lineBoxes,
             });
         } catch (error) {
-            if (!documentSession.isCurrent(fence)) {
+            if (!isCurrent()) {
                 return {status: 'stale'};
             }
             BrowserLogger.debug(
@@ -125,10 +130,13 @@ export async function resolvePdfAnnotationSelectionGeometry(
         }
     }
 
-    if (!documentSession.isCurrent(fence)) {
+    if (!isCurrent()) {
         return {status: 'stale'};
     }
-    const geometry = buildHighlightQuadsFromSelection(range, pages);
+    const geometry = buildHighlightQuadsFromSelection(range, pages).map(page => ({
+        ...page,
+        quadPoints: page.quadPoints.map(rect => rotateAnnotationRect(rect, -viewRotation)),
+    }));
     return geometry.length > 0
         ? {
             status: 'ready',

@@ -46,6 +46,7 @@ const defaultWorkspaceExpose = {
     handlePrintCurrentPage: unimplementedWorkspaceExposeMethod,
     handleQuickNote: unimplementedWorkspaceExposeMethod,
     handleRedo: unimplementedWorkspaceExposeMethod,
+    handleSelectAll: unimplementedWorkspaceExposeMethod,
     handleRepairSave: unimplementedWorkspaceExposeMethod,
     handleOptimizePdfForInteraction: unimplementedWorkspaceExposeMethod,
     handleSave: unimplementedWorkspaceExposeMethod,

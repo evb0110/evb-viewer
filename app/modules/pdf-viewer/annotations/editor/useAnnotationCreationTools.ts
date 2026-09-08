@@ -29,6 +29,7 @@ export interface IAnnotationCreationTools {
         pageIndex: number,
         rect: IAnnotationMarkerRect,
         stampImage?: IPlacedImageEntity['image'],
+        rotation?: ITextBoxEntity['rotation'],
     ): ITextBoxEntity | INoteEntity | IPlacedImageEntity | null;
     beginShape(pageIndex: number, tool: TDrawableShapeType, point: {
         x: number;
@@ -37,16 +38,21 @@ export interface IAnnotationCreationTools {
     updateShape(draft: IShapeAnnotation, point: {
         x: number;
         y: number
-    }): IShapeAnnotation;
+    }, origin: {
+            x: number;
+            y: number
+        }): IShapeAnnotation;
     finishShape(draft: IShapeAnnotation): IShapeEntity | null;
 }
 
 export const useAnnotationCreationTools = (
     options: IUseAnnotationCreationToolsOptions,
 ): IAnnotationCreationTools => ({
-    create(tool, pageIndex, rect, stampImage) {
+    create(tool, pageIndex, rect, stampImage, rotation) {
         if (tool === 'text') {
-            const entity = options.surface.createTextBoxAt(pageIndex, rect);
+            const entity = rotation === undefined || rotation === 0
+                ? options.surface.createTextBoxAt(pageIndex, rect)
+                : options.surface.createTextBoxAt(pageIndex, rect, {rotation});
             options.surface.select([entity.identity.id]);
             return entity;
         }
@@ -69,12 +75,9 @@ export const useAnnotationCreationTools = (
         const settings = options.surface.settings.value ?? DEFAULT_ANNOTATION_SETTINGS;
         return createDrawingShape(requirePageIndex(pageIndex), tool, point.x, point.y, settings);
     },
-    updateShape(draft, point) {
+    updateShape(draft, point, origin) {
         const rawDraft = toRaw(draft);
-        return updateDrawingShapeForPoint(rawDraft, {
-            x: rawDraft.x,
-            y: rawDraft.y,
-        }, point.x, point.y);
+        return updateDrawingShapeForPoint(rawDraft, origin, point.x, point.y);
     },
     finishShape(draft) {
         if (!isDrawableFinishedShape(draft)) {

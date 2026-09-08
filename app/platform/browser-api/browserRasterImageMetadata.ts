@@ -2,7 +2,7 @@ export interface IBrowserRasterImageMetadata {
     width: number;
     height: number;
     dpi: number;
-    orientation: 1 | 3 | 6 | 8;
+    orientation: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
     iccProfile?: Uint8Array;
     compressedIccProfile?: Uint8Array;
 }
@@ -137,7 +137,7 @@ export async function resolveBrowserRasterIccProfile(metadata: IBrowserRasterIma
     return profile;
 }
 
-function readExifOrientation(data: Uint8Array, start: number, length: number): 1 | 3 | 6 | 8 {
+function readExifOrientation(data: Uint8Array, start: number, length: number): 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 {
     if (length < 14 || String.fromCharCode(...data.subarray(start, start + 6)) !== 'Exif\0\0') {
         return 1;
     }
@@ -158,7 +158,7 @@ function readExifOrientation(data: Uint8Array, start: number, length: number): 1
         if (entry + 12 > start + length) break;
         if (read16(data, entry) === 0x0112) {
             const value = read16(data, entry + 8);
-            return value === 3 || value === 6 || value === 8 ? value : 1;
+            return value === 2 || value === 3 || value === 4 || value === 5 || value === 6 || value === 7 || value === 8 ? value : 1;
         }
     }
     return 1;
@@ -171,7 +171,7 @@ function readJpeg(data: Uint8Array): IBrowserRasterImageMetadata | null {
     let width = 0;
     let height = 0;
     let dpi = DEFAULT_DPI;
-    let orientation: 1 | 3 | 6 | 8 = 1;
+    let orientation: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 = 1;
     let offset = 2;
     const iccChunks: Array<{
         sequence: number;

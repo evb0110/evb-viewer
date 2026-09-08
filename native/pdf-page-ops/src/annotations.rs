@@ -1,4 +1,5 @@
 use super::*;
+use lopdf::dictionary;
 
 /// PDF's standard sticky-note icon is a 20 point square. The mutation
 /// protocol still carries the marker's normalized anchor, so the writer
@@ -509,11 +510,32 @@ where
 
         let annot_ref = document.new_object_id();
         let popup_ref = document.new_object_id();
-        let mut annot_dict =
-            build_text_note_annotation_dict(note, &note_name, pdf_rect, modified_at);
+        let recovered = if let Some(data) = note.recovery_data.as_deref() {
+            restore_note_recovery(document, data, annot_ref, popup_ref, page_id)?
+        } else {
+            Vec::new()
+        };
+        annotation_indexes
+            .get_mut(&page_id)
+            .expect("Text note page is indexed")
+            .append_missing_refs(&recovered);
+        let mut annot_dict = document
+            .get_dictionary(annot_ref)
+            .cloned()
+            .unwrap_or_else(|_| {
+                build_text_note_annotation_dict(note, &note_name, pdf_rect, modified_at)
+            });
+        convert_free_text_marker_to_text(&mut annot_dict, pdf_rect, modified_at);
+        set_text_note_annotation_fields(&mut annot_dict, note, &note_name, pdf_rect, modified_at);
         annot_dict.set("P", Object::Reference(page_id));
         annot_dict.set("Popup", Object::Reference(popup_ref));
-        let mut popup_dict = build_popup_annotation_dict(note, pdf_rect, modified_at, annot_ref);
+        let mut popup_dict = document
+            .get_dictionary(popup_ref)
+            .cloned()
+            .unwrap_or_else(|_| {
+                build_popup_annotation_dict(note, pdf_rect, modified_at, annot_ref)
+            });
+        set_popup_annotation_fields(&mut popup_dict, note, pdf_rect, modified_at, annot_ref);
         popup_dict.set("P", Object::Reference(page_id));
         document.set_object(annot_ref, Object::Dictionary(annot_dict));
         document.set_object(popup_ref, Object::Dictionary(popup_dict));
@@ -662,11 +684,40 @@ where
 
         let annot_ref = incremental.new_document.new_object_id();
         let popup_ref = incremental.new_document.new_object_id();
-        let mut annot_dict =
-            build_text_note_annotation_dict(note, &note_name, pdf_rect, modified_at);
+        let recovered = if let Some(data) = note.recovery_data.as_deref() {
+            restore_note_recovery(
+                &mut incremental.new_document,
+                data,
+                annot_ref,
+                popup_ref,
+                page_id,
+            )?
+        } else {
+            Vec::new()
+        };
+        annotation_indexes
+            .get_mut(&page_id)
+            .expect("Text note page is indexed")
+            .append_missing_refs(&recovered);
+        let mut annot_dict = incremental
+            .new_document
+            .get_dictionary(annot_ref)
+            .cloned()
+            .unwrap_or_else(|_| {
+                build_text_note_annotation_dict(note, &note_name, pdf_rect, modified_at)
+            });
+        convert_free_text_marker_to_text(&mut annot_dict, pdf_rect, modified_at);
+        set_text_note_annotation_fields(&mut annot_dict, note, &note_name, pdf_rect, modified_at);
         annot_dict.set("P", Object::Reference(page_id));
         annot_dict.set("Popup", Object::Reference(popup_ref));
-        let mut popup_dict = build_popup_annotation_dict(note, pdf_rect, modified_at, annot_ref);
+        let mut popup_dict = incremental
+            .new_document
+            .get_dictionary(popup_ref)
+            .cloned()
+            .unwrap_or_else(|_| {
+                build_popup_annotation_dict(note, pdf_rect, modified_at, annot_ref)
+            });
+        set_popup_annotation_fields(&mut popup_dict, note, pdf_rect, modified_at, annot_ref);
         popup_dict.set("P", Object::Reference(page_id));
         incremental
             .new_document
@@ -713,6 +764,8 @@ pub(crate) fn upsert_text_boxes_with_counter(
     if editors.is_empty() {
         return Ok(());
     }
+    let font_ref = crate::text_box_font::existing_font(document)
+        .unwrap_or_else(|| crate::text_box_font::embed_font(document));
     let page_resolver = PageTreeResolver::new(document)?;
     let mut annotation_indexes = HashMap::new();
     for editor in editors {
@@ -729,8 +782,10 @@ pub(crate) fn upsert_text_boxes_with_counter(
         }
         let page_view = resolve_page_view(document, page_id)?;
         let rect = validate_text_box_rect(editor, page_view)?;
+        let page_rotation = resolve_page_rotation(document, page_id)?;
         let name = text_box_name(editor);
-        let appearance_ref = build_text_box_appearance(document, editor, rect)?;
+        let appearance_ref =
+            build_text_box_appearance(document, editor, rect, font_ref, page_rotation)?;
         let existing_annotation_ref = resolve_text_box_target(document, page_id, editor)?;
         if let Some(annotation_ref) = existing_annotation_ref.or_else(|| {
             annotation_indexes
@@ -747,6 +802,7 @@ pub(crate) fn upsert_text_boxes_with_counter(
                 rect,
                 modified_at,
                 appearance_ref,
+                page_rotation,
                 false,
                 existing_appearance,
                 existing_default_appearance,
@@ -765,6 +821,7 @@ pub(crate) fn upsert_text_boxes_with_counter(
             rect,
             modified_at,
             appearance_ref,
+            page_rotation,
             true,
             None,
             None,
@@ -792,6 +849,9 @@ pub(crate) fn upsert_text_boxes_incremental_with_counter(
     if editors.is_empty() {
         return Ok(());
     }
+    let font_ref = crate::text_box_font::existing_font(&incremental.new_document)
+        .or_else(|| crate::text_box_font::existing_font(incremental.get_prev_documents()))
+        .unwrap_or_else(|| crate::text_box_font::embed_font(&mut incremental.new_document));
     let page_resolver = PageTreeResolver::new(incremental.get_prev_documents())?;
     let mut annotation_indexes = HashMap::new();
     for editor in editors {
@@ -808,9 +868,15 @@ pub(crate) fn upsert_text_boxes_incremental_with_counter(
         }
         let page_view = resolve_page_view(incremental.get_prev_documents(), page_id)?;
         let rect = validate_text_box_rect(editor, page_view)?;
+        let page_rotation = resolve_page_rotation(incremental.get_prev_documents(), page_id)?;
         let name = text_box_name(editor);
-        let appearance_ref =
-            build_text_box_appearance(&mut incremental.new_document, editor, rect)?;
+        let appearance_ref = build_text_box_appearance(
+            &mut incremental.new_document,
+            editor,
+            rect,
+            font_ref,
+            page_rotation,
+        )?;
         let existing_annotation_ref =
             resolve_text_box_target(&AppendedRevision::new(incremental), page_id, editor)?;
         if let Some(annotation_ref) = existing_annotation_ref.or_else(|| {
@@ -831,6 +897,7 @@ pub(crate) fn upsert_text_boxes_incremental_with_counter(
                 rect,
                 modified_at,
                 appearance_ref,
+                page_rotation,
                 false,
                 existing_appearance,
                 existing_default_appearance,
@@ -849,6 +916,7 @@ pub(crate) fn upsert_text_boxes_incremental_with_counter(
             rect,
             modified_at,
             appearance_ref,
+            page_rotation,
             true,
             None,
             None,
@@ -910,12 +978,15 @@ pub(crate) fn validate_text_box_rect(
     if !editor.font_size.is_finite() || editor.font_size <= 0.0 || editor.font_size > 512.0 {
         return Err("Invalid FreeText editor font size".into());
     }
-    let rect = PdfRect {
+    let source = PdfRect {
         x1: editor.rect[0],
         y1: editor.rect[1],
         x2: editor.rect[2],
         y2: editor.rect[3],
     };
+    // Rotating around the center can put the unrotated canonical box outside
+    // the page while all visible corners remain inside it.
+    let rect = crate::text_box_font::geometry(source, i64::from(editor.rotation), 0)?.bounds;
     // PDF.js can place the editor border a couple of points beyond the page
     // box after viewport-to-PDF coordinate conversion. Preserve that exact
     // rectangle, but reject larger excursions that cannot be border rounding.
@@ -932,171 +1003,18 @@ pub(crate) fn validate_text_box_rect(
     Ok(rect)
 }
 
-fn escape_free_text_appearance_line(line: &str) -> String {
-    let mut escaped = String::with_capacity(line.len());
-    for byte in line.bytes() {
-        match byte {
-            b'(' | b')' | b'\\' => {
-                escaped.push('\\');
-                escaped.push(char::from(byte));
-            }
-            b'\t' => escaped.push_str("\\t"),
-            0x20..=0x7e => escaped.push(char::from(byte)),
-            _ => escaped.push_str(&format!("\\{byte:03o}")),
-        }
-    }
-    escaped
-}
-
-fn helvetica_char_width(ch: char) -> f64 {
-    match ch {
-        ' ' => 278.0,
-        '!' => 278.0,
-        '"' => 355.0,
-        '#' => 556.0,
-        '$' => 556.0,
-        '%' => 889.0,
-        '&' => 667.0,
-        '\'' => 191.0,
-        '(' | ')' => 333.0,
-        '*' => 389.0,
-        '+' => 584.0,
-        ',' | '.' => 278.0,
-        '-' => 333.0,
-        '/' => 278.0,
-        '0'..='9' => 556.0,
-        ':' | ';' => 278.0,
-        '<' | '=' | '>' => 584.0,
-        '?' => 556.0,
-        '@' => 1_015.0,
-        'A' => 667.0,
-        'B' => 667.0,
-        'C' => 722.0,
-        'D' => 722.0,
-        'E' => 667.0,
-        'F' => 611.0,
-        'G' => 778.0,
-        'H' => 722.0,
-        'I' => 278.0,
-        'J' => 500.0,
-        'K' => 667.0,
-        'L' => 556.0,
-        'M' => 833.0,
-        'N' => 722.0,
-        'O' => 778.0,
-        'P' => 667.0,
-        'Q' => 778.0,
-        'R' => 722.0,
-        'S' => 667.0,
-        'T' => 611.0,
-        'U' => 722.0,
-        'V' => 667.0,
-        'W' => 944.0,
-        'X' => 667.0,
-        'Y' => 667.0,
-        'Z' => 611.0,
-        '[' | ']' => 278.0,
-        '\\' => 278.0,
-        '^' => 469.0,
-        '_' => 556.0,
-        '`' => 333.0,
-        'a' => 556.0,
-        'b' => 556.0,
-        'c' => 500.0,
-        'd' => 556.0,
-        'e' => 556.0,
-        'f' => 278.0,
-        'g' => 556.0,
-        'h' => 556.0,
-        'i' => 222.0,
-        'j' => 222.0,
-        'k' => 500.0,
-        'l' => 222.0,
-        'm' => 833.0,
-        'n' => 556.0,
-        'o' => 556.0,
-        'p' => 556.0,
-        'q' => 556.0,
-        'r' => 333.0,
-        's' => 500.0,
-        't' => 278.0,
-        'u' => 556.0,
-        'v' => 500.0,
-        'w' => 722.0,
-        'x' => 500.0,
-        'y' => 500.0,
-        'z' => 500.0,
-        '{' | '}' => 334.0,
-        '|' => 260.0,
-        '~' => 584.0,
-        _ => 556.0,
-    }
-}
-
-fn text_box_character_width(character: char, font_size: f64) -> f64 {
-    let glyph_width = if character == '\t' {
-        4.0 * helvetica_char_width(' ')
-    } else {
-        helvetica_char_width(character)
-    };
-    glyph_width * font_size / 1_000.0
+#[cfg(test)]
+pub(crate) fn free_text_line_width(line: &str, font_size: f64) -> f64 {
+    crate::text_box_font::layout(line, f64::MAX, font_size)
+        .first()
+        .map_or(0.0, |line| line.width)
 }
 
 #[cfg(test)]
-pub(crate) fn free_text_line_width(line: &str, font_size: f64) -> f64 {
-    line.chars()
-        .map(|character| text_box_character_width(character, font_size))
-        .sum()
-}
-
-fn wrap_free_text_line(line: &str, width: f64, font_size: f64) -> Vec<String> {
-    if line.is_empty() {
-        return vec![String::new()];
-    }
-
-    let characters = line.chars().collect::<Vec<_>>();
-    let mut lines = Vec::new();
-    let mut start = 0usize;
-    while start < characters.len() {
-        let mut end = start;
-        let mut line_width = 0.0;
-        let mut last_break = None;
-        while end < characters.len() {
-            let character = characters[end];
-            let character_width = text_box_character_width(character, font_size);
-            if end > start && line_width + character_width > width {
-                break;
-            }
-            line_width += character_width;
-            end += 1;
-            if character.is_whitespace() {
-                last_break = Some(end);
-            }
-        }
-        if end == characters.len() {
-            lines.push(characters[start..end].iter().collect());
-            break;
-        }
-
-        let split_at = last_break
-            .filter(|break_at| *break_at > start)
-            .unwrap_or(end.max(start + 1));
-        let mut output_end = split_at;
-        while output_end > start && characters[output_end - 1].is_whitespace() {
-            output_end -= 1;
-        }
-        lines.push(characters[start..output_end].iter().collect());
-        start = split_at;
-        while start < characters.len() && characters[start].is_whitespace() {
-            start += 1;
-        }
-    }
-    lines
-}
-
 pub(crate) fn wrap_free_text_lines(text: &str, width: f64, font_size: f64) -> Vec<String> {
-    text.split('\n')
-        .flat_map(|line| wrap_free_text_line(line, width, font_size))
+    crate::text_box_font::layout(text, width, font_size)
+        .into_iter()
+        .map(|line| line.text)
         .collect()
 }
 
@@ -1104,80 +1022,70 @@ fn build_text_box_appearance(
     document: &mut Document,
     editor: &TextBoxMutation,
     rect: PdfRect,
+    font_ref: ObjectId,
+    page_rotation: i64,
 ) -> Result<ObjectId> {
-    const LINE_FACTOR: f64 = 1.35;
-    const LINE_DESCENT_FACTOR: f64 = 0.35;
-    let mut width = rect.width();
-    let mut height = rect.height();
-    if editor.rotation % 180 != 0 {
-        std::mem::swap(&mut width, &mut height);
-    }
-    let line_ascent = (LINE_FACTOR - LINE_DESCENT_FACTOR) * editor.font_size;
-    let (matrix, clip_box, first_point): ([f64; 4], [f64; 4], [f64; 2]) = match editor.rotation {
-        0 => (
-            [1.0, 0.0, 0.0, 1.0],
-            [rect.x1, rect.y1, width, height],
-            [rect.x1, rect.y2 - line_ascent],
-        ),
-        90 => (
-            [0.0, 1.0, -1.0, 0.0],
-            [rect.y1, -rect.x2, width, height],
-            [rect.y1, -rect.x1 - line_ascent],
-        ),
-        180 => (
-            [-1.0, 0.0, 0.0, -1.0],
-            [-rect.x2, -rect.y2, width, height],
-            [-rect.x2, -rect.y1 - line_ascent],
-        ),
-        270 => (
-            [0.0, -1.0, 1.0, 0.0],
-            [-rect.y2, rect.x1, width, height],
-            [-rect.y2, rect.x2 - line_ascent],
-        ),
-        _ => return Err("Invalid FreeText editor rotation".into()),
+    use crate::text_box_font::{self, LINE_HEIGHT, PADDING_X};
+    let source = PdfRect {
+        x1: editor.rect[0],
+        y1: editor.rect[1],
+        x2: editor.rect[2],
+        y2: editor.rect[3],
     };
+    let geometry = text_box_font::geometry(source, i64::from(editor.rotation), page_rotation)?;
+    let width = geometry.width;
+    let height = geometry.height;
+    let matrix = geometry.matrix;
+    let first_point = [
+        0.0,
+        height - text_box_font::baseline_from_top(editor.font_size),
+    ];
     let color = editor.color.map(|component| f64::from(component) / 255.0);
     let mut content = format!(
-        "q\n{} {} {} {} 0 0 cm\n{} {} {} {} re W n\nBT\n{} {} {} rg\n0 Tc /Helv {} Tf\n{} {} Td",
+        "q\n{} {} {} {} {} {} cm\n0 0 {} {} re W n\nBT\n{} {} {} rg\n0 Tc /Helv {} Tf\n",
         number_to_content(matrix[0]),
         number_to_content(matrix[1]),
         number_to_content(matrix[2]),
         number_to_content(matrix[3]),
-        number_to_content(clip_box[0]),
-        number_to_content(clip_box[1]),
-        number_to_content(clip_box[2]),
-        number_to_content(clip_box[3]),
+        number_to_content(matrix[4]),
+        number_to_content(matrix[5]),
+        number_to_content(width),
+        number_to_content(height),
         number_to_content(color[0]),
         number_to_content(color[1]),
         number_to_content(color[2]),
         number_to_content(editor.font_size),
-        number_to_content(first_point[0]),
-        number_to_content(first_point[1]),
     );
-    for (index, line) in wrap_free_text_lines(&editor.text, width, editor.font_size)
+    let content_width = (width - 2.0 * PADDING_X * editor.font_size).max(0.0);
+    for (index, line) in text_box_font::layout(&editor.text, content_width, editor.font_size)
         .iter()
         .enumerate()
     {
-        if index > 0 {
+        let left = first_point[0]
+            + PADDING_X * editor.font_size
+            + if line.rtl {
+                (content_width - line.width).max(0.0)
+            } else {
+                0.0
+            };
+        let baseline = first_point[1] - index as f64 * LINE_HEIGHT * editor.font_size;
+        content.push_str(&format!(
+            "/Span << /ActualText <{}> >> BDC\n",
+            text_box_font::unicode_hex(&line.text, true)
+        ));
+        for glyph in &line.glyphs {
             content.push_str(&format!(
-                "\n0 -{} Td",
-                number_to_content(LINE_FACTOR * editor.font_size)
+                "1 0 0 1 {} {} Tm <{:04X}> Tj\n",
+                number_to_content(left + glyph.x),
+                number_to_content(baseline + glyph.y),
+                glyph.id
             ));
         }
-        content.push_str(&format!(
-            "\n({}) Tj",
-            escape_free_text_appearance_line(line)
-        ));
+        content.push_str("EMC\n");
     }
-    content.push_str("\nET\nQ");
-
-    let mut font = Dictionary::new();
-    font.set("Type", Object::Name(b"Font".to_vec()));
-    font.set("Subtype", Object::Name(b"Type1".to_vec()));
-    font.set("BaseFont", Object::Name(b"Helvetica".to_vec()));
-    font.set("Encoding", Object::Name(b"WinAnsiEncoding".to_vec()));
+    content.push_str("ET\nQ");
     let mut fonts = Dictionary::new();
-    fonts.set("Helv", Object::Dictionary(font));
+    fonts.set("Helv", Object::Reference(font_ref));
     let mut resources = Dictionary::new();
     resources.set("Font", Object::Dictionary(fonts));
     let mut stream_dict = Dictionary::new();
@@ -1364,11 +1272,16 @@ fn set_text_box_fields(
     rect: PdfRect,
     modified_at: &str,
     appearance_ref: ObjectId,
+    page_rotation: i64,
     is_new: bool,
     existing_appearance: Option<Dictionary>,
     existing_default_appearance: Option<Vec<u8>>,
 ) {
     dict.set("Rect", rect_object(rect));
+    dict.set("EVBTextGeometry", lopdf::dictionary! {
+        "Version" => 1, "Rotation" => i64::from(editor.rotation), "PageRotation" => page_rotation,
+        "Rect" => Object::Array(editor.rect.iter().map(|value| number_object(*value)).collect()),
+    });
     dict.set(
         "Contents",
         Object::String(
@@ -2072,46 +1985,9 @@ pub(crate) fn collect_annotation_refs_to_delete(
             Ok(dict) => dict,
             Err(_) => continue,
         };
-        if annotation_subtype(dict) == "stamp"
-            && is_managed_placed_image_stamp(dict)
-            && placed_image_appearance_refs(document, object_id).is_some()
-        {
-            if let Ok(appearance) = dict.get(b"AP") {
-                if let Some(appearance_dict) = document
-                    .resolved(appearance)
-                    .ok()
-                    .and_then(|value| value.as_dict().ok())
-                {
-                    if let Some(appearance_id) = annotation_related_ref(appearance_dict, b"N") {
-                        pending.push(appearance_id);
-                        if let Ok(Object::Stream(appearance_stream)) =
-                            document.object(appearance_id)
-                        {
-                            if let Some(resources) = appearance_stream
-                                .dict
-                                .get(b"Resources")
-                                .ok()
-                                .and_then(|value| document.resolved(value).ok())
-                                .and_then(|value| value.as_dict().ok())
-                            {
-                                if let Some(xobjects) = resources
-                                    .get(b"XObject")
-                                    .ok()
-                                    .and_then(|value| document.resolved(value).ok())
-                                    .and_then(|value| value.as_dict().ok())
-                                {
-                                    pending.extend(
-                                        xobjects
-                                            .iter()
-                                            .filter_map(|(_, value)| value.as_reference().ok()),
-                                    );
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        // AP and image streams are reusable resources. Another annotation
+        // can share either object, and saved-deletion undo retains the image
+        // identity. Delete only annotation ownership, not those resources.
         if let Some(popup_id) = annotation_related_ref(dict, b"Popup") {
             pending.push(popup_id);
         }

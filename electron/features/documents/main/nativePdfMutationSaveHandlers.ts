@@ -150,6 +150,12 @@ async function materializeNativeBinarySidecars(
     }
     const mutationPayload = payload as IPdfNativeMutationSet & {placedImages: NonNullable<IPdfNativeMutationSet['placedImages']>};
     const placedImages = await Promise.all(mutationPayload.placedImages.map(async (image) => {
+        if (image.bytesBase64 !== undefined) {
+            return image;
+        }
+        if (!image.source) {
+            throw new Error('Placed image source is missing');
+        }
         const source = await resolveManagedTempFileHandle(context, image.source);
         const {
             source: _source,

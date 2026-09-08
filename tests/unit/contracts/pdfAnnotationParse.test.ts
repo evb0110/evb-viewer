@@ -16,6 +16,65 @@ const channels = DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels;
 const codecs = DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs;
 
 describe('PDF annotation parse IPC contracts', () => {
+    it('admits native-validated rotated base rectangles while rejecting impossible bounds', () => {
+        const textBox = {
+            kind: 'text-box',
+            pageIndex: 0,
+            objectNumber: 17,
+            generationNumber: 0,
+            name: 'rotated',
+            author: null,
+            createdAt: null,
+            modifiedAt: null,
+            text: 'Edge',
+            rect: {
+                left: -0.075,
+                top: 0.4,
+                width: 0.4,
+                height: 0.2,
+            },
+            rotation: 90,
+            fontSize: 12,
+            color: '#336699',
+        };
+        const decode = (entry: typeof textBox) => codecs[channels.readPdfAnnotationParseChunk]!.decodeResult({
+            offset: 0,
+            nextOffset: null,
+            byteLength: 0,
+            done: true,
+            entries: [entry],
+        });
+        expect(decode(textBox).entries[0]).toMatchObject({
+            rect: textBox.rect,
+            rotation: 90,
+        });
+        expect(() => decode({
+            ...textBox,
+            rotation: 32.5,
+        })).toThrow(/must be 0, 90, 180, or 270/iu);
+        expect(() => decode({
+            ...textBox,
+            rotation: 0,
+        })).toThrow(/normalized page bounds/iu);
+        expect(() => decode({
+            ...textBox,
+            rect: {
+                ...textBox.rect,
+                left: -1,
+            },
+        })).toThrow(/normalized page bounds/iu);
+        expect(() => decode({
+            ...textBox,
+            rect: {
+                left: 0.4,
+                top: 0.4,
+                width: 0.9,
+                height: 0.9,
+            },
+        }))
+            .toThrow(/normalized page bounds/iu);
+    });
+
     it('round-trips parse sessions, entries, chunks, and lifecycle payloads', () => {
         const textBox = {
             kind: 'text-box' as const,
@@ -224,6 +283,35 @@ describe('PDF annotation parse IPC contracts', () => {
                 sha256: 'a'.repeat(64),
             },
         });
+        const arbitraryStampRotationChunk = {
+            ...chunk,
+            entries: chunk.entries.map(entry => entry.kind === 'stamp'
+                ? {
+                    ...entry,
+                    rotation: 32.5,
+                }
+                : entry),
+        };
+        expect(codecs[channels.readPdfAnnotationParseChunk]!.decodeResult(arbitraryStampRotationChunk).entries[4])
+            .toMatchObject({
+                kind: 'stamp',
+                rotation: 32.5,
+            });
+        for (const rotation of [
+            Number.NaN,
+            Number.POSITIVE_INFINITY,
+            Number.NEGATIVE_INFINITY,
+        ]) {
+            expect(() => codecs[channels.readPdfAnnotationParseChunk]!.decodeResult({
+                ...chunk,
+                entries: chunk.entries.map(entry => entry.kind === 'stamp'
+                    ? {
+                        ...entry,
+                        rotation,
+                    }
+                    : entry),
+            })).toThrow(/finite/iu);
+        }
         expect(decodedChunk.entries[5]).toMatchObject({
             kind: 'shape',
             pdfSubtype: 'Line',

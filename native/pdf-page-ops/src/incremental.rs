@@ -323,6 +323,7 @@ fn apply_native_mutations_internal(
             document,
             &mutations.placed_image_geometry_updates,
             modified_at,
+            &mut identity_bindings,
         )?;
     }
     Ok(())
@@ -509,6 +510,7 @@ fn apply_native_mutations_incremental_internal(
             incremental,
             &mutations.placed_image_geometry_updates,
             modified_at,
+            &mut identity_bindings,
         )?;
     }
     Ok(())
@@ -539,6 +541,12 @@ pub(crate) fn append_native_mutations_with_qpdf(
     assert_plaintext_base(
         incremental.get_prev_documents(),
         "Encrypted PDFs are not supported by native page ops",
+    )?;
+    materialize_stamp_recovery_sources(
+        &mut incremental,
+        input_path,
+        qpdf_path,
+        &mutations.placed_image_geometry_updates,
     )?;
 
     let previous_len = incremental.previous_len();
@@ -608,6 +616,12 @@ pub(crate) fn append_native_mutations_in_place_with_qpdf(
     assert_plaintext_base(
         incremental.get_prev_documents(),
         "Encrypted PDFs are not supported by native page ops",
+    )?;
+    materialize_stamp_recovery_sources(
+        &mut incremental,
+        input_path,
+        qpdf_path,
+        &mutations.placed_image_geometry_updates,
     )?;
 
     let previous_len = incremental.previous_len();
@@ -831,6 +845,12 @@ pub(crate) fn write_native_mutations_path(
     assert_plaintext_base(
         incremental.get_prev_documents(),
         "Encrypted PDFs are not supported by native page ops",
+    )?;
+    materialize_stamp_recovery_sources(
+        &mut incremental,
+        input_path,
+        qpdf_path,
+        &mutations.placed_image_geometry_updates,
     )?;
     with_staged_incremental_output_for_revision(
         input_path,

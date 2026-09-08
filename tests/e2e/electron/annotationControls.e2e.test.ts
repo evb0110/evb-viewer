@@ -11,6 +11,9 @@ import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/creat
 import {
     clickAnnotationTool,
     createCanonicalTextBoxWithPointer,
+    clickVisibleAnnotationControl,
+    selectAllFocusedAnnotationText,
+    setAnnotationKeepActiveWithPointer,
 } from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {
     openAnnotationsTab,
@@ -149,44 +152,10 @@ async function resizeSidebar(page: Page, deltaX: number) {
     }, {timeout: POINTER_READY_TIMEOUT_MS}, geometry.sidebarWidth + (deltaX / 2));
 }
 
-async function readVisibleCenter(
-    page: Page,
-    selector: string,
-    position: 'first' | 'last' = 'first',
-) {
-    return page.evaluate((options: {
-        position: 'first' | 'last';
-        selector: string;
-    }) => {
-        const candidates = Array.from(document.querySelectorAll<HTMLElement>(options.selector))
-            .filter((element) => {
-                const rect = element.getBoundingClientRect();
-                const style = window.getComputedStyle(element);
-                return style.display !== 'none'
-                    && style.visibility !== 'hidden'
-                    && Number(style.opacity || '1') > 0
-                    && rect.width > 0
-                    && rect.height > 0;
-            });
-        const element = options.position === 'last' ? candidates.at(-1) : candidates[0];
-        if (!element) {
-            return null;
-        }
-        const rect = element.getBoundingClientRect();
-        return {
-            x: rect.left + rect.width / 2,
-            y: rect.top + rect.height / 2,
-        };
-    }, {
-        position,
-        selector,
-    });
-}
-
 async function readStyleStepGeometry(page: Page): Promise<IStyleStepGeometry[]> {
     return page.evaluate(() => {
         const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>(
-            '.annotation-style-popover .style-step-button',
+            '[data-annotation-inspector] .style-step-button',
         )).filter((button) => {
             const rect = button.getBoundingClientRect();
             const style = window.getComputedStyle(button);
@@ -218,10 +187,84 @@ async function readStyleStepGeometry(page: Page): Promise<IStyleStepGeometry[]> 
     });
 }
 
+async function expectUsableStyleSlider(page: Page) {
+    const geometry = await page.$eval('.editor-pane.is-active [data-annotation-inspector] .style-row-width', row => {
+        const control = row.querySelector<HTMLElement>('.style-width-control');
+        const track = row.querySelector<HTMLElement>('.style-range-track');
+        return {
+            rowWidth: row.getBoundingClientRect().width,
+            controlWidth: control?.getBoundingClientRect().width ?? 0,
+            trackWidth: track?.getBoundingClientRect().width ?? 0,
+        };
+    });
+    expect(geometry.controlWidth, JSON.stringify(geometry)).toBeGreaterThanOrEqual(geometry.rowWidth - 2);
+    expect(geometry.trackWidth, JSON.stringify(geometry)).toBeGreaterThan(60);
+}
+
+async function recordPointerDiagnostics(page: Page) {
+    const navigation: string[] = [];
+    const recordNavigation = () => navigation.push(page.url());
+    page.on('load', recordNavigation);
+    const handle = await page.evaluateHandle(() => {
+        const events: object[] = [];
+        const record = (event: Event) => {
+            const target = event.target instanceof Element ? event.target : null;
+            events.push({
+                type: event.type,
+                target: target?.tagName,
+                className: target?.getAttribute('class'),
+                active: document.activeElement?.getAttribute('class'),
+                editing: document.querySelectorAll('.pdf-annotation-editor-text-box.is-editing').length,
+                boxes: document.querySelectorAll('.pdf-annotation-editor-layer [data-annotation-kind="text-box"]').length,
+            });
+        };
+        const names = [
+            'pointerdown',
+            'pointerup',
+            'mousedown',
+            'mouseup',
+            'click',
+            'focusin',
+            'focusout',
+            'pagehide',
+        ];
+        names.forEach(name => window.addEventListener(name, record, true));
+        return {finish() {
+            names.forEach(name => window.removeEventListener(name, record, true));
+            return {
+                events,
+                rootPresent: document.querySelector('#__nuxt') !== null,
+                loading: Array.from(document.querySelectorAll('[class*="loading"]')).filter(element => element.getBoundingClientRect().width > 0).map(element => element.getAttribute('class')),
+                readyState: document.readyState,
+            };
+        }};
+    });
+    const collect = async () => {
+        page.off('load', recordNavigation);
+        try {
+            return {
+                navigation,
+                document: await handle.evaluate(recorder => recorder.finish()),
+            };
+        } catch (error) {
+            return {
+                navigation,
+                error: String(error),
+            };
+        } finally {
+            await handle.dispose().catch(() => undefined);
+        }
+    };
+    let completion: ReturnType<typeof collect> | undefined;
+    const finish = () => completion ??= collect();
+    onTestFinished(async () => { await finish(); });
+    return finish;
+}
+
 async function readTextBoxFontSize(page: Page, annotationId: string) {
     return page.evaluate((id: string) => {
         const textBox = Array.from(document.querySelectorAll<HTMLElement>(
-            '[data-annotation-kind="text-box"]',
+            '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="text-box"]',
         )).find(candidate => candidate.dataset.annotationId === id);
         if (!textBox) {
             return null;
@@ -237,26 +280,10 @@ async function readTextBoxFontSize(page: Page, annotationId: string) {
     }, annotationId);
 }
 
-async function readTextBoxCenter(page: Page, annotationId: string) {
-    return page.evaluate((id: string) => {
-        const textBox = Array.from(document.querySelectorAll<HTMLElement>(
-            '[data-annotation-kind="text-box"]',
-        )).find(candidate => candidate.dataset.annotationId === id);
-        if (!textBox) {
-            return null;
-        }
-        const rect = textBox.getBoundingClientRect();
-        return {
-            x: rect.left + rect.width / 2,
-            y: rect.top + rect.height / 2,
-        };
-    }, annotationId);
-}
-
 async function readTextBoxGeometry(page: Page, annotationId: string) {
     return page.evaluate((id: string): ITextBoxGeometrySnapshot | null => {
         const textBox = Array.from(document.querySelectorAll<HTMLElement>(
-            '[data-annotation-kind="text-box"]',
+            '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="text-box"]',
         )).find(candidate => candidate.dataset.annotationId === id);
         const pageContainer = textBox?.closest<HTMLElement>('.page_container');
         if (!textBox || !pageContainer) {
@@ -355,6 +382,56 @@ async function readActiveAnnotationTool(page: Page) {
     )?.dataset.tool ?? null);
 }
 
+async function expectMatchingTextCardColor(page: Page, id: string, expected: string) {
+    await expect.poll(() => page.evaluate((annotationId: string) => {
+        const entity = document.querySelector<HTMLElement>(`.pdf-annotation-editor-layer [data-annotation-id="${annotationId}"]`);
+        const chip = document.querySelector<HTMLElement>(`.note-item[data-annotation-id="${annotationId}"] .note-item-color-chip`);
+        return {
+            text: entity ? getComputedStyle(entity).color : null,
+            card: chip ? getComputedStyle(chip).backgroundColor : null,
+            chipWidth: chip?.getBoundingClientRect().width ?? 0,
+        };
+    }, id)).toEqual({
+        text: expected,
+        card: expected,
+        chipWidth: expect.any(Number),
+    });
+    expect(await page.$eval(`.note-item[data-annotation-id="${id}"] .note-item-color-chip`, chip => chip.getBoundingClientRect().width)).toBeGreaterThan(0);
+}
+
+async function expectVisibleTypingFrame(page: Page, selector: string) {
+    const frame = await page.evaluate((editorSelector: string) => {
+        const editor = document.querySelector<HTMLElement>(editorSelector);
+        const root = editor?.closest<HTMLElement>('[data-annotation-kind="text-box"]');
+        if (!editor || !root) {
+            return null;
+        }
+        const styles = getComputedStyle(root);
+        const editorStyles = getComputedStyle(editor);
+        const visibleColor = (color: string) => color !== 'transparent' && color !== 'rgba(0, 0, 0, 0)';
+        const selection = window.getSelection();
+        return {
+            focused: document.activeElement === editor,
+            visibleFrame: (Number.parseFloat(styles.borderTopWidth) >= 1 && styles.borderTopStyle !== 'none' && visibleColor(styles.borderTopColor))
+                || (Number.parseFloat(styles.outlineWidth) >= 1 && styles.outlineStyle !== 'none' && visibleColor(styles.outlineColor)),
+            caretVisible: visibleColor(editorStyles.caretColor),
+            selectionInside: selection?.anchorNode === editor || (selection?.anchorNode !== null && editor.contains(selection?.anchorNode ?? null)),
+            selectionCollapsed: selection?.isCollapsed,
+            editableWidth: editor.getBoundingClientRect().width,
+            editableHeight: editor.getBoundingClientRect().height,
+        };
+    }, selector);
+    expect(frame).toMatchObject({
+        focused: true,
+        visibleFrame: true,
+        caretVisible: true,
+        selectionInside: true,
+        selectionCollapsed: true,
+    });
+    expect(frame?.editableWidth).toBeGreaterThan(0);
+    expect(frame?.editableHeight).toBeGreaterThan(0);
+}
+
 describe('Electron E2E - annotation controls', () => {
     const sessionFixture = createElectronE2ESessionFixture({
         restartBeforeEach: true,
@@ -362,127 +439,80 @@ describe('Electron E2E - annotation controls', () => {
         sessionName: () => `e2e-annotation-controls-${Date.now()}`,
     });
 
-    it('keeps text style controls centered and draw presets pointer-active', async () => {
+    it('keeps one inline inspector stable and separates selected properties from tool defaults', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
+        if (!session) throw new Error('Annotation controls session did not start');
         const {page} = session;
         const fixturePath = await createBlankFixturePdf(`annotation-controls-${Date.now()}.pdf`);
         onTestFinished(() => rmSync(fixturePath, {force: true}));
-
         await openPdfInApp(page, fixturePath);
         await waitForPdfLoaded(page);
         await waitForViewerInteractive(page);
         await openAnnotationsTab(page);
-        await waitForViewerInteractive(page);
-
-        const sidebarBefore = await page.evaluate(() => document.querySelector<HTMLElement>(
-            '.editor-pane.is-active .workspace-host [data-testid="document-sidebar"]',
-        )?.getBoundingClientRect().width ?? 0);
+        await setAnnotationKeepActiveWithPointer(page, false);
+        await clickAnnotationTool(page, 'Text');
+        await expectUsableStyleSlider(page);
         await resizeSidebar(page, SIDEBAR_RESIZE_DELTA_PX);
-        const sidebarAfter = await page.evaluate(() => document.querySelector<HTMLElement>(
-            '.editor-pane.is-active .workspace-host [data-testid="document-sidebar"]',
-        )?.getBoundingClientRect().width ?? 0);
-        expect(sidebarAfter).toBeGreaterThan(sidebarBefore + (SIDEBAR_RESIZE_DELTA_PX / 2));
-        await waitForViewerInteractive(page);
+        await expectUsableStyleSlider(page);
         await waitForAnnotationPointerReady(page);
 
-        const textBoxId = await createCanonicalTextBoxWithPointer(
-            page,
-            `Annotation controls ${Date.now()}`,
-            {
-                x: 0.42,
-                y: 0.34,
-            },
-        );
-        await clickAnnotationTool(page, 'Select');
-        await waitForAnnotationPointerReady(page);
-        await page.waitForFunction((id: string) => Boolean(Array.from(
-            document.querySelectorAll<HTMLElement>('[data-annotation-kind="text-box"]'),
-        ).find(candidate => candidate.dataset.annotationId === id)), {timeout: POINTER_READY_TIMEOUT_MS}, textBoxId);
-
-        const textBoxCenter = await readTextBoxCenter(page, textBoxId);
-        if (!textBoxCenter) {
-            throw new Error('The created text box did not expose a visible selection target');
+        const inspector = '.editor-pane.is-active [data-annotation-inspector]';
+        await page.waitForSelector(`${inspector}[data-target="defaults"]`, {visible: true});
+        const steps = await readStyleStepGeometry(page);
+        expect(steps).toHaveLength(2);
+        for (const step of steps) {
+            expect(Math.abs(step.dx)).toBeLessThanOrEqual(0.5);
+            expect(Math.abs(step.dy)).toBeLessThanOrEqual(0.5);
         }
-        await page.mouse.click(textBoxCenter.x, textBoxCenter.y);
-        await page.waitForFunction((id: string) => Boolean(Array.from(
-            document.querySelectorAll<HTMLElement>('[data-annotation-kind="text-box"]'),
-        ).find(candidate => candidate.dataset.annotationId === id && candidate.classList.contains('is-selected'))), {timeout: STYLE_UPDATE_TIMEOUT_MS}, textBoxId);
-        await page.waitForSelector('.annotation-style-popover .style-step-button', {
-            visible: true,
-            timeout: STYLE_UPDATE_TIMEOUT_MS,
+        const beforeBounds = await page.$eval(inspector, element => element.getBoundingClientRect().toJSON());
+        const textBoxId = await createCanonicalTextBoxWithPointer(page, 'Selected text style', {
+            x: 0.42,
+            y: 0.34,
         });
-
-        const stepGeometry = await readStyleStepGeometry(page);
-        expect(stepGeometry).toHaveLength(2);
-        for (const geometry of stepGeometry) {
-            expect(Math.abs(geometry.dx), JSON.stringify({geometry})).toBeLessThanOrEqual(0.5);
-            expect(Math.abs(geometry.dy), JSON.stringify({geometry})).toBeLessThanOrEqual(0.5);
-        }
-
-        const initialFontSize = await readTextBoxFontSize(page, textBoxId);
-        expect(initialFontSize).not.toBeNull();
-        const increaseButton = stepGeometry.at(-1);
-        if (!increaseButton || initialFontSize === null) {
-            throw new Error('The text style increase control was not measurable');
-        }
-        await page.mouse.click(increaseButton.x, increaseButton.y);
-        await expect.poll(async () => readTextBoxFontSize(page, textBoxId), {timeout: STYLE_UPDATE_TIMEOUT_MS})
-            .toBeGreaterThan(initialFontSize);
-        const increasedFontSize = await readTextBoxFontSize(page, textBoxId);
-        expect(increasedFontSize).not.toBeNull();
-        const decreaseButton = stepGeometry[0];
-        if (!decreaseButton || increasedFontSize === null) {
-            throw new Error('The text style decrease control was not measurable');
-        }
-        await page.mouse.click(decreaseButton.x, decreaseButton.y);
-        await expect.poll(async () => readTextBoxFontSize(page, textBoxId), {timeout: STYLE_UPDATE_TIMEOUT_MS})
-            .toBeLessThan(increasedFontSize);
+        await expect.poll(() => readActiveAnnotationTool(page)).toBe('select');
+        await page.waitForSelector(`${inspector}[data-target="selection"]`, {visible: true});
+        const initialSize = await readTextBoxFontSize(page, textBoxId);
+        expect(initialSize).not.toBeNull();
+        await clickVisibleAnnotationControl(page, `${inspector} input[type="number"]`);
+        await page.keyboard.press('ArrowUp');
+        await page.keyboard.press('Tab');
+        await expect.poll(() => readTextBoxFontSize(page, textBoxId)).toBeGreaterThan(initialSize!);
+        const selectedSize = await readTextBoxFontSize(page, textBoxId);
+        await clickVisibleAnnotationControl(page, `${inspector} .swatch[aria-label="#22c55e"]`);
+        await expectMatchingTextCardColor(page, textBoxId, 'rgb(34, 197, 94)');
 
         await clickAnnotationTool(page, 'Draw');
-        await waitForAnnotationPointerReady(page);
-        await page.waitForSelector('.annotation-style-popover .draw-style-button:last-child', {
-            visible: true,
-            timeout: STYLE_UPDATE_TIMEOUT_MS,
-        });
-        const markerButton = await readVisibleCenter(
-            page,
-            '.annotation-style-popover .draw-style-button:last-child',
-        );
-        if (!markerButton) {
-            throw new Error('The Marker draw-style button was not visible');
-        }
-        await page.mouse.click(markerButton.x, markerButton.y);
-        await page.waitForFunction(() => (
-            document.querySelector<HTMLElement>(
-                '.editor-pane.is-active .workspace-host .notes-panel .tool-button.is-active',
-            )?.dataset.tool === 'draw'
-        ), {timeout: STYLE_UPDATE_TIMEOUT_MS});
-        await page.waitForFunction(() => (
-            document.querySelector<HTMLElement>(
-                '.annotation-style-popover .draw-style-button:last-child',
-            )?.classList.contains('is-active') ?? false
-        ), {timeout: STYLE_UPDATE_TIMEOUT_MS});
-        await waitForAnnotationPointerReady(page);
-
+        await page.waitForSelector(`${inspector}[data-target="defaults"]`, {visible: true});
+        await clickVisibleAnnotationControl(page, `${inspector} .swatch[aria-label="#ef4444"]`);
+        await expectMatchingTextCardColor(page, textBoxId, 'rgb(34, 197, 94)');
+        expect(await readTextBoxFontSize(page, textBoxId)).toBe(selectedSize);
+        await clickVisibleAnnotationControl(page, `${inspector} .draw-style-button:last-child`);
         await drawInkStroke(page);
-        let inkShapes: IManagedShape[] = [];
-        await expect.poll(async () => {
-            inkShapes = ((await callWorkspaceCommand<IManagedShape[]>(page, 'getAllShapes')).value ?? [])
-                .filter(shape => shape.pdfSubtype === 'Ink');
-            return inkShapes;
-        }, {timeout: STYLE_UPDATE_TIMEOUT_MS}).toHaveLength(1);
-        const inkShape = inkShapes[0];
-        expect(inkShape?.source).toBe('local');
-        expect(inkShape?.strokeWidth).toBe(6);
-        expect(inkShape?.opacity).toBeCloseTo(0.42, 2);
-        expect(inkShape?.strokes?.[0]?.length ?? 0).toBeGreaterThan(1);
+        await expect.poll(() => readActiveAnnotationTool(page)).toBe('select');
+        const shapes = ((await callWorkspaceCommand<IManagedShape[]>(page, 'getAllShapes')).value ?? []);
+        expect(shapes.filter(shape => shape.pdfSubtype === 'Ink')).toEqual([expect.objectContaining({
+            strokeWidth: 6,
+            opacity: 0.42,
+        })]);
+        const afterBounds = await page.$eval(inspector, element => element.getBoundingClientRect().toJSON());
+        expect(Math.abs(afterBounds.left - beforeBounds.left)).toBeLessThanOrEqual(1);
+        expect(Math.abs(afterBounds.width - beforeBounds.width)).toBeLessThanOrEqual(1);
+        expect(await page.$$('.annotation-style-popover')).toHaveLength(0);
+        expect(await page.$$(inspector)).toHaveLength(1);
+        await setAnnotationKeepActiveWithPointer(page, true);
+        await clickAnnotationTool(page, 'Draw');
+        await drawInkStroke(page);
         expect(await readActiveAnnotationTool(page)).toBe('draw');
+        await clickAnnotationTool(page, 'Text');
+        await createCanonicalTextBoxWithPointer(page, 'Keep the text tool active', {
+            x: 0.62,
+            y: 0.72,
+        });
+        expect(await readActiveAnnotationTool(page)).toBe('text');
+        await setAnnotationKeepActiveWithPointer(page, false);
     });
 
-    it('keeps delayed text creation focused while the style popover reopens', async () => {
+    it('retains a visible typing box and places the caret through delayed pointer input', async () => {
         const session = sessionFixture.getSession();
         if (!session) {
             return;
@@ -495,6 +525,7 @@ describe('Electron E2E - annotation controls', () => {
         await waitForPdfLoaded(page);
         await waitForViewerInteractive(page);
         await openAnnotationsTab(page);
+        await setAnnotationKeepActiveWithPointer(page, false);
         await waitForViewerInteractive(page);
         await clickAnnotationTool(page, 'Text');
 
@@ -511,7 +542,7 @@ describe('Electron E2E - annotation controls', () => {
                 await clickAnnotationTool(page, 'Text');
             }
 
-            await page.waitForSelector('.annotation-style-popover', {
+            await page.waitForSelector('[data-annotation-inspector][data-target="defaults"]', {
                 visible: true,
                 timeout: STYLE_UPDATE_TIMEOUT_MS,
             });
@@ -532,6 +563,7 @@ describe('Electron E2E - annotation controls', () => {
                 throw new Error('The text annotation layer did not expose a drawable point');
             }
 
+            const finishDiagnostics = await recordPointerDiagnostics(page);
             await page.mouse.click(point.x, point.y, {delay: 100});
             await page.evaluate(() => new Promise<void>(resolve => {
                 setTimeout(resolve, 300);
@@ -546,7 +578,11 @@ describe('Electron E2E - annotation controls', () => {
                     focused: editor !== null && activeElement === editor,
                 };
             }, editorSelector);
-            expect(focusSnapshot, `Text editor focus was lost on delayed attempt ${attempt}: ${JSON.stringify(focusSnapshot)}`)
+            const diagnostics = await finishDiagnostics();
+            expect(focusSnapshot, `Text editor focus was lost on delayed attempt ${attempt}: ${JSON.stringify({
+                focusSnapshot,
+                diagnostics,
+            })}`)
                 .toMatchObject({
                     editorPresent: true,
                     focused: true,
@@ -554,6 +590,7 @@ describe('Electron E2E - annotation controls', () => {
 
             // Deliberately do not call page.focus here. The keystrokes must use
             // the focus produced by the real pointer sequence.
+            await expectVisibleTypingFrame(page, editorSelector);
             const text = `Delayed text ${attempt}`;
             await page.keyboard.type(text, {delay: 5});
             const editorText = await page.evaluate((selector: string) => (
@@ -563,6 +600,26 @@ describe('Electron E2E - annotation controls', () => {
                 ?? null
             ), editorSelector);
             expect(editorText, `Text editor did not receive delayed input on attempt ${attempt}`).toBe(text);
+            await expectVisibleTypingFrame(page, editorSelector);
+            const caretPoint = await page.$eval(editorSelector, editor => {
+                const node = editor.firstChild;
+                if (!(node instanceof Text)) throw new Error('Typed annotation has no text node');
+                const range = document.createRange();
+                range.setStart(node, 5);
+                range.collapse(true);
+                const rect = range.getBoundingClientRect();
+                return {
+                    x: rect.left,
+                    y: rect.top + rect.height / 2,
+                };
+            });
+            await page.mouse.click(caretPoint.x, caretPoint.y);
+            await page.keyboard.type('#');
+            const pointerEditedText = `${text.slice(0, 5)}#${text.slice(5)}`;
+            await expect.poll(() => page.$eval(editorSelector, editor => editor.textContent)).toBe(pointerEditedText);
+            await page.keyboard.press('ArrowLeft');
+            await page.keyboard.type('!');
+            await expect.poll(() => page.$eval(editorSelector, editor => editor.textContent)).toBe(`${text.slice(0, 5)}!#${text.slice(5)}`);
             await page.keyboard.press('Escape');
             await clickAnnotationTool(page, 'Select');
             await page.waitForFunction((selector: string) => (
@@ -584,6 +641,7 @@ describe('Electron E2E - annotation controls', () => {
         await waitForPdfLoaded(page);
         await waitForViewerInteractive(page);
         await openAnnotationsTab(page);
+        await setAnnotationKeepActiveWithPointer(page, false);
         await waitForViewerInteractive(page);
         await clickAnnotationTool(page, 'Text');
         await waitForAnnotationPointerReady(page);
@@ -645,6 +703,7 @@ describe('Electron E2E - annotation controls', () => {
         }
         expect(initial.editing).toBe(true);
         expect(initial.focused).toBe(true);
+        await expectVisibleTypingFrame(page, editorSelector);
         expect(initial.fontSize).toBeGreaterThan(0);
         expect(initial.rect.width / initial.fontSize).toBeGreaterThan(1.8);
         expect(initial.rect.width / initial.fontSize).toBeLessThan(2.3);
@@ -664,7 +723,7 @@ describe('Electron E2E - annotation controls', () => {
             text: string;
         }) => {
             const entity = document.querySelector<HTMLElement>(
-                `[data-annotation-kind="text-box"][data-annotation-id="${options.id}"]`,
+                `.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="text-box"][data-annotation-id="${options.id}"]`,
             );
             return entity?.textContent?.replace(/[\u200B\uFEFF]/gu, '') === options.text;
         }, {timeout: STYLE_UPDATE_TIMEOUT_MS}, {
@@ -686,7 +745,7 @@ describe('Electron E2E - annotation controls', () => {
             text: string;
         }) => {
             const entity = document.querySelector<HTMLElement>(
-                `[data-annotation-kind="text-box"][data-annotation-id="${options.id}"]`,
+                `.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="text-box"][data-annotation-id="${options.id}"]`,
             );
             return entity?.textContent?.replace(/[\u200B\uFEFF]/gu, '') === options.text;
         }, {timeout: STYLE_UPDATE_TIMEOUT_MS}, {
@@ -706,30 +765,14 @@ describe('Electron E2E - annotation controls', () => {
         expect(multiline.editorScrollHeight).toBeLessThanOrEqual(multiline.editorClientHeight + 2);
 
         const replacementText = 'Text';
-        await page.evaluate((id: string) => {
-            const editor = document.querySelector<HTMLElement>(
-                `[data-annotation-kind="text-box"][data-annotation-id="${id}"] [contenteditable="true"]`,
-            );
-            if (!editor) {
-                throw new Error('The active text editor was unavailable for replacement');
-            }
-            editor.focus();
-            const selection = window.getSelection();
-            if (!selection) {
-                throw new Error('The active text editor selection was unavailable for replacement');
-            }
-            const range = document.createRange();
-            range.selectNodeContents(editor);
-            selection.removeAllRanges();
-            selection.addRange(range);
-        }, textBoxId);
+        await selectAllFocusedAnnotationText(page);
         await page.keyboard.type(replacementText, {delay: 4});
         await page.waitForFunction((options: {
             id: string;
             text: string;
         }) => {
             const entity = document.querySelector<HTMLElement>(
-                `[data-annotation-kind="text-box"][data-annotation-id="${options.id}"]`,
+                `.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="text-box"][data-annotation-id="${options.id}"]`,
             );
             return entity?.textContent?.replace(/[\u200B\uFEFF]/gu, '') === options.text;
         }, {timeout: STYLE_UPDATE_TIMEOUT_MS}, {
@@ -757,7 +800,7 @@ describe('Electron E2E - annotation controls', () => {
         }
         await page.waitForFunction((id: string) => {
             const entity = document.querySelector<HTMLElement>(
-                `[data-annotation-kind="text-box"][data-annotation-id="${id}"]`,
+                `.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="text-box"][data-annotation-id="${id}"]`,
             );
             return entity !== null && !entity.classList.contains('is-editing');
         }, {timeout: STYLE_UPDATE_TIMEOUT_MS}, textBoxId);

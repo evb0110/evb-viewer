@@ -14,7 +14,6 @@ const MAX_PAGE_ANNOTATIONS: usize = 100_000;
 const MAX_ANNOTATION_REPLIES: usize = 4_096;
 const MAX_HIGHLIGHT_QUADS: usize = 512;
 const MAX_STAMP_IMAGE_GRAPH_NODES: usize = 32;
-const MAX_STAMP_IMAGE_BYTES: usize = 64 * 1024 * 1024;
 const MARKER_RECT_THRESHOLD: f64 = 0.02;
 const MARKER_RECT_EPSILON: f64 = f64::EPSILON * 16.0;
 
@@ -49,6 +48,8 @@ pub(crate) struct PdfAnnotationParseReply {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct PdfAnnotationParseNote {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) recovery_data: Option<String>,
     pub(crate) page_index: u64,
     pub(crate) object_number: u64,
     pub(crate) generation_number: u64,
@@ -111,7 +112,7 @@ pub(crate) struct PdfAnnotationParseStamp {
     pub(crate) created_at: Option<i64>,
     pub(crate) modified_at: Option<i64>,
     pub(crate) rect: MarkerRect,
-    pub(crate) rotation: i64,
+    pub(crate) rotation: f64,
     pub(crate) image: PdfAnnotationParseStampImage,
 }
 
@@ -552,15 +553,33 @@ fn parse_text_box_entry(
     name: &str,
 ) -> std::result::Result<PdfAnnotationParseTextBox, String> {
     let rect = read_annotation_rect(document, dict)?;
-    let rect = pdf_rect_to_marker_rect(rect, page_view, page_rotation)
-        .map_err(|error| error.to_string())?;
+    if dict.has(b"EVBTextGeometry") {
+        // Private source coordinates may cross the page edge, but the visible
+        // rectangle must still pass the page's ordinary bounds admission.
+        pdf_rect_to_marker_rect(rect, page_view, page_rotation)
+            .map_err(|error| error.to_string())?;
+    }
     if dict.get(b"Contents").is_err() && dict.get(b"RC").is_ok() {
         return Err("FreeText has rich text without plain text contents".to_string());
     }
     let text = read_optional_annotation_text(document, dict, b"Contents")?.unwrap_or_default();
     let (font_size, color) = parse_default_appearance(document, dict)?;
     let rotation = read_optional_integer(document, dict, b"Rotate")?.unwrap_or(0);
-    let rotation = normalize_page_rotation(rotation);
+    let rotation = rotation.rem_euclid(360);
+    if !matches!(rotation, 0 | 90 | 180 | 270) {
+        return Err(
+            "Imported FreeText rotation is not supported by the canonical text editor".to_string(),
+        );
+    }
+    let rect =
+        crate::text_box_font::stored_source_rect(document, dict, rect, rotation, page_rotation)
+            .map_err(|error| error.to_string())?;
+    let rect = if dict.has(b"EVBTextGeometry") {
+        pdf_rect_to_marker_rect_unbounded(rect, page_view, page_rotation)
+    } else {
+        pdf_rect_to_marker_rect(rect, page_view, page_rotation)
+    }
+    .map_err(|error| error.to_string())?;
     Ok(PdfAnnotationParseTextBox {
         page_index,
         object_number: u64::from(object_id.0),
@@ -686,10 +705,83 @@ fn parse_stamp_entry(
     page_rotation: i64,
     name: &str,
 ) -> std::result::Result<PdfAnnotationParseStamp, String> {
-    let rect = read_annotation_rect(document, dict)?;
-    let rect = pdf_rect_to_marker_rect(rect, page_view, page_rotation)
-        .map_err(|error| error.to_string())?;
+    let painted_rect = read_annotation_rect(document, dict)?;
     let rotation = stamp_rotation(document, dict).map_err(|error| error.to_string())?;
+    let rotation = if is_managed_placed_image_stamp(dict) {
+        let measured = (page_rotation as f64 + rotation).rem_euclid(360.0);
+        if let Some(authored) = read_optional_annotation_text(document, dict, b"EVBImageRotation")?
+        {
+            let authored = authored
+                .parse::<f64>()
+                .map_err(|_| "Managed stamp rotation metadata is invalid".to_string())?;
+            if !authored.is_finite() {
+                return Err("Managed stamp rotation metadata is not finite".to_string());
+            }
+            let authored = authored.rem_euclid(360.0);
+            let difference = (authored - measured + 180.0).rem_euclid(360.0) - 180.0;
+            if difference.abs() > 0.0001 {
+                return Err(
+                    "Managed stamp rotation metadata differs from its appearance".to_string(),
+                );
+            }
+            authored
+        } else {
+            measured
+        }
+    } else {
+        rotation
+    };
+    let rect = if is_managed_placed_image_stamp(dict) {
+        let [a, b, c, d, _, _] = stamp_appearance_cm_matrix(document, dict)
+            .ok_or("Managed stamp has no supported image transform")?;
+        let width = a.hypot(b);
+        let height = c.hypot(d);
+        if width <= 0.0 || height <= 0.0 || (a * c + b * d).abs() > width * height * 1e-6 {
+            return Err("Managed stamp image transform is not rectangular".to_string());
+        }
+        let (width, height) = if matches!(normalize_page_rotation(page_rotation), 90 | 270) {
+            (height, width)
+        } else {
+            (width, height)
+        };
+        let center_x = (painted_rect.x1 + painted_rect.x2) / 2.0;
+        let center_y = (painted_rect.y1 + painted_rect.y2) / 2.0;
+        let rect = pdf_rect_to_marker_rect_unbounded(
+            PdfRect {
+                x1: center_x - width / 2.0,
+                y1: center_y - height / 2.0,
+                x2: center_x + width / 2.0,
+                y2: center_y + height / 2.0,
+            },
+            page_view,
+            page_rotation,
+        )
+        .map_err(|error| error.to_string())?;
+        let probe = placed_image_geometry_probe(&PlacedImageGeometryUpdate {
+            author: None,
+            page_index: u32::try_from(page_index).map_err(|error| error.to_string())?,
+            source_image: None,
+            stable_key: None,
+            annotation_id: None,
+            x: rect.left,
+            y: rect.top,
+            width: rect.width,
+            height: rect.height,
+            rotation_degrees: Some(rotation),
+        });
+        let geometry = placed_image_geometry(&probe, page_view, page_rotation)
+            .map_err(|error| error.to_string())?;
+        validate_rect_approximately(
+            painted_rect,
+            geometry.rect,
+            "Managed stamp painted rectangle",
+        )
+        .map_err(|error| error.to_string())?;
+        rect
+    } else {
+        pdf_rect_to_marker_rect(painted_rect, page_view, page_rotation)
+            .map_err(|error| error.to_string())?
+    };
     let image = resolve_stamp_image(document, dict)?;
     Ok(PdfAnnotationParseStamp {
         page_index,
@@ -705,21 +797,32 @@ fn parse_stamp_entry(
     })
 }
 
-/// Stamps carry rotation in two places: `/Rotate` (Acrobat's convention) or
-/// inside the appearance stream's `cm` matrix (the writer's convention). The
-/// writer negates marker-space rotation for PDF's y-up space, so parse
-/// negates it back. Arbitrary degrees are not representable, so the result is
-/// snapped to a quarter turn; a stamp rotated by any other angle is still
-/// parsed, its visible shape unchanged by the reported rotation.
-fn stamp_rotation(document: &impl PdfObjectSource, dict: &Dictionary) -> Result<i64> {
-    if let Some(rotate) = read_optional_integer(document, dict, b"Rotate")? {
-        return Ok(normalize_page_rotation(rotate));
+/// Managed images retain arbitrary clockwise angles. Foreign appearance
+/// conventions stay bounded to the previously supported quarter turns.
+fn stamp_rotation(document: &impl PdfObjectSource, dict: &Dictionary) -> Result<f64> {
+    let managed = is_managed_placed_image_stamp(dict);
+    let rotate = read_optional_integer(document, dict, b"Rotate")?;
+    if managed && rotate.is_some_and(|rotation| rotation != 0) {
+        return Err("Managed stamp has an unsupported external rotation override".into());
     }
-    if let Some([a, b, ..]) = stamp_appearance_cm_matrix(document, dict) {
-        let degrees = -b.atan2(a).to_degrees();
-        return Ok(normalize_page_rotation(degrees.round() as i64));
+    let degrees = if let Some(rotate) = rotate.filter(|_| !managed) {
+        rotate as f64
+    } else if let Some([a, b, ..]) = stamp_appearance_cm_matrix(document, dict) {
+        -b.atan2(a).to_degrees()
+    } else {
+        0.0
+    };
+    if !degrees.is_finite() {
+        return Err("Stamp rotation is not finite".into());
     }
-    Ok(0)
+    if managed {
+        return Ok(degrees.rem_euclid(360.0));
+    }
+    let quarter_turn = (degrees / 90.0).round() * 90.0;
+    if (degrees - quarter_turn).abs() > 0.001 {
+        return Err("Foreign stamp rotation is not representable by the editor".into());
+    }
+    Ok(quarter_turn.rem_euclid(360.0))
 }
 
 /// Read the first `cm` matrix from the stamp's appearance stream. Compressed
@@ -738,7 +841,10 @@ fn stamp_appearance_cm_matrix(
     let Object::Stream(appearance_stream) = document.object(appearance_id).ok()? else {
         return None;
     };
-    let content = std::str::from_utf8(&appearance_stream.content).ok()?;
+    let bytes = appearance_stream
+        .decompressed_content_with_limit(1024 * 1024)
+        .ok()?;
+    let content = std::str::from_utf8(&bytes).ok()?;
     let mut values: Vec<f64> = Vec::with_capacity(6);
     for token in content.split_whitespace() {
         if token == "cm" {
@@ -798,7 +904,7 @@ fn resolve_stamp_image(
             .and_then(|value| value.as_name().ok())
             == Some(b"Image".as_slice())
         {
-            return stamp_image_reference(object_id, stream);
+            return stamp_image_reference(document, object_id, stream);
         }
         if let Some(xobjects) = stream
             .dict
@@ -821,35 +927,17 @@ fn resolve_stamp_image(
 }
 
 fn stamp_image_reference(
+    document: &impl PdfObjectSource,
     object_id: ObjectId,
     stream: &Stream,
 ) -> std::result::Result<PdfAnnotationParseStampImage, String> {
-    let filters = stream
-        .dict
-        .get(b"Filter")
-        .ok()
-        .and_then(|value| match value {
-            Object::Name(name) => Some(vec![name.clone()]),
-            Object::Array(values) => values
-                .iter()
-                .map(|value| value.as_name().ok().map(<[u8]>::to_vec))
-                .collect::<Option<Vec<_>>>(),
-            _ => None,
-        });
-    let filter_is_dct =
-        filters.is_some_and(|filters| filters.iter().any(|name| name == b"DCTDecode"));
-    if !filter_is_dct {
-        return Err("Stamp image is not JPEG-encoded".to_string());
-    }
-    if stream.content.len() > MAX_STAMP_IMAGE_BYTES {
-        return Err("Stamp image exceeds the admission ceiling".to_string());
-    }
+    let (byte_length, sha256) =
+        placed_raster_source_identity(document, stream).map_err(|error| error.to_string())?;
     Ok(PdfAnnotationParseStampImage {
         object_number: u64::from(object_id.0),
         generation_number: u64::from(object_id.1),
-        byte_length: u64::try_from(stream.content.len())
-            .map_err(|_| "Stamp image length overflow".to_string())?,
-        sha256: sha256_hex(&stream.content),
+        byte_length,
+        sha256,
     })
 }
 
@@ -957,7 +1045,16 @@ fn parse_note_entry(
         object_indexes,
         page_annotations,
     )?;
+    let reply_refs = replies
+        .iter()
+        .map(|reply| (reply.object_number as u32, reply.generation_number as u16))
+        .collect::<Vec<_>>();
+    let recovery_data = Some(
+        capture_note_recovery(document, object_id, &reply_refs)
+            .map_err(|error| error.to_string())?,
+    );
     Ok(PdfAnnotationParseNote {
+        recovery_data,
         page_index,
         object_number: u64::from(object_id.0),
         generation_number: u64::from(object_id.1),
@@ -2076,6 +2173,8 @@ mod tests {
                 "Subtype" => "Image",
                 "Width" => 1,
                 "Height" => 1,
+                "BitsPerComponent" => 8,
+                "ColorSpace" => "DeviceRGB",
                 "Filter" => "DCTDecode",
             },
             jpeg_bytes.clone(),
@@ -2142,7 +2241,7 @@ mod tests {
         };
         // The appearance matrix rotates by -90 degrees in PDF space, which is
         // +90 in marker space (the writer negates marker-space rotation).
-        assert_eq!(stamp_entry.rotation, 90);
+        assert_eq!(stamp_entry.rotation, 90.0);
         assert_marker_rect_approx(&stamp_entry.rect, 0.1, 0.3, 0.3, 0.2);
         assert_eq!(stamp_entry.image.object_number, u64::from(image_id.0));
         assert_eq!(stamp_entry.image.generation_number, u64::from(image_id.1));
@@ -2155,7 +2254,7 @@ mod tests {
             PdfAnnotationParseEntry::Stamp(value) => value,
             other => panic!("expected stamp, got {other:?}"),
         };
-        assert_eq!(acrobat_entry.rotation, 180);
+        assert_eq!(acrobat_entry.rotation, 180.0);
     }
 
     #[test]
@@ -2358,6 +2457,7 @@ mod tests {
                     annotation_id: None,
                     app_annotation_id: None,
                     color: Some("#ffcc00".to_string()),
+                    author: None,
                     contents: Some("app text".to_string()),
                     id: Some("app-highlight".to_string()),
                     page_markup_index: Some(0),
@@ -2390,6 +2490,8 @@ mod tests {
         apply_placed_images(
             &mut document,
             &[PlacedImage {
+                author: None,
+                bytes_base64: None,
                 page_index: 0,
                 stable_key: Some("stamp-stable".to_string()),
                 annotation_id: None,
@@ -2416,7 +2518,7 @@ mod tests {
             other => panic!("expected stamp, got {other:?}"),
         };
         assert_marker_rect_approx(&stamp.rect, 0.1, 0.3, 0.3, 0.2);
-        assert_eq!(stamp.rotation, 0);
+        assert_eq!(stamp.rotation, 0.0);
         assert_eq!(stamp.image.sha256, sha256_hex(&jpeg_bytes));
         assert_eq!(stamp_bindings.len(), 1);
         assert_eq!(stamp_bindings[0].annotation_id, "stamp-stable");
@@ -2430,6 +2532,7 @@ mod tests {
                 total_pages: 1,
                 rewrite_shape_state: false,
                 shapes: vec![ShapeAnnotation {
+                    author: None,
                     shape_type: "rectangle".to_string(),
                     page_index: 0,
                     x: 0.1,

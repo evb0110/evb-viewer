@@ -30,6 +30,14 @@ function normalizedPdfRef(value: string | null | undefined) {
     return normalizePdfJsAnnotationId(value);
 }
 
+const shapeCommentSubtypes: Record<TDrawableShapeType, string> = {
+    draw: 'Ink',
+    rectangle: 'Square',
+    circle: 'Circle',
+    line: 'Line',
+    arrow: 'Arrow',
+};
+
 export interface IAnnotationReadModel {
     readonly annotationId: AnnotationId;
     readonly kind: AnnotationEntity['kind'];
@@ -114,8 +122,11 @@ export function toCanonicalShapeEntity(
         modifiedAt: shape.modifiedAt === null || shape.modifiedAt === undefined
             ? null
             : createEpochMs(Math.trunc(shape.modifiedAt)),
-        author: null,
+        author: shape.author ?? null,
         tool,
+        ...(shape.pdfSubtype == null ? {} : {pdfSubtype: shape.pdfSubtype}),
+        ...(shape.lineStartStyle === undefined ? {} : {lineStartStyle: shape.lineStartStyle}),
+        ...(shape.lineEndStyle === undefined ? {} : {lineEndStyle: shape.lineEndStyle}),
         rect: {
             left: geometryLeft,
             top: geometryTop,
@@ -175,10 +186,9 @@ export class AnnotationApplication {
 
     listCommentSummaries(): readonly IAnnotationCommentSummary[] {
         return this.store.list().flatMap((entity) => {
-            if (entity.kind === 'shape') {
-                return [];
-            }
-            const source = entity.persistedRevision >= 0 ? 'pdf' as const : 'editor' as const;
+            const source = entity.kind === 'shape'
+                ? 'shape' as const
+                : entity.persistedRevision >= 0 ? 'pdf' as const : 'editor' as const;
             const externalId = entity.identity.pdfRef ?? entity.identity.id;
             const stableKey: IAnnotationCommentSummary['stableKey'] = entity.identity.pdfRef
                 ? `ann:${entity.pageIndex}:${entity.identity.pdfRef}`
@@ -203,10 +213,13 @@ export class AnnotationApplication {
                     ? 'Text'
                     : entity.kind === 'text-box'
                         ? 'FreeText'
-                        : 'Stamp';
+                        : entity.kind === 'shape'
+                            ? entity.tool === 'arrow' ? 'Arrow' : entity.pdfSubtype ?? shapeCommentSubtypes[entity.tool]
+                            : 'Stamp';
             return [{
                 source,
                 appAnnotationId: entity.identity.id,
+                annotationKind: entity.kind,
                 id: externalId,
                 stableKey,
                 pageIndex: entity.pageIndex,
@@ -223,14 +236,18 @@ export class AnnotationApplication {
                     || entity.kind === 'note'
                     || entity.kind === 'text-markup'
                     ? entity.color
-                    : null,
+                    : entity.kind === 'shape' ? entity.strokeColor : null,
+                ...(entity.kind === 'shape' ? {
+                    fillColor: entity.fill,
+                    strokeWidth: entity.strokeWidth,
+                    opacity: entity.opacity,
+                } : {}),
                 ...(entity.kind === 'text-markup' ? {opacity: entity.opacity} : {}),
                 ...(entity.kind === 'note' ? {open: entity.open} : {}),
                 uid: null,
                 annotationId: entity.identity.pdfRef ?? null,
                 annotationName: null,
-                hasNote: entity.kind === 'note'
-                    || (entity.kind !== 'placed-image' && text.length > 0),
+                hasNote: entity.kind === 'note' || entity.kind === 'text-markup' && text.length > 0,
                 markerRect,
                 ...(entity.kind === 'note' && entity.replies
                     ? {replies: entity.replies.map(reply => ({...reply}))}

@@ -5,5 +5,8 @@ export function isNoteEligibleComment(comment: IAnnotationCommentSummary | null 
     if (!comment) {
         return false;
     }
+    if (comment.annotationKind) {
+        return comment.annotationKind === 'note' || comment.annotationKind === 'text-markup';
+    }
     return isNoteEligible(comment.subtype, comment.hasNote, comment.source, comment.text);
 }

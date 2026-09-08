@@ -44,6 +44,7 @@ export interface IPdfAnnotationNoteReply {
 }
 
 export interface IPdfAnnotationNoteEntry extends IPdfAnnotationParseIdentityFields {
+    recoveryData?: string;
     kind: 'note';
     position: IMarkerRect;
     contents: string;
@@ -71,7 +72,7 @@ export interface IPdfAnnotationStampImageReference {
 export interface IPdfAnnotationStampEntry extends IPdfAnnotationParseIdentityFields {
     kind: 'stamp';
     rect: IMarkerRect;
-    rotation: 0 | 90 | 180 | 270;
+    rotation: number;
     image: IPdfAnnotationStampImageReference;
 }
 

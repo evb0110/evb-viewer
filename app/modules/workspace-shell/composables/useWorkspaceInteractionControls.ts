@@ -48,12 +48,10 @@ interface IWorkspaceInteractionControlsOptions {
     annotationTool: Ref<TAnnotationTool>;
     pdfViewerRef: Ref<IWorkspacePdfViewerInteractionPort | null>;
     documentViewerRef: Ref<IWorkspaceDocumentViewerSplitPort | null>;
-    shapePropertiesPopoverVisible: ComputedRef<boolean>;
     annotationContextMenuVisible: ComputedRef<boolean>;
     pageContextMenuVisible: ComputedRef<boolean>;
     closeAnnotationContextMenu: () => void;
     closePageContextMenu: () => void;
-    closeShapeProperties: () => void;
     openSearch: () => void;
     openAnnotations: () => void;
     handleAnnotationToolChange: (tool: TAnnotationTool) => void;
@@ -105,12 +103,10 @@ export const useWorkspaceInteractionControls = (options: IWorkspaceInteractionCo
         annotationTool,
         pdfViewerRef,
         documentViewerRef,
-        shapePropertiesPopoverVisible,
         annotationContextMenuVisible,
         pageContextMenuVisible,
         closeAnnotationContextMenu,
         closePageContextMenu,
-        closeShapeProperties,
         openSearch,
         openAnnotations,
         handleAnnotationToolChange,
@@ -180,12 +176,10 @@ export const useWorkspaceInteractionControls = (options: IWorkspaceInteractionCo
         showSettings,
         annotationTool,
         pdfViewerRef,
-        shapePropertiesPopoverVisible,
         annotationContextMenuVisible,
         pageContextMenuVisible,
         closeAnnotationContextMenu,
         closePageContextMenu,
-        closeShapeProperties,
         openSearch,
         openAnnotations,
         handleAnnotationToolChange,

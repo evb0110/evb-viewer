@@ -125,7 +125,7 @@ function decodeSessionId(value: unknown, fieldName: string) {
     return parsed;
 }
 
-function decodeMarkerRect(value: unknown, fieldName: string) {
+function decodeMarkerRect(value: unknown, fieldName: string, preserveUnrotatedBounds = false) {
     const decoded = decodeRequiredObject(value, fieldName);
     rejectUnknownFields(decoded, fieldName, [
         'left',
@@ -139,7 +139,13 @@ function decodeMarkerRect(value: unknown, fieldName: string) {
         width: decodeFiniteNumber(decoded.width, `${fieldName}.width`, 0),
         height: decodeFiniteNumber(decoded.height, `${fieldName}.height`, 0),
     };
-    if (!isPdfNativeNormalizedRectInsidePageBounds(rect)) {
+    // The native parser validates rotated text/image appearances before returning
+    // their original unrotated dimensions. Their base rectangle need not be
+    // contained in the page, even when every painted corner is inside it.
+    if (preserveUnrotatedBounds && (rect.width <= 0 || rect.height <= 0)) {
+        fail(`${fieldName} must have positive dimensions`);
+    }
+    if (!preserveUnrotatedBounds && !isPdfNativeNormalizedRectInsidePageBounds(rect)) {
         fail(`${fieldName} must be inside the normalized page bounds`);
     }
     return rect;
@@ -202,12 +208,26 @@ function decodeTextBox(value: Record<string, unknown>): IPdfAnnotationTextBoxEnt
         'color',
     ]);
     const identity = decodeIdentity(value, 'annotation parse text-box');
+    const rotation = decodeRotation(value.rotation, 'annotation parse text-box.rotation');
+    const rect = decodeMarkerRect(value.rect, 'annotation parse text-box.rect', rotation % 180 !== 0);
+    if (rotation % 180 !== 0) {
+        const centerX = rect.left + rect.width / 2;
+        const centerY = rect.top + rect.height / 2;
+        const availableArea = 4 * Math.min(centerX, 1 - centerX) * Math.min(centerY, 1 - centerY);
+        // Page aspect ratio is available to the native parser, which checks the
+        // exact painted footprint. These aspect-independent necessary bounds
+        // also reject impossible rotated rectangles at the IPC boundary.
+        if (centerX < 0 || centerX > 1 || centerY < 0 || centerY > 1
+            || rect.width * rect.height > availableArea + 1e-7) {
+            fail('annotation parse text-box.rect cannot fit inside the normalized page bounds after rotation');
+        }
+    }
     return {
         kind: 'text-box',
         ...identity,
         text: decodeStringValue(value.text, 'annotation parse text-box.text', true),
-        rect: decodeMarkerRect(value.rect, 'annotation parse text-box.rect'),
-        rotation: decodeRotation(value.rotation, 'annotation parse text-box.rotation'),
+        rect,
+        rotation,
         fontSize: decodeFiniteNumber(value.fontSize, 'annotation parse text-box.fontSize', Number.MIN_VALUE, 512),
         color: decodeRgbColor(value.color, 'annotation parse text-box.color'),
     };
@@ -248,6 +268,7 @@ function decodeNote(value: Record<string, unknown>): IPdfAnnotationNoteEntry {
         'color',
         'open',
         'replies',
+        'recoveryData',
     ]);
     const identity = decodeIdentity(value, 'annotation parse note');
     if (typeof value.open !== 'boolean') {
@@ -256,8 +277,14 @@ function decodeNote(value: Record<string, unknown>): IPdfAnnotationNoteEntry {
     if (!Array.isArray(value.replies) || value.replies.length > 4_096) {
         fail('annotation parse note.replies must contain at most 4096 replies');
     }
+    if (value.recoveryData !== undefined && (typeof value.recoveryData !== 'string'
+        || value.recoveryData.length > 2 * 1024 * 1024
+        || value.recoveryData.length % 2 !== 0 || !/^[0-9a-f]+$/u.test(value.recoveryData))) {
+        fail('annotation parse note.recoveryData must be a bounded native recovery graph');
+    }
     return {
         kind: 'note',
+        ...(value.recoveryData === undefined ? {} : {recoveryData: value.recoveryData}),
         ...identity,
         position: decodeMarkerRect(value.position, 'annotation parse note.position'),
         contents: decodeStringValue(value.contents, 'annotation parse note.contents', true),
@@ -334,8 +361,8 @@ function decodeStamp(value: Record<string, unknown>): IPdfAnnotationStampEntry {
     return {
         kind: 'stamp',
         ...identity,
-        rect: decodeMarkerRect(value.rect, 'annotation parse stamp.rect'),
-        rotation: decodeRotation(value.rotation, 'annotation parse stamp.rotation'),
+        rect: decodeMarkerRect(value.rect, 'annotation parse stamp.rect', true),
+        rotation: decodeFiniteNumber(value.rotation, 'annotation parse stamp.rotation'),
         image: imageReference,
     };
 }

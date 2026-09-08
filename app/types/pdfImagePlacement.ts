@@ -1,7 +1,9 @@
-import type {IManagedTempFileHandle} from '@contracts/electronApiDocuments';
-
 export interface IPdfImagePlacementDraft {
+    /** Existing canonical stamp being replaced. */
+    appAnnotationId?: string;
     stableKey: string;
+    /** Display rotation that owns the draft coordinates. */
+    viewRotation: number;
     annotationId?: string | null;
     pageNumber: number;
     x: number;
@@ -13,7 +15,10 @@ export interface IPdfImagePlacementDraft {
     fileName: string;
     mimeType: string;
     bytes: Uint8Array;
-    nativeSourceHandle?: IManagedTempFileHandle;
+    sourceFrameCount?: number;
+    sourceOrientation?: number;
+    sourcePixelWidth: number;
+    sourcePixelHeight: number;
 }
 
 export interface IPdfImagePlacementRectUpdate {
@@ -25,6 +30,12 @@ export interface IPdfImagePlacementRectUpdate {
 }
 
 export interface IPdfPlacedImageFinalizePayload {
+    /** Display rotation that owns the submitted coordinates. */
+    viewRotation: number;
+    /** Cancels work when the placement or document session is replaced. */
+    signal?: AbortSignal;
+    /** Existing canonical stamp being replaced. */
+    appAnnotationId?: string;
     /** Canonical identity persisted in the Stamp `/NM` entry. */
     stableKey?: string;
     /** Existing Stamp object ref when replacing a reopened placed image. */
@@ -38,7 +49,10 @@ export interface IPdfPlacedImageFinalizePayload {
     fileName: string;
     mimeType: string;
     bytes: Uint8Array;
-    nativeSourceHandle?: IManagedTempFileHandle;
+    sourceFrameCount?: number;
+    sourceOrientation?: number;
+    sourcePixelWidth: number;
+    sourcePixelHeight: number;
     targetPixelWidth: number;
     targetPixelHeight: number;
 }

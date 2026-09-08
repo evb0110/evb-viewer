@@ -60,6 +60,7 @@ const controlledTooltipOpen = computed(() =>
     shouldSuppressTooltip.value ? false : isTooltipOpen.value,
 );
 const noteStyle = computed(() => ({
+    '--annotation-note-color': props.entity.color ?? 'var(--ui-warning)',
     left: `${(notePosition.value.left + notePosition.value.width / 2) * 100}%`,
     top: `${(notePosition.value.top + notePosition.value.height / 2) * 100}%`,
 }));

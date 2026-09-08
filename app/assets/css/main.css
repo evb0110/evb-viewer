@@ -267,6 +267,7 @@
      * root font size, so they are applied inline rather than declared here.
      */
     --app-annotation-preview-height: 4.7rem;
+    --app-annotation-property-input-width: 5rem;
     --app-annotation-color-control-size: var(--app-control-height-xs);
     --app-annotation-color-swatch-size: 0.875rem;
     --app-annotation-action-size: 1.75rem;

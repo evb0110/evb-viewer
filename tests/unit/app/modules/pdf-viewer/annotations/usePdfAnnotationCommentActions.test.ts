@@ -84,7 +84,6 @@ function createActionsHarness() {
             isAnySaving: ref(false),
             annotationProjection: annotationCommentsCache,
             ingestSummaries: () => undefined,
-            getShapeAnnotationCommentSummaries: () => shapeTool.getShapeAnnotationCommentSummaries(),
             emitAnnotationComments,
         });
         actions = usePdfAnnotationCommentActions({
@@ -125,7 +124,7 @@ function createActionsHarness() {
 function importedShapeSummary(harness: ReturnType<typeof createActionsHarness>, shapeId = 'embedded-shape-1') {
     const summary = harness.shapeTool
         .getShapeAnnotationCommentSummaries()
-        .find(candidate => candidate.id === shapeId);
+        .find(candidate => candidate.appAnnotationId === shapeId);
     expect(summary).toBeDefined();
     return summary!;
 }
@@ -170,6 +169,7 @@ describe('usePdfAnnotationCommentActions shape rows', () => {
         const summary = importedShapeSummary(harness);
         const staleSummary: IAnnotationCommentSummary = {
             ...summary,
+            appAnnotationId: 'shape-that-left-the-document',
             id: 'shape-that-left-the-document',
             annotationId: null,
         };
