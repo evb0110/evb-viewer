@@ -1,0 +1,19 @@
+tests/unit/electron/fileOpsPathSecurity.test.ts
+  s_c63d7a8363f7e9::t_7d9873c43d157f 159-161
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "e7726647b1cbd98513c0c2adf7329d8bdce31734",
+  "prompts": {},
+  "sessions": {
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

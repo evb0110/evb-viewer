@@ -1,0 +1,23 @@
+tests/unit/electron/helpers/dualProviderCompletionDriver.ts
+  s_51a499e8a9abb4::t_138ebb6931be30 1-49,105-133
+  s_51a499e8a9abb4::t_4a2b3f5b119c71 50-104
+tests/unit/electron/agentAssistantOptIn.test.ts
+  s_51a499e8a9abb4::t_4a2b3f5b119c71 23-27
+  s_51a499e8a9abb4::t_138ebb6931be30 708-713,716-718,720-723
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "ae7d535a43fdd128b445bcadf7e6ab02cfc85b43",
+  "prompts": {},
+  "sessions": {
+    "s_51a499e8a9abb4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d0b-4b64-7a40-997f-da3c61110b88",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,25 @@
+electron/features/ocr/public.ts
+  s_6d332b0dd28a5f::t_2fc393c4853aac 9
+tests/unit/electron/ocrRevisionTransitionRecovery.test.ts
+  s_6d332b0dd28a5f::t_2fc393c4853aac 16
+electron/file-access/documentRevisionStore.ts
+  s_6d332b0dd28a5f::t_2fc393c4853aac 51
+tests/unit/electron/documentRevisionInvalidationEffects.test.ts
+  s_6d332b0dd28a5f::t_fa1f4b6c703efc 24,31-34
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "0f34d6bba2080440a45552ad5486f0010e295aa0",
+  "prompts": {},
+  "sessions": {
+    "s_6d332b0dd28a5f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d82-5d43-7ba1-b991-adaa2cbaa241",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

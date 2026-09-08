@@ -1,0 +1,33 @@
+tests/unit/electron/ocrWorkerPageProcessing.test.ts
+  s_6d332b0dd28a5f::t_1819db8e911182 16,67
+electron/ocr/worker/main.ts
+  s_6d332b0dd28a5f::t_1819db8e911182 66,82,90,95-97
+tests/unit/electron/ocrJobStorageBudget.test.ts
+  s_6d332b0dd28a5f::t_1819db8e911182 18-19
+tests/unit/electron/ocrWorkerHashing.test.ts
+  s_6d332b0dd28a5f::t_1819db8e911182 14
+electron/ocr/worker/writeOcrIndexes.ts
+  s_6d332b0dd28a5f::t_1819db8e911182 12
+tests/unit/electron/ocrWorkerPaths.test.ts
+  s_6d332b0dd28a5f::t_1819db8e911182 6
+electron/features/ocr/worker/persistOcrPageCheckpoint.ts
+  s_6d332b0dd28a5f::t_1819db8e911182 1-57
+tests/unit/electron/ocrJobManifest.test.ts
+  s_6d332b0dd28a5f::t_1819db8e911182 14
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "3043e4c52e769dcf90b135010b227d310716986d",
+  "prompts": {},
+  "sessions": {
+    "s_6d332b0dd28a5f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d82-5d43-7ba1-b991-adaa2cbaa241",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
