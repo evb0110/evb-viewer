@@ -11,22 +11,28 @@ const documentIdbMocks = vi.hoisted(() => ({
     loadAllRecordKeysAvailability: vi.fn(),
     loadRecordAvailability: vi.fn(),
     recoveryRecordsAtDelete: [] as Array<{snapshotRefs: string[]}>,
+    documentsAtDelete: [] as unknown[],
     runObjectStoresTransaction: vi.fn(async (
         _stores: string[],
         _mode: string,
         run: (transaction: unknown, setResult: (value: unknown) => void) => void,
     ) => {
         let result: unknown = null;
+        const recentFilesLockRequest = {result: undefined} as {
+            result: unknown;
+            onsuccess?: () => void;
+        };
         const recoveryRequest = {result: documentIdbMocks.recoveryRecordsAtDelete} as {
             result: unknown;
             onsuccess?: () => void;
         };
-        const documentsRequest = {result: []} as {
+        const documentsRequest = {result: documentIdbMocks.documentsAtDelete} as {
             result: unknown;
             onsuccess?: () => void;
         };
         const transaction = {objectStore: (name: string) => ({
             getAll: () => name.includes('document') ? documentsRequest : recoveryRequest,
+            get: () => recentFilesLockRequest,
             delete: name.includes('chunk')
                 ? chunkMocks.deleteChunkRecord
                 : documentIdbMocks.deleteRecord,
@@ -34,6 +40,7 @@ const documentIdbMocks = vi.hoisted(() => ({
         run(transaction, value => { result = value; });
         recoveryRequest.onsuccess?.();
         documentsRequest.onsuccess?.();
+        recentFilesLockRequest.onsuccess?.();
         return result;
     }),
 }));
@@ -52,6 +59,7 @@ const chunkMocks = vi.hoisted(() => ({
 }));
 
 const recentFilesStoreMocks = vi.hoisted(() => ({
+    BROWSER_RECENT_FILES_STORAGE_LOCK_KEY: '__evb_recent_files_storage_lock__',
     hasRecentFilesStorageSnapshot: vi.fn(() => false),
     pruneRecentFiles: vi.fn((recentFiles: unknown[]) => ({
         recentFiles,
@@ -65,7 +73,14 @@ const recentFilesStoreMocks = vi.hoisted(() => ({
         fileSize: number;
     }> => []),
     tryHasRecentFilesStorageSnapshot: vi.fn(() => false),
-    tryReadRecentFilesFromStorage: vi.fn(() => []),
+    tryReadRecentFilesFromStorage: vi.fn((): Array<{
+        originalPath: string;
+        backend: 'browser';
+        fileName: string;
+        timestamp: number;
+        fileSize: number;
+    }> => []),
+    runSerializedRecentFilesStorageMutation: vi.fn(async () => undefined),
     writeRecentFilesToStorage: vi.fn(),
 }));
 const recoveryMocks = vi.hoisted(() => ({loadBrowserWorkspaceRecoveryLeasedRefs: vi.fn(async () => new Set<string>())}));
@@ -88,7 +103,11 @@ describe('browserDocumentMaintenance', () => {
         });
         recoveryMocks.loadBrowserWorkspaceRecoveryLeasedRefs.mockResolvedValue(new Set());
         documentIdbMocks.recoveryRecordsAtDelete = [];
+        documentIdbMocks.documentsAtDelete = [];
         recentFilesStoreMocks.writeRecentFilesToStorage.mockReturnValue(true);
+        recentFilesStoreMocks.tryReadRecentFilesFromStorage.mockImplementation(
+            () => recentFilesStoreMocks.readRecentFilesFromStorage(),
+        );
     });
 
     it('retains a working document while the recovery journal leases it', async () => {
@@ -338,5 +357,111 @@ describe('browserDocumentMaintenance', () => {
 
         expect(chunkMocks.parseChunkKey).toHaveBeenCalledWith(chunkKey);
         expect(chunkMocks.deleteChunkRecord).toHaveBeenCalledWith(chunkKey);
+    });
+
+    it.each([
+        [
+            'inline',
+            1,
+            0,
+            undefined,
+        ],
+        [
+            'chunked',
+            8,
+            2,
+            'live-generation',
+        ],
+    ] as const)('reads current Recent Files state at destructive admission for %s sources', async (
+        storageMode,
+        fileSize,
+        chunkCount,
+        chunkGeneration,
+    ) => {
+        const {sweepBrowserDocumentMaintenance} = await import('@app/platform/browser/browserDocumentMaintenance');
+        const ref = `browser://documents/recent-${storageMode}.pdf`;
+        const record = {
+            ref,
+            fileName: `${storageMode}.pdf`,
+            mimeType: 'application/pdf',
+            kind: 'source',
+            retention: 'durable',
+            data: storageMode === 'inline' ? Uint8Array.of(1) : new Uint8Array(),
+            fileSize,
+            updatedAt: 1,
+            storageMode,
+            chunkCount,
+            chunkSize: 4,
+            ...(chunkGeneration ? {chunkGeneration} : {}),
+        };
+        documentIdbMocks.loadAllRecordKeysAvailability.mockResolvedValue({
+            available: true,
+            value: [ref],
+        });
+        documentIdbMocks.loadRecordAvailability.mockResolvedValue({
+            available: true,
+            value: record,
+        });
+        documentIdbMocks.documentsAtDelete = [record];
+        recentFilesStoreMocks.tryHasRecentFilesStorageSnapshot.mockReturnValue(true);
+        recentFilesStoreMocks.readRecentFilesFromStorage.mockReturnValue([{
+            originalPath: ref,
+            backend: 'browser',
+            fileName: `${storageMode}.pdf`,
+            timestamp: 2,
+            fileSize,
+        }]);
+        if (chunkGeneration) {
+            const chunkKeys = [
+                `${ref}::${chunkGeneration}::0`,
+                `${ref}::${chunkGeneration}::1`,
+            ];
+            chunkMocks.loadAllChunkKeysAvailability.mockResolvedValue({
+                available: true,
+                value: chunkKeys,
+            });
+            chunkMocks.parseChunkKey.mockImplementation((key: string) => ({
+                ref,
+                index: Number(key.split('::').at(-1)),
+                generation: chunkGeneration,
+            }));
+        }
+
+        await sweepBrowserDocumentMaintenance(new Map());
+
+        expect(documentIdbMocks.deleteRecord).not.toHaveBeenCalledWith(ref);
+        expect(chunkMocks.deleteChunkRecord).not.toHaveBeenCalled();
+    });
+
+    it('still reclaims a source with no current Recent Files reference', async () => {
+        const {sweepBrowserDocumentMaintenance} = await import('@app/platform/browser/browserDocumentMaintenance');
+        const ref = 'browser://documents/unreferenced.pdf';
+        const record = {
+            ref,
+            fileName: 'unreferenced.pdf',
+            mimeType: 'application/pdf',
+            kind: 'source',
+            retention: 'durable',
+            data: Uint8Array.of(1),
+            fileSize: 1,
+            updatedAt: 1,
+            storageMode: 'inline',
+            chunkCount: 0,
+            chunkSize: 4,
+        };
+        documentIdbMocks.loadAllRecordKeysAvailability.mockResolvedValue({
+            available: true,
+            value: [ref],
+        });
+        documentIdbMocks.loadRecordAvailability.mockResolvedValue({
+            available: true,
+            value: record,
+        });
+        documentIdbMocks.documentsAtDelete = [record];
+        recentFilesStoreMocks.readRecentFilesFromStorage.mockReturnValue([]);
+
+        await sweepBrowserDocumentMaintenance(new Map());
+
+        expect(documentIdbMocks.deleteRecord).toHaveBeenCalledWith(ref);
     });
 });

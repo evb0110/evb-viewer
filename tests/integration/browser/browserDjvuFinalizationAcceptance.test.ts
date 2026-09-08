@@ -95,6 +95,9 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
             });
             expect(result).toEqual({
                 sourceByteLength: 1564,
+                openSuccess: true,
+                openPageCount: 2,
+                openTerminalStatus: 'completed',
                 resultSuccess: true,
                 terminalStatus: 'completed',
                 generatedPdfHeader: '%PDF-',

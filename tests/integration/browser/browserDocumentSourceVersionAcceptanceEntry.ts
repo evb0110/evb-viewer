@@ -1,3 +1,5 @@
+// fallow-ignore-file unused-file -- bundled by browserDocumentSourceVersionAcceptance.test.ts for Chromium.
+
 import {browserDocumentStore} from '@app/platform/browserDocumentStore';
 
 function createEmptyFileSystemWritableFileStream(): FileSystemWritableFileStream {

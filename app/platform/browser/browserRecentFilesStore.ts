@@ -30,7 +30,7 @@ export class BrowserRecentFilesStorageUnavailableError extends Error {
     }
 }
 
-const RECENT_FILES_STORAGE_LOCK_KEY = '__evb_recent_files_storage_lock__';
+export const BROWSER_RECENT_FILES_STORAGE_LOCK_KEY = '__evb_recent_files_storage_lock__';
 
 interface IRecentFilesStorageMutation<T> {
     files: IRecentFile[];
@@ -48,7 +48,7 @@ function commitRecentFilesStorageMutation<T>(
     return next.value;
 }
 
-async function runSerializedRecentFilesStorageMutation<T>(
+export async function runSerializedRecentFilesStorageMutation<T>(
     mutation: (currentFiles: IRecentFile[]) => IRecentFilesStorageMutation<T>,
 ) {
     const transactionResult = await runObjectStoreTransaction<
@@ -57,7 +57,7 @@ async function runSerializedRecentFilesStorageMutation<T>(
         DOCUMENTS_STORE,
         'readwrite',
         (store, setResult) => {
-            const lockRead = store.get(RECENT_FILES_STORAGE_LOCK_KEY);
+            const lockRead = store.get(BROWSER_RECENT_FILES_STORAGE_LOCK_KEY);
             lockRead.onsuccess = () => {
                 try {
                     setResult({value: commitRecentFilesStorageMutation(mutation)});

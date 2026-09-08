@@ -34,6 +34,15 @@ async function runBrowserDjvuFinalizationAcceptance() {
     );
 
     try {
+        const openHandle = await browserDjvuCapability.startOpenForViewing(
+            sourcePath,
+            requireRequestId('browser-djvu-open-finalization'),
+        );
+        const openResult = await browserDjvuCapability.awaitOpenJob(openHandle.jobId);
+        const openTerminalState = browserDurableDjvuJobs.getState(openHandle.jobId);
+        if (!openResult.success) {
+            throw new Error(`Browser DjVu open did not succeed: ${openResult.error ?? 'unknown error'}`);
+        }
         const handle = await browserDjvuCapability.startConvertToPdf(
             sourcePath,
             outputPath,
@@ -54,6 +63,9 @@ async function runBrowserDjvuFinalizationAcceptance() {
         const reopenedPdf = await PDFDocument.load(generatedPdfBytes);
         return {
             sourceByteLength: fixtureBytes.byteLength,
+            openSuccess: openResult.success,
+            openPageCount: openResult.pageCount,
+            openTerminalStatus: openTerminalState?.status ?? null,
             resultSuccess: result.success,
             terminalStatus: terminalState?.status ?? null,
             generatedPdfHeader: new TextDecoder().decode(generatedPdfBytes.slice(0, 5)),
@@ -61,6 +73,7 @@ async function runBrowserDjvuFinalizationAcceptance() {
         };
     } finally {
         browserDurableDjvuJobs.clearForTests();
+        await browserDjvuCapability.releaseViewingPath(sourcePath);
         await browserDocumentStore.remove(outputPath).catch(() => undefined);
         await browserDocumentStore.remove(sourcePath).catch(() => undefined);
     }

@@ -21,7 +21,7 @@ export interface IFileSystemFileHandleFixtureOptions {
     readonly isSameEntry?: FileSystemFileHandle['isSameEntry'];
 }
 
-export function createEmptyFileSystemWritableFileStream(): FileSystemWritableFileStream {
+function createEmptyFileSystemWritableFileStream(): FileSystemWritableFileStream {
     const writable = Object.assign(new WritableStream(), {
         abort: async (_reason?: unknown) => {},
         close: async () => {},

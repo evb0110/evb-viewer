@@ -30,6 +30,8 @@ import {
     tryHasRecentFilesStorageSnapshot,
     tryReadRecentFilesFromStorage,
     writeRecentFilesToStorage,
+    BROWSER_RECENT_FILES_STORAGE_LOCK_KEY,
+    runSerializedRecentFilesStorageMutation,
 } from '@app/platform/browser/browserRecentFilesStore';
 import type {
     IBrowserDocumentEntry,
@@ -40,6 +42,8 @@ import { yieldToBrowser } from '@app/utils/yieldToBrowser';
 import { loadBrowserWorkspaceRecoveryLeasedRefs } from '@app/platform/browser/browserWorkspaceRecoveryStore';
 
 const BROWSER_STAGED_CHUNK_GRACE_MS = 10 * 60 * 1_000;
+
+export interface IBrowserDocumentMaintenanceHooks {readonly beforeDestructiveTransaction?: () => Promise<void>;}
 
 function isRecentlyCreatedChunkGeneration(generation: string | undefined) {
     if (!generation) {
@@ -143,6 +147,7 @@ export function isBrowserRecentFileRef(ref: string) {
 
 export async function sweepBrowserDocumentMaintenance(
     entries: Map<string, IBrowserDocumentEntry>,
+    hooks: IBrowserDocumentMaintenanceHooks = {},
 ) {
     const recoveryLeasedRefs = await loadBrowserWorkspaceRecoveryLeasedRefs();
     const {
@@ -185,23 +190,7 @@ export async function sweepBrowserDocumentMaintenance(
         && storedRecentFiles
         ? storedRecentFiles
         : buildRecentFilesFromPersistedRecords(records);
-    const {
-        recentFiles,
-        evictedRefs,
-    } = pruneRecentFiles(currentRecentFiles);
-    let recentFilesForCleanup = recentFiles;
-    if (
-        evictedRefs.length > 0
-        || recentFiles.length !== currentRecentFiles.length
-    ) {
-        const committed = writeRecentFilesToStorage(recentFiles);
-        if (!committed) {
-            // IndexedDB cleanup must use the last committed recent-file
-            // snapshot. A failed localStorage write cannot authorize eviction.
-            recentFilesForCleanup = currentRecentFiles;
-        }
-    }
-    const recentRefs = new Set<string>(recentFilesForCleanup.map((file) => file.originalPath));
+    const recentRefs = new Set<string>(currentRecentFiles.map((file) => file.originalPath));
     const nonWorkingDependentCounts = countNonWorkingDependents(records);
     const refsToRemove = records
         .filter((record) => shouldRemovePersistedRecord(
@@ -227,6 +216,8 @@ export async function sweepBrowserDocumentMaintenance(
         return;
     }
 
+    await hooks.beforeDestructiveTransaction?.();
+
     // Include the recovery journal in the destructive transaction. IndexedDB
     // serializes this with checkpoint publication, so the lease read and the
     // corresponding document/chunk deletes cannot race each other.
@@ -243,11 +234,38 @@ export async function sweepBrowserDocumentMaintenance(
             const chunksStore = transaction.objectStore(DOCUMENT_CHUNKS_STORE);
             const recoveriesRead = recoveryStore.getAll();
             const documentsRead = documentsStore.getAll();
+            // Recent-file mutations use this same documents-store transaction
+            // as their cross-window lock. Do not read localStorage until this
+            // request succeeds, otherwise a touch admitted before this
+            // destructive transaction can be hidden by the stale snapshot
+            // captured above.
+            const recentFilesLockRead = documentsStore.get(BROWSER_RECENT_FILES_STORAGE_LOCK_KEY);
             let recoveryReadComplete = false;
             let documentsReadComplete = false;
+            let recentFilesLockReadComplete = false;
+            let transactionRecentRefs = recentRefs;
             const process = () => {
-                if (!recoveryReadComplete || !documentsReadComplete) {
+                if (!recoveryReadComplete || !documentsReadComplete || !recentFilesLockReadComplete) {
                     return;
+                }
+                const recentFilesAtAdmission = tryHasRecentFilesStorageSnapshot()
+                    ? tryReadRecentFilesFromStorage()
+                    : currentRecentFiles;
+                if (recentFilesAtAdmission) {
+                    const {
+                        recentFiles,
+                        evictedRefs,
+                    } = pruneRecentFiles(recentFilesAtAdmission);
+                    let recentFilesForDecision = recentFiles;
+                    if (evictedRefs.length > 0 || recentFiles.length !== recentFilesAtAdmission.length) {
+                        if (!writeRecentFilesToStorage(recentFiles)) {
+                            // A failed localStorage write cannot authorize eviction.
+                            recentFilesForDecision = recentFilesAtAdmission;
+                        }
+                    }
+                    transactionRecentRefs = new Set(
+                        recentFilesForDecision.map((file) => file.originalPath),
+                    );
                 }
                 const leasedRefs = new Set<string>();
                 if (Array.isArray(recoveriesRead.result)) {
@@ -309,7 +327,7 @@ export async function sweepBrowserDocumentMaintenance(
                     }
                     return shouldRemovePersistedRecord(
                         transactionRecord,
-                        recentRefs,
+                        transactionRecentRefs,
                         transactionNonWorkingDependentCounts,
                     );
                 }));
@@ -344,6 +362,10 @@ export async function sweepBrowserDocumentMaintenance(
                 documentsReadComplete = true;
                 process();
             };
+            recentFilesLockRead.onsuccess = () => {
+                recentFilesLockReadComplete = true;
+                process();
+            };
         },
     );
     if (!deletedRefs) {
@@ -351,13 +373,10 @@ export async function sweepBrowserDocumentMaintenance(
     }
     deletedRefs.forEach(ref => entries.delete(ref));
     if (deletedRefs.size > 0) {
-        const storedRecentFilesAfterDelete = tryReadRecentFilesFromStorage();
-        if (storedRecentFilesAfterDelete) {
-            const remainingRecentFiles = storedRecentFilesAfterDelete.filter(
-                (candidate) => !deletedRefs.has(candidate.originalPath),
-            );
-            writeRecentFilesToStorage(remainingRecentFiles);
-        }
+        await runSerializedRecentFilesStorageMutation(currentFiles => ({
+            files: currentFiles.filter(candidate => !deletedRefs.has(candidate.originalPath)),
+            value: undefined,
+        })).catch(() => undefined);
     }
 }
 

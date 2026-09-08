@@ -12,7 +12,10 @@ import {
     resolve,
 } from 'node:path';
 import {build} from 'esbuild';
-import {chromium} from 'playwright';
+import {
+    chromium,
+    type Page,
+} from 'playwright';
 import {
     afterAll,
     beforeAll,
@@ -30,6 +33,7 @@ let server: Server;
 const RECOVERY_DATABASE_NAME = 'evb-viewer-browser-documents';
 const ISSUE_489_PDF_TEXT = '%PDF-1.4\n% issue-489 synthetic dirty PDF\n';
 const ISSUE_489_PDF_REF = 'browser://documents/issue-489-dirty.pdf';
+const CLAIM_ADMISSION_BARRIER_GLOBAL = '__issue489ClaimAdmissionBarrier';
 
 function buildRecoveryCheckpoint(capturedAt: number, fileName: string) {
     return {
@@ -60,6 +64,268 @@ function buildRecoveryCheckpoint(capturedAt: number, fileName: string) {
             zoomMode: 'custom',
         }],
     };
+}
+
+async function armRecoveryTransactionAdmissionBarrier(page: Page) {
+    await page.evaluate((barrierGlobal) => {
+        const factory = indexedDB;
+        const originalOpen = factory.open;
+        const transactionDescriptor = Object.getOwnPropertyDescriptor(
+            IDBDatabase.prototype,
+            'transaction',
+        );
+        if (!transactionDescriptor || typeof transactionDescriptor.value !== 'function') {
+            throw new Error('The Chromium IndexedDB transaction method is not patchable.');
+        }
+
+        let interceptedOpen = false;
+        let successHandler: ((event: Event) => void) | null = null;
+        let successEvent: Event | null = null;
+        let openRestored = false;
+        let transactionRestored = false;
+        let requestProxy: IDBOpenDBRequest | null = null;
+
+        const state = {
+            ready: false,
+            transactionAdmitted: false,
+            released: false,
+            operation: null as Promise<unknown> | null,
+            release: () => {
+                state.released = true;
+                flushSuccess();
+            },
+            cleanup: () => {
+                if (!openRestored) {
+                    Object.defineProperty(factory, 'open', {
+                        configurable: true,
+                        value: originalOpen,
+                        writable: true,
+                    });
+                    openRestored = true;
+                }
+                if (!transactionRestored) {
+                    Object.defineProperty(IDBDatabase.prototype, 'transaction', transactionDescriptor);
+                    transactionRestored = true;
+                }
+                Reflect.deleteProperty(globalThis, barrierGlobal);
+            },
+        };
+
+        const flushSuccess = () => {
+            if (!state.released || !successHandler || !successEvent || !requestProxy) {
+                return;
+            }
+            const handler = successHandler;
+            const event = successEvent;
+            successHandler = null;
+            successEvent = null;
+            if (!openRestored) {
+                Object.defineProperty(factory, 'open', {
+                    configurable: true,
+                    value: originalOpen,
+                    writable: true,
+                });
+                openRestored = true;
+            }
+            handler.call(requestProxy, event);
+        };
+
+        const openForProduction = (...args: [string, number?]) => Reflect.apply(originalOpen, factory, args);
+        const onOpenSuccess = (event: Event) => {
+            state.ready = true;
+            successEvent = event;
+            flushSuccess();
+        };
+        const openWithBarrier = (...args: [string, number?]) => {
+            if (interceptedOpen) {
+                return openForProduction(...args);
+            }
+            interceptedOpen = true;
+            const request = openForProduction(...args);
+            requestProxy = new Proxy(request, {
+                get(target, property, _receiver) {
+                    if (property === 'onsuccess') {
+                        return successHandler;
+                    }
+                    return Reflect.get(target, property, target);
+                },
+                set(target, property, value) {
+                    if (property === 'onsuccess') {
+                        successHandler = typeof value === 'function'
+                            ? value as (event: Event) => void
+                            : null;
+                        Reflect.set(target, property, successHandler ? onOpenSuccess : null, target);
+                        flushSuccess();
+                        return true;
+                    }
+                    return Reflect.set(target, property, value, target);
+                },
+            });
+            return requestProxy;
+        };
+
+        const originalTransaction = transactionDescriptor.value as IDBDatabase['transaction'];
+        const transactionWithAdmissionProbe = function(
+            this: IDBDatabase,
+            nameOrNames: string | string[],
+            mode?: IDBTransactionMode,
+            options?: IDBTransactionOptions,
+        ) {
+            const names = typeof nameOrNames === 'string' ? [nameOrNames] : nameOrNames;
+            if ((mode ?? 'readonly') === 'readwrite' && names.includes('workspace-recovery')) {
+                state.transactionAdmitted = true;
+            }
+            return originalTransaction.call(this, nameOrNames, mode, options);
+        };
+
+        Object.defineProperty(factory, 'open', {
+            configurable: true,
+            value: openWithBarrier,
+            writable: true,
+        });
+        Object.defineProperty(IDBDatabase.prototype, 'transaction', {
+            ...transactionDescriptor,
+            value: transactionWithAdmissionProbe,
+        });
+        Reflect.set(globalThis, barrierGlobal, state);
+    }, CLAIM_ADMISSION_BARRIER_GLOBAL);
+}
+
+async function waitForRecoveryTransactionAdmissionBarrier(page: Page) {
+    await page.waitForFunction((barrierGlobal) => {
+        const barrier = Reflect.get(globalThis, barrierGlobal) as {ready?: boolean} | undefined;
+        return barrier?.ready === true;
+    }, CLAIM_ADMISSION_BARRIER_GLOBAL);
+}
+
+async function readRecoveryTransactionAdmissionBarrier(page: Page) {
+    return page.evaluate((barrierGlobal) => {
+        const barrier = Reflect.get(globalThis, barrierGlobal) as {
+            ready: boolean;
+            transactionAdmitted: boolean;
+        } | undefined;
+        if (!barrier) {
+            throw new Error('The recovery transaction admission barrier is not installed.');
+        }
+        return {
+            ready: barrier.ready,
+            transactionAdmitted: barrier.transactionAdmitted,
+        };
+    }, CLAIM_ADMISSION_BARRIER_GLOBAL);
+}
+
+async function startClaimAtAdmissionBarrier(
+    page: Page,
+    sourceOwnerId: string,
+    targetOwnerId: string,
+    generation: number,
+    leaseRevision: number,
+    now: number,
+) {
+    await page.evaluate(({
+        barrierGlobal,
+        generation: expectedGeneration,
+        leaseRevision: expectedLeaseRevision,
+        now: claimNow,
+        sourceOwner,
+        targetOwner,
+    }) => {
+        const barrier = Reflect.get(globalThis, barrierGlobal) as {operation: Promise<unknown> | null} | undefined;
+        if (!barrier) {
+            throw new Error('The recovery transaction admission barrier is not installed.');
+        }
+        const store = Reflect.get(globalThis, 'EvbBrowserWorkspaceRecovery') as {claimBrowserWorkspaceRecoveryOwner: (
+            sourceOwnerId: string,
+            targetOwnerId: string,
+            generation: number,
+            leaseRevision: number,
+        ) => Promise<unknown>};
+        const originalDateNow = Date.now;
+        Date.now = () => claimNow;
+        barrier.operation = store.claimBrowserWorkspaceRecoveryOwner(
+            sourceOwner,
+            targetOwner,
+            expectedGeneration,
+            expectedLeaseRevision,
+        ).finally(() => {
+            Date.now = originalDateNow;
+        });
+    }, {
+        barrierGlobal: CLAIM_ADMISSION_BARRIER_GLOBAL,
+        generation,
+        leaseRevision,
+        now,
+        sourceOwner: sourceOwnerId,
+        targetOwner: targetOwnerId,
+    });
+}
+
+async function startHeartbeatAtAdmissionBarrier(
+    page: Page,
+    ownerId: string,
+    generation: number,
+    now: number,
+) {
+    await page.evaluate(({
+        barrierGlobal,
+        heartbeatGeneration,
+        heartbeatNow,
+        heartbeatOwner,
+    }) => {
+        const barrier = Reflect.get(globalThis, barrierGlobal) as {operation: Promise<unknown> | null} | undefined;
+        if (!barrier) {
+            throw new Error('The recovery transaction admission barrier is not installed.');
+        }
+        const store = Reflect.get(globalThis, 'EvbBrowserWorkspaceRecovery') as {touchBrowserWorkspaceRecovery: (
+            ownerId: string,
+            generation: number,
+        ) => Promise<unknown>};
+        const originalDateNow = Date.now;
+        Date.now = () => heartbeatNow;
+        barrier.operation = store.touchBrowserWorkspaceRecovery(
+            heartbeatOwner,
+            heartbeatGeneration,
+        ).finally(() => {
+            Date.now = originalDateNow;
+        });
+    }, {
+        barrierGlobal: CLAIM_ADMISSION_BARRIER_GLOBAL,
+        heartbeatGeneration: generation,
+        heartbeatNow: now,
+        heartbeatOwner: ownerId,
+    });
+}
+
+async function releaseRecoveryTransactionAdmissionBarrier(page: Page) {
+    let result: {
+        result: unknown;
+        transactionAdmitted: boolean;
+    };
+    try {
+        await page.evaluate((barrierGlobal) => {
+            const barrier = Reflect.get(globalThis, barrierGlobal) as {release: () => void} | undefined;
+            if (!barrier) {
+                throw new Error('The recovery transaction admission barrier is not installed.');
+            }
+            barrier.release();
+        }, CLAIM_ADMISSION_BARRIER_GLOBAL);
+        result = await page.evaluate(async (barrierGlobal) => {
+            const barrier = Reflect.get(globalThis, barrierGlobal) as {operation: Promise<unknown> | null} | undefined;
+            if (!barrier?.operation) {
+                throw new Error('The recovery operation was not started at the admission barrier.');
+            }
+            return {
+                result: await barrier.operation,
+                transactionAdmitted: (Reflect.get(globalThis, barrierGlobal) as {transactionAdmitted: boolean}).transactionAdmitted,
+            };
+        }, CLAIM_ADMISSION_BARRIER_GLOBAL);
+    } finally {
+        await page.evaluate((barrierGlobal) => {
+            const barrier = Reflect.get(globalThis, barrierGlobal) as {cleanup: () => void} | undefined;
+            barrier?.cleanup();
+        }, CLAIM_ADMISSION_BARRIER_GLOBAL);
+    }
+    return result;
 }
 
 beforeAll(async () => {
@@ -467,7 +733,23 @@ describe('browser document IndexedDB migration in Chromium', () => {
                 throw new Error('The shared IndexedDB recovery selection was unexpectedly empty.');
             }
 
-            // Barrier 2: A wins the ordering and commits its heartbeat before B claims.
+            // Barrier 2: B has opened the database but cannot admit its claim transaction yet.
+            await armRecoveryTransactionAdmissionBarrier(pageB);
+            await startClaimAtAdmissionBarrier(
+                pageB,
+                'window:issue-489-a',
+                'window:issue-489-b',
+                selected.generation,
+                selected.leaseRevision,
+                60_002,
+            );
+            await waitForRecoveryTransactionAdmissionBarrier(pageB);
+            expect(await readRecoveryTransactionAdmissionBarrier(pageB)).toEqual({
+                ready: true,
+                transactionAdmitted: false,
+            });
+
+            // Barrier 3: A renews while B is held immediately before claim admission.
             const heartbeat = await pageA.evaluate(async () => {
                 const store = Reflect.get(globalThis, 'EvbBrowserWorkspaceRecovery') as {
                     touchBrowserWorkspaceRecovery: (
@@ -497,51 +779,33 @@ describe('browser document IndexedDB migration in Chromium', () => {
                 leaseRevision: 2,
                 updatedAt: 30_001,
             }));
-
-            // Barrier 3: B resumes its stale selection and the atomic claim must fail untouched.
-            const rejected = await pageB.evaluate(async ({
-                generation,
-                leaseRevision,
-            }) => {
-                const store = Reflect.get(globalThis, 'EvbBrowserWorkspaceRecovery') as {
-                    claimBrowserWorkspaceRecoveryOwner: (
-                        sourceOwnerId: string,
-                        targetOwnerId: string,
-                        generation: number,
-                        leaseRevision: number,
-                    ) => Promise<unknown>;
-                    loadBrowserWorkspaceRecovery: (ownerId: string) => Promise<unknown>;
-                };
-                const originalDateNow = Date.now;
-                Date.now = () => 60_002;
-                try {
-                    return {
-                        result: await store.claimBrowserWorkspaceRecoveryOwner(
-                            'window:issue-489-a',
-                            'window:issue-489-b',
-                            generation,
-                            leaseRevision,
-                        ),
-                        owner: await store.loadBrowserWorkspaceRecovery('window:issue-489-a'),
-                    };
-                } finally {
-                    Date.now = originalDateNow;
-                }
-            }, {
-                generation: selected.generation,
-                leaseRevision: selected.leaseRevision,
+            expect(await readRecoveryTransactionAdmissionBarrier(pageB)).toEqual({
+                ready: true,
+                transactionAdmitted: false,
             });
+
+            // Barrier 4: B resumes its stale selection and the claim is fenced by the changed lease revision.
+            const rejected = await releaseRecoveryTransactionAdmissionBarrier(pageB);
             expect(rejected.result).toEqual({
                 claimed: false,
                 generation: 1,
             });
-            expect(rejected.owner).toEqual(expect.objectContaining({
+            expect(rejected.transactionAdmitted).toBe(true);
+            const rejectedOwner = await pageB.evaluate(async () => {
+                const store = Reflect.get(globalThis, 'EvbBrowserWorkspaceRecovery') as {loadBrowserWorkspaceRecovery: (ownerId: string) => Promise<unknown>};
+                return store.loadBrowserWorkspaceRecovery('window:issue-489-a');
+            });
+            expect(rejectedOwner).toEqual(expect.objectContaining({
                 ownerId: 'window:issue-489-a',
                 generation: 1,
                 leaseRevision: 2,
                 updatedAt: 30_001,
                 checkpoint: initialCheckpoint,
             }));
+            await expect(pageB.evaluate(async () => {
+                const store = Reflect.get(globalThis, 'EvbBrowserWorkspaceRecovery') as {loadBrowserWorkspaceRecovery: (ownerId: string) => Promise<unknown>};
+                return store.loadBrowserWorkspaceRecovery('window:issue-489-b');
+            })).resolves.toBeNull();
 
             const continued = await pageA.evaluate(async ({
                 checkpoint,
@@ -708,40 +972,32 @@ describe('browser document IndexedDB migration in Chromium', () => {
                 throw new Error('The claim-first recovery selection was unexpectedly empty.');
             }
 
-            const claimedFirst = await pageB.evaluate(async ({
-                generation,
-                leaseRevision,
-            }) => {
-                const store = Reflect.get(globalThis, 'EvbBrowserWorkspaceRecovery') as {
-                    claimBrowserWorkspaceRecoveryOwner: (
-                        sourceOwnerId: string,
-                        targetOwnerId: string,
-                        generation: number,
-                        leaseRevision: number,
-                    ) => Promise<unknown>;
-                    loadBrowserWorkspaceRecovery: (ownerId: string) => Promise<unknown>;
-                };
-                const originalDateNow = Date.now;
-                Date.now = () => 30_001;
-                try {
-                    return {
-                        result: await store.claimBrowserWorkspaceRecoveryOwner(
-                            'window:issue-489-claim-first',
-                            'window:issue-489-b',
-                            generation,
-                            leaseRevision,
-                        ),
-                        target: await store.loadBrowserWorkspaceRecovery('window:issue-489-b'),
-                    };
-                } finally {
-                    Date.now = originalDateNow;
-                }
-            }, selectedForClaimFirst);
+            // The second order admits B's claim before A attempts its renewal.
+            await armRecoveryTransactionAdmissionBarrier(pageB);
+            await startClaimAtAdmissionBarrier(
+                pageB,
+                'window:issue-489-claim-first',
+                'window:issue-489-b',
+                selectedForClaimFirst.generation,
+                selectedForClaimFirst.leaseRevision,
+                30_001,
+            );
+            await waitForRecoveryTransactionAdmissionBarrier(pageB);
+            expect(await readRecoveryTransactionAdmissionBarrier(pageB)).toEqual({
+                ready: true,
+                transactionAdmitted: false,
+            });
+            const claimedFirst = await releaseRecoveryTransactionAdmissionBarrier(pageB);
             expect(claimedFirst.result).toEqual({
                 claimed: true,
                 generation: 2,
             });
-            expect(claimedFirst.target).toEqual(expect.objectContaining({
+            expect(claimedFirst.transactionAdmitted).toBe(true);
+            const claimedTarget = await pageB.evaluate(async () => {
+                const store = Reflect.get(globalThis, 'EvbBrowserWorkspaceRecovery') as {loadBrowserWorkspaceRecovery: (ownerId: string) => Promise<unknown>};
+                return store.loadBrowserWorkspaceRecovery('window:issue-489-b');
+            });
+            expect(claimedTarget).toEqual(expect.objectContaining({
                 ownerId: 'window:issue-489-b',
                 generation: 2,
                 leaseRevision: 2,
