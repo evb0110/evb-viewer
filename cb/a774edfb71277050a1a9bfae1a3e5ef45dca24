@@ -1,0 +1,29 @@
+tests/unit/app/modules/workspace-shell/composables/usePageShortcuts.test.ts
+  s_c63d7a8363f7e9::t_76385f7ca518ba 10
+  s_c63d7a8363f7e9::t_582123e5a818d4 9,12-16,18-20,25,60,73,86,106,130,153,175,205,229,255,281,307,331,352,379,405,428,460,477,493,505,524,555,576,597,619,632,656,696
+  s_c63d7a8363f7e9::t_0c64b8e56e22d1 17,22
+tests/helpers/usePageShortcutsTestFixtures.ts
+  s_c63d7a8363f7e9::t_5a1d02acce0133 1-13,15-27,33-128
+  s_c63d7a8363f7e9::t_0c64b8e56e22d1 14,29-32
+  s_c63d7a8363f7e9::t_76385f7ca518ba 28
+tests/unit/app/modules/workspace-shell/composables/usePageShortcutsPaging.test.ts
+  s_c63d7a8363f7e9::t_64d6012eb5b1f1 1-172
+tests/unit/app/modules/workspace-shell/agent/useDocumentWorkspaceAgentOcr.test.ts
+  s_c63d7a8363f7e9::t_dde6c8df7c7774 1-240
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "cba774edfb71277050a1a9bfae1a3e5ef45dca24",
+  "prompts": {},
+  "sessions": {
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,22 @@
+tests/unit/electron/agentAssistantOptIn.test.ts
+  s_51a499e8a9abb4::t_90aa78f502a992 23,318-349
+  s_51a499e8a9abb4::t_f841e2789fa5f2 788,812
+  s_51a499e8a9abb4::t_5e64489848260b 785-787,789-811,813-818
+  s_51a499e8a9abb4::t_7a14270f31e4ad 350-351
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "0275847f293e47350f7abfa57f0aa945c2587764",
+  "prompts": {},
+  "sessions": {
+    "s_51a499e8a9abb4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d0b-4b64-7a40-997f-da3c61110b88",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

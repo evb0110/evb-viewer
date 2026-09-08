@@ -1,0 +1,23 @@
+docs/architecture/project6-331-dependency-placement-2026-09-08.md
+  s_9a361ad4c844c0::t_574af4d561dc31 59-66
+package.json
+  s_9a361ad4c844c0::t_20fec562743bde 173
+pnpm-lock.yaml
+  s_9a361ad4c844c0::t_50eed0c8ed9811 178-180
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "80d4ba21729095878a0472e71a589e616757383b",
+  "prompts": {},
+  "sessions": {
+    "s_9a361ad4c844c0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0809c-3fa6-7503-8d13-43e6ebb2b0a2",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

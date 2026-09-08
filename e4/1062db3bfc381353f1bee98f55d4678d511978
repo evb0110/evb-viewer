@@ -1,0 +1,25 @@
+tests/unit/scripts/boundaryExceptionPolicy.test.ts
+  s_c63d7a8363f7e9::t_01409b0255a3cb 65,73
+  s_c63d7a8363f7e9::t_02e0fd4e20a988 8,58-64,66-72,74-80
+scripts/architecture/boundaryExceptionPolicy.mjs
+  s_c63d7a8363f7e9::t_6a6305bc0fc379 146-153,159-163,189-216,227-232
+  s_c63d7a8363f7e9::t_01409b0255a3cb 155-158
+scripts/architecture/boundary-check.mjs
+  s_c63d7a8363f7e9::t_d11e380edb441b 20,254-257,272
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "e41062db3bfc381353f1bee98f55d4678d511978",
+  "prompts": {},
+  "sessions": {
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

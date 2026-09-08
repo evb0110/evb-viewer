@@ -1,0 +1,28 @@
+tests/unit/app/modules/pdf-viewer/components/pdfAnnotationEditorLayerPlacement.test.ts
+  s_c63d7a8363f7e9::t_28d2ffee4c281f 28
+  s_c63d7a8363f7e9::t_a1ef8c32a2a483 37,307,364-369,630,718
+  s_c63d7a8363f7e9::t_880e84dae03bf4 470-598
+tests/unit/app/modules/pdf-viewer/components/pdfAnnotationEditorLayerEvents.test.ts
+  s_c63d7a8363f7e9::t_b67a65c5c7b736 13-14,45-54
+  s_c63d7a8363f7e9::t_94bb01fa879ba0 80-241
+  s_c63d7a8363f7e9::t_1c3fe9b4dc7fbd 242
+tests/unit/app/modules/pdf-viewer/components/pdfAnnotationEditorLayerEventFixtures.ts
+  s_c63d7a8363f7e9::t_a1ef8c32a2a483 2,4,8,25-33
+  s_c63d7a8363f7e9::t_8869a707d4cf36 34
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "9b27fe28cb545162a5db6b20a257a270a0c9e59b",
+  "prompts": {},
+  "sessions": {
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

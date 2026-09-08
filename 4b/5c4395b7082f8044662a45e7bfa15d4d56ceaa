@@ -1,0 +1,30 @@
+scripts/architecture/boundaryExceptionPolicy.mjs
+  s_c63d7a8363f7e9::t_5fb243ac40f6a0 45-50
+  s_c63d7a8363f7e9::t_de87a3910ebe53 126-129,136-139
+  s_c63d7a8363f7e9::t_f61f46dec663bd 1-44,51-125,130-135,140-188
+tests/unit/scripts/boundaryExceptionPolicy.test.ts
+  s_c63d7a8363f7e9::t_4b7d7cea3db2e6 1-26,28-34,36-57
+  s_c63d7a8363f7e9::t_5fb243ac40f6a0 27,35
+scripts/architecture/boundary-check.mjs
+  s_c63d7a8363f7e9::t_986a9357b61e14 253,522-523,525
+  s_c63d7a8363f7e9::t_11a2666e690660 267-272,278-281
+  s_c63d7a8363f7e9::t_5cc1dd14f18897 524
+  s_c63d7a8363f7e9::t_147a719e51015e 1624-1631
+  s_c63d7a8363f7e9::t_36dc6306aeadf7 18-22,44-46,118-120,236-238
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "4b5c4395b7082f8044662a45e7bfa15d4d56ceaa",
+  "prompts": {},
+  "sessions": {
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

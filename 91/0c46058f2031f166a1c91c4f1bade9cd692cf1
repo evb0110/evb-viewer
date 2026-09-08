@@ -1,0 +1,79 @@
+electron/features/ocr/mainBindings.ts
+  s_6d332b0dd28a5f::t_46c80b1ce9c451 16
+tests/unit/electron/documentRevisionInvalidationEffects.test.ts
+  s_6d332b0dd28a5f::t_504d131b44cecf 30
+electron/features/ocr/main/ocrOperations.ts
+  s_6d332b0dd28a5f::t_46c80b1ce9c451 26
+tests/unit/electron/ocrJobManagerProtocol.test.ts
+  s_6d332b0dd28a5f::t_46c80b1ce9c451 6
+electron/features/ocr/languageModels.ts
+  s_6d332b0dd28a5f::t_46c80b1ce9c451 48
+tests/unit/electron/ocrLanguageModels.test.ts
+  s_6d332b0dd28a5f::t_46c80b1ce9c451 63
+tests/unit/electron/ocrResourceGovernor.test.ts
+  s_6d332b0dd28a5f::t_46c80b1ce9c451 9,41
+tests/unit/electron/unhandledRejectionRecovery.test.ts
+  s_6d332b0dd28a5f::t_d4a438b88eb7f2 17
+tests/unit/electron/ocrRunOcrAbortWindow.test.ts
+  s_6d332b0dd28a5f::t_46c80b1ce9c451 9
+tests/unit/electron/ocrRuntimePolicy.test.ts
+  s_6d332b0dd28a5f::t_46c80b1ce9c451 10
+electron/features/ocr/main/ocrResourceGovernor.ts
+  s_6d332b0dd28a5f::t_46c80b1ce9c451 1-190
+electron/features/ocr/main/ocrWorkerResourceMessages.ts
+  s_6d332b0dd28a5f::t_46c80b1ce9c451 1-154
+electron/features/ocr/main/ocrJobWorkerLifecycle.ts
+  s_6d332b0dd28a5f::t_46c80b1ce9c451 1-436
+electron/features/ocr/public.ts
+  s_6d332b0dd28a5f::t_0e898f875225fd 1-6
+tests/unit/electron/ocrIpcHandlers.test.ts
+  s_6d332b0dd28a5f::t_46c80b1ce9c451 75
+electron/features/ocr/main/prepareLanguageModelsForJob.modelPrep.ts
+  s_6d332b0dd28a5f::t_46c80b1ce9c451 1-58
+tests/unit/electron/ocrCreateWorker.test.ts
+  s_6d332b0dd28a5f::t_46c80b1ce9c451 42
+tests/unit/electron/estimateOcrRequestBytes.test.ts
+  s_6d332b0dd28a5f::t_46c80b1ce9c451 10
+tests/unit/electron/ocrJobManager.test.ts
+  s_6d332b0dd28a5f::t_46c80b1ce9c451 9,238,261,309,344,360,409,442,505,536,583,676,735,792,821,864,912,954,1009,1053,1096,1145,1238,1282,1307,1333
+tests/unit/electron/tesseract.test.ts
+  s_6d332b0dd28a5f::t_46c80b1ce9c451 78,107,130,154
+electron/features/ocr/main/jobManager.config.ts
+  s_6d332b0dd28a5f::t_46c80b1ce9c451 1-18
+electron/ocr/createPendingResultFileStore.ts
+  s_6d332b0dd28a5f::t_0e898f875225fd 4
+electron/features/ocr/main/ocrQueueCapacity.ts
+  s_6d332b0dd28a5f::t_46c80b1ce9c451 1-51
+electron/features/ocr/main/createOcrWorkingCopyInvalidationController.ts
+  s_6d332b0dd28a5f::t_46c80b1ce9c451 1-49
+electron/features/documents/main/registerDocumentRevisionInvalidationEffects.ts
+  s_6d332b0dd28a5f::t_0e898f875225fd 2
+electron/features/ocr/main/jobManager.ts
+  s_6d332b0dd28a5f::t_46c80b1ce9c451 1-1041
+electron/bootstrap/mainProcess.ts
+  s_c63d7a8363f7e9::t_25a1e7c1f57474 65
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "910c46058f2031f166a1c91c4f1bade9cd692cf1",
+  "prompts": {},
+  "sessions": {
+    "s_6d332b0dd28a5f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d82-5d43-7ba1-b991-adaa2cbaa241",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

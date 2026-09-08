@@ -1,0 +1,19 @@
+eslint.internal-mock-allowlist.mjs
+  s_a2d0d49a269ebb::t_c8c3fe484584c8 263
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "91c845f326c6a631857063607b651f957bf0f3e2",
+  "prompts": {},
+  "sessions": {
+    "s_a2d0d49a269ebb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07cb3-0877-7343-85f3-b25147cac768",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

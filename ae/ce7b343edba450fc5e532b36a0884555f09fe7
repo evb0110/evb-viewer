@@ -1,0 +1,29 @@
+tests/unit/electron/ocrWorkerInboundMessage.test.ts
+  s_6d332b0dd28a5f::t_5f3ecf70ef82d3 10
+tests/unit/electron/ocrSupersessionPageSelection.test.ts
+  s_6d332b0dd28a5f::t_5f3ecf70ef82d3 90
+tests/unit/electron/ocrDpiDetection.test.ts
+  s_6d332b0dd28a5f::t_5f3ecf70ef82d3 11
+tests/unit/electron/realWorkerProtocols.test.ts
+  s_6d332b0dd28a5f::t_e0a75ee8192b7e 133
+tests/unit/electron/ocrPageSelectionStream.test.ts
+  s_6d332b0dd28a5f::t_5f3ecf70ef82d3 10
+electron/ocr/worker/main.ts
+  s_6d332b0dd28a5f::t_5f3ecf70ef82d3 65,81,104,637
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "aece7b343edba450fc5e532b36a0884555f09fe7",
+  "prompts": {},
+  "sessions": {
+    "s_6d332b0dd28a5f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d82-5d43-7ba1-b991-adaa2cbaa241",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
