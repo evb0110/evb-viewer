@@ -1,0 +1,31 @@
+tests/unit/electron/fileOpsPathSecurity.test.ts
+  s_6d332b0dd28a5f::t_6f61d9c1975cbf 161
+tests/unit/electron/ocrCatalogRevisionRebind.test.ts
+  s_6d332b0dd28a5f::t_6f61d9c1975cbf 21
+tests/unit/electron/ocrReplacementOwnershipAlias.test.ts
+  s_6d332b0dd28a5f::t_6f61d9c1975cbf 83
+electron/features/documents/main/documentFileWriteHandlers.ts
+  s_6d332b0dd28a5f::t_6f61d9c1975cbf 69
+tests/unit/electron/ocrIndexWriterV4.test.ts
+  s_6d332b0dd28a5f::t_6f61d9c1975cbf 44
+electron/features/ocr/main/documentTextCatalog.ts
+  s_6d332b0dd28a5f::t_6f61d9c1975cbf 57
+electron/features/ocr/main/recoverPreparedOcrRevisionTransition.ts
+  s_6d332b0dd28a5f::t_6f61d9c1975cbf 21
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "ee8dd5d78be68ff0129572c957ae30840855f44a",
+  "prompts": {},
+  "sessions": {
+    "s_6d332b0dd28a5f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d82-5d43-7ba1-b991-adaa2cbaa241",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
