@@ -1,0 +1,19 @@
+electron/ocr/worker/indexWriter.ts
+  s_cf236b178e7f63::t_7191ab89f70561 56-59
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "f5bd1aae4913398fdce4157cc2ac64197954b12f",
+  "prompts": {},
+  "sessions": {
+    "s_cf236b178e7f63": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0786e-ff24-7610-ae47-435cbff9d48e",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
