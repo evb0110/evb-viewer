@@ -109,7 +109,7 @@ export interface IAnnotationEditorSurface {
     getSelectedTextBox(): ITextBoxEntity | null;
     registerTextBoxDraftCommitter(committer: () => void): () => void;
     commitPendingTextBoxDraftsForSave(): void;
-    setTextBoxDraftPending(annotationId: AnnotationId): void;
+    setTextBoxDraftPending(annotationId: AnnotationId, text?: string): void;
     clearTextBoxDraftPending(annotationId: AnnotationId): void;
     hasPendingTextBoxDrafts(): boolean;
     updateSelectedTextBoxProperties(
@@ -194,6 +194,7 @@ interface IUsePdfAnnotationEditorSurfaceOptions {
     settings: ComputedRef<IAnnotationSettings | null>;
     authorName?: ComputedRef<string | null | undefined>;
     onCreationCompleted?: (tool: TAnnotationTool) => void;
+    onTextBoxDraftChanged?: (annotationId: AnnotationId, text: string | null) => void;
     onToolCancel?: (() => void) | undefined;
     emitOpenNote?: (entity: AnnotationEntity) => void;
     resolveStampImage?: (entity: IPlacedImageEntity) => Promise<string | null>;
@@ -474,8 +475,7 @@ export const usePdfAnnotationEditorSurface = (
     }
 
     function clearPendingTextBoxDrafts() {
-        pendingTextBoxDraftIds.clear();
-        pendingTextBoxDraftCount.value = 0;
+        [...pendingTextBoxDraftIds].forEach(clearTextBoxDraftPending);
     }
 
     function prunePendingTextBoxDrafts(entities: readonly AnnotationEntity[]) {
@@ -534,10 +534,13 @@ export const usePdfAnnotationEditorSurface = (
         [...textBoxDraftCommitters].forEach(committer => committer());
     }
 
-    function setTextBoxDraftPending(annotationId: AnnotationId) {
+    function setTextBoxDraftPending(annotationId: AnnotationId, text?: string) {
         const entity = store().get(annotationId);
         if (entity?.kind !== 'text-box' || entity.deleted) {
             return;
+        }
+        if (text !== undefined) {
+            options.onTextBoxDraftChanged?.(annotationId, text);
         }
         if (pendingTextBoxDraftIds.has(annotationId)) {
             return;
@@ -551,6 +554,7 @@ export const usePdfAnnotationEditorSurface = (
             return;
         }
         pendingTextBoxDraftCount.value = Math.max(0, pendingTextBoxDraftCount.value - 1);
+        options.onTextBoxDraftChanged?.(annotationId, null);
     }
 
     function hasPendingTextBoxDrafts() {

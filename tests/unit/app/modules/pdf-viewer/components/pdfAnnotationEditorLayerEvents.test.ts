@@ -839,7 +839,7 @@ describe('PdfAnnotationEditorLayer SVG events', () => {
             inputType: 'insertText',
             data: 'draft through save hook',
         }));
-        expect(harness.setTextBoxDraftPending).toHaveBeenCalledWith(createdTextBox.identity.id);
+        expect(harness.setTextBoxDraftPending).toHaveBeenCalledWith(createdTextBox.identity.id, 'draft through save hook');
         expect(harness.hasPendingTextBoxDrafts()).toBe(true);
         expect(harness.registerTextBoxDraftCommitter).toHaveBeenCalledOnce();
 

@@ -66,7 +66,7 @@
                 :display-rect="displayRectFor(entity)"
                 @pointer-down="handleTextBoxPointerDown(entity, $event)"
                 @edit="beginTextBoxEdit(entity.identity.id, $event)"
-                @draft-change="surface.setTextBoxDraftPending(entity.identity.id)"
+                @draft-change="surface.setTextBoxDraftPending(entity.identity.id, $event)"
                 @commit="commitTextBox(entity.identity.id, $event)"
                 @cancel="cancelTextBox(entity.identity.id)"
             />

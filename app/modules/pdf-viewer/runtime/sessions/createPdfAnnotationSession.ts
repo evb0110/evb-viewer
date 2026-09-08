@@ -229,6 +229,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
 
     const annotationProjection = shallowRef<IAnnotationCommentSummary[]>([]);
     const canonicalMarkupSubtypeHints = new Map<string, TMarkupSubtype>();
+    const textBoxDrafts = new Map<string, string>();
     const annotationCommentModel = usePdfAnnotationCommentModel({
         isAnySaving: options.isAnySaving,
         annotationProjection,
@@ -249,7 +250,12 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         if (!sameStringSet(storeOwnedPdfAnnotationIds.value, nextStoreOwnedPdfAnnotationIds)) {
             storeOwnedPdfAnnotationIds.value = nextStoreOwnedPdfAnnotationIds;
         }
-        const projected = annotationApplication.value.listCommentSummaries();
+        const projected = annotationApplication.value.listCommentSummaries().map(comment => ({
+            ...comment,
+            text: (comment.annotationKind === 'text-box'
+                ? textBoxDrafts.get(comment.appAnnotationId ?? '')
+                : undefined) ?? comment.text,
+        }));
         annotationProjection.value = projected.map(comment => Object.freeze({...comment}));
         annotationCommentModel.emitCommentsForSidebar(projected);
     }
@@ -263,6 +269,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
     function resetAnnotationApplication(documentKey: string) {
         stopAnnotationApplicationProjection();
         canonicalMarkupSubtypeHints.clear();
+        textBoxDrafts.clear();
         annotationCommentModel.clearProjection();
         annotationApplication.value = createAnnotationApplication(documentKey);
         stopAnnotationApplicationProjection = annotationApplication.value.store.subscribe(projectCanonicalAnnotations);
@@ -355,6 +362,11 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         activeTool: options.annotationTool,
         authorName: options.authorName,
         onCreationCompleted: options.emitAnnotationToolAutoReset,
+        onTextBoxDraftChanged: (annotationId, text) => {
+            if (text === null) textBoxDrafts.delete(annotationId);
+            else textBoxDrafts.set(annotationId, text);
+            projectCanonicalAnnotations();
+        },
         onToolCancel: options.emitAnnotationToolCancel,
         settings: options.annotationSettings,
         resolveStampImage,

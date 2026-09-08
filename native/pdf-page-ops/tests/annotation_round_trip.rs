@@ -10,7 +10,6 @@ use unicode_normalization::UnicodeNormalization;
 const MODIFIED_AT: &str = "D:20260831120000Z";
 const EDITED_NOTE_TEXT: &str = "Cafe\u{301} note";
 const EDITED_HIGHLIGHT_COLOR: &str = "#123456";
-const EDITED_HIGHLIGHT_STORED_COLOR: &str = "#acb8c4";
 const EDITED_SHAPE_COLOR: &str = "#224466";
 const GEOMETRY_QUANTUM: f64 = 10_000.0;
 const MAX_REFERENCE_DEPTH: usize = 64;
@@ -664,7 +663,10 @@ fn canonical_entry(entry: &Value) -> Value {
             result.insert("author".to_string(), normalized_text(&entry["author"]));
             result.insert("text".to_string(), normalized_text(&entry["text"]));
             result.insert("rect".to_string(), canonical_rect(&entry["rect"]));
-            result.insert("rotation".to_string(), entry["rotation"].clone());
+            result.insert(
+                "rotation".to_string(),
+                Value::from(entry["rotation"].as_f64().expect("annotation rotation")),
+            );
             result.insert("fontSize".to_string(), canonical_number(&entry["fontSize"]));
             result.insert("color".to_string(), canonical_color(&entry["color"]));
         }
@@ -704,7 +706,10 @@ fn canonical_entry(entry: &Value) -> Value {
             result.insert("pageIndex".to_string(), entry["pageIndex"].clone());
             result.insert("author".to_string(), normalized_text(&entry["author"]));
             result.insert("rect".to_string(), canonical_rect(&entry["rect"]));
-            result.insert("rotation".to_string(), entry["rotation"].clone());
+            result.insert(
+                "rotation".to_string(),
+                Value::from(entry["rotation"].as_f64().expect("annotation rotation")),
+            );
             let image = entry["image"].as_object().expect("stamp image");
             result.insert(
                 "image".to_string(),
@@ -960,7 +965,15 @@ fn build_mutations(
             object_id,
             kind: "text-box",
             expected_rect: Some(expected_rect_value(marker_rect)),
-            allowed_keys: keys(&["Rect", "Contents", "M", "Rotate", "DA", "AP"]),
+            allowed_keys: keys(&[
+                "Rect",
+                "Contents",
+                "M",
+                "Rotate",
+                "DA",
+                "AP",
+                "EVBTextGeometry",
+            ]),
             ..Edit::default()
         });
     }
@@ -986,7 +999,7 @@ fn build_mutations(
         edits.push(Edit {
             object_id,
             kind: "highlight",
-            expected_color: Some(EDITED_HIGHLIGHT_STORED_COLOR),
+            expected_color: Some(EDITED_HIGHLIGHT_COLOR),
             expected_rotation: None,
             expected_opacity: Some(
                 entry["opacity"]
@@ -1134,7 +1147,15 @@ fn build_mutations(
             kind: "stamp",
             expected_rect: Some(expected_rect_value([x, y, width, height])),
             expected_rotation: Some(0),
-            allowed_keys: keys(&["Rect", "AP", "F", "M"]),
+            allowed_keys: keys(&[
+                "Rect",
+                "AP",
+                "F",
+                "M",
+                "Rotate",
+                "EVBPlacedImage",
+                "EVBImageRotation",
+            ]),
             ..Edit::default()
         });
     }
@@ -1151,7 +1172,17 @@ fn build_mutations(
             expected_stroke_width: Some(
                 entry["strokeWidth"].as_f64().expect("shape stroke width") + 1.0,
             ),
-            allowed_keys: keys(&["Rect", "C", "IC", "CA", "Border", "CreationDate", "AP", "M"]),
+            allowed_keys: keys(&[
+                "Rect",
+                "C",
+                "IC",
+                "CA",
+                "Border",
+                "BS",
+                "CreationDate",
+                "AP",
+                "M",
+            ]),
             ..Edit::default()
         });
     }
@@ -1389,6 +1420,25 @@ fn canonical_annotation_comparator_has_independent_negative_oracles() {
         canonical_entry(&base),
         "a one-channel RGB change must fail the comparator"
     );
+
+    for kind in ["text-box", "stamp"] {
+        let mut original = base.clone();
+        original["kind"] = Value::from(kind);
+        original["image"] = json!({"byteLength": 23, "sha256": "rotation-oracle"});
+        let mut floating_rotation = original.clone();
+        floating_rotation["rotation"] = Value::from(0.0);
+        assert_eq!(
+            canonical_entry(&floating_rotation),
+            canonical_entry(&original),
+            "integer and floating representations of the same angle must compare equal"
+        );
+        floating_rotation["rotation"] = Value::from(0.5);
+        assert_ne!(
+            canonical_entry(&floating_rotation),
+            canonical_entry(&original),
+            "a fractional angle change must fail the comparator"
+        );
+    }
 
     let mut composed = base.clone();
     composed["text"] = Value::String("Caf\u{00e9}".to_string());

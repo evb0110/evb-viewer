@@ -69,7 +69,7 @@ const emit = defineEmits<{
         clientX: number;
         clientY: number
     }];
-    'draft-change': [];
+    'draft-change': [text: string];
     commit: [draft: ITextBoxCommitDraft];
     cancel: [];
 }>();
@@ -226,7 +226,7 @@ function draftRectForContent(): IAnnotationMarkerRect | undefined {
 function handleInputEvent(event: Event) {
     handleInput(event);
     draftRectForContent();
-    emit('draft-change');
+    emit('draft-change', inlineEdit.draftText.value);
 }
 
 function fitRectToContent(rect: IAnnotationMarkerRect, handle?: TAnnotationResizeHandle, fontSize = props.entity.fontSize): IAnnotationMarkerRect {

@@ -481,3 +481,75 @@ describe('canonical image placement', () => {
         expect(session.annotationApplication.value.store.list()).toEqual([]);
     });
 });
+
+
+describe('live canonical text box sidebar drafts', () => {
+    it('projects each input and restores canonical text on cancel without mutating history', () => {
+        const {
+            session,
+            emitAnnotationComments,
+        } = mountAnnotationSession();
+        const surface = session.annotationEditorSurface;
+        const entity = surface.createTextBoxAt(0, {
+            left: 0.1,
+            top: 0.1,
+            width: 0.2,
+            height: 0.1,
+        }, {text: 'Original'});
+        surface.beginTextEditing(entity.identity.id);
+        const epoch = session.annotationApplication.value.store.mutationEpoch;
+        for (const text of [
+            'Draft',
+            'Текст العربية',
+            '',
+        ]) {
+            surface.setTextBoxDraftPending(entity.identity.id, text);
+            expect(session.annotationCommentsCache.value[0]?.text).toBe(text);
+            expect(emitAnnotationComments.mock.lastCall?.[0][0]?.text).toBe(text);
+        }
+        expect(session.annotationApplication.value.listCommentSummaries()[0]?.text).toBe('Original');
+        expect(session.annotationApplication.value.store.mutationEpoch).toBe(epoch);
+        surface.endTextEditing(entity.identity.id, {cancelled: true});
+        expect(session.annotationCommentsCache.value[0]?.text).toBe('Original');
+        expect(emitAnnotationComments.mock.lastCall?.[0][0]?.text).toBe('Original');
+    });
+
+    it('replaces the draft with committed text and preserves undo', async () => {
+        const {session} = mountAnnotationSession();
+        const surface = session.annotationEditorSurface;
+        const entity = surface.createTextBoxAt(0, {
+            left: 0.1,
+            top: 0.1,
+            width: 0.2,
+            height: 0.1,
+        }, {text: 'Original'});
+        surface.beginTextEditing(entity.identity.id);
+        surface.setTextBoxDraftPending(entity.identity.id, 'Committed');
+        surface.commitGesture(entity.identity.id, {text: 'Committed'});
+        surface.endTextEditing(entity.identity.id);
+        expect(session.annotationCommentsCache.value[0]?.text).toBe('Committed');
+        await session.annotationApplication.value.store.undo();
+        expect(session.annotationCommentsCache.value[0]?.text).toBe('Original');
+    });
+
+    it('drops a draft when the text box is deleted or the document is replaced', async () => {
+        const harness = mountAnnotationSession();
+        const {session} = harness;
+        const surface = session.annotationEditorSurface;
+        const entity = surface.createTextBoxAt(0, {
+            left: 0.1,
+            top: 0.1,
+            width: 0.2,
+            height: 0.1,
+        }, {text: 'Original'});
+        surface.setTextBoxDraftPending(entity.identity.id, 'Discarded');
+        surface.deleteAnnotation(entity.identity.id);
+        await session.annotationApplication.value.store.undo();
+        expect(session.annotationCommentsCache.value[0]?.text).toBe('Original');
+        surface.setTextBoxDraftPending(entity.identity.id, 'Previous document');
+        harness.workingCopyPath.value = '/managed/different.pdf';
+        await nextTick();
+        session.annotationApplication.value.store.createTextBox(entity);
+        expect(session.annotationCommentsCache.value[0]?.text).toBe('Original');
+    });
+});

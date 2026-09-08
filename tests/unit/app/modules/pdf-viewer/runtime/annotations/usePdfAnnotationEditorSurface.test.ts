@@ -49,6 +49,7 @@ function createSurfaceHarness() {
     const emitAnnotationModified = vi.fn();
     const emitShapeContextMenu = vi.fn();
     const onCreationCompleted = vi.fn();
+    const onTextBoxDraftChanged = vi.fn();
     const scope = effectScope();
     activeScopes.add(scope);
     const surface = scope.run(() => usePdfAnnotationEditorSurface({
@@ -59,6 +60,7 @@ function createSurfaceHarness() {
         emitAnnotationModified,
         emitShapeContextMenu,
         onCreationCompleted,
+        onTextBoxDraftChanged,
     }))!;
     const stop = () => {
         if (!activeScopes.delete(scope)) {
@@ -72,6 +74,7 @@ function createSurfaceHarness() {
         emitAnnotationModified,
         emitShapeContextMenu,
         onCreationCompleted,
+        onTextBoxDraftChanged,
         surface,
         stop,
     };
@@ -586,6 +589,37 @@ describe('usePdfAnnotationEditorSurface', () => {
         expect(secondCommitter).toHaveBeenCalledTimes(2);
 
         harness.stop();
+    });
+
+    it('publishes every live text draft without committing it, then retracts it on cancel', () => {
+        const harness = createSurfaceHarness();
+        const entity = harness.surface.createTextBoxAt(0, rect, {text: 'Original'});
+        harness.surface.beginTextEditing(entity.identity.id);
+        const epoch = harness.annotationApplication.value.store.mutationEpoch;
+
+        harness.surface.setTextBoxDraftPending(entity.identity.id, 'First');
+        harness.surface.setTextBoxDraftPending(entity.identity.id, 'Текст العربية');
+        harness.surface.setTextBoxDraftPending(entity.identity.id, '');
+        expect(harness.onTextBoxDraftChanged.mock.calls).toEqual([
+            [
+                entity.identity.id,
+                'First',
+            ],
+            [
+                entity.identity.id,
+                'Текст العربية',
+            ],
+            [
+                entity.identity.id,
+                '',
+            ],
+        ]);
+        expect(harness.annotationApplication.value.listCommentSummaries()[0]?.text).toBe('Original');
+        expect(harness.annotationApplication.value.store.mutationEpoch).toBe(epoch);
+
+        harness.surface.endTextEditing(entity.identity.id, {cancelled: true});
+        expect(harness.onTextBoxDraftChanged).toHaveBeenLastCalledWith(entity.identity.id, null);
+        expect(harness.surface.hasPendingTextBoxDrafts()).toBe(false);
     });
 
     it('reports pending text box drafts until the editor commits or cancels them', () => {

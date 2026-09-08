@@ -99,11 +99,37 @@
     }
 
     fn temp_pdf_path(label: &str) -> PathBuf {
+        // Wall-clock timestamps can repeat when tests request paths in parallel.
+        static NEXT_PATH_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let sequence = NEXT_PATH_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let process_id = std::process::id();
         let unique = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        std::env::temp_dir().join(format!("evb-pdf-page-ops-{label}-{unique}.pdf"))
+        std::env::temp_dir().join(format!("evb-pdf-page-ops-{label}-{process_id}-{unique}-{sequence}.pdf"))
+    }
+
+    #[test]
+    fn temporary_pdf_paths_are_unique_across_parallel_callers() {
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(16));
+        let workers: Vec<_> = (0..16)
+            .map(|_| {
+                let barrier = barrier.clone();
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    (0..4096)
+                        .map(|_| temp_pdf_path("parallel-recovery"))
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect();
+        let mut paths = std::collections::HashSet::new();
+        for worker in workers {
+            for path in worker.join().unwrap() {
+                assert!(paths.insert(path.clone()), "duplicate temporary PDF path: {path:?}");
+            }
+        }
     }
 
     fn create_test_note_pdf() -> (Document, ObjectId, ObjectId) {

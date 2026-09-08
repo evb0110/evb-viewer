@@ -219,10 +219,16 @@ export function buildSerializationPlan(
     inputs: ISerializationPlanInputs = {},
 ): ISerializationPlan {
     const steps: IAnnotationMutationStep[] = [];
+    // History retains deleted drafts for undo, but the PDF never contained
+    // them. Delete only entities with evidence of an existing PDF object.
+    const serializableDirty = dirty.filter(entity => (
+        !entity.deleted || entity.persistedRevision >= 0 || Boolean(entity.identity.pdfRef)
+        || (entity.kind === 'shape' && entity.materialized === true)
+    ));
     const knownPdfRefs = entities
         .map(entity => entity.identity.pdfRef)
         .filter((value): value is string => Boolean(value));
-    dirty.forEach((entity) => {
+    serializableDirty.forEach((entity) => {
         const prefix = entity.identity.id;
         if (entity.deleted) {
             steps.push({
@@ -290,7 +296,7 @@ export function buildSerializationPlan(
         (mutationOrder.get(left.operation) ?? Number.MAX_SAFE_INTEGER)
         - (mutationOrder.get(right.operation) ?? Number.MAX_SAFE_INTEGER)
     ));
-    const expected = dirty.map(entity => Object.freeze(structuredClone(entity)));
+    const expected = serializableDirty.map(entity => Object.freeze(structuredClone(entity)));
     const canonicalEntities = entities.map(entity => Object.freeze(structuredClone(entity)));
     const changedObjectRefs = collectChangedObjectRefs(expected);
     const pageOperations = inputs.pageOperations?.map(operation => Object.freeze(cloneSerializable(operation))) ?? [];

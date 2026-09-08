@@ -12,6 +12,7 @@ import type {
     IShapeEntity,
     INoteEntity,
     IPlacedImageEntity,
+    ITextBoxEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {AnnotationApplication} from '@app/modules/pdf-viewer/annotations/annotationApplication';
 import {
@@ -440,6 +441,75 @@ describe('native shape builders', () => {
 });
 
 describe('native PDF save route', () => {
+    it('saves a new text box beside an unsaved deletion and preserves a persisted delete', () => {
+        const app = new AnnotationApplication('deleted-draft-save');
+        const draft: ITextBoxEntity = {
+            kind: 'text-box',
+            identity: {id: asAnnotationId('draft')},
+            pageIndex: requirePageIndex(0),
+            revision: 0,
+            persistedRevision: -1,
+            deleted: false,
+            createdAt: null,
+            modifiedAt: null,
+            author: null,
+            text: 'draft',
+            rect: {
+                left: 0.1,
+                top: 0.1,
+                width: 0.2,
+                height: 0.2,
+            },
+            rotation: 0,
+            fontSize: 12,
+            color: '#000000',
+        };
+        app.store.createTextBox(draft);
+        app.store.delete(draft.identity.id);
+        app.store.import({
+            ...draft,
+            identity: {
+                id: asAnnotationId('persisted'),
+                pdfRef: '12R',
+            },
+            persistedRevision: 0,
+        });
+        app.store.delete(asAnnotationId('persisted'));
+        app.store.createTextBox({
+            ...draft,
+            identity: {id: asAnnotationId('survivor')},
+        });
+        const result = buildNativePdfMutationProjection(app.beginSave().plan, createNativeRouteCapabilities({
+            shapes: [],
+            nativeTextBoxes: [{
+                pageIndex: requirePageIndex(0),
+                stableKey: 'survivor',
+                text: 'draft',
+                rect: [
+                    20,
+                    70,
+                    60,
+                    90,
+                ],
+                rotation: 0,
+                fontSize: 12,
+                color: [
+                    0,
+                    0,
+                    0,
+                ],
+            }],
+        }));
+        expect(result.route).toBe('native-append');
+        if (result.route !== 'native-append') throw new Error(`Expected native save: ${result.nativeRejection}`);
+        const mutations = result.nativeMutationProjection.mutations;
+        expect(mutations.textBoxes).toHaveLength(1);
+        expect(mutations.textBoxes?.[0]?.stableKey).toBe('survivor');
+        expect(mutations.deletes).toEqual([expect.objectContaining({objectNumber: 12})]);
+        expect(result.canonical.pendingDeletes).toHaveLength(1);
+        expect(result.canonical.pendingDeletes[0]?.appAnnotationId).toBe('persisted');
+    });
+
     function projectRecovery(entity: INoteEntity | IPlacedImageEntity) {
         const app = new AnnotationApplication('recovery');
         app.store.import(entity);

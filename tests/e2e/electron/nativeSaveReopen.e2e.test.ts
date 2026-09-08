@@ -24,6 +24,7 @@ import {
 import {
     clickAnnotationTool,
     setAnnotationColor,
+    selectAllFocusedAnnotationText,
 } from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {
     callWorkspaceCommand,
@@ -282,7 +283,7 @@ async function readTextBoxDisplayRect(page: Parameters<typeof evaluateInPage>[0]
         const pageContainer = document.querySelector<HTMLElement>(
             '.editor-pane.is-active .page_container[data-page="1"]',
         );
-        const textBox = pageContainer?.querySelector<HTMLElement>('[data-annotation-kind="text-box"]');
+        const textBox = pageContainer?.querySelector<HTMLElement>('.pdf-annotation-editor-text-box[data-annotation-kind="text-box"]');
         if (!pageContainer || !textBox) {
             return null;
         }
@@ -362,7 +363,7 @@ async function readTextBoxScreenPoints(
         const pageContainer = document.querySelector<HTMLElement>(
             '.editor-pane.is-active .page_container[data-page="1"]',
         );
-        const textBox = pageContainer?.querySelector<HTMLElement>('[data-annotation-kind="text-box"]');
+        const textBox = pageContainer?.querySelector<HTMLElement>('.pdf-annotation-editor-text-box[data-annotation-kind="text-box"]');
         if (!pageContainer || !textBox) {
             return null;
         }
@@ -409,7 +410,7 @@ async function readTextBoxComputedStyle(
 ) {
     return page.evaluate((id: string | null) => {
         const textBoxes = Array.from(document.querySelectorAll<HTMLElement>(
-            '[data-annotation-kind="text-box"]',
+            '.pdf-annotation-editor-text-box[data-annotation-kind="text-box"]',
         ));
         const textBox = id === null
             ? textBoxes[0]
@@ -435,24 +436,23 @@ async function readFirstTextBoxComputedStyle(page: Parameters<typeof evaluateInP
 }
 
 async function increaseSelectedTextBoxFontSize(page: Parameters<typeof evaluateInPage>[0]) {
-    await page.waitForSelector('.annotation-style-popover .style-step-button', {
-        visible: true,
-        timeout: 20_000,
-    });
-    const clicked = await page.evaluate(() => {
-        const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>(
-            '.annotation-style-popover .style-step-button',
-        ));
-        const increaseButton = buttons.at(-1);
-        if (!increaseButton) {
-            return false;
-        }
-        increaseButton.click();
-        return true;
-    });
-    if (!clicked) {
+    const fontSizeInput = await page.waitForSelector(
+        '.editor-pane.is-active [data-annotation-inspector][data-target="selection"] input[aria-label="Text Size"]',
+        {
+            visible: true,
+            timeout: 20_000,
+        },
+    );
+    if (!fontSizeInput) {
         throw new Error('The selected text box font-size control was not mounted');
     }
+    const currentSize = await fontSizeInput.evaluate(input => Number((input as HTMLInputElement).value));
+    expect(Number.isFinite(currentSize)).toBe(true);
+    await fontSizeInput.click({count: 3});
+    await page.keyboard.type(String(currentSize + 1));
+    await page.keyboard.press('Tab');
+    await expect.poll(() => fontSizeInput.evaluate(input => Number((input as HTMLInputElement).value)), {timeout: 20_000})
+        .toBe(currentSize + 1);
 }
 
 async function dragPointer(
@@ -542,7 +542,8 @@ describe('Electron E2E - native save and reopen', () => {
         }
         expect(textBoxComment).toMatchObject({
             source: 'pdf',
-            hasNote: true,
+            annotationKind: 'text-box',
+            hasNote: false,
         });
 
         const movedRect = normalizedRect({
@@ -682,6 +683,29 @@ describe('Electron E2E - native save and reopen', () => {
         if (!creationPoint) {
             throw new Error('The empty fixture page was not mounted');
         }
+        // An annotation deleted before its first save has no PDF object to delete.
+        await session.page.mouse.click(creationPoint.x, creationPoint.y);
+        const editorSelector = '.editor-pane.is-active .pdf-annotation-editor-text-box [contenteditable="true"]';
+        await session.page.waitForSelector(editorSelector, {
+            visible: true,
+            timeout: 20_000,
+        });
+        await session.page.keyboard.type('Discard this unsaved text box');
+        await pressModifiedKey(session.page, 'Enter');
+        await clickAnnotationTool(session.page, 'Select');
+        const throwawayTarget = await readTextBoxScreenPoints(session.page);
+        if (!throwawayTarget) {
+            throw new Error('The unsaved throwaway text box was not rendered');
+        }
+        await session.page.mouse.click(
+            throwawayTarget.box.left + throwawayTarget.box.width / 2,
+            throwawayTarget.box.top + throwawayTarget.box.height / 2,
+        );
+        await session.page.keyboard.press('Delete');
+        await expect.poll(async () => (
+            await readCanonicalAnnotationSnapshot(session!.page)
+        ).comments, {timeout: 20_000}).toEqual([]);
+        await clickAnnotationTool(session.page, 'Text');
         await session.page.mouse.click(creationPoint.x, creationPoint.y);
         await session.page.waitForSelector(
             '.editor-pane.is-active .pdf-annotation-editor-text-box [contenteditable="true"]',
@@ -695,11 +719,19 @@ describe('Electron E2E - native save and reopen', () => {
         await session.page.focus(
             '.editor-pane.is-active .pdf-annotation-editor-text-box [contenteditable="true"]',
         );
-        await pressModifiedKey(session.page, 'A');
+        await selectAllFocusedAnnotationText(session.page);
         await session.page.keyboard.type(typedText);
         await expect.poll(async () => session!.page.evaluate(() => document.querySelector<HTMLElement>(
             '.editor-pane.is-active .pdf-annotation-editor-text-box [contenteditable="true"]',
         )?.textContent ?? null), {timeout: 20_000}).toBe(typedText);
+        await expect.poll(async () => session!.page.evaluate(() => (
+            document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .note-item[data-annotation-kind="text-box"] .note-item-text',
+            )?.textContent?.trim() ?? ''
+        )), {timeout: 20_000}).toBe(typedText);
+        expect(await session.page.evaluate(() => (
+            document.activeElement?.matches('.pdf-annotation-editor-text-box [contenteditable="true"]') ?? false
+        ))).toBe(true);
         await pressModifiedKey(session.page, 'Enter');
         await expect.poll(async () => stringField(
             findTextBoxComment(await readCanonicalAnnotationSnapshot(session!.page), typedText) ?? {},
@@ -744,7 +776,7 @@ describe('Electron E2E - native save and reopen', () => {
             selectionTarget.box.top + selectionTarget.box.height / 2,
         );
         await session.page.waitForFunction((id: string) => Array.from(document.querySelectorAll<HTMLElement>(
-            '[data-annotation-kind="text-box"]',
+            '.pdf-annotation-editor-text-box[data-annotation-kind="text-box"]',
         )).some(entity => entity.dataset.annotationId === id && entity.classList.contains('is-selected')), {timeout: 20_000}, annotationId);
 
         const originalStyle = await readTextBoxComputedStyle(session.page, annotationId);
@@ -834,14 +866,14 @@ describe('Electron E2E - native save and reopen', () => {
             y: beforeMoveScreen.box.top + beforeMoveScreen.box.height / 2,
         };
         const moveTarget = {
-            x: Math.min(beforeMoveScreen.page.right - beforeMoveScreen.box.width / 2 - 6, moveStart.x + 32),
+            x: Math.max(beforeMoveScreen.page.left + beforeMoveScreen.box.width / 2 + 6, moveStart.x - 32),
             y: Math.min(beforeMoveScreen.page.bottom - beforeMoveScreen.box.height / 2 - 6, moveStart.y + 24),
         };
-        expect(Math.hypot(moveTarget.x - moveStart.x, moveTarget.y - moveStart.y)).toBeGreaterThan(8);
+        expect(moveStart.x - moveTarget.x).toBeGreaterThan(8);
         await dragPointer(session.page, moveStart, moveTarget);
         await expect.poll(async () => (
             normalizedRect(findTextBoxComment(await readCanonicalAnnotationSnapshot(session!.page), typedText)?.markerRect)?.left ?? 0
-        ), {timeout: 20_000}).toBeGreaterThan(beforeMoveRect.left);
+        ), {timeout: 20_000}).toBeLessThan(beforeMoveRect.left);
         const movedSnapshot = await readCanonicalAnnotationSnapshot(session.page);
         const movedRect = normalizedRect(findTextBoxComment(movedSnapshot, typedText)?.markerRect);
         expect(movedRect).not.toBeNull();
@@ -985,7 +1017,7 @@ describe('Electron E2E - native save and reopen', () => {
         const initialFontSize = initialStyle.fontSize;
         const point = await session.page.evaluate((id: string) => {
             const entity = Array.from(document.querySelectorAll<HTMLElement>(
-                '[data-annotation-kind="text-box"]',
+                '.pdf-annotation-editor-text-box[data-annotation-kind="text-box"]',
             )).find(candidate => candidate.dataset.annotationId === id);
             if (!entity) {
                 return null;
@@ -1002,17 +1034,17 @@ describe('Electron E2E - native save and reopen', () => {
         }
         await session.page.mouse.click(point.x, point.y);
         await session.page.waitForSelector(
-            '.annotation-style-popover .style-row-width .style-label',
+            '.editor-pane.is-active [data-annotation-inspector][data-target="selection"] input[aria-label="Text Size"]',
             {
                 visible: true,
                 timeout: 20_000,
             },
         );
         await expect.poll(async () => session!.page.evaluate(() => (
-            document.querySelector<HTMLElement>(
-                '.annotation-style-popover .style-row-width .style-label',
-            )?.textContent ?? ''
-        )), {timeout: 20_000}).toContain(String(initialFontSize));
+            document.querySelector<HTMLInputElement>(
+                '.editor-pane.is-active [data-annotation-inspector][data-target="selection"] input[aria-label="Text Size"]',
+            )?.value ?? ''
+        )), {timeout: 20_000}).toBe(String(initialFontSize));
         await increaseSelectedTextBoxFontSize(session.page);
         await expect.poll(async () => (
             await readTextBoxComputedStyle(session!.page, annotationId)
@@ -1040,7 +1072,7 @@ describe('Electron E2E - native save and reopen', () => {
         await session.page.focus(
             '.editor-pane.is-active .pdf-annotation-editor-text-box [contenteditable="true"]',
         );
-        await pressModifiedKey(session.page, 'A');
+        await selectAllFocusedAnnotationText(session.page);
         await session.page.keyboard.type(editedText);
         await expect.poll(async () => session!.page.evaluate(() => document.querySelector<HTMLElement>(
             '.editor-pane.is-active .pdf-annotation-editor-text-box [contenteditable="true"]',

@@ -267,11 +267,13 @@ describe('native placed-image lifecycle integration', () => {
         const deletedDocument = await PDFDocument.load(await readFile(pdfPath), {updateMetadata: false});
         expect(deletedDocument.getPages()[0]!.node.Annots()?.asArray() ?? []).toEqual([]);
         expect(deletedDocument.context.lookupMaybe(updated.stampRef, PDFDict)).toBeUndefined();
-        expect(deletedDocument.context.lookupMaybe(updated.formRef, PDFStream)).toBeUndefined();
-        expect(deletedDocument.context.lookupMaybe(updated.imageRef, PDFStream)).toBeUndefined();
+        // Appearance resources may be shared and must survive saved-deletion undo.
+        // The removed stamp is no longer reachable from the page's annotation list.
+        expect(deletedDocument.context.lookupMaybe(updated.formRef, PDFStream)).toBeInstanceOf(PDFStream);
+        expect(deletedDocument.context.lookupMaybe(updated.imageRef, PDFStream)).toBeInstanceOf(PDFStream);
         expect(countPlacedImageGraphObjects(deletedDocument, stableKey)).toEqual({
-            forms: 0,
-            images: 0,
+            forms: 1,
+            images: 1,
             matchingNames: 0,
             stamps: 0,
         });
