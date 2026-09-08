@@ -1,0 +1,21 @@
+docs/architecture/project6-296-baseline-decision-2026-09-08.md
+  s_8e49417b9c002c::t_1ea25706a45633 15,17,45,82-83,85-120,131-132,194-195,232
+  s_8e49417b9c002c::t_ef83f31b83eb39 122,124-125,127
+  s_8e49417b9c002c::t_ba6b4dbbebe673 121
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "9c582f063d30e67e238c422e91e992087ff7fbca",
+  "prompts": {},
+  "sessions": {
+    "s_8e49417b9c002c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07db6-b548-7e11-b34f-ffefc7d6cfbf",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
