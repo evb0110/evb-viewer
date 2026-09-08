@@ -690,6 +690,7 @@ export default {
         'drawThickness': 'Tekendikte',
         'stroke': 'Lijnkleur',
         'textSize': 'Tekstgrootte',
+        'textResizeHint': 'Sleep een hoek om de tekstgrootte te wijzigen. Sleep een zijkant om de regelafbreking aan te passen.',
         'penType': 'Pentype',
         'pen': 'Pen',
         'pencil': 'Potlood',

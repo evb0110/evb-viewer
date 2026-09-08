@@ -248,6 +248,27 @@ describe('usePdfAnnotationEditorSurface', () => {
         expect(emitAnnotationModified).not.toHaveBeenCalled();
     });
 
+    it('rejects font and geometry together when text cannot fit the page', () => {
+        const {
+            surface,
+            annotationApplication,
+            emitAnnotationModified,
+        } = createSurfaceHarness();
+        const box = surface.createTextBoxAt(0, rect);
+        surface.registerPageInteraction(0, {
+            commitTextDraft: vi.fn(),
+            cancelTextDraft: vi.fn(),
+            cancelPointerGesture: vi.fn(),
+            focus: vi.fn(),
+            fitTextBox: () => null,
+        });
+        surface.select([box.identity.id]);
+        emitAnnotationModified.mockClear();
+        expect(surface.updateSelectedAnnotationProperties({fontSize: 72})).toBe(false);
+        expect(annotationApplication.value.store.get(box.identity.id)).toEqual(box);
+        expect(emitAnnotationModified).not.toHaveBeenCalled();
+    });
+
     it('fits selected text to a new font size before one canonical update', () => {
         const {
             surface,

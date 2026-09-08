@@ -106,6 +106,18 @@ async function runWithExecutionContextRetry<T>(
     }
 }
 
+// A navigation can destroy the response after the open already changed tabs.
+// Replaying that operation can create a second tab or race checkpoint restore.
+async function dispatchDocumentOpenOnce<T>(task: () => Promise<T>) {
+    try {
+        return await task();
+    } catch (error) {
+        throw new DirectDocumentOpenRejectedError(
+            `Document open result is unavailable; the open was not replayed. ${describeError(error)}`,
+        );
+    }
+}
+
 async function resolveDocumentSourcePath(path: string) {
     try {
         return await realpath(path);
@@ -466,7 +478,7 @@ async function openPathInApp(
                         && activeTabId.length > 0;
                 }, {timeout: remainingMs});
                 openBaselineEventId = await getLatestAutomationEventId(page);
-                const openResult = await runWithExecutionContextRetry(page, async () => {
+                const openResult = await dispatchDocumentOpenOnce(async () => {
                     return evaluateInPage(page, async (path: string) => {
                         const automationGrant = (window as typeof globalThis & IE2EWindow & IAutomationFileOpenGrantApi).__allowRendererFileOpenForAutomation;
                         if (typeof automationGrant === 'function') {
@@ -545,7 +557,7 @@ export async function triggerOpenPathInApp(page: Page, path: string, timeoutMs =
 
         try {
             await waitForRendererBindings(page, Math.min(remainingMs, 8_000));
-            const openResult = await runWithExecutionContextRetry(page, async () => {
+            const openResult = await dispatchDocumentOpenOnce(async () => {
                 return evaluateInPage(page, async (path: string) => {
                     const automationGrant = (window as typeof globalThis & IE2EWindow & IAutomationFileOpenGrantApi).__allowRendererFileOpenForAutomation;
                     if (typeof automationGrant === 'function') {
@@ -569,6 +581,9 @@ export async function triggerOpenPathInApp(page: Page, path: string, timeoutMs =
 
             lastError = new Error('window.__openFileDirect is not available');
         } catch (error) {
+            if (error instanceof DirectDocumentOpenRejectedError) {
+                throw error;
+            }
             lastError = error instanceof Error ? error : new Error(describeError(error));
         }
 

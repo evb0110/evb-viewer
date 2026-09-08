@@ -690,6 +690,7 @@ export default {
         'drawThickness': 'Spessore disegno',
         'stroke': 'Tratto',
         'textSize': 'Dimensione testo',
+        'textResizeHint': 'Trascina un angolo per ridimensionare il testo o un lato per regolare la larghezza delle righe.',
         'penType': 'Tipo di penna',
         'pen': 'Penna',
         'pencil': 'Matita',

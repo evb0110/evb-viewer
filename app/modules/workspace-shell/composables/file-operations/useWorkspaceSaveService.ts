@@ -152,6 +152,7 @@ export interface IWorkspaceSaveDependencies {
         ) => Promise<IPdfPersistResult>;
         saveWorkingCopy: (opts: {
             saveMode: TPdfSaveMode;
+            preserveLoadedSource?: boolean;
             expectedWorkingPath?: TDocumentRef | null;
             expectedDocumentRevisionToken?: TDocumentRevisionToken | null;
         }) => Promise<IPdfPersistResult>;
@@ -189,6 +190,7 @@ export interface IWorkspaceSaveDependencies {
             mutations: IPdfNativeMutationSet,
             opts: {
                 saveMode: TPdfSaveMode;
+                optimizeLossless?: boolean;
                 preserveLoadedSource?: boolean;
                 expectedWorkingPath?: TDocumentRef | null;
                 expectedDocumentRevisionToken?: TDocumentRevisionToken | null;
@@ -329,6 +331,7 @@ async function executeWorkingCopySave(
             return notSavedBeforeWrite(validationFailure, plan.target.expectedRevisionToken, reloadWaiter);
         }
         const opts = {
+            preserveLoadedSource: plan.body.preserveLoadedSource,
             saveMode: getSaveMode(plan),
             expectedWorkingPath: plan.target.expectedWorkingPath,
             expectedDocumentRevisionToken: plan.target.expectedRevisionToken,
@@ -519,6 +522,7 @@ async function persistNativeMutationProjection(
         expectedWorkingPath: plan.target.expectedWorkingPath,
         expectedDocumentRevisionToken: plan.target.expectedRevisionToken,
         modifiedAt: toPdfDateString(new Date()),
+        ...(plan.request.kind === 'save-as' && plan.request.optimizeLossless ? {optimizeLossless: true} : {}),
         ...(verifyPathBeforeExpose ? {verifyPathBeforeExpose} : {}),
         ...(assertBeforeExpose ? {assertBeforeExpose} : {}),
     };
@@ -586,6 +590,31 @@ async function executeNativeMutationSave(
     ) as TSingleWriterSaveTransaction;
     const nativePathBacked = requiresNativePathBackedSave(plan);
     const projection = saveTransaction.nativeMutationProjection;
+    if (!projection && saveTransaction.verifiedUnchangedWorkingCopy === true) {
+        await saveTransaction.assertAnnotationSaveCurrent?.();
+        const result = await executeWorkingCopySave({
+            ...plan,
+            kind: 'serialized',
+            destination: plan.request.kind === 'save-as' ? 'save-as' : 'original',
+            body: {
+                ...plan.serializedFallback,
+                source: 'working-copy',
+                preserveLoadedSource: true,
+            },
+        }, deps);
+        if (result.status === 'saved') {
+            saveTransaction.commitAnnotationSave?.();
+            return {
+                ...result,
+                completion: {
+                    ...result.completion,
+                    markShapeStateSaved: false,
+                    preserveLivePdfjsSession: !result.persisted.didSaveAs,
+                },
+            };
+        }
+        return result;
+    }
     if (!projection) {
         BrowserLogger.warn('workspace', 'Native PDF save had no mutation projection', {
             failure: saveTransaction.nativeRequiredFailure ?? null,
@@ -684,7 +713,7 @@ async function executeNativeMutationSave(
     }
 
     const materializedIdentityBindings = persisted.materializedIdentityBindings;
-    if (plan.request.kind === 'save-as') {
+    if (plan.request.kind === 'save-as' && !persisted.didSaveAs) {
         const saveAsPersisted = await timedSavePhase(
             'persist-save_as-native-writer-output',
             () => deps.persistence.saveAs(undefined, {
@@ -730,7 +759,7 @@ async function executeNativeMutationSave(
         persisted.materializedIdentityBindings ?? materializedIdentityBindings,
     );
 
-    const expectedWorkingPath = plan.target.expectedWorkingPath;
+    const expectedWorkingPath = persisted.didSaveAs ? deps.document.workingCopyPath.value : plan.target.expectedWorkingPath;
     // Native persistence advances the document revision after publication. The
     // parse belongs to that committed revision, not the pre-write plan token.
     const committedRevisionToken = deps.document.revisionToken.value;
@@ -765,7 +794,7 @@ async function executeNativeMutationSave(
             allowBookmarksSaveStateRefresh: projection.mutations.bookmarks !== undefined,
             allowPageLabelsSaveStateRefresh: projection.mutations.pageLabels !== undefined,
             markShapeStateSaved: canMarkShapeStateSaved,
-            preserveLivePdfjsSession: true,
+            preserveLivePdfjsSession: !persisted.didSaveAs,
             resetAnnotationStorage: true,
         },
     };

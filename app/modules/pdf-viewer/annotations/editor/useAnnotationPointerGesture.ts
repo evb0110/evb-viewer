@@ -41,6 +41,7 @@ interface IActiveAnnotationPointerGesture {
     start: IAnnotationEditorPoint;
     current: IAnnotationEditorPoint;
     startClient: IAnnotationPointerEvent;
+    hasMoved: boolean;
     gesture?: IAnnotationGesture;
     handle?: TAnnotationResizeHandle;
     moveBounds?: readonly IAnnotationMarkerRect[];
@@ -51,6 +52,7 @@ export interface IAnnotationPointerGestureCompletion {
     readonly pageIndex: number;
     readonly pointerId: number;
     readonly start: IAnnotationEditorPoint;
+    readonly current: IAnnotationEditorPoint;
     readonly gesture?: IAnnotationGesture;
     readonly rect: IAnnotationMarkerRect;
     readonly hasMoved: boolean;
@@ -61,6 +63,8 @@ export interface IAnnotationPointerGesture {
     readonly mode: ComputedRef<TAnnotationPointerGestureMode | null>;
     readonly resizeHandle: ComputedRef<TAnnotationResizeHandle | null>;
     readonly start: ComputedRef<IAnnotationEditorPoint | null>;
+    readonly current: ComputedRef<IAnnotationEditorPoint | null>;
+    readonly hasMoved: ComputedRef<boolean>;
     readonly previewRect: ComputedRef<IAnnotationMarkerRect | null>;
     beginCreate(point: IAnnotationEditorPoint, event: IAnnotationPointerEvent): boolean;
     beginMove(annotationId: AnnotationId, point: IAnnotationEditorPoint, event: IAnnotationPointerEvent): boolean;
@@ -124,6 +128,8 @@ export const useAnnotationPointerGesture = (
     const mode = computed(() => active.value?.mode ?? null);
     const resizeHandle = computed(() => active.value?.handle ?? null);
     const start = computed(() => active.value?.start ?? null);
+    const current = computed(() => active.value?.current ?? null);
+    const hasMoved = computed(() => active.value?.hasMoved ?? false);
     function pageDimensions(pageIndex = options.pageIndex) {
         const geometry = options.surface.getPageGeometry(pageIndex);
         return annotationPageDimensions(geometry?.pageView, geometry?.rotation ?? 0);
@@ -174,6 +180,7 @@ export const useAnnotationPointerGesture = (
             start: point,
             current: point,
             startClient: event,
+            hasMoved: false,
         };
         return true;
     }
@@ -197,6 +204,7 @@ export const useAnnotationPointerGesture = (
             start: point,
             current: point,
             startClient: event,
+            hasMoved: false,
             gesture,
         };
         return true;
@@ -222,6 +230,7 @@ export const useAnnotationPointerGesture = (
             start: point,
             current: point,
             startClient: event,
+            hasMoved: false,
             gesture,
             handle,
         };
@@ -235,6 +244,7 @@ export const useAnnotationPointerGesture = (
         active.value = {
             ...active.value!,
             current: point,
+            hasMoved: active.value!.hasMoved || hasPointerMovedPastThreshold(active.value!.startClient, event, 6),
         };
         return true;
     }
@@ -258,8 +268,9 @@ export const useAnnotationPointerGesture = (
             pageIndex: interaction.pageIndex,
             pointerId: interaction.pointerId,
             start: interaction.start,
+            current: interaction.current,
             rect,
-            hasMoved: hasPointerMovedPastThreshold(interaction.startClient, event, 6),
+            hasMoved: interaction.hasMoved,
             ...(interaction.gesture ? {gesture: interaction.gesture} : {}),
         };
         active.value = null;
@@ -277,6 +288,8 @@ export const useAnnotationPointerGesture = (
         mode,
         resizeHandle,
         start,
+        current,
+        hasMoved,
         previewRect,
         beginCreate,
         beginMove,

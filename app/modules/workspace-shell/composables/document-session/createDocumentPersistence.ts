@@ -1,3 +1,4 @@
+import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
 import type { TPdfSaveMode } from '@app/types/pdfContracts';
 import type { IPdfPersistResult } from '@app/types/pdfUi';
 import type { TTranslateFn } from '@i18n-app';
@@ -36,6 +37,7 @@ import {
 } from '@app/utils/platformDocuments';
 import {
     adoptStablePathBackedPersistedState,
+    resolveStableLazyHistoryBaseline,
     hasNativePathBackedSource,
 } from '@app/modules/workspace-shell/composables/document-session/adoptPathBackedPersistedState';
 import { BROWSER_MAX_FULL_READ_BYTES } from '@app/platform/browser/browserDocumentConstants';
@@ -81,6 +83,7 @@ interface ICreateDocumentPersistenceDeps {
 }
 
 interface IWorkingCopyPersistOptions {
+    preserveLoadedSource?: boolean;
     saveMode?: TPdfSaveMode;
     expectedWorkingPath?: TDocumentRef | null;
     expectedDocumentRevisionToken?: TDocumentRevisionToken | null | undefined;
@@ -94,26 +97,6 @@ export function createDocumentPersistence(
     state: IDocumentSessionState,
     deps: ICreateDocumentPersistenceDeps,
 ) {
-    async function resolveStableLazyHistoryBaseline(path: TDocumentRef) {
-        const documentFiles = getDocumentFilesCapability();
-        for (let attempt = 0; attempt < 2; attempt += 1) {
-            const before = await documentFiles.getDocumentRevision(path);
-            const file = await documentFiles.statFile(path);
-            const after = await documentFiles.getDocumentRevision(path);
-            if (before.token === after.token) {
-                return {
-                    baseline: {
-                        workingPath: path,
-                        revision: after.token,
-                        size: file.size,
-                    },
-                    revisionInfo: after,
-                };
-            }
-        }
-        throw new Error('Working-copy revision changed while adopting the saved path');
-    }
-
     function resolveDocumentMutationRevisionToken(
         opts?: {expectedDocumentRevisionToken?: TDocumentRevisionToken | null | undefined},
     ) {
@@ -488,7 +471,7 @@ export function createDocumentPersistence(
                 });
                 return createStalePersistResult(requestedSaveMode, false);
             }
-            if (!await commitPersistedPdfState(undefined, workingPath)) {
+            if (!await commitPersistedPdfState(undefined, workingPath, opts?.preserveLoadedSource === undefined ? undefined : {preserveLoadedSource: opts.preserveLoadedSource})) {
                 return createStalePersistResult(requestedSaveMode, false);
             }
             state.lastSaveMode.value = requestedSaveMode;
@@ -728,6 +711,7 @@ export function createDocumentPersistence(
         mutations: IPdfNativeMutationSet,
         opts: {
             saveMode: TPdfSaveMode;
+            optimizeLossless?: boolean;
             preserveLoadedSource?: boolean;
             expectedWorkingPath?: TDocumentRef | null;
             expectedDocumentRevisionToken?: TDocumentRevisionToken | null | undefined;
@@ -772,6 +756,9 @@ export function createDocumentPersistence(
         const commitStagedPdfNativeMutations = documentFiles.commitStagedPdfNativeMutations;
         const canUseGenericNativeMutations = typeof applyPdfNativeMutationsToWorkingCopy === 'function'
             && typeof commitStagedPdfNativeMutations === 'function';
+        if (opts.saveMode === 'save_as_rewrite' && !canUseGenericNativeMutations) {
+            return null;
+        }
         const canUseLegacyNativeNoteText = (
             !hasPageLabels
             && !hasBookmarks
@@ -818,19 +805,19 @@ export function createDocumentPersistence(
         }
 
         const expectedDocumentRevisionToken = resolveDocumentMutationRevisionToken(opts);
-        const requestedSaveMode = opts.saveMode;
+        let stagedSaveAsResult: IPdfPersistResult | null = null;
         const workingPath = state.workingCopyPath.value;
         const expectedOriginalPath = state.originalPath.value;
         if (!workingPath) {
-            return createFailedPersistResult(requestedSaveMode, false);
+            return createFailedPersistResult(opts.saveMode, false);
         }
         if (opts.expectedWorkingPath !== undefined && workingPath !== opts.expectedWorkingPath) {
             BrowserLogger.debug('workspace', 'Skipped stale native note-text save request', {
                 expectedWorkingPath: opts.expectedWorkingPath,
                 currentWorkingPath: workingPath,
-                saveMode: requestedSaveMode,
+                saveMode: opts.saveMode,
             });
-            return createStalePersistResult(requestedSaveMode, false);
+            return createStalePersistResult(opts.saveMode, false);
         }
 
         const phaseTimings: IPdfPersistPhaseTiming[] = [];
@@ -840,7 +827,7 @@ export function createDocumentPersistence(
             const log = totalMs >= 1_000 ? BrowserLogger.warn : BrowserLogger.debug;
             log('workspace', 'Native PDF mutation save renderer timings', {
                 status,
-                saveMode: requestedSaveMode,
+                saveMode: opts.saveMode,
                 updateCount: updates.length,
                 freeTextNoteCount: freeTextNotes.length,
                 freeTextEditorCount: freeTextEditors.length,
@@ -861,10 +848,10 @@ export function createDocumentPersistence(
                 BrowserLogger.debug('workspace', 'Skipped stale native PDF mutation save before write', {
                     workingPath,
                     currentWorkingPath: state.workingCopyPath.value,
-                    saveMode: requestedSaveMode,
+                    saveMode: opts.saveMode,
                 });
                 logRendererTimings('stale-before-write');
-                return createStalePersistResult(requestedSaveMode, false);
+                return createStalePersistResult(opts.saveMode, false);
             }
             const result = await measurePdfPersistPhase(
                 phaseTimings,
@@ -937,9 +924,30 @@ export function createDocumentPersistence(
                                 'native-publish-automation',
                                 () => publishStagedPdfNativeMutationForAutomation(stagedOutput),
                             );
+                            await assertBeforeExpose?.();
                         } catch (error) {
                             await documentFiles.releaseManagedTempFileHandle?.(stagedOutput.leaseId);
                             throw new NativeMutationPreExposeError(getErrorMessage(error));
+                        }
+                        if (opts.saveMode === 'save_as_rewrite') {
+                            try {
+                                stagedSaveAsResult = await saveWorkingCopyAs(undefined, {
+                                    saveMode: opts.saveMode,
+                                    expectedWorkingPath: workingPath,
+                                    expectedDocumentRevisionToken,
+                                    stagedOutput,
+                                    ...(opts.optimizeLossless ? {optimizeLossless: true} : {}),
+                                });
+                                if (stagedSaveAsResult.success) {
+                                    stagedSaveAsResult = {
+                                        ...stagedSaveAsResult,
+                                        materializedIdentityBindings: appliedIdentityBindings,
+                                    };
+                                }
+                                return applied;
+                            } finally {
+                                await documentFiles.releaseManagedTempFileHandle?.(stagedOutput.leaseId);
+                            }
                         }
                         let committed: IPdfNativeSaveResult;
                         try {
@@ -991,6 +999,9 @@ export function createDocumentPersistence(
                     throw new Error('No native PDF mutation strategy is available for this document');
                 },
             );
+            if (stagedSaveAsResult) {
+                return stagedSaveAsResult;
+            }
             if (!result.applied || !result.validation?.isValid) {
                 BrowserLogger.warn('workspace', 'Native PDF mutation was not applied', {
                     reason: 'native-mutation-not-applied',
@@ -1019,17 +1030,17 @@ export function createDocumentPersistence(
                     expectedOriginalPath,
                     currentOriginalPath: state.originalPath.value,
                     currentWorkingPath: state.workingCopyPath.value,
-                    saveMode: requestedSaveMode,
+                    saveMode: opts.saveMode,
                 });
                 logRendererTimings('stale-after-write');
-                return createStalePersistResult(requestedSaveMode, false);
+                return createStalePersistResult(opts.saveMode, false);
             }
             if (commitWorkingPath !== workingPath) {
                 BrowserLogger.debug('workspace', 'Using refreshed working copy after native PDF mutation save', {
                     workingPath,
                     refreshedWorkingPath: commitWorkingPath,
                     currentWorkingPath: state.workingCopyPath.value,
-                    saveMode: requestedSaveMode,
+                    saveMode: opts.saveMode,
                 });
             }
 
@@ -1046,16 +1057,16 @@ export function createDocumentPersistence(
             );
             if (!committed) {
                 logRendererTimings('stale-commit');
-                return createStalePersistResult(requestedSaveMode, false);
+                return createStalePersistResult(opts.saveMode, false);
             }
-            state.lastSaveMode.value = requestedSaveMode;
+            state.lastSaveMode.value = opts.saveMode;
             logRendererTimings('applied');
             return materializedIdentityBindings.length > 0
                 ? {
-                    ...createPersistResult(true, requestedSaveMode, false),
+                    ...createPersistResult(true, opts.saveMode, false),
                     materializedIdentityBindings,
                 }
-                : createPersistResult(true, requestedSaveMode, false);
+                : createPersistResult(true, opts.saveMode, false);
         } catch (saveError) {
             if (saveError instanceof NativeMutationPreExposeError) {
                 throw saveError;
@@ -1074,7 +1085,7 @@ export function createDocumentPersistence(
                 shapes: hasShapes,
                 markup: hasMarkup,
                 placedImageCount: placedImages.length,
-                saveMode: requestedSaveMode,
+                saveMode: opts.saveMode,
                 totalMs: roundDurationMs(performance.now() - operationStart),
                 phases: phaseTimings,
             });
@@ -1089,6 +1100,7 @@ export function createDocumentPersistence(
             expectedWorkingPath?: TDocumentRef | null;
             expectedDocumentRevisionToken?: TDocumentRevisionToken | null | undefined;
             optimizeLossless?: boolean;
+            stagedOutput?: ITypedStagedArtifact;
             changedObjectRefs?: string[];
             commitCallbacks?: IPdfSerializedCommitCallbacks;
         },
@@ -1097,14 +1109,15 @@ export function createDocumentPersistence(
         return runPersistOperation(requestedSaveMode, true, async (workingPath) => {
             const revisionOptions = resolveDocumentMutationRevisionOptions(opts);
             const previousWorkingPath = workingPath;
-            const saveAsOptions = opts?.optimizeLossless === true
-                ? { optimizeLossless: true }
-                : undefined;
+            const saveAsOptions = {
+                ...(opts?.optimizeLossless === true ? {optimizeLossless: true} : {}),
+                ...(opts?.stagedOutput ? {stagedOutput: opts.stagedOutput} : {}),
+            };
             void data;
             const saveAsResult = {
                 path: await getDocumentFilesCapability().savePdfAs(
                     workingPath,
-                    saveAsOptions,
+                    Object.keys(saveAsOptions).length > 0 ? saveAsOptions : undefined,
                     revisionOptions,
                 ),
                 validation: null,
@@ -1121,7 +1134,7 @@ export function createDocumentPersistence(
             }
             if (savedPath) {
                 let savedWorkingPath = previousWorkingPath;
-                if (shouldRefreshWorkingCopyAfterSaveAs(savedPath, previousWorkingPath)) {
+                if (opts?.stagedOutput || shouldRefreshWorkingCopyAfterSaveAs(savedPath, previousWorkingPath)) {
                     const nextWorkingPath =
                         await getDocumentWorkingCopyCapability().createWorkingCopyFromPath(savedPath);
                     if (!state.isActiveWorkingCopy(previousWorkingPath)) {

@@ -258,6 +258,24 @@ describe('useAnnotationPointerGesture', () => {
         });
     });
 
+    it('keeps deliberate drag creation when the pointer returns to its starting point', () => {
+        const harness = createHarness(scopes);
+        harness.interaction.beginCreate({
+            x: 0.2,
+            y: 0.2,
+        }, pointer(20, 20));
+        harness.interaction.update({
+            x: 0.4,
+            y: 0.4,
+        }, pointer(40, 40));
+        expect(harness.interaction.hasMoved.value).toBe(true);
+        const completion = harness.interaction.finish({
+            x: 0.2,
+            y: 0.2,
+        }, pointer(20, 20));
+        expect(completion?.hasMoved).toBe(true);
+    });
+
     it('cancels the active gesture and clears its preview', () => {
         const harness = createHarness(scopes);
 

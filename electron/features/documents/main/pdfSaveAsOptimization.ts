@@ -1,3 +1,4 @@
+import {decodePdfSaveAsOptions} from '@contracts/documentsPersistenceSchemas';
 import {
     rm,
     stat,
@@ -60,8 +61,9 @@ export function normalizePdfSaveAsOptions(value: unknown): IPdfSaveAsOptions | u
         return undefined;
     }
 
-    return value.optimizeLossless === true
-        ? { optimizeLossless: true }
+    const decoded = decodePdfSaveAsOptions(value);
+    return decoded?.optimizeLossless === true || decoded?.stagedOutput
+        ? decoded
         : undefined;
 }
 

@@ -193,6 +193,8 @@ export interface IPdfViewerSaveTransactionResult {
     serializedResult: IPdfViewerSaveTransactionSerializedResult | null;
     nativeMutationProjection: INativePdfMutationProjection | null;
     nativeRequiredFailure?: IPdfViewerNativeRequiredFailure;
+    /** A captured canonical frontier proves no PDF mutations remain after draft deletion or undo. */
+    verifiedUnchangedWorkingCopy?: boolean;
     /** Exact classifier-owned alternate; consumers must not independently plan another route. */
     fallbackDecision: IPdfSaveByteRouteDecision;
     annotationSavePlan: IPdfViewerAnnotationSavePlan;

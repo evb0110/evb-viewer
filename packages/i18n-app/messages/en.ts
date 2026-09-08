@@ -225,6 +225,7 @@ export default {
         'drawThickness': 'Draw Thickness',
         'stroke': 'Stroke',
         'textSize': 'Text Size',
+        'textResizeHint': 'Drag a corner to scale text. Drag a side to change line wrapping.',
         'penType': 'Pen Type',
         'pen': 'Pen',
         'pencil': 'Pencil',

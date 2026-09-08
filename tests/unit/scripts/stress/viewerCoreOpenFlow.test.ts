@@ -1,4 +1,5 @@
 import type * as TPageRuntime from '@tests/e2e/electron/helpers/pageRuntime';
+import type * as TWorkspaceExpose from '@tests/e2e/electron/helpers/workspaceExpose';
 import type * as TViewerDom from '@tests/e2e/electron/helpers/viewerDom';
 import {
     afterEach,
@@ -7,7 +8,11 @@ import {
     it,
     vi,
 } from 'vitest';
-import {waitForViewerInteractive} from '@tests/e2e/electron/helpers/viewerCore';
+import {
+    openPdfInApp,
+    triggerOpenPathInApp,
+    waitForViewerInteractive,
+} from '@tests/e2e/electron/helpers/viewerCore';
 
 interface IFakeElement {
     classList: {contains: (name: string) => boolean};
@@ -23,15 +28,23 @@ interface IFakeElement {
 const mocks = vi.hoisted(() => ({
     waitForActiveWorkspaceHost: vi.fn(async () => undefined),
     waitForFunctionInPage: vi.fn(),
+    evaluateInPage: vi.fn(),
 }));
 
 vi.mock('@tests/e2e/electron/helpers/pageRuntime', async importOriginal => ({
     ...await importOriginal<typeof TPageRuntime>(),
     waitForFunctionInPage: mocks.waitForFunctionInPage,
+    evaluateInPage: mocks.evaluateInPage,
 }));
 vi.mock('@tests/e2e/electron/helpers/viewerDom', async importOriginal => ({
     ...await importOriginal<typeof TViewerDom>(),
     waitForActiveWorkspaceHost: mocks.waitForActiveWorkspaceHost,
+}));
+
+vi.mock('@tests/e2e/electron/helpers/workspaceExpose', async importOriginal => ({
+    ...await importOriginal<typeof TWorkspaceExpose>(),
+    getLatestAutomationEventId: vi.fn(async () => 0),
+    installWorkspaceExposeProbe: vi.fn(async () => undefined),
 }));
 
 function createElement(options: {
@@ -130,5 +143,37 @@ describe('viewer interactive readiness', () => {
 
         await expect(waitForViewerInteractive(Object.create(null), 500))
             .rejects.toThrow('interactive predicate rejected the page');
+    });
+});
+
+
+describe('direct document open dispatch', () => {
+    it.each([
+        {
+            name: 'triggerOpenPathInApp',
+            open: triggerOpenPathInApp,
+        },
+        {
+            name: 'openPdfInApp',
+            open: openPdfInApp,
+        },
+    ])('does not replay $name when navigation destroys its pending result', async ({open}) => {
+        mocks.evaluateInPage.mockReset();
+        mocks.waitForFunctionInPage.mockReset();
+        if (open === openPdfInApp) {
+            mocks.waitForFunctionInPage.mockRejectedValueOnce(new Error('No active document'));
+        }
+        mocks.waitForFunctionInPage.mockResolvedValue(undefined);
+        const navigationError = new Error('Execution context was destroyed, most likely because of a navigation.');
+        mocks.evaluateInPage.mockResolvedValueOnce({
+            electronAPI: 'object',
+            openFileDirect: 'function',
+            nuxtRootChildren: 1,
+            url: 'http://localhost/electron',
+        }).mockRejectedValue(navigationError);
+
+        await expect(open(Object.create(null), '/tmp/open-once.pdf', 100))
+            .rejects.toThrow('Execution context was destroyed');
+        expect(mocks.evaluateInPage).toHaveBeenCalledTimes(2);
     });
 });

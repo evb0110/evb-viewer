@@ -356,6 +356,7 @@ export class AnnotationStore {
             if (canUseFastPath) {
                 this.#savedSemanticSnapshot.set(imported.identity.id, {
                     kind: imported.kind,
+                    deleted: imported.deleted,
                     fingerprint: semanticEntityFingerprint(imported),
                 });
             } else {
@@ -621,6 +622,7 @@ export class AnnotationStore {
                     next.set(id, cloneEntity(current));
                     nextBaseline.set(id, {
                         kind: current.kind,
+                        deleted: current.deleted,
                         fingerprint: semanticEntityFingerprint(current),
                     });
                     return;
@@ -643,6 +645,7 @@ export class AnnotationStore {
 
             nextBaseline.set(id, {
                 kind: parsed.kind,
+                deleted: parsed.deleted,
                 fingerprint: semanticEntityFingerprint(parsed),
             });
             if (isDirty(current)) {
@@ -686,6 +689,7 @@ export class AnnotationStore {
             next.set(id, inserted);
             nextBaseline.set(id, {
                 kind: inserted.kind,
+                deleted: inserted.deleted,
                 fingerprint: semanticEntityFingerprint(inserted),
             });
         });
@@ -754,6 +758,7 @@ export class AnnotationStore {
             if (saved !== undefined) {
                 this.#savedSemanticSnapshot.set(id, {
                     kind: saved.kind,
+                    deleted: saved.deleted || nextPageIndex === undefined,
                     fingerprint: remapSavedSemanticFingerprint(saved.fingerprint, nextPageIndex),
                 });
             }
@@ -873,6 +878,7 @@ export class AnnotationStore {
             if (entity) {
                 this.#savedSemanticSnapshot.set(id, {
                     kind: entity.kind,
+                    deleted: entity.deleted,
                     fingerprint: semanticEntityFingerprint(entity),
                 });
             }

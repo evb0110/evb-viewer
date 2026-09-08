@@ -38,7 +38,7 @@ function normalizeSelectionRect(value: IAnnotationMarkerRect): IAnnotationMarker
     };
 }
 
-const handles = [
+const handles = computed(() => ([
     'nw',
     'n',
     'ne',
@@ -47,7 +47,7 @@ const handles = [
     's',
     'sw',
     'w',
-] as const;
+] as const).filter(handle => props.entity?.kind !== 'text-box' || (handle !== 'n' && handle !== 's')));
 
 const rect = computed(() => {
     const entity = props.entity;

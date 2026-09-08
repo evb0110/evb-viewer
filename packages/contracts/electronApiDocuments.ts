@@ -406,7 +406,10 @@ export type TShowItemInFolderResult =
     | {readonly ok: true}
     | IPlatformUnsupportedResult;
 
-export interface IPdfSaveAsOptions { optimizeLossless?: boolean; }
+export interface IPdfSaveAsOptions {
+    optimizeLossless?: boolean;
+    stagedOutput?: ITypedStagedArtifact;
+}
 
 export const PDF_OPTIMIZE_PRESETS = [
     'lossless',

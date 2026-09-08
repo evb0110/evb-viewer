@@ -64,6 +64,7 @@
                 :caret-point="surface.textEditPoint.value"
                 :auto-size-draft="autoSizeTextBoxIds.has(entity.identity.id)"
                 :display-rect="displayRectFor(entity)"
+                :display-font-size="displayFontSizeFor(entity)"
                 @pointer-down="handleTextBoxPointerDown(entity, $event)"
                 @edit="beginTextBoxEdit(entity.identity.id, $event)"
                 @draft-change="surface.setTextBoxDraftPending(entity.identity.id, $event)"
@@ -87,9 +88,9 @@
                 :display-rect="displayRectForStamp(entity)"
             />
             <div
-                v-if="isCreating && creatingTool === 'text' && pointerGesture.previewRect.value"
+                v-if="textPlacementPreview"
                 class="pdf-annotation-editor-text-box-preview"
-                :style="rectStyle(pointerGesture.previewRect.value)"
+                :style="{...rectStyle(textPlacementPreview!), transform: `rotate(${(360 - viewRotation) % 360}deg)`}"
                 aria-hidden="true"
             />
             <PdfAnnotationSelectionHandles
@@ -108,6 +109,7 @@ import {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/
 import type {
     AnnotationId,
     IPlacedImageEntity,
+    AnnotationEntity,
     INoteEntity,
     IShapeEntity,
     ITextBoxEntity,
@@ -122,6 +124,7 @@ import PdfAnnotationSelectionHandles from '@app/modules/pdf-viewer/components/Pd
 import PdfNoteAnnotation from '@app/modules/pdf-viewer/components/PdfNoteAnnotation.vue';
 import PdfShapeAnnotation from '@app/modules/pdf-viewer/components/PdfShapeAnnotation.vue';
 import PdfStampAnnotation from '@app/modules/pdf-viewer/components/PdfStampAnnotation.vue';
+import { resizeTextAnnotation } from '@app/modules/pdf-viewer/engine/annotation-editor-geometry/resizeTextAnnotation';
 import PdfTextBoxAnnotation from '@app/modules/pdf-viewer/components/PdfTextBoxAnnotation.vue';
 import PdfTextMarkupAnnotation from '@app/modules/pdf-viewer/components/PdfTextMarkupAnnotation.vue';
 import {annotationIdFromEditorEvent} from '@app/modules/pdf-viewer/engine/annotations/annotationIdFromEditorEvent';
@@ -130,7 +133,6 @@ import {
     transformShapeToRect,
     annotationPageDimensions,
     rotateAnnotationPoint,
-    rotateAnnotationRect,
     unrotateAnnotationPlacementRect,
     rotateAnnotationPointAround,
     annotationRectContainsPoint,
@@ -187,7 +189,7 @@ const newTextBoxIds = new Set<AnnotationId>();
 const autoSizeTextBoxIds = reactive(new Set<AnnotationId>());
 interface IPdfTextBoxAnnotationExpose {
     commitDraft: () => void;
-    fitRectToContent?: (rect: IAnnotationMarkerRect, handle?: TAnnotationResizeHandle, fontSize?: number) => IAnnotationMarkerRect;
+    fitRectToContent?: (rect: IAnnotationMarkerRect, handle?: TAnnotationResizeHandle, fontSize?: number) => IAnnotationMarkerRect | null;
 }
 const textBoxRefs = new Map<AnnotationId, IPdfTextBoxAnnotationExpose>();
 let suppressNextClick = false;
@@ -202,7 +204,10 @@ onMounted(() => {
         cancelTextDraft: () => { if (editingId.value !== null) { cancelTextBox(editingId.value); } },
         cancelPointerGesture: cancelPointerGesture,
         focus: focusLayer,
-        fitTextBox: entity => textBoxRefs.get(entity.identity.id)?.fitRectToContent?.(entity.rect, undefined, entity.fontSize) ?? entity.rect,
+        fitTextBox: entity => {
+            const fit = textBoxRefs.get(entity.identity.id)?.fitRectToContent;
+            return fit ? fit(entity.rect, undefined, entity.fontSize) : entity.rect;
+        },
     });
 });
 
@@ -435,14 +440,64 @@ function rectStyle(rect: {
     };
 }
 
-function fitTextBoxRect(entity: {
-    identity: {id: AnnotationId};
-    kind: string
-}, rect: IAnnotationMarkerRect) {
+function textResizeProposal(entity: ITextBoxEntity, rect: IAnnotationMarkerRect, handle = pointerGesture.resizeHandle.value, point = pointerGesture.current.value) {
+    if (!handle || !point) {
+        return {
+            rect,
+            fontSize: entity.fontSize,
+        };
+    }
+    const proposal = resizeTextAnnotation(entity.rect, entity.fontSize, handle, point, entity.rotation, pageDimensions.value);
+    if (handle.length === 1) {
+        const fitted = textBoxRefs.get(entity.identity.id)?.fitRectToContent?.(proposal.rect, handle, proposal.fontSize);
+        if (fitted === null) {
+            return {
+                rect: entity.rect,
+                fontSize: entity.fontSize,
+            };
+        }
+        proposal.rect = fitted ?? proposal.rect;
+    }
+    return proposal;
+}
+
+function fitTextBoxRect(entity: AnnotationEntity, rect: IAnnotationMarkerRect) {
     return entity.kind === 'text-box' && pointerGesture.mode.value === 'resize'
-        ? textBoxRefs.get(entity.identity.id)?.fitRectToContent?.(rect, pointerGesture.resizeHandle.value ?? undefined) ?? rect
+        ? textResizeProposal(entity, rect).rect
         : rect;
 }
+
+function displayFontSizeFor(entity: ITextBoxEntity) {
+    return draggedAnnotationId.value === entity.identity.id && pointerGesture.mode.value === 'resize'
+        ? textResizeProposal(entity, entity.rect).fontSize
+        : undefined;
+}
+
+function textPlacementRect(start: IAnnotationEditorPoint, current: IAnnotationEditorPoint, hasMoved: boolean) {
+    const pageGeometry = surface.getPageGeometry(props.pageIndex);
+    const displayedStart = rotateAnnotationPoint(start, viewRotation.value);
+    const defaultRect = createDefaultTextBoxRect(displayedStart, {
+        pageView: pageGeometry?.pageView,
+        pageRotation: ((pageGeometry?.rotation ?? 0) + viewRotation.value) % 360 as 0 | 90 | 180 | 270,
+        fontSize: surface.settings.value?.textSize,
+    });
+    const displayedEnd = rotateAnnotationPoint(current, viewRotation.value);
+    const width = hasMoved ? Math.max(defaultRect.width, Math.abs(displayedEnd.x - displayedStart.x)) : defaultRect.width;
+    const left = hasMoved && displayedEnd.x < displayedStart.x ? displayedStart.x - width : displayedStart.x;
+    return unrotateAnnotationPlacementRect({
+        ...defaultRect,
+        width,
+        left: Math.max(0, Math.min(left, 1 - width)),
+    }, viewRotation.value, pageDimensions.value);
+}
+
+const textPlacementPreview = computed(() => {
+    const start = pointerGesture.start.value;
+    const current = pointerGesture.current.value;
+    return isCreating.value && creatingTool.value === 'text' && start && current
+        ? textPlacementRect(start, current, pointerGesture.hasMoved.value)
+        : null;
+});
 
 function displayRectFor(entity: ITextBoxEntity) {
     const delta = moveDelta.value;
@@ -721,20 +776,9 @@ function handlePointerUp(event: PointerEvent) {
             }
             return;
         }
-        const pageGeometry = surface.getPageGeometry(props.pageIndex);
         const rect = tool === 'note'
             ? completion.hasMoved ? completion.rect : markerRectFromPoint(completion.start.x, completion.start.y)
-            : unrotateAnnotationPlacementRect(
-                completion.hasMoved
-                    ? rotateAnnotationRect(completion.rect, viewRotation.value)
-                    : createDefaultTextBoxRect(rotateAnnotationPoint(completion.start, viewRotation.value), {
-                        pageView: pageGeometry?.pageView,
-                        pageRotation: ((pageGeometry?.rotation ?? 0) + viewRotation.value) % 360 as 0 | 90 | 180 | 270,
-                        fontSize: surface.settings.value?.textSize,
-                    }),
-                viewRotation.value,
-                pageDimensions.value,
-            );
+            : textPlacementRect(completion.start, completion.current, completion.hasMoved);
         if (!rect) {
             return;
         }
@@ -787,10 +831,17 @@ function handlePointerUp(event: PointerEvent) {
             top: rect.top + deltaY,
         }))});
     } else {
-        const rect = completion.gesture.entity.kind === 'text-box' && completion.mode === 'resize'
-            ? textBoxRefs.get(completion.gesture.annotationId)?.fitRectToContent?.(completion.rect, resizeHandle ?? undefined) ?? completion.rect
-            : completion.rect;
-        surface.commitGesture(completion.gesture, {rect});
+        const patch = completion.gesture.entity.kind === 'text-box' && completion.mode === 'resize'
+            ? textResizeProposal(completion.gesture.entity, completion.rect, resizeHandle, completion.current)
+            : {rect: completion.rect};
+        if (
+            completion.gesture.entity.kind === 'text-box'
+            && annotationRectsEqual(completion.gesture.entity.rect, patch.rect)
+            && (!('fontSize' in patch) || patch.fontSize === completion.gesture.entity.fontSize)
+        ) {
+            return;
+        }
+        surface.commitGesture(completion.gesture, patch);
     }
 }
 

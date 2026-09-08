@@ -690,6 +690,7 @@ export default {
         'drawThickness': 'Grosor de dibujo',
         'stroke': 'Trazo',
         'textSize': 'Tamaño de texto',
+        'textResizeHint': 'Arrastra una esquina para cambiar el tamaño del texto y un lado para ajustar el ancho.',
         'penType': 'Tipo de pluma',
         'pen': 'Pluma',
         'pencil': 'Lápiz',

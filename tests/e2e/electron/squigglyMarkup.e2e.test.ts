@@ -16,6 +16,7 @@ import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/cre
 import {
     clearTextSelection,
     clickAnnotationTool,
+    clickVisibleAnnotationControl,
     readEvbTextMarkupVisuals,
     selectTextFromRenderedSpans,
     waitForEvbTextMarkupVisualCount,
@@ -240,76 +241,99 @@ async function waitForPdfAnnotationSubtypeCount(filePath: string, subtype: strin
     throw new Error(`Expected ${expectedCount} ${subtype} annotations, got ${summary.bySubtype[subtype] ?? 0}`);
 }
 
+async function expectMarkupPaint(page: Page, subtype: string, lineCount: number) {
+    const paint = await page.$$eval(
+        '.editor-pane.is-active .pdf-annotation-editor-layer g[data-annotation-kind="text-markup"]',
+        groups => groups.map(group => ({
+            hitTargets: Array.from(group.querySelectorAll('[data-annotation-hit-target]')).map(element => ({
+                fill: getComputedStyle(element).fill,
+                geometry: [
+                    'x',
+                    'y',
+                    'width',
+                    'height',
+                ].map(name => element.getAttribute(name)),
+            })),
+            visuals: Array.from(group.querySelectorAll('[data-annotation-visual]')).map(element => ({
+                tag: element.tagName,
+                opacity: Number(getComputedStyle(element).opacity),
+                geometry: [
+                    'x',
+                    'y',
+                    'width',
+                    'height',
+                ].map(name => element.getAttribute(name)),
+            })),
+        })),
+    );
+    expect(paint.length).toBeGreaterThan(0);
+    for (const group of paint) {
+        expect(group.hitTargets).toHaveLength(lineCount);
+        expect(group.visuals).toHaveLength(lineCount);
+        expect(group.hitTargets.every(target => target.fill === 'rgba(0, 0, 0, 0)')).toBe(true);
+        expect(group.visuals.every(visual => visual.opacity > 0)).toBe(true);
+        if (subtype === 'Highlight') {
+            expect(group.visuals.every(visual => visual.tag === 'rect')).toBe(true);
+            expect(group.visuals.map(visual => visual.geometry)).toEqual(group.hitTargets.map(target => target.geometry));
+        } else {
+            expect(group.visuals.every(visual => visual.tag === (subtype === 'Squiggly' ? 'path' : 'line'))).toBe(true);
+        }
+    }
+}
+
+async function expectMarkupHitTesting(page: Page) {
+    await clickAnnotationTool(page, 'Select');
+    const selector = '.editor-pane.is-active .pdf-annotation-editor-layer g[data-annotation-kind="text-markup"]';
+    await page.$eval(selector, group => group.scrollIntoView({block: 'center'}));
+    const hits = await page.$eval(selector, group => {
+        const targets = Array.from(group.querySelectorAll('[data-annotation-hit-target]'));
+        const bounds = targets.map(target => target.getBoundingClientRect());
+        const first = bounds[0]!;
+        const second = bounds[1]!;
+        const centerX = first.left + first.width / 2;
+        return {
+            lines: targets.map((target, index) => {
+                const rect = bounds[index]!;
+                return document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2) === target;
+            }),
+            gap: group.contains(document.elementFromPoint(centerX, (first.bottom + second.top) / 2)),
+            outside: group.contains(document.elementFromPoint(Math.max(...bounds.map(rect => rect.right)) + 12, first.top + first.height / 2)),
+        };
+    });
+    expect(hits.lines).toEqual([
+        true,
+        true,
+        true,
+    ]);
+    expect(hits.gap).toBe(false);
+    expect(hits.outside).toBe(false);
+}
+
 async function updateSelectedMarkupProperties(page: Page) {
-    const findMarkupPoint = async () => page.evaluate(() => {
-        const group = document.querySelector<SVGGElement>(
-            '.pdf-annotation-editor-layer g[data-annotation-kind="text-markup"]',
-        );
-        const rect = group?.getBoundingClientRect();
-        return rect && rect.width > 0 && rect.height > 0
-            ? {
-                x: rect.left + rect.width / 2,
-                y: rect.top + rect.height / 2,
-            }
-            : null;
-    });
-
-    const openProperties = async () => {
-        const point = await findMarkupPoint();
-        if (!point) {
-            throw new Error('Unable to locate the EVB text-markup surface');
-        }
-        await page.mouse.click(point.x, point.y);
-        const opacityInput = await page.waitForSelector('[data-testid="annotation-properties-opacity"]', {
-            timeout: 20_000,
-            visible: true,
-        });
-        if (!opacityInput) {
-            throw new Error('Text-markup properties did not open for the selected EVB annotation');
-        }
-    };
-
-    await openProperties();
-    const originalColor = await page.$eval('[data-testid="annotation-properties-color"]', (element) => {
-        if (!(element instanceof HTMLInputElement)) {
-            throw new Error('Text-markup color control is not an input');
-        }
-        return element.value;
-    });
-    await page.$eval('[data-testid="annotation-properties-color"]', (element) => {
-        if (!(element instanceof HTMLInputElement)) {
-            throw new Error('Text-markup color control is not an input');
-        }
-        element.value = '#ff0000';
-        element.dispatchEvent(new Event('input', {bubbles: true}));
-    });
-    await waitForTextMarkupProperty(
-        page,
-        comment => comment.color?.toLowerCase() === '#ff0000',
-        'the canonical text-markup color update',
-    );
-    await page.waitForFunction(() => !document.querySelector('.annotation-properties-color'));
-
-    await openProperties();
-    await page.$eval('[data-testid="annotation-properties-opacity"]', (element) => {
-        if (!(element instanceof HTMLInputElement)) {
-            throw new Error('Text-markup opacity control is not an input');
-        }
-        element.value = '0.65';
-        element.dispatchEvent(new Event('input', {bubbles: true}));
-        element.dispatchEvent(new Event('change', {bubbles: true}));
-    });
-    await waitForTextMarkupProperty(
-        page,
-        comment => comment.opacity !== null
-            && comment.opacity !== undefined
-            && Math.abs(comment.opacity - 0.65) < 0.02,
-        'the canonical text-markup opacity update',
-    );
-    await page.waitForFunction(() => !document.querySelector('[data-testid="annotation-properties-opacity"]'));
+    await clickAnnotationTool(page, 'Select');
+    const markupTarget = '.editor-pane.is-active .pdf-annotation-editor-layer g[data-annotation-kind="text-markup"] [data-annotation-hit-target]';
+    await page.$eval(markupTarget, target => target.scrollIntoView({block: 'center'}));
+    await clickVisibleAnnotationControl(page, markupTarget);
+    const inspector = '.editor-pane.is-active [data-annotation-inspector][data-target="selection"]';
+    await page.waitForSelector(inspector, {visible: true});
+    const originalColor = (await readTextMarkupComments(page))[0]?.color;
+    await clickVisibleAnnotationControl(page, `${inspector} .swatch[aria-label="#ef4444"]`);
+    await waitForTextMarkupProperty(page, comment => comment.color?.toLowerCase() === '#ef4444',
+        'the canonical text-markup color update');
+    await clickVisibleAnnotationControl(page, `${inspector} input[type="number"][aria-label="Opacity, %"]`);
+    const initialOpacity = await page.$eval(`${inspector} input[type="number"][aria-label="Opacity, %"]`, input => Number((input as HTMLInputElement).value));
+    expect(initialOpacity % 5).toBe(0);
+    for (let value = initialOpacity; value !== 65; value += value < 65 ? 5 : -5) {
+        await page.keyboard.press(value < 65 ? 'ArrowUp' : 'ArrowDown');
+    }
+    await page.keyboard.press('Tab');
+    await waitForTextMarkupProperty(page, comment => comment.opacity !== null
+        && comment.opacity !== undefined && Math.abs(comment.opacity - 0.65) < 0.02,
+    'the canonical text-markup opacity update');
+    expect(await page.$$(inspector)).toHaveLength(1);
     return {
         originalColor,
-        updatedColor: '#ff0000',
+        updatedColor: '#ef4444',
     };
 }
 
@@ -349,6 +373,8 @@ describe('Electron E2E - EVB text markup', () => {
         expect(visuals).toHaveLength(1);
         expect(visuals[0]?.subtype).toBe(subtype);
         expect(visuals[0]?.rects).toHaveLength(3);
+        await expectMarkupPaint(page, subtype, 3);
+        await expectMarkupHitTesting(page);
 
         await saveViaWindowHandle(page);
         const savedSummary = await waitForPdfAnnotationSubtypeCount(fixturePath, subtype, 1);
@@ -415,6 +441,8 @@ describe('Electron E2E - EVB text markup', () => {
             const visuals = await readEvbTextMarkupVisuals(page);
             expect(visuals).toHaveLength(1);
             expect(visuals[0]?.rects).toHaveLength(3);
+            await expectMarkupPaint(page, 'Highlight', 3);
+            await expectMarkupHitTesting(page);
             geometryByZoom.set(zoom, JSON.stringify(visuals[0]?.rects));
         }
         expect(geometryByZoom.get(0.5)).toBe(geometryByZoom.get(1));
@@ -450,6 +478,7 @@ describe('Electron E2E - EVB text markup', () => {
         const visuals = await readEvbTextMarkupVisuals(page);
         expect(visuals).toHaveLength(2);
         expect(visuals.every(visual => visual.rects.length === 3)).toBe(true);
+        await expectMarkupPaint(page, 'Highlight', 3);
     }, 90_000);
 
     it('edits EVB markup properties', async () => {

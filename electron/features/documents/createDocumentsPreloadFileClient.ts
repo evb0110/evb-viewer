@@ -1,3 +1,4 @@
+import {decodePdfSaveAsOptions} from '@contracts/documentsPersistenceSchemas';
 import type { IpcRenderer } from 'electron';
 import {
     decodeDocumentRevisionChangedEvent,
@@ -187,8 +188,9 @@ function assertPdfSaveAsOptions(value: unknown, label: string): IPdfSaveAsOption
         throw new TypeError(`${label}.optimizeLossless must be a boolean`);
     }
 
-    return value.optimizeLossless === true
-        ? { optimizeLossless: true }
+    const decoded = decodePdfSaveAsOptions(value);
+    return decoded?.optimizeLossless === true || decoded?.stagedOutput
+        ? decoded
         : undefined;
 }
 

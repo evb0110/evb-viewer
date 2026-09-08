@@ -690,6 +690,7 @@ export default {
         'drawThickness': 'Épaisseur du trait',
         'stroke': 'Contour',
         'textSize': 'Taille du texte',
+        'textResizeHint': 'Faites glisser un coin pour changer la taille du texte, ou un côté pour ajuster le retour à la ligne.',
         'penType': 'Type de stylo',
         'pen': 'Stylo',
         'pencil': 'Crayon',

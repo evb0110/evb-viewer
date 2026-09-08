@@ -36,6 +36,7 @@ import {
 import {
     clickHistoryActionAcrossAnimationBoundaries,
     collectAnnotationOwnershipDebugState,
+    selectAllFocusedAnnotationText,
     waitForNoOpenNoteWindows,
 } from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {
@@ -189,7 +190,7 @@ function copyFreshPdf(sourcePath: string, label: string) {
         force: true,
         recursive: true,
     }));
-    return destination;
+    return realpathSync(destination);
 }
 
 async function createLegacyReplyFixture(sourcePath: string) {
@@ -683,10 +684,12 @@ async function editOpenNoteWithPointer(page: Page, nextText: string) {
         throw new Error('Open legacy note did not expose its textarea');
     }
     await textarea.click();
-    const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
-    await page.keyboard.down(modifier);
-    await page.keyboard.press('A');
-    await page.keyboard.up(modifier);
+    await selectAllFocusedAnnotationText(page);
+    await page.waitForFunction(() => {
+        const active = document.activeElement;
+        return active instanceof HTMLTextAreaElement
+            && active.selectionStart === 0 && active.selectionEnd === active.value.length;
+    });
     await page.keyboard.type(nextText, {delay: 10});
     await page.keyboard.press('Tab');
     const closePoint = await waitForNoteWindowButtonCenter(page, LEGACY_NOTE_ID, '.note-window__close');
@@ -1110,10 +1113,12 @@ runLegacyFixtureDescribe('Electron E2E - #350 legacy saved notes', () => {
         await session.page.mouse.click(zoomButton!.x, zoomButton!.y);
         const customZoom = await session.page.waitForSelector('.zoom-chip-custom-input', {visible: true});
         expect(customZoom).not.toBeNull();
-        await customZoom!.click();
-        await session.page.keyboard.down('Control');
-        await session.page.keyboard.press('A');
-        await session.page.keyboard.up('Control');
+        await customZoom!.click({count: 3});
+        await session.page.waitForFunction(() => {
+            const active = document.activeElement;
+            return active instanceof HTMLInputElement
+                && active.selectionStart === 0 && active.selectionEnd === active.value.length;
+        });
         await session.page.keyboard.type('218');
         await session.page.keyboard.press('Enter');
         await session.page.waitForFunction(() => (

@@ -690,6 +690,7 @@ export default {
         'drawThickness': 'Espessura do Traço',
         'stroke': 'Contorno',
         'textSize': 'Tamanho do Texto',
+        'textResizeHint': 'Arraste um canto para redimensionar o texto ou um lado para ajustar a quebra de linha.',
         'penType': 'Tipo de Caneta',
         'pen': 'Caneta',
         'pencil': 'Lápis',

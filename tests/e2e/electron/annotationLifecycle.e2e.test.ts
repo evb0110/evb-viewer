@@ -19,6 +19,10 @@ import { tmpdir } from 'node:os';
 import { delay } from 'es-toolkit/promise';
 import type { Page } from 'puppeteer-core';
 import {
+    asAnnotationId,
+    toLegacyShapeStableKey,
+} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {
     requireDocumentRef,
     type TLegacyDocumentRef,
 } from '@contracts/documentRef';
@@ -1101,6 +1105,19 @@ describe('Electron E2E - Annotation Lifecycle', () => {
                     x: bounds.left + bounds.width * (reverse ? 0.34 : 0.62),
                     y: bounds.top + bounds.height * (reverse ? 0.36 : 0.55),
                 };
+                if (caseIndex === 0) {
+                    await page.mouse.move(start.x, start.y);
+                    await page.mouse.down();
+                    await page.mouse.move(end.x, end.y, {steps: 4});
+                    await page.keyboard.press('Escape');
+                    await page.mouse.up();
+                    await expect.poll(() => page.$$eval(
+                        '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="shape"]',
+                        elements => elements.length,
+                    )).toBe(0);
+                    // Escape first cancels the captured gesture. The tool stays
+                    // armed so the next complete drag creates the first stroke.
+                }
                 await page.mouse.move(start.x, start.y);
                 await page.mouse.down();
                 await page.mouse.move(end.x, end.y, {steps: 20});
@@ -1208,6 +1225,114 @@ describe('Electron E2E - Annotation Lifecycle', () => {
             await waitForPdfAnnotationSubtypeCount(sample.path, sample.subtype, 1);
         }
     }, 360_000);
+
+    it.each([
+        90,
+        270,
+    ])('keeps pointer shape geometry and identity through view rotation %s and reopen', async (rotation) => {
+        const session = sessionFixture.getSession();
+        if (!session) throw new Error('Annotation lifecycle session did not start');
+        let {page} = session;
+        const fixture = await createMultiPageTextFixturePdf(`rotated-shape-${rotation}-${Date.now()}.pdf`, 1);
+        onTestFinished(() => rmSync(fixture, {force: true}));
+        await openPdfInApp(page, fixture);
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        await openAnnotationsTab(page);
+        const layer = '.editor-pane.is-active .page_container[data-page="1"] .pdf-annotation-editor-layer';
+        async function rotateTo(target: number) {
+            for (let count = 0; count < 4; count += 1) {
+                const current = await page.$eval(layer, element => Number(element.getAttribute('data-view-rotation')));
+                if (current === target) {
+                    return;
+                }
+                expect((await callWorkspaceCommand(page, 'handleViewRotationCw')).called).toBe(true);
+                await page.waitForFunction((selector: string, before: number) => (
+                    Number(document.querySelector(selector)?.getAttribute('data-view-rotation')) !== before
+                ), {}, layer, current);
+            }
+            throw new Error(`View rotation did not reach ${target}`);
+        }
+        await rotateTo(rotation);
+        await waitForViewerInteractive(page);
+        await clickAnnotationTool(page, 'Rectangle');
+        const bounds = await page.$eval(layer, element => element.getBoundingClientRect().toJSON());
+        const start = {
+            x: bounds.left + bounds.width * 0.3,
+            y: bounds.top + bounds.height * 0.3,
+        };
+        const end = {
+            x: start.x + 100,
+            y: start.y + 70,
+        };
+        expect(await page.evaluate((point) => Boolean(document.elementFromPoint(point.x, point.y)?.closest('.pdf-annotation-editor-layer')), start)).toBe(true);
+        await page.mouse.move(start.x, start.y);
+        await page.mouse.down();
+        await page.mouse.move(end.x, end.y, {steps: 8});
+        await page.mouse.up();
+        await clickAnnotationTool(page, 'Select');
+        await expect.poll(() => readPaintedAnnotation(page)).not.toBeNull();
+        const initial = (await readPaintedAnnotation(page))!;
+        expect(initial.width * bounds.width).toBeCloseTo(100, -1);
+        expect(initial.height * bounds.height).toBeCloseTo(70, -1);
+        const target = await annotationPointerTarget(page);
+        await page.mouse.move(target.x, target.y);
+        await page.mouse.down();
+        await page.mouse.move(target.x + 24, target.y + 18, {steps: 6});
+        await page.mouse.up();
+        const moved = (await readPaintedAnnotation(page))!;
+        expect((moved.left - initial.left) * bounds.width).toBeCloseTo(24, 0);
+        expect((moved.top - initial.top) * bounds.height).toBeCloseTo(18, 0);
+        const resize = await page.$$eval('.editor-pane.is-active [data-pdf-annotation-resize-handle]', elements => {
+            // Canonical handle names rotate with the page. Drag the visible
+            // bottom-right handle, irrespective of its canonical name.
+            const handles = elements.map(element => {
+                const rect = element.getBoundingClientRect();
+                return {
+                    element,
+                    x: rect.left + rect.width / 2,
+                    y: rect.top + rect.height / 2,
+                };
+            }).sort((a, b) => (b.x + b.y) - (a.x + a.y));
+            const handle = handles[0];
+            if (!handle || !handle.element.contains(document.elementFromPoint(handle.x, handle.y))) throw new Error('Rotated resize handle is obstructed');
+            return {
+                x: handle.x,
+                y: handle.y,
+            };
+        });
+        await page.mouse.move(resize.x, resize.y);
+        await page.mouse.down();
+        await page.mouse.move(resize.x + 30, resize.y + 20, {steps: 8});
+        await page.mouse.up();
+        const resized = (await readPaintedAnnotation(page))!;
+        expect(resized.width).toBeGreaterThan(moved.width);
+        expect(resized.height).toBeGreaterThan(moved.height);
+        await saveViaVisibleToolbar(page, 30_000);
+        await waitForActiveTabDirtyState(page, false);
+        const saved = (await readPaintedAnnotation(page))!;
+        expect(saved.id).toBe(initial.id);
+        const reopenPath = preserveFixtureAcrossRestart(fixture);
+        const restarted = await sessionFixture.restart({hard: true});
+        if (!restarted) throw new Error('Rotated shape hard reopen did not start');
+        page = restarted.page;
+        await openPdfInApp(page, reopenPath);
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        await openAnnotationsTab(page);
+        await rotateTo(rotation);
+        await expect.poll(async () => (await readPaintedAnnotation(page))?.id).toBe(toLegacyShapeStableKey(asAnnotationId(saved.id!)));
+        expect(await page.$$eval(`${layer} [data-annotation-kind="shape"]`, elements => elements.length)).toBe(1);
+        const reopened = (await readPaintedAnnotation(page))!;
+        for (const key of [
+            'left',
+            'top',
+            'width',
+            'height',
+        ] as const) {
+            expect(reopened[key], key).toBeCloseTo(saved[key], 3);
+        }
+    }, 120_000);
 
     it('renders the canonical annotation surface once and keeps PDF.js read-only', async () => {
         const session = sessionFixture.getSession();
@@ -1544,6 +1669,20 @@ describe('Electron E2E - Annotation Lifecycle', () => {
             ), {timeout: 10_000}, entity.id);
         }
 
+        // Exercise the native macOS Edit menu path as well as the layer's
+        // keyboard handler. All five canonical kinds must form one undo step.
+        await page.keyboard.down(COMMAND_MODIFIER);
+        await page.keyboard.press('a');
+        await page.keyboard.up(COMMAND_MODIFIER);
+        await waitForSelectedCount(5);
+        await expectEditorLayerFocused('Select All');
+        await page.keyboard.press('Backspace');
+        await expect.poll(async () => (await readGeometry()).length).toBe(0);
+        await page.keyboard.down(COMMAND_MODIFIER);
+        await page.keyboard.press('z');
+        await page.keyboard.up(COMMAND_MODIFIER);
+        await expect.poll(async () => (await readGeometry()).length).toBe(5);
+
         const restoredGeometry = await readGeometry();
         const first = restoredGeometry.find(entity => entity.kind === 'text-box');
         const second = restoredGeometry.find(entity => entity.kind === 'note');
@@ -1776,10 +1915,18 @@ describe('Electron E2E - Annotation Lifecycle', () => {
             // Native import can expose a PNG preview of the saved JPEG. Compare
             // decoded pixels exactly, alongside unchanged identity and geometry.
             expect(reopened.imageSource).toMatch(/^data:image\/(?:png|jpeg);base64,/u);
-            expect(reopened).toEqual({
-                ...created,
-                imageSource: reopened.imageSource,
-            });
+            expect(reopened.annotationId).toBe(created.annotationId);
+            expect(reopened.rotationDegrees).toBe(created.rotationDegrees);
+            // Allow subpixel rounding during the PDF coordinate round trip.
+            // Identity, rotation, and decoded pixels must remain exact.
+            for (const key of [
+                'left',
+                'top',
+                'width',
+                'height',
+            ] as const) {
+                expect(reopened[key], key).toBeCloseTo(created[key], 5);
+            }
             expect(await readCanonicalStampPixels(page)).toEqual(createdPixels);
         }
         finally {

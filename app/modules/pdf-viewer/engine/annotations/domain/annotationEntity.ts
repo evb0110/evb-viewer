@@ -201,6 +201,7 @@ export type AnnotationEntity =
 export interface ISavedSemanticEntry {
     readonly kind: AnnotationEntity['kind'];
     readonly fingerprint: string;
+    readonly deleted: boolean;
 }
 
 export interface ITextMarkupOverlapCandidate {
@@ -469,6 +470,7 @@ export function semanticSnapshot(entities: Iterable<AnnotationEntity>) {
             entity.identity.id,
             {
                 kind: entity.kind,
+                deleted: entity.deleted,
                 fingerprint: semanticEntityFingerprint(entity),
             },
         ] as const
@@ -516,11 +518,22 @@ export function semanticSnapshotsEqual(
     left: ReadonlyMap<AnnotationId, ISavedSemanticEntry>,
     right: ReadonlyMap<AnnotationId, ISavedSemanticEntry>,
 ) {
-    return left.size === right.size
-        && Array.from(left).every(([
+    // Tombstones retain history targets, but contribute no annotation to the
+    // saved document. Their presence or former content cannot make it dirty.
+    const liveLeft = Array.from(left).filter(([
+        , entry,
+    ]) => !entry.deleted);
+    const liveRight = Array.from(right).filter(([
+        , entry,
+    ]) => !entry.deleted);
+    return liveLeft.length === liveRight.length
+        && liveLeft.every(([
             id,
             entry,
-        ]) => right.get(id)?.fingerprint === entry.fingerprint);
+        ]) => {
+            const other = right.get(id);
+            return other !== undefined && !other.deleted && other.fingerprint === entry.fingerprint;
+        });
 }
 
 function subtractRect(

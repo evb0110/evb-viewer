@@ -455,6 +455,14 @@ export const usePdfViewerSaveTransaction = (
                 serializedResult: null,
                 nativeMutationProjection: null,
                 nativeRequiredFailure: createNativeRequiredFailure(decision.nativeRejection),
+                verifiedUnchangedWorkingCopy: frontierPlan !== undefined
+                    && decision.nativeRejection === 'no-native-mutations-projected'
+                    && globalSerializationPlan.steps.length === 0
+                    && globalSerializationPlan.pageOperations.length === 0
+                    && globalSerializationPlan.ocrOperations.length === 0
+                    && globalSerializationPlan.metadata.pageLabels === null
+                    && globalSerializationPlan.metadata.bookmarks === null
+                    && !request.dirtyState?.shapeStateDirty,
                 fallbackDecision: decision,
                 annotationSavePlan,
                 ...canonicalSaveCallbacks,

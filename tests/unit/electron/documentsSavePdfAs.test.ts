@@ -1,3 +1,4 @@
+import {cast} from '@tests/helpers/cast';
 import {
     afterEach,
     beforeEach,
@@ -24,6 +25,7 @@ import {requireDocumentRevisionToken} from '@contracts';
 
 const mocks = vi.hoisted(() => ({
     showSaveDialog: vi.fn(),
+    resolveTypedStagedArtifact: vi.fn(),
     updateRecentFilesMenu: vi.fn(),
     addRecentFile: vi.fn(),
     allowOpenPath: vi.fn(),
@@ -40,6 +42,8 @@ const mocks = vi.hoisted(() => ({
     markWorkingCopyContentChanged: vi.fn(),
     markWorkingCopySyncRequired: vi.fn(),
 }));
+
+vi.mock('@electron/features/documents/main/managedTempFileHandles', () => ({resolveTypedStagedArtifact: (...args: unknown[]) => mocks.resolveTypedStagedArtifact(...args)}));
 
 vi.mock('electron', () => ({
     app: {isPackaged: false},
@@ -177,6 +181,49 @@ describe('handleSavePdfAs', () => {
             force: true,
             recursive: true,
         });
+    });
+
+    it.each([
+        'success',
+        'cancel',
+        'invalid-artifact',
+        'publish-failure',
+        'copyback-failure',
+        'mapping-failure',
+    ])('keeps original bytes unchanged for staged Save As %s', async (outcome) => {
+        const workingPath = join(tempRoot, 'working.pdf');
+        const originalPath = join(tempRoot, 'original.pdf');
+        const targetPath = join(tempRoot, 'saved.pdf');
+        const stagedPath = join(tempRoot, 'staged.pdf');
+        writeFileSync(workingPath, 'source-pdf');
+        writeFileSync(originalPath, 'source-pdf');
+        writeFileSync(targetPath, 'existing-destination');
+        writeFileSync(stagedPath, 'annotated-pdf');
+        mocks.getWorkingCopyOriginalPath.mockReturnValue({originalPath});
+        mocks.resolveTypedStagedArtifact.mockResolvedValue({path: stagedPath});
+        if (outcome === 'invalid-artifact') mocks.resolveTypedStagedArtifact.mockRejectedValueOnce(new Error('invalid artifact'));
+        if (outcome === 'publish-failure') mocks.atomicReplace.mockRejectedValueOnce(new Error('publish failed'));
+        if (outcome === 'mapping-failure') mocks.setWorkingCopyOriginalPath.mockRejectedValueOnce(new Error('mapping failed'));
+        if (outcome === 'copyback-failure') mocks.copyFileCopyOnWrite.mockImplementationOnce(async (source: string, target: string) => {
+            await writeFile(target, await readFile(source));
+        }).mockRejectedValueOnce(new Error('copyback failed'));
+        const {savePdfAs} = await import('@electron/features/documents/main/documentSave.service');
+        const save = savePdfAs(dialogContext, workingPath, {stagedOutput: cast({path: stagedPath})},
+            async () => outcome === 'cancel' ? null : targetPath, revisionOptions);
+        if (outcome === 'invalid-artifact' || outcome === 'publish-failure') await expect(save).rejects.toThrow();
+        else await expect(save).resolves.toBe(outcome === 'cancel' ? null : targetPath);
+        expect(readFileSyncUtf8(originalPath)).toBe('source-pdf');
+        expect(readFileSyncUtf8(workingPath)).toBe(outcome === 'success' ? 'annotated-pdf' : 'source-pdf');
+        expect(readFileSyncUtf8(targetPath)).toBe([
+            'success',
+            'copyback-failure',
+            'mapping-failure',
+        ].includes(outcome) ? 'annotated-pdf' : 'existing-destination');
+        expect(mocks.workingCopyMap.get(workingPath)).toBe([
+            'success',
+            'copyback-failure',
+        ].includes(outcome) ? targetPath : undefined);
+        if (outcome === 'copyback-failure' || outcome === 'mapping-failure') expect(mocks.markWorkingCopySyncRequired).toHaveBeenCalled();
     });
 
     it('writes through a sibling temp path before replacing the selected PDF path', async () => {

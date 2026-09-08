@@ -13,9 +13,12 @@
                 <input
                     type="number" class="annotation-property-number" :aria-label="selectionWidthProperty === 'fontSize' ? t('annotations.textSize') : t('annotations.stroke')"
                     :min="selectionWidthProperty === 'fontSize' ? 8 : 0.5" :max="selectionWidthProperty === 'fontSize' ? 72 : 24" step="0.5"
-                    :value="selectionWidth" :placeholder="t('annotations.mixedValues')"
+                    :value="selectionWidthDisplay" :placeholder="t('annotations.mixedValues')"
                     @change="updateSelectedWidth($event)" />
             </label>
+            <p v-if="selectionWidthProperty === 'fontSize'" class="text-xs text-muted">
+                {{ t('annotations.textResizeHint') }}
+            </p>
             <label v-if="selectionHasOpacity" class="style-row">
                 <span class="style-label">{{ t('annotations.opacity') }}</span>
                 <input
@@ -214,6 +217,7 @@ const selectionColorSwatches = computed(() => {
 const selectionWidthProperty = computed(() => selectedAnnotations.every(entity => entity.kind === 'text-box') ? 'fontSize'
     : selectedAnnotations.every(entity => entity.kind === 'shape') ? 'strokeWidth' : null);
 const selectionWidth = computed(() => commonSelectionValue(entity => entity.kind === 'text-box' ? entity.fontSize : entity.kind === 'shape' ? entity.strokeWidth : null));
+const selectionWidthDisplay = computed(() => selectionWidth.value === null ? '' : String(Math.round(selectionWidth.value * 100) / 100));
 const selectionHasOpacity = computed(() => selectedAnnotations.every(entity => entity.kind === 'shape' || entity.kind === 'text-markup'));
 const selectionOpacity = computed(() => commonSelectionValue(entity => entity.kind === 'shape' || entity.kind === 'text-markup' ? Math.round((entity.opacity ?? 1) * 100) : null));
 const selectionHasFill = computed(() => selectedAnnotations.every(entity => entity.kind === 'shape'));
@@ -232,9 +236,12 @@ function updateSelectedNumber(key: keyof IAnnotationPropertyUpdate, event: Event
     const bounded = Math.max(min, Math.min(max, value)) / divisor;
     emit('update-properties', {[key]: key === 'rotation' ? Math.round(bounded / 90) * 90 : bounded});
 }
-function updateSelectedWidth(event: Event) {
+async function updateSelectedWidth(event: Event) {
     if (selectionWidthProperty.value === 'fontSize') updateSelectedNumber('fontSize', event, 8, 72);
     if (selectionWidthProperty.value === 'strokeWidth') updateSelectedNumber('strokeWidth', event, 0.5, 24);
+    await nextTick();
+    const input = event.target;
+    if (input instanceof HTMLInputElement) input.value = selectionWidthDisplay.value;
 }
 const opacitySettingKey = computed(() => {
     switch (tool) {

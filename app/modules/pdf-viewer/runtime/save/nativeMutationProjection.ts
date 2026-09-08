@@ -576,7 +576,7 @@ function admitNativeAppendRoute(
     if (!nativeCapabilities || !dirtyState || !documentStructure) {
         return 'save-descriptors-unavailable';
     }
-    if (capabilities.saveFlowMode !== 'save') {
+    if (capabilities.saveFlowMode !== 'save' && capabilities.saveFlowMode !== 'save_as') {
         return 'not-save-mode';
     }
     if (!nativeCapabilities.hasNativePdfMutationCapability) {

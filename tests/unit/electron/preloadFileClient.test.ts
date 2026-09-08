@@ -1,3 +1,4 @@
+import {decodeTypedStagedArtifact} from '@contracts/stagedArtifacts';
 import type { IpcRenderer } from 'electron';
 import {
     afterEach,
@@ -207,6 +208,18 @@ describe('createDocumentsPreloadFileClient', () => {
 
     afterEach(() => {
         vi.unstubAllGlobals();
+    });
+
+    it('preserves the typed staged PDF receipt across the Save As preload boundary', async () => {
+        const ipcRenderer = {
+            invoke: vi.fn(async () => '/tmp/saved.pdf'),
+            postMessage: vi.fn(),
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        const client = createDocumentsPreloadFileClient(ipcRenderer);
+        const stagedOutput = decodeTypedStagedArtifact(createStagedPdfArtifact().artifact);
+        if (!stagedOutput) throw new Error('Invalid staged PDF fixture');
+        await client.savePdfAs(requireDocumentRef('/tmp/working.pdf'), {stagedOutput}, revisionOptions);
+        expect(ipcRenderer.invoke).toHaveBeenCalledWith(DOCUMENTS_CHANNELS.savePdfAs, '/tmp/working.pdf', {stagedOutput}, revisionOptions);
     });
 
     it('rejects invalid working-copy passwords before invoking IPC', () => {

@@ -9,6 +9,7 @@ import {
 } from 'vitest';
 import {
     createApp,
+    nextTick,
     defineComponent,
     h,
 } from 'vue';
@@ -212,6 +213,35 @@ afterEach(() => {
 });
 
 describe('PdfAnnotationStyleEditor', () => {
+    it.each([
+        {
+            fontSize: 32.999100123,
+            displayed: '33',
+        },
+        {
+            fontSize: 32.125,
+            displayed: '32.13',
+        },
+    ])('shows $fontSize as $displayed without losing fractional precision', ({
+        fontSize,
+        displayed,
+    }) => {
+        const {host} = mountEditor({selectedAnnotations: [{
+            ...selectedText,
+            fontSize,
+        }]});
+        expect(host.querySelector<HTMLInputElement>('input[aria-label="annotations.textSize"]')?.value).toBe(displayed);
+    });
+
+    it('restores the accepted selected font size after a rejected change', async () => {
+        const {host} = mountEditor({selectedAnnotations: [selectedText]});
+        const input = host.querySelector<HTMLInputElement>('input[aria-label="annotations.textSize"]')!;
+        input.value = '72';
+        input.dispatchEvent(new Event('change', {bubbles: true}));
+        await nextTick();
+        expect(input.value).toBe(String(selectedText.fontSize));
+    });
+
     it('uses the selected text box style and routes text edits through settings events', () => {
         const {
             host,

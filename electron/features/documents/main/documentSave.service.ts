@@ -1,3 +1,4 @@
+import {resolveTypedStagedArtifact} from '@electron/features/documents/main/managedTempFileHandles';
 import { existsSync } from 'fs';
 import {
     rm,
@@ -158,18 +159,22 @@ export async function savePdfAs(
         const tempPath = makeSiblingTempPath(targetPath);
         let replaced = false;
         try {
-            const validation = await validatePdfFile(normalizedWorkingPath);
+            const stagedOutput = options?.stagedOutput
+                ? await resolveTypedStagedArtifact(context, options.stagedOutput)
+                : undefined;
+            const sourcePath = stagedOutput?.path ?? normalizedWorkingPath;
+            const validation = await validatePdfFile(sourcePath);
             if (!validation.isValid) {
                 throw new Error('Working copy is not a valid PDF');
             }
 
-            await copyFileCopyOnWrite(normalizedWorkingPath, tempPath);
+            await copyFileCopyOnWrite(sourcePath, tempPath);
             const optimizedValidation = await optimizePdfForSaveAs(tempPath, options);
             await commitPdfTempFile(tempPath, targetPath, {ownerId: `pdf-save-as:${context.senderId}`});
             replaced = true;
             try {
                 await setWorkingCopyOriginalPath(normalizedWorkingPath, targetPath, context.senderId);
-                if (optimizedValidation) {
+                if (optimizedValidation || stagedOutput) {
                     await copyFileCopyOnWrite(targetPath, normalizedWorkingPath);
                     await markWorkingCopyContentChanged(normalizedWorkingPath, 'save-sync', context.senderId);
                 }

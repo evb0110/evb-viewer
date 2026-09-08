@@ -538,6 +538,32 @@ describe('createDocumentPersistence', () => {
         expectBroadWorkingCopyFacadeNotUsed();
     });
 
+    it('adopts staged Save As bytes from the committed target even when desktop copyback left the old working copy unchanged', async () => {
+        const {
+            persistence,
+            state,
+            deps,
+        } = createPersistenceHarness(true);
+        mocks.shouldRefreshWorkingCopyAfterSaveAs.mockReturnValue(false);
+        const result = await persistence.trySavePdfNativeMutations({updates: [{
+            objectNumber: 10,
+            generationNumber: 0,
+            text: 'Published annotation',
+        }]}, {
+            saveMode: 'save_as_rewrite',
+            expectedWorkingPath: requireDocumentRef('/tmp/old-working.pdf'),
+            modifiedAt: requirePdfDateString('D:20260628093456Z'),
+        });
+        expect(result?.success).toBe(true);
+        expect(mocks.documentWorkingCopyCapability.createWorkingCopyFromPath).toHaveBeenCalledWith('/tmp/saved.pdf');
+        expect(state.workingCopyPath.value).toBe('/tmp/new-working.pdf');
+        expect(state.originalPath.value).toBe('/tmp/saved.pdf');
+        expect(deps.readPdfStateFromPath).toHaveBeenCalledWith('/tmp/new-working.pdf');
+        expect(mocks.documentWorkingCopyCapability.cleanupFile).toHaveBeenCalledWith('/tmp/old-working.pdf');
+        expect(mocks.documentFilesCapability.commitStagedPdfNativeMutations).not.toHaveBeenCalled();
+        expect(mocks.documentFilesCapability.releaseManagedTempFileHandle).toHaveBeenCalledWith('staged-native-lease');
+    });
+
     it('verifies the immutable staged native output before exposing it', async () => {
         const { persistence } = createPersistenceHarness();
         const callOrder: string[] = [];
@@ -578,6 +604,7 @@ describe('createDocumentPersistence', () => {
         expect(mocks.readDocumentBytes).not.toHaveBeenCalled();
         expect(callOrder).toEqual([
             'verify',
+            'assert',
             'assert',
             'commit',
         ]);
@@ -625,7 +652,7 @@ describe('createDocumentPersistence', () => {
 
         expect(result?.success).toBe(true);
         expect(verifyPathBeforeExpose).not.toHaveBeenCalled();
-        expect(assertBeforeExpose).toHaveBeenCalledOnce();
+        expect(assertBeforeExpose).toHaveBeenCalledTimes(2);
         expect(mocks.documentFilesCapability.commitStagedPdfNativeMutations).toHaveBeenCalledOnce();
     });
 

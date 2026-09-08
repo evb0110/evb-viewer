@@ -271,7 +271,8 @@ export async function readEvbTextMarkupVisuals(page: Page): Promise<IEvbTextMark
         ) ?? []).map(group => ({
             pageNumber: Number(group.closest<HTMLElement>('.page_container')?.dataset.page) || null,
             subtype: group.dataset.markupSubtype ?? null,
-            rects: Array.from(group.querySelectorAll<SVGRectElement>('rect')).map(rect => ({
+            // Every subtype has one hit rectangle per quad; only Highlight also paints a rectangle.
+            rects: Array.from(group.querySelectorAll<SVGRectElement>('rect[data-annotation-hit-target]')).map(rect => ({
                 height: Number(rect.getAttribute('height') ?? 0),
                 left: Number(rect.getAttribute('x') ?? 0),
                 top: Number(rect.getAttribute('y') ?? 0),

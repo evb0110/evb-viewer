@@ -39,7 +39,7 @@ export interface IAnnotationPageInteraction {
     cancelTextDraft(): void;
     cancelPointerGesture(): void;
     focus(): void;
-    fitTextBox?(entity: ITextBoxEntity): ITextBoxEntity['rect'];
+    fitTextBox?(entity: ITextBoxEntity): ITextBoxEntity['rect'] | null;
 }
 
 export interface IAnnotationTextEditPoint {
@@ -449,12 +449,14 @@ export const usePdfAnnotationEditorSurface = (
                     else if (entity.kind !== 'placed-image') patch.color = updates.color;
                 }
                 if (updates.fontSize !== undefined && entity.kind === 'text-box') {
-                    patch.fontSize = updates.fontSize;
                     const fittedRect = pageInteractions.get(entity.pageIndex)?.fitTextBox?.({
                         ...entity,
                         fontSize: updates.fontSize,
                     });
-                    if (fittedRect && !annotationRectsEqual(entity.rect, fittedRect)) patch.rect = fittedRect;
+                    if (fittedRect !== null) {
+                        patch.fontSize = updates.fontSize;
+                        if (fittedRect && !annotationRectsEqual(entity.rect, fittedRect)) patch.rect = fittedRect;
+                    }
                 }
                 if (updates.opacity !== undefined && (entity.kind === 'shape' || entity.kind === 'text-markup')) patch.opacity = updates.opacity;
                 if (entity.kind === 'shape') {

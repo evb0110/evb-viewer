@@ -22,6 +22,11 @@ import {
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import {AnnotationApplication} from '@app/modules/pdf-viewer/annotations/annotationApplication';
 import PdfAnnotationEditorLayer from '@app/modules/pdf-viewer/components/PdfAnnotationEditorLayer.vue';
+import PdfTextBoxAnnotation from '@app/modules/pdf-viewer/components/PdfTextBoxAnnotation.vue';
+import type {
+    IAnnotationMarkerRect,
+    TAnnotationTool,
+} from '@app/types/annotations';
 import PdfAnnotationSelectionHandles from '@app/modules/pdf-viewer/components/PdfAnnotationSelectionHandles.vue';
 import {
     annotationEditorSurfaceKey,
@@ -33,7 +38,7 @@ import type {
     ITextMarkupEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {usePdfAnnotationEditorSurface} from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
-import type {TAnnotationTool} from '@app/types/annotations';
+import { rotateAnnotationPoint } from '@app/modules/pdf-viewer/engine/annotation-editor-geometry/annotationEditorGeometry';
 import {requirePageIndex} from '@contracts/pageNumbers';
 
 const annotationId = 'reopened-markup' as ITextMarkupEntity['identity']['id'];
@@ -153,7 +158,7 @@ function createCreationSurface() {
         pendingDraftIds.delete(id);
     });
     const hasPendingTextBoxDrafts = vi.fn(() => pendingDraftIds.size > 0);
-    const createTextBoxAt = vi.fn(() => {
+    const createTextBoxAt = vi.fn((..._args: Parameters<IAnnotationEditorSurface['createTextBoxAt']>) => {
         entities.value = [createdTextBox];
         return createdTextBox;
     });
@@ -541,6 +546,283 @@ describe('PdfAnnotationEditorLayer SVG events', () => {
         app.unmount();
     });
 
+    it.each([
+        {
+            fontSize: 72,
+            resizeHandle: 'se',
+        },
+        {
+            fontSize: 14,
+            resizeHandle: 'se',
+        },
+        {
+            fontSize: 14,
+            resizeHandle: 'e',
+        },
+    ] as const)('commits $resizeHandle resize only when its validated proposal changes at font size $fontSize', async ({
+        fontSize,
+        resizeHandle,
+    }) => {
+        const harness = createCreationSurface();
+        const textBox: ITextBoxEntity = {
+            ...createdTextBox,
+            fontSize,
+            rect: {
+                left: 0.2,
+                top: 0.2,
+                width: 0.3,
+                height: 0.1,
+            },
+        };
+        harness.activeToolValue.value = 'select';
+        harness.entities.value = [textBox];
+        harness.selectedIds.value = new Set([textBox.identity.id]);
+        vi.mocked(harness.surface.beginResize).mockReturnValue({
+            annotationId: textBox.identity.id,
+            entity: textBox,
+            kind: 'resize',
+        });
+        const host = document.createElement('div');
+        document.body.append(host);
+        const app = createApp({setup() {
+            provide(annotationEditorSurfaceKey, harness.surface);
+            return () => h(PdfAnnotationEditorLayer, {pageIndex: requirePageIndex(25)});
+        }});
+        app.mount(host);
+        onTestFinished(() => {app.unmount(); host.remove();});
+        await nextTick();
+        const layer = host.querySelector<HTMLElement>('.pdf-annotation-editor-layer')!;
+        vi.spyOn(layer, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 100, 100));
+        const handle = host.querySelector<HTMLElement>(`[data-pdf-annotation-resize-handle="${resizeHandle}"]`)!;
+        handle.dispatchEvent(new PointerEvent('pointerdown', {
+            bubbles: true,
+            button: 0,
+            pointerId: 42,
+            clientX: 50,
+            clientY: 37.5,
+        }));
+        layer.dispatchEvent(new PointerEvent('pointermove', {
+            bubbles: true,
+            button: 0,
+            pointerId: 42,
+            clientX: 70,
+            clientY: 50,
+        }));
+        layer.dispatchEvent(new PointerEvent('pointerup', {
+            bubbles: true,
+            button: 0,
+            pointerId: 42,
+            clientX: 70,
+            clientY: 50,
+        }));
+        await nextTick();
+        if (fontSize === 72) {
+            expect(harness.commitGesture).not.toHaveBeenCalled();
+        } else {
+            expect(harness.commitGesture).toHaveBeenCalledOnce();
+            expect(harness.commitGesture.mock.calls[0]?.[1]).toMatchObject({fontSize: expect.any(Number)});
+            if (resizeHandle === 'e') {
+                expect(harness.commitGesture.mock.calls[0]?.[1].fontSize).toBe(fontSize);
+                expect(harness.commitGesture.mock.calls[0]?.[1].rect.width).toBeGreaterThan(textBox.rect.width);
+            } else {
+                expect(harness.commitGesture.mock.calls[0]?.[1].fontSize).toBeGreaterThan(fontSize);
+            }
+        }
+    });
+
+    it('shrinks the content-derived height after widening a wrapped text box', async () => {
+        const host = document.createElement('div');
+        host.className = 'pdf-annotation-editor-layer';
+        document.body.append(host);
+        vi.spyOn(host, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 1000, 1000));
+        const exposed = ref<{fitRectToContent: (rect: IAnnotationMarkerRect, handle?: 'e', fontSize?: number) => IAnnotationMarkerRect | null} | null>(null);
+        const app = createApp({render: () => h(PdfTextBoxAnnotation, {
+            ref: exposed,
+            entity: {
+                ...createdTextBox,
+                text: 'text that wraps when narrowed',
+            },
+            selected: true,
+        })});
+        app.mount(host);
+        onTestFinished(() => {app.unmount(); host.remove();});
+        await nextTick();
+        const measuredHeight = vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockImplementation(function (this: HTMLElement) {
+            return Number.parseFloat(this.style.width) < 300 ? 180 : 60;
+        });
+        const narrow = exposed.value!.fitRectToContent({
+            ...createdTextBox.rect,
+            width: 0.2,
+        }, 'e')!;
+        expect(narrow.height).toBeCloseTo(0.18);
+        const wide = exposed.value!.fitRectToContent({
+            ...narrow,
+            width: 0.4,
+        }, 'e')!;
+        expect(wide.height).toBeCloseTo(0.06);
+        expect(wide.top + wide.height / 2).toBeCloseTo(narrow.top + narrow.height / 2);
+        measuredHeight.mockReturnValue(2000);
+        expect(exposed.value!.fitRectToContent(wide, undefined, 72)).toBeNull();
+    });
+
+    it('offers text corner scaling and horizontal wrapping handles only', async () => {
+        const host = document.createElement('div');
+        const app = createApp({render: () => h(PdfAnnotationSelectionHandles, {entity: createdTextBox})});
+        app.mount(host);
+        onTestFinished(() => app.unmount());
+        await nextTick();
+        expect([...host.querySelectorAll('[data-pdf-annotation-resize-handle]')]
+            .map(handle => handle.getAttribute('data-pdf-annotation-resize-handle'))).toEqual([
+            'nw',
+            'ne',
+            'e',
+            'se',
+            'sw',
+            'w',
+        ]);
+    });
+
+    it.each([
+        {
+            name: 'near-vertical',
+            start: [
+                20,
+                20,
+            ],
+            moves: [[
+                22,
+                85,
+            ]],
+        },
+        {
+            name: 'reverse',
+            start: [
+                60,
+                40,
+            ],
+            moves: [[
+                10,
+                80,
+            ]],
+        },
+        {
+            name: 'short reverse',
+            start: [
+                60,
+                40,
+            ],
+            moves: [[
+                58,
+                90,
+            ]],
+        },
+        {
+            name: 'away and back',
+            start: [
+                20,
+                20,
+            ],
+            moves: [
+                [
+                    80,
+                    70,
+                ],
+                [
+                    20,
+                    20,
+                ],
+            ],
+        },
+    ].flatMap(scenario => ([
+        0,
+        90,
+        180,
+        270,
+    ] as const).map(viewRotation => ({
+        ...scenario,
+        viewRotation,
+    }))))('creates a one-line wrapping frame for $name drags at $viewRotation degrees', async ({
+        start,
+        moves,
+        viewRotation,
+    }) => {
+        const harness = createCreationSurface();
+        vi.mocked(harness.surface.getPageGeometry).mockReturnValue({
+            pageView: [
+                0,
+                0,
+                100,
+                100,
+            ],
+            rotation: 0,
+            viewRotation,
+        });
+        const host = document.createElement('div');
+        document.body.append(host);
+        const app = createApp({setup() {
+            provide(annotationEditorSurfaceKey, harness.surface);
+            return () => h(PdfAnnotationEditorLayer, {pageIndex: requirePageIndex(25)});
+        }});
+        app.mount(host);
+        onTestFinished(() => {app.unmount(); host.remove();});
+        await nextTick();
+        const layer = host.querySelector<HTMLElement>('.pdf-annotation-editor-layer')!;
+        const background = host.querySelector<HTMLElement>('.pdf-annotation-editor-surface__background')!;
+        vi.spyOn(layer, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 100, 100));
+        function pointer(type: string, point: number[]) {
+            return new PointerEvent(type, {
+                bubbles: true,
+                button: 0,
+                clientX: point[0]!,
+                clientY: point[1]!,
+                pointerId: 21,
+            });
+        }
+        function previewRect() {
+            const preview = host.querySelector<HTMLElement>('.pdf-annotation-editor-text-box-preview')!;
+            return {
+                left: Number.parseFloat(preview.style.left) / 100,
+                top: Number.parseFloat(preview.style.top) / 100,
+                width: Number.parseFloat(preview.style.width) / 100,
+                height: Number.parseFloat(preview.style.height) / 100,
+            };
+        }
+        background.dispatchEvent(pointer('pointerdown', start));
+        await nextTick();
+        function displayedRect(rect: IAnnotationMarkerRect) {
+            const center = rotateAnnotationPoint({
+                x: rect.left + rect.width / 2,
+                y: rect.top + rect.height / 2,
+            }, viewRotation);
+            return {
+                ...rect,
+                left: center.x - rect.width / 2,
+                top: center.y - rect.height / 2,
+            };
+        }
+        const initial = displayedRect(previewRect());
+        for (const move of moves) layer.dispatchEvent(pointer('pointermove', move));
+        await nextTick();
+        const canonicalPreview = previewRect();
+        const preview = displayedRect(canonicalPreview);
+        expect(preview.width).toBeGreaterThanOrEqual(initial.width);
+        expect(preview.height).toBeCloseTo(initial.height);
+        expect(preview.top).toBeCloseTo(initial.top);
+        const end = moves.at(-1)!;
+        expect(preview.left).toBeCloseTo(end[0]! < start[0]! ? start[0]! / 100 - preview.width : initial.left);
+        layer.dispatchEvent(pointer('pointerup', end));
+        await nextTick();
+        const committed = harness.createTextBoxAt.mock.calls[0]?.[1];
+        for (const key of [
+            'left',
+            'top',
+            'width',
+            'height',
+        ] as const) {
+            expect(committed?.[key]).toBeCloseTo(canonicalPreview[key], 12);
+        }
+    });
+
     it('keeps a newly created text box selected after a root-retargeted click', async () => {
         const harness = createCreationSurface();
         const host = document.createElement('div');
@@ -579,6 +861,17 @@ describe('PdfAnnotationEditorLayer SVG events', () => {
             clientY: 20,
             pointerId: 21,
         }));
+        await nextTick();
+        const preview = host.querySelector<HTMLElement>('.pdf-annotation-editor-text-box-preview');
+        expect(preview).not.toBeNull();
+        const previewRect = {
+            left: Number.parseFloat(preview!.style.left) / 100,
+            top: Number.parseFloat(preview!.style.top) / 100,
+            width: Number.parseFloat(preview!.style.width) / 100,
+            height: Number.parseFloat(preview!.style.height) / 100,
+        };
+        expect(previewRect.width).toBeGreaterThan(0.1);
+        expect(previewRect.height).toBeGreaterThan(0.1);
         layer!.dispatchEvent(new PointerEvent('pointerup', {
             bubbles: true,
             button: 0,
@@ -594,6 +887,15 @@ describe('PdfAnnotationEditorLayer SVG events', () => {
         await nextTick();
 
         expect(harness.createTextBoxAt).toHaveBeenCalledOnce();
+        const committed = harness.createTextBoxAt.mock.calls[0]?.[1];
+        for (const key of [
+            'left',
+            'top',
+            'width',
+            'height',
+        ] as const) {
+            expect(committed?.[key], key).toBeCloseTo(previewRect[key], 12);
+        }
         expect(harness.select).toHaveBeenCalledWith([createdTextBox.identity.id]);
         expect(harness.clearSelection).not.toHaveBeenCalled();
         expect(harness.selectedIds.value).toEqual(new Set([createdTextBox.identity.id]));

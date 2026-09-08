@@ -1,3 +1,4 @@
+import {decodeTypedStagedArtifact} from '@contracts/stagedArtifacts';
 import type {
     IPdfNativeStagedCommitOptions,
     IPdfSaveAsOptions,
@@ -43,9 +44,12 @@ export function decodePdfSaveAsOptions(value: unknown): IPdfSaveAsOptions | unde
     if (decoded?.optimizeLossless !== undefined && typeof decoded.optimizeLossless !== 'boolean') {
         throw new Error('invalid PDF save-as options');
     }
-    return decoded.optimizeLossless === undefined
-        ? {}
-        : {optimizeLossless: decoded.optimizeLossless};
+    const stagedOutput = decoded.stagedOutput === undefined ? undefined : decodeTypedStagedArtifact(decoded.stagedOutput);
+    if (stagedOutput === null) throw new Error('invalid PDF save-as staged output');
+    return {
+        ...(decoded.optimizeLossless === undefined ? {} : {optimizeLossless: decoded.optimizeLossless}),
+        ...(stagedOutput ? {stagedOutput} : {}),
+    };
 }
 
 export function decodePdfRevisionOptions(value: unknown): IPdfSerializedSaveOptions | undefined {

@@ -310,6 +310,7 @@
 .pdfViewer .pdf-annotation-editor-text-markup [data-annotation-hit-target] {
     fill: transparent;
     stroke: transparent;
+    stroke-width: 0;
     pointer-events: all;
 }
 
@@ -420,8 +421,7 @@
 .pdfViewer .pdf-annotation-editor-text-box-preview {
     position: absolute;
     box-sizing: border-box;
-    border: 1px dashed var(--app-toolbar-focus-ring);
-    background: color-mix(in srgb, var(--app-toolbar-focus-ring) 10%, transparent);
+    outline: 1px solid var(--app-toolbar-focus-ring);
     pointer-events: none;
 }
 

@@ -62,6 +62,7 @@ const props = defineProps<{
         clientY: number
     } | null;
     displayRect?: IAnnotationMarkerRect | undefined;
+    displayFontSize?: number | undefined;
 }>();
 const emit = defineEmits<{
     'pointer-down': [event: PointerEvent];
@@ -229,7 +230,7 @@ function handleInputEvent(event: Event) {
     emit('draft-change', inlineEdit.draftText.value);
 }
 
-function fitRectToContent(rect: IAnnotationMarkerRect, handle?: TAnnotationResizeHandle, fontSize = props.entity.fontSize): IAnnotationMarkerRect {
+function fitRectToContent(rect: IAnnotationMarkerRect, handle?: TAnnotationResizeHandle, fontSize = props.entity.fontSize): IAnnotationMarkerRect | null {
     const root = rootRef.value;
     const layer = root?.closest<HTMLElement>('.pdf-annotation-editor-layer');
     const bounds = layer?.getBoundingClientRect();
@@ -241,7 +242,7 @@ function fitRectToContent(rect: IAnnotationMarkerRect, handle?: TAnnotationResiz
     const pageWidth = swapped ? bounds.height : bounds.width;
     const pageHeight = swapped ? bounds.width : bounds.height;
     const measurement = root.cloneNode(false) as HTMLElement;
-    measurement.textContent = props.entity.text;
+    measurement.textContent = editing.value ? inlineEdit.draftText.value : props.entity.text;
     measurement.removeAttribute('data-annotation-id');
     Object.assign(measurement.style, {
         width: `${rect.width * pageWidth}px`,
@@ -253,7 +254,10 @@ function fitRectToContent(rect: IAnnotationMarkerRect, handle?: TAnnotationResiz
     });
     root.parentElement?.append(measurement);
     try {
-        const height = Math.max(rect.height, measurement.scrollHeight / pageHeight);
+        const contentHeight = measurement.scrollHeight / pageHeight;
+        const height = (handle === 'e' || handle === 'w' || fontSize !== props.entity.fontSize) && contentHeight > 0
+            ? contentHeight
+            : Math.max(rect.height, contentHeight);
         const anchorY = handle?.includes('n') ? 1 : !handle || handle.includes('s') ? 0 : 0.5;
         const center = {
             x: rect.left + rect.width / 2,
@@ -282,14 +286,14 @@ function fitRectToContent(rect: IAnnotationMarkerRect, handle?: TAnnotationResiz
             return fitted;
         }
         return footprint.left < -1e-8 || footprint.top < -1e-8 || footprint.left + footprint.width > 1 + 1e-8 || footprint.top + footprint.height > 1 + 1e-8
-            ? props.entity.rect
+            ? null
             : fitted;
     } finally { measurement.remove(); }
 }
 
 interface IPdfTextBoxAnnotationExpose {
     commitDraft: () => void;
-    fitRectToContent: (rect: IAnnotationMarkerRect, handle?: TAnnotationResizeHandle, fontSize?: number) => IAnnotationMarkerRect;
+    fitRectToContent: (rect: IAnnotationMarkerRect, handle?: TAnnotationResizeHandle, fontSize?: number) => IAnnotationMarkerRect | null;
 }
 
 const rectStyle = computed(() => ({
@@ -298,7 +302,7 @@ const rectStyle = computed(() => ({
     width: `${(draftRect.value ?? props.displayRect ?? props.entity.rect).width * 100}%`,
     height: `${(draftRect.value ?? props.displayRect ?? props.entity.rect).height * 100}%`,
     color: props.entity.color ?? 'var(--ui-text)',
-    fontSize: toPdfScaledCssLength(props.entity.fontSize),
+    fontSize: toPdfScaledCssLength(props.displayFontSize ?? props.entity.fontSize),
     transform: `rotate(${props.entity.rotation}deg)`,
 }));
 

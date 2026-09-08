@@ -3,8 +3,13 @@ import {
     describe,
     expect,
     it,
+    onTestFinished,
 } from 'vitest';
-import {stat} from 'node:fs/promises';
+import {
+    readFile,
+    rm,
+    stat,
+} from 'node:fs/promises';
 import {
     copyProjectFixture,
     createCanonicalAnnotationSurfaceFixturePdf,
@@ -13,6 +18,7 @@ import {
     readFreeTextObjectByName,
     readPdfMetadataWithQpdf,
     readPdfAnnotationSummary,
+    readPdfTextAnnotationRecords,
 } from '@tests/e2e/electron/helpers/fixtures';
 import {
     openAnnotationsTab,
@@ -23,6 +29,7 @@ import {
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {
     clickAnnotationTool,
+    createCanonicalTextBoxWithPointer,
     setAnnotationColor,
     selectAllFocusedAnnotationText,
 } from '@tests/e2e/electron/helpers/viewerAnnotations';
@@ -514,6 +521,103 @@ describe('Electron E2E - native save and reopen', () => {
         session = null;
     });
 
+    it('saves annotation changes as a separate file and continues editing after fresh reopen', async () => {
+        const sourcePath = await createMultiPageTextFixturePdf(`native-save-as-source-${Date.now()}.pdf`, 1);
+        const destinationPath = sourcePath.replace(/\.pdf$/u, '-copy.pdf');
+        onTestFinished(() => rm(destinationPath, {force: true}));
+        const sourceBytes = await readFile(sourcePath);
+        session = await startElectronE2ESession(`e2e-native-save-as-${Date.now()}`, {
+            clean: true,
+            extraEnv: {
+                EVB_PDF_PAGE_OPS_ENABLE: '1',
+                EVB_E2E_SAVE_DIALOG_PATH: destinationPath,
+            },
+            initialOpenPaths: [sourcePath],
+        });
+        await waitForOpenedPdf(session, sourcePath);
+        await createCanonicalTextBoxWithPointer(session.page, 'Save As first text', {
+            x: 0.25,
+            y: 0.3,
+        });
+        await expect(callWorkspaceCommand<boolean>(session.page, 'handleSaveAs')).resolves.toEqual({
+            called: true,
+            value: true,
+        });
+        expect(await readFile(sourcePath)).toEqual(sourceBytes);
+        expect(await readPdfTextAnnotationRecords(destinationPath)).toEqual(expect.arrayContaining([expect.objectContaining({contents: 'Save As first text'})]));
+        await session.stop();
+        session = await startElectronE2ESession(`e2e-native-save-as-reopen-${Date.now()}`, {
+            clean: true,
+            extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
+            initialOpenPaths: [destinationPath],
+        });
+        await waitForOpenedPdf(session, destinationPath);
+        await createCanonicalTextBoxWithPointer(session.page, 'Save As second text', {
+            x: 0.25,
+            y: 0.55,
+        });
+        await saveViaWindowHandle(session.page);
+        expect(await readPdfTextAnnotationRecords(destinationPath)).toEqual(expect.arrayContaining([
+            expect.objectContaining({contents: 'Save As first text'}),
+            expect.objectContaining({contents: 'Save As second text'}),
+        ]));
+        expect(await readFile(sourcePath)).toEqual(sourceBytes);
+    }, NATIVE_SAVE_REOPEN_TIMEOUT_MS);
+
+    it('retains another annotation edit arriving while Save As is staged', async () => {
+        const sourcePath = await createMultiPageTextFixturePdf(`native-save-as-race-${Date.now()}.pdf`, 1);
+        const destinationPath = sourcePath.replace(/\.pdf$/u, '-copy.pdf');
+        onTestFinished(() => rm(destinationPath, {force: true}));
+        const sourceBytes = await readFile(sourcePath);
+        session = await startElectronE2ESession(`e2e-native-save-as-race-${Date.now()}`, {
+            clean: true,
+            extraEnv: {
+                EVB_PDF_PAGE_OPS_ENABLE: '1',
+                EVB_E2E_SAVE_DIALOG_PATH: destinationPath,
+            },
+            initialOpenPaths: [sourcePath],
+        });
+        await waitForOpenedPdf(session, sourcePath);
+        await createCanonicalTextBoxWithPointer(session.page, 'Before concurrent edit', {
+            x: 0.25,
+            y: 0.3,
+        });
+        await session.page.evaluate(() => {
+            const state = window as Window & {
+                __saveAsStaged?: boolean;
+                __resumeSaveAs?: () => void
+            };
+            const gate = new Promise<void>(resolve => {state.__resumeSaveAs = resolve;});
+            window.__stagedPdfNativeMutationCommitBarrierForAutomation = async () => {
+                state.__saveAsStaged = true;
+                await gate;
+            };
+        });
+        const saving = callWorkspaceCommand<boolean>(session.page, 'handleSaveAs');
+        await session.page.waitForFunction(() => (window as Window & {__saveAsStaged?: boolean}).__saveAsStaged === true);
+        const snapshot = await readCanonicalAnnotationSnapshot(session.page);
+        const comment = snapshot.comments.find(value => stringField(value, 'text') === 'Before concurrent edit');
+        const stableKey = stringField(comment ?? {}, 'stableKey');
+        expect(stableKey).toBeTruthy();
+        const update = await callWorkspaceCommand(session.page, 'runAgentAction', [
+            'annotation.update_note',
+            {
+                stableKey,
+                text: 'After concurrent edit',
+            },
+        ]);
+        expect(update.value).toMatchObject({updated: true});
+        await session.page.evaluate(() => (window as Window & {__resumeSaveAs?: () => void}).__resumeSaveAs?.());
+        await expect(saving).resolves.toEqual({
+            called: true,
+            value: true,
+        });
+        expect(await readFile(sourcePath)).toEqual(sourceBytes);
+        expect(await readPdfTextAnnotationRecords(destinationPath)).toEqual(expect.arrayContaining([expect.objectContaining({contents: 'After concurrent edit'})]));
+        await waitForOpenedPdf(session, destinationPath);
+        await expect.poll(async () => (await readCanonicalAnnotationSnapshot(session!.page)).comments).toEqual(expect.arrayContaining([expect.objectContaining({text: 'After concurrent edit'})]));
+    }, NATIVE_SAVE_REOPEN_TIMEOUT_MS);
+
     it('moves a parsed store-owned text box through save and fresh-process reopen', async () => {
         const pdfPath = await createCanonicalAnnotationSurfaceFixturePdf(
             `native-save-reopen-${Date.now()}-canonical-surface.pdf`,
@@ -716,9 +820,9 @@ describe('Electron E2E - native save and reopen', () => {
         );
 
         const typedText = `Created canonical text box ${Date.now()}`;
-        await session.page.focus(
-            '.editor-pane.is-active .pdf-annotation-editor-text-box [contenteditable="true"]',
-        );
+        expect(await session.page.evaluate(() => (
+            document.activeElement?.matches('.pdf-annotation-editor-text-box [contenteditable="true"]') ?? false
+        ))).toBe(true);
         await selectAllFocusedAnnotationText(session.page);
         await session.page.keyboard.type(typedText);
         await expect.poll(async () => session!.page.evaluate(() => document.querySelector<HTMLElement>(
@@ -814,12 +918,13 @@ describe('Electron E2E - native save and reopen', () => {
         const beforeResizeSnapshot = await readCanonicalAnnotationSnapshot(session.page);
         const beforeResizeComment = findTextBoxComment(beforeResizeSnapshot, typedText);
         const beforeResizeRect = normalizedRect(beforeResizeComment?.markerRect);
+        const beforeResizeWidth = numberField(asRecord(beforeResizeComment?.markerRect) ?? {}, 'width');
         const beforeResizeScreen = await readTextBoxScreenPoints(session.page, 'se');
         const fontSizeBeforeResize = (await readTextBoxComputedStyle(session.page))?.fontSize ?? null;
         expect(beforeResizeRect).not.toBeNull();
         expect(beforeResizeScreen?.handle).not.toBeNull();
         expect(fontSizeBeforeResize).not.toBeNull();
-        if (!beforeResizeRect || !beforeResizeScreen?.handle || fontSizeBeforeResize === null) {
+        if (!beforeResizeRect || beforeResizeWidth === null || !beforeResizeScreen?.handle || fontSizeBeforeResize === null) {
             throw new Error('The selected text box resize handle was not mounted');
         }
         const resizeTarget = {
@@ -837,19 +942,24 @@ describe('Electron E2E - native save and reopen', () => {
         const resizedSnapshot = await readCanonicalAnnotationSnapshot(session.page);
         const resizedComment = findTextBoxComment(resizedSnapshot, typedText);
         const resizedRect = normalizedRect(resizedComment?.markerRect);
+        const resizedWidth = numberField(asRecord(resizedComment?.markerRect) ?? {}, 'width');
         expect(resizedRect).not.toBeNull();
-        expect((await readTextBoxComputedStyle(session.page))?.fontSize ?? null).toBe(fontSizeBeforeResize);
-        if (!resizedRect) {
+        const fontSizeAfterResize = (await readTextBoxComputedStyle(session.page))?.fontSize ?? null;
+        if (!resizedRect || resizedWidth === null || fontSizeAfterResize === null) {
             throw new Error('The resized text box was not published to the canonical store');
         }
+        expect(fontSizeAfterResize).toBeGreaterThan(fontSizeBeforeResize);
+        expect(fontSizeAfterResize).toBeCloseTo(fontSizeBeforeResize * resizedWidth / beforeResizeWidth, 2);
         await runHistoryAction(session.page, 'undo');
         await expect.poll(async () => normalizedRect(
             findTextBoxComment(await readCanonicalAnnotationSnapshot(session!.page), typedText)?.markerRect,
         ), {timeout: 20_000}).toEqual(beforeResizeRect);
+        expect((await readTextBoxComputedStyle(session.page))?.fontSize).toBe(fontSizeBeforeResize);
         await runHistoryAction(session.page, 'redo');
         await expect.poll(async () => normalizedRect(
             findTextBoxComment(await readCanonicalAnnotationSnapshot(session!.page), typedText)?.markerRect,
         ), {timeout: 20_000}).toEqual(resizedRect);
+        expect((await readTextBoxComputedStyle(session.page))?.fontSize).toBe(fontSizeAfterResize);
 
         const beforeMoveSnapshot = await readCanonicalAnnotationSnapshot(session.page);
         const beforeMoveRect = normalizedRect(
@@ -951,7 +1061,7 @@ describe('Electron E2E - native save and reopen', () => {
         const finalStyle = await readTextBoxComputedStyle(session.page, annotationId);
         expect(finalStyle).toEqual({
             color: 'rgb(239, 68, 68)',
-            fontSize: resizedFontStyle.fontSize,
+            fontSize: fontSizeAfterResize,
         });
         await saveViaWindowHandle(session.page, 60_000);
         await expect.poll(
@@ -1057,7 +1167,26 @@ describe('Electron E2E - native save and reopen', () => {
         if (!editedStyle || editedStyle.fontSize === null) {
             throw new Error('The selected imported text box did not publish its font-size update');
         }
-        await session.page.mouse.click(point.x, point.y, {
+        const editTarget = await session.page.evaluate((id: string) => {
+            const entity = Array.from(document.querySelectorAll<HTMLElement>(
+                '.pdf-annotation-editor-text-box[data-annotation-kind="text-box"]',
+            )).find(candidate => candidate.dataset.annotationId === id);
+            if (!entity) {
+                return null;
+            }
+            const rect = entity.getBoundingClientRect();
+            const x = rect.left + rect.width / 2;
+            const y = rect.top + rect.height / 2;
+            const hit = document.elementFromPoint(x, y);
+            return {
+                x,
+                y,
+                hit: hit === entity || entity.contains(hit),
+            };
+        }, annotationId);
+        expect(editTarget?.hit).toBe(true);
+        if (!editTarget) throw new Error('The fixture text box has no current edit target');
+        await session.page.mouse.click(editTarget.x, editTarget.y, {
             count: 2,
             delay: 80,
         });
@@ -1069,9 +1198,7 @@ describe('Electron E2E - native save and reopen', () => {
             },
         );
         const editedText = `Edited fixture text box ${Date.now()}`;
-        await session.page.focus(
-            '.editor-pane.is-active .pdf-annotation-editor-text-box [contenteditable="true"]',
-        );
+        expect(await session.page.evaluate(() => document.activeElement?.getAttribute('contenteditable'))).toBe('true');
         await selectAllFocusedAnnotationText(session.page);
         await session.page.keyboard.type(editedText);
         await expect.poll(async () => session!.page.evaluate(() => document.querySelector<HTMLElement>(
@@ -1083,12 +1210,15 @@ describe('Electron E2E - native save and reopen', () => {
             'text',
         ), {timeout: 20_000}).toBe(editedText);
 
+        const beforeSaveRect = normalizedRect(findTextBoxComment(await readCanonicalAnnotationSnapshot(session.page), editedText)?.markerRect);
+        expect(beforeSaveRect).not.toBeNull();
         await saveViaWindowHandle(session.page, 60_000);
         expect((await readPdfAnnotationSummary(pdfPath)).bySubtype.FreeText).toBe(3);
         const editedSnapshot = await readCanonicalAnnotationSnapshot(session.page);
         const editedComment = findTextBoxComment(editedSnapshot, editedText);
         const editedRect = normalizedRect(editedComment?.markerRect);
-        expect(editedRect).toEqual(initialRect);
+        expect(editedRect).toEqual(beforeSaveRect);
+        expect(editedRect?.width).toBeCloseTo(initialRect.width, 6);
         expect(await readTextBoxComputedStyle(session.page, annotationId)).toEqual(editedStyle);
         const savedTextBox = await readFreeTextObjectByName(pdfPath, 'lifecycle-text-box-one');
         expect(qpdfObjectContainsText(savedTextBox.object, editedText)).toBe(true);

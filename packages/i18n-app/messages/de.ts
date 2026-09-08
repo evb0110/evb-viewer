@@ -690,6 +690,7 @@ export default {
         'drawThickness': 'Zeichenstärke',
         'stroke': 'Kontur',
         'textSize': 'Textgröße',
+        'textResizeHint': 'Ziehe eine Ecke, um die Textgröße zu ändern, oder eine Seite, um den Zeilenumbruch anzupassen.',
         'penType': 'Stiftart',
         'pen': 'Stift',
         'pencil': 'Bleistift',

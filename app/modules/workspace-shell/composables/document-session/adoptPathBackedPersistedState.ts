@@ -1,3 +1,4 @@
+import {getDocumentFilesCapability} from '@app/utils/platformDocuments';
 import type { IDocumentSessionState } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
 import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
 import type { TDocumentRef } from '@contracts/documentRef';
@@ -60,4 +61,24 @@ export async function adoptStablePathBackedPersistedState(input: {
         recordSnapshotChange: false,
     });
     return true;
+}
+
+export async function resolveStableLazyHistoryBaseline(path: TDocumentRef) {
+    const documentFiles = getDocumentFilesCapability();
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+        const before = await documentFiles.getDocumentRevision(path);
+        const file = await documentFiles.statFile(path);
+        const after = await documentFiles.getDocumentRevision(path);
+        if (before.token === after.token) {
+            return {
+                baseline: {
+                    workingPath: path,
+                    revision: after.token,
+                    size: file.size,
+                },
+                revisionInfo: after,
+            };
+        }
+    }
+    throw new Error('Working-copy revision changed while adopting the saved path');
 }
