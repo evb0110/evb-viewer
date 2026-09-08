@@ -5,6 +5,7 @@ app/modules/workspace-shell/useWorkspaceOrchestration.ts
   s_ed33dfabbb7b97::t_a0107abd3912c6 448,463,702,878
   s_ed33dfabbb7b97::t_ce75a8f55171d2 1179-1180
   s_ed33dfabbb7b97::t_8a5886b55ef4c2 512-519
+  s_ed33dfabbb7b97::t_d8446e58bb9202 452,636-638,654-657,661-663,668-669,867,872,1083
 tests/unit/app/modules/workspace-shell/viewers/workspaceDocumentDriver.test.ts
   s_ed33dfabbb7b97::t_8e25a96bb1b4d1 209,211,213,222-224
   s_ed33dfabbb7b97::t_5530f4cc8d8829 208,210,212
