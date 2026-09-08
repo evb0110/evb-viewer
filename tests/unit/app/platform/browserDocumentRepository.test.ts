@@ -150,12 +150,8 @@ describe('BrowserDocumentStore source registration', () => {
         const database = indexedDbFactory.getDatabase(DB_NAME);
         const documents = Array.from(database?.getStoreRecords('documents').values() ?? []);
         const chunks = Array.from(database?.getStoreRecords('document-chunks').values() ?? []);
-        expect(documents).not.toEqual(expect.arrayContaining([
-            expect.objectContaining({fileName: 'interrupted-source.pdf'}),
-        ]));
-        expect(chunks).not.toEqual(expect.arrayContaining([
-            expect.objectContaining({ref: interruptedRef}),
-        ]));
+        expect(documents).not.toEqual(expect.arrayContaining([expect.objectContaining({fileName: 'interrupted-source.pdf'})]));
+        expect(chunks).not.toEqual(expect.arrayContaining([expect.objectContaining({ref: interruptedRef})]));
 
         const retryFile = new File([bytes], 'interrupted-source.pdf', {
             type: 'application/pdf',
@@ -190,9 +186,7 @@ describe('BrowserDocumentStore source registration', () => {
 
         const database = indexedDbFactory.getDatabase(DB_NAME);
         const documents = Array.from(database?.getStoreRecords('documents').values() ?? []);
-        expect(documents).not.toEqual(expect.arrayContaining([
-            expect.objectContaining({fileName: 'denied-source.pdf'}),
-        ]));
+        expect(documents).not.toEqual(expect.arrayContaining([expect.objectContaining({fileName: 'denied-source.pdf'})]));
 
         const retryRef = await store.registerFile(new File([bytes], 'denied-source.pdf', {
             type: 'application/pdf',
