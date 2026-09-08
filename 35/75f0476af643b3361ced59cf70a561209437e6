@@ -1,0 +1,43 @@
+.github/actions/setup-release-env/action.yml
+  s_c63d7a8363f7e9::t_36829d66e87987 138-144
+tests/unit/scripts/cargoArtifacts.test.ts
+  s_c63d7a8363f7e9::t_36829d66e87987 124-132
+.github/workflows/ci.yml
+  s_c63d7a8363f7e9::t_36829d66e87987 392-397,425-426
+scripts/release/policy.mjs
+  s_c63d7a8363f7e9::t_36829d66e87987 266-270,331-334
+tests/unit/scripts/wasmArtifactFlow.test.ts
+  s_c63d7a8363f7e9::t_36829d66e87987 1-134
+scripts/cargo-artifacts.mjs
+  s_c63d7a8363f7e9::t_36829d66e87987 24-37,44-46
+scripts/ensure-wasm-artifacts.mjs
+  s_c63d7a8363f7e9::t_36829d66e87987 1-22
+scripts/build-wasm-artifacts.mjs
+  s_c63d7a8363f7e9::t_36829d66e87987 1-77
+scripts/build-wasm-tool.mjs
+  s_c63d7a8363f7e9::t_36829d66e87987 36,51-53,91
+scripts/release/assert-packaged-app-contents.mjs
+  s_c63d7a8363f7e9::t_36829d66e87987 9-12,18-22,31,43,100-123,285
+package.json
+  s_c63d7a8363f7e9::t_36829d66e87987 29
+docs/local-gates.md
+  s_c63d7a8363f7e9::t_36829d66e87987 246-255
+scripts/stage-wasm-artifacts.mjs
+  s_c63d7a8363f7e9::t_36829d66e87987 1-63
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "3575f0476af643b3361ced59cf70a561209437e6",
+  "prompts": {},
+  "sessions": {
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
