@@ -1,0 +1,36 @@
+app/modules/pdf-viewer/engine/annotation-geometry/toMarkerRectFromPdfRect.ts
+  s_e6afbc66b58e4d::t_7909a98a9f3260 1,8,37-40
+app/modules/pdf-viewer/engine/annotation-geometry/getPageRectBounds.ts
+  s_e6afbc66b58e4d::t_de8373647c762c 7-29
+app/modules/workspace-shell/public/nativePdfMutationArtifact.ts
+  s_e6afbc66b58e4d::t_74173e2e95483f 1
+app/modules/pdf-viewer/engine/annotation-geometry/toPdfPointFromMarkerPoint.ts
+  s_e6afbc66b58e4d::t_9c9032fdc297a1 1-4
+tests/unit/scripts/electronE2eSmokeConfig.test.ts
+  s_e6afbc66b58e4d::t_373143eb72594e 414-415
+tests/e2e/electron/helpers/viewerAnnotations.ts
+  s_e6afbc66b58e4d::t_86bc5b8a3a5f6e 557
+app/modules/pdf-viewer/engine/annotation-geometry/toMarkerPointFromPdfPoint.ts
+  s_e6afbc66b58e4d::t_c7a5927fd08575 1-4,8,52
+tests/unit/app/services/pdf-save/nativeTextBoxMutations.test.ts
+  s_e6afbc66b58e4d::t_74173e2e95483f 66-101,104-112
+  s_e6afbc66b58e4d::t_bc680e858ca237 65,102-103,113-117
+app/modules/pdf-viewer/engine/annotation-geometry/toPdfRectFromMarkerRect.ts
+  s_e6afbc66b58e4d::t_f0270ce8570eec 4,24,31-58
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "46b7476dc595a447245078f4ce37e024c618e60c",
+  "prompts": {},
+  "sessions": {
+    "s_e6afbc66b58e4d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07cdb-5143-7e02-a580-29471422fbfa",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
