@@ -1,0 +1,19 @@
+tests/helpers/usePageShortcutsTestFixtures.ts
+  s_c63d7a8363f7e9::t_b7322ed3b88c2a 123-126
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "63333b8f55619ebb619ac150d6f8c08c75019820",
+  "prompts": {},
+  "sessions": {
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
