@@ -1,0 +1,38 @@
+app/modules/pdf-viewer/runtime/viewport/pdfViewportGeometry.ts
+  s_53ad5f5bbf454f::t_ef0591f82e440f 47,127,140,262,276-282,291,293,310-311
+app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageNavigationController.ts
+  s_53ad5f5bbf454f::t_9e8a63d787bbf1 116,400-404
+  s_53ad5f5bbf454f::t_370cb66a6d8767 863-866
+  s_53ad5f5bbf454f::t_afa1b359a44f82 129-130
+  s_53ad5f5bbf454f::t_68d4aeeef5bcd7 34
+app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll.ts
+  s_53ad5f5bbf454f::t_68d4aeeef5bcd7 19,299-303,306-307
+  s_53ad5f5bbf454f::t_afa1b359a44f82 34,304-305
+app/modules/pdf-viewer/runtime/navigation/pdfSinglePageScrollTypes.ts
+  s_53ad5f5bbf454f::t_afa1b359a44f82 68
+app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession.ts
+  s_53ad5f5bbf454f::t_afa1b359a44f82 157,160,285,342,361-370
+  s_53ad5f5bbf454f::t_68d4aeeef5bcd7 27,281-284,286
+app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics.ts
+  s_53ad5f5bbf454f::t_ef0591f82e440f 48-51,57-60
+  s_53ad5f5bbf454f::t_9e8a63d787bbf1 52-56
+  s_53ad5f5bbf454f::t_370cb66a6d8767 1-4
+app/modules/pdf-viewer/engine/pdf-scroll-visibility/getViewportVisibilityFromDom.ts
+  s_53ad5f5bbf454f::t_ef0591f82e440f 129,134-137
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "5fbfadd782208fe8c2d8f58528f9bf7dc149849c",
+  "prompts": {},
+  "sessions": {
+    "s_53ad5f5bbf454f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08858-96ed-7fe3-b7e1-f835a3cebd31",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
