@@ -54,7 +54,7 @@ async function readPortableProcessIdentity(pid: number): Promise<IOcrNativeChild
                 '-NoProfile',
                 '-NonInteractive',
                 '-Command',
-                `(Get-CimInstance Win32_Process -Filter "ProcessId = ${pid}" | Select-Object -ExpandProperty CreationDate)`,
+                `(Get-Process -Id ${pid} -ErrorAction Stop).StartTime.ToUniversalTime().ToString('o')`,
             ], {
                 timeout: 2_000,
                 windowsHide: true,
