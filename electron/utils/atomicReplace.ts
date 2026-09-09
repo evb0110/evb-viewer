@@ -10,6 +10,7 @@ import {
     rename,
     stat,
     unlink,
+    writeFile,
 } from 'fs/promises';
 import {
     basename,
@@ -118,6 +119,20 @@ async function pathExists(filePath: string) {
         return true;
     } catch {
         return false;
+    }
+}
+
+async function waitForAtomicReplaceTestBarrier(stage: string) {
+    if (process.platform !== 'win32' || process.env.EVB_ATOMIC_REPLACE_TEST_BARRIER !== stage) {
+        return;
+    }
+    const barrierPath = process.env.EVB_ATOMIC_REPLACE_TEST_BARRIER_FILE;
+    if (!barrierPath) {
+        throw new Error('Atomic replace test barrier requires EVB_ATOMIC_REPLACE_TEST_BARRIER_FILE');
+    }
+    await writeFile(`${barrierPath}.${stage}`, `${String(process.pid)}\n`, 'utf8');
+    while (!(await pathExists(`${barrierPath}.release`))) {
+        await new Promise(resolve => setTimeout(resolve, 25));
     }
 }
 
@@ -441,6 +456,7 @@ export async function atomicReplace(
     // Node's Windows rename uses the same-name replacement primitive. Keep
     // this as the first choice so the destination name never disappears.
     try {
+        await waitForAtomicReplaceTestBarrier('before-publish');
         await rename(srcTemp, dst);
     } catch (error) {
         const code = isErrnoException(error) ? error.code : undefined;
