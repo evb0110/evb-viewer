@@ -1,0 +1,25 @@
+app/utils/document-viewer/pageLabels.ts
+  s_9c9547d7d84891::t_9bf1586810f330 2-5,10-23,25-41,46,65,75-76,91,104,108,117,141,144
+  s_9c9547d7d84891::t_9e47fb0d7e50bf 1
+  s_9c9547d7d84891::t_e593bff3b6ad97 24
+packages/pdf-core/index.ts
+  s_9c9547d7d84891::t_e6ad04c47f92ad 12-42
+packages/pdf-core/pdfPageLabels.ts
+  s_9c9547d7d84891::t_a4d3263d91995a 1-610
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "e1209ffdeafc5140af4fcac33ad6f983271fa05d",
+  "prompts": {},
+  "sessions": {
+    "s_9c9547d7d84891": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d9b-eb9e-7871-8fa4-9a0fcc84cba7",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
