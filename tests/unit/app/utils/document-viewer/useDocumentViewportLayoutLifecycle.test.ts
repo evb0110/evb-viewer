@@ -35,7 +35,7 @@ describe('useDocumentViewportLayoutLifecycle', () => {
             return 1;
         });
         const scope = effectScope();
-        const viewport = createViewport(120);
+        const viewport = createViewport(0);
         const viewerContainer = ref<HTMLElement | null>(viewport);
         const pageLayouts = ref([
             {
@@ -44,12 +44,12 @@ describe('useDocumentViewportLayoutLifecycle', () => {
                 height: 100,
             },
             {
-                top: 120,
+                top: 0,
                 width: 100,
                 height: 100,
             },
             {
-                top: 240,
+                top: 0,
                 width: 100,
                 height: 100,
             },
@@ -58,6 +58,7 @@ describe('useDocumentViewportLayoutLifecycle', () => {
         const lifecycle = scope.run(() => useDocumentViewportLayoutLifecycle({
             viewerContainer,
             pageLayouts,
+            capturePageIndex: () => 2,
             captureRestoreEpoch: () => 1,
             canRestore: epoch => epoch === 1,
             applyRestoredScroll: restored => {
@@ -75,36 +76,36 @@ describe('useDocumentViewportLayoutLifecycle', () => {
                 {
                     top: 0,
                     width: 100,
-                    height: 800,
+                    height: 100,
                 },
                 {
-                    top: 820,
+                    top: 120,
                     width: 100,
                     height: 100,
                 },
                 {
-                    top: 940,
+                    top: 240,
                     width: 100,
                     height: 100,
                 },
             ];
         });
-        expect(viewport.scrollTop).toBe(820);
+        expect(viewport.scrollTop).toBe(240);
 
         lifecycle.preserveLayoutMutation(() => {
             pageLayouts.value = [
                 {
                     top: 0,
                     width: 100,
-                    height: 200,
+                    height: 100,
                 },
                 {
-                    top: 220,
+                    top: 120,
                     width: 100,
                     height: 100,
                 },
                 {
-                    top: 340,
+                    top: 240,
                     width: 100,
                     height: 100,
                 },
@@ -113,8 +114,8 @@ describe('useDocumentViewportLayoutLifecycle', () => {
         await lifecycle.endLayoutTransaction();
         await nextTick();
 
-        expect(viewport.scrollTop).toBe(220);
-        expect(writes.at(-1)).toBe(220);
+        expect(viewport.scrollTop).toBe(240);
+        expect(writes.at(-1)).toBe(240);
         scope.stop();
     });
 
