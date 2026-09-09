@@ -1,0 +1,34 @@
+scripts/runtimeBinaryArchive.ts
+  s_c63d7a8363f7e9::t_5266de86885a23 111,113
+  s_c63d7a8363f7e9::t_e01375c732a6a3 1-4
+  s_c63d7a8363f7e9::t_1f32325dd33307 13-18,60-65,87-92,172-177
+  s_c63d7a8363f7e9::t_5aa81eef94ab36 112
+  s_c63d7a8363f7e9::t_69b41cfeca1ab3 194,202-205
+  s_c63d7a8363f7e9::t_3a165c4ee09ab6 185-188,217-220
+  s_c63d7a8363f7e9::t_9cb987ba56eeb4 5-12,19-59,66-86,93-110,114-171,178-184,189-193,195-201,206-216,221-226
+tests/unit/scripts/runtimeBinaryArchive.test.ts
+  s_c63d7a8363f7e9::t_9cb987ba56eeb4 1-16,20-67,72-85,117-218,220-235,237-293,339
+  s_c63d7a8363f7e9::t_1d3c10d6ccf8c0 86-89,104-106,109-116
+  s_c63d7a8363f7e9::t_92d42ac3d2a3c9 337
+  s_c63d7a8363f7e9::t_457a71f850a811 236
+  s_c63d7a8363f7e9::t_a52ce4a8cade4d 107-108
+  s_c63d7a8363f7e9::t_3a165c4ee09ab6 17-19,68-71,219,326-332
+  s_c63d7a8363f7e9::t_eb90da406a5eed 294-325,333-336,338
+  s_c63d7a8363f7e9::t_d346b988fa5c99 90-103
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "49717525046dd72022388e65d8b5017ef75b90ab",
+  "prompts": {},
+  "sessions": {
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
