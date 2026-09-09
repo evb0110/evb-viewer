@@ -1,0 +1,25 @@
+electron/utils/atomicReplace.ts
+  s_9cd704c9fd4353::t_79482c370bad27 13,125-138,459
+tests/integration/native/windowsAtomicPdfPublicationHarness.js
+  s_9cd704c9fd4353::t_ba416a7d974e33 1-2,7-10,18-53,55-75
+  s_9cd704c9fd4353::t_b196c3fca525c2 3-6,11-17,54
+tests/integration/native/windowsAtomicPdfReplacement.test.ts
+  s_9cd704c9fd4353::t_b196c3fca525c2 69-72,228
+  s_9cd704c9fd4353::t_fec994e4fc2cae 28,51-52,63-68,73-95,170-227,229-231
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "b6622cca0d22fbed45fa3b483c26c250f4339070",
+  "prompts": {},
+  "sessions": {
+    "s_9cd704c9fd4353": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a086c8-ea59-7732-bf36-a18e58ce1679",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
