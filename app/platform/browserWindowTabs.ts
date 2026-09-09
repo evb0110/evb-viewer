@@ -150,6 +150,7 @@ type TBrowserTransferEnvelope = IWindowTabIncomingTransfer & {
 type TBrowserTransferAckEnvelope = IWindowTabTransferAck & {
     schemaVersion: typeof TRANSFER_MESSAGE_SCHEMA_VERSION;
     nonce: string;
+    instanceNonce?: string;
 };
 
 type TBrowserWindowTabsMessage =
@@ -967,7 +968,7 @@ async function waitForTransferDecision(transferId: string, nonce: string) {
         }
         await new Promise<void>(resolve => setTimeout(resolve, 250));
     }
-    return false;
+    throw new Error('Durable transfer decision remained unavailable.');
 }
 export const browserWindowTabsCapability: IWindowTabsCapability = {
     async saveWorkspaceCheckpoint() {},
@@ -1092,7 +1093,7 @@ export const browserWindowTabsCapability: IWindowTabsCapability = {
                 payload,
                 nonce,
                 currentRecoveryInstanceNonce,
-                knownWindows.get(targetWindowId)?.instanceNonce ?? currentRecoveryInstanceNonce,
+                knownWindows.get(targetWindowId)?.instanceNonce ?? '',
                 Date.now() + timeoutMs,
             ).then(record => {
                 if (!record || record.state === 'aborted') {

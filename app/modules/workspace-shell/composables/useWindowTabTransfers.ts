@@ -237,7 +237,7 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
         }
     }
 
-    async function ackIncomingTransferSuccess(transferId: string) {
+    async function ackIncomingTransferSuccess(transferId: string): Promise<boolean | null> {
         try {
             const acked = await getWindowTabsCapability().transferAck({
                 transferId,
@@ -252,7 +252,7 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
                 transferId,
                 ackError,
             });
-            return false;
+            return null;
         }
     }
 
@@ -726,7 +726,13 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
                 await ackIncomingTransferFailure(transfer.transferId, t('tabs.transferErrors.restoreFailed'));
                 return;
             }
-            if (!await ackIncomingTransferSuccess(transfer.transferId)) {
+            const committed = await ackIncomingTransferSuccess(transfer.transferId);
+            if (committed === null) {
+                // A missing durable decision is not proof of rejection. Keep
+                // the restored bytes provisional for reconciliation.
+                return;
+            }
+            if (!committed) {
                 await rollbackIncomingTransferTarget(target, transfer.payload);
                 return;
             }

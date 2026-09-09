@@ -247,8 +247,12 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
             }
             stopHeartbeat();
             if (liveLeaseGeneration !== null) {
-                await releaseBrowserDocumentLiveLease(ownerId, liveLeaseGeneration).catch(() => undefined);
-                liveLeaseGeneration = null;
+                try {
+                    await releaseBrowserDocumentLiveLease(ownerId, liveLeaseGeneration);
+                    liveLeaseGeneration = null;
+                } catch {
+                    // Keep the generation so the next drain can retry release.
+                }
             }
             liveLeaseDependencies = [];
             persistedCheckpointRevision = Math.max(
