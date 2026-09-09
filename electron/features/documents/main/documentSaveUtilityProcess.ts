@@ -1,14 +1,8 @@
 import { getErrorMessage } from '@electron/utils/error';
-import {randomBytes} from 'node:crypto';
-import {constants as fsConstants} from 'node:fs';
 import {
-    copyFile,
     open,
-    rename,
     stat,
-    unlink,
 } from 'node:fs/promises';
-import { dirname } from 'node:path';
 import {
     decodeDocumentSaveUtilityRequest,
     getDocumentSaveUtilityReusePlan,
@@ -16,7 +10,7 @@ import {
 } from '@electron/features/documents/main/documentSaveUtilityProtocol';
 import {fingerprintFileBounded} from '@electron/features/documents/main/fingerprintFileBounded';
 import {validateTargetedPdfObjects} from '@electron/features/documents/main/validateTargetedPdfObjects';
-import {syncFileHandleForDurability} from '@electron/utils/syncFileHandleForDurability';
+import {atomicReplace} from '@electron/utils/atomicReplace';
 import {
     cancelNativeCommandGroup,
     runNativeCommand,
@@ -41,23 +35,6 @@ if (!isUtilityParentPort(rawParentPort)) {
     throw new Error('Document save utility started without a parent port');
 }
 const utilityParentPort = rawParentPort;
-
-async function exists(path: string) {
-    try { await stat(path); return true; } catch { return false; }
-}
-
-async function fsyncPath(path: string) {
-    const handle = await open(path, 'r');
-    try { await syncFileHandleForDurability(handle); } finally { await handle.close(); }
-}
-
-async function fsyncDirectory(path: string) {
-    if (process.platform === 'win32') {
-        return;
-    }
-    const handle = await open(dirname(path), fsConstants.O_RDONLY).catch(() => null);
-    try { await handle?.sync().catch(() => undefined); } finally { await handle?.close().catch(() => undefined); }
-}
 
 async function inspectPdf(
     path: string,
@@ -151,38 +128,6 @@ async function validatePdf(path: string, validationBinary?: string) {
     }
 }
 
-async function atomicReplace(
-    sourcePath: string,
-    targetPath: string,
-    options: {fileSync?: boolean} = {},
-) {
-    if (options.fileSync !== true) {
-        await fsyncPath(sourcePath);
-    }
-    if (process.env.EVB_DOCUMENT_RECOVERY_COPY === '1' && await exists(targetPath)) {
-        const recoveryTemp = `${targetPath}.evb-recovery.tmp`;
-        await copyFile(targetPath, recoveryTemp);
-        await fsyncPath(recoveryTemp);
-        await rename(recoveryTemp, `${targetPath}.evb-recovery`);
-    }
-    if (process.platform !== 'win32') {
-        await rename(sourcePath, targetPath);
-        await fsyncDirectory(targetPath);
-        return;
-    }
-    const backup = `${targetPath}.bak-${randomBytes(8).toString('hex')}`;
-    let backedUp = false;
-    try { await rename(targetPath, backup); backedUp = true; } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-    }
-    try { await rename(sourcePath, targetPath); } catch (error) {
-        if (backedUp) await rename(backup, targetPath);
-        throw error;
-    }
-    await fsyncDirectory(targetPath);
-    if (backedUp) await unlink(backup).catch(() => undefined);
-}
-
 utilityParentPort.once('message', (event) => {
     void (async () => {
         const request = decodeDocumentSaveUtilityRequest(event.data);
@@ -228,7 +173,7 @@ utilityParentPort.once('message', (event) => {
             );
         }
         if (request.validateOnly !== true) {
-            await atomicReplace(request.sourcePath, request.targetPath, {...(reuse.fileSync ? {fileSync: true} : {})});
+            await atomicReplace(request.sourcePath, request.targetPath, {durable: reuse.fileSync !== true});
         }
         const result: TDocumentSaveUtilityResult = {
             type: 'result',

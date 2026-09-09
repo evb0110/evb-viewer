@@ -81,17 +81,22 @@ function expectationMatchesStat(
 function snapshotsMatch(
     left: IOriginalPathSaveSnapshot,
     right: IOriginalPathSaveSnapshot,
-    options: {allowBackupMetadataChange?: boolean} = {},
+    options: {
+        allowBackupMetadataChange?: boolean;
+        contentOnly?: boolean;
+    } = {},
 ) {
-    return left.deviceId === right.deviceId
+    return (options.contentOnly === true || (
+        left.deviceId === right.deviceId
         && left.inode === right.inode
         && left.mtimeNs === right.mtimeNs
+    ))
         && (left.fullSha256 === undefined
             || right.fullSha256 === undefined
             || left.fullSha256 === right.fullSha256)
         && left.sampleSha256 === right.sampleSha256
         && left.size === right.size
-        && (options.allowBackupMetadataChange === true || (
+        && (options.contentOnly === true || options.allowBackupMetadataChange === true || (
             left.ctimeNs === right.ctimeNs
             && left.linkCount === right.linkCount
         ));
@@ -400,6 +405,10 @@ class OriginalPathSaveWitness implements IOriginalPathSaveWitness {
 export async function assertPathMatchesSaveWitnessSnapshot(
     originalPath: string,
     expected: IOriginalPathSaveJournalSnapshot,
+    options: {
+        allowBackupMetadataChange?: boolean;
+        contentOnly?: boolean;
+    } = {},
 ) {
     const expectedSnapshot = deserializeSnapshot(expected);
     if (!expectedSnapshot) {
@@ -407,7 +416,7 @@ export async function assertPathMatchesSaveWitnessSnapshot(
     }
     try {
         const actualSnapshot = await capturePathSnapshot(originalPath);
-        if (!snapshotsMatch(expectedSnapshot, actualSnapshot)) {
+        if (!snapshotsMatch(expectedSnapshot, actualSnapshot, options)) {
             throw new OriginalPathSaveConflictError();
         }
     } catch (error) {

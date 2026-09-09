@@ -1,4 +1,7 @@
-import {rm} from 'node:fs/promises';
+import {
+    link,
+    rm,
+} from 'node:fs/promises';
 import {isRecord} from '@contracts/runtimeGuards';
 import {copyFileAtomic} from '@electron/file-access/documentFileWriteAtomic';
 import {readWorkingCopyRevisionSidecar} from '@electron/file-access/documentRevisionSidecar';
@@ -74,7 +77,27 @@ export async function recoverTwoTargetDocumentTransition(workingCopyPath: string
             ? preparedOriginalSnapshot
             : publishedOriginalSnapshot;
         if (expectedOriginalSnapshot !== undefined) {
-            await assertPathMatchesSaveWitnessSnapshot(value.originalPath, expectedOriginalSnapshot);
+            try {
+                await assertPathMatchesSaveWitnessSnapshot(value.originalPath, expectedOriginalSnapshot);
+            } catch (error) {
+                // A Windows fallback can be interrupted after it moves the
+                // original aside. In that state there is no live destination
+                // witness. Restore only when the journaled backup itself is
+                // the exact pre-publication file, and create the destination
+                // exclusively so a third-party replacement wins the race.
+                const missingDestination = await capturePathSaveWitness(value.originalPath) === null;
+                if (!missingDestination) {
+                    throw error;
+                }
+                const backupSnapshot = preparedOriginalSnapshot ?? expectedOriginalSnapshot;
+                await assertPathMatchesSaveWitnessSnapshot(value.originalBackupPath, backupSnapshot, {contentOnly: true});
+                await link(value.originalBackupPath, value.originalPath);
+                await Promise.all([
+                    rm(value.originalBackupPath, {force: true}),
+                    rm(path, {force: true}),
+                ]);
+                return true;
+            }
         }
         const witness = await capturePathSaveWitness(value.originalPath);
         if (!witness) {

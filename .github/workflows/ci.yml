@@ -274,6 +274,27 @@ jobs:
       - name: Run native PDF integration gate
         run: pnpm exec vitest run --project native-integration
 
+  pr_windows_atomic_pdf_replacement:
+    name: Windows Atomic PDF Replacement
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
+    runs-on: windows-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup CI environment
+        uses: ./.github/actions/setup-ci-env
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Run real Windows filesystem acceptance
+        run: pnpm exec vitest run --project native-integration tests/integration/native/windowsAtomicPdfReplacement.test.ts
+
   pr_changed_areas:
     name: Changed Area Detection
     if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
@@ -561,6 +582,7 @@ jobs:
       - pr_packaged_linux
       - pr_electron_native_save_reopen
       - pr_native_pdf_integration
+      - pr_windows_atomic_pdf_replacement
       - pr_browser_integration
       - pr_native_build_safety
       - pr_scan_cleanup_heavy

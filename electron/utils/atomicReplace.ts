@@ -2,8 +2,10 @@ import { randomBytes } from 'node:crypto';
 import { constants as fsConstants } from 'fs';
 import {
     copyFile,
+    link,
     lstat,
     open,
+    readFile,
     readdir,
     rename,
     stat,
@@ -21,10 +23,35 @@ import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import { syncFileHandleForDurability } from '@electron/utils/syncFileHandleForDurability';
 import { markActiveWorkingCopyMutationCommitStarted } from '@electron/file-access/workingCopyMutationCommitSignal';
+import {
+    assertPathMatchesSaveWitnessSnapshot,
+    capturePathSaveWitness,
+    type IOriginalPathSaveJournalSnapshot,
+} from '@electron/file-access/originalPathSaveWitness';
 
 const logger = createLogger('atomicReplace');
 const DEFAULT_ATOMIC_REPLACE_BACKUP_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const ATOMIC_REPLACE_BACKUP_NAME_PATTERN = /^(?<destination>.+)\.bak-[0-9a-f]{16}$/u;
+const ATOMIC_REPLACE_JOURNAL_VERSION = 1;
+const WINDOWS_FALLBACK_CODES = new Set([
+    'EACCES',
+    'EBUSY',
+    'EPERM',
+    'ENOTEMPTY',
+]);
+
+function isPdfDestination(destinationPath: string) {
+    return /\.pdf$/iu.test(destinationPath);
+}
+
+interface IWindowsAtomicReplaceJournal {
+    version: typeof ATOMIC_REPLACE_JOURNAL_VERSION;
+    sourcePath: string;
+    destinationPath: string;
+    backupPath: string;
+    destinationSnapshot: IOriginalPathSaveJournalSnapshot;
+    sourceSnapshot: IOriginalPathSaveJournalSnapshot;
+}
 
 function attachFailureReceipt(error: Error, receipt: FailureReceipt | undefined) {
     if (!receipt) {
@@ -100,6 +127,100 @@ async function assertPathExists(filePath: string, context: string) {
     }
 
     throw new Error(`${context}: destination "${filePath}" is missing after atomic replace`);
+}
+
+function atomicReplaceJournalPath(destinationPath: string) {
+    return `${destinationPath}.evb-atomic-replace.json`;
+}
+
+async function writeWindowsAtomicReplaceJournal(journal: IWindowsAtomicReplaceJournal) {
+    const path = atomicReplaceJournalPath(journal.destinationPath);
+    const temporaryPath = `${path}.${randomSuffix()}.tmp`;
+    const handle = await open(temporaryPath, 'wx');
+    try {
+        await handle.writeFile(JSON.stringify(journal), 'utf8');
+        await syncFileHandleForDurability(handle);
+    } finally {
+        await handle.close();
+    }
+    try {
+        await rename(temporaryPath, path);
+        await fsyncParentDirectory(path);
+    } catch (error) {
+        await unlink(temporaryPath).catch(() => undefined);
+        throw error;
+    }
+}
+
+async function readWindowsAtomicReplaceJournal(destinationPath: string) {
+    const path = atomicReplaceJournalPath(destinationPath);
+    let value: unknown;
+    try {
+        value = JSON.parse(await readFile(path, 'utf8')) as unknown;
+    } catch (error) {
+        if (isErrnoException(error) && error.code === 'ENOENT') {
+            return undefined;
+        }
+        throw new Error(`Windows atomic replace journal is unreadable: ${path}`, {cause: error});
+    }
+    if (
+        !value
+        || typeof value !== 'object'
+        || (value as Record<string, unknown>).version !== ATOMIC_REPLACE_JOURNAL_VERSION
+        || (value as Record<string, unknown>).destinationPath !== destinationPath
+        || typeof (value as Record<string, unknown>).sourcePath !== 'string'
+        || typeof (value as Record<string, unknown>).backupPath !== 'string'
+        || !(value as Record<string, unknown>).destinationSnapshot
+        || !(value as Record<string, unknown>).sourceSnapshot
+    ) {
+        throw new Error(`Windows atomic replace journal is invalid: ${path}`);
+    }
+    return value as IWindowsAtomicReplaceJournal;
+}
+
+async function recoverWindowsAtomicReplace(destinationPath: string) {
+    const journal = await readWindowsAtomicReplaceJournal(destinationPath);
+    if (!journal) {
+        return;
+    }
+    assertNoSymlinkPathSegments(destinationPath);
+    assertNoSymlinkPathSegments(journal.backupPath);
+    const backupExists = await pathExists(journal.backupPath);
+    if (await pathExists(destinationPath)) {
+        if (!backupExists) {
+            await assertPathMatchesSaveWitnessSnapshot(destinationPath, journal.destinationSnapshot);
+            await unlink(atomicReplaceJournalPath(destinationPath));
+            return;
+        }
+        await assertPathMatchesSaveWitnessSnapshot(journal.backupPath, journal.destinationSnapshot, {contentOnly: true});
+        try {
+            await assertPathMatchesSaveWitnessSnapshot(destinationPath, journal.sourceSnapshot);
+            await unlink(journal.backupPath);
+            await unlink(atomicReplaceJournalPath(destinationPath));
+            return;
+        } catch {
+            try {
+                await assertPathMatchesSaveWitnessSnapshot(destinationPath, journal.destinationSnapshot);
+                await unlink(journal.backupPath);
+                await unlink(atomicReplaceJournalPath(destinationPath));
+                return;
+            } catch {
+                throw new Error(`Windows atomic replace recovery refused to overwrite destination "${destinationPath}"`);
+            }
+        }
+    }
+
+    if (!backupExists) {
+        throw new Error(`Windows atomic replace recovery is missing its owned backup for "${destinationPath}"`);
+    }
+    await assertPathMatchesSaveWitnessSnapshot(journal.backupPath, journal.destinationSnapshot, {contentOnly: true});
+
+    // A hard link is deliberately used for the missing-path case. It creates
+    // the destination only if it is still absent, so a third-party replacement
+    // cannot be overwritten between the witness and recovery.
+    await link(journal.backupPath, destinationPath);
+    await unlink(journal.backupPath);
+    await unlink(atomicReplaceJournalPath(destinationPath));
 }
 
 async function createRestoreFailureError(
@@ -273,6 +394,9 @@ export async function atomicReplace(
 ) {
     assertNoSymlinkPathSegments(srcTemp);
     assertNoSymlinkPathSegments(dst);
+    if (process.platform === 'win32' && isPdfDestination(dst)) {
+        await recoverWindowsAtomicReplace(dst);
+    }
     const durable = options.durable !== false;
     const shouldMarkMutationCommitStarted = options.markMutationCommitStarted !== false;
     const shouldDeferMutationCommitStarted = options.assertDestinationCurrent !== undefined
@@ -309,51 +433,104 @@ export async function atomicReplace(
         return;
     }
 
-    const backupPath = `${dst}.bak-${randomSuffix()}`;
-    let hasBackup = false;
     await options.assertDestinationCurrent?.();
     if (shouldDeferMutationCommitStarted) {
         markActiveWorkingCopyMutationCommitStarted();
     }
-    try {
-        await rename(dst, backupPath);
-        hasBackup = true;
-    } catch (error) {
-        const code = isErrnoException(error) ? error.code : undefined;
-        if (code !== 'ENOENT' && code !== 'ENOTDIR') {
-            throw error;
-        }
-    }
 
+    // Node's Windows rename uses the same-name replacement primitive. Keep
+    // this as the first choice so the destination name never disappears.
     try {
         await rename(srcTemp, dst);
     } catch (error) {
-        if (hasBackup) {
-            await rename(backupPath, dst).catch(async (restoreError) => {
-                const receipt = logger.error(
-                    `Failed to restore backup after atomic replace failure: ${getErrorMessage(restoreError)}`,
-                    {
-                        code: 'MAIN_ATOMIC_REPLACE_RESTORE_FAILED',
-                        context: {},
-                        cause: restoreError,
-                    },
-                );
-                throw attachFailureReceipt(
-                    await createRestoreFailureError(dst, backupPath, error, restoreError),
-                    receipt,
-                );
-            });
-            await assertPathExists(dst, 'Atomic replace failed after restoring backup');
+        const code = isErrnoException(error) ? error.code : undefined;
+        if (!WINDOWS_FALLBACK_CODES.has(typeof code === 'string' ? code : '') || !(await pathExists(dst))) {
+            throw error;
         }
-        throw error;
-    }
 
+        if (!isPdfDestination(dst)) {
+            const backupPath = `${dst}.bak-${randomSuffix()}`;
+            let hasBackup = false;
+            try {
+                await rename(dst, backupPath);
+                hasBackup = true;
+                await rename(srcTemp, dst);
+            } catch (promotionError) {
+                if (hasBackup) {
+                    await rename(backupPath, dst).catch(() => undefined);
+                }
+                throw promotionError;
+            }
+            await assertPathExists(dst, 'Atomic replace completed');
+            await fsyncParentDirectory(dst);
+            await unlink(backupPath).catch(() => undefined);
+            return;
+        }
+
+        // A reader that denies delete sharing can reject the one-call
+        // replacement. The fallback keeps an exact durable ownership record
+        // before moving the old destination aside. Recovery only links that
+        // recorded backup into a still-missing destination.
+        const destinationWitness = await capturePathSaveWitness(dst);
+        const sourceWitness = await capturePathSaveWitness(srcTemp);
+        if (!destinationWitness || !sourceWitness) {
+            await destinationWitness?.close();
+            await sourceWitness?.close();
+            throw error;
+        }
+        const backupPath = `${dst}.bak-${randomSuffix()}`;
+        try {
+            await writeWindowsAtomicReplaceJournal({
+                version: ATOMIC_REPLACE_JOURNAL_VERSION,
+                sourcePath: srcTemp,
+                destinationPath: dst,
+                backupPath,
+                destinationSnapshot: destinationWitness.getSnapshotForJournal(),
+                sourceSnapshot: sourceWitness.getSnapshotForJournal(),
+            });
+        } finally {
+            await destinationWitness.close();
+            await sourceWitness.close();
+        }
+
+        let hasBackup = false;
+        try {
+            await rename(dst, backupPath);
+            hasBackup = true;
+            await rename(srcTemp, dst);
+        } catch (promotionError) {
+            if (!hasBackup) {
+                await unlink(atomicReplaceJournalPath(dst)).catch(() => undefined);
+            }
+            if (hasBackup) {
+                try {
+                    await recoverWindowsAtomicReplace(dst);
+                } catch (restoreError) {
+                    const receipt = logger.error(
+                        `Failed to restore backup after atomic replace failure: ${getErrorMessage(restoreError)}`,
+                        {
+                            code: 'MAIN_ATOMIC_REPLACE_RESTORE_FAILED',
+                            context: {},
+                            cause: restoreError,
+                        },
+                    );
+                    throw attachFailureReceipt(
+                        await createRestoreFailureError(dst, backupPath, promotionError, restoreError),
+                        receipt,
+                    );
+                }
+            }
+            throw promotionError;
+        }
+
+        await assertPathExists(dst, 'Atomic replace completed');
+        await fsyncParentDirectory(dst);
+        await unlink(atomicReplaceJournalPath(dst)).catch(() => undefined);
+        await unlink(backupPath).catch((cleanupError) => {
+            logger.warn(`Failed to remove atomic replace backup "${backupPath}": ${getErrorMessage(cleanupError)}`);
+        });
+        return;
+    }
     await assertPathExists(dst, 'Atomic replace completed');
     await fsyncParentDirectory(dst);
-
-    if (hasBackup) {
-        await unlink(backupPath).catch((error) => {
-            logger.warn(`Failed to remove atomic replace backup "${backupPath}": ${getErrorMessage(error)}`);
-        });
-    }
 }

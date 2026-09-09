@@ -1,6 +1,7 @@
 import {
     mkdir,
     mkdtemp,
+    link,
     readFile,
     rename,
     rm,
@@ -81,6 +82,44 @@ describe('two-target document transition recovery', () => {
         } = await prepare('drt1:test:next');
         await expect(recoverTwoTargetDocumentTransition(workingCopyPath)).resolves.toBe(true);
         await expect(readFile(originalPath, 'utf8')).resolves.toBe('new-original');
+    });
+
+    it('restores a missing original only from the matching journaled backup', async () => {
+        const {
+            workingCopyPath,
+            originalPath,
+        } = await prepare('drt1:test:old');
+        const originalBackupPath = join(root, 'original.backup.pdf');
+        const {capturePathSaveWitness} = await import('@electron/file-access/originalPathSaveWitness');
+        await writeFile(originalPath, 'old-original');
+        await rm(originalBackupPath);
+        await link(originalPath, originalBackupPath);
+        const preparedWitness = await capturePathSaveWitness(originalPath);
+        expect(preparedWitness).not.toBeNull();
+        const preparedOriginalSnapshot = preparedWitness!.getSnapshotForJournal();
+        await preparedWitness!.close();
+        const newOriginalPath = join(root, 'new-original.pdf');
+        await writeFile(newOriginalPath, 'new-original');
+        await rename(newOriginalPath, originalPath);
+        const publishedWitness = await capturePathSaveWitness(originalPath);
+        expect(publishedWitness).not.toBeNull();
+        const publishedOriginalSnapshot = publishedWitness!.getSnapshotForJournal();
+        await publishedWitness!.close();
+        await rm(originalPath);
+        await writeFile(`${workingCopyPath}.evb-two-target-transition.json`, JSON.stringify({
+            version: 1,
+            state: 'original-committed',
+            workingCopyPath,
+            originalPath,
+            originalBackupPath,
+            nextRevisionToken: requireDocumentRevisionToken('drt1:test:next'),
+            preparedOriginalSnapshot,
+            publishedOriginalSnapshot,
+        }));
+
+        await expect(recoverTwoTargetDocumentTransition(workingCopyPath)).resolves.toBe(true);
+        await expect(readFile(originalPath, 'utf8')).resolves.toBe('old-original');
+        await expect(readFile(originalBackupPath, 'utf8')).rejects.toMatchObject({code: 'ENOENT'});
     });
 
     it('fails closed when the two-target journal cannot be read', async () => {

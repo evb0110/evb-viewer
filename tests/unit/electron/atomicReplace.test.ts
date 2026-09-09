@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
     close: vi.fn(),
     markMutationCommitStarted: vi.fn(),
     open: vi.fn(),
+    readFile: vi.fn(),
     rename: vi.fn(),
     stat: vi.fn(),
     sync: vi.fn(),
@@ -33,6 +34,7 @@ vi.mock('node:crypto', () => ({ randomBytes: () => Buffer.from('fixed-id') }));
 
 vi.mock('fs/promises', () => ({
     open: (...args: unknown[]) => mocks.open(...args),
+    readFile: (...args: unknown[]) => mocks.readFile(...args),
     rename: (...args: unknown[]) => mocks.rename(...args),
     stat: (...args: unknown[]) => mocks.stat(...args),
     unlink: (...args: unknown[]) => mocks.unlink(...args),
@@ -62,6 +64,7 @@ describe('atomicReplace', () => {
             close: mocks.close,
             sync: mocks.sync,
         });
+        mocks.readFile.mockRejectedValue(Object.assign(new Error('not found'), {code: 'ENOENT'}));
         mocks.rename.mockResolvedValue(undefined);
         mocks.stat.mockResolvedValue({});
         mocks.unlink.mockResolvedValue(undefined);
@@ -81,8 +84,7 @@ describe('atomicReplace', () => {
 
         await expect(atomicReplace('C:\\out\\tmp.pdf', 'C:\\out\\extract.pdf')).resolves.toBeUndefined();
 
-        expect(mocks.rename).toHaveBeenNthCalledWith(1, 'C:\\out\\extract.pdf', expect.stringContaining('C:\\out\\extract.pdf.bak-'));
-        expect(mocks.rename).toHaveBeenNthCalledWith(2, 'C:\\out\\tmp.pdf', 'C:\\out\\extract.pdf');
+        expect(mocks.rename).toHaveBeenNthCalledWith(1, 'C:\\out\\tmp.pdf', 'C:\\out\\extract.pdf');
         expect(mocks.close).toHaveBeenCalledTimes(1);
     });
 
@@ -202,24 +204,17 @@ describe('atomicReplace', () => {
         );
     });
 
-    it('reports both promotion and restore failures on Windows', async () => {
+    it('propagates an unsupported Windows replacement error without moving the destination aside', async () => {
         setPlatform('win32');
-        mocks.rename
-            .mockResolvedValueOnce(undefined)
-            .mockRejectedValueOnce(new Error('promotion failed'))
-            .mockRejectedValueOnce(new Error('restore failed'));
-        mocks.stat.mockImplementation(async (path: string) => {
-            if (path.includes('.bak-')) {
-                return {};
-            }
-            throw Object.assign(new Error('not found'), { code: 'ENOENT' });
-        });
+        const replacementError = Object.assign(new Error('replacement failed'), {code: 'EIO'});
+        mocks.rename.mockRejectedValueOnce(replacementError);
 
         const { atomicReplace } = await import('@electron/utils/atomicReplace');
 
         await expect(atomicReplace('C:\\out\\tmp.pdf', 'C:\\out\\extract.pdf'))
-            .rejects
-            .toThrow(/Promotion error: promotion failed.*Restore error: restore failed.*Backup path: "C:\\out\\extract\.pdf\.bak-.*Destination exists: no/u);
+            .rejects.toBe(replacementError);
+        expect(mocks.rename).toHaveBeenCalledOnce();
+        expect(mocks.rename).toHaveBeenCalledWith('C:\\out\\tmp.pdf', 'C:\\out\\extract.pdf');
     });
 
     it('moves a live Windows destination aside for a non-durable cache publication', async () => {
@@ -234,12 +229,7 @@ describe('atomicReplace', () => {
             markMutationCommitStarted: false,
         })).resolves.toBeUndefined();
 
-        expect(mocks.rename).toHaveBeenNthCalledWith(
-            1,
-            'C:\\scratch\\page-1-150.png',
-            expect.stringContaining('C:\\scratch\\page-1-150.png.bak-'),
-        );
-        expect(mocks.rename).toHaveBeenNthCalledWith(2, 'C:\\scratch\\page.part.png', 'C:\\scratch\\page-1-150.png');
+        expect(mocks.rename).toHaveBeenNthCalledWith(1, 'C:\\scratch\\page.part.png', 'C:\\scratch\\page-1-150.png');
         // A within-run cache lives in a scratch directory that is discarded on
         // exit, so it never pays for the durability fsyncs.
         expect(mocks.sync).not.toHaveBeenCalled();
@@ -247,22 +237,18 @@ describe('atomicReplace', () => {
 
     it('surfaces a Windows deny-delete destination error before promoting the temp file', async () => {
         setPlatform('win32');
-        const denyDelete = Object.assign(new Error('sharing violation'), {code: 'EACCES'});
+        const denyDelete = Object.assign(new Error('sharing violation'), {code: 'EIO'});
         mocks.rename.mockRejectedValueOnce(denyDelete);
         const { atomicReplace } = await import('@electron/utils/atomicReplace');
 
         await expect(atomicReplace('C:\\out\\tmp.pdf', 'C:\\out\\extract.pdf'))
             .rejects.toBe(denyDelete);
         expect(mocks.rename).toHaveBeenCalledOnce();
-        expect(mocks.rename).toHaveBeenCalledWith(
-            'C:\\out\\extract.pdf',
-            expect.stringContaining('C:\\out\\extract.pdf.bak-'),
-        );
+        expect(mocks.rename).toHaveBeenCalledWith('C:\\out\\tmp.pdf', 'C:\\out\\extract.pdf');
     });
 
     it('keeps the destination readable when Windows cannot remove the moved-aside file', async () => {
         setPlatform('win32');
-        mocks.unlink.mockRejectedValueOnce(Object.assign(new Error('in use'), { code: 'EBUSY' }));
         const { atomicReplace } = await import('@electron/utils/atomicReplace');
 
         // The reader still holding the old bytes keeps them; the new raster is
@@ -272,6 +258,6 @@ describe('atomicReplace', () => {
             markMutationCommitStarted: false,
         })).resolves.toBeUndefined();
 
-        expect(mocks.rename).toHaveBeenNthCalledWith(2, 'C:\\scratch\\page.part.png', 'C:\\scratch\\page-1-150.png');
+        expect(mocks.rename).toHaveBeenCalledWith('C:\\scratch\\page.part.png', 'C:\\scratch\\page-1-150.png');
     });
 });
