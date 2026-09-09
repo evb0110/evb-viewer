@@ -1,0 +1,40 @@
+electron/features/agent/assistantChatPersistence.ts
+  s_19c2a38cb1dd80::t_a054d24d0b5ce8 976-979
+  s_19c2a38cb1dd80::t_af515988e96ecf 852,854,942,971-974
+  s_19c2a38cb1dd80::t_043245891a42f2 1014-1017,1047-1052,1054-1061
+  s_19c2a38cb1dd80::t_f573b9200d78c4 1043-1046
+tests/unit/electron/assistantChatSessionStore.test.ts
+  s_19c2a38cb1dd80::t_a054d24d0b5ce8 514
+  s_19c2a38cb1dd80::t_8817f6d4796a9b 86-91,470-513,515-523
+  s_19c2a38cb1dd80::t_5b5ad26328c584 524,526-540,542,544-549
+  s_19c2a38cb1dd80::t_0bd6e7acefbd11 541,543
+  s_53d0484dd02573::t_880c9769821f8d 525
+electron/features/agent/assistantChatSnapshotStorage.ts
+  s_19c2a38cb1dd80::t_f573b9200d78c4 208-211,221-224,227-230,243-246,256-259,262-265,279,309
+  s_19c2a38cb1dd80::t_39516e9bde5fa6 18,145-152,171-175,182,198-207,212-220,225-226,231-242,247-255,260-261,266,273-278,280,282-283,303-308,310,312-313,335-337
+  s_19c2a38cb1dd80::t_63ddbf9ffcdf9d 267,338
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "77d70abadc97a29e1ec6de9460bc693ef98af923",
+  "prompts": {},
+  "sessions": {
+    "s_19c2a38cb1dd80": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08723-b04a-7ae1-93ec-f8d8a625d6e2",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_53d0484dd02573": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0865a-b9dc-7c92-b030-f90c6344038c",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
