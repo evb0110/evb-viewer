@@ -13,6 +13,27 @@ export const DOCX_STREAM_CHUNK_BYTES = 64 * 1024;
 /** A single XML text run is bounded even when one OCR line is unexpectedly huge. */
 export const DOCX_MAX_TEXT_RUN_CHARACTERS = 64 * 1024;
 
+export type TDocxParagraphDirection = boolean | ((text: string) => boolean);
+
+const RTL_STRONG_CHARACTER_RE = /[\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF]/u;
+const LTR_STRONG_CHARACTER_RE = /[A-Za-z\u00C0-\u02AF\u0370-\u052F\u1E00-\u1EFF]/u;
+
+/** Resolve each paragraph independently so one RTL paragraph does not relabel a mixed document. */
+export function resolveDocxParagraphDirection(text: string, fallbackRtl = false) {
+    const firstRtl = text.search(RTL_STRONG_CHARACTER_RE);
+    const firstLtr = text.search(LTR_STRONG_CHARACTER_RE);
+    if (firstRtl === -1 && firstLtr === -1) {
+        return fallbackRtl && /\p{L}/u.test(text);
+    }
+    if (firstRtl === -1) {
+        return false;
+    }
+    if (firstLtr === -1) {
+        return true;
+    }
+    return firstRtl < firstLtr;
+}
+
 const ZIP32_MAX_VALUE = 0xFFFFFFFF;
 const ZIP_MAX_ENTRY_COUNT = 0xFFFF;
 const ZIP_MAX_FILE_NAME_BYTES = 0xFFFF;
@@ -242,7 +263,7 @@ async function* splitBytes(bytes: Uint8Array, signal?: AbortSignal) {
  */
 export async function* createDocxFromTextChunks(
     pages: TDocxTextPageSource,
-    isRtl = false,
+    direction: TDocxParagraphDirection = false,
     signal?: AbortSignal,
 ): AsyncGenerator<Uint8Array> {
     throwIfAborted(signal);
@@ -305,6 +326,9 @@ export async function* createDocxFromTextChunks(
     };
     const emitParagraph = async function* (line: string): AsyncGenerator<Uint8Array> {
         throwIfAborted(signal);
+        const isRtl = typeof direction === 'function'
+            ? direction(line)
+            : resolveDocxParagraphDirection(line, direction);
         yield* emitDocumentText(paragraphPrefix(isRtl));
         if (line.length === 0) {
             yield* emitDocumentText(runPrefix(isRtl));
