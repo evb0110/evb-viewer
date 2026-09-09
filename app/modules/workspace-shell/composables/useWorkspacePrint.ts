@@ -1,5 +1,5 @@
 import { getErrorMessage } from '@app/utils/error';
-import type { Ref } from 'vue';
+import { watch, type Ref } from 'vue';
 import {
     getFailureReceipt,
     type ExpectedOutcome,
@@ -157,6 +157,16 @@ interface IPrintDialogSubmitPayload {
     orientation: TPrintOrientation;
 }
 
+interface IPrintRunOwner {
+    readonly runId: number;
+    readonly abortController: AbortController;
+    readonly sourcePdf: TPdfSource | null;
+    readonly workingCopyPath: string | null;
+    readonly fileName: string | null;
+    readonly totalPages: number;
+    intent: IPrintDialogSubmitPayload;
+}
+
 export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
     const { t } = useTypedI18n();
     const toast = useToast();
@@ -179,6 +189,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
     const readPreparationFailureReceipt = () => preparationFailureReceipt.value;
     let activePrintResourceOwner: number | null = null;
     let nextPrintRunId = 0;
+    let printScopeDisposed = false;
     let closeDialogForSystemPrint = false;
     let preparingPrintToastTimer: number | null = null;
     let preparingPrintToastId: string | number | null = null;
@@ -290,6 +301,139 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         activePrintAction.value = null;
     }
 
+    function beginPrintRun(
+        intent: IPrintDialogSubmitPayload,
+        action: 'default' | 'current-page' = 'default',
+    ): IPrintRunOwner | null {
+        if (isPreparingPrint.value) {
+            showPreparingPrintToast();
+            return null;
+        }
+
+        const abortController = new AbortController();
+        const owner: IPrintRunOwner = {
+            runId: ++nextPrintRunId,
+            abortController,
+            sourcePdf: deps.sourcePdf.value,
+            workingCopyPath: deps.workingCopyPath.value,
+            fileName: deps.fileName.value,
+            totalPages: deps.totalPages.value,
+            intent,
+        };
+        activePrintAbortController = abortController;
+        closeDialogForSystemPrint = false;
+        isPreparingPrint.value = true;
+        activePrintAction.value = action;
+        resetPrintError();
+        preparationFailureReceipt.value = undefined;
+        if (!printDialogOpen.value) {
+            schedulePreparingPrintToast();
+        }
+        return owner;
+    }
+
+    function isSamePrintSource(owner: IPrintRunOwner) {
+        const currentSource = deps.sourcePdf.value;
+        if (owner.sourcePdf === null || currentSource === null) {
+            return owner.sourcePdf === currentSource
+                && owner.workingCopyPath === deps.workingCopyPath.value
+                && owner.fileName === deps.fileName.value
+                && owner.totalPages === deps.totalPages.value;
+        }
+        if (isPathPdfSource(owner.sourcePdf) && isPathPdfSource(currentSource)) {
+            return owner.sourcePdf.path === currentSource.path
+                && owner.sourcePdf.size === currentSource.size
+                && owner.sourcePdf.revision === currentSource.revision
+                && owner.workingCopyPath === deps.workingCopyPath.value
+                && owner.fileName === deps.fileName.value
+                && owner.totalPages === deps.totalPages.value;
+        }
+        return owner.sourcePdf === currentSource
+            && owner.workingCopyPath === deps.workingCopyPath.value
+            && owner.fileName === deps.fileName.value
+            && owner.totalPages === deps.totalPages.value;
+    }
+
+    function assertPrintRunCurrent(owner: IPrintRunOwner) {
+        if (
+            printScopeDisposed
+            || activePrintAbortController !== owner.abortController
+            || !isSamePrintSource(owner)
+        ) {
+            owner.abortController.abort();
+            throw createPrintAbortError();
+        }
+        throwIfPrintAborted(owner.abortController.signal);
+    }
+
+    function reportPrintError(error: unknown, reopenDialogOnError: boolean | undefined) {
+        if (isPrintAbortError(error)) {
+            return;
+        }
+        const localizedError = error instanceof Error && getErrorMessage(error)
+            ? t('print.failedWithReason', { reason: getErrorMessage(error) })
+            : t('print.failed');
+        if (isNativePrintRequiredError(error) && readPreparationFailureReceipt() === undefined) {
+            BrowserLogger.warn('workspace-print', 'Print needs an unavailable native backend', {
+                kind: 'expected',
+                code: 'temporarily-unavailable',
+            } satisfies ExpectedOutcome);
+            toast.add({
+                color: 'warning',
+                title: t('print.failed'),
+                description: localizedError,
+            });
+            return;
+        }
+        const failure = BrowserLogger.error(
+            'workspace-print',
+            'Document print failed',
+            error,
+            getFailureReceipt(error) ?? readPreparationFailureReceipt() ?? {
+                code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
+                context: {},
+            },
+        );
+        const presentation: FailurePresentation = {
+            failure,
+            title: t('print.failed'),
+            description: localizedError,
+        };
+        if (reopenDialogOnError === false) {
+            presentFailureToast(presentation);
+        } else {
+            printDialogOpen.value = true;
+            printError.value = presentation;
+        }
+    }
+
+    function finishPrintRun(owner: IPrintRunOwner) {
+        if (activePrintAbortController !== owner.abortController) {
+            return;
+        }
+        activePrintAbortController = null;
+        clearPreparingPrintToast();
+        isPreparingPrint.value = false;
+        activePrintAction.value = null;
+        closeDialogForSystemPrint = false;
+        preparationFailureReceipt.value = undefined;
+    }
+
+    function invalidateActivePrintRun() {
+        const activeOwner = activePrintAbortController;
+        if (!activeOwner) {
+            return;
+        }
+        activeOwner.abort();
+        activePrintAbortController = null;
+        clearPreparingPrintToast();
+        cleanupPrintFrame();
+        isPreparingPrint.value = false;
+        activePrintAction.value = null;
+        closeDialogForSystemPrint = false;
+        preparationFailureReceipt.value = undefined;
+    }
+
     function closePrintDialogForSystemDialog() {
         closeDialogForSystemPrint = true;
         printDialogOpen.value = false;
@@ -318,9 +462,12 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         return page;
     }
 
-    function resolveBrowserPrintTitle(payload: IPrintDialogSubmitPayload) {
+    function resolveBrowserPrintTitle(
+        payload: IPrintDialogSubmitPayload,
+        fileName = deps.fileName.value,
+    ) {
         return buildPrintSelectionFileName({
-            fileName: deps.fileName.value,
+            fileName,
             pageNumbers: payload.pageNumbers,
             totalPages: deps.totalPages.value,
             formatPage: page => t('print.fileNamePage', { page }),
@@ -340,16 +487,20 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
     async function handleQuickPrint() {
         printDialogSelectedPages.value = normalizeSelectedPages();
         printDialogPageSelection.value = resolveCurrentPageSelection();
-        resetPrintError();
         const defaultPayload = {
             viewMode: 'single',
             orientation: 'auto',
         } satisfies IPrintDialogSubmitPayload;
+        const printOwner = beginPrintRun(defaultPayload);
+        if (!printOwner) {
+            return;
+        }
 
         if (deps.preparePrintSource && deps.isDriverOwnedQuickPrint?.() === true) {
             await handlePrintDialogSubmit(defaultPayload, {
                 action: 'default',
                 reopenDialogOnError: false,
+                printOwner,
             });
             return;
         }
@@ -358,23 +509,34 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
             await handlePrintDialogSubmit(defaultPayload, {
                 action: 'default',
                 reopenDialogOnError: false,
+                printOwner,
             });
             return;
         }
 
-        const { shouldPrintPageMetricsDirectly } = await import('@app/utils/pdfPrint');
-        const quickPrintPageMetrics = await deps.getQuickPrintPageMetrics();
-        const printSourceDirectly = quickPrintPageMetrics !== null
-            && shouldPrintPageMetricsDirectly(
-                quickPrintPageMetrics,
-                defaultPayload,
-            ) === true;
+        try {
+            assertPrintRunCurrent(printOwner);
+            const { shouldPrintPageMetricsDirectly } = await import('@app/utils/pdfPrint');
+            assertPrintRunCurrent(printOwner);
+            const quickPrintPageMetrics = await deps.getQuickPrintPageMetrics();
+            assertPrintRunCurrent(printOwner);
+            const printSourceDirectly = quickPrintPageMetrics !== null
+                && shouldPrintPageMetricsDirectly(
+                    quickPrintPageMetrics,
+                    defaultPayload,
+                ) === true;
 
-        await handlePrintDialogSubmit(defaultPayload, {
-            action: 'default',
-            printSourceDirectly,
-            reopenDialogOnError: false,
-        });
+            await handlePrintDialogSubmit(defaultPayload, {
+                action: 'default',
+                printSourceDirectly,
+                reopenDialogOnError: false,
+                printOwner,
+            });
+        } catch (error) {
+            reportPrintError(error, false);
+        } finally {
+            finishPrintRun(printOwner);
+        }
     }
 
     async function handlePrintCurrentPage() {
@@ -533,6 +695,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         printTitle: string,
         signal?: AbortSignal,
         owner = 0,
+        printRunOwner?: IPrintRunOwner,
     ) {
         const frame = createHiddenPrintFrame(owner);
         const frameLoad = waitForPrintFrameLoad(frame, signal);
@@ -548,12 +711,19 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         }
 
         await renderContent(frameWindow.document, signal);
-        throwIfPrintAborted(signal);
+        if (printRunOwner) {
+            assertPrintRunCurrent(printRunOwner);
+        } else {
+            throwIfPrintAborted(signal);
+        }
 
         installAfterPrintCleanup(frameWindow, owner);
 
         try {
             await waitForPrintFrameReady(frameWindow, signal);
+            if (printRunOwner) {
+                assertPrintRunCurrent(printRunOwner);
+            }
             closePrintDialogForSystemDialog();
             frameWindow.focus();
             throwIfPrintAborted(signal);
@@ -569,6 +739,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         printTitle: string,
         signal?: AbortSignal,
         owner = 0,
+        printRunOwner?: IPrintRunOwner,
     ) {
         await printRenderedContentInHiddenFrame(
             async (targetDocument, renderSignal) => {
@@ -582,6 +753,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
             printTitle,
             signal,
             owner,
+            printRunOwner,
         );
     }
 
@@ -590,6 +762,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         printTitle: string,
         signal?: AbortSignal,
         owner = 0,
+        printRunOwner?: IPrintRunOwner,
     ) {
         const renderLoadedPdfPagesForBrowserPrint = deps.renderLoadedPdfPagesForBrowserPrint;
         if (!renderLoadedPdfPagesForBrowserPrint) {
@@ -605,6 +778,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
             printTitle,
             signal,
             owner,
+            printRunOwner,
         );
     }
 
@@ -613,8 +787,13 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         printTitle: string,
         signal?: AbortSignal,
         owner = 0,
+        printRunOwner?: IPrintRunOwner,
     ) {
-        throwIfPrintAborted(signal);
+        if (printRunOwner) {
+            assertPrintRunCurrent(printRunOwner);
+        } else {
+            throwIfPrintAborted(signal);
+        }
         const documentPdfCapability = getDocumentPdfCapability();
         const printPdfData = documentPdfCapability.printPdfData;
         if (
@@ -634,19 +813,26 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
             );
             closePrintDialogForSystemDialog();
             showPreparingPrintToast();
+            if (printRunOwner) {
+                assertPrintRunCurrent(printRunOwner);
+            }
             try {
                 let result;
                 try {
                     result = await printPdfData(
                         printablePdf,
-                        deps.fileName.value ?? undefined,
+                        printRunOwner?.fileName ?? deps.fileName.value ?? undefined,
                         {requestId},
                     );
                 } catch (error) {
                     throwIfPrintAborted(signal);
                     throw error;
                 }
-                throwIfPrintAborted(signal);
+                if (printRunOwner) {
+                    assertPrintRunCurrent(printRunOwner);
+                } else {
+                    throwIfPrintAborted(signal);
+                }
                 if (result.success || result.canceled) {
                     return true;
                 }
@@ -661,7 +847,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         }
 
         try {
-            await printPdfInHiddenFrame(printablePdf, printTitle, signal, owner);
+            await printPdfInHiddenFrame(printablePdf, printTitle, signal, owner, printRunOwner);
             return true;
         } catch (error) {
             throwIfPrintAborted(signal);
@@ -718,6 +904,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
     async function tryPrintPathInNativeDialog(
         payload: IPrintDialogSubmitPayload,
         signal: AbortSignal,
+        printRunOwner?: IPrintRunOwner,
     ) {
         const sourcePdf = deps.sourcePdf.value;
         const isPathSource = isPathPdfSource(sourcePdf);
@@ -758,7 +945,11 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
             }
 
             const freshPath = await deps.ensureWorkingCopyFreshForRead();
-            throwIfPrintAborted(signal);
+            if (printRunOwner) {
+                assertPrintRunCurrent(printRunOwner);
+            } else {
+                throwIfPrintAborted(signal);
+            }
             if (freshPath === false || freshPath === null) {
                 preparationFailureReceipt.value = deps.getLastFailurePresentation?.()?.failure;
                 throw new NativePrintRequiredError(
@@ -786,7 +977,11 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
             }
         }
 
-        throwIfPrintAborted(signal);
+        if (printRunOwner) {
+            assertPrintRunCurrent(printRunOwner);
+        } else {
+            throwIfPrintAborted(signal);
+        }
         const documentRef = parseDocumentRef(printPath);
         if (documentRef === null) {
             throw new NativePrintRequiredError(
@@ -808,8 +1003,11 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         );
         let result;
         try {
+            if (printRunOwner) {
+                assertPrintRunCurrent(printRunOwner);
+            }
             try {
-                result = await printPdfPath(documentRef, deps.fileName.value ?? undefined, {
+                result = await printPdfPath(documentRef, printRunOwner?.fileName ?? deps.fileName.value ?? undefined, {
                     viewMode: payload.viewMode,
                     orientation: payload.orientation,
                     requestId,
@@ -823,7 +1021,11 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
             stopNativePrintCancellation();
             stopNativeDialogOpenedListener?.();
         }
-        throwIfPrintAborted(signal);
+        if (printRunOwner) {
+            assertPrintRunCurrent(printRunOwner);
+        } else {
+            throwIfPrintAborted(signal);
+        }
         if (result.success || result.canceled) {
             return true;
         }
@@ -847,24 +1049,19 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
             action?: 'default' | 'current-page';
             printSourceDirectly?: boolean;
             reopenDialogOnError?: boolean;
+            printOwner?: IPrintRunOwner;
         } = {},
     ) {
-        if (isPreparingPrint.value) {
-            showPreparingPrintToast();
+        const printOwner = options.printOwner ?? beginPrintRun(
+            payload,
+            options.action ?? 'default',
+        );
+        if (!printOwner) {
             return;
         }
-        const printRunId = ++nextPrintRunId;
-        const abortController = new AbortController();
-        activePrintAbortController = abortController;
+        const printRunId = printOwner.runId;
+        const abortController = printOwner.abortController;
         const { signal } = abortController;
-        closeDialogForSystemPrint = false;
-        isPreparingPrint.value = true;
-        activePrintAction.value = options.action ?? 'default';
-        resetPrintError();
-        preparationFailureReceipt.value = undefined;
-        if (!printDialogOpen.value) {
-            schedulePreparingPrintToast();
-        }
 
         try {
             if (payload.pageSelection) {
@@ -891,20 +1088,21 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
                         : {pageNumbers: materializePageSelection(selection)}),
                 };
             }
+            printOwner.intent = payload;
             if (
                 !isPathPdfSource(deps.sourcePdf.value)
                 && requiresNativePrintForHighPageCountLayout(payload)
             ) {
                 throw new NativePrintRequiredError(t(HIGH_PAGE_COUNT_PRINT_LAYOUT_ERROR_KEY));
             }
-            throwIfPrintAborted(signal);
+            assertPrintRunCurrent(printOwner);
             if (deps.ensurePrintReady && !await deps.ensurePrintReady()) {
                 throw new Error('Annotation notes could not be persisted for printing');
             }
-            throwIfPrintAborted(signal);
+            assertPrintRunCurrent(printOwner);
 
             if (deps.preparePrintSource) {
-                throwIfPrintAborted(signal);
+                assertPrintRunCurrent(printOwner);
                 const nativePrintHandoff: { started: boolean } = { started: false };
                 const driverResult = await deps.preparePrintSource(payload, {
                     signal,
@@ -913,7 +1111,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
                         closePrintDialogForSystemDialog();
                     },
                 });
-                throwIfPrintAborted(signal);
+                assertPrintRunCurrent(printOwner);
                 if (driverResult.status === 'completed') {
                     if (nativePrintHandoff.started !== true) {
                         closePrintDialogForSystemDialog();
@@ -925,25 +1123,28 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
                 }
             }
 
-            if (await tryPrintPathInNativeDialog(payload, signal)) {
+            assertPrintRunCurrent(printOwner);
+            if (await tryPrintPathInNativeDialog(payload, signal, printOwner)) {
                 return;
             }
 
-            const browserPrintTitle = resolveBrowserPrintTitle(payload);
+            const browserPrintTitle = resolveBrowserPrintTitle(payload, printOwner.fileName);
             const loadedPageNumbers = resolveLoadedPdfSinglePagePrint(payload);
             if (loadedPageNumbers) {
+                assertPrintRunCurrent(printOwner);
                 await printLoadedPdfPagesInHiddenFrame(
                     loadedPageNumbers,
                     browserPrintTitle,
                     signal,
                     printRunId,
+                    printOwner,
                 );
                 return;
             }
 
-            throwIfPrintAborted(signal);
+            assertPrintRunCurrent(printOwner);
             const sourceData = await deps.getPrintableSourceData({ signal });
-            throwIfPrintAborted(signal);
+            assertPrintRunCurrent(printOwner);
             if (!sourceData) {
                 throw new Error('Missing printable PDF source data');
             }
@@ -954,6 +1155,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
                     browserPrintTitle,
                     signal,
                     printRunId,
+                    printOwner,
                 );
                 return;
             }
@@ -969,13 +1171,14 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
                     browserPrintTitle,
                     signal,
                     printRunId,
+                    printOwner,
                 );
                 return;
             }
 
             const { buildPrintablePdfData } = await import('@app/utils/pdfPrint');
             const printablePdfData = await buildPrintablePdfData(sourceData, payload);
-            throwIfPrintAborted(signal);
+            assertPrintRunCurrent(printOwner);
             if (!printablePdfData) {
                 throw new Error('Failed to prepare printable PDF data');
             }
@@ -985,59 +1188,20 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
                 browserPrintTitle,
                 signal,
                 printRunId,
+                printOwner,
             );
         } catch (error) {
             if (isPrintAbortError(error)) {
                 return;
             }
-            const localizedError = error instanceof Error && getErrorMessage(error)
-                ? t('print.failedWithReason', { reason: getErrorMessage(error) })
-                : t('print.failed');
-            if (isNativePrintRequiredError(error) && readPreparationFailureReceipt() === undefined) {
-                BrowserLogger.warn('workspace-print', 'Print needs an unavailable native backend', {
-                    kind: 'expected',
-                    code: 'temporarily-unavailable',
-                } satisfies ExpectedOutcome);
-                toast.add({
-                    color: 'warning',
-                    title: t('print.failed'),
-                    description: localizedError,
-                });
-                return;
-            }
-            const failure = BrowserLogger.error(
-                'workspace-print',
-                'Document print failed',
-                error,
-                getFailureReceipt(error) ?? readPreparationFailureReceipt() ?? {
-                    code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
-                    context: {},
-                },
-            );
-            const presentation: FailurePresentation = {
-                failure,
-                title: t('print.failed'),
-                description: localizedError,
-            };
-            if (options.reopenDialogOnError === false) {
-                presentFailureToast(presentation);
-            } else {
-                printDialogOpen.value = true;
-                printError.value = presentation;
-            }
+            reportPrintError(error, options.reopenDialogOnError);
         } finally {
-            if (activePrintAbortController === abortController) {
-                activePrintAbortController = null;
-                clearPreparingPrintToast();
-                isPreparingPrint.value = false;
-                activePrintAction.value = null;
-                closeDialogForSystemPrint = false;
-                preparationFailureReceipt.value = undefined;
-            }
+            finishPrintRun(printOwner);
         }
     }
 
     onScopeDispose(() => {
+        printScopeDisposed = true;
         activePrintAbortController?.abort();
         activePrintAbortController = null;
         clearPreparingPrintToast();
@@ -1049,6 +1213,17 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         printError.value = null;
         closeDialogForSystemPrint = false;
     });
+
+    watch(
+        [
+            () => deps.sourcePdf.value,
+            () => deps.workingCopyPath.value,
+            () => deps.fileName.value,
+            () => deps.totalPages.value,
+        ],
+        invalidateActivePrintRun,
+        {flush: 'sync'},
+    );
 
     return {
         printDialogOpen,
