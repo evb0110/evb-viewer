@@ -59,7 +59,7 @@ export const useNativeWindowCloseHandshake = (
             return false;
         }
         await nextTick();
-        return !session.snapshot.value.dirty;
+        return workspace.getAutomationStateSnapshot().dirtyState?.fileDirty !== true;
     }
 
     async function handleWindowClose(_request: IWindowCloseRequest): Promise<TWindowCloseDecision> {
