@@ -1,0 +1,19 @@
+tests/unit/scripts/windows-test/hostLock.test.ts
+  s_4c8ba8a68ca045::t_45aab794b8ea16 133-154,287,291
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "8a600cb33799832f6fbf7df22e094dc545f1df6f",
+  "prompts": {},
+  "sessions": {
+    "s_4c8ba8a68ca045": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08617-afe0-7770-bf2f-fa955eb6be08",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
