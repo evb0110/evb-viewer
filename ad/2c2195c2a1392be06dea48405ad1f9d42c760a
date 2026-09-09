@@ -1,0 +1,46 @@
+scripts/verify-packaged-startup.sh
+  s_fd79253ed3996f::t_ff6a7709039839 50
+  s_fd79253ed3996f::t_2b8bac230bed3e 51-58
+  s_fd79253ed3996f::t_c5eed21f22b0da 62,68-71,76,82-83
+  s_fd79253ed3996f::t_a52ca7e906cacb 84
+tests/unit/scripts/packagedStartupLaunchPolicy.test.ts
+  s_fd79253ed3996f::t_ff6a7709039839 15
+  s_fd79253ed3996f::t_2b8bac230bed3e 16-17
+  s_fd79253ed3996f::t_9cac68cc9d1647 27-29
+scripts/release/runPackagedAutomation.ts
+  s_fd79253ed3996f::t_d198286ca71553 127-130
+  s_fd79253ed3996f::t_ff6a7709039839 5,7,9-11,77,79,166,169
+  s_fd79253ed3996f::t_2421978fd90c41 78,80
+  s_fd79253ed3996f::t_c5eed21f22b0da 4,16,101,108-110
+  s_fd79253ed3996f::t_735f869d1a2942 3,6,8,12,14,81,83-100,102-107,111-126,131-135,154,156-157,181,207
+  s_fd79253ed3996f::t_119e0d92a70c79 82
+tests/unit/scripts/packagedAutomationRunner.test.ts
+  s_fd79253ed3996f::t_d198286ca71553 151-153
+  s_fd79253ed3996f::t_2421978fd90c41 125,138-139
+  s_fd79253ed3996f::t_38229ec708c749 7,121,140
+  s_fd79253ed3996f::t_ad54d9b63d76ec 126-133,142-143
+  s_fd79253ed3996f::t_dd7922d08849cb 141
+  s_fd79253ed3996f::t_fe23fd1f1460cc 118
+  s_fd79253ed3996f::t_9cac68cc9d1647 55-59,70,160-166,168
+  s_fd79253ed3996f::t_e9778adef88e8c 66,84,117,119-120,122-124,144-146,154-159
+  s_fd79253ed3996f::t_709cf0855e671d 134-137
+  s_fd79253ed3996f::t_74dd9fcd26ab3c 147-150
+  s_fd79253ed3996f::t_6caaa59fe92e8f 167
+  s_fd79253ed3996f::t_eb56528f4c19e2 169
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "ad2c2195c2a1392be06dea48405ad1f9d42c760a",
+  "prompts": {},
+  "sessions": {
+    "s_fd79253ed3996f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08633-942f-7d81-ab30-064c49e1133d",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
