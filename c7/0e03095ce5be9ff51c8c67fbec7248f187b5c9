@@ -1,0 +1,56 @@
+.github/workflows/ci.yml
+  s_42187d9b2a0cd0::t_fec4d6515ee684 279-280,614
+docs/scan-cleanup/process/DEV-VALIDATION-APPROACH-2026-08-14.md
+  s_42187d9b2a0cd0::t_477058b7f2ffbb 321
+scripts/lib/added-checks.mjs
+  s_e4c38a5c21eafd::t_89ad1c338e4802 1-76,79-91,93-109,112,115-121,123-140,142,145-149,152-158,161-170,172-178,181-204,207-218,220-227,229-233,235
+docs/local-gates.md
+  s_e4c38a5c21eafd::t_f62220b52ae7a5 27-43
+  s_42187d9b2a0cd0::t_fec4d6515ee684 11-12
+docs/scan-cleanup/audit-2026-08-15-corrective.md
+  s_42187d9b2a0cd0::t_477058b7f2ffbb 383-384
+scripts/release/policy.mjs
+  s_42187d9b2a0cd0::t_fec4d6515ee684 98
+vitest.shared.config.ts
+  s_42187d9b2a0cd0::t_d23217a879774f 30,54-56,288-291
+  s_e4c38a5c21eafd::t_f5c0da906d2556 53,284-287
+docs/reliability/large-document-audit-ledger-2026-08-27.md
+  s_42187d9b2a0cd0::t_da49b2b5a05b0c 396
+docs/research/utm-windows-autotest-implementation-ledger-2026-09-04.md
+  s_42187d9b2a0cd0::t_477058b7f2ffbb 186
+scripts/check-commit-attribution.mjs
+  s_e4c38a5c21eafd::t_89ad1c338e4802 6-11,431,440,526-527,532-534
+  s_e4c38a5c21eafd::t_54b315734b804f 535-536
+package.json
+  s_42187d9b2a0cd0::t_fec4d6515ee684 65
+CONTRIBUTING.md
+  s_e4c38a5c21eafd::t_f62220b52ae7a5 33-41
+docs/reliability/whole-repo-program-ledger-2026-08-21.md
+  s_42187d9b2a0cd0::t_477058b7f2ffbb 69
+tests/unit/scripts/validationGatePolicy.test.ts
+  s_e4c38a5c21eafd::t_db6f578dc94c45 470,488,574
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "c70e03095ce5be9ff51c8c67fbec7248f187b5c9",
+  "prompts": {},
+  "sessions": {
+    "s_42187d9b2a0cd0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0870b-820f-7a12-a95b-dcc108d2504d",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_e4c38a5c21eafd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5eb6c90b-53e8-4178-b868-46f9a6573dee",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
