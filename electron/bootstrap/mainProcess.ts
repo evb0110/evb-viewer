@@ -215,6 +215,8 @@ function ensureMainDiagnosticsAdapter() {
             mainFailureReporterForAdapter.setTransport(transport);
             notifyStartupCrashMarkerAdapterReady({
                 preference: () => mainFailureReporterForAdapter.getPreference(),
+                release: desktopDiagnosticRelease,
+                dist: desktopDiagnosticDist,
                 send: marker => transport.send?.({
                     schemaVersion: 1,
                     eventId: marker.eventId,
@@ -226,6 +228,7 @@ function ensureMainDiagnosticsAdapter() {
                     frames: marker.frames,
                     context: {},
                 }),
+                onDiscard: reason => logger.debug(`Discarded startup crash marker: ${reason}`),
             });
         })
         .catch(() => {

@@ -107,6 +107,23 @@ describe('search worker page match iteration', () => {
         ]);
     });
 
+    it('matches intentional whitespace and returns offsets in the original text', () => {
+        const pageText = 'a  a\ta\u00A0a';
+
+        expect(findPageMatches(pageText, '  ', DEFAULT_OPTIONS)).toEqual([{
+            startOffset: 1,
+            endOffset: 3,
+        }]);
+        expect(findPageMatches(pageText, '\t', DEFAULT_OPTIONS)).toEqual([{
+            startOffset: 4,
+            endOffset: 5,
+        }]);
+        expect(findPageMatches(pageText, '\u00A0', DEFAULT_OPTIONS)).toEqual([{
+            startOffset: 6,
+            endOffset: 7,
+        }]);
+    });
+
     it('rejects unsafe regex patterns inside the worker matcher', () => {
         expect(() => findPageMatches('aaaaaaaaaaaaaaaa!', '(a+)+$', {
             matchCase: false,

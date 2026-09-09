@@ -24,10 +24,10 @@ function getCheckpointFrames(
         return checkpointFrames;
     }
 
-    // A Recent click first validates that the persisted path still exists.
-    // Retain those raw-click frames in the trace for diagnostics, but begin the
-    // viewport-ownership contract only once the open transaction positively
-    // claims its surface.
+    // A Recent click first attempts to open the persisted path.
+    // Retain those raw-click frames in the trace for diagnostics, but begin
+    // the viewport-ownership contract only once the open transaction
+    // positively claims its surface.
     const firstClaimedFrameIndex = checkpointFrames.findIndex(frame => (
         Boolean(frame.openSurfacePhase && frame.openSurfacePhase !== 'idle')
         || Boolean(frame.openSurfacePresentation && frame.openSurfacePresentation !== 'idle')

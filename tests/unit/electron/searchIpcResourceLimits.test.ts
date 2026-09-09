@@ -1157,6 +1157,30 @@ describe('search IPC worker resource limits', () => {
         expect(mocks.workerRecords).toHaveLength(0);
     });
 
+    it('forwards already-parsed whitespace queries without changing their code points', async () => {
+        await registerSearchHandlers();
+        const searchHandler = getSearchHandler();
+        const parsedQuery = ' \t\n  ';
+
+        await expect(searchHandler(
+            createInvokeEvent(81),
+            {
+                pdfPath: '/tmp/one.pdf',
+                query: parsedQuery,
+                requestId: 'whitespace-query',
+            },
+        )).resolves.toEqual({
+            results: [],
+            truncated: false,
+        });
+
+        expect(mocks.workerRecords[0]?.postMessageCalls[0]?.payload)
+            .toEqual(expect.objectContaining({
+                query: parsedQuery,
+                requestId: 'whitespace-query',
+            }));
+    });
+
     it('precompiles regex queries before dispatching to a worker', async () => {
         await registerSearchHandlers();
         const searchHandler = getSearchHandler();

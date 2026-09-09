@@ -183,7 +183,7 @@ describe('search worker warmup and cache behavior', () => {
             pageCount: 3,
             pdfPath: TEST_PDF_PATH,
             documentRevision: DOCUMENT_REVISION,
-            query: 'needle',
+            query: ' needle ',
             useRegex: false,
             wholeWord: false,
             nativeServiceIdleTimeoutMs: 5 * 60_000,
@@ -459,7 +459,72 @@ describe('search worker warmup and cache behavior', () => {
         expect(resultProgressMessages[1]?.results).toHaveLength(1);
     });
 
-    it('marks an exact-limit stream as truncated when a later unknown-count page arrives', async () => {
+    it('keeps an exact-limit stream untruncated while later pages have no matches', async () => {
+        const limitPage: IIndexedSearchPageForTest = {
+            pageNumber: 1,
+            text: `${'needle '.repeat(100)}\n`,
+        };
+        const emptyPage: IIndexedSearchPageForTest = {
+            pageNumber: 2,
+            text: 'no match here',
+        };
+        const anotherEmptyPage: IIndexedSearchPageForTest = {
+            pageNumber: 3,
+            text: 'still no match',
+        };
+        mocks.buildSearchIndex.mockImplementation(async (
+            _pdfPath: string,
+            _pageData: unknown[],
+            options: IBuildSearchIndexOptionsForTest,
+        ) => {
+            options.onPageIndexed?.(limitPage);
+            options.onPageIndexed?.(emptyPage);
+            options.onPageIndexed?.(anotherEmptyPage);
+            return {
+                schemaVersion: 7,
+                documentRevision: {token: DOCUMENT_REVISION},
+                pdfPath: TEST_PDF_PATH,
+                createdAt: Date.now(),
+                pages: [
+                    limitPage,
+                    emptyPage,
+                    anotherEmptyPage,
+                ],
+            };
+        });
+
+        await import('@electron/features/search/worker');
+        const handleMessage = mocks.messageHandlers.get('message');
+        handleMessage?.({
+            type: 'search',
+            payload: {
+                requestId: 'stream-limit-1',
+                pdfPath: TEST_PDF_PATH,
+                documentRevision: DOCUMENT_REVISION,
+                query: 'needle',
+                pageCount: 3,
+            },
+        });
+
+        await vi.waitFor(() => {
+            expect(mocks.postedMessages).toContainEqual(expect.objectContaining({
+                type: 'complete',
+                requestId: 'stream-limit-1',
+                response: expect.objectContaining({
+                    results: expect.any(Array),
+                    truncated: false,
+                }),
+            }));
+        });
+
+        expect(mocks.postedMessages).not.toContainEqual(expect.objectContaining({
+            type: 'progress',
+            requestId: 'stream-limit-1',
+            truncated: true,
+        }));
+    });
+
+    it('marks an exact-limit stream as truncated when a later page adds one match', async () => {
         const limitPage: IIndexedSearchPageForTest = {
             pageNumber: 1,
             text: `${'needle '.repeat(100)}\n`,
@@ -492,7 +557,7 @@ describe('search worker warmup and cache behavior', () => {
         handleMessage?.({
             type: 'search',
             payload: {
-                requestId: 'stream-limit-1',
+                requestId: 'stream-limit-extra-1',
                 pdfPath: TEST_PDF_PATH,
                 documentRevision: DOCUMENT_REVISION,
                 query: 'needle',
@@ -502,7 +567,7 @@ describe('search worker warmup and cache behavior', () => {
         await vi.waitFor(() => {
             expect(mocks.postedMessages).toContainEqual(expect.objectContaining({
                 type: 'complete',
-                requestId: 'stream-limit-1',
+                requestId: 'stream-limit-extra-1',
                 response: expect.objectContaining({
                     results: expect.any(Array),
                     truncated: true,
@@ -512,7 +577,7 @@ describe('search worker warmup and cache behavior', () => {
 
         expect(mocks.postedMessages).toContainEqual(expect.objectContaining({
             type: 'progress',
-            requestId: 'stream-limit-1',
+            requestId: 'stream-limit-extra-1',
             results: [],
             resultsStartIndex: 100,
             truncated: true,

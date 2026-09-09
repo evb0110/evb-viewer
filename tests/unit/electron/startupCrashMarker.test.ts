@@ -7,6 +7,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import type {Transport} from '@sentry/core';
 import type {DiagnosticEventId} from '@contracts/diagnostics/diagnosticEventId';
 import {requireEpochMs} from '@contracts/timestamps';
 import {
@@ -14,6 +15,7 @@ import {
     type StartupCrashMarkerRecord,
 } from '@contracts/diagnostics/startupCrashMarker';
 import {createNoopMainDiagnosticsTransport} from '@electron/features/diagnostics/public';
+import {createSentryNodeDiagnosticsTransport} from '@electron/features/diagnostics/sentryNodeAdapter';
 import {
     installStartupCrashMarker,
     notifyStartupCrashMarkerAdapterReady,
@@ -247,10 +249,14 @@ describe('startup crash marker', () => {
 
         expect(notifyStartupCrashMarkerAdapterReady({
             preference: 'granted',
+            release: RELEASE,
+            dist: DIST,
             send,
         })).toBe(true);
         setup.controller.onLiveAdapterReady({
             preference: 'granted',
+            release: RELEASE,
+            dist: DIST,
             send,
         });
 
@@ -260,6 +266,86 @@ describe('startup crash marker', () => {
         expect(send).toHaveBeenCalledWith(marker);
         expect(setup.unlinkSync).toHaveBeenCalledOnce();
         expect(setup.getContent()).toBeUndefined();
+    });
+
+    it('discards a marker from a different validated build without handing it to transport', () => {
+        const setup = install({}, JSON.stringify(createMarker({
+            release: 'evb-viewer-desktop@0.1.448',
+            dist: 'windows-x64',
+        })));
+        const send = vi.fn();
+        const onDiscard = vi.fn();
+
+        setup.controller.onLiveAdapterReady({
+            preference: 'granted',
+            release: RELEASE,
+            dist: DIST,
+            send,
+            onDiscard,
+        });
+
+        expect(send).not.toHaveBeenCalled();
+        expect(onDiscard).toHaveBeenCalledExactlyOnceWith('build-identity-mismatch');
+        expect(setup.unlinkSync).toHaveBeenCalledOnce();
+        expect(setup.getContent()).toBeUndefined();
+    });
+
+    it('reconstructs a matching marker as one closed envelope at the adapter boundary', async () => {
+        const marker = createMarker({frames: [{
+            module: 'electron/startup.ts',
+            function: 'boot',
+            line: 17,
+            column: 9,
+        }]});
+        const setup = install({}, JSON.stringify(marker));
+        const envelopes: unknown[] = [];
+        const adapter = createSentryNodeDiagnosticsTransport({
+            dsn: 'https://publickey@o123.ingest.de.sentry.io/456',
+            identity: {
+                target: 'desktop',
+                release: RELEASE,
+                dist: DIST,
+                environment: 'test',
+            },
+            appVersion: '0.1.449',
+            platform: 'darwin',
+            architecture: 'arm64',
+            makeTransport: () => ({
+                send: vi.fn((envelope: unknown) => {
+                    envelopes.push(envelope);
+                    return Promise.resolve({statusCode: 200});
+                }),
+                flush: vi.fn(() => Promise.resolve(true)),
+            } as Transport),
+        });
+
+        setup.controller.onLiveAdapterReady({
+            preference: 'granted',
+            release: RELEASE,
+            dist: DIST,
+            send: savedMarker => adapter.send?.({
+                schemaVersion: 1,
+                eventId: savedMarker.eventId,
+                code: 'MAIN_STARTUP_CRASH',
+                severity: 'fatal',
+                runtime: 'electron-main',
+                operation: 'startup-crash',
+                occurredAt: savedMarker.timestamp,
+                frames: savedMarker.frames,
+                context: {},
+            }),
+        });
+
+        await new Promise<void>(resolvePromise => setImmediate(resolvePromise));
+        expect(envelopes).toHaveLength(1);
+        const serialized = JSON.stringify(envelopes[0]);
+        expect(serialized).toContain(EVENT_ID);
+        expect(serialized).toContain('1735689600');
+        expect(serialized).toContain('electron/startup.ts');
+        expect(serialized).toContain('evb-viewer-desktop@0.1.449');
+        expect(serialized).toContain('macos-arm64');
+        expect(serialized).toContain('evb-diagnostic-v1');
+        expect(setup.unlinkSync).toHaveBeenCalledOnce();
     });
 
     it.each([
@@ -288,6 +374,8 @@ describe('startup crash marker', () => {
 
         setup.controller.onLiveAdapterReady({
             preference: _name === 'denied' ? 'denied' : 'granted',
+            release: RELEASE,
+            dist: DIST,
             send,
         });
 
@@ -302,6 +390,8 @@ describe('startup crash marker', () => {
 
         expect(() => setup.controller.onLiveAdapterReady({
             preference: 'granted',
+            release: RELEASE,
+            dist: DIST,
             send,
         })).not.toThrow();
         expect(send).toHaveBeenCalledTimes(1);
@@ -317,6 +407,8 @@ describe('startup crash marker', () => {
             const replaySend = vi.fn(() => Promise.reject(new Error('replay failed')));
             replay.controller.onLiveAdapterReady({
                 preference: 'granted',
+                release: RELEASE,
+                dist: DIST,
                 send: replaySend,
             });
 
@@ -324,6 +416,8 @@ describe('startup crash marker', () => {
             const liveSend = vi.fn(() => Promise.reject(new Error('live failed')));
             live.controller.onLiveAdapterReady({
                 preference: 'granted',
+                release: RELEASE,
+                dist: DIST,
                 send: liveSend,
             });
             expect(live.controller.captureLiveException(new Error('live failure'))).toBeDefined();
@@ -347,6 +441,8 @@ describe('startup crash marker', () => {
 
         setup.controller.onLiveAdapterReady({
             preference: 'granted',
+            release: RELEASE,
+            dist: DIST,
             send,
         });
         const firstReceipt = setup.controller.captureLiveException(
@@ -376,6 +472,8 @@ describe('startup crash marker', () => {
 
         setup.controller.onLiveAdapterReady({
             preference: 'granted',
+            release: RELEASE,
+            dist: DIST,
             send,
         });
         const receipt = setup.controller.captureLiveException(new Error('current launch'));
