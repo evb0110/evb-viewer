@@ -6,8 +6,10 @@ import {
 } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { RELEASE_TAG_PATTERN } from './releaseTag.mjs';
 
 const SEMVER_PATTERN = /^(\d+)\.(\d+)\.(\d+)$/;
+const COMPARABLE_SEMVER_PATTERN = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z][0-9A-Za-z.-]*))?$/u;
 
 /** @typedef {'patch' | 'minor' | 'major'} TReleaseLevel */
 /** @typedef {(command: string, args: string[], options?: import('node:child_process').ExecFileSyncOptions) => string} TCommandRunner */
@@ -324,6 +326,164 @@ export function bumpVersion(version, level) {
     }
 
     throw new Error(`Unsupported release level "${level}"`);
+}
+
+/** @param {string} version @returns {{core: number[], prerelease: string[]}} */
+function parseComparableSemVer(version) {
+    const match = version.match(COMPARABLE_SEMVER_PATTERN);
+    if (!match) {
+        throw new Error(`Expected a SemVer release version, received "${version}"`);
+    }
+
+    return {
+        core: [
+            Number(match[1]),
+            Number(match[2]),
+            Number(match[3]),
+        ],
+        prerelease: match[4]?.split('.') ?? [],
+    };
+}
+
+/** @param {{core: number[], prerelease: string[]}} left @param {{core: number[], prerelease: string[]}} right */
+function compareComparableSemVer(left, right) {
+    for (let index = 0; index < left.core.length; index += 1) {
+        const comparison = (left.core[index] ?? 0) - (right.core[index] ?? 0);
+        if (comparison !== 0) {
+            return comparison;
+        }
+    }
+
+    if (left.prerelease.length === 0 || right.prerelease.length === 0) {
+        return left.prerelease.length === right.prerelease.length
+            ? 0
+            : left.prerelease.length === 0 ? 1 : -1;
+    }
+
+    const identifierCount = Math.max(left.prerelease.length, right.prerelease.length);
+    for (let index = 0; index < identifierCount; index += 1) {
+        const leftIdentifier = left.prerelease[index];
+        const rightIdentifier = right.prerelease[index];
+        if (leftIdentifier === undefined || rightIdentifier === undefined) {
+            return leftIdentifier === rightIdentifier ? 0 : leftIdentifier === undefined ? -1 : 1;
+        }
+
+        const leftNumeric = /^\d+$/u.test(leftIdentifier);
+        const rightNumeric = /^\d+$/u.test(rightIdentifier);
+        if (leftNumeric && rightNumeric) {
+            const comparison = Number(leftIdentifier) - Number(rightIdentifier);
+            if (comparison !== 0) {
+                return comparison;
+            }
+        } else if (leftNumeric !== rightNumeric) {
+            return leftNumeric ? -1 : 1;
+        } else if (leftIdentifier !== rightIdentifier) {
+            return leftIdentifier < rightIdentifier ? -1 : 1;
+        }
+    }
+
+    return 0;
+}
+
+/** @param {string} tag @returns {string} */
+function releaseTagVersion(tag) {
+    return tag.slice(1);
+}
+
+/**
+ * Rejects a candidate whose package version is lower than any valid release
+ * tag reachable from that candidate, including tags reached through either
+ * merge parent. The fetch and shallow-history checks are deliberately part of
+ * this assertion so missing ancestry cannot be treated as proof of safety.
+ *
+ * @param {string} candidateVersion
+ * @param {string} candidateSha
+ * @param {{remote?: string, runCommand?: TCommandRunner}} [options]
+ */
+export function assertVersionNotBehindAncestorRelease(candidateVersion, candidateSha, {
+    remote = 'origin',
+    runCommand = run,
+} = {}) {
+    if (!/^[0-9a-f]{40}$/u.test(candidateSha)) {
+        throw new Error(`Release candidate SHA must be exact, received "${candidateSha}"`);
+    }
+
+    const candidate = parseComparableSemVer(candidateVersion);
+    const shallow = runCommand('git', [
+        'rev-parse',
+        '--is-shallow-repository',
+    ]).trim();
+    runCommand('git', shallow === 'true'
+        ? [
+            'fetch',
+            '--unshallow',
+            '--tags',
+            remote,
+        ]
+        : [
+            'fetch',
+            '--tags',
+            remote,
+        ], {stdio: 'inherit'});
+    if (runCommand('git', [
+        'rev-parse',
+        '--is-shallow-repository',
+    ]).trim() === 'true') {
+        throw new Error(
+            `Release candidate ${candidateSha} still has incomplete shallow history after fetching; `
+            + 'refusing to prove ancestral release versions.',
+        );
+    }
+
+    const tags = runCommand('git', [
+        'for-each-ref',
+        '--merged',
+        candidateSha,
+        '--format=%(refname:strip=2)',
+        'refs/tags',
+    ])
+        .split('\n')
+        .map(tag => tag.trim())
+        .filter(tag => RELEASE_TAG_PATTERN.test(tag));
+
+    let greatestTag = null;
+    for (const tag of tags) {
+        if (greatestTag === null
+            || compareComparableSemVer(
+                parseComparableSemVer(releaseTagVersion(tag)),
+                parseComparableSemVer(releaseTagVersion(greatestTag)),
+            ) > 0) {
+            greatestTag = tag;
+        }
+    }
+
+    if (greatestTag === null) {
+        return;
+    }
+
+    const greatestVersion = parseComparableSemVer(releaseTagVersion(greatestTag));
+    if (compareComparableSemVer(candidate, greatestVersion) >= 0) {
+        return;
+    }
+
+    let tagSha = 'unresolved';
+    try {
+        tagSha = runCommand('git', [
+            'rev-list',
+            '-n',
+            '1',
+            `refs/tags/${greatestTag}`,
+        ]).trim() || tagSha;
+    } catch {
+        // The version violation is already established. Keep the diagnostic
+        // useful without allowing a missing tag object to weaken the refusal.
+    }
+
+    throw new Error(
+        `Release candidate ${candidateSha} package.json version ${candidateVersion} is lower than `
+        + `reachable release tag ${greatestTag} (${tagSha}). Refusing the release until the manifest `
+        + 'preserves the latest ancestral release version.',
+    );
 }
 
 /** @param {string} [context] @param {{runCommand?: TCommandRunner}} [options] */

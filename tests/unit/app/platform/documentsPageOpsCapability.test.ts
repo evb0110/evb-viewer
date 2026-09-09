@@ -140,6 +140,10 @@ describe('createBrowserPageOpsCapability', () => {
         await expect(pageOps.delete('browser://documents/work.pdf', [1], 1)).resolves.toEqual({
             success: true,
             pageCount: 1,
+            pageIdentityDelta: {
+                previousPageCount: 1,
+                pages: [],
+            },
         });
 
         expect(browserPageOpsWorkerMock.run).toHaveBeenCalledTimes(1);
@@ -427,6 +431,13 @@ describe('createBrowserPageOpsCapability', () => {
         await expect(pageOps.delete('browser://documents/work.pdf', [2], 3)).resolves.toEqual({
             success: true,
             pageCount: 2,
+            pageIdentityDelta: {
+                previousPageCount: 3,
+                pages: [
+                    {fromPageNumber: 1},
+                    {fromPageNumber: 3},
+                ],
+            },
         });
         await expect(pageOps.reorder('browser://documents/work.pdf', [
             2,
@@ -434,6 +445,13 @@ describe('createBrowserPageOpsCapability', () => {
         ])).resolves.toEqual({
             success: true,
             pageCount: 2,
+            pageIdentityDelta: {
+                previousPageCount: 2,
+                pages: [
+                    {fromPageNumber: 2},
+                    {fromPageNumber: 1},
+                ],
+            },
         });
 
         expect(browserPageOpsWorkerMock.run).toHaveBeenNthCalledWith(1, 'deletePages', {
@@ -848,6 +866,13 @@ describe('createBrowserPageOpsCapability', () => {
         );
 
         expect(result.success).toBe(true);
+        expect(result).toMatchObject({pageIdentityDelta: {
+            previousPageCount: 1,
+            pages: [
+                {fromPageNumber: 1},
+                {insertedId: expect.any(String)},
+            ],
+        }});
         expect(createCombinedPdfFromPaths).not.toHaveBeenCalled();
         expect(browserDocumentStoreMock.read).toHaveBeenNthCalledWith(1, 'browser://documents/work.pdf');
         expect(browserDocumentStoreMock.read).toHaveBeenNthCalledWith(2, 'browser://documents/picked/insert.pdf');
