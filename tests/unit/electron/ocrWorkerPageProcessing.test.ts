@@ -80,7 +80,14 @@ const storageBudget = {
     fail: (error: unknown): never => {
         throw error;
     },
-    reserve: async () => () => undefined,
+    reserve: async bytes => ({
+        bytes,
+        release: () => undefined,
+    }),
+    reconcileCheckpoints: async () => undefined,
+    commitCheckpoint: (_bytes, reservations) => {
+        reservations.forEach(reservation => reservation.release());
+    },
     withReservation: async <T>(_bytes: number, task: () => Promise<T>) => task(),
     stop: async () => undefined,
     describe: () => ({
