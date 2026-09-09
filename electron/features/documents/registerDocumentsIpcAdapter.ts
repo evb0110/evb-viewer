@@ -55,7 +55,10 @@ import { registerPlatformFeatureHandlers } from '@electron/platform-ipc/validate
 import type { IWorkingCopyBackingStatus } from '@contracts/electronApiDocuments';
 import {parseDocumentRef} from '@contracts/documentRef';
 import {revokeManagedTempFileHandlesForSender} from '@electron/features/documents/main/managedTempFileHandles';
-import {cancelMainOperationsForOwner} from '@electron/operation-lifecycle/mainOperationLifecycle';
+import {
+    cancelMainOperationsForOwner,
+    type TMainOperationOwnerEndEvent,
+} from '@electron/operation-lifecycle/mainOperationLifecycle';
 
 interface IRendererFileOpenToken {expiresAtMs: number;}
 interface IDocumentsIpcEventRegistrar {on: (channel: string, handler: (event: IpcMainEvent, ...args: unknown[]) => void) => void;}
@@ -167,12 +170,12 @@ function registerDocumentsSenderCleanup(event: Pick<IpcMainInvokeEvent, 'sender'
     }
 
     rendererFileOpenTokenCleanupSenders.add(senderId);
-    const cleanup = () => {
-        event.sender.removeListener('destroyed', cleanup);
-        event.sender.removeListener('render-process-gone', cleanup);
+    const cleanup = (lifecycleEvent: TMainOperationOwnerEndEvent, reason: string) => {
+        event.sender.removeListener('destroyed', handleDestroyed);
+        event.sender.removeListener('render-process-gone', handleRenderProcessGone);
         event.sender.removeListener('did-start-navigation', handleNavigation);
         rendererFileOpenTokens.delete(senderId);
-        cancelMainOperationsForOwner(senderId, 'Renderer lifecycle ended');
+        cancelMainOperationsForOwner(senderId, reason, lifecycleEvent);
         revokeManagedTempFileHandlesForSender(senderId);
         rendererFileOpenTokenCleanupSenders.delete(senderId);
     };
@@ -183,11 +186,13 @@ function registerDocumentsSenderCleanup(event: Pick<IpcMainInvokeEvent, 'sender'
         isMainFrame: boolean,
     ) => {
         if (isMainFrame && !isInPlace) {
-            cleanup();
+            cleanup('mainFrameNavigation', 'Renderer main frame navigated');
         }
     };
-    event.sender.once('destroyed', cleanup);
-    event.sender.once('render-process-gone', cleanup);
+    const handleDestroyed = () => cleanup('destroyed', 'Renderer destroyed');
+    const handleRenderProcessGone = () => cleanup('renderProcessGone', 'Renderer process gone');
+    event.sender.once('destroyed', handleDestroyed);
+    event.sender.once('render-process-gone', handleRenderProcessGone);
     event.sender.on('did-start-navigation', handleNavigation);
 }
 

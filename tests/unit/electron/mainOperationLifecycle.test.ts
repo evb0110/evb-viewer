@@ -92,6 +92,33 @@ describe('mainOperationLifecycle', () => {
         expect(leaseUsable.value).toBe(false);
     });
 
+    it('honors the registered owner policy for renderer lifecycle events', () => {
+        const detachedCancel = vi.fn();
+        const detached = registerMainOperation({
+            kind: 'abortable-work',
+            ownerWebContentsId: 42,
+            cancel: detachedCancel,
+            ownerLifecycle: {
+                destroyed: 'detach',
+                renderProcessGone: 'detach',
+                mainFrameNavigation: 'detach',
+            },
+        });
+        const cancel = vi.fn();
+        const cancellable = registerMainOperation({
+            kind: 'abortable-work',
+            ownerWebContentsId: 42,
+            cancel,
+        });
+
+        cancelMainOperationsForOwner(42, 'Renderer main frame navigated', 'mainFrameNavigation');
+
+        expect(detached.signal.aborted).toBe(false);
+        expect(detachedCancel).not.toHaveBeenCalled();
+        expect(cancellable.signal.aborted).toBe(true);
+        expect(cancel).toHaveBeenCalledWith('Renderer main frame navigated');
+    });
+
     it('settles a completion boundary once even when teardown races a late completion', () => {
         const operation = registerMainOperation({
             kind: 'critical-write',
