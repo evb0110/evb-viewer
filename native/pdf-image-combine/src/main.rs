@@ -16,11 +16,12 @@ use evb_native_support::{
     NativeError, NativeErrorCode,
 };
 use evb_pdf_image_combine::{
-    combine_tiff_paths, encode_netpbm_path_as_png_with_dpi, probe_netpbm_path, write_pdf,
-    BookmarkEntry, FramePolicy, ImageCompression, ImageProcessing, ImageSpec, InputSource,
-    JpegSizeGuardrail, PageLabelRange, PageSpec, PdfBilevelDecode, PdfBuildOptions,
-    PdfImagePlacement, PdfPageSize, Result, DEFAULT_MAX_BILEVEL_PIXELS, DEFAULT_MAX_IMAGE_PIXELS,
-    MAX_WORKER_THREADS, PDF_COMBINE_MAX_OUTPUT_BYTES,
+    combine_tiff_paths, encode_netpbm_path_as_jpeg, encode_netpbm_path_as_png_with_dpi,
+    encode_netpbm_path_as_tiff_with_dpi, probe_netpbm_path, write_pdf, BookmarkEntry, FramePolicy,
+    ImageCompression, ImageProcessing, ImageSpec, InputSource, JpegSizeGuardrail, PageLabelRange,
+    PageSpec, PdfBilevelDecode, PdfBuildOptions, PdfImagePlacement, PdfPageSize, Result,
+    DEFAULT_MAX_BILEVEL_PIXELS, DEFAULT_MAX_IMAGE_PIXELS, MAX_WORKER_THREADS,
+    PDF_COMBINE_MAX_OUTPUT_BYTES,
 };
 use serde::Deserialize;
 
@@ -50,6 +51,8 @@ struct Config {
 enum OutputFormat {
     Pdf,
     Png,
+    Jpeg,
+    TiffSingle,
     Tiff,
 }
 
@@ -93,6 +96,22 @@ fn run(raw_args: Vec<String>) -> Result<()> {
         1_000_000,
         u64::MAX,
     );
+    if config.output_format == OutputFormat::TiffSingle {
+        if config.input_paths.len() == 1
+            && config.input_paths[0]
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("ppm"))
+        {
+            encode_netpbm_path_as_tiff_with_dpi(
+                &config.input_paths[0],
+                &config.output_path,
+                max_pixels,
+                config.dpi,
+            )?;
+            return Ok(());
+        }
+        return Err("Single TIFF output requires exactly one PPM input".into());
+    }
     if config.output_format == OutputFormat::Tiff {
         combine_tiff_paths(
             &config.input_paths,
@@ -107,6 +126,18 @@ fn run(raw_args: Vec<String>) -> Result<()> {
             return Err("PNG output requires exactly one Netpbm input".into());
         }
         encode_netpbm_path_as_png_with_dpi(
+            &config.input_paths[0],
+            &config.output_path,
+            max_pixels,
+            config.dpi,
+        )?;
+        return Ok(());
+    }
+    if config.output_format == OutputFormat::Jpeg {
+        if config.input_paths.len() != 1 {
+            return Err("JPEG output requires exactly one Netpbm input".into());
+        }
+        encode_netpbm_path_as_jpeg(
             &config.input_paths[0],
             &config.output_path,
             max_pixels,
@@ -581,6 +612,8 @@ fn parse_args(mut args: impl Iterator<Item = String>, max_pages: usize) -> Resul
                 output_format = match args.next().ok_or("Missing --format value")?.as_str() {
                     "pdf" => OutputFormat::Pdf,
                     "png" => OutputFormat::Png,
+                    "jpeg" => OutputFormat::Jpeg,
+                    "tiff-single" => OutputFormat::TiffSingle,
                     "tiff" => OutputFormat::Tiff,
                     value => return Err(format!("Unsupported output format: {value}").into()),
                 }
