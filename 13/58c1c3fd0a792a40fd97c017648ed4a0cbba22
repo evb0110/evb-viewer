@@ -1,0 +1,19 @@
+.github/workflows/ci.yml
+  s_a0f9cc7f4f7d39::t_98a9f33465192e 92-95
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "1358c1c3fd0a792a40fd97c017648ed4a0cbba22",
+  "prompts": {},
+  "sessions": {
+    "s_a0f9cc7f4f7d39": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08098-71eb-73f1-a334-9b979bb5c438",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
