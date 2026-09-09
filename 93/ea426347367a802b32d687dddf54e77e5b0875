@@ -1,0 +1,24 @@
+packages/i18n-app/messages/es.ts
+  s_84ab69090ec033::t_49fe910723d161 314,924,1397
+  s_84ab69090ec033::t_85deca5212c238 777-779,781
+  s_84ab69090ec033::t_1a7341867c9351 123,770,772-774,797,799-800,808,810-812,1182
+packages/i18n-app/messages/de.ts
+  s_84ab69090ec033::t_1a7341867c9351 770,772-774,797,799-800,808,811-812
+  s_84ab69090ec033::t_85deca5212c238 777-779,781
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "93ea426347367a802b32d687dddf54e77e5b0875",
+  "prompts": {},
+  "sessions": {
+    "s_84ab69090ec033": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a087c4-4567-70d2-8cd4-647713faf810",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
