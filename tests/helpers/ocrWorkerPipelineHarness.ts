@@ -145,6 +145,30 @@ printf 'level\\tpage_num\\tblock_num\\tpar_num\\tline_num\\tword_num\\tleft\\tto
                 effectiveDpi: message.requestedDpi,
             });
         }
+        if (message.type === 'native-child-intent') {
+            worker.postMessage({
+                type: 'native-child-intent-ack',
+                jobId: message.jobId,
+                childId: message.childId,
+                accepted: true,
+            });
+        }
+        if (message.type === 'native-child-register') {
+            worker.postMessage({
+                type: 'native-child-register-ack',
+                jobId: message.jobId,
+                childId: message.childId,
+                accepted: true,
+            });
+        }
+        if (message.type === 'native-child-exit') {
+            worker.postMessage({
+                type: 'native-child-exit-ack',
+                jobId: message.jobId,
+                childId: message.childId,
+                accepted: true,
+            });
+        }
     });
 
     const start = (jobId = 'ocr-pipeline-test') => new Promise<Extract<TOcrWorkerOutboundMessage, {type: 'complete'}>>((resolvePromise, rejectPromise) => {

@@ -8,13 +8,11 @@ import {
 
 const mocks = vi.hoisted(() => ({
     runOcrCommand: vi.fn(),
-    runNativeToolCommand: vi.fn(),
     stat: vi.fn(),
     log: vi.fn(),
 }));
 
 vi.mock('@electron/features/ocr/worker/runOcrCommand', () => ({runOcrCommand: mocks.runOcrCommand}));
-vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: mocks.runNativeToolCommand}));
 vi.mock('fs/promises', () => ({stat: mocks.stat}));
 
 describe('tryPreprocessOcrImage', () => {
@@ -22,10 +20,6 @@ describe('tryPreprocessOcrImage', () => {
         vi.resetModules();
         vi.clearAllMocks();
         mocks.runOcrCommand.mockResolvedValue({
-            stdout: '',
-            stderr: '',
-        });
-        mocks.runNativeToolCommand.mockResolvedValue({
             stdout: '',
             stderr: '',
         });
@@ -48,7 +42,7 @@ describe('tryPreprocessOcrImage', () => {
             288,
         )).resolves.toBe('/tmp/clean.png');
 
-        expect(mocks.runNativeToolCommand).toHaveBeenCalledWith(
+        expect(mocks.runOcrCommand).toHaveBeenCalledWith(
             '/bin/evb-scan-cleanup',
             [
                 '--input',
@@ -66,13 +60,13 @@ describe('tryPreprocessOcrImage', () => {
                 signal: controller.signal,
             }),
         );
-        expect(mocks.runOcrCommand).not.toHaveBeenCalled();
+        expect(mocks.runOcrCommand).toHaveBeenCalledTimes(1);
 
         // OCR input must stay reproducible while viewer-facing cleanup defaults
         // are tuned, so every pixel-affecting option is pinned at the call site
         // rather than inherited from the engine defaults. Any drift in this
         // object is an OCR behaviour change and has to be made deliberately.
-        const nativeArgs: string[] = mocks.runNativeToolCommand.mock.calls[0]?.[1] ?? [];
+        const nativeArgs: string[] = mocks.runOcrCommand.mock.calls[0]?.[1] ?? [];
         const pinnedOptions = nativeArgs[nativeArgs.indexOf('--options') + 1] ?? '{}';
         expect(JSON.parse(pinnedOptions)).toEqual({
             dpi: 288,
