@@ -1,5 +1,5 @@
 import { getErrorMessage } from '@app/utils/error';
-import { watch, type Ref } from 'vue';
+import type { Ref } from 'vue';
 import {
     getFailureReceipt,
     type ExpectedOutcome,

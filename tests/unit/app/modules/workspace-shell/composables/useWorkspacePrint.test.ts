@@ -615,11 +615,17 @@ describe('useWorkspacePrint', () => {
     });
 
     it('drops an older quick-print continuation when the same scope opens a successor document', async () => {
-        const firstMetrics = Promise.withResolvers<Array<{width: number; height: number}> | null>();
+        const firstMetrics = Promise.withResolvers<Array<{
+            width: number;
+            height: number
+        }> | null>();
         const appFrame = createFakeFrame();
         const getQuickPrintPageMetrics = vi.fn()
             .mockReturnValueOnce(firstMetrics.promise)
-            .mockResolvedValueOnce([{width: 612, height: 792}]);
+            .mockResolvedValueOnce([{
+                width: 612,
+                height: 792,
+            }]);
         const firstSource = new Blob([Uint8Array.of(1)], {type: 'application/pdf'});
         const secondSource = new Blob([Uint8Array.of(2)], {type: 'application/pdf'});
         const {
@@ -627,7 +633,10 @@ describe('useWorkspacePrint', () => {
             scope,
             sourcePdf,
             state,
-        } = createState({sourcePdf: firstSource, getQuickPrintPageMetrics});
+        } = createState({
+            sourcePdf: firstSource,
+            getQuickPrintPageMetrics,
+        });
         shouldPrintPageMetricsDirectlyMock.mockReturnValue(true);
         stubDocumentWithFrame(appFrame);
 
@@ -635,7 +644,10 @@ describe('useWorkspacePrint', () => {
             const firstPrint = state.handleQuickPrint();
             await flushMicrotasks(4);
             sourcePdf.value = secondSource;
-            firstMetrics.resolve([{width: 612, height: 792}]);
+            firstMetrics.resolve([{
+                width: 612,
+                height: 792,
+            }]);
             await firstPrint;
 
             expect(getPrintableSourceData).not.toHaveBeenCalled();
@@ -654,7 +666,10 @@ describe('useWorkspacePrint', () => {
     });
 
     it('cancels quick-print preparation when its document scope closes', async () => {
-        const metrics = Promise.withResolvers<Array<{width: number; height: number}> | null>();
+        const metrics = Promise.withResolvers<Array<{
+            width: number;
+            height: number
+        }> | null>();
         const getQuickPrintPageMetrics = vi.fn(() => metrics.promise);
         const {
             getPrintableSourceData,
@@ -665,7 +680,10 @@ describe('useWorkspacePrint', () => {
         const printPromise = state.handleQuickPrint();
         await flushMicrotasks(4);
         scope.stop();
-        metrics.resolve([{width: 612, height: 792}]);
+        metrics.resolve([{
+            width: 612,
+            height: 792,
+        }]);
         await printPromise;
 
         expect(getPrintableSourceData).not.toHaveBeenCalled();
@@ -686,7 +704,10 @@ describe('useWorkspacePrint', () => {
             scope,
             sourcePdf: currentSource,
             state,
-        } = createState({sourcePdf, ensurePrintReady});
+        } = createState({
+            sourcePdf,
+            ensurePrintReady,
+        });
 
         try {
             const printPromise = state.handlePrintDialogSubmit({
