@@ -73,6 +73,7 @@ const commandMocks = {
         : {ready: true}),
     cleanupStaleSessionArtifacts: vi.fn(async () => ({
         retained: false,
+        kind: 'clean',
         reason: null,
     })),
     clearSessionStarting: vi.fn(),

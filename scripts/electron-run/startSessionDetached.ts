@@ -13,7 +13,7 @@ import { DEV_OUTPUT_TEE_STABLE_LOG_DISABLED_ENV } from '@scripts/electron-run/de
 import {
     cleanupStaleSessionArtifacts,
     cleanupSessionStartingAttempt,
-    classifySessionControllerOwnership,
+    canProceedAfterStaleArtifactCleanup,
     isSessionRunning,
     isSessionStarting,
     readSessionLogTail,
@@ -118,7 +118,7 @@ export async function startSessionDetached(options: {
     const owner = options.owner ?? 'dev';
     const readyTimeoutMs = resolveDetachedSessionReadyTimeoutMs(owner);
     const cleanupResult = await cleanupStaleSessionArtifacts();
-    if (cleanupResult.retained && classifySessionControllerOwnership(getCurrentSessionName()).status !== 'active') {
+    if (!canProceedAfterStaleArtifactCleanup(cleanupResult)) {
         throw new Error(cleanupResult.reason ?? 'Session cleanup was refused because ownership evidence is unresolved.');
     }
 

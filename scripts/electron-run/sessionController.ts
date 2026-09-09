@@ -50,7 +50,7 @@ import {
 import {
     cleanupStaleSessionArtifacts,
     cleanupSessionStartingAttempt,
-    classifySessionControllerOwnership,
+    canProceedAfterStaleArtifactCleanup,
     clearSessionStarting,
     getSessionInfo,
     isSessionRunning,
@@ -109,7 +109,7 @@ export function shouldPreserveWorkspaceRecoveryArtifacts(
 
 async function ensureSessionCanStart() {
     const cleanupResult = await cleanupStaleSessionArtifacts();
-    if (cleanupResult.retained && classifySessionControllerOwnership(getCurrentSessionName()).status !== 'active') {
+    if (!canProceedAfterStaleArtifactCleanup(cleanupResult)) {
         throw new Error(cleanupResult.reason ?? 'Session cleanup was refused because ownership evidence is unresolved.');
     }
 
