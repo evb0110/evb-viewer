@@ -367,6 +367,17 @@ describe('findPdfSearchMatches', () => {
             .toThrow('pattern is too complex for document search');
     });
 
+    it('rejects alternation hidden behind nested groups before matching', () => {
+        for (const pattern of [
+            '((a|aa))+b',
+            '(((a|aa)))+b',
+            '(?:((a|aa)))+b',
+        ]) {
+            expect(() => findPdfSearchMatches('a'.repeat(40), pattern, {useRegex: true}))
+                .toThrow('pattern is too complex for document search');
+        }
+    });
+
     it('allows safe regexes with several separated quantifiers', () => {
         expect(findPdfSearchMatches(
             'abc-123-def',

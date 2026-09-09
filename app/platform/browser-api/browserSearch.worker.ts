@@ -13,6 +13,11 @@ import {
 import { BROWSER_SEARCH_LEGACY_ARRAY_PAGE_LIMIT } from '@app/platform/browser-api/browserSearchLegacyArrayPageLimit';
 import {validateBrowserSearchPageCount} from '@app/platform/browser-api/browserSearchLimits';
 import { getErrorMessage } from '@app/utils/error';
+import {iteratePdfSearchMatches} from '@pdf-core/pdfSearchCore';
+import {
+    SearchRegexLimitError,
+    validateSearchQuery,
+} from '@contracts/search';
 
 const canceledRequestIds = new Set<number>();
 const activeLoadCancellers = new Map<number, (error: Error) => void>();
@@ -171,6 +176,33 @@ async function handleStreamDocumentTextRequest(
     }
 }
 
+function handleMatchPageTextRequest(
+    request: IBrowserSearchWorkerRequest<'matchPageText'>,
+) {
+    const {
+        text, query, options, maxMatches, deadlineAtMs,
+    } = request.payload;
+    validateSearchQuery(query, options);
+
+    const matches = [];
+    let truncated = false;
+    for (const match of iteratePdfSearchMatches(text, query, {
+        ...options,
+        ...(deadlineAtMs === undefined ? {} : {deadlineAtMs}),
+    })) {
+        if (matches.length >= maxMatches) {
+            truncated = true;
+            break;
+        }
+        matches.push(match);
+    }
+
+    return {
+        matches,
+        truncated,
+    };
+}
+
 function handleCancelRequest(
     request: IBrowserSearchWorkerRequest<'cancel'>,
 ) {
@@ -219,6 +251,18 @@ self.addEventListener('message', async (event: MessageEvent<unknown>) => {
             return;
         }
 
+        if (request.type === 'matchPageText') {
+            const data = handleMatchPageTextRequest(request);
+            const response = {
+                id: request.id,
+                type: request.type,
+                ok: true,
+                data,
+            } satisfies TBrowserSearchWorkerResponse;
+            self.postMessage(response);
+            return;
+        }
+
         if (request.type === 'streamDocumentText') {
             const data = await handleStreamDocumentTextRequest(request);
             const response = {
@@ -244,6 +288,7 @@ self.addEventListener('message', async (event: MessageEvent<unknown>) => {
             id: request.id,
             ok: false,
             error: getErrorMessage(error),
+            ...(error instanceof SearchRegexLimitError ? {errorCode: 'SEARCH_REGEX_LIMIT' as const} : {}),
         } satisfies TBrowserSearchWorkerResponse;
         self.postMessage(response);
     }
