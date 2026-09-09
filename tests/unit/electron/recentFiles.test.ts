@@ -385,7 +385,7 @@ describe('recentFiles persistence', () => {
             version: 1,
             files: [expect.objectContaining({originalPath: filePath})],
         });
-        await expect(recentFiles.removeRecentFileIfMissing(filePath)).resolves.toBe(true);
+        await recentFiles.removeRecentFile(filePath);
         expect(recentFiles.getRecentFilesSync()).toEqual([]);
     });
 
@@ -534,17 +534,20 @@ describe('recentFiles persistence', () => {
         expect(await recentFiles.getRecentFiles()).toEqual([]);
     });
 
-    it('atomically removes a recent entry only after its source is deleted', async () => {
+    it('removes a recent entry only through the explicit remove action', async () => {
         const filePath = writeFixture('deleted-after-load.pdf');
         const recentFiles = await loadRecentFilesModule();
         await recentFiles.addRecentFile(filePath);
 
-        await expect(recentFiles.removeRecentFileIfMissing(filePath)).resolves.toBe(false);
+        await expect(recentFiles.getRecentFiles()).resolves.toEqual([expect.objectContaining({originalPath: filePath})]);
         expect(recentFiles.getRecentFilesSync()).toEqual([filePath]);
 
         unlinkSync(filePath);
 
-        await expect(recentFiles.removeRecentFileIfMissing(filePath)).resolves.toBe(true);
+        await recentFiles.initRecentFilesCache();
+        expect(recentFiles.getRecentFilesSync()).toEqual([filePath]);
+
+        await recentFiles.removeRecentFile(filePath);
         expect(recentFiles.getRecentFilesSync()).toEqual([]);
         expect(await recentFiles.getRecentFiles()).toEqual([]);
     });
@@ -609,7 +612,40 @@ describe('recentFiles persistence', () => {
         );
     });
 
-    it('retries a transient ENOENT before removing a recent path', async () => {
+    it('preserves entries when availability checks report directory, I/O, or permission failures', async () => {
+        const paths = [
+            join(userDataDir, 'offline-share', 'document.pdf'),
+            join(userDataDir, 'io-error.pdf'),
+            join(userDataDir, 'permission-denied.pdf'),
+        ];
+        writeFileSync(join(userDataDir, 'recentFiles.json'), JSON.stringify({
+            version: 1,
+            files: paths.map((originalPath, index) => ({
+                originalPath,
+                fileName: originalPath.split('/').at(-1),
+                timestamp: index + 1,
+                fileSize: 9,
+            })),
+        }));
+        mocks.stat.mockImplementation((path: unknown) => {
+            const code = path === paths[0]
+                ? 'ENOTDIR'
+                : path === paths[1]
+                    ? 'EIO'
+                    : 'EACCES';
+            return Promise.reject(Object.assign(new Error(code), {code}));
+        });
+
+        const recentFiles = await loadRecentFilesModule();
+        await expect(recentFiles.getRecentFiles()).resolves.toEqual(
+            paths.map(originalPath => expect.objectContaining({originalPath})),
+        );
+        expect(recentFiles.getRecentFilesSync()).toEqual(paths);
+        expect(JSON.parse(readFileSync(join(userDataDir, 'recentFiles.json'), 'utf-8')).files)
+            .toHaveLength(paths.length);
+    });
+
+    it('retries a transient ENOENT before preserving a recent path', async () => {
         const filePath = writeFixture('transient-enoent.pdf');
         const recentFiles = await loadRecentFilesModule();
         await recentFiles.addRecentFile(filePath);

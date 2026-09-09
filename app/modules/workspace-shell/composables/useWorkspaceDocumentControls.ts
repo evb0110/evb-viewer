@@ -105,7 +105,6 @@ export const useWorkspaceDocumentControls = (options: IWorkspaceDocumentControls
         closeFileWithViewerLifecycle,
         closeAllDropdowns,
         emitOpenInNewTab,
-        removeRecentFileIfMissing,
     } = options;
 
     const pageStatusBar = usePageStatusBar({
@@ -186,7 +185,6 @@ export const useWorkspaceDocumentControls = (options: IWorkspaceDocumentControls
         closeFile: closeFileWithViewerLifecycle,
         closeAllDropdowns,
         emitOpenInNewTab,
-        removeRecentFileIfMissing,
     });
 
     return {

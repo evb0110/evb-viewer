@@ -26,7 +26,6 @@ vi.mock('@app/composables/useRecentFiles', async () => {
         loadRecentFiles: vi.fn(async () => undefined),
         recentFiles: ref([]),
         removeRecentFile: vi.fn(async () => undefined),
-        removeRecentFileIfMissing: vi.fn(async () => false),
     })};
 });
 vi.mock('@app/modules/pdf-viewer/public/component-exports/pdfEmptyState', async () => {

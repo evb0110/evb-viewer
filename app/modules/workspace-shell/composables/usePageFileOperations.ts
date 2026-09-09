@@ -57,7 +57,6 @@ export interface IPageFileOperationsDeps {
     closeFile: () => void | Promise<void>;
     closeAllDropdowns: () => void;
     emitOpenInNewTab: (pathOrResult: TDocumentRef | TOpenFileResult) => void;
-    removeRecentFileIfMissing: (file: IRecentFile) => Promise<boolean>;
 }
 
 export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
@@ -85,7 +84,6 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         closeFile,
         closeAllDropdowns,
         emitOpenInNewTab,
-        removeRecentFileIfMissing,
     } = deps;
     const lastOpenOutcome = ref<TPageFileOpenOutcome | null>(null);
 
@@ -399,14 +397,6 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
 
     async function openRecentFileDetailed(file: IRecentFile) {
         BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'openRecentFile invoked', {path: file.originalPath});
-
-        if (await removeRecentFileIfMissing(file)) {
-            BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Recent file no longer exists; removed from recents', {path: file.originalPath});
-            return recordOpenOutcome({
-                status: 'failed',
-                error: 'Recent file no longer exists',
-            });
-        }
 
         return handleOpenFileDirectWithPersistDetailed(file.originalPath);
     }

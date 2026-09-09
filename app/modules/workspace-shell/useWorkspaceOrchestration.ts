@@ -123,7 +123,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         djvuSourcePath,
         djvuSourceSizeBytes,
         loadRecentFiles,
-        removeRecentFileIfMissing,
         pickFileToOpen,
         openFileWithViewerLifecycle,
         openFileDirectWithViewerLifecycle,
@@ -725,7 +724,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         closeFileWithViewerLifecycle,
         closeAllDropdowns,
         emitOpenInNewTab: (pathOrResult) => emit('open-in-new-tab', pathOrResult),
-        removeRecentFileIfMissing,
     });
 
     const getPrintableSourceData = createPrintableSourceDataResolver({

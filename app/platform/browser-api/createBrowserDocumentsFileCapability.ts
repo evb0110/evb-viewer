@@ -1135,18 +1135,6 @@ export function createBrowserDocumentsFileCapability(
                 await browserDocumentStore.removeRecentFile(path);
                 await clearSearchCaches(path);
             },
-            async removeIfMissing(path) {
-                const {
-                    available,
-                    entry,
-                } = await browserDocumentStore.ensureEntryAvailability(path);
-                if (!available || (entry && entry.retention !== 'transient')) {
-                    return false;
-                }
-                await browserDocumentStore.removeRecentFile(path);
-                await clearSearchCaches(path);
-                return true;
-            },
             async clear() {
                 await browserDocumentStore.clearRecentFiles();
                 await clearSearchCaches();

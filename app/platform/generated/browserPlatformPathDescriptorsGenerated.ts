@@ -94,7 +94,6 @@ export const browserPlatformPathDescriptorsGenerated = {
         recentFiles: {
             get: {kind: 'async', path: ["documentRecentFiles","recentFiles","get"]},
             remove: {kind: 'async', path: ["documentRecentFiles","recentFiles","remove"]},
-            removeIfMissing: {kind: 'async', path: ["documentRecentFiles","recentFiles","removeIfMissing"]},
             clear: {kind: 'async', path: ["documentRecentFiles","recentFiles","clear"]},
         },
     },
