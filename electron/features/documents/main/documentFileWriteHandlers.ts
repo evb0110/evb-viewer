@@ -21,7 +21,9 @@ import {
     writeFile,
 } from 'node:fs/promises';
 import {isErrnoException} from '@contracts/runtimeGuards';
+import {requireDocumentRef} from '@contracts/documentRef';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
+import type {TRequestId} from '@contracts/shared';
 import {
     resolveAllowedReadPath,
     resolveAllowedWritePath,
@@ -56,7 +58,8 @@ import {
 } from '@electron/file-access/workingCopyStore';
 import { originalPathSaveBaseMatches } from '@electron/file-access/originalPathSaveWitness';
 import {
-    findPendingOcrResultFileForPath,
+    claimPendingOcrResultForDocument,
+    releasePendingOcrResultClaim,
     rebindDocumentTextCatalogRevision,
     getOcrCatalogV4PreparedDescriptorPath,
     publishPreparedOcrCatalogV4,
@@ -246,7 +249,7 @@ async function sha256File(path: string) {
     return hash.digest('hex');
 }
 
-function assertOcrPdfResultSourcePath(resolvedPath: string, senderWebContentsId: number) {
+function assertOcrPdfResultSourcePath(resolvedPath: string) {
     const fileName = basename(resolvedPath).toLowerCase();
     if (extname(fileName) !== '.pdf') {
         throw new Error('Invalid source path: OCR result must be a PDF');
@@ -254,11 +257,6 @@ function assertOcrPdfResultSourcePath(resolvedPath: string, senderWebContentsId:
     if (!fileName.startsWith('ocr-') && !fileName.startsWith('searchable-')) {
         throw new Error('Invalid source path: only OCR result files can replace a working copy');
     }
-    const pendingResult = findPendingOcrResultFileForPath(senderWebContentsId, resolvedPath);
-    if (!pendingResult) {
-        throw new Error('Invalid source path: OCR result is not owned by this renderer');
-    }
-    return pendingResult;
 }
 
 async function shouldRefreshOriginalSaveBaseAfterWorkingCopyReplacement(
@@ -346,209 +344,117 @@ export async function handleReplaceWorkingCopyFromPath(
     // Read validation already returns a canonical real path. Reuse that form
     // for the prepared descriptor binding and every later source operation.
     const resolvedSourcePath = allowedSourcePath;
-    const pendingResult = assertOcrPdfResultSourcePath(resolvedSourcePath, senderId);
+    assertOcrPdfResultSourcePath(resolvedSourcePath);
+    let claimedRequestId: TRequestId | null = null;
 
-    return enqueueWorkingCopyMutation(resolvedWorkingCopyPath, async () => {
-        const journalPath = `${resolvedWorkingCopyPath}.ocr-transition.json`;
-        const priorTransition = await readFile(journalPath, 'utf8')
-            .then(raw => JSON.parse(raw) as {
-                transitionId?: unknown;
-                state?: unknown
-            })
-            .catch(() => null);
-        if (priorTransition?.transitionId === pendingResult.requestId && priorTransition.state === 'committed') {
-            return true;
-        }
-        await assertQueuedWorkingCopyMutationPreconditions(
-            resolvedWorkingCopyPath,
-            expectedDocumentRevisionToken,
-        );
-        await ensureWorkingCopyMaterialized(resolvedWorkingCopyPath, {
-            ownerWebContentsId: senderId,
-            reason: 'ocr-persist',
-        });
-        if (!expectedDocumentRevisionToken) {
-            throw new Error('OCR apply requires the source document revision');
-        }
-        if (await sha256File(resolvedSourcePath) !== pendingResult.resultSha256) {
-            throw new Error('OCR result content hash does not match the verified worker result');
-        }
-        const shouldRefreshOriginalSaveBase = await shouldRefreshOriginalSaveBaseAfterWorkingCopyReplacement(
-            resolvedWorkingCopyPath,
-            senderId,
-        );
-        const transitionId = pendingResult.requestId;
-        const transitionSuffix = `${process.pid}-${randomUUID()}`;
-        const pdfBackupPath = `${resolvedWorkingCopyPath}.ocr-transition-${transitionSuffix}.bak`;
-        const catalogPath = `${resolvedWorkingCopyPath}.ocr`;
-        const stagedCatalogPath = `${resolvedSourcePath}.ocr`;
-        const stagedDescriptorPath = getOcrCatalogV4PreparedDescriptorPath(resolvedSourcePath);
-        const catalogBackupPath = `${catalogPath}.transition-${transitionSuffix}.bak`;
-        const preparedDescriptor = await readPreparedOcrCatalogDescriptor(
-            stagedDescriptorPath,
-            resolvedSourcePath,
-            pendingResult.resultSha256,
-            catalogPath,
-        );
-
-        await copyFileAtomic(resolvedWorkingCopyPath, pdfBackupPath);
-        let catalogBackupExisted = false;
-        let legacyCatalogBackupMode: TLegacyOcrCatalogTransferMode = 'missing';
-        let legacyCatalogApplyMode: Exclude<TLegacyOcrCatalogTransferMode, 'missing'> = 'copy';
-        let legacyCatalogBackupMoved = false;
-        try {
-            if (preparedDescriptor) {
-                const previousManifest = await readExistingOcrCatalogManifest(catalogPath);
-                if (previousManifest !== null) {
-                    await writeFileAtomic(catalogBackupPath, previousManifest);
-                    catalogBackupExisted = true;
-                }
-            } else {
-                legacyCatalogBackupMode = await getLegacyOcrCatalogTransferMode(catalogPath);
-                catalogBackupExisted = legacyCatalogBackupMode !== 'missing';
-                legacyCatalogApplyMode = (await getLegacyOcrCatalogTransferMode(stagedCatalogPath)) === 'rename'
-                    ? 'rename'
-                    : 'copy';
-                if (legacyCatalogBackupMode === 'copy') {
-                    try {
-                        await cp(catalogPath, catalogBackupPath, {recursive: true});
-                    } catch (error) {
-                        if (!isErrnoException(error) || error.code !== 'ENOENT') {
-                            throw error;
-                        }
-                        catalogBackupExisted = false;
-                        legacyCatalogBackupMode = 'missing';
-                    }
-                }
-            }
-        } catch (error) {
-            await Promise.all([
-                unlink(pdfBackupPath).catch(() => undefined),
-                Promise.resolve(rm(catalogBackupPath, {
-                    recursive: true,
-                    force: true,
-                })).catch(() => undefined),
-            ]);
-            throw error;
-        }
-        await writeFile(journalPath, JSON.stringify({
-            version: 1,
-            transitionId,
-            state: 'prepared',
-            workingCopyPath: resolvedWorkingCopyPath,
-            resultPath: resolvedSourcePath,
-            expectedDocumentRevisionToken,
-            pdfBackupPath,
-            catalogBackupPath,
-            catalogBackupExisted,
-            ...(!preparedDescriptor ? {
-                catalogBackupMode: legacyCatalogBackupMode,
-                catalogApplyMode: legacyCatalogApplyMode,
-            } : {}),
-            ...(preparedDescriptor ? {
-                catalogKind: 'v4-root',
-                descriptorPath: stagedDescriptorPath,
-            } : {}),
-            createdAt: Date.now(),
-        }), 'utf8');
-        let transitionPublished = false;
-        try {
-            const transitionEvent = await transitionWorkingCopyContentRevision(
+    try {
+        return await enqueueWorkingCopyMutation(resolvedWorkingCopyPath, async () => {
+            await assertQueuedWorkingCopyMutationPreconditions(
                 resolvedWorkingCopyPath,
-                'ocr-apply',
-                async nextRevision => {
-                    try {
-                        await writeFile(journalPath, JSON.stringify({
-                            version: 1,
-                            transitionId,
-                            state: 'prepared',
-                            workingCopyPath: resolvedWorkingCopyPath,
-                            resultPath: resolvedSourcePath,
-                            expectedDocumentRevisionToken,
-                            targetDocumentRevisionToken: nextRevision.token,
-                            pdfBackupPath,
-                            catalogBackupPath,
-                            catalogBackupExisted,
-                            ...(!preparedDescriptor ? {
-                                catalogBackupMode: legacyCatalogBackupMode,
-                                catalogApplyMode: legacyCatalogApplyMode,
-                            } : {}),
-                            ...(preparedDescriptor ? {
-                                catalogKind: 'v4-root',
-                                descriptorPath: stagedDescriptorPath,
-                            } : {}),
-                            createdAt: Date.now(),
-                        }), 'utf8');
-                        await copyFileAtomic(resolvedSourcePath, resolvedWorkingCopyPath);
-                        if (preparedDescriptor) {
-                            await publishPreparedOcrCatalog({
-                                descriptorPath: stagedDescriptorPath,
-                                catalogRoot: catalogPath,
-                                workingCopyPath: resolvedWorkingCopyPath,
-                                nextRevisionToken: nextRevision.token,
-                                resultPath: resolvedSourcePath,
-                                resultIdentity: pendingResult.resultSha256,
-                            });
-                        } else {
-                            if (legacyCatalogBackupMode === 'rename') {
-                                await rename(catalogPath, catalogBackupPath);
-                                legacyCatalogBackupMoved = true;
-                            }
-                            await rm(catalogPath, {
-                                recursive: true,
-                                force: true,
-                            });
-                            if (legacyCatalogApplyMode === 'rename') {
-                                await rename(stagedCatalogPath, catalogPath);
-                            } else {
-                                await cp(stagedCatalogPath, catalogPath, {recursive: true});
-                            }
-                            await rebindDocumentTextCatalogRevision(
-                                resolvedWorkingCopyPath,
-                                expectedDocumentRevisionToken,
-                                nextRevision.token,
-                            );
-                        }
-                        await clearWorkingCopySearchArtifacts(resolvedWorkingCopyPath);
-                    } catch (error) {
-                        await copyFileAtomic(pdfBackupPath, resolvedWorkingCopyPath).catch(() => undefined);
-                        if (preparedDescriptor) {
-                            await restorePreparedRootManifest(
-                                catalogPath,
-                                catalogBackupPath,
-                                catalogBackupExisted,
-                            ).catch(() => undefined);
-                            await rollbackPreparedOcrCatalog(stagedDescriptorPath, catalogPath).catch(() => undefined);
-                        } else {
-                            if (legacyCatalogBackupMode !== 'rename' || legacyCatalogBackupMoved) {
-                                await rm(catalogPath, {
-                                    recursive: true,
-                                    force: true,
-                                }).catch(() => undefined);
-                            }
-                            if (catalogBackupExisted && (legacyCatalogBackupMode !== 'rename' || legacyCatalogBackupMoved)) {
-                                if (legacyCatalogBackupMode === 'rename') {
-                                    await rename(catalogBackupPath, catalogPath).catch(() => undefined);
-                                } else {
-                                    await cp(catalogBackupPath, catalogPath, {recursive: true}).catch(() => undefined);
-                                }
-                            }
-                        }
-                        throw error;
-                    }
-                },
+                expectedDocumentRevisionToken,
+            );
+            await ensureWorkingCopyMaterialized(resolvedWorkingCopyPath, {
+                ownerWebContentsId: senderId,
+                reason: 'ocr-persist',
+            });
+            if (!expectedDocumentRevisionToken) {
+                throw new Error('OCR apply requires the source document revision');
+            }
+            const claim = claimPendingOcrResultForDocument(
+                senderId,
+                resolvedSourcePath,
+                requireDocumentRef(resolvedWorkingCopyPath),
+                expectedDocumentRevisionToken,
+            );
+            if (claim.status === 'already-claimed') {
+                throw new Error('OCR result is already claimed by another document owner');
+            }
+            if (claim.status !== 'claimed' || !claim.entry) {
+                throw new Error('Invalid source path: OCR result is not authorized for this document revision');
+            }
+            const pendingResult = claim.entry;
+            claimedRequestId = pendingResult.requestId;
+            const journalPath = `${resolvedWorkingCopyPath}.ocr-transition.json`;
+            const priorTransition = await readFile(journalPath, 'utf8')
+                .then(raw => JSON.parse(raw) as {
+                    transitionId?: unknown;
+                    state?: unknown
+                })
+                .catch(() => null);
+            if (priorTransition?.transitionId === pendingResult.requestId && priorTransition.state === 'committed') {
+                return true;
+            }
+            if (await sha256File(resolvedSourcePath) !== pendingResult.resultSha256) {
+                throw new Error('OCR result content hash does not match the verified worker result');
+            }
+            const shouldRefreshOriginalSaveBase = await shouldRefreshOriginalSaveBaseAfterWorkingCopyReplacement(
+                resolvedWorkingCopyPath,
                 senderId,
             );
-            transitionPublished = true;
+            const transitionId = pendingResult.requestId;
+            const transitionSuffix = `${process.pid}-${randomUUID()}`;
+            const pdfBackupPath = `${resolvedWorkingCopyPath}.ocr-transition-${transitionSuffix}.bak`;
+            const catalogPath = `${resolvedWorkingCopyPath}.ocr`;
+            const stagedCatalogPath = `${resolvedSourcePath}.ocr`;
+            const stagedDescriptorPath = getOcrCatalogV4PreparedDescriptorPath(resolvedSourcePath);
+            const catalogBackupPath = `${catalogPath}.transition-${transitionSuffix}.bak`;
+            const preparedDescriptor = await readPreparedOcrCatalogDescriptor(
+                stagedDescriptorPath,
+                resolvedSourcePath,
+                pendingResult.resultSha256,
+                catalogPath,
+            );
+
+            await copyFileAtomic(resolvedWorkingCopyPath, pdfBackupPath);
+            let catalogBackupExisted = false;
+            let legacyCatalogBackupMode: TLegacyOcrCatalogTransferMode = 'missing';
+            let legacyCatalogApplyMode: Exclude<TLegacyOcrCatalogTransferMode, 'missing'> = 'copy';
+            let legacyCatalogBackupMoved = false;
+            try {
+                if (preparedDescriptor) {
+                    const previousManifest = await readExistingOcrCatalogManifest(catalogPath);
+                    if (previousManifest !== null) {
+                        await writeFileAtomic(catalogBackupPath, previousManifest);
+                        catalogBackupExisted = true;
+                    }
+                } else {
+                    legacyCatalogBackupMode = await getLegacyOcrCatalogTransferMode(catalogPath);
+                    catalogBackupExisted = legacyCatalogBackupMode !== 'missing';
+                    legacyCatalogApplyMode = (await getLegacyOcrCatalogTransferMode(stagedCatalogPath)) === 'rename'
+                        ? 'rename'
+                        : 'copy';
+                    if (legacyCatalogBackupMode === 'copy') {
+                        try {
+                            await cp(catalogPath, catalogBackupPath, {recursive: true});
+                        } catch (error) {
+                            if (!isErrnoException(error) || error.code !== 'ENOENT') {
+                                throw error;
+                            }
+                            catalogBackupExisted = false;
+                            legacyCatalogBackupMode = 'missing';
+                        }
+                    }
+                }
+            } catch (error) {
+                await Promise.all([
+                    unlink(pdfBackupPath).catch(() => undefined),
+                    Promise.resolve(rm(catalogBackupPath, {
+                        recursive: true,
+                        force: true,
+                    })).catch(() => undefined),
+                ]);
+                throw error;
+            }
             await writeFile(journalPath, JSON.stringify({
                 version: 1,
                 transitionId,
-                state: 'committed',
+                state: 'prepared',
                 workingCopyPath: resolvedWorkingCopyPath,
-                targetDocumentRevisionToken: transitionEvent.token,
-                undoPdfPath: pdfBackupPath,
-                undoCatalogPath: catalogBackupPath,
-                undoCatalogExisted: catalogBackupExisted,
+                resultPath: resolvedSourcePath,
+                expectedDocumentRevisionToken,
+                pdfBackupPath,
+                catalogBackupPath,
+                catalogBackupExisted,
                 ...(!preparedDescriptor ? {
                     catalogBackupMode: legacyCatalogBackupMode,
                     catalogApplyMode: legacyCatalogApplyMode,
@@ -557,25 +463,139 @@ export async function handleReplaceWorkingCopyFromPath(
                     catalogKind: 'v4-root',
                     descriptorPath: stagedDescriptorPath,
                 } : {}),
-                committedAt: Date.now(),
+                createdAt: Date.now(),
             }), 'utf8');
-        } finally {
-            await Promise.all([
-                ...(transitionPublished ? [] : [unlink(pdfBackupPath).catch(() => undefined)]),
-                ...(transitionPublished ? [] : [rm(catalogBackupPath, {
-                    recursive: true,
-                    force: true,
-                }).catch(() => undefined)]),
-                ...(transitionPublished ? [] : [unlink(journalPath).catch(() => undefined)]),
-            ]);
-        }
-        if (shouldRefreshOriginalSaveBase) {
-            if (!await refreshWorkingCopyOriginalFileExpectation(resolvedWorkingCopyPath, senderId)) {
-                throw new Error('Working copy registration changed before original expectation refresh completed');
+            let transitionPublished = false;
+            try {
+                const transitionEvent = await transitionWorkingCopyContentRevision(
+                    resolvedWorkingCopyPath,
+                    'ocr-apply',
+                    async nextRevision => {
+                        try {
+                            await writeFile(journalPath, JSON.stringify({
+                                version: 1,
+                                transitionId,
+                                state: 'prepared',
+                                workingCopyPath: resolvedWorkingCopyPath,
+                                resultPath: resolvedSourcePath,
+                                expectedDocumentRevisionToken,
+                                targetDocumentRevisionToken: nextRevision.token,
+                                pdfBackupPath,
+                                catalogBackupPath,
+                                catalogBackupExisted,
+                                ...(!preparedDescriptor ? {
+                                    catalogBackupMode: legacyCatalogBackupMode,
+                                    catalogApplyMode: legacyCatalogApplyMode,
+                                } : {}),
+                                ...(preparedDescriptor ? {
+                                    catalogKind: 'v4-root',
+                                    descriptorPath: stagedDescriptorPath,
+                                } : {}),
+                                createdAt: Date.now(),
+                            }), 'utf8');
+                            await copyFileAtomic(resolvedSourcePath, resolvedWorkingCopyPath);
+                            if (preparedDescriptor) {
+                                await publishPreparedOcrCatalog({
+                                    descriptorPath: stagedDescriptorPath,
+                                    catalogRoot: catalogPath,
+                                    workingCopyPath: resolvedWorkingCopyPath,
+                                    nextRevisionToken: nextRevision.token,
+                                    resultPath: resolvedSourcePath,
+                                    resultIdentity: pendingResult.resultSha256,
+                                });
+                            } else {
+                                if (legacyCatalogBackupMode === 'rename') {
+                                    await rename(catalogPath, catalogBackupPath);
+                                    legacyCatalogBackupMoved = true;
+                                }
+                                await rm(catalogPath, {
+                                    recursive: true,
+                                    force: true,
+                                });
+                                if (legacyCatalogApplyMode === 'rename') {
+                                    await rename(stagedCatalogPath, catalogPath);
+                                } else {
+                                    await cp(stagedCatalogPath, catalogPath, {recursive: true});
+                                }
+                                await rebindDocumentTextCatalogRevision(
+                                    resolvedWorkingCopyPath,
+                                    expectedDocumentRevisionToken,
+                                    nextRevision.token,
+                                );
+                            }
+                            await clearWorkingCopySearchArtifacts(resolvedWorkingCopyPath);
+                        } catch (error) {
+                            await copyFileAtomic(pdfBackupPath, resolvedWorkingCopyPath).catch(() => undefined);
+                            if (preparedDescriptor) {
+                                await restorePreparedRootManifest(
+                                    catalogPath,
+                                    catalogBackupPath,
+                                    catalogBackupExisted,
+                                ).catch(() => undefined);
+                                await rollbackPreparedOcrCatalog(stagedDescriptorPath, catalogPath).catch(() => undefined);
+                            } else {
+                                if (legacyCatalogBackupMode !== 'rename' || legacyCatalogBackupMoved) {
+                                    await rm(catalogPath, {
+                                        recursive: true,
+                                        force: true,
+                                    }).catch(() => undefined);
+                                }
+                                if (catalogBackupExisted && (legacyCatalogBackupMode !== 'rename' || legacyCatalogBackupMoved)) {
+                                    if (legacyCatalogBackupMode === 'rename') {
+                                        await rename(catalogBackupPath, catalogPath).catch(() => undefined);
+                                    } else {
+                                        await cp(catalogBackupPath, catalogPath, {recursive: true}).catch(() => undefined);
+                                    }
+                                }
+                            }
+                            throw error;
+                        }
+                    },
+                    senderId,
+                );
+                transitionPublished = true;
+                await writeFile(journalPath, JSON.stringify({
+                    version: 1,
+                    transitionId,
+                    state: 'committed',
+                    workingCopyPath: resolvedWorkingCopyPath,
+                    targetDocumentRevisionToken: transitionEvent.token,
+                    undoPdfPath: pdfBackupPath,
+                    undoCatalogPath: catalogBackupPath,
+                    undoCatalogExisted: catalogBackupExisted,
+                    ...(!preparedDescriptor ? {
+                        catalogBackupMode: legacyCatalogBackupMode,
+                        catalogApplyMode: legacyCatalogApplyMode,
+                    } : {}),
+                    ...(preparedDescriptor ? {
+                        catalogKind: 'v4-root',
+                        descriptorPath: stagedDescriptorPath,
+                    } : {}),
+                    committedAt: Date.now(),
+                }), 'utf8');
+            } finally {
+                await Promise.all([
+                    ...(transitionPublished ? [] : [unlink(pdfBackupPath).catch(() => undefined)]),
+                    ...(transitionPublished ? [] : [rm(catalogBackupPath, {
+                        recursive: true,
+                        force: true,
+                    }).catch(() => undefined)]),
+                    ...(transitionPublished ? [] : [unlink(journalPath).catch(() => undefined)]),
+                ]);
             }
+            if (shouldRefreshOriginalSaveBase) {
+                if (!await refreshWorkingCopyOriginalFileExpectation(resolvedWorkingCopyPath, senderId)) {
+                    throw new Error('Working copy registration changed before original expectation refresh completed');
+                }
+            }
+            return true;
+        });
+    } catch (error) {
+        if (claimedRequestId !== null) {
+            releasePendingOcrResultClaim(senderId, claimedRequestId);
         }
-        return true;
-    });
+        throw error;
+    }
 }
 
 export async function handleFileWriteDocx(

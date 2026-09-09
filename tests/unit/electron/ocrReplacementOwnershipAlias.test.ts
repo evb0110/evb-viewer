@@ -276,7 +276,7 @@ describe('OCR replacement ownership path aliases', () => {
             }
             throw Object.assign(new Error('missing'), {code: 'ENOENT'});
         });
-        store?.track(requireJobId('42:ocr-1'), requireRequestId('ocr-1'), 42, rendererOcrPath, resultSha256, true);
+        store?.track(requireJobId('42:ocr-1'), requireRequestId('ocr-1'), 42, requireDocumentRef(resolvedWorkingCopyPath), sourceRevisionToken, rendererOcrPath, resultSha256, true);
 
         await expect(handleReplaceWorkingCopyFromPath(
             ownerContext,
@@ -294,7 +294,7 @@ describe('OCR replacement ownership path aliases', () => {
     });
 
     it('allows the owning renderer to replace from a macOS /var alias but rejects other renderers', async () => {
-        store?.track(requireJobId('42:ocr-1'), requireRequestId('ocr-1'), 42, rendererOcrPath, resultSha256, true);
+        store?.track(requireJobId('42:ocr-1'), requireRequestId('ocr-1'), 42, requireDocumentRef(resolvedWorkingCopyPath), sourceRevisionToken, rendererOcrPath, resultSha256, true);
 
         await expect(handleReplaceWorkingCopyFromPath(
             ownerContext,
@@ -333,7 +333,7 @@ describe('OCR replacement ownership path aliases', () => {
             workingCopyPath,
             rendererOcrPath,
             {expectedDocumentRevisionToken: sourceRevisionToken},
-        )).rejects.toThrow('Invalid source path: OCR result is not owned by this renderer');
+        )).rejects.toThrow('OCR result is already claimed by another document owner');
 
         expect(mocks.copyFile).not.toHaveBeenCalled();
         expect(mocks.rename).not.toHaveBeenCalled();

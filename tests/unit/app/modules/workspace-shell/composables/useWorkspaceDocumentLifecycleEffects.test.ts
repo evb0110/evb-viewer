@@ -149,6 +149,8 @@ describe('useWorkspaceDocumentLifecycleEffects OCR application', () => {
         expect(mocks.acknowledgeResultFile).toHaveBeenCalledWith(
             'ocr-1',
             '/tmp/ocr-1-merged.pdf',
+            '/tmp/work.pdf',
+            requireDocumentRevisionToken('source-revision-token'),
         );
         expect(mocks.warmIndex).toHaveBeenCalledWith('/tmp/work.pdf', {pageCount: 12});
         lifecycle.scope.stop();
@@ -210,6 +212,8 @@ describe('useWorkspaceDocumentLifecycleEffects OCR application', () => {
         expect(mocks.acknowledgeResultFile).toHaveBeenCalledWith(
             'ocr-1',
             '/tmp/ocr-1-merged.pdf',
+            '/tmp/work.pdf',
+            requireDocumentRevisionToken('source-revision-token'),
         );
         lifecycle.scope.stop();
     });
@@ -229,6 +233,8 @@ describe('useWorkspaceDocumentLifecycleEffects OCR application', () => {
         expect(mocks.acknowledgeResultFile).toHaveBeenCalledWith(
             'ocr-1',
             '/tmp/ocr-1-merged.pdf',
+            '/tmp/work.pdf',
+            requireDocumentRevisionToken('source-revision-token'),
         );
         expect(mocks.warmIndex).not.toHaveBeenCalled();
         expect(mocks.toastAdd).toHaveBeenCalledWith(expect.objectContaining({
