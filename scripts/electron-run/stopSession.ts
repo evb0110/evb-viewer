@@ -8,6 +8,7 @@ import {
     cleanupOrphanedProjectNuxtRoots,
     hasOtherAliveSessionUsingNuxt,
     killExistingNuxt,
+    readNuxtOwnerCheck,
     readNuxtSessionShareMetadata,
 } from '@scripts/electron-run/electronRunNuxtServer';
 import {
@@ -26,7 +27,6 @@ import {
     getSessionInfo,
     getSessionStartingInfo,
     listAllSessionNames,
-    readNuxtOwnerCheck,
 } from '@scripts/electron-run/electronRunSessionArtifacts';
 import {
     electronUserDataPath,
@@ -180,7 +180,7 @@ async function stopNuxtForSessionInfo(info: ISessionInfo, name: string, keepNuxt
         console.log('[Nuxt] Left running for fast restart');
         return true;
     }
-    const ownerCheck = await readNuxtOwnerCheck(name, info.nuxtPid, info.nuxtPort);
+    const ownerCheck = readNuxtOwnerCheck(name, info.nuxtPid, info.nuxtPort);
     if (!ownerCheck.known) {
         console.warn(ownerCheck.reason ?? `[Nuxt] Refused to terminate PID ${info.nuxtPid}: ownership is unresolved.`);
         return false;

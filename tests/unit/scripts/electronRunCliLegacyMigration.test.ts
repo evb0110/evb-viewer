@@ -179,6 +179,9 @@ function installOutputCapture() {
 function terminationSignals(killSpy: ReturnType<typeof vi.spyOn>) {
     return killSpy.mock.calls.filter(([
         , signal,
+    ]: [
+        unknown,
+        NodeJS.Signals | number | undefined,
     ]) => signal === 'SIGTERM' || signal === 'SIGKILL');
 }
 

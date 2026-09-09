@@ -28,8 +28,8 @@ import {
     cleanupSessionStartingAttempt,
     cleanupStaleSessionArtifacts,
     classifySessionControllerOwnership,
-    type IProcessIdentitySnapshot,
 } from '@scripts/electron-run/electronRunSessionArtifacts';
+import type {IProcessIdentitySnapshot} from '@scripts/electron-run/electronRunProcessIdentity';
 import {workspaceCrashCheckpointPath} from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
 import {pruneStaleE2ESessions} from '@scripts/electron-run/electronRunE2ESessionPrune';
 import type {ISessionInfo} from '@scripts/electron-run/electronRunSessionTypes';

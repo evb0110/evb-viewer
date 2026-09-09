@@ -515,88 +515,54 @@ function collectSessionNuxtCandidates(
     return candidates;
 }
 
-export async function readNuxtOwnerCheck(
+type TNuxtOwnerProbe = (
     sessionName: string,
     nuxtPid: number,
     nuxtPort: number | null,
-): Promise<INuxtSessionOwnerCheck> {
-    try {
-        // Nuxt already imports this artifact module for session metadata. Keep
-        // this reverse dependency lazy so loading either module remains safe.
-        const {
-            hasOtherAliveSessionUsingNuxt,
-            readNuxtSessionShareMetadata,
-        } = await import('@scripts/electron-run/electronRunNuxtServer');
-        const sessions = readNuxtSessionShareMetadata();
-        for (const otherName of listAllSessionNames()) {
-            if (otherName === sessionName) {
-                continue;
-            }
-            const info = getSessionInfo(otherName);
-            const starting = getSessionStartingInfo(otherName);
-            const ownershipOptions: IClassifySessionControllerOwnershipOptions = {};
-            if (info) {
-                ownershipOptions.info = info;
-            }
-            if (starting) {
-                ownershipOptions.starting = starting;
-            }
-            const ownership = classifySessionControllerOwnership(otherName, ownershipOptions);
-            if (ownership.status === 'abandoned') {
-                continue;
-            }
-            if (ownership.status === 'ambiguous') {
-                return {
-                    known: false,
-                    shared: false,
-                    reason: `Nuxt ownership is ambiguous for session '${otherName}' (${ownership.reason ?? 'metadata is unresolved'}). The server was retained; recover that session before retrying cleanup.`,
-                };
-            }
+) => INuxtSessionOwnerCheck | Promise<INuxtSessionOwnerCheck>;
 
-            if (info?.nuxtPid || info?.nuxtPort) {
-                const existing = sessions.find(session => session.name === otherName);
-                if (existing) {
-                    existing.sessionAlive = true;
-                } else {
-                    sessions.push({
-                        name: otherName,
-                        sessionAlive: true,
-                        nuxtPid: info?.nuxtPid ?? null,
-                        nuxtPort: info?.nuxtPort ?? 0,
-                    });
-                }
-            }
-            if (starting?.nuxtPid || starting?.nuxtPort) {
-                sessions.push({
-                    name: otherName,
-                    sessionAlive: true,
-                    nuxtPid: starting.nuxtPid,
-                    nuxtPort: starting.nuxtPort ?? 0,
-                });
-            }
+let nuxtOwnerProbe: TNuxtOwnerProbe = (sessionName, nuxtPid, nuxtPort) => {
+    for (const otherName of listAllSessionNames()) {
+        if (otherName === sessionName) {
+            continue;
         }
-
-        const shared = hasOtherAliveSessionUsingNuxt(
-            sessions,
-            sessionName,
-            nuxtPid,
-            nuxtPort ?? 0,
-        );
-        return {
-            known: true,
-            shared,
-            reason: shared
-                ? `Nuxt PID ${nuxtPid} on port ${nuxtPort ?? 'unknown'} is still used by another live session.`
-                : null,
-        };
-    } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        return {
-            known: false,
-            shared: false,
-            reason: `Nuxt owner check failed for PID ${nuxtPid}: ${message}. The server was retained; inspect session ownership and retry cleanup.`,
-        };
+        const ownership = classifySessionControllerOwnership(otherName);
+        if (ownership.status === 'ambiguous') {
+            return {
+                known: false,
+                shared: false,
+                reason: `Nuxt ownership is ambiguous for session '${otherName}' (${ownership.reason ?? 'metadata is unresolved'}). The server was retained; recover that session before retrying cleanup.`,
+            };
+        }
+        if (ownership.status !== 'active') {
+            continue;
+        }
+        const info = getSessionInfo(otherName);
+        const starting = getSessionStartingInfo(otherName);
+        if ([
+            info?.nuxtPid,
+            starting?.nuxtPid,
+        ].includes(nuxtPid)
+            || [
+                info?.nuxtPort,
+                starting?.nuxtPort,
+            ].includes(nuxtPort)) {
+            return {
+                known: true,
+                shared: true,
+                reason: `Nuxt PID ${nuxtPid} on port ${nuxtPort ?? 'unknown'} is still used by another live session.`,
+            };
+        }
     }
+    return {
+        known: true,
+        shared: false,
+        reason: null,
+    };
+};
+
+export function registerNuxtOwnerProbe(probe: TNuxtOwnerProbe) {
+    nuxtOwnerProbe = probe;
 }
 
 async function killRecordedStartingProcesses(
@@ -658,7 +624,7 @@ export async function cleanupSessionStartingAttempt(
 
     let killNuxt = options.killNuxt !== false;
     if (killNuxt && starting.nuxtPid && isProcessAlive(starting.nuxtPid)) {
-        const ownerCheck = await (options.nuxtOwnerProbe ?? readNuxtOwnerCheck)(
+        const ownerCheck = await (options.nuxtOwnerProbe ?? nuxtOwnerProbe)(
             name,
             starting.nuxtPid,
             starting.nuxtPort,
@@ -677,7 +643,7 @@ export async function cleanupSessionStartingAttempt(
     }
 
     if (killNuxt && starting.nuxtPid && isProcessAlive(starting.nuxtPid)) {
-        const boundaryOwnerCheck = await (options.nuxtOwnerProbe ?? readNuxtOwnerCheck)(
+        const boundaryOwnerCheck = await (options.nuxtOwnerProbe ?? nuxtOwnerProbe)(
             name,
             starting.nuxtPid,
             starting.nuxtPort,
@@ -775,7 +741,7 @@ export async function cleanupStaleSessionArtifacts(
         if (!isProcessAlive(candidate.pid)) {
             continue;
         }
-        const ownerCheck = await (options.nuxtOwnerProbe ?? readNuxtOwnerCheck)(
+        const ownerCheck = await (options.nuxtOwnerProbe ?? nuxtOwnerProbe)(
             name,
             candidate.pid,
             candidate.nuxtPort,
@@ -792,7 +758,7 @@ export async function cleanupStaleSessionArtifacts(
             console.log(`[Session '${name}'] Left Nuxt PID ${candidate.pid} running because another live session owns the shared server.`);
             continue;
         }
-        const boundaryOwnerCheck = await (options.nuxtOwnerProbe ?? readNuxtOwnerCheck)(
+        const boundaryOwnerCheck = await (options.nuxtOwnerProbe ?? nuxtOwnerProbe)(
             name,
             candidate.pid,
             candidate.nuxtPort,

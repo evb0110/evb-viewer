@@ -44,6 +44,7 @@ import {
     getSessionInfo,
     getSessionStartingInfo,
     listAllSessionNames,
+    registerNuxtOwnerProbe,
     type IClassifySessionControllerOwnershipOptions,
 } from '@scripts/electron-run/electronRunSessionArtifacts';
 import { getCurrentSessionName } from '@scripts/electron-run/electronRunSessionPaths';
@@ -665,6 +666,45 @@ export function readNuxtSessionShareMetadata(): INuxtSessionShareMetadata[] {
         ];
     });
 }
+
+export function readNuxtOwnerCheck(
+    sessionName: string,
+    nuxtPid: number,
+    nuxtPort: number | null,
+): {
+    known: boolean;
+    shared: boolean;
+    reason: string | null;
+} {
+    for (const otherName of listAllSessionNames()) {
+        if (otherName === sessionName) {
+            continue;
+        }
+        const ownership = classifySessionControllerOwnership(otherName);
+        if (ownership.status === 'ambiguous') {
+            return {
+                known: false,
+                shared: false,
+                reason: `Nuxt ownership is ambiguous for session '${otherName}' (${ownership.reason ?? 'metadata is unresolved'}). The server was retained; recover that session before retrying cleanup.`,
+            };
+        }
+    }
+    const shared = hasOtherAliveSessionUsingNuxt(
+        readNuxtSessionShareMetadata(),
+        sessionName,
+        nuxtPid,
+        nuxtPort ?? 0,
+    );
+    return {
+        known: true,
+        shared,
+        reason: shared
+            ? `Nuxt PID ${nuxtPid} on port ${nuxtPort ?? 'unknown'} is still used by another live session.`
+            : null,
+    };
+}
+
+registerNuxtOwnerProbe(readNuxtOwnerCheck);
 
 export function selectStaleNuxtPortOwnerCleanupTargets(
     pidsOnPort: number[],
