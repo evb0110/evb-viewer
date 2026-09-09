@@ -747,12 +747,13 @@ describe('useWindowTabTransfers', () => {
             activeTabId: 'tab-placeholder',
             tabIds: ['tab-placeholder'],
         };
+        const restoreSplitPayload = vi.fn(async () => ({
+            status: 'failed' as const,
+            error: 'restore failed',
+        }));
         const restoredWorkspace = createWorkspaceExposeFixture({
             hasPdf: false,
-            restoreSplitPayload: vi.fn(async () => ({
-                status: 'failed' as const,
-                error: 'restore failed',
-            })),
+            restoreSplitPayload,
         });
         const transfers = useWindowTabTransfers({
             activePaneId: ref('pane-1'),
@@ -794,13 +795,13 @@ describe('useWindowTabTransfers', () => {
             payload,
         });
 
-        expect(restoredWorkspace.restoreSplitPayload).toHaveBeenCalledWith(payload);
+        expect(restoreSplitPayload).toHaveBeenCalledWith(payload);
         expect(mocks.transferAck).toHaveBeenCalledWith({
             transferId: 'transfer-restore-failed',
             success: true,
         });
         expect(mocks.transferAck.mock.invocationCallOrder[0]).toBeLessThan(
-            restoredWorkspace.restoreSplitPayload.mock.invocationCallOrder[0],
+            restoreSplitPayload.mock.invocationCallOrder[0]!,
         );
         expect(mocks.cleanupSplitPayloadSnapshot).not.toHaveBeenCalled();
     });

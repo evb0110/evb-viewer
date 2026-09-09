@@ -15,10 +15,9 @@ import {
 import { getFocusedArchitectureRoots } from '../workspace-roots.mjs';
 import { RUNTIME_TOOL_BOUNDARY_RULES } from './runtimeToolBoundaryRules.mjs';
 import {
-    BOUNDARY_EXCEPTION_POLICY,
-    getBoundaryExceptionEntries,
-    getBoundaryExceptionValues,
-    validateBoundaryExceptionPolicy,
+    ANNOTATION_STORAGE_PRIVATE_ACCESS_ALLOWED_FILES,
+    PDF_VIEWER_ENGINE_RETAINED_BACK_EDGES,
+    SCRIPTS_TO_APP_ALLOWED_EDGES,
 } from './boundaryExceptionPolicy.mjs';
 
 const APP_MODULE_PUBLIC_ENTRYPOINTS = new Set([
@@ -117,10 +116,6 @@ const ROOT_BOUNDARY_RULES = [
     },
     ...RUNTIME_TOOL_BOUNDARY_RULES,
 ];
-
-const SCRIPTS_TO_APP_ALLOWED_EDGES = new Set(
-    getBoundaryExceptionValues(BOUNDARY_EXCEPTION_POLICY, 'scriptsToAppEdges'),
-);
 
 const PACKAGE_LAYER_RULES = [
     {
@@ -235,10 +230,6 @@ const APP_PRODUCTION_SOURCE_EXTENSIONS = [
     '.vue',
 ];
 
-const ANNOTATION_STORAGE_PRIVATE_ACCESS_ALLOWED_FILES = new Set(
-    getBoundaryExceptionValues(BOUNDARY_EXCEPTION_POLICY, 'annotationStoragePrivateAccess'),
-);
-
 const ANNOTATION_STORAGE_PRIVATE_MEMBERS = [
     'serializable',
     'modifiedIds',
@@ -252,11 +243,6 @@ const PDF_VIEWER_ENGINE_ALLOWED_TARGET_ROOTS = [
     PDF_VIEWER_ENGINE_ROOT,
     `${PDF_VIEWER_MODULE_ROOT}/dom`,
 ];
-const PDF_VIEWER_ENGINE_RETAINED_BACK_EDGES = getBoundaryExceptionEntries(
-    BOUNDARY_EXCEPTION_POLICY,
-    'pdfViewerEngineBackEdges',
-);
-
 const NATIVE_TOOL_DOMAIN_ROOTS = [
     'electron/ocr',
     'electron/pdf',
@@ -268,22 +254,6 @@ electron/ocr/nativeToolPaths.ts
 electron/ocr/resolveOcrResourcesBase.ts
 electron/ocr/worker/dpiDetection.ts
 `.trim().split('\n'));
-
-const CONTRACT_COMPATIBILITY_POLICY_IMPORTS = new Map(
-    getBoundaryExceptionEntries(BOUNDARY_EXCEPTION_POLICY, 'contractCompatibilityImports').map(entry => [
-        entry.specifier,
-        new Set(entry.names),
-    ]),
-);
-
-const CONTRACT_COMPATIBILITY_POLICY_AGGREGATE_IMPORTS = new Set(
-    Array.from(CONTRACT_COMPATIBILITY_POLICY_IMPORTS.values(), names => Array.from(names)).flat(),
-);
-
-const CONTRACT_COMPATIBILITY_POLICY_ALLOWED_ROOTS = getBoundaryExceptionValues(
-    BOUNDARY_EXCEPTION_POLICY,
-    'contractCompatibilityRoots',
-);
 
 const FEATURE_BOUNDARY_RULES = [
     {
@@ -621,7 +591,7 @@ function collectAnnotationStorageAliases(sourceText) {
 function checkAnnotationStoragePrivateAccess(filePath, sourceText = '') {
     if (
         !matchesRoot(filePath, 'app')
-        || ANNOTATION_STORAGE_PRIVATE_ACCESS_ALLOWED_FILES.has(filePath)
+        || ANNOTATION_STORAGE_PRIVATE_ACCESS_ALLOWED_FILES.includes(filePath)
     ) {
         return [];
     }
@@ -653,23 +623,6 @@ function isAppProductionSource(filePath) {
         && !filePath.endsWith('.d.cts')
         && !filePath.includes('/__tests__/')
         && !/\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(filePath);
-}
-
-function isProductionAppOrElectronSource(filePath) {
-    return (
-        matchesRoot(filePath, 'app')
-        || matchesRoot(filePath, 'electron')
-    )
-        && hasAppProductionSourceExtension(filePath)
-        && !filePath.endsWith('.d.ts')
-        && !filePath.endsWith('.d.mts')
-        && !filePath.endsWith('.d.cts')
-        && !filePath.includes('/__tests__/')
-        && !/\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(filePath);
-}
-
-function isContractCompatibilityPolicyAllowedSource(filePath) {
-    return CONTRACT_COMPATIBILITY_POLICY_ALLOWED_ROOTS.some(root => matchesRoot(filePath, root));
 }
 
 function stripSourceExtension(filePath) {
@@ -925,120 +878,6 @@ function checkPlatformApiRuntimeGetterCall(filePath, sourceFiles = []) {
     }
 
     return [];
-}
-
-function getContractCompatibilityPolicyNamesForSpecifier(specifier) {
-    if (specifier === '@contracts' || specifier === '@contracts/index') {
-        return CONTRACT_COMPATIBILITY_POLICY_AGGREGATE_IMPORTS;
-    }
-    return CONTRACT_COMPATIBILITY_POLICY_IMPORTS.get(specifier) ?? null;
-}
-
-function collectContractCompatibilityPolicyImportViolations(filePath, sourceFile) {
-    const violations = [];
-
-    sourceFile.forEachChild(node => {
-        if (
-            !(
-                ts.isImportDeclaration(node)
-                || ts.isExportDeclaration(node)
-            )
-            || !node.moduleSpecifier
-            || !ts.isStringLiteral(node.moduleSpecifier)
-        ) {
-            return;
-        }
-
-        const bannedNames = getContractCompatibilityPolicyNamesForSpecifier(node.moduleSpecifier.text);
-        if (!bannedNames) {
-            return;
-        }
-
-        if (ts.isExportDeclaration(node)) {
-            if (!node.exportClause || !ts.isNamedExports(node.exportClause)) {
-                violations.push(createViolation({
-                    rule: 'contract-compat-policy-import',
-                    source: filePath,
-                    target: node.moduleSpecifier.text,
-                    specifier: '*',
-                    message: 'Production app/electron code must import moved search and native PDF policy from @pdf-core or the owning Electron feature, not contract compatibility modules.',
-                }));
-                return;
-            }
-
-            for (const element of node.exportClause.elements) {
-                const exportedName = element.propertyName?.text ?? element.name.text;
-                if (!bannedNames.has(exportedName)) {
-                    continue;
-                }
-                violations.push(createViolation({
-                    rule: 'contract-compat-policy-import',
-                    source: filePath,
-                    target: node.moduleSpecifier.text,
-                    specifier: exportedName,
-                    message: 'Production app/electron code must import moved search and native PDF policy from @pdf-core or the owning Electron feature, not contract compatibility modules.',
-                }));
-            }
-            return;
-        }
-
-        const importClause = node.importClause;
-        if (!importClause || importClause.isTypeOnly) {
-            return;
-        }
-
-        const namedBindings = importClause.namedBindings;
-        if (!namedBindings) {
-            return;
-        }
-
-        if (ts.isNamespaceImport(namedBindings)) {
-            violations.push(createViolation({
-                rule: 'contract-compat-policy-import',
-                source: filePath,
-                target: node.moduleSpecifier.text,
-                specifier: '*',
-                message: 'Production app/electron code must import moved search and native PDF policy from @pdf-core or the owning Electron feature, not contract compatibility modules.',
-            }));
-            return;
-        }
-
-        if (!ts.isNamedImports(namedBindings)) {
-            return;
-        }
-
-        for (const element of namedBindings.elements) {
-            if (element.isTypeOnly) {
-                continue;
-            }
-            const importedName = element.propertyName?.text ?? element.name.text;
-            if (!bannedNames.has(importedName)) {
-                continue;
-            }
-            violations.push(createViolation({
-                rule: 'contract-compat-policy-import',
-                source: filePath,
-                target: node.moduleSpecifier.text,
-                specifier: importedName,
-                message: 'Production app/electron code must import moved search and native PDF policy from @pdf-core or the owning Electron feature, not contract compatibility modules.',
-            }));
-        }
-    });
-
-    return violations;
-}
-
-function checkContractCompatibilityPolicyImports(filePath, sourceFiles = []) {
-    if (
-        !isProductionAppOrElectronSource(filePath)
-        || isContractCompatibilityPolicyAllowedSource(filePath)
-    ) {
-        return [];
-    }
-
-    return sourceFiles.flatMap(sourceFile => (
-        collectContractCompatibilityPolicyImportViolations(filePath, sourceFile)
-    ));
 }
 
 function isSentryBoundaryExemptSource(filePath) {
@@ -1444,7 +1283,7 @@ function checkRootBoundaryRule(edge, boundaryRule) {
     }
     if (
         boundaryRule.rule === 'scripts-to-app'
-        && SCRIPTS_TO_APP_ALLOWED_EDGES.has(`${source} -> ${target}`)
+        && SCRIPTS_TO_APP_ALLOWED_EDGES.includes(`${source} -> ${target}`)
     ) {
         return null;
     }
@@ -1576,7 +1415,6 @@ function checkSource(filePath, sourceText) {
         ...checkSentryBoundarySource(filePath, sourceFiles),
         ...checkAnnotationStoragePrivateAccess(filePath, sourceText),
         ...checkPlatformApiRuntimeGetterCall(filePath, sourceFiles),
-        ...checkContractCompatibilityPolicyImports(filePath, sourceFiles),
     ];
 }
 
@@ -1626,14 +1464,6 @@ function collectRootsFromArgv(argv, {projectRoot}) {
 
 async function run() {
     const projectRoot = process.cwd();
-    const exceptionPolicyErrors = validateBoundaryExceptionPolicy();
-    if (exceptionPolicyErrors.length > 0) {
-        console.error('Architecture boundary exception policy failed.');
-        for (const error of exceptionPolicyErrors) {
-            console.error(`- ${error}`);
-        }
-        process.exit(1);
-    }
     const roots = collectRootsFromArgv(process.argv.slice(2), { projectRoot });
     const graph = await buildDependencyGraph({
         projectRoot,

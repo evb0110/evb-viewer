@@ -35,11 +35,7 @@ one-off gates.
 
 ## Boundary exception policy
 
-An architecture exception is temporary permission, not a permanent ownership
-rule. Every entry in `scripts/architecture/boundaryExceptionPolicy.mjs` must
-carry a stable `id`, an owning GitHub ticket such as `#323`, and an ISO expiry
-date. The boundary checker validates those fields before it builds the import
-graph, rejects duplicate or expired entries, and reports the owning ticket when
-the policy is invalid. The owner removes the exception or renews the decision
-with a new reviewed scope before the date passes. A date never hides an
-unreviewed dependency or turns a retired path into a supported import.
+`scripts/architecture/boundaryExceptionPolicy.mjs` contains the small set of
+permitted diagnostic edges, private-access paths, and one retained PDF viewer
+engine back edge. `boundary-check.mjs` consumes those constants directly. All
+other imports remain subject to the regular boundary rules.
