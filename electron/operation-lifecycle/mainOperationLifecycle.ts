@@ -5,12 +5,20 @@ import { createLogger } from '@electron/utils/createLogger';
 import { runDetached } from '@electron/utils/runDetached';
 
 export type TMainOperationKind = 'critical-write' | 'abortable-work' | 'resource-cleanup';
+export type TMainOperationOwnerEndEvent = 'destroyed' | 'renderProcessGone' | 'mainFrameNavigation';
+export type TMainOperationOwnerEndAction = 'cancel' | 'detach';
+export interface IMainOperationOwnerLifecyclePolicy {
+    destroyed: TMainOperationOwnerEndAction;
+    renderProcessGone?: TMainOperationOwnerEndAction;
+    mainFrameNavigation?: TMainOperationOwnerEndAction;
+}
 
 export interface IMainOperationRegistration {
     kind: TMainOperationKind;
     ownerWebContentsId?: number | undefined;
     workingCopyPath?: string | undefined;
     cancel?: ((reason: string) => void | Promise<void>) | undefined;
+    ownerLifecycle?: IMainOperationOwnerLifecyclePolicy | undefined;
     /**
      * Whether closing `workingCopyPath` may cancel this operation. Long-running
      * work that only consumes the working copy says yes; the pipelines that
@@ -60,6 +68,7 @@ interface IMainOperationRecord {
     ownerWebContentsId?: number | undefined;
     workingCopyPath?: string | undefined;
     cancel?: ((reason: string) => void | Promise<void>) | undefined;
+    ownerLifecycle?: IMainOperationOwnerLifecyclePolicy | undefined;
     cancelOnWorkingCopyClose: boolean;
     controller: AbortController;
     commitStarted: boolean;
@@ -97,6 +106,7 @@ export function registerMainOperation(
         ownerWebContentsId: registration.ownerWebContentsId,
         workingCopyPath: registration.workingCopyPath,
         cancel: registration.cancel,
+        ownerLifecycle: registration.ownerLifecycle,
         cancelOnWorkingCopyClose: registration.cancelOnWorkingCopyClose ?? registration.kind === 'abortable-work',
         controller,
         commitStarted: false,
@@ -151,9 +161,16 @@ export function cancelAllMainOperations(reason: string): void {
     }
 }
 
-export function cancelMainOperationsForOwner(ownerWebContentsId: number, reason: string): void {
+export function cancelMainOperationsForOwner(
+    ownerWebContentsId: number,
+    reason: string,
+    event: TMainOperationOwnerEndEvent = 'destroyed',
+): void {
     for (const operation of operations.values()) {
         if (operation.ownerWebContentsId !== ownerWebContentsId) {
+            continue;
+        }
+        if (operation.ownerLifecycle?.[event] === 'detach') {
             continue;
         }
         if (operation.kind === 'critical-write' && operation.commitStarted) {

@@ -25,6 +25,17 @@ export type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/compo
 export {annotationIdForSummary} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
 export {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 export type {AnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+export {
+    captureCanonicalAnnotationRecovery,
+    restoreCanonicalAnnotationRecovery,
+    validateCanonicalAnnotationRecovery,
+    AnnotationRecoveryAdmissionError,
+    CANONICAL_ANNOTATION_RECOVERY_VERSION,
+} from '@app/modules/pdf-viewer/annotations/domain/annotationRecovery';
+export type {
+    IAnnotationRecoveryDraft,
+    ICanonicalAnnotationRecovery,
+} from '@app/modules/pdf-viewer/annotations/domain/annotationRecovery';
 export type {
     INativePdfMutationProjection,
     IPdfSaveByteRouteDecision,

@@ -9,6 +9,7 @@ import {
     registerMainOperation,
     type IMainOperationRegistration,
     type IRegisteredMainOperation,
+    type IMainOperationOwnerLifecyclePolicy as IMainOperationLifecyclePolicy,
     type TMainOperationKind,
 } from '@electron/operation-lifecycle/mainOperationLifecycle';
 import {
@@ -73,12 +74,8 @@ export type TMainJobSnapshot<TProgress, TResult, TError extends IMainJobErrorEnv
     };
 export type TMainJobTerminalSnapshot<TProgress, TResult, TError extends IMainJobErrorEnvelope> = Extract<TMainJobSnapshot<TProgress, TResult, TError>, {status: 'completed' | 'canceled' | 'failed'}>;
 export type TMainJobErrorKind = 'canceled' | 'failed' | 'duplicate-job-id' | 'not-found-or-unauthorized';
-export type TMainJobOwnerEndAction = 'cancel' | 'detach';
-export interface IMainJobOwnerLifecyclePolicy {
-    destroyed: TMainJobOwnerEndAction;
-    renderProcessGone?: TMainJobOwnerEndAction;
-    mainFrameNavigation?: TMainJobOwnerEndAction;
-}
+export type TMainJobOwnerEndAction = IMainOperationLifecyclePolicy['destroyed'];
+export type IMainJobOwnerLifecyclePolicy = IMainOperationLifecyclePolicy;
 export interface IMainJobScratch {using<T>(prefix: TManagedScratchPrefix, run: (scratchPath: string) => Promise<T>): Promise<T>;}
 export interface IMainJobTerminalController<TProgress, TResult, _TError extends IMainJobErrorEnvelope> {
     complete(result: TResult, progress?: TProgress): boolean;
@@ -352,6 +349,7 @@ export function createMainJobRegistry<
             ...startOptions.operation,
             ownerWebContentsId: startOptions.owner.sender.id,
             cancel: reason => { if (recordRef.current) requestCancel(recordRef.current, reason); },
+            ownerLifecycle: startOptions.ownerLifecycle,
         });
         const controller = new AbortController(); let resolveTerminal!: (snapshot: TTerminal) => void; let resolveSettled!: () => void;
         const terminal = new Promise<TTerminal>(resolve => { resolveTerminal = resolve; });

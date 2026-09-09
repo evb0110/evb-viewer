@@ -16,6 +16,7 @@ import {
 } from '@app/modules/pdf-viewer/public';
 import {ANNOTATION_NOTE_SAVE_DEBOUNCE_MS} from '@app/constants/timeouts';
 import {runGuardedTask} from '@app/utils/asyncGuard';
+import type {IAnnotationRecoveryDraft} from '@app/modules/pdf-viewer/annotations/domain/annotationRecovery';
 
 interface IAnnotationNoteWindowRuntime {
     requiresEmbeddedSave: boolean;
@@ -68,6 +69,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
     const timers = new Map<AnnotationId, ReturnType<typeof setTimeout>>();
     const disappearanceTimers = new Map<AnnotationId, ReturnType<typeof setTimeout>>();
     let nextOrder = 0;
+    const draftGenerations = new Map<AnnotationId, number>();
     // Teardown fence. Once the owning scope stops, this composable owns no
     // timers, no runtime records, and no right to talk to the viewer again.
     let disposed = false;
@@ -380,6 +382,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             return;
         }
         state.draftText = text;
+        draftGenerations.set(id, (draftGenerations.get(id) ?? 0) + 1);
         metadata.dirty = text !== metadata.canonicalText;
         metadata.error = null;
         if (metadata.dirty) deps.markAnnotationDirty();
@@ -398,6 +401,50 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             ...(typeof position.width === 'number' ? {width: Math.round(position.width)} : {}),
             ...(typeof position.height === 'number' ? {height: Math.round(position.height)} : {}),
         };
+    }
+
+    function captureAnnotationNoteDrafts(
+        getCanonicalRevision: (annotationId: AnnotationId) => number | null,
+    ): readonly IAnnotationRecoveryDraft[] {
+        return states.value.flatMap((state) => {
+            const id = asAnnotationId(state.annotationId);
+            const metadata = runtime.get(id);
+            if (!metadata || !metadata.dirty) {
+                return [];
+            }
+            const canonicalRevision = getCanonicalRevision(id);
+            if (canonicalRevision === null) {
+                return [];
+            }
+            return [{
+                annotationId: id,
+                kind: 'note' as const,
+                canonicalRevision,
+                text: state.draftText,
+                generation: draftGenerations.get(id) ?? 0,
+            }];
+        });
+    }
+
+    function restoreAnnotationNoteDraft(draft: IAnnotationRecoveryDraft) {
+        if (draft.kind !== 'note') {
+            return;
+        }
+        const comment = deps.annotationComments.value.find(candidate => commandId(candidate) === draft.annotationId);
+        if (!comment) {
+            return;
+        }
+        upsertAnnotationNoteWindow(comment);
+        const state = stateById(draft.annotationId);
+        const metadata = runtime.get(draft.annotationId);
+        if (!state || !metadata) {
+            return;
+        }
+        state.draftText = draft.text;
+        metadata.dirty = true;
+        metadata.error = null;
+        draftGenerations.set(draft.annotationId, draft.generation);
+        deps.markAnnotationDirty();
     }
 
     function persistAnnotationNote(value: string): boolean | Promise<boolean> {
@@ -510,6 +557,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
     function deleteAnnotationNoteWindow(id: AnnotationId) {
         states.value = states.value.filter(state => state.annotationId !== id);
         runtime.delete(id);
+        draftGenerations.delete(id);
         clearTimer(id);
         clearDisappearanceTimer(id);
     }
@@ -642,6 +690,8 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         minimizeAnnotationNote,
         restoreAnnotationNote,
         updateAnnotationNoteText,
+        captureAnnotationNoteDrafts,
+        restoreAnnotationNoteDraft,
         updateAnnotationNotePosition,
         persistAnnotationNote,
         persistAllAnnotationNotes,

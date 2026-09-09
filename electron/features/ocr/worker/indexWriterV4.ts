@@ -106,6 +106,7 @@ export interface IOcrIndexV4WriteOptions {
     extractionDpi?: number;
     assertRevisionCurrent?: () => Promise<void>;
     migrateLegacy?: boolean;
+    durabilityBoundary?: IOcrCatalogV4DurabilityBoundary;
 }
 export interface IOcrIndexV4WriteResult {
     catalogRoot: string;
@@ -127,6 +128,7 @@ export interface IMigrateOcrIndexV3ToV4Options {
     signal?: AbortSignal;
     log?: TWorkerLog;
     assertRevisionCurrent?: () => Promise<void>;
+    durabilityBoundary?: IOcrCatalogV4DurabilityBoundary;
 }
 
 export interface IOcrIndexV4PrepareOptions {
@@ -156,11 +158,36 @@ export interface IPublishOcrCatalogV4PreparedOptions {
     descriptorPath?: string;
     signal?: AbortSignal;
     assertRevisionCurrent?: () => Promise<void>;
+    durabilityBoundary?: IOcrCatalogV4DurabilityBoundary;
 }
 
 export interface IRollbackOcrCatalogV4PreparedOptions {
     descriptorPath?: string;
     catalogRoot?: string;
+}
+
+/** Allows callers to exercise and report the post-rename durability boundary. */
+export interface IOcrCatalogV4DurabilityBoundary {afterRootRename?: (catalogRoot: string, generation: number) => Promise<void>;}
+
+export class OcrCatalogCommittedDurabilityError extends Error {
+    readonly code = 'OCR_CATALOG_COMMITTED_DURABILITY_UNCONFIRMED';
+    readonly catalogRoot: string;
+    readonly generation: number;
+    readonly committed = true;
+
+    constructor(catalogRoot: string, generation: number, cause: unknown) {
+        super(
+            `OCR catalog generation ${generation} was committed, but directory durability was not confirmed`,
+            {cause},
+        );
+        this.name = 'OcrCatalogCommittedDurabilityError';
+        this.catalogRoot = catalogRoot;
+        this.generation = generation;
+    }
+}
+
+function isCommittedDurabilityError(error: unknown): error is OcrCatalogCommittedDurabilityError {
+    return error instanceof OcrCatalogCommittedDurabilityError;
 }
 const ROOT_MANIFEST_FILENAME = 'manifest.json';
 const GENERATION_MANIFEST_FILENAME = 'generation.json';
@@ -1108,6 +1135,7 @@ interface IOcrCatalogV4PublishInput {
     signal?: AbortSignal;
     /** Stage immutable files under the catalog without replacing manifest.json. */
     publishRoot?: boolean;
+    durabilityBoundary?: IOcrCatalogV4DurabilityBoundary;
 }
 interface IOcrCatalogV4PublishResult {
     rootPath: string;
@@ -1172,7 +1200,19 @@ async function publishOcrCatalogV4GenerationUnlocked(
                 : []),
         ]);
     }
-    await syncDirectory(input.catalogRoot);
+    try {
+        await syncDirectory(input.catalogRoot);
+        await input.durabilityBoundary?.afterRootRename?.(
+            input.catalogRoot,
+            input.generation.generation,
+        );
+    } catch (error) {
+        throw new OcrCatalogCommittedDurabilityError(
+            input.catalogRoot,
+            input.generation.generation,
+            error,
+        );
+    }
     return {
         rootPath,
         generationPath,
@@ -1192,6 +1232,7 @@ export interface IOcrCatalogV4RemapOptions {
     sourcePdfPath?: string;
     catalogId?: string;
     signal?: AbortSignal;
+    durabilityBoundary?: IOcrCatalogV4DurabilityBoundary;
     assertRevisionCurrent?: () => Promise<void>;
 }
 
@@ -1614,6 +1655,7 @@ async function remapOcrCatalogV4Unlocked(
             dirtyRecords,
             revisionFence,
             ...(input.signal === undefined ? {} : {signal: input.signal}),
+            ...(input.durabilityBoundary === undefined ? {} : {durabilityBoundary: input.durabilityBoundary}),
         });
         return {
             catalogRoot: input.catalogRoot,
@@ -1626,7 +1668,9 @@ async function remapOcrCatalogV4Unlocked(
             published: true,
         };
     } catch (error) {
-        return throwAfterCleanup(error, [() => removePathAndSync(generationPath, input.catalogRoot)]);
+        return throwAfterCleanup(error, isCommittedDurabilityError(error)
+            ? []
+            : [() => removePathAndSync(generationPath, input.catalogRoot)]);
     }
 }
 
@@ -1636,12 +1680,14 @@ export async function remapOcrCatalogV4PageRanges(
     delta: Pick<IPageIdentityDelta, 'previousPageCount' | 'nextPageCount' | 'ranges'>,
     nextRevision: IDocumentRevisionInfo,
     signal?: AbortSignal,
+    durabilityBoundary?: IOcrCatalogV4DurabilityBoundary,
 ): Promise<boolean> {
     const result = await remapOcrCatalogV4({
         catalogRoot: `${workingCopyPath}.ocr`,
         delta,
         nextRevision,
         ...(signal === undefined ? {} : {signal}),
+        ...(durabilityBoundary === undefined ? {} : {durabilityBoundary}),
     });
     return result !== null;
 }
@@ -2013,6 +2059,7 @@ async function publishBuildState(
     revisionFence: () => Promise<void>,
     signal?: AbortSignal,
     publishRoot = true,
+    durabilityBoundary?: IOcrCatalogV4DurabilityBoundary,
 ) {
     const generationManifest = generationManifestFromState(state);
     const root = rootManifestFromState(state, catalogId);
@@ -2025,6 +2072,7 @@ async function publishBuildState(
         dirtyRecords: state.dirtyRecords,
         revisionFence,
         publishRoot,
+        ...(durabilityBoundary === undefined ? {} : {durabilityBoundary}),
         ...(signal === undefined ? {} : {signal}),
     });
 }
@@ -2131,6 +2179,7 @@ async function migrateOcrIndexV3ToV4Unlocked(
             dirtyRecords,
             revisionFence: revisionFence.fence,
             ...(options.signal === undefined ? {} : {signal: options.signal}),
+            ...(options.durabilityBoundary === undefined ? {} : {durabilityBoundary: options.durabilityBoundary}),
         });
         log('debug', `Migrated OCR v3 catalog to v4 generation ${generation}`);
         return {
@@ -2145,7 +2194,9 @@ async function migrateOcrIndexV3ToV4Unlocked(
             migrated: true,
         };
     } catch (error) {
-        return throwAfterCleanup(error, [() => removePathAndSync(generationPath, options.catalogRoot)]);
+        return throwAfterCleanup(error, isCommittedDurabilityError(error)
+            ? []
+            : [() => removePathAndSync(generationPath, options.catalogRoot)]);
     }
 }
 export async function writeOcrIndexV4(
@@ -2238,6 +2289,7 @@ async function writeOcrIndexV4Unlocked(
             revision.fence,
             options.signal,
             options.publishRoot !== false,
+            options.durabilityBoundary,
         );
         log('debug', `Wrote OCR index v4 generation ${generation} with ${state.mappedPageCount} mapped pages`);
         return {
@@ -2252,10 +2304,12 @@ async function writeOcrIndexV4Unlocked(
             migrated,
         };
     } catch (error) {
-        return throwAfterCleanup(error, [() => removePathAndSync(
-            join(options.catalogRoot, generationDirectoryName(generation)),
-            options.catalogRoot,
-        )]);
+        return throwAfterCleanup(error, isCommittedDurabilityError(error)
+            ? []
+            : [() => removePathAndSync(
+                join(options.catalogRoot, generationDirectoryName(generation)),
+                options.catalogRoot,
+            )]);
     }
 }
 function sourceRootRevision(current: TCurrentCatalog): TDocumentRevisionToken | null {
@@ -2499,6 +2553,7 @@ async function publishPreparedOcrCatalogV4Unlocked(
         dirtyRecords: new Map<number, IOcrShardIndexRecord>(),
         revisionFence,
         ...(input.signal === undefined ? {} : {signal: input.signal}),
+        ...(input.durabilityBoundary === undefined ? {} : {durabilityBoundary: input.durabilityBoundary}),
     });
     await removePathAndSync(descriptorPath);
     return {

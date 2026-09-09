@@ -21,6 +21,10 @@ import {
     DOCUMENTS_CHANNELS,
     DOCUMENTS_EVENT_CHANNELS,
 } from '@electron/features/documents/contract';
+import {
+    registerMainOperation,
+    resetMainOperationLifecycleForTests,
+} from '@electron/operation-lifecycle/mainOperationLifecycle';
 
 type TRegisteredEventHandler = (event: IpcMainEvent, ...args: unknown[]) => void;
 
@@ -82,6 +86,7 @@ describe('documents ipc adapter', () => {
     });
 
     afterEach(() => {
+        resetMainOperationLifecycleForTests();
         vi.useRealTimers();
     });
 
@@ -482,5 +487,58 @@ describe('documents ipc adapter', () => {
                 recursive: true,
             });
         }
+    });
+
+    it.each([
+        [
+            'destroyed',
+            (sender: EventEmitter) => sender.emit('destroyed'),
+        ] as const,
+        [
+            'render-process-gone',
+            (sender: EventEmitter) => sender.emit('render-process-gone'),
+        ] as const,
+        [
+            'navigation',
+            (sender: EventEmitter) => sender.emit('did-start-navigation', {}, 'https://example.test/', false, true),
+        ] as const,
+    ])('does not cancel a detach-configured operation during sender %s cleanup', async (_name, emit) => {
+        const {
+            eventRegistrar,
+            handlers,
+            registrar,
+        } = createRegistrationHarness();
+        const sender = new EventEmitter() as EventEmitter & {id: number;};
+        sender.id = 47;
+        const cancel = vi.fn();
+        const operation = registerMainOperation({
+            kind: 'abortable-work',
+            ownerWebContentsId: sender.id,
+            cancel,
+            ownerLifecycle: {
+                destroyed: 'detach',
+                renderProcessGone: 'detach',
+                mainFrameNavigation: 'detach',
+            },
+        });
+        const fallbackCancel = vi.fn();
+        const fallbackOperation = registerMainOperation({
+            kind: 'abortable-work',
+            ownerWebContentsId: sender.id,
+            cancel: fallbackCancel,
+        });
+        const {registerDocumentsIpcAdapter} = await import('@electron/features/documents/registerDocumentsIpcAdapter');
+
+        registerDocumentsIpcAdapter(registrar as never, undefined, {eventRegistrar});
+        expect(handlers.get(DOCUMENTS_CHANNELS.registerRendererFileOpenToken)?.({sender}, makeUuid(70))).toBe(true);
+
+        emit(sender);
+
+        expect(operation.signal.aborted).toBe(false);
+        expect(cancel).not.toHaveBeenCalled();
+        expect(fallbackOperation.signal.aborted).toBe(true);
+        expect(fallbackCancel).toHaveBeenCalledOnce();
+        operation.complete();
+        fallbackOperation.complete();
     });
 });

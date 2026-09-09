@@ -7,13 +7,16 @@ import type {WebContents} from 'electron';
 import {
     readFile,
     rm,
+    mkdir,
     writeFile,
 } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import {
     decodeWorkspaceCheckpoint,
     type IWorkspaceCheckpoint,
+    type IWorkspaceCheckpointAnnotationRecovery,
 } from '@contracts/workspaceCheckpoint';
 import {parseDocumentRef} from '@contracts/documentRef';
 import {
@@ -135,6 +138,70 @@ class WorkspaceCheckpointReadError extends Error {
 
 function getStoragePath() {
     return join(app.getPath('userData'), 'workspace-checkpoint.json');
+}
+
+function getAnnotationRecoveryDirectory() {
+    return join(app.getPath('userData'), 'workspace-annotation-recovery');
+}
+
+function getAnnotationRecoveryPath(artifactId: string) {
+    return join(getAnnotationRecoveryDirectory(), `${artifactId}.json`);
+}
+
+interface IAnnotationRecoveryArtifact {
+    version: 1;
+    ref: IWorkspaceCheckpointAnnotationRecovery;
+    payload: unknown;
+}
+
+async function writeAnnotationRecoveryArtifact(
+    ref: IWorkspaceCheckpointAnnotationRecovery,
+    payload: unknown,
+) {
+    const path = getAnnotationRecoveryPath(ref.artifactId);
+    await mkdir(getAnnotationRecoveryDirectory(), {recursive: true});
+    const tempPath = makeSiblingTempPath(path);
+    try {
+        await writeFile(tempPath, JSON.stringify({
+            version: 1,
+            ref,
+            payload,
+        }), 'utf-8');
+        await atomicReplace(tempPath, path);
+    } catch (error) {
+        await rm(tempPath, {force: true}).catch(() => undefined);
+        throw error;
+    }
+}
+
+async function readAnnotationRecoveryArtifact(ref: IWorkspaceCheckpointAnnotationRecovery) {
+    const raw = await readFile(getAnnotationRecoveryPath(ref.artifactId), 'utf-8');
+    const artifact = JSON.parse(raw) as Partial<IAnnotationRecoveryArtifact>;
+    if (artifact.version !== 1 || !artifact.ref || artifact.payload === undefined
+        || artifact.ref.artifactId !== ref.artifactId
+        || artifact.ref.documentInstanceId !== ref.documentInstanceId
+        || artifact.ref.workingByteRevision !== ref.workingByteRevision
+        || artifact.ref.annotationMutationGeneration !== ref.annotationMutationGeneration
+        || artifact.ref.workingCopyRef !== ref.workingCopyRef) {
+        throw new Error(`Annotation recovery artifact metadata mismatch: ${ref.artifactId}`);
+    }
+    return artifact.payload;
+}
+
+function getAnnotationRecoveryRefs(checkpoint: IWorkspaceCheckpoint | null) {
+    if (!checkpoint) {
+        return [];
+    }
+    return checkpoint.tabs.flatMap(tab => tab.annotationRecovery ? [tab.annotationRecovery] : []);
+}
+
+async function removeAnnotationRecoveryArtifacts(checkpoint: IWorkspaceCheckpoint | null) {
+    if (!checkpoint) {
+        return;
+    }
+    await Promise.all(getAnnotationRecoveryRefs(checkpoint).map(ref => (
+        rm(getAnnotationRecoveryPath(ref.artifactId), {force: true})
+    )));
 }
 
 function releaseClaimIfOwnerDestroyed(newOwnerWebContentsId: number) {
@@ -681,6 +748,45 @@ function readDurableWorkspaceCheckpointForSave() {
     return stored;
 }
 
+function admitAnnotationRecovery(checkpoint: IWorkspaceCheckpoint) {
+    const artifacts: Array<{
+        ref: IWorkspaceCheckpointAnnotationRecovery;
+        payload: unknown
+    }> = [];
+    const admittedCheckpoint: IWorkspaceCheckpoint = {
+        ...checkpoint,
+        tabs: checkpoint.tabs.map((tab) => {
+            const capture = tab.annotationRecovery;
+            if (!capture || capture.payload === undefined) {
+                return tab;
+            }
+            const serialized = JSON.stringify(capture.payload);
+            if (serialized.length > 8 * 1024 * 1024) {
+                throw new Error('Canonical annotation recovery exceeds the checkpoint artifact budget');
+            }
+            const ref: IWorkspaceCheckpointAnnotationRecovery = {
+                artifactId: randomUUID().replaceAll('-', ''),
+                documentInstanceId: capture.documentInstanceId,
+                workingCopyRef: capture.workingCopyRef,
+                workingByteRevision: capture.workingByteRevision,
+                annotationMutationGeneration: capture.annotationMutationGeneration,
+            };
+            artifacts.push({
+                ref,
+                payload: capture.payload,
+            });
+            return {
+                ...tab,
+                annotationRecovery: ref,
+            };
+        }),
+    };
+    return {
+        checkpoint: admittedCheckpoint,
+        artifacts,
+    };
+}
+
 function retainUnresolvedCheckpointTabs(
     checkpoint: IWorkspaceCheckpoint,
     durable: IStoredWorkspaceCheckpoint | null,
@@ -734,7 +840,14 @@ function startCheckpointWriteDrain(initialSave: IPendingWorkspaceCheckpointSave)
         let currentSave: IPendingWorkspaceCheckpointSave | null = initialSave;
         while (currentSave) {
             try {
+                const previous = lastDurableWorkspaceCheckpoint;
                 await writeStoredWorkspaceCheckpoint(currentSave.stored);
+                const currentArtifactIds = new Set(
+                    getAnnotationRecoveryRefs(currentSave.stored.checkpoint).map(ref => ref.artifactId),
+                );
+                await Promise.all(getAnnotationRecoveryRefs(previous?.checkpoint ?? null)
+                    .filter(ref => !currentArtifactIds.has(ref.artifactId))
+                    .map(ref => rm(getAnnotationRecoveryPath(ref.artifactId), {force: true})));
                 settleCheckpointSave(currentSave);
             } catch (error) {
                 settleCheckpointSave(currentSave, error);
@@ -886,8 +999,15 @@ export async function saveWorkspaceCheckpoint(
     }
     const durable = readDurableWorkspaceCheckpointForSave();
     const checkpointWithRetainedTabs = retainUnresolvedCheckpointTabs(checkpoint, durable);
+    const admittedAnnotationRecovery = admitAnnotationRecovery(checkpointWithRetainedTabs);
+    if (admittedAnnotationRecovery.artifacts.length > 0) {
+        await Promise.all(admittedAnnotationRecovery.artifacts.map(artifact => (
+            writeAnnotationRecoveryArtifact(artifact.ref, artifact.payload)
+        )));
+    }
+    const checkpointWithArtifacts = admittedAnnotationRecovery.checkpoint;
     const canonicalCheckpoint = canonicalizeCheckpointSources(
-        checkpointWithRetainedTabs,
+        checkpointWithArtifacts,
         ownerWebContentsId,
         {rejectUnmappedWorkingCopy: true},
     );
@@ -896,8 +1016,8 @@ export async function saveWorkspaceCheckpoint(
         ownerWebContentsId,
         sourceAuthorizationOwner,
     );
-    const lazyWorkingCopies = collectLazyWorkingCopies(checkpointWithRetainedTabs, ownerWebContentsId);
-    const workingCopies = collectMaterializedWorkingCopies(checkpointWithRetainedTabs, ownerWebContentsId);
+    const lazyWorkingCopies = collectLazyWorkingCopies(checkpointWithArtifacts, ownerWebContentsId);
+    const workingCopies = collectMaterializedWorkingCopies(checkpointWithArtifacts, ownerWebContentsId);
     const stored: IStoredWorkspaceCheckpoint = {
         version: 1,
         ownerWebContentsId,
@@ -992,6 +1112,23 @@ export async function claimWorkspaceCheckpoint(newOwnerWebContentsId: number) {
             {rejectUnmappedWorkingCopy: false},
         );
         assertDurableSourceProvenance(stored, canonicalCheckpoint);
+        const checkpointWithAnnotationRecovery: IWorkspaceCheckpoint = {
+            ...canonicalCheckpoint,
+            tabs: await Promise.all(canonicalCheckpoint.tabs.map(async (tab) => {
+                const ref = tab.annotationRecovery;
+                if (!ref) {
+                    return tab;
+                }
+                const payload = await readAnnotationRecoveryArtifact(ref);
+                return {
+                    ...tab,
+                    annotationRecovery: {
+                        ...ref,
+                        payload,
+                    },
+                };
+            })),
+        };
         const lazyWorkingCopies = new Map(
             (stored.lazyWorkingCopies ?? []).map(entry => [
                 entry.workingCopyRef,
@@ -1004,7 +1141,7 @@ export async function claimWorkspaceCheckpoint(newOwnerWebContentsId: number) {
                 entry,
             ]),
         );
-        for (const tab of canonicalCheckpoint.tabs) {
+        for (const tab of checkpointWithAnnotationRecovery.tabs) {
             if (tab.workingCopyRef) {
                 const transferred = claimWorkingCopyOwnership(
                     tab.workingCopyRef,
@@ -1104,7 +1241,7 @@ export async function claimWorkspaceCheckpoint(newOwnerWebContentsId: number) {
         }
         claimedWorkspaceCheckpointOwnerWebContentsId = newOwnerWebContentsId;
         claimedWorkspaceCheckpointPath = getStoragePath();
-        return canonicalCheckpoint;
+        return checkpointWithAnnotationRecovery;
     });
 }
 
@@ -1155,6 +1292,7 @@ export function acknowledgeWorkspaceCheckpoint(ownerWebContentsId: number) {
             throw new Error('Workspace checkpoint acknowledgement is not owned by this renderer');
         }
         await rm(storagePath, {force: true});
+        await removeAnnotationRecoveryArtifacts(stored.checkpoint);
         releaseRecoveryClaims(stored.checkpoint);
         lastDurableWorkspaceCheckpoint = null;
         if (
@@ -1170,8 +1308,10 @@ export function acknowledgeWorkspaceCheckpoint(ownerWebContentsId: number) {
 
 export function clearWorkspaceCheckpoint() {
     return enqueueWorkspaceCheckpointBarrier(async () => {
+        const checkpoint = lastDurableWorkspaceCheckpoint?.checkpoint ?? null;
         await rm(getStoragePath(), {force: true});
-        releaseRecoveryClaims(lastDurableWorkspaceCheckpoint?.checkpoint ?? null);
+        await removeAnnotationRecoveryArtifacts(checkpoint);
+        releaseRecoveryClaims(checkpoint);
         lastDurableWorkspaceCheckpoint = null;
         claimedWorkspaceCheckpointOwnerWebContentsId = null;
         claimedWorkspaceCheckpointPath = null;

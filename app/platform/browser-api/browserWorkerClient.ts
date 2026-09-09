@@ -1,3 +1,9 @@
+import {
+    BrowserWorkerClientLifecycle,
+    BrowserWorkerResetError,
+} from '@app/platform/browser-api/browserWorkerClientLifecycle';
+export {BrowserWorkerResetError} from '@app/platform/browser-api/browserWorkerClientLifecycle';
+
 interface IBrowserWorkerClientOptions<TPendingRequest> {
     createWorker: () => Worker;
     idleTtlMs: number;
@@ -8,6 +14,11 @@ interface IBrowserWorkerClientOptions<TPendingRequest> {
         scheduleIdleWorkerTermination: () => void,
     ) => void;
     createError: (event: ErrorEvent) => Error;
+}
+
+interface IWorkerEventListeners {
+    message: (event: MessageEvent<unknown>) => void;
+    error: (event: ErrorEvent) => void;
 }
 
 export function canUseBrowserWorker() {
@@ -23,9 +34,11 @@ export class BrowserWorkerClient<
     public readonly pendingRequests = new Map<number, TPendingRequest>();
 
     private worker: Worker | null = null;
+    private workerEventListeners: IWorkerEventListeners | null = null;
+    private workerGeneration = 0;
     private nextRequestId = 1;
     private idleTerminateTimer: ReturnType<typeof setTimeout> | null = null;
-    private cleanupListenerRegistered = false;
+    private readonly lifecycle = new BrowserWorkerClientLifecycle();
 
     public constructor(private readonly options: IBrowserWorkerClientOptions<TPendingRequest>) {}
 
@@ -66,15 +79,24 @@ export class BrowserWorkerClient<
         this.clearIdleTerminateTimer();
         pending.forEach(request => this.clearRequestTimeout(request));
 
-        if (this.worker) {
-            this.worker.removeEventListener('message', this.handleWorkerMessage);
-            this.worker.removeEventListener('error', this.handleWorkerError);
-            this.worker.terminate();
-            this.worker = null;
+        this.workerGeneration += 1;
+        const worker = this.worker;
+        const workerEventListeners = this.workerEventListeners;
+        this.worker = null;
+        this.workerEventListeners = null;
+        this.lifecycle.clear();
+
+        if (worker) {
+            if (workerEventListeners) {
+                worker.removeEventListener('message', workerEventListeners.message);
+                worker.removeEventListener('error', workerEventListeners.error);
+            }
+            worker.terminate();
         }
 
-        if (error) {
-            pending.forEach(request => request.reject(error));
+        if (pending.length > 0) {
+            const resetError = error ?? new BrowserWorkerResetError();
+            pending.forEach(request => request.reject(resetError));
         }
     }
 
@@ -85,10 +107,34 @@ export class BrowserWorkerClient<
         }
 
         const worker = this.options.createWorker();
-        worker.addEventListener('message', this.handleWorkerMessage);
-        worker.addEventListener('error', this.handleWorkerError);
-        this.registerCleanupListener();
+        const generation = this.workerGeneration + 1;
+        const workerEventListeners: IWorkerEventListeners = {
+            message: event => {
+                if (this.worker !== worker || this.workerGeneration !== generation) {
+                    return;
+                }
+
+                this.options.handleMessage(
+                    this.pendingRequests,
+                    event.data,
+                    this.scheduleIdleWorkerTermination,
+                );
+            },
+            error: event => {
+                if (this.worker !== worker || this.workerGeneration !== generation) {
+                    return;
+                }
+
+                this.resetWorker(this.options.createError(event));
+            },
+        };
+
         this.worker = worker;
+        this.workerGeneration = generation;
+        this.workerEventListeners = workerEventListeners;
+        worker.addEventListener('message', workerEventListeners.message);
+        worker.addEventListener('error', workerEventListeners.error);
+        this.lifecycle.register(() => this.resetWorker());
         return worker;
     }
 
@@ -152,37 +198,8 @@ export class BrowserWorkerClient<
         return true;
     }
 
-    private readonly handleWorkerMessage = (event: MessageEvent<unknown>) => {
-        this.options.handleMessage(
-            this.pendingRequests,
-            event.data,
-            this.scheduleIdleWorkerTermination,
-        );
-    };
-
-    private readonly handleWorkerError = (event: ErrorEvent) => {
-        this.resetWorker(this.options.createError(event));
-    };
-
-    private readonly handleWindowBeforeUnload = () => {
-        this.resetWorker();
-    };
-
-    private registerCleanupListener() {
-        if (
-            this.cleanupListenerRegistered
-            || typeof window === 'undefined'
-            || typeof window.addEventListener !== 'function'
-        ) {
-            return;
-        }
-
-        this.cleanupListenerRegistered = true;
-        window.addEventListener('beforeunload', this.handleWindowBeforeUnload);
-    }
-
     private clearRequestTimeout(request: TPendingRequest) {
-        if (!request.timeoutTimer) {
+        if (request.timeoutTimer === undefined || request.timeoutTimer === null) {
             return;
         }
 
