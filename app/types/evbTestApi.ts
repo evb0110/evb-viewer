@@ -55,6 +55,8 @@ export interface IEvbTestApi {
         propertyNames: string[],
     ) => TValues;
     splitEditor: (direction: TPaneDirection) => Promise<void>;
+    listTargetWindows?: () => Promise<unknown>;
+    transferActiveTabToWindow?: (windowId: number) => Promise<unknown>;
     waitForAutomationEvent: (
         type: TEvbAutomationEventType,
         predicate?: TEvbAutomationEventPredicate,

@@ -957,6 +957,11 @@ async function waitForTransferDecision(transferId: string, nonce: string) {
             const authority = await loadBrowserTransferAuthority(transferId);
             if (authority?.nonce === nonce) {
                 if (authority.state === 'committed') {
+                    const barrier = Reflect.get(globalThis, '__evbTransferAuthorityCommittedReadBarrier') as
+                        (() => void | Promise<void>) | undefined;
+                    if (typeof barrier === 'function') {
+                        await Promise.resolve(barrier());
+                    }
                     return true;
                 }
                 if (authority.state === 'aborted') {
