@@ -1,6 +1,16 @@
 import {
     degrees,
+    PDFArray,
     PDFDocument,
+    PDFName,
+    PDFNumber,
+    PDFStream,
+    fill,
+    popGraphicsState,
+    pushGraphicsState,
+    rectangle,
+    rgb,
+    setFillingColor,
 } from 'pdf-lib';
 import {
     describe,
@@ -37,7 +47,76 @@ async function createRotatedSourcePdf(
     return sourcePdf.save();
 }
 
+async function createSourcePdfWithPrintableSquare() {
+    const sourcePdf = await PDFDocument.create();
+    const page = sourcePdf.addPage([
+        100,
+        100,
+    ]);
+    const appearance = sourcePdf.context.formXObject([
+        pushGraphicsState(),
+        rectangle(0, 0, 20, 20),
+        setFillingColor(rgb(1, 0, 0)),
+        fill(),
+        popGraphicsState(),
+    ], {
+        BBox: [
+            0,
+            0,
+            20,
+            20,
+        ],
+        Resources: {},
+    });
+    const appearanceRef = sourcePdf.context.register(appearance);
+    const annotationRef = sourcePdf.context.register(sourcePdf.context.obj({
+        Type: 'Annot',
+        Subtype: 'Square',
+        Rect: [
+            20,
+            30,
+            40,
+            50,
+        ],
+        F: 4,
+        AP: {N: appearanceRef},
+    }));
+    page.node.addAnnot(annotationRef);
+    return sourcePdf.save();
+}
+
 describe('pdf print layout', () => {
+    it('flattens printable annotation appearances into composed pages', async () => {
+        const sourcePdfData = await createSourcePdfWithPrintableSquare();
+        const originalSourcePdfData = sourcePdfData.slice();
+
+        const printablePdfData = await buildPrintablePdfData(sourcePdfData, {
+            pageNumbers: [1],
+            viewMode: 'single',
+            orientation: 'landscape',
+        });
+
+        expect(sourcePdfData).toEqual(originalSourcePdfData);
+        const printablePdf = await PDFDocument.load(printablePdfData!);
+        expect(printablePdf.getPage(0)?.node.Annots()?.size()).toBe(0);
+        expect(printablePdf.context.enumerateIndirectObjects().some(([
+            , object,
+        ]) => {
+            if (!(object instanceof PDFStream)) {
+                return false;
+            }
+            const bbox = object.dict.lookupMaybe(PDFName.of('BBox'), PDFArray);
+            return bbox?.asArray().every((value, index) => (
+                value instanceof PDFNumber && value.asNumber() === [
+                    0,
+                    0,
+                    20,
+                    20,
+                ][index]
+            )) ?? false;
+        })).toBe(true);
+    });
+
     it('uses the displayed dimensions of a rotated page for single-page printing', async () => {
         const sourcePdfData = await createRotatedSourcePdf([90]);
 
