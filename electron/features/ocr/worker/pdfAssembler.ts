@@ -47,9 +47,6 @@ const MAX_OCR_OUTPUT_GROWTH_MULTIPLIER = 4;
 const INVISIBLE_TEXT_RENDERING_RE = /(?:^|\s)3(?:\.0+)?\s+Tr\b/;
 const TEXT_RENDERING_MODE_RE = /(^|\s)[0-7](?:\.0+)?\s+Tr\b/gm;
 const TEXT_OBJECT_BEGIN_RE = /\bBT\b/g;
-const IMAGE_OR_FORM_DRAW_TEST_RE = /\/[A-Za-z0-9._-]+\s+Do\b/;
-const IMAGE_OR_FORM_DRAW_RE = /\/([A-Za-z0-9._-]+)\s+Do\b/g;
-const FONT_DRAW_RE = /\/([A-Za-z0-9._-]+)\s+[-+0-9.]+\s+Tf\b/g;
 const TESSERACT_HIDDEN_TEXT_OBJECT_RE = /BT[\s\S]*?(?:^|\s)3(?:\.0+)?\s+Tr\b[\s\S]*?ET\s*/gm;
 const TESSERACT_EMPTY_TEXT_ONLY_PREAMBLE_RE = /^q\s+[\d.]+\s+0\s+0\s+[\d.]+\s+0\s+0\s+cm\s+Q\s*$/;
 const CONTENTS_NAME = PDFName.of('Contents');
@@ -58,7 +55,7 @@ const FONT_NAME = PDFName.of('Font');
 const XOBJECT_NAME = PDFName.of('XObject');
 const EXT_G_STATE_NAME = PDFName.of('ExtGState');
 const EXT_G_STATE_TYPE_NAME = PDFName.of('ExtGState');
-const EXT_G_STATE_APPLY_RE = /\/([A-Za-z0-9._-]+)\s+gs\b/g;
+const IMAGE_OR_FORM_DRAW_TEST_RE = /\/[^\s]+\s+Do\b/;
 
 function throwIfAborted(signal?: AbortSignal) {
     if (signal?.aborted) {
@@ -188,24 +185,170 @@ function decodeContentStream(stream: PDFStream) {
     return '';
 }
 
-function collectResourceNames(source: string, pattern: RegExp) {
-    const names = new Set<string>();
-    for (const match of source.matchAll(pattern)) {
-        const name = match[1];
-        if (name) {
-            names.add(name);
-        }
-    }
-    return names;
+type TResourceReferenceOperator = 'Do' | 'Tf' | 'gs';
+
+interface IResourceReferenceScan {
+    names: Set<string>;
+    complete: boolean;
 }
 
-function deleteUnreferencedEntries(dict: PDFDict, referencedNames: Set<string>) {
+function isPdfWhitespace(code: number) {
+    return code === 0 || code === 9 || code === 10 || code === 12 || code === 13 || code === 32;
+}
+
+function isPdfDelimiter(code: number) {
+    return isPdfWhitespace(code) || '()<>[]{}/%'.includes(String.fromCharCode(code));
+}
+
+function decodePdfNameToken(source: string, start: number): {
+    name: string;
+    end: number;
+    complete: boolean
+} {
+    let end = start + 1;
+    let name = '';
+    let complete = true;
+    while (end < source.length && !isPdfDelimiter(source.charCodeAt(end))) {
+        if (source[end] === '#') {
+            const hex = source.slice(end + 1, end + 3);
+            if (!/^[0-9A-Fa-f]{2}$/u.test(hex)) {
+                complete = false;
+                name += source[end];
+                end += 1;
+                continue;
+            }
+            name += String.fromCharCode(Number.parseInt(hex, 16));
+            end += 3;
+            continue;
+        }
+        name += source[end];
+        end += 1;
+    }
+    return {
+        name,
+        end,
+        complete,
+    };
+}
+
+function skipPdfString(source: string, start: number): {
+    end: number;
+    complete: boolean
+} {
+    let depth = 1;
+    let end = start + 1;
+    while (end < source.length) {
+        const char = source[end];
+        if (char === '\\') {
+            end += 2;
+            continue;
+        }
+        if (char === '(') depth += 1;
+        if (char === ')' && --depth === 0) {
+            return {
+                end: end + 1,
+                complete: true,
+            };
+        }
+        end += 1;
+    }
+    return {
+        end,
+        complete: false,
+    };
+}
+
+function skipPdfToken(source: string, start: number) {
+    let end = start;
+    while (end < source.length && !isPdfDelimiter(source.charCodeAt(end))) end += 1;
+    return end;
+}
+
+function scanResourceReferences(source: string, operator: TResourceReferenceOperator): IResourceReferenceScan {
+    const names = new Set<string>();
+    let complete = true;
+    let previousName: string | null = null;
+    let index = 0;
+    while (index < source.length) {
+        const code = source.charCodeAt(index);
+        if (isPdfWhitespace(code)) {
+            index += 1;
+            continue;
+        }
+        if (source[index] === '%') {
+            const lineEnd = source.indexOf('\n', index + 1);
+            index = lineEnd === -1 ? source.length : lineEnd + 1;
+            previousName = null;
+            continue;
+        }
+        if (source[index] === '(') {
+            const skipped = skipPdfString(source, index);
+            complete &&= skipped.complete;
+            index = skipped.end;
+            previousName = null;
+            continue;
+        }
+        if (source[index] === '<') {
+            const end = source[index + 1] === '<' ? skipPdfToken(source, index + 2) : source.indexOf('>', index + 1);
+            if (end === -1) complete = false;
+            index = end === -1 ? source.length : end + 1;
+            previousName = null;
+            continue;
+        }
+        if (source[index] === '/') {
+            const token = decodePdfNameToken(source, index);
+            complete &&= token.complete;
+            previousName = token.name;
+            index = token.end;
+            continue;
+        }
+        const end = skipPdfToken(source, index);
+        const token = source.slice(index, end);
+        if (token === operator) {
+            if (previousName !== null) names.add(previousName);
+            previousName = null;
+        }
+        index = end === index ? end + 1 : end;
+    }
+    return {
+        names,
+        complete,
+    };
+}
+
+function deleteProvenUnusedEntries(
+    dict: PDFDict,
+    candidates: Set<string>,
+    referencedNames: IResourceReferenceScan,
+) {
+    if (!referencedNames.complete) {
+        return;
+    }
     for (const key of dict.keys()) {
-        const name = key.toString().replace(/^\//, '');
-        if (!referencedNames.has(name)) {
+        const name = key.asString();
+        if (candidates.has(name) && !referencedNames.names.has(name)) {
             dict.delete(key);
         }
     }
+}
+
+function hasFormXObject(resources: PDFDict) {
+    const xObject = safePdfDictLookupDict(resources, XOBJECT_NAME);
+    if (!xObject) {
+        return false;
+    }
+    for (const key of xObject.keys()) {
+        try {
+            const value = xObject.lookup(key);
+            if (value instanceof PDFStream && value.dict.get(PDFName.of('Subtype'))?.toString() === '/Form') {
+                return true;
+            }
+        } catch {
+            // An unreadable resource is an ambiguity. Preserve candidates.
+            return true;
+        }
+    }
+    return false;
 }
 
 function cloneMutablePageResources(page: PDFPage) {
@@ -270,31 +413,38 @@ function removePreviousOcrLayer(page: PDFPage) {
     const {
         extGState,
         font,
+        resources,
         xObject,
     } = cloneMutablePageResources(page);
     const context = page.doc.context;
     const contents = resolvePageContentsArray(page);
 
     const keptContentText: string[] = [];
+    const removedFontNames = new Set<string>();
+    const removedXObjectNames = new Set<string>();
+    const removedExtGStateNames = new Set<string>();
+    let canProveKeptContent = true;
     for (let index = contents.size() - 1; index >= 0; index -= 1) {
         const contentRef = contents.get(index);
         const contentStream = lookupPageContentStream(page, contentRef);
         if (!contentStream) {
+            canProveKeptContent = false;
             continue;
         }
         const streamText = decodeContentStream(contentStream);
 
         if (streamText.includes(OCR_LAYER_MARKER)) {
-            const markedXObjects = collectResourceNames(streamText, IMAGE_OR_FORM_DRAW_RE);
+            const markedXObjects = scanResourceReferences(streamText, 'Do');
+            const markedFonts = scanResourceReferences(streamText, 'Tf');
+            const markedExtGStates = scanResourceReferences(streamText, 'gs');
             contents.remove(index);
             if (contentRef instanceof PDFRef) {
                 context.delete(contentRef);
             }
-            for (const name of markedXObjects) {
-                xObject.delete(PDFName.of(name));
-            }
-            for (const name of collectResourceNames(streamText, EXT_G_STATE_APPLY_RE)) {
-                extGState.delete(PDFName.of(name));
+            if (markedXObjects.complete && markedFonts.complete && markedExtGStates.complete) {
+                markedXObjects.names.forEach(name => removedXObjectNames.add(name));
+                markedFonts.names.forEach(name => removedFontNames.add(name));
+                markedExtGStates.names.forEach(name => removedExtGStateNames.add(name));
             }
             continue;
         }
@@ -306,6 +456,9 @@ function removePreviousOcrLayer(page: PDFPage) {
 
         const strippedText = streamText.replace(TESSERACT_HIDDEN_TEXT_OBJECT_RE, '');
         if (isTextOnlyOcrStream(streamText, strippedText)) {
+            scanResourceReferences(streamText, 'Tf').names.forEach(name => removedFontNames.add(name));
+            scanResourceReferences(streamText, 'Do').names.forEach(name => removedXObjectNames.add(name));
+            scanResourceReferences(streamText, 'gs').names.forEach(name => removedExtGStateNames.add(name));
             contents.remove(index);
             if (contentRef instanceof PDFRef) {
                 context.delete(contentRef);
@@ -320,16 +473,17 @@ function removePreviousOcrLayer(page: PDFPage) {
     }
 
     const keptText = keptContentText.join('\n');
-    deleteUnreferencedEntries(extGState, collectResourceNames(keptText, EXT_G_STATE_APPLY_RE));
-    deleteUnreferencedEntries(font, collectResourceNames(keptText, FONT_DRAW_RE));
-    deleteUnreferencedEntries(xObject, collectResourceNames(keptText, IMAGE_OR_FORM_DRAW_RE));
+    if (canProveKeptContent && !hasFormXObject(resources)) {
+        deleteProvenUnusedEntries(extGState, removedExtGStateNames, scanResourceReferences(keptText, 'gs'));
+        deleteProvenUnusedEntries(font, removedFontNames, scanResourceReferences(keptText, 'Tf'));
+        deleteProvenUnusedEntries(xObject, removedXObjectNames, scanResourceReferences(keptText, 'Do'));
+    }
 }
 
 function sanitizeOcrPageForEmbedding(page: PDFPage) {
     const context = page.doc.context;
     const contents = resolvePageContentsArray(page);
 
-    const sanitizedContentText: string[] = [];
     for (let index = 0; index < contents.size(); index += 1) {
         const contentRef = contents.get(index);
         const contentStream = lookupPageContentStream(page, contentRef);
@@ -340,22 +494,14 @@ function sanitizeOcrPageForEmbedding(page: PDFPage) {
         const sanitizedText = sanitizeOcrContentStreamForEmbedding(decodeContentStream(contentStream));
         const sanitizedRef = context.register(context.flateStream(sanitizedText));
         contents.set(index, sanitizedRef);
-        sanitizedContentText.push(sanitizedText);
 
         if (contentRef instanceof PDFRef) {
             context.delete(contentRef);
         }
     }
 
-    const {
-        extGState,
-        font,
-        xObject,
-    } = cloneMutablePageResources(page);
-    const keptText = sanitizedContentText.join('\n');
-    deleteUnreferencedEntries(extGState, collectResourceNames(keptText, EXT_G_STATE_APPLY_RE));
-    deleteUnreferencedEntries(font, collectResourceNames(keptText, FONT_DRAW_RE));
-    deleteUnreferencedEntries(xObject, collectResourceNames(keptText, IMAGE_OR_FORM_DRAW_RE));
+    // The generated page is embedded as a Form. Keeping unused sidecar
+    // resources is cheap and avoids guessing about names used by nested Forms.
 }
 
 function appendOcrLayer(

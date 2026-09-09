@@ -41,6 +41,7 @@ import {
 } from '@electron/features/ocr/worker/pdfAssembler';
 import { createPdfjsNodeDocumentOptions } from '@electron/features/search/public';
 import { resolveTestQpdfBinary } from '@tests/helpers/resolveTestQpdfBinary';
+import { renderPdfCanvasFidelityMetrics } from '@tests/helpers/renderPdfCanvasFidelityMetrics';
 import {adaptPdfjsDocument} from '@app/services/pdfjs/pdfjsCompatibility';
 
 const QPDF_TEST_BINARY = resolveTestQpdfBinary();
@@ -183,6 +184,47 @@ async function createPdfWithMixedHiddenTextPreamble(filePath: string) {
         '',
     ].join('\n');
     page.node.addContentStream(pdf.context.register(pdf.context.flateStream(stream)));
+    await writeFile(filePath, await pdf.save());
+}
+
+async function createPdfWithEscapedImageResourceNames(filePath: string) {
+    const pdf = await PDFDocument.create();
+    const page = pdf.addPage([
+        200,
+        200,
+    ]);
+    page.drawRectangle({
+        x: 0,
+        y: 0,
+        width: 200,
+        height: 200,
+        color: rgb(0.8, 0.8, 0.8),
+    });
+    const image = await pdf.embedPng(Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+        'base64',
+    ));
+    const xObject = pdf.context.obj({});
+    for (const name of [
+        'Im+1',
+        'Im A',
+        'ordinary',
+        'P!unct',
+    ]) {
+        xObject.set(PDFName.of(name), image.ref);
+    }
+    page.node.set(PDFName.of('Resources'), pdf.context.obj({
+        ExtGState: pdf.context.obj({}),
+        Font: pdf.context.obj({}),
+        XObject: xObject,
+    }));
+    page.node.addContentStream(pdf.context.register(pdf.context.flateStream([
+        'q 40 0 0 40 10 10 cm /Im#2B1 Do Q',
+        'q 40 0 0 40 60 10 cm /Im#20A Do Q',
+        'q 40 0 0 40 110 10 cm /ordinary Do Q',
+        'q 40 0 0 40 160 10 cm /P#21unct Do Q',
+        '',
+    ].join('\n'))));
     await writeFile(filePath, await pdf.save());
 }
 
@@ -423,6 +465,41 @@ describe('assembleSearchablePdf', () => {
 
         expect(extractedText).toContain('FIRST OCR');
         expect(extractedText).toContain('SECOND OCR');
+    });
+
+    it('preserves source image resources whose PDF names contain escapes', async () => {
+        tempDir = await mkdtemp(join(tmpdir(), 'evb-ocr-assembler-'));
+        const originalPath = join(tempDir, 'escaped-resource-names-original.pdf');
+        const ocrPath = join(tempDir, 'escaped-resource-names-ocr.pdf');
+        await createPdfWithEscapedImageResourceNames(originalPath);
+        await createPdfWithVisibleAndHiddenText(ocrPath, {hiddenText: 'ESCAPED NAMES'});
+
+        const outputPath = await assembleSearchablePdf(
+            QPDF_TEST_BINARY,
+            originalPath,
+            new Map([[
+                1,
+                ocrPath,
+            ]]),
+            1,
+            tempDir,
+            'escaped-resource-names-session',
+            vi.fn(),
+            path => path,
+        );
+
+        const originalMetrics = await renderPdfCanvasFidelityMetrics(originalPath);
+        const outputMetrics = await renderPdfCanvasFidelityMetrics(outputPath);
+        expect(outputMetrics.width).toBe(originalMetrics.width);
+        expect(outputMetrics.height).toBe(originalMetrics.height);
+        expect(outputMetrics.meanLuminance).toBeCloseTo(originalMetrics.meanLuminance, 8);
+        expect(outputMetrics.inkPixelRatio).toBeCloseTo(originalMetrics.inkPixelRatio, 8);
+        expect(outputMetrics.darkPixelRatio).toBeCloseTo(originalMetrics.darkPixelRatio, 8);
+        const outputContent = await getFirstPageContentText(outputPath);
+        expect(outputContent).toContain('/Im#2B1 Do');
+        expect(outputContent).toContain('/Im#20A Do');
+        expect(outputContent).toContain('/ordinary Do');
+        expect(outputContent).toContain('/P#21unct Do');
     });
 
     it('replaces previous OCR page text when applying OCR again', async () => {
