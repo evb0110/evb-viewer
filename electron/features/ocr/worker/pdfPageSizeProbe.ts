@@ -1,13 +1,15 @@
 import { getErrorMessage } from '@electron/utils/error';
 import {runOcrCommand} from '@electron/features/ocr/worker/runOcrCommand';
-import type {TWorkerLog} from '@electron/ocr/worker/types';
+import type {
+    IOcrPageGeometry, TWorkerLog,
+} from '@electron/ocr/worker/types';
 import {
     readPdfPageSizeChunks,
     type IPdfPageSizeChunk,
 } from '@evb/scan-cleanup/core/pdfPageSizes';
 import type {TScanCleanupRunCommand} from '@evb/scan-cleanup/core/types';
 
-export interface IOcrPageSizeInches {
+export interface IOcrPageSizeInches extends Partial<IOcrPageGeometry> {
     width: number;
     height: number;
 }
@@ -78,6 +80,16 @@ function addPageSizeChunk(
         pageSizes.set(page.pageNumber, {
             width: page.widthPoints / 72,
             height: page.heightPoints / 72,
+            xPoints: page.xPoints,
+            yPoints: page.yPoints,
+            widthPoints: page.widthPoints,
+            heightPoints: page.heightPoints,
+            rotation: (() => {
+                if (page.rotation !== 0 && page.rotation !== 90 && page.rotation !== 180 && page.rotation !== 270) {
+                    throw new Error(`unsupported source rotation ${page.rotation}`);
+                }
+                return page.rotation;
+            })(),
         });
     }
 }

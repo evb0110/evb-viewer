@@ -301,14 +301,14 @@ describe('waitForExactShaCiGates', () => {
         })).rejects.toThrow(/was cancelled and no newer main push run contains it/u);
     });
 
-    it('stops when the exact target run was cancelled by a newer push', async () => {
+    it('stops when the exact target run was cancelled', async () => {
         const harness = createHarness(() => ({
             conclusion: 'cancelled',
             status: 'completed',
         }));
 
         await expect(waitForExactShaCiGates(TARGET_SHA, harness))
-            .rejects.toThrow(/run 424242 .*was cancelled, most likely by a newer push to main/u);
+            .rejects.toThrow(/run 424242 .*was cancelled, so it has no verdict/u);
     });
 
     it('fails promptly with the actual conclusion when the run turns terminal red', async () => {

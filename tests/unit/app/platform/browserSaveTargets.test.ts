@@ -60,7 +60,11 @@ describe('browserSaveTargets', () => {
             _sourceRef: string,
             _revision: string | null | undefined,
             operation: (mutation: unknown) => Promise<unknown>,
-        ) => operation({writeSource: browserDocumentStoreMock.write}));
+        ) => operation({
+            writeSource: browserDocumentStoreMock.write,
+            assertPhysicalSourceBaseCurrent: vi.fn(),
+            acknowledgePhysicalSourceCommit: vi.fn(),
+        }));
         browserDocumentStoreMock.write.mockResolvedValue(true);
         browserDocumentStoreMock.assignSaveTarget.mockResolvedValue(undefined);
         browserDocumentStoreMock.touchRecentFile.mockResolvedValue(undefined);

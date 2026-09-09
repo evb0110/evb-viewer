@@ -688,6 +688,7 @@ export function createDocumentPersistence(
             expectedWorkingPath?: TDocumentRef | null;
             expectedDocumentRevisionToken?: TDocumentRevisionToken | null | undefined;
             modifiedAt: TPdfDateString;
+            workingCopyOnly?: true;
             verifyPathBeforeExpose?: (path: TDocumentRef, knownSize: number) => Promise<void>;
             assertBeforeExpose?: () => Promise<void> | void;
             geometryUpdates?: IPdfNoteGeometryUpdate[];
@@ -716,6 +717,7 @@ export function createDocumentPersistence(
             expectedWorkingPath?: TDocumentRef | null;
             expectedDocumentRevisionToken?: TDocumentRevisionToken | null | undefined;
             modifiedAt: TPdfDateString;
+            workingCopyOnly?: true;
             verifyPathBeforeExpose?: (path: TDocumentRef, knownSize: number) => Promise<void>;
             assertBeforeExpose?: () => Promise<void> | void;
         },
@@ -754,9 +756,14 @@ export function createDocumentPersistence(
         }
         const applyPdfNativeMutationsToWorkingCopy = documentFiles.applyPdfNativeMutationsToWorkingCopy;
         const commitStagedPdfNativeMutations = documentFiles.commitStagedPdfNativeMutations;
+        const replaceWorkingCopyFromStagedPdfNativeMutation = documentFiles.replaceWorkingCopyFromStagedPdfNativeMutation;
         const canUseGenericNativeMutations = typeof applyPdfNativeMutationsToWorkingCopy === 'function'
             && typeof commitStagedPdfNativeMutations === 'function';
+        const canReplaceWorkingCopyFromStagedMutation = typeof replaceWorkingCopyFromStagedPdfNativeMutation === 'function';
         if (opts.saveMode === 'save_as_rewrite' && !canUseGenericNativeMutations) {
+            return null;
+        }
+        if (opts.workingCopyOnly && !canReplaceWorkingCopyFromStagedMutation) {
             return null;
         }
         const canUseLegacyNativeNoteText = (
@@ -948,6 +955,33 @@ export function createDocumentPersistence(
                             } finally {
                                 await documentFiles.releaseManagedTempFileHandle?.(stagedOutput.leaseId);
                             }
+                        }
+                        if (opts.workingCopyOnly) {
+                            const replaced = await measurePdfPersistPhase(
+                                phaseTimings,
+                                'native-replace-working-copy',
+                                () => replaceWorkingCopyFromStagedPdfNativeMutation!(
+                                    workingPath,
+                                    stagedOutput,
+                                    revisionOptions,
+                                ),
+                            );
+                            const workingCopyResult: IPdfNativeSaveResult = replaced
+                                ? {
+                                    applied: true,
+                                    validation: {
+                                        isValid: true,
+                                        tool: 'native' as const,
+                                        errors: [],
+                                        warnings: [],
+                                    },
+                                    nativeMutationPostconditionsVerified: true,
+                                    ...(appliedIdentityBindings.length > 0
+                                        ? {identityBindings: appliedIdentityBindings}
+                                        : {}),
+                                }
+                                : {applied: false, validation: null};
+                            return workingCopyResult;
                         }
                         let committed: IPdfNativeSaveResult;
                         try {

@@ -1,22 +1,21 @@
 name: CI
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ (github.event_name == 'pull_request' || github.event_name == 'push') && github.ref || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 on:
   pull_request:
   push:
     branches:
       - main
-    # Every push to main starts its own exact-SHA run; the release cutter
-    # trusts only push runs, so a path filter would leave commits it cannot
-    # release from. A newer push cancels the previous in-progress run, so a
-    # cancelled run means "superseded", not "failed". The superseding run
-    # diffs from the last push whose run finished, so it covers the areas
-    # the cancelled run never verified, and the release waiter
-    # (scripts/release/wait-for-exact-sha-ci.mjs) accepts a cancelled parent
-    # run through the newer green run that contains it.
+    # Every push to main gets its own exact-SHA run that runs to completion.
+    # The release cutter trusts only push runs, so a path filter would leave
+    # commits it cannot release from, and cancelling the previous run on a
+    # newer push left main without any finished verdict when several
+    # writers pushed minutes apart. The changed-area classifier diffs from
+    # the last push whose run finished, so a run that starts while the
+    # previous one is unfinished or was cancelled by hand covers both.
   workflow_dispatch:
 
 permissions:

@@ -712,6 +712,196 @@ describe('assembleSearchablePdf', () => {
                 expect(actualPositions[word]?.y).toBeCloseTo(expectedPositions[word]?.y ?? NaN, 4);
             }
         });
+
+    it.each([
+        0,
+        90,
+        180,
+        270,
+    ] as const)(
+        'maps a nonzero CropBox into the searchable page at %i degrees',
+        async (rotation) => {
+            tempDir = await mkdtemp(join(tmpdir(), 'evb-ocr-assembler-'));
+            const originalPath = join(tempDir, `crop-${rotation}-original.pdf`);
+            const ocrPath = join(tempDir, `crop-${rotation}-ocr.pdf`);
+            const originalPdf = await PDFDocument.create();
+            const page = originalPdf.addPage([
+                600,
+                800,
+            ]);
+            page.setCropBox(100, 100, 400, 600);
+            page.setRotation(degrees(rotation));
+            await writeFile(originalPath, await originalPdf.save());
+
+            const ocrPdf = await PDFDocument.create();
+            const swapsAxes = rotation === 90 || rotation === 270;
+            const ocrPage = ocrPdf.addPage(swapsAxes ? [
+                600,
+                400,
+            ] : [
+                400,
+                600,
+            ]);
+            await addHiddenTextLayer(ocrPdf, ocrPage, 'CROP-ALPHA', {
+                x: 24,
+                y: 42,
+            });
+            await addHiddenTextLayer(ocrPdf, ocrPage, 'CROP-BETA', {
+                x: swapsAxes ? 440 : 240,
+                y: swapsAxes ? 260 : 492,
+            });
+            await writeFile(ocrPath, await ocrPdf.save());
+            const expectedPositions = await extractTextViewportPositions(ocrPath);
+
+            const outputPath = await assembleSearchablePdf(
+                QPDF_TEST_BINARY,
+                originalPath,
+                new Map([[
+                    1,
+                    {
+                        path: ocrPath,
+                        pageGeometry: {
+                            xPoints: 100,
+                            yPoints: 100,
+                            widthPoints: 400,
+                            heightPoints: 600,
+                            rotation,
+                        },
+                    },
+                ]]),
+                1,
+                tempDir,
+                `crop-${rotation}-session`,
+                vi.fn(),
+                path => path,
+            );
+            const actualPositions = await extractTextViewportPositions(outputPath);
+            for (const word of [
+                'CROP-ALPHA',
+                'CROP-BETA',
+            ]) {
+                expect(actualPositions[word]?.x).toBeCloseTo(expectedPositions[word]?.x ?? NaN, 4);
+                expect(actualPositions[word]?.y).toBeCloseTo(expectedPositions[word]?.y ?? NaN, 4);
+            }
+        },
+    );
+
+    it('maps a nonzero MediaBox origin when the rendered box fills the page', async () => {
+        tempDir = await mkdtemp(join(tmpdir(), 'evb-ocr-assembler-'));
+        const originalPath = join(tempDir, 'media-origin-original.pdf');
+        const ocrPath = join(tempDir, 'media-origin-ocr.pdf');
+        const originalPdf = await PDFDocument.create();
+        const page = originalPdf.addPage([
+            600,
+            800,
+        ]);
+        page.setMediaBox(50, 75, 600, 800);
+        await writeFile(originalPath, await originalPdf.save());
+        const ocrPdf = await PDFDocument.create();
+        const ocrPage = ocrPdf.addPage([
+            600,
+            800,
+        ]);
+        await addHiddenTextLayer(ocrPdf, ocrPage, 'MEDIA-ORIGIN', {
+            x: 24,
+            y: 42,
+        });
+        await writeFile(ocrPath, await ocrPdf.save());
+        const expected = await extractTextViewportPositions(ocrPath);
+        const outputPath = await assembleSearchablePdf(
+            QPDF_TEST_BINARY,
+            originalPath,
+            new Map([[
+                1,
+                {
+                    path: ocrPath,
+                    pageGeometry: {
+                        xPoints: 50,
+                        yPoints: 75,
+                        widthPoints: 600,
+                        heightPoints: 800,
+                        rotation: 0,
+                    },
+                },
+            ]]),
+            1,
+            tempDir,
+            'media-origin-session',
+            vi.fn(),
+            path => path,
+        );
+        const actual = await extractTextViewportPositions(outputPath);
+        expect(actual['MEDIA-ORIGIN']?.x).toBeCloseTo(expected['MEDIA-ORIGIN']?.x ?? NaN, 4);
+        expect(actual['MEDIA-ORIGIN']?.y).toBeCloseTo(expected['MEDIA-ORIGIN']?.y ?? NaN, 4);
+    });
+
+    it('composes a same-size preprocessing inverse with the CropBox mapping', async () => {
+        tempDir = await mkdtemp(join(tmpdir(), 'evb-ocr-assembler-'));
+        const originalPath = join(tempDir, 'preprocess-original.pdf');
+        const ocrPath = join(tempDir, 'preprocess-ocr.pdf');
+        const originalPdf = await PDFDocument.create();
+        const page = originalPdf.addPage([
+            600,
+            800,
+        ]);
+        page.setCropBox(100, 100, 400, 600);
+        await writeFile(originalPath, await originalPdf.save());
+        const ocrPdf = await PDFDocument.create();
+        const ocrPage = ocrPdf.addPage([
+            400,
+            600,
+        ]);
+        await addHiddenTextLayer(ocrPdf, ocrPage, 'DESKEWED', {
+            x: 24,
+            y: 42,
+        });
+        await writeFile(ocrPath, await ocrPdf.save());
+        const expected = await extractTextViewportPositions(ocrPath);
+        const outputPath = await assembleSearchablePdf(
+            QPDF_TEST_BINARY,
+            originalPath,
+            new Map([[
+                1,
+                {
+                    path: ocrPath,
+                    pageGeometry: {
+                        xPoints: 100,
+                        yPoints: 100,
+                        widthPoints: 400,
+                        heightPoints: 600,
+                        rotation: 0,
+                        rasterWidthPx: 400,
+                        rasterHeightPx: 600,
+                        preprocessInverseTransform: {matrix: [
+                            [
+                                1,
+                                0,
+                                10,
+                            ],
+                            [
+                                0,
+                                1,
+                                5,
+                            ],
+                            [
+                                0,
+                                0,
+                                1,
+                            ],
+                        ]},
+                    },
+                },
+            ]]),
+            1,
+            tempDir,
+            'preprocess-session',
+            vi.fn(),
+            path => path,
+        );
+        const actual = await extractTextViewportPositions(outputPath);
+        expect(actual.DESKEWED?.x).toBeCloseTo((expected.DESKEWED?.x ?? NaN) + 10, 4);
+        expect(actual.DESKEWED?.y).toBeCloseTo((expected.DESKEWED?.y ?? NaN) + 5, 4);
+    });
 });
 
 describe('stripTesseractImageLayer', () => {

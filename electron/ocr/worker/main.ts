@@ -45,6 +45,7 @@ import type {
     IOcrWorkerLogMessage,
     TOcrWorkerOutboundMessage,
     IOcrPageWithWords,
+    IOcrPageGeometry,
     IOcrPageProcessingResult,
     IOcrPageTerminationUnproven,
     IOcrPdfPageRequest,
@@ -62,6 +63,7 @@ import {
     assembleSearchablePdf,
     getPageCount,
 } from '@electron/features/ocr/worker/pdfAssembler';
+import type {TOcrPageEntryValue} from '@electron/features/ocr/worker/pdfAssembler';
 import {
     parseInvalidOcrWorkerStartMessage,
     parseOcrWorkerInboundMessage,
@@ -296,6 +298,84 @@ async function readPngDimensions(imagePath: string) {
     return dims;
 }
 
+function mapOcrWordsThroughInverseTransform(
+    words: IOcrPageWithWords['words'],
+    matrix: number[][] | undefined,
+) {
+    if (matrix === undefined) {
+        return words;
+    }
+    const row0 = matrix[0];
+    const row1 = matrix[1];
+    const row2 = matrix[2];
+    if (!row0 || !row1 || !row2 || row0.length < 3 || row1.length < 3 || row2.length < 3) {
+        throw new Error('OCR preprocessing inverse transform is not a 3x3 matrix');
+    }
+    const validatedMatrix = [
+        row0,
+        row1,
+        row2,
+    ] as [
+        [number, number, number],
+        [number, number, number],
+        [number, number, number],
+    ];
+    return words.map(word => {
+        const corners = [
+            [
+                word.x,
+                word.y,
+            ],
+            [
+                word.x + word.width,
+                word.y,
+            ],
+            [
+                word.x,
+                word.y + word.height,
+            ],
+            [
+                word.x + word.width,
+                word.y + word.height,
+            ],
+        ].map(([
+            x,
+            y,
+        ]) => {
+            const pointX = x!;
+            const pointY = y!;
+            const w = validatedMatrix[2][0] * pointX + validatedMatrix[2][1] * pointY + validatedMatrix[2][2];
+            const mappedX = (validatedMatrix[0][0] * pointX + validatedMatrix[0][1] * pointY + validatedMatrix[0][2]) / w;
+            const mappedY = (validatedMatrix[1][0] * pointX + validatedMatrix[1][1] * pointY + validatedMatrix[1][2]) / w;
+            if (!Number.isFinite(mappedX) || !Number.isFinite(mappedY)) {
+                throw new Error(`OCR preprocessing produced a non-finite inverse-mapped word: ${word.text}`);
+            }
+            return [
+                mappedX,
+                mappedY,
+            ] as const;
+        });
+        const xs = corners.map(([x]) => x);
+        const ys = corners.map(([
+            , y,
+        ]) => y);
+        const x = Math.min(...xs);
+        const y = Math.min(...ys);
+        const width = Math.max(...xs) - x;
+        const height = Math.max(...ys) - y;
+        if (!(width > 0) || !(height > 0) || !Number.isFinite(width) || !Number.isFinite(height)) {
+            throw new Error(`OCR preprocessing produced an unusable inverse-mapped word: ${word.text}`);
+        }
+        return {
+            ...word,
+            x,
+            y,
+            width,
+            height,
+        };
+    });
+}
+
 interface IOcrPageProcessingContext {
     jobId: TJobId;
     sessionId: string;
@@ -304,6 +384,7 @@ interface IOcrPageProcessingContext {
     tesseractThreads: number;
     pageSizeByNumber: Map<number, IOcrPageSizeInches>;
     pageSourceDpiByNumber: Map<number, number>;
+    preprocessInverseByPageNumber?: Map<number, IOcrPageGeometry['preprocessInverseTransform']>;
     options: IOcrSearchablePdfOptions;
     checkpointDir: string;
     checkpointPage: (pageNumber: number) => Promise<void>;
@@ -328,12 +409,13 @@ async function processOcrPage(
             pageData?: IOcrPageWithWords;
             effectiveDpi?: number;
             diagnostics?: IOcrDiagnostic[];
+            pageGeometry?: IOcrPageGeometry;
             pdfSize?: number;
             pdfSha256?: string;
         };
         const checkpointPdfStat = await stat(checkpointPdfPath);
         if (
-            checkpoint.version === 2
+            checkpoint.version === 3
             && checkpointPdfStat.size > 0
             && checkpointPdfStat.size === checkpoint.pdfSize
             && await sha256OcrFile(checkpointPdfPath, context.signal) === checkpoint.pdfSha256
@@ -351,6 +433,7 @@ async function processOcrPage(
                 checkpointPdfPath,
                 effectiveDpi: checkpoint.effectiveDpi,
                 diagnostics: checkpoint.diagnostics ?? [],
+                ...(checkpoint.pageGeometry === undefined ? {} : {pageGeometry: checkpoint.pageGeometry}),
             };
         }
     } catch {
@@ -417,7 +500,8 @@ async function processOcrPage(
         ocrImagePath = pageImagePath;
         let ocrDims = dims;
         if (context.options.preprocessingMode === 'clean') {
-            const candidateOcrImagePath = await tryPreprocessOcrImage(
+            context.preprocessInverseByPageNumber?.delete(page.pageNumber);
+            const candidateOcrImage = await tryPreprocessOcrImage(
                 paths.unpaperBinary,
                 pageImagePath,
                 preprocessedImagePath,
@@ -431,11 +515,12 @@ async function processOcrPage(
                 preprocessMetadataPath,
                 effectiveDpi,
             );
-            if (candidateOcrImagePath !== pageImagePath) {
-                const candidateDims = await readPngDimensions(candidateOcrImagePath);
+            if (candidateOcrImage.path !== pageImagePath) {
+                const candidateDims = await readPngDimensions(candidateOcrImage.path);
                 if (candidateDims.width === dims.width && candidateDims.height === dims.height) {
-                    ocrImagePath = candidateOcrImagePath;
+                    ocrImagePath = candidateOcrImage.path;
                     ocrDims = candidateDims;
+                    context.preprocessInverseByPageNumber?.set(page.pageNumber, candidateOcrImage.inverseTransform);
                 } else {
                     const rawSize = `${dims.width}x${dims.height}`;
                     const cleanSize = `${candidateDims.width}x${candidateDims.height}`;
@@ -484,11 +569,32 @@ async function processOcrPage(
 
         const pageData: IOcrPageWithWords = {
             pageNumber: page.pageNumber,
-            words: ocrResult.pageData.words,
+            words: mapOcrWordsThroughInverseTransform(
+                ocrResult.pageData.words,
+                context.preprocessInverseByPageNumber?.get(page.pageNumber)?.matrix,
+            ),
             text: ocrResult.pageData.text,
             imageWidth: ocrResult.pageData.imageWidth,
             imageHeight: ocrResult.pageData.imageHeight,
         };
+
+        const pageGeometry: IOcrPageGeometry | undefined = pageSize !== undefined
+            && typeof pageSize.xPoints === 'number'
+            && typeof pageSize.yPoints === 'number'
+            && typeof pageSize.widthPoints === 'number'
+            && typeof pageSize.heightPoints === 'number'
+            && (pageSize.rotation === 0 || pageSize.rotation === 90 || pageSize.rotation === 180 || pageSize.rotation === 270)
+            ? {
+                xPoints: pageSize.xPoints,
+                yPoints: pageSize.yPoints,
+                widthPoints: pageSize.widthPoints,
+                heightPoints: pageSize.heightPoints,
+                rotation: pageSize.rotation,
+                rasterWidthPx: ocrResult.pageData.imageWidth,
+                rasterHeightPx: ocrResult.pageData.imageHeight,
+                ...(context.preprocessInverseByPageNumber?.get(page.pageNumber) === undefined ? {} : {preprocessInverseTransform: context.preprocessInverseByPageNumber.get(page.pageNumber)!}),
+            }
+            : undefined;
 
         if (!ocrResult.pdfPath) {
             return {
@@ -505,6 +611,7 @@ async function processOcrPage(
             checkpointPdfPath,
             checkpointData: {
                 pageData,
+                ...(pageGeometry === undefined ? {} : {pageGeometry}),
                 effectiveDpi,
                 diagnostics,
             },
@@ -517,6 +624,7 @@ async function processOcrPage(
         await context.checkpointPage(page.pageNumber);
         return {
             pageData,
+            ...(pageGeometry === undefined ? {} : {pageGeometry}),
             pdfPath: checkpointPdfPath,
             checkpointJsonPath,
             checkpointPdfPath,
@@ -600,6 +708,7 @@ export async function processOcrPages(
         pageNumber: number;
         pageDataPath: string;
         pdfPath: string;
+        pageGeometry?: IOcrPageGeometry;
         effectiveDpi?: number;
     }> = [];
     let effectiveRenderDpi = context.extractionDpi;
@@ -620,6 +729,7 @@ export async function processOcrPages(
                     pageNumber,
                     pageDataPath: result.checkpointJsonPath,
                     pdfPath: result.pdfPath,
+                    ...(result.pageGeometry === undefined ? {} : {pageGeometry: result.pageGeometry}),
                     ...(typeof result.effectiveDpi === 'number' ? {effectiveDpi: result.effectiveDpi} : {}),
                 });
             }
@@ -775,7 +885,7 @@ function sendEmptyOcrResultFailure(
 async function assembleMergedOcrPdf(
     jobId: TJobId,
     sourcePdfPath: string,
-    ocrPdfEntries: Map<number, string> | AsyncIterable<readonly [number, string]>,
+    ocrPdfEntries: Map<number, TOcrPageEntryValue> | AsyncIterable<readonly [number, TOcrPageEntryValue]>,
     pageCount: number,
     sessionId: string,
     trackTempFile: (path: string) => string,
@@ -929,6 +1039,7 @@ async function processOcrJob(
             signal: abortController.signal,
             options,
             checkpointDir,
+            preprocessInverseByPageNumber: new Map(),
             // Per-page manifest rewrites are quadratic for a large scalar
             // selection. Page files are the durable source of truth; retain a
             // bounded manifest breadcrumb for diagnostics and resume tooling.

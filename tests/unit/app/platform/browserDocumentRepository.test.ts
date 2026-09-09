@@ -120,6 +120,57 @@ describe('BrowserDocumentStore source registration', () => {
         await expect(store.read(ref)).resolves.toEqual(bytes);
     });
 
+    it('rejects a materialized save when the physical source changed at equal size and mtime', async () => {
+        const openingBytes = Uint8Array.of(37, 80, 68, 70, 1, 2);
+        let currentFile = new File([openingBytes], 'materialized-source.pdf', {
+            type: 'application/pdf',
+            lastModified: 777,
+        });
+        const handle = createFileSystemFileHandle({
+            name: 'materialized-source.pdf',
+            getFile: vi.fn(async () => currentFile),
+        });
+        const store = new BrowserDocumentStore();
+        const sourceRef = await store.registerFile(currentFile, {
+            kind: 'source',
+            saveKind: 'pdf',
+            saveHandle: handle,
+        });
+        const workingRef = await store.cloneAsWorkingCopy(sourceRef);
+        await store.writeForBootstrap(workingRef, Uint8Array.of(9, 8, 7), 'materialize-working-copy');
+
+        const openingWitness = (await store.requireEntry(workingRef)).sourceBaseWitness;
+        currentFile = new File([
+            37,
+            80,
+            68,
+            71,
+            1,
+            2,
+        ], 'materialized-source.pdf', {
+            type: 'application/pdf',
+            lastModified: 777,
+        });
+        const writer = vi.fn(async () => undefined);
+
+        await expect(store.runDocumentMutationWithSource(
+            workingRef,
+            sourceRef,
+            (await store.getDocumentRevision(workingRef)).token,
+            async mutation => {
+                await mutation.assertPhysicalSourceBaseCurrent();
+                await writer();
+                await mutation.writeSource(Uint8Array.of(9, 8, 7));
+                return true;
+            },
+        )).rejects.toThrow('physical source changed');
+
+        expect(openingWitness).toBeTruthy();
+        expect(writer).not.toHaveBeenCalled();
+        await expect(store.read(sourceRef)).resolves.toEqual(openingBytes);
+        expect((await store.requireEntry(workingRef)).sourceBaseWitness).toBe(openingWitness);
+    });
+
     it('rolls back interrupted chunk ingestion before a complete retry', async () => {
         const bytes = new Uint8Array(BROWSER_MAX_FULL_READ_BYTES + 1);
         bytes.fill(0x5a);

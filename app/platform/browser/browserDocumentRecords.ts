@@ -38,6 +38,7 @@ export function createPersistedBrowserDocumentRecord(
         saveKind: entry.saveKind,
         saveHandle: entry.saveHandle ?? null,
         ...(entry.sourceWitness ? {sourceWitness: true} : {}),
+        ...(entry.sourceBaseWitness ? {sourceBaseWitness: entry.sourceBaseWitness} : {}),
         storageMode: entry.storageMode,
         chunkCount: entry.chunkCount,
         chunkSize: entry.chunkSize,
@@ -67,6 +68,7 @@ interface IPersistedSaveTarget {
     saveKind?: IBrowserDocumentEntry['saveKind'];
     saveHandle?: FileSystemFileHandle | null;
     sourceWitness?: boolean;
+    sourceBaseWitness?: string;
 }
 
 interface IPersistedChunkLayout {
@@ -176,12 +178,16 @@ function normalizePersistedSaveTarget(
         ? normalizePersistedSaveHandle(value.saveHandle)
         : undefined;
     const sourceWitness = value.sourceWitness === true;
+    const sourceBaseWitness = typeof value.sourceBaseWitness === 'string' && value.sourceBaseWitness.length > 0
+        ? value.sourceBaseWitness
+        : undefined;
 
     return {
         ...(saveName ? { saveName } : {}),
         ...(saveKind ? { saveKind } : {}),
         ...(saveHandle !== undefined ? { saveHandle } : {}),
         ...(sourceWitness ? { sourceWitness: true } : {}),
+        ...(sourceBaseWitness ? { sourceBaseWitness } : {}),
     };
 }
 
@@ -316,6 +322,7 @@ export function createEntryFromPersistedRecord(
         saveKind: record.saveKind ?? defaultSaveKindForFileName(record.fileName),
         saveHandle: record.saveHandle ?? null,
         ...(record.sourceWitness ? { sourceWitness: true } : {}),
+        ...(record.sourceBaseWitness ? { sourceBaseWitness: record.sourceBaseWitness } : {}),
         storageMode: record.storageMode ?? 'inline',
         chunkCount: record.chunkCount ?? 0,
         chunkSize: record.chunkSize ?? BROWSER_DOCUMENT_CHUNK_SIZE,
@@ -416,6 +423,7 @@ export function createBrowserDocumentEntry(
         saveKind: input.saveKind,
         saveHandle: input.saveHandle,
         ...(input.sourceWitness ? { sourceWitness: true } : {}),
+        ...(input.sourceBaseWitness ? { sourceBaseWitness: input.sourceBaseWitness } : {}),
         storageMode: input.storageMode,
         chunkCount: input.chunkCount ?? 0,
         chunkSize: input.chunkSize ?? BROWSER_DOCUMENT_CHUNK_SIZE,

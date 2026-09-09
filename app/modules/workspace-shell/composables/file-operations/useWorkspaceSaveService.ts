@@ -209,6 +209,7 @@ export interface IWorkspaceSaveDependencies {
                 expectedWorkingPath?: TDocumentRef | null;
                 expectedDocumentRevisionToken?: TDocumentRevisionToken | null;
                 modifiedAt: TPdfDateString;
+                workingCopyOnly?: true;
                 verifyPathBeforeExpose?: (path: TDocumentRef, knownSize: number) => Promise<void>;
                 assertBeforeExpose?: () => Promise<void> | void;
             },
@@ -221,6 +222,7 @@ export interface IWorkspaceSaveDependencies {
                 expectedWorkingPath?: TDocumentRef | null;
                 expectedDocumentRevisionToken?: TDocumentRevisionToken | null;
                 modifiedAt: TPdfDateString;
+                workingCopyOnly?: true;
                 geometryUpdates?: IPdfNoteGeometryUpdate[];
                 freeTextNotes?: IPdfNativeFreeTextNote[];
                 deletes?: IPdfNativeAnnotationDelete[];
@@ -453,11 +455,12 @@ async function executeSerializedBytesSave(
 }
 
 async function persistNativeMutationProjection(
-    plan: Extract<TWorkspaceSavePlan, {kind: 'native-mutation'}>,
+    plan: Extract<TWorkspaceSavePlan, {kind: 'native-mutation' | 'native-repair'}>,
     projection: INativePdfMutationProjection,
     deps: IWorkspaceSaveDependencies,
     verifyPathBeforeExpose?: (path: TDocumentRef, knownSize: number) => Promise<void>,
     assertBeforeExpose?: () => Promise<void> | void,
+    workingCopyOnly = false,
 ) {
     if (!isTargetCurrent(plan, deps) || !plan.target.expectedWorkingPath) {
         return null;
@@ -468,6 +471,7 @@ async function persistNativeMutationProjection(
         expectedWorkingPath: plan.target.expectedWorkingPath,
         expectedDocumentRevisionToken: plan.target.expectedRevisionToken,
         modifiedAt: toPdfDateString(new Date()),
+        ...(workingCopyOnly ? {workingCopyOnly: true as const} : {}),
         ...(plan.request.kind === 'save-as' && plan.request.optimizeLossless ? {optimizeLossless: true} : {}),
         ...(verifyPathBeforeExpose ? {verifyPathBeforeExpose} : {}),
         ...(assertBeforeExpose ? {assertBeforeExpose} : {}),
@@ -656,12 +660,13 @@ async function executeNativeMutationSave(
     }
     const materializedIdentityBindings = persisted.materializedIdentityBindings;
     if (plan.request.kind === 'save-as' && !persisted.didSaveAs) {
+        const currentRevisionToken = deps.document.revisionToken.value;
         const saveAsPersisted = await timedSavePhase(
             'persist-save_as-native-writer-output',
             () => deps.persistence.saveAs(undefined, {
                 saveMode: 'save_as_rewrite',
                 expectedWorkingPath: plan.target.expectedWorkingPath,
-                expectedDocumentRevisionToken: plan.target.expectedRevisionToken,
+                expectedDocumentRevisionToken: currentRevisionToken,
                 optimizeLossless: plan.request.kind === 'save-as' && plan.request.optimizeLossless,
             }),
         );
@@ -740,6 +745,87 @@ async function executeNativeMutationSave(
     };
 }
 
+async function executeNativeRepairSave(
+    plan: Extract<TWorkspaceSavePlan, {kind: 'native-repair'}>,
+    deps: IWorkspaceSaveDependencies,
+): Promise<TWorkspaceSaveExecutionResult> {
+    const saveTransaction = await deps.pdf.runSaveTransaction(
+        buildSaveTransactionRequest(plan, deps, plan.serializedFallback, {
+            allowNativeMutationPlan: true,
+            planOnly: true,
+        }),
+    ) as TSingleWriterSaveTransaction;
+    const projection = saveTransaction.nativeMutationProjection;
+    if (!projection) {
+        return notSavedBeforeWrite('native-save-required', plan.target.expectedRevisionToken, null);
+    }
+    const placedImageGeometryUpdates = projection.placedImageGeometryUpdates ?? [];
+    const nativeMutations = placedImageGeometryUpdates.length > 0
+        && projection.mutations.placedImageGeometryUpdates === undefined
+        ? {...projection.mutations, placedImageGeometryUpdates}
+        : projection.mutations;
+    const effectiveProjection = nativeMutations === projection.mutations
+        ? projection
+        : {...projection, mutations: nativeMutations};
+    if (Object.keys(nativeMutations).length === 0) {
+        return notSavedBeforeWrite('native-save-required', plan.target.expectedRevisionToken, null);
+    }
+
+    const staged = await persistNativeMutationProjection(
+        plan,
+        effectiveProjection,
+        deps,
+        saveTransaction.verifyAnnotationSavePath,
+        saveTransaction.assertAnnotationSaveCurrent,
+        true,
+    );
+    if (!staged) {
+        return notSavedBeforeWrite('native-save-required', plan.target.expectedRevisionToken, null);
+    }
+    if (!staged.success) {
+        return notSavedAfterWrite(abortReasonForPersistResult(staged), null);
+    }
+
+    const repaired = deps.persistence.repairWorkingCopy;
+    if (!repaired) {
+        return notSavedAfterWrite('capability-unavailable', null);
+    }
+    const repairedResult = await timedSavePhase(
+        'persist-repair-native-staged-working-copy',
+        () => repaired({
+            saveMode: 'rewrite',
+            expectedWorkingPath: plan.target.expectedWorkingPath,
+            expectedDocumentRevisionToken: deps.document.revisionToken.value,
+        }),
+    );
+    if (!repairedResult.success) {
+        return notSavedAfterWrite(abortReasonForPersistResult(repairedResult), null);
+    }
+
+    saveTransaction.commitAnnotationSave?.(staged.materializedIdentityBindings);
+    return {
+        status: 'saved',
+        persisted: repairedResult,
+        serializedChanges: true,
+        reloadWaiter: null,
+        completion: {
+            allowAnnotationSaveStateRefresh: projection.noteTextUpdates.length > 0
+                || (projection.noteGeometryUpdates?.length ?? 0) > 0
+                || projection.freeTextNotes.length > 0
+                || projection.freeTextEditors.length > 0
+                || (projection.textBoxes?.length ?? 0) > 0
+                || projection.annotationDeletes.length > 0
+                || projection.hasMarkupMutations
+                || projection.hasShapeMutations,
+            allowBookmarksSaveStateRefresh: projection.mutations.bookmarks !== undefined,
+            allowPageLabelsSaveStateRefresh: projection.mutations.pageLabels !== undefined,
+            markShapeStateSaved: false,
+            preserveLivePdfjsSession: false,
+            resetAnnotationStorage: true,
+        },
+    };
+}
+
 async function executeOptimizationSave(
     plan: Extract<TWorkspaceSavePlan, {kind: 'optimization'}>,
     deps: IWorkspaceSaveDependencies,
@@ -801,6 +887,9 @@ async function executeSavePlan(
         }
         if (plan.kind === 'native-mutation') {
             return await executeNativeMutationSave(plan, deps);
+        }
+        if (plan.kind === 'native-repair') {
+            return await executeNativeRepairSave(plan, deps);
         }
         if (plan.body.source === 'working-copy') {
             return await executeWorkingCopySave(plan, deps);
@@ -1022,6 +1111,9 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
                             deps.persistence.trySavePdfNativeMutations
                             ?? deps.persistence.trySaveEmbeddedNoteTextUpdates,
                         ),
+                        canPersistNativeRepair: request.kind === 'repair'
+                            && Boolean(deps.persistence.repairWorkingCopy)
+                            && Boolean(deps.persistence.trySavePdfNativeMutations),
                     });
 
                     const unencryptedSaveAbort = await unencryptedSaveNoticeGate(

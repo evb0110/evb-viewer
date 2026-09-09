@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Reports what main-branch CI has been doing lately: how many push runs
-// failed, how many were superseded by a newer push, which jobs and steps
+// failed, how many were cancelled without a verdict, which jobs and steps
 // fail most, which runs flipped from red to green on a rerun (the flake
 // signal), and which jobs take longest. Read it before adding a retry,
 // a sleep, or a timeout, and read it again after removing a check.
@@ -194,7 +194,7 @@ export function formatReport(runs, jobs, scope) {
         conclusion,
         count,
     ]) => {
-        const note = conclusion === 'cancelled' ? ' (superseded by a newer push, not a failure)' : '';
+        const note = conclusion === 'cancelled' ? ' (cancelled without a verdict, not a failure)' : '';
         return `  ${conclusion} ${count} (${percent(count, runs.total)})${note}`;
     });
     lines.push(...conclusions);

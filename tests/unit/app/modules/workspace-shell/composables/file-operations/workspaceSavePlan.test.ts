@@ -36,6 +36,7 @@ function buildPlan(options: {
     hasManagedShapes?: boolean;
     canPersistNativeWorkingCopy?: boolean;
     canPersistNativeMutations?: boolean;
+    canPersistNativeRepair?: boolean;
 } = {}) {
     return createWorkspaceSavePlan({
         request: options.request ?? {kind: 'save'},
@@ -54,6 +55,7 @@ function buildPlan(options: {
         hasManagedShapes: options.hasManagedShapes ?? false,
         canPersistNativeWorkingCopy: options.canPersistNativeWorkingCopy ?? false,
         canPersistNativeMutations: options.canPersistNativeMutations ?? false,
+        canPersistNativeRepair: options.canPersistNativeRepair ?? false,
     });
 }
 
@@ -119,6 +121,23 @@ describe('workspaceSavePlan', () => {
                 source: 'working-copy',
                 forceRewrite: true,
                 requiresLargeFileGuard: true,
+            },
+        });
+    });
+
+    it('plans dirty Repair through the staged native repair route when available', () => {
+        expect(buildPlan({
+            request: {kind: 'repair'},
+            dirtyState: dirtyState({bookmarks: true}),
+            canPersistNativeWorkingCopy: true,
+            canPersistNativeMutations: true,
+            canPersistNativeRepair: true,
+        })).toMatchObject({
+            kind: 'native-repair',
+            request: {kind: 'repair'},
+            serializedFallback: {
+                source: 'working-copy',
+                forceRewrite: true,
             },
         });
     });

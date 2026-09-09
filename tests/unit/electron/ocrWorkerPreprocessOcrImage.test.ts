@@ -8,12 +8,18 @@ import {
 
 const mocks = vi.hoisted(() => ({
     runOcrCommand: vi.fn(),
+    readFile: vi.fn(),
     stat: vi.fn(),
     log: vi.fn(),
+    decodeMetadata: vi.fn(),
 }));
 
 vi.mock('@electron/features/ocr/worker/runOcrCommand', () => ({runOcrCommand: mocks.runOcrCommand}));
-vi.mock('fs/promises', () => ({stat: mocks.stat}));
+vi.mock('fs/promises', () => ({
+    stat: mocks.stat,
+    readFile: mocks.readFile,
+}));
+vi.mock('@contracts/scan-cleanup/nativeArtifactCodecs', () => ({decodeNativeScanCleanupOutputMetadataJson: mocks.decodeMetadata}));
 
 describe('tryPreprocessOcrImage', () => {
     beforeEach(() => {
@@ -24,6 +30,8 @@ describe('tryPreprocessOcrImage', () => {
             stderr: '',
         });
         mocks.stat.mockResolvedValue({ size: 1024 });
+        mocks.readFile.mockResolvedValue('{}');
+        mocks.decodeMetadata.mockReturnValue({inverseTransform: null});
     });
 
     it('prefers native scan cleanup and does not invoke unpaper after success', async () => {
@@ -40,7 +48,7 @@ describe('tryPreprocessOcrImage', () => {
             '/bin/evb-scan-cleanup',
             '/tmp/clean.json',
             288,
-        )).resolves.toBe('/tmp/clean.png');
+        )).resolves.toEqual({path: '/tmp/clean.png'});
 
         expect(mocks.runOcrCommand).toHaveBeenCalledWith(
             '/bin/evb-scan-cleanup',
@@ -106,6 +114,75 @@ describe('tryPreprocessOcrImage', () => {
         });
     });
 
+    it('returns the native inverse transform for same-size deskew output', async () => {
+        const inverseTransform = {matrix: [
+            [
+                1,
+                0,
+                -12,
+            ],
+            [
+                0,
+                1,
+                8,
+            ],
+            [
+                0,
+                0,
+                1,
+            ],
+        ]};
+        mocks.decodeMetadata.mockReturnValue({inverseTransform});
+        const { tryPreprocessOcrImage } = await import('@electron/features/ocr/worker/tryPreprocessOcrImage');
+
+        await expect(tryPreprocessOcrImage(
+            undefined,
+            '/tmp/raw.png',
+            '/tmp/clean.png',
+            mocks.log,
+            new AbortController().signal,
+            undefined,
+            '/bin/evb-scan-cleanup',
+            '/tmp/clean.json',
+        )).resolves.toEqual({
+            path: '/tmp/clean.png',
+            inverseTransform,
+        });
+    });
+
+    it('falls back before recognition when native geometry metadata is singular', async () => {
+        mocks.decodeMetadata.mockReturnValue({inverseTransform: {matrix: [
+            [
+                1,
+                0,
+                0,
+            ],
+            [
+                0,
+                0,
+                0,
+            ],
+            [
+                0,
+                0,
+                1,
+            ],
+        ]}});
+        const { tryPreprocessOcrImage } = await import('@electron/features/ocr/worker/tryPreprocessOcrImage');
+
+        await expect(tryPreprocessOcrImage(
+            undefined,
+            '/tmp/raw.png',
+            '/tmp/clean.png',
+            mocks.log,
+            new AbortController().signal,
+            undefined,
+            '/bin/evb-scan-cleanup',
+            '/tmp/clean.json',
+        )).resolves.toEqual({path: '/tmp/raw.png'});
+        expect(mocks.log).toHaveBeenCalledWith('warn', expect.stringContaining('metadata is unusable'));
+    });
+
     it('returns the cleaned image path when unpaper succeeds', async () => {
         const { tryPreprocessOcrImage } = await import('@electron/features/ocr/worker/tryPreprocessOcrImage');
         const controller = new AbortController();
@@ -116,7 +193,7 @@ describe('tryPreprocessOcrImage', () => {
             '/tmp/clean.png',
             mocks.log,
             controller.signal,
-        )).resolves.toBe('/tmp/clean.png');
+        )).resolves.toEqual({path: '/tmp/raw.png'});
 
         expect(mocks.runOcrCommand).toHaveBeenCalledWith(
             '/bin/unpaper',
@@ -160,7 +237,7 @@ describe('tryPreprocessOcrImage', () => {
             mocks.log,
             new AbortController().signal,
             onDiagnostic,
-        )).resolves.toBe('/tmp/raw.png');
+        )).resolves.toEqual({path: '/tmp/raw.png'});
 
         expect(mocks.runOcrCommand).not.toHaveBeenCalled();
         expect(mocks.log).toHaveBeenCalledWith(
@@ -195,7 +272,7 @@ describe('tryPreprocessOcrImage', () => {
             '/tmp/clean.png',
             mocks.log,
             new AbortController().signal,
-        )).resolves.toBe('/tmp/raw.png');
+        )).resolves.toEqual({path: '/tmp/raw.png'});
 
         expect(mocks.log).toHaveBeenCalledWith(
             'warn',
@@ -221,7 +298,7 @@ describe('tryPreprocessOcrImage', () => {
             '/tmp/clean.png',
             mocks.log,
             new AbortController().signal,
-        )).resolves.toBe('/tmp/raw.png');
+        )).resolves.toEqual({path: '/tmp/raw.png'});
 
         expect(mocks.runOcrCommand).toHaveBeenCalledTimes(1);
         expect(mocks.runOcrCommand).toHaveBeenCalledWith(
@@ -253,7 +330,7 @@ describe('tryPreprocessOcrImage', () => {
             '/tmp/clean.png',
             mocks.log,
             new AbortController().signal,
-        )).resolves.toBe('/tmp/raw.png');
+        )).resolves.toEqual({path: '/tmp/raw.png'});
 
         expect(mocks.log).toHaveBeenCalledWith(
             'warn',
@@ -289,7 +366,7 @@ describe('tryPreprocessOcrImage', () => {
                 '/tmp/clean.png',
                 mocks.log,
                 new AbortController().signal,
-            )).resolves.toBe('/tmp/raw.png');
+            )).resolves.toEqual({path: '/tmp/raw.png'});
             await Promise.resolve();
 
             await expect(tryPreprocessOcrImage(
@@ -298,7 +375,7 @@ describe('tryPreprocessOcrImage', () => {
                 '/tmp/clean.png',
                 mocks.log,
                 new AbortController().signal,
-            )).resolves.toBe('/tmp/raw.png');
+            )).resolves.toEqual({path: '/tmp/raw.png'});
             expect(mocks.runOcrCommand).toHaveBeenCalledTimes(1);
 
             vi.setSystemTime(1_001);
@@ -308,7 +385,7 @@ describe('tryPreprocessOcrImage', () => {
                 '/tmp/clean.png',
                 mocks.log,
                 new AbortController().signal,
-            )).resolves.toBe('/tmp/clean.png');
+            )).resolves.toEqual({path: '/tmp/raw.png'});
             expect(mocks.runOcrCommand).toHaveBeenCalledTimes(3);
         } finally {
             vi.useRealTimers();
@@ -326,7 +403,7 @@ describe('tryPreprocessOcrImage', () => {
             '/tmp/clean.png',
             mocks.log,
             new AbortController().signal,
-        )).resolves.toBe('/tmp/raw.png');
+        )).resolves.toEqual({path: '/tmp/raw.png'});
 
         expect(mocks.log).toHaveBeenCalledWith(
             'warn',

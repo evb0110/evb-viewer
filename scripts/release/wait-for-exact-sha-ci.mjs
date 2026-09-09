@@ -81,9 +81,10 @@ export function findLatestMatchingRun(targetSha, runCommand = defaultCommandRunn
 }
 
 /**
- * ci.yml cancels an in-progress main push run when a newer push arrives, so
- * a cancelled run means "superseded", not "failed". Returns the newest later
- * main push run whose head contains targetSha, or null.
+ * A cancelled main push run (stopped by hand, or by a concurrency policy)
+ * is not a verdict, so the newer run that contains the commit stands in for
+ * it. Returns the newest later main push run whose head contains targetSha,
+ * or null.
  */
 /** @param {string} targetSha @param {IWorkflowRun} cancelledRun @param {TCommandRunner} [runCommand] @returns {IWorkflowRun | null} */
 export function findSupersedingRun(targetSha, cancelledRun, runCommand = defaultCommandRunner) {
@@ -280,9 +281,9 @@ export async function waitForExactShaCiGates(targetSha, {
         if (knownRun && knownRun.status === 'completed') {
             if (knownRun.conclusion === 'cancelled') {
                 throw new Error(
-                    `Exact-SHA CI ${describeRun(knownRun)} for ${targetSha} was cancelled, most likely by a `
-                    + 'newer push to main (ci.yml cancels superseded push runs). Release from the current '
-                    + `main tip, or re-run it with \`gh run rerun ${knownRun.id}\`.`,
+                    `Exact-SHA CI ${describeRun(knownRun)} for ${targetSha} was cancelled, so it has no `
+                    + 'verdict. Release from the current main tip, or re-run it with '
+                    + `\`gh run rerun ${knownRun.id}\`.`,
                 );
             }
             if (knownRun.conclusion !== 'success') {

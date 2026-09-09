@@ -56,11 +56,12 @@ browser, Electron, native, and packaging lanes follow the changed areas.
 Coverage is an optional diagnostic without percentage thresholds. See
 [ci.yml](../.github/workflows/ci.yml) for the current selections.
 
-A newer push to main cancels the in-progress run of the previous push. A
-cancelled run is superseded, not failed; the newer run's verdict covers both
-commits. The release waiter accepts a cancelled parent run through the newer
-green run that contains it. Re-run a cancelled run with `gh run rerun <id>`
-when the exact commit needs its own verdict.
+Every push to main runs to completion; a newer push does not cancel it. The
+changed-area classifier diffs from the last push whose run finished, so lanes
+that an unfinished or hand-cancelled run has not verified are selected again
+by the next run. A cancelled run is not a verdict: the release waiter accepts
+a cancelled parent through a newer green run that contains it, or re-run it
+with `gh run rerun <id>` when the exact commit needs its own verdict.
 
 ## Flaky checks
 

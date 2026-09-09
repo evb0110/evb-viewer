@@ -336,6 +336,77 @@ describe('workspace save failure surfacing', () => {
         expect(service.hasSaveFailure.value).toBe(true);
     });
 
+    it('stages dirty Repair edits into the working copy before invoking the repair writer', async () => {
+        const trySavePdfNativeMutations = vi.fn(async (
+            _mutations: unknown,
+            options: Parameters<TPdfNativeMutationSave>[1],
+        ) => {
+            expect(options.workingCopyOnly).toBe(true);
+            return {
+                success: true,
+                outPath: requireDocumentRef('/tmp/work.pdf'),
+                saveMode: 'rewrite' as const,
+                didSaveAs: false,
+            };
+        });
+        const repairWorkingCopy = vi.fn(async (
+            options: Parameters<NonNullable<TSaveFixtureDeps['repairWorkingCopy']>>[0],
+        ) => {
+            expect(options.expectedDocumentRevisionToken).toBe(requireDocumentRevisionToken('rev-1'));
+            return {
+                success: true,
+                outPath: requireDocumentRef('/tmp/source.pdf'),
+                saveMode: 'rewrite' as const,
+                didSaveAs: false,
+            };
+        });
+        const {deps} = createDeps({
+            annotationDirty: ref(true),
+            bookmarksDirty: ref(true),
+            bookmarkItems: ref([{
+                title: 'Pending bookmark',
+                dest: {pageIndex: 0},
+            }]),
+            trySavePdfNativeMutations,
+            repairWorkingCopy,
+        });
+        const service = useWorkspaceSaveServiceForTest(deps);
+
+        await expect(service.handleRepairSave()).resolves.toBe(true);
+        expect(trySavePdfNativeMutations).toHaveBeenCalledOnce();
+        expect(repairWorkingCopy).toHaveBeenCalledOnce();
+        expect(deps.saveWorkingCopy).not.toHaveBeenCalled();
+        expect(deps.saveWorkingCopyAs).not.toHaveBeenCalled();
+    });
+
+    it('keeps dirty Repair edits after the repair writer refuses the staged working copy', async () => {
+        const trySavePdfNativeMutations = vi.fn(async () => ({
+            success: true,
+            outPath: requireDocumentRef('/tmp/work.pdf'),
+            saveMode: 'rewrite' as const,
+            didSaveAs: false,
+        }));
+        const repairWorkingCopy = vi.fn(async () => ({
+            success: false,
+            outPath: null,
+            saveMode: 'rewrite' as const,
+            didSaveAs: false,
+        }));
+        const {deps} = createDeps({
+            annotationDirty: ref(true),
+            bookmarksDirty: ref(true),
+            bookmarkItems: ref([{title: 'Pending bookmark', dest: {pageIndex: 0}}]),
+            trySavePdfNativeMutations,
+            repairWorkingCopy,
+        });
+        const service = useWorkspaceSaveServiceForTest(deps);
+
+        await expect(service.handleRepairSave()).resolves.toBe(false);
+
+        expectWorkspaceSaveNotMarked(deps);
+        expect(service.hasSaveFailure.value).toBe(true);
+    });
+
     it('reports a rejected persist result', async () => {
         const { deps } = createDeps({
             annotationDirty: ref(true),

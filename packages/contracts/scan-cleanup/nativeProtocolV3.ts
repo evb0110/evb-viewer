@@ -199,6 +199,8 @@ export interface INativeScanCleanupOutputMetadataV3 {
     placementOffsetXPx: number;
     placementOffsetYPx: number;
     forwardTransform: IScanCleanupPreviewAffine | null;
+    /** Inverse output-raster to source-raster mapping for affine preprocessing. */
+    inverseTransform?: IScanCleanupPreviewAffine | null;
     dewarpMapping?: INativeScanCleanupReusableGeometryV3['dewarpMapping'];
     rotationDegrees: TScanCleanupPageRotation;
 }
