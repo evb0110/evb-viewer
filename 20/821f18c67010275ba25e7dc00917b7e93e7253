@@ -1,0 +1,30 @@
+electron/bootstrap/mainProcess.ts
+  s_559af23a624db6::t_9b3660e6f1bec9 218-219,231
+electron/features/diagnostics/startupCrashMarker.ts
+  s_559af23a624db6::t_ea05875b00709d 77
+  s_559af23a624db6::t_9b3660e6f1bec9 76,79,379-386
+tests/unit/electron/startupCrashMarker.test.ts
+  s_559af23a624db6::t_2acb16bb9dc527 258-259,377-378,393-394,410-411,419-420,475-476
+  s_559af23a624db6::t_9b3660e6f1bec9 271-288,290,349-350,444-445
+  s_559af23a624db6::t_a644f9dc735ce2 343
+  s_559af23a624db6::t_2017fc39ff39a6 252-253,289
+  s_559af23a624db6::t_c076c5db8d2a9c 10,18,291-293,300-312,319-342,344-348
+  s_559af23a624db6::t_ea05875b00709d 294
+  s_559af23a624db6::t_0708b9561e0737 295-299,313-318
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "20821f18c67010275ba25e7dc00917b7e93e7253",
+  "prompts": {},
+  "sessions": {
+    "s_559af23a624db6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a087b2-7756-7613-ba83-6abebeb7251f",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

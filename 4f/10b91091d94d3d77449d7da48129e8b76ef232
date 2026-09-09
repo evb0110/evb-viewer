@@ -1,0 +1,21 @@
+docs/architecture/project6-ticket333-registration-table-inventory-2026-09-07.md
+  s_dc946dc6dade3a::t_6bbdaeb72594db 43
+tests/e2e/electron/helpers/findViewportLifecycleViolations.ts
+  s_dc946dc6dade3a::t_6bbdaeb72594db 27-30
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "4f10b91091d94d3d77449d7da48129e8b76ef232",
+  "prompts": {},
+  "sessions": {
+    "s_dc946dc6dade3a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a087a9-91ab-71f3-a7bd-66c2da35abfc",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

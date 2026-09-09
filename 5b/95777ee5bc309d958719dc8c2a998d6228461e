@@ -1,0 +1,84 @@
+native/pdf-page-ops/src/markup.rs
+  s_e6afbc66b58e4d::t_019c5be8fe81b0 486-496,506,509-518,522,525,527-536,541-573,575-576,590,646-648,650-658,777-778,791,794-803,813,816-825,835,838-847,879,882-891,987,990-999,1003,1006,1008,1012,1016-1031,1049-1050,1074,1077-1086,1096,1099-1108,1118,1121-1130,1162,1165-1174,1321-1322,1387,1409,1416-1417
+app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface.ts
+  s_e6afbc66b58e4d::t_019c5be8fe81b0 75-78,165,1039-1040,1059,1064-1065,1067-1068
+app/assets/css/pdf-viewer.scss
+  s_e6afbc66b58e4d::t_019c5be8fe81b0 335,342,348-354
+  s_e6afbc66b58e4d::t_240050c9770bff 355-356
+app/modules/pdf-viewer/runtime/composables/pdf/usePdfCanvasRenderer.ts
+  s_e6afbc66b58e4d::t_019c5be8fe81b0 8,215,225,232,237-239,244,297,346-371,388
+app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageNavigationController.ts
+  s_e6afbc66b58e4d::t_019c5be8fe81b0 228
+native/pdf-page-ops/src/tests/markup_shapes.rs
+  s_e6afbc66b58e4d::t_019c5be8fe81b0 167-168,178-298,753-823,1492-1554
+  s_e6afbc66b58e4d::t_74a33c41cc6516 1555
+app/modules/pdf-viewer/annotations/domain/annotationStore.ts
+  s_e6afbc66b58e4d::t_019c5be8fe81b0 9,189-224,549-551,556-560,565-574,722-731,733,735,773-775,781,786-814,820-829
+app/modules/pdf-viewer/runtime/sessions/resolvePdfAnnotationSelectionGeometry.ts
+  s_e6afbc66b58e4d::t_019c5be8fe81b0 12,86,115-124,148-155
+app/modules/pdf-viewer/components/PdfTextMarkupAnnotation.vue
+  s_e6afbc66b58e4d::t_019c5be8fe81b0 12-26,41-42,44-51
+tests/e2e/electron/annotationLifecycle.e2e.test.ts
+  s_e6afbc66b58e4d::t_019c5be8fe81b0 148
+tests/unit/app/modules/pdf-viewer/annotations/annotationStoreExternalIdentityHistory.test.ts
+  s_e6afbc66b58e4d::t_019c5be8fe81b0 13,61-65,81,207-502
+  s_e6afbc66b58e4d::t_2c19be29f75056 503
+app/modules/pdf-viewer/components/PdfAnnotationEditorLayer.vue
+  s_e6afbc66b58e4d::t_019c5be8fe81b0 39,299-315
+  s_e6afbc66b58e4d::t_9b82a5dd511189 316-317
+tests/unit/app/modules/pdf-viewer/usePdfViewerVirtualization.test.ts
+  s_e6afbc66b58e4d::t_019c5be8fe81b0 344-398
+tests/unit/app/services/pdf-save/nativeMarkupMutationProjection.test.ts
+  s_e6afbc66b58e4d::t_019c5be8fe81b0 130-133,137-226
+  s_e6afbc66b58e4d::t_b79953632a4a6d 227
+tests/unit/app/modules/pdf-viewer/components/canonicalAnnotationUiProjection.test.ts
+  s_e6afbc66b58e4d::t_019c5be8fe81b0 117-147
+app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession.ts
+  s_e6afbc66b58e4d::t_019c5be8fe81b0 37-41,53,90,455,465-470,995-1004,1020-1023
+tests/unit/app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageNavigationController.test.ts
+  s_e6afbc66b58e4d::t_019c5be8fe81b0 507-626
+native/pdf-page-ops/src/markup_hints.rs
+  s_e6afbc66b58e4d::t_019c5be8fe81b0 372-425,432,510,515,517-522,548-549,554-555
+app/modules/pdf-viewer/annotations/persistence/nativeMarkupProjection.ts
+  s_e6afbc66b58e4d::t_019c5be8fe81b0 170-187,234-237
+tests/unit/app/modules/pdf-viewer/components/annotationGeometryRendering.test.ts
+  s_e6afbc66b58e4d::t_019c5be8fe81b0 301
+app/modules/pdf-viewer/engine/annotations/domain/annotationEntity.ts
+  s_e6afbc66b58e4d::t_019c5be8fe81b0 615-889,901-906
+app/modules/pdf-viewer/engine/annotation-highlight-geometry/buildHighlightQuadsFromSelection.ts
+  s_e6afbc66b58e4d::t_019c5be8fe81b0 12-15,27-30
+tests/e2e/electron/annotationTextInteraction.e2e.test.ts
+  s_e6afbc66b58e4d::t_019c5be8fe81b0 11-13,40,74-79,90-92,94-97,110,112-121,123-124,161,168-205,217,222-258,262,407,418-507,541,551,588,592,626,631-633
+  s_e6afbc66b58e4d::t_be5c9b4407586a 10
+tests/e2e/electron/squigglyMarkup.e2e.test.ts
+  s_e6afbc66b58e4d::t_019c5be8fe81b0 250-254,280,282
+tests/unit/app/modules/pdf-viewer/annotations/annotationStoreReplaceFromDocument.test.ts
+  s_e6afbc66b58e4d::t_019c5be8fe81b0 122-222
+app/modules/pdf-viewer/runtime/composables/usePdfViewerVirtualization.ts
+  s_e6afbc66b58e4d::t_019c5be8fe81b0 213-215
+tests/unit/app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface.test.ts
+  s_e6afbc66b58e4d::t_019c5be8fe81b0 541-598
+app/modules/pdf-viewer/runtime/sessions/commitPdfAnnotationParseToStore.ts
+  s_e6afbc66b58e4d::t_019c5be8fe81b0 4,26-37
+  s_e6afbc66b58e4d::t_d9712a96df0d60 38-39
+tests/unit/app/modules/pdf-viewer/runtime/sessions/pdfAnnotationSessionBehavior.test.ts
+  s_e6afbc66b58e4d::t_019c5be8fe81b0 10,14,78-157
+tests/unit/app/modules/pdf-viewer/composables/usePdfCanvasRenderer.test.ts
+  s_e6afbc66b58e4d::t_019c5be8fe81b0 364-410,413,420-422,434,466-479,482-485,493-535,537-543,546,570,573,581-584
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "5b95777ee5bc309d958719dc8c2a998d6228461e",
+  "prompts": {},
+  "sessions": {
+    "s_e6afbc66b58e4d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07cdb-5143-7e02-a580-29471422fbfa",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,25 @@
+tests/unit/app/platform/browserDocumentRepository.test.ts
+  s_e6afbc66b58e4d::t_019c5be8fe81b0 143,150
+tests/unit/electron/ocrWorkerPageProcessing.test.ts
+  s_e6afbc66b58e4d::t_019c5be8fe81b0 83-90
+tests/unit/app/modules/workspace-shell/composables/createDocumentPersistence.test.ts
+  s_e6afbc66b58e4d::t_019c5be8fe81b0 495-498
+tests/unit/app/modules/workspace-shell/composables/file-operations/workspaceSaveFailureSurfacing.test.ts
+  s_e6afbc66b58e4d::t_019c5be8fe81b0 12,369-374,404-412
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "18bb5403b3e604fcae19470ead4a3ad5225a9979",
+  "prompts": {},
+  "sessions": {
+    "s_e6afbc66b58e4d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07cdb-5143-7e02-a580-29471422fbfa",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
