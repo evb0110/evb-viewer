@@ -59,11 +59,11 @@ const EMPTY_SEARCH_RESULT = {
     truncated: false,
 };
 
-async function createSearchService() {
+async function createSearchService(overrides: Partial<ISearchResourcePolicy> = {}) {
     const { SearchWorkerService } = await import('@electron/features/search/main/searchWorkerService');
     return new SearchWorkerService(
         () => '/tmp/search-worker.js',
-        createSearchResourcePolicy(),
+        createSearchResourcePolicy(overrides),
     );
 }
 
@@ -244,7 +244,7 @@ describe('SearchWorkerService', () => {
         vi.useFakeTimers();
         process.env.EVB_SEARCH_CANCEL_ACK_TIMEOUT_MS = '500';
         process.env.EVB_SEARCH_WORKER_TERMINATE_TIMEOUT_MS = '1000';
-        const service = await createSearchService();
+        const service = await createSearchService({maxActiveSenderWorkers: 1});
         const sender = createSender(42);
 
         const timedOutSearch = dispatchSearch(service, sender, 'regex-timeout', {
@@ -280,29 +280,15 @@ describe('SearchWorkerService', () => {
         expect(workerMocks.instances[0]?.terminate).toHaveBeenCalledOnce();
 
         const laterSearch = dispatchSearch(service, sender, 'later-search', {senderId: 42});
-        expect(workerMocks.instances).toHaveLength(2);
+        await expect(laterSearch).rejects.toMatchObject({code: 'SEARCH_WORKER_LIMIT'});
+        expect(workerMocks.instances).toHaveLength(1);
 
-        workerMocks.instances[0]?.emit('message', {
-            type: 'complete',
-            requestId: 'later-search',
-            response: EMPTY_SEARCH_RESULT,
-        });
-        await Promise.resolve();
-
-        let laterSettled = false;
-        void laterSearch.then(() => { laterSettled = true; }, () => { laterSettled = true; });
-        await Promise.resolve();
-        await Promise.resolve();
-        await Promise.resolve();
-        expect(laterSettled).toBe(false);
-
-        emitWorkerComplete(1, 'later-search');
-        await expect(laterSearch).resolves.toEqual(EMPTY_SEARCH_RESULT);
-
-        const cleanupPromise = service.cleanupAll('test cleanup');
-        workerMocks.instances[1]?.emit('message', {type: 'shutdown-complete'});
-        workerMocks.instances[1]?.emit('exit', 0);
-        await cleanupPromise;
+        const shutdownPromise = service.shutdown('test cleanup');
+        const shutdownResult = shutdownPromise.catch((error: unknown) => error);
+        await vi.advanceTimersByTimeAsync(500);
+        await expect(shutdownResult).resolves.toMatchObject({message: expect.stringContaining('Search worker shutdown failed')});
+        workerMocks.instances[0]?.emit('message', {type: 'shutdown-complete'});
+        workerMocks.instances[0]?.emit('exit', 0);
     });
 
     it('does not finish recoverable cleanup before worker and native daemon shutdown settle', async () => {
@@ -361,6 +347,7 @@ describe('SearchWorkerService', () => {
         await expect(searchPromise).resolves.toEqual(EMPTY_SEARCH_RESULT);
 
         const shutdownPromise = service.shutdown('app shutdown');
+        const shutdownResult = shutdownPromise.catch((error: unknown) => error);
 
         expect(workerMocks.instances[0]?.postMessage).toHaveBeenCalledWith({
             type: 'shutdown',
@@ -372,7 +359,7 @@ describe('SearchWorkerService', () => {
 
         await vi.advanceTimersByTimeAsync(1);
 
-        await expect(shutdownPromise).resolves.toBeUndefined();
+        await expect(shutdownResult).resolves.toMatchObject({message: expect.stringContaining('did not exit')});
         expect(workerMocks.instances[0]?.terminate).toHaveBeenCalledOnce();
     });
 
@@ -502,6 +489,8 @@ describe('SearchWorkerService', () => {
         expect(shutdownPromise).toBe(cleanupPromise);
 
         finishSecondTermination();
+        workerMocks.instances[0]?.emit('exit', 0);
+        workerMocks.instances[1]?.emit('exit', 0);
         const cleanupError = await cleanupResult;
         const shutdownError = await shutdownResult;
         expect(cleanupError).toBe(shutdownError);

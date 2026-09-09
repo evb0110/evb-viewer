@@ -84,6 +84,14 @@ interface ISenderSearchState {
     shutdownError: Error | null;
 }
 
+interface IWorkerRetirement {
+    senderId: number;
+    state: ISenderSearchState;
+    promise: Promise<void> | null;
+    workerExited: boolean;
+    failure: unknown | null;
+}
+
 interface IWarmupSingleflight {
     requestId: TRequestId;
     promise: Promise<ISearchResponse>;
@@ -257,7 +265,7 @@ const SEARCH_CANCEL_ACK_TIMEOUT_MS = (() => {
 export class SearchWorkerService {
     private readonly searchJobs = createSearchJobRegistry();
     private readonly senderSearchStates = new Map<number, ISenderSearchState>();
-    private readonly workerTerminationPromises = new Map<Worker, Promise<void>>();
+    private readonly workerRetirements = new Map<Worker, IWorkerRetirement>();
     private readonly warmupSingleflightsByDocument = new Map<string, IWarmupSingleflight>();
     private resourcePolicy: ISearchResourcePolicy | null;
     private readonly resolveResourcePolicy: (() => ISearchResourcePolicy) | null;
@@ -486,12 +494,61 @@ export class SearchWorkerService {
                 shutdownWorker: true,
             });
         }
-        const workerTerminations = Promise.allSettled(Array.from(this.workerTerminationPromises.values()));
+        for (const retirement of this.workerRetirements.values()) {
+            if (!retirement.workerExited && !retirement.promise) {
+                this.postShutdownMessage(retirement.state, reason);
+                this.terminateWorkerAfterCooperativeStop(
+                    retirement.senderId,
+                    retirement.state,
+                    reason,
+                    true,
+                    true,
+                );
+            }
+        }
+        const retirementAttempts = Array.from(this.workerRetirements.values())
+            .flatMap(retirement => retirement.promise
+                ? [{
+                    retirement,
+                    promise: retirement.promise,
+                }]
+                : []);
+        const workerTerminations = Promise.allSettled(retirementAttempts.map(attempt => attempt.promise));
         await Promise.allSettled(settlements);
+        const terminationResults = await workerTerminations;
         const terminationErrors: unknown[] = [];
-        for (const result of await workerTerminations) {
+        for (const result of terminationResults) {
             if (result.status === 'rejected') {
                 terminationErrors.push(result.reason as unknown);
+            }
+        }
+        for (const retirement of this.workerRetirements.values()) {
+            const attempt = retirementAttempts.find(candidate => candidate.retirement === retirement);
+            const attemptResult = attempt
+                ? terminationResults[retirementAttempts.indexOf(attempt)]
+                : null;
+            if (retirement.failure) {
+                if (!attempt || attemptResult?.status === 'fulfilled') {
+                    terminationErrors.push(retirement.failure);
+                }
+                continue;
+            }
+            if (!retirement.workerExited) {
+                terminationErrors.push(
+                    new Error(
+                        `Search worker ${retirement.senderId} did not exit during cleanup`,
+                    ),
+                );
+                continue;
+            }
+            if (!retirement.state.shutdownAcknowledged) {
+                terminationErrors.push(
+                    new Error(`Search worker ${retirement.senderId} exited without confirming native daemon shutdown`),
+                );
+                continue;
+            }
+            if (retirement.state.shutdownError) {
+                terminationErrors.push(retirement.state.shutdownError);
             }
         }
         if (terminationErrors.length > 0) {
@@ -758,7 +815,18 @@ export class SearchWorkerService {
         cooperativeStopRequested: boolean,
         surfaceWorkerShutdownError: boolean,
     ) {
-        if (this.workerTerminationPromises.has(state.worker)) {
+        let retirement = this.workerRetirements.get(state.worker);
+        if (!retirement) {
+            retirement = {
+                senderId,
+                state,
+                promise: null,
+                workerExited: false,
+                failure: null,
+            };
+            this.workerRetirements.set(state.worker, retirement);
+        }
+        if (retirement.promise || retirement.workerExited) {
             return;
         }
         const assertWorkerShutdownSucceeded = () => {
@@ -772,6 +840,7 @@ export class SearchWorkerService {
                 throw state.shutdownError;
             }
         };
+        retirement.failure = null;
         const terminationPromise = (async () => {
             const forcedTerminationReserveMs = Math.min(
                 SEARCH_WORKER_FORCED_TERMINATION_RESERVE_MS,
@@ -798,15 +867,28 @@ export class SearchWorkerService {
                         getErrorMessage(error)
                     }`,
                 );
+                retirement.failure = error;
                 if (surfaceWorkerShutdownError) {
                     throw error;
                 }
             })
             .finally(() => {
-                this.workerTerminationPromises.delete(state.worker);
+                retirement.promise = null;
+                this.maybeReleaseWorkerRetirement(state.worker);
             });
-        this.workerTerminationPromises.set(state.worker, terminationPromise);
+        retirement.promise = terminationPromise;
         void terminationPromise.catch(() => undefined);
+    }
+
+    private maybeReleaseWorkerRetirement(worker: Worker) {
+        const retirement = this.workerRetirements.get(worker);
+        if (!retirement || retirement.promise || !retirement.workerExited) {
+            return;
+        }
+        if (!retirement.state.shutdownAcknowledged || retirement.state.shutdownError) {
+            return;
+        }
+        this.workerRetirements.delete(worker);
     }
 
     private cleanupSenderState(
@@ -960,6 +1042,7 @@ export class SearchWorkerService {
                 state.shutdownError = shutdownResult.error
                     ? new Error(shutdownResult.error)
                     : null;
+                this.maybeReleaseWorkerRetirement(state.worker);
                 return;
             }
             const requestId = getSearchWorkerOutboundRequestId(message);
@@ -991,6 +1074,11 @@ export class SearchWorkerService {
             });
         });
         worker.on('exit', (code) => {
+            const retirement = this.workerRetirements.get(state.worker);
+            if (retirement) {
+                retirement.workerExited = true;
+                this.maybeReleaseWorkerRetirement(state.worker);
+            }
             const reason = code === 0
                 ? 'Search worker exited'
                 : `Search worker exited unexpectedly with code ${code}`;
@@ -1025,7 +1113,9 @@ export class SearchWorkerService {
             this.clearIdleCleanupTimer(state);
             return state;
         }
-        const occupiedWorkerSlots = this.senderSearchStates.size + this.workerTerminationPromises.size;
+        const occupiedWorkerSlots = this.senderSearchStates.size + [...this.workerRetirements.values()]
+            .filter(retirement => !retirement.workerExited)
+            .length;
         if (occupiedWorkerSlots >= maxActiveSenderWorkers) {
             const reusableState = this.findReusableIdleState();
             if (reusableState) {
