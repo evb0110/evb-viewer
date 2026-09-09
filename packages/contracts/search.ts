@@ -225,12 +225,14 @@ export interface ISearchMatchOptions {
     matchCase?: boolean;
     wholeWord?: boolean;
     useRegex?: boolean;
+    deadlineAtMs?: number;
 }
 
 export interface IResolvedSearchMatchOptions {
     matchCase: boolean;
     wholeWord: boolean;
     useRegex: boolean;
+    deadlineAtMs?: number;
 }
 
 /** Exhaustive option semantics; consumers must not invent additional combinations. */

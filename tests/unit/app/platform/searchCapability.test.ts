@@ -94,14 +94,16 @@ const pdfjsModule = vi.hoisted(() => ({
 
 vi.mock('@app/platform/browser-api/browserYield', () => ({yieldToBrowser: () => yieldToBrowserMock()}));
 vi.mock('@app/platform/browser-api/browserSearchWorkerClient', () => ({
+    BROWSER_SEARCH_REGEX_WORKER_TIMEOUT_MS: 1_250,
     canUseBrowserSearchWorker: () => browserSearchWorkerClientMock.canUseBrowserSearchWorker(),
-    createBrowserSearchWorkerRequest: (type: unknown, payload: unknown) =>
+    createBrowserSearchWorkerRequest: (type: unknown, payload: unknown, options: unknown) =>
         (
             browserSearchWorkerClientMock.createBrowserSearchWorkerRequest as (
                 nextType: unknown,
                 nextPayload: unknown,
+                nextOptions: unknown,
             ) => unknown
-        )(type, payload),
+        )(type, payload, options),
     createBrowserSearchWorkerPageStreamRequest: (payload: unknown) =>
         (
             browserSearchWorkerClientMock.createBrowserSearchWorkerPageStreamRequest as (
@@ -224,6 +226,80 @@ describe('createBrowserSearchCapability', () => {
         expect(result.results).toEqual([expect.objectContaining({ pageNumber: 1 })]);
         expect(pdfjsModule.getDocument).toHaveBeenCalledOnce();
         expect(getPage).toHaveBeenCalledOnce();
+    });
+
+    it('executes regex page matching in the browser search worker and keeps UTF-16 offsets', async () => {
+        const pageText = '😀 needle';
+        const getPage = vi.fn(async () => ({
+            getTextContent: vi.fn(async () => ({items: [{str: pageText}]})),
+            cleanup: vi.fn(async () => {}),
+        }));
+        pdfjsModule.getDocument.mockReturnValue({ promise: Promise.resolve({
+            numPages: 1,
+            getPage,
+            destroy: vi.fn(async () => {}),
+        }) });
+        browserDocumentStoreMock.stat.mockResolvedValue({ size: 3 });
+        browserDocumentStoreMock.readRange.mockResolvedValue(new Uint8Array([
+            1,
+            2,
+            3,
+        ]));
+        browserSearchWorkerClientMock.canUseBrowserSearchWorker.mockReturnValue(true);
+        browserSearchWorkerClientMock.createBrowserSearchWorkerRequest.mockReturnValue({
+            requestId: 41,
+            promise: Promise.resolve({
+                matches: [{
+                    startOffset: 3,
+                    endOffset: 9,
+                }],
+                truncated: false,
+            }),
+        });
+
+        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/createBrowserSearchCapability');
+        const { capability } = createBrowserSearchCapability();
+        const result = await capability.run('/tmp/regex.pdf', 'n.edle', {
+            matchCase: true,
+            useRegex: true,
+            requestId: requireRequestId('regex-worker'),
+        });
+
+        expect(result.results).toEqual([expect.objectContaining({
+            startOffset: 3,
+            endOffset: 9,
+            excerpt: expect.objectContaining({match: 'needle'}),
+        })]);
+        expect(browserSearchWorkerClientMock.createBrowserSearchWorkerRequest).toHaveBeenCalledWith(
+            'matchPageText',
+            {
+                text: pageText,
+                query: 'n.edle',
+                options: {
+                    matchCase: true,
+                    wholeWord: false,
+                    useRegex: true,
+                },
+                maxMatches: 501,
+                deadlineAtMs: expect.any(Number),
+            },
+            expect.objectContaining({
+                timeoutMs: 1_250,
+                resetWorkerOnTimeout: true,
+            }),
+        );
+    });
+
+    it('does not run regex matching on the renderer when the worker is unavailable', async () => {
+        browserSearchWorkerClientMock.canUseBrowserSearchWorker.mockReturnValue(false);
+
+        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/createBrowserSearchCapability');
+        const { capability } = createBrowserSearchCapability();
+
+        await expect(capability.run('/tmp/regex-unavailable.pdf', 'a+', {useRegex: true}))
+            .rejects.toThrow('Browser search worker is required for regular expression search');
+        expect(browserDocumentStoreMock.stat).not.toHaveBeenCalled();
+        expect(browserSearchWorkerClientMock.createBrowserSearchWorkerRequest).not.toHaveBeenCalled();
     });
 
     it.each(searchConformanceCorpus.cases)('matches the shared conformance corpus case $id in the browser capability', async (fixture) => {
