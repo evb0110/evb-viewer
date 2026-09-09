@@ -174,20 +174,6 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
                     return workingCopyPath ? readDocumentBytes(workingCopyPath) : null;
                 }},
             });
-            console.info('[split-debug]', {
-                workingCopyPath,
-                revision: options.documentRevisionToken?.value ?? null,
-                sourceBytes: options.pdfData.value?.byteLength ?? null,
-                source: viewerTransaction?.source ?? null,
-                projection: viewerTransaction?.nativeMutationProjection
-                    ? {
-                        notes: viewerTransaction.nativeMutationProjection.noteTextUpdates.length,
-                        textBoxes: viewerTransaction.nativeMutationProjection.textBoxes?.length ?? 0,
-                        freeText: viewerTransaction.nativeMutationProjection.freeTextEditors.length,
-                    }
-                    : null,
-                fallback: viewerTransaction?.fallbackDecision?.route ?? null,
-            });
             if (
                 viewerTransaction?.nativeMutationProjection
                 && workingCopyPath
