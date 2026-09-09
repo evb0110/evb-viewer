@@ -18,6 +18,7 @@ import {
     assertGitHubCliReady,
     assertNodeProjectBaseline,
     assertReleaseMainTip,
+    assertVersionNotBehindAncestorRelease,
     assertTagAbsent,
     assertVersionOnlyPackageCommit,
     bumpVersion,
@@ -62,6 +63,7 @@ const WORKFLOW_HANDOFF_POLL_INTERVAL_MS = 5_000;
  *   assertNodeBaselineFn?: (context: string) => void,
  *   assertReleaseIsNotDraftFn?: (tag: string) => void,
  *   assertTagAbsentFn?: (tag: string, remote: string) => Promise<void>,
+ *   assertVersionNotBehindAncestorFn?: (version: string, sha: string, options: {remote: string, runCommand: TCommandRunner}) => void,
  *   context?: string,
  *   fetchReleaseMainFn?: (upstream: IUpstream) => void,
  *   findCiRunFn?: TFindCiRun,
@@ -286,6 +288,9 @@ export async function assertReleaseCutPreconditions(options = {}) {
         tag => assertCurrentReleaseIsNotDraft(tag, runCommand)
     );
     const readVersionFn = options.readVersionFn ?? readVersion;
+    const assertVersionNotBehindAncestorFn = options.assertVersionNotBehindAncestorFn ?? (
+        (version, sha, ancestorOptions) => assertVersionNotBehindAncestorRelease(version, sha, ancestorOptions)
+    );
 
     const tip = assertMainTipFn(upstream);
     const headSha = typeof tip === 'string' ? tip : tip.headSha;
@@ -293,6 +298,11 @@ export async function assertReleaseCutPreconditions(options = {}) {
         throw new Error('Release main-tip verification did not return a commit SHA');
     }
     const currentVersion = readVersionFn();
+
+    assertVersionNotBehindAncestorFn(currentVersion, headSha, {
+        remote: upstream.remote,
+        runCommand,
+    });
 
     await assertHeadCiGreen({
         findCiRunFn,

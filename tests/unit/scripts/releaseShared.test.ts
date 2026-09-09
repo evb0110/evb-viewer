@@ -3,10 +3,21 @@ import {
     expect,
     it,
 } from 'vitest';
+import { execFileSync } from 'node:child_process';
+import {
+    mkdtempSync,
+    rmSync,
+    writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
-import { resolve } from 'node:path';
+import {
+    join,
+    resolve,
+} from 'node:path';
 
 const {
+    assertVersionNotBehindAncestorRelease,
     getReleaseMainUpstream,
     parsePinnedNodeMajor,
     restoreVersionIfChanged,
@@ -15,6 +26,150 @@ const {
 );
 
 describe('release shared helpers', () => {
+    it('rejects a lower manifest when a release tag is reachable through a merge parent', () => {
+        const root = mkdtempSync(join(tmpdir(), 'evb-release-ancestry-'));
+        const git = (args: string[]) => execFileSync('git', args, {
+            cwd: root,
+            encoding: 'utf8',
+        }).trim();
+        const writeVersion = (version: string) => writeFileSync(
+            join(root, 'package.json'),
+            `${JSON.stringify({version})}\n`,
+        );
+
+        try {
+            git([
+                'init',
+                '-b',
+                'main',
+            ]);
+            git([
+                'config',
+                'user.email',
+                'release-test@example.com',
+            ]);
+            git([
+                'config',
+                'user.name',
+                'Release test',
+            ]);
+            writeVersion('0.1.452');
+            git([
+                'add',
+                'package.json',
+            ]);
+            git([
+                'commit',
+                '-m',
+                'base',
+            ]);
+            const baseSha = git([
+                'rev-parse',
+                'HEAD',
+            ]);
+
+            git([
+                'checkout',
+                '-b',
+                'unrelated',
+            ]);
+            writeFileSync(join(root, 'unrelated.txt'), 'unrelated\n');
+            git([
+                'add',
+                'unrelated.txt',
+            ]);
+            git([
+                'commit',
+                '-m',
+                'unrelated change',
+            ]);
+            git([
+                'tag',
+                'v99.0.0',
+            ]);
+            git([
+                'checkout',
+                'main',
+            ]);
+
+            git([
+                'checkout',
+                '-b',
+                'release',
+            ]);
+            writeVersion('0.1.453');
+            git([
+                'add',
+                'package.json',
+            ]);
+            git([
+                'commit',
+                '-m',
+                'release',
+            ]);
+            git([
+                'tag',
+                'v0.1.453',
+            ]);
+
+            git([
+                'checkout',
+                'main',
+            ]);
+            writeFileSync(join(root, 'marker.txt'), 'main\n');
+            git([
+                'add',
+                'marker.txt',
+            ]);
+            git([
+                'commit',
+                '-m',
+                'main change',
+            ]);
+            git([
+                'merge',
+                '--no-commit',
+                'release',
+            ]);
+            writeVersion('0.1.452');
+            git([
+                'add',
+                'package.json',
+            ]);
+            git([
+                'commit',
+                '-m',
+                'merge stale manifest',
+            ]);
+            const candidateSha = git([
+                'rev-parse',
+                'HEAD',
+            ]);
+
+            expect(candidateSha).not.toBe(baseSha);
+            const runCommand = (command: string, args: string[], options: object = {}) => {
+                if (command === 'git' && args[0] === 'fetch') {
+                    return '';
+                }
+                return execFileSync(command, args, {
+                    cwd: root,
+                    encoding: 'utf8',
+                    ...options,
+                }).trim();
+            };
+            expect(() => assertVersionNotBehindAncestorRelease('0.1.452', candidateSha, {runCommand})).toThrow(new RegExp(
+                `candidate ${candidateSha}.*0\\.1\\.452.*v0\\.1\\.453`,
+                'u',
+            ));
+            expect(() => assertVersionNotBehindAncestorRelease('0.1.453', candidateSha, {runCommand})).not.toThrow();
+        } finally {
+            rmSync(root, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
     it('accepts only main configured to publish to origin/main', () => {
         const canonicalUpstream = {
             branch: 'main',
