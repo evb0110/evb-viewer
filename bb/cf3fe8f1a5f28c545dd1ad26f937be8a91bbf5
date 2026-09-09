@@ -1,0 +1,55 @@
+tests/unit/app/modules/pdf-viewer/annotations/annotationStorePublicApi.test.ts
+  s_5f0a2670c362dd::t_b3fedfdaccdda4 150,154,162-164,175-188
+  s_5f0a2670c362dd::t_14e213ca03ba4c 155-161
+  s_5f0a2670c362dd::t_e2af1701b11dde 18-21,147-149,151-153,193-194
+  s_5f0a2670c362dd::t_3a00892b32f07d 165-174,189-192
+  s_5f0a2670c362dd::t_a4cd64a79430fe 195-212
+app/modules/pdf-viewer/runtime/usePdfViewerPublicApiController.ts
+  s_5f0a2670c362dd::t_5ad31942978ca4 340-341
+app/modules/workspace-shell/composables/useAnnotationNoteWindows.ts
+  s_5f0a2670c362dd::t_d44d25a7bb50ee 19,72,385,406-428,672
+  s_5f0a2670c362dd::t_26d542a275a46f 539
+tests/unit/app/modules/workspace-shell/composables/useAnnotationNoteWindows.test.ts
+  s_5f0a2670c362dd::t_d2f1f5ca55a3d9 22
+  s_5f0a2670c362dd::t_75316e8650c202 21,23-38
+app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession.ts
+  s_5f0a2670c362dd::t_3a83b4184cc897 1113-1114,1129-1130
+  s_5f0a2670c362dd::t_14e213ca03ba4c 1115-1128
+  s_5f0a2670c362dd::t_9814c4ef982f02 95-99,243,284,378-387,1112,1131-1132
+  s_5f0a2670c362dd::t_4f9ca34d83b6d5 1133-1143
+app/modules/pdf-viewer/public.ts
+  s_5f0a2670c362dd::t_5ad31942978ca4 28-38
+app/modules/workspace-shell/composables/useWorkspaceAnnotationSession.ts
+  s_5f0a2670c362dd::t_77a0480c7722ee 130,218
+app/modules/workspace-shell/types/workspacePdfViewerPorts.types.ts
+  s_5f0a2670c362dd::t_5ad31942978ca4 60-61
+app/modules/pdf-viewer/runtime/contracts/pdfViewerExpose.types.ts
+  s_5f0a2670c362dd::t_5ad31942978ca4 31,192-194
+app/modules/pdf-viewer/annotations/domain/annotationRecovery.ts
+  s_5f0a2670c362dd::t_1745991fdaf029 1-5,12-52,55-72,99-141,176-196
+  s_5f0a2670c362dd::t_3a00892b32f07d 7-10
+  s_5f0a2670c362dd::t_a9132e88f2344d 82,88-89,173
+  s_5f0a2670c362dd::t_9814c4ef982f02 6
+  s_5f0a2670c362dd::t_a9697d697c3ce2 94-98,144,150-154,156,163-168
+  s_5f0a2670c362dd::t_f28a44bd659404 83-87
+  s_5f0a2670c362dd::t_1e0176eaba6035 11,54,148,158-161,174
+  s_5f0a2670c362dd::t_b8bc45a9983731 147,155,162,172
+  s_5f0a2670c362dd::t_4dcaca3b764519 53,73,145-146,149,157
+  s_5f0a2670c362dd::t_789c3c55039a11 74-81,90-93,142-143,169-171,175
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "bbcf3fe8f1a5f28c545dd1ad26f937be8a91bbf5",
+  "prompts": {},
+  "sessions": {
+    "s_5f0a2670c362dd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0877c-d16e-7641-994d-d3f1444a10c7",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
