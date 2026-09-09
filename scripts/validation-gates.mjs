@@ -146,9 +146,11 @@ const validationStageInputPaths = {
         'scripts',
         'server',
         'tests',
+        'types',
         'nuxt.config.ts',
         'package.json',
         'pnpm-lock.yaml',
+        'pnpm-workspace.yaml',
         'tsconfig*.json',
     ],
     'web-deploy': [
