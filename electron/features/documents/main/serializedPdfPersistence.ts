@@ -44,6 +44,7 @@ import {
     PDF_PERSISTENCE_DEFAULT_ACK_TIMEOUT_MS,
     PDF_PERSISTENCE_DEFAULT_CHUNK_BYTES,
     PDF_PERSISTENCE_DEFAULT_MAX_IN_FLIGHT_CHUNKS,
+    PDF_PERSISTENCE_DEFAULT_PROGRESS_TIMEOUT_MS,
     PDF_PERSISTENCE_DEFAULT_RESULT_TIMEOUT_MS,
     SERIALIZED_PDF_PERSISTENCE_PROTOCOL_VERSION,
     createPdfPersistenceAckFrame,
@@ -105,10 +106,10 @@ import {
     releaseManagedTempFileHandle,
 } from '@electron/features/documents/main/managedTempFileHandles';
 
-const SERIALIZED_PDF_SESSION_TIMEOUT_MS = 10 * 60_000;
 const SERIALIZED_PDF_MAX_CHUNK_BYTES = PDF_PERSISTENCE_DEFAULT_CHUNK_BYTES;
 const SERIALIZED_PDF_MAX_IN_FLIGHT_CHUNKS = PDF_PERSISTENCE_DEFAULT_MAX_IN_FLIGHT_CHUNKS;
 const SERIALIZED_PDF_ACK_TIMEOUT_MS = PDF_PERSISTENCE_DEFAULT_ACK_TIMEOUT_MS;
+const SERIALIZED_PDF_PROGRESS_TIMEOUT_MS = PDF_PERSISTENCE_DEFAULT_PROGRESS_TIMEOUT_MS;
 const SERIALIZED_PDF_RESULT_TIMEOUT_MS = PDF_PERSISTENCE_DEFAULT_RESULT_TIMEOUT_MS;
 const MAX_SERIALIZED_PDF_SESSIONS_PER_SENDER = (() => {
     const parsed = Number.parseInt(process.env.EVB_MAX_SERIALIZED_PDF_SESSIONS_PER_SENDER ?? '4', 10);
@@ -146,6 +147,9 @@ interface ISerializedPdfPersistenceSession {
     streamedTail: Buffer;
     stagedOutput: ITypedStagedArtifact | null;
     stagedValidation: IPdfValidationResult | null;
+    progressTimeoutMs: number;
+    resultTimeoutMs: number;
+    timeoutPhase: 'progress' | 'result';
     timeout: NodeJS.Timeout;
     queue: Promise<void>;
     unregisterSenderCleanup: () => void;
@@ -212,6 +216,7 @@ function getSerializedPdfPersistenceLimits(): ISerializedPdfPersistenceLimits {
         // This field describes the protocol's integer range, not a product cap.
         maxTotalBytes: Number.MAX_SAFE_INTEGER,
         ackTimeoutMs: SERIALIZED_PDF_ACK_TIMEOUT_MS,
+        progressTimeoutMs: SERIALIZED_PDF_PROGRESS_TIMEOUT_MS,
         resultTimeoutMs: SERIALIZED_PDF_RESULT_TIMEOUT_MS,
     };
 }
@@ -287,13 +292,18 @@ function reserveSenderPersistenceCapacity(senderId: number) {
     };
 }
 
-function refreshSessionTimeout(session: ISerializedPdfPersistenceSession) {
+function refreshSessionTimeout(
+    session: ISerializedPdfPersistenceSession,
+    phase: ISerializedPdfPersistenceSession['timeoutPhase'] = session.timeoutPhase,
+) {
     clearSessionTimeout(session);
+    session.timeoutPhase = phase;
+    const timeoutMs = phase === 'progress' ? session.progressTimeoutMs : session.resultTimeoutMs;
     session.timeout = setTimeout(() => {
         if (sessions.get(session.id) === session) {
             void cleanupSession(session);
         }
-    }, SERIALIZED_PDF_SESSION_TIMEOUT_MS);
+    }, timeoutMs);
     session.timeout.unref();
 }
 
@@ -390,7 +400,7 @@ async function createSession(options: {
         throw error;
     }
     const id = createSessionId('serialized-pdf');
-    const timeout = setTimeout(() => undefined, SERIALIZED_PDF_SESSION_TIMEOUT_MS);
+    const timeout = setTimeout(() => undefined, SERIALIZED_PDF_PROGRESS_TIMEOUT_MS);
     timeout.unref();
     const lifecycleOperation = registerMainOperation({
         kind: 'critical-write',
@@ -423,6 +433,9 @@ async function createSession(options: {
         streamedTail: Buffer.alloc(0),
         stagedOutput: null,
         stagedValidation: null,
+        progressTimeoutMs: SERIALIZED_PDF_PROGRESS_TIMEOUT_MS,
+        resultTimeoutMs: SERIALIZED_PDF_RESULT_TIMEOUT_MS,
+        timeoutPhase: 'progress',
         timeout,
         queue: Promise.resolve(),
         unregisterSenderCleanup: () => undefined,
@@ -895,6 +908,7 @@ export function attachSerializedPdfPersistencePort(event: IpcMainEvent, rawSessi
         }
     });
     port.start();
+    refreshSessionTimeout(session, 'progress');
     port.postMessage(createPdfPersistenceReadyFrame());
 }
 
@@ -922,7 +936,6 @@ async function handlePortMessage(
             throw new Error(`Unknown PDF persistence message (${describePdfPersistenceMessage(normalizedMessage)})`);
         }
         const payload = normalizedMessage;
-        refreshSessionTimeout(session);
         if (payload.type === 'chunk') {
             errorPhase = 'streaming';
             if (session.lifecycleOperation.signal.aborted && !session.isCommitting) {
@@ -951,6 +964,7 @@ async function handlePortMessage(
             session.streamedTail = updateStreamedTail(session.streamedTail, bytes);
             port.postMessage(createPdfPersistenceAckFrame(session.nextSeq, session.receivedBytes));
             session.nextSeq += 1;
+            refreshSessionTimeout(session, 'progress');
             return;
         }
 
@@ -959,7 +973,7 @@ async function handlePortMessage(
             if (session.lifecycleOperation.signal.aborted && !session.isCommitting) {
                 throw new Error('PDF persistence stream canceled during shutdown');
             }
-            clearSessionTimeout(session);
+            refreshSessionTimeout(session, 'result');
             const stageResult = await stageSession(session);
             if (stageResult.stagedOutput === null) {
                 await cleanupSession(session);

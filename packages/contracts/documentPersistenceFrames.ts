@@ -23,6 +23,7 @@ export const SERIALIZED_PDF_PERSISTENCE_PROTOCOL_VERSION = 1;
 export const PDF_PERSISTENCE_DEFAULT_CHUNK_BYTES = 8 * 1024 * 1024;
 export const PDF_PERSISTENCE_DEFAULT_MAX_IN_FLIGHT_CHUNKS = 2;
 export const PDF_PERSISTENCE_DEFAULT_ACK_TIMEOUT_MS = 60_000;
+export const PDF_PERSISTENCE_DEFAULT_PROGRESS_TIMEOUT_MS = 10 * 60_000;
 export const PDF_PERSISTENCE_DEFAULT_RESULT_TIMEOUT_MS = 10 * 60_000;
 export const PDF_PERSISTENCE_MESSAGE_UNWRAP_DEPTH = 64;
 
@@ -54,6 +55,7 @@ export interface ISerializedPdfPersistenceLimits {
     readonly maxInFlightChunks: number;
     readonly maxTotalBytes: number;
     readonly ackTimeoutMs: number;
+    readonly progressTimeoutMs: number;
     readonly resultTimeoutMs: number;
 }
 
@@ -227,6 +229,9 @@ export function isSerializedPdfPersistenceLimits(value: unknown): value is ISeri
         && typeof value.ackTimeoutMs === 'number'
         && Number.isSafeInteger(value.ackTimeoutMs)
         && value.ackTimeoutMs > 0
+        && typeof value.progressTimeoutMs === 'number'
+        && Number.isSafeInteger(value.progressTimeoutMs)
+        && value.progressTimeoutMs > 0
         && typeof value.resultTimeoutMs === 'number'
         && Number.isSafeInteger(value.resultTimeoutMs)
         && value.resultTimeoutMs > 0;

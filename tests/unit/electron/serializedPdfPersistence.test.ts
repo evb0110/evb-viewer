@@ -34,6 +34,7 @@ import {
 } from '@contracts/stagedArtifacts';
 import type * as SerializedPdfPersistenceModule from '@electron/features/documents/main/serializedPdfPersistence';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
+import {waitForCondition} from '@tests/unit/electron/waitForCondition';
 
 type TSerializedPdfPersistenceModule = typeof SerializedPdfPersistenceModule;
 
@@ -1009,6 +1010,7 @@ describe('serializedPdfPersistence', () => {
             maxInFlightChunks: 2,
             maxTotalBytes: expect.any(Number),
             ackTimeoutMs: expect.any(Number),
+            progressTimeoutMs: expect.any(Number),
             resultTimeoutMs: expect.any(Number),
         });
 
@@ -1031,6 +1033,77 @@ describe('serializedPdfPersistence', () => {
         await waitForCondition(() => {
             expect(existsSync(tempPath)).toBe(false);
         });
+    });
+
+    it('keeps independent progress deadlines per serialized PDF session', async () => {
+        vi.useFakeTimers({toFake: [
+            'setTimeout',
+            'clearTimeout',
+        ]});
+        try {
+            const sender = new FakeSender(83);
+            const firstTargetPath = join(tempRoot, 'progress-first.pdf');
+            const secondTargetPath = join(tempRoot, 'progress-second.pdf');
+            const firstTempPath = `${firstTargetPath}.tmp.pdf`;
+            const secondTempPath = `${secondTargetPath}.tmp.pdf`;
+            const port1 = new FakeMessagePort();
+            const port2 = new FakeMessagePort();
+            const {
+                attachSerializedPdfPersistencePort,
+                beginSerializedPdfSaveAs,
+            } = await importSerializedPdfPersistence();
+
+            const [
+                firstBeginResult,
+                secondBeginResult,
+            ] = await Promise.all(
+                [
+                    beginSerializedPdfSaveAs(
+                        createInvokeEvent(sender),
+                        join(tempRoot, 'working-first.pdf'),
+                        1,
+                        firstTargetPath,
+                        undefined,
+                        SERIALIZED_TEST_REVISION_OPTIONS,
+                    ),
+                    beginSerializedPdfSaveAs(
+                        createInvokeEvent(sender),
+                        join(tempRoot, 'working-second.pdf'),
+                        1,
+                        secondTargetPath,
+                        undefined,
+                        SERIALIZED_TEST_REVISION_OPTIONS,
+                    ),
+                ],
+            );
+            attachSerializedPdfPersistencePort(createPortEvent(sender, port1), firstBeginResult.sessionId);
+            attachSerializedPdfPersistencePort(createPortEvent(sender, port2), secondBeginResult.sessionId);
+
+            const progressTimeoutMs = firstBeginResult.progressTimeoutMs;
+            vi.advanceTimersByTime(progressTimeoutMs - 1_000);
+            port1.emit('message', {data: {
+                type: 'chunk',
+                seq: 0,
+                bytes: Buffer.from('x'),
+            }});
+            await expect(port1.nextMessage(message => isPortMessage(message, 'ack'))).resolves.toMatchObject({
+                type: 'ack',
+                seq: 0,
+            });
+
+            vi.advanceTimersByTime(1_000);
+            await waitForCondition(() => {
+                expect(existsSync(secondTempPath)).toBe(false);
+            });
+            expect(existsSync(firstTempPath)).toBe(true);
+
+            port1.close();
+            await waitForCondition(() => {
+                expect(existsSync(firstTempPath)).toBe(false);
+            });
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it('rejects a sender that floods more persistence frames than the negotiated window can bound', async () => {
