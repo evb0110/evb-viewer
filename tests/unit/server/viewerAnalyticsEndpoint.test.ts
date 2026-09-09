@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
     getOptionalAnalyticsDb: vi.fn(),
     getRuntimeEnv: vi.fn(),
     hashVisitorIdentity: vi.fn(),
+    isAnalyticsAdmissionRejected: vi.fn(),
     isAnalyticsWriteAllowed: vi.fn(),
     isTrustedAnalyticsRequest: vi.fn(),
     readBoundedAnalyticsJsonBody: vi.fn(),
@@ -45,7 +46,7 @@ vi.mock('@server/utils/analytics', () => ({
 }));
 vi.mock('@server/utils/analyticsAdmission', () => ({
     createAnalyticsDedupeKey: mocks.createAnalyticsDedupeKey,
-    isAnalyticsAdmissionRejected: () => false,
+    isAnalyticsAdmissionRejected: mocks.isAnalyticsAdmissionRejected,
     resolveRootAnalyticsAdmissionPolicy: mocks.resolveRootAnalyticsAdmissionPolicy,
     ROOT_ANALYTICS_BODY_MAX_BYTES: 1_024,
     ROOT_ANALYTICS_USER_AGENT_MAX_LENGTH: 1_024,
@@ -58,6 +59,7 @@ vi.mock('@server/utils/serverFailureReporter', () => ({captureServerFailure: moc
 describe('viewer analytics endpoint', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        mocks.isAnalyticsAdmissionRejected.mockReturnValue(false);
         mocks.isAnalyticsWriteAllowed.mockReturnValue(true);
         mocks.isTrustedAnalyticsRequest.mockReturnValue(true);
     });
@@ -73,6 +75,7 @@ describe('viewer analytics endpoint', () => {
         await expect(handler({} as never)).resolves.toEqual({
             ok: true,
             persisted: false,
+            retryable: false,
         });
         expect(mocks.getOptionalAnalyticsDb).toHaveBeenCalledWith();
         expect(mocks.readBoundedAnalyticsJsonBody).not.toHaveBeenCalled();
@@ -91,6 +94,7 @@ describe('viewer analytics endpoint', () => {
         await expect(handler(event)).resolves.toEqual({
             ok: false,
             persisted: false,
+            retryable: true,
         });
         expect(mocks.getOptionalAnalyticsDb).toHaveBeenCalledWith();
         expect(mocks.readBoundedAnalyticsJsonBody).not.toHaveBeenCalled();
@@ -128,6 +132,7 @@ describe('viewer analytics endpoint', () => {
         await expect(handler(event)).resolves.toEqual({
             ok: false,
             persisted: false,
+            retryable: true,
         });
         expect(mocks.captureServerFailure).toHaveBeenCalledWith({
             code: 'NITRO_ANALYTICS_INSERT_FAILED',
@@ -138,5 +143,56 @@ describe('viewer analytics endpoint', () => {
                 cause: insertError,
             },
         }, event);
+    });
+
+    it('classifies admission rejection as a permanent non-persistence outcome', async () => {
+        mocks.getOptionalAnalyticsDb.mockReturnValue({});
+        mocks.readBoundedAnalyticsJsonBody.mockResolvedValue({});
+        mocks.decodeViewerAnalyticsEventsBody.mockReturnValue([{name: 'open'}]);
+        mocks.extractGeo.mockReturnValue({
+            country: null,
+            city: null,
+            region: null,
+        });
+        mocks.hashVisitorIdentity.mockResolvedValue('visitor-hash');
+        mocks.getAnalyticsRequestHost.mockReturnValue('evb-viewer.com');
+        mocks.getRuntimeEnv.mockReturnValue({});
+        mocks.resolveRootAnalyticsAdmissionPolicy.mockReturnValue({});
+        mocks.createAnalyticsDedupeKey.mockResolvedValue('dedupe-key');
+        mocks.admitViewerAnalyticsEvents.mockRejectedValue(new Error('rejected'));
+        mocks.isAnalyticsAdmissionRejected.mockReturnValue(true);
+        const {default: handler} = await import('@server/api/analytics/events.post');
+
+        await expect(handler({} as never)).resolves.toEqual({
+            ok: true,
+            persisted: false,
+            retryable: false,
+        });
+        expect(mocks.captureServerFailure).not.toHaveBeenCalled();
+    });
+
+    it('reports successful persistence as an acknowledgement outcome', async () => {
+        mocks.getOptionalAnalyticsDb.mockReturnValue({});
+        mocks.readBoundedAnalyticsJsonBody.mockResolvedValue({});
+        mocks.decodeViewerAnalyticsEventsBody.mockReturnValue([{name: 'open'}]);
+        mocks.extractGeo.mockReturnValue({
+            country: null,
+            city: null,
+            region: null,
+        });
+        mocks.hashVisitorIdentity.mockResolvedValue('visitor-hash');
+        mocks.getAnalyticsRequestHost.mockReturnValue('evb-viewer.com');
+        mocks.getRuntimeEnv.mockReturnValue({});
+        mocks.resolveRootAnalyticsAdmissionPolicy.mockReturnValue({});
+        mocks.createAnalyticsDedupeKey.mockResolvedValue('dedupe-key');
+        mocks.admitViewerAnalyticsEvents.mockResolvedValue(undefined);
+        const {default: handler} = await import('@server/api/analytics/events.post');
+
+        await expect(handler({} as never)).resolves.toEqual({
+            ok: true,
+            persisted: true,
+            retryable: false,
+            count: 1,
+        });
     });
 });
