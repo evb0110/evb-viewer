@@ -66,6 +66,7 @@ import {
 const log = createLogger('documentRevisionStore');
 const revisionListeners = new Set<(event: IDocumentRevisionChangedEvent) => void>();
 const workingCopySyncRequired = new Map<string, string>();
+const workingCopySyncRequiredJournalReadFailures = new Set<string>();
 interface IProvisionalWorkingCopyRevision {
     durabilityPromise?: Promise<void>;
     sidecar: IWorkingCopyRevisionSidecar;
@@ -270,12 +271,22 @@ function notifyRevisionChanged(event: IDocumentRevisionChangedEvent) {
 
 function hydrateWorkingCopySyncRequiredFromJournal(workingCopyPath: string) {
     const queueKey = getRevisionQueueKey(workingCopyPath);
-    if (workingCopySyncRequired.has(queueKey)) {
+    if (workingCopySyncRequired.has(queueKey) && !workingCopySyncRequiredJournalReadFailures.has(queueKey)) {
         return workingCopySyncRequired.get(queueKey);
     }
 
-    const pendingSync = readWorkingCopySyncRequiredJournalEntry(workingCopyPath);
+    let pendingSync;
+    try {
+        pendingSync = readWorkingCopySyncRequiredJournalEntry(workingCopyPath);
+        workingCopySyncRequiredJournalReadFailures.delete(queueKey);
+    } catch (error) {
+        const reason = `Working copy recovery journal is unavailable: ${getErrorMessage(error)}`;
+        workingCopySyncRequired.set(queueKey, reason);
+        workingCopySyncRequiredJournalReadFailures.add(queueKey);
+        return reason;
+    }
     if (!pendingSync) {
+        workingCopySyncRequired.delete(queueKey);
         return undefined;
     }
     workingCopySyncRequired.set(queueKey, pendingSync.reason);
@@ -478,6 +489,7 @@ export function markWorkingCopySyncRequired(workingCopyPath: string, reason: str
         getRevisionQueueKey(workingCopyPath),
         reason,
     );
+    workingCopySyncRequiredJournalReadFailures.delete(getRevisionQueueKey(workingCopyPath));
     if (!normalizedWorkingPath) {
         return;
     }
@@ -493,7 +505,9 @@ export function markWorkingCopySyncRequired(workingCopyPath: string, reason: str
 }
 
 export function clearWorkingCopySyncRequired(workingCopyPath: string) {
-    workingCopySyncRequired.delete(getRevisionQueueKey(workingCopyPath));
+    const queueKey = getRevisionQueueKey(workingCopyPath);
+    workingCopySyncRequired.delete(queueKey);
+    workingCopySyncRequiredJournalReadFailures.delete(queueKey);
     try {
         clearWorkingCopySyncRequiredJournalEntry(workingCopyPath);
     } catch (error) {

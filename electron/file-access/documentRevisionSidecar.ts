@@ -177,12 +177,15 @@ function isJournalEntryFresh(updatedAt: number, now: number) {
     return now - updatedAt <= WORKING_COPY_REVISION_JOURNAL_TTL_MS;
 }
 
+function invalidRevisionJournalError(message = 'Invalid working-copy revision journal') {
+    return new Error(message);
+}
+
 function normalizeRevisionJournalEntry(
     value: unknown,
-    now: number,
 ): TWorkingCopyRevisionJournalEntry | null {
     if (!isRecord(value)) {
-        return null;
+        throw invalidRevisionJournalError();
     }
     if (value.kind === 'working-copy-sync-required') {
         const reason = normalizeJournalReason(value.reason);
@@ -193,9 +196,8 @@ function normalizeRevisionJournalEntry(
             || value.targetWriteCommitted !== true
             || !isPositiveTimestamp(value.createdAt)
             || !isPositiveTimestamp(value.updatedAt)
-            || !isJournalEntryFresh(value.updatedAt, now)
         ) {
-            return null;
+            throw invalidRevisionJournalError('Invalid working-copy sync-required journal entry');
         }
 
         const originalPath = normalizeOptionalPath(value.originalPath);
@@ -222,9 +224,8 @@ function normalizeRevisionJournalEntry(
             || sidecar === null
             || !isPositiveTimestamp(value.createdAt)
             || !isPositiveTimestamp(value.updatedAt)
-            || !isJournalEntryFresh(value.updatedAt, now)
         ) {
-            return null;
+            throw invalidRevisionJournalError('Invalid working-copy revision journal entry');
         }
 
         return {
@@ -237,24 +238,30 @@ function normalizeRevisionJournalEntry(
         };
     }
 
-    return null;
+    throw invalidRevisionJournalError('Unknown working-copy revision journal entry');
 }
 
 function normalizeWorkingCopyRevisionJournal(value: unknown): IWorkingCopyRevisionJournal {
     const now = Date.now();
     if (!isRecord(value) || value.journalVersion !== 1 || !Array.isArray(value.entries)) {
-        return {
-            journalVersion: 1,
-            updatedAt: now,
-            entries: [],
-        };
+        throw invalidRevisionJournalError('Unknown working-copy revision journal version');
     }
 
-    const entries = value.entries
-        .map(entry => normalizeRevisionJournalEntry(entry, now))
-        .filter((entry): entry is TWorkingCopyRevisionJournalEntry => entry !== null)
+    const normalizedEntries = value.entries
+        .map(entry => normalizeRevisionJournalEntry(entry))
+        .filter((entry): entry is TWorkingCopyRevisionJournalEntry => entry !== null);
+    const syncRequiredEntries = normalizedEntries
+        .filter((entry): entry is IWorkingCopySyncRequiredJournalEntry => entry.kind === 'working-copy-sync-required')
+        .sort((left, right) => right.updatedAt - left.updatedAt);
+    const completedRevisionEntries = normalizedEntries
+        .filter((entry): entry is IWorkingCopyRevisionCommitJournalEntry => entry.kind === 'revision-sidecar-commit')
+        .filter(entry => isJournalEntryFresh(entry.updatedAt, now))
         .sort((left, right) => right.updatedAt - left.updatedAt)
-        .slice(0, WORKING_COPY_REVISION_JOURNAL_MAX_ENTRIES);
+        .slice(0, Math.max(0, WORKING_COPY_REVISION_JOURNAL_MAX_ENTRIES - syncRequiredEntries.length));
+    const entries = [
+        ...syncRequiredEntries,
+        ...completedRevisionEntries,
+    ];
     return {
         journalVersion: 1,
         updatedAt: typeof value.updatedAt === 'number' && Number.isFinite(value.updatedAt)
@@ -265,11 +272,28 @@ function normalizeWorkingCopyRevisionJournal(value: unknown): IWorkingCopyRevisi
 }
 
 function readWorkingCopyRevisionJournalFile(workingCopyPath: string): IWorkingCopyRevisionJournal {
+    const journalPath = getWorkingCopyRevisionJournalPath(workingCopyPath);
+    let text: string;
     try {
-        const text = readFileSync(getWorkingCopyRevisionJournalPath(workingCopyPath), 'utf8');
+        text = readFileSync(journalPath, 'utf8');
+    } catch (error) {
+        if (isErrnoException(error) && error.code === 'ENOENT') {
+            const now = Date.now();
+            return {
+                journalVersion: 1,
+                updatedAt: now,
+                entries: [],
+            };
+        }
+        throw new Error(`Working-copy revision journal could not be read: ${journalPath}`, {cause: error});
+    }
+    try {
         return normalizeWorkingCopyRevisionJournal(JSON.parse(text));
-    } catch {
-        return normalizeWorkingCopyRevisionJournal(null);
+    } catch (error) {
+        if (error instanceof Error && error.message.startsWith('Working-copy revision journal')) {
+            throw error;
+        }
+        throw new Error(`Working-copy revision journal is invalid: ${journalPath}`, {cause: error});
     }
 }
 

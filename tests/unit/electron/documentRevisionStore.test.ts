@@ -992,4 +992,71 @@ describe('documentRevisionStore', () => {
 
         vi.doUnmock('@electron/file-access/documentRevisionSidecar');
     });
+
+    it('fails closed for unreadable journal data and retries after the evidence is repaired', async () => {
+        const workingPath = join(tempRoot, 'pdf-work-journal-invalid', 'journal-invalid.pdf');
+        mkdirSync(dirname(workingPath), {recursive: true});
+        writeFileSync(workingPath, new Uint8Array([2]));
+        const journalPath = `${workingPath}.evb-revision-journal.json`;
+        const invalidJournal = '{"journalVersion":1,"entries":[{' ;
+        writeFileSync(journalPath, invalidJournal);
+
+        const {
+            assertWorkingCopyMutationAllowed,
+            hasWorkingCopySyncRequired,
+        } = await import('@electron/file-access/documentRevisionStore');
+        const {readWorkingCopyRevisionJournalEntries} = await import('@electron/file-access/documentRevisionSidecar');
+
+        expect(() => readWorkingCopyRevisionJournalEntries(workingPath)).toThrow(/invalid/u);
+        expect(readFileSync(journalPath, 'utf8')).toBe(invalidJournal);
+        expect(() => assertWorkingCopyMutationAllowed(workingPath)).toThrow(/recovery journal/u);
+        expect(hasWorkingCopySyncRequired(workingPath)).toBe(true);
+
+        const now = Date.now();
+        writeFileSync(journalPath, JSON.stringify({
+            journalVersion: 1,
+            updatedAt: now,
+            entries: [{
+                kind: 'working-copy-sync-required',
+                id: 'sync-required:repaired',
+                reason: 'copy-back failed',
+                targetWriteCommitted: true,
+                createdAt: now,
+                updatedAt: now,
+            }],
+        }));
+        expect(() => assertWorkingCopyMutationAllowed(workingPath)).toThrow('copy-back failed');
+    });
+
+    it('rejects unknown journal versions and retains sync-required entries past seven days', async () => {
+        const workingPath = join(tempRoot, 'pdf-work-journal-retention', 'journal-retention.pdf');
+        mkdirSync(dirname(workingPath), {recursive: true});
+        writeFileSync(workingPath, new Uint8Array([2]));
+        const journalPath = `${workingPath}.evb-revision-journal.json`;
+        const unknownJournal = JSON.stringify({
+            journalVersion: 99,
+            entries: [],
+        });
+        writeFileSync(journalPath, unknownJournal);
+
+        const {readWorkingCopyRevisionJournalEntries} = await import('@electron/file-access/documentRevisionSidecar');
+        expect(() => readWorkingCopyRevisionJournalEntries(workingPath)).toThrow(/invalid/u);
+        expect(readFileSync(journalPath, 'utf8')).toBe(unknownJournal);
+
+        const {assertWorkingCopyMutationAllowed} = await import('@electron/file-access/documentRevisionStore');
+        const updatedAt = Date.now() - (8 * 24 * 60 * 60 * 1000);
+        writeFileSync(journalPath, JSON.stringify({
+            journalVersion: 1,
+            updatedAt,
+            entries: [{
+                kind: 'working-copy-sync-required',
+                id: 'sync-required:old',
+                reason: 'old copy-back failure',
+                targetWriteCommitted: true,
+                createdAt: updatedAt,
+                updatedAt,
+            }],
+        }));
+        expect(() => assertWorkingCopyMutationAllowed(workingPath)).toThrow('old copy-back failure');
+    });
 });
