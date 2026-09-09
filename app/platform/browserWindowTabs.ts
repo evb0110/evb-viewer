@@ -703,6 +703,7 @@ function handleWindowAnnouncement(message: Extract<TBrowserWindowTabsMessage, { 
                 label: message.label,
                 lastSeenAt: Date.now(),
                 ready: message.ready,
+                instanceNonce: message.instanceNonce,
             });
             announceCurrentWindow();
             postMessage({
@@ -719,6 +720,7 @@ function handleWindowAnnouncement(message: Extract<TBrowserWindowTabsMessage, { 
         label: message.label,
         lastSeenAt: Date.now(),
         ready: message.ready,
+        instanceNonce: message.instanceNonce,
     });
     if (message.ready) {
         dispatchQueuedTransfers(message.windowId);
@@ -749,6 +751,8 @@ async function handleTransferAckMessage(message: Extract<TBrowserWindowTabsMessa
         !pending
         || message.windowId !== pending.targetWindowId
         || message.ack.nonce !== pending.nonce
+        || (message.ack.instanceNonce !== undefined
+            && message.ack.instanceNonce !== knownWindows.get(pending.targetWindowId)?.instanceNonce)
     ) {
         return;
     }
@@ -1131,6 +1135,7 @@ export const browserWindowTabsCapability: IWindowTabsCapability = {
                 ...ack,
                 schemaVersion: TRANSFER_MESSAGE_SCHEMA_VERSION,
                 nonce,
+                instanceNonce: currentRecoveryInstanceNonce,
             },
         });
         return waitForTransferDecision(ack.transferId, nonce);
