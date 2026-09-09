@@ -1,0 +1,27 @@
+packages/contracts/search.ts
+  s_c63d7a8363f7e9::t_23cc8fe29c4b52 320,371
+packages/pdf-core/pdfSearchAlgorithms.ts
+  s_c63d7a8363f7e9::t_23cc8fe29c4b52 1,3-198
+  s_c63d7a8363f7e9::t_5a79c4797050bd 2
+packages/pdf-core/pdfSearchCore.ts
+  s_c63d7a8363f7e9::t_42febf1729bc80 2,12-20
+tests/unit/contracts/search.test.ts
+  s_c63d7a8363f7e9::t_74ce9e2373d3fb 91
+  s_c63d7a8363f7e9::t_42febf1729bc80 114-117,217
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "5fc04113394680b9370c2732b81f81fdcea98790",
+  "prompts": {},
+  "sessions": {
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
