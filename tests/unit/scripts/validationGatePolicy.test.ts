@@ -1213,7 +1213,10 @@ describe('validation gate policy', () => {
         try {
             await vi.waitFor(() => {
                 expect(existsSync(readyPath)).toBe(true);
-                [fixturePid, descendantPid] = readFileSync(readyPath, 'utf8')
+                [
+                    fixturePid,
+                    descendantPid,
+                ] = readFileSync(readyPath, 'utf8')
                     .trim()
                     .split(':')
                     .map(Number);
@@ -1221,7 +1224,10 @@ describe('validation gate policy', () => {
                 expect(descendantPid).toBeGreaterThan(0);
             }, {timeout: 5000});
             expect(collectDescendantPidsUnix(runner.pid ?? 0)).toEqual(
-                expect.arrayContaining([fixturePid!, descendantPid!]),
+                expect.arrayContaining([
+                    fixturePid!,
+                    descendantPid!,
+                ]),
             );
             runner.kill('SIGTERM');
             runner.kill('SIGINT');
@@ -1251,7 +1257,10 @@ describe('validation gate policy', () => {
                 }
             }
             await forceKillAndWait(runner);
-            await rm(root, {force: true, recursive: true});
+            await rm(root, {
+                force: true,
+                recursive: true,
+            });
         }
     });
 
