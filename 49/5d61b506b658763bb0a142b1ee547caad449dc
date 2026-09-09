@@ -1,0 +1,39 @@
+packages/pdf-core/index.ts
+  s_c63d7a8363f7e9::t_cdc3fbfc72ad38 100,108-109
+tests/unit/contracts/nativePdfMutations.textBoxes.test.ts
+  s_c63d7a8363f7e9::t_cdc3fbfc72ad38 11
+app/modules/workspace-shell/composables/document-session/nativePdfMutationCommit.ts
+  s_c63d7a8363f7e9::t_cdc3fbfc72ad38 10
+electron/features/page-ops/main/pageMetadataRemap.ts
+  s_c63d7a8363f7e9::t_cdc3fbfc72ad38 15
+tests/unit/contracts/nativePdfMutations.test.ts
+  s_c63d7a8363f7e9::t_cdc3fbfc72ad38 11
+packages/contracts/nativePdfMutations.ts
+  s_c63d7a8363f7e9::t_a5d24e726939aa 1492,1496,1552
+electron/features/documents/main/nativePdfMutationSaveHandlers.ts
+  s_c63d7a8363f7e9::t_cdc3fbfc72ad38 24
+packages/pdf-core/nativePdfMutationPolicy.ts
+  s_c63d7a8363f7e9::t_b357b90cbd204d 23
+  s_c63d7a8363f7e9::t_5f8b7ce48e971c 29
+  s_c63d7a8363f7e9::t_e50ac200baf124 17-20
+  s_c63d7a8363f7e9::t_dbd4e8c6a7b70a 1-16,21-22,24-25,28,35-246,251-476
+  s_c63d7a8363f7e9::t_23a5f87a7e2bde 247-250
+tests/integration/native/nativeBookmarkContinuation.test.ts
+  s_c63d7a8363f7e9::t_d2bf7e68ee69a4 30-31
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "495d61b506b658763bb0a142b1ee547caad449dc",
+  "prompts": {},
+  "sessions": {
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
