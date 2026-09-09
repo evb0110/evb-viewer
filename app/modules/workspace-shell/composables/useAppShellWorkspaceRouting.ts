@@ -174,14 +174,14 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
             return false;
         }
 
-        return matchesOriginalPath || matchesManagedPdf;
+        return matchesManagedPdf || (typeof pathOrResult === 'string' && matchesOriginalPath);
     }
 
     function recordHasSettledDocumentEvidence(
         record: IWorkspaceDocumentRecord | null,
         pathOrResult: TWorkspaceOpenDocumentTarget,
     ) {
-        if (!record || record.toolbarSnapshot.isOpeningDocument) {
+        if (!record || record.toolbarSnapshot.isOpeningDocument || record.toolbarSnapshot.hasOpenError) {
             return false;
         }
 
@@ -207,10 +207,17 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
         }
 
         const snapshot = readWorkspaceToolbarSnapshot(workspace);
+        const documentState = workspace.getAutomationStateSnapshot();
+        const targetMatches = typeof pathOrResult === 'string'
+            ? documentState.originalPath === pathOrResult
+            : pathOrResult.kind === 'pdf'
+                ? documentState.workingCopyPath === pathOrResult.workingPath
+                : documentState.originalPath === pathOrResult.originalPath;
         return Boolean(
             snapshot
             && !snapshot.isOpeningDocument
             && !snapshot.hasOpenError
+            && targetMatches
             && (
                 snapshot.initialVisualReady
                 || snapshot.hasPdf

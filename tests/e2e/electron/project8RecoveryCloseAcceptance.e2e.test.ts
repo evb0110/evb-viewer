@@ -1,6 +1,6 @@
 import {existsSync} from 'node:fs';
 import {
-    readFile, utimes,
+    readFile, rename, utimes,
 } from 'node:fs/promises';
 import {
     afterEach,
@@ -19,7 +19,12 @@ import {
 import {
     waitForPdfLoaded,
     waitForViewerInteractive,
+    openPdfInApp,
 } from '@tests/e2e/electron/helpers/viewerCore';
+import {
+    activateWorkspaceTab,
+    createNewWorkspaceTab,
+} from '@tests/e2e/electron/helpers/workspaceTabs';
 import {
     callWorkspaceCommand,
     readWorkspaceStateValues,
@@ -117,6 +122,44 @@ async function clickWindowDecision(
     }
 }
 
+async function activateTabWithWorkingCopy(
+    session: IElectronE2ESession,
+    expectedPath: string,
+    expectedOriginalPath = expectedPath,
+) {
+    for (const tabIndex of [
+        0,
+        1,
+    ]) {
+        const tabId = await session.page.$$eval(
+            '.tab-list .tab[data-tab-id]',
+            (tabs, index) => tabs[index as number]?.getAttribute('data-tab-id'),
+            tabIndex,
+        );
+        if (!tabId) {
+            continue;
+        }
+        await activateWorkspaceTab(session, tabIndex);
+        await session.page.waitForFunction((expectedTabId: string) => (
+            window.__evbTestApi?.getActiveTabId() === expectedTabId
+        ), {timeout: 10_000}, tabId);
+        for (let attempt = 0; attempt < 20; attempt += 1) {
+            const state = await readWorkspaceStateValues<{
+                originalPath?: string | null;
+                workingCopyPath?: string | null;
+            }>(session.page, [
+                'originalPath',
+                'workingCopyPath',
+            ]);
+            if (state.workingCopyPath === expectedPath || state.originalPath === expectedOriginalPath) {
+                return state;
+            }
+            await new Promise(resolve => setTimeout(resolve, 250));
+        }
+    }
+    throw new Error(`Could not activate tab with working copy ${expectedPath}`);
+}
+
 describe('Project 8 recovered close decisions', () => {
     let session: IElectronE2ESession | null = null;
 
@@ -177,5 +220,148 @@ describe('Project 8 recovered close decisions', () => {
             isDirty: true,
             workingCopyRef: expect.any(String),
         });
+    }, E2E_TIMEOUT_MS);
+
+    it('retains a failed dirty tab while a sibling tab restores across a crash', async () => {
+        const firstPdfPath = await createMultiPageTextFixturePdf(`project8-two-tab-failed-${Date.now()}.pdf`, 2);
+        const secondPdfPath = await createMultiPageTextFixturePdf(`project8-two-tab-success-${Date.now()}.pdf`, 2);
+        const sessionName = `e2e-project8-two-tab-${Date.now()}`;
+        session = await startElectronE2ESession(sessionName, {
+            clean: true,
+            extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
+            initialOpenPaths: [firstPdfPath],
+        });
+        await waitForPdfLoaded(session.page, 60_000);
+        await waitForViewerInteractive(session.page, 60_000);
+        const firstWorkingCopyPath = await getActiveWorkspaceWorkingCopyPath(session.page);
+        expect(await callWorkspaceCommand(session.page, 'handleRotateCw', [[1]])).toMatchObject({called: true});
+        await waitForWorkspaceToolbarIdle(session.page, {timeoutMs: 60_000});
+        const checkpointPath = workspaceCrashCheckpointPath(session.name);
+        await expect.poll(async () => {
+            if (!existsSync(checkpointPath)) {
+                return null;
+            }
+            const stored = JSON.parse(await readFile(checkpointPath, 'utf8')) as {checkpoint?: {tabs?: Array<{
+                sourceRef?: string | null;
+                workingCopyRef?: string | null;
+                isDirty?: boolean;
+            }>};};
+            return stored.checkpoint?.tabs?.find(tab => tab.sourceRef === firstPdfPath) ?? null;
+        }, {timeout: 60_000}).toMatchObject({
+            sourceRef: firstPdfPath,
+            workingCopyRef: firstWorkingCopyPath,
+            isDirty: true,
+        });
+
+        await createNewWorkspaceTab(session);
+        await openPdfInApp(session.page, secondPdfPath, 60_000);
+        await waitForViewerInteractive(session.page, 60_000);
+        const secondWorkingCopyPath = await getActiveWorkspaceWorkingCopyPath(session.page);
+        expect(await callWorkspaceCommand(session.page, 'handleRotateCw', [[1]])).toMatchObject({called: true});
+        await waitForWorkspaceToolbarIdle(session.page, {timeoutMs: 60_000});
+
+        await expect.poll(async () => {
+            if (!existsSync(checkpointPath)) {
+                return null;
+            }
+            const stored = JSON.parse(await readFile(checkpointPath, 'utf8')) as {checkpoint?: {tabs?: Array<{
+                sourceRef?: string | null;
+                workingCopyRef?: string | null;
+                isDirty?: boolean;
+            }>};};
+            return stored.checkpoint?.tabs ?? null;
+        }, {timeout: 60_000}).toEqual(expect.arrayContaining([
+            expect.objectContaining({
+                sourceRef: firstPdfPath,
+                isDirty: true,
+            }),
+            expect.objectContaining({
+                sourceRef: secondPdfPath,
+                isDirty: true,
+            }),
+        ]));
+        expect((await readPdfPageSnapshots(firstWorkingCopyPath))[0]?.rotation).toBe(90);
+        expect((await readPdfPageSnapshots(secondWorkingCopyPath))[0]?.rotation).toBe(90);
+
+        const initialCheckpoint = JSON.parse(await readFile(checkpointPath, 'utf8')) as {checkpoint?: {tabs?: Array<{
+            sourceRef?: string | null;
+            workingCopyRef?: string | null;
+            isDirty?: boolean;
+        }>};};
+        const initialTabs = initialCheckpoint.checkpoint?.tabs ?? [];
+        const failedTab = initialTabs.find(tab => tab.sourceRef === firstPdfPath);
+        const successfulTab = initialTabs.find(tab => tab.sourceRef === secondPdfPath);
+        expect(failedTab?.workingCopyRef).toBe(firstWorkingCopyPath);
+        expect(successfulTab?.workingCopyRef).toBe(secondWorkingCopyPath);
+
+        const unavailableWorkingCopyPath = `${firstWorkingCopyPath}.project8-open-failure`;
+        await rename(firstWorkingCopyPath, unavailableWorkingCopyPath);
+        const crashed = session;
+        await crashed.browser.disconnect();
+        await stopSingleSession(crashed.name, {
+            preserveWorkspaceCheckpoint: true,
+            crashElectronBeforeStop: true,
+        });
+
+        session = await startElectronE2ESession(sessionName, {
+            clean: false,
+            extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
+        });
+
+        await activateTabWithWorkingCopy(session, secondWorkingCopyPath, secondPdfPath);
+        await waitForPdfLoaded(session.page, 60_000);
+        await expect.poll(async () => {
+            if (!existsSync(checkpointPath)) {
+                return null;
+            }
+            const stored = JSON.parse(await readFile(checkpointPath, 'utf8')) as {checkpoint?: {tabs?: Array<{
+                sourceRef?: string | null;
+                workingCopyRef?: string | null;
+                isDirty?: boolean;
+            }>};};
+            return stored.checkpoint?.tabs?.find(tab => tab.sourceRef === firstPdfPath) ?? null;
+        }, {timeout: 60_000}).toMatchObject({
+            sourceRef: firstPdfPath,
+            workingCopyRef: firstWorkingCopyPath,
+            isDirty: true,
+        });
+        await rename(unavailableWorkingCopyPath, firstWorkingCopyPath);
+
+        const recoveredAfterFailedOpen = await readPdfPageSnapshots(firstWorkingCopyPath);
+        expect(recoveredAfterFailedOpen[0]?.rotation).toBe(90);
+        expect((await readPdfPageSnapshots(secondWorkingCopyPath))[0]?.rotation).toBe(90);
+
+        const failedRestart = session;
+        await failedRestart.browser.disconnect();
+        await stopSingleSession(failedRestart.name, {
+            preserveWorkspaceCheckpoint: true,
+            crashElectronBeforeStop: true,
+        });
+        session = await startElectronE2ESession(sessionName, {
+            clean: false,
+            extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
+        });
+        const finalFailedState = await activateTabWithWorkingCopy(session, firstWorkingCopyPath, firstPdfPath);
+        await waitForPdfLoaded(session.page, 60_000);
+        const settledFailedState = await readWorkspaceStateValues<{
+            dirtyState?: {fileDirty?: boolean};
+            originalPath?: string | null;
+            workingCopyPath?: string | null;
+        }>(session.page, [
+            'dirtyState',
+            'originalPath',
+            'workingCopyPath',
+        ]);
+        expect(finalFailedState?.workingCopyPath).toEqual(expect.any(String));
+        expect(settledFailedState.workingCopyPath).toEqual(expect.any(String));
+        expect(settledFailedState.originalPath).toBe(firstPdfPath);
+        expect((await readPdfPageSnapshots(firstWorkingCopyPath))[0]?.rotation).toBe(90);
+        const finalSuccessfulState = await activateTabWithWorkingCopy(session, secondWorkingCopyPath, secondPdfPath);
+        await waitForPdfLoaded(session.page, 60_000);
+        const settledSuccessfulState = await readWorkspaceStateValues<{workingCopyPath?: string | null}>(session.page, ['workingCopyPath']);
+        expect(finalSuccessfulState?.workingCopyPath).toEqual(expect.any(String));
+        expect(settledSuccessfulState.workingCopyPath).toEqual(expect.any(String));
+        expect((await readPdfPageSnapshots(settledSuccessfulState.workingCopyPath!))[0]?.rotation).toBe(90);
+        expect((await readPdfPageSnapshots(secondWorkingCopyPath))[0]?.rotation).toBe(90);
     }, E2E_TIMEOUT_MS);
 });
