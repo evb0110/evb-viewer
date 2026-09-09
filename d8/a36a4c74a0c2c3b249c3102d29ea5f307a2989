@@ -1,0 +1,45 @@
+app/modules/workspace-shell/composables/useWindowTabTransfers.ts
+  s_0e7307298be030::t_e79770b2d64bf1 732-734,738-748,751-752,755,757-758
+  s_0e7307298be030::t_71d3abda2b01f0 749-750
+app/types/electron.d.ts
+  s_0e7307298be030::t_eb30828b673a41 29
+app/modules/workspace-shell/components/AppShellRoot.vue
+  s_0e7307298be030::t_eb30828b673a41 166
+  s_0e7307298be030::t_2e05d0b20083fc 907-930
+app/platform/browserWindowTabs.ts
+  s_0e7307298be030::t_44fadcf65c2edd 960-961
+  s_0e7307298be030::t_eb30828b673a41 962-964
+app/types/evbTestApi.ts
+  s_0e7307298be030::t_2e05d0b20083fc 59
+  s_0e7307298be030::t_89e65e7ec3af7e 58
+app/modules/workspace-shell/composables/useTabsShellBindings.ts
+  s_0e7307298be030::t_d54c4f1ede4608 252
+  s_0e7307298be030::t_2e05d0b20083fc 79,101
+  s_0e7307298be030::t_89e65e7ec3af7e 251
+tests/integration/browser/documentLifecycleUi.test.ts
+  s_0e7307298be030::t_aec2b7220a82d1 481
+  s_0e7307298be030::t_b116a6bbdde48e 27-32,34-38,403-406,424-431
+  s_0e7307298be030::t_d05ddcb5914955 382
+  s_0e7307298be030::t_5e4e8bba468e5e 467
+  s_0e7307298be030::t_203f3040f97e06 17-26,39,373-381,383-390,392-393,397-402,407-423,432-449,451-466,468-480,482-483,488-491
+  s_0e7307298be030::t_2d13cc7dc142a2 394-396
+  s_0e7307298be030::t_f4cbf30482960b 33,450
+  s_0e7307298be030::t_17feef8343f7a1 391
+  s_0e7307298be030::t_8faa1d1a48afc8 484-487
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d8a36a4c74a0c2c3b249c3102d29ea5f307a2989",
+  "prompts": {},
+  "sessions": {
+    "s_0e7307298be030": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a085a5-2d32-7c20-aec3-95b6b1cfc486",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

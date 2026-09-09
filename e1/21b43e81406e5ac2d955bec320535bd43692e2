@@ -1,0 +1,29 @@
+tests/unit/electron/workspaceCheckpointStore.test.ts
+  s_6108dd753ee313::t_5b3585acc3c9f9 9,61
+  s_6108dd753ee313::t_b5ba5841195303 57,60,62-73,187,322-332
+  s_6108dd753ee313::t_0cf111b747fa3a 29,314-321,333-345
+tests/unit/app/modules/workspace-shell/checkpoint/useBrowserWorkspaceRecovery.test.ts
+  s_6108dd753ee313::t_0cf111b747fa3a 274-286,289
+vitest.shared.config.ts
+  s_6108dd753ee313::t_c7dbd04762e210 141
+tests/e2e/electron/project8RecoveryCloseAcceptance.e2e.test.ts
+  s_6108dd753ee313::t_98c532819baa29 1-9,13-53,58-79,84-126,128-144
+  s_6108dd753ee313::t_3008be1b6fdd1f 10-12,54-57,80-83
+  s_6108dd753ee313::t_a0e3950ba9593f 127
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e121b43e81406e5ac2d955bec320535bd43692e2",
+  "prompts": {},
+  "sessions": {
+    "s_6108dd753ee313": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08617-9d0e-7ca0-81f7-15da5a4cc49e",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
