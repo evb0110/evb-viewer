@@ -290,6 +290,57 @@ describe('createBrowserImageExportCapability', () => {
         expect(utifLoaderState.request).not.toHaveBeenCalled();
     });
 
+    it('reserves the first PDF image destination before loading or rendering the PDF', async () => {
+        const events: string[] = [];
+        let expensiveWorkStarted = false;
+        const fakePdfDocument = createFakePdfDocument(1);
+        fakePdfDocument.getPage.mockImplementation(async (pageNumber: number) => {
+            events.push('render');
+            return {
+                getViewport: vi.fn(() => ({
+                    width: 1,
+                    height: 1,
+                })),
+                render: vi.fn(({canvas}: {canvas: ReturnType<typeof createCanvas>}) => {
+                    canvas.currentPageNumber = pageNumber;
+                    return {promise: Promise.resolve()};
+                }),
+                cleanup: vi.fn(async () => {}),
+            };
+        });
+        getDocumentMock.mockImplementation(() => {
+            expensiveWorkStarted = true;
+            events.push('load');
+            return {promise: Promise.resolve(fakePdfDocument)};
+        });
+        pickSaveTargetMock.mockImplementation(async (options: {suggestedName: string}) => {
+            if (expensiveWorkStarted) {
+                throw new DOMException('Picker was invoked after PDF loading started', 'SecurityError');
+            }
+            events.push('picker');
+            return {
+                canceled: false,
+                fileName: options.suggestedName,
+                handle: null,
+            };
+        });
+
+        const {createBrowserImageExportCapability} = await import(
+            '@app/platform/browser-api/createBrowserImageExportCapability'
+        );
+
+        await createBrowserImageExportCapability().exportPdfToImages(
+            requireDocumentRef('browser://documents/work/sample.pdf'),
+            [requirePageNumber(1)],
+        );
+
+        expect(events).toEqual([
+            'picker',
+            'load',
+            'render',
+        ]);
+    });
+
     it('shares one UTIF module request across concurrent TIFF exports', async () => {
         getDocumentMock
             .mockReturnValueOnce({promise: Promise.resolve(createFakePdfDocument(1))})
@@ -307,6 +358,57 @@ describe('createBrowserImageExportCapability', () => {
 
         expect(utifLoaderState.request).toHaveBeenCalledOnce();
         expect(utifLoaderState.encoderAccess).toHaveBeenCalled();
+    });
+
+    it('reserves the PDF TIFF destination before loading or collecting descriptors', async () => {
+        const events: string[] = [];
+        let expensiveWorkStarted = false;
+        const fakePdfDocument = createFakePdfDocument(1);
+        fakePdfDocument.getPage.mockImplementation(async (pageNumber: number) => {
+            events.push('descriptor');
+            return {
+                getViewport: vi.fn(() => ({
+                    width: 1,
+                    height: 1,
+                })),
+                render: vi.fn(({canvas}: {canvas: ReturnType<typeof createCanvas>}) => {
+                    canvas.currentPageNumber = pageNumber;
+                    return {promise: Promise.resolve()};
+                }),
+                cleanup: vi.fn(async () => {}),
+            };
+        });
+        getDocumentMock.mockImplementation(() => {
+            expensiveWorkStarted = true;
+            events.push('load');
+            return {promise: Promise.resolve(fakePdfDocument)};
+        });
+        pickSaveTargetMock.mockImplementation(async (options: {suggestedName: string}) => {
+            if (expensiveWorkStarted) {
+                throw new DOMException('Picker was invoked after PDF loading started', 'SecurityError');
+            }
+            events.push('picker');
+            return {
+                canceled: false,
+                fileName: options.suggestedName,
+                handle: null,
+            };
+        });
+
+        const {createBrowserImageExportCapability} = await import(
+            '@app/platform/browser-api/createBrowserImageExportCapability'
+        );
+
+        await createBrowserImageExportCapability().exportPdfToMultiPageTiff(
+            requireDocumentRef('browser://documents/work/sample.pdf'),
+            [requirePageNumber(1)],
+        );
+
+        expect(events.slice(0, 3)).toEqual([
+            'picker',
+            'load',
+            'descriptor',
+        ]);
     });
 
     it('keeps the full browser multi-page TIFF directory chain intact past the legacy UTIF header limit', async () => {
@@ -397,7 +499,7 @@ describe('createBrowserImageExportCapability', () => {
 
         expect(utifLoaderState.request).not.toHaveBeenCalled();
         expect(utifLoaderState.encoderAccess).not.toHaveBeenCalled();
-        expect(fakePdfDocument.destroy).toHaveBeenCalledOnce();
+        expect(fakePdfDocument.destroy).not.toHaveBeenCalled();
         expect(saveBytesToPickerOrDownloadMock).not.toHaveBeenCalled();
     });
 
@@ -418,6 +520,62 @@ describe('createBrowserImageExportCapability', () => {
         expect(fakePdfDocument.destroy).toHaveBeenCalledOnce();
         expect(saveBytesToPickerOrDownloadMock).not.toHaveBeenCalled();
         expect(browserDocumentStoreMock.createStoredDocument).not.toHaveBeenCalled();
+    });
+
+    it('reserves a DjVu image destination before rendering the page', async () => {
+        const events: string[] = [];
+        let expensiveWorkStarted = false;
+        createDjvuWorkerFromPathMock.mockResolvedValue({
+            doc: {
+                getPagesSizes: () => ({run: async () => [{
+                    width: 1,
+                    height: 1,
+                }]}),
+                getPage: () => ({createPngObjectUrl: () => ({run: async () => {
+                    expensiveWorkStarted = true;
+                    events.push('render');
+                    return {url: 'blob:djvu-page'};
+                }})}),
+            },
+            revokeObjectURL: vi.fn(),
+            terminate: vi.fn(),
+        });
+        pickSaveTargetMock.mockImplementation(async (options: {suggestedName: string}) => {
+            if (expensiveWorkStarted) {
+                throw new DOMException('Picker was invoked after DjVu rendering started', 'SecurityError');
+            }
+            events.push('picker');
+            return {
+                canceled: false,
+                fileName: options.suggestedName,
+                handle: null,
+            };
+        });
+        vi.stubGlobal('fetch', vi.fn(async () => ({
+            arrayBuffer: async () => new Uint8Array([1]).buffer,
+            ok: true,
+        })));
+        vi.stubGlobal('createImageBitmap', vi.fn(async () => ({
+            close: vi.fn(),
+            height: 1,
+            width: 1,
+        })));
+
+        const {createBrowserImageExportCapability} = await import(
+            '@app/platform/browser-api/createBrowserImageExportCapability'
+        );
+
+        await createBrowserImageExportCapability().exportPdfToImages(
+            requireDocumentRef('browser://documents/work/sample.djvu'),
+            [requirePageNumber(1)],
+            undefined,
+            'djvu',
+        );
+
+        expect(events).toEqual([
+            'picker',
+            'render',
+        ]);
     });
 
     it('loads UTIF for DjVu TIFF export and terminates the worker', async () => {
@@ -972,7 +1130,7 @@ describe('createBrowserImageExportCapability', () => {
 
         expect(rangeSpy).not.toHaveBeenCalled();
         expect(getPage).not.toHaveBeenCalled();
-        expect(pickSaveTargetMock).not.toHaveBeenCalled();
+        expect(pickSaveTargetMock).toHaveBeenCalledOnce();
         expect(saveBytesToPickerOrDownloadMock).not.toHaveBeenCalled();
         expect(browserDocumentStoreMock.createStoredDocument).not.toHaveBeenCalled();
         expect(fakePdfDocument.destroy).toHaveBeenCalledTimes(1);
