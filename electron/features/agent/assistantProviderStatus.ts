@@ -175,6 +175,14 @@ export function getProviderSpeedModes(
     return ASSISTANT_SPEED_MODES;
 }
 
+function getClaudeSpeedTierOptions(model: string) {
+    return getProviderSpeedModes([], 'claude', model).map(mode => ({
+        id: mode,
+        label: mode === 'fast' ? 'Fast' : 'Standard',
+        ...(mode === 'fast' ? {isDefault: true} : {}),
+    }));
+}
+
 function getProviderDefaultSpeedMode(
     codexModels: readonly TCodexAssistantModelOption[],
     provider: TAgentAssistantProviderId,
@@ -303,6 +311,16 @@ export function buildClaudeProviderStatus(options: {
             },
             ...options.models,
         ];
+    const modelsWithSpeedTiers = models.map(model => {
+        const speedTiers = model.serviceTiers ?? getClaudeSpeedTierOptions(model.id);
+        return {
+            ...model,
+            serviceTiers: speedTiers,
+            ...(model.defaultServiceTier === undefined
+                ? {defaultServiceTier: speedTiers[0]?.id ?? null}
+                : {}),
+        };
+    });
     const error = options.lastError ?? options.claudeInfo?.error;
     const availableSpeedModes = getProviderSpeedModes([], 'claude', activeModel);
     const availableEfforts = getProviderEfforts([], 'claude', activeModel);
@@ -313,8 +331,8 @@ export function buildClaudeProviderStatus(options: {
         installState: supported ? (installed ? 'installed' : 'missing') : 'unsupported',
         authState: installed && options.authState === 'unknown' ? 'signed-in' : options.authState,
         runtimeState: installed && options.runtimeState === 'stopped' ? 'ready' : options.runtimeState,
-        models,
-        defaultModel: getAssistantPreferredModelId(models, 'opus', CLAUDE_AGENT_DEFAULT_MODEL),
+        models: modelsWithSpeedTiers,
+        defaultModel: getAssistantPreferredModelId(modelsWithSpeedTiers, 'opus', CLAUDE_AGENT_DEFAULT_MODEL),
         activeModel,
         modelSwitchMode: 'in-session',
         availableEfforts,

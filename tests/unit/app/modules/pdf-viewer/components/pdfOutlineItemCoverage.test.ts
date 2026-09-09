@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 
+import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
+
 import {
     computed,
     createApp,
@@ -21,7 +23,10 @@ import PdfOutlineItem from '@app/modules/pdf-viewer/components/PdfOutlineItem.vu
 import { cast } from '@tests/helpers/cast';
 import {requirePageIndex} from '@contracts/pageNumbers';
 
-vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string) => key})}));
+vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    useTypedI18n: () => ({t: (key: string) => key}),
+}));
 
 const AppTooltipStub = defineComponent({
     inheritAttrs: false,

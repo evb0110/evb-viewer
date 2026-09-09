@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@electron/preload/debugLogBuffer';
+
 import {
     afterEach,
     beforeEach,
@@ -10,7 +12,10 @@ import { CORE_IPC_EVENT_CHANNELS } from '@electron/platform-ipc/coreContract';
 
 const mocks = vi.hoisted(() => ({pushDebugLogMessage: vi.fn()}));
 
-vi.mock('@electron/preload/debugLogBuffer', () => ({pushDebugLogMessage: mocks.pushDebugLogMessage}));
+vi.mock('@electron/preload/debugLogBuffer', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    pushDebugLogMessage: mocks.pushDebugLogMessage,
+}));
 
 describe('installDebugLogListener', () => {
     beforeEach(() => {

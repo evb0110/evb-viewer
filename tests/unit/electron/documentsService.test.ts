@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@electron/file-access/workingCopyStore';
+
 import {
     afterEach,
     beforeEach,
@@ -39,7 +41,8 @@ vi.mock('@electron/file-access/workingCopyMaterialization', () => ({
     },
 }));
 
-vi.mock('@electron/file-access/workingCopyStore', () => ({
+vi.mock('@electron/file-access/workingCopyStore', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
     getWorkingCopyBackingEntry: () => mocks.backingEntry,
     normalizePathForLookup: (path: string) => path,
 }));

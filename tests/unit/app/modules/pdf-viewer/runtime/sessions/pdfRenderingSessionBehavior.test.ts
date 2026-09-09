@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 
+import type * as TViMockOriginalModule from '@app/utils/startupMetrics';
+
 import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     computed,
@@ -89,7 +91,10 @@ vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {
     warnThrottled: vi.fn(),
     debug: vi.fn(),
 }}));
-vi.mock('@app/utils/startupMetrics', () => ({markStartupMetricOnce: vi.fn()}));
+vi.mock('@app/utils/startupMetrics', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    markStartupMetricOnce: vi.fn(),
+}));
 vi.mock('@app/utils/pdfRenderTrace', () => ({logPdfRenderTrace: vi.fn()}));
 vi.mock('@app/modules/pdf-viewer/runtime/rendering/usePdfPageRenderer', () => ({usePdfPageRenderer: vi.fn((options: Record<string, unknown>) => {
     rendererFixture.options = options;

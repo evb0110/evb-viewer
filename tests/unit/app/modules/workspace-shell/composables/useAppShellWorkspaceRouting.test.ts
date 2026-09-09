@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 
+import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
+
 import {
     computed,
     nextTick,
@@ -39,7 +41,8 @@ const routingMocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@app/modules/workspace-shell/host/recentOpenGeometryReadiness', () => ({readRecentOpenExactGeometry: routingMocks.readRecentOpenExactGeometry}));
-vi.mock('@app/utils/platformDocuments', () => ({
+vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
     getDocumentFilesCapability: () => ({getPdfOpeningGeometry: routingMocks.getPdfOpeningGeometry}),
     getDocumentOpenCapability: () => ({openDocumentDirect: routingMocks.openDocumentDirect}),
 }));

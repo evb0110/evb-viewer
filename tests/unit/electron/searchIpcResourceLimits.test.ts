@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@electron/file-access/workingCopyStore';
+
 import type {TSearchErrorCode} from '@contracts/search';
 import type { TRegisteredHandler } from '@tests/unit/electron/helpers/ipcRegistryHarness';
 import {
@@ -226,7 +228,8 @@ vi.mock('electron', () => ({
 
 vi.mock('@electron/platform-ipc/trustedIpcSender', () => ({isTrustedIpcInvokeSender: () => true}));
 vi.mock('@electron/utils/pathValidator', () => ({resolveAllowedReadPath: mocks.resolveAllowedReadPath}));
-vi.mock('@electron/file-access/workingCopyStore', () => ({
+vi.mock('@electron/file-access/workingCopyStore', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
     findWorkingCopyPathByOriginalPath: mocks.findWorkingCopyPathByOriginalPath,
     normalizePathForLookup: (path: string) => path.trim(),
 }));
@@ -601,7 +604,7 @@ describe('search IPC worker resource limits', () => {
             },
         ) as Promise<{
             results: unknown[];
-            truncated: boolean 
+            truncated: boolean
         }>;
 
         await vi.waitFor(() => {
@@ -617,7 +620,7 @@ describe('search IPC worker resource limits', () => {
             },
         ) as Promise<{
             results: unknown[];
-            truncated: boolean 
+            truncated: boolean
         }>;
 
         await expectTypedSearchFailure(secondRequest, {

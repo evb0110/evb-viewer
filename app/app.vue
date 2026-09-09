@@ -221,7 +221,7 @@ const AgentationWidget = import.meta.dev
     : null;
 
 const {
-    load: loadSettings,
+    loadOrThrow: loadSettings,
     isLoaded,
     settings,
     save: saveSettings,

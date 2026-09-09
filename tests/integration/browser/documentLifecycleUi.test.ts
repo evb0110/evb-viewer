@@ -435,8 +435,6 @@ describe('browser document lifecycle UI', () => {
             });
             await noteEditor.fill('durable transfer edit');
             await expect.poll(() => noteEditor.textContent()).toBe('durable transfer edit');
-            await noteEditor.blur();
-            await source.waitForTimeout(1_000);
             await expect.poll(async () => source.evaluate(() => {
                 const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
                 const state = api.readActiveWorkspaceStateValues?.<{annotationComments?: Array<{
@@ -449,6 +447,17 @@ describe('browser document lifecycle UI', () => {
                     comment.displayText,
                     comment.previewText,
                 ].includes('durable transfer edit')) ?? false;
+            }), {timeout: 30_000}).toBe(true);
+            await expect.poll(() => noteEditor.isVisible()).toBe(true);
+            await noteEditor.blur();
+            await expect.poll(async () => source.evaluate(() => {
+                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                const state = api.readActiveWorkspaceStateValues?.<{dirtyState?: {
+                    annotationDirty: boolean;
+                    hasAnnotationChanges: boolean;
+                };}>(['dirtyState']);
+                return state?.dirtyState?.annotationDirty === true
+                    && state.dirtyState.hasAnnotationChanges === true;
             }), {timeout: 30_000}).toBe(true);
             await expect.poll(() => source.locator(
                 '[data-tab-list] [role="tab"][aria-selected="true"]',

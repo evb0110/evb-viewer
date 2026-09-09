@@ -1,3 +1,6 @@
+import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
+import type * as TViMockOriginalModule2 from '@app/platform/browser-api/createNativePdfPreviewSourceFromPath';
+
 import {
     beforeEach,
     describe,
@@ -42,7 +45,8 @@ const mocks = vi.hoisted(() => ({
     nativePreview: {createSource: vi.fn()},
 }));
 
-vi.mock('@app/utils/platformDocuments', () => ({
+vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
     getDocumentFilesCapability: () => mocks.documentFiles,
     getDocumentOpenCapability: () => mocks.documentOpen,
     getDocumentPdfCapability: () => mocks.documentPdf,
@@ -50,7 +54,10 @@ vi.mock('@app/utils/platformDocuments', () => ({
     getDocumentRecentFilesCapability: () => mocks.documentRecentFiles,
 }));
 vi.mock('@app/utils/performanceProfile', () => ({getPerformanceProfile: () => mocks.performanceProfile}));
-vi.mock('@app/platform/browser-api/createNativePdfPreviewSourceFromPath', () => ({createNativePdfPreviewSourceFromPath: mocks.nativePreview.createSource}));
+vi.mock('@app/platform/browser-api/createNativePdfPreviewSourceFromPath', async (importOriginal_1) => ({
+    ...(await importOriginal_1<typeof TViMockOriginalModule2>()),
+    createNativePdfPreviewSourceFromPath: mocks.nativePreview.createSource,
+}));
 
 interface IResetHistoryTestOptions {isCurrent?: (() => boolean) | undefined;}
 

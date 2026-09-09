@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 
+import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
+
 import {
     afterEach,
     describe,
@@ -24,7 +26,10 @@ import type { IDocumentSearchSession } from '@app/utils/document-viewer/search/d
 import type { TDocumentSidebarTab } from '@app/utils/document-viewer/sidebar/documentSidebarTabs';
 import DocumentSourceSidebar from '@app/modules/workspace-shell/components/DocumentSourceSidebar.vue';
 
-vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string) => key})}));
+vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    useTypedI18n: () => ({t: (key: string) => key}),
+}));
 
 function stub(marker: string) {
     return {default: defineComponent({

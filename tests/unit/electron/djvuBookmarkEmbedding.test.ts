@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@electron/pdf/nativeToolPaths';
+
 import {
     afterEach,
     beforeEach,
@@ -35,7 +37,10 @@ vi.mock('@electron/features/page-ops/public/nativePageOpsPath', () => ({
     isNativePageOpsDisabled: (...args: unknown[]) => mocks.isNativePageOpsDisabled(...args),
     resolveNativePageOpsPath: (...args: unknown[]) => mocks.resolveNativePageOpsPath(...args),
 }));
-vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: (...args: unknown[]) => mocks.getPdfNativeToolPaths(...args)}));
+vi.mock('@electron/pdf/nativeToolPaths', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    getPdfNativeToolPaths: (...args: unknown[]) => mocks.getPdfNativeToolPaths(...args),
+}));
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => mocks.runNativeToolCommand(...args)}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({debug: vi.fn()})}));
 

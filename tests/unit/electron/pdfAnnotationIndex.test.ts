@@ -1,3 +1,6 @@
+import type * as TViMockOriginalModule from '@electron/pdf/nativeToolPaths';
+import type * as TViMockOriginalModule2 from '@electron/utils/abort';
+
 import {
     existsSync,
     mkdtempSync,
@@ -50,16 +53,22 @@ vi.mock('@electron/features/page-ops/main/nativePageOpsPath', () => ({
     isNativePageOpsDisabled: (...args: unknown[]) => mocks.isNativePageOpsDisabled(...args),
     resolveNativePageOpsPath: (...args: unknown[]) => mocks.resolveNativePageOpsPath(...args),
 }));
-vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: (...args: unknown[]) => mocks.getPdfNativeToolPaths(...args)}));
+vi.mock('@electron/pdf/nativeToolPaths', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    getPdfNativeToolPaths: (...args: unknown[]) => mocks.getPdfNativeToolPaths(...args),
+}));
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => mocks.runNativeToolCommand(...args)}));
 vi.mock('@electron/native-tools/runNativeCommand', () => ({cancelNativeCommandGroup: (...args: unknown[]) => mocks.cancelNativeCommandGroup(...args)}));
 vi.mock('@electron/operation-lifecycle/mainOperationLifecycle', () => ({registerMainOperation: (...args: unknown[]) => mocks.registerMainOperation(...args)}));
 vi.mock('@electron/features/documents/main/nativePdfPreview', () => ({registerNativePdfSenderCleanup: (...args: unknown[]) => mocks.registerNativePdfSenderCleanup(...args)}));
 vi.mock('@electron/utils/appTempDir', () => ({getAppTempDir: (...args: unknown[]) => mocks.getAppTempDir(...args)}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: (...args: unknown[]) => mocks.createLogger(...args)}));
-vi.mock('@electron/utils/abort', () => ({abortErrorFromSignal: (signal: AbortSignal) => signal.reason instanceof Error
-    ? signal.reason
-    : new Error('aborted')}));
+vi.mock('@electron/utils/abort', async (importOriginal_1) => ({
+    ...(await importOriginal_1<typeof TViMockOriginalModule2>()),
+    abortErrorFromSignal: (signal: AbortSignal) => signal.reason instanceof Error
+        ? signal.reason
+        : new Error('aborted'),
+}));
 
 const revisionToken = requireDocumentRevisionToken('drt1:annotation-index-test');
 const context = {senderId: 7};

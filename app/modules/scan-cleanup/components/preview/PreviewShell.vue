@@ -167,9 +167,9 @@
             @wheel="handlePreviewWheel"
         >
             <div
-                v-if="!requestedPageLoadingVisible && (result || rawLayerVisible)"
+                v-if="!requestedPageLoadingVisible && (presentationResult || rawLayerVisible)"
                 class="preview-result-layer"
-                :data-testid="result ? undefined : 'scan-cleanup-original-only'"
+                :data-testid="presentationResult ? undefined : 'scan-cleanup-original-only'"
                 :class="{
                     'is-cutter-source-dimmed': cutterSourceUnderlayVisible,
                     'is-source-underlay-dimmed': sourceUnderlayVisible,
@@ -340,7 +340,7 @@
                 </div>
             </div>
             <div
-                v-if="result && !disabled && !requestedPageLoadingVisible"
+                v-if="presentationResult && !disabled && !requestedPageLoadingVisible"
                 class="drag-overlay-layer"
                 :style="[dragOverlayStyle, previewTransformStyle]"
             >
@@ -381,7 +381,7 @@
                 />
             </div>
             <ZoneEditorControls
-                v-if="result && zoneEditing && !disabled && !requestedPageLoadingVisible && outputMode !== undefined"
+                v-if="presentationResult && zoneEditing && !disabled && !requestedPageLoadingVisible && outputMode !== undefined"
                 :output-mode="outputMode"
                 :selected-layer="selectedPictureLayer"
                 :zone-count="zoneCount"
@@ -752,7 +752,7 @@ const isStalePage = computed(() => props.stalePage
 // raster from ever masquerading as the first portrait output.
 const requestedPageLoadingVisible = computed(() => effectiveViewMode.value === 'cleaned'
     && effectiveError.value === ''
-    && props.result?.pageNumber !== props.pageNumber);
+    && presentationResult.value?.pageNumber !== props.pageNumber);
 const rawLayerVisible = computed(() => props.rawResult?.pageNumber === props.pageNumber && (
     effectiveViewMode.value === 'original'
     || (
@@ -762,7 +762,7 @@ const rawLayerVisible = computed(() => props.rawResult?.pageNumber === props.pag
 ) || Boolean(props.lossless && props.result));
 const originalLayerVisible = computed(() => rawLayerVisible.value
     && effectiveViewMode.value === 'original');
-const cleanedLayerVisible = computed(() => Boolean(props.result) && !originalLayerVisible.value);
+const cleanedLayerVisible = computed(() => Boolean(presentationResult.value) && !originalLayerVisible.value);
 /**
  * Why the page the user is looking at may not be on the size they asked for.
  * Matched page size draws every page on one rectangle, measured from the
@@ -1617,6 +1617,13 @@ watch(() => props.disabled, disabled => {
     if (disabled) {
         dragTransaction.cancel();
     }
+});
+watch([
+    () => props.pageNumber,
+    () => props.resultPresentationKey,
+    () => displayedCleanedFrame.value?.result,
+], () => {
+    dragTransaction.cancel();
 });
 watch(previewTransformScale, () => {
     void nextTick(() => {

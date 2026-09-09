@@ -1,3 +1,8 @@
+import type * as TViMockOriginalModule from '@electron/file-access/workingCopyStore';
+import type * as TViMockOriginalModule2 from '@electron/utils/getPrintRuntimePlatform';
+import type * as TViMockOriginalModule3 from '@electron/pdf/nativeToolPaths';
+import type * as TViMockOriginalModule4 from '@electron/native-tools/buildPopplerEnv';
+
 import {
     afterEach,
     beforeEach,
@@ -215,7 +220,8 @@ vi.mock('@electron/utils/pathValidator', () => ({
     setManagedTempPathAccessValidator: vi.fn(),
 }));
 vi.mock('@electron/file-access/workingCopyCreation', () => ({ensureWorkingCopyDirectory: mocks.ensureWorkingCopyDirectory}));
-vi.mock('@electron/file-access/workingCopyStore', () => ({
+vi.mock('@electron/file-access/workingCopyStore', async (importOriginal_1) => ({
+    ...(await importOriginal_1<typeof TViMockOriginalModule>()),
     findWorkingCopyPathByOriginalPath: mocks.findWorkingCopyPathByOriginalPath,
     getWorkingCopyBackingEntry: () => null,
     getWorkingCopyOwnerWebContentsId: () => undefined,
@@ -225,12 +231,21 @@ vi.mock('@electron/features/page-ops/main/qpdf', () => ({extractPages: mocks.ext
 vi.mock('@electron/features/page-ops/public', () => ({extractPages: mocks.extractPages}));
 vi.mock('@electron/features/documents/main/buildPrintablePdfPath', () => ({buildPrintablePdfPath: mocks.buildPrintablePdfPath}));
 vi.mock('@electron/utils/openMacOsPdfPrintDialog', () => ({openMacOsPdfPrintDialog: mocks.openMacOsPdfPrintDialog}));
-vi.mock('@electron/utils/getPrintRuntimePlatform', () => ({getPrintRuntimePlatform: () => mocks.runtimePlatform}));
-vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: () => ({
-    pdfinfo: '/mock/pdfinfo',
-    pdftoppm: '/mock/pdftoppm',
-})}));
-vi.mock('@electron/native-tools/buildPopplerEnv', () => ({buildPopplerEnv: () => undefined}));
+vi.mock('@electron/utils/getPrintRuntimePlatform', async (importOriginal_2) => ({
+    ...(await importOriginal_2<typeof TViMockOriginalModule2>()),
+    getPrintRuntimePlatform: () => mocks.runtimePlatform,
+}));
+vi.mock('@electron/pdf/nativeToolPaths', async (importOriginal_3) => ({
+    ...(await importOriginal_3<typeof TViMockOriginalModule3>()),
+    getPdfNativeToolPaths: () => ({
+        pdfinfo: '/mock/pdfinfo',
+        pdftoppm: '/mock/pdftoppm',
+    }),
+}));
+vi.mock('@electron/native-tools/buildPopplerEnv', async (importOriginal_4) => ({
+    ...(await importOriginal_4<typeof TViMockOriginalModule4>()),
+    buildPopplerEnv: () => undefined,
+}));
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({
     cancelNativeCommandGroup: mocks.cancelNativeCommandGroup,
     runNativeToolCommand: mocks.runNativeToolCommand,

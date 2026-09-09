@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
+
 import {
     beforeEach,
     describe,
@@ -30,11 +32,14 @@ vi.mock(
     '@app/modules/workspace-shell/composables/useDocumentTransitions',
     () => ({useDocumentTransitions: vi.fn()}),
 );
-vi.mock('@app/utils/platformDocuments', () => ({getDocumentFilesCapability: () => ({
-    replaceWorkingCopyFromPath: mocks.replaceWorkingCopyFromPath,
-    getDocumentRevision: mocks.getDocumentRevision,
-    onDocumentRevisionChanged: mocks.onDocumentRevisionChanged,
-})}));
+vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    getDocumentFilesCapability: () => ({
+        replaceWorkingCopyFromPath: mocks.replaceWorkingCopyFromPath,
+        getDocumentRevision: mocks.getDocumentRevision,
+        onDocumentRevisionChanged: mocks.onDocumentRevisionChanged,
+    }),
+}));
 vi.mock('@app/utils/getOcrCapability', () => ({getOcrCapability: () => ({acknowledgeResultFile: mocks.acknowledgeResultFile})}));
 vi.mock('@app/utils/getSearchCapability', () => ({getSearchCapability: () => ({warmIndex: mocks.warmIndex})}));
 

@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 
+import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
+
 import {
     afterEach,
     beforeEach,
@@ -19,7 +21,10 @@ import {
     widenDocumentThumbnailFrames,
 } from '@tests/helpers/document-viewer/documentThumbnailListHarness';
 
-vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string) => key})}));
+vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    useTypedI18n: () => ({t: (key: string) => key}),
+}));
 
 beforeEach(installDocumentThumbnailListEnvironment);
 afterEach(restoreDocumentThumbnailListEnvironment);

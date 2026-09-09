@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 
+import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
+
 import {
     afterEach,
     describe,
@@ -20,7 +22,10 @@ import type { TPdfSidebarTab } from '@app/modules/pdf-viewer/runtime/contracts/p
 import PdfSidebar from '@app/modules/pdf-viewer/components/PdfSidebar.vue';
 import WorkspaceSidebarHost from '@app/modules/workspace-shell/components/layout/WorkspaceSidebarHost.vue';
 
-vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string) => key})}));
+vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    useTypedI18n: () => ({t: (key: string) => key}),
+}));
 
 const outlineLifecycle = {
     mounts: 0,

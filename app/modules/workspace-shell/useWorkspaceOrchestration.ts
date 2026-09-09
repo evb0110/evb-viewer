@@ -872,6 +872,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         clearDocxExportError,
         workingCopyPath,
         isDjvuMode,
+        viewerCapabilities: computed(() => documentDriver.activeDocumentDriver.value?.capabilities),
         djvuSourcePath,
         currentPage,
         navigationPage,

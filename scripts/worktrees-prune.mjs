@@ -1,6 +1,11 @@
 import { getCliErrorMessage } from './lib/cli-error.mjs';
 import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import {
+    existsSync,
+    readFileSync,
+    readlinkSync,
+    readdirSync,
+} from 'node:fs';
 import { realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,14 +16,20 @@ const DEFAULT_BASE_REFS = ['origin/main'];
 export function parseArgs(argv) {
     const options = {
         apply: false,
+        completed: null,
         help: false,
         into: [...DEFAULT_BASE_REFS],
+        target: null,
     };
     for (const arg of argv) {
         if (arg === '--apply') {
             options.apply = true;
         } else if (arg === '--help' || arg === '-h') {
             options.help = true;
+        } else if (arg.startsWith('--completed=')) {
+            options.completed = arg.slice('--completed='.length).trim() || null;
+        } else if (arg.startsWith('--target=')) {
+            options.target = arg.slice('--target='.length).trim() || null;
         } else if (arg.startsWith('--into=')) {
             const refs = arg.slice('--into='.length).split(',').map(ref => ref.trim()).filter(Boolean);
             options.into = [...new Set([
@@ -74,10 +85,10 @@ export function classifyWorktree(worktree) {
         };
     }
     if (worktree.missing) {
-        return {
-            action: 'remove',
-            reason: 'directory missing; registration is stale',
-        };
+        if (!worktree.selectedTarget) return {action: 'keep', reason: 'stale registration requires an explicit target'};
+        if (!worktree.completedTask) return {action: 'keep', reason: 'completed-task evidence required'};
+        if (worktree.ownerStatus !== 'absent') return {action: 'keep', reason: worktree.ownerReason ?? 'live-owner probe did not prove absence'};
+        return {action: 'remove', reason: 'targeted stale registration with no live owner'};
     }
     if (worktree.dirtyEntries === null) {
         return {
@@ -97,10 +108,95 @@ export function classifyWorktree(worktree) {
             reason: 'HEAD not merged into any base ref',
         };
     }
+    if (!worktree.selectedTarget) return {action: 'keep', reason: 'not the selected cleanup target'};
+    if (!worktree.completedTask) return {action: 'keep', reason: 'completed-task evidence required'};
+    if (worktree.ownerStatus !== 'absent') return {action: 'keep', reason: worktree.ownerReason ?? 'live-owner probe did not prove absence'};
     return {
         action: 'remove',
-        reason: `merged into ${worktree.mergedInto.join(', ')}`,
+        reason: `completed target merged into ${worktree.mergedInto.join(', ')}`,
     };
+}
+
+function readCompletionEvidence(filePath) {
+    if (!filePath) return null;
+    try {
+        const evidence = JSON.parse(readFileSync(filePath, 'utf8'));
+        if (evidence?.status !== 'completed'
+            || typeof evidence.taskKey !== 'string'
+            || evidence.taskKey.length === 0
+            || typeof evidence.worktreePath !== 'string'
+            || !/^[0-9a-f]{40}$/u.test(evidence.head)) return null;
+        return evidence;
+    } catch {
+        return null;
+    }
+}
+
+function isPathInside(parentPath, childPath) {
+    return childPath === parentPath || childPath.startsWith(`${parentPath}${path.sep}`);
+}
+
+function probeSessionMetadataOwnership(worktreePath) {
+    const sessionsPath = path.join(worktreePath, '.devkit', 'sessions');
+    if (!existsSync(sessionsPath)) return {status: 'absent', reason: null};
+    let sessionNames;
+    try {
+        sessionNames = readdirSync(sessionsPath);
+    } catch {
+        return {status: 'ambiguous', reason: 'session ownership probe could not enumerate session roots'};
+    }
+    for (const sessionName of sessionNames) {
+        const sessionPath = path.join(sessionsPath, sessionName);
+        for (const fileName of ['session.json', 'session-starting.json']) {
+            const metadataPath = path.join(sessionPath, fileName);
+            if (!existsSync(metadataPath)) continue;
+            let metadata;
+            try {
+                metadata = JSON.parse(readFileSync(metadataPath, 'utf8'));
+            } catch {
+                return {status: 'ambiguous', reason: `session ownership metadata is unreadable: ${metadataPath}`};
+            }
+            const pids = [metadata?.pid, metadata?.electronPid, metadata?.nuxtPid]
+                .filter(pid => Number.isInteger(pid) && pid > 0);
+            if (pids.length === 0) return {status: 'ambiguous', reason: `session ownership metadata has no valid PID: ${metadataPath}`};
+            for (const pid of pids) {
+                try {
+                    process.kill(pid, 0);
+                    return {status: 'active', reason: `session metadata ${metadataPath} names live process ${pid}`};
+                } catch (error) {
+                    if (error?.code !== 'ESRCH') return {status: 'ambiguous', reason: `session ownership for process ${pid} could not be verified`};
+                }
+            }
+        }
+    }
+    return {status: 'absent', reason: null};
+}
+
+function probeWorktreeOwnership(worktreePath) {
+    if (process.platform === 'win32' || !existsSync('/proc')) {
+        return {status: 'ambiguous', reason: 'live-owner probe is unavailable on this host'};
+    }
+    let pids;
+    try {
+        pids = readdirSync('/proc').filter(name => /^\d+$/u.test(name));
+    } catch {
+        return {status: 'ambiguous', reason: 'live-owner probe could not enumerate processes'};
+    }
+    for (const pid of pids) {
+        let ownerCwd;
+        try {
+            ownerCwd = readlinkSync(`/proc/${pid}/cwd`).replace(/ \(deleted\)$/u, '');
+        } catch (error) {
+            if (error?.code !== 'ENOENT') return {status: 'ambiguous', reason: `live-owner probe could not inspect process ${pid}`};
+            continue;
+        }
+        if (isPathInside(worktreePath, path.resolve(ownerCwd))) return {status: 'active', reason: `process ${pid} has a cwd inside the worktree`};
+    }
+    return probeSessionMetadataOwnership(worktreePath);
+}
+
+function completionMatchesWorktree(completion, worktree) {
+    return Boolean(completion) && completion.worktreePath === worktree.path && completion.head === worktree.head;
 }
 
 function git(args, cwd = projectRoot) {
@@ -184,7 +280,7 @@ function formatReclaimed(reclaimedKiB) {
         : `reclaimed about ${Math.round(reclaimedKiB / 1024)} MiB`;
 }
 
-export async function collectWorktrees(baseRefs) {
+export async function collectWorktrees(baseRefs, {targetPath = null, completion = null, ownerProbe = probeWorktreeOwnership} = {}) {
     const cwd = await realpath(process.cwd()).catch(() => process.cwd());
     const missingRefs = baseRefs.filter(ref => !refExists(ref));
     if (missingRefs.length > 0) {
@@ -203,6 +299,7 @@ export async function collectWorktrees(baseRefs) {
         const worktreePath = await realpath(entry.path).catch(() => entry.path);
         const isPrimary = index === 0;
         const missing = !isPrimary && !existsSync(worktreePath);
+        const owner = ownerProbe(worktreePath);
         const dirtyEntries = isPrimary || missing
             ? 0
             : countDirtyEntries(worktreePath);
@@ -217,6 +314,10 @@ export async function collectWorktrees(baseRefs) {
             missing,
             dirtyEntries,
             mergedInto,
+            completedTask: completionMatchesWorktree(completion, {path: worktreePath, head: entry.head}),
+            selectedTarget: targetPath === worktreePath,
+            ownerStatus: owner.status,
+            ownerReason: owner.reason,
         };
         worktrees.push({
             ...worktree,
@@ -232,7 +333,17 @@ function formatRow(worktree) {
 }
 
 export async function pruneWorktrees(options) {
-    const worktrees = await collectWorktrees(options.into);
+    if (options.apply && (!options.target || !options.completed)) {
+        throw new Error('Apply requires both --target=<worktree> and --completed=<receipt.json>.');
+    }
+    const completion = readCompletionEvidence(options.completed);
+    const targetPath = options.target
+        ? await realpath(options.target).catch(() => path.resolve(options.target))
+        : null;
+    if (options.apply && (!completion || completion.worktreePath !== targetPath)) {
+        throw new Error('Completed-task evidence is missing, invalid, or does not name the target worktree.');
+    }
+    const worktrees = await collectWorktrees(options.into, {targetPath, completion});
     const removable = worktrees.filter(worktree => worktree.action === 'remove');
     for (const worktree of worktrees) {
         console.log(formatRow(worktree));
@@ -255,6 +366,13 @@ export async function pruneWorktrees(options) {
     const removed = [];
     let reclaimedKiB = 0;
     for (const worktree of removable) {
+        const latestCompletion = readCompletionEvidence(options.completed);
+        const latest = (await collectWorktrees(options.into, {targetPath, completion: latestCompletion}))
+            .find(entry => entry.path === worktree.path);
+        if (!latest || latest.head !== worktree.head || latest.action !== 'remove') {
+            console.error(`kept ${worktree.path}: target changed or safety checks no longer pass`);
+            continue;
+        }
         if (worktree.missing) {
             removed.push(worktree.path);
             console.log(`forgot ${worktree.path} (directory already gone)`);
@@ -276,10 +394,6 @@ export async function pruneWorktrees(options) {
             console.error(`failed to remove ${worktree.path}: ${getCliErrorMessage(error)}`);
         }
     }
-    git([
-        'worktree',
-        'prune',
-    ]);
     console.log(`Removed ${removed.length} worktree(s), ${formatReclaimed(reclaimedKiB)}.`);
     return {
         removed,
@@ -290,12 +404,13 @@ export async function pruneWorktrees(options) {
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
 
 const USAGE = [
-    'Usage: pnpm worktrees:prune [--into=<ref>[,<ref>]] [--apply]',
+    'Usage: pnpm worktrees:prune [--into=<ref>[,<ref>]] [--target=<worktree> --completed=<receipt.json> --apply]',
     '',
     'Lists registered git worktrees and removes the ones whose HEAD is merged into a',
     'base ref (origin/main plus any --into refs) and whose tree is clean. Dry run by',
-    'default. Never deletes branches, the primary checkout, dirty trees, or the tree',
-    'that contains the current working directory.',
+    'default. Apply requires a completion receipt binding taskKey, worktreePath and',
+    'HEAD, plus a single target. A live or unverifiable owner keeps the target. Never',
+    'deletes branches, the primary checkout, dirty trees, or the current worktree.',
 ].join('\n');
 
 if (isMain) {

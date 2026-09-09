@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@app/platform/browser-api/browserYield';
+
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
@@ -37,7 +39,10 @@ const browserPageOpsWorkerMock = vi.hoisted(() => ({
 }));
 let pageOpsWasmBytes: Uint8Array;
 
-vi.mock('@app/platform/browser-api/browserYield', () => ({yieldToBrowser: yieldToBrowserMock}));
+vi.mock('@app/platform/browser-api/browserYield', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    yieldToBrowser: yieldToBrowserMock,
+}));
 vi.mock('@app/platform/browser-api/browserPageOpsWorkerClient', () => ({
     BrowserPageOpsWorkerUnavailableError,
     canUseBrowserPageOpsWorker: () => browserPageOpsWorkerMock.canUse(),

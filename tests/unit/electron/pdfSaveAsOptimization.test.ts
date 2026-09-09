@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@electron/pdf/nativeToolPaths';
+
 import {
     afterEach,
     beforeEach,
@@ -36,7 +38,10 @@ vi.mock('@electron/features/documents/main/pdfConformance', () => ({
     analyzePdfConformanceFile: (...args: unknown[]) => mocks.analyzePdfConformanceFile(...args),
     validatePdfFile: (...args: unknown[]) => mocks.validatePdfFile(...args),
 }));
-vi.mock('@electron/pdf/nativeToolPaths', () => ({ getPdfNativeToolPaths: () => ({ qpdf: '/native/qpdf' }) }));
+vi.mock('@electron/pdf/nativeToolPaths', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    getPdfNativeToolPaths: () => ({ qpdf: '/native/qpdf' }),
+}));
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({ runNativeToolCommand: (...args: unknown[]) => mocks.runNativeToolCommand(...args) }));
 vi.mock('@electron/utils/createLogger', () => ({ createLogger: () => ({
     debug: vi.fn(),

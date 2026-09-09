@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
+
 import { requireDocumentRef } from '@contracts/documentRef';
 import {
     beforeEach,
@@ -13,7 +15,10 @@ import {
 
 const mockDocuments = {readFileChunks: vi.fn()};
 
-vi.mock('@app/utils/platformDocuments', () => ({getDocumentFilesCapability: () => mockDocuments}));
+vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    getDocumentFilesCapability: () => mockDocuments,
+}));
 
 const encode = (value: string) => new TextEncoder().encode(value);
 

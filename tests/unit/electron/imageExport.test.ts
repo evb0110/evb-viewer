@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@electron/pdf/nativeToolPaths';
+
 import { tmpdir } from 'os';
 import { join } from 'path';
 import {
@@ -102,14 +104,17 @@ vi.mock('fs/promises', async () => {
     };
 });
 
-vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: () => ({
-    pdftoppm: '/mock/pdftoppm',
-    pdfinfo: '/mock/pdfinfo',
-    qpdf: '/mock/qpdf',
-    pdfimages: mocks.pdfimagesPath,
-    popplerDataDir: mocks.popplerDataDir,
-    popplerFontConfigDir: mocks.popplerFontConfigDir,
-})}));
+vi.mock('@electron/pdf/nativeToolPaths', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    getPdfNativeToolPaths: () => ({
+        pdftoppm: '/mock/pdftoppm',
+        pdfinfo: '/mock/pdfinfo',
+        qpdf: '/mock/qpdf',
+        pdfimages: mocks.pdfimagesPath,
+        popplerDataDir: mocks.popplerDataDir,
+        popplerFontConfigDir: mocks.popplerFontConfigDir,
+    }),
+}));
 
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: mocks.runCommand}));
 vi.mock('@electron/image/tryCreatePdfWithNativeImageCombiner', () => ({

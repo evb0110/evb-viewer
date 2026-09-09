@@ -194,6 +194,7 @@ export function createAssistantRuntimeLifecycle(options: IAssistantRuntimeLifecy
     let codexInfoCache: ICodexCliInfo | null = null;
     let runtime: IAssistantRuntime | null = null;
     let runtimeStartPromise: Promise<IAssistantRuntime> | null = null;
+    let runtimeShutdownPromise: Promise<void> | null = null;
     let runtimeGeneration = 0;
     let mcpToolCount = 0;
 
@@ -214,7 +215,9 @@ export function createAssistantRuntimeLifecycle(options: IAssistantRuntimeLifecy
     }
 
     function clearRuntimeForExit() {
-        runtime = null;
+        if (runtime?.client.hasProvenTermination()) {
+            runtime = null;
+        }
     }
 
     async function assertRuntimeEnabled(
@@ -235,31 +238,52 @@ export function createAssistantRuntimeLifecycle(options: IAssistantRuntimeLifecy
     }
 
     async function shutdownCodexRuntime(shutdownOptions: { shutdownMcp?: boolean } = {}) {
+        if (runtimeShutdownPromise) {
+            return runtimeShutdownPromise;
+        }
+
         const shutdownGeneration = ++runtimeGeneration;
         runtimeStartPromise = null;
         const runtimeToShutdown = runtime;
-        runtime = null;
-        await runtimeToShutdown?.client.shutdown().catch((error: unknown) => {
-            options.logger.warn(`Failed to stop Codex client during shutdown: ${getErrorMessage(error)}`);
-        });
-        if (runtimeGeneration !== shutdownGeneration) {
-            return;
-        }
-        options.providerRuntime.runtimeState = 'stopped';
-        options.sessionStore.clearActiveSessionForProvider('codex');
-        for (const session of options.sessionStore.listSessions()) {
-            if (session.provider !== 'codex') {
-                continue;
+        const nextShutdownPromise = (async () => {
+            try {
+                await runtimeToShutdown?.client.shutdown();
+            } catch (error: unknown) {
+                if (runtimeGeneration === shutdownGeneration) {
+                    options.providerRuntime.runtimeState = 'error';
+                    options.providerRuntime.lastError = getErrorMessage(error);
+                    options.publishCodexState();
+                }
+                throw error;
             }
-            session.providerThreadId = null;
-            session.turnOwner = supersedeAssistantTurn(session.turnOwner);
-            session.scopeBinding = null;
-            options.sessionStore.recordTurnBoundary(session);
-        }
-        mcpToolCount = 0;
-        if (shutdownOptions.shutdownMcp === true) {
-            await shutdownEmbeddedMcpServer();
-        }
+            if (runtimeGeneration !== shutdownGeneration) {
+                return;
+            }
+            if (runtime === runtimeToShutdown) {
+                runtime = null;
+            }
+            options.providerRuntime.runtimeState = 'stopped';
+            options.sessionStore.clearActiveSessionForProvider('codex');
+            for (const session of options.sessionStore.listSessions()) {
+                if (session.provider !== 'codex') {
+                    continue;
+                }
+                session.providerThreadId = null;
+                session.turnOwner = supersedeAssistantTurn(session.turnOwner);
+                session.scopeBinding = null;
+                options.sessionStore.recordTurnBoundary(session);
+            }
+            mcpToolCount = 0;
+            if (shutdownOptions.shutdownMcp === true) {
+                await shutdownEmbeddedMcpServer();
+            }
+        })().finally(() => {
+            if (runtimeShutdownPromise === nextShutdownPromise) {
+                runtimeShutdownPromise = null;
+            }
+        });
+        runtimeShutdownPromise = nextShutdownPromise;
+        return nextShutdownPromise;
     }
 
     async function refreshCodexInfo() {
@@ -337,6 +361,14 @@ export function createAssistantRuntimeLifecycle(options: IAssistantRuntimeLifecy
 
         if (runtimeStartPromise) {
             return runtimeStartPromise;
+        }
+
+        if (runtimeShutdownPromise) {
+            await runtimeShutdownPromise;
+        }
+
+        if (runtime?.client.isClosed()) {
+            await shutdownCodexRuntime();
         }
 
         if (runtime) {

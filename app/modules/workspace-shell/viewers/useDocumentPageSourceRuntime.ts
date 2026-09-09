@@ -564,6 +564,28 @@ export const useDocumentPageSourceRuntime = (options: {
         pageLayouts.value,
         resolvePageLeft,
     ));
+    let modeTransitionPreferredPageIndex: number | null = null;
+    watch(
+        () => [
+            props.value.continuousScroll,
+            props.value.currentPage,
+        ] as const,
+        ([continuousScroll], previous) => {
+            if (previous && continuousScroll !== previous[0]) {
+                modeTransitionPreferredPageIndex = previous[0]
+                    ? null
+                    : Math.max(0, previous[1] - 1);
+            }
+        },
+        {flush: 'sync'},
+    );
+    watch(
+        () => props.value.documentRevisionToken ?? props.value.src,
+        () => {
+            modeTransitionPreferredPageIndex = null;
+        },
+        {flush: 'sync'},
+    );
     function getPageStyle(pageNumber: number) {
         const layout = pageLayouts.value[pageNumber - 1];
         if (!layout) {
@@ -749,9 +771,13 @@ export const useDocumentPageSourceRuntime = (options: {
     const layoutLifecycle = useDocumentViewportLayoutLifecycle({
         viewerContainer,
         pageLayouts: zoomAnchorPageLayouts,
-        capturePageIndex: () => props.value.continuousScroll
-            ? null
-            : Math.max(0, props.value.currentPage - 1),
+        capturePageIndex: () => {
+            const preferredPageIndex = modeTransitionPreferredPageIndex;
+            modeTransitionPreferredPageIndex = null;
+            return preferredPageIndex ?? (props.value.continuousScroll
+                ? null
+                : Math.max(0, props.value.currentPage - 1));
+        },
         isResizing: computed(() => props.value.isResizing),
         captureRestoreEpoch: captureLayoutRestoreEpoch,
         canRestore: epoch => epoch === captureLayoutRestoreEpoch()

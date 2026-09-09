@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@electron/file-access/isAllowedOriginalSavePath';
+
 import {
     afterEach,
     beforeEach,
@@ -38,7 +40,10 @@ vi.mock('@electron/features/documents/main/managedTempFileHandles', () => ({
     resolveTypedStagedArtifact: (...args: unknown[]) => mocks.resolveTypedStagedArtifact(...args),
 }));
 vi.mock('@electron/file-access/workingCopyCreation', () => ({createDisposableWorkingCopyFromPath: (...args: unknown[]) => mocks.createDisposableWorkingCopyFromPath(...args)}));
-vi.mock('@electron/file-access/isAllowedOriginalSavePath', () => ({isAllowedOriginalSavePath: (...args: unknown[]) => mocks.isAllowedOriginalSavePath(...args)}));
+vi.mock('@electron/file-access/isAllowedOriginalSavePath', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    isAllowedOriginalSavePath: (...args: unknown[]) => mocks.isAllowedOriginalSavePath(...args),
+}));
 vi.mock('@electron/utils/pathValidator', () => ({resolveAllowedWritePath: (...args: unknown[]) => mocks.resolveAllowedWritePath(...args)}));
 vi.mock('@electron/file-access/documentMutationGuards', () => ({
     assertQueuedWorkingCopyMutationPreconditions: (...args: unknown[]) => (

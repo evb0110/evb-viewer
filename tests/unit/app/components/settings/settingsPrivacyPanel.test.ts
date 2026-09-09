@@ -1,5 +1,8 @@
 // @vitest-environment happy-dom
 
+import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
+import type * as TViMockOriginalModule2 from '@app/utils/diagnosticsServerOptOut';
+
 import {
     afterEach,
     describe,
@@ -15,11 +18,15 @@ import {
 import { DEFAULT_SETTINGS } from '@contracts/settings';
 import SettingsPrivacyPanel from '@app/components/settings/SettingsPrivacyPanel.vue';
 
-vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string) => key})}));
+vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    useTypedI18n: () => ({t: (key: string) => key}),
+}));
 const serverDiagnosticsOptOut = vi.hoisted(() => vi.fn(() => false));
 const writeServerDiagnosticsOptOut = vi.hoisted(() => vi.fn(() => true));
 
-vi.mock('@app/utils/diagnosticsServerOptOut', () => ({
+vi.mock('@app/utils/diagnosticsServerOptOut', async (importOriginal_1) => ({
+    ...(await importOriginal_1<typeof TViMockOriginalModule2>()),
     readDiagnosticsServerOptOut: serverDiagnosticsOptOut,
     writeDiagnosticsServerOptOut: writeServerDiagnosticsOptOut,
 }));

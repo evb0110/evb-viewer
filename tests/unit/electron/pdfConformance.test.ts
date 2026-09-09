@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@electron/pdf/nativeToolPaths';
+
 import {
     beforeEach,
     describe,
@@ -223,14 +225,17 @@ vi.mock('pdf-lib', () => {
     return {
         PDFDict: MockPDFDict,
         PDFDocument: { load: mocks.load },
-        PDFName: MockPDFName, 
+        PDFName: MockPDFName,
     };
 });
 
 vi.mock('electron', () => ({ app: { getPath: vi.fn(() => '/tmp') } }));
 
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => mocks.runNativeToolCommand(...args)}));
-vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: () => ({qpdf: '/mock/qpdf'})}));
+vi.mock('@electron/pdf/nativeToolPaths', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    getPdfNativeToolPaths: () => ({qpdf: '/mock/qpdf'}),
+}));
 vi.mock('@electron/features/page-ops/main/nativePageOpsPath', () => ({resolveNativePageOpsPath: () => '/mock/page-ops'}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     warn: mocks.loggerWarn,

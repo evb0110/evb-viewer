@@ -5,6 +5,7 @@ import {BrowserLogger} from '@app/utils/browserLogger';
 interface IAnnotationKeyboardEvent {
     readonly key: string;
     readonly isComposing?: boolean;
+    readonly repeat?: boolean;
     readonly target: EventTarget | null;
     readonly altKey: boolean;
     readonly ctrlKey: boolean;
@@ -31,6 +32,7 @@ interface IUseAnnotationKeyboardCommandsOptions {
     surface: IAnnotationKeyboardSurface;
     pageView?: () => number[] | null;
     pageRotation?: () => TPageRotation;
+    placeTextBox?: (event: IAnnotationKeyboardEvent) => boolean;
 }
 
 function isEditableTarget(target: EventTarget | null) {
@@ -46,8 +48,13 @@ function isEditableTarget(target: EventTarget | null) {
 export const useAnnotationKeyboardCommands = (
     options: IUseAnnotationKeyboardCommandsOptions,
 ): IAnnotationKeyboardCommands => ({handleKeydown(event) {
-    if (event.isComposing || isEditableTarget(event.target)) {
+    if (event.isComposing || event.repeat || isEditableTarget(event.target)) {
         return false;
+    }
+    if (event.key === 'Enter' && options.placeTextBox?.(event)) {
+        event.preventDefault();
+        event.stopPropagation();
+        return true;
     }
     const modifier = event.metaKey || event.ctrlKey;
     if (event.key === 'Escape' && options.surface.handleEscape?.()) {

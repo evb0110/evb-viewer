@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@app/utils/document-viewer/session/documentSession';
+
 import {
     computed,
     markRaw,
@@ -58,7 +60,8 @@ vi.mock('@app/utils/getDjvuCapability', () => {
     });
     return {getDjvuCapability};
 });
-vi.mock('@app/utils/document-viewer/session/documentSession', () => ({
+vi.mock('@app/utils/document-viewer/session/documentSession', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
     createDocumentSession: driverMocks.createDocumentSession,
     ensurePdfProjection: driverMocks.ensurePdfProjection,
 }));

@@ -1,3 +1,7 @@
+import type * as TViMockOriginalModule from '@electron/file-access/workingCopyMutationCommitSignal';
+import type * as TViMockOriginalModule2 from '@electron/resources/jobBroker';
+import type * as TViMockOriginalModule3 from '@electron/pdf/nativeToolPaths';
+
 import {
     beforeEach,
     describe,
@@ -22,9 +26,18 @@ vi.mock('electron', () => ({utilityProcess: {fork: vi.fn()}}));
 vi.mock('@electron-worker-bundles/electronWorkerBundles.js', () => ({WORKER_BUNDLES_BY_ID: {'document-save-utility': {fileName: 'document-save-utility.mjs'}}}));
 vi.mock('@electron/utils/workerTask', () => ({resolveUnpackedWorkerPath: vi.fn(() => '/tmp/worker.mjs')}));
 vi.mock('@electron/utils/atomicReplace', () => ({atomicReplace: mocks.atomicReplace}));
-vi.mock('@electron/file-access/workingCopyMutationCommitSignal', () => ({markActiveWorkingCopyMutationCommitStarted: vi.fn()}));
-vi.mock('@electron/resources/jobBroker', () => ({mainJobBroker: {acquire: mocks.acquire}}));
-vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: vi.fn(() => ({qpdf: '/tmp/qpdf'}))}));
+vi.mock('@electron/file-access/workingCopyMutationCommitSignal', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    markActiveWorkingCopyMutationCommitStarted: vi.fn(),
+}));
+vi.mock('@electron/resources/jobBroker', async (importOriginal_1) => ({
+    ...(await importOriginal_1<typeof TViMockOriginalModule2>()),
+    mainJobBroker: {acquire: mocks.acquire},
+}));
+vi.mock('@electron/pdf/nativeToolPaths', async (importOriginal_2) => ({
+    ...(await importOriginal_2<typeof TViMockOriginalModule3>()),
+    getPdfNativeToolPaths: vi.fn(() => ({qpdf: '/tmp/qpdf'})),
+}));
 vi.mock('@electron/features/documents/main/managedTempFileHandles', () => ({resolveTypedStagedArtifact: mocks.resolveTypedStagedArtifact}));
 vi.mock('@electron/features/documents/main/fingerprintFileWithUtilityProcess', () => ({runDocumentSaveUtilityProcess: mocks.runDocumentSaveUtilityProcess}));
 

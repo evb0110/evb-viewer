@@ -55,11 +55,12 @@ pub(crate) struct PageCloneContext<'a> {
     pub(crate) target: Document,
     pub(crate) pages_id: ObjectId,
     pub(crate) object_map: HashMap<(usize, ObjectId), ObjectId>,
+    completed_pages: HashSet<(usize, ObjectId)>,
 }
 
 struct BrowserPageLabelRange {
     start_page: i64,
-    prefix: Option<Vec<u8>>,
+    prefix: Option<String>,
     style: Option<Vec<u8>>,
     start_number: i64,
 }
@@ -443,7 +444,14 @@ pub(crate) fn build_browser_page_subset_pdf(
         target,
         pages_id,
         object_map: HashMap::new(),
+        completed_pages: HashSet::new(),
     };
+    for source in page_sequence {
+        clone_context
+            .object_map
+            .entry((source.document_index, source.page_id))
+            .or_insert_with(|| clone_context.target.new_object_id());
+    }
     let page_ids = page_sequence
         .iter()
         .map(|source| clone_context.clone_page(*source))
@@ -538,67 +546,48 @@ fn remap_browser_page_labels(
     page_labels: &Object,
 ) -> Result<Object> {
     let source = clone_context.source(source_index)?;
-    let labels = resolve_dictionary_object(source, page_labels, "PageLabels")?;
-    let nums = labels.get(b"Nums")?.as_array()?;
-    if nums.is_empty() || nums.len() % 2 != 0 {
-        return Err("PageLabels has no usable ranges".into());
-    }
-    let mut ranges = Vec::new();
-    for pair in nums.chunks_exact(2) {
-        let start_page: i64 = pair[0]
-            .as_i64()?
-            .checked_add(1)
-            .ok_or("Invalid PageLabels range")?;
-        let label = resolve_dictionary_object(source, &pair[1], "PageLabel")?;
-        ranges.push(BrowserPageLabelRange {
-            start_page,
-            prefix: label
-                .get(b"P")
-                .ok()
-                .and_then(|value| source.resolved(value).ok())
-                .and_then(|value| value.as_str().ok())
-                .map(|value| value.to_vec()),
-            style: label
-                .get(b"S")
-                .ok()
-                .and_then(|value| source.resolved(value).ok())
-                .and_then(|value| value.as_name().ok())
-                .map(|value| value.to_vec()),
-            start_number: label
-                .get(b"St")
-                .ok()
-                .and_then(|value| source.resolved(value).ok())
-                .and_then(|value| value.as_i64().ok())
-                .unwrap_or(1)
-                .clamp(1, MAX_BROWSER_PAGE_LABEL_NUMBER),
-        });
-    }
-    ranges.sort_by_key(|range| range.start_page);
-
     let source_page_numbers = source
         .get_pages()
         .into_iter()
         .map(|(page_number, page_id)| (page_id, page_number as i64))
         .collect::<HashMap<_, _>>();
+    let mut ranges = Vec::new();
+    for range in read_page_label_ranges(source, page_labels)? {
+        if usize::try_from(range.page_index).ok() >= Some(source_page_numbers.len()) {
+            return Err("PageLabels range index is outside the source page tree".into());
+        }
+        let start_page: i64 = i64::from(range.page_index)
+            .checked_add(1)
+            .ok_or("Invalid PageLabels range")?;
+        ranges.push(BrowserPageLabelRange {
+            start_page,
+            prefix: range.prefix,
+            style: range.style.map(|value| value.into_bytes()),
+            start_number: i64::from(range.start.unwrap_or(1))
+                .clamp(1, MAX_BROWSER_PAGE_LABEL_NUMBER),
+        });
+    }
+    ranges.sort_by_key(|range| range.start_page);
+
     let mut output_nums = Vec::with_capacity(page_sequence.len() * 2);
     for (output_index, page) in page_sequence.iter().enumerate() {
         let label = if page.document_index == source_index {
             let source_page_number = *source_page_numbers
                 .get(&page.page_id)
                 .ok_or("Page-label source page was not found")?;
-            page_label_for_number(&ranges, source_page_number)
+            page_label_for_number(&ranges, source_page_number)?
         } else {
             format_decimal((output_index + 1) as i64)
         };
         output_nums.push(Object::Integer(output_index as i64));
         let mut label_dict = Dictionary::new();
-        label_dict.set("P", Object::string_literal(label));
+        label_dict.set("P", lopdf::text_string(&label));
         output_nums.push(Object::Dictionary(label_dict));
     }
     Ok(dictionary! {"Nums" => output_nums}.into())
 }
 
-fn page_label_for_number(ranges: &[BrowserPageLabelRange], page_number: i64) -> String {
+fn page_label_for_number(ranges: &[BrowserPageLabelRange], page_number: i64) -> Result<String> {
     let range = ranges
         .iter()
         .rev()
@@ -613,29 +602,37 @@ fn page_label_for_number(ranges: &[BrowserPageLabelRange], page_number: i64) -> 
         None => String::new(),
         Some(b"R") => format_roman(number).to_uppercase(),
         Some(b"r") => format_roman(number),
-        Some(b"A") => format_alpha(number).to_uppercase(),
-        Some(b"a") => format_alpha(number),
+        Some(b"A") => format_alpha(number, true)?,
+        Some(b"a") => format_alpha(number, false)?,
         Some(_) => format_decimal(number),
     };
-    format!(
+    Ok(format!(
         "{}{}",
-        String::from_utf8_lossy(range.prefix.as_deref().unwrap_or_default()),
+        range.prefix.as_deref().unwrap_or_default(),
         suffix
-    )
+    ))
 }
 
 fn format_decimal(number: i64) -> String {
     number.to_string()
 }
 
-fn format_alpha(mut number: i64) -> String {
-    let mut result = String::new();
-    while number > 0 {
-        number -= 1;
-        result.insert(0, char::from(b'A' + (number % 26) as u8));
-        number /= 26;
+fn format_alpha(number: i64, uppercase: bool) -> Result<String> {
+    let index = number
+        .checked_sub(1)
+        .ok_or("Invalid alphabetic page label number")?;
+    let repeat_count =
+        usize::try_from(index / 26 + 1).map_err(|_| "Alphabetic page label is too large")?;
+    if repeat_count > MAX_AGGREGATE_TEXT_BYTES {
+        return Err("Alphabetic page label exceeds the bounded text limit".into());
     }
+    let letter = (if uppercase { b'A' } else { b'a' }) + (index % 26) as u8;
+    let mut result = String::new();
     result
+        .try_reserve(repeat_count)
+        .map_err(|_| "Alphabetic page label exceeds the bounded text limit")?;
+    result.extend(std::iter::repeat_n(char::from(letter), repeat_count));
+    Ok(result)
 }
 
 fn format_roman(mut number: i64) -> String {
@@ -666,16 +663,21 @@ fn format_roman(mut number: i64) -> String {
 
 impl PageCloneContext<'_> {
     pub(crate) fn clone_page(&mut self, source: PageCloneSource) -> Result<ObjectId> {
-        if let Some(new_id) = self
-            .object_map
-            .get(&(source.document_index, source.page_id))
+        if self
+            .completed_pages
+            .contains(&(source.document_index, source.page_id))
         {
-            return Ok(*new_id);
+            return self
+                .object_map
+                .get(&(source.document_index, source.page_id))
+                .copied()
+                .ok_or_else(|| "Completed browser page has no object ID".into());
         }
 
-        let new_page_id = self.target.new_object_id();
-        self.object_map
-            .insert((source.document_index, source.page_id), new_page_id);
+        let new_page_id = *self
+            .object_map
+            .entry((source.document_index, source.page_id))
+            .or_insert_with(|| self.target.new_object_id());
 
         let source_document = self.source(source.document_index)?;
         let mut page = source_document.get_dictionary(source.page_id)?.clone();
@@ -720,6 +722,8 @@ impl PageCloneContext<'_> {
         self.target
             .objects
             .insert(new_page_id, Object::Dictionary(cloned_page));
+        self.completed_pages
+            .insert((source.document_index, source.page_id));
         Ok(new_page_id)
     }
 

@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@app/platform/browser-api/browserYield';
+
 import {
     beforeEach,
     describe,
@@ -92,7 +94,10 @@ const pdfjsModule = vi.hoisted(() => ({
     getDocument: vi.fn(),
 }));
 
-vi.mock('@app/platform/browser-api/browserYield', () => ({yieldToBrowser: () => yieldToBrowserMock()}));
+vi.mock('@app/platform/browser-api/browserYield', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    yieldToBrowser: () => yieldToBrowserMock(),
+}));
 vi.mock('@app/platform/browser-api/browserSearchWorkerClient', () => ({
     BROWSER_SEARCH_REGEX_WORKER_TIMEOUT_MS: 1_250,
     canUseBrowserSearchWorker: () => browserSearchWorkerClientMock.canUseBrowserSearchWorker(),

@@ -783,7 +783,11 @@ export class AnnotationStore {
             overlapCandidates,
             entities: Array.from(this.#entities.values()),
         });
-        const resolvedSelectedText = resolveSelectedText?.(initialPlan.projection.created.quadPoints);
+        const shouldResolveSelectedText = initialPlan.replacements.length > 0
+            || !initialPlan.projection.created.selectedText?.trim();
+        const resolvedSelectedText = shouldResolveSelectedText
+            ? resolveSelectedText?.(initialPlan.projection.created.quadPoints)
+            : undefined;
         let plan = initialPlan;
         if (resolvedSelectedText !== undefined) {
             const selectedText = resolvedSelectedText === null

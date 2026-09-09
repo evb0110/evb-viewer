@@ -146,9 +146,11 @@ const validationStageInputPaths = {
         'scripts',
         'server',
         'tests',
+        'types',
         'nuxt.config.ts',
         'package.json',
         'pnpm-lock.yaml',
+        'pnpm-workspace.yaml',
         'tsconfig*.json',
     ],
     'web-deploy': [
@@ -1917,7 +1919,11 @@ export async function acquireHeavyGate({
             return {
                 capacity: admission.capacity,
                 coordinated: true,
-                release: async ({ownedGroupIds = [], ownedPids = [], retain = false} = {}) => {
+                release: async ({
+                    ownedGroupIds = [],
+                    ownedPids = [],
+                    retain = false,
+                } = {}) => {
                     if (retain || ownedPids.some(pid => isPidAlive(pid)) || ownedGroupIds.some(pid => isProcessGroupAlive(pid))) {
                         await writeFile(holderPath, JSON.stringify({
                             acquiredAt: new Date().toISOString(),
@@ -2021,9 +2027,18 @@ function getProcessGroupId(pid) {
         return pid;
     }
     try {
-        const output = execFileSync('ps', ['-p', String(pid), '-o', 'pgid='], {
+        const output = execFileSync('ps', [
+            '-p',
+            String(pid),
+            '-o',
+            'pgid=',
+        ], {
             encoding: 'utf8',
-            stdio: ['ignore', 'pipe', 'ignore'],
+            stdio: [
+                'ignore',
+                'pipe',
+                'ignore',
+            ],
         }).trim();
         const groupId = Number(output);
         return Number.isInteger(groupId) && groupId > 0 ? groupId : null;
@@ -2055,9 +2070,18 @@ async function waitForProcessGroupExit(pid, timeoutMs) {
 async function stopSpawnedProcess(child, signal) {
     const pid = child.pid;
     if (!pid || !isPidAlive(pid)) {
-        return isProcessGroupAlive(pid)
-            ? {owned: false, ownedGroupIds: [pid], ownedPids: [pid]}
-            : {owned: true, ownedGroupIds: [], ownedPids: []};
+        if (isProcessGroupAlive(pid)) {
+            return {
+                owned: false,
+                ownedGroupIds: [pid],
+                ownedPids: [pid],
+            };
+        }
+        return {
+            owned: true,
+            ownedGroupIds: [],
+            ownedPids: [],
+        };
     }
     let groupId = getProcessGroupId(pid);
     const identityDeadline = Date.now() + processTerminationGraceMs;
@@ -2067,7 +2091,11 @@ async function stopSpawnedProcess(child, signal) {
     }
     const owned = groupId === pid;
     if (!owned) {
-        return {owned: false, ownedGroupIds: [pid], ownedPids: [pid]};
+        return {
+            owned: false,
+            ownedGroupIds: [pid],
+            ownedPids: [pid],
+        };
     }
     if (process.platform === 'win32') {
         child.kill(signal);
@@ -2075,21 +2103,42 @@ async function stopSpawnedProcess(child, signal) {
         process.kill(-pid, signal);
     }
     if (await waitForProcessGroupExit(pid, processTerminationGraceMs)) {
-        return {owned: true, ownedPids: []};
+        return {
+            owned: true,
+            ownedPids: [],
+        };
     }
     if (process.platform === 'win32') {
         try {
-            execFileSync('taskkill', ['/PID', String(pid), '/T', '/F'], {stdio: 'ignore'});
-        } catch {}
+            execFileSync('taskkill', [
+                '/PID',
+                String(pid),
+                '/T',
+                '/F',
+            ], {stdio: 'ignore'});
+        } catch {
+            // The child may have exited between the identity check and taskkill.
+        }
     } else if (getProcessGroupId(pid) === pid) {
         process.kill(-pid, 'SIGKILL');
     } else {
-        return {owned: false, ownedGroupIds: [pid], ownedPids: [pid]};
+        return {
+            owned: false,
+            ownedGroupIds: [pid],
+            ownedPids: [pid],
+        };
     }
     if (await waitForProcessGroupExit(pid, processTerminationGraceMs)) {
-        return {owned: true, ownedPids: []};
+        return {
+            owned: true,
+            ownedPids: [],
+        };
     }
-    return {owned: false, ownedGroupIds: [pid], ownedPids: [pid]};
+    return {
+        owned: false,
+        ownedGroupIds: [pid],
+        ownedPids: [pid],
+    };
 }
 
 class ValidationInterruptedError extends Error {
@@ -2292,7 +2341,10 @@ function stageResourceWeight(stageDefinition, capacity) {
 }
 
 /** @param {IValidationStage[]} stages @param {(stage: IValidationStage, context: {signal?: AbortSignal}) => Promise<void>} runStage @param {{capacity?: number, signal?: AbortSignal}} options @returns {Promise<IValidationStagePoolResult>} */
-export async function runStagePool(stages, runStage, {capacity = getDefaultGateCapacity(), signal} = {}) {
+export async function runStagePool(stages, runStage, {
+    capacity = getDefaultGateCapacity(),
+    signal,
+} = {}) {
     const effectiveCapacity = Math.max(1, Math.floor(capacity));
     /** @type {Map<string, IValidationStage>} */
     const stageById = new Map();
