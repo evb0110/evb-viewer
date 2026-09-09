@@ -956,6 +956,194 @@ describe('handleDjvuConvertToPdf', () => {
         expect(mocks.atomicReplace).toHaveBeenCalledWith('/tmp/.staged-output.tmp', '/tmp/output.pdf');
     });
 
+    it('completes partial writes without changing the published bytes', async () => {
+        const sourceBytes = Buffer.alloc(2 * 4 * 1024 * 1024 + 123);
+        for (let index = 0; index < sourceBytes.length; index += 1) {
+            sourceBytes[index] = (index * 31 + 17) % 256;
+        }
+        let sourcePosition = 0;
+        const publishedBytes = Buffer.alloc(sourceBytes.length);
+        let writeCalls = 0;
+        mocks.open.mockImplementation(async (_path: string, flags: string) => {
+            if (flags === 'r') {
+                return {
+                    read: vi.fn(async (buffer: Buffer, offset: number, length: number) => {
+                        const bytesRead = Math.min(length, sourceBytes.length - sourcePosition);
+                        sourceBytes.copy(buffer, offset, sourcePosition, sourcePosition + bytesRead);
+                        sourcePosition += bytesRead;
+                        return {
+                            bytesRead,
+                            buffer,
+                        };
+                    }),
+                    close: mocks.fileHandleClose,
+                };
+            }
+            return {
+                write: vi.fn(async (buffer: Buffer, offset: number, length: number, position: number) => {
+                    const plannedBytes = writeCalls === 0
+                        ? 7
+                        : writeCalls === 1
+                            ? Math.floor(length / 2)
+                            : length === 123
+                                ? 1
+                                : length;
+                    writeCalls += 1;
+                    buffer.copy(publishedBytes, position, offset, offset + plannedBytes);
+                    return {bytesWritten: plannedBytes};
+                }),
+                sync: mocks.fileHandleSync.mockResolvedValue(undefined),
+                close: mocks.fileHandleClose,
+            };
+        });
+
+        const result = await handleDjvuConvertToPdf(
+            createOperationContext(7),
+            trustedDjvuPath,
+            '/tmp/output.pdf',
+            {preserveBookmarks: false},
+        );
+
+        expect(result).toMatchObject({
+            success: true,
+            pdfPath: '/tmp/output.pdf',
+        });
+        expect(publishedBytes.equals(sourceBytes)).toBe(true);
+        expect(writeCalls).toBeGreaterThan(3);
+        expect(mocks.atomicReplace).toHaveBeenCalledWith('/tmp/.staged-output.tmp', '/tmp/output.pdf');
+    });
+
+    it('preserves the destination when a staged write makes no progress', async () => {
+        const write = vi.fn().mockResolvedValue({bytesWritten: 0});
+        mocks.open.mockImplementation(async (_path: string, flags: string) => {
+            if (flags === 'r') {
+                return {
+                    read: vi.fn(async (buffer: Buffer) => {
+                        buffer[0] = 0x25;
+                        return {
+                            bytesRead: 1,
+                            buffer,
+                        };
+                    }),
+                    close: mocks.fileHandleClose,
+                };
+            }
+            return {
+                write,
+                sync: mocks.fileHandleSync,
+                close: mocks.fileHandleClose,
+            };
+        });
+
+        const result = await handleDjvuConvertToPdf(
+            createOperationContext(7),
+            trustedDjvuPath,
+            '/tmp/sentinel.pdf',
+            {preserveBookmarks: false},
+        );
+
+        expect(result).toMatchObject({
+            success: false,
+            error: 'DjVu export write made invalid progress: 0',
+        });
+        expect(write).toHaveBeenCalledTimes(1);
+        expect(mocks.atomicReplace).not.toHaveBeenCalled();
+        expect(mocks.rm).toHaveBeenCalledWith('/tmp/.staged-output.tmp', {force: true});
+        expect(mocks.fileHandleClose).toHaveBeenCalledTimes(2);
+    });
+
+    it('preserves the destination when a staged write fails after partial progress', async () => {
+        const write = vi.fn()
+            .mockResolvedValueOnce({bytesWritten: 1})
+            .mockRejectedValueOnce(new Error('short write failed'));
+        mocks.open.mockImplementation(async (_path: string, flags: string) => {
+            if (flags === 'r') {
+                return {
+                    read: vi.fn(async (buffer: Buffer) => {
+                        buffer[0] = 0x25;
+                        buffer[1] = 0x50;
+                        return {
+                            bytesRead: 2,
+                            buffer,
+                        };
+                    }),
+                    close: mocks.fileHandleClose,
+                };
+            }
+            return {
+                write,
+                sync: mocks.fileHandleSync,
+                close: mocks.fileHandleClose,
+            };
+        });
+
+        const result = await handleDjvuConvertToPdf(
+            createOperationContext(7),
+            trustedDjvuPath,
+            '/tmp/sentinel.pdf',
+            {preserveBookmarks: false},
+        );
+
+        expect(result).toMatchObject({
+            success: false,
+            error: 'short write failed',
+        });
+        expect(write).toHaveBeenCalledTimes(2);
+        expect(mocks.atomicReplace).not.toHaveBeenCalled();
+        expect(mocks.rm).toHaveBeenCalledWith('/tmp/.staged-output.tmp', {force: true});
+        expect(mocks.fileHandleClose).toHaveBeenCalledTimes(2);
+    });
+
+    it('stops between partial writes when export is canceled', async () => {
+        let cancelPromise: Promise<unknown> | undefined;
+        const write = vi.fn()
+            .mockImplementationOnce(async (_buffer: Buffer, _offset: number, _length: number) => {
+                cancelPromise = handleDjvuCancel(
+                    createOperationContext(7),
+                    asJobId('djvu-convert-convert-123'),
+                );
+                return {bytesWritten: 1};
+            })
+            .mockResolvedValue({bytesWritten: 1});
+        mocks.open.mockImplementation(async (_path: string, flags: string) => {
+            if (flags === 'r') {
+                return {
+                    read: vi.fn(async (buffer: Buffer) => {
+                        buffer[0] = 0x25;
+                        buffer[1] = 0x50;
+                        return {
+                            bytesRead: 2,
+                            buffer,
+                        };
+                    }),
+                    close: mocks.fileHandleClose,
+                };
+            }
+            return {
+                write,
+                sync: mocks.fileHandleSync,
+                close: mocks.fileHandleClose,
+            };
+        });
+
+        const conversionPromise = handleDjvuConvertToPdf(
+            createOperationContext(7),
+            trustedDjvuPath,
+            '/tmp/canceled.pdf',
+            {preserveBookmarks: false},
+        );
+        const result = await conversionPromise;
+        await cancelPromise;
+
+        expect(result).toMatchObject({
+            success: false,
+            error: 'DjVu conversion canceled',
+        });
+        expect(write).toHaveBeenCalledTimes(1);
+        expect(mocks.atomicReplace).not.toHaveBeenCalled();
+        expect(mocks.rm).toHaveBeenCalledWith('/tmp/.staged-output.tmp', {force: true});
+    });
+
     it('prints selected DjVu pages through compact temp PDF and native print handoff', async () => {
         const event = createOperationContext(12);
 

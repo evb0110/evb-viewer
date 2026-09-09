@@ -350,7 +350,22 @@ async function copyFileCancellable(sourcePath: string, targetPath: string, signa
             if (signal.aborted) throw abortErrorFromSignal(signal);
             const {bytesRead} = await source.read(buffer, 0, buffer.byteLength, position);
             if (bytesRead === 0) break;
-            await target.write(buffer, 0, bytesRead, position);
+            let bytesWritten = 0;
+            while (bytesWritten < bytesRead) {
+                if (signal.aborted) throw abortErrorFromSignal(signal);
+                const writeResult = await target.write(
+                    buffer,
+                    bytesWritten,
+                    bytesRead - bytesWritten,
+                    position + bytesWritten,
+                );
+                if (!Number.isInteger(writeResult.bytesWritten)
+                    || writeResult.bytesWritten <= 0
+                    || writeResult.bytesWritten > bytesRead - bytesWritten) {
+                    throw new Error(`DjVu export write made invalid progress: ${writeResult.bytesWritten}`);
+                }
+                bytesWritten += writeResult.bytesWritten;
+            }
             position += bytesRead;
         }
         await syncFileHandleForDurability(target);
