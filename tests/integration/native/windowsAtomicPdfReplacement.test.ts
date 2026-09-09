@@ -81,7 +81,7 @@ describe.skipIf(process.platform !== 'win32')('Windows atomic PDF replacement', 
 
         await atomicReplace(sourcePath, destinationPath);
 
-        await expect(readFile(destinationPath)).resolves.toEqual(newBytes);
+        await expect(readFile(destinationPath)).resolves.toEqual(Buffer.from(newBytes));
         await expect(readPdfText(destinationPath)).resolves.toBe(1);
     });
 
@@ -125,7 +125,7 @@ describe.skipIf(process.platform !== 'win32')('Windows atomic PDF replacement', 
         try {
             await waitForFile(readyPath);
             await expect(atomicReplace(sourcePath, destinationPath)).rejects.toBeDefined();
-            await expect(readFile(destinationPath)).resolves.toEqual(oldBytes);
+            await expect(readFile(destinationPath)).resolves.toEqual(Buffer.from(oldBytes));
         } finally {
             await writeFile(`${readyPath}.release`, 'release');
             await new Promise<void>(resolvePromise => {
