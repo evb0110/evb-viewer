@@ -1,0 +1,25 @@
+tests/unit/scripts/changedAreaClassifier.test.ts
+  s_c63d7a8363f7e9::t_e8aa535dc4a7ed 144,239
+tests/unit/scripts/releasePolicy.test.ts
+  s_c63d7a8363f7e9::t_e8aa535dc4a7ed 946
+scripts/release/policy.mjs
+  s_c63d7a8363f7e9::t_e8aa535dc4a7ed 158,280
+tests/unit/scripts/ciTopologyPolicy.test.ts
+  s_c63d7a8363f7e9::t_e8aa535dc4a7ed 447,550,564,727,1818-1819,1822,1827,1881
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "4f96dada827d3e343d253e5a65701959bad169fe",
+  "prompts": {},
+  "sessions": {
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
