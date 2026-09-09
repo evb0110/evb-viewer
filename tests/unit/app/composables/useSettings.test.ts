@@ -45,6 +45,8 @@ describe('useSettings', () => {
     beforeEach(() => {
         vi.resetModules();
         vi.clearAllMocks();
+        mockGet.mockReset();
+        mockSave.mockReset();
         vi.useRealTimers();
         cookieStore.clear();
         stateStore.clear();
@@ -55,9 +57,11 @@ describe('useSettings', () => {
         const { useSettings } = await import('@app/composables/useSettings');
         const {
             settings,
+            load,
             save,
         } = useSettings();
 
+        await load();
         settings.value.locale = 'fr';
         await expect(save()).resolves.toBe(true);
 
@@ -65,12 +69,15 @@ describe('useSettings', () => {
     });
 
     it('falls back to default locale when saving invalid locale', async () => {
+        mockGet.mockResolvedValue({locale: 'fr'} as ISettingsData);
         const { useSettings } = await import('@app/composables/useSettings');
         const {
             settings,
+            load,
             save,
         } = useSettings();
 
+        await load();
         Reflect.set(settings.value, 'locale', 'xx');
         await expect(save()).resolves.toBe(true);
 
@@ -145,6 +152,57 @@ describe('useSettings', () => {
         expect(settings.value.locale).toBe('fr');
     });
 
+    it('holds pre-hydration intent until recovery and persists only that field', async () => {
+        const authoritativeSettings: ISettingsData = {
+            version: 2,
+            performanceMode: 'high',
+            authorName: 'Stored user',
+            theme: 'dark',
+            locale: 'fr',
+            defaultZoomPreset: '150',
+            defaultViewMode: 'facing',
+            defaultContinuousScroll: false,
+            defaultAnnotationColor: '#00ff00',
+            uiScale: 'comfortable',
+            tabMemoryPolicy: 'aggressive',
+            optimizePdfOnSaveAs: true,
+            agentMcpEnabled: false,
+            assistantPanelEnabled: true,
+            clientDiagnosticsPreference: 'granted',
+            suppressUnencryptedSaveNotice: false,
+        };
+        mockGet.mockRejectedValueOnce(new Error('temporary read failure'));
+        mockSave.mockResolvedValue(undefined);
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+        const { useSettings } = await import('@app/composables/useSettings');
+        const {
+            isLoaded,
+            load,
+            settings,
+            save,
+            updateSetting,
+        } = useSettings();
+
+        await load();
+        expect(isLoaded.value).toBe(false);
+
+        updateSetting('suppressUnencryptedSaveNotice', true);
+        await expect(save()).resolves.toBe(true);
+        expect(mockSave).not.toHaveBeenCalled();
+
+        mockGet.mockResolvedValueOnce(authoritativeSettings);
+        await load();
+        expect(isLoaded.value).toBe(true);
+        expect(settings.value.suppressUnencryptedSaveNotice).toBe(true);
+        await vi.waitFor(() => expect(mockSave).toHaveBeenCalledTimes(1));
+
+        expect(mockSave).toHaveBeenCalledWith({ suppressUnencryptedSaveNotice: true });
+        expect(settings.value.locale).toBe('fr');
+        expect(settings.value.theme).toBe('dark');
+        expect(settings.value.defaultZoomPreset).toBe('150');
+    });
+
     it('retries a failed settings save with the latest dirty payload', async () => {
         vi.spyOn(console, 'error').mockImplementation(() => undefined);
         vi.useFakeTimers();
@@ -160,6 +218,7 @@ describe('useSettings', () => {
         const { useSettings } = await import('@app/composables/useSettings');
         const {
             isSettingsSavePendingRetry,
+            load,
             settings,
             save,
             settingsSaveError,
@@ -167,6 +226,7 @@ describe('useSettings', () => {
             settingsSaveStatus,
         } = useSettings();
 
+        await load();
         settings.value.locale = 'fr';
         await expect(save()).resolves.toBe(false);
         expect(mockSave).toHaveBeenCalledTimes(1);
@@ -199,7 +259,12 @@ describe('useSettings', () => {
 
         try {
             const { useSettings } = await import('@app/composables/useSettings');
-            const { updateSetting } = useSettings();
+            const {
+                load,
+                updateSetting,
+            } = useSettings();
+
+            await load();
 
             updateSetting('authorName', 'First');
             updateSetting('authorName', 'Latest');
@@ -255,6 +320,7 @@ describe('useSettings', () => {
         const firstSettings = useSettings();
         const secondSettings = useSettings();
 
+        await firstSettings.load();
         firstSettings.settings.value.locale = 'fr';
         const firstSavePromise = firstSettings.save();
         await vi.waitFor(() => expect(mockSave).toHaveBeenCalledTimes(1));
