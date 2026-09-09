@@ -1,0 +1,29 @@
+tests/integration/browser/documentLifecycleUi.test.ts
+  s_e4c38a5c21eafd::t_6ea4548b6ec858 451,455-458
+  s_4bacb797d03277::t_63c8cdffbfb385 452-454,459-460
+  s_4bacb797d03277::t_ae611698523ee5 461
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "59552cb632208ef8ed9e32b6cc6dda005d5df6e0",
+  "prompts": {},
+  "sessions": {
+    "s_4bacb797d03277": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08855-e086-7901-a652-87e939fbad02",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_e4c38a5c21eafd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5eb6c90b-53e8-4178-b868-46f9a6573dee",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
