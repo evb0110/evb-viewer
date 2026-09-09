@@ -86,6 +86,31 @@ const canceledProcessIds = new Set<string>();
 const logger = createLogger('djvu-convert');
 const DJVU_CONVERSION_CANCELED_MESSAGE = 'DjVu conversion canceled';
 
+export async function withDjvuNativeResourceLease<T>(options: {
+    jobId: string;
+    kind: 'metadata' | 'structure';
+    signal?: AbortSignal;
+    task: () => Promise<T>;
+}) {
+    const lease = await mainJobBroker.acquire({
+        ownerId: options.jobId,
+        kind: `djvu-${options.kind}`,
+        priority: 'user',
+        resources: {
+            cpuTokens: 1,
+            estimatedResidentBytes: 64 * 1024 * 1024,
+            nativeProcesses: 1,
+            ioWeight: 1,
+        },
+        ...(options.signal ? {signal: options.signal} : {}),
+    });
+    try {
+        return await options.task();
+    } finally {
+        lease.release();
+    }
+}
+
 function getDjvuQuotaFailureMessage(quotaMonitor: {failure: {message: string} | null}) {
     return quotaMonitor.failure?.message;
 }
