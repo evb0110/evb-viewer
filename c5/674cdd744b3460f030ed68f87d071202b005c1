@@ -1,0 +1,31 @@
+tests/unit/electron/workspaceCheckpointStore.test.ts
+  s_e08411be4027b3::t_7f6f93ef40359d 219-264
+  s_e08411be4027b3::t_3551e05aacd11a 44,108
+tests/unit/electron/transitionOriginalAndWorkingCopyRevision.test.ts
+  s_e08411be4027b3::t_cc1260b7cd44a6 16-20,44-75,575-599,601-606,612-620
+  s_e08411be4027b3::t_229dba3158c19f 600,607
+  s_e08411be4027b3::t_0604fbcff41076 608-611
+electron/workspaceCheckpointStore.ts
+  s_e08411be4027b3::t_d4269cc28e36ae 430-467,890,900,991-993,995-996,1005,1035-1040,1044-1065,1071
+  s_e08411be4027b3::t_be54da1de63dd5 284-285,1012
+  s_e08411be4027b3::t_27dca73ff82191 36,66,70-83,245-283,286-298,328-340,377
+  s_e08411be4027b3::t_093499f465223e 481,484,486-487,1042
+  s_e08411be4027b3::t_c8480d115012d3 482-483
+  s_e08411be4027b3::t_d1bcc1a06ae8a8 1041,1043
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c5674cdd744b3460f030ed68f87d071202b005c1",
+  "prompts": {},
+  "sessions": {
+    "s_e08411be4027b3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0875a-8cdb-78d3-a834-4a1ecf356fad",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
