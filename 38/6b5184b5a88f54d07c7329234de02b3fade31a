@@ -1,0 +1,52 @@
+tests/unit/scripts/cutRelease.test.ts
+  s_b4e710f91fc87a::t_0ecd2351ad1477 43-45,97
+tests/unit/scripts/releaseShared.test.ts
+  s_b4e710f91fc87a::t_6b87ecc4c056fe 150,159-160
+  s_b4e710f91fc87a::t_69fc5c4e20108c 15-16
+  s_b4e710f91fc87a::t_afc28cf1338ab9 14,17,41-55,57-69,71-73,98-99,101-113,115-118,120-133,135-147,151-158,166-169
+  s_b4e710f91fc87a::t_6b30265000f38e 6-12,20,29-40,56,70,100,114,119,134,148-149,161-163,165,170-172
+  s_b4e710f91fc87a::t_25c21f715f1b32 74-89,94-97,164
+  s_b4e710f91fc87a::t_9a6d7a6c4d3ae5 90-93
+package.json
+  s_b4e710f91fc87a::t_0ecd2351ad1477 4
+scripts/release/cut-release.mjs
+  s_b4e710f91fc87a::t_0ecd2351ad1477 21,66,291-293,302-305
+  s_904af1852b0705::t_2bffedca102827 306
+scripts/release/shared.mjs
+  s_b4e710f91fc87a::t_0ecd2351ad1477 9,12,331-416,437-487
+  s_b4e710f91fc87a::t_afc28cf1338ab9 417-427
+  s_b4e710f91fc87a::t_6b87ecc4c056fe 428-436
+  s_c7fc0fccf4d610::t_cb3b072e2d973c 488
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "386b5184b5a88f54d07c7329234de02b3fade31a",
+  "prompts": {},
+  "sessions": {
+    "s_904af1852b0705": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08876-3d60-72a3-b3ad-32c9784278b9",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_b4e710f91fc87a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08881-33ec-7b63-8c5e-bd4445a77497",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_c7fc0fccf4d610": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0884b-82ff-7550-ab96-00036d62a28a",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
