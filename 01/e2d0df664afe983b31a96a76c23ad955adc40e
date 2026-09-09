@@ -1,0 +1,44 @@
+electron/image/tryCreatePdfFromInputPathsNative.ts
+  s_c7fc0fccf4d610::t_965cfb62c9f565 526-533
+native/pdf-page-ops/src/catalog.rs
+  s_c7fc0fccf4d610::t_274eb1a3c214a3 463
+  s_c7fc0fccf4d610::t_965cfb62c9f565 464-480
+tests/unit/electron/nativePdfAssembler.test.ts
+  s_c7fc0fccf4d610::t_965cfb62c9f565 247-250,268-271,273-284,286-290,292-295
+  s_c7fc0fccf4d610::t_d54b437ac21404 251-252,261-262,267
+  s_c7fc0fccf4d610::t_25256db87fb0a9 253-260,263-266
+  s_c7fc0fccf4d610::t_60cb7c05cd28d6 272,285,291
+native/pdf-page-ops/src/wasm.rs
+  s_c7fc0fccf4d610::t_ea1214327da561 9-12
+  s_c7fc0fccf4d610::t_965cfb62c9f565 286-290
+  s_c7fc0fccf4d610::t_a95b399313e151 8
+native/pdf-page-ops/src/tests/catalog.rs
+  s_c7fc0fccf4d610::t_6a763ba9854fa6 122-146
+  s_ec1330319b1707::t_35c426db9c92d1 121
+tests/unit/app/platform/browserPageOpsWasm.test.ts
+  s_c7fc0fccf4d610::t_97f4e1636fbed8 615
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "01e2d0df664afe983b31a96a76c23ad955adc40e",
+  "prompts": {},
+  "sessions": {
+    "s_c7fc0fccf4d610": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0884b-82ff-7550-ab96-00036d62a28a",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_ec1330319b1707": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08838-00b8-7b12-a8dc-285de3390d29",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
