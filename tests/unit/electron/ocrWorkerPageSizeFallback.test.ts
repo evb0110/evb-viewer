@@ -12,7 +12,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import {readOcrPdfPageSizesInches} from '@electron/ocr/worker/pdfPageSizeProbe';
+import {readOcrPdfPageSizesInches} from '@electron/features/ocr/worker/pdfPageSizeProbe';
 
 let tempDir: string | null = null;
 

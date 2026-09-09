@@ -1,5 +1,5 @@
 import {join} from 'node:path';
-import type {IScanCleanupRunCommandOptions} from '@scan-cleanup-core/types';
+import type {IScanCleanupRunCommandOptions} from '@evb/scan-cleanup/core/types';
 import {runCliNativeToolCommand} from '@scripts/scanCleanupCliAdapters';
 
 async function identifyDimensions(

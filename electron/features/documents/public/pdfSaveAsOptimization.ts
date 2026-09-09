@@ -1,1 +1,5 @@
-export { optimizeGeneratedPdfForInteraction } from '@electron/features/documents/main/pdfSaveAsOptimization';
+export {
+    normalizePdfSaveAsOptions,
+    optimizeGeneratedPdfForInteraction,
+    optimizePdfForSaveAs,
+} from '@electron/features/documents/main/pdfSaveAsOptimization';

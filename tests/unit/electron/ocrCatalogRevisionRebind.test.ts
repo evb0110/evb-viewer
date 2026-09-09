@@ -16,9 +16,9 @@ import {
     it,
 } from 'vitest';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
-import {rebindDocumentTextCatalogRevision} from '@electron/ocr/documentTextCatalog';
-import {openCatalog} from '@electron/ocr/ocrCatalogV4';
-import {writeOcrIndexV4} from '@electron/ocr/worker/indexWriterV4';
+import {rebindDocumentTextCatalogRevision} from '@electron/features/ocr/main/documentTextCatalog';
+import {openCatalog} from '@electron/features/ocr/main/ocrCatalogV4';
+import {writeOcrIndexV4} from '@electron/features/ocr/worker/indexWriterV4';
 
 const OLD_TOKEN = requireDocumentRevisionToken('drt1:rebind:old');
 const NEW_TOKEN = requireDocumentRevisionToken('drt1:rebind:new');

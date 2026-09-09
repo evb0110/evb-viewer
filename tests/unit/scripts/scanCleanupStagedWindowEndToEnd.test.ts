@@ -1,9 +1,13 @@
 import {
+    copyFile,
     mkdir,
     mkdtemp,
+    open,
     readdir,
     rename,
+    readFile,
     rm,
+    stat,
     writeFile,
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -19,9 +23,10 @@ import {
 import {PDFDocument} from 'pdf-lib';
 import {
     runScanCleanupDetection,
+    type IScanCleanupDetectionDependencies,
     type IScanCleanupDetectionRetention,
-} from '@scan-cleanup-core/detection';
-import {readPdfPageSizes} from '@scan-cleanup-core/pdfPageSizes';
+} from '@evb/scan-cleanup/core/detection';
+import {readPdfPageSizes} from '@evb/scan-cleanup/core/pdfPageSizes';
 import {
     createCliRenderers,
     resolveCliNativeToolPath,
@@ -35,6 +40,21 @@ const PAGE_COUNT = 8;
 // this fixture costs about 3.1 MiB staged beside the copy its render publishes
 // from, so two pages fit and the 24.8-MiB document does not.
 const AVAILABLE_SCRATCH_BYTES = 520 * MIB;
+
+const fileSystem: NonNullable<IScanCleanupDetectionDependencies['fileSystem']> = {
+    copyFile: (source, destination) => copyFile(source, destination),
+    mkdir: async (path, options) => {
+        await mkdir(path, options);
+        return undefined;
+    },
+    mkdtemp: prefix => mkdtemp(prefix),
+    open: (path, flags) => open(path, flags),
+    readFile: async path => readFile(path, 'utf8'),
+    readdir: (path, options) => readdir(path, options),
+    rm: (path, options) => rm(path, options),
+    stat: (path) => stat(path),
+    writeFile: (path, data) => writeFile(path, data),
+};
 
 const scanCleanupBinary = resolveCliNativeToolPath(
     'evb-scan-cleanup',
@@ -187,6 +207,7 @@ describe.skipIf(
             new AbortController().signal,
             retention,
             {
+                fileSystem,
                 getTempDir: () => temporaryRoot,
                 getAvailableScratchBytes: () => Promise.resolve(AVAILABLE_SCRATCH_BYTES),
                 getPdftoppmBinary: () => pdftoppmBinary!,

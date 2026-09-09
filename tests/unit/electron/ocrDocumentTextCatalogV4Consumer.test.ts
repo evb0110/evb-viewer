@@ -76,14 +76,15 @@ const state = vi.hoisted(() => {
     };
 });
 
-vi.mock('@electron/ocr/ocrCatalogV4', async () => {
-    const actual = await vi.importActual('@electron/ocr/ocrCatalogV4') as Record<string, unknown>;
+vi.mock('@electron/features/ocr/main/ocrCatalogV4', async () => {
+    const actual = await vi.importActual('@electron/features/ocr/main/ocrCatalogV4') as Record<string, unknown>;
     return {
         ...actual,
         openCatalog: state.openCatalog,
     };
 });
-vi.mock('@electron/search/extractTextFromPdf', () => ({extractTextFromPdf: state.extractTextFromPdf}));
+vi.mock('@electron/features/search/extractTextFromPdf', () => ({extractTextFromPdf: state.extractTextFromPdf}));
+vi.mock('@electron/features/search/loadPdfjsTextExtractor', () => ({loadPdfjsTextExtractor: async () => ({extractTextWithPdfjsWordBoxes: state.extractTextWithPdfjsWordBoxes})}));
 // assembleSearchablePageText spreads per-character offset arrays and overflows
 // the stack for pages above roughly 128 KiB, so budget tests bypass it.
 vi.mock('@contracts/search', async () => {
@@ -97,7 +98,6 @@ vi.mock('@contracts/search', async () => {
         }),
     };
 });
-vi.mock('@electron/search/loadPdfjsTextExtractor', () => ({loadPdfjsTextExtractor: async () => ({extractTextWithPdfjsWordBoxes: state.extractTextWithPdfjsWordBoxes})}));
 vi.mock('@electron/file-access/documentRevisionSidecar', () => ({assertWorkingCopyRevisionSidecarCurrent: state.assertWorkingCopyRevisionSidecarCurrent}));
 
 const {
@@ -105,7 +105,7 @@ const {
     resolveDocumentOcrPage,
     resolveDocumentTextCatalogSnapshot,
     resolveDocumentTextCatalogWindow,
-} = await import('@electron/ocr/documentTextCatalog');
+} = await import('@electron/features/ocr/main/documentTextCatalog');
 
 const DOCUMENT_REVISION = requireDocumentRevisionToken('drt1:v4-consumer');
 

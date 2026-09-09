@@ -7,7 +7,7 @@ import {
     vi,
 } from 'vitest';
 import {Readable} from 'node:stream';
-import {requireDocumentRevisionToken} from '@contracts';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 
 const mocks = vi.hoisted(() => ({
     existsSync: vi.fn<(path: string) => boolean>(),
@@ -156,9 +156,9 @@ vi.mock('@electron/file-access/documentMutationGuards', () => ({
 }));
 vi.mock('@electron/file-access/originalPathSaveWitness', () => ({originalPathSaveBaseMatches: mocks.originalPathSaveBaseMatches}));
 vi.mock('@electron/features/djvu/public', () => ({isAllowedDjvuViewingPath: mocks.isAllowedDjvuViewingPath}));
-vi.mock('@electron/ocr/createPendingResultFileStore', () => ({findPendingOcrResultFileForPath: mocks.findPendingOcrResultFileForPath}));
-vi.mock('@electron/ocr/documentTextCatalog', () => ({rebindDocumentTextCatalogRevision: vi.fn()}));
-vi.mock('@electron/ocr/worker/indexWriterV4', () => ({
+vi.mock('@electron/features/ocr/public/index', () => ({
+    findPendingOcrResultFileForPath: mocks.findPendingOcrResultFileForPath,
+    rebindDocumentTextCatalogRevision: vi.fn(),
     getOcrCatalogV4PreparedDescriptorPath: (path: string) => `${path}.ocr-v4-prepared.json`,
     publishPreparedOcrCatalogV4: mocks.publishPreparedOcrCatalogV4,
     rollbackPreparedOcrCatalogV4: mocks.rollbackPreparedOcrCatalogV4,

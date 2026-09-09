@@ -11,8 +11,8 @@ import type {
     IScanCleanupOptions,
 } from '@contracts/electronApiScanCleanup';
 import { requirePageNumber } from '@contracts/pageNumbers';
-import {createFileBackedScanCleanupDetectionResultStore} from '@scan-cleanup-core/fileBackedResultStore';
-import {readDetectionResultsForPageNumbers} from '@scan-cleanup-core/runScanCleanupConversion';
+import {createFileBackedScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/fileBackedResultStore';
+import {readDetectionResultsForPageNumbers} from '@evb/scan-cleanup/core/runScanCleanupConversion';
 import {buildScanCleanupCliDetectionRequestFields} from '@scripts/scan-cleanup-convert';
 import {
     createScanCleanupDetectionCacheKey,
@@ -21,7 +21,7 @@ import {
     writeScanCleanupDetectionCacheStore,
     writeScanCleanupDetectionCache,
 } from '@scripts/scanCleanupDetectionCache';
-import type {IScanCleanupDetectionResultStore} from '@scan-cleanup-core/types';
+import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/types';
 import {
     afterEach,
     describe,

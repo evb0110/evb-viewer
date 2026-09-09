@@ -1,7 +1,12 @@
 import {
+    copyFile,
+    mkdir,
     mkdtemp,
+    open as fsOpen,
+    readFile,
     readdir,
     rm,
+    writeFile,
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -15,16 +20,20 @@ import {
 import {
     createFileBackedScanCleanupDetectionResultStore,
     createFileBackedScanCleanupResultStore,
-} from '@scan-cleanup-core/fileBackedResultStore';
-import {runLosslessScanCleanup} from '@scan-cleanup-core/runLosslessScanCleanup';
-import {resolveScanCleanupPageScopeLazy} from '@scan-cleanup-core/pageScope';
+} from '@evb/scan-cleanup/core/fileBackedResultStore';
+import {
+    preserveScanCleanupJsonEvidence,
+    type IScanCleanupEvidenceFileSystem,
+} from '@evb/scan-cleanup/core/preserveScanCleanupJsonEvidence';
+import {runLosslessScanCleanup} from '@evb/scan-cleanup/core/runLosslessScanCleanup';
+import {resolveScanCleanupPageScopeLazy} from '@evb/scan-cleanup/core/pageScope';
 import type {
     IRunScanCleanupPipelineDependencies,
     IRunScanCleanupPipelineRequest,
     IScanCleanupWorkerPaths,
     TScanCleanupLog,
-} from '@scan-cleanup-core/types';
-import type {IPdfPageSizeStore} from '@scan-cleanup-core/pdfPageSizes';
+} from '@evb/scan-cleanup/core/types';
+import type {IPdfPageSizeStore} from '@evb/scan-cleanup/core/pdfPageSizes';
 import type {IScanCleanupRuntimePolicy} from '@contracts/resourcePolicies';
 import type {IScanCleanupDetectionResult} from '@contracts/electronApiScanCleanup';
 import {requirePageNumber} from '@contracts/pageNumbers';
@@ -49,6 +58,111 @@ afterEach(async () => {
 });
 
 describe('file-backed scan-cleanup result store', () => {
+    it('uses the composed filesystem for creation and cleanup', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-result-store-test-'));
+        roots.push(root);
+        const calls = {
+            mkdtemp: 0,
+            open: 0,
+            rm: 0,
+        };
+        const fileSystem = {
+            mkdtemp: async (prefix: string) => {
+                calls.mkdtemp++;
+                return mkdtemp(prefix);
+            },
+            open: async (path: string, flags: 'r' | 'w+') => {
+                calls.open++;
+                return fsOpen(path, flags);
+            },
+            rm: async (
+                path: string,
+                options: {
+                    force: boolean;
+                    recursive: boolean;
+                },
+            ) => {
+                calls.rm++;
+                return rm(path, options);
+            },
+        };
+        const store = await createFileBackedScanCleanupResultStore<IValueRecord>({
+            fileSystem,
+            pageCount: 1,
+            pageNumberOf: record => record.pageNumber,
+            rootDir: root,
+        });
+
+        await store.close();
+
+        expect(calls).toEqual({
+            mkdtemp: 1,
+            open: 2,
+            rm: 1,
+        });
+        expect(await readdir(root)).toEqual([]);
+    });
+
+    it('uses the injected filesystem for JSON evidence preservation', async () => {
+        const scratch = await mkdtemp(join(tmpdir(), 'scan-cleanup-evidence-scratch-'));
+        const evidence = await mkdtemp(join(tmpdir(), 'scan-cleanup-evidence-output-'));
+        roots.push(scratch, evidence);
+        const report = JSON.stringify({pagesSidecarPath: join(scratch, 'pages.json')});
+        await writeFile(join(scratch, 'pages.json'), '{}\n');
+        await writeFile(join(scratch, 'scan-cleanup-representation-report.json'), report);
+        const calls = {
+            copyFile: 0,
+            mkdir: 0,
+            readdir: 0,
+            readFile: 0,
+            writeFile: 0,
+        };
+        const fileSystem: IScanCleanupEvidenceFileSystem = {
+            copyFile: async (source, destination) => {
+                calls.copyFile++;
+                await copyFile(source, destination);
+            },
+            mkdir: async (path, options) => {
+                calls.mkdir++;
+                await mkdir(path, options);
+                return undefined;
+            },
+            readdir: async (path, options) => {
+                calls.readdir++;
+                return readdir(path, options);
+            },
+            readFile: async (path, encoding) => {
+                calls.readFile++;
+                return readFile(path, encoding);
+            },
+            writeFile: async (path, data) => {
+                calls.writeFile++;
+                await writeFile(path, data);
+            },
+        };
+        const previousEvidenceDir = process.env.EVB_SCAN_CLEANUP_EVIDENCE_DIR;
+        process.env.EVB_SCAN_CLEANUP_EVIDENCE_DIR = evidence;
+        try {
+            await preserveScanCleanupJsonEvidence(scratch, vi.fn(), fileSystem);
+        } finally {
+            if (previousEvidenceDir === undefined) {
+                delete process.env.EVB_SCAN_CLEANUP_EVIDENCE_DIR;
+            } else {
+                process.env.EVB_SCAN_CLEANUP_EVIDENCE_DIR = previousEvidenceDir;
+            }
+        }
+
+        expect(calls).toEqual({
+            copyFile: 2,
+            mkdir: 1,
+            readdir: 1,
+            readFile: 1,
+            writeFile: 2,
+        });
+        expect(JSON.parse(await readFile(join(evidence, 'scan-cleanup-representation-report.json'), 'utf8')))
+            .toMatchObject({pagesSidecarPath: join(evidence, 'pages.json')});
+    });
+
     it('omits analysis-only diagnostics from persisted detection records', async () => {
         const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-result-store-test-'));
         roots.push(root);

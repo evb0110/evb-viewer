@@ -1,9 +1,0 @@
-{
-    "name": "@evb/scan-cleanup-core",
-    "private": true,
-    "type": "module",
-    "exports": {
-        ".": "./index.ts",
-        "./*": "./*.ts"
-    }
-}

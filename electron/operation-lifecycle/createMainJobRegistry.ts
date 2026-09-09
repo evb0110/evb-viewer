@@ -140,6 +140,8 @@ export interface IMainJobRegistryOptions<
         canceled(latest: TProgress, error: TError): TProgress;
         failed(latest: TProgress, error: TError): TProgress
     };
+    scratch?: IMainJobScratch;
+    unbindOnSettlement?: boolean;
     now?: () => number;
 }
 export interface IMainJobRegistry<
@@ -402,7 +404,7 @@ export function createMainJobRegistry<
         const context: IMainJobRunContext<TProgress, TResult, TError> = {
             jobId,
             signal: controller.signal,
-            scratch: {using: usingManagedScratchScope},
+            scratch: options.scratch ?? {using: usingManagedScratchScope},
             publish: progress => { if (record.terminalAtMs === null) {
                 const previousKey = options.progress?.getEventKey(record.snapshot.progress);
                 const nextKey = options.progress?.getEventKey(progress);
@@ -439,6 +441,11 @@ export function createMainJobRegistry<
             .finally(async () => {
                 await record.cancelPromise; for (const cleanup of record.cleanupSignals.splice(0)) cleanup();
                 operation.complete(); record.settled = true; resolveSettled();
+                if (options.unbindOnSettlement === true) {
+                    // Terminal records remain queryable for replay. This
+                    // instance no longer needs renderer listeners at settle.
+                    unbind(record);
+                }
                 if (record.terminalAtMs !== null && now() - record.terminalAtMs >= options.retention.terminalRecordTtlMs) remove(record);
                 prune();
             });

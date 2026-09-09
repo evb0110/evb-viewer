@@ -30,6 +30,7 @@ import {
     CORE_IPC_SEND_CHANNELS,
     decodeDiagnosticsCanaryAction,
 } from '@electron/platform-ipc/coreContract';
+import type {IRawIpcRegistrationAudit} from '@electron/platform-ipc/rawIpcRegistration';
 import {
     acknowledgeWorkspaceCheckpoint,
     claimWorkspaceCheckpoint,
@@ -43,6 +44,7 @@ export interface ICoreIpcHandlerOptions {
     onRendererReady?: (event: Electron.IpcMainEvent) => void;
     claimPendingExternalOpenPaths?: (sender: Electron.WebContents) => Promise<TDocumentRef[]>;
     acknowledgePendingExternalOpenPaths?: (sender: Electron.WebContents, failedPaths: TDocumentRef[]) => void;
+    rawIpcRegistrationAudit?: IRawIpcRegistrationAudit;
 }
 
 const CORE_RAW_EVENT_CHANNEL_SET = new Set<string>([
@@ -88,7 +90,7 @@ export function registerCoreIpcHandlers(
     options: ICoreIpcHandlerOptions,
 ) {
     if (isDiagnosticsCanaryEnabled()) {
-        ipcMain.handle(CORE_IPC_CHANNELS.diagnosticsCanary, (event, value: unknown) => {
+        const register = () => ipcMain.handle(CORE_IPC_CHANNELS.diagnosticsCanary, (event, value: unknown) => {
             if (!isTrustedWebContentsSender(
                 event.sender,
                 event.senderFrame,
@@ -124,6 +126,11 @@ export function registerCoreIpcHandlers(
             }
             return null;
         });
+        if (options.rawIpcRegistrationAudit) {
+            options.rawIpcRegistrationAudit.register('diagnostics-canary', register);
+        } else {
+            register();
+        }
     }
     const windowTabsRegistrar = createValidatedIpcMainRegistrar<IWindowTabsInvokeMap>(ipcMain, {
         allowedChannels: WINDOW_TABS_PLATFORM_FEATURE.invokeChannelSet,
@@ -133,9 +140,14 @@ export function registerCoreIpcHandlers(
     registerRendererLogBridge({
         isTrustedSender: isTrustedWebContentsSender,
         registerListener: (channel, handler) => {
-            eventRegistrar.on(channel, (event, payload) => {
+            const register = () => eventRegistrar.on(channel, (event, payload) => {
                 handler(event, payload as Parameters<typeof handler>[1]);
             });
+            if (options.rawIpcRegistrationAudit) {
+                options.rawIpcRegistrationAudit.register('renderer-log', register);
+            } else {
+                register();
+            }
         },
     });
     registerRendererDiagnosticBridge({
@@ -149,9 +161,14 @@ export function registerCoreIpcHandlers(
         },
         isTrustedSender: isTrustedWebContentsSender,
         registerListener: (channel, handler) => {
-            ipcMain.on(channel, (event, payload, suppressedCount) => {
+            const register = () => ipcMain.on(channel, (event, payload, suppressedCount) => {
                 handler(event, payload, suppressedCount);
             });
+            if (options.rawIpcRegistrationAudit) {
+                options.rawIpcRegistrationAudit.register('renderer-diagnostic', register);
+            } else {
+                register();
+            }
         },
     });
     eventRegistrar.on(CORE_IPC_CHANNELS.rendererReady, (event) => {

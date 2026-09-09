@@ -105,7 +105,7 @@ describe('Sentry SDK and CLI architecture policy', () => {
     it('rejects DSN, capture, and event construction outside runtime adapters', () => {
         const fixtures = [
             [
-                'packages/contracts/index.ts',
+                'packages/contracts/electronApi.ts',
                 'const dsn = process.env.SENTRY_DSN;\n',
                 'sentry-dsn-boundary',
             ],

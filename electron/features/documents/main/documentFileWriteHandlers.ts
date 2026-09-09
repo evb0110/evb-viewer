@@ -55,18 +55,18 @@ import {
     refreshWorkingCopyOriginalFileExpectation,
 } from '@electron/file-access/workingCopyStore';
 import { originalPathSaveBaseMatches } from '@electron/file-access/originalPathSaveWitness';
-import { findPendingOcrResultFileForPath } from '@electron/ocr/createPendingResultFileStore';
-import { rebindDocumentTextCatalogRevision } from '@electron/ocr/documentTextCatalog';
+import {
+    findPendingOcrResultFileForPath,
+    rebindDocumentTextCatalogRevision,
+    getOcrCatalogV4PreparedDescriptorPath,
+    publishPreparedOcrCatalogV4,
+    rollbackPreparedOcrCatalogV4,
+} from '@electron/features/ocr/public/index';
 import {parseOcrCatalogV4PreparedDescriptor} from '@contracts/ocrIndex';
 import {
     MAX_LEGACY_OCR_CATALOG_BACKUP_BYTES,
     MAX_LEGACY_OCR_CATALOG_FILES,
 } from '@electron/file-access/workingCopyContentTransitionJournal';
-import {
-    getOcrCatalogV4PreparedDescriptorPath,
-    publishPreparedOcrCatalogV4,
-    rollbackPreparedOcrCatalogV4,
-} from '@electron/ocr/worker/indexWriterV4';
 import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsService';
 
 interface IPreparedOcrCatalogDescriptor {

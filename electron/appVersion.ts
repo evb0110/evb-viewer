@@ -25,7 +25,7 @@ export const canonicalBundledApplicationVersion = bundledApplicationVersion;
 
 function normalizeGitSha(value: string | undefined) {
     const sha = value?.trim().toLowerCase() ?? '';
-    // Keep in sync with SCAN_CLEANUP_GIT_SHA_HEX_PATTERN in scan-cleanup-core/provenanceStamp.ts.
+    // Keep in sync with SCAN_CLEANUP_GIT_SHA_HEX_PATTERN in packages/scan-cleanup/core/provenanceStamp.ts.
     return /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(sha) ? sha : null;
 }
 

@@ -27,7 +27,8 @@ import {
 } from '@electron/features/scan-cleanup/native/protocolCodec';
 import {verifyNativeToolProtocol} from '@electron/native-tools/runNativeToolCommand';
 import {acquireNativeCommandAdmission} from '@electron/native-tools/runNativeCommand';
-import {createScanCleanupSidecarProtocolHandler} from '@scan-cleanup-core/createScanCleanupSidecarProtocolHandler';
+import {createScanCleanupSidecarProtocolHandler} from '@evb/scan-cleanup/core/createScanCleanupSidecarProtocolHandler';
+import type {IScanCleanupSidecarProtocolCapabilities} from '@evb/scan-cleanup/core/types';
 
 export class NativeScanCleanupError extends Error {
     constructor(readonly code: TNativeErrorCode, message: string) {
@@ -103,10 +104,11 @@ export async function runScanCleanupSidecar(
     options: IRunScanCleanupSidecarOptions = {},
 ) {
     if (signal.aborted) throw abortErrorFromSignal(signal);
-    await verifyNativeToolProtocol(binaryPath, {
+    const handshake = await verifyNativeToolProtocol(binaryPath, {
         signal,
         log,
     });
+    const capabilities: IScanCleanupSidecarProtocolCapabilities = {structuredWarningEventsSupported: handshake?.capabilities?.includes('structured-warning-events') ?? false};
     // The sidecar fans out over Rayon, so it is admitted through the same gate
     // as pdftoppm and qpdf instead of spawning beside them unaccounted.
     const releaseAdmission = await acquireNativeCommandAdmission(signal);
@@ -119,6 +121,7 @@ export async function runScanCleanupSidecar(
             onProgress,
             options,
         );
+        return capabilities;
     } finally {
         releaseAdmission();
     }

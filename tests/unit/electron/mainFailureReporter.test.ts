@@ -39,7 +39,7 @@ function createIdFactory() {
 
 describe('Electron main failure reporter', () => {
     it('initializes after the user-data path and before normal bootstrap', () => {
-        const source = readFileSync(resolve(process.cwd(), 'electron/main.ts'), 'utf8');
+        const source = readFileSync(resolve(process.cwd(), 'electron/bootstrap/mainProcess.ts'), 'utf8');
         const indexOfMarker = (marker: string) => {
             const index = source.indexOf(marker);
             expect(index, marker).toBeGreaterThanOrEqual(0);

@@ -17,7 +17,7 @@ import {
 import type * as TimeoutConstants from '@app/constants/timeouts';
 import { SEARCH_DEBOUNCE_MS } from '@app/constants/timeouts';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
-import {requireDocumentRevisionToken} from '@contracts';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import type { usePdfSearch as TUsePdfSearch } from '@app/modules/pdf-viewer/runtime/composables/usePdfSearch';
 
 interface IPdfSearchTestExcerpt {

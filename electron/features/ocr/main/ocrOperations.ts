@@ -10,7 +10,7 @@ import {
     requireJobId,
 } from '@contracts/shared';
 import type { IPlatformMainSenderContext } from '@contracts/platformFeature';
-import {AVAILABLE_OCR_LANGUAGES} from '@electron/ocr/availableLanguages';
+import {AVAILABLE_OCR_LANGUAGES} from '@electron/features/ocr/availableLanguages';
 import {
     buildOcrErrorEnvelope,
     mapStartFailureCode,
@@ -18,20 +18,20 @@ import {
     toOcrErrorEnvelope,
     validateCancelRequestId,
     validateCreateSearchablePdfPayload,
-} from '@electron/ocr/contracts';
+} from '@electron/features/ocr/contracts';
 import {
     handleOcrAcknowledgeResultFile,
     handleOcrCancel,
     handleOcrCreateSearchablePdfAsync,
-} from '@electron/ocr/jobManager';
+} from '@electron/features/ocr/main/jobManager';
 import { createLogger } from '@electron/utils/createLogger';
 import {
     resolveDocumentOcrAvailability,
     resolveDocumentOcrPage,
     resolveDocumentTextCatalogWindow,
     resolveDocumentTextCatalogSnapshot,
-} from '@electron/ocr/documentTextCatalog';
-import { getOcrLanguageModelStates } from '@electron/ocr/languageModels';
+} from '@electron/features/ocr/main/documentTextCatalog';
+import { getOcrLanguageModelStates } from '@electron/features/ocr/languageModels';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import {
     resolveAllowedReadPath,

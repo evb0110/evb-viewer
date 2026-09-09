@@ -5,7 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import {requireDocumentRevisionToken} from '@contracts';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 
 const mocks = vi.hoisted(() => ({
     rm: vi.fn(),
@@ -19,7 +19,7 @@ vi.mock('fs/promises', () => ({
     stat: mocks.stat,
 }));
 
-vi.mock('@electron/search/indexBuilder', () => ({
+vi.mock('@electron/features/search/indexBuilder', () => ({
     SEARCH_INDEX_SCHEMA_VERSION: 7,
     buildSearchIndex: mocks.buildSearchIndex,
     loadSearchIndex: mocks.loadSearchIndex,
@@ -89,7 +89,7 @@ describe('ensureSearchIndex', () => {
     });
 
     it('deletes an over-budget cached JSON index and rebuilds it once', async () => {
-        const { ensureSearchIndex } = await import('@electron/search/worker/ensureSearchIndex');
+        const { ensureSearchIndex } = await import('@electron/features/search/worker/ensureSearchIndex');
 
         const entry = await ensureSearchIndex(new Map(), PDF_PATH, {
             maxEntries: 4,
@@ -112,7 +112,7 @@ describe('ensureSearchIndex', () => {
     });
 
     it('accepts a complete index that holds no extractable text without rebuilding it', async () => {
-        const { ensureSearchIndex } = await import('@electron/search/worker/ensureSearchIndex');
+        const { ensureSearchIndex } = await import('@electron/features/search/worker/ensureSearchIndex');
         mocks.loadSearchIndex.mockResolvedValue({
             schemaVersion: 7,
             documentRevision: {token: DOCUMENT_REVISION},
@@ -147,7 +147,7 @@ describe('ensureSearchIndex', () => {
     });
 
     it('stops rebuilding when a build cannot satisfy the expected page count', async () => {
-        const { ensureSearchIndex } = await import('@electron/search/worker/ensureSearchIndex');
+        const { ensureSearchIndex } = await import('@electron/features/search/worker/ensureSearchIndex');
         const shortIndex = {
             schemaVersion: 7,
             documentRevision: {token: DOCUMENT_REVISION},
@@ -178,7 +178,7 @@ describe('ensureSearchIndex', () => {
     });
 
     it('passes the text budget validator into index builds before persistence', async () => {
-        const { ensureSearchIndex } = await import('@electron/search/worker/ensureSearchIndex');
+        const { ensureSearchIndex } = await import('@electron/features/search/worker/ensureSearchIndex');
         mocks.stat.mockImplementation(async (path: string) => {
             if (path === PDF_PATH) {
                 return { mtimeMs: 1 };
@@ -213,7 +213,7 @@ describe('ensureSearchIndex', () => {
     });
 
     it('keeps a shared index build alive when one waiter stream callback aborts', async () => {
-        const { ensureSearchIndex } = await import('@electron/search/worker/ensureSearchIndex');
+        const { ensureSearchIndex } = await import('@electron/features/search/worker/ensureSearchIndex');
         mocks.stat.mockImplementation(async (path: string) => {
             if (path === PDF_PATH) {
                 return { mtimeMs: 1 };
@@ -310,7 +310,7 @@ describe('ensureSearchIndex', () => {
     });
 
     it('replaces an unknown-count in-flight build with a counted build', async () => {
-        const { ensureSearchIndex } = await import('@electron/search/worker/ensureSearchIndex');
+        const { ensureSearchIndex } = await import('@electron/features/search/worker/ensureSearchIndex');
         mocks.stat.mockImplementation(async (path: string) => {
             if (path === PDF_PATH) {
                 return { mtimeMs: 1 };

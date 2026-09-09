@@ -32,7 +32,7 @@ import {
     materializeScanCleanupStampOptions,
     resolveEffectiveScanCleanupOptions,
     sha256ScanCleanupFile,
-} from '@scan-cleanup-core/index';
+} from '@evb/scan-cleanup/core/index';
 
 const execFileAsync = promisify(execFile);
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');

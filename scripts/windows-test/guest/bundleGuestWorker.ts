@@ -32,9 +32,6 @@ const CANDIDATE_SUFFIXES = [
 ];
 
 export function resolveGuestWorkerAlias(repoRoot: string, specifier: string) {
-    if (specifier === '@contracts') {
-        return path.join(repoRoot, 'packages', 'contracts', 'index.ts');
-    }
     for (const [
         prefix,
         directory,

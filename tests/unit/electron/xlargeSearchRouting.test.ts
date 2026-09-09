@@ -11,12 +11,12 @@ import {
     classifyXlargeSearchPath,
     ensureXlargeSearchIndex,
     resetXlargeSearchIndexBuilds,
-} from '@electron/search/xlargeSearchRouting';
-import {requireDocumentRevisionToken} from '@contracts';
+} from '@electron/features/search/public';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 
 const mocks = vi.hoisted(() => ({buildXlargeSearchIndex: vi.fn()}));
 
-vi.mock('@electron/search/xlargeIndexBuilder', () => ({buildXlargeSearchIndex: mocks.buildXlargeSearchIndex}));
+vi.mock('@electron/features/search/xlargeIndexBuilder', () => ({buildXlargeSearchIndex: mocks.buildXlargeSearchIndex}));
 
 const BUILD_RESULT = {
     indexPath: '/tmp/document.pdf.index.evb-search-v2.bin',
@@ -84,5 +84,112 @@ describe('xlarge search routing', () => {
         resolveBuild(BUILD_RESULT);
         await expect(second).resolves.toEqual(BUILD_RESULT);
         expect(mocks.buildXlargeSearchIndex).toHaveBeenCalledOnce();
+    });
+
+    it('removes an orphaned flight before aborting when all waiters cancel', async () => {
+        const builds: Array<{
+            resolve: (result: typeof BUILD_RESULT) => void;
+            signal: AbortSignal;
+        }> = [];
+        mocks.buildXlargeSearchIndex.mockImplementation((options: {signal: AbortSignal}) => (
+            new Promise(resolve => {
+                builds.push({
+                    resolve,
+                    signal: options.signal,
+                });
+            })
+        ));
+        const firstController = new AbortController();
+        const secondController = new AbortController();
+        const request = {
+            pdfPath: '/tmp/document.pdf',
+            documentRevision: requireDocumentRevisionToken('revision-token'),
+            pageCount: 3,
+        };
+        const first = ensureXlargeSearchIndex({
+            ...request,
+            signal: firstController.signal,
+        });
+        const second = ensureXlargeSearchIndex({
+            ...request,
+            signal: secondController.signal,
+        });
+        await vi.waitFor(() => expect(builds).toHaveLength(1));
+
+        firstController.abort(new Error('first caller cancelled'));
+        secondController.abort(new Error('second caller cancelled'));
+        await expect(first).rejects.toThrow('first caller cancelled');
+        await expect(second).rejects.toThrow('second caller cancelled');
+
+        const retry = ensureXlargeSearchIndex(request);
+        await vi.waitFor(() => expect(builds).toHaveLength(2));
+        builds[1]?.resolve(BUILD_RESULT);
+        await expect(retry).resolves.toEqual(BUILD_RESULT);
+        expect(builds[0]?.signal.aborted).toBe(true);
+    });
+
+    it('invalidates flights before aborting so reset retries do not join them', async () => {
+        const builds: Array<{
+            reject: (error: Error) => void;
+            resolve: (result: typeof BUILD_RESULT) => void;
+            signal: AbortSignal;
+        }> = [];
+        mocks.buildXlargeSearchIndex.mockImplementation((options: {signal: AbortSignal}) => (
+            new Promise((resolve, reject) => {
+                builds.push({
+                    resolve,
+                    reject,
+                    signal: options.signal,
+                });
+                options.signal.addEventListener('abort', () => reject(options.signal.reason), {once: true});
+            })
+        ));
+        const request = {
+            pdfPath: '/tmp/document.pdf',
+            documentRevision: requireDocumentRevisionToken('revision-token'),
+            pageCount: 3,
+        };
+        const first = ensureXlargeSearchIndex(request);
+        void first.catch(() => undefined);
+        await vi.waitFor(() => expect(builds).toHaveLength(1));
+
+        resetXlargeSearchIndexBuilds('reset for retry');
+        const retry = ensureXlargeSearchIndex(request);
+        await vi.waitFor(() => expect(builds).toHaveLength(2));
+        await expect(first).rejects.toThrow('reset for retry');
+        builds[1]?.resolve(BUILD_RESULT);
+        await expect(retry).resolves.toEqual(BUILD_RESULT);
+        expect(builds[0]?.signal.aborted).toBe(true);
+    });
+
+    it('allows a fresh request after the aborted flight settles', async () => {
+        const builds: Array<{
+            reject: (error: Error) => void;
+            resolve: (result: typeof BUILD_RESULT) => void;
+        }> = [];
+        mocks.buildXlargeSearchIndex.mockImplementation(() => (
+            new Promise((resolve, reject) => builds.push({
+                resolve,
+                reject,
+            }))
+        ));
+        const request = {
+            pdfPath: '/tmp/document.pdf',
+            documentRevision: requireDocumentRevisionToken('revision-token'),
+            pageCount: 3,
+        };
+        const controller = new AbortController();
+        const first = ensureXlargeSearchIndex({
+            ...request,
+            signal: controller.signal,
+        });
+        await vi.waitFor(() => expect(builds).toHaveLength(1));
+        controller.abort(new Error('cancelled build'));
+        await expect(first).rejects.toThrow('cancelled build');
+
+        const retry = ensureXlargeSearchIndex(request);
+        await vi.waitFor(() => expect(builds).toHaveLength(2));
+        builds[1]?.resolve(BUILD_RESULT);
+        await expect(retry).resolves.toEqual(BUILD_RESULT);
     });
 });

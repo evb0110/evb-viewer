@@ -125,6 +125,7 @@ function createOptions(
         originalPath: ref(requireDocumentRef('/tmp/original.pdf')),
         workingCopyPath: ref(requireDocumentRef('/tmp/working.pdf')),
         hasPendingTabChanges: ref(false),
+        requiresSaveAsOnFirstSave: ref(false),
         pdfViewerRef: ref(null),
         documentViewerRef: ref(null),
         pdfData: ref<Uint8Array | null>(null),
@@ -206,6 +207,151 @@ describe('useWorkspaceSplitPayload', () => {
         expect(mocks.legacyCreateWorkingCopyFromData).not.toHaveBeenCalled();
     });
 
+    it('follows the resolved PDF driver when stale DjVu state accompanies a PDF source', async () => {
+        const { captureSplitPayload } = useWorkspaceSplitPayload(createOptions({
+            isDjvuMode: ref(true),
+            djvuSourcePath: ref(requireDocumentRef('/tmp/stale.djvu')),
+        }));
+
+        const payload = await captureSplitPayload();
+
+        expect(payload).toMatchObject({
+            kind: 'pdfSnapshot',
+            snapshotPath: '/tmp/split-path.pdf',
+        });
+    });
+
+    it('restores a DjVu split through the registered DjVu adapter path', async () => {
+        const options = createOptions({openFileWithViewerLifecycle: vi.fn(async (): Promise<TDocumentOpenOutcome> => ({
+            status: 'opened',
+            result: {
+                kind: 'djvu',
+                workingPath: '',
+                originalPath: requireDocumentRef('/tmp/scan.djvu'),
+            },
+        }))});
+        const { restoreSplitPayload } = useWorkspaceSplitPayload(options);
+
+        await restoreSplitPayload({
+            kind: 'djvu',
+            sourcePath: requireDocumentRef('/tmp/scan.djvu'),
+            currentPage: 4,
+            totalPages: 8,
+        });
+
+        expect(options.openFileWithViewerLifecycle).toHaveBeenCalledWith({
+            kind: 'djvu',
+            workingPath: '',
+            originalPath: '/tmp/scan.djvu',
+        });
+        expect(options.loadPdfFromPath).not.toHaveBeenCalled();
+    });
+
+    it('restores a dirty PDF split through the registered PDF adapter path', async () => {
+        const options = createOptions({openFileWithViewerLifecycle: vi.fn(async (): Promise<TDocumentOpenOutcome> => ({
+            status: 'opened',
+            result: {
+                kind: 'pdf',
+                workingPath: requireDocumentRef('/tmp/split.pdf'),
+                originalPath: requireDocumentRef('/tmp/original.pdf'),
+            },
+        }))});
+        const { restoreSplitPayload } = useWorkspaceSplitPayload(options);
+
+        await restoreSplitPayload({
+            kind: 'pdfSnapshot',
+            fileName: 'draft.pdf',
+            originalPath: requireDocumentRef('/tmp/original.pdf'),
+            snapshotPath: requireDocumentRef('/tmp/split.pdf'),
+            isDirty: true,
+            currentPage: 3,
+            totalPages: 6,
+        });
+
+        expect(options.openFileWithViewerLifecycle).toHaveBeenCalledWith({
+            kind: 'pdf',
+            workingPath: '/tmp/split.pdf',
+            originalPath: '/tmp/original.pdf',
+        });
+        expect(options.loadPdfFromPath).not.toHaveBeenCalled();
+        expect(options.originalPath.value).toBe('/tmp/original.pdf');
+    });
+
+    it('keeps Save As semantics for a genuinely generated dirty PDF split', async () => {
+        const options = createOptions({openFileWithViewerLifecycle: vi.fn(async (): Promise<TDocumentOpenOutcome> => ({
+            status: 'opened',
+            result: {
+                kind: 'pdf',
+                workingPath: requireDocumentRef('/tmp/generated-split.pdf'),
+                originalPath: requireDocumentRef('/tmp/generated-split.pdf'),
+                isGenerated: true,
+            },
+        }))});
+        const { restoreSplitPayload } = useWorkspaceSplitPayload(options);
+
+        await restoreSplitPayload({
+            kind: 'pdfSnapshot',
+            fileName: 'generated.pdf',
+            originalPath: null,
+            snapshotPath: requireDocumentRef('/tmp/generated-split.pdf'),
+            isDirty: true,
+            isGenerated: true,
+        });
+
+        expect(options.openFileWithViewerLifecycle).toHaveBeenCalledWith({
+            kind: 'pdf',
+            workingPath: '/tmp/generated-split.pdf',
+            originalPath: '/tmp/generated-split.pdf',
+            isGenerated: true,
+        });
+    });
+
+    it.each([
+        {
+            originalPath: '/tmp/native-combine-source.pdf',
+            snapshotPath: '/tmp/native-combine-working.pdf',
+            backend: 'electron' as const,
+        },
+        {
+            originalPath: 'browser://documents/browser-combine-source.pdf',
+            snapshotPath: 'browser://documents/browser-combine-working.pdf',
+            backend: 'browser' as const,
+        },
+    ])('preserves generated Save As semantics with distinct source and working paths ($backend)', async ({
+        originalPath,
+        snapshotPath,
+        backend,
+    }) => {
+        const options = createOptions({openFileWithViewerLifecycle: vi.fn(async (): Promise<TDocumentOpenOutcome> => ({
+            status: 'opened',
+            result: {
+                kind: 'pdf',
+                workingPath: requireDocumentRef(snapshotPath),
+                originalPath: requireDocumentRef(originalPath),
+                isGenerated: true,
+            },
+        }))});
+        const {restoreSplitPayload} = useWorkspaceSplitPayload(options);
+
+        await restoreSplitPayload({
+            kind: 'pdfSnapshot',
+            fileName: 'combined.pdf',
+            originalPath: requireDocumentRef(originalPath),
+            originalBackend: backend,
+            snapshotPath: requireDocumentRef(snapshotPath),
+            snapshotBackend: backend,
+            isDirty: true,
+            isGenerated: true,
+        });
+
+        expect(options.openFileWithViewerLifecycle).toHaveBeenCalledWith({
+            kind: 'pdf',
+            workingPath: snapshotPath,
+            originalPath,
+            isGenerated: true,
+        });
+    });
+
     it('uses the split working copy capability when staging dirty snapshot data', async () => {
         const pdfBytes = new Uint8Array([
             1,
@@ -214,6 +360,7 @@ describe('useWorkspaceSplitPayload', () => {
         ]);
         const { captureSplitPayload } = useWorkspaceSplitPayload(createOptions({
             hasPendingTabChanges: ref(true),
+            requiresSaveAsOnFirstSave: ref(true),
             pdfData: ref(pdfBytes),
             pdfSrc: ref(new Blob([pdfBytes])),
         }));
@@ -228,6 +375,7 @@ describe('useWorkspaceSplitPayload', () => {
             snapshotPath: '/tmp/split-data.pdf',
             snapshotBackend: 'electron',
             isDirty: true,
+            isGenerated: true,
             currentPage: 2,
             totalPages: 5,
         });
@@ -348,6 +496,7 @@ describe('useWorkspaceSplitPayload', () => {
         });
         const {captureSplitPayload} = useWorkspaceSplitPayload(createOptions({
             hasPendingTabChanges: ref(true),
+            requiresSaveAsOnFirstSave: ref(true),
             pdfData: ref(null),
             documentRevisionToken: ref(revision),
             pdfViewerRef: ref({runSaveTransaction}),
@@ -378,6 +527,7 @@ describe('useWorkspaceSplitPayload', () => {
             kind: 'pdfSnapshot',
             snapshotPath: '/tmp/native-split.pdf',
             isDirty: true,
+            isGenerated: true,
         });
         expect(mocks.createManagedTempFileHandle).not.toHaveBeenCalled();
         expect(mocks.applyPdfNativeMutationsToWorkingCopy).toHaveBeenCalledWith(

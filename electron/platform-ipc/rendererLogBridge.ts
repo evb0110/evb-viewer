@@ -1,5 +1,4 @@
 import { getErrorMessage } from '@electron/utils/error';
-import { ipcMain } from 'electron';
 import { clamp } from 'es-toolkit/math';
 import type {
     IRendererLogEntry,
@@ -428,7 +427,7 @@ export interface IRendererLogBridgeOptions {
         senderFrame: Electron.WebFrameMain | null | undefined,
         channel: string,
     ) => boolean;
-    registerListener?: (
+    registerListener: (
         channel: string,
         handler: (event: Electron.IpcMainEvent, payload: IRendererLogEntry) => void,
     ) => void;
@@ -437,9 +436,7 @@ export interface IRendererLogBridgeOptions {
 export function registerRendererLogBridge(options: IRendererLogBridgeOptions) {
     const {
         isTrustedSender,
-        registerListener = (channel, handler) => {
-            ipcMain.on(channel, handler);
-        },
+        registerListener,
     } = options;
 
     function handleRendererLog(event: Electron.IpcMainEvent, payload: IRendererLogEntry) {

@@ -4,15 +4,15 @@ export {
     LOCALE_CODES,
     resolveLocale,
     type TLocale,
-} from '@evb/i18n-core/localeCodes';
+} from '@i18n-core/localeCodes';
 
-export { LOCALE_DEFINITIONS } from '@evb/i18n-core/localeDefinitions';
+export { LOCALE_DEFINITIONS } from '@i18n-core/localeDefinitions';
 
 export {
     PRIVACY_MESSAGES,
     type IPrivacyMessages,
     type IPrivacySectionMessages,
-} from '@evb/i18n-core/privacyMessages';
+} from '@i18n-core/privacyMessages';
 
 export {
     formatTranslationLeaf,
@@ -28,7 +28,7 @@ export {
     type TPluralCategory,
     type IPluralForms,
     type TTranslationLeaf,
-} from '@evb/i18n-core/messageFormat';
+} from '@i18n-core/messageFormat';
 
 export type {
     TLocaleMessagesShapeFrom,
@@ -37,11 +37,11 @@ export type {
     TTranslationKeyFromNode,
     TTranslationMessageFromSchema,
     TTranslationParamsFromSchema,
-} from '@evb/i18n-core/schemaTypes';
+} from '@i18n-core/schemaTypes';
 
 export type {
     ILocaleComposerMethods,
     TTypedI18nComposer,
-} from '@evb/i18n-core/createTypedI18nComposer';
+} from '@i18n-core/createTypedI18nComposer';
 
-export { createTypedI18nComposer } from '@evb/i18n-core/createTypedI18nComposer';
+export { createTypedI18nComposer } from '@i18n-core/createTypedI18nComposer';

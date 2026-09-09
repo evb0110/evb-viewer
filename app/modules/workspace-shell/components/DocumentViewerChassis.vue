@@ -131,9 +131,11 @@ import { shouldRestoreDocumentViewerHandoffSnapshot } from '@app/modules/workspa
 
 defineOptions({ inheritAttrs: false });
 
+type TDocumentViewerRendererKind = 'pdfjs' | 'native-pdf' | 'page-source';
+
 const props = defineProps<{
     sourceKind: TDocumentPageSourceKind;
-    rendererKind?: 'pdfjs' | 'native-pdf' | 'page-source';
+    rendererKind?: TDocumentViewerRendererKind;
     currentPage?: number;
     mountPresentation?: boolean;
     isResizing?: boolean;
@@ -159,15 +161,19 @@ const NativePdfFeaturePack = defineAsyncComponent(
     () => workspaceViewerFeatureChunkLoaders['native-pdf']()
         .then(componentModule => componentModule.NativePdfViewer),
 ) as Component;
+const featurePacks: Record<TDocumentViewerRendererKind, Component> = {
+    pdfjs: PdfFeaturePack,
+    'native-pdf': NativePdfFeaturePack,
+    'page-source': DocumentPageSourceFeaturePack,
+};
 const activeFeaturePackRef = shallowRef<Record<PropertyKey, unknown> | null>(null);
+const rendererKind = computed<TDocumentViewerRendererKind>(() => (
+    props.rendererKind ?? (sourceKind.value === 'djvu' ? 'page-source' : 'pdfjs')
+));
 const viewportId = computed(() => (
-    sourceKind.value === 'pdf' && props.rendererKind !== 'native-pdf' ? 'pdf-viewer' : undefined
+    rendererKind.value === 'pdfjs' ? 'pdf-viewer' : undefined
 ));
-const activeFeaturePack = computed(() => (
-    props.rendererKind === 'native-pdf'
-        ? NativePdfFeaturePack
-        : sourceKind.value === 'pdf' ? PdfFeaturePack : DocumentPageSourceFeaturePack
-));
+const activeFeaturePack = computed(() => featurePacks[rendererKind.value]);
 const sourceViewerRef = computed(() => activeFeaturePackRef.value);
 const openingFrameLayoutRevision = ref(0);
 let openingFrameResizeObserver: ResizeObserver | null = null;
@@ -464,7 +470,7 @@ const chassisOpeningPageShell = computed(() => {
     ) {
         return null;
     }
-    const margin = resolveDocumentOpeningPageMargin(geometry, props.rendererKind);
+    const margin = resolveDocumentOpeningPageMargin(geometry, rendererKind.value);
     return {
         generation: snapshot.generation,
         height: liveHeight,
@@ -493,6 +499,7 @@ watch(
         () => attrs.viewMode,
         () => attrs.zoom,
         () => attrs.zoomMode,
+        () => rendererKind.value,
         // Frame preparation needs a measurable viewport. When geometry is already
         // known before this chassis lays out — a preflighted native-preview open
         // resolves it during setup — the first attempt has nothing to measure, so
@@ -629,7 +636,7 @@ function handleTotalPagesUpdate(pageCount: number) {
 
 watch(() => [
     sourceKind.value,
-    props.rendererKind,
+    rendererKind.value,
 ] as const, async (nextIdentity, previousIdentity) => {
     if (nextIdentity[0] === previousIdentity[0] && nextIdentity[1] === previousIdentity[1]) {
         return;

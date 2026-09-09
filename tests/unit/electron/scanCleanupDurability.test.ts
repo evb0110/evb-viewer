@@ -21,7 +21,7 @@ import {
     SCAN_CLEANUP_PID_ROOT_PREFIX,
     SCAN_CLEANUP_SCRATCH_PREFIX,
     sweepStaleScanCleanupScratchDirs,
-} from '@scan-cleanup-core/scratchCleanup';
+} from '@evb/scan-cleanup/core/scratchCleanup';
 
 const temporaryDirectories: string[] = [];
 

@@ -9,7 +9,7 @@ import {
     resolveEffectiveScanCleanupOptions,
     resolveScanCleanupCanvasPageDpi,
     resolveScanCleanupRequestedRenderDpi,
-} from '@scan-cleanup-core/policy/effectiveOptions';
+} from '@evb/scan-cleanup/core/policy/effectiveOptions';
 
 const options: IScanCleanupOptions = {
     preserveOriginalQuality: false,

@@ -10,8 +10,8 @@ import {
     isPageMoveOperationNoOp,
     iteratePageSelectionRanges,
     mapPageNumberAfterPageMove,
-} from '@contracts/pageNumbers';
-import type { TPageMoveOperation } from '@contracts/pageNumbers';
+} from '@pdf-core/pdfPageSelection';
+import type { TPageMoveOperation } from '@pdf-core/pdfPageSelection';
 import { useMultiSelection } from '@app/composables/useMultiSelection';
 import {
     arePageNumberListsEqual,

@@ -147,8 +147,8 @@ import {
     type TPrintOrientation,
 } from '@app/utils/pdfPrintShared';
 import { usePdfPageScopeSelection } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfPageScopeSelection';
-import type { TPageSelection } from '@contracts/pageNumbers';
-import { pageSelectionCount } from '@contracts/pageNumbers';
+import type { TPageSelection } from '@pdf-core/pdfPageSelection';
+import { pageSelectionCount } from '@pdf-core/pdfPageSelection';
 
 const open = defineModel<boolean>('open', { required: true });
 

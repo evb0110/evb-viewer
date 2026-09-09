@@ -54,6 +54,7 @@ export interface IPdfSnapshotSplitPayload {
     readonly snapshotPath: TDocumentRef;
     readonly snapshotBackend?: TDocumentBackend;
     readonly isDirty: boolean;
+    readonly isGenerated?: boolean;
     readonly currentPage?: number;
     readonly totalPages?: number;
 }

@@ -14,7 +14,7 @@ import {
     requirePageIndex,
     requirePageNumber,
 } from '@contracts/pageNumbers';
-import {requireDocumentRevisionToken} from '@contracts';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {createTestPdfViewportWritePort} from '@tests/helpers/createTestPdfViewportWritePort';
 

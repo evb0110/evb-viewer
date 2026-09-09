@@ -30,14 +30,14 @@ import {
     resolveScanCleanupUnclassifiedPages,
     SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI,
     placeScanCleanupCanvasBox,
-} from '@scan-cleanup-core/policy/documentCanvas';
+} from '@evb/scan-cleanup/core/policy/documentCanvas';
 import {resolveScanCleanupPlacementOffset} from '@contracts/scanCleanupPageOverrides';
 import {
     parsePdfInfoPageGeometry,
     parsePdfPageSizesPayload,
     type IPdfPageSize,
 } from '@electron/pdf/pdfPageSizes';
-import {resolveSuspiciousCropBoxPageSizes} from '@scan-cleanup-core/pdfPageSizes';
+import {resolveSuspiciousCropBoxPageSizes} from '@evb/scan-cleanup/core/pdfPageSizes';
 
 const options: IScanCleanupOptions = {
     preserveOriginalQuality: false,

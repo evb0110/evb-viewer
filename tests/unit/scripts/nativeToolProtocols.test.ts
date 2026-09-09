@@ -28,7 +28,41 @@ const fixtureProtocols = [{
     stagingName: 'fixture-tool',
 }] as const satisfies readonly IGeneratedRustNativeToolProtocol[];
 
+const capabilityFixtureProtocols = [{
+    binaryName: 'evb-capability-fixture-tool',
+    crateName: 'capability-fixture-tool',
+    protocolVersion: 10,
+    resourceFamilyId: 'scan-cleanup',
+    stagingName: 'capability-fixture-tool',
+    capabilities: [{
+        name: 'fixture-capability',
+        required: false,
+        introducedIn: 10,
+    }],
+}] as const satisfies readonly IGeneratedRustNativeToolProtocol[];
+
 describe('native tool protocol generator', () => {
+    it('keeps the shipped skew fixtures on the shared paths', async () => {
+        const fixtureRoot = path.resolve(process.cwd(), 'native/protocol-fixtures');
+        const newer = JSON.parse(await readFile(
+            path.join(fixtureRoot, 'scan-cleanup-manifest-v3-newer-to-older.json'),
+            'utf8',
+        )) as Record<string, unknown>;
+        const older = JSON.parse(await readFile(
+            path.join(fixtureRoot, 'scan-cleanup-manifest-v3-older-to-newer.json'),
+            'utf8',
+        )) as Record<string, unknown>;
+
+        expect(newer).toHaveProperty('futureManifestHint');
+        const newerPages = newer.pages as Array<Record<string, unknown>>;
+        const olderPages = older.pages as Array<Record<string, unknown>>;
+        expect(newerPages).toEqual([expect.objectContaining({futurePageHint: true})]);
+        expect(newerPages).toEqual([expect.objectContaining({options: expect.objectContaining({futureOption: 'ignored'})})]);
+        expect(older).not.toHaveProperty('futureManifestHint');
+        expect(olderPages).toEqual([expect.not.objectContaining({futurePageHint: expect.anything()})]);
+        expect(olderPages[0]).toEqual(expect.objectContaining({options: {}}));
+    });
+
     it('renders deterministic Rust descriptors from one registry', () => {
         const firstRust = renderRustNativeToolProtocols(fixtureProtocols);
 
@@ -71,6 +105,13 @@ describe('native tool protocol generator', () => {
                 recursive: true,
             });
         }
+    });
+
+    it('renders capability metadata in the generated descriptor', () => {
+        const rust = renderRustNativeToolProtocols(capabilityFixtureProtocols);
+
+        expect(rust).toContain('NativeToolCapability::new("fixture-capability", false, 10)');
+        expect(rust).toContain('NativeToolDescriptor::with_capabilities');
     });
 
     it('pins the canonical protocol versions during generation', () => {

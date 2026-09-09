@@ -34,7 +34,7 @@ const mocks = vi.hoisted(() => ({
     },
 }));
 
-vi.mock('@electron/search/domPolyfill', () => ({}));
+vi.mock('@electron/features/search/domPolyfill', () => ({}));
 
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({debug: vi.fn()})}));
 
@@ -60,7 +60,7 @@ describe('extractTextWithPdfjs cancellation', () => {
     });
 
     it('returns AbortError immediately when signal is already aborted', async () => {
-        const { extractTextWithPdfjs } = await import('@electron/search/extractTextWithPdfjs');
+        const { extractTextWithPdfjs } = await import('@electron/features/search/extractTextWithPdfjs');
         const controller = new AbortController();
         controller.abort();
 
@@ -72,7 +72,7 @@ describe('extractTextWithPdfjs cancellation', () => {
     });
 
     it('aborts pending loading task and rejects with AbortError', async () => {
-        const { extractTextWithPdfjs } = await import('@electron/search/extractTextWithPdfjs');
+        const { extractTextWithPdfjs } = await import('@electron/features/search/extractTextWithPdfjs');
         const controller = new AbortController();
 
         mocks.getDocument.mockReturnValue({
@@ -93,7 +93,7 @@ describe('extractTextWithPdfjs cancellation', () => {
     });
 
     it('emits each page as soon as pdfjs text extraction finishes it', async () => {
-        const { extractTextWithPdfjs } = await import('@electron/search/extractTextWithPdfjs');
+        const { extractTextWithPdfjs } = await import('@electron/features/search/extractTextWithPdfjs');
         const pageOne = {
             cleanup: vi.fn(),
             getTextContent: vi.fn().mockResolvedValue({items: [{
@@ -147,7 +147,7 @@ describe('extractTextWithPdfjs cancellation', () => {
     });
 
     it('extracts only requested pdfjs pages', async () => {
-        const { extractTextWithPdfjs } = await import('@electron/search/extractTextWithPdfjs');
+        const { extractTextWithPdfjs } = await import('@electron/features/search/extractTextWithPdfjs');
         const pageTwo = {
             cleanup: vi.fn(),
             getTextContent: vi.fn().mockResolvedValue({items: [{
@@ -207,7 +207,7 @@ describe('extractTextWithPdfjs cancellation', () => {
     });
 
     it('does not materialize every page number before cancellation in a huge document', async () => {
-        const { extractTextWithPdfjs } = await import('@electron/search/extractTextWithPdfjs');
+        const { extractTextWithPdfjs } = await import('@electron/features/search/extractTextWithPdfjs');
         const pageCount = 1_000_001;
         const controller = new AbortController();
         const page = {
@@ -248,7 +248,7 @@ describe('extractTextWithPdfjs cancellation', () => {
     });
 
     it('collapses exact repeated hidden text streams before emitting page text', async () => {
-        const { extractTextWithPdfjs } = await import('@electron/search/extractTextWithPdfjs');
+        const { extractTextWithPdfjs } = await import('@electron/features/search/extractTextWithPdfjs');
         const repeatedText = 'СЛОВАРЬ\nАРАБСКОЙ ХРЕСТОМАТИИ И КОРАНУ. СОСТАВИЛЪ ПРОФ. В. ГИРГАСЪ.\n';
         const pageOne = {
             cleanup: vi.fn(),
@@ -293,7 +293,7 @@ describe('extractTextWithPdfjs cancellation', () => {
     });
 
     it('extracts pdfjs operator-list word boxes from nested text matrices', async () => {
-        const { extractTextWithPdfjsWordBoxes } = await import('@electron/search/extractTextWithPdfjs');
+        const { extractTextWithPdfjsWordBoxes } = await import('@electron/features/search/extractTextWithPdfjs');
         const pageOne = {
             cleanup: vi.fn(),
             view: [

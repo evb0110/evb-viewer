@@ -95,7 +95,11 @@ describe('document search architecture boundaries', () => {
             expect(source, componentName).not.toMatch(/\bpdf(?:[-_]|[A-Z])/iu);
         }
 
-        const pageLabels = read('app/utils/document-viewer/pageLabels.ts');
+        // The adapter is intentionally allowed to import the portable PDF-core
+        // domain owner. Check the adapter's own implementation and comments,
+        // not that approved module specifier.
+        const pageLabels = read('app/utils/document-viewer/pageLabels.ts')
+            .replaceAll('@pdf-core/pdfPageLabels', '');
         expect(pageLabels).not.toMatch(/\bpdf(?:[-_]|[A-Z])/iu);
     });
 });

@@ -14,7 +14,7 @@ import {
 import {
     readPpmDimensions,
     readPpmRaster,
-} from '@scan-cleanup-core/rasterLayerDimensions';
+} from '@evb/scan-cleanup/core/rasterLayerDimensions';
 
 const temporaryDirectories: string[] = [];
 

@@ -4,7 +4,7 @@ import { isErrnoException } from '@contracts/runtimeGuards';
 import { resolveAllowedWritePath } from '@electron/utils/pathValidator';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
-import { findPendingOcrResultFileForPath } from '@electron/ocr/createPendingResultFileStore';
+import { findPendingOcrResultFileForPath } from '@electron/features/ocr/public/index';
 import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsService';
 
 const logger = createLogger('documents-fileOps');

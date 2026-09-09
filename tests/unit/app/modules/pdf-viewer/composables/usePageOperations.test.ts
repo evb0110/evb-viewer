@@ -10,7 +10,7 @@ import { ref } from 'vue';
 import { usePageOperations } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageOperations';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
-import {requireDocumentRevisionToken} from '@contracts';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {
     createPageMoveRange,
     createPageMoveRanges,

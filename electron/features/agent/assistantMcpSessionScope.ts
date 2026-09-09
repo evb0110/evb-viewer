@@ -72,6 +72,17 @@ export function assertAssistantMcpSnapshotMatchesScope(
     binding: IAssistantSessionScopeBinding,
 ) {
     const tab = getSnapshotBindingTab(snapshot, binding);
+    assertAssistantMcpTabMatchesBinding(tab, binding);
+}
+
+export function assertAssistantMcpTabMatchesBinding(
+    tab: IAgentTabSnapshot,
+    binding: IAssistantSessionScopeBinding,
+    options: {tabIdAlreadyResolved?: boolean} = {},
+) {
+    if (options.tabIdAlreadyResolved !== true && tab.tabId !== binding.tabId) {
+        throw new Error('Internal EVB MCP request targeted a different tab than the active assistant turn.');
+    }
     if (
         binding.commandTarget
         && !commandTargetsMatch(binding.commandTarget, tab.commandTarget)

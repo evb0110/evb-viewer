@@ -83,7 +83,7 @@ function resolveBuildGitSha() {
         ], gitOptions).trim();
     } catch {
         const ciSha = process.env.GITHUB_SHA?.trim().toLowerCase() ?? '';
-        // Keep in sync with SCAN_CLEANUP_GIT_SHA_HEX_PATTERN in scan-cleanup-core/provenanceStamp.ts.
+        // Keep in sync with SCAN_CLEANUP_GIT_SHA_HEX_PATTERN in packages/scan-cleanup/core/provenanceStamp.ts.
         return /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(ciSha) ? ciSha : null;
     }
     if (status !== '') {
@@ -95,7 +95,7 @@ function resolveBuildGitSha() {
             '--verify',
             'HEAD',
         ], gitOptions).trim().toLowerCase();
-        // Keep in sync with SCAN_CLEANUP_GIT_SHA_HEX_PATTERN in scan-cleanup-core/provenanceStamp.ts.
+        // Keep in sync with SCAN_CLEANUP_GIT_SHA_HEX_PATTERN in packages/scan-cleanup/core/provenanceStamp.ts.
         return /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(sha) ? sha : null;
     } catch {
         return null;

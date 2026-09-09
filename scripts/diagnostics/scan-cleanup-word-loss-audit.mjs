@@ -24,7 +24,7 @@ const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const {
     sha256ScanCleanupFile,
     verifyScanCleanupProvenanceStampHex,
-} = await tsImport('../../scan-cleanup-core/index.ts', import.meta.url);
+} = await tsImport('../../packages/scan-cleanup/core/index.ts', import.meta.url);
 const {resolveCliNativeToolPath} = await tsImport('../scanCleanupCliAdapters.ts', import.meta.url);
 const AUDIT_TOOL_CRATES = {
     qpdf: 'qpdf',

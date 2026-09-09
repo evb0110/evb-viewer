@@ -630,8 +630,6 @@ fn bilevel_stage_emits_a_standard_binary_raster() {
         ink_ownership_mask: None,
         normalized_width: 8,
         normalized_height: 8,
-        rendered_width: 8,
-        rendered_height: 8,
         source_page_index: 0,
         half: PageHalf::Full,
         split: &split,
@@ -692,8 +690,6 @@ fn bilevel_stage_keeps_owned_pixels_through_fold_filtering() {
         ink_ownership_mask: None,
         normalized_width: 8,
         normalized_height: 8,
-        rendered_width: 8,
-        rendered_height: 8,
         source_page_index: 0,
         half: PageHalf::Full,
         split: &split,
@@ -766,8 +762,6 @@ fn mixed_stage_preserves_picture_partition_and_builds_layers() {
         unowned_fold_edge_blank_leaf: false,
         effectively_blank: false,
         pale_tonal_structure: false,
-        rendered_width: 8,
-        rendered_height: 8,
         preserve_confirmed_photo_tones: false,
         use_soft_alpha_foreground: false,
         create_mixed_layers: true,
@@ -794,6 +788,66 @@ fn mixed_stage_preserves_picture_partition_and_builds_layers() {
     );
     assert!(layers.background.get(3, 3) < 255);
     assert!(layers.color_background.is_none());
+}
+
+#[test]
+fn mixed_stage_accepts_absent_picture_mask_as_picture_free_output() {
+    let source = GrayImage::new(8, 8, 96);
+    let options = CleanupOptions {
+        output_mode: OutputMode::Mixed,
+        ..CleanupOptions::default()
+    };
+    let split = crate::split::single_page(8, 8);
+    let plan = ComposedRenderPlan::new(
+        Rect::new(0.0, 0.0, 8.0, 8.0),
+        Affine::scaling(1.0, 1.0),
+        Affine::scaling(1.0, 1.0),
+        None,
+        8,
+        8,
+        Rect::new(0.0, 0.0, 8.0, 8.0),
+    );
+    let output = process_mixed_output(MixedProcessingInput {
+        rendered_gray: source.clone(),
+        rendered_source_gray: source.clone(),
+        rendered_color: &None,
+        rendered_picture_mask: &None,
+        rendered_chroma_picture_mask: &None,
+        rendered_text_vicinity_mask: &None,
+        rendered_text_mask: &None,
+        rendered_trusted_foreground_mask: &None,
+        canonical_routing_sample: &source,
+        options: &options,
+        spread_plan: None,
+        calibration: PageCalibration::estimate(&source, 300.0, CalibrationConfig::default()),
+        ink_ownership_mask: &None,
+        source_page_index: 0,
+        half: PageHalf::Full,
+        split: &split,
+        region: Rect::new(0.0, 0.0, 8.0, 8.0),
+        render_plan: &plan,
+        source_content_box: None,
+        fold_edge_blank_leaf: false,
+        unowned_fold_edge_blank_leaf: false,
+        effectively_blank: false,
+        pale_tonal_structure: false,
+        preserve_confirmed_photo_tones: false,
+        use_soft_alpha_foreground: false,
+        create_mixed_layers: false,
+        create_mixed_composite: false,
+        deskew: DeskewResult {
+            angle_degrees: 0.0,
+            confidence: 1.0,
+            accepted: false,
+        },
+        effective_dewarp: false,
+        timings: &mut PageStageTimings::default(),
+    });
+
+    assert!(output.mixed_layers.is_none());
+    assert_eq!(output.color_image, None);
+    assert_eq!(output.emitted_output_mode, OutputMode::Grayscale);
+    assert_eq!((output.image.width(), output.image.height()), (8, 8));
 }
 
 #[test]
@@ -843,8 +897,6 @@ fn mixed_stage_exposes_soft_alpha_for_picture_owned_foreground() {
         unowned_fold_edge_blank_leaf: false,
         effectively_blank: false,
         pale_tonal_structure: false,
-        rendered_width: 8,
-        rendered_height: 8,
         preserve_confirmed_photo_tones: true,
         use_soft_alpha_foreground: true,
         create_mixed_layers: true,

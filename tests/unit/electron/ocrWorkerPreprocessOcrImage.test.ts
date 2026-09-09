@@ -13,7 +13,7 @@ const mocks = vi.hoisted(() => ({
     log: vi.fn(),
 }));
 
-vi.mock('@electron/ocr/worker/runOcrCommand', () => ({runOcrCommand: mocks.runOcrCommand}));
+vi.mock('@electron/features/ocr/worker/runOcrCommand', () => ({runOcrCommand: mocks.runOcrCommand}));
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: mocks.runNativeToolCommand}));
 vi.mock('fs/promises', () => ({stat: mocks.stat}));
 
@@ -33,7 +33,7 @@ describe('tryPreprocessOcrImage', () => {
     });
 
     it('prefers native scan cleanup and does not invoke unpaper after success', async () => {
-        const { tryPreprocessOcrImage } = await import('@electron/ocr/worker/tryPreprocessOcrImage');
+        const { tryPreprocessOcrImage } = await import('@electron/features/ocr/worker/tryPreprocessOcrImage');
         const controller = new AbortController();
 
         await expect(tryPreprocessOcrImage(
@@ -113,7 +113,7 @@ describe('tryPreprocessOcrImage', () => {
     });
 
     it('returns the cleaned image path when unpaper succeeds', async () => {
-        const { tryPreprocessOcrImage } = await import('@electron/ocr/worker/tryPreprocessOcrImage');
+        const { tryPreprocessOcrImage } = await import('@electron/features/ocr/worker/tryPreprocessOcrImage');
         const controller = new AbortController();
 
         await expect(tryPreprocessOcrImage(
@@ -156,7 +156,7 @@ describe('tryPreprocessOcrImage', () => {
     });
 
     it('falls back to the raw Poppler image when unpaper is unavailable', async () => {
-        const { tryPreprocessOcrImage } = await import('@electron/ocr/worker/tryPreprocessOcrImage');
+        const { tryPreprocessOcrImage } = await import('@electron/features/ocr/worker/tryPreprocessOcrImage');
         const onDiagnostic = vi.fn();
 
         await expect(tryPreprocessOcrImage(
@@ -193,7 +193,7 @@ describe('tryPreprocessOcrImage', () => {
                 options.log('error', 'unpaper(ocr-preprocess) timed out after 30000ms');
                 throw new Error('deskew failed');
             });
-        const { tryPreprocessOcrImage } = await import('@electron/ocr/worker/tryPreprocessOcrImage');
+        const { tryPreprocessOcrImage } = await import('@electron/features/ocr/worker/tryPreprocessOcrImage');
 
         await expect(tryPreprocessOcrImage(
             '/bin/unpaper',
@@ -219,7 +219,7 @@ describe('tryPreprocessOcrImage', () => {
 
     it('disables preprocessing when the unpaper binary is not runnable', async () => {
         mocks.runOcrCommand.mockRejectedValue(new Error('unpaper exited after signal SIGKILL'));
-        const { tryPreprocessOcrImage } = await import('@electron/ocr/worker/tryPreprocessOcrImage');
+        const { tryPreprocessOcrImage } = await import('@electron/features/ocr/worker/tryPreprocessOcrImage');
 
         await expect(tryPreprocessOcrImage(
             '/bin/unpaper',
@@ -251,7 +251,7 @@ describe('tryPreprocessOcrImage', () => {
             options.log('error', 'unpaper(version-probe) timed out after 10000ms');
             throw new Error('unpaper(version-probe) timed out after 10000ms');
         });
-        const { tryPreprocessOcrImage } = await import('@electron/ocr/worker/tryPreprocessOcrImage');
+        const { tryPreprocessOcrImage } = await import('@electron/features/ocr/worker/tryPreprocessOcrImage');
 
         await expect(tryPreprocessOcrImage(
             '/bin/unpaper',
@@ -287,7 +287,7 @@ describe('tryPreprocessOcrImage', () => {
                     stdout: '',
                     stderr: '',
                 });
-            const { tryPreprocessOcrImage } = await import('@electron/ocr/worker/tryPreprocessOcrImage');
+            const { tryPreprocessOcrImage } = await import('@electron/features/ocr/worker/tryPreprocessOcrImage');
 
             await expect(tryPreprocessOcrImage(
                 '/bin/unpaper',
@@ -324,7 +324,7 @@ describe('tryPreprocessOcrImage', () => {
 
     it('falls back to the raw Poppler image when unpaper output is empty', async () => {
         mocks.stat.mockResolvedValue({ size: 0 });
-        const { tryPreprocessOcrImage } = await import('@electron/ocr/worker/tryPreprocessOcrImage');
+        const { tryPreprocessOcrImage } = await import('@electron/features/ocr/worker/tryPreprocessOcrImage');
 
         await expect(tryPreprocessOcrImage(
             '/bin/unpaper',
@@ -345,7 +345,7 @@ describe('tryPreprocessOcrImage', () => {
         mocks.runOcrCommand.mockRejectedValue(abortError);
         const controller = new AbortController();
         controller.abort();
-        const { tryPreprocessOcrImage } = await import('@electron/ocr/worker/tryPreprocessOcrImage');
+        const { tryPreprocessOcrImage } = await import('@electron/features/ocr/worker/tryPreprocessOcrImage');
 
         await expect(tryPreprocessOcrImage(
             '/bin/unpaper',

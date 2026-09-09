@@ -16,11 +16,11 @@ import {
     it,
     vi,
 } from 'vitest';
-import { assembleSearchablePdfStreaming } from '@electron/ocr/worker/assembleSearchablePdfStreaming';
-import { runOcrCommand } from '@electron/ocr/worker/runOcrCommand';
+import { assembleSearchablePdfStreaming } from '@electron/features/ocr/worker/assembleSearchablePdfStreaming';
+import { runOcrCommand } from '@electron/features/ocr/worker/runOcrCommand';
 import { resolveTestQpdfBinary } from '@tests/helpers/resolveTestQpdfBinary';
 
-vi.mock('@electron/ocr/worker/runOcrCommand', {spy: true});
+vi.mock('@electron/features/ocr/worker/runOcrCommand', {spy: true});
 
 let tempDir: string | null = null;
 

@@ -14,9 +14,7 @@
         "app/types/electron.d.ts",
         "types/vendor/utif.d.ts",
         ".nuxt/nuxt.d.ts",
-        "scripts/**/*.ts",
-        "scan-cleanup-adapters/**/*.ts",
-        "scan-cleanup-core/**/*.ts"
+        "scripts/**/*.ts"
     ],
     "exclude": [
         "node_modules"

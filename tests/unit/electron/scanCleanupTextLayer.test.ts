@@ -1,9 +1,9 @@
 import {
     buildScanCleanupTextLayerPlan,
     resolveScanCleanupTextLayerInstruction,
-} from '@scan-cleanup-core/sourceTextLayer';
-import type {IRenderedCleanupOutputPage} from '@scan-cleanup-core/assembleCompactScanCleanupPages';
-import type {IPdfPageSize} from '@scan-cleanup-core/types';
+} from '@evb/scan-cleanup/core/sourceTextLayer';
+import type {IRenderedCleanupOutputPage} from '@evb/scan-cleanup/core/assembleCompactScanCleanupPages';
+import type {IPdfPageSize} from '@evb/scan-cleanup/core/types';
 import {
     describe,
     expect,

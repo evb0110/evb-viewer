@@ -114,7 +114,7 @@ describe('analytics SQL admission migrations', () => {
 
     it('keeps landing region storage aligned with the shared analytics contract', () => {
         expect(landingAnalyticsSchema).toContain(
-            'import { ANALYTICS_GEO_LIMITS } from \'@evb/contracts/analytics\'',
+            'import { ANALYTICS_GEO_LIMITS } from \'@contracts/analytics\'',
         );
         expect(
             landingAnalyticsSchema.match(/length: ANALYTICS_GEO_LIMITS\.region/gu),

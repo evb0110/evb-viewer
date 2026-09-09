@@ -3,7 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import { getOcrWorkerMessageDisposition } from '@electron/ocr/getOcrWorkerMessageDisposition';
+import { getOcrWorkerMessageDisposition } from '@electron/features/ocr/main/getOcrWorkerMessageDisposition';
 
 describe('getOcrWorkerMessageDisposition', () => {
     it('classifies stale worker messages before the manager mutates job state', () => {

@@ -1,4 +1,3 @@
-import { ipcMain } from 'electron';
 import type { DiagnosticRecord } from '@contracts/diagnostics/diagnosticRecord';
 import { decodeDiagnosticRecord } from '@contracts/diagnostics/diagnosticRecord';
 import { decodeDiagnosticsSuppressedCount } from '@contracts/diagnostics/diagnosticsCapability';
@@ -25,7 +24,7 @@ export interface IRendererDiagnosticBridgeOptions {
     now?: () => number;
     rateBurst?: number;
     ratePerSecond?: number;
-    registerListener?: (
+    registerListener: (
         channel: string,
         handler: (event: Electron.IpcMainEvent, payload: unknown, suppressedCount?: unknown) => void,
     ) => void;
@@ -187,7 +186,7 @@ export function registerRendererDiagnosticBridge(options: IRendererDiagnosticBri
         }
     }
 
-    (options.registerListener ?? ((channel, handler) => ipcMain.on(channel, handler)))(
+    options.registerListener(
         CORE_IPC_SEND_CHANNELS.rendererDiagnostic,
         handle,
     );

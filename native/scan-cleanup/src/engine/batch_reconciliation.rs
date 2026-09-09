@@ -51,8 +51,6 @@ pub(crate) enum ReconciliationAction {
         reconciled: bool,
         cluster_agreement: f64,
         output_count: usize,
-        clear_split_seam: bool,
-        clear_outputs: bool,
     },
 }
 
@@ -231,8 +229,6 @@ pub(crate) fn reconcile_classification_batch(
                 } else {
                     1
                 },
-                clear_split_seam: decision.classification != LayoutClassification::TwoPageSpread,
-                clear_outputs: decision.reconciliation.reconciled,
             });
         }
     }
@@ -356,8 +352,6 @@ mod tests {
                     reconciled,
                     cluster_agreement,
                     output_count,
-                    clear_split_seam,
-                    clear_outputs,
                 } => Some((
                     *index,
                     *prior,
@@ -368,8 +362,6 @@ mod tests {
                     *reconciled,
                     *cluster_agreement,
                     *output_count,
-                    *clear_split_seam,
-                    *clear_outputs,
                 )),
                 ReconciliationAction::Rerun { .. } => None,
             })
@@ -385,7 +377,5 @@ mod tests {
         assert!(!update.6);
         assert!(update.7 > 0.0);
         assert_eq!(update.8, 2);
-        assert!(!update.9);
-        assert!(!update.10);
     }
 }

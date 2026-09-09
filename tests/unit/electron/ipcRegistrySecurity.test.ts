@@ -13,8 +13,11 @@ import {
     ASSISTANT_MAX_IMAGE_ATTACHMENTS,
     ASSISTANT_MAX_IMAGE_BYTES,
 } from '@contracts/agent';
+import { SCAN_CLEANUP_PLATFORM_FEATURE } from '@contracts/scanCleanupPlatformFeature';
+import {createRawIpcRegistrationAudit} from '@electron/platform-ipc/rawIpcRegistration';
 
 const ipcRegistrySecurityImportTimeoutMs = 10_000;
+interface IRegisterRendererLogBridgeMock { registerListener?: (channel: string, handler: (...args: unknown[]) => void) => void; }
 
 const mocks = vi.hoisted(() => {
     const agentState = {
@@ -72,6 +75,19 @@ const mocks = vi.hoisted(() => {
         submitCommandResponse: vi.fn(async () => ({accepted: true})),
         shutdownAssistant: vi.fn(async () => undefined),
     };
+    const scanCleanupDispose = vi.fn(async () => undefined);
+    const scanCleanupMainBindings = new Proxy({pruneGeneratedOutputs: vi.fn(async () => 0)}, {get(target, property, receiver) {
+        if (property === 'then') {
+            return undefined;
+        }
+        if (property === 'disposeScanCleanupMainBindings') {
+            return scanCleanupDispose;
+        }
+        if (Reflect.has(target, property)) {
+            return Reflect.get(target, property, receiver);
+        }
+        return vi.fn(async () => undefined);
+    }});
 
     return {
         events: new Map<string, (event: IRegisteredEvent, ...args: unknown[]) => void>(),
@@ -91,6 +107,8 @@ const mocks = vi.hoisted(() => {
         setElectronLocale: vi.fn(async () => {}),
         updateRecentFilesMenu: vi.fn(),
         agentService,
+        scanCleanupDispose,
+        scanCleanupMainBindings,
         createAgentService: vi.fn(() => agentService),
         createDocumentsService: vi.fn(() => ({onWorkingCopyBackingStatusChanged: vi.fn(() => () => {})})),
         registerDocumentRevisionEventBridge: vi.fn(),
@@ -138,6 +156,7 @@ vi.mock('@electron/file-access/workingCopyCreation', () => ({requireManagedWorki
 vi.mock('@electron/features/image-export/public', () => ({imageExportMainBindings: new Proxy({}, {get: () => vi.fn()})}));
 vi.mock('@electron/features/ocr/mainBindings', () => ({ocrMainBindings: new Proxy({}, {get: () => vi.fn()})}));
 vi.mock('@electron/features/page-ops/public', () => ({pageOpsMainBindings: new Proxy({}, {get: () => vi.fn()})}));
+vi.mock('@electron/features/scan-cleanup/scanCleanupMainBindings', () => ({scanCleanupMainBindings: mocks.scanCleanupMainBindings}));
 vi.mock('@electron/features/search/public', () => ({prepareSearchMainBindings: () => new Proxy({}, {get: () => vi.fn()})}));
 vi.mock('@electron/menu', () => ({updateRecentFilesMenu: mocks.updateRecentFilesMenu}));
 vi.mock('@electron/settings', () => ({
@@ -167,10 +186,13 @@ vi.mock('@electron/te', () => ({
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
 vi.mock('@electron/platform-ipc/rendererLogBridge', () => ({
     normalizeRendererLogEntry: vi.fn(),
-    registerRendererLogBridge: vi.fn(),
+    registerRendererLogBridge: vi.fn((options: IRegisterRendererLogBridgeMock) => (
+        options.registerListener?.('renderer:log', () => undefined)
+    )),
 }));
 
 let nextSenderId = 7;
+let rawIpcRegistrationAudit = createRawIpcRegistrationAudit();
 
 function createEvent(url: string): IRegisteredEvent {
     const mainFrame = {url};
@@ -217,7 +239,7 @@ function createSubframeEvent(url = 'http://127.0.0.1:41001/electron'): IRegister
 
 async function getSettingsHandler() {
     const { registerIpcHandlers } = await import('@electron/platform-ipc/registerIpcHandlers');
-    registerIpcHandlers();
+    registerIpcHandlers({rawIpcRegistrationAudit});
 
     const handler = mocks.handlers.get('settings:get');
     expect(handler).toBeTypeOf('function');
@@ -231,7 +253,9 @@ describe('IPC registry sender trust', () => {
         mocks.handlers.clear();
         mocks.events.clear();
         mocks.registeredWindowsById.clear();
+        mocks.scanCleanupDispose.mockClear();
         nextSenderId = 7;
+        rawIpcRegistrationAudit = createRawIpcRegistrationAudit();
         mocks.sanitizeAllowedExternalUrl.mockImplementation((value: unknown) => value);
         mocks.browserWindowFromWebContents.mockImplementation((sender: {id?: number}) => (
             typeof sender.id === 'number'
@@ -254,6 +278,64 @@ describe('IPC registry sender trust', () => {
         ));
     });
 
+    it('does not load scan-cleanup bindings merely to dispose them', async () => {
+        const {
+            disposeScanCleanupMainBindingsIfLoaded,
+            registerIpcHandlers,
+        } = await import('@electron/platform-ipc/registerIpcHandlers');
+        registerIpcHandlers();
+
+        await expect(disposeScanCleanupMainBindingsIfLoaded()).resolves.toBeUndefined();
+        expect(mocks.scanCleanupDispose).not.toHaveBeenCalled();
+    }, ipcRegistrySecurityImportTimeoutMs);
+
+    it('disposes scan-cleanup bindings after their lazy feature has loaded', async () => {
+        const {
+            disposeScanCleanupMainBindingsIfLoaded,
+            registerIpcHandlers,
+        } = await import('@electron/platform-ipc/registerIpcHandlers');
+        registerIpcHandlers();
+        const channel = SCAN_CLEANUP_PLATFORM_FEATURE.methods.pruneGeneratedOutputs.channel;
+        const handler = mocks.handlers.get(channel);
+        expect(handler).toBeTypeOf('function');
+        await expect(handler?.(createEvent('http://127.0.0.1:41001/electron/viewer'))).resolves.toBe(0);
+
+        await expect(disposeScanCleanupMainBindingsIfLoaded()).resolves.toBeUndefined();
+        expect(mocks.scanCleanupDispose).toHaveBeenCalledOnce();
+    }, ipcRegistrySecurityImportTimeoutMs);
+
+    it('disposes retained bindings when lazy registration fails after loading', async () => {
+        const {FEATURE_REGISTRATION_DESCRIPTORS} = await import('@electron/platform-ipc/featureRegistrationTable');
+        const {registerLazyPlatformFeature} = await import('@electron/platform-ipc/registerFeatureIpcAdapters');
+        const scanCleanupDescriptor = FEATURE_REGISTRATION_DESCRIPTORS
+            .find(descriptor => descriptor.name === 'scan-cleanup')!;
+        const handlers = new Map<string, TRegisteredHandler>();
+        const ipcMain = {handle(channel: string, handler: TRegisteredHandler) {
+            handlers.set(channel, handler);
+        }} as Electron.IpcMain;
+        const descriptor = {
+            ...scanCleanupDescriptor,
+            feature: {
+                ...SCAN_CLEANUP_PLATFORM_FEATURE,
+                methods: {
+                    first: SCAN_CLEANUP_PLATFORM_FEATURE.methods.pruneGeneratedOutputs,
+                    second: SCAN_CLEANUP_PLATFORM_FEATURE.methods.pruneGeneratedOutputs,
+                },
+            },
+            create: async () => ({disposeScanCleanupMainBindings: mocks.scanCleanupDispose}),
+        } as never;
+        const dispose = registerLazyPlatformFeature(ipcMain, descriptor, {agentService: mocks.agentService as never});
+        const channel = SCAN_CLEANUP_PLATFORM_FEATURE.methods.pruneGeneratedOutputs.channel;
+        const handler = handlers.get(channel);
+        expect(handler).toBeTypeOf('function');
+
+        await expect(handler?.(createEvent('http://127.0.0.1:41001/electron/viewer')))
+            .rejects
+            .toThrow('Duplicate lazy IPC handler');
+        await expect(dispose()).rejects.toThrow('Duplicate lazy IPC handler');
+        expect(mocks.scanCleanupDispose).toHaveBeenCalledOnce();
+    }, ipcRegistrySecurityImportTimeoutMs);
+
     it('rejects same-origin senders outside the configured renderer route', async () => {
         const handler = await getSettingsHandler();
 
@@ -264,6 +346,32 @@ describe('IPC registry sender trust', () => {
         expect(mocks.logger.warn).toHaveBeenCalledWith(
             '[ipc] rejected settings:get: untrusted sender URL http://127.0.0.1:41001/admin (expected http://127.0.0.1:41001/electron)',
         );
+    }, ipcRegistrySecurityImportTimeoutMs);
+
+    it('records the core diagnostic bridges at their real registration sites', async () => {
+        await getSettingsHandler();
+
+        expect(rawIpcRegistrationAudit.getRegisteredNames()).toEqual([
+            'renderer-log',
+            'renderer-diagnostic',
+        ]);
+    }, ipcRegistrySecurityImportTimeoutMs);
+
+    it('records the trusted diagnostics canary when automation enables it', async () => {
+        vi.stubEnv('EVB_ENABLE_DIAGNOSTICS_CANARY', '1');
+        vi.stubEnv('EVB_AUTOMATION_USER_DATA_DIR', '/tmp/evb-ipc-audit');
+        vi.stubEnv('EVB_AUTOMATION_SESSION_NAME', 'ipc-audit');
+        const audit = createRawIpcRegistrationAudit();
+        const {registerIpcHandlers} = await import('@electron/platform-ipc/registerIpcHandlers');
+
+        registerIpcHandlers({rawIpcRegistrationAudit: audit});
+
+        expect(audit.getRegisteredNames()).toEqual([
+            'diagnostics-canary',
+            'renderer-log',
+            'renderer-diagnostic',
+        ]);
+        vi.unstubAllEnvs();
     }, ipcRegistrySecurityImportTimeoutMs);
 
     it('allows senders under the configured renderer route', async () => {

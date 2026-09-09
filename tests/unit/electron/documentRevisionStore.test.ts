@@ -24,7 +24,7 @@ import { tmpdir } from 'os';
 import type * as NodeCrypto from 'node:crypto';
 import type * as FsPromises from 'fs/promises';
 import type * as DocumentRevisionSidecarModule from '@electron/file-access/documentRevisionSidecar';
-import {requireDocumentRevisionToken} from '@contracts';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requireEpochMs} from '@contracts/timestamps';
 
@@ -600,7 +600,7 @@ describe('documentRevisionStore', () => {
         mkdirSync(ocrDir, {recursive: true});
         writeFileSync(join(ocrDir, 'page-1.json'), '{}');
         writeFileSync(`${workingPath}.index.json`, '{}');
-        const { getCompactSearchIndexPath } = await import('@electron/search/searchIndexSidecar');
+        const { getCompactSearchIndexPath } = await import('@electron/features/search/public');
         const compactSearchIndexPath = getCompactSearchIndexPath(workingPath);
         writeFileSync(compactSearchIndexPath, new Uint8Array([1]));
 

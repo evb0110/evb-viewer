@@ -7,7 +7,12 @@ import {
 } from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
-import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
+import {
+    NativeToolProtocolCapabilityError,
+    NativeToolProtocolVersionError,
+    runNativeToolCommand,
+    verifyNativeToolProtocol,
+} from '@electron/native-tools/runNativeToolCommand';
 import {
     afterEach,
     describe,
@@ -90,5 +95,36 @@ else process.stdout.write('1\\n');
         }
         expect(aliveAtSettlement).toBe(false);
         await expect(operation).rejects.toThrow('acceptance cancellation');
+    });
+
+    it('negotiates the legacy integer handshake and gates optional warning events', async () => {
+        const root = join(tmpdir(), `evb-protocol-capability-${process.pid}-${Date.now()}`);
+        const helper = join(root, 'evb-scan-cleanup');
+        probeRoots.push(root);
+        await mkdir(root, {recursive: true});
+        await writeFile(helper, `#!/usr/bin/env node
+if (process.argv[2] === '--protocol-version') process.stdout.write('9\\n');
+`);
+        await chmod(helper, 0o755);
+
+        await expect(verifyNativeToolProtocol(helper)).resolves.toEqual({
+            protocolVersion: 9,
+            capabilities: ['manifest-v3'],
+        });
+        await expect(runNativeToolCommand(helper, [], {requiredCapabilities: ['structured-warning-events']})).rejects.toBeInstanceOf(NativeToolProtocolCapabilityError);
+    });
+
+    it('rejects malformed structured capability fields with a typed error', async () => {
+        const root = join(tmpdir(), `evb-protocol-malformed-${process.pid}-${Date.now()}`);
+        const helper = join(root, 'evb-scan-cleanup');
+        probeRoots.push(root);
+        await mkdir(root, {recursive: true});
+        await writeFile(helper, `#!/usr/bin/env node
+if (process.argv[2] === '--protocol-version') process.stdout.write(JSON.stringify({protocolVersion: 10, capabilities: [7]}) + '\\n');
+`);
+        await chmod(helper, 0o755);
+
+        await expect(verifyNativeToolProtocol(helper)).rejects.toBeInstanceOf(NativeToolProtocolCapabilityError);
+        await expect(verifyNativeToolProtocol(helper)).rejects.not.toBeInstanceOf(NativeToolProtocolVersionError);
     });
 });

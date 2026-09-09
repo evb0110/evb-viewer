@@ -7,7 +7,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import { runOcrFileBased } from '@electron/ocr/worker/tesseractRunner';
+import { runOcrFileBased } from '@electron/features/ocr/worker/tesseractRunner';
 
 const mocks = vi.hoisted(() => ({
     spawn: vi.fn(),
@@ -26,12 +26,12 @@ vi.mock('fs/promises', () => ({
     unlink: mocks.unlink,
 }));
 
-vi.mock('@electron/ocr/resolveTesseractLanguageConfig', () => ({ resolveTesseractLanguageConfig: (languages: string[]) => ({
+vi.mock('@electron/features/ocr/main/resolveTesseractLanguageConfig', () => ({ resolveTesseractLanguageConfig: (languages: string[]) => ({
     orderedLanguages: languages,
     extraConfigArgs: [],
 }) }));
 
-vi.mock('@electron/ocr/buildTesseractEnv', () => ({ buildTesseractEnv: () => ({}) }));
+vi.mock('@electron/features/ocr/main/buildTesseractEnv', () => ({ buildTesseractEnv: () => ({}) }));
 
 vi.mock('@electron/utils/nativeChildProcess', () => ({
     createDetachedChildProcessSpawnOptions: (options: unknown) => options,

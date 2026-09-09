@@ -1,8 +1,9 @@
-import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type {
+    ComputedRef,
     Ref,
     ShallowRef,
 } from 'vue';
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type {
     IPdfBookmarkEntry,
     IPdfPageLabelRange,
@@ -51,7 +52,6 @@ import type {
 import { useWorkspaceFailureSurface } from '@app/modules/workspace-shell/composables/useWorkspaceFailureSurface';
 import type {
     IPostSaveReloadWaiter,
-    ISaveCompletionPolicy,
     TWorkspaceSaveAbort,
     TWorkspaceSaveExecutionResult,
 } from '@app/modules/workspace-shell/composables/file-operations/workspaceSaveExecutionResult';
@@ -62,25 +62,38 @@ import {
     workingCopySaveResult,
 } from '@app/modules/workspace-shell/composables/file-operations/workspaceSaveExecutionResult';
 import {
+    type IUnencryptedSaveNoticeDependencies,
+    unencryptedSaveNoticeGate,
+} from '@app/modules/workspace-shell/composables/file-operations/unencryptedSaveNoticeGate';
+import {
+    buildSaveTransactionRequest,
     createWorkspaceSavePlan,
-    type IWorkspaceSaveBaseline,
-    type IWorkspaceSaveDirtyState,
+    getSaveFlow,
+    getSaveMode,
+    requiresNativePathBackedSave,
     type IWorkspaceSaveTarget,
     type IWorkspaceSerializedSaveBody,
     type TWorkspaceSavePlan,
     type TWorkspaceSaveRequest,
-} from '@app/modules/workspace-shell/composables/file-operations/workspaceSavePlan';
+} from '@app/modules/workspace-shell/composables/file-operations/workspaceSavePolicy';
 import {
-    buildSaveTransactionRequest,
-    getSaveFlow,
-    getSaveMode,
-    requiresNativePathBackedSave,
-} from '@app/modules/workspace-shell/composables/file-operations/workspaceSaveTransactionRequest';
+    nowMs,
+    timedSavePhase,
+} from '@app/modules/workspace-shell/composables/file-operations/workspaceSaveTiming';
 import {
-    type IUnencryptedSaveNoticeDependencies,
-    unencryptedSaveNoticeGate,
-} from '@app/modules/workspace-shell/composables/file-operations/unencryptedSaveNoticeGate';
-const SLOW_SAVE_PHASE_WARN_MS = 5_000;
+    captureBaseline,
+    collectDirtyState,
+    isSaveAsRequest,
+    resolveOperationKind,
+} from '@app/modules/workspace-shell/composables/file-operations/workspaceSaveState';
+import {
+    completeSuccessfulSaveState,
+    createReloadWaiter,
+    getCompletionBaseline,
+    isTargetCurrent,
+    withReloadWaiter,
+} from '@app/modules/workspace-shell/composables/file-operations/workspaceSaveExecutionSupport';
+
 const SLOW_SAVE_TOTAL_WARN_MS = 10_000;
 const MAX_STALE_REVISION_SAVE_RETRIES = 2;
 
@@ -101,6 +114,9 @@ export interface IWorkspaceSaveDependencies {
     };
     /** UI and persistence hooks for the one-time unencrypted-save warning. */
     unencryptedSaveNotice?: IUnencryptedSaveNoticeDependencies;
+    hasPendingUnsavedChanges?: ComputedRef<boolean>;
+    hasUnsavedChanges?: () => boolean;
+    optimizePdfOnSaveAs?: Ref<boolean>;
     annotations: {
         dirty: Ref<boolean>;
         markSaved: () => void;
@@ -127,7 +143,6 @@ export interface IWorkspaceSaveDependencies {
         commitEditorsForSave?: () => Promise<void>;
         runSaveTransaction: IPdfViewerSaveExpose['runSaveTransaction'];
         getSourceData: () => Promise<Uint8Array | null>;
-        serializeForSave: ((...args: never[]) => Promise<Uint8Array>) | undefined;
     };
     shapes: {
         hasChanges: () => boolean;
@@ -222,62 +237,7 @@ export interface IWorkspaceSaveDependencies {
         kind: TDocumentOperationKind,
         operation: () => Promise<T>,
     ) => Promise<T>;
-    /**
-     * Shared with the rest of the workspace so a save failure and an
-     * annotation failure cannot each invent their own reporting.
-     */
     failureSurface?: TWorkspaceFailureSurface;
-}
-
-function nowMs() {
-    return typeof performance !== 'undefined'
-        ? performance.now()
-        : Date.now();
-}
-
-async function timedSavePhase<T>(
-    phase: string,
-    operation: () => Promise<T>,
-    describeResult?: (result: T) => Record<string, unknown>,
-) {
-    const startedAtMs = nowMs();
-    try {
-        const result = await operation();
-        const durationMs = Math.round(nowMs() - startedAtMs);
-        const data = {
-            ...describeResult?.(result),
-            phase,
-            durationMs,
-        };
-        if (durationMs >= SLOW_SAVE_PHASE_WARN_MS) {
-            BrowserLogger.warn('workspace', 'Slow PDF save phase', data);
-        } else {
-            BrowserLogger.debug('workspace', 'Completed PDF save phase', data);
-        }
-        return result;
-    } catch (error) {
-        BrowserLogger.warn('workspace', 'PDF save phase failed', {
-            error,
-            phase,
-            durationMs: Math.round(nowMs() - startedAtMs),
-        });
-        throw error;
-    }
-}
-
-function isTargetCurrent(plan: TWorkspaceSavePlan, deps: IWorkspaceSaveDependencies) {
-    return deps.document.sessionKey.value === plan.target.expectedDocumentSessionKey
-        && deps.document.originalPath.value === plan.target.expectedOriginalPath
-        && deps.document.workingCopyPath.value === plan.target.expectedWorkingPath;
-}
-
-function createReloadWaiter(
-    body: IWorkspaceSerializedSaveBody,
-    deps: IWorkspaceSaveDependencies,
-) {
-    return body.preserveLoadedSource
-        ? null
-        : deps.lifecycle.preparePostSaveReload?.() ?? null;
 }
 
 async function validateWorkingCopy(
@@ -310,21 +270,12 @@ async function validateWorkingCopy(
     return isTargetCurrent(plan, deps) ? null : 'document-changed';
 }
 
-async function restorePreparedShapeState(
-    snapshot: unknown,
-    deps: IWorkspaceSaveDependencies,
-) {
-    if (snapshot) {
-        await deps.shapes.restorePreparedState?.(snapshot);
-    }
-}
-
 async function executeWorkingCopySave(
     plan: Extract<TWorkspaceSavePlan, {kind: 'serialized'}>,
     deps: IWorkspaceSaveDependencies,
 ): Promise<TWorkspaceSaveExecutionResult> {
     const reloadWaiter = createReloadWaiter(plan.body, deps);
-    try {
+    return withReloadWaiter(reloadWaiter, async () => {
         const validationFailure = await validateWorkingCopy(plan, deps);
         if (validationFailure) {
             return notSavedBeforeWrite(validationFailure, plan.target.expectedRevisionToken, reloadWaiter);
@@ -349,10 +300,7 @@ async function executeWorkingCopySave(
                 () => deps.persistence.saveWorkingCopy(opts),
             );
         return workingCopySaveResult(persisted, reloadWaiter);
-    } catch (error) {
-        reloadWaiter?.cancel();
-        throw error;
-    }
+    });
 }
 
 async function executeNativeWorkingCopySave(
@@ -360,7 +308,7 @@ async function executeNativeWorkingCopySave(
     deps: IWorkspaceSaveDependencies,
 ): Promise<TWorkspaceSaveExecutionResult> {
     const reloadWaiter = deps.lifecycle.preparePostSaveReload?.() ?? null;
-    try {
+    return withReloadWaiter(reloadWaiter, async () => {
         if (
             !plan.target.expectedWorkingPath
             || !isTargetCurrent(plan, deps)
@@ -382,10 +330,7 @@ async function executeNativeWorkingCopySave(
             }),
         );
         return workingCopySaveResult(persisted, reloadWaiter);
-    } catch (error) {
-        reloadWaiter?.cancel();
-        throw error;
-    }
+    });
 }
 
 async function executeSerializedBytesSave(
@@ -501,7 +446,9 @@ async function executeSerializedBytesSave(
                 : {}),
         };
     } finally {
-        await restorePreparedShapeState(preparedShapeStateSnapshot, deps);
+        if (preparedShapeStateSnapshot) {
+            await deps.shapes.restorePreparedState?.(preparedShapeStateSnapshot);
+        }
     }
 }
 
@@ -622,9 +569,6 @@ async function executeNativeMutationSave(
         return notSavedBeforeWrite('native-save-required', plan.target.expectedRevisionToken, null);
     }
 
-    // The projection keeps placed-image geometry beside the generic mutation
-    // map. Persistence owns the final payload, including the empty-payload
-    // guard below.
     const placedImageGeometryUpdates = projection.placedImageGeometryUpdates ?? [];
     const nativeMutations = placedImageGeometryUpdates.length > 0
         && projection.mutations.placedImageGeometryUpdates === undefined
@@ -710,7 +654,6 @@ async function executeNativeMutationSave(
         }
         return notSavedAfterWrite(abortReasonForPersistResult(persisted), null);
     }
-
     const materializedIdentityBindings = persisted.materializedIdentityBindings;
     if (plan.request.kind === 'save-as' && !persisted.didSaveAs) {
         const saveAsPersisted = await timedSavePhase(
@@ -727,7 +670,6 @@ async function executeNativeMutationSave(
         }
         persisted = saveAsPersisted;
     }
-
     let preparedShapeStateSnapshot: unknown = null;
     let canMarkShapeStateSaved = !projection.hasShapeMutations;
     if (projection.hasShapeMutations) {
@@ -757,7 +699,6 @@ async function executeNativeMutationSave(
     saveTransaction.commitAnnotationSave?.(
         persisted.materializedIdentityBindings ?? materializedIdentityBindings,
     );
-
     const expectedWorkingPath = persisted.didSaveAs ? deps.document.workingCopyPath.value : plan.target.expectedWorkingPath;
     // Native persistence advances the document revision after publication. The
     // parse belongs to that committed revision, not the pre-write plan token.
@@ -804,7 +745,7 @@ async function executeOptimizationSave(
     deps: IWorkspaceSaveDependencies,
 ): Promise<TWorkspaceSaveExecutionResult> {
     const reloadWaiter = deps.lifecycle.preparePostSaveReload?.() ?? null;
-    try {
+    return withReloadWaiter(reloadWaiter, async () => {
         const validationFailure = await validateWorkingCopy(plan, deps);
         if (validationFailure) {
             return notSavedBeforeWrite(validationFailure, plan.target.expectedRevisionToken, reloadWaiter);
@@ -826,10 +767,7 @@ async function executeOptimizationSave(
             ),
         );
         return workingCopySaveResult(persisted, reloadWaiter);
-    } catch (error) {
-        reloadWaiter?.cancel();
-        throw error;
-    }
+    });
 }
 
 async function executeSavePlan(
@@ -874,62 +812,6 @@ async function executeSavePlan(
     }
 }
 
-function getCompletionBaseline(
-    plan: TWorkspaceSavePlan,
-    result: Extract<TWorkspaceSaveExecutionResult, {status: 'saved'}>,
-    deps: IWorkspaceSaveDependencies,
-) {
-    if (result.annotationMaterializationBaseline === undefined) {
-        result.commitAnnotationSave?.(result.persisted.materializedIdentityBindings);
-        return plan.baseline;
-    }
-
-    const saveFrontierIsStillCurrent = !deps.annotations.getSaveStateToken
-        || Object.is(
-            deps.annotations.getSaveStateToken(),
-            result.annotationMaterializationBaseline,
-        );
-    result.commitAnnotationSave?.(result.persisted.materializedIdentityBindings);
-    return {
-        ...plan.baseline,
-        annotations: saveFrontierIsStillCurrent
-            ? deps.annotations.getSaveStateToken?.()
-            : result.annotationMaterializationBaseline,
-    };
-}
-
-function completeSuccessfulSaveState(
-    baseline: IWorkspaceSaveBaseline,
-    policy: ISaveCompletionPolicy,
-    deps: IWorkspaceSaveDependencies,
-    preparedShapeState?: unknown,
-) {
-    const annotationUnchanged = !deps.annotations.getSaveStateToken
-        || Object.is(deps.annotations.getSaveStateToken(), baseline.annotations);
-    if (annotationUnchanged || policy.allowAnnotationSaveStateRefresh === true) {
-        deps.annotations.markSaved();
-    }
-
-    const pageLabelsUnchanged = !deps.metadata.getPageLabelsSaveStateToken
-        || Object.is(deps.metadata.getPageLabelsSaveStateToken(), baseline.pageLabels);
-    if (pageLabelsUnchanged || policy.allowPageLabelsSaveStateRefresh === true) {
-        deps.metadata.markPageLabelsSaved();
-    }
-
-    const bookmarksUnchanged = !deps.metadata.getBookmarksSaveStateToken
-        || Object.is(deps.metadata.getBookmarksSaveStateToken(), baseline.bookmarks);
-    if (bookmarksUnchanged || policy.allowBookmarksSaveStateRefresh === true) {
-        deps.metadata.markBookmarksSaved();
-    }
-
-    if (policy.markShapeStateSaved) {
-        // The prepared token names the store and save frontier this save primed.
-        // Passing it makes the clean mark refusable when a replacement store
-        // now owns the viewer.
-        deps.shapes.markSaved?.(preparedShapeState);
-    }
-}
-
 async function completeWorkspaceSave(
     plan: TWorkspaceSavePlan | null,
     result: TWorkspaceSaveExecutionResult,
@@ -962,42 +844,6 @@ async function completeWorkspaceSave(
         deps.lifecycle.loadRecentFiles();
     }
     return true;
-}
-
-function collectDirtyState(deps: IWorkspaceSaveDependencies): IWorkspaceSaveDirtyState {
-    return {
-        annotationDirty: deps.annotations.dirty.value,
-        annotationChanges: deps.annotations.hasChanges(),
-        bookmarks: deps.metadata.bookmarksDirty.value,
-        pageLabels: deps.metadata.pageLabelsDirty.value,
-        pendingDeletes: deps.annotations.hasPendingDeletes?.() ?? false,
-        shapes: deps.shapes.hasChanges(),
-    };
-}
-
-function captureBaseline(deps: IWorkspaceSaveDependencies): IWorkspaceSaveBaseline {
-    return {
-        annotations: deps.annotations.getSaveStateToken?.(),
-        pageLabels: deps.metadata.getPageLabelsSaveStateToken?.(),
-        bookmarks: deps.metadata.getBookmarksSaveStateToken?.(),
-    };
-}
-
-function resolveOperationKind(request: TWorkspaceSaveRequest): TDocumentOperationKind {
-    if (request.kind === 'save-as') {
-        return 'save-as';
-    }
-    if (request.kind === 'repair') {
-        return 'repair-save';
-    }
-    if (request.kind === 'optimize' || request.kind === 'optimize-copy') {
-        return 'optimize-pdf';
-    }
-    return 'save';
-}
-
-function isSaveAsRequest(request: TWorkspaceSaveRequest) {
-    return request.kind === 'save-as' || request.kind === 'optimize-copy';
 }
 
 export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
@@ -1275,23 +1121,52 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
         return result;
     }
 
+    const canSave = computed(() => deps.hasPendingUnsavedChanges?.value ?? (
+        deps.hasUnsavedChanges?.() ?? (
+            deps.annotations.dirty.value
+            || deps.annotations.hasChanges()
+            || deps.metadata.pageLabelsDirty.value
+            || deps.metadata.bookmarksDirty.value
+            || deps.shapes.hasChanges()
+        )
+    ));
+    const isAnySaving = computed(() => deps.status.isSaving.value || deps.status.isSavingAs.value);
+    const saveIfDirty = () => (
+        deps.hasPendingUnsavedChanges || deps.hasUnsavedChanges
+            ? canSave.value ? save({kind: 'save'}) : Promise.resolve(true)
+            : save({kind: 'save'})
+    );
+
     return {
         save,
         hasSaveFailure: failureSurface.hasSaveFailure,
-        handleSave: () => save({kind: 'save'}),
-        handleSaveAs: (optimizeLossless = false) => save({
+        canSave,
+        isAnySaving,
+        handleSave: saveIfDirty,
+        handleSaveAs: (optimizeLossless = deps.optimizePdfOnSaveAs?.value === true) => save({
             kind: 'save-as',
             optimizeLossless,
         }),
         handleRepairSave: () => save({kind: 'repair'}),
-        handleOptimizePdfForInteraction: () => save({kind: 'optimize'}),
+        handleOptimizePdfForInteraction: async () => {
+            if (canSave.value && !await saveIfDirty()) {
+                return false;
+            }
+            return save({kind: 'optimize'});
+        },
         handleOptimizePdfAsCopy: (
             options: IPdfOptimizeOptions,
             requestId?: TRequestId,
-        ) => save({
-            kind: 'optimize-copy',
-            options,
-            ...(requestId === undefined ? {} : {requestId}),
-        }),
+        ) => canSave.value
+            ? saveIfDirty().then(saved => saved ? save({
+                kind: 'optimize-copy',
+                options,
+                ...(requestId === undefined ? {} : {requestId}),
+            }) : false)
+            : save({
+                kind: 'optimize-copy',
+                options,
+                ...(requestId === undefined ? {} : {requestId}),
+            }),
     };
 };

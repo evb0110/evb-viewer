@@ -482,31 +482,26 @@ describe('sessionManager automation launch args', () => {
             EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: '0',
         });
     });
-
     it('requires a dockless bundle for every hidden macOS launch', () => {
         expect(shouldUseMacOSHiddenAppLauncher({
             EVB_AUTOMATION_HIDE_WINDOW: '1',
             EVB_AUTOMATION_NO_FOCUS: '1',
         }, 'darwin')).toBe(true);
-
         expect(shouldUseMacOSHiddenAppLauncher({
             EVB_AUTOMATION_HIDE_WINDOW: '1',
             EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: '0',
         }, 'darwin')).toBe(true);
-
         expect(shouldUseMacOSHiddenAppLauncher({
             EVB_AUTOMATION_HIDE_WINDOW: '1',
             EVB_AUTOMATION_NO_FOCUS: '1',
             EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: '1',
         }, 'darwin')).toBe(true);
-
         expect(shouldUseMacOSHiddenAppLauncher({
             EVB_AUTOMATION_HIDE_WINDOW: '1',
             EVB_AUTOMATION_NO_FOCUS: '1',
             EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: '1',
         }, 'linux')).toBe(false);
     });
-
     it('bootstraps canonical dev recents only for the visible default session', () => {
         expect(shouldBootstrapInteractiveDevProfile({
             env: {},

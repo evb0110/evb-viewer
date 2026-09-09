@@ -14,6 +14,7 @@ import {
 } from 'vue';
 import type { Component } from 'vue';
 import type { TSplitPayload } from '@contracts/windowTabs';
+import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import { requireDocumentRef } from '@contracts/documentRef';
 
 const mocks = vi.hoisted(() => ({
@@ -66,7 +67,29 @@ describe('useDocumentWorkspaceSplitRestore', () => {
         mocks.cleanupSplitPayloadSnapshot.mockResolvedValue(true);
     });
 
-    it('consumes and cleans up cached snapshot payloads after restore failure', async () => {
+    it.each([
+        {status: 'cancelled' as const},
+        {
+            status: 'failed' as const,
+            error: 'restore failed',
+        },
+        {
+            status: 'stale' as const,
+            result: {
+                kind: 'pdf',
+                workingPath: requireDocumentRef('/tmp/split-snapshot.pdf'),
+                originalPath: requireDocumentRef('/tmp/sample.pdf'),
+            },
+        },
+        {
+            status: 'prepared' as const,
+            result: {
+                kind: 'pdf',
+                workingPath: requireDocumentRef('/tmp/split-snapshot.pdf'),
+                originalPath: requireDocumentRef('/tmp/sample.pdf'),
+            },
+        },
+    ])('retains a cached snapshot after a $status restore outcome', async (outcome) => {
         const payload: TSplitPayload = {
             kind: 'pdfSnapshot',
             fileName: 'sample.pdf',
@@ -90,9 +113,7 @@ describe('useDocumentWorkspaceSplitRestore', () => {
             clear: vi.fn(),
             set: vi.fn(),
         };
-        const restoreSplitPayload = vi.fn(async () => {
-            throw new Error('restore failed');
-        });
+        const restoreSplitPayload = Object.assign(vi.fn(async (): Promise<TDocumentOpenOutcome> => outcome as TDocumentOpenOutcome), {lastOutcome: outcome});
         const { useDocumentWorkspaceSplitRestore } = await import(
             '@app/modules/workspace-shell/composables/useDocumentWorkspaceSplitRestore'
         );
@@ -135,15 +156,8 @@ describe('useDocumentWorkspaceSplitRestore', () => {
         app.unmount();
 
         expect(restoreSplitPayload).toHaveBeenCalledWith(payload);
-        expect(workspaceSplitCache.consume).toHaveBeenCalledWith('tab-1', 'entry-1');
-        expect(mocks.cleanupSplitPayloadSnapshot).toHaveBeenCalledWith(payload, {
-            logSection: 'workspace',
-            context: 'failed-cached-split-restore',
-            metadata: {
-                tabId: 'tab-1',
-                payloadKind: 'pdfSnapshot',
-            },
-        });
+        expect(workspaceSplitCache.consume).not.toHaveBeenCalled();
+        expect(mocks.cleanupSplitPayloadSnapshot).not.toHaveBeenCalled();
     });
 
     it('preseeds DjVu cached payload paging before restore', async () => {
@@ -169,7 +183,14 @@ describe('useDocumentWorkspaceSplitRestore', () => {
             clear: vi.fn(),
             set: vi.fn(),
         };
-        const restoreSplitPayload = vi.fn(async () => {});
+        const restoreSplitPayload = vi.fn(async () => ({
+            status: 'opened' as const,
+            result: {
+                kind: 'djvu' as const,
+                workingPath: '' as const,
+                originalPath: payload.sourcePath,
+            },
+        }));
         const { useDocumentWorkspaceSplitRestore } = await import(
             '@app/modules/workspace-shell/composables/useDocumentWorkspaceSplitRestore'
         );

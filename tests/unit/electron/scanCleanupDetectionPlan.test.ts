@@ -9,7 +9,7 @@ import {
     shouldRetryMediaBoxPage,
     resolvePreviewProcessingDpi,
     resolvePreviewRasterPlan,
-} from '@scan-cleanup-core/detection';
+} from '@evb/scan-cleanup/core/detection';
 import type {IScanCleanupDetectionResult} from '@contracts/electronApiScanCleanup';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import type {
@@ -17,7 +17,7 @@ import type {
     INativeScanCleanupSplitDiagnosticsV3,
     TNativeScanCleanupProgressV3,
 } from '@contracts/scan-cleanup/nativeProtocolV3';
-import type {IPdfPageSize} from '@scan-cleanup-core/types';
+import type {IPdfPageSize} from '@evb/scan-cleanup/core/types';
 
 function cropPage(
     pageNumber: number,

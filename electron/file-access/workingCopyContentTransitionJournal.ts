@@ -20,7 +20,7 @@ import {
     linkOrCopyFileDurably,
     writeFileAtomic,
 } from '@electron/file-access/documentFileWriteAtomic';
-import {getCompactSearchIndexPath} from '@electron/search/searchIndexSidecar';
+import {getNativeCompactSearchIndexPath as getCompactSearchIndexPath} from '@electron/features/search/publicNative';
 import {
     OCR_CATALOG_VERSION,
     parseOcrCatalogRootV4,

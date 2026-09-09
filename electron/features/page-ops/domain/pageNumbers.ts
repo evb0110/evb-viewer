@@ -3,7 +3,7 @@ import type {
     IPageMoveRange,
     IPageMoveRangeSegment,
     IPageMoveRanges,
-} from '@contracts/pageNumbers';
+} from '@pdf-core/pdfPageSelection';
 import {
     createPageMoveRange,
     createPageMoveRanges,
@@ -13,13 +13,13 @@ import {
     isPageMoveRangesNoOp,
     pageMoveRangeLength,
     pageMoveRestInsertIndex,
-} from '@contracts/pageNumbers';
+} from '@pdf-core/pdfPageSelection';
 import {stringifyJson} from '@contracts/stringifyJson';
 
-export type { IPageMoveRange } from '@contracts/pageNumbers';
+export type { IPageMoveRange } from '@pdf-core/pdfPageSelection';
 export type {
     IPageMoveRangeSegment, IPageMoveRanges,
-} from '@contracts/pageNumbers';
+} from '@pdf-core/pdfPageSelection';
 
 export {
     createPageMoveRange,

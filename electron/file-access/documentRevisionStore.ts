@@ -48,7 +48,7 @@ import {
 import { isWorkingCopyDirectoryName } from '@electron/file-access/workingCopyDirectory';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 import { clearWorkingCopyOcrArtifacts } from '@electron/file-access/workingCopyMutationQueue';
-import {recoverPreparedOcrRevisionTransition} from '@electron/ocr/recoverPreparedOcrRevisionTransition';
+import {recoverPreparedOcrRevisionTransition} from '@electron/features/ocr/public/recovery';
 import {
     completeWorkingCopyContentTransition,
     prepareWorkingCopyContentTransition,

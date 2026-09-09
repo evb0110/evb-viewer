@@ -9,7 +9,7 @@ import {
     ref,
     shallowRef,
 } from 'vue';
-import { requireDocumentRevisionToken } from '@contracts';
+import { requireDocumentRevisionToken } from '@contracts/documentRevision';
 import { requirePageIndex } from '@contracts/pageNumbers';
 import type {
     IPdfViewerSaveTransactionRequest,

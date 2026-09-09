@@ -33,7 +33,7 @@ import {
     type ITypedStagedArtifact,
 } from '@contracts/stagedArtifacts';
 import type * as SerializedPdfPersistenceModule from '@electron/features/documents/main/serializedPdfPersistence';
-import {requireDocumentRevisionToken} from '@contracts';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 
 type TSerializedPdfPersistenceModule = typeof SerializedPdfPersistenceModule;
 

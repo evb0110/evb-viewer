@@ -68,10 +68,10 @@ vi.mock('node:fs/promises', () => ({
     stat: vi.fn(async () => ({size: 1})),
     writeFile: vi.fn(),
 }));
-vi.mock('@electron/search/extractTextWithPdfjs', () => ({extractTextWithPdfjsWordBoxes: vi.fn(async () => mixedEmbeddedTextPages)}));
+vi.mock('@electron/features/search/loadPdfjsTextExtractor', () => ({loadPdfjsTextExtractor: async () => ({extractTextWithPdfjsWordBoxes: vi.fn(async () => mixedEmbeddedTextPages)})}));
 vi.mock('@electron/file-access/documentRevisionSidecar', () => ({assertWorkingCopyRevisionSidecarCurrent: vi.fn(async () => undefined)}));
 
-const {resolveDocumentTextCatalogSnapshot} = await import('@electron/ocr/documentTextCatalog');
+const {resolveDocumentTextCatalogSnapshot} = await import('@electron/features/ocr/main/documentTextCatalog');
 
 describe('mixed native/scanned/foreign/EVB OCR corpus', () => {
     it('selects exactly one canonical source per text-bearing page', async () => {

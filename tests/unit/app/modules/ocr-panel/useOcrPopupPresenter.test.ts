@@ -25,7 +25,7 @@ import type {
     IOcrUiProgress,
 } from '@app/utils/ocr/ocrTypes';
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
-import {requireDocumentRevisionToken} from '@contracts';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 
 const useOcrMock = vi.hoisted(() => vi.fn());
 const copyClipboardTextMock = vi.hoisted(() => vi.fn());

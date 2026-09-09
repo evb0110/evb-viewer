@@ -26,7 +26,7 @@ const observations = vi.hoisted(() => ({
     shutdowns: 0,
 }));
 
-vi.mock('@electron/features/agent/codexAssistant', () => {
+vi.mock('@electron/features/agent/assistantService', () => {
     observations.moduleEvaluations += 1;
     return {
         initializeAgentAssistantRuntime: () => { observations.runtimeInitializations += 1; },

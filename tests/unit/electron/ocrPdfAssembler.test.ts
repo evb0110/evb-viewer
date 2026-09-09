@@ -38,8 +38,8 @@ import {
     OcrGeneratedPageArtifactLimitError,
     sanitizeOcrContentStreamForEmbedding,
     stripTesseractImageLayer,
-} from '@electron/ocr/worker/pdfAssembler';
-import { createPdfjsNodeDocumentOptions } from '@electron/search/createPdfjsNodeDocumentOptions';
+} from '@electron/features/ocr/worker/pdfAssembler';
+import { createPdfjsNodeDocumentOptions } from '@electron/features/search/public';
 import { resolveTestQpdfBinary } from '@tests/helpers/resolveTestQpdfBinary';
 import {adaptPdfjsDocument} from '@app/services/pdfjs/pdfjsCompatibility';
 

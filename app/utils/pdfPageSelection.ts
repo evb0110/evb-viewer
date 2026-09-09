@@ -1,12 +1,12 @@
 import { uniq } from 'es-toolkit/array';
 import { range as createRange } from 'es-toolkit/math';
 import type { IPdfPageRange } from '@app/types/pdfUi';
-import type { TPageSelection } from '@contracts/pageNumbers';
+import type { TPageSelection } from '@pdf-core/pdfPageSelection';
 import {
     createExplicitPageSelection as createCompactExplicitPageSelection,
     createRangePageSelection as createCompactRangePageSelection,
     isPageSelected as isPageInSelection,
-} from '@contracts/pageNumbers';
+} from '@pdf-core/pdfPageSelection';
 export type {
     IAllPageSelection,
     IComplementPageSelection,
@@ -22,7 +22,7 @@ export type {
     TPageSelection,
     TPageMoveOperation,
     TPageSelectionPredicate,
-} from '@contracts/pageNumbers';
+} from '@pdf-core/pdfPageSelection';
 export {
     buildPageMoveOrder,
     buildPageMoveRangesOrder,
@@ -53,7 +53,7 @@ export {
     pageMoveRestInsertIndex,
     pageSelectionCount,
     togglePageSelection,
-} from '@contracts/pageNumbers';
+} from '@pdf-core/pdfPageSelection';
 
 export interface IPageThumbnailClickModifiers {
     shiftKey?: boolean;

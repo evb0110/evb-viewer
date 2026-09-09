@@ -13,7 +13,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import {extractPdfMrcLayersBatch} from '@scan-cleanup-adapters/extractPdfMrcLayers';
+import {extractPdfMrcLayersBatch} from '@evb/scan-cleanup/adapters/extractPdfMrcLayers';
 import type {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
 
 const scratchDirectories: string[] = [];

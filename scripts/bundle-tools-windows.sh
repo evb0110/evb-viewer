@@ -35,15 +35,9 @@ DJVU_DIR="$RESOURCES_DIR/djvulibre/$PLATFORM_ARCH"
 # ==========================================
 TESSERACT_TAG="v5.4.0.20240606"
 TESSERACT_INSTALLER="tesseract-ocr-w64-setup-5.4.0.20240606.exe"
-# Field reports on Win x64 show access-violation crashes in Poppler 25.12.0
-# for some PDFs. Pin to a known stable release while we investigate upstream.
-POPPLER_VERSION="${POPPLER_VERSION_OVERRIDE:-24.08.0}"
-QPDF_VERSION="12.3.2"
 DJVULIBRE_INSTALLER="DjVuLibre-3.5.28_DjView-4.12_Setup.exe"
 DJVULIBRE_SF_PATH="DjVuLibre_Windows/3.5.28%2B4.12"
 TESSERACT_SHA256="c885fff6998e0608ba4bb8ab51436e1c6775c2bafc2559a19b423e18678b60c9"
-POPPLER_SHA256="58a6f9ae269756231d2f9aa6cba39d75fec6deacaf3c4a50683383b5f3d5a527"
-QPDF_SHA256="8941870a604e7c87ed24566b038d46c24ce76616254d2383c578f60c0677f202"
 DJVULIBRE_SHA256="16c0a63926d0380280f35c8d9570efe01032c03c262ba61aa72a341b8cb58469"
 
 # ==========================================
@@ -114,6 +108,15 @@ require_file() {
   local path="$1"
   local label="$2"
   if [ ! -f "$path" ]; then
+    echo "Error: Missing $label at $path"
+    exit 1
+  fi
+}
+
+require_directory() {
+  local path="$1"
+  local label="$2"
+  if [ ! -d "$path" ]; then
     echo "Error: Missing $label at $path"
     exit 1
   fi
@@ -466,47 +469,78 @@ echo "  Tesseract: $(ls "$TESSERACT_DIR/bin/"*.exe 2>/dev/null | wc -l) exe, $(l
 # ==========================================
 echo ""
 echo "=========================================="
-echo "2. Bundling Poppler ${POPPLER_VERSION}..."
+echo "2. Bundling Poppler from the verified runtime manifest..."
 echo "=========================================="
 
 POPPLER_DIR="$RESOURCES_DIR/poppler/$PLATFORM_ARCH"
 clean_dir "$POPPLER_DIR"
 mkdir -p "$POPPLER_DIR/bin"
 
-POPPLER_URL="https://github.com/oschwartz10612/poppler-windows/releases/download/v${POPPLER_VERSION}-0/Release-${POPPLER_VERSION}-0.zip"
-download "$POPPLER_URL" "$TEMP_DIR/poppler.zip" "poppler-${POPPLER_VERSION}.zip" "$POPPLER_SHA256"
-
-echo "  Extracting..."
-unzip -qo "$TEMP_DIR/poppler.zip" -d "$TEMP_DIR/poppler"
-
-POPPLER_PDFTOPPM="$(find "$TEMP_DIR/poppler" -name 'pdftoppm.exe' -print -quit)"
-if [ -z "$POPPLER_PDFTOPPM" ]; then
-  echo "Error: Failed to locate extracted pdftoppm.exe"
+if ! command -v cygpath >/dev/null 2>&1; then
+  echo "Error: cygpath is required to pass the Git Bash cache path to the Windows Node runtime"
   exit 1
 fi
-POPPLER_BIN="$(dirname "$POPPLER_PDFTOPPM")"
+POPPLER_CACHE_DIR_FOR_NODE="$(cygpath -w "$CACHE_DIR")"
+# The retry helper writes retry notices to stdout. Keep only the final CLI path
+# so a retry cannot turn the archive filename into a malformed shell value.
+POPPLER_ARCHIVE_WINDOWS="$("$SCRIPT_DIR/release/run-with-retries.sh" 5 10 "Windows Poppler archive download" \
+  node --import tsx "$SCRIPT_DIR/runRuntimeBinaryArchiveCli.ts" fetch poppler "$PLATFORM_ARCH" "$POPPLER_CACHE_DIR_FOR_NODE" \
+  | tail -n 1)"
+POPPLER_ARCHIVE="$(cygpath -u "$POPPLER_ARCHIVE_WINDOWS")"
+POPPLER_MEMBER_PATHS_FILE="$TEMP_DIR/poppler-members.paths"
+node --import tsx "$SCRIPT_DIR/runRuntimeBinaryArchiveCli.ts" verify-members poppler "$POPPLER_ARCHIVE_WINDOWS" paths > "$POPPLER_MEMBER_PATHS_FILE"
+
+echo "  Extracting..."
+unzip -qo "$POPPLER_ARCHIVE" -d "$TEMP_DIR/poppler"
+
+POPPLER_EXE_RELATIVE="$(sed -n '1p' "$POPPLER_MEMBER_PATHS_FILE")"
+if [ -z "$POPPLER_EXE_RELATIVE" ]; then
+  echo "Error: Verified Poppler member list did not return an executable"
+  exit 1
+fi
+POPPLER_BIN="$(dirname "$TEMP_DIR/poppler/$POPPLER_EXE_RELATIVE")"
 POPPLER_ROOT="$(dirname "$(dirname "$POPPLER_BIN")")"
 
 echo "  Copying binaries and DLLs..."
-for tool in pdfinfo.exe pdftoppm.exe pdftotext.exe pdfimages.exe pdftocairo.exe; do
-  copy_required_tool "$POPPLER_BIN/$tool" "$POPPLER_DIR/bin" "$tool"
-done
-# Copy all DLLs
-find "$(dirname "$POPPLER_BIN")" -name '*.dll' -exec cp {} "$POPPLER_DIR/bin/" \; 2>/dev/null || true
-# Also check directly in bin dir
-cp "$POPPLER_BIN/"*.dll "$POPPLER_DIR/bin/" 2>/dev/null || true
+POPPLER_EXE_MEMBER_PATHS_FILE="$TEMP_DIR/poppler-exe-members.paths"
+if ! awk 'tolower($0) ~ /\.exe$/ {print}' "$POPPLER_MEMBER_PATHS_FILE" > "$POPPLER_EXE_MEMBER_PATHS_FILE"; then
+  echo "Error: Failed to read validated Poppler executable member paths"
+  exit 1
+fi
+while IFS= read -r executable_entry; do
+  copy_required_tool "$TEMP_DIR/poppler/$executable_entry" "$POPPLER_DIR/bin" "$(basename "$executable_entry")"
+done < "$POPPLER_EXE_MEMBER_PATHS_FILE"
+POPPLER_DLL_MEMBER_PATHS_FILE="$TEMP_DIR/poppler-dll-members.paths"
+if ! awk 'tolower($0) ~ /\.dll$/ {print}' "$POPPLER_MEMBER_PATHS_FILE" > "$POPPLER_DLL_MEMBER_PATHS_FILE"; then
+  echo "Error: Failed to read validated Poppler DLL member paths"
+  exit 1
+fi
+while IFS= read -r dll_entry; do
+  copy_required_tool "$TEMP_DIR/poppler/$dll_entry" "$POPPLER_DIR/bin" "$(basename "$dll_entry")"
+done < "$POPPLER_DLL_MEMBER_PATHS_FILE"
+POPPLER_EXPECTED_EXE_COUNT="$(awk 'END {print NR}' "$POPPLER_EXE_MEMBER_PATHS_FILE")"
+POPPLER_COPIED_EXE_COUNT="$(find "$POPPLER_DIR/bin" -maxdepth 1 -type f -iname '*.exe' | wc -l)"
+if [ "$POPPLER_EXPECTED_EXE_COUNT" -eq 0 ] || [ "$POPPLER_COPIED_EXE_COUNT" -ne "$POPPLER_EXPECTED_EXE_COUNT" ]; then
+  echo "Error: Copied $POPPLER_COPIED_EXE_COUNT Poppler executables, expected $POPPLER_EXPECTED_EXE_COUNT"
+  exit 1
+fi
 # The five shipped Poppler CLI tools use poppler.dll directly and never import
 # the optional GLib binding. Upstream includes poppler-glib.dll without its GLib
 # runtime closure, so retaining it creates an unusable orphan and needlessly
 # expands the package. Keep the CLI closure minimal and independently valid.
 rm -f "$POPPLER_DIR/bin/poppler-glib.dll"
+POPPLER_EXPECTED_DLL_COUNT="$(awk 'END {print NR}' "$POPPLER_DLL_MEMBER_PATHS_FILE")"
+POPPLER_COPIED_DLL_COUNT="$(find "$POPPLER_DIR/bin" -maxdepth 1 -type f -iname '*.dll' | wc -l)"
+if [ "$POPPLER_EXPECTED_DLL_COUNT" -eq 0 ] || [ "$POPPLER_COPIED_DLL_COUNT" -ne "$POPPLER_EXPECTED_DLL_COUNT" ]; then
+  echo "Error: Copied $POPPLER_COPIED_DLL_COUNT Poppler DLLs, expected $POPPLER_EXPECTED_DLL_COUNT"
+  exit 1
+fi
 
 # Poppler on Windows also relies on runtime data/config directories.
 # Without these, pdftoppm can crash on some PDFs with access violations.
-if [ -d "$POPPLER_ROOT/share/poppler" ]; then
-  mkdir -p "$POPPLER_DIR/share"
-  cp -R "$POPPLER_ROOT/share/poppler" "$POPPLER_DIR/share/"
-fi
+require_directory "$POPPLER_ROOT/share/poppler" "Poppler data directory from the verified archive"
+mkdir -p "$POPPLER_DIR/share"
+cp -R "$POPPLER_ROOT/share/poppler" "$POPPLER_DIR/share/"
 
 if [ -d "$POPPLER_ROOT/Library/etc/fonts" ]; then
   mkdir -p "$POPPLER_DIR/etc"
@@ -523,28 +557,49 @@ echo "  Poppler: $(ls "$POPPLER_DIR/bin/"*.exe 2>/dev/null | wc -l) exe, $(ls "$
 # ==========================================
 echo ""
 echo "=========================================="
-echo "3. Bundling qpdf v${QPDF_VERSION}..."
+echo "3. Bundling qpdf from the verified runtime manifest..."
 echo "=========================================="
 
 QPDF_DIR="$RESOURCES_DIR/qpdf/$PLATFORM_ARCH"
 clean_dir "$QPDF_DIR/bin"
 
-QPDF_URL="https://github.com/qpdf/qpdf/releases/download/v${QPDF_VERSION}/qpdf-${QPDF_VERSION}-msvc64.zip"
-download "$QPDF_URL" "$TEMP_DIR/qpdf.zip" "qpdf-${QPDF_VERSION}.zip" "$QPDF_SHA256"
-
-echo "  Extracting..."
-unzip -qo "$TEMP_DIR/qpdf.zip" -d "$TEMP_DIR/qpdf"
-
-QPDF_EXE="$(find "$TEMP_DIR/qpdf" -name 'qpdf.exe' -print -quit)"
-if [ -z "$QPDF_EXE" ]; then
-  echo "Error: Failed to locate extracted qpdf.exe"
+if ! command -v cygpath >/dev/null 2>&1; then
+  echo "Error: cygpath is required to pass the Git Bash cache path to the Windows Node runtime"
   exit 1
 fi
-QPDF_BIN="$(dirname "$QPDF_EXE")"
+QPDF_CACHE_DIR_FOR_NODE="$(cygpath -w "$CACHE_DIR")"
+# The retry helper writes retry notices to stdout. Keep only the final CLI path
+# so a retry cannot turn the archive filename into a malformed shell value.
+QPDF_ARCHIVE_WINDOWS="$("$SCRIPT_DIR/release/run-with-retries.sh" 5 10 "Windows qpdf archive download" \
+  node --import tsx "$SCRIPT_DIR/runRuntimeBinaryArchiveCli.ts" fetch qpdf "$PLATFORM_ARCH" "$QPDF_CACHE_DIR_FOR_NODE" \
+  | tail -n 1)"
+QPDF_ARCHIVE="$(cygpath -u "$QPDF_ARCHIVE_WINDOWS")"
+QPDF_MEMBER_PATHS_FILE="$TEMP_DIR/qpdf-members.paths"
+node --import tsx "$SCRIPT_DIR/runRuntimeBinaryArchiveCli.ts" verify-members "$QPDF_ARCHIVE_WINDOWS" paths > "$QPDF_MEMBER_PATHS_FILE"
+
+echo "  Extracting..."
+unzip -qo "$QPDF_ARCHIVE" -d "$TEMP_DIR/qpdf"
+
+QPDF_EXE_RELATIVE="$(sed -n '1p' "$QPDF_MEMBER_PATHS_FILE")"
+QPDF_EXE="$TEMP_DIR/qpdf/$QPDF_EXE_RELATIVE"
+require_file "$QPDF_EXE" "qpdf.exe from the verified qpdf archive"
 
 echo "  Copying binaries and DLLs..."
-copy_required_tool "$QPDF_BIN/qpdf.exe" "$QPDF_DIR/bin" "qpdf.exe"
-cp "$QPDF_BIN/"*.dll "$QPDF_DIR/bin/" 2>/dev/null || true
+copy_required_tool "$QPDF_EXE" "$QPDF_DIR/bin" "qpdf.exe"
+QPDF_DLL_MEMBER_PATHS_FILE="$TEMP_DIR/qpdf-dll-members.paths"
+if ! tail -n +2 "$QPDF_MEMBER_PATHS_FILE" > "$QPDF_DLL_MEMBER_PATHS_FILE"; then
+  echo "Error: Failed to read validated qpdf DLL member paths"
+  exit 1
+fi
+while IFS= read -r dll_entry; do
+  copy_required_tool "$TEMP_DIR/qpdf/$dll_entry" "$QPDF_DIR/bin" "$(basename "$dll_entry")"
+done < "$QPDF_DLL_MEMBER_PATHS_FILE"
+QPDF_EXPECTED_DLL_COUNT="$(awk 'END {print NR}' "$QPDF_DLL_MEMBER_PATHS_FILE")"
+QPDF_COPIED_DLL_COUNT="$(find "$QPDF_DIR/bin" -maxdepth 1 -type f -iname '*.dll' | wc -l)"
+if [ "$QPDF_EXPECTED_DLL_COUNT" -eq 0 ] || [ "$QPDF_COPIED_DLL_COUNT" -ne "$QPDF_EXPECTED_DLL_COUNT" ]; then
+  echo "Error: Copied $QPDF_COPIED_DLL_COUNT qpdf DLLs, expected $QPDF_EXPECTED_DLL_COUNT"
+  exit 1
+fi
 
 echo "  qpdf: $(ls "$QPDF_DIR/bin/"*.exe 2>/dev/null | wc -l) exe, $(ls "$QPDF_DIR/bin/"*.dll 2>/dev/null | wc -l) dlls"
 

@@ -1,6 +1,6 @@
 import releaseTargetManifest from './generated-release-targets.cjs';
 
-/** @typedef {{allowedExitCodes: Set<number>, expectedOutputTokens: string[]}} IToolSmokePolicy */
+/** @typedef {{allowedExitCodes: Set<number>, expectedOutputTokens: string[], requiredOutputTokens?: string[]}} IToolSmokePolicy */
 
 export const RELEASE_TARGET_MANIFEST = releaseTargetManifest.manifest;
 
@@ -21,6 +21,15 @@ function getGeneratedProtocolVersion(binaryName) {
         throw new Error(`Missing generated native tool protocol for "${binaryName}"`);
     }
     return protocolVersion;
+}
+
+/** @param {string} binaryName @returns {string[]} */
+function getGeneratedProtocolCapabilities(binaryName) {
+    const family = RELEASE_TARGET_MANIFEST.families.find(item => item.binaryName === binaryName);
+    if (family?.protocolCapabilities === null || family?.protocolCapabilities === undefined) {
+        throw new Error(`Missing generated native tool capabilities for "${binaryName}"`);
+    }
+    return family.protocolCapabilities;
 }
 
 // One exit-code and output-signature policy for every host that can execute the
@@ -59,6 +68,11 @@ const PACKAGED_TOOL_SMOKE_POLICY = {
     'evb-scan-cleanup-protocol': {
         allowedExitCodes: new Set([0]),
         expectedOutputTokens: [String(getGeneratedProtocolVersion('evb-scan-cleanup'))],
+        requiredOutputTokens: [
+            `"protocolVersion":${String(getGeneratedProtocolVersion('evb-scan-cleanup'))}`,
+            '"capabilities"',
+            ...getGeneratedProtocolCapabilities('evb-scan-cleanup').map(capability => `"${capability}"`),
+        ],
     },
     ddjvu: {
         allowedExitCodes: new Set([
@@ -155,5 +169,12 @@ export function assertPackagedToolSmoke(toolName, exitCode, output) {
         throw new Error(
             `Packaged tool smoke test output for ${toolName} did not match any expected signature`,
         );
+    }
+    for (const token of policy.requiredOutputTokens ?? []) {
+        if (!normalizedOutput.includes(token.toLowerCase())) {
+            throw new Error(
+                `Packaged tool smoke test output for ${toolName} did not contain required token ${token}`,
+            );
+        }
     }
 }

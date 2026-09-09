@@ -16,7 +16,7 @@ import {scanCleanupMatchedCanvasOverridesSignature} from '@contracts/scanCleanup
 import {
     resolveScanCleanupProvisionalDocumentCanvas,
     scanCleanupDocumentCanvasSignature,
-} from '@scan-cleanup-core/policy/documentCanvas';
+} from '@evb/scan-cleanup/core/policy/documentCanvas';
 import {
     createScanCleanupDetailTileCacheKey,
     createScanCleanupPreviewCacheKey,

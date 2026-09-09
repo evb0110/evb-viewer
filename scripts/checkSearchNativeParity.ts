@@ -11,11 +11,9 @@ import {
     join,
     resolve,
 } from 'node:path';
-import {
-    requireDocumentRevisionToken,
-    requirePageNumber,
-    SEARCH_NATIVE_PROTOCOL_VERSION,
-} from '@contracts';
+import {SEARCH_NATIVE_PROTOCOL_VERSION} from '@contracts/nativeToolProtocols';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import {
     buildPdfSearchExcerpt,
     findPdfSearchMatches,

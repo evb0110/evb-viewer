@@ -14,7 +14,7 @@ import {
     COMPACT_SEARCH_INDEX_STREAMING_MAGIC,
     COMPACT_SEARCH_INDEX_STREAMING_SCHEMA_VERSION,
 } from '@contracts/searchIndexSidecar';
-import {requireDocumentRevisionToken} from '@contracts';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 
 const mocks = vi.hoisted(() => ({
     open: vi.fn(),
@@ -29,13 +29,13 @@ vi.mock('fs/promises', () => ({
     open: mocks.open,
     stat: mocks.stat,
 }));
-vi.mock('@electron/search/indexBuilder', () => ({
+vi.mock('@electron/features/search/indexBuilder', () => ({
     SEARCH_INDEX_SCHEMA_VERSION: 7,
     loadSearchIndex: mocks.loadSearchIndex,
 }));
 vi.mock('@electron/native-tools/resolveNativeToolPath', () => ({resolveNativeToolPath: mocks.resolveNativeToolPath}));
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: mocks.runNativeToolCommand}));
-vi.mock('@electron/search/tryRunPersistentNativeSearch', () => ({tryRunPersistentNativeSearch: mocks.tryRunPersistentNativeSearch}));
+vi.mock('@electron/features/search/tryRunPersistentNativeSearch', () => ({tryRunPersistentNativeSearch: mocks.tryRunPersistentNativeSearch}));
 
 const DOCUMENT_REVISION = requireDocumentRevisionToken('revision-token');
 const PDF_PATH = '/tmp/xlarge-native.pdf';
@@ -125,7 +125,7 @@ describe('xlarge native search', () => {
             close: vi.fn(async () => undefined),
         });
 
-        const {tryRunNativeSearch} = await import('@electron/search/nativeSearch');
+        const {tryRunNativeSearch} = await import('@electron/features/search/nativeSearch');
         const result = await tryRunNativeSearch({
             pdfPath: PDF_PATH,
             documentRevision: DOCUMENT_REVISION,
@@ -153,7 +153,7 @@ describe('xlarge native search', () => {
             }
             return {mtimeMs: 200};
         });
-        const {tryRunNativeSearch} = await import('@electron/search/nativeSearch');
+        const {tryRunNativeSearch} = await import('@electron/features/search/nativeSearch');
 
         await expect(tryRunNativeSearch({
             pdfPath: PDF_PATH,
@@ -170,7 +170,7 @@ describe('xlarge native search', () => {
     });
 
     it('reports unsupported xlarge options without attempting a JS fallback', async () => {
-        const {tryRunNativeSearch} = await import('@electron/search/nativeSearch');
+        const {tryRunNativeSearch} = await import('@electron/features/search/nativeSearch');
 
         await expect(tryRunNativeSearch({
             pdfPath: PDF_PATH,

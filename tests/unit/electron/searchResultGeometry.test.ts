@@ -5,7 +5,7 @@ import {
 } from 'vitest';
 import { collectSearchMatchWords } from '@pdf-core';
 import type { IOcrWord } from '@contracts/shared';
-import type { IPageIndex } from '@electron/search/indexBuilder';
+import type { IPageIndex } from '@electron/features/search/indexBuilder';
 
 describe('search result geometry', () => {
     it('uses glyph boxes to crop a match inside a punctuation-wrapped OCR word', () => {

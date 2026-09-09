@@ -66,5 +66,8 @@ describe('Windows ARM64 native bundle policy', () => {
         expect(bundlerSource).toContain('rm -f "$temp_cache"');
         expect(setupAction).toContain('restore-keys:');
         expect(setupAction).toContain('${{ inputs.windows-bundle-cache-key }}-');
+        expect(setupAction).toContain(
+            'hashFiles(\'scripts/bundle-tools-windows.sh\', \'scripts/runtimeBinaryManifest.ts\')',
+        );
     });
 });

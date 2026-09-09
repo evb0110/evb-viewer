@@ -101,8 +101,10 @@ async function prepareThumbnailRail(
 
     // A ResizeObserver delivery can follow the first centered-ready result
     // when the page track finishes settling. Recheck after two painted frames
-    // so the continuity probe never starts from a transient neighboring-page
-    // anchor.
+    // so the target pixels are ready before centerTargetPage performs its one
+    // calculated document scroll. Semantic page navigation may leave the page
+    // far outside the viewport until that scroll, so readiness must not require
+    // physical centering here.
     await page.evaluate(async () => {
         await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
     });
@@ -125,21 +127,16 @@ async function prepareThumbnailRail(
         if (!viewport || !pageElement) {
             return false;
         }
-        const viewportRect = viewport.getBoundingClientRect();
-        const pageRect = pageElement.getBoundingClientRect();
-        const centerY = viewportRect.top + (viewportRect.height / 2);
         const canvas = payload.documentKind === 'pdf'
             ? pageElement.querySelector<HTMLCanvasElement>('.page_canvas canvas, canvas')
             : null;
         const image = payload.documentKind === 'djvu'
             ? pageElement.querySelector<HTMLImageElement>('[data-testid="document-page-source-image"]')
             : null;
-        return pageRect.top <= centerY
-            && pageRect.bottom >= centerY
-            && Boolean(
-                (canvas && canvas.width > 0 && canvas.height > 0)
-                || (image?.complete && image.naturalWidth > 0 && image.naturalHeight > 0),
-            );
+        return Boolean(
+            (canvas && canvas.width > 0 && canvas.height > 0)
+            || (image?.complete && image.naturalWidth > 0 && image.naturalHeight > 0),
+        );
     }, {timeout: CONTINUITY_TIMEOUT_MS}, {
         documentKind,
         targetPageNumber,

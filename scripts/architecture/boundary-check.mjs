@@ -14,6 +14,12 @@ import {
 } from './architectureCliArgs.mjs';
 import { getFocusedArchitectureRoots } from '../workspace-roots.mjs';
 import { RUNTIME_TOOL_BOUNDARY_RULES } from './runtimeToolBoundaryRules.mjs';
+import {
+    BOUNDARY_EXCEPTION_POLICY,
+    getBoundaryExceptionEntries,
+    getBoundaryExceptionValues,
+    validateBoundaryExceptionPolicy,
+} from './boundaryExceptionPolicy.mjs';
 
 const APP_MODULE_PUBLIC_ENTRYPOINTS = new Set([
     'public',
@@ -34,6 +40,13 @@ const APP_MODULE_PUBLIC_ENTRYPOINTS = new Set([
 
 const ELECTRON_FEATURE_PUBLIC_ENTRYPOINTS = new Set(APP_MODULE_PUBLIC_ENTRYPOINTS);
 ELECTRON_FEATURE_PUBLIC_ENTRYPOINTS.add('contract.ts');
+
+const RETIRED_ELECTRON_FEATURE_SHIM_PATHS = new Set([
+    'electron/djvu/conversion.ts',
+    'electron/djvu/convert.ts',
+    'electron/djvu/viewing.ts',
+    'electron/search/protocol.ts',
+]);
 
 const ROOT_BOUNDARY_RULES = [
     {
@@ -105,14 +118,9 @@ const ROOT_BOUNDARY_RULES = [
     ...RUNTIME_TOOL_BOUNDARY_RULES,
 ];
 
-const SCRIPTS_TO_APP_ALLOWED_EDGES = new Set(`
-scripts/diagnostics/pdfTraceEntryGuards.ts -> app/utils/logPdfNav.ts
-scripts/diagnostics/pdfTraceEntryGuards.ts -> app/utils/pdfRenderTrace.ts
-scripts/diagnostics/runPdfSkeletonNavigationDiagnostics.ts -> app/types/workspaceExpose.ts
-scripts/diagnostics/runPdfSkeletonNavigationDiagnostics.ts -> app/utils/logPdfNav.ts
-scripts/diagnostics/runPdfSkeletonNavigationDiagnostics.ts -> app/utils/pdfRenderTrace.ts
-scripts/diagnostics/pdfNavigationBlinkTrace.ts -> app/types/evbTestApi.ts
-`.trim().split('\n'));
+const SCRIPTS_TO_APP_ALLOWED_EDGES = new Set(
+    getBoundaryExceptionValues(BOUNDARY_EXCEPTION_POLICY, 'scriptsToAppEdges'),
+);
 
 const PACKAGE_LAYER_RULES = [
     {
@@ -163,6 +171,15 @@ const PACKAGE_LAYER_RULES = [
         rule: 'packages-electron-worker-bundles-layer',
         message: 'packages/electron-worker-bundles must not depend on other workspace packages.',
     },
+    {
+        sourceRoot: 'packages/scan-cleanup',
+        allowedTargetRoots: [
+            'packages/scan-cleanup',
+            'packages/contracts',
+        ],
+        rule: 'packages-scan-cleanup-layer',
+        message: 'packages/scan-cleanup may depend only on itself and contracts.',
+    },
 ];
 
 const PUBLIC_ONLY_INTERNAL_ENTRYPOINTS = [ {
@@ -183,7 +200,6 @@ const PLATFORM_API_AGGREGATE_TYPE_BOUNDARY_FILES = new Set(`
 app/platform/browserPlatformPathDescriptors.ts
 app/types/electron.d.ts
 packages/contracts/electronApi.ts
-packages/contracts/index.ts
 `.trim().split('\n'));
 
 const PLATFORM_API_AGGREGATE_IMPORT_BOUNDARY_FILES = new Set([
@@ -219,7 +235,9 @@ const APP_PRODUCTION_SOURCE_EXTENSIONS = [
     '.vue',
 ];
 
-const ANNOTATION_STORAGE_PRIVATE_ACCESS_ALLOWED_FILES = new Set(['app/modules/pdf-viewer/runtime/save/pdfjsAnnotationDiagnostics.ts']);
+const ANNOTATION_STORAGE_PRIVATE_ACCESS_ALLOWED_FILES = new Set(
+    getBoundaryExceptionValues(BOUNDARY_EXCEPTION_POLICY, 'annotationStoragePrivateAccess'),
+);
 
 const ANNOTATION_STORAGE_PRIVATE_MEMBERS = [
     'serializable',
@@ -234,14 +252,10 @@ const PDF_VIEWER_ENGINE_ALLOWED_TARGET_ROOTS = [
     PDF_VIEWER_ENGINE_ROOT,
     `${PDF_VIEWER_MODULE_ROOT}/dom`,
 ];
-
-const ELECTRON_LEGACY_FEATURE_REEXPORT_SHIMS = new Map([[
-    'electron/search/protocol.ts',
-    {
-        specifier: '@electron/features/search/protocol',
-        typeOnly: true,
-    },
-]]);
+const PDF_VIEWER_ENGINE_RETAINED_BACK_EDGES = getBoundaryExceptionEntries(
+    BOUNDARY_EXCEPTION_POLICY,
+    'pdfViewerEngineBackEdges',
+);
 
 const NATIVE_TOOL_DOMAIN_ROOTS = [
     'electron/ocr',
@@ -255,40 +269,21 @@ electron/ocr/resolveOcrResourcesBase.ts
 electron/ocr/worker/dpiDetection.ts
 `.trim().split('\n'));
 
-const CONTRACT_COMPATIBILITY_POLICY_IMPORTS = new Map([
-    [
-        '@contracts/search',
-        new Set([
-            'assertSafePdfSearchRegex',
-            'buildPdfSearchExcerpt',
-            'buildPdfSearchRegex',
-            'collapseRepeatedPdfSearchPageText',
-            'escapeSearchRegex',
-            'findPdfSearchMatches',
-            'iteratePdfSearchMatches',
-            'normalizePdfSearchRequestPayload',
-            'validateSearchQuery',
-        ]),
-    ],
-    [
-        '@contracts/nativePdfMutations',
-        new Set([
-            'normalizePdfNativeModifiedAt',
-            'normalizePdfNativeMutationSet',
-            'normalizePdfNativeNoteChanges',
-            'normalizePdfNativeNoteTextUpdates',
-        ]),
-    ],
-]);
+const CONTRACT_COMPATIBILITY_POLICY_IMPORTS = new Map(
+    getBoundaryExceptionEntries(BOUNDARY_EXCEPTION_POLICY, 'contractCompatibilityImports').map(entry => [
+        entry.specifier,
+        new Set(entry.names),
+    ]),
+);
 
 const CONTRACT_COMPATIBILITY_POLICY_AGGREGATE_IMPORTS = new Set(
     Array.from(CONTRACT_COMPATIBILITY_POLICY_IMPORTS.values(), names => Array.from(names)).flat(),
 );
 
-const CONTRACT_COMPATIBILITY_POLICY_ALLOWED_ROOTS = [
-    'tests',
-    'packages/contracts',
-];
+const CONTRACT_COMPATIBILITY_POLICY_ALLOWED_ROOTS = getBoundaryExceptionValues(
+    BOUNDARY_EXCEPTION_POLICY,
+    'contractCompatibilityRoots',
+);
 
 const FEATURE_BOUNDARY_RULES = [
     {
@@ -425,6 +420,20 @@ function checkRetiredTopLevelUsePdfFilePath(filePath) {
     });
 }
 
+function checkRetiredElectronFeatureShimPath(filePath) {
+    if (!RETIRED_ELECTRON_FEATURE_SHIM_PATHS.has(filePath)) {
+        return null;
+    }
+
+    return createViolation({
+        rule: 'retired-electron-feature-shim-path',
+        source: filePath,
+        target: filePath,
+        specifier: 'filesystem',
+        message: 'Retired top-level Electron feature shim paths must stay deleted; import the owning feature public entrypoint instead.',
+    });
+}
+
 function checkTopLevelPdfComposable(filePath) {
     if (
         !filePath.startsWith('app/composables/usePdf')
@@ -515,18 +524,10 @@ function checkPdfViewerEngineLayer(edge) {
         return null;
     }
 
-    // These two compatibility readers are the ticket's retained pdf-lib
-    // exceptions. Their small pure helpers stay with the annotation owner.
-    const retainedPdfLibConsumers = new Set([
-        `${PDF_VIEWER_ENGINE_ROOT}/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations.ts`,
-        `${PDF_VIEWER_ENGINE_ROOT}/annotations/annotation-sync-helpers/collectPdfAnnotationNamesByPage.ts`,
-    ]);
-    const retainedHelperRoots = [
-        `${PDF_VIEWER_MODULE_ROOT}/annotations/pdf-page-iteration`,
-        `${PDF_VIEWER_MODULE_ROOT}/annotations/pdf-refs`,
-    ];
-    if (retainedPdfLibConsumers.has(edge.source)
-        && retainedHelperRoots.some(root => matchesRoot(edge.target, root))) {
+    if (PDF_VIEWER_ENGINE_RETAINED_BACK_EDGES.some(exception => (
+        exception.source === edge.source
+        && exception.targetRoots.some(root => matchesRoot(edge.target, root))
+    ))) {
         return null;
     }
 
@@ -831,7 +832,7 @@ const PDFJS_IMPORT_ALLOWED_ROOTS = [
     'app/services/pdfjs',
     'app/utils/document-viewer/source',
     'app/platform/browser-api/browserPdfjsDocumentInit.ts',
-    'electron/search',
+    'electron/features/search',
     'scripts/windows-test/oracles/pdfjsNodeRuntime.ts',
     'tests/e2e/electron/helpers/fixtures.ts',
     'tests/e2e/electron/quarantine/assistantBookmarksPersistence.e2e.test.ts',
@@ -1038,28 +1039,6 @@ function checkContractCompatibilityPolicyImports(filePath, sourceFiles = []) {
     return sourceFiles.flatMap(sourceFile => (
         collectContractCompatibilityPolicyImportViolations(filePath, sourceFile)
     ));
-}
-
-function checkElectronLegacyFeatureReexportShim(filePath, sourceText = '') {
-    const expectedShim = ELECTRON_LEGACY_FEATURE_REEXPORT_SHIMS.get(filePath);
-    if (!expectedShim) {
-        return [];
-    }
-
-    const typeToken = expectedShim.typeOnly ? 'type ' : '';
-    const expectedSourceText = `export ${typeToken}* from '${expectedShim.specifier}';\n`;
-    const normalizedSourceText = sourceText.replaceAll('\r\n', '\n');
-    if (normalizedSourceText === expectedSourceText) {
-        return [];
-    }
-
-    return [createViolation({
-        rule: 'electron-legacy-feature-reexport-shim',
-        source: filePath,
-        target: filePath,
-        specifier: 'source',
-        message: 'Legacy Electron feature shims must stay one-line re-exports to their feature entrypoint.',
-    })];
 }
 
 function isSentryBoundaryExemptSource(filePath) {
@@ -1507,6 +1486,7 @@ function checkPackageReverseEdge(edge) {
     if (
         matchesRoot(edge.source, 'packages/pdf-core')
         || matchesRoot(edge.source, 'packages/release-selection')
+        || matchesRoot(edge.source, 'packages/scan-cleanup')
     ) {
         return null;
     }
@@ -1583,6 +1563,7 @@ function checkNode(filePath) {
     return [
         checkRetiredPdfComponentPath(filePath),
         checkRetiredTopLevelUsePdfFilePath(filePath),
+        checkRetiredElectronFeatureShimPath(filePath),
         checkTopLevelPdfComposable(filePath),
         checkComponentDirectoryFilePlacement(filePath),
     ].filter(Boolean);
@@ -1596,7 +1577,6 @@ function checkSource(filePath, sourceText) {
         ...checkAnnotationStoragePrivateAccess(filePath, sourceText),
         ...checkPlatformApiRuntimeGetterCall(filePath, sourceFiles),
         ...checkContractCompatibilityPolicyImports(filePath, sourceFiles),
-        ...checkElectronLegacyFeatureReexportShim(filePath, sourceText),
     ];
 }
 
@@ -1646,6 +1626,14 @@ function collectRootsFromArgv(argv, {projectRoot}) {
 
 async function run() {
     const projectRoot = process.cwd();
+    const exceptionPolicyErrors = validateBoundaryExceptionPolicy();
+    if (exceptionPolicyErrors.length > 0) {
+        console.error('Architecture boundary exception policy failed.');
+        for (const error of exceptionPolicyErrors) {
+            console.error(`- ${error}`);
+        }
+        process.exit(1);
+    }
     const roots = collectRootsFromArgv(process.argv.slice(2), { projectRoot });
     const graph = await buildDependencyGraph({
         projectRoot,

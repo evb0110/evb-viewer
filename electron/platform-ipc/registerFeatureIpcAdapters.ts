@@ -1,62 +1,62 @@
-import { registerDocumentsIpcAdapter } from '@electron/features/documents/registerDocumentsIpcAdapter';
-import {
-    registerDocumentRevisionEventBridge,
-    registerDocumentRevisionInvalidationEffects,
-} from '@electron/features/documents/public';
-import {
-    DOCUMENTS_CHANNELS,
-    type IDocumentsInvokeMap,
-} from '@electron/features/documents/contract';
-import { DOCUMENTS_IPC_CODECS } from '@electron/features/documents/documentsIpcCodecs';
-import {
-    DOCUMENT_MENU_PLATFORM_FEATURE,
-    DOCUMENT_FILES_PLATFORM_FEATURE,
-    DOCUMENT_OPEN_PLATFORM_FEATURE,
-    DOCUMENT_PDF_PLATFORM_FEATURE,
-    DOCUMENT_PICKER_PLATFORM_FEATURE,
-    DOCUMENT_RECENT_FILES_PLATFORM_FEATURE,
-    DOCUMENT_PLATFORM_FEATURES,
-    DOCUMENT_WINDOW_PLATFORM_FEATURE,
-    DOCUMENT_WORKING_COPY_PLATFORM_FEATURE,
-} from '@contracts/documentsPlatformFeature';
-import { AGENT_PLATFORM_FEATURE } from '@contracts/agentPlatformFeature';
-import type { TAgentService } from '@electron/features/agent/createAgentService';
-import { IMAGE_EXPORT_PLATFORM_FEATURE } from '@contracts/imageExportPlatformFeature';
-import { OCR_PLATFORM_FEATURE } from '@contracts/ocrPlatformFeature';
-import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scanCleanupPlatformFeature';
-import { SEARCH_PLATFORM_FEATURE } from '@contracts/searchPlatformFeature';
-import { PAGE_OPS_PLATFORM_FEATURE } from '@contracts/pageOpsPlatformFeature';
-import { SETTINGS_PLATFORM_FEATURE } from '@contracts/settingsPlatformFeature';
-import { SHELL_PLATFORM_FEATURE } from '@contracts/shellPlatformFeature';
-import { UPDATES_PLATFORM_FEATURE } from '@contracts/updatesPlatformFeature';
-import { HOST_PLATFORM_FEATURE } from '@contracts/hostPlatformFeature';
-import { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
-import type { TAnyDefinedPlatformFeature } from '@contracts/platformFeature';
 import {
     createChannelSet,
-    createValidatedIpcMainEventRegistrar,
     createValidatedIpcMainRegistrar,
     registerPlatformFeatureHandlers,
 } from '@electron/platform-ipc/validatedIpcRegistrar';
-
-const DOCUMENTS_CHANNEL_SET = new Set([
-    ...Object.values(DOCUMENTS_CHANNELS),
-    ...DOCUMENT_PLATFORM_FEATURES.flatMap(feature =>
-        [...feature.invokeChannelSet]),
-]);
-const DOCUMENTS_COMBINED_IPC_CODECS = {
-    ...DOCUMENTS_IPC_CODECS,
-    ...DOCUMENT_PICKER_PLATFORM_FEATURE.ipcCodecs,
-    ...DOCUMENT_OPEN_PLATFORM_FEATURE.ipcCodecs,
-    ...DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.ipcCodecs,
-    ...DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs,
-    ...DOCUMENT_PDF_PLATFORM_FEATURE.ipcCodecs,
-    ...DOCUMENT_RECENT_FILES_PLATFORM_FEATURE.ipcCodecs,
-    ...DOCUMENT_WINDOW_PLATFORM_FEATURE.ipcCodecs,
-    ...DOCUMENT_MENU_PLATFORM_FEATURE.ipcCodecs,
-};
+import {
+    type IFeatureRegistrationContext,
+    type platformDescriptors,
+    type IFeatureRegistrationDescriptor,
+    FEATURE_REGISTRATION_DESCRIPTORS,
+    registerDocumentFeatureAdapters,
+} from '@electron/platform-ipc/featureRegistrationTable';
 
 type TDeferredHandler = (event: Electron.IpcMainInvokeEvent, ...args: never[]) => unknown;
+
+export interface IFeatureRegistrationResult {
+    readonly descriptor: IFeatureRegistrationDescriptor;
+    readonly dispose: () => Promise<void>;
+}
+
+export interface IFeatureRegistrationRuntime {
+    readonly registrations: readonly IFeatureRegistrationResult[];
+    disposeAll(): Promise<void>;
+}
+
+const noDispose = () => Promise.resolve();
+
+export function createFeatureRegistrationRuntime(
+    registrations: readonly IFeatureRegistrationResult[],
+): IFeatureRegistrationRuntime {
+    let disposed = false;
+    let disposalPromise: Promise<void> | null = null;
+    return {
+        registrations,
+        disposeAll() {
+            disposalPromise ??= (async () => {
+                if (disposed) {
+                    return;
+                }
+                disposed = true;
+                let firstError: unknown;
+                for (const registration of [...registrations].reverse()) {
+                    try {
+                        await registration.dispose();
+                    } catch (error) {
+                        firstError ??= error;
+                    }
+                }
+                if (firstError !== undefined) {
+                    if (firstError instanceof Error) {
+                        throw firstError;
+                    }
+                    throw new Error('Feature registration disposal failed', {cause: firstError});
+                }
+            })();
+            return disposalPromise;
+        },
+    };
+}
 
 function registerLazyValidatedFeature(
     ipcMain: Electron.IpcMain,
@@ -88,80 +88,132 @@ function registerLazyValidatedFeature(
             return handler(event, ...args as never[]);
         });
     }
+
+    return async () => {
+        if (loading !== null) {
+            await loading;
+        }
+    };
 }
 
-function registerLazyPlatformFeature(
+export function registerLazyPlatformFeature(
     ipcMain: Electron.IpcMain,
-    feature: TAnyDefinedPlatformFeature,
-    loadBindings: () => Promise<Record<string, unknown>>,
+    descriptor: typeof platformDescriptors[number],
+    context: IFeatureIpcAdapterOptions,
 ) {
-    registerLazyValidatedFeature(
+    let loadedBindings: Record<string, unknown> | null = null;
+    const waitForLoad = registerLazyValidatedFeature(
         ipcMain,
-        feature.invokeChannels,
-        feature.ipcCodecs,
-        async (registrar) => registerPlatformFeatureHandlers(
-            registrar as never,
-            feature as never,
-            await loadBindings() as never,
-        ),
+        descriptor.feature.invokeChannels,
+        descriptor.feature.ipcCodecs,
+        async (registrar) => {
+            loadedBindings = await descriptor.create(context);
+            registerPlatformFeatureHandlers(
+                registrar as never,
+                descriptor.feature as never,
+                loadedBindings as never,
+            );
+        },
     );
+    return async () => {
+        let loadError: unknown;
+        try {
+            await waitForLoad();
+        } catch (error) {
+            loadError = error;
+        }
+        let disposalError: unknown;
+        const disposer = descriptor.disposeBindingKey === undefined
+            ? undefined
+            : loadedBindings?.[descriptor.disposeBindingKey];
+        try {
+            if (descriptor.disposeBindingKey !== undefined
+                && loadError === undefined
+                && loadedBindings !== null
+                && typeof disposer !== 'function') {
+                throw new Error(
+                    `Feature ${descriptor.name} did not provide callable disposer ${descriptor.disposeBindingKey}`,
+                );
+            }
+            if (typeof disposer === 'function') {
+                await (disposer as () => Promise<void>)();
+            }
+        } catch (error) {
+            disposalError = error;
+        } finally {
+            loadedBindings = null;
+        }
+        if (loadError !== undefined) {
+            if (loadError instanceof Error) {
+                throw loadError;
+            }
+            throw new Error('Lazy feature load failed', {cause: loadError});
+        }
+        if (disposalError !== undefined) {
+            if (disposalError instanceof Error) {
+                throw disposalError;
+            }
+            throw new Error('Feature binding disposal failed', {cause: disposalError});
+        }
+    };
 }
 
-export interface IFeatureIpcAdapterOptions { agentService: TAgentService; }
+let disposeRegisteredScanCleanupBindings: (() => Promise<void>) | null = null;
+
+/**
+ * Preserve the legacy shutdown hook for callers that only need to dispose the
+ * scan-cleanup feature when it has already been loaded. The registration table
+ * owns the lazy loader, so this hook never imports the feature by itself.
+ */
+export async function disposeScanCleanupMainBindingsIfLoaded(): Promise<void> {
+    const dispose = disposeRegisteredScanCleanupBindings;
+    if (dispose === null) {
+        return;
+    }
+    await dispose();
+}
+
+export interface IFeatureIpcAdapterOptions extends IFeatureRegistrationContext {}
 
 export function registerFeatureIpcAdapters(
     ipcMain: Electron.IpcMain,
     options: IFeatureIpcAdapterOptions,
-) {
-    registerDocumentsIpcAdapter(
-        createValidatedIpcMainRegistrar<IDocumentsInvokeMap>(ipcMain, {
-            allowedChannels: DOCUMENTS_CHANNEL_SET,
-            codecs: DOCUMENTS_COMBINED_IPC_CODECS,
-        }),
-        undefined,
-        {eventRegistrar: createValidatedIpcMainEventRegistrar(ipcMain, {allowedChannels: DOCUMENTS_CHANNEL_SET})},
-    );
-    registerDocumentRevisionEventBridge();
-    registerDocumentRevisionInvalidationEffects();
-    registerLazyPlatformFeature(ipcMain, AGENT_PLATFORM_FEATURE, () => Promise.resolve(options.agentService));
-    registerLazyPlatformFeature(ipcMain, SETTINGS_PLATFORM_FEATURE, async () => {
-        const {createSettingsMainBindings} =
-            await import('@electron/features/settings/createSettingsMainBindings');
-        return createSettingsMainBindings(options.agentService.shutdownAssistant);
-    });
-    registerLazyPlatformFeature(ipcMain, SHELL_PLATFORM_FEATURE, async () => {
-        const {shellMainBindings} = await import('@electron/features/shell/shellMainBindings');
-        return shellMainBindings;
-    });
-    registerLazyPlatformFeature(ipcMain, UPDATES_PLATFORM_FEATURE, () => import('@electron/updates'));
-    registerLazyPlatformFeature(ipcMain, HOST_PLATFORM_FEATURE, async () => {
-        const {hostMainBindings} = await import('@electron/hostEnvironment');
-        return hostMainBindings;
-    });
-    registerLazyPlatformFeature(ipcMain, IMAGE_EXPORT_PLATFORM_FEATURE, async () => {
-        const {imageExportMainBindings} = await import('@electron/features/image-export/public');
-        return imageExportMainBindings;
-    });
-    registerLazyPlatformFeature(ipcMain, PAGE_OPS_PLATFORM_FEATURE, async () => {
-        const {pageOpsMainBindings} = await import('@electron/features/page-ops/public');
-        return pageOpsMainBindings;
-    });
-    registerLazyPlatformFeature(ipcMain, OCR_PLATFORM_FEATURE, async () => {
-        const {ocrMainBindings} = await import('@electron/features/ocr/mainBindings');
-        return ocrMainBindings;
-    });
-    registerLazyPlatformFeature(ipcMain, SCAN_CLEANUP_PLATFORM_FEATURE, async () => {
-        const {scanCleanupMainBindings} =
-            await import('@electron/features/scan-cleanup/scanCleanupMainBindings');
-        return scanCleanupMainBindings;
-    });
-    registerLazyPlatformFeature(ipcMain, SEARCH_PLATFORM_FEATURE, async () => {
-        const {prepareSearchMainBindings} = await import('@electron/features/search/public');
-        return prepareSearchMainBindings();
-    });
-    registerLazyPlatformFeature(ipcMain, DJVU_PLATFORM_FEATURE, async () => {
-        const {prepareDjvuMainBindings} =
-            await import('@electron/features/djvu/mainBindings');
-        return prepareDjvuMainBindings();
-    });
+): IFeatureRegistrationRuntime {
+    const registrations: IFeatureRegistrationResult[] = [];
+    let documentsRegistered = false;
+    disposeRegisteredScanCleanupBindings = null;
+    for (const descriptor of FEATURE_REGISTRATION_DESCRIPTORS) {
+        if (descriptor.kind === 'documents') {
+            if (!documentsRegistered) {
+                registerDocumentFeatureAdapters(ipcMain);
+                documentsRegistered = true;
+            }
+            registrations.push({
+                descriptor,
+                dispose: noDispose,
+            });
+            continue;
+        }
+        if (descriptor.kind === 'core') {
+            const dispose = descriptor.register?.(ipcMain, options);
+            registrations.push({
+                descriptor,
+                dispose: dispose ?? noDispose,
+            });
+            continue;
+        }
+        const dispose = registerLazyPlatformFeature(
+            ipcMain,
+            descriptor as typeof platformDescriptors[number],
+            options,
+        );
+        if (descriptor.name === 'scan-cleanup') {
+            disposeRegisteredScanCleanupBindings = dispose;
+        }
+        registrations.push({
+            descriptor,
+            dispose,
+        });
+    }
+    return createFeatureRegistrationRuntime(registrations);
 }

@@ -6,8 +6,8 @@ import {
     readPdfPageSizes as readCorePdfPageSizes,
     type IPdfPageSize,
     type IPdfPageSizeStore,
-} from '@scan-cleanup-core/pdfPageSizes';
-import type {IReadPdfPageSizesOptions as ICoreReadPdfPageSizesOptions} from '@scan-cleanup-core/types';
+} from '@evb/scan-cleanup/core/pdfPageSizes';
+import type {IReadPdfPageSizesOptions as ICoreReadPdfPageSizesOptions} from '@evb/scan-cleanup/core/types';
 
 export type {
     IPdfPageSize,

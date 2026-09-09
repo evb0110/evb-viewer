@@ -110,7 +110,7 @@ export const windowsTestChangeAreas: readonly IWindowsTestChangeArea[] = [
             'electron/native-tools/**',
             'electron/ocr/**',
             'electron/features/djvu/**',
-            'electron/search/**',
+            'electron/features/search/**',
             'native/**',
             'resources/**',
             'scripts/bundle-tools-windows.sh',

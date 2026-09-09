@@ -24,10 +24,10 @@ import {requirePageNumber} from '@contracts/pageNumbers';
 import type { IScanCleanupRuntimePolicy } from '@contracts/resourcePolicies';
 import type {INativeScanCleanupOutputV3} from '@contracts/scan-cleanup/nativeProtocolV3';
 import {
-    classifyScanCleanupError,
     grantScanCleanupOutputAccess,
     materializeScanCleanupSourcePath,
 } from '@electron/features/scan-cleanup/createScanCleanupService';
+import {classifyScanCleanupPreviewError as classifyScanCleanupError} from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
 import {
     captureWorkingCopyAdmissionSnapshot,
     clearWorkingCopyOriginalPaths,
@@ -41,8 +41,8 @@ import {
     runScanCleanupPipeline,
     type IRunScanCleanupPipelineDependencies,
 } from '@electron/features/scan-cleanup/worker/runScanCleanupPipeline';
-import {observeScanCleanupAnalysisReleasePromises} from '@scan-cleanup-core/runScanCleanupConversion';
-import {runLosslessScanCleanup} from '@scan-cleanup-core/runLosslessScanCleanup';
+import {observeScanCleanupAnalysisReleasePromises} from '@evb/scan-cleanup/core/runScanCleanupConversion';
+import {runLosslessScanCleanup} from '@evb/scan-cleanup/core/runLosslessScanCleanup';
 import {isPathWithinRoot} from '@tests/helpers/isPathWithinRoot';
 import {
     resolveReusablePagePlan,
@@ -50,19 +50,19 @@ import {
     resolveEffectiveScanCleanupOptions,
     SCAN_CLEANUP_COLOR_JPEG_QUALITY,
     SCAN_CLEANUP_GRAYSCALE_JPEG_QUALITY,
-} from '@scan-cleanup-core/policy/effectiveOptions';
-import {createPagePlanResolver} from '@scan-cleanup-core/createPagePlanResolver';
-import {mapScanCleanupRasterPages} from '@scan-cleanup-core/resolveRasterHandoff';
-import {resolveCompactSourcePreservation} from '@scan-cleanup-core/assembleCompactScanCleanupPages';
+} from '@evb/scan-cleanup/core/policy/effectiveOptions';
+import {createPagePlanResolver} from '@evb/scan-cleanup/core/createPagePlanResolver';
+import {mapScanCleanupRasterPages} from '@evb/scan-cleanup/core/resolveRasterHandoff';
+import {resolveCompactSourcePreservation} from '@evb/scan-cleanup/core/assembleCompactScanCleanupPages';
 import {
     createArrayBackedPdfPageSizeStore,
     type IPdfPageSizeStore,
-} from '@scan-cleanup-core/pdfPageSizes';
+} from '@evb/scan-cleanup/core/pdfPageSizes';
 import {
     fitScanCleanupMarginAxisPx,
     placeScanCleanupCanvasBox,
-} from '@scan-cleanup-core/policy/documentCanvas';
-import {formatScanCleanupWarningEvent} from '@scan-cleanup-core/policy/scanCleanupWarningEvents';
+} from '@evb/scan-cleanup/core/policy/documentCanvas';
+import {formatScanCleanupWarningEvent} from '@evb/scan-cleanup/core/policy/scanCleanupWarningEvents';
 import {NativeScanCleanupError} from '@electron/features/scan-cleanup/worker/runScanCleanupSidecar';
 import {
     assertScanCleanupCompactSourceBudget,
@@ -70,12 +70,12 @@ import {
     SCAN_CLEANUP_COMPACT_SOURCE_FIXED_BYTE_ALLOWANCE,
     SCAN_CLEANUP_COMPACT_SOURCE_MAX_BYTE_RATIO,
     shouldExtractTrustedMrcForeground,
-} from '@scan-cleanup-core/policy/scanCleanupRepresentationPolicy';
+} from '@evb/scan-cleanup/core/policy/scanCleanupRepresentationPolicy';
 import {
     ScanCleanupMissingOutputError,
     ScanCleanupPdfValidationError,
-} from '@scan-cleanup-core/errors';
-import type {ScanCleanupContractError} from '@scan-cleanup-core/errors';
+} from '@evb/scan-cleanup/core/errors';
+import type {ScanCleanupContractError} from '@evb/scan-cleanup/core/errors';
 
 const dirs: string[] = [];
 const PNG = Uint8Array.from(Buffer.from(
@@ -5247,6 +5247,7 @@ describe('scan cleanup pipeline', () => {
                         ...metadataByPage(page.sourcePageIndex + 1),
                     }));
                 }
+                return {structuredWarningEventsSupported: true};
             },
         );
         const pipelineDependencies = dependencies(runSidecar);
@@ -5261,7 +5262,6 @@ describe('scan cleanup pipeline', () => {
             },
         }, pipelinePaths(fixture.dir), new AbortController().signal, vi.fn(), highTierPolicy, undefined, pipelineDependencies);
     }
-
     it('aggregates matched-canvas placement by warning code, not by native wording', async () => {
         const summary = await runRasterWarningEventPipeline(pageNumber => ({
             warnings: pageNumber === 2 ? ['Content crop was skipped because no content box was detected'] : [],

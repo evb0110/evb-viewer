@@ -3,6 +3,7 @@ import type {
     Ref,
 } from 'vue';
 import type { TSplitPayload } from '@contracts/windowTabs';
+import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { cleanupSplitPayloadSnapshot } from '@app/modules/workspace-shell/splits/cleanupSplitPayloadSnapshot';
 import type {
@@ -38,7 +39,7 @@ interface IUseDocumentWorkspaceSplitRestoreOptions {
     initFromStorage: () => void;
     cleanupSidebarResizeListeners: () => void;
     captureSplitPayload: () => Promise<TSplitPayload>;
-    restoreSplitPayload: (payload: TSplitPayload) => Promise<void>;
+    restoreSplitPayload: (payload: TSplitPayload) => Promise<TDocumentOpenOutcome>;
     isRestoringSplitPayload: Ref<boolean>;
     currentPageTransitionHistory: Ref<IPageTransitionHistoryEntry[]>;
 }
@@ -178,8 +179,12 @@ export const useDocumentWorkspaceSplitRestore = (options: IUseDocumentWorkspaceS
                 preseededTotalPages: options.totalPages.value,
             });
 
-            await options.restoreSplitPayload(payload);
+            const outcome = await options.restoreSplitPayload(payload);
             if (!isWorkspaceMounted || !isCachedSplitEntryCurrent(options.workspaceSplitCache, options.tabId, cached.id, session)) {
+                return;
+            }
+            if (outcome.status !== 'opened') {
+                restoreFailedEntryId = cached.id;
                 return;
             }
             if (session) {
@@ -202,30 +207,7 @@ export const useDocumentWorkspaceSplitRestore = (options: IUseDocumentWorkspaceS
                 payloadKind: payload.kind,
                 error,
             });
-            // Only a pdfSnapshot owns an on-disk snapshot that would leak if its
-            // cache entry survived, so it is consumed and cleaned up here. A DjVu
-            // payload is pure page-position metadata pointing at the user's own
-            // file; keeping its entry lets a transient restore failure retry on the
-            // next remount instead of silently dropping the restored page. Mark the
-            // entry as failed so the watcher does not immediately retry it in a loop
-            // once isRestoringSplitPayload clears in the finally below.
-            if (payload.kind !== 'pdfSnapshot') {
-                restoreFailedEntryId = cached.id;
-                return;
-            }
-            const consumedPayload = (
-                session
-                    ? options.workspaceSplitCache.consume(options.tabId, cached.id, {session})
-                    : options.workspaceSplitCache.consume(options.tabId, cached.id)
-            ) ?? payload;
-            await cleanupSplitPayloadSnapshot(consumedPayload, {
-                logSection: 'workspace',
-                context: 'failed-cached-split-restore',
-                metadata: {
-                    tabId: options.tabId,
-                    payloadKind: payload.kind,
-                },
-            });
+            restoreFailedEntryId = cached.id;
         } finally {
             options.isRestoringSplitPayload.value = false;
         }

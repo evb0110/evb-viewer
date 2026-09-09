@@ -1,9 +1,13 @@
 import {
+    copyFile,
     mkdir,
     mkdtemp,
+    open as fsOpen,
     readFile,
+    readdir,
     rename,
     rm,
+    stat,
     writeFile,
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -18,7 +22,7 @@ import {
 import {
     runScanCleanupDetection,
     type IScanCleanupDetectionRetention,
-} from '@scan-cleanup-core/detection';
+} from '@evb/scan-cleanup/core/detection';
 import type {IScanCleanupDetectionRequest} from '@contracts/electronApiScanCleanup';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import type {
@@ -26,14 +30,43 @@ import type {
     INativeScanCleanupPageV3,
     TNativeScanCleanupProgressV3,
 } from '@contracts/scan-cleanup/nativeProtocolV3';
-import type {TScanCleanupRunSidecar} from '@scan-cleanup-core/types';
-import type {IPdfPageSize} from '@scan-cleanup-core/pdfPageSizes';
+import type {TScanCleanupRunSidecar} from '@evb/scan-cleanup/core/types';
+import type {IPdfPageSize} from '@evb/scan-cleanup/core/pdfPageSizes';
 
 const MIB = 1024 * 1024;
 const PNG_1X1 = Buffer.from(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
     'base64',
 );
+
+const fileSystem = {
+    copyFile,
+    mkdir: async (path: string, options?: {recursive?: boolean}) => {
+        await mkdir(path, options);
+        return undefined;
+    },
+    readFile: async (path: string, encoding: 'utf8') => readFile(path, encoding),
+    mkdtemp,
+    open: async (path: string, flags: 'r' | 'w+') => fsOpen(path, flags),
+    readdir,
+    rm: async (
+        path: string,
+        options: {
+            force: boolean;
+            recursive?: boolean;
+        },
+    ) => rm(path, options),
+    stat: async (path: string) => {
+        const info = await stat(path);
+        return {
+            isFile: () => info.isFile(),
+            size: info.size,
+        };
+    },
+    writeFile: async (path: string, data: string | Uint8Array) => {
+        await writeFile(path, data);
+    },
+};
 
 const dirs: string[] = [];
 const resultStores: Array<{close: () => Promise<void>}> = [];
@@ -257,6 +290,7 @@ function createHarness(tempDir: string, options: IHarnessOptions) {
         peakResident: () => peakResident,
         stagedPath,
         dependencies: (runSidecar: TScanCleanupRunSidecar) => ({
+            fileSystem,
             getTempDir: () => tempDir,
             getAvailableScratchBytes: vi.fn(async () => options.availableScratchBytes),
             getPdftoppmBinary: () => 'pdftoppm',

@@ -4,7 +4,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import {createStagedRasterWindow} from '@scan-cleanup-core/createStagedRasterWindow';
+import {createStagedRasterWindow} from '@evb/scan-cleanup/core/createStagedRasterWindow';
 
 function createRecordingWindow(
     pages: readonly number[],

@@ -120,8 +120,8 @@ import { PDF_SEARCH_MIN_QUERY_LENGTH } from '@contracts/search';
 import type {
     TPageMoveOperation,
     TPageSelection,
-} from '@contracts/pageNumbers';
-import { pageSelectionCount } from '@contracts/pageNumbers';
+} from '@pdf-core/pdfPageSelection';
+import { pageSelectionCount } from '@pdf-core/pdfPageSelection';
 import type {
     IPdfBookmarkEntry,
     IPdfPageLabelRange,

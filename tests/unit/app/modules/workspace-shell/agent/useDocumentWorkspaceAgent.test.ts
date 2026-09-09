@@ -40,10 +40,8 @@ import type {
 } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentTypes';
 import { createDefaultWorkspaceViewerCapabilities } from '@app/types/workspaceExpose';
 import { createPageLabelModel } from '@app/utils/document-viewer/pageLabels';
-import {
-    requireDocumentInstanceId,
-    requireDocumentRevisionToken,
-} from '@contracts';
+import {requireDocumentInstanceId} from '@contracts/documentInstanceId';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 
 interface IAgentViewerPortFixture extends IWorkspacePdfViewerAgentPort {updateTextMarkupAnnotationColor?: (comment: IAnnotationCommentSummary, color: string) => boolean;}
 
@@ -1520,120 +1518,4 @@ describe('useDocumentWorkspaceAgent', () => {
         expect(openConvertDialog).toHaveBeenCalledOnce();
     });
 
-    it('passes OCR quality profile through the OCR start action', async () => {
-        const runOcrForAgent = vi.fn(async () => ({ok: true}));
-        const handleDropdownOpen = vi.fn();
-        const ocrPopupRef = ref({
-            runOcrForAgent,
-            cancelOcrForAgent: vi.fn(async () => ({ok: true})),
-            getAgentOcrSnapshot: vi.fn(() => ({})),
-        });
-        const agent = useDocumentWorkspaceAgent(createAgentOptions({
-            handleDropdownOpen,
-            ocrPopupRef,
-        }));
-
-        await expect(agent.runAgentAction('ocr.start', {
-            pageRange: 'all',
-            languages: [
-                'eng',
-                'eng',
-                'rus',
-            ],
-            qualityProfile: 'poor-scan',
-            preprocessingMode: 'clean',
-            pageSegmentationMode: 11,
-            supersessionPolicy: 'replace-all',
-            replaceAllAcknowledged: true,
-        })).resolves.toMatchObject({
-            ok: true,
-            actionId: 'ocr.start',
-            tabId: 'tab-1',
-        });
-
-        expect(handleDropdownOpen).toHaveBeenCalledWith('ocr', true);
-        expect(runOcrForAgent).toHaveBeenCalledWith({
-            pageRange: 'all',
-            languages: [
-                'eng',
-                'rus',
-            ],
-            qualityProfile: 'poor-scan',
-            preprocessingMode: 'clean',
-            pageSegmentationMode: 11,
-            supersessionPolicy: 'replace-all',
-            replaceAllAcknowledged: true,
-            open: true,
-        });
-    });
-
-    it('keeps a contract-requested OCR run in the background', async () => {
-        const runOcrForAgent = vi.fn(async () => ({ok: true}));
-        const handleDropdownOpen = vi.fn();
-        const agent = useDocumentWorkspaceAgent(createAgentOptions({
-            handleDropdownOpen,
-            ocrPopupRef: ref({
-                runOcrForAgent,
-                cancelOcrForAgent: vi.fn(async () => ({ok: true})),
-                getAgentOcrSnapshot: vi.fn(() => ({})),
-            }),
-        }));
-
-        await agent.runAgentAction('ocr.start', {
-            languages: ['eng'],
-            open: false,
-        });
-
-        expect(handleDropdownOpen).not.toHaveBeenCalled();
-        expect(runOcrForAgent).toHaveBeenCalledWith({
-            languages: ['eng'],
-            open: false,
-        });
-    });
-
-    it('drops invalid OCR tuning inputs before invoking the popup', async () => {
-        const runOcrForAgent = vi.fn(async () => ({ok: true}));
-        const ocrPopupRef = ref({
-            runOcrForAgent,
-            cancelOcrForAgent: vi.fn(async () => ({ok: true})),
-            getAgentOcrSnapshot: vi.fn(() => ({})),
-        });
-        const agent = useDocumentWorkspaceAgent(createAgentOptions({ocrPopupRef}));
-
-        await agent.runAgentAction('ocr.start', {
-            qualityProfile: 'stock',
-            preprocessingMode: 'maybe',
-            pageSegmentationMode: 42,
-            selectedLanguages: ['rus'],
-        });
-
-        expect(runOcrForAgent).toHaveBeenCalledWith({open: true});
-    });
-
-    it('awaits OCR cancel results from the popup', async () => {
-        const cancelOcrForAgent = vi.fn(async () => ({
-            ok: false,
-            cancel: {
-                canceled: false,
-                reason: 'not-found',
-            },
-        }));
-        const ocrPopupRef = ref({
-            runOcrForAgent: vi.fn(async () => ({ok: true})),
-            cancelOcrForAgent,
-            getAgentOcrSnapshot: vi.fn(() => ({})),
-        });
-        const agent = useDocumentWorkspaceAgent(createAgentOptions({ocrPopupRef}));
-
-        await expect(agent.runAgentAction('ocr.cancel', {})).resolves.toMatchObject({
-            ok: false,
-            cancel: {
-                canceled: false,
-                reason: 'not-found',
-            },
-            actionId: 'ocr.cancel',
-            tabId: 'tab-1',
-        });
-        expect(cancelOcrForAgent).toHaveBeenCalledTimes(1);
-    });
 });

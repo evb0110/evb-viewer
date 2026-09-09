@@ -414,6 +414,7 @@ describe('electron e2e Vitest project topology', () => {
         expect(largePdfSource).not.toContain('qpdfObjectContainsText');
         expect(activationSource).toContain('await page.mouse.click(');
         expect(activationSource).toContain('document.elementFromPoint(');
+        expect(activationSource).toContain('await page.mouse.click(point.x, point.y);');
         expect(activationSource).not.toContain('page.evaluate');
         expect(activationSource).not.toContain('dispatchEvent');
     });

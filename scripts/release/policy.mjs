@@ -155,6 +155,7 @@ const GATE_POLICY_MANIFEST = Object.freeze({
             output: 'scan_cleanup_export',
             owner: 'pr_scan_cleanup_oracles',
             paths: [
+                '.github/actions/setup-ci-env/**',
                 '.github/workflows/**',
                 'app/modules/scan-cleanup/**',
                 'native/Cargo.lock',
@@ -276,6 +277,7 @@ const GATE_POLICY_MANIFEST = Object.freeze({
             output: 'landing',
             owner: 'pr_landing_quality',
             paths: [
+                '.github/actions/setup-ci-env/**',
                 'landing/**',
                 'packages/contracts/**',
                 'packages/i18n-core/**',
@@ -383,6 +385,7 @@ const GATE_POLICY_MANIFEST = Object.freeze({
             docs: {paths: [
                 '*.md',
                 'docs/**',
+                '.devkit/**',
             ]},
             electron: {paths: [
                 'electron/**',

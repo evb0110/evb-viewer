@@ -14,6 +14,7 @@ import type { TPdfProjectionReason } from '@app/utils/document-viewer/session/do
 import type { IDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import type { TDocumentDirectOpenOptions } from '@app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow';
+import {isDjvuOpenResult} from '@app/modules/workspace-shell/composables/document-session/openPdfAfterPasswordPrompt';
 import type { TWorkspaceFailureSurface } from '@app/modules/workspace-shell/composables/useWorkspaceFailureSurface';
 
 interface IUseWorkspaceFileLifecycleControllerOptions {
@@ -196,7 +197,7 @@ export const useWorkspaceFileLifecycleController = (
         if (outcome.status !== 'prepared') {
             return outcome;
         }
-        if (outcome.result.kind !== 'djvu') {
+        if (!isDjvuOpenResult(outcome.result)) {
             return {
                 status: 'failed',
                 error: 'Only DjVu opens may require activation',

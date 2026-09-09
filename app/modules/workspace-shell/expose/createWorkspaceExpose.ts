@@ -13,11 +13,11 @@ import type { ICropMargins } from '@app/types/crop';
 import type {
     TPageMoveOperation,
     TPageSelection,
-} from '@contracts/pageNumbers';
+} from '@pdf-core/pdfPageSelection';
 import {
     pageSelectionCount,
     parsePageNumber,
-} from '@contracts/pageNumbers';
+} from '@pdf-core/pdfPageSelection';
 import type { IPdfPageLabelRange } from '@contracts/pdfPageLabels';
 import type {
     TFitMode,

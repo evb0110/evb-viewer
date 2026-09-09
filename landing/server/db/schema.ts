@@ -8,7 +8,7 @@ import {
     timestamp,
     varchar,
 } from 'drizzle-orm/pg-core';
-import { ANALYTICS_GEO_LIMITS } from '@evb/contracts/analytics';
+import { ANALYTICS_GEO_LIMITS } from '@contracts/analytics';
 
 export const landingPageView = pgTable(
     'landing_page_view',

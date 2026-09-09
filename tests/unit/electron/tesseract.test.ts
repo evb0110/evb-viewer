@@ -38,9 +38,9 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('child_process', () => ({spawn: mocks.spawn}));
-vi.mock('@electron/ocr/languageModels', () => ({ensureTessdataLanguages: mocks.ensureTessdataLanguages}));
-vi.mock('@electron/ocr/paths', () => ({getOcrPaths: mocks.getOcrPaths}));
-vi.mock('@electron/ocr/resolveTesseractLanguageConfig', () => ({resolveTesseractLanguageConfig: mocks.resolveTesseractLanguageConfig}));
+vi.mock('@electron/features/ocr/languageModels', () => ({ensureTessdataLanguages: mocks.ensureTessdataLanguages}));
+vi.mock('@electron/features/ocr/main/paths', () => ({getOcrPaths: mocks.getOcrPaths}));
+vi.mock('@electron/features/ocr/main/resolveTesseractLanguageConfig', () => ({resolveTesseractLanguageConfig: mocks.resolveTesseractLanguageConfig}));
 
 const PNG_SIGNATURE = Buffer.from([
     0x89,
@@ -75,7 +75,7 @@ describe('runOcr setup failure cleanup', () => {
         child.stdin = stdin;
         mocks.spawn.mockReturnValue(child);
 
-        const { runOcr } = await import('@electron/ocr/runOcr');
+        const { runOcr } = await import('@electron/features/ocr/main/runOcr');
         const resultPromise = runOcr(Buffer.from('image'), ['eng']);
         await vi.waitFor(() => {
             expect(mocks.spawn).toHaveBeenCalledTimes(1);
@@ -104,7 +104,7 @@ describe('runOcr setup failure cleanup', () => {
         child.stdin = stdin;
         mocks.spawn.mockReturnValue(child);
 
-        const { runOcr } = await import('@electron/ocr/runOcr');
+        const { runOcr } = await import('@electron/features/ocr/main/runOcr');
         const resultPromise = runOcr(Buffer.from('image'), ['eng']);
         await vi.waitFor(() => {
             expect(mocks.spawn).toHaveBeenCalledTimes(1);
@@ -127,7 +127,7 @@ describe('runOcr setup failure cleanup', () => {
         mocks.spawn.mockReturnValue(child);
         const controller = new AbortController();
 
-        const { runOcr } = await import('@electron/ocr/runOcr');
+        const { runOcr } = await import('@electron/features/ocr/main/runOcr');
         const resultPromise = runOcr(Buffer.from('image'), ['eng'], {signal: controller.signal});
         await vi.waitFor(() => {
             expect(mocks.spawn).toHaveBeenCalledTimes(1);
@@ -151,7 +151,7 @@ describe('runOcr setup failure cleanup', () => {
             child.stdin = stdin;
             mocks.spawn.mockReturnValue(child);
 
-            const { runOcr } = await import('@electron/ocr/runOcr');
+            const { runOcr } = await import('@electron/features/ocr/main/runOcr');
             const resultPromise = runOcr(Buffer.from('image'), ['eng']);
             await vi.waitFor(() => {
                 expect(mocks.spawn).toHaveBeenCalledTimes(1);
@@ -173,7 +173,7 @@ describe('runOcr setup failure cleanup', () => {
 
 describe('Tesseract TSV geometry parsing', () => {
     it('uses line-level vertical geometry for word boxes', async () => {
-        const { parseTsvOutput } = await import('@electron/ocr/worker/tesseractRunner');
+        const { parseTsvOutput } = await import('@electron/features/ocr/worker/tesseractRunner');
         const tsv = [
             'level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext',
             '4\t1\t1\t1\t1\t0\t10\t40\t160\t50\t-1\t',
@@ -200,7 +200,7 @@ describe('Tesseract TSV geometry parsing', () => {
     });
 
     it('parses words and page text from a single TSV pass result', async () => {
-        const { parseTsvOcrData } = await import('@electron/ocr/worker/tesseractRunner');
+        const { parseTsvOcrData } = await import('@electron/features/ocr/worker/tesseractRunner');
         const tsv = [
             'level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext',
             '4\t1\t1\t1\t1\t0\t10\t40\t160\t50\t-1\t',
@@ -232,7 +232,7 @@ describe('Tesseract TSV geometry parsing', () => {
     });
 
     it('rejects TSV structures before unbounded row, word, or text accumulation', async () => {
-        const { parseTsvOcrData } = await import('@electron/ocr/worker/tesseractRunner');
+        const { parseTsvOcrData } = await import('@electron/features/ocr/worker/tesseractRunner');
         const header = 'level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext';
         const rows = [
             '5\t1\t1\t1\t1\t1\t0\t0\t10\t10\t90\tone',
@@ -286,7 +286,7 @@ describe('file-based Tesseract arguments', () => {
         const child = new MockChildProcess();
         mocks.spawn.mockReturnValue(child);
 
-        const { runOcrFileBased } = await import('@electron/ocr/worker/tesseractRunner');
+        const { runOcrFileBased } = await import('@electron/features/ocr/worker/tesseractRunner');
         const resultPromise = runOcrFileBased(
             '/tmp/page.png',
             ['eng'],
@@ -328,7 +328,7 @@ describe('file-based Tesseract arguments', () => {
         const child = new MockChildProcess();
         mocks.spawn.mockReturnValue(child);
 
-        const { runOcrFileBased } = await import('@electron/ocr/worker/tesseractRunner');
+        const { runOcrFileBased } = await import('@electron/features/ocr/worker/tesseractRunner');
         const resultPromise = runOcrFileBased(
             '/tmp/page.png',
             ['eng'],
@@ -374,7 +374,7 @@ describe('PNG dimension parsing', () => {
         header.writeUInt32BE(1536, 20);
         await writeFile(imagePath, header);
 
-        const { getPngDimensionsFromFile } = await import('@electron/ocr/worker/tesseractRunner');
+        const { getPngDimensionsFromFile } = await import('@electron/features/ocr/worker/tesseractRunner');
 
         await expect(getPngDimensionsFromFile(imagePath)).resolves.toEqual({
             width: 2048,

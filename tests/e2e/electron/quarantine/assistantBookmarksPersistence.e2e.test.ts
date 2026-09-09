@@ -6,7 +6,7 @@ import {
 import { readFileSync } from 'node:fs';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
-import { createPdfjsNodeDocumentOptions } from '@electron/search/createPdfjsNodeDocumentOptions';
+import { createPdfjsNodeDocumentOptions } from '@electron/features/search/createPdfjsNodeDocumentOptions';
 import {adaptPdfjsDocument} from '@app/services/pdfjs/pdfjsCompatibility';
 import { createMultiPageTextFixturePdf } from '@tests/e2e/electron/helpers/fixtures';
 import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';

@@ -45,6 +45,52 @@ describe('workspace save failure surfacing', () => {
         vi.restoreAllMocks();
     });
 
+    it('saves dirty changes before optimizing the PDF for interaction', async () => {
+        const saveCalls: string[] = [];
+        const annotationDirty = ref(true);
+        const hasAnnotationChanges = vi.fn(() => annotationDirty.value);
+        const {deps} = createDeps({
+            annotationDirty,
+            hasAnnotationChanges,
+            optimizeWorkingCopy: vi.fn(async () => {
+                saveCalls.push('optimize');
+                return {
+                    success: true,
+                    outPath: requireDocumentRef('/tmp/work.pdf'),
+                    saveMode: 'rewrite' as const,
+                    didSaveAs: false,
+                };
+            }),
+            saveWorkingCopy: vi.fn(async () => {
+                saveCalls.push('save');
+                annotationDirty.value = false;
+                return {
+                    success: true,
+                    outPath: requireDocumentRef('/tmp/work.pdf'),
+                    saveMode: 'rewrite' as const,
+                    didSaveAs: false,
+                };
+            }),
+            runSaveTransaction: vi.fn(async () => cast<TSaveTransactionResult>({
+                source: 'serialized-rewrite' as const,
+                baseBytes: null,
+                serializedBytes: Uint8Array.of(1, 2, 3),
+                serializedResult: null,
+                nativeMutationProjection: null,
+                fallbackDecision: null,
+                annotationSavePlan: null,
+            })),
+        });
+        const service = useWorkspaceSaveServiceForTest(deps);
+
+        await expect(service.handleOptimizePdfForInteraction()).resolves.toBe(true);
+
+        expect(saveCalls).toEqual([
+            'save',
+            'optimize',
+        ]);
+    });
+
     it('passes projected placed-image geometry to the native persistence owner', async () => {
         const placedImageGeometryUpdates: IPdfNativePlacedImageGeometryUpdate[] = [{
             stableKey: 'placed-image:one',

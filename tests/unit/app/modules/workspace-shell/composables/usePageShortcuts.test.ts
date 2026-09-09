@@ -4,121 +4,28 @@ import {
     expect,
     it,
     onTestFinished,
+    afterEach,
     vi,
 } from 'vitest';
+import {ref} from 'vue';
+import {createKeyboardEventFixture} from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
+import {createPointerDownEvent} from '@tests/unit/app/modules/workspace-shell/composables/createPointerDownEvent';
 import {
-    computed,
-    ref,
-} from 'vue';
-import type { TAnnotationTool } from '@app/types/annotations';
-import type { TPdfViewMode } from '@contracts/shared';
-import type { TPdfSource } from '@app/types/pdfUi';
-import {
-    createKeyboardEventFixture,
-    type IKeyboardEventFixtureOptions,
-} from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
+    createPageShortcutDeps as createDeps,
+    getCapturedKeyDown,
+    getCapturedOnEventFired,
+    getCapturedPointerDown,
+    getPageShortcutsMocks,
+    resetPageShortcutsTest,
+    restorePageShortcutsTest,
+    pressPagingKey,
+} from '@tests/helpers/usePageShortcutsTestFixtures';
 
-const mocks = vi.hoisted(() => ({
-    useEventListener: vi.fn(),
-    useMagicKeys: vi.fn(),
-    tryOnScopeDispose: vi.fn(),
-    whenever: vi.fn(),
-    shouldHandleRendererMenuAccelerators: vi.fn(),
-}));
-
-vi.mock('@vueuse/core', () => ({
-    useEventListener: mocks.useEventListener,
-    useMagicKeys: mocks.useMagicKeys,
-    tryOnScopeDispose: mocks.tryOnScopeDispose,
-    whenever: mocks.whenever,
-}));
-vi.mock('@app/utils/shouldHandleRendererMenuAccelerators', () => ({ shouldHandleRendererMenuAccelerators: mocks.shouldHandleRendererMenuAccelerators }));
-
-function createDeps() {
-    const pdfSrc = ref<TPdfSource | null>(new Blob([], { type: 'application/pdf' }));
-    return {
-        isActive: ref(true),
-        // Mirrors the workspace wiring, which derives the flag from the open PDF
-        // or DjVu source.
-        hasInteractiveDocument: computed(() => Boolean(pdfSrc.value)),
-        pdfSrc,
-        canPrint: ref(true),
-        canSave: ref(true),
-        showSettings: ref(false),
-        annotationTool: ref<TAnnotationTool>('none'),
-        pdfViewerRef: ref({deleteSelectedShape: vi.fn()}),
-        annotationContextMenuVisible: ref(false),
-        pageContextMenuVisible: ref(false),
-        closeAnnotationContextMenu: vi.fn(),
-        closePageContextMenu: vi.fn(),
-        openSearch: vi.fn(),
-        openAnnotations: vi.fn(),
-        handleAnnotationToolChange: vi.fn(),
-        handleZoomIn: vi.fn(),
-        handleZoomOut: vi.fn(),
-        handleActualSize: vi.fn(),
-        handleFitMode: vi.fn(),
-        navigationPage: ref(3),
-        totalPages: ref(10),
-        viewMode: ref<TPdfViewMode>('single'),
-        handleGoToPage: vi.fn(),
-        handleSave: vi.fn(),
-        handlePrint: vi.fn(),
-        handleToggleSidebar: vi.fn(),
-    };
-}
-
-let capturedOnEventFired: ((e: unknown) => void) | undefined;
-let capturedPointerDown: ((e: PointerEvent) => void) | undefined;
-let capturedKeyDown: ((e: KeyboardEvent) => void) | undefined;
-
-interface IPointerDownTargetFixture {closest: (selector: string) => unknown;}
-
-function createPointerDownEvent(target: EventTarget | IPointerDownTargetFixture): PointerEvent {
-    const event = new Event('pointerdown');
-    Object.defineProperty(event, 'target', {
-        configurable: true,
-        value: target,
-    });
-
-    // happy-dom does not provide the PointerEvent shape used by this listener.
-    return event as PointerEvent;
-}
+const mocks = getPageShortcutsMocks();
 
 describe('usePageShortcuts', () => {
-    beforeEach(() => {
-        vi.resetModules();
-        vi.clearAllMocks();
-        const windowMock = {
-            addEventListener: vi.fn((event: string, listener: EventListener) => {
-                if (event === 'pointerdown') {
-                    capturedPointerDown = listener;
-                }
-                if (event === 'keydown') {
-                    capturedKeyDown = listener;
-                }
-            }),
-            removeEventListener: vi.fn(),
-        };
-        vi.stubGlobal('window', windowMock);
-        capturedPointerDown = undefined;
-        capturedKeyDown = undefined;
-        mocks.shouldHandleRendererMenuAccelerators.mockReturnValue(false);
-        mocks.useEventListener.mockImplementation((
-            target: { addEventListener?: (...args: unknown[]) => void } | null,
-            event: string,
-            listener: EventListener,
-            options?: AddEventListenerOptions,
-        ) => {
-            target?.addEventListener?.(event, listener, options);
-            return vi.fn();
-        });
-
-        mocks.useMagicKeys.mockImplementation((opts?: { onEventFired?: (e: unknown) => void }) => {
-            capturedOnEventFired = opts?.onEventFired;
-            return new Proxy({}, { get: () => ref(false) });
-        });
-    });
+    beforeEach(resetPageShortcutsTest);
+    afterEach(restorePageShortcutsTest);
 
     it('registers pointerdown listener on window', async () => {
         const { usePageShortcuts } = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
@@ -153,7 +60,7 @@ describe('usePageShortcuts', () => {
         usePageShortcuts(deps);
 
         const preventZoomIn = vi.fn();
-        capturedOnEventFired?.(createKeyboardEventFixture({
+        getCapturedOnEventFired()?.(createKeyboardEventFixture({
             key: '=',
             code: 'Equal',
             metaKey: true,
@@ -166,7 +73,7 @@ describe('usePageShortcuts', () => {
         expect(deps.handleZoomIn).toHaveBeenCalledOnce();
 
         const preventZoomOut = vi.fn();
-        capturedOnEventFired?.(createKeyboardEventFixture({
+        getCapturedOnEventFired()?.(createKeyboardEventFixture({
             key: '-',
             code: 'Minus',
             metaKey: true,
@@ -179,7 +86,7 @@ describe('usePageShortcuts', () => {
         expect(deps.handleZoomOut).toHaveBeenCalledOnce();
 
         const preventActualSize = vi.fn();
-        capturedOnEventFired?.(createKeyboardEventFixture({
+        getCapturedOnEventFired()?.(createKeyboardEventFixture({
             key: '0',
             code: 'Digit0',
             metaKey: true,
@@ -199,7 +106,7 @@ describe('usePageShortcuts', () => {
         usePageShortcuts(deps);
 
         const preventDefault = vi.fn();
-        capturedOnEventFired?.(createKeyboardEventFixture({
+        getCapturedOnEventFired()?.(createKeyboardEventFixture({
             key: 'p',
             code: 'KeyP',
             metaKey: true,
@@ -223,7 +130,7 @@ describe('usePageShortcuts', () => {
         usePageShortcuts(deps);
 
         const preventDefault = vi.fn();
-        capturedOnEventFired?.(createKeyboardEventFixture({
+        getCapturedOnEventFired()?.(createKeyboardEventFixture({
             key: 'p',
             code: 'KeyP',
             metaKey: true,
@@ -246,7 +153,7 @@ describe('usePageShortcuts', () => {
         usePageShortcuts(deps);
 
         const preventDefault = vi.fn();
-        capturedOnEventFired?.(createKeyboardEventFixture({
+        getCapturedOnEventFired()?.(createKeyboardEventFixture({
             key: 'p',
             code: 'KeyP',
             metaKey: true,
@@ -268,7 +175,7 @@ describe('usePageShortcuts', () => {
         usePageShortcuts(deps);
 
         const preventDefault = vi.fn();
-        capturedOnEventFired?.(createKeyboardEventFixture({
+        getCapturedOnEventFired()?.(createKeyboardEventFixture({
             key: 's',
             code: 'KeyS',
             metaKey: true,
@@ -298,7 +205,7 @@ describe('usePageShortcuts', () => {
         vi.stubGlobal('HTMLElement', class HTMLElementStub {});
         Object.setPrototypeOf(fakeInput, HTMLElement.prototype);
 
-        capturedOnEventFired?.(createKeyboardEventFixture({
+        getCapturedOnEventFired()?.(createKeyboardEventFixture({
             key: 's',
             code: 'KeyS',
             metaKey: true,
@@ -322,7 +229,7 @@ describe('usePageShortcuts', () => {
         const preventDefault = vi.fn();
         const stopPropagation = vi.fn();
 
-        capturedKeyDown?.(createKeyboardEventFixture({
+        getCapturedKeyDown()?.(createKeyboardEventFixture({
             key: 's',
             code: 'KeyS',
             metaKey: true,
@@ -348,7 +255,7 @@ describe('usePageShortcuts', () => {
         const preventDefault = vi.fn();
         const stopPropagation = vi.fn();
 
-        capturedKeyDown?.(createKeyboardEventFixture({
+        getCapturedKeyDown()?.(createKeyboardEventFixture({
             key: 'p',
             code: 'KeyP',
             metaKey: true,
@@ -374,7 +281,7 @@ describe('usePageShortcuts', () => {
         const preventDefault = vi.fn();
         const stopPropagation = vi.fn();
 
-        capturedKeyDown?.(createKeyboardEventFixture({
+        getCapturedKeyDown()?.(createKeyboardEventFixture({
             key: 's',
             code: 'KeyS',
             metaKey: true,
@@ -400,7 +307,7 @@ describe('usePageShortcuts', () => {
 
         const preventDefault = vi.fn();
         const stopPropagation = vi.fn();
-        capturedKeyDown?.(createKeyboardEventFixture({
+        getCapturedKeyDown()?.(createKeyboardEventFixture({
             key: 's',
             code: 'KeyS',
             metaKey: true,
@@ -424,7 +331,7 @@ describe('usePageShortcuts', () => {
         usePageShortcuts(deps);
 
         const preventDefault = vi.fn();
-        capturedOnEventFired?.(createKeyboardEventFixture({
+        getCapturedOnEventFired()?.(createKeyboardEventFixture({
             key: 's',
             code: 'KeyS',
             metaKey: true,
@@ -445,7 +352,7 @@ describe('usePageShortcuts', () => {
         usePageShortcuts(deps);
 
         const preventDefault = vi.fn();
-        capturedOnEventFired?.(createKeyboardEventFixture({
+        getCapturedOnEventFired()?.(createKeyboardEventFixture({
             key: 'b',
             code: 'KeyB',
             metaKey: true,
@@ -472,7 +379,7 @@ describe('usePageShortcuts', () => {
         vi.stubGlobal('HTMLElement', class HTMLElementStub {});
         Object.setPrototypeOf(fakeInput, HTMLElement.prototype);
 
-        capturedOnEventFired?.(createKeyboardEventFixture({
+        getCapturedOnEventFired()?.(createKeyboardEventFixture({
             key: 'b',
             code: 'KeyB',
             metaKey: true,
@@ -498,7 +405,7 @@ describe('usePageShortcuts', () => {
         vi.stubGlobal('HTMLElement', class HTMLElementStub {});
         Object.setPrototypeOf(fakeInput, HTMLElement.prototype);
 
-        capturedOnEventFired?.(createKeyboardEventFixture({
+        getCapturedOnEventFired()?.(createKeyboardEventFixture({
             key: 'f',
             code: 'KeyF',
             metaKey: true,
@@ -521,7 +428,7 @@ describe('usePageShortcuts', () => {
         usePageShortcuts(deps);
         const event = createKeyboardEventFixture({key: 'Escape'});
         Object.defineProperty(event, 'isComposing', {value: true});
-        capturedOnEventFired?.(event);
+        getCapturedOnEventFired()?.(event);
         expect(deps.closeAnnotationContextMenu).not.toHaveBeenCalled();
         expect(deps.handleAnnotationToolChange).not.toHaveBeenCalled();
     });
@@ -553,7 +460,7 @@ describe('usePageShortcuts', () => {
         onTestFinished(() => { vi.unstubAllGlobals(); });
         Object.setPrototypeOf(fakeInput, HTMLElement.prototype);
         const preventDefault = vi.fn();
-        capturedOnEventFired?.(createKeyboardEventFixture({
+        getCapturedOnEventFired()?.(createKeyboardEventFixture({
             key: 'Escape',
             target: fakeInput,
             preventDefault,
@@ -570,7 +477,7 @@ describe('usePageShortcuts', () => {
         deps.annotationTool.value = 'draw';
         const {usePageShortcuts} = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
         usePageShortcuts(deps);
-        capturedOnEventFired?.(createKeyboardEventFixture({key: 'Escape'}));
+        getCapturedOnEventFired()?.(createKeyboardEventFixture({key: 'Escape'}));
         expect(deps.handleAnnotationToolChange).toHaveBeenCalledWith('none');
     });
 
@@ -586,7 +493,7 @@ describe('usePageShortcuts', () => {
                 handleAnnotationEscape,
             }),
         });
-        capturedOnEventFired?.(createKeyboardEventFixture({key: 'Escape'}));
+        getCapturedOnEventFired()?.(createKeyboardEventFixture({key: 'Escape'}));
         expect(handleAnnotationEscape).toHaveBeenCalledOnce();
         expect(deps.handleAnnotationToolChange).not.toHaveBeenCalled();
     });
@@ -598,7 +505,7 @@ describe('usePageShortcuts', () => {
         const { usePageShortcuts } = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
         usePageShortcuts(deps);
 
-        capturedOnEventFired?.(createKeyboardEventFixture({
+        getCapturedOnEventFired()?.(createKeyboardEventFixture({
             key: 'Escape',
             code: 'Escape',
             metaKey: false,
@@ -617,7 +524,7 @@ describe('usePageShortcuts', () => {
         usePageShortcuts(deps);
 
         const preventDefault = vi.fn();
-        capturedOnEventFired?.(createKeyboardEventFixture({
+        getCapturedOnEventFired()?.(createKeyboardEventFixture({
             key: 'Delete',
             code: 'Delete',
             metaKey: false,
@@ -648,7 +555,7 @@ describe('usePageShortcuts', () => {
             'Backspace',
         ]) {
             const preventDefault = vi.fn();
-            capturedOnEventFired?.(createKeyboardEventFixture({
+            getCapturedOnEventFired()?.(createKeyboardEventFixture({
                 key,
                 code: key,
                 metaKey: false,
@@ -669,7 +576,7 @@ describe('usePageShortcuts', () => {
         usePageShortcuts(deps);
 
         const preventDefault = vi.fn();
-        capturedOnEventFired?.(createKeyboardEventFixture({
+        getCapturedOnEventFired()?.(createKeyboardEventFixture({
             key: 'b',
             code: 'KeyB',
             metaKey: true,
@@ -690,7 +597,7 @@ describe('usePageShortcuts', () => {
         usePageShortcuts(deps);
 
         const preventDefault = vi.fn();
-        capturedOnEventFired?.(createKeyboardEventFixture({
+        getCapturedOnEventFired()?.(createKeyboardEventFixture({
             key: 'p',
             code: 'KeyP',
             metaKey: true,
@@ -712,7 +619,7 @@ describe('usePageShortcuts', () => {
         usePageShortcuts(deps);
 
         const preventFitWidth = vi.fn();
-        capturedOnEventFired?.(createKeyboardEventFixture({
+        getCapturedOnEventFired()?.(createKeyboardEventFixture({
             key: '1',
             code: 'Digit1',
             metaKey: true,
@@ -725,7 +632,7 @@ describe('usePageShortcuts', () => {
         expect(deps.handleFitMode).toHaveBeenNthCalledWith(1, 'width');
 
         const preventFitHeight = vi.fn();
-        capturedOnEventFired?.(createKeyboardEventFixture({
+        getCapturedOnEventFired()?.(createKeyboardEventFixture({
             key: '2',
             code: 'Digit2',
             metaKey: true,
@@ -749,7 +656,7 @@ describe('usePageShortcuts', () => {
             '2',
         ]) {
             const preventDefault = vi.fn();
-            capturedOnEventFired?.(createKeyboardEventFixture({
+            getCapturedOnEventFired()?.(createKeyboardEventFixture({
                 key,
                 code: `Digit${key}`,
                 metaKey: true,
@@ -761,177 +668,6 @@ describe('usePageShortcuts', () => {
             expect(preventDefault).not.toHaveBeenCalled();
         }
         expect(deps.handleFitMode).not.toHaveBeenCalled();
-    });
-
-    function pressPagingKey(key: string, overrides: Partial<IKeyboardEventFixtureOptions> = {}) {
-        const preventDefault = vi.fn();
-        capturedOnEventFired?.(createKeyboardEventFixture({
-            key,
-            code: key,
-            metaKey: false,
-            ctrlKey: false,
-            altKey: false,
-            shiftKey: false,
-            target: null,
-            preventDefault,
-            ...overrides,
-        }));
-        return preventDefault;
-    }
-
-    it('pages the document with PageUp/PageDown/Home/End through the workspace navigation chain', async () => {
-        const deps = createDeps();
-        const { usePageShortcuts } = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
-        usePageShortcuts(deps);
-
-        expect(pressPagingKey('PageDown')).toHaveBeenCalledOnce();
-        expect(deps.handleGoToPage).toHaveBeenNthCalledWith(1, 4, { navigationSource: 'toolbar' });
-
-        expect(pressPagingKey('PageUp')).toHaveBeenCalledOnce();
-        expect(deps.handleGoToPage).toHaveBeenNthCalledWith(2, 2, { navigationSource: 'toolbar' });
-
-        expect(pressPagingKey('Home')).toHaveBeenCalledOnce();
-        expect(deps.handleGoToPage).toHaveBeenNthCalledWith(3, 1, { navigationSource: 'toolbar' });
-
-        expect(pressPagingKey('End')).toHaveBeenCalledOnce();
-        expect(deps.handleGoToPage).toHaveBeenNthCalledWith(4, 10, { navigationSource: 'toolbar' });
-    });
-
-    it('steps a whole spread in facing view modes', async () => {
-        const deps = createDeps();
-        deps.viewMode.value = 'facing';
-        const { usePageShortcuts } = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
-        usePageShortcuts(deps);
-
-        pressPagingKey('PageDown');
-        expect(deps.handleGoToPage).toHaveBeenNthCalledWith(1, 5, { navigationSource: 'toolbar' });
-
-        pressPagingKey('PageUp');
-        expect(deps.handleGoToPage).toHaveBeenNthCalledWith(2, 1, { navigationSource: 'toolbar' });
-    });
-
-    it('keeps the last spread stable when paging past the end', async () => {
-        const deps = createDeps();
-        deps.navigationPage.value = 10;
-        const { usePageShortcuts } = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
-        usePageShortcuts(deps);
-
-        expect(pressPagingKey('PageDown')).toHaveBeenCalledOnce();
-        expect(deps.handleGoToPage).not.toHaveBeenCalled();
-    });
-
-    it('composes rapid paging from the pending navigation page, not the settled page', async () => {
-        const deps = createDeps();
-        const { usePageShortcuts } = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
-        usePageShortcuts(deps);
-
-        pressPagingKey('PageDown');
-        deps.navigationPage.value = 4;
-        pressPagingKey('PageDown');
-
-        expect(deps.handleGoToPage).toHaveBeenNthCalledWith(2, 5, { navigationSource: 'toolbar' });
-    });
-
-    it('leaves paging keys to the browser while the page count is unknown', async () => {
-        const { usePageShortcuts } = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
-
-        for (const totalPages of [
-            0,
-            Number.NaN,
-        ]) {
-            const deps = createDeps();
-            deps.totalPages.value = totalPages;
-            usePageShortcuts(deps);
-
-            expect(pressPagingKey('PageDown')).not.toHaveBeenCalled();
-            expect(deps.handleGoToPage).not.toHaveBeenCalled();
-        }
-    });
-
-    it('keeps paging keys inert while typing in editable controls', async () => {
-        const deps = createDeps();
-        const fakeInput = {
-            isContentEditable: false,
-            closest: (selector: string) => selector.includes('input') ? fakeInput : null,
-        };
-        const fakeNoteEditor = {
-            isContentEditable: true,
-            closest: () => null,
-        };
-        // eslint-disable-next-line @typescript-eslint/no-extraneous-class
-        vi.stubGlobal('HTMLElement', class HTMLElementStub {});
-        Object.setPrototypeOf(fakeInput, HTMLElement.prototype);
-        Object.setPrototypeOf(fakeNoteEditor, HTMLElement.prototype);
-        const { usePageShortcuts } = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
-        usePageShortcuts(deps);
-
-        for (const target of [
-            fakeInput,
-            fakeNoteEditor,
-        ]) {
-            for (const key of [
-                'PageDown',
-                'PageUp',
-                'Home',
-                'End',
-            ]) {
-                expect(pressPagingKey(key, { target })).not.toHaveBeenCalled();
-            }
-        }
-        expect(deps.handleGoToPage).not.toHaveBeenCalled();
-    });
-
-    it('ignores modified paging keys so tab and selection accelerators keep working', async () => {
-        const deps = createDeps();
-        const { usePageShortcuts } = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
-        usePageShortcuts(deps);
-
-        for (const overrides of [
-            { ctrlKey: true },
-            { metaKey: true },
-            { shiftKey: true },
-            { altKey: true },
-        ]) {
-            expect(pressPagingKey('PageDown', overrides)).not.toHaveBeenCalled();
-        }
-        expect(deps.handleGoToPage).not.toHaveBeenCalled();
-    });
-
-    it('does not intercept arrow keys used for thumbnail selection', async () => {
-        const deps = createDeps();
-        const { usePageShortcuts } = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
-        usePageShortcuts(deps);
-
-        for (const key of [
-            'ArrowUp',
-            'ArrowDown',
-            'ArrowLeft',
-            'ArrowRight',
-            ' ',
-        ]) {
-            expect(pressPagingKey(key)).not.toHaveBeenCalled();
-            expect(pressPagingKey(key, { shiftKey: true })).not.toHaveBeenCalled();
-        }
-        expect(deps.handleGoToPage).not.toHaveBeenCalled();
-    });
-
-    it('leaves paging keys to the browser after the document source is cleared', async () => {
-        const deps = createDeps();
-        // A closed document leaves the last document's page count behind, so the
-        // count alone must never authorise paging.
-        deps.pdfSrc.value = null;
-        const { usePageShortcuts } = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
-        usePageShortcuts(deps);
-
-        for (const key of [
-            'PageDown',
-            'PageUp',
-            'Home',
-            'End',
-        ]) {
-            expect(pressPagingKey(key)).not.toHaveBeenCalled();
-        }
-        expect(deps.handleGoToPage).not.toHaveBeenCalled();
     });
 
     it('honors the host non-interactive state while a document source remains', async () => {
@@ -960,7 +696,7 @@ describe('usePageShortcuts', () => {
         vi.stubGlobal('HTMLElement', class HTMLElementStub {});
         Object.setPrototypeOf(target, HTMLElement.prototype);
 
-        capturedPointerDown?.(createPointerDownEvent(target));
+        getCapturedPointerDown()?.(createPointerDownEvent(target));
 
         expect(deps.closeAnnotationContextMenu).toHaveBeenCalledOnce();
         expect(deps.closePageContextMenu).toHaveBeenCalledOnce();

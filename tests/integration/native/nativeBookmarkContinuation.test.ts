@@ -27,10 +27,8 @@ import {
     expect,
     it,
 } from 'vitest';
-import {
-    normalizePdfNativeMutationSet,
-    splitPdfNativeMutationSetIntoBoundedChunks,
-} from '@contracts/nativePdfMutations';
+import {normalizePdfNativeMutationSet} from '@contracts/nativePdfMutations';
+import {splitPdfNativeMutationSetIntoBoundedChunks} from '@pdf-core/nativePdfMutationPolicy';
 
 const execFileAsync = promisify(execFile);
 const NATIVE_BOOKMARK_TIMEOUT_MS = 180_000;

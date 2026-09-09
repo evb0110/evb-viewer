@@ -55,6 +55,250 @@ function toRepoPath(filePath) {
     return path.relative(process.cwd(), filePath).split(path.sep).join('/');
 }
 
+const INTERNAL_MOCK_ALIAS_ROOTS = new Map([
+    [
+        'app',
+        ['@app'],
+    ],
+    [
+        'electron',
+        ['@electron'],
+    ],
+    [
+        'server',
+        ['@server'],
+    ],
+    [
+        'packages',
+        [
+            '@contracts',
+            '@pdf-core',
+            '@electron-worker-bundles',
+            '@scan-cleanup-core',
+            '@scan-cleanup-adapters',
+            '@i18n-core',
+            '@i18n-app',
+            '@releaseSelection',
+        ],
+    ],
+]);
+
+const INTERNAL_MOCK_BOUNDARY_PATTERNS = [
+    /^@electron\/(?:file-access|native|platform-ipc)\//u,
+    /^@electron\/utils\/(?:native|runElectronCommand|processTree)/u,
+    /^@electron\/(?:ocr\/worker|features\/ocr\/worker)\/runOcrCommand$/u,
+    /^@electron\/pdf\/pdfPageCount$/u,
+    /^@electron\/features\/[^/]+\/(?:native|public)(?:\/|$)/u,
+    /^@app\/platform(?:\/|$)/u,
+    /^@app\/(?:composables\/useSettings|composables\/useTypedI18n)$/u,
+    /^@app\/modules\/pdf-viewer\/components\/PdfAnnotation(?:CommentsList|StyleEditor|Toolbar)\.vue$/u,
+    /^@app\/modules\/workspace-shell\/composables\/nativePdfMutationArtifact$/u,
+    /^@app\/modules\/workspace-shell\/splits\/cleanupSplitPayloadSnapshot$/u,
+    /^@app\/utils\/(?:platformDocuments|performanceProfile|platformWindowTabs)$/u,
+];
+
+const REMOVED_PACKAGE_ALIAS_PREFIXES = [
+    '@evb/contracts',
+    '@evb/pdf-core',
+    '@evb/electron-worker-bundles',
+    '@evb/i18n-core',
+    '@evb/i18n-app',
+    '@evb/releaseSelection',
+];
+
+function isRemovedPackageAlias(value) {
+    return value === '@contracts'
+        || value === '@contracts/index'
+        || REMOVED_PACKAGE_ALIAS_PREFIXES.some(prefix => (
+            value === prefix || value.startsWith(`${prefix}/`)
+        ));
+}
+
+const noRemovedPackageAliasesRule = {
+    meta: {
+        type: 'problem',
+        docs: {
+            description: 'Reject removed package aliases and the contracts barrel import',
+            recommended: true,
+        },
+        schema: [],
+    },
+    create(context) {
+        function reportSource(source) {
+            const value = getLiteralValue(source);
+            if (!value || !isRemovedPackageAlias(value)) {
+                return;
+            }
+            context.report({
+                node: source,
+                message: `Use a canonical package subpath instead of removed alias "${value}".`,
+            });
+        }
+
+        return {
+            ImportDeclaration(node) {
+                reportSource(node.source);
+            },
+            ExportNamedDeclaration(node) {
+                reportSource(node.source);
+            },
+            ExportAllDeclaration(node) {
+                reportSource(node.source);
+            },
+            ImportExpression(node) {
+                reportSource(node.source);
+            },
+            TSImportType(node) {
+                reportSource(node.source ?? node.argument);
+            },
+        };
+    },
+};
+
+export function getInternalMockAllowlistGrowth(allowlist, baseline) {
+    const growth = [];
+    const baselineEntries = baseline instanceof Map ? baseline.entries() : Object.entries(baseline);
+    const baselineCounts = new Map(baselineEntries);
+    for (const [
+        file,
+        count,
+    ] of Object.entries(allowlist)) {
+        const baselineCount = baselineCounts.get(file);
+        if (baselineCount === undefined) {
+            growth.push(`new file ${file} (${count})`);
+        } else if (count > baselineCount) {
+            growth.push(`${file} increased from ${baselineCount} to ${count}`);
+        }
+    }
+    return growth;
+}
+
+function getTestLayer(repoPath) {
+    return /^tests\/unit\/([^/]+)\//u.exec(repoPath)?.[1] ?? null;
+}
+
+function getInternalMockTargetLayer(source) {
+    for (const [
+        layer,
+        aliases,
+    ] of INTERNAL_MOCK_ALIAS_ROOTS) {
+        if (aliases.some(alias => source === alias || source.startsWith(`${alias}/`))) {
+            return layer;
+        }
+    }
+    return null;
+}
+
+function isApprovedInternalMockBoundary(source) {
+    return INTERNAL_MOCK_BOUNDARY_PATTERNS.some(pattern => pattern.test(source));
+}
+
+function isInternalMockForTest(source, repoPath) {
+    const layer = getTestLayer(repoPath);
+    return layer !== null
+        && getInternalMockTargetLayer(source) === layer
+        && !isApprovedInternalMockBoundary(source);
+}
+
+const reportedAllowlistGrowth = new WeakSet();
+
+const noInternalTestMocksRule = {
+    meta: {
+        type: 'problem',
+        docs: {
+            description: 'Reject same-layer business-module mocks in unit tests',
+            recommended: false,
+        },
+        schema: [{
+            type: 'object',
+            properties: {
+                allowlist: {
+                    type: 'object',
+                    additionalProperties: {
+                        type: 'integer',
+                        minimum: 0,
+                    },
+                },
+                baseline: {type: 'object'},
+            },
+            additionalProperties: false,
+        }],
+    },
+    create(context) {
+        const repoPath = toRepoPath(context.physicalFilename ?? context.filename);
+        if (!repoPath.startsWith('tests/unit/')) {
+            return {};
+        }
+
+        const allowlist = context.options[0]?.allowlist ?? {};
+        const baseline = context.options[0]?.baseline;
+        const allowlistGrowth = baseline
+            ? getInternalMockAllowlistGrowth(allowlist, baseline)
+            : [];
+        const allowlistGrowthReport = allowlistGrowth.length > 0
+            && !reportedAllowlistGrowth.has(allowlist);
+        if (allowlistGrowthReport) {
+            reportedAllowlistGrowth.add(allowlist);
+        }
+        const allowedCount = allowlist[repoPath] ?? 0;
+        let violationCount = 0;
+        const importedSources = new Map();
+
+        function report(node) {
+            violationCount += 1;
+            if (repoPath in allowlist && violationCount > allowedCount) {
+                context.report({
+                    node,
+                    message: 'Do not mock same-layer internal business modules. Use a fixture or mock the process/platform boundary instead.',
+                });
+            }
+        }
+
+        return {
+            ImportDeclaration(node) {
+                const source = getLiteralValue(node.source);
+                if (!source || !isInternalMockForTest(source, repoPath)) {
+                    return;
+                }
+                for (const specifier of node.specifiers) importedSources.set(specifier.local.name, source);
+            },
+            CallExpression(node) {
+                const callee = node.callee;
+                if (callee?.type !== 'MemberExpression' || callee.computed
+                    || callee.object?.type !== 'Identifier' || callee.object.name !== 'vi'
+                    || callee.property?.type !== 'Identifier') {
+                    return;
+                }
+                if (callee.property.name === 'mock' || callee.property.name === 'doMock') {
+                    const source = getLiteralValue(node.arguments[0]);
+                    if (source && isInternalMockForTest(source, repoPath)) report(node);
+                } else if (callee.property.name === 'spyOn') {
+                    const source = node.arguments[0]?.type === 'Identifier'
+                        ? importedSources.get(node.arguments[0].name) : null;
+                    if (source && isInternalMockForTest(source, repoPath)) report(node);
+                }
+            },
+            'Program:exit'() {
+                if (allowlistGrowthReport) {
+                    context.report({
+                        node: context.sourceCode.ast,
+                        message: `The internal-mock allowlist may only shrink: ${allowlistGrowth.join('; ')}.`,
+                    });
+                }
+                if (violationCount > 0 && !(repoPath in allowlist)) {
+                    context.report({
+                        loc: {
+                            line: 1,
+                            column: 0,
+                        },
+                        message: `Review ${violationCount} same-layer internal mock(s) in ${repoPath} before adding this file to the allowlist.`,
+                    });
+                }
+            },
+        };
+    },
+};
+
 function stripTypeScriptSuffixes(fileName) {
     let stem = fileName.replace(/(?:\.d)?\.[cm]?tsx?$/u, '');
     const parts = stem.split('.');
@@ -962,6 +1206,8 @@ const noBarePageNumberTypeRule = {
 };
 
 export default {rules: {
+    'no-removed-package-aliases': noRemovedPackageAliasesRule,
+    'no-internal-test-mocks': noInternalTestMocksRule,
     'no-raw-red-presentation': noRawRedPresentationRule,
     'no-direct-console-error': noDirectConsoleErrorRule,
     'require-failure-receipt': requireFailureReceiptRule,
@@ -1329,200 +1575,6 @@ export default {rules: {
                         node: member,
                         message: 'Use tuple-style defineEmits type literals.',
                     });
-                }
-            }};
-        },
-    },
-    'import-specifier-newline': {
-        meta: {
-            type: 'layout',
-            docs: {
-                description: 'Enforce import specifiers to be on separate lines when there are 2 or more',
-                recommended: true,
-            },
-            fixable: 'code',
-            schema: [{
-                type: 'object',
-                properties: {minSpecifiers: {
-                    type: 'integer',
-                    minimum: 1,
-                }},
-                additionalProperties: false,
-            }],
-        },
-        create(context) {
-            const sourceCode = context.sourceCode;
-            const options = context.options[0] || {};
-            const minSpecifiers = options.minSpecifiers ?? 2;
-
-            function formatImport(specifiers, openBrace, source) {
-                const indent = '    ';
-                const specifierTexts = specifiers.map((s) => sourceCode.getText(s));
-
-                return '{\n' +
-                    specifierTexts.map((t) => `${indent}${t},`).join('\n') +
-                    '\n} from ' +
-                    sourceCode.getText(source);
-            }
-
-            return {ImportDeclaration(node) {
-                const specifiers = node.specifiers.filter(
-                    (s) => s.type === 'ImportSpecifier',
-                );
-
-                if (specifiers.length < minSpecifiers) {
-                    return;
-                }
-
-                const firstSpecifier = specifiers[0];
-                const openBrace = sourceCode.getTokenBefore(firstSpecifier);
-
-                const allOnSameLine = specifiers.every(
-                    (s) => s.loc.start.line === firstSpecifier.loc.start.line,
-                );
-
-                if (allOnSameLine) {
-                    context.report({
-                        node: firstSpecifier,
-                        message: `Import specifiers should be on separate lines when there are ${minSpecifiers} or more`,
-                        fix(fixer) {
-                            return fixer.replaceTextRange(
-                                [
-                                    openBrace.range[0],
-                                    node.source.range[1],
-                                ],
-                                formatImport(specifiers, openBrace, node.source),
-                            );
-                        },
-                    });
-                    return;
-                }
-
-                for (let i = 0; i < specifiers.length - 1; i++) {
-                    const current = specifiers[i];
-                    const next = specifiers[i + 1];
-
-                    if (current.loc.end.line === next.loc.start.line) {
-                        context.report({
-                            node: next,
-                            message: 'Each import specifier should be on its own line',
-                            fix(fixer) {
-                                return fixer.replaceTextRange(
-                                    [
-                                        openBrace.range[0],
-                                        node.source.range[1],
-                                    ],
-                                    formatImport(specifiers, openBrace, node.source),
-                                );
-                            },
-                        });
-                        break;
-                    }
-                }
-            }};
-        },
-    },
-    'destructuring-property-newline': {
-        meta: {
-            type: 'layout',
-            docs: {
-                description: 'Enforce destructuring properties to be on separate lines when there are 2 or more',
-                recommended: true,
-            },
-            fixable: 'code',
-            schema: [{
-                type: 'object',
-                properties: {minProperties: {
-                    type: 'integer',
-                    minimum: 1,
-                }},
-                additionalProperties: false,
-            }],
-        },
-        create(context) {
-            const sourceCode = context.sourceCode;
-            const options = context.options[0] || {};
-            const minProperties = options.minProperties ?? 2;
-
-            function getBaseIndent(node) {
-                const line = sourceCode.lines[node.loc.start.line - 1];
-                const match = line.match(/^(\s*)/);
-                return match ? match[1] : '';
-            }
-
-            function formatDestructuring(properties, baseIndent) {
-                const indent = baseIndent + '    ';
-
-                return '{\n' +
-                    properties
-                        .map((p) => `${indent}${sourceCode.getText(p)}${p.type === 'RestElement' ? '' : ','}`)
-                        .join('\n') +
-                    `\n${baseIndent}}`;
-            }
-
-            return {ObjectPattern(node) {
-                const properties = node.properties;
-
-                if (properties.length < minProperties) {
-                    return;
-                }
-
-                const firstProperty = properties[0];
-                const openBrace = sourceCode.getFirstToken(node);
-                // The pattern node spans its type annotation too, so the last token can be
-                // part of `: IThing` rather than the closing brace; rewriting that far
-                // deletes the annotation.
-                const closeBrace = sourceCode.getTokenAfter(
-                    properties[properties.length - 1],
-                    {filter: (token) => token.value === '}'},
-                );
-                // Rebuilding from property text alone drops anything between the
-                // properties, so leave commented patterns for a human to split.
-                const rebuildLosesComments = sourceCode.commentsExistBetween(openBrace, closeBrace);
-
-                const allOnSameLine = properties.every(
-                    (p) => p.loc.start.line === firstProperty.loc.start.line,
-                );
-
-                const baseIndent = getBaseIndent(node);
-
-                if (allOnSameLine) {
-                    context.report({
-                        node: firstProperty,
-                        message: `Destructuring properties should be on separate lines when there are ${minProperties} or more`,
-                        fix(fixer) {
-                            return rebuildLosesComments ? null : fixer.replaceTextRange(
-                                [
-                                    openBrace.range[0],
-                                    closeBrace.range[1],
-                                ],
-                                formatDestructuring(properties, baseIndent),
-                            );
-                        },
-                    });
-                    return;
-                }
-
-                for (let i = 0; i < properties.length - 1; i++) {
-                    const current = properties[i];
-                    const next = properties[i + 1];
-
-                    if (current.loc.end.line === next.loc.start.line) {
-                        context.report({
-                            node: next,
-                            message: 'Each destructuring property should be on its own line',
-                            fix(fixer) {
-                                return rebuildLosesComments ? null : fixer.replaceTextRange(
-                                    [
-                                        openBrace.range[0],
-                                        closeBrace.range[1],
-                                    ],
-                                    formatDestructuring(properties, baseIndent),
-                                );
-                            },
-                        });
-                        break;
-                    }
                 }
             }};
         },
@@ -1927,7 +1979,7 @@ export default {rules: {
         meta: {
             type: 'suggestion',
             docs: {
-                description: 'Suggest Tailwind class shorthands and remove duplicates',
+                description: 'Enforce Tailwind utility consistency and layout-token usage',
                 recommended: true,
             },
             fixable: 'code',
@@ -1942,64 +1994,6 @@ export default {rules: {
                 parserServices,
                 sourceCode,
             } = services;
-
-            const ops = [
-                {
-                    a: 'pt',
-                    b: 'pb',
-                    short: 'py',
-                },
-                {
-                    a: 'pl',
-                    b: 'pr',
-                    short: 'px',
-                },
-                {
-                    a: 'mt',
-                    b: 'mb',
-                    short: 'my',
-                },
-                {
-                    a: 'ml',
-                    b: 'mr',
-                    short: 'mx',
-                },
-                {
-                    a: 'px',
-                    b: 'py',
-                    short: 'p',
-                },
-                {
-                    a: 'mx',
-                    b: 'my',
-                    short: 'm',
-                },
-                {
-                    a: 'gap-x',
-                    b: 'gap-y',
-                    short: 'gap',
-                },
-                {
-                    a: 'space-x',
-                    b: 'space-y',
-                    short: 'space',
-                },
-                {
-                    a: 'border-t',
-                    b: 'border-b',
-                    short: 'border-y',
-                },
-                {
-                    a: 'border-l',
-                    b: 'border-r',
-                    short: 'border-x',
-                },
-                {
-                    a: 'border-x',
-                    b: 'border-y',
-                    short: 'border',
-                },
-            ];
 
             const names = [
                 'pt',
@@ -2295,88 +2289,6 @@ export default {rules: {
                 return prefix ? `${prefix}:${base}` : base;
             }
 
-            function applyShorthands(tokens) {
-                let next = [...tokens];
-                const replacements = [];
-
-                let changed = true;
-                while (changed) {
-                    changed = false;
-                    const details = next
-                        .map((token, index) => {
-                            const parsed = parseToken(token);
-                            return parsed ? {
-                                ...parsed,
-                                index,
-                            } : null;
-                        })
-                        .filter(Boolean);
-
-                    for (const op of ops) {
-                        const match = details.find((item) =>
-                            item.name === op.a
-                            && details.some((candidate) =>
-                                candidate.name === op.b
-                                && candidate.prefix === item.prefix
-                                && candidate.value === item.value
-                                && candidate.negative === item.negative,
-                            ),
-                        );
-
-                        if (!match) {
-                            continue;
-                        }
-
-                        const counterpart = details.find((candidate) =>
-                            candidate.name === op.b
-                            && candidate.prefix === match.prefix
-                            && candidate.value === match.value
-                            && candidate.negative === match.negative,
-                        );
-
-                        if (!counterpart) {
-                            continue;
-                        }
-
-                        const shorthand = buildToken(match.prefix, match.negative, op.short, match.value);
-                        const insertIndex = Math.min(match.index, counterpart.index);
-                        const removeIndex = Math.max(match.index, counterpart.index);
-
-                        next[insertIndex] = shorthand;
-                        next.splice(removeIndex, 1);
-
-                        replacements.push(`'${match.token}' + '${counterpart.token}' -> '${shorthand}'`);
-                        changed = true;
-                        break;
-                    }
-                }
-
-                return {
-                    tokens: next,
-                    replacements,
-                };
-            }
-
-            function dedupeTokens(tokens) {
-                const seen = new Set();
-                const deduped = [];
-                const duplicates = [];
-
-                for (const token of tokens) {
-                    if (seen.has(token)) {
-                        duplicates.push(`'${token}'`);
-                        continue;
-                    }
-                    seen.add(token);
-                    deduped.push(token);
-                }
-
-                return {
-                    tokens: deduped,
-                    duplicates,
-                };
-            }
-
             function isBorderSizeValue(value) {
                 if (value === null) {
                     return true;
@@ -2441,26 +2353,20 @@ export default {rules: {
             function simplifyClassString(value) {
                 const tokens = value.trim().split(/\s+/).filter(Boolean);
                 const arbitrary = convertArbitraryTokens(tokens);
-                const shorthand = applyShorthands(arbitrary.tokens);
-                const deduped = dedupeTokens(shorthand.tokens);
                 const conflicts = findConflicts(arbitrary.tokens);
-                const rawLayoutTokens = shorthand.tokens.filter(token =>
-                    /^(?:[a-z-]+:)*[a-z-]+-\[\s*-?\d[^\]\n]*\]$/u.test(token),
+                const rawLayoutTokens = arbitrary.tokens.filter(token =>
+                    /^(?:[a-z-]+:)*-?[a-z-]+-\[\s*-?\d[^\]\n]*\]$/u.test(token),
                 );
-                const replacements = [
-                    ...arbitrary.replacements,
-                    ...shorthand.replacements,
-                ];
-                const changed = replacements.length > 0 || deduped.duplicates.length > 0;
+                const replacements = arbitrary.replacements;
+                const changed = replacements.length > 0;
 
                 if (!changed && conflicts.length === 0 && rawLayoutTokens.length === 0) {
                     return null;
                 }
 
                 return {
-                    value: deduped.tokens.join(' '),
+                    value: arbitrary.tokens.join(' '),
                     replacements,
-                    duplicates: deduped.duplicates,
                     conflicts,
                     rawLayoutTokens,
                 };
@@ -2475,10 +2381,6 @@ export default {rules: {
                 if (result.replacements.length > 0) {
                     parts.push(result.replacements.join(', '));
                 }
-                if (result.duplicates.length > 0) {
-                    parts.push(`remove duplicates: ${result.duplicates.join(', ')}`);
-                }
-
                 if (parts.length > 0) {
                     const message = parts.join('; ');
 

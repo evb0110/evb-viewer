@@ -17,16 +17,16 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { writeOcrIndexV3 } from '@electron/ocr/worker/indexWriter';
 import {
-    COMPACT_SEARCH_INDEX_SOURCE_KIND_OCR_TEXT_LAYER,
-    loadCompactSearchIndex,
-    persistCompactSearchIndex,
-} from '@electron/search/searchIndexSidecar';
+    NATIVE_COMPACT_SEARCH_INDEX_SOURCE_KIND_OCR_TEXT_LAYER as COMPACT_SEARCH_INDEX_SOURCE_KIND_OCR_TEXT_LAYER,
+    loadNativeCompactSearchIndex as loadCompactSearchIndex,
+    persistNativeCompactSearchIndex as persistCompactSearchIndex,
+} from '@electron/features/search/publicNative';
 import { OCR_TEXT_LAYER_INDEX_VERSION } from '@contracts/ocrText';
-import {requireDocumentRevisionToken} from '@contracts';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requireEpochMs} from '@contracts/timestamps';
 import {requirePageNumber} from '@contracts/pageNumbers';
-import {SEARCH_JS_WHOLE_VALUE_MAX_BYTES} from '@electron/search/xlargeSearchRouting';
+import {SEARCH_JS_WHOLE_VALUE_MAX_BYTES} from '@electron/features/search/public';
 
 const DOCUMENT_REVISION = requireDocumentRevisionToken('revision-token');
 

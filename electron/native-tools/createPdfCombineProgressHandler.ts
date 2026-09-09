@@ -1,1 +1,1 @@
-export {createPdfCombineProgressHandler} from '@scan-cleanup-core/createPdfCombineProgressHandler';
+export {createPdfCombineProgressHandler} from '@evb/scan-cleanup/core/createPdfCombineProgressHandler';

@@ -33,7 +33,6 @@ export type {
     IPdfViewerSaveTransactionNativeCapabilities,
     IPdfViewerSaveTransactionRequest,
     IPdfViewerSaveTransactionResult,
-    IPdfViewerSaveTransactionSource,
 } from '@app/modules/pdf-viewer/runtime/save/pdfViewerSaveTransaction.types';
 export { resolvePdfViewerSaveTransactionFinalBytes } from '@app/modules/pdf-viewer/runtime/save/pdfViewerSaveTransaction.types';
 export { escapeCssAttr } from '@app/modules/pdf-viewer/engine/annotation-css-utils/escapeCssAttr';

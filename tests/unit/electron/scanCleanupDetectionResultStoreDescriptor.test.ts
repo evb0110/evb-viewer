@@ -13,7 +13,7 @@ import {
     vi,
 } from 'vitest';
 import type {IScanCleanupDetectionResult} from '@contracts/electronApiScanCleanup';
-import type {IScanCleanupDetectionResultStore} from '@scan-cleanup-core/types';
+import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/types';
 import {
     openScanCleanupDetectionResultStoreDescriptor,
     persistScanCleanupDetectionResultStore,

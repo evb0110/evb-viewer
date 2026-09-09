@@ -22,7 +22,6 @@ import {
     join,
     resolve,
 } from 'node:path';
-
 type TReleaseArch = 'arm64' | 'x64';
 type TReleasePlatform = 'linux' | 'mac' | 'win';
 type TReleaseEnv = Record<string, string>;
@@ -944,6 +943,7 @@ describe('release policy', () => {
             owner: 'pr_landing_quality',
         });
         expect(changedAreas.landing.paths).toEqual(expect.arrayContaining([
+            '.github/actions/setup-ci-env/**',
             '.github/workflows/**',
             'landing/**',
             'pnpm-lock.yaml',

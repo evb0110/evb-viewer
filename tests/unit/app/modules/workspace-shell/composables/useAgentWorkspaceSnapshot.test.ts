@@ -41,7 +41,7 @@ import { createWorkspaceDocumentRecord } from '@app/modules/workspace-shell/stat
 import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 import { createWorkspaceExposeFixture } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
-import {requireDocumentRevisionToken} from '@contracts';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 
 interface IWindowWithElectronApi extends Window {electronAPI?: IElectronAPI;}
 type TAgentHarnessCapability = Pick<IAgentCapability,

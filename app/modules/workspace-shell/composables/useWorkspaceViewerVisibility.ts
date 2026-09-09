@@ -23,12 +23,11 @@ interface IWorkspaceViewerVisibilityOptions {
 
 export const useWorkspaceViewerVisibility = (options: IWorkspaceViewerVisibilityOptions) => {
     const activeDriverCapabilities = computed(() => options.activeDocumentDriver.value?.capabilities);
-    const driverShowsNativePdf = computed(() => options.activeDocumentDriver.value?.view.showNativePdf === true);
-    const driverShowsPdfSidebar = computed(() => options.activeDocumentDriver.value?.view.showPdfSidebar === true);
-    const driverShowsDjvuSource = computed(() => options.activeDocumentDriver.value?.view.showDjvuSource === true);
-    const driverStartupVisualSource = computed(() => (
-        options.activeDocumentDriver.value?.view.startupVisualSource ?? null
-    ));
+    const activeDriverView = computed(() => options.activeDocumentDriver.value?.view);
+    const driverShowsNativePdf = computed(() => activeDriverView.value?.showNativePdf === true);
+    const driverShowsPdfSidebar = computed(() => activeDriverView.value?.showPdfSidebar === true);
+    const driverShowsDjvuSource = computed(() => activeDriverView.value?.showDjvuSource === true);
+    const driverStartupVisualSource = computed(() => activeDriverView.value?.startupVisualSource ?? null);
     const isDjvuOpening = computed(() => (
         Boolean(options.djvuOpeningPath.value)
         && !driverShowsDjvuSource.value

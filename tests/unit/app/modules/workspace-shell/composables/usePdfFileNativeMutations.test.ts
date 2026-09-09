@@ -13,7 +13,7 @@ import { requireDocumentRef } from '@contracts/documentRef';
 import { requirePdfDateString } from '@contracts/pdfDateString';
 import { requirePageIndex } from '@contracts/pageNumbers';
 import { requireEpochMs } from '@contracts/timestamps';
-import {requireDocumentRevisionToken} from '@contracts';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 
 const analyticsMock = vi.hoisted(() => ({
     clearDocumentContext: vi.fn(),

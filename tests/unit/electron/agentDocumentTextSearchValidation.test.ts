@@ -11,6 +11,7 @@ import { requireDocumentRef } from '@contracts/documentRef';
 import { requirePaneId } from '@contracts/editorPanes';
 import { requireTabId } from '@contracts/windowTabs';
 import type * as SearchRequestValidation from '@electron/features/search/main/searchRequestValidation';
+import type * as SearchMatch from '@electron/features/search/worker/searchMatch';
 
 const mocks = vi.hoisted(() => ({
     dispatchSearchRequest: vi.fn(),
@@ -20,6 +21,16 @@ const mocks = vi.hoisted(() => ({
     stat: vi.fn(),
     loadCompactSearchIndex: vi.fn(),
     loadSearchIndex: vi.fn(),
+    classifyXlargeSearchPath: vi.fn((input: {
+        pageCount?: number;
+        pathSizeBytes?: number;
+    }) => ({
+        isXlarge: (input.pageCount ?? 0) > 200 || (input.pathSizeBytes ?? 0) > 16 * 1024 * 1024,
+        pageCount: input.pageCount,
+        pathSizeBytes: input.pathSizeBytes,
+        reasons: [],
+    })),
+    loadPdfjsTextExtractor: vi.fn(async () => ({extractTextWithPdfjs: mocks.extractTextWithPdfjs})),
     extractTextWithPdfjs: vi.fn(),
     extractTextFromPdf: vi.fn(),
     loggerDebug: vi.fn(),
@@ -29,11 +40,21 @@ vi.mock('@electron/features/search/public', async () => {
     const validation = await vi.importActual<typeof SearchRequestValidation>(
         '@electron/features/search/main/searchRequestValidation',
     );
+    const searchMatch = await vi.importActual<typeof SearchMatch>(
+        '@electron/features/search/worker/searchMatch',
+    );
     return {
         parseOptionalSearchPageCount: validation.parseOptionalSearchPageCount,
         validateSearchQuery: validation.validateSearchQuery,
         resolveSearchablePdfPath: mocks.resolveSearchablePdfPath,
         resolveSearchWorkerPath: mocks.resolveSearchWorkerPath,
+        classifyXlargeSearchPath: mocks.classifyXlargeSearchPath,
+        loadCompactSearchIndex: mocks.loadCompactSearchIndex,
+        loadSearchIndex: mocks.loadSearchIndex,
+        loadPdfjsTextExtractor: mocks.loadPdfjsTextExtractor,
+        extractTextFromPdf: mocks.extractTextFromPdf,
+        buildExcerpt: searchMatch.buildExcerpt,
+        iteratePageMatches: searchMatch.iteratePageMatches,
         SearchWorkerService: class {
             dispatchSearchRequest = mocks.dispatchSearchRequest;
             cancel = mocks.cancelSearch;
@@ -41,15 +62,15 @@ vi.mock('@electron/features/search/public', async () => {
     };
 });
 
-vi.mock('@electron/search/indexBuilder', () => ({ loadSearchIndex: mocks.loadSearchIndex }));
+vi.mock('@electron/features/search/indexBuilder', () => ({ loadSearchIndex: mocks.loadSearchIndex }));
 
 vi.mock('node:fs/promises', () => ({stat: mocks.stat}));
 
-vi.mock('@electron/search/searchIndexSidecar', () => ({loadCompactSearchIndex: mocks.loadCompactSearchIndex}));
+vi.mock('@electron/features/search/searchIndexSidecar', () => ({loadCompactSearchIndex: mocks.loadCompactSearchIndex}));
 
-vi.mock('@electron/search/extractTextWithPdfjs', () => ({ extractTextWithPdfjs: mocks.extractTextWithPdfjs }));
+vi.mock('@electron/features/search/extractTextWithPdfjs', () => ({ extractTextWithPdfjs: mocks.extractTextWithPdfjs }));
 
-vi.mock('@electron/search/extractTextFromPdf', () => ({ extractTextFromPdf: mocks.extractTextFromPdf }));
+vi.mock('@electron/features/search/extractTextFromPdf', () => ({ extractTextFromPdf: mocks.extractTextFromPdf }));
 
 vi.mock('@electron/file-access/documentRevisionStore', () => ({getWorkingCopyRevision: vi.fn(async () => ({
     token: 'revision-token',

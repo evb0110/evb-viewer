@@ -16,7 +16,7 @@ import type { IBeginSerializedPdfSaveAsResult } from '@electron/features/documen
 import { getWorkingCopyOriginalPath } from '@electron/file-access/workingCopyStore';
 import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCreation';
 import { te } from '@electron/te';
-import { normalizePdfSaveAsOptions } from '@electron/features/documents/main/pdfSaveAsOptimization';
+import { normalizePdfSaveAsOptions } from '@electron/features/documents/public/pdfSaveAsOptimization';
 import type { IDocumentsDialogContext } from '@electron/features/documents/documentsService';
 import type {
     IDocumentMutationRevisionOptions,

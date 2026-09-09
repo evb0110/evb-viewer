@@ -57,7 +57,11 @@ import {
 } from '@app/modules/workspace-shell/composables/document-session/stagePdfOpeningPreview';
 import {shouldStageNativePdfOpeningPreview} from '@app/modules/pdf-viewer/public/nativePreviewRouting';
 import {resolvePdfOpeningGeometry} from '@app/modules/workspace-shell/composables/document-session/resolvePdfOpeningGeometry';
-import {openPdfAfterPasswordPrompt as runPasswordPromptFlow} from '@app/modules/workspace-shell/composables/document-session/openPdfAfterPasswordPrompt';
+import {
+    isDjvuOpenResult,
+    isPdfOpenResult,
+    openPdfAfterPasswordPrompt as runPasswordPromptFlow,
+} from '@app/modules/workspace-shell/composables/document-session/openPdfAfterPasswordPrompt';
 import {
     isPdfPasswordFailureResult,
     type TPdfPasswordFailureResult,
@@ -107,6 +111,12 @@ interface ICreateDocumentOpenFlowDeps {
 
 const RECENT_OPEN_LOG_SECTION = 'recent-open';
 const MAX_EAGER_HISTORY_BASELINE_BYTES = 8 * 1024 * 1024;
+const RETRYABLE_OPEN_RESULTS = new WeakSet<TOpenFileResult>();
+
+export function retainDocumentOpenWorkingCopyForRetry(result: TOpenFileResult) {
+    RETRYABLE_OPEN_RESULTS.add(result);
+}
+
 function createDocumentMutationRevisionOptions(
     expectedDocumentRevisionToken: TDocumentRevisionToken | null | undefined,
 ): IDocumentMutationRevisionOptions | undefined {
@@ -182,7 +192,7 @@ export function createDocumentOpenFlow(
         const fileName = getDocumentRefBaseName(result.originalPath);
         let fileSizeBucket: string | null = null;
 
-        if (result.kind === 'pdf') {
+        if (isPdfOpenResult(result)) {
             try {
                 // The open result has already adopted a managed working copy.
                 // Renderer file capabilities deliberately cannot stat an
@@ -199,7 +209,7 @@ export function createDocumentOpenFlow(
             documentKind: result.kind,
             fileExtension: getLowercaseExtension(fileName),
             fileSizeBucket,
-            isGenerated: result.kind === 'pdf' ? Boolean(result.isGenerated) : false,
+            isGenerated: isPdfOpenResult(result) ? Boolean(result.isGenerated) : false,
             pageCountBucket: null,
             totalPages: null,
         });
@@ -207,10 +217,29 @@ export function createDocumentOpenFlow(
             documentKind: result.kind,
             fileExtension: getLowercaseExtension(fileName),
             fileSizeBucket,
-            isGenerated: result.kind === 'pdf' ? Boolean(result.isGenerated) : false,
+            isGenerated: isPdfOpenResult(result) ? Boolean(result.isGenerated) : false,
             openMethod,
-            requiresSaveAsOnFirstSave: result.kind === 'pdf' ? Boolean(result.isGenerated) : false,
+            requiresSaveAsOnFirstSave: isPdfOpenResult(result) ? Boolean(result.isGenerated) : false,
         });
+    }
+
+    async function prepareDjvuOpen(
+        result: Extract<TOpenFileResult, {kind: 'djvu'}>,
+        openMethod: 'picker' | 'preselected' | 'direct' | 'batch',
+    ): Promise<TDocumentOpenOutcome> {
+        state.pendingDjvu.value = result.originalPath;
+        BrowserLogger.info(RECENT_OPEN_LOG_SECTION, 'DjVu open prepared', {path: result.originalPath});
+        await trackOpenedDocument(result, openMethod);
+        return {
+            status: 'prepared',
+            result,
+        };
+    }
+    function resetOpenState() {
+        state.error.value = null;
+        state.failurePresentation.value = null;
+        state.pendingDjvu.value = null;
+        state.openBatchProgress.value = null;
     }
 
     function beginOpenRequest() {
@@ -266,7 +295,11 @@ export function createDocumentOpenFlow(
         result: TOpenFileResult,
         reason: string,
     ) {
-        if (result.kind !== 'pdf' || state.isActiveWorkingCopy(result.workingPath)) {
+        if (
+            !isPdfOpenResult(result)
+            || state.isActiveWorkingCopy(result.workingPath)
+            || RETRYABLE_OPEN_RESULTS.has(result)
+        ) {
             return;
         }
 
@@ -297,10 +330,7 @@ export function createDocumentOpenFlow(
 
     async function openFile(preSelected?: TOpenFileResult) {
         const openRequestId = beginOpenRequest();
-        state.error.value = null;
-        state.failurePresentation.value = null;
-        state.pendingDjvu.value = null;
-        state.openBatchProgress.value = null;
+        resetOpenState();
         try {
             const result = preSelected ?? (await pickFileToOpen());
             if (!isCurrentOpenRequest(openRequestId)) {
@@ -323,18 +353,8 @@ export function createDocumentOpenFlow(
                     preSelected ? 'preselected' : 'picker',
                 );
             }
-            if (result.kind === 'djvu') {
-                state.pendingDjvu.value = result.originalPath;
-                BrowserLogger.info(RECENT_OPEN_LOG_SECTION, 'DjVu open prepared', {
-                    reason: 'picker-result-ready',
-                    openRequestId,
-                    path: result.originalPath,
-                });
-                await trackOpenedDocument(result, preSelected ? 'preselected' : 'picker');
-                return {
-                    status: 'prepared',
-                    result,
-                } satisfies TDocumentOpenOutcome;
+            if (isDjvuOpenResult(result)) {
+                return await prepareDjvuOpen(result, preSelected ? 'preselected' : 'picker');
             }
             return await finishPdfOpenResult(
                 openRequestId,
@@ -418,6 +438,7 @@ export function createDocumentOpenFlow(
         state.originalPath.value = result.originalPath;
         state.requiresSaveAsOnFirstSave.value = !!result.isGenerated;
         state.pdfRasterDisplayProfile.value = rasterDisplayProfile;
+        RETRYABLE_OPEN_RESULTS.delete(result);
         return {
             status: 'opened',
             result,
@@ -446,10 +467,7 @@ export function createDocumentOpenFlow(
 
     async function openFileDirect(path: TDocumentRef, options: TDocumentDirectOpenOptions = {}) {
         const openRequestId = beginOpenRequest();
-        state.error.value = null;
-        state.failurePresentation.value = null;
-        state.pendingDjvu.value = null;
-        state.openBatchProgress.value = null;
+        resetOpenState();
         logPdfRenderTrace('pdf-open-direct-start', {
             openRequestId,
             path,
@@ -469,7 +487,7 @@ export function createDocumentOpenFlow(
                 path,
                 elapsedMs: performance.now() - openCapabilityStartedAt,
                 resultKind: result?.kind ?? null,
-                workingPath: result?.kind === 'pdf' ? result.workingPath : null,
+                workingPath: result && isPdfOpenResult(result) ? result.workingPath : null,
             });
             if (!isCurrentOpenRequest(openRequestId)) {
                 if (result) {
@@ -506,31 +524,13 @@ export function createDocumentOpenFlow(
                     path,
                     kind: result.kind,
                     isGenerated:
-                        result.kind === 'pdf' ? Boolean(result.isGenerated) : undefined,
-                    workingPath: result.kind === 'pdf' ? result.workingPath : undefined,
+                        isPdfOpenResult(result) ? Boolean(result.isGenerated) : undefined,
+                    workingPath: isPdfOpenResult(result) ? result.workingPath : undefined,
                 },
             );
 
-            if (result.kind === 'djvu') {
-                state.pendingDjvu.value = result.originalPath;
-                BrowserLogger.info(RECENT_OPEN_LOG_SECTION, 'DjVu open prepared', {
-                    reason: 'direct-result-ready',
-                    openRequestId,
-                    path: result.originalPath,
-                });
-                await trackOpenedDocument(result, 'direct');
-                BrowserLogger.debug(
-                    RECENT_OPEN_LOG_SECTION,
-                    'openFileDirect entered DjVu mode',
-                    {
-                        path,
-                        djvuPath: result.originalPath,
-                    },
-                );
-                return {
-                    status: 'prepared',
-                    result,
-                } satisfies TDocumentOpenOutcome;
+            if (isDjvuOpenResult(result)) {
+                return await prepareDjvuOpen(result, 'direct');
             }
             BrowserLogger.debug(
                 RECENT_OPEN_LOG_SECTION,
@@ -592,10 +592,7 @@ export function createDocumentOpenFlow(
 
     async function openFileDirectBatch(paths: TDocumentRef[]) {
         const openRequestId = beginOpenRequest();
-        state.error.value = null;
-        state.failurePresentation.value = null;
-        state.pendingDjvu.value = null;
-        state.openBatchProgress.value = null;
+        resetOpenState();
         try {
             const documentOpen = getDocumentOpenCapability();
             const normalizedPaths = paths
@@ -683,19 +680,9 @@ export function createDocumentOpenFlow(
                 state.openBatchProgress.value = null;
                 return await openPdfWithPasswordPrompt(openRequestId, result, 'batch');
             }
-            if (result.kind === 'djvu') {
+            if (isDjvuOpenResult(result)) {
                 state.openBatchProgress.value = null;
-                state.pendingDjvu.value = result.originalPath;
-                BrowserLogger.info(RECENT_OPEN_LOG_SECTION, 'DjVu open prepared', {
-                    reason: 'batch-result-ready',
-                    openRequestId,
-                    path: result.originalPath,
-                });
-                await trackOpenedDocument(result, 'batch');
-                return {
-                    status: 'prepared',
-                    result,
-                } satisfies TDocumentOpenOutcome;
+                return await prepareDjvuOpen(result, 'batch');
             }
             state.openBatchProgress.value = null;
             return await finishPdfOpenResult(openRequestId, result, 'batch');

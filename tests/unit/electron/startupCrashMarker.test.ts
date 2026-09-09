@@ -402,7 +402,7 @@ describe('startup crash marker', () => {
     });
 
     it('installs the monitor after the synchronous preference read and loads the adapter only after reporter construction', () => {
-        const source = readFileSync(resolve(process.cwd(), 'electron/main.ts'), 'utf8');
+        const source = readFileSync(resolve(process.cwd(), 'electron/bootstrap/mainProcess.ts'), 'utf8');
         const preferenceIndex = source.indexOf('const diagnosticsPreference = readDiagnosticsPreferenceSync();');
         const markerIndex = source.indexOf('installStartupCrashMarker({', preferenceIndex);
         const reporterIndex = source.indexOf('mainFailureReporterForAdapter = initializeMainFailureReporter({');
@@ -427,7 +427,7 @@ describe('startup crash marker', () => {
     });
 
     it('captures the live exception before the existing coordinated fatal shutdown call', () => {
-        const source = readFileSync(resolve(process.cwd(), 'electron/main.ts'), 'utf8');
+        const source = readFileSync(resolve(process.cwd(), 'electron/bootstrap/mainProcess.ts'), 'utf8');
         const handlerIndex = source.indexOf('process.on(\'uncaughtException\', (error) => {');
         const handler = source.slice(handlerIndex, source.indexOf('\n});', handlerIndex) + 4);
 

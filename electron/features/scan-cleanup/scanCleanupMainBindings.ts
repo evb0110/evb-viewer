@@ -4,14 +4,16 @@ import type {IpcMainInvokeEvent} from 'electron';
 import type {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scanCleanupPlatformFeature';
 import type {TFeatureMainBindings} from '@contracts/platformFeature';
 import {SCAN_CLEANUP_SETTINGS_FILE_NAME} from '@contracts/scanCleanupSettings';
-import {createScanCleanupPreviewService} from '@electron/features/scan-cleanup/createScanCleanupPreviewService';
+import {defaultDependencies} from '@electron/features/scan-cleanup/scanCleanupPreviewCompositionDefaults';
+import {scanCleanupPreviewLifecycle} from '@electron/features/scan-cleanup/scanCleanupPreviewLifecycle';
+import {createScanCleanupMainBindingsDisposer} from '@electron/features/scan-cleanup/createScanCleanupMainBindingsDisposer';
 import {createScanCleanupService} from '@electron/features/scan-cleanup/createScanCleanupService';
 import {createScanCleanupSettingsStore} from '@electron/features/scan-cleanup/createScanCleanupSettingsStore';
 import {getAppTempDir} from '@electron/utils/appTempDir';
 import {createLogger} from '@electron/utils/createLogger';
-import {sweepStaleScanCleanupScratchDirs} from '@scan-cleanup-core/scratchCleanup';
+import {sweepStaleScanCleanupScratchDirs} from '@evb/scan-cleanup/core/scratchCleanup';
 
-const previewService = createScanCleanupPreviewService();
+const previewService = scanCleanupPreviewLifecycle(defaultDependencies);
 const service = createScanCleanupService();
 const settingsStore = createScanCleanupSettingsStore({filePath: join(app.getPath('userData'), SCAN_CLEANUP_SETTINGS_FILE_NAME)});
 const logger = createLogger('scan-cleanup-scratch');
@@ -20,7 +22,13 @@ void Promise.resolve()
     .then(() => sweepStaleScanCleanupScratchDirs(getAppTempDir(), {log: (level, message) => logger[level](message)}))
     .catch(error => logger.warn(`Could not sweep scan-cleanup scratch directories at startup: ${String(error)}`));
 
-export const scanCleanupMainBindings = {
+const disposePreviewService = createScanCleanupMainBindingsDisposer(previewService);
+
+export function disposeScanCleanupMainBindings(): Promise<void> {
+    return disposePreviewService();
+}
+
+const featureBindings = {
     preview: (context, request) => previewService.preview(context.sender, request),
     cancelPreview: (context, request) => previewService.cancel(context.sender, request),
     detectAll: (context, request) => previewService.detectAll(context.sender, request),
@@ -39,3 +47,5 @@ export const scanCleanupMainBindings = {
     getSettings: (_context, request) => settingsStore.get(request),
     updateSettings: (_context, request) => settingsStore.update(request),
 } satisfies TFeatureMainBindings<typeof SCAN_CLEANUP_PLATFORM_FEATURE, IpcMainInvokeEvent>;
+
+export const scanCleanupMainBindings = Object.assign(featureBindings, {disposeScanCleanupMainBindings});

@@ -34,6 +34,7 @@ const nativeToolSmokePolicy = await import(
 ) as {getPackagedToolSmokePolicy: (toolName: string) => {
     allowedExitCodes: ReadonlySet<number>;
     expectedOutputTokens: readonly string[];
+    requiredOutputTokens?: readonly string[];
 }};
 
 const getSmokePolicy = nativeToolSmokePolicy.getPackagedToolSmokePolicy;
@@ -181,8 +182,17 @@ describe('native tool smoke source policy', () => {
         for (const family of generatedFamilies) {
             expect(smokeTools.has(family.binaryName)).toBe(true);
             if (smokeTools.has(`${family.binaryName}-protocol`)) {
-                expect(getSmokePolicy(`${family.binaryName}-protocol`).expectedOutputTokens)
-                    .toEqual([String(family.protocolVersion)]);
+                const policy = getSmokePolicy(`${family.binaryName}-protocol`);
+                if (family.binaryName === 'evb-scan-cleanup') {
+                    expect(policy.expectedOutputTokens).toEqual([String(family.protocolVersion)]);
+                    expect(policy.requiredOutputTokens).toEqual([
+                        `"protocolVersion":${String(family.protocolVersion)}`,
+                        '"capabilities"',
+                        ...(family.protocolCapabilities ?? []).map((capability: string) => `"${capability}"`),
+                    ]);
+                } else {
+                    expect(policy.expectedOutputTokens).toEqual([String(family.protocolVersion)]);
+                }
             }
         }
     });

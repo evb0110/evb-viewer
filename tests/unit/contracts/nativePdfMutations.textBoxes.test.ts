@@ -7,8 +7,8 @@ import {
 import {
     PDF_NATIVE_MUTATION_LIMITS,
     normalizePdfNativeMutationSet,
-    splitPdfNativeMutationSetIntoBoundedChunks,
 } from '@contracts/nativePdfMutations';
+import {splitPdfNativeMutationSetIntoBoundedChunks} from '@pdf-core/nativePdfMutationPolicy';
 import {requirePageIndex} from '@contracts/pageNumbers';
 import {requireEpochMs} from '@contracts/timestamps';
 import type {IPdfNativeTextBoxMutation} from '@contracts/electronApiDocuments';

@@ -1,8 +1,12 @@
 import {
     DEFAULT_LOCALE,
     LOCALE_CODES,
+    formatTranslationLeaf,
+    getNestedTranslationLeaf,
+    normalizeTranslationParams,
     type TLocale,
-} from '@evb/i18n-core/localeCodes';
+    type TLocaleMessagesShapeFrom,
+} from '@i18n-core';
 // Main-process startup intentionally imports only the English fallback.
 // eslint-disable-next-line no-restricted-imports
 import en from '@i18n-app/messages/en';
@@ -10,12 +14,6 @@ import type {
     TTranslateArgs,
     TTranslationKey,
 } from '@i18n-app';
-import type { TLocaleMessagesShapeFrom } from '@i18n-core';
-import {
-    formatTranslationLeaf,
-    getNestedTranslationLeaf,
-    normalizeTranslationParams,
-} from '@i18n-core';
 import { loadSettings } from '@electron/settings';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';

@@ -88,16 +88,13 @@ describe('contracts search compatibility exports', () => {
         }
     });
 
-    it('keeps compatibility helpers behaviorally aligned with pdf-core', () => {
+    it('keeps boundary helpers and moved ownership explicit', () => {
         const options = {
             matchCase: false,
             wholeWord: true,
             useRegex: false,
         };
 
-        expect(contractsSearch.escapeSearchRegex('a.b')).toBe(pdfSearchCore.escapeSearchRegex('a.b'));
-        expect(contractsSearch.buildPdfSearchRegex('foo', options).source)
-            .toBe(pdfSearchCore.buildPdfSearchRegex('foo', options).source);
         expect(() => contractsSearch.assertSafePdfSearchRegex('(a+)+$', options))
             .toThrow('pattern is too complex');
         expect(() => pdfSearchCore.assertSafePdfSearchRegex('(a+)+$', options))
@@ -114,12 +111,10 @@ describe('contracts search compatibility exports', () => {
         })).toThrow('maximum length is 512');
         expect(contractsSearch.collapseRepeatedPdfSearchPageText('alpha '.repeat(32)))
             .toBe(pdfSearchCore.collapseRepeatedPdfSearchPageText('alpha '.repeat(32)));
-        expect(contractsSearch.findPdfSearchMatches('Foo foo', 'foo'))
-            .toEqual(pdfSearchCore.findPdfSearchMatches('Foo foo', 'foo'));
-        expect(Array.from(contractsSearch.iteratePdfSearchMatches('foo foo', 'foo')))
-            .toEqual(Array.from(pdfSearchCore.iteratePdfSearchMatches('foo foo', 'foo')));
-        expect(contractsSearch.buildPdfSearchExcerpt('alpha beta gamma', 6, 10, 3))
-            .toEqual(pdfSearchCore.buildPdfSearchExcerpt('alpha beta gamma', 6, 10, 3));
+        expect(contractsSearch).not.toHaveProperty('findPdfSearchMatches');
+        expect(contractsSearch).not.toHaveProperty('iteratePdfSearchMatches');
+        expect(contractsSearch).not.toHaveProperty('buildPdfSearchExcerpt');
+        expect(contractsSearch).not.toHaveProperty('normalizeSearchText');
     });
 });
 
@@ -219,7 +214,7 @@ describe('collapseRepeatedPdfSearchPageText', () => {
     });
 
     it('refuses normalized page text that exceeds the output budget', () => {
-        expect(() => contractsSearch.normalizeSearchText('\uFB03'.repeat(8), 16))
+        expect(() => pdfSearchCore.normalizeSearchText('\uFB03'.repeat(8), 16))
             .toThrow('normalized search text exceeds 16 bytes');
     });
 

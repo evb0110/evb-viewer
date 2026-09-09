@@ -3,14 +3,14 @@
 // without creating the static import that this boundary exists to avoid.
 type TAgentAssistantRuntimeModule =
     // eslint-disable-next-line @typescript-eslint/consistent-type-imports
-    typeof import('@electron/features/agent/codexAssistant');
+    typeof import('@electron/features/agent/assistantService');
 
 let runtimeModulePromise: Promise<TAgentAssistantRuntimeModule> | null = null;
 let runtimeModule: TAgentAssistantRuntimeModule | null = null;
 
 function loadAgentAssistantRuntime() {
     runtimeModulePromise ??=
-        import('@electron/features/agent/codexAssistant').then((loadedRuntime) => {
+        import('@electron/features/agent/assistantService').then((loadedRuntime) => {
             runtimeModule = loadedRuntime;
             return loadedRuntime;
         });

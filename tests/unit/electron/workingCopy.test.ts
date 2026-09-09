@@ -27,7 +27,7 @@ import {
 } from 'path';
 import { tmpdir } from 'os';
 import type { TOpenPath } from '@electron/file-access/openPathCapabilities';
-import {requireDocumentRevisionToken} from '@contracts';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {PDF_DECRYPT_PASSWORD_MAX_BYTES} from '@contracts/pdfDecryptSchemas';
 import type * as NodeChildProcess from 'node:child_process';
 import type * as NodeFs from 'fs';

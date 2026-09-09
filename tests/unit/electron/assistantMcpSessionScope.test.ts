@@ -20,10 +20,8 @@ import {
     syncAssistantMcpSessionScope,
 } from '@electron/features/agent/assistantMcpSessionScope';
 import type { IAssistantSessionScopeBinding } from '@electron/features/agent/assistantTurnLifecycle';
-import {
-    requireDocumentInstanceId,
-    requireDocumentRevisionToken,
-} from '@contracts';
+import {requireDocumentInstanceId} from '@contracts/documentInstanceId';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {
     requireEpochMs,
     requireIsoTimestamp,

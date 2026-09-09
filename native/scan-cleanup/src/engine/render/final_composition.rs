@@ -547,45 +547,53 @@ fn compose_soft_alpha_mixed(
         dpi,
     );
 
-    let mut composite = background.clone();
-    composite
-        .data_mut()
-        .par_chunks_mut(gray.width())
-        .enumerate()
-        .for_each(|(y, row)| {
-            for (x, target) in row.iter_mut().enumerate() {
-                let alpha = foreground_alpha.get(x, y);
-                if alpha > 0 {
-                    *target = 255 - alpha;
-                }
-            }
-        });
-    let composite_color = color_background.as_ref().map(|background| {
-        let mut output = background.clone();
-        output
+    if create_composite {
+        let mut composite = background.clone();
+        composite
             .data_mut()
-            .par_chunks_mut(gray.width() * 3)
+            .par_chunks_mut(gray.width())
             .enumerate()
             .for_each(|(y, row)| {
-                for (x, target) in row.chunks_exact_mut(3).enumerate() {
-                    let value = 255 - foreground_alpha.get(x, y);
-                    if value < 255 {
-                        target.fill(value);
+                for (x, target) in row.iter_mut().enumerate() {
+                    let alpha = foreground_alpha.get(x, y);
+                    if alpha > 0 {
+                        *target = 255 - alpha;
                     }
                 }
             });
-        output
-    });
-    let layers = create_layers.then(|| MixedLayers {
-        foreground_mask: binary_fallback.clone(),
-        foreground_alpha: Some(foreground_alpha),
-        background,
-        color_background,
-        source_mrc: false,
-    });
-    if create_composite {
+        let composite_color = color_background.as_ref().map(|background| {
+            let mut output = background.clone();
+            output
+                .data_mut()
+                .par_chunks_mut(gray.width() * 3)
+                .enumerate()
+                .for_each(|(y, row)| {
+                    for (x, target) in row.chunks_exact_mut(3).enumerate() {
+                        let alpha = foreground_alpha.get(x, y);
+                        let value = 255 - alpha;
+                        if value < 255 {
+                            target.fill(value);
+                        }
+                    }
+                });
+            output
+        });
+        let layers = create_layers.then(|| MixedLayers {
+            foreground_mask: binary_fallback.clone(),
+            foreground_alpha: Some(foreground_alpha),
+            background,
+            color_background,
+            source_mrc: false,
+        });
         (composite, composite_color, layers)
     } else {
+        let layers = create_layers.then(|| MixedLayers {
+            foreground_mask: binary_fallback.clone(),
+            foreground_alpha: Some(foreground_alpha),
+            background,
+            color_background,
+            source_mrc: false,
+        });
         let layer_background = layers
             .as_ref()
             .map_or_else(|| gray.clone(), |layers| layers.background.clone());

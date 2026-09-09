@@ -7,8 +7,8 @@ import {
     PDF_NATIVE_MUTATION_LIMITS,
     normalizePdfNativeAnnotationIdentityBindings,
     normalizePdfNativeMutationSet,
-    splitPdfNativeMutationSetIntoBoundedChunks,
 } from '@contracts/nativePdfMutations';
+import {splitPdfNativeMutationSetIntoBoundedChunks} from '@pdf-core/nativePdfMutationPolicy';
 
 const validNoteTextUpdate = {
     objectNumber: 42,

@@ -7,12 +7,12 @@ import type {
     IScanCleanupDetectionResult,
     IScanCleanupOptions,
 } from '@contracts/electronApiScanCleanup';
-import type {IScanCleanupDetectionResultStore} from '@scan-cleanup-core/types';
+import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/types';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {
     buildScanCleanupPlacementAnchorSummary,
     resolveScanCleanupPlacementAnchorFromSummary,
-} from '@scan-cleanup-core/placementAnchors';
+} from '@evb/scan-cleanup/core/placementAnchors';
 
 const options: IScanCleanupOptions = {
     preserveOriginalQuality: false,

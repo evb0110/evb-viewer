@@ -7,6 +7,7 @@ import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
 import {PACKAGED_ENTRY_FIELD_SEPARATOR} from '@scripts/generateReleaseTargetManifest';
+import {GENERATED_RUST_NATIVE_TOOL_PROTOCOLS} from '@contracts/nativeToolProtocols';
 import type {
     ELECTRON_BUILDER_PLATFORM_KEYS,
     GLOBAL_PACKAGED_RESOURCES,
@@ -26,11 +27,16 @@ const {
 
 const {
     assertPackagedToolSmoke,
+    getPackagedToolSmokePolicy,
     RELEASE_TARGET_MANIFEST,
 } = await import(
     pathToFileURL(resolve(process.cwd(), 'scripts/release/native-tool-smoke-policy.mjs')).href
 ) as {
     assertPackagedToolSmoke: (toolName: string, exitCode: number, output: string) => void;
+    getPackagedToolSmokePolicy: (toolName: string) => {
+        expectedOutputTokens: readonly string[];
+        requiredOutputTokens?: readonly string[];
+    };
     RELEASE_TARGET_MANIFEST: {
         families: ReturnType<typeof getPackagedNativeToolFamilies>;
         globalResources: typeof GLOBAL_PACKAGED_RESOURCES;
@@ -62,6 +68,39 @@ function manifestWithMutation(path: ReadonlyArray<number | string>, value: unkno
 }
 
 describe('native tool smoke policy', () => {
+    it('requires the generated v10 capability names in packaged scan-cleanup output', () => {
+        const scanCleanup = GENERATED_RUST_NATIVE_TOOL_PROTOCOLS.find(
+            protocol => protocol.binaryName === 'evb-scan-cleanup',
+        );
+        const policy = getPackagedToolSmokePolicy('evb-scan-cleanup-protocol');
+        const releaseFamily = RELEASE_TARGET_MANIFEST.families.find(
+            family => family.binaryName === scanCleanup?.binaryName,
+        );
+        const expectedCapabilities: readonly string[] = releaseFamily?.protocolCapabilities ?? [];
+        const expectedVersion = releaseFamily?.protocolVersion;
+
+        expect(scanCleanup?.capabilities?.map(capability => capability.name)).toEqual(expectedCapabilities);
+        expect(policy.requiredOutputTokens).toEqual([
+            `"protocolVersion":${String(expectedVersion)}`,
+            '"capabilities"',
+            ...expectedCapabilities.map(capability => `"${capability}"`),
+        ]);
+        const structuredOutput = JSON.stringify({
+            protocolVersion: expectedVersion,
+            capabilities: expectedCapabilities,
+        });
+        expect(() => assertPackagedToolSmoke(
+            'evb-scan-cleanup-protocol',
+            0,
+            structuredOutput,
+        )).not.toThrow();
+        expect(() => assertPackagedToolSmoke(
+            'evb-scan-cleanup-protocol',
+            0,
+            '10\n',
+        )).toThrow('required token');
+    });
+
     it.each([
         {
             branch: 'root schema',
@@ -347,7 +386,11 @@ describe('native tool smoke policy', () => {
         expect(() => assertPackagedToolSmoke('evb-pdf-page-ops', 0, 'evb-pdf-page-ops 0.1.0')).not.toThrow();
         expect(() => assertPackagedToolSmoke('evb-pdf-search', 0, 'evb-pdf-search 0.1.0')).not.toThrow();
         expect(() => assertPackagedToolSmoke('evb-scan-cleanup', 0, 'evb-scan-cleanup 0.1.0')).not.toThrow();
-        expect(() => assertPackagedToolSmoke('evb-scan-cleanup-protocol', 0, '10')).not.toThrow();
+        expect(() => assertPackagedToolSmoke(
+            'evb-scan-cleanup-protocol',
+            0,
+            '{"protocolVersion":10,"capabilities":["manifest-v3","structured-warning-events"]}',
+        )).not.toThrow();
         expect(() => assertPackagedToolSmoke('evb-pdf-image-combine-compact-manifest', 1, 'Missing --compact-manifest value')).not.toThrow();
         expect(() => assertPackagedToolSmoke('ddjvu', 1, 'ddjvu usage')).not.toThrow();
         expect(() => assertPackagedToolSmoke('djvudump', 1, 'djvudump usage')).not.toThrow();

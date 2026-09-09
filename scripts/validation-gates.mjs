@@ -84,8 +84,8 @@ const validationStageInputPaths = {
         'packages',
         'public',
         'resources',
-        'scan-cleanup-adapters',
-        'scan-cleanup-core',
+        'packages/scan-cleanup/adapters',
+        'packages/scan-cleanup/core',
         'server',
         'electron-builder.yml',
         'nuxt.config.ts',
@@ -101,8 +101,8 @@ const validationStageInputPaths = {
         'electron',
         'landing',
         'packages',
-        'scan-cleanup-adapters',
-        'scan-cleanup-core',
+        'packages/scan-cleanup/adapters',
+        'packages/scan-cleanup/core',
         'scripts',
         'server',
         'tests',
@@ -116,8 +116,8 @@ const validationStageInputPaths = {
         'electron',
         'landing',
         'packages',
-        'scan-cleanup-adapters',
-        'scan-cleanup-core',
+        'packages/scan-cleanup/adapters',
+        'packages/scan-cleanup/core',
         'scripts',
         'server',
         'tests',
@@ -185,8 +185,8 @@ const validationStageInputPaths = {
         'package.json',
         'patches',
         'public',
-        'scan-cleanup-adapters',
-        'scan-cleanup-core',
+        'packages/scan-cleanup/adapters',
+        'packages/scan-cleanup/core',
         'scripts/check-web-deploy-source.mjs',
         'scripts/deployVercelPrivate.mjs',
         'server',
@@ -1471,8 +1471,8 @@ async function runLint(argv) {
                 'app',
                 'electron',
                 'packages',
-                'scan-cleanup-adapters',
-                'scan-cleanup-core',
+                'packages/scan-cleanup/adapters',
+                'packages/scan-cleanup/core',
                 'scripts',
                 'server',
                 'tests',
@@ -1854,7 +1854,8 @@ export async function acquireHeavyGate({
 
     const holderName = `${process.pid}-${randomUUID()}.json`;
     const holderPath = path.join(holdersDir, holderName);
-    const deadline = Date.now() + waitMs;
+    const waitStartedAtMs = Date.now();
+    const deadline = waitStartedAtMs + waitMs;
     let blockedSinceMs;
     let lastObservedCapacity = initialCapacity;
     /** @type {IHeavyGateAdmission | null} */
@@ -1938,7 +1939,7 @@ export async function acquireHeavyGate({
             };
         }
         const nowMs = Date.now();
-        blockedSinceMs ??= nowMs;
+        blockedSinceMs ??= waitStartedAtMs;
         lastAdmission = admission;
         lastObservedCapacity = admission?.capacity ?? resolveCurrentCapacity();
         const state = heavyGateAdmissionState(admission);

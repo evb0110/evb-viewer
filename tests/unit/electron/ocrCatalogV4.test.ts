@@ -36,7 +36,7 @@ import {
     readCatalogFile,
     resolveCatalogPath,
     type IOcrCatalogHandle,
-} from '@electron/ocr/ocrCatalogV4';
+} from '@electron/features/ocr/main/ocrCatalogV4';
 
 const revision = requireDocumentRevisionToken('drt1:ocr-catalog-v4-test');
 const catalogId = '123e4567-e89b-42d3-a456-426614174000';

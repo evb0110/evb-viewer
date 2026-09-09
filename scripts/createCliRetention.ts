@@ -8,12 +8,12 @@ import {randomUUID} from 'node:crypto';
 import type {
     IScanCleanupDetectionRetention,
     IScanCleanupRetainedRaster,
-} from '@scan-cleanup-core/detection';
-import type {IScanCleanupPageRasterSource} from '@scan-cleanup-core/types';
+} from '@evb/scan-cleanup/core/detection';
+import type {IScanCleanupPageRasterSource} from '@evb/scan-cleanup/core/types';
 import type {
     IPdfPageSizeStore,
     readPdfPageSizes,
-} from '@scan-cleanup-core/pdfPageSizes';
+} from '@evb/scan-cleanup/core/pdfPageSizes';
 
 /** One CLI run's document: a directory of staged rasters and its source. */
 export interface IScanCleanupCliDocument {

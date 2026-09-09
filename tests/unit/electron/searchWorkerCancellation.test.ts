@@ -34,7 +34,7 @@ vi.mock('worker_threads', () => ({
 
 vi.mock('fs/promises', () => ({stat: mocks.stat}));
 
-vi.mock('@electron/search/indexBuilder', () => ({
+vi.mock('@electron/features/search/indexBuilder', () => ({
     SEARCH_INDEX_SCHEMA_VERSION: 7,
     loadSearchIndex: mocks.loadSearchIndex,
     buildSearchIndex: mocks.buildSearchIndex,
@@ -95,7 +95,7 @@ describe('search worker cancellation propagation', () => {
     });
 
     it('aborts index building when cancel message is received', async () => {
-        await import('@electron/search/worker');
+        await import('@electron/features/search/worker');
         const handleMessage = mocks.messageHandlers.get('message');
         expect(handleMessage).toBeTypeOf('function');
 

@@ -5,7 +5,7 @@ import {
 import { isErrnoException } from '@contracts/runtimeGuards';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
-import { getCompactSearchIndexPath } from '@electron/search/searchIndexSidecar';
+import { getNativeCompactSearchIndexPath as getCompactSearchIndexPath } from '@electron/features/search/publicNative';
 import { normalizePathForLookup } from '@electron/file-access/workingCopyStore';
 import { cancelNativeCommandGroup } from '@electron/native-tools/runNativeCommand';
 import { registerMainOperation } from '@electron/operation-lifecycle/mainOperationLifecycle';

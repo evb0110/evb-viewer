@@ -8,13 +8,24 @@ import {
     expect,
     it,
 } from 'vitest';
-import {readFileSync} from 'node:fs';
+import {
+    readFileSync,
+    readdirSync,
+} from 'node:fs';
 
 function rustPaleCollapseWarning(pageNumber: number, half: string) {
-    const source = readFileSync(
-        new URL('../../../native/scan-cleanup/src/engine/render/region_rendering.rs', import.meta.url),
-        'utf8',
-    );
+    const stageDirectory = new URL('../../../native/scan-cleanup/src/engine/render/', import.meta.url);
+    const sourcePaths = [
+        new URL('../../../native/scan-cleanup/src/engine/render.rs', import.meta.url),
+        ...readdirSync(stageDirectory, {withFileTypes: true})
+            .filter(entry => (
+                entry.isFile()
+                && entry.name.endsWith('.rs')
+                && !/(?:^|[._-])tests?(?:[._-]|$)/iu.test(entry.name)
+            ))
+            .map(entry => new URL(entry.name, stageDirectory)),
+    ];
+    const source = sourcePaths.map(path => readFileSync(path, 'utf8')).join('\n');
     const templates = [...source.matchAll(
         /conservation_warnings\.push\(format!\(\s*"([^"]+)"\s*,\s*source_page_index \+ 1,\s*page_half_label\(half\)\s*\)\);/g,
     )].map(match => match[1]);

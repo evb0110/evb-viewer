@@ -35,8 +35,8 @@ import {
     readPdfPageSizes,
     type IPdfPageSize,
     type IPdfPageSizeStore,
-} from '@scan-cleanup-core/pdfPageSizes';
-import {createFileBackedScanCleanupResultStore} from '@scan-cleanup-core/fileBackedResultStore';
+} from '@evb/scan-cleanup/core/pdfPageSizes';
+import {createFileBackedScanCleanupResultStore} from '@evb/scan-cleanup/core/fileBackedResultStore';
 import {
     mergeScanCleanupPdfPathSidecar,
     readDetectionResultsForPageNumbers,
@@ -45,15 +45,15 @@ import {
     validateScanCleanupStreamingReport,
     type IRunScanCleanupPipelineDependencies,
     type IScanCleanupWorkerPaths,
-} from '@scan-cleanup-core/runScanCleanupConversion';
-import type {ScanCleanupStreamingEvidenceError} from '@scan-cleanup-core/errors';
+} from '@evb/scan-cleanup/core/runScanCleanupConversion';
+import type {ScanCleanupStreamingEvidenceError} from '@evb/scan-cleanup/core/errors';
 import type {
     IScanCleanupDetectionResultStore,
     IScanCleanupPageRasterSource,
     IPdfPageSizeChunk,
     ISourceDpiDetectionResult,
     TScanCleanupLog,
-} from '@scan-cleanup-core/types';
+} from '@evb/scan-cleanup/core/types';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@contracts/scan-cleanup/inputLimits';
 

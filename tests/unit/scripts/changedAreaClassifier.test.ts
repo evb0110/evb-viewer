@@ -141,6 +141,7 @@ describe('changed-area classifier', () => {
             expect(classifyChangedFiles([file]).native_or_build?.matched, file).toBe(true);
         }
         expect(classifyChangedFiles(['landing/app/pages/index.vue']).landing?.matched).toBe(true);
+        expect(classifyChangedFiles(['.github/actions/setup-ci-env/action.yml']).landing?.matched).toBe(true);
         expect(classifyChangedFiles(['packages/release-selection/index.ts']).landing?.matched).toBe(true);
         expect(classifyChangedFiles(['scripts/ci/classify-changed-areas.mjs']).landing?.matched).toBe(true);
         expect(classifyChangedFiles(['app/modules/pdf-viewer/PdfViewer.vue']).electron_smoke?.matched).toBe(true);
@@ -235,6 +236,7 @@ describe('changed-area classifier', () => {
 
     it('owns scan-cleanup export dependencies and fails closed when the diff is unknown', () => {
         for (const file of [
+            '.github/actions/setup-ci-env/action.yml',
             'app/modules/scan-cleanup/geometry/placement.ts',
             'native/pdf-image-combine/src/lib.rs',
             'native/scan-cleanup/src/mrc.rs',

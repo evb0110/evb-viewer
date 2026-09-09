@@ -26,7 +26,7 @@ import {
     getDocumentPdfCapability,
     isNativePrintCapabilityUnavailable,
 } from '@app/utils/platformDocuments';
-import type { TPageSelection } from '@contracts/pageNumbers';
+import type { TPageSelection } from '@pdf-core/pdfPageSelection';
 import { IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES } from '@contracts/electronApiDocuments';
 import { PDF_PATH_PRINT_LAYOUT_MAX_SOURCE_BYTES } from '@contracts/shared';
 import { parseDocumentRef } from '@contracts/documentRef';
@@ -34,13 +34,17 @@ import {
     createExplicitPageSelection,
     materializePageSelection,
     pageSelectionCount,
-} from '@contracts/pageNumbers';
+} from '@pdf-core/pdfPageSelection';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import {
     useFailureToast,
     type FailurePresentation,
 } from '@app/composables/useFailureToast';
 import { isPathPdfSource } from '@app/modules/pdf-viewer/public';
+import type {
+    TWorkspaceDriverCommandResult,
+    IWorkspaceDriverPrintRequest,
+} from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
 
 const BROWSER_PRINT_CLEANUP_TIMEOUT_MS = 60000;
 const BROWSER_PRINT_LOAD_TIMEOUT_MS = 30000;
@@ -125,9 +129,9 @@ interface IWorkspacePrintDeps {
     fileName: Readonly<Ref<string | null>>;
     hasPendingUnsavedChanges: Readonly<Ref<boolean>>;
     hasPendingPrintSerializationChanges?: Readonly<Ref<boolean>>;
-    canPrintDjvuSource?: Readonly<Ref<boolean>>;
     getCurrentPrintPage?: () => number | null | undefined;
     getQuickPrintPageMetrics: () => Promise<IPdfPageMetric[] | null>;
+    isDriverOwnedQuickPrint?: () => boolean;
     ensurePrintReady?: () => Promise<boolean>;
     ensureWorkingCopyFreshForRead?: () => Promise<boolean | string | null>;
     getLastFailurePresentation?: () => FailurePresentation | null;
@@ -137,13 +141,13 @@ interface IWorkspacePrintDeps {
         pageNumbers: number[],
         options?: { signal?: AbortSignal },
     ) => Promise<void>;
-    printDjvuSource?: (
-        payload: IPrintDialogSubmitPayload,
+    preparePrintSource?: (
+        payload: IWorkspaceDriverPrintRequest,
         options?: {
             onNativePrintHandoffStart?: () => void;
             signal?: AbortSignal;
         },
-    ) => Promise<void>;
+    ) => Promise<TWorkspaceDriverCommandResult>;
 }
 
 interface IPrintDialogSubmitPayload {
@@ -188,11 +192,6 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
             );
     });
     const supportsFirstPageSinglePrintLayout = computed(() => supportsAdvancedPrintOptions.value);
-
-    function canPrintDjvuSource() {
-        return Boolean(deps.printDjvuSource)
-            && (deps.canPrintDjvuSource?.value ?? true);
-    }
 
     function requiresNativePrintForHighPageCountLayout(payload: IPrintDialogSubmitPayload) {
         if (
@@ -347,7 +346,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
             orientation: 'auto',
         } satisfies IPrintDialogSubmitPayload;
 
-        if (canPrintDjvuSource()) {
+        if (deps.preparePrintSource && deps.isDriverOwnedQuickPrint?.() === true) {
             await handlePrintDialogSubmit(defaultPayload, {
                 action: 'default',
                 reopenDialogOnError: false,
@@ -904,10 +903,10 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
             }
             throwIfPrintAborted(signal);
 
-            if (canPrintDjvuSource() && deps.printDjvuSource) {
+            if (deps.preparePrintSource) {
                 throwIfPrintAborted(signal);
                 const nativePrintHandoff: { started: boolean } = { started: false };
-                await deps.printDjvuSource(payload, {
+                const driverResult = await deps.preparePrintSource(payload, {
                     signal,
                     onNativePrintHandoffStart: () => {
                         nativePrintHandoff.started = true;
@@ -915,10 +914,15 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
                     },
                 });
                 throwIfPrintAborted(signal);
-                if (nativePrintHandoff.started !== true) {
-                    closePrintDialogForSystemDialog();
+                if (driverResult.status === 'completed') {
+                    if (nativePrintHandoff.started !== true) {
+                        closePrintDialogForSystemDialog();
+                    }
+                    return;
                 }
-                return;
+                if (driverResult.capability !== 'print') {
+                    throw new Error('The active document driver cannot print');
+                }
             }
 
             if (await tryPrintPathInNativeDialog(payload, signal)) {

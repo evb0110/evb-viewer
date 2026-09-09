@@ -6,7 +6,7 @@ import {
     vi,
 } from 'vitest';
 import type * as EsToolkitMath from 'es-toolkit/math';
-import {requireDocumentRevisionToken} from '@contracts';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 
 const mocks = vi.hoisted(() => ({
     existsSync: vi.fn(),
@@ -47,9 +47,9 @@ vi.mock('es-toolkit/math', async (importOriginal) => {
     };
 });
 
-vi.mock('@electron/search/extractTextFromPdf', () => ({extractTextFromPdf: mocks.extractTextFromPdf}));
+vi.mock('@electron/features/search/extractTextFromPdf', () => ({extractTextFromPdf: mocks.extractTextFromPdf}));
 
-vi.mock('@electron/search/extractTextWithPdfjs', () => ({
+vi.mock('@electron/features/search/extractTextWithPdfjs', () => ({
     extractTextWithPdfjs: mocks.extractTextWithPdfjs,
     extractTextWithPdfjsWordBoxes: mocks.extractTextWithPdfjsWordBoxes,
 }));
@@ -59,7 +59,7 @@ vi.mock('@electron/utils/atomicReplace', () => ({
     makeSiblingTempPath: (targetPath: string) => `${targetPath}.tmp`,
 }));
 
-vi.mock('@electron/search/searchIndexSidecar', () => ({
+vi.mock('@electron/features/search/searchIndexSidecar', () => ({
     COMPACT_SEARCH_INDEX_MAGIC: 'EVBSIDX2',
     COMPACT_SEARCH_INDEX_SCHEMA_VERSION: 2,
     COMPACT_SEARCH_INDEX_SOURCE_KIND_OCR_TEXT_LAYER: 1,
@@ -75,7 +75,7 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
 })}));
 
 beforeEach(() => {
-    vi.doMock('@electron/ocr/documentTextCatalog', () => ({
+    vi.doMock('@electron/features/ocr/public/catalog', () => ({
         resolveDocumentTextCatalogSnapshot: mocks.resolveDocumentTextCatalogSnapshot,
         visitDocumentOcrCatalogPages: mocks.visitDocumentOcrCatalogPages,
     }));
@@ -150,7 +150,7 @@ describe('buildSearchIndex cancellation', () => {
     });
 
     it('forwards signal to PDF text extractors', async () => {
-        const { buildSearchIndex } = await import('@electron/search/indexBuilder');
+        const { buildSearchIndex } = await import('@electron/features/search/indexBuilder');
         const controller = new AbortController();
 
         mocks.extractTextWithPdfjs.mockResolvedValue([{
@@ -186,7 +186,7 @@ describe('buildSearchIndex cancellation', () => {
     });
 
     it('aborts before extraction starts when signal is already aborted', async () => {
-        const { buildSearchIndex } = await import('@electron/search/indexBuilder');
+        const { buildSearchIndex } = await import('@electron/features/search/indexBuilder');
         const controller = new AbortController();
         controller.abort();
 
@@ -203,7 +203,7 @@ describe('buildSearchIndex cancellation', () => {
     });
 
     it('rethrows AbortError from pdfjs extraction and skips fallback extraction', async () => {
-        const { buildSearchIndex } = await import('@electron/search/indexBuilder');
+        const { buildSearchIndex } = await import('@electron/features/search/indexBuilder');
         const abortError = createAbortError();
         mocks.extractTextWithPdfjs.mockRejectedValue(abortError);
 
@@ -219,7 +219,7 @@ describe('buildSearchIndex cancellation', () => {
     });
 
     it('keeps extractor failures retryable instead of padding and persisting an empty index', async () => {
-        const { buildSearchIndex } = await import('@electron/search/indexBuilder');
+        const { buildSearchIndex } = await import('@electron/features/search/indexBuilder');
         const extractorError = new Error('page 2 extractor failed');
         mocks.extractTextWithPdfjs.mockRejectedValue(new Error('pdfjs unavailable'));
         mocks.extractTextFromPdf.mockRejectedValue(extractorError);
@@ -234,7 +234,7 @@ describe('buildSearchIndex cancellation', () => {
     });
 
     it('short-circuits missing coverage before scanning a huge page count', async () => {
-        const { buildSearchIndex } = await import('@electron/search/indexBuilder');
+        const { buildSearchIndex } = await import('@electron/features/search/indexBuilder');
         const pageCount = 1_000_001;
         const abortError = createAbortError();
         mockCatalog(pageCount, [{
@@ -274,7 +274,7 @@ describe('buildSearchIndex assembly', () => {
     });
 
     it('skips PDF text extraction when existing index already covers expected pages', async () => {
-        const { buildSearchIndex } = await import('@electron/search/indexBuilder');
+        const { buildSearchIndex } = await import('@electron/features/search/indexBuilder');
         const cachedIndex = {
             schemaVersion: 7,
             documentRevision: {token: DOCUMENT_REVISION},
@@ -339,7 +339,7 @@ describe('buildSearchIndex assembly', () => {
     });
 
     it('pads missing pages up to expected pageCount with empty text', async () => {
-        const { buildSearchIndex } = await import('@electron/search/indexBuilder');
+        const { buildSearchIndex } = await import('@electron/features/search/indexBuilder');
         mocks.extractTextWithPdfjs.mockImplementation(async (_path: string, options: IPdfjsMockOptions) => {
             options.onPageText?.({
                 pageNumber: 1,
@@ -372,7 +372,7 @@ describe('buildSearchIndex assembly', () => {
     });
 
     it('never builds a pdfjs operator list for a document without a text layer', async () => {
-        const { buildSearchIndex } = await import('@electron/search/indexBuilder');
+        const { buildSearchIndex } = await import('@electron/features/search/indexBuilder');
         mocks.stat.mockResolvedValue({ size: 4 * 1024 * 1024 });
         mocks.extractTextWithPdfjs.mockResolvedValue([]);
         mocks.extractTextFromPdf.mockResolvedValue([
@@ -407,7 +407,7 @@ describe('buildSearchIndex assembly', () => {
     });
 
     it('never builds a pdfjs operator list for a document that has a text layer', async () => {
-        const { buildSearchIndex } = await import('@electron/search/indexBuilder');
+        const { buildSearchIndex } = await import('@electron/features/search/indexBuilder');
         mocks.stat.mockResolvedValue({ size: 4 * 1024 * 1024 });
         mocks.extractTextWithPdfjs.mockImplementation(async (_path: string, options: IPdfjsMockOptions) => {
             options.onPageText?.({
@@ -441,7 +441,7 @@ describe('buildSearchIndex assembly', () => {
     });
 
     it('prefers OCR pageData words over previously extracted text and raw OCR text', async () => {
-        const { buildSearchIndex } = await import('@electron/search/indexBuilder');
+        const { buildSearchIndex } = await import('@electron/features/search/indexBuilder');
         mocks.extractTextWithPdfjs.mockImplementation(async (_path: string, options: IPdfjsMockOptions) => {
             options.onPageText?.({
                 pageNumber: 1,
@@ -502,7 +502,7 @@ describe('buildSearchIndex assembly', () => {
     });
 
     it('validates a built JSON index before writing it to disk', async () => {
-        const { buildSearchIndex } = await import('@electron/search/indexBuilder');
+        const { buildSearchIndex } = await import('@electron/features/search/indexBuilder');
         mocks.extractTextWithPdfjs.mockResolvedValue([]);
         mocks.extractTextFromPdf.mockResolvedValue([]);
 
@@ -527,7 +527,7 @@ describe('buildSearchIndex assembly', () => {
     });
 
     it('strips oversized word geometry from legacy JSON while returning the in-memory geometry index', async () => {
-        const { buildSearchIndex } = await import('@electron/search/indexBuilder');
+        const { buildSearchIndex } = await import('@electron/features/search/indexBuilder');
         const { buildOcrTextLayerIndexText } = await import('@contracts/ocrText');
         const words = Array.from({length: 1_000}, (_, index) => ({
             text: index === 0 ? 'alpha' : `word-${index}`,
@@ -577,7 +577,7 @@ describe('buildSearchIndex assembly', () => {
     });
 
     it('retries legacy JSON persistence without geometry after an invalid string length error', async () => {
-        const { buildSearchIndex } = await import('@electron/search/indexBuilder');
+        const { buildSearchIndex } = await import('@electron/features/search/indexBuilder');
 
         const originalStringify = JSON.stringify;
         let failedFullGeometryStringify = false;
@@ -637,7 +637,7 @@ describe('buildSearchIndex assembly', () => {
     });
 
     it('uses OCR v3 words as text-layer-compatible search text and persists index best-effort', async () => {
-        const { buildSearchIndex } = await import('@electron/search/indexBuilder');
+        const { buildSearchIndex } = await import('@electron/features/search/indexBuilder');
         mockCatalog(2, [
             {
                 pageNumber: 1,
@@ -796,7 +796,7 @@ describe('buildSearchIndex assembly', () => {
     });
 
     it('preserves partial OCR v3 pages and fills missing pages from PDF text extraction', async () => {
-        const { buildSearchIndex } = await import('@electron/search/indexBuilder');
+        const { buildSearchIndex } = await import('@electron/features/search/indexBuilder');
         mockCatalog(2, [{
             pageNumber: 1,
             text: 'ocr \n',
@@ -879,7 +879,7 @@ describe('buildSearchIndex assembly', () => {
     });
 
     it('uses OCR v3 manifest pageCount as the effective count for partial sidecars', async () => {
-        const { buildSearchIndex } = await import('@electron/search/indexBuilder');
+        const { buildSearchIndex } = await import('@electron/features/search/indexBuilder');
         mockCatalog(2, [{
             pageNumber: 1,
             text: 'ocr \n',
@@ -987,7 +987,7 @@ describe('buildSearchIndex assembly', () => {
     });
 
     it('fills large partial OCR sidecars through bounded pdftotext windows', async () => {
-        const { buildSearchIndex } = await import('@electron/search/indexBuilder');
+        const { buildSearchIndex } = await import('@electron/features/search/indexBuilder');
         mockCatalog(2136, [{
             pageNumber: 7,
             text: 'Kurdan front matter',
@@ -1066,7 +1066,7 @@ describe('buildSearchIndex assembly', () => {
     });
 
     it('uses catalog geometry instead of compact text-only sidecars', async () => {
-        const { buildSearchIndex } = await import('@electron/search/indexBuilder');
+        const { buildSearchIndex } = await import('@electron/features/search/indexBuilder');
         mockCatalog(2, [
             {
                 pageNumber: 1,
@@ -1231,7 +1231,7 @@ describe('buildSearchIndex assembly', () => {
     });
 
     it('ignores stale OCR v3 sidecar pages outside the current page count', async () => {
-        const { buildSearchIndex } = await import('@electron/search/indexBuilder');
+        const { buildSearchIndex } = await import('@electron/features/search/indexBuilder');
         mocks.existsSync.mockImplementation((path: string) => (
             path.endsWith('manifest.json') || path.endsWith('page-3.json')
         ));

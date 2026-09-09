@@ -5,11 +5,11 @@ import {
     it,
     vi,
 } from 'vitest';
-import { getPageCount } from '@electron/ocr/worker/pdfAssembler';
+import { getPageCount } from '@electron/features/ocr/worker/pdfAssembler';
 
 const mocks = vi.hoisted(() => ({ runOcrCommand: vi.fn() }));
 
-vi.mock('@electron/ocr/worker/runOcrCommand', () => ({ runOcrCommand: mocks.runOcrCommand }));
+vi.mock('@electron/features/ocr/worker/runOcrCommand', () => ({ runOcrCommand: mocks.runOcrCommand }));
 
 describe('getPageCount', () => {
     beforeEach(() => {

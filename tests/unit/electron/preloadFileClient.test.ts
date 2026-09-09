@@ -31,7 +31,7 @@ import {
     PDF_NATIVE_MUTATION_LIMITS,
 } from '@contracts/nativePdfMutations';
 import { MAX_DOCUMENT_ALLOCATION_BYTES } from '@contracts/electronApiDocuments';
-import {requireDocumentRevisionToken} from '@contracts';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {
     requireLeaseId,
     requireRequestId,
@@ -40,6 +40,7 @@ import type {TRequestId} from '@contracts/shared';
 import {requireEpochMs} from '@contracts/timestamps';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import {PDF_DECRYPT_PASSWORD_MAX_BYTES} from '@contracts/pdfDecryptSchemas';
+import {waitForCondition} from '@tests/unit/electron/waitForCondition';
 
 // These values deliberately violate their brands so the preload runtime guards are tested.
 const invalidDocumentRef = 'relative.pdf' as TDocumentRef;
@@ -1870,18 +1871,4 @@ async function waitForPortMessage(port: FakeMessagePort, type: string) {
     await waitForCondition(() => {
         expect(port.postedMessages.some(message => isPortMessage(message, type))).toBe(true);
     });
-}
-
-async function waitForCondition(assertion: () => void) {
-    let lastError: unknown;
-    for (let attempt = 0; attempt < 20; attempt += 1) {
-        try {
-            assertion();
-            return;
-        } catch (error) {
-            lastError = error;
-            await new Promise<void>(resolve => setImmediate(resolve));
-        }
-    }
-    throw lastError;
 }

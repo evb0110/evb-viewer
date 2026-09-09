@@ -12,7 +12,7 @@ import type {
     IPageIdentityDelta,
 } from '@contracts/electronApiPageOps';
 import type {IPdfNativeMutationSet} from '@contracts/electronApiDocuments';
-import {splitPdfNativeMutationSetIntoBoundedChunks} from '@contracts/nativePdfMutations';
+import {splitPdfNativeMutationSetIntoBoundedChunks} from '@pdf-core/nativePdfMutationPolicy';
 import {mapPageNumberThroughPageIdentityDelta} from '@contracts/electronApiPageOps';
 import {
     pageIndexToPageNumber,

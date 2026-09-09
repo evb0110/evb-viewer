@@ -34,7 +34,7 @@ import {
     createDefaultWorkspaceViewerCapabilities,
     type IWorkspaceToolbarSnapshot,
 } from '@app/types/workspaceExpose';
-import {requireDocumentRevisionToken} from '@contracts';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 
 vi.mock('@app/composables/useRuntimeErrorReports', () => ({useRuntimeErrorReports: () => ({reportRuntimeError: vi.fn()})}));
 

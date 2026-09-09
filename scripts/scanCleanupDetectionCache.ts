@@ -25,13 +25,13 @@ import type {
     IScanCleanupOptions,
 } from '@contracts/electronApiScanCleanup';
 import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@contracts/scan-cleanup/inputLimits';
-import {createFileBackedScanCleanupDetectionResultStore} from '@scan-cleanup-core/fileBackedResultStore';
-import type {IScanCleanupDetectionResultStore} from '@scan-cleanup-core/types';
+import {createFileBackedScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/fileBackedResultStore';
+import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/types';
 import {SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION} from '@contracts/scan-cleanup/nativeProtocolV3';
 import {
     DETECTION_DPI,
     PREVIEW_DPI,
-} from '@scan-cleanup-core/detection';
+} from '@evb/scan-cleanup/core/detection';
 
 export const SCAN_CLEANUP_DETECTION_CACHE_FORMAT_VERSION = 2 as const;
 export const DEFAULT_SCAN_CLEANUP_DETECTION_CACHE_PATH = '.devkit/tmp/detection-cache';

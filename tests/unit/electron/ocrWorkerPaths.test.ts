@@ -3,7 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import { resolveWorkerPaths } from '@electron/ocr/worker/resolveWorkerPaths';
+import { resolveWorkerPaths } from '@electron/features/ocr/worker/resolveWorkerPaths';
 
 const requiredWorkerPaths = {
     tesseractBinary: '/bin/tesseract',

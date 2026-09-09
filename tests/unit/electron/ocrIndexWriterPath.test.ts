@@ -5,7 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import {requireDocumentRevisionToken} from '@contracts';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requireEpochMs} from '@contracts/timestamps';
 
@@ -79,11 +79,17 @@ vi.mock('node:fs/promises', () => ({
     writeFile: (path: string, data: string, encoding: string) => mocks.writeFile(path, data, encoding),
 }));
 
-vi.mock('@electron/search/searchIndexSidecar', () => ({
-    COMPACT_SEARCH_INDEX_SOURCE_KIND_OCR_TEXT_LAYER: 1,
-    getCompactSearchIndexPath: (path: string) => `${path}.index.evb-search-v2.bin`,
-    loadCompactSearchIndex: mocks.loadCompactSearchIndex,
-    persistCompactSearchIndex: mocks.persistCompactSearchIndex,
+vi.mock('@electron/features/search/publicNative', () => ({
+    NATIVE_COMPACT_SEARCH_INDEX_SOURCE_KIND_OCR_TEXT_LAYER: 1,
+    getNativeCompactSearchIndexPath: (path: string) => `${path}.index.evb-search-v2.bin`,
+    loadNativeCompactSearchIndex: mocks.loadCompactSearchIndex,
+    persistNativeCompactSearchIndex: mocks.persistCompactSearchIndex,
+    classifyXlargeSearchPathFromFile: vi.fn(async (_path: string, pageCount?: number) => ({
+        isXlarge: (pageCount ?? 0) > 200,
+        pageCount,
+        pathSizeBytes: undefined,
+        reasons: [],
+    })),
 }));
 vi.mock('@electron/file-access/documentRevisionSidecar', () => ({assertWorkingCopyRevisionSidecarCurrent: mocks.assertWorkingCopyRevisionCurrent}));
 

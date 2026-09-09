@@ -1,9 +1,14 @@
 import {
+    copyFile,
+    mkdir,
     mkdtemp,
+    open as fsOpen,
     readFile,
     rename,
     rm,
+    stat,
     writeFile,
+    readdir,
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -15,9 +20,9 @@ import {
     vi,
 } from 'vitest';
 import {
-    runScanCleanupDetection,
+    runScanCleanupDetection as runScanCleanupDetectionCore,
     type IScanCleanupDetectionRetention,
-} from '@scan-cleanup-core/detection';
+} from '@evb/scan-cleanup/core/detection';
 import type {IScanCleanupDetectionRequest} from '@contracts/electronApiScanCleanup';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import type {
@@ -30,12 +35,60 @@ import {decodeNativeScanCleanupPageMetadata} from '@contracts/scan-cleanup/nativ
 import {decodeScanCleanupDetectionJobState} from '@contracts/scan-cleanup/ipcResultCodecs';
 import {compactScanCleanupDetectionVerdicts} from '@scripts/scanCleanupCliAdapters';
 import {isPathWithinRoot} from '@tests/helpers/isPathWithinRoot';
-import {SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES} from '@scan-cleanup-core/pageBatches';
-import type {IPdfPageSizeStore} from '@scan-cleanup-core/pdfPageSizes';
+import {SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES} from '@evb/scan-cleanup/core/pageBatches';
+import type {IPdfPageSizeStore} from '@evb/scan-cleanup/core/pdfPageSizes';
 
 const dirs: string[] = [];
 const resultStores: Array<{close: () => Promise<void>}> = [];
 const MIB = 1024 * 1024;
+
+const fileSystem = {
+    copyFile,
+    mkdir: async (path: string, options?: {recursive?: boolean}) => {
+        await mkdir(path, options);
+        return undefined;
+    },
+    open: async (path: string, flags: 'r' | 'w+') => fsOpen(path, flags),
+    readFile: async (path: string, encoding: 'utf8') => readFile(path, encoding),
+    mkdtemp,
+    readdir,
+    rm: async (
+        path: string,
+        options: {
+            force: boolean;
+            recursive?: boolean;
+        },
+    ) => rm(path, options),
+    stat: async (path: string) => {
+        const info = await stat(path);
+        return {
+            isFile: () => info.isFile(),
+            size: info.size,
+        };
+    },
+    writeFile: async (path: string, data: string | Uint8Array) => {
+        await writeFile(path, data);
+    },
+};
+
+function runScanCleanupDetection<TDocument>(
+    ...args: Parameters<typeof runScanCleanupDetectionCore<TDocument>>
+) {
+    return runScanCleanupDetectionCore<TDocument>(
+        args[0],
+        args[1],
+        args[2],
+        {
+            ...args[3],
+            fileSystem,
+            getAvailableScratchBytes: args[3].getAvailableScratchBytes
+                ?? (async () => null),
+        },
+        args[4],
+        args[5],
+        args[6],
+    );
+}
 
 function splitDiagnostics(): INativeScanCleanupSplitDiagnosticsV3 {
     return {
@@ -580,6 +633,7 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
                 controller.signal,
                 retention,
                 {
+                    fileSystem,
                     getAvailableScratchBytes: vi.fn(async () => null),
                     getTempDir: () => tempDir,
                     getPdftoppmBinary: () => 'pdftoppm',
@@ -697,6 +751,7 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
             controller.signal,
             retention,
             {
+                fileSystem,
                 getAvailableScratchBytes: vi.fn(async () => null),
                 getTempDir: () => tempDir,
                 getPdftoppmBinary: () => 'pdftoppm',
@@ -815,6 +870,7 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
             new AbortController().signal,
             retention,
             {
+                fileSystem,
                 getAvailableScratchBytes: vi.fn(async () => availableScratchBytes),
                 getTempDir: () => tempDir,
                 getPdftoppmBinary: () => 'pdftoppm',
@@ -1269,6 +1325,7 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
             {
                 getTempDir: () => tempDir,
                 // The fallback branch is selected by omitting createRasterPipes.
+                fileSystem,
                 getAvailableScratchBytes: vi.fn(async () => 1),
                 getPdftoppmBinary: () => 'pdftoppm',
                 resolveBinary: () => 'evb-scan-cleanup',
@@ -1359,6 +1416,7 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
                 // staged page and its native copy fit; the retained page was
                 // already on disk when that space was measured, so charging it
                 // again would refuse a document that fits.
+                fileSystem,
                 getAvailableScratchBytes: vi.fn(async () => 520 * MIB),
                 getPdftoppmBinary: () => 'pdftoppm',
                 resolveBinary: () => 'evb-scan-cleanup',
@@ -1389,6 +1447,107 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
                 2,
             ]);
         expect(retention.release).toHaveBeenCalledOnce();
+    });
+
+    it('rerenders when a retained raster claim is rejected', async () => {
+        const tempDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-detection-claim-test-'));
+        dirs.push(tempDir);
+        const retainedPath = join(tempDir, 'retained-page-1.png');
+        const renderedPath = join(tempDir, 'staged-page-1.png');
+        await writeFile(retainedPath, PNG_1X1);
+        const manifestInputs: string[] = [];
+        const renderPage = vi.fn(async (
+            _paths,
+            _log,
+            _pageNumber,
+            _source,
+            outputPath: string,
+        ) => {
+            await writeFile(outputPath, PNG_1X1);
+        });
+        const claimRaster = vi.fn(() => false);
+        const releaseRaster = vi.fn(async () => {
+            await rm(renderedPath, {force: true});
+        });
+        const retention: IScanCleanupDetectionRetention<{id: string}> = {
+            openDocument: vi.fn(async () => ({id: 'document'})),
+            pageCount: vi.fn(async () => 1),
+            pageSizes: vi.fn(async () => [{
+                pageNumber: 1,
+                xPoints: 0,
+                yPoints: 0,
+                widthPoints: 72,
+                heightPoints: 72,
+                rotation: 0,
+            }]),
+            rasterPages: vi.fn(async () => ({
+                detected: false,
+                pages: new Set<number>(),
+            })),
+            retainedPaths: vi.fn(async () => new Map([[
+                1,
+                {
+                    dpi: 150,
+                    height: 1,
+                    pageNumber: 1,
+                    path: retainedPath,
+                    sizeBytes: PNG_1X1.byteLength,
+                    width: 1,
+                },
+            ]])),
+            claimRaster,
+            rasterScratchPath: vi.fn(async () => `${renderedPath}.part`),
+            stagedRasterPath: vi.fn(async () => renderedPath),
+            retain: vi.fn(async input => {
+                await rename(input.scratchPath, renderedPath);
+                return {
+                    dpi: input.dpi,
+                    height: input.height,
+                    pageNumber: input.pageNumber,
+                    path: renderedPath,
+                    sizeBytes: input.sizeBytes,
+                    width: input.width,
+                };
+            }),
+            releaseRaster,
+            release: vi.fn(async () => {
+                await rm(retainedPath, {force: true});
+                await rm(renderedPath, {force: true});
+            }),
+        };
+        const sidecar = createStagedSidecar({onManifest: manifest => {
+            manifestInputs.push(...manifest.pages.map(page => page.inputPath));
+        }});
+
+        const detection = await runScanCleanupDetection(
+            createRequest(),
+            new AbortController().signal,
+            retention,
+            {
+                getTempDir: () => tempDir,
+                getPdftoppmBinary: () => 'pdftoppm',
+                resolveBinary: () => 'evb-scan-cleanup',
+                renderPage,
+                renderPagePpm: vi.fn(),
+                runSidecar: sidecar.runSidecar,
+            },
+            {rasterConcurrency: 1},
+            () => undefined,
+        );
+        resultStores.push(detection.resultStore);
+
+        expect(claimRaster).toHaveBeenCalledWith(
+            {id: 'document'},
+            1,
+            150,
+        );
+        expect(renderPage).toHaveBeenCalledOnce();
+        expect(manifestInputs).toEqual([renderedPath]);
+        expect(manifestInputs).not.toContain(retainedPath);
+        await detection.resultStore.close();
+        expect(retention.release).toHaveBeenCalledOnce();
+        await expect(stat(renderedPath)).rejects.toMatchObject({code: 'ENOENT'});
+        await expect(stat(retainedPath)).rejects.toMatchObject({code: 'ENOENT'});
     });
 
     it('rejects retained page geometry that is not in document order', async () => {
@@ -1434,6 +1593,7 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
             retention,
             {
                 getTempDir: () => tempDir,
+                fileSystem,
                 getAvailableScratchBytes: vi.fn(async () => null),
                 getPdftoppmBinary: () => 'pdftoppm',
                 resolveBinary: () => 'evb-scan-cleanup',
@@ -1575,6 +1735,7 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
             new AbortController().signal,
             retention,
             {
+                fileSystem,
                 getAvailableScratchBytes: vi.fn(async () => 4 * 1024 * 1024 * 1024),
                 getTempDir: () => tempDir,
                 getPdftoppmBinary: () => 'pdftoppm',

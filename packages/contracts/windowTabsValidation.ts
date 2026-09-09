@@ -134,6 +134,7 @@ function decodeSplitPayload(value: unknown): TSplitPayload | null {
         || originalPath === null && value.originalPath !== null
         || snapshotPath === null
         || typeof value.isDirty !== 'boolean'
+        || value.isGenerated !== undefined && typeof value.isGenerated !== 'boolean'
         || !isOptionalPositiveInteger(value.currentPage)
         || !isOptionalPositiveInteger(value.totalPages)
         || originalBackend === null
@@ -150,6 +151,7 @@ function decodeSplitPayload(value: unknown): TSplitPayload | null {
         snapshotPath,
         ...(snapshotBackend === undefined ? {} : {snapshotBackend}),
         isDirty: value.isDirty,
+        ...(value.isGenerated === undefined ? {} : {isGenerated: value.isGenerated}),
         ...(value.currentPage === undefined ? {} : { currentPage: value.currentPage }),
         ...(value.totalPages === undefined ? {} : { totalPages: value.totalPages }),
     };

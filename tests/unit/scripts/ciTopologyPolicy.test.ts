@@ -444,7 +444,7 @@ describe('CI topology policy', () => {
         expect(workflow).toContain('cancel-in-progress: ${{ github.event_name == \'pull_request\' }}');
         expect(workflow).toContain('name: Quality Gates');
         expect(prQuality).toContain('if: ${{ github.event_name == \'pull_request\' || github.event_name == \'push\' }}');
-        expect(prQuality).toContain('run: node scripts/ci-install-dependencies.mjs --frozen-lockfile');
+        expect(await readProjectFile('.github/actions/setup-ci-env/action.yml')).toContain('run: node scripts/ci-install-dependencies.mjs --frozen-lockfile');
         expect(prQuality).toContain('uses: actions/cache@v5');
         expect(prQuality).toContain('.devkit/cache/lint');
         expect(prQuality).toContain('.devkit/cache/typecheck');
@@ -560,6 +560,7 @@ describe('CI topology policy', () => {
         expectNoExactRunStep(manualQuality, 'pnpm run fallow:dupes');
         expectNoExactRunStep(manualQuality, 'pnpm run test:coverage');
         expect(manualQuality).toContain('run: node scripts/ci-install-dependencies.mjs --frozen-lockfile');
+        expect(await readProjectFile('.github/actions/setup-ci-env/action.yml')).toContain('run: node scripts/ci-install-dependencies.mjs --frozen-lockfile');
         expect(manualQuality).not.toContain('playwright install');
         expect(manualQuality).not.toContain('Restore validation caches');
         expect(releaseWorkflow).not.toContain('test:coverage');
@@ -722,7 +723,7 @@ describe('CI topology policy', () => {
         expect(workflow).toContain('name: Landing Quality Gates');
         expect(workflow).toContain('name: Landing Quality Gates For Changed Sources');
         expect(workflowJob(workflow, 'pr_landing_quality')).toContain('needs.pr_changed_areas.outputs.landing == \'true\'');
-        expect(workflowJob(workflow, 'pr_landing_quality')).toContain('run: node scripts/ci-install-dependencies.mjs --frozen-lockfile');
+        expect(await readProjectFile('.github/actions/setup-ci-env/action.yml')).toContain('run: node scripts/ci-install-dependencies.mjs --frozen-lockfile');
         expect(workflowJob(workflow, 'pr_landing_quality')).not.toContain('check:vendor');
         expect(workflowJob(workflow, 'pr_landing_quality')).toContain('run: pnpm --dir landing run lint');
         expect(workflowJob(workflow, 'pr_landing_quality')).toContain('run: pnpm --dir landing run typecheck');
@@ -1455,12 +1456,10 @@ describe('CI topology policy', () => {
             expect(packagedSmokePaths).toContain(proofPath);
         }
     });
-
     it('keeps packaged annotation persistence on the strict pointer and keyboard path', async () => {
         const packagedSmoke = await readProjectFile('scripts/release/verifyPackagedCorePdfSmoke.ts');
         const packagedDiagnostics = await readProjectFile('scripts/release/verifyPackagedDiagnosticsSmoke.ts');
         const packagedScanCleanup = await readProjectFile('scripts/release/verifyPackagedScanCleanup.ts');
-
         expect(packagedSmoke).toContain('createCanonicalTextBoxWithPointer(');
         expect(packagedSmoke).not.toContain('createFreeTextAnnotation(page,');
         for (const verifier of [
@@ -1477,7 +1476,6 @@ describe('CI topology policy', () => {
         expect(packagedSmoke).toContain('assertPathAbsent(workDirectory, \'temporary smoke directory\')');
         expect(packagedSmoke).toContain('did not exit after cleanup');
     });
-
     it('keeps Partner Center submission out of the release workflows', async () => {
         for (const workflowPath of [
             '.github/workflows/release.yml',
@@ -1813,16 +1811,16 @@ describe('CI topology policy', () => {
         expect(workflowJob(workflow, 'nightly_electron_e2e_regression')).toContain('run: pnpm run test:e2e:electron:regression');
         expectNoExactRunStep(workflowJob(workflow, 'nightly_electron_e2e_regression'), 'pnpm run test:e2e:electron');
         expect(workflow).toContain('name: Manual Electron E2E Rapid Navigation');
-        expect(workflowJob(workflow, 'nightly_electron_e2e_regression')).toContain('run: pnpm run check:electron:install');
-        expect(workflowJob(workflow, 'nightly_electron_e2e_rapid_navigation')).toContain('run: pnpm run check:electron:install');
+        expect(workflowJob(workflow, 'nightly_electron_e2e_regression')).toContain('verify-electron: \'true\'');
+        expect(workflowJob(workflow, 'nightly_electron_e2e_rapid_navigation')).toContain('verify-electron: \'true\'');
         expect(workflowJob(workflow, 'nightly_electron_e2e_rapid_navigation')).not.toContain('continue-on-error: true');
         expect(workflow).toContain('name: Manual Electron E2E Large PDF');
-        expect(workflowJob(workflow, 'nightly_electron_e2e_large_pdf')).toContain('run: pnpm run check:electron:install');
+        expect(workflowJob(workflow, 'nightly_electron_e2e_large_pdf')).toContain('verify-electron: \'true\'');
         expect(workflowJob(workflow, 'nightly_electron_e2e_large_pdf')).not.toContain('continue-on-error: true');
         expect(packageJson).toContain('"test:e2e:electron:large": "pnpm run build:pdf-page-ops');
         expect(packageJson).toContain('EVB_PDF_PAGE_OPS_ENABLE=1 EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE=1 bash scripts/test-electron-e2e-headless.sh --no-build e2e-large-pdf --reporter verbose');
         expect(workflow).toContain('name: Manual Electron E2E Quarantine');
-        expect(workflowJob(workflow, 'nightly_electron_e2e_quarantine')).toContain('run: pnpm run check:electron:install');
+        expect(workflowJob(workflow, 'nightly_electron_e2e_quarantine')).toContain('verify-electron: \'true\'');
         expect(workflow).toContain('run: pnpm run test:e2e:electron:quarantine');
         expect(workflow).toContain('name: Manual Electron E2E Visible Window');
         expect(workflowJob(workflow, 'nightly_electron_e2e_visible_window')).toContain('runs-on: macos-14');
@@ -1876,7 +1874,7 @@ describe('CI topology policy', () => {
         expect(artifactAction).toContain('.devkit/scratch/dev-server-logs/e2e-*/**');
         expect(artifactAction).not.toContain('electron-user-data');
         expect(workflow).toContain('name: Manual PDF Tab Diagnostics');
-        expect(workflowJob(workflow, 'nightly_pdf_tabs_diagnostics')).toContain('run: pnpm run check:electron:install');
+        expect(workflowJob(workflow, 'nightly_pdf_tabs_diagnostics')).toContain('verify-electron: \'true\'');
         expect(workflow).toMatch(/nightly_pdf_tabs_diagnostics:[\s\S]*if: \$\{\{ github\.event_name == 'workflow_dispatch' \}\}[\s\S]*continue-on-error: true[\s\S]*run: pnpm run diag:pdf-tabs:ci/u);
         expect(workflow).toContain('run: pnpm run diag:pdf-tabs:ci');
         // Both Electron lanes exercise scan cleanup, which measures its matched

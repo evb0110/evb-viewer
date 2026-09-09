@@ -421,7 +421,15 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
             if (!workspace) {
                 return false;
             }
-            await workspace.restoreSplitPayload(payload);
+            const outcome = await workspace.restoreSplitPayload(payload);
+            if (outcome.status !== 'opened') {
+                BrowserLogger.warn('tabs', 'Split payload restore returned a non-success outcome', {
+                    tabId,
+                    payloadKind: payload.kind,
+                    status: outcome.status,
+                });
+                return false;
+            }
             await nextTick();
 
             if (payload.kind === 'pdfSnapshot' && !workspaceHasPdf(workspace)) {

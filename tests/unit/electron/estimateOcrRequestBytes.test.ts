@@ -7,7 +7,7 @@ import {
     vi,
 } from 'vitest';
 import {requirePageNumber} from '@contracts/pageNumbers';
-import { estimateOcrRequestBytes } from '@electron/ocr/estimateOcrRequestBytes';
+import { estimateOcrRequestBytes } from '@electron/features/ocr/main/estimateOcrRequestBytes';
 import type { TOcrSearchablePdfPages } from '@contracts/electronApiOcr';
 
 const PAGE_BYTES_AT_300_DPI = Math.ceil(8.5 * 300) * Math.ceil(11 * 300) * 4;

@@ -6,15 +6,15 @@ import {
     vi,
 } from 'vitest';
 import type * as FsPromises from 'node:fs/promises';
-import {createScanCleanupRenderers} from '@scan-cleanup-adapters/createScanCleanupRenderers';
-import type {TScanCleanupRunCommand} from '@scan-cleanup-core/types';
+import {createScanCleanupRenderers} from '@evb/scan-cleanup/adapters/createScanCleanupRenderers';
+import type {TScanCleanupRunCommand} from '@evb/scan-cleanup/core/types';
 
 const mocks = vi.hoisted(() => ({
     readPngDimensions: vi.fn(),
     rm: vi.fn(),
 }));
 
-vi.mock('@scan-cleanup-core/rasterLayerDimensions', () => ({readPngDimensions: mocks.readPngDimensions}));
+vi.mock('@evb/scan-cleanup/core/rasterLayerDimensions', () => ({readPngDimensions: mocks.readPngDimensions}));
 vi.mock('node:fs/promises', async () => {
     const actual = await vi.importActual<typeof FsPromises>('node:fs/promises');
     return {

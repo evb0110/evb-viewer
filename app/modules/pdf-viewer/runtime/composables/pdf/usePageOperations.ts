@@ -20,13 +20,13 @@ import type {
     IPageMoveRangeSegment,
     TPageMoveOperation,
     TPageSelection,
-} from '@contracts/pageNumbers';
+} from '@pdf-core/pdfPageSelection';
 import {
     createExplicitPageSelection,
     iteratePageSelectionRanges,
     pageMoveRangesSelectedPageCount,
     pageSelectionCount,
-} from '@contracts/pageNumbers';
+} from '@pdf-core/pdfPageSelection';
 import type { TTranslationKey } from '@i18n-app';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { useAnalytics } from '@app/composables/useAnalytics';

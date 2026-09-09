@@ -17,19 +17,23 @@ import {
 } from 'vitest';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {requirePageNumber} from '@contracts/pageNumbers';
-import * as searchIndexBuilder from '@electron/search/indexBuilder';
-import * as searchIndexSidecar from '@electron/search/searchIndexSidecar';
+import * as searchIndexBuilder from '@electron/features/search/indexBuilder';
+import * as searchIndexSidecar from '@electron/features/search/searchIndexSidecar';
 import {
     loadCompactSearchIndex,
     persistCompactSearchIndex,
     persistCompactSearchIndexStreaming,
-} from '@electron/search/searchIndexSidecar';
-import {loadSearchIndex} from '@electron/search/indexBuilder';
-import {rebindSearchIndexes} from '@electron/search/rebindSearchIndexes';
-import {SEARCH_JS_WHOLE_VALUE_MAX_BYTES} from '@electron/search/xlargeSearchRouting';
+} from '@electron/features/search/searchIndexSidecar';
+import {loadSearchIndex} from '@electron/features/search/indexBuilder';
+import {
+    rebindSearchIndexes,
+    SEARCH_JS_WHOLE_VALUE_MAX_BYTES,
+} from '@electron/features/search/public';
 
 const OLD_TOKEN = requireDocumentRevisionToken('drt1:rebind:old');
 const NEW_TOKEN = requireDocumentRevisionToken('drt1:rebind:new');
+
+vi.mock('@electron/features/ocr/public/catalog', () => ({visitDocumentOcrCatalogPages: vi.fn()}));
 
 describe('search index revision rebind', () => {
     let root = '';

@@ -11,7 +11,7 @@ import {
 } from 'fs/promises';
 import {tmpdir} from 'os';
 import {join} from 'path';
-import {requireDocumentRevisionToken} from '@contracts';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import type {IDocumentTextCatalogPage} from '@contracts/documentTextCatalog';
 import type {
@@ -21,7 +21,7 @@ import type {
     getCompactSearchIndexPath as getCompactSearchIndexPathType,
     loadCompactSearchIndex as loadCompactSearchIndexType,
     openCompactSearchIndexWriter as openCompactSearchIndexWriterType,
-} from '@electron/search/searchIndexSidecar';
+} from '@electron/features/search/searchIndexSidecar';
 
 const mocks = vi.hoisted(() => ({
     assertRevision: vi.fn(),
@@ -33,8 +33,8 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@electron/file-access/documentRevisionSidecar', () => ({assertWorkingCopyRevisionSidecarCurrent: mocks.assertRevision}));
-vi.mock('@electron/ocr/documentTextCatalog', () => ({resolveDocumentTextCatalogWindow: mocks.resolveWindow}));
-vi.mock('@electron/search/searchIndexSidecar', () => ({
+vi.mock('@electron/features/ocr/public/documentTextCatalog', () => ({resolveDocumentTextCatalogWindow: mocks.resolveWindow}));
+vi.mock('@electron/features/search/searchIndexSidecar', () => ({
     COMPACT_SEARCH_INDEX_SOURCE_KIND_GENERIC: 0,
     openCompactSearchIndexWriter: mocks.openWriter,
 }));
@@ -119,7 +119,7 @@ describe('xlarge search index builder', () => {
     });
 
     it('keeps retained pages bounded for a million-page sparse document', async () => {
-        const {buildXlargeSearchIndex} = await import('@electron/search/xlargeIndexBuilder');
+        const {buildXlargeSearchIndex} = await import('@electron/features/search/xlargeIndexBuilder');
         const pageCount = 1_000_001;
         let largestWindow = 0;
         let windowsVisited = 0;
@@ -158,7 +158,7 @@ describe('xlarge search index builder', () => {
     });
 
     it('aborts and publishes nothing when the revision changes during extraction', async () => {
-        const {buildXlargeSearchIndex} = await import('@electron/search/xlargeIndexBuilder');
+        const {buildXlargeSearchIndex} = await import('@electron/features/search/xlargeIndexBuilder');
         let revisionChecks = 0;
         mocks.assertRevision.mockImplementation(async () => {
             revisionChecks += 1;
@@ -186,7 +186,7 @@ describe('xlarge search index builder', () => {
     });
 
     it('removes writer temp state when cancellation arrives in a window', async () => {
-        const {buildXlargeSearchIndex} = await import('@electron/search/xlargeIndexBuilder');
+        const {buildXlargeSearchIndex} = await import('@electron/features/search/xlargeIndexBuilder');
         const controller = new AbortController();
         mocks.resolveWindow.mockImplementation(async () => {
             controller.abort();
@@ -206,7 +206,7 @@ describe('xlarge search index builder', () => {
     });
 
     it('writes the resolver result after page-level OCR precedence has been applied', async () => {
-        const {buildXlargeSearchIndex} = await import('@electron/search/xlargeIndexBuilder');
+        const {buildXlargeSearchIndex} = await import('@electron/features/search/xlargeIndexBuilder');
         const controller = new AbortController();
         mocks.resolveWindow.mockResolvedValue(createWindow(
             1,
@@ -242,7 +242,7 @@ describe('xlarge search index builder', () => {
     });
 
     it('finalizes a valid truncated sidecar when an explicit text budget is reached', async () => {
-        const {buildXlargeSearchIndex} = await import('@electron/search/xlargeIndexBuilder');
+        const {buildXlargeSearchIndex} = await import('@electron/features/search/xlargeIndexBuilder');
         mocks.resolveWindow.mockResolvedValue(createWindow(
             1,
             2,
@@ -279,7 +279,7 @@ describe('xlarge search index builder', () => {
     });
 
     it('publishes complete coverage after scanning blank pages without padding records', async () => {
-        const {buildXlargeSearchIndex} = await import('@electron/search/xlargeIndexBuilder');
+        const {buildXlargeSearchIndex} = await import('@electron/features/search/xlargeIndexBuilder');
         mocks.resolveWindow
             .mockResolvedValueOnce(createWindow(1, 2, 3, [createPage(1, 'a')]))
             .mockResolvedValueOnce(createWindow(3, 3, 3, []));
@@ -321,9 +321,9 @@ describe('xlarge search index builder', () => {
     });
 
     it('atomically publishes a reloadable streaming sidecar with coverage metadata', async () => {
-        const {buildXlargeSearchIndex} = await import('@electron/search/xlargeIndexBuilder');
+        const {buildXlargeSearchIndex} = await import('@electron/features/search/xlargeIndexBuilder');
         const sidecar = await vi.importActual<IActualSidecarModule>(
-            '@electron/search/searchIndexSidecar',
+            '@electron/features/search/searchIndexSidecar',
         );
         const tempRoot = await mkdtemp(join(tmpdir(), 'evb-xlarge-index-builder-'));
         const pdfPath = join(tempRoot, 'document.pdf');
@@ -388,9 +388,9 @@ describe('xlarge search index builder', () => {
     });
 
     it('reloads an explicitly truncated sidecar without treating it as full coverage', async () => {
-        const {buildXlargeSearchIndex} = await import('@electron/search/xlargeIndexBuilder');
+        const {buildXlargeSearchIndex} = await import('@electron/features/search/xlargeIndexBuilder');
         const sidecar = await vi.importActual<IActualSidecarModule>(
-            '@electron/search/searchIndexSidecar',
+            '@electron/features/search/searchIndexSidecar',
         );
         const tempRoot = await mkdtemp(join(tmpdir(), 'evb-xlarge-index-builder-'));
         const pdfPath = join(tempRoot, 'document.pdf');

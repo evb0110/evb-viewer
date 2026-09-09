@@ -77,3 +77,8 @@ tests/fixtures/electron/large-pdf-fixtures/*
 # example file.
 /output/
 .pnpm-store/
+
+# Electron-builder creates one directory per Windows Store target before it
+# writes the final AppX package into release/.
+/store-appx-win-x64/
+/store-appx-win-arm64/

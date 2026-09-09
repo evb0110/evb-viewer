@@ -20,8 +20,8 @@ import {
     COMPACT_SEARCH_INDEX_STREAMING_MAGIC,
     COMPACT_SEARCH_INDEX_STREAMING_SCHEMA_VERSION,
 } from '@contracts/searchIndexSidecar';
-import { requireDocumentRevisionToken } from '@contracts';
-import { isNativeSearchSupportedOptions } from '@electron/search/nativeSearch';
+import { requireDocumentRevisionToken } from '@contracts/documentRevision';
+import { isNativeSearchSupportedOptions } from '@electron/features/search/nativeSearch';
 
 const mocks = vi.hoisted(() => ({
     open: vi.fn(),
@@ -36,13 +36,13 @@ vi.mock('fs/promises', () => ({
     open: mocks.open,
     stat: mocks.stat,
 }));
-vi.mock('@electron/search/indexBuilder', () => ({
+vi.mock('@electron/features/search/indexBuilder', () => ({
     SEARCH_INDEX_SCHEMA_VERSION: 7,
     loadSearchIndex: mocks.loadSearchIndex,
 }));
 vi.mock('@electron/native-tools/resolveNativeToolPath', () => ({resolveNativeToolPath: mocks.resolveNativeToolPath}));
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: mocks.runNativeToolCommand}));
-vi.mock('@electron/search/tryRunPersistentNativeSearch', () => ({tryRunPersistentNativeSearch: mocks.tryRunPersistentNativeSearch}));
+vi.mock('@electron/features/search/tryRunPersistentNativeSearch', () => ({tryRunPersistentNativeSearch: mocks.tryRunPersistentNativeSearch}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     debug: vi.fn(),
     warn: vi.fn(),
@@ -191,7 +191,7 @@ describe('native search geometry attachment', () => {
     });
 
     it('does not read the legacy JSON index when the query has no matches', async () => {
-        const { tryRunNativeSearch } = await import('@electron/search/nativeSearch');
+        const { tryRunNativeSearch } = await import('@electron/features/search/nativeSearch');
         mocks.tryRunPersistentNativeSearch.mockResolvedValue(createNativeSearchResult(0));
 
         const result = await tryRunNativeSearch({
@@ -208,7 +208,7 @@ describe('native search geometry attachment', () => {
     });
 
     it('attaches word geometry from the legacy JSON index to matched pages', async () => {
-        const { tryRunNativeSearch } = await import('@electron/search/nativeSearch');
+        const { tryRunNativeSearch } = await import('@electron/features/search/nativeSearch');
         mocks.tryRunPersistentNativeSearch.mockResolvedValue(createNativeSearchResult(1));
 
         const result = await tryRunNativeSearch({
@@ -230,7 +230,7 @@ describe('native search geometry attachment', () => {
     });
 
     it('searches a complete streaming sidecar', async () => {
-        const {tryRunNativeSearch} = await import('@electron/search/nativeSearch');
+        const {tryRunNativeSearch} = await import('@electron/features/search/nativeSearch');
         mocks.open.mockResolvedValueOnce(createStreamingSearchIndexFile(COMPACT_SEARCH_INDEX_STREAMING_FLAG_COMPLETE));
         mocks.tryRunPersistentNativeSearch.mockResolvedValue(createNativeSearchResult(0));
 
@@ -252,7 +252,7 @@ describe('native search geometry attachment', () => {
         COMPACT_SEARCH_INDEX_STREAMING_FLAG_COMPLETE | COMPACT_SEARCH_INDEX_STREAMING_FLAG_PARTIAL_COVERAGE,
         COMPACT_SEARCH_INDEX_STREAMING_FLAG_COMPLETE | COMPACT_SEARCH_INDEX_STREAMING_FLAG_TRUNCATED_COVERAGE,
     ])('rejects a sidecar marked partial or truncated even when its page count is complete', async (flags) => {
-        const {tryRunNativeSearch} = await import('@electron/search/nativeSearch');
+        const {tryRunNativeSearch} = await import('@electron/features/search/nativeSearch');
         mocks.open.mockResolvedValueOnce(createStreamingSearchIndexFile(flags));
 
         await expect(tryRunNativeSearch({

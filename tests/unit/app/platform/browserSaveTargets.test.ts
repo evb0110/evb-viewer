@@ -5,7 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import {requireDocumentRevisionToken} from '@contracts';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {requireDocumentRef} from '@contracts/documentRef';
 
 const browserDocumentStoreMock = vi.hoisted(() => ({

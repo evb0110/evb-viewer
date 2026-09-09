@@ -3,7 +3,11 @@ import {
     expect,
     it,
 } from 'vitest';
-import type { IReleaseInstaller } from '@contracts';
+import {
+    RELEASE_ARCHES,
+    RELEASE_PLATFORMS,
+} from '@contracts/release';
+import type { IReleaseInstaller } from '@contracts/release';
 import { requireIsoTimestamp } from '@contracts/timestamps';
 import type {
     SetRequired,
@@ -43,6 +47,21 @@ function createInstaller(partial: TInstallerFixture): IReleaseInstaller {
 }
 
 describe('release selection', () => {
+    it('executes the release contract platform and architecture definitions', () => {
+        expect(RELEASE_PLATFORMS).toEqual([
+            'macos',
+            'windows',
+            'linux',
+            'unknown',
+        ]);
+        expect(RELEASE_ARCHES).toEqual([
+            'arm64',
+            'x64',
+            'universal',
+            'unknown',
+        ]);
+    });
+
     it('classifies legacy installers by filename', () => {
         expect(isLegacyInstallerAsset('EVB-Viewer-win7-legacy-x64.exe')).toBe(true);
         expect(isLegacyInstallerAsset('EVB-Viewer-win-x64.exe')).toBe(false);
