@@ -15,6 +15,10 @@ import {
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {requirePageIndex} from '@contracts/pageNumbers';
 import {requireEpochMs} from '@contracts/timestamps';
+import {
+    captureCanonicalAnnotationRecovery,
+    restoreCanonicalAnnotationRecovery,
+} from '@app/modules/pdf-viewer/annotations/domain/annotationRecovery';
 
 const rect = {
     left: 0.1,
@@ -140,6 +144,72 @@ const creators: ReadonlyArray<[
 ];
 
 describe('AnnotationStore public API', () => {
+    it('captures and restores a complete revision-fenced canonical recovery state', () => {
+        const source = new AnnotationStore();
+        const original = source.createNote(note('recovery-note'));
+        const deleted = source.createNote(note('deleted-note'));
+        const save = source.beginSave();
+        source.markPersisted(save);
+        source.updateNote(original.identity.id, {contents: 'changed'});
+        source.delete(deleted.identity.id);
+        const recovery = captureCanonicalAnnotationRecovery(source, [{
+            annotationId: original.identity.id,
+            kind: 'note',
+            canonicalRevision: original.revision + 1,
+            text: 'typed but not committed',
+            generation: 4,
+        }]);
+
+        const restored = new AnnotationStore();
+        restored.replaceFromDocument([
+            {
+                ...original,
+                revision: 0,
+                persistedRevision: 0,
+            },
+            {
+                ...deleted,
+                revision: 0,
+                persistedRevision: 0,
+            },
+        ], []);
+        const result = restoreCanonicalAnnotationRecovery(restored, recovery);
+
+        expect(result.annotationMutationGeneration).toBe(recovery.annotationMutationGeneration);
+        expect(restored.get(original.identity.id)).toMatchObject({
+            contents: 'changed',
+            revision: 1,
+            persistedRevision: 0,
+        });
+        expect(restored.get(deleted.identity.id)).toMatchObject({
+            deleted: true,
+            revision: 1,
+            persistedRevision: 0,
+        });
+        expect(result.drafts[0]).toMatchObject({
+            text: 'typed but not committed',
+            generation: 4,
+        });
+    });
+
+    it('rejects malformed and over-sized recovery drafts before admission', () => {
+        const store = new AnnotationStore();
+        expect(() => captureCanonicalAnnotationRecovery(store, [{
+            annotationId: asAnnotationId('draft'),
+            kind: 'text-box',
+            canonicalRevision: 0,
+            text: 'x'.repeat(1_000_001),
+            generation: 1,
+        }])).toThrow(/supported limit/u);
+        expect(() => restoreCanonicalAnnotationRecovery(store, {
+            version: 99,
+            annotationMutationGeneration: 1,
+            entities: [],
+            foreign: [],
+            drafts: [],
+        })).toThrow(/unsupported version/u);
+    });
+
     it.each(creators)('creates a canonical %s', (_label, create, fixture) => {
         const store = new AnnotationStore();
         const entity = fixture();

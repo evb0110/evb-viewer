@@ -28,6 +28,7 @@ import type {
     ITextBoxEntity,
     AnnotationEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import type {ICanonicalAnnotationRecovery} from '@app/modules/pdf-viewer/annotations/domain/annotationRecovery';
 
 export type TPdfSidebarTab = TDocumentSidebarTab;
 export type TAgentTextMarkupKind = 'highlight' | 'underline' | 'strikethrough' | 'squiggly';
@@ -188,6 +189,9 @@ export interface IPdfViewerAnnotationCommandExpose {
     updateSelectedTextBoxProperties?: (
         updates: Partial<Pick<ITextBoxEntity, 'fontSize' | 'color'>>,
     ) => boolean;
+    /** Renderer-owned canonical state for main-process recovery publication. */
+    captureCanonicalAnnotationRecovery?: () => ICanonicalAnnotationRecovery;
+    restoreCanonicalAnnotationRecovery?: (value: unknown) => ICanonicalAnnotationRecovery;
 }
 
 export interface IPdfViewerAnnotationCommentExpose {

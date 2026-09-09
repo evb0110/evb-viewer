@@ -92,6 +92,11 @@ import type {IPdfPlacedImageFinalizePayload} from '@app/types/pdfImagePlacement'
 import {unrotateAnnotationPlacementRect} from '@app/modules/pdf-viewer/engine/annotation-editor-geometry/annotationEditorGeometry';
 import {preparePdfAnnotationRaster} from '@app/modules/pdf-viewer/runtime/annotations/preparePdfAnnotationRaster';
 import {createAnnotationSelectionInteractionController} from '@app/modules/pdf-viewer/runtime/annotations/createAnnotationSelectionInteractionController';
+import {
+    captureCanonicalAnnotationRecovery,
+    restoreCanonicalAnnotationRecovery,
+    type ICanonicalAnnotationRecovery,
+} from '@app/modules/pdf-viewer/annotations/domain/annotationRecovery';
 export interface ICreatePdfAnnotationSessionOptions {
     document: TPdfDocumentSession;
     viewport: TPdfViewportSession;
@@ -235,6 +240,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
     const annotationProjection = shallowRef<IAnnotationCommentSummary[]>([]);
     const canonicalMarkupSubtypeHints = new Map<string, TMarkupSubtype>();
     const textBoxDrafts = new Map<string, string>();
+    const textBoxDraftGenerations = new Map<string, number>();
     const annotationCommentModel = usePdfAnnotationCommentModel({
         isAnySaving: options.isAnySaving,
         annotationProjection,
@@ -275,6 +281,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         stopAnnotationApplicationProjection();
         canonicalMarkupSubtypeHints.clear();
         textBoxDrafts.clear();
+        textBoxDraftGenerations.clear();
         annotationCommentModel.clearProjection();
         annotationApplication.value = createAnnotationApplication(documentKey);
         stopAnnotationApplicationProjection = annotationApplication.value.store.subscribe(projectCanonicalAnnotations);
@@ -368,8 +375,16 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         authorName: options.authorName,
         onCreationCompleted: options.emitAnnotationToolAutoReset,
         onTextBoxDraftChanged: (annotationId, text) => {
-            if (text === null) textBoxDrafts.delete(annotationId);
-            else textBoxDrafts.set(annotationId, text);
+            if (text === null) {
+                textBoxDrafts.delete(annotationId);
+                textBoxDraftGenerations.delete(annotationId);
+            } else {
+                textBoxDrafts.set(annotationId, text);
+                textBoxDraftGenerations.set(
+                    annotationId,
+                    (textBoxDraftGenerations.get(annotationId) ?? 0) + 1,
+                );
+            }
             projectCanonicalAnnotations();
         },
         onToolCancel: options.emitAnnotationToolCancel,
@@ -1094,6 +1109,38 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         annotations,
         annotationMutationService,
         annotationApplication,
+        captureCanonicalAnnotationRecovery: (): ICanonicalAnnotationRecovery => {
+            const drafts = Array.from(
+                textBoxDrafts,
+                ([
+                    annotationId,
+                    text,
+                ]) => {
+                    const entity = annotationApplication.value.store.get(asAnnotationId(annotationId));
+                    return entity?.kind === 'text-box'
+                        ? {
+                            annotationId: entity.identity.id,
+                            kind: 'text-box' as const,
+                            canonicalRevision: entity.revision,
+                            text,
+                            generation: textBoxDraftGenerations.get(annotationId) ?? 0,
+                        }
+                        : null;
+                },
+            ).filter((draft): draft is NonNullable<typeof draft> => draft !== null);
+            return captureCanonicalAnnotationRecovery(annotationApplication.value.store, drafts);
+        },
+        restoreCanonicalAnnotationRecovery: (value: unknown) => {
+            const recovery = restoreCanonicalAnnotationRecovery(annotationApplication.value.store, value);
+            textBoxDrafts.clear();
+            textBoxDraftGenerations.clear();
+            recovery.drafts.filter(draft => draft.kind === 'text-box').forEach((draft) => {
+                textBoxDrafts.set(draft.annotationId, draft.text);
+                textBoxDraftGenerations.set(draft.annotationId, draft.generation);
+            });
+            projectCanonicalAnnotations();
+            return recovery;
+        },
         hasCanonicalAnnotationChanges: () => {
             // Keep the framework dependency on the canonical projection.
             void annotationProjection.value;

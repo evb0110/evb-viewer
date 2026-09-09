@@ -18,6 +18,24 @@ import {
 } from '@tests/unit/app/modules/workspace-shell/composables/useAnnotationNoteWindowsTestFixtures';
 
 describe('useAnnotationNoteWindows', () => {
+    it('captures only completed dirty note drafts with an independent generation', () => {
+        const {windows} = createHarness();
+
+        windows.handleOpenAnnotationNote(createComment());
+        windows.updateAnnotationNoteText('ann:0:note-1:0', 'Typed note');
+
+        expect(windows.captureAnnotationNoteDrafts(() => 7)).toEqual([{
+            annotationId: 'ann:0:note-1:0',
+            kind: 'note',
+            canonicalRevision: 7,
+            text: 'Typed note',
+            generation: 1,
+        }]);
+
+        windows.updateAnnotationNoteText('ann:0:note-1:0', 'Typed note again');
+        expect(windows.captureAnnotationNoteDrafts(() => 7)[0]?.generation).toBe(2);
+    });
+
     it('skips forced no-op persistence when note text is unchanged', async () => {
         const {
             deps,

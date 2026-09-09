@@ -57,6 +57,8 @@ export interface IWorkspacePdfViewerAnnotationChangesPort extends
     >,
     Pick<IPdfViewerAnnotationCommandExpose,
         'hasCanonicalShapeChanges'
+        | 'captureCanonicalAnnotationRecovery'
+        | 'restoreCanonicalAnnotationRecovery'
     > {}
 
 export interface IWorkspacePdfViewerAnnotationNotesPort extends Pick<IPdfViewerAnnotationCommentExpose,
