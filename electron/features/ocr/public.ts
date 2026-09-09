@@ -3,7 +3,11 @@ export {
     recoverOcrJobManager,
     shutdownOcrJobManager,
 } from '@electron/features/ocr/main/jobManager';
-export {findPendingOcrResultFileForPath} from '@electron/features/ocr/main/createPendingResultFileStore';
+export {
+    claimPendingOcrResultForDocument,
+    findPendingOcrResultFileForPath,
+    releasePendingOcrResultClaim,
+} from '@electron/features/ocr/main/createPendingResultFileStore';
 export {buildTesseractEnv} from '@electron/features/ocr/main/buildTesseractEnv';
 export {createTesseractFinalize} from '@electron/features/ocr/main/createTesseractFinalize';
 export {

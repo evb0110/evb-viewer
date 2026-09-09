@@ -27,6 +27,11 @@ interface IOcrJobStorageBudgetOptions {
     cleanupCheckpoint?: () => Promise<void>;
 }
 
+export interface IOcrStorageReservation {
+    readonly bytes: number;
+    release: () => void;
+}
+
 interface IOcrStorageSnapshot {
     availableBytes: number;
     usedBytes: number;
@@ -60,10 +65,6 @@ function isDiskCapacityMessage(message: string | undefined) {
     return message !== undefined && /(?:no space left|disk (?:full|quota)|quota exceeded|enospc|edquot)/iu.test(message);
 }
 
-export function isOcrStorageFailure(error: unknown): error is Error {
-    return error instanceof OcrStorageBudgetError || isDiskCapacityError(error);
-}
-
 async function directoryBytes(path: string): Promise<number> {
     const entries = await readdir(path, {withFileTypes: true}).catch((error: unknown) => {
         if (isMissingPathError(error)) {
@@ -90,13 +91,16 @@ async function directoryBytes(path: string): Promise<number> {
     return total;
 }
 
-async function inspectJobStorage(
+export function isOcrStorageFailure(error: unknown): error is Error {
+    return error instanceof OcrStorageBudgetError || isDiskCapacityError(error);
+}
+
+async function inspectLiveJobStorage(
     tempDir: string,
     sessionId: string,
-    checkpointDir: string,
 ): Promise<IOcrStorageSnapshot> {
     const entries = await readdir(tempDir, {withFileTypes: true});
-    let usedBytes = await directoryBytes(checkpointDir);
+    let usedBytes = 0;
     for (const entry of entries) {
         if (!entry.name.startsWith(`${sessionId}-`)) continue;
         const entryPath = join(tempDir, entry.name);
@@ -126,20 +130,58 @@ export function createOcrJobStorageBudget(options: IOcrJobStorageBudgetOptions) 
     const maxBytes = options.maxBytes ?? DEFAULT_MAX_JOB_BYTES;
     const minFreeBytes = options.minFreeBytes ?? DEFAULT_MIN_FREE_BYTES;
     const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
-    const inspect = options.inspect ?? (() => inspectJobStorage(
+    const inspect = options.inspect ?? (() => inspectLiveJobStorage(
         options.tempDir,
         options.sessionId,
-        options.checkpointDir,
     ));
     const cleanupCheckpoint = options.cleanupCheckpoint ?? (() => rm(options.checkpointDir, {
         recursive: true,
         force: true,
     }));
     let reservedBytes = 0;
+    let committedBytes = 0;
     let violation: OcrStorageBudgetError | null = null;
     let stopped = false;
     let checkInFlight: Promise<void> | null = null;
     let reservationTail = Promise.resolve();
+    let initialized = false;
+
+    const reconcileCheckpoints = async () => {
+        const files = await readdir(options.checkpointDir, {
+            recursive: true,
+            withFileTypes: true,
+        }).catch((error: unknown) => {
+            if (isMissingPathError(error)) {
+                return [];
+            }
+            throw error;
+        });
+        const nextBytes = new Map<string, number>();
+        const batchSize = 64;
+        const filePaths = files
+            .filter(entry => entry.isFile())
+            .map(entry => join(entry.parentPath ?? options.checkpointDir, entry.name));
+        for (let offset = 0; offset < filePaths.length; offset += batchSize) {
+            const batch = filePaths.slice(offset, offset + batchSize);
+            const sizes = await Promise.all(batch.map(async filePath => stat(filePath)
+                .catch((error: unknown) => {
+                    if (isMissingPathError(error)) {
+                        return null;
+                    }
+                    throw error;
+                })));
+            sizes.forEach((fileStat, index) => {
+                if (fileStat?.isFile()) {
+                    const filePath = batch[index];
+                    if (filePath) {
+                        nextBytes.set(filePath, fileStat.size);
+                    }
+                }
+            });
+        }
+        committedBytes = [...nextBytes.values()].reduce((total, size) => total + size, 0);
+        initialized = true;
+    };
 
     const fail = (error: unknown) => {
         const normalized = error instanceof OcrStorageBudgetError
@@ -157,6 +199,13 @@ export function createOcrJobStorageBudget(options: IOcrJobStorageBudgetOptions) 
 
     const inspectAndAssert = async (additionalBytes = 0) => {
         if (violation) throw violation;
+        if (!initialized) {
+            try {
+                await reconcileCheckpoints();
+            } catch (error) {
+                throw fail(error);
+            }
+        }
         let snapshot: IOcrStorageSnapshot;
         try {
             snapshot = await inspect();
@@ -164,7 +213,7 @@ export function createOcrJobStorageBudget(options: IOcrJobStorageBudgetOptions) 
             throw fail(error);
         }
         const pendingBytes = reservedBytes;
-        if (snapshot.usedBytes + pendingBytes + additionalBytes > maxBytes) {
+        if (committedBytes + snapshot.usedBytes + pendingBytes + additionalBytes > maxBytes) {
             throw fail(new OcrStorageBudgetError(
                 'OCR_STORAGE_QUOTA_EXCEEDED',
                 `OCR temporary output exceeded the ${maxBytes}-byte aggregate job limit`,
@@ -210,12 +259,16 @@ export function createOcrJobStorageBudget(options: IOcrJobStorageBudgetOptions) 
             releasePrevious();
         }
         let released = false;
-        return () => {
+        const release = () => {
             if (released) {
                 return;
             }
             released = true;
             reservedBytes -= bytes;
+        };
+        return {
+            bytes,
+            release,
         };
     };
 
@@ -224,6 +277,32 @@ export function createOcrJobStorageBudget(options: IOcrJobStorageBudgetOptions) 
             return violation;
         },
         assertWithinBudget: inspectAndAssert,
+        async reconcileCheckpoints() {
+            if (violation) throw violation;
+            try {
+                await reconcileCheckpoints();
+                await inspectAndAssert();
+            } catch (error) {
+                throw error instanceof OcrStorageBudgetError ? error : fail(error);
+            }
+        },
+        commitCheckpoint(bytes: number, reservations: readonly IOcrStorageReservation[]) {
+            if (!Number.isSafeInteger(bytes) || bytes < 0) {
+                throw new Error(`Invalid OCR committed checkpoint size: ${bytes}`);
+            }
+            if (reservations.some(reservation => !reservation || typeof reservation.release !== 'function')) {
+                throw new Error('Invalid OCR storage reservation');
+            }
+            if (reservations.length === 0) {
+                throw new Error('OCR checkpoint publication requires a storage reservation');
+            }
+            const reservedBytesForCheckpoint = reservations.reduce((total, reservation) => total + reservation.bytes, 0);
+            if (bytes > reservedBytesForCheckpoint) {
+                throw new Error(`OCR checkpoint bytes exceed reservations: ${bytes} > ${reservedBytesForCheckpoint}`);
+            }
+            reservations.forEach(reservation => reservation.release());
+            committedBytes += bytes;
+        },
         async assertFailureWithinBudget(message: string | undefined) {
             if (violation) throw violation;
             if (isDiskCapacityMessage(message)) {
@@ -238,7 +317,7 @@ export function createOcrJobStorageBudget(options: IOcrJobStorageBudgetOptions) 
             try {
                 return await task();
             } finally {
-                release();
+                release.release();
             }
         },
         async stop() {

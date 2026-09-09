@@ -57,6 +57,7 @@ const state = vi.hoisted(() => ({
     owners: new Map<string, number>(),
     originalPaths: new Map<string, string>(),
     restoredOptions: new Map<string, unknown>(),
+    recoveryClaims: new Set<string>(),
     blockCleanup: vi.fn(),
     failNextCheckpointRead: false,
 }));
@@ -96,6 +97,11 @@ vi.mock('@electron/file-access/workingCopyStore', () => ({
         }
         return true;
     },
+    claimWorkingCopyRecovery: vi.fn((path: string) => {
+        state.recoveryClaims.add(path);
+        return state.recoveryClaims.size;
+    }),
+    releaseWorkingCopyRecovery: vi.fn((path: string) => state.recoveryClaims.delete(path)),
     setWorkingCopyOriginalPath: (
         path: string,
         originalPath: string,
@@ -187,6 +193,7 @@ describe('workspace checkpoint store', () => {
         state.owners.clear();
         state.originalPaths.clear();
         state.restoredOptions.clear();
+        state.recoveryClaims.clear();
         state.blockCleanup.mockReset();
         state.failNextCheckpointRead = false;
     });
@@ -211,8 +218,10 @@ describe('workspace checkpoint store', () => {
 
         await expect(claimWorkspaceCheckpoint(22)).resolves.toEqual(checkpoint);
         expect(state.owners.get(workingCopyRef)).toBe(22);
+        expect(state.recoveryClaims.has(workingCopyRef)).toBe(true);
         await expect(readdir(state.userDataPath)).resolves.toContain('workspace-checkpoint.json');
         await expect(acknowledgeWorkspaceCheckpoint(22)).resolves.toBe(true);
+        expect(state.recoveryClaims.has(workingCopyRef)).toBe(false);
         await expect(claimWorkspaceCheckpoint(33)).resolves.toBeNull();
     });
 

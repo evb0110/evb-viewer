@@ -386,6 +386,13 @@ export function createDocumentOpenFlow(
         openMethod: 'picker' | 'preselected' | 'direct' | 'batch',
         options: IPdfRasterDisplayProfileOpenOptions = {},
     ) {
+        if (result.recoveryDirtyBaseline === true) {
+            // A failed first read must leave the checkpoint-owned bytes for a
+            // later retry. The main cleanup boundary also enforces this, but
+            // avoiding the renderer cleanup request keeps the ownership
+            // intent explicit at the open transaction boundary.
+            retainDocumentOpenWorkingCopyForRetry(result);
+        }
         const registeredRasterDisplayProfile = consumeRegisteredPdfRasterDisplayProfile(
             result.originalPath,
             result.workingPath,

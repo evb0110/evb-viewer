@@ -19,6 +19,7 @@ import {
     forgetRetiredWorkingCopyOriginal,
     forgetWorkingCopyOriginalPath,
     getWorkingCopyOwnerWebContentsId,
+    hasWorkingCopyRecoveryClaim,
     normalizePathForLookup,
     rememberRetiredWorkingCopyOriginal,
     runWithWorkingCopyRegistrationFence,
@@ -629,6 +630,12 @@ async function retireAndDeleteWorkingCopy(
         workingPath,
         entry.registrationId,
         async (currentEntry): Promise<TWorkingCopyRetirementOutcome> => {
+            if (hasWorkingCopyRecoveryClaim(workingPath)) {
+                return {
+                    status: 'retained',
+                    reason: 'an unresolved recovery checkpoint still owns this working copy',
+                };
+            }
             const dependents = snapshotCancellableWorkingCopyDependents(workingPath);
             if (dependents.length > 0) {
                 return {
@@ -699,6 +706,13 @@ export async function cleanupWorkingCopy(workingPath: string, senderWebContentsI
         && ownerWebContentsId !== senderWebContentsId
     ) {
         logger.warn(`Rejected cleanup for working copy path owned by another sender "${normalizedPath}"`);
+        return;
+    }
+
+    if (hasWorkingCopyRecoveryClaim(normalizedPath)) {
+        logger.warn(
+            `Retained recovery working copy while its checkpoint adoption is unresolved "${normalizedPath}"`,
+        );
         return;
     }
 

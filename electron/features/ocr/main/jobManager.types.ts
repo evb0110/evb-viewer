@@ -96,6 +96,9 @@ export interface IOcrPendingResultFile {
     scopedJobId: TJobId;
     requestId: TRequestId;
     webContentsId: number;
+    documentRef: IDocumentRevisionInfo['documentRef'];
+    sourceDocumentRevisionToken: IDocumentRevisionInfo['token'];
+    claimedByWebContentsId?: number;
     pdfPath: string;
     resultSha256: string;
     createdAtMs: number;

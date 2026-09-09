@@ -591,7 +591,12 @@ type TOcrCreateSearchablePdfArgs = [
     requestId: TRequestId,
     renderDpiOrOptions?: number | IOcrSearchablePdfOptions,
 ];
-type TOcrAcknowledgeResultFileArgs = [requestId: TRequestId, pdfPath?: TDocumentRef];
+type TOcrAcknowledgeResultFileArgs = [
+    requestId: TRequestId,
+    pdfPath?: TDocumentRef,
+    documentRef?: TDocumentRef,
+    sourceDocumentRevisionToken?: TDocumentRevisionToken,
+];
 type TResolveDocumentTextCatalogArgs =
     | [workingCopyPath: TDocumentRef, documentRevision: TDocumentRevisionToken]
     | [workingCopyPath: TDocumentRef, documentRevision: TDocumentRevisionToken, pageCount: number]
@@ -697,7 +702,7 @@ const acknowledgeResultFileArgs = argsSchema<TOcrAcknowledgeResultFileArgs>(
     (args) => {
         requireArgs(args, {
             min: 1,
-            max: 2,
+            max: 4,
         });
         const requestId = assertRequestId(
             args[0],
@@ -707,12 +712,42 @@ const acknowledgeResultFileArgs = argsSchema<TOcrAcknowledgeResultFileArgs>(
             args[1],
             'ocrAcknowledgeResultFile.pdfPath',
         );
-        if (pdfPath === undefined) {
+        const documentRef = assertOptionalAbsolutePath(
+            args[2],
+            'ocrAcknowledgeResultFile.documentRef',
+        );
+        const sourceDocumentRevisionToken = args[3] === undefined
+            ? undefined
+            : parseDocumentRevisionToken(args[3]);
+        if (args[3] !== undefined && sourceDocumentRevisionToken === null) {
+            throw new TypeError('ocrAcknowledgeResultFile.sourceDocumentRevisionToken must be a non-empty string');
+        }
+        if (documentRef === undefined && sourceDocumentRevisionToken !== undefined) {
+            throw new TypeError('ocrAcknowledgeResultFile.documentRef is required with sourceDocumentRevisionToken');
+        }
+        if (documentRef !== undefined && pdfPath === undefined) {
+            throw new TypeError('ocrAcknowledgeResultFile.pdfPath is required with documentRef');
+        }
+        if (documentRef !== undefined && sourceDocumentRevisionToken === undefined) {
+            throw new TypeError('ocrAcknowledgeResultFile.sourceDocumentRevisionToken is required with documentRef');
+        }
+        if (pdfPath === undefined && documentRef === undefined && sourceDocumentRevisionToken === undefined) {
             return [requestId];
+        }
+        if (pdfPath !== undefined && documentRef === undefined) {
+            return [
+                requestId,
+                pdfPath,
+            ];
+        }
+        if (pdfPath === undefined || documentRef === undefined || !sourceDocumentRevisionToken) {
+            throw new TypeError('ocrAcknowledgeResultFile document scope is incomplete');
         }
         return [
             requestId,
             pdfPath,
+            documentRef,
+            sourceDocumentRevisionToken,
         ];
     },
     () => [
