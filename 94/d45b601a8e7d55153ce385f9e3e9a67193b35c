@@ -1,0 +1,35 @@
+tests/integration/browser/browserDocumentSourceVersionAcceptance.test.ts
+  s_eeaeaf82a39760::t_e85aa6bbec72e6 32,51,56,98
+  s_eeaeaf82a39760::t_81554308b9ce16 97,102-115,118-126,172-176,187-191
+  s_eeaeaf82a39760::t_82d4cb1b5de6c2 166,177,192
+  s_eeaeaf82a39760::t_684ca6b8300a99 207
+  s_eeaeaf82a39760::t_30e5fb43e3a654 8,94-96,99-101,116-117,127-165,167-171,178-186,193-206,208-213
+tests/integration/browser/browserDocumentSourceVersionAcceptanceEntry.ts
+  s_eeaeaf82a39760::t_684ca6b8300a99 258-260,277-278,304
+  s_eeaeaf82a39760::t_81554308b9ce16 289-293
+  s_eeaeaf82a39760::t_30e5fb43e3a654 242-257,261-276,279-288,294-303,305-325,329-330
+tests/integration/browser/browserDocumentMaintenanceAcceptanceEntry.ts
+  s_eeaeaf82a39760::t_8725d588e28536 5,43,45-46,48-55,57
+  s_eeaeaf82a39760::t_153f8a89e262f3 42
+  s_eeaeaf82a39760::t_4a18d6d2bbc04b 47
+tests/integration/browser/browserDocumentMaintenanceAcceptance.test.ts
+  s_eeaeaf82a39760::t_8725d588e28536 170-181
+  s_eeaeaf82a39760::t_4a18d6d2bbc04b 36
+  s_eeaeaf82a39760::t_7f4537c75bbb1d 79-86,126-129
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "94d45b601a8e7d55153ce385f9e3e9a67193b35c",
+  "prompts": {},
+  "sessions": {
+    "s_eeaeaf82a39760": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a082ec-5467-7781-b1ae-dc0400cb33d2",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
