@@ -714,6 +714,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         hasPendingUnsavedChanges,
         annotationDirty,
         isDirty,
+        recoveryDirtyBaseline: fileLifecycle.recoveryDirtyBaseline,
         pageLabelsDirty,
         bookmarksDirty,
         persistAllAnnotationNotes,

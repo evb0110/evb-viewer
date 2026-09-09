@@ -182,10 +182,80 @@ describe('WorkspaceDocumentController', () => {
                 ...recoveredRecord.tab,
                 isDirty: false,
             },
+            documentIdentity: null,
+        }), 'workspace');
+
+        expect(session.snapshot.value.dirty).toBe(true);
+
+        session.applyWorkspaceRecord(createWorkspaceDocumentRecord({
+            ...recoveredRecord,
+            tab: {
+                ...recoveredRecord.tab,
+                isDirty: false,
+            },
             documentIdentity: createDocumentRevision('revision-2', '/tmp/working.pdf'),
         }), 'workspace');
 
         expect(session.snapshot.value.dirty).toBe(false);
+    });
+
+    it('keeps checkpoint dirty state through a failed restore opening record', () => {
+        const initialTab = {
+            fileName: 'Document.pdf',
+            originalPath: requireDocumentRef('/tmp/original.pdf'),
+            isDirty: true,
+            isDjvu: false,
+        };
+        const initialRecord = createWorkspaceDocumentRecord({tab: initialTab});
+        const session = createWorkspaceDocumentController({
+            tabId: 'tab-1',
+            sessionId: 'session-1',
+            initialRecord,
+        });
+        const restore = session.beginTransaction({
+            kind: 'restore',
+            documentRef: requireDocumentRef('/tmp/original.pdf'),
+        });
+
+        session.applyWorkspaceRecord(createWorkspaceDocumentRecord({
+            tab: {
+                fileName: 'Document.pdf',
+                originalPath: requireDocumentRef('/tmp/original.pdf'),
+                isDirty: false,
+                isDjvu: false,
+            },
+            toolbarSnapshot: {isOpeningDocument: true},
+        }), 'workspace');
+
+        expect(session.snapshot.value.dirty).toBe(true);
+        session.finishTransaction(restore.id, 'failed');
+        expect(session.snapshot.value.dirty).toBe(true);
+    });
+
+    it('keeps recovered dirty state when the restore projection arrives after the transaction', () => {
+        const originalPath = requireDocumentRef('/tmp/original.pdf');
+        const session = createWorkspaceDocumentController({
+            tabId: 'tab-1',
+            sessionId: 'session-1',
+            initialRecord: createWorkspaceDocumentRecord({tab: {
+                fileName: 'Document.pdf',
+                originalPath,
+                isDirty: true,
+                isDjvu: false,
+            }}),
+        });
+
+        session.applyWorkspaceRecord(createWorkspaceDocumentRecord({
+            tab: {
+                fileName: 'Document.pdf',
+                originalPath,
+                isDirty: false,
+                isDjvu: false,
+            },
+            toolbarSnapshot: {isOpeningDocument: true},
+        }), 'workspace');
+
+        expect(session.snapshot.value.dirty).toBe(true);
     });
 
     it('does not infer readiness from document identity and viewer capabilities alone', () => {

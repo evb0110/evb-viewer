@@ -41,6 +41,17 @@ interface IRecoveredSession {
     session: IElectronE2ESession;
 }
 
+interface IRecoveryDirtyState {
+    [key: string]: unknown;
+    fileDirty?: boolean;
+    recoveryDirtyBaseline?: boolean;
+}
+
+interface IRecoveryAutomationState {
+    [key: string]: unknown;
+    dirtyState?: IRecoveryDirtyState;
+}
+
 async function createRecoveredSession(label: string): Promise<IRecoveredSession> {
     const pdfPath = await createMultiPageTextFixturePdf(`project8-close-${label}-${Date.now()}.pdf`, 2);
     const sessionName = `e2e-project8-close-${label}-${Date.now()}`;
@@ -343,8 +354,8 @@ describe('Project 8 recovered close decisions', () => {
         });
         const finalFailedState = await activateTabWithWorkingCopy(session, firstWorkingCopyPath, firstPdfPath);
         await waitForPdfLoaded(session.page, 60_000);
-        const settledFailedState = await readWorkspaceStateValues<{
-            dirtyState?: {fileDirty?: boolean};
+        const recoveryPage = session.page;
+        const settledFailedState = await readWorkspaceStateValues<IRecoveryAutomationState & {
             originalPath?: string | null;
             workingCopyPath?: string | null;
         }>(session.page, [
@@ -355,7 +366,12 @@ describe('Project 8 recovered close decisions', () => {
         expect(finalFailedState?.workingCopyPath).toEqual(expect.any(String));
         expect(settledFailedState.workingCopyPath).toEqual(expect.any(String));
         expect(settledFailedState.originalPath).toBe(firstPdfPath);
-        expect(settledFailedState.dirtyState?.fileDirty).toBe(true);
+        await expect.poll(async () => (
+            (await readWorkspaceStateValues<IRecoveryAutomationState>(recoveryPage, ['dirtyState'])).dirtyState
+        ), {timeout: 60_000}).toMatchObject({
+            fileDirty: true,
+            recoveryDirtyBaseline: true,
+        });
         expect((await readPdfPageSnapshots(firstWorkingCopyPath))[0]?.rotation).toBe(90);
         await expect.poll(async () => {
             if (!existsSync(checkpointPath)) {

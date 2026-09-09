@@ -143,6 +143,7 @@ export interface ICreateWorkspaceExposeDeps extends
     annotationInventory: Ref<IAnnotationInventoryCompleteness | null>;
     annotationDirty: Ref<boolean>;
     isDirty?: Ref<boolean>;
+    recoveryDirtyBaseline?: Ref<boolean>;
     hasAnnotationChanges?: () => boolean;
     getAnnotationDirtyEntityCount?: () => number;
     hasPendingUnsavedChanges?: ComputedRef<boolean>;
@@ -417,6 +418,7 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
                 annotationDirty: deps.annotationDirty.value,
                 bookmarksDirty: deps.bookmarksDirty?.value ?? false,
                 fileDirty: deps.isDirty?.value ?? false,
+                recoveryDirtyBaseline: deps.recoveryDirtyBaseline?.value ?? false,
                 hasAnnotationChanges: deps.hasAnnotationChanges?.() ?? false,
                 annotationDirtyEntityCount: deps.getAnnotationDirtyEntityCount?.() ?? 0,
                 hasPendingUnsavedChanges: deps.hasPendingUnsavedChanges?.value ?? false,

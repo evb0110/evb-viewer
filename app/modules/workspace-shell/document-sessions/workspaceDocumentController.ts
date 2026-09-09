@@ -662,18 +662,32 @@ export function createWorkspaceDocumentController(
             snapshot.value.identity.revisionInfo,
             normalizedRecord.documentIdentity,
         );
-        if (
-            source === 'workspace'
-            && activeKind === null
+        const sameIdentityLessDocument = normalizedRecord.documentIdentity === null
+            && normalizedRecord.tab.originalPath === snapshot.value.identity.originalPath;
+        const preserveDirtyDuringRestore = (
+            (activeKind === 'restore' || activeKind === null)
             && snapshot.value.dirty
             && !normalizedRecord.tab.isDirty
-            && sameLogicalDocument
-            && sameDocumentRevision
+            && normalizedRecord.toolbarSnapshot.isOpeningDocument
+            && normalizedRecord.tab.originalPath === snapshot.value.identity.originalPath
+        );
+        if (
+            source === 'workspace'
+            && (
+                preserveDirtyDuringRestore
+                || (
+                    activeKind === null
+                    && snapshot.value.dirty
+                    && !normalizedRecord.tab.isDirty
+                    && sameLogicalDocument
+                    && (sameDocumentRevision || sameIdentityLessDocument)
+                )
+            )
         ) {
-            // A mount or adoption record from the same generation can lag the
+            // A pending restore or same-generation adoption record can lag the
             // recovery open. It must not turn retained unsaved bytes into a
-            // clean document. A real save publishes a new revision, and the
-            // explicit close path clears identity before accepting clean state.
+            // clean document. A successful recovery publishes dirty=true. A
+            // real save publishes a new revision, and close clears identity.
             return;
         }
         if (

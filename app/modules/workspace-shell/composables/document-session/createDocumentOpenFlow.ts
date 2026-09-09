@@ -436,6 +436,12 @@ export function createDocumentOpenFlow(
                 result,
             } satisfies TDocumentOpenOutcome;
         }
+        if (result.recoveryDirtyBaseline === true) {
+            // Opening a retained working copy must finish dirty even if a
+            // path-backed projection adopted a clean history entry meanwhile.
+            state.recoveryDirtyBaseline.value = true;
+            state.isDirty.value = true;
+        }
         state.originalPath.value = result.originalPath;
         state.requiresSaveAsOnFirstSave.value = !!result.isGenerated;
         state.pdfRasterDisplayProfile.value = rasterDisplayProfile;
