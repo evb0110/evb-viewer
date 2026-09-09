@@ -73,7 +73,9 @@ every run, and needs an `Adds-Checks:` trailer with the user's words.
 
 - Diagnose from the run: `node scripts/ci/ci-health.mjs --days 7` lists
   failure and cancellation rates, commits whose reruns flipped between red and
-  green, the jobs and steps that fail most, and the slowest green jobs.
+  green, the jobs and steps that fail most, the slowest green jobs, and the
+  first red commit, subject, run, and matching failure lines for each failing
+  job.
 - A failure that starts at one commit and repeats on every later run is a
   regression in that commit, not flake. Fix the product or the test.
 - A `vi.mock` factory for a module under `app/` or `electron/` spreads
