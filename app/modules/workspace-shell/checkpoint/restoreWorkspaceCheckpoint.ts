@@ -86,6 +86,9 @@ function findRestoredWorkspace(
 
 async function applyViewState(tab: IWorkspaceCheckpointTab, workspace: IWorkspaceExpose) {
     await workspace.waitForDocumentOpenSettled();
+    if (tab.annotationRecovery?.payload !== undefined) {
+        workspace.restoreCanonicalAnnotationRecovery?.(tab.annotationRecovery.payload);
+    }
     const toolbar = workspace.getToolbarSnapshot();
     if (
         tab.continuousScroll != null

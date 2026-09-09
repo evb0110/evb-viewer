@@ -38,6 +38,7 @@ import { createDefaultWorkspaceViewerCapabilities } from '@app/types/workspaceEx
 import { clampPdfManualZoom } from '@app/modules/pdf-viewer/public';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/public';
 import type { IAnnotationNoteWindowViewModel } from '@app/types/annotationNoteWindow';
+import type { IAnnotationRecoveryDraft } from '@app/modules/pdf-viewer/annotations/domain/annotationRecovery';
 import {
     createWorkspaceExposeCommandHandlers,
     createWorkspaceExposeCommandRunner,
@@ -151,6 +152,8 @@ export interface ICreateWorkspaceExposeDeps extends
     pageLabelsDirty?: Ref<boolean>;
     bookmarksDirty?: Ref<boolean>;
     sortedAnnotationNoteWindows: Ref<IAnnotationNoteWindowViewModel[]>;
+    captureAnnotationNoteDrafts?: (getCanonicalRevision: (annotationId: string) => number | null) => readonly IAnnotationRecoveryDraft[];
+    restoreAnnotationNoteDraft?: (draft: IAnnotationRecoveryDraft) => void;
     handleOcrComplete: (payload: unknown) => Promise<void>;
     createRecoverySnapshotBytes?: IWorkspaceExpose['createRecoverySnapshotBytes'];
 }
@@ -452,6 +455,25 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
     }
 
     const customHandlers: Partial<TWorkspaceExposeCommandHandlerMap> = {
+        captureCanonicalAnnotationRecovery: () => {
+            const viewer = deps.pdfAutomationViewerRef?.value;
+            const initial = viewer?.captureCanonicalAnnotationRecovery?.();
+            if (!initial || !viewer?.captureCanonicalAnnotationRecovery) {
+                return null;
+            }
+            const drafts = deps.captureAnnotationNoteDrafts?.((annotationId) => (
+                initial.entities.find(entity => entity.identity.id === annotationId)?.revision ?? null
+            )) ?? [];
+            return viewer.captureCanonicalAnnotationRecovery(drafts);
+        },
+        restoreCanonicalAnnotationRecovery: value => (
+            (() => {
+                const recovery = deps.pdfAutomationViewerRef?.value?.restoreCanonicalAnnotationRecovery?.(value)
+                    ?? (() => { throw new Error('Canonical annotation recovery is unavailable'); })();
+                recovery.drafts.forEach(draft => deps.restoreAnnotationNoteDraft?.(draft));
+                return recovery;
+            })()
+        ),
         pageOpsDelete: (pages, totalPages) => runPageOperation(
             () => deps.pageOpsDelete(pages, totalPages),
         ),

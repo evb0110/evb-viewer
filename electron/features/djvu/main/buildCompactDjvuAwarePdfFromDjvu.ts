@@ -30,6 +30,7 @@ import { getDjvuNativeToolPaths } from '@electron/features/djvu/main/nativeToolP
 import {
     renderDjvuPageToImage,
     runRegisteredDjvuProcess,
+    withDjvuNativeResourceLease,
 } from '@electron/features/djvu/main/ddjvuConversion';
 import { runNativeCommand } from '@electron/native-tools/runNativeCommand';
 import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolPath';
@@ -221,7 +222,12 @@ export async function buildCompactDjvuAwarePdfFromDjvu(options: ICompactDjvuPdfE
         })}\n`, 'utf8');
         fidelityWriter = await openCompactDjvuFidelityManifestWriter(options.tempDir, options.qualityPreset);
         const activeFidelityWriter = fidelityWriter;
-        await readDjvuPageStructures(options.djvuPath, options.jobId, options.signal, structurePath);
+        await withDjvuNativeResourceLease({
+            jobId: options.jobId,
+            kind: 'structure',
+            ...(options.signal ? {signal: options.signal} : {}),
+            task: () => readDjvuPageStructures(options.djvuPath, options.jobId, options.signal, structurePath),
+        });
         structureReady = true;
 
         let completedPageCount = 0;
