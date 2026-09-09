@@ -22,6 +22,7 @@ import {
     resolveStoredDocumentStorageMode,
 } from '@app/platform/browser/browserDocumentStoragePolicy';
 import type {
+    IBrowserDocumentLeaseDependency,
     IBrowserDocumentEntry,
     IBrowserPersistedDocumentRecord,
     ICreateStoredDocumentOptions,
@@ -49,6 +50,7 @@ import {
     BrowserDocumentRecordStore,
 } from '@app/platform/browser/browserDocumentRecordStore';
 import {BrowserDocumentFileHandleRefs} from '@app/platform/browser/browserDocumentFileHandleRefs';
+import {saveBrowserDocumentLiveLease} from '@app/platform/browser/browserDocumentLeaseStore';
 import {runSerializedRecentFilesStorageMutation} from '@app/platform/browser/browserRecentFilesStore';
 import {
     captureBrowserDocumentEntryStorageState,
@@ -66,7 +68,6 @@ import {
 } from '@contracts/documentRevision';
 import {createBrowserFileContentWitness} from '@app/platform/browser/createBrowserFileContentWitness';
 import type {TDocumentRef} from '@contracts/documentRef';
-
 export interface IBrowserDocumentMutation {
     write(
         data: Uint8Array | ArrayBuffer,
@@ -78,7 +79,6 @@ export interface IBrowserDocumentMutation {
         saveHandle?: FileSystemFileHandle | null,
     ): Promise<void>;
 }
-
 export interface IBrowserDocumentSourceMutation extends IBrowserDocumentMutation { writeSource(data: Uint8Array | ArrayBuffer): Promise<boolean>; }
 
 function createBrowserFileDocumentEntry(
@@ -110,12 +110,10 @@ function createBrowserFileDocumentEntry(
         chunkSize: BROWSER_DOCUMENT_CHUNK_SIZE,
     };
 }
-
 interface IBrowserStagedCommitResult {
     targetEntry: IBrowserDocumentEntry;
     previousTargetRevisionToken: TDocumentRevisionToken;
 }
-
 function getPersistedDocumentRevisionToken(
     record: IBrowserPersistedDocumentRecord,
     sourceRecord: IBrowserPersistedDocumentRecord | null,
@@ -130,7 +128,6 @@ function getPersistedDocumentRevisionToken(
     const entry = createEntryFromPersistedRecord(revisionRecord);
     return createBrowserDocumentRevisionInfo(entry, entry.ref).token;
 }
-
 function queuePersistedChunkDeletes(
     store: IDBObjectStore,
     record: IBrowserPersistedDocumentRecord,
@@ -152,6 +149,12 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
     protected override onDocumentRemoved(ref: string) {
         this.fileHandleRefs.forget(ref);
     }
+
+    public async createLiveLease(ownerId: string, protectedDependencies: IBrowserDocumentLeaseDependency[] = []) { return saveBrowserDocumentLiveLease(ownerId, 0, 'active', protectedDependencies); }
+    public async heartbeatLiveLease(ownerId: string, generation: number, protectedDependencies: IBrowserDocumentLeaseDependency[]) { return saveBrowserDocumentLiveLease(ownerId, generation, 'active', protectedDependencies); }
+    public async suspendLiveLease(ownerId: string, generation: number, protectedDependencies: IBrowserDocumentLeaseDependency[]) { return saveBrowserDocumentLiveLease(ownerId, generation, 'suspended', protectedDependencies); }
+    public async resumeLiveLease(ownerId: string, generation: number, protectedDependencies: IBrowserDocumentLeaseDependency[]) { return saveBrowserDocumentLiveLease(ownerId, generation, 'active', protectedDependencies); }
+    public async releaseLiveLease(ownerId: string, generation: number) { return saveBrowserDocumentLiveLease(ownerId, generation, 'dead', []); }
 
     /**
      * Attaches a freshly built entry and persists it, rolling the attachment and

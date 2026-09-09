@@ -364,6 +364,8 @@ describe('browser document IndexedDB migration in Chromium', () => {
             });
 
             expect(result.stores).toEqual([
+                'browser-live-leases',
+                'browser-transfer-authority',
                 'document-chunks',
                 'documents',
                 'workspace-recovery',
@@ -571,7 +573,7 @@ describe('browser document IndexedDB migration in Chromium', () => {
                         [pdfRef],
                     );
                     await new Promise<void>((resolvePut, rejectPut) => {
-                        const request = indexedDB.open(databaseName, 3);
+                        const request = indexedDB.open(databaseName, 5);
                         request.onerror = () => rejectPut(request.error);
                         request.onsuccess = () => {
                             const database = request.result;
@@ -785,7 +787,7 @@ describe('browser document IndexedDB migration in Chromium', () => {
                     fileName?: string;
                     data?: number[]
                 } | null>((resolvePdf, rejectPdf) => {
-                    const request = indexedDB.open(databaseName, 3);
+                    const request = indexedDB.open(databaseName, 5);
                     request.onerror = () => rejectPdf(request.error);
                     request.onsuccess = () => {
                         const database = request.result;

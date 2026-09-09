@@ -4,6 +4,7 @@ import {
     DOCUMENTS_STORE,
     DOCUMENT_CHUNKS_STORE,
     WORKSPACE_RECOVERY_STORE,
+    BROWSER_LIVE_LEASES_STORE,
 } from '@app/platform/browser/browserDocumentConstants';
 import { uniq } from 'es-toolkit/array';
 import { buildRecentFilesFromPersistedRecords } from '@app/platform/browser/buildRecentFilesFromPersistedRecords';
@@ -34,7 +35,9 @@ import {
     runSerializedRecentFilesStorageMutation,
 } from '@app/platform/browser/browserRecentFilesStore';
 import type {
+    IBrowserDocumentLeaseDependency,
     IBrowserDocumentEntry,
+    IBrowserDocumentLiveLease,
     IBrowserPersistedDocumentRecord,
 } from '@app/platform/browser/browserDocumentTypes';
 import type { IBrowserPersistedDocumentRecordsLoadResult } from '@app/platform/browser/browserPersistedDocumentRecordsLoadResult';
@@ -71,6 +74,139 @@ function hasActivePendingChunkGeneration(record: IBrowserPersistedDocumentRecord
         return age >= 0 && age <= BROWSER_STAGED_CHUNK_GRACE_MS;
     }
     return isRecentlyCreatedChunkGeneration(record.pendingChunkGeneration);
+}
+
+function decodeLiveLeaseDependency(value: unknown): IBrowserDocumentLeaseDependency | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return null;
+    }
+
+    const dependency = value as Record<string, unknown>;
+    if (typeof dependency.ref !== 'string' || dependency.ref.length === 0) {
+        return null;
+    }
+
+    if (
+        dependency.chunkGeneration !== undefined
+        && (
+            typeof dependency.chunkGeneration !== 'string'
+            || dependency.chunkGeneration.length === 0
+        )
+    ) {
+        return null;
+    }
+
+    return {
+        ref: dependency.ref,
+        ...(dependency.chunkGeneration === undefined
+            ? {}
+            : {chunkGeneration: dependency.chunkGeneration}),
+    };
+}
+
+function decodeLiveLease(value: unknown): IBrowserDocumentLiveLease | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return null;
+    }
+
+    const lease = value as Record<string, unknown>;
+    if (
+        typeof lease.id !== 'string'
+        || lease.id.length === 0
+        || typeof lease.ownerId !== 'string'
+        || lease.ownerId.length === 0
+        || typeof lease.generation !== 'number'
+        || !Number.isSafeInteger(lease.generation)
+        || lease.generation < 1
+        || typeof lease.leaseRevision !== 'number'
+        || !Number.isSafeInteger(lease.leaseRevision)
+        || lease.leaseRevision < 0
+        || (
+            lease.status !== 'active'
+            && lease.status !== 'suspended'
+            && lease.status !== 'dead'
+        )
+        || typeof lease.heartbeatAt !== 'number'
+        || !Number.isFinite(lease.heartbeatAt)
+        || lease.heartbeatAt < 0
+        || !Array.isArray(lease.protectedDependencies)
+    ) {
+        return null;
+    }
+
+    const protectedDependencies: IBrowserDocumentLeaseDependency[] = [];
+    for (const value of lease.protectedDependencies) {
+        const dependency = decodeLiveLeaseDependency(value);
+        if (!dependency) {
+            return null;
+        }
+        protectedDependencies.push(dependency);
+    }
+
+    return {
+        id: lease.id,
+        ownerId: lease.ownerId,
+        generation: lease.generation,
+        leaseRevision: lease.leaseRevision,
+        status: lease.status,
+        heartbeatAt: lease.heartbeatAt,
+        protectedDependencies,
+    };
+}
+
+interface IBrowserLiveLeaseProtection {
+    leasedRefs: Set<string>;
+    allGenerationsRefs: Set<string>;
+    leasedGenerations: Set<string>;
+}
+
+function getChunkGenerationKey(ref: string, generation: string | undefined) {
+    return `${ref}\0${generation ?? ''}`;
+}
+
+function readLiveLeaseProtection(value: unknown): IBrowserLiveLeaseProtection | null {
+    if (!Array.isArray(value)) {
+        return null;
+    }
+
+    const leasedRefs = new Set<string>();
+    const allGenerationsRefs = new Set<string>();
+    const leasedGenerations = new Set<string>();
+    for (const leaseValue of value) {
+        const lease = decodeLiveLease(leaseValue);
+        if (!lease) {
+            return null;
+        }
+        if (lease.status === 'dead') {
+            continue;
+        }
+        for (const dependency of lease.protectedDependencies) {
+            leasedRefs.add(dependency.ref);
+            if (dependency.chunkGeneration === undefined) {
+                allGenerationsRefs.add(dependency.ref);
+            } else {
+                leasedGenerations.add(getChunkGenerationKey(
+                    dependency.ref,
+                    dependency.chunkGeneration,
+                ));
+            }
+        }
+    }
+
+    return {
+        leasedRefs,
+        allGenerationsRefs,
+        leasedGenerations,
+    };
+}
+
+function liveLeaseProtectsChunk(
+    protection: IBrowserLiveLeaseProtection,
+    ref: string,
+    generation: string | undefined,
+) {
+    return protection.allGenerationsRefs.has(ref)
+        || protection.leasedGenerations.has(getChunkGenerationKey(ref, generation));
 }
 
 export async function loadBrowserPersistedDocumentRecordsResult(): Promise<IBrowserPersistedDocumentRecordsLoadResult> {
@@ -227,14 +363,17 @@ export async function sweepBrowserDocumentMaintenance(
             WORKSPACE_RECOVERY_STORE,
             DOCUMENTS_STORE,
             DOCUMENT_CHUNKS_STORE,
+            BROWSER_LIVE_LEASES_STORE,
         ],
         'readwrite',
         (transaction, setResult) => {
             const recoveryStore = transaction.objectStore(WORKSPACE_RECOVERY_STORE);
             const documentsStore = transaction.objectStore(DOCUMENTS_STORE);
             const chunksStore = transaction.objectStore(DOCUMENT_CHUNKS_STORE);
+            const liveLeasesStore = transaction.objectStore(BROWSER_LIVE_LEASES_STORE);
             const recoveriesRead = recoveryStore.getAll();
             const documentsRead = documentsStore.getAll();
+            const liveLeasesRead = liveLeasesStore.getAll();
             // Recent-file mutations use this same documents-store transaction
             // as their cross-window lock. Do not read localStorage until this
             // request succeeds, otherwise a touch admitted before this
@@ -243,10 +382,16 @@ export async function sweepBrowserDocumentMaintenance(
             const recentFilesLockRead = documentsStore.get(BROWSER_RECENT_FILES_STORAGE_LOCK_KEY);
             let recoveryReadComplete = false;
             let documentsReadComplete = false;
+            let liveLeasesReadComplete = false;
             let recentFilesLockReadComplete = false;
             let transactionRecentRefs = recentRefs;
             const process = () => {
-                if (!recoveryReadComplete || !documentsReadComplete || !recentFilesLockReadComplete) {
+                if (
+                    !recoveryReadComplete
+                    || !documentsReadComplete
+                    || !liveLeasesReadComplete
+                    || !recentFilesLockReadComplete
+                ) {
                     return;
                 }
                 const recentFilesAtAdmission = tryHasRecentFilesStorageSnapshot()
@@ -295,6 +440,13 @@ export async function sweepBrowserDocumentMaintenance(
                         }
                     }
                 }
+                const liveLeaseProtection = readLiveLeaseProtection(liveLeasesRead.result);
+                if (!liveLeaseProtection) {
+                    // Live lease authority is shared state. A malformed or
+                    // unavailable authority record cannot authorize a delete.
+                    setResult(new Set());
+                    return;
+                }
                 const transactionRecords = Array.isArray(documentsRead.result)
                     ? documentsRead.result.flatMap((value: unknown) => {
                         const record = toPersistedDocumentRecord(value);
@@ -331,16 +483,23 @@ export async function sweepBrowserDocumentMaintenance(
                         transactionNonWorkingDependentCounts,
                     ))
                     .filter(record => !leasedRefs.has(record.ref))
+                    .filter(record => !liveLeaseProtection.leasedRefs.has(record.ref))
                     .filter(record => !transactionPendingChunkGenerationsByRef.has(record.ref))
                     .filter(record => !pendingRefs.has(record.ref))
                     .map(record => record.ref);
                 const finalRefs = new Set([
                     ...transactionRefsToRemove,
-                    ...transactionBrokenChunkRefs,
+                    ...Array.from(transactionBrokenChunkRefs)
+                        .filter(ref => !liveLeaseProtection.leasedRefs.has(ref)),
                 ]);
                 finalRefs.forEach(ref => documentsStore.delete(ref));
                 for (const chunkKey of chunkKeys) {
                     if (pendingRefs.has(chunkKey.ref)) continue;
+                    if (liveLeaseProtectsChunk(
+                        liveLeaseProtection,
+                        chunkKey.ref,
+                        chunkKey.generation,
+                    )) continue;
                     const pendingGeneration = transactionPendingChunkGenerationsByRef.get(chunkKey.ref)
                         ?? pendingChunkGenerationsByRef.get(chunkKey.ref);
                     if (pendingGeneration === chunkKey.generation) continue;
@@ -367,6 +526,10 @@ export async function sweepBrowserDocumentMaintenance(
             };
             documentsRead.onsuccess = () => {
                 documentsReadComplete = true;
+                process();
+            };
+            liveLeasesRead.onsuccess = () => {
+                liveLeasesReadComplete = true;
                 process();
             };
             recentFilesLockRead.onsuccess = () => {

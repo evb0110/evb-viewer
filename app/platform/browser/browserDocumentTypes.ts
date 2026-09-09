@@ -93,6 +93,21 @@ export interface IBrowserDocumentChunkRecord {
     data: Uint8Array;
 }
 
+export interface IBrowserDocumentLeaseDependency {
+    ref: string;
+    chunkGeneration?: string;
+}
+
+export interface IBrowserDocumentLiveLease {
+    id: string;
+    ownerId: string;
+    generation: number;
+    leaseRevision: number;
+    status: 'active' | 'suspended' | 'dead';
+    heartbeatAt: number;
+    protectedDependencies: IBrowserDocumentLeaseDependency[];
+}
+
 export interface IChunkKeyRecord {
     ref: string;
     index: number;

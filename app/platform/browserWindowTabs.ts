@@ -11,12 +11,17 @@ import type {
 import { decodeWindowTabIncomingTransfer } from '@contracts/windowTabsValidation';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import {
+    abortBrowserTransferAuthority,
+    loadBrowserTransferAuthority,
+    mutateBrowserTransferAuthority,
+    type IBrowserTransferAuthorityRecord,
+} from '@app/platform/browser/browserDocumentIdb';
+import {
     claimBrowserWorkspaceRecoveryOwner,
     loadBrowserWorkspaceRecoveries,
     loadBrowserWorkspaceRecovery,
     RECOVERY_OWNER_LEASE_TIMEOUT_MS,
 } from '@app/platform/browser/browserWorkspaceRecoveryStore';
-
 const WINDOW_TABS_CHANNEL = 'evb-viewer:browserWindowTabs';
 const WINDOW_ID_QUERY_PARAM = 'evbWindowId';
 const WINDOW_NAME_PREFIX = 'evb-viewer-window:';
@@ -27,24 +32,103 @@ const DISCOVERY_SETTLE_DELAY_MS = 60;
 const FALLBACK_WINDOW_TITLE = 'EVB Viewer';
 const CLOSE_CURRENT_WINDOW_TIMEOUT_MS = 150;
 const TRANSFER_MESSAGE_SCHEMA_VERSION = 1;
+function transferAuthorityId(transferId: string) {
+    return `transfer:${transferId}`;
+}
 
+function buildTransferAuthorityRecord(
+    transfer: IWindowTabIncomingTransfer,
+    nonce: string,
+    sourceInstanceNonce: string,
+    targetInstanceNonce: string,
+    deadlineAt: number,
+): IBrowserTransferAuthorityRecord {
+    const refs = new Set<string>();
+    const add = (ref: string | null | undefined) => { if (ref) refs.add(ref); };
+    add(transfer.tab.originalPath);
+    add(transfer.session?.documentRef);
+    if (transfer.payload.kind === 'djvu') add(transfer.payload.sourcePath);
+    if (transfer.payload.kind === 'pdfSnapshot') {
+        add(transfer.payload.originalPath);
+        add(transfer.payload.snapshotPath);
+    }
+    return {
+        id: transferAuthorityId(transfer.transferId),
+        transferId: transfer.transferId,
+        nonce,
+        sourceWindowId: transfer.sourceWindowId,
+        sourceInstanceNonce,
+        targetWindowId: transfer.targetWindowId,
+        targetInstanceNonce,
+        generation: 1,
+        state: 'pending',
+        targetReady: false,
+        deadlineAt,
+        payload: transfer,
+        backingRefs: Array.from(refs, ref => ({ref})),
+        createdAt: Date.now(),
+    };
+}
+async function createTransferAuthority(
+    transfer: IWindowTabIncomingTransfer,
+    nonce: string,
+    sourceInstanceNonce: string,
+    targetInstanceNonce: string,
+    deadlineAt: number,
+) {
+    return mutateBrowserTransferAuthority(transfer.transferId, (current, store) => {
+        if (current) {
+            return current;
+        }
+        const record = buildTransferAuthorityRecord(
+            transfer,
+            nonce,
+            sourceInstanceNonce,
+            targetInstanceNonce,
+            deadlineAt,
+        );
+        store.put(record);
+        return record;
+    });
+}
+async function commitTransferAuthority(
+    transferId: string,
+    nonce: string,
+    sourceWindowId: number,
+    targetWindowId: number,
+) {
+    return mutateBrowserTransferAuthority(transferId, (current) => {
+        if (!current || current.nonce !== nonce || current.sourceWindowId !== sourceWindowId
+            || current.targetWindowId !== targetWindowId || current.state !== 'pending') {
+            return current;
+        }
+        if (Date.now() > current.deadlineAt) {
+            return current;
+        }
+        return {
+            ...current,
+            targetReady: true,
+            state: 'committed',
+            generation: current.generation + 1,
+            decidedAt: Date.now(),
+        };
+    });
+}
 type TIncomingTransferListener = (
     transfer: IWindowTabIncomingTransfer,
 ) => void;
-
 interface IKnownBrowserWindow {
     label: string;
     lastSeenAt: number;
     ready: boolean;
+    instanceNonce?: string;
 }
-
 interface IBrowserWindowTabsState {
     cleanupInstance?: () => void;
     instanceId?: symbol;
     recoveryInstanceNonce?: string;
     windowId?: number;
 }
-
 interface IPendingBrowserTransfer {
     transferId: string;
     targetWindowId: number;
@@ -53,7 +137,6 @@ interface IPendingBrowserTransfer {
     resolve: (result: IWindowTabTransferResult) => void;
     timeoutHandle: ReturnType<typeof setTimeout>;
 }
-
 interface IIncomingBrowserTransferNonce {
     nonce: string;
     timeoutHandle: ReturnType<typeof setTimeout>;
@@ -94,6 +177,7 @@ type TBrowserWindowTabsMessage =
     | {
         type: 'ack';
         windowId: number;
+        instanceNonce?: string;
         ack: TBrowserTransferAckEnvelope;
     };
 
@@ -120,7 +204,6 @@ type TBrowserWindowTabsMessageHandlers = {
         >,
     ) => void;
 };
-
 
 function isPositiveWindowId(value: unknown): value is number {
     return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
@@ -211,11 +294,9 @@ function parseBrowserWindowTabsMessage(data: unknown): TBrowserWindowTabsMessage
 function noopUnsubscribe(): TMenuEventUnsubscribe {
     return () => {};
 }
-
 function hasBrowserWindowContext() {
     return typeof window !== 'undefined' && typeof document !== 'undefined';
 }
-
 function getBrowserWindowTabsState() {
     if (!hasBrowserWindowContext()) {
         return null;
@@ -225,7 +306,6 @@ function getBrowserWindowTabsState() {
     browserWindow[WINDOW_TABS_STATE_KEY] ??= {};
     return browserWindow[WINDOW_TABS_STATE_KEY];
 }
-
 function getCurrentWindowLabel() {
     if (!hasBrowserWindowContext()) {
         return FALLBACK_WINDOW_TITLE;
@@ -494,7 +574,7 @@ function finishTransfer(
     if (!pending) {
         return;
     }
-
+    if (!result.success) void abortBrowserTransferAuthority(transferId, pending.nonce);
     pendingTransfers.delete(transferId);
     removeQueuedTransferReference(pending.targetWindowId, transferId);
     clearTimeout(pending.timeoutHandle);
@@ -663,7 +743,7 @@ function handleIncomingTransferMessage(message: Extract<TBrowserWindowTabsMessag
     });
 }
 
-function handleTransferAckMessage(message: Extract<TBrowserWindowTabsMessage, { type: 'ack' }>) {
+async function handleTransferAckMessage(message: Extract<TBrowserWindowTabsMessage, { type: 'ack' }>) {
     const pending = pendingTransfers.get(message.ack.transferId);
     if (
         !pending
@@ -673,10 +753,23 @@ function handleTransferAckMessage(message: Extract<TBrowserWindowTabsMessage, { 
         return;
     }
 
-    finishTransfer(message.ack.transferId, {
-        success: message.ack.success,
-        ...(message.ack.error ? { error: message.ack.error } : {}),
-    });
+    if (!message.ack.success) {
+        void abortBrowserTransferAuthority(message.ack.transferId, pending.nonce);
+        finishTransfer(message.ack.transferId, {
+            success: false,
+            error: message.ack.error ?? 'Target rejected browser transfer.',
+        });
+        return;
+    }
+    const authority = await commitTransferAuthority(
+        message.ack.transferId,
+        pending.nonce,
+        currentWindowId,
+        pending.targetWindowId,
+    );
+    if (authority?.state === 'committed') {
+        finishTransfer(message.ack.transferId, {success: true});
+    }
 }
 
 const browserWindowTabsMessageHandlers: TBrowserWindowTabsMessageHandlers = {
@@ -694,7 +787,7 @@ const browserWindowTabsMessageHandlers: TBrowserWindowTabsMessageHandlers = {
         );
     },
     transfer: handleIncomingTransferMessage,
-    ack: handleTransferAckMessage,
+    ack: message => { void handleTransferAckMessage(message); },
 };
 
 function handleMessage(data: unknown) {
@@ -852,7 +945,26 @@ export function syncBrowserWindowTitle() {
     updateKnownCurrentWindow();
     announceCurrentWindow();
 }
-
+async function waitForTransferDecision(transferId: string, nonce: string) {
+    const deadline = Date.now() + INCOMING_TRANSFER_NONCE_TTL_MS;
+    while (Date.now() < deadline) {
+        try {
+            const authority = await loadBrowserTransferAuthority(transferId);
+            if (authority?.nonce === nonce) {
+                if (authority.state === 'committed') {
+                    return true;
+                }
+                if (authority.state === 'aborted') {
+                    return false;
+                }
+            }
+        } catch {
+            // Storage refusal is not an abort. Keep the provisional bytes and retry.
+        }
+        await new Promise<void>(resolve => setTimeout(resolve, 250));
+    }
+    return false;
+}
 export const browserWindowTabsCapability: IWindowTabsCapability = {
     async saveWorkspaceCheckpoint() {},
     async acknowledgeWorkspaceCheckpoint() {},
@@ -959,13 +1071,11 @@ export const browserWindowTabsCapability: IWindowTabsCapability = {
         };
 
         return new Promise<IWindowTabTransferResult>((resolve) => {
-            const timeoutHandle = setTimeout(() => {
-                finishTransfer(transferId, {
-                    success: false,
-                    error: 'Transfer timed out while waiting for target acknowledgement.',
-                });
-            }, normalizeTimeout(request.timeoutMs));
-
+            const timeoutMs = normalizeTimeout(request.timeoutMs);
+            const timeoutHandle = setTimeout(() => finishTransfer(transferId, {
+                success: false,
+                error: 'Transfer timed out while waiting for durable source acknowledgement.',
+            }), timeoutMs);
             pendingTransfers.set(transferId, {
                 transferId,
                 targetWindowId,
@@ -974,19 +1084,35 @@ export const browserWindowTabsCapability: IWindowTabsCapability = {
                 resolve,
                 timeoutHandle,
             });
-
-            const targetWindow = knownWindows.get(targetWindowId);
-            if (targetWindow?.ready) {
-                dispatchTransfer(transferId);
-                return;
-            }
-
-            queueTransferForWindow(targetWindowId, transferId);
-            postMessage({
-                type: 'discover',
-                windowId: currentWindowId,
-                instanceNonce: currentRecoveryInstanceNonce,
-            });
+            void createTransferAuthority(
+                payload,
+                nonce,
+                currentRecoveryInstanceNonce,
+                knownWindows.get(targetWindowId)?.instanceNonce ?? currentRecoveryInstanceNonce,
+                Date.now() + timeoutMs,
+            ).then(record => {
+                if (!record || record.state === 'aborted') {
+                    finishTransfer(transferId, {
+                        success: false,
+                        error: 'Transfer authority was unavailable.',
+                    });
+                    return;
+                }
+                const targetWindow = knownWindows.get(targetWindowId);
+                if (targetWindow?.ready) {
+                    dispatchTransfer(transferId);
+                    return;
+                }
+                queueTransferForWindow(targetWindowId, transferId);
+                postMessage({
+                    type: 'discover',
+                    windowId: currentWindowId,
+                    instanceNonce: currentRecoveryInstanceNonce,
+                });
+            }).catch(() => finishTransfer(transferId, {
+                success: false,
+                error: 'Transfer authority was unavailable.',
+            }));
         });
     },
     transferAck(ack: IWindowTabTransferAck) {
@@ -996,6 +1122,7 @@ export const browserWindowTabsCapability: IWindowTabsCapability = {
             return Promise.resolve(false);
         }
 
+        const nonce = nonceEntry.nonce;
         forgetIncomingTransferNonce(ack.transferId);
         postMessage({
             type: 'ack',
@@ -1003,10 +1130,10 @@ export const browserWindowTabsCapability: IWindowTabsCapability = {
             ack: {
                 ...ack,
                 schemaVersion: TRANSFER_MESSAGE_SCHEMA_VERSION,
-                nonce: nonceEntry.nonce,
+                nonce,
             },
         });
-        return Promise.resolve(true);
+        return waitForTransferDecision(ack.transferId, nonce);
     },
     async listTargetWindows() {
         initializeBrowserWindowTabs();

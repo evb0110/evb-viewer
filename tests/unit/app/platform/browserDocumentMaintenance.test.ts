@@ -12,6 +12,7 @@ const documentIdbMocks = vi.hoisted(() => ({
     loadRecordAvailability: vi.fn(),
     recoveryRecordsAtDelete: [] as Array<{snapshotRefs: string[]}>,
     documentsAtDelete: [] as unknown[],
+    liveLeasesAtDelete: [] as unknown[],
     runObjectStoresTransaction: vi.fn(async (
         _stores: string[],
         _mode: string,
@@ -30,8 +31,16 @@ const documentIdbMocks = vi.hoisted(() => ({
             result: unknown;
             onsuccess?: () => void;
         };
+        const liveLeasesRequest = {result: documentIdbMocks.liveLeasesAtDelete} as {
+            result: unknown;
+            onsuccess?: () => void;
+        };
         const transaction = {objectStore: (name: string) => ({
-            getAll: () => name.includes('document') ? documentsRequest : recoveryRequest,
+            getAll: () => name.includes('document')
+                ? documentsRequest
+                : name.includes('live')
+                    ? liveLeasesRequest
+                    : recoveryRequest,
             get: () => recentFilesLockRequest,
             delete: name.includes('chunk')
                 ? chunkMocks.deleteChunkRecord
@@ -40,6 +49,7 @@ const documentIdbMocks = vi.hoisted(() => ({
         run(transaction, value => { result = value; });
         recoveryRequest.onsuccess?.();
         documentsRequest.onsuccess?.();
+        liveLeasesRequest.onsuccess?.();
         recentFilesLockRequest.onsuccess?.();
         return result;
     }),
@@ -107,6 +117,7 @@ describe('browserDocumentMaintenance', () => {
         recoveryMocks.loadBrowserWorkspaceRecoveryLeasedRefs.mockResolvedValue(new Set());
         documentIdbMocks.recoveryRecordsAtDelete = [];
         documentIdbMocks.documentsAtDelete = [];
+        documentIdbMocks.liveLeasesAtDelete = [];
         recentFilesStoreMocks.tryHasRecentFilesStorageSnapshot.mockReturnValue(false);
         recentFilesStoreMocks.writeRecentFilesToStorage.mockReturnValue(true);
         recentFilesStoreMocks.readRecentFilesFromStorage.mockReturnValue([]);
@@ -362,6 +373,212 @@ describe('browserDocumentMaintenance', () => {
 
         expect(chunkMocks.parseChunkKey).toHaveBeenCalledWith(chunkKey);
         expect(chunkMocks.deleteChunkRecord).toHaveBeenCalledWith(chunkKey);
+    });
+
+    it('retains a live lease dependency despite an old heartbeat', async () => {
+        const {sweepBrowserDocumentMaintenance} = await import('@app/platform/browser/browserDocumentMaintenance');
+        const ref = 'browser://documents/live-source.pdf';
+        const generation = 'live-generation';
+        const record = {
+            ref,
+            fileName: 'live-source.pdf',
+            mimeType: 'application/pdf',
+            kind: 'source',
+            retention: 'durable',
+            data: new Uint8Array(),
+            fileSize: 8,
+            updatedAt: 1,
+            storageMode: 'chunked',
+            chunkCount: 2,
+            chunkSize: 4,
+            chunkGeneration: generation,
+        };
+        documentIdbMocks.loadAllRecordKeysAvailability.mockResolvedValue({
+            available: true,
+            value: [ref],
+        });
+        documentIdbMocks.loadRecordAvailability.mockResolvedValue({
+            available: true,
+            value: record,
+        });
+        documentIdbMocks.documentsAtDelete = [record];
+        documentIdbMocks.liveLeasesAtDelete = [{
+            id: 'owner:live',
+            ownerId: 'live',
+            generation: 4,
+            leaseRevision: 19,
+            status: 'active',
+            heartbeatAt: 1,
+            protectedDependencies: [{
+                ref,
+                chunkGeneration: generation,
+            }],
+        }];
+        const chunkKeys = [
+            `${ref}::${generation}::0`,
+            `${ref}::${generation}::1`,
+        ];
+        chunkMocks.loadAllChunkKeysAvailability.mockResolvedValue({
+            available: true,
+            value: chunkKeys,
+        });
+        chunkMocks.parseChunkKey.mockImplementation((key: string) => ({
+            ref,
+            index: Number(key.split('::').at(-1)),
+            generation,
+        }));
+
+        await sweepBrowserDocumentMaintenance(new Map());
+
+        expect(documentIdbMocks.transactionDeleteRecord).not.toHaveBeenCalledWith(ref);
+        expect(chunkMocks.deleteChunkRecord).not.toHaveBeenCalled();
+    });
+
+    it('does not let a dead live lease block reclaim', async () => {
+        const {sweepBrowserDocumentMaintenance} = await import('@app/platform/browser/browserDocumentMaintenance');
+        const ref = 'browser://documents/dead-source.pdf';
+        const record = {
+            ref,
+            fileName: 'dead-source.pdf',
+            mimeType: 'application/pdf',
+            kind: 'working',
+            retention: 'transient',
+            data: Uint8Array.of(1),
+            fileSize: 1,
+            updatedAt: 1,
+            storageMode: 'inline',
+            chunkCount: 0,
+            chunkSize: 4,
+        };
+        documentIdbMocks.loadAllRecordKeysAvailability.mockResolvedValue({
+            available: true,
+            value: [ref],
+        });
+        documentIdbMocks.loadRecordAvailability.mockResolvedValue({
+            available: true,
+            value: record,
+        });
+        documentIdbMocks.documentsAtDelete = [record];
+        documentIdbMocks.liveLeasesAtDelete = [{
+            id: 'owner:dead',
+            ownerId: 'dead',
+            generation: 4,
+            leaseRevision: 20,
+            status: 'dead',
+            heartbeatAt: Date.now(),
+            protectedDependencies: [{ref}],
+        }];
+
+        await sweepBrowserDocumentMaintenance(new Map());
+
+        expect(documentIdbMocks.transactionDeleteRecord).toHaveBeenCalledWith(ref);
+    });
+
+    it('retains all chunk generations while an active lease has a ref-only dependency', async () => {
+        const {sweepBrowserDocumentMaintenance} = await import('@app/platform/browser/browserDocumentMaintenance');
+        const ref = 'browser://documents/ingesting.pdf';
+        const generation = `${(Date.now() - 11 * 60 * 1_000).toString(36)}-ingesting-generation`;
+        const chunkKey = `${ref}::${generation}::0`;
+        const record = {
+            ref,
+            fileName: 'ingesting.pdf',
+            mimeType: 'application/pdf',
+            kind: 'output',
+            retention: 'transient',
+            data: new Uint8Array(),
+            fileSize: 0,
+            updatedAt: 1,
+            storageMode: 'inline',
+            chunkCount: 0,
+            chunkSize: 4,
+        };
+        const orphan = {
+            ...record,
+            ref: 'browser://documents/unprotected.pdf',
+            fileName: 'unprotected.pdf',
+        };
+        documentIdbMocks.loadAllRecordKeysAvailability.mockResolvedValue({
+            available: true,
+            value: [
+                ref,
+                orphan.ref,
+            ],
+        });
+        documentIdbMocks.loadRecordAvailability.mockImplementation(async (candidate: string) => ({
+            available: true,
+            value: candidate === ref ? record : orphan,
+        }));
+        documentIdbMocks.documentsAtDelete = [
+            record,
+            orphan,
+        ];
+        documentIdbMocks.liveLeasesAtDelete = [{
+            id: 'owner:ingesting',
+            ownerId: 'ingesting',
+            generation: 2,
+            leaseRevision: 7,
+            status: 'active',
+            heartbeatAt: 1,
+            protectedDependencies: [{ref}],
+        }];
+        chunkMocks.loadAllChunkKeysAvailability.mockResolvedValue({
+            available: true,
+            value: [chunkKey],
+        });
+        chunkMocks.parseChunkKey.mockReturnValue({
+            ref,
+            index: 0,
+            generation,
+        });
+
+        await sweepBrowserDocumentMaintenance(new Map());
+
+        expect(documentIdbMocks.transactionDeleteRecord).not.toHaveBeenCalledWith(ref);
+        expect(documentIdbMocks.transactionDeleteRecord).toHaveBeenCalledWith(orphan.ref);
+        expect(chunkMocks.deleteChunkRecord).not.toHaveBeenCalled();
+    });
+
+    it('fails closed when the live lease authority is malformed', async () => {
+        const {sweepBrowserDocumentMaintenance} = await import('@app/platform/browser/browserDocumentMaintenance');
+        const ref = 'browser://documents/malformed-live-lease.pdf';
+        const record = {
+            ref,
+            fileName: 'malformed-live-lease.pdf',
+            mimeType: 'application/pdf',
+            kind: 'source',
+            retention: 'durable',
+            data: Uint8Array.of(1),
+            fileSize: 1,
+            updatedAt: 1,
+            storageMode: 'inline',
+            chunkCount: 0,
+            chunkSize: 4,
+        };
+        documentIdbMocks.loadAllRecordKeysAvailability.mockResolvedValue({
+            available: true,
+            value: [ref],
+        });
+        documentIdbMocks.loadRecordAvailability.mockResolvedValue({
+            available: true,
+            value: record,
+        });
+        documentIdbMocks.documentsAtDelete = [record];
+        documentIdbMocks.liveLeasesAtDelete = [{
+            id: 'owner:malformed',
+            ownerId: 'malformed',
+            generation: 2,
+            leaseRevision: 3,
+            status: 'active',
+            heartbeatAt: 1,
+            protectedDependencies: [{
+                ref,
+                chunkGeneration: 42,
+            }],
+        }];
+
+        await sweepBrowserDocumentMaintenance(new Map());
+
+        expect(documentIdbMocks.transactionDeleteRecord).not.toHaveBeenCalledWith(ref);
     });
 
     it.each([

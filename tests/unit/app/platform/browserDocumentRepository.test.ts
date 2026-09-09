@@ -8,6 +8,7 @@ import {
 import {BrowserDocumentStore} from '@app/platform/browser/browserDocumentRepository';
 import {createBrowserFileContentWitness} from '@app/platform/browser/createBrowserFileContentWitness';
 import {
+    BROWSER_LIVE_LEASES_STORE,
     BROWSER_DOCUMENT_CHUNK_SIZE,
     BROWSER_MAX_FULL_READ_BYTES,
     DB_NAME,
@@ -200,4 +201,70 @@ describe('BrowserDocumentStore source registration', () => {
         await expect(store.read(retryRef)).resolves.toEqual(bytes);
         expect((await store.requireEntry(retryRef)).memoryOnly).toBe(false);
     });
+
+    it('fences live lease lifecycle transitions through the repository owner', async () => {
+        const store = new BrowserDocumentStore();
+        const ref = await store.createStoredDocument(
+            'leased.pdf',
+            Uint8Array.of(1, 2, 3),
+            {
+                mimeType: 'application/pdf',
+                kind: 'working',
+                saveKind: 'pdf',
+            },
+        );
+        const dependencies = [{ref}];
+
+        const created = await store.createLiveLease('window:482', dependencies);
+        const heartbeat = await store.heartbeatLiveLease(
+            created.ownerId,
+            created.generation,
+            dependencies,
+        );
+        const suspended = await store.suspendLiveLease(
+            heartbeat.ownerId,
+            heartbeat.generation,
+            dependencies,
+        );
+        const resumed = await store.resumeLiveLease(
+            suspended.ownerId,
+            suspended.generation,
+            dependencies,
+        );
+        const released = await store.releaseLiveLease(
+            resumed.ownerId,
+            resumed.generation,
+        );
+
+        expect(created).toEqual(expect.objectContaining({
+            ownerId: 'window:482',
+            generation: 1,
+            leaseRevision: 1,
+            status: 'active',
+            protectedDependencies: dependencies,
+        }));
+        expect(heartbeat.generation).toBe(created.generation + 1);
+        expect(suspended.status).toBe('suspended');
+        expect(resumed.status).toBe('active');
+        expect(released).toEqual(expect.objectContaining({
+            status: 'dead',
+            protectedDependencies: [],
+        }));
+        expect(released.leaseRevision).toBe(resumed.leaseRevision + 1);
+
+        await expect(store.heartbeatLiveLease(
+            created.ownerId,
+            created.generation,
+            dependencies,
+        )).rejects.toThrow('live lease mutation');
+
+        const database = indexedDbFactory.getDatabase(DB_NAME);
+        expect(database?.getStoreRecords(BROWSER_LIVE_LEASES_STORE).get('owner:window:482')).toEqual(
+            expect.objectContaining({
+                status: 'dead',
+                generation: released.generation,
+            }),
+        );
+    });
+
 });

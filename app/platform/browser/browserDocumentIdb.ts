@@ -4,8 +4,11 @@ import {
     DOCUMENTS_STORE,
     DOCUMENT_CHUNKS_STORE,
     WORKSPACE_RECOVERY_STORE,
+    BROWSER_LIVE_LEASES_STORE,
+    BROWSER_TRANSFER_AUTHORITY_STORE,
 } from '@app/platform/browser/browserDocumentConstants';
-import type { IBrowserPersistedDocumentRecord } from '@app/platform/browser/browserDocumentTypes';
+import type {IBrowserPersistedDocumentRecord} from '@app/platform/browser/browserDocumentTypes';
+import type { IWindowTabIncomingTransfer } from '@contracts/windowTabs';
 import { resolveBrowserCapabilityTier } from '@app/platform/browser/browserCapabilityTier';
 
 interface IIndexedDbReadResult<T> {
@@ -70,6 +73,12 @@ export function upgradeBrowserDocumentDatabase(database: IDBDatabase) {
     }
     if (!database.objectStoreNames.contains(WORKSPACE_RECOVERY_STORE)) {
         database.createObjectStore(WORKSPACE_RECOVERY_STORE, { keyPath: 'id' });
+    }
+    if (!database.objectStoreNames.contains(BROWSER_LIVE_LEASES_STORE)) {
+        database.createObjectStore(BROWSER_LIVE_LEASES_STORE, { keyPath: 'id' });
+    }
+    if (!database.objectStoreNames.contains(BROWSER_TRANSFER_AUTHORITY_STORE)) {
+        database.createObjectStore(BROWSER_TRANSFER_AUTHORITY_STORE, { keyPath: 'id' });
     }
 }
 
@@ -265,4 +274,69 @@ export async function loadAllRecordKeysAvailability() {
 export async function deleteRecord(ref: string) {
     const result = await withObjectStore(DOCUMENTS_STORE, 'readwrite', (store) => store.delete(ref));
     assertWriteCommitted(result, 'document delete');
+}
+
+export interface IBrowserTransferAuthorityRecord {
+    id: string;
+    transferId: string;
+    nonce: string;
+    sourceWindowId: number;
+    sourceInstanceNonce: string;
+    targetWindowId: number;
+    targetInstanceNonce: string;
+    generation: number;
+    state: 'pending' | 'committed' | 'aborted';
+    targetReady: boolean;
+    deadlineAt: number;
+    payload: IWindowTabIncomingTransfer;
+    backingRefs: Array<{
+        ref: string;
+        chunkGeneration?: string
+    }>;
+    createdAt: number;
+    decidedAt?: number;
+}
+
+export async function mutateBrowserTransferAuthority(
+    transferId: string,
+    mutate: (current: IBrowserTransferAuthorityRecord | null, store: IDBObjectStore) => IBrowserTransferAuthorityRecord | null,
+) {
+    const result = await runObjectStoreTransaction<IBrowserTransferAuthorityRecord | null>(
+        BROWSER_TRANSFER_AUTHORITY_STORE,
+        'readwrite',
+        (store, setResult) => {
+            const request = store.get(`transfer:${transferId}`);
+            request.onsuccess = () => {
+                const current = request.result as IBrowserTransferAuthorityRecord | null;
+                const next = mutate(current, store);
+                if (next) store.put(next);
+                setResult(next);
+            };
+        },
+    );
+    return result;
+}
+
+export async function loadBrowserTransferAuthority(transferId: string) {
+    const result = await withObjectStoreReadResult<unknown>(
+        BROWSER_TRANSFER_AUTHORITY_STORE,
+        store => store.get(`transfer:${transferId}`),
+    );
+    return result.available && result.value && typeof result.value === 'object'
+        ? result.value as IBrowserTransferAuthorityRecord
+        : null;
+}
+
+export async function abortBrowserTransferAuthority(transferId: string, nonce: string) {
+    return mutateBrowserTransferAuthority(transferId, current => {
+        if (!current || current.nonce !== nonce || current.state !== 'pending') {
+            return current;
+        }
+        return {
+            ...current,
+            state: 'aborted',
+            generation: current.generation + 1,
+            decidedAt: Date.now(),
+        };
+    });
 }

@@ -721,7 +721,6 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
                 return;
             }
 
-            applyIncomingTransferTabState(target.pane.paneId, target.tab.tabId, transfer);
             if (!isIncomingTransferSessionCurrent(target.tab.tabId, transfer)) {
                 await rollbackIncomingTransferTarget(target, transfer.payload);
                 await ackIncomingTransferFailure(transfer.transferId, t('tabs.transferErrors.restoreFailed'));
@@ -729,7 +728,12 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
             }
             if (!await ackIncomingTransferSuccess(transfer.transferId)) {
                 await rollbackIncomingTransferTarget(target, transfer.payload);
+                return;
             }
+            // The browser capability ACK is source-authorized only after its
+            // shared transfer decision commits. Keep the restored workspace
+            // detached from tab state until that durable decision succeeds.
+            applyIncomingTransferTabState(target.pane.paneId, target.tab.tabId, transfer);
         } catch (error) {
             BrowserLogger.error('tabs', 'Unhandled incoming tab transfer failure', {
                 transferId: transfer.transferId,

@@ -24,6 +24,11 @@ import { getBrowserWindowRecoveryOwnerId } from '@app/platform/browserWindowTabs
 import type { TDocumentRef } from '@contracts/documentRef';
 import { createEpochMs } from '@contracts/timestamps';
 import type { TTabId } from '@contracts/windowTabs';
+import {
+    createBrowserDocumentLiveLease,
+    releaseBrowserDocumentLiveLease,
+    saveBrowserDocumentLiveLease,
+} from '@app/platform/browser/browserDocumentLeaseStore';
 
 interface IUseBrowserWorkspaceRecoveryOptions {
     enabled: Ref<boolean>;
@@ -44,6 +49,8 @@ const RECOVERY_HEARTBEAT_MS = 10_000;
 export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecoveryOptions) => {
     let activeOwnerId: string | null = null;
     let generation: number | null = null;
+    let liveLeaseGeneration: number | null = null;
+    let liveLeaseDependencies: Array<{ref: TDocumentRef}> = [];
     let fenced = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let heartbeatTimer: ReturnType<typeof setTimeout> | null = null;
@@ -100,6 +107,15 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
             const outcome = await touchBrowserWorkspaceRecovery(ownerId, expectedGeneration);
             if (outcome.saved) {
                 generation = outcome.generation;
+                if (liveLeaseGeneration !== null) {
+                    const liveLease = await saveBrowserDocumentLiveLease(
+                        ownerId,
+                        liveLeaseGeneration,
+                        'active',
+                        liveLeaseDependencies,
+                    );
+                    liveLeaseGeneration = liveLease.generation;
+                }
             } else if (activeOwnerId === ownerId && generation === expectedGeneration) {
                 fenced = true;
                 stopHeartbeat();
@@ -197,6 +213,9 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
             return;
         }
         if (ownerId !== activeOwnerId) {
+            if (activeOwnerId && liveLeaseGeneration !== null) {
+                await releaseBrowserDocumentLiveLease(activeOwnerId, liveLeaseGeneration).catch(() => undefined);
+            }
             stopHeartbeat();
             activeOwnerId = ownerId;
             generation = null;
@@ -204,6 +223,7 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
             persistedCheckpointRevision = -1;
             persistedTabMutationRevisions.clear();
             attemptedTabMutationRevisions.clear();
+            liveLeaseGeneration = null;
         }
         const checkpoint = buildWorkspaceCheckpoint(options);
         const allDirtyTabs = checkpoint.tabs.filter(tab => tab.isDirty);
@@ -226,6 +246,11 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
                 await cleanupSnapshots(previous.snapshotRefs);
             }
             stopHeartbeat();
+            if (liveLeaseGeneration !== null) {
+                await releaseBrowserDocumentLiveLease(ownerId, liveLeaseGeneration).catch(() => undefined);
+                liveLeaseGeneration = null;
+            }
+            liveLeaseDependencies = [];
             persistedCheckpointRevision = Math.max(
                 persistedCheckpointRevision,
                 capturedCheckpointRevision,
@@ -372,6 +397,19 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
                 stopHeartbeat();
                 await cleanupSnapshots(createdRefs);
                 return;
+            }
+            const liveDependencies = recoveryCheckpoint.tabs.flatMap(tab => [
+                ...(tab.workingCopyRef ? [{ref: tab.workingCopyRef}] : []),
+                ...(tab.sourceRef ? [{ref: tab.sourceRef}] : []),
+            ]);
+            liveLeaseDependencies = liveDependencies;
+            try {
+                const liveLease = liveLeaseGeneration === null
+                    ? await createBrowserDocumentLiveLease(ownerId, liveDependencies)
+                    : await saveBrowserDocumentLiveLease(ownerId, liveLeaseGeneration, 'active', liveDependencies);
+                liveLeaseGeneration = liveLease.generation;
+            } catch (error) {
+                BrowserLogger.warn('workspace-recovery', 'Failed to publish browser document live lease', error);
             }
             scheduleHeartbeat();
             persistedCheckpointRevision = Math.max(

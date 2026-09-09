@@ -1,10 +1,12 @@
 import {PDF_COMBINE_MAX_OUTPUT_BYTES} from '@contracts/pdfCombineOutputPolicy';
 
 export const DB_NAME = 'evb-viewer-browser-documents';
-export const DB_VERSION = 3;
+export const DB_VERSION = 5;
 export const DOCUMENTS_STORE = 'documents';
 export const DOCUMENT_CHUNKS_STORE = 'document-chunks';
 export const WORKSPACE_RECOVERY_STORE = 'workspace-recovery';
+export const BROWSER_LIVE_LEASES_STORE = 'browser-live-leases';
+export const BROWSER_TRANSFER_AUTHORITY_STORE = 'browser-transfer-authority';
 export const BROWSER_DOCUMENT_CHUNK_SIZE = 4 * 1024 * 1024;
 // Browser records may be larger and stay chunked, but any operation that asks
 // for one complete JavaScript value is limited to the shared small-input
