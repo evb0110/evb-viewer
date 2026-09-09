@@ -25,7 +25,7 @@ import {
 import {atomicReplace} from '@electron/utils/atomicReplace';
 
 const holdFileHandleScript = resolve('scripts/windows-test/guest/powershell/hold-file-handle.ps1');
-const publicationHarness = resolve('tests/integration/native/windowsAtomicPdfPublicationHarness.js');
+const publicationHarness = resolve('tests/integration/native/windowsAtomicPdfPublicationHarness.cjs');
 
 async function makePdf(text: string) {
     const document = await PDFDocument.create();
@@ -91,8 +91,9 @@ async function runPublicationHarness(
     } = {},
 ) {
     const electronPath = resolve('node_modules/electron/dist/electron.exe');
+    const childEnv = {...process.env};
+    delete childEnv.ELECTRON_RUN_AS_NODE;
     const child = execFile(electronPath, [
-        '--no-sandbox',
         publicationHarness,
         operation,
         sourcePath,
@@ -102,7 +103,7 @@ async function runPublicationHarness(
     ], {
         cwd: resolve('.'),
         env: {
-            ...process.env,
+            ...childEnv,
             EVB_AUTOMATION_HIDE_WINDOW: '1',
             EVB_ATOMIC_REPLACE_TEST_BARRIER: options.barrier === true ? 'before-publish' : '',
             EVB_ATOMIC_REPLACE_TEST_BARRIER_FILE: controlPath,
@@ -161,7 +162,7 @@ describe.skipIf(process.platform !== 'win32')('Windows atomic PDF replacement', 
         const oldBytes = await makePdf('old Windows fixture');
         await writeFile(destinationPath, oldBytes);
         await writeFile(sourcePath, await makePdf('new Windows fixture'));
-        const reader = execFile('powershell.exe', [
+        const reader = execFile('pwsh.exe', [
             '-NoProfile',
             '-NonInteractive',
             '-ExecutionPolicy',
@@ -176,7 +177,7 @@ describe.skipIf(process.platform !== 'win32')('Windows atomic PDF replacement', 
             readyPath,
         ]);
         try {
-            await waitForFile(readyPath);
+            await waitForFile(readyPath, 30_000);
             await expect(atomicReplace(sourcePath, destinationPath)).rejects.toBeDefined();
         } finally {
             await writeFile(`${readyPath}.release`, 'release');
