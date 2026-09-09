@@ -228,6 +228,20 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
     }
     const annotationApplication = shallowRef(createAnnotationApplication('no-document'));
     const storeOwnedPdfAnnotationIds = shallowRef(new Set<string>());
+    // A native save keeps the PDF.js document that was loaded before the
+    // write, so its pages still carry every annotation the save deleted. The
+    // store retires a deleted entity's PDF ref when that save commits, which
+    // would let the stale appearance repaint. Keep those refs hidden until
+    // PDF.js loads a replacement document.
+    const retiredPdfAnnotationIds = shallowRef(new Set<string>());
+    const hiddenPdfAnnotationIds = computed(() => (
+        retiredPdfAnnotationIds.value.size === 0
+            ? storeOwnedPdfAnnotationIds.value
+            : new Set([
+                ...storeOwnedPdfAnnotationIds.value,
+                ...retiredPdfAnnotationIds.value,
+            ])
+    ));
     const resolveStampImage = createPdfAnnotationStampImageResolver(documentSession);
     const shapeTool = usePdfShapeTool({
         annotationTool: options.annotationTool,
@@ -259,14 +273,24 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         activeCommentStableKey,
     } = annotationCommentModel;
     function projectCanonicalAnnotations() {
-        const nextStoreOwnedPdfAnnotationIds = new Set(
-            annotationApplication.value.store
-                .list({includeDeleted: true})
-                .map(entity => normalizePdfJsAnnotationId(entity.identity.pdfRef))
-                .filter((id): id is string => Boolean(id)),
-        );
+        const entities = annotationApplication.value.store.list({includeDeleted: true});
+        const nextStoreOwnedPdfAnnotationIds = new Set<string>();
+        const nextRetiredPdfAnnotationIds = new Set(retiredPdfAnnotationIds.value);
+        entities.forEach((entity) => {
+            const pdfJsAnnotationId = normalizePdfJsAnnotationId(entity.identity.pdfRef);
+            if (!pdfJsAnnotationId) {
+                return;
+            }
+            nextStoreOwnedPdfAnnotationIds.add(pdfJsAnnotationId);
+            if (entity.deleted) {
+                nextRetiredPdfAnnotationIds.add(pdfJsAnnotationId);
+            }
+        });
         if (!sameStringSet(storeOwnedPdfAnnotationIds.value, nextStoreOwnedPdfAnnotationIds)) {
             storeOwnedPdfAnnotationIds.value = nextStoreOwnedPdfAnnotationIds;
+        }
+        if (!sameStringSet(retiredPdfAnnotationIds.value, nextRetiredPdfAnnotationIds)) {
+            retiredPdfAnnotationIds.value = nextRetiredPdfAnnotationIds;
         }
         const projected = annotationApplication.value.listCommentSummaries().map(comment => ({
             ...comment,
@@ -306,6 +330,9 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         }
         const replacesLoadedDocument = lastLoadedPdfDocument !== null;
         lastLoadedPdfDocument = document;
+        if (retiredPdfAnnotationIds.value.size > 0) {
+            retiredPdfAnnotationIds.value = new Set();
+        }
         if (!replacesLoadedDocument || options.isAnySaving.value) {
             return;
         }
@@ -907,10 +934,10 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             { syncAnnotationComments: annotations.commentSync.syncAnnotationComments },
         );
     }
-    const canvasHiddenAnnotationIds = computed(() => new Set(storeOwnedPdfAnnotationIds.value));
+    const canvasHiddenAnnotationIds = computed(() => new Set(hiddenPdfAnnotationIds.value));
     const annotationProjectionReady = ref(!(options.workingCopyPath.value && options.documentRevisionToken.value && documentSession.pdfDocument.value));
     const detachProjection = rendering.attachAnnotationProjection({
-        hiddenAnnotationIds: storeOwnedPdfAnnotationIds,
+        hiddenAnnotationIds: hiddenPdfAnnotationIds,
         annotationProjectionReady,
         canvasHiddenAnnotationIds,
         pageCommitted: () => undefined,
@@ -919,7 +946,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         documentSession,
         viewport,
         rendering,
-        storeOwnedPdfAnnotationIds,
+        storeOwnedPdfAnnotationIds: hiddenPdfAnnotationIds,
         annotationProjectionReady,
         nextTick,
     });
@@ -1182,6 +1209,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             return annotationApplication.value.store.hasChangesSinceSavedBaseline('shape');
         },
         getDeletedCanonicalAnnotationIds: () => Array.from(new Set([
+            ...retiredPdfAnnotationIds.value,
             ...annotationApplication.value.store.deletedAnnotationIds(),
             ...annotationApplication.value.store
                 .list({includeDeleted: true})
