@@ -1,0 +1,57 @@
+electron/features/ocr/worker/ocrPageSelectionStream.ts
+  s_f03f4537557022::t_bd25686c2ac7ce 14,25,87,111-114,119-136
+electron/features/ocr/worker/persistOcrPageCheckpoint.ts
+  s_e6afbc66b58e4d::t_ffacda04890eb7 39
+electron/features/ocr/worker/tryPreprocessOcrImage.ts
+  s_e6afbc66b58e4d::t_08968e3abc5ebd 1-3,10-16,90-134,188,213-216,235,244,270,272-279,291
+electron/ocr/worker/main.ts
+  s_f03f4537557022::t_183ece580d388a 48,66,301-378,387,412,418,436,503-504,518-519,521,523,572-575,581-598,614,627,711,732,888,1042
+electron/ocr/worker/runProductionOcrQualityCase.ts
+  s_5f0a2670c362dd::t_12e757ed763f35 53,57
+electron/ocr/worker/types.ts
+  s_5f0a2670c362dd::t_41f38ee7b9a179 17,54-70,78
+packages/contracts/scan-cleanup/nativeProtocolV3.ts
+  s_e6afbc66b58e4d::t_741e69b12a3b40 202-203
+tests/unit/electron/ocrPdfAssembler.test.ts
+  s_f03f4537557022::t_00ad7012ad12c6 715-904
+tests/unit/electron/ocrWorkerPageSizeFallback.test.ts
+  s_5f0a2670c362dd::t_f07634ce406bb2 70-74
+tests/unit/electron/ocrWorkerPreprocessOcrImage.test.ts
+  s_f03f4537557022::t_e050f57c079589 11,14,18-22,33-34,51,117-185,196,240,275,301,333,369,378,388,406
+electron/features/ocr/worker/pdfAssembler.ts
+  s_f03f4537557022::t_d2eeef2ba6e015 21-24,61-64,85-93,522-662,666,668-669,685-686,689,695-696,704-705,713-714,721-722,724-754,773,782-788,790-816,824-825,848
+electron/features/ocr/worker/pdfPageSizeProbe.ts
+  s_f03f4537557022::t_22a3c4ec0e0215 3-5,12,83-92
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "ea93a1203c467a0ee2864e7229f51ce484167e61",
+  "prompts": {},
+  "sessions": {
+    "s_5f0a2670c362dd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0877c-d16e-7641-994d-d3f1444a10c7",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_e6afbc66b58e4d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07cdb-5143-7e02-a580-29471422fbfa",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_f03f4537557022": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0877a-8d5f-75b1-be5c-13a030cb3ff8",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
