@@ -2,6 +2,15 @@ name: Process safety platform acceptance
 
 on:
   workflow_dispatch:
+    inputs:
+      acceptance:
+        description: Focused acceptance selection for the platform runner
+        required: false
+        default: cli
+        type: choice
+        options:
+          - cli
+          - host-protocol
 
 permissions:
   contents: read
@@ -12,6 +21,7 @@ env:
 jobs:
   unix-cli:
     name: CLI process safety (${{ matrix.os }})
+    if: ${{ inputs.acceptance != 'host-protocol' }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
@@ -72,3 +82,34 @@ jobs:
           pnpm exec vitest run --project unit-scripts
           tests/unit/scripts/electronRunProcessIdentity.test.ts
           -t "Windows controller|Windows process ancestry"
+
+  host-protocol:
+    name: Windows host protocol acceptance (macOS)
+    if: ${{ inputs.acceptance == 'host-protocol' }}
+    runs-on: macos-14
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
+
+      - name: Run focused Windows host protocol acceptance
+        run: >-
+          pnpm exec vitest run --project unit-scripts
+          tests/unit/scripts/windows-test/hostLock.test.ts
+          tests/unit/scripts/windows-test/hostLease.test.ts
+          tests/unit/scripts/windows-test/hostCoordinator.test.ts
+          tests/unit/scripts/windows-test/hostStopRun.test.ts
