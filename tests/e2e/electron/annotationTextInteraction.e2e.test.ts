@@ -234,7 +234,7 @@ async function startText(page: Page) {
     expect((await frame(page)).focused).toBe(true);
 }
 
-async function resize(page: Page, handle: string, dx: number, dy: number) {
+async function waitForTextControlsLayout(page: Page) {
     // A late font swap changes the measured text width and moves its handles.
     // Aim only after the same font used by the rendered text is ready.
     await page.evaluate(async () => {
@@ -242,6 +242,10 @@ async function resize(page: Page, handle: string, dx: number, dy: number) {
         await document.fonts.ready;
         await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
     });
+}
+
+async function resize(page: Page, handle: string, dx: number, dy: number) {
+    await waitForTextControlsLayout(page);
     const selector = `.editor-pane.is-active .workspace-host[data-workspace-active="true"] [data-pdf-annotation-resize-handle="${handle}"]`;
     await page.waitForSelector(selector, {visible: true});
     const point = await page.$eval(selector, element => {
@@ -613,6 +617,7 @@ describe('Electron E2E - text interaction contract', () => {
         const {page} = await openFixture(true, 2.92);
         await startText(page);
         await page.keyboard.type('Visible grip');
+        await waitForTextControlsLayout(page);
         const before = await frame(page);
         const grip = '.editor-pane.is-active [data-pdf-annotation-move-handle]';
         const point = await page.$eval(grip, element => {
@@ -656,6 +661,8 @@ describe('Electron E2E - text interaction contract', () => {
         const {page} = await openFixture(false, 2.92);
         await startText(page);
         await page.keyboard.type('Released mouse');
+        await waitForTextControlsLayout(page);
+        const before = await frame(page);
         const grip = '.editor-pane.is-active [data-pdf-annotation-move-handle]';
         const start = await page.$eval(grip, element => {
             const rect = element.getBoundingClientRect();
@@ -667,7 +674,6 @@ describe('Electron E2E - text interaction contract', () => {
                 y,
             };
         });
-        const before = await frame(page);
         const end = {
             x: start.x - 180,
             y: start.y + 30,
