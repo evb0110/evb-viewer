@@ -1,0 +1,35 @@
+docs/local-gates.md
+  s_ae6c4bbbb044ae::t_1b78ed2dfcaac2 76-78
+scripts/ci/ci-health.mjs
+  s_ae6c4bbbb044ae::t_d01e06f8fd4e8b 6-7
+  s_ae6c4bbbb044ae::t_8830df14db3d0c 52-53,60,68
+  s_ae6c4bbbb044ae::t_62ab694a178ccb 157-160,162,304,367-371
+  s_ae6c4bbbb044ae::t_5802ce6b134260 141,163
+  s_ae6c4bbbb044ae::t_1b78ed2dfcaac2 5,8,20-21,23,65-67,69-73,95-140,142-146,155-156,161,164,166-198,303,305-351,353-366,372-384,390-391,416-417,419,421,424-444,464,469
+  s_e4c38a5c21eafd::t_e6ffb125a0753e 22,147-154,165,352,418,420,422-423
+  s_e4c38a5c21eafd::t_4bed49e2461b33 475,478,488
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "1eb6fbbabd83d3557324054e03e35ec67fec0d38",
+  "prompts": {},
+  "sessions": {
+    "s_ae6c4bbbb044ae": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0885d-8436-7532-901f-a8e509a77371",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_e4c38a5c21eafd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5eb6c90b-53e8-4178-b868-46f9a6573dee",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
