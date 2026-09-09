@@ -1,0 +1,29 @@
+app/modules/workspace-shell/components/WorkspacePdfToolbarView.vue
+  s_ef4e702043bb8f::t_4100f1c5e73015 285,471-474
+  s_ef4e702043bb8f::t_4ee8a7bb81da2b 164
+app/modules/workspace-shell/viewers/workspaceViewerAdapters.ts
+  s_ef4e702043bb8f::t_ccfd58631d5085 16,62-67
+app/modules/workspace-shell/composables/useWorkspaceInteractionControls.ts
+  s_ef4e702043bb8f::t_ccfd58631d5085 33-34,72,122,138-141
+  s_ef4e702043bb8f::t_7f5f70cb3509bb 204
+app/modules/workspace-shell/viewers/workspaceDocumentDriver.ts
+  s_ef4e702043bb8f::t_ccfd58631d5085 47,663-666,689-692
+app/modules/workspace-shell/useWorkspaceOrchestration.ts
+  s_ef4e702043bb8f::t_ccfd58631d5085 875
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e78a7c1d3ede34fdbf35f52d1ad28b2378834228",
+  "prompts": {},
+  "sessions": {
+    "s_ef4e702043bb8f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08855-499d-71c1-acda-7966a24d9c71",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
