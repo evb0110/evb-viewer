@@ -2,7 +2,9 @@ import {fileURLToPath} from 'node:url';
 
 import {defineNuxtConfig as defineNuxtConfigBase} from 'nuxt/config';
 
-import {DEFAULT_LOCALE, LOCALE_CODES} from '../packages/i18n-core/localeCodes';
+import {
+    DEFAULT_LOCALE, LOCALE_CODES,
+} from '../packages/i18n-core/localeCodes';
 import {LOCALE_DEFINITIONS} from '../packages/i18n-core/localeDefinitions';
 
 // Nuxt 4.4.7's config declaration currently loses the helper call signature.
