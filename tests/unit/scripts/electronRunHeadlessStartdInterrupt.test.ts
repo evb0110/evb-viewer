@@ -6,6 +6,7 @@ import {
     mkdirSync,
     mkdtempSync,
     readFileSync,
+    readlinkSync,
     rmSync,
     writeFileSync,
 } from 'node:fs';
@@ -29,6 +30,7 @@ interface IFakeHeadlessHost {
     pnpmLogPath: string;
     pnpmPidPath: string;
     xvfbPidPath: string;
+    xvfbOwnerPath: string;
 }
 
 function writeExecutable(path: string, source: string) {
@@ -52,7 +54,11 @@ function createFakeHeadlessHost(): IFakeHeadlessHost {
     const pnpmLogPath = join(root, 'pnpm-calls.log');
     const pnpmPidPath = join(root, 'pnpm-startd.pid');
     writeExecutable(join(binDir, 'uname'), '#!/bin/bash\necho Linux\n');
-    writeExecutable(join(binDir, 'Xvfb'), '#!/bin/bash\nexec sleep 300\n');
+    writeExecutable(join(binDir, 'Xvfb'), [
+        '#!/bin/bash',
+        'exec -a Xvfb bash -c \'while true; do sleep 1; done\' Xvfb "$@"',
+        '',
+    ].join('\n'));
     writeExecutable(join(binDir, 'pnpm'), [
         '#!/bin/bash',
         `printf '%s\\n' "$*" >> "${pnpmLogPath}"`,
@@ -73,6 +79,7 @@ function createFakeHeadlessHost(): IFakeHeadlessHost {
         pnpmLogPath,
         pnpmPidPath,
         xvfbPidPath: join(root, '.devkit', 'headless-xvfb', SESSION_NAME, 'xvfb.pid'),
+        xvfbOwnerPath: join(root, '.devkit', 'headless-xvfb', SESSION_NAME, 'xvfb-owner'),
     };
 }
 
@@ -112,8 +119,15 @@ function killIfAlive(pid: number | null) {
     }
 }
 
+function readProcessCommandline(pid: number) {
+    return readFileSync(`/proc/${String(pid)}/cmdline`, 'utf8')
+        .split('\0')
+        .filter(Boolean)
+        .join(' ');
+}
+
 describe('electron-run-headless.sh startd interruption', () => {
-    it.runIf(process.platform !== 'win32')(
+    it.runIf(process.platform === 'linux')(
         'stops Xvfb and the session when a detached start is interrupted',
         async () => {
             const host = createFakeHeadlessHost();
@@ -157,6 +171,7 @@ describe('electron-run-headless.sh startd interruption', () => {
                     return xvfbPid !== null && pnpmPid !== null;
                 }, 10_000), stderr).toBe(true);
                 expect(isProcessAlive(xvfbPid!)).toBe(true);
+                expect(existsSync(host.xvfbOwnerPath)).toBe(true);
 
                 runner.kill('SIGTERM');
                 const outcome = await exit;
@@ -165,6 +180,7 @@ describe('electron-run-headless.sh startd interruption', () => {
                 expect(await waitUntil(() => !isProcessAlive(xvfbPid!), 5_000)).toBe(true);
                 expect(await waitUntil(() => !isProcessAlive(pnpmPid!), 5_000)).toBe(true);
                 expect(existsSync(host.xvfbPidPath)).toBe(false);
+                expect(existsSync(host.xvfbOwnerPath)).toBe(false);
                 const stopCalls = readPnpmCalls(host.pnpmLogPath)
                     .filter(call => /(^|\s)stop(\s|$)/u.test(call));
                 expect(stopCalls.some(call => call.includes(SESSION_NAME))).toBe(true);
@@ -180,5 +196,134 @@ describe('electron-run-headless.sh startd interruption', () => {
             }
         },
         30_000,
+    );
+
+    it.runIf(process.platform === 'linux')(
+        'refuses a mismatched persisted owner without signalling the live PID',
+        async () => {
+            const host = createFakeHeadlessHost();
+            const fixture = spawn('sleep', ['300'], {
+                stdio: 'ignore',
+            });
+            const fixturePid = fixture.pid;
+            let runner: ReturnType<typeof spawn> | null = null;
+
+            try {
+                expect(fixturePid).toBeDefined();
+                expect(await waitUntil(() => existsSync(`/proc/${String(fixturePid)}/stat`), 2_000)).toBe(true);
+                const executable = readlinkSync(`/proc/${String(fixturePid)}/exe`);
+                const bootId = readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim();
+                mkdirSync(join(host.root, '.devkit', 'headless-xvfb', SESSION_NAME), {
+                    recursive: true,
+                });
+                writeFileSync(host.xvfbOwnerPath, [
+                    `pid=${String(fixturePid)}`,
+                    `executable=${executable}`,
+                    `start_time=wrong-start-time`,
+                    `boot_id=${bootId}`,
+                    'display=:99',
+                    'screen_spec=1440x1000x24',
+                    `session=${SESSION_NAME}`,
+                    'run_id=fixture-run',
+                    `commandline=${readProcessCommandline(fixturePid)}`,
+                    '',
+                ].join('\n'));
+
+                for (const stopArgs of [['stop'], ['stop', '--all']]) {
+                    runner = spawn('bash', [
+                        host.scriptPath,
+                        '--session',
+                        SESSION_NAME,
+                        ...stopArgs,
+                    ], {
+                        cwd: host.root,
+                        env: {
+                            ...process.env,
+                            PATH: `${host.binDir}:${process.env.PATH ?? ''}`,
+                        },
+                        stdio: ['ignore', 'pipe', 'pipe'],
+                    });
+                    let stderr = '';
+                    runner.stderr.on('data', (chunk: Buffer) => {
+                        stderr += chunk.toString();
+                    });
+                    const outcome = await new Promise<{code: number | null}>((resolve) => {
+                        runner!.once('exit', (code) => resolve({code}));
+                    });
+
+                    expect(outcome.code).not.toBe(0);
+                    expect(isProcessAlive(fixturePid!)).toBe(true);
+                    expect(existsSync(host.xvfbOwnerPath)).toBe(true);
+                    expect(stderr).toContain('process start time mismatch');
+                }
+            } finally {
+                if (runner && runner.exitCode === null) {
+                    runner.kill('SIGKILL');
+                }
+                killIfAlive(fixturePid ?? null);
+                rmSync(host.root, {
+                    force: true,
+                    recursive: true,
+                });
+            }
+        },
+        15_000,
+    );
+
+    it.runIf(process.platform === 'linux')(
+        'leaves legacy PID-only evidence and its live process untouched',
+        async () => {
+            const host = createFakeHeadlessHost();
+            const fixture = spawn('sleep', ['300'], {
+                stdio: 'ignore',
+            });
+            const fixturePid = fixture.pid;
+            let runner: ReturnType<typeof spawn> | null = null;
+
+            try {
+                expect(fixturePid).toBeDefined();
+                expect(await waitUntil(() => existsSync(`/proc/${String(fixturePid)}/stat`), 2_000)).toBe(true);
+                mkdirSync(join(host.root, '.devkit', 'headless-xvfb', SESSION_NAME), {
+                    recursive: true,
+                });
+                writeFileSync(host.xvfbPidPath, `${String(fixturePid)}\n`);
+                writeFileSync(join(host.root, '.devkit', 'headless-xvfb', SESSION_NAME, 'xvfb-display'), ':99\n');
+                runner = spawn('bash', [
+                    host.scriptPath,
+                    '--session',
+                    SESSION_NAME,
+                    'stop',
+                ], {
+                    cwd: host.root,
+                    env: {
+                        ...process.env,
+                        PATH: `${host.binDir}:${process.env.PATH ?? ''}`,
+                    },
+                    stdio: ['ignore', 'pipe', 'pipe'],
+                });
+                let stderr = '';
+                runner.stderr.on('data', (chunk: Buffer) => {
+                    stderr += chunk.toString();
+                });
+                const outcome = await new Promise<{code: number | null}>((resolve) => {
+                    runner!.once('exit', (code) => resolve({code}));
+                });
+
+                expect(outcome.code).not.toBe(0);
+                expect(isProcessAlive(fixturePid!)).toBe(true);
+                expect(readFileSync(host.xvfbPidPath, 'utf8')).toBe(`${String(fixturePid)}\n`);
+                expect(stderr).toContain('no atomic Xvfb ownership record');
+            } finally {
+                if (runner && runner.exitCode === null) {
+                    runner.kill('SIGKILL');
+                }
+                killIfAlive(fixturePid ?? null);
+                rmSync(host.root, {
+                    force: true,
+                    recursive: true,
+                });
+            }
+        },
+        15_000,
     );
 });
