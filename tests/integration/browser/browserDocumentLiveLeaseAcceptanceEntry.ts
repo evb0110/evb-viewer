@@ -7,7 +7,7 @@ import {
 import {
     loadAllRecordKeysAvailability,
     loadRecordAvailability,
-    runObjectStoresTransaction,
+    runObjectStoresTransaction,loadBrowserTransferAuthority,
 } from '@app/platform/browser/browserDocumentIdb';
 import {loadAllChunkKeysAvailability} from '@app/platform/browser/browserDocumentChunks';
 import {browserDocumentStore} from '@app/platform/browser/browserDocumentRepository';
@@ -32,6 +32,15 @@ let liveRefs: {
     chunkedSource: string;
     generatedWorking: string;
 } | null = null;
+let dirtyTransferObservation: {
+    phase: 'none' | 'provisional' | 'committed';
+    beforeAck: number[];
+    afterAck: number[];
+} = {
+    phase: 'none',
+    beforeAck: [],
+    afterAck: [],
+};
 
 async function setLeaseHeartbeat(heartbeatAt: number) {
     const committed = await runObjectStoresTransaction<boolean>(
@@ -322,6 +331,106 @@ async function transferEmptyTab() {
     return result;
 }
 
+function prepareDirtyTransferReceiver() {
+    browserWindowTabsCapability.notifyRendererReady();
+    browserWindowTabsCapability.onIncomingTransfer(transfer => {
+        void (async () => {
+            if (transfer.payload.kind !== 'pdfSnapshot') {
+                return;
+            }
+            await browserDocumentStore.requireEntry(transfer.payload.snapshotPath);
+            dirtyTransferObservation = {
+                phase: 'provisional',
+                beforeAck: Array.from(await browserDocumentStore.read(transfer.payload.snapshotPath)),
+                afterAck: [],
+            };
+            const pending = await loadBrowserTransferAuthority(transfer.transferId);
+            if (pending?.state !== 'pending') {
+                throw new Error('Dirty transfer was editable before durable acknowledgement');
+            }
+            const committed = await browserWindowTabsCapability.transferAck({
+                transferId: transfer.transferId,
+                success: true,
+            });
+            if (!committed) {
+                throw new Error('Dirty transfer did not receive durable commit');
+            }
+            const authority = await loadBrowserTransferAuthority(transfer.transferId);
+            dirtyTransferObservation = {
+                phase: authority?.state === 'committed' ? 'committed' : 'provisional',
+                beforeAck: dirtyTransferObservation.beforeAck,
+                afterAck: Array.from(await browserDocumentStore.read(transfer.payload.snapshotPath)),
+            };
+        })().catch(error => {
+            void browserWindowTabsCapability.transferAck({
+                transferId: transfer.transferId,
+                success: false,
+                error: String(error),
+            });
+        });
+    });
+    return browserWindowTabsCapability.listTargetWindows();
+}
+
+async function transferDirtyTab() {
+    const originalPath = await browserDocumentStore.createStoredDocument(
+        'transfer-original.pdf',
+        Uint8Array.of(1, 2, 3),
+        {
+            kind: 'source',
+            retention: 'durable',
+            mimeType: 'application/pdf',
+        },
+    );
+    const editedBytes = Uint8Array.of(90, 91, 92, 93);
+    const snapshotPath = await browserDocumentStore.createStoredDocument(
+        'transfer-dirty.pdf',
+        editedBytes,
+        {
+            kind: 'working',
+            retention: 'durable',
+            mimeType: 'application/pdf',
+            sourceRef: originalPath,
+        },
+    );
+    browserWindowTabsCapability.notifyRendererReady();
+    const result = await browserWindowTabsCapability.transfer({
+        target: {
+            kind: 'window',
+            windowId: 2,
+        },
+        tab: {
+            fileName: 'transfer-dirty.pdf',
+            originalPath,
+            isDirty: true,
+            isDjvu: false,
+        },
+        payload: {
+            kind: 'pdfSnapshot',
+            fileName: 'transfer-dirty.pdf',
+            originalPath,
+            snapshotPath,
+            isDirty: true,
+        },
+        timeoutMs: 3_000,
+    });
+    return result;
+}
+
+function readDirtyTransferObservation() {
+    return dirtyTransferObservation;
+}
+
+async function waitForDirtyTransferCommit() {
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+        if (dirtyTransferObservation.phase === 'committed') {
+            return dirtyTransferObservation;
+        }
+        await new Promise<void>(resolve => setTimeout(resolve, 25));
+    }
+    return dirtyTransferObservation;
+}
+
 Reflect.set(globalThis, '__evbSetupLiveLeaseAcceptance', setupLiveLeaseAcceptance);
 Reflect.set(globalThis, '__evbAgeLiveLeaseAcceptance', () => setLeaseHeartbeat(1));
 Reflect.set(globalThis, '__evbSuspendLiveLeaseAcceptance', suspendLiveLeaseAcceptance);
@@ -332,3 +441,7 @@ Reflect.set(globalThis, '__evbReopenLiveLeaseAcceptance', reopenGeneratedDocumen
 Reflect.set(globalThis, '__evbReclaimLiveLeaseAcceptance', reclaimAfterConfirmedDeath);
 Reflect.set(globalThis, '__evbPrepareTransferReceiver', prepareTransferReceiver);
 Reflect.set(globalThis, '__evbTransferEmptyTab', transferEmptyTab);
+Reflect.set(globalThis, '__evbPrepareDirtyTransferReceiver', prepareDirtyTransferReceiver);
+Reflect.set(globalThis, '__evbTransferDirtyTab', transferDirtyTab);
+Reflect.set(globalThis, '__evbReadDirtyTransferObservation', readDirtyTransferObservation);
+Reflect.set(globalThis, '__evbWaitForDirtyTransferCommit', waitForDirtyTransferCommit);

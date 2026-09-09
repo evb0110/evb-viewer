@@ -5,6 +5,7 @@ import {
     DOCUMENT_CHUNKS_STORE,
     WORKSPACE_RECOVERY_STORE,
     BROWSER_LIVE_LEASES_STORE,
+    BROWSER_TRANSFER_AUTHORITY_STORE,
 } from '@app/platform/browser/browserDocumentConstants';
 import { uniq } from 'es-toolkit/array';
 import { buildRecentFilesFromPersistedRecords } from '@app/platform/browser/buildRecentFilesFromPersistedRecords';
@@ -209,6 +210,45 @@ function liveLeaseProtectsChunk(
         || protection.leasedGenerations.has(getChunkGenerationKey(ref, generation));
 }
 
+function readTransferAuthorityProtection(value: unknown): IBrowserLiveLeaseProtection | null {
+    if (!Array.isArray(value)) {
+        return null;
+    }
+    const leasedRefs = new Set<string>();
+    const allGenerationsRefs = new Set<string>();
+    const leasedGenerations = new Set<string>();
+    for (const authorityValue of value) {
+        if (!authorityValue || typeof authorityValue !== 'object' || Array.isArray(authorityValue)) {
+            return null;
+        }
+        const backingRefs = (authorityValue as {backingRefs?: unknown}).backingRefs;
+        if (!Array.isArray(backingRefs)) {
+            return null;
+        }
+        for (const dependency of backingRefs) {
+            if (!dependency || typeof dependency !== 'object' || Array.isArray(dependency)) {
+                return null;
+            }
+            const ref = (dependency as {ref?: unknown}).ref;
+            const chunkGeneration = (dependency as {chunkGeneration?: unknown}).chunkGeneration;
+            if (typeof ref !== 'string' || (chunkGeneration !== undefined && typeof chunkGeneration !== 'string')) {
+                return null;
+            }
+            leasedRefs.add(ref);
+            if (chunkGeneration === undefined) {
+                allGenerationsRefs.add(ref);
+            } else {
+                leasedGenerations.add(getChunkGenerationKey(ref, chunkGeneration));
+            }
+        }
+    }
+    return {
+        leasedRefs,
+        allGenerationsRefs,
+        leasedGenerations,
+    };
+}
+
 export async function loadBrowserPersistedDocumentRecordsResult(): Promise<IBrowserPersistedDocumentRecordsLoadResult> {
     const rawKeysResult = await loadAllRecordKeysAvailability();
     if (!rawKeysResult.available) {
@@ -364,6 +404,7 @@ export async function sweepBrowserDocumentMaintenance(
             DOCUMENTS_STORE,
             DOCUMENT_CHUNKS_STORE,
             BROWSER_LIVE_LEASES_STORE,
+            BROWSER_TRANSFER_AUTHORITY_STORE,
         ],
         'readwrite',
         (transaction, setResult) => {
@@ -371,9 +412,11 @@ export async function sweepBrowserDocumentMaintenance(
             const documentsStore = transaction.objectStore(DOCUMENTS_STORE);
             const chunksStore = transaction.objectStore(DOCUMENT_CHUNKS_STORE);
             const liveLeasesStore = transaction.objectStore(BROWSER_LIVE_LEASES_STORE);
+            const transferAuthorityStore = transaction.objectStore(BROWSER_TRANSFER_AUTHORITY_STORE);
             const recoveriesRead = recoveryStore.getAll();
             const documentsRead = documentsStore.getAll();
             const liveLeasesRead = liveLeasesStore.getAll();
+            const transferAuthoritiesRead = transferAuthorityStore.getAll();
             // Recent-file mutations use this same documents-store transaction
             // as their cross-window lock. Do not read localStorage until this
             // request succeeds, otherwise a touch admitted before this
@@ -383,6 +426,7 @@ export async function sweepBrowserDocumentMaintenance(
             let recoveryReadComplete = false;
             let documentsReadComplete = false;
             let liveLeasesReadComplete = false;
+            let transferAuthoritiesReadComplete = false;
             let recentFilesLockReadComplete = false;
             let transactionRecentRefs = recentRefs;
             const process = () => {
@@ -390,6 +434,7 @@ export async function sweepBrowserDocumentMaintenance(
                     !recoveryReadComplete
                     || !documentsReadComplete
                     || !liveLeasesReadComplete
+                    || !transferAuthoritiesReadComplete
                     || !recentFilesLockReadComplete
                 ) {
                     return;
@@ -447,6 +492,11 @@ export async function sweepBrowserDocumentMaintenance(
                     setResult(new Set());
                     return;
                 }
+                const transferProtection = readTransferAuthorityProtection(transferAuthoritiesRead.result);
+                if (!transferProtection) {
+                    setResult(new Set());
+                    return;
+                }
                 const transactionRecords = Array.isArray(documentsRead.result)
                     ? documentsRead.result.flatMap((value: unknown) => {
                         const record = toPersistedDocumentRecord(value);
@@ -484,13 +534,15 @@ export async function sweepBrowserDocumentMaintenance(
                     ))
                     .filter(record => !leasedRefs.has(record.ref))
                     .filter(record => !liveLeaseProtection.leasedRefs.has(record.ref))
+                    .filter(record => !transferProtection.leasedRefs.has(record.ref))
                     .filter(record => !transactionPendingChunkGenerationsByRef.has(record.ref))
                     .filter(record => !pendingRefs.has(record.ref))
                     .map(record => record.ref);
                 const finalRefs = new Set([
                     ...transactionRefsToRemove,
                     ...Array.from(transactionBrokenChunkRefs)
-                        .filter(ref => !liveLeaseProtection.leasedRefs.has(ref)),
+                        .filter(ref => !liveLeaseProtection.leasedRefs.has(ref))
+                        .filter(ref => !transferProtection.leasedRefs.has(ref)),
                 ]);
                 finalRefs.forEach(ref => documentsStore.delete(ref));
                 for (const chunkKey of chunkKeys) {
@@ -500,6 +552,7 @@ export async function sweepBrowserDocumentMaintenance(
                         chunkKey.ref,
                         chunkKey.generation,
                     )) continue;
+                    if (liveLeaseProtectsChunk(transferProtection, chunkKey.ref, chunkKey.generation)) continue;
                     const pendingGeneration = transactionPendingChunkGenerationsByRef.get(chunkKey.ref)
                         ?? pendingChunkGenerationsByRef.get(chunkKey.ref);
                     if (pendingGeneration === chunkKey.generation) continue;
@@ -530,6 +583,10 @@ export async function sweepBrowserDocumentMaintenance(
             };
             liveLeasesRead.onsuccess = () => {
                 liveLeasesReadComplete = true;
+                process();
+            };
+            transferAuthoritiesRead.onsuccess = () => {
+                transferAuthoritiesReadComplete = true;
                 process();
             };
             recentFilesLockRead.onsuccess = () => {

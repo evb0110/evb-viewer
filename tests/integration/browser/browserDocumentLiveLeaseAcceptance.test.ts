@@ -269,4 +269,52 @@ describe('browser document live lease acceptance in Chromium', () => {
             await browser.close();
         }
     }, 120_000);
+
+    it('keeps a dirty PDF provisional until commit and reopens edited bytes after source loss', async () => {
+        const browser = await chromium.launch({headless: true});
+        const context = await browser.newContext();
+        const source = await context.newPage();
+        const target = await context.newPage();
+        try {
+            await Promise.all([
+                installEntryAtWindow(source, 1),
+                installEntryAtWindow(target, 2),
+            ]);
+            await callEntry(target, '__evbPrepareDirtyTransferReceiver');
+            const transfer = await callEntry<{
+                transferId: string;
+                success: boolean;
+                targetWindowId: number;
+            }>(source, '__evbTransferDirtyTab');
+            expect(transfer).toEqual({
+                transferId: expect.any(String),
+                success: true,
+                targetWindowId: 2,
+            });
+            const observation = await callEntry<{
+                phase: string;
+                beforeAck: number[];
+                afterAck: number[];
+            }>(target, '__evbWaitForDirtyTransferCommit');
+            expect(observation).toEqual({
+                phase: 'committed',
+                beforeAck: [
+                    90,
+                    91,
+                    92,
+                    93,
+                ],
+                afterAck: [
+                    90,
+                    91,
+                    92,
+                    93,
+                ],
+            });
+            await source.close();
+        } finally {
+            await context.close();
+            await browser.close();
+        }
+    }, 120_000);
 });

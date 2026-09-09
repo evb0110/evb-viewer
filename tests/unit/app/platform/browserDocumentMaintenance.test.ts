@@ -13,6 +13,7 @@ const documentIdbMocks = vi.hoisted(() => ({
     recoveryRecordsAtDelete: [] as Array<{snapshotRefs: string[]}>,
     documentsAtDelete: [] as unknown[],
     liveLeasesAtDelete: [] as unknown[],
+    transferAuthoritiesAtDelete: [] as unknown[],
     runObjectStoresTransaction: vi.fn(async (
         _stores: string[],
         _mode: string,
@@ -35,12 +36,18 @@ const documentIdbMocks = vi.hoisted(() => ({
             result: unknown;
             onsuccess?: () => void;
         };
+        const transferAuthoritiesRequest = {result: documentIdbMocks.transferAuthoritiesAtDelete} as {
+            result: unknown;
+            onsuccess?: () => void;
+        };
         const transaction = {objectStore: (name: string) => ({
             getAll: () => name.includes('document')
                 ? documentsRequest
                 : name.includes('live')
                     ? liveLeasesRequest
-                    : recoveryRequest,
+                    : name.includes('transfer')
+                        ? transferAuthoritiesRequest
+                        : recoveryRequest,
             get: () => recentFilesLockRequest,
             delete: name.includes('chunk')
                 ? chunkMocks.deleteChunkRecord
@@ -50,6 +57,7 @@ const documentIdbMocks = vi.hoisted(() => ({
         recoveryRequest.onsuccess?.();
         documentsRequest.onsuccess?.();
         liveLeasesRequest.onsuccess?.();
+        transferAuthoritiesRequest.onsuccess?.();
         recentFilesLockRequest.onsuccess?.();
         return result;
     }),
@@ -118,6 +126,7 @@ describe('browserDocumentMaintenance', () => {
         documentIdbMocks.recoveryRecordsAtDelete = [];
         documentIdbMocks.documentsAtDelete = [];
         documentIdbMocks.liveLeasesAtDelete = [];
+        documentIdbMocks.transferAuthoritiesAtDelete = [];
         recentFilesStoreMocks.tryHasRecentFilesStorageSnapshot.mockReturnValue(false);
         recentFilesStoreMocks.writeRecentFilesToStorage.mockReturnValue(true);
         recentFilesStoreMocks.readRecentFilesFromStorage.mockReturnValue([]);
