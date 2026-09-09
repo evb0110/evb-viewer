@@ -66,6 +66,7 @@ import {
     commitBrowserStoreStagedArtifact,
     createBrowserStoreStagedArtifact,
 } from '@app/platform/browser/browserStagedArtifact';
+import {isBrowserStoreStagedArtifact} from '@contracts/stagedArtifacts';
 import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
 import {nativePdfSemanticScope} from '@contracts/nativePdfSemanticScope';
 import {
@@ -596,6 +597,9 @@ export function createBrowserDocumentsFileCapability(
             return true;
         },
         async cloneStagedPdfNativeMutationToWorkingCopy(stagedOutput, originalPath) {
+            if (!isBrowserStoreStagedArtifact(stagedOutput)) {
+                throw new Error('Expected a browser-store staged artifact');
+            }
             const bytes = await browserDocumentStore.read(stagedOutput.path);
             if (bytes.byteLength !== stagedOutput.size || await sha256Hex(bytes) !== stagedOutput.sha256) {
                 throw new Error('Browser staged artifact content does not match its receipt');
@@ -606,7 +610,7 @@ export function createBrowserDocumentsFileCapability(
                 {
                     mimeType: 'application/pdf',
                     saveKind: 'pdf',
-                    kind: 'working-copy',
+                    kind: 'working',
                     retention: 'transient',
                     ...(originalPath ? {sourceRef: originalPath} : {}),
                 },
@@ -634,11 +638,13 @@ export function createBrowserDocumentsFileCapability(
                 );
             } catch (error) {
                 browserNativeMutationBindings.delete(stagedOutput.path);
+                browserNativeMutationLeases.delete(stagedOutput.leaseId);
                 await browserDocumentStore.remove(stagedOutput.path).catch(() => undefined);
                 throw error;
             }
             if (!committed) {
                 browserNativeMutationBindings.delete(stagedOutput.path);
+                browserNativeMutationLeases.delete(stagedOutput.leaseId);
                 await browserDocumentStore.remove(stagedOutput.path).catch(() => undefined);
                 return {
                     applied: false,
@@ -647,6 +653,7 @@ export function createBrowserDocumentsFileCapability(
             }
             const identityBindings = browserNativeMutationBindings.get(stagedOutput.path);
             browserNativeMutationBindings.delete(stagedOutput.path);
+            browserNativeMutationLeases.delete(stagedOutput.leaseId);
             await clearSearchCaches(path);
             return {
                 applied: true,

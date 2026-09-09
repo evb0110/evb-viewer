@@ -671,6 +671,7 @@ export const DOCUMENT_FILES_PLATFORM_FEATURE = definePlatformFeature({
                 booleanResult, 'releaseManagedTempFileHandle', 'sender',
             ),
             ...electronImplementedOptional,
+            browser: {method: 'releaseManagedTempFileHandle'},
         },
         repairPdf: {
             ...defineIpcMethod(
@@ -780,6 +781,7 @@ export const DOCUMENT_FILES_PLATFORM_FEATURE = definePlatformFeature({
                 timeoutMs: longNativeIpcTimeoutMs,
             },
             ...electronImplementedOptional,
+            browser: {method: 'cloneStagedPdfNativeMutationToWorkingCopy'},
         },
         replaceWorkingCopyFromStagedPdfNativeMutation: {
             ...defineIpcMethod(

@@ -28,7 +28,6 @@ interface IBrowserLifecycleTestApi {
         canSave: boolean;
         viewerCapabilities: {save: boolean}
     } | null;
-    handleSaveAs?: () => Promise<boolean>;
     readActiveWorkspaceStateValues?: <TValues extends Record<string, unknown> = Record<string, unknown>>(
         propertyNames: string[],
     ) => TValues;
@@ -514,6 +513,53 @@ describe('browser document lifecycle UI', () => {
                 const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
                 return api.getActiveToolbarSnapshot?.()?.canSave ?? false;
             }), {timeout: 30_000}).toBe(true);
+
+            const downloadPromise = target.waitForEvent('download');
+            const saveResult = await target.evaluate(async () => {
+                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                return api.callActiveWorkspaceCommand?.('handleSaveAs');
+            });
+            expect(saveResult?.called).toBe(true);
+            expect(saveResult?.value).toBe(true);
+            const download = await downloadPromise;
+            const savedPath = resolve(process.cwd(), '.devkit/browser-transfer-save-reopen/transferred-edited.pdf');
+            await download.saveAs(savedPath);
+
+            const reopened = await context.newPage();
+            try {
+                await reopened.addInitScript(() => {
+                    Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                    Reflect.set(window, 'showSaveFilePicker', undefined);
+                    window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+                });
+                await reopened.goto(origin, {waitUntil: 'domcontentloaded'});
+                const reopenChooserPromise = reopened.waitForEvent('filechooser');
+                await reopened.getByRole('button', {name: 'Open File', exact: true}).first().click();
+                await (await reopenChooserPromise).setFiles(savedPath);
+                await reopened.locator('.page_container--rendered .page_canvas canvas').first().waitFor({
+                    state: 'visible',
+                    timeout: 60_000,
+                });
+                await reopened.evaluate(async () => {
+                    const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                    if (!await api.waitForActiveDocumentOpenSettled?.()) throw new Error('Saved transfer PDF did not settle');
+                });
+                await expect.poll(async () => reopened.evaluate(() => {
+                    const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                    const state = api.readActiveWorkspaceStateValues?.<{annotationComments?: Array<{
+                        text?: string;
+                        displayText?: string | null;
+                        previewText?: string | null;
+                    }>;}>(['annotationComments']);
+                    return state?.annotationComments?.some(comment => [
+                        comment.text,
+                        comment.displayText,
+                        comment.previewText,
+                    ].includes('durable transfer edit')) ?? false;
+                }), {timeout: 30_000}).toBe(true);
+            } finally {
+                await reopened.close();
+            }
         } finally {
             await browser.close();
         }

@@ -272,6 +272,7 @@ describe('useWorkspaceSplitPayload', () => {
             kind: 'pdf',
             workingPath: '/tmp/split.pdf',
             originalPath: '/tmp/original.pdf',
+            recoveryDirtyBaseline: true,
         });
         expect(options.loadPdfFromPath).not.toHaveBeenCalled();
         expect(options.originalPath.value).toBe('/tmp/original.pdf');
@@ -303,6 +304,7 @@ describe('useWorkspaceSplitPayload', () => {
             workingPath: '/tmp/generated-split.pdf',
             originalPath: '/tmp/generated-split.pdf',
             isGenerated: true,
+            recoveryDirtyBaseline: true,
         });
     });
 
@@ -349,6 +351,7 @@ describe('useWorkspaceSplitPayload', () => {
             workingPath: snapshotPath,
             originalPath,
             isGenerated: true,
+            recoveryDirtyBaseline: true,
         });
     });
 
@@ -420,7 +423,8 @@ describe('useWorkspaceSplitPayload', () => {
         const runSaveTransaction = vi.fn(async (request) => {
             expect(request).toMatchObject({
                 mode: 'snapshot',
-                forceWriterSave: true,
+                forceWriterSave: false,
+                saveFlowMode: 'save',
                 serializeResult: true,
             });
             return {
