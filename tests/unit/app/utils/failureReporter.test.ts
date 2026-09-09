@@ -379,6 +379,7 @@ describe('renderer failure reporter', () => {
         const reporter = createRendererFailureReporter({
             host: 'hosted-browser',
             preference: 'granted',
+            readHostedPreference: () => 'granted',
             loadHostedTransport,
             createEventId: (() => {
                 let value = 50;
@@ -414,6 +415,7 @@ describe('renderer failure reporter', () => {
         const reporter = createRendererFailureReporter({
             host: 'hosted-browser',
             preference: 'granted',
+            readHostedPreference: () => 'granted',
             loadHostedTransport: () => transport,
             createEventId: () => eventId(60),
         });
@@ -432,6 +434,49 @@ describe('renderer failure reporter', () => {
             accepted: 0,
             transportFailed: 0,
         });
+    });
+
+    it('rechecks persisted consent for a hydrated reporter and fences a pending load after cross-tab revocation', async () => {
+        let persistedPreference: 'granted' | 'denied' = 'granted';
+        let resolveTransport!: (transport: IHostedDiagnosticsTransport) => void;
+        const transport = {send: vi.fn()};
+        const loadHostedTransport = vi.fn(() => new Promise<IHostedDiagnosticsTransport>((resolve) => {
+            resolveTransport = resolve;
+        }));
+        const windowEventTarget = new EventTarget();
+        vi.stubGlobal('window', windowEventTarget);
+        const reporter = createRendererFailureReporter({
+            host: 'hosted-browser',
+            preference: 'granted',
+            readHostedPreference: () => persistedPreference,
+            loadHostedTransport,
+            createEventId: () => eventId(70),
+        });
+        try {
+            reporter.capture(createFailureInput('before cross-tab revoke'));
+            persistedPreference = 'denied';
+            const storageEvent = new Event('storage');
+            Object.defineProperty(storageEvent, 'key', {value: 'evb-viewer:browser:settings'});
+            windowEventTarget.dispatchEvent(storageEvent);
+            resolveTransport(transport);
+            await Promise.resolve();
+            await Promise.resolve();
+
+            expect(transport.send).not.toHaveBeenCalled();
+            reporter.capture(createFailureInput('after cross-tab revoke'));
+            expect(loadHostedTransport).toHaveBeenCalledOnce();
+            expect(reporter.getHealthSnapshot()).toMatchObject({
+                mode: 'denied',
+                policyDropped: 1,
+            });
+
+            persistedPreference = 'granted';
+            reporter.setPreference('granted');
+            expect(reporter.getPreference()).toBe('granted');
+        } finally {
+            reporter.dispose();
+            vi.unstubAllGlobals();
+        }
     });
 
     it('contains transport failure warnings and never turns a warning into another occurrence', () => {

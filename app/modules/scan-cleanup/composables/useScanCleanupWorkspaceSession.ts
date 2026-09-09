@@ -271,6 +271,7 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         placementAnchorSummary: detection.placementAnchorSummary,
         detectionPending: detection.pending,
         detectionStatus: detection.terminalStatus,
+        documentSettingsReady: computed(() => settings.documentSettingsReady.value),
         documentPriorByPage: detection.documentPriorByPage,
         documentRevision,
         onCompleted: settings.dismissFirstRunGuidance,

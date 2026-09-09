@@ -32,6 +32,7 @@ import {
 } from '@electron/features/ocr/main/ocrCatalogV4';
 import {
     migrateOcrIndexV3ToV4,
+    OcrCatalogCommittedDurabilityError,
     getOcrCatalogV4PreparedDescriptorPath,
     prepareOcrCatalogV4Generation,
     publishPreparedOcrCatalogV4,
@@ -85,6 +86,38 @@ afterEach(async () => {
 });
 
 describe('writeOcrIndexV4', () => {
+    it('keeps a committed generation readable when post-rename durability confirmation fails', async () => {
+        const root = await createCatalogRoot();
+        await writeOcrIndexV4({
+            catalogRoot: root,
+            sourcePdfPath: join(root, 'document.pdf'),
+            documentRevision: revision,
+            pageCount: 1,
+            pageBatches: batches([page(1, 'old')]),
+            assertRevisionCurrent: async () => {},
+        });
+
+        await expect(writeOcrIndexV4({
+            catalogRoot: root,
+            sourcePdfPath: join(root, 'document.pdf'),
+            documentRevision: revision,
+            pageCount: 1,
+            pageBatches: batches([page(1, 'new')]),
+            durabilityBoundary: {afterRootRename: async () => {throw new Error('injected directory close failure');}},
+            assertRevisionCurrent: async () => {},
+        })).rejects.toBeInstanceOf(OcrCatalogCommittedDurabilityError);
+
+        const handle = await openCatalog(root, {expectedDocumentRevision: revision});
+        await expect(handle?.readPage(1)).resolves.toMatchObject({text: 'new'});
+        await handle?.close?.();
+        await expect(readdir(join(root, 'gen-00000002'))).resolves.toEqual([
+            'generation.json',
+            'pages',
+            'shards',
+            'shards.idx',
+        ]);
+    });
+
     it('publishes a bounded generation and carries untouched shard references', async () => {
         const root = await createCatalogRoot();
         const fence = vi.fn(async () => {});
@@ -274,6 +307,42 @@ describe('writeOcrIndexV4', () => {
         await expect(deletedCatalog?.readPage(pageCount)).rejects.toThrow(RangeError);
         await deletedCatalog?.close?.();
     }, 15_000);
+
+    it('keeps a remapped generation readable when durability confirmation fails', async () => {
+        const root = await createCatalogRoot();
+        const workingCopyPath = join(root, 'remap-durability.pdf');
+        const catalogRoot = `${workingCopyPath}.ocr`;
+        await writeOcrIndexV4({
+            catalogRoot,
+            sourcePdfPath: workingCopyPath,
+            documentRevision: revisionInfo('drt1:remap-durability-1', workingCopyPath),
+            pageCount: 1,
+            pageBatches: batches([page(1, 'page')]),
+            assertRevisionCurrent: async () => {},
+        });
+
+        const nextRevision = revisionInfo('drt1:remap-durability-2', workingCopyPath);
+        await expect(remapOcrCatalogV4PageRanges(
+            workingCopyPath,
+            {
+                previousPageCount: 1,
+                nextPageCount: 1,
+                ranges: [{
+                    kind: 'retain',
+                    fromPageNumber: 1,
+                    toPageNumber: 1,
+                    count: 1,
+                }],
+            },
+            nextRevision,
+            undefined,
+            {afterRootRename: async () => {throw new Error('injected directory sync failure');}},
+        )).rejects.toBeInstanceOf(OcrCatalogCommittedDurabilityError);
+
+        const handle = await openCatalog(catalogRoot, {expectedDocumentRevision: nextRevision.token});
+        await expect(handle?.readPage(1)).resolves.toMatchObject({text: 'page'});
+        await handle?.close?.();
+    });
 
     it('recomputes mapped count when a delete drops a complete terminal shard', async () => {
         const root = await createCatalogRoot();
@@ -565,17 +634,13 @@ describe('migrateOcrIndexV3ToV4', () => {
             pages: {1: {path: legacyPath}},
         };
         await writeFile(join(root, 'manifest.json'), JSON.stringify(manifest));
-        const result = await migrateOcrIndexV3ToV4({
+        await expect(migrateOcrIndexV3ToV4({
             catalogRoot: root,
             documentRevision: revision,
             sourcePdfPath: manifest.source.pdfPath,
+            durabilityBoundary: {afterRootRename: async () => {throw new Error('injected directory close failure');}},
             assertRevisionCurrent: async () => {},
-        });
-        expect(result).toMatchObject({
-            generation: 1,
-            migrated: true,
-            mappedPageCount: 1,
-        });
+        })).rejects.toBeInstanceOf(OcrCatalogCommittedDurabilityError);
         const handle = await openCatalog(root);
         await expect(handle?.readPage(1)).resolves.toEqual(artifact);
         await expect(readdir(join(root, 'gen-00000001', 'pages'))).resolves.toEqual([]);

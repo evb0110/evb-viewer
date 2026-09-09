@@ -28,6 +28,10 @@ import {
     setMainDiagnosticsPreference,
     waitForMainDiagnosticsTransportReady,
 } from '@electron/features/diagnostics/public';
+import {
+    parseClientDiagnosticsPreference,
+    type TClientDiagnosticsPreference,
+} from '@contracts/diagnostics/diagnosticsPreference';
 
 const logger = createLogger('settings');
 const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
@@ -36,11 +40,32 @@ let settingsCache: ISettingsData | null = null;
 let settingsLoadPromise: Promise<ISettingsData> | null = null;
 let settingsCacheGeneration = 0;
 let settingsMutationQueue: Promise<unknown> = Promise.resolve();
+let diagnosticsConsentRevision = 0;
+let diagnosticsDeniedOverride: TClientDiagnosticsPreference | null = null;
 
 type TSettingsUpdateResult = Partial<ISettingsData> | undefined;
 type TSettingsUpdater = (
     settings: ISettingsData,
 ) => TSettingsUpdateResult | Promise<TSettingsUpdateResult>;
+
+export function recordMainDiagnosticsConsentIntent(value: unknown) {
+    const preference = parseClientDiagnosticsPreference(value);
+    diagnosticsConsentRevision += 1;
+    if (preference !== 'granted') {
+        diagnosticsDeniedOverride = preference;
+        setMainDiagnosticsPreference(preference);
+    }
+    return diagnosticsConsentRevision;
+}
+
+function applyDiagnosticsDeniedOverride(settings: ISettingsData) {
+    return diagnosticsDeniedOverride === null || settings.clientDiagnosticsPreference !== 'granted'
+        ? settings
+        : {
+            ...settings,
+            clientDiagnosticsPreference: diagnosticsDeniedOverride,
+        };
+}
 
 function getStoragePath() {
     return join(app.getPath('userData'), 'settings.json');
@@ -145,11 +170,11 @@ export async function loadSettings(): Promise<ISettingsData> {
         if (STARTUP_TRACE_ENABLED) {
             logger.info(`[startup] loadSettings cache hit (+${Date.now() - startedAt}ms)`);
         }
-        return cloneSettings(settingsCache);
+        return cloneSettings(applyDiagnosticsDeniedOverride(settingsCache));
     }
 
     if (settingsLoadPromise) {
-        return cloneSettings(await settingsLoadPromise);
+        return cloneSettings(applyDiagnosticsDeniedOverride(await settingsLoadPromise));
     }
 
     const generation = settingsCacheGeneration;
@@ -160,7 +185,7 @@ export async function loadSettings(): Promise<ISettingsData> {
     try {
         parsed = await loadPromise;
         if (generation === settingsCacheGeneration) {
-            settingsCache = parsed;
+            settingsCache = applyDiagnosticsDeniedOverride(parsed);
         }
     } finally {
         if (settingsLoadPromise === loadPromise) {
@@ -170,7 +195,7 @@ export async function loadSettings(): Promise<ISettingsData> {
     if (STARTUP_TRACE_ENABLED) {
         logger.info(`[startup] loadSettings file read complete (+${Date.now() - startedAt}ms)`);
     }
-    return cloneSettings(parsed);
+    return cloneSettings(applyDiagnosticsDeniedOverride(parsed));
 }
 
 export function resetSettingsCacheAfterUserDataPathChange() {
@@ -181,15 +206,17 @@ export function resetSettingsCacheAfterUserDataPathChange() {
 
 export async function updateSettings(
     mutate: TSettingsUpdater,
+    options: {diagnosticsConsentRevision?: number} = {},
 ): Promise<ISettingsData> {
     const storagePath = getStoragePath();
     return queueSettingsMutation(async () => {
+        const startingConsentRevision = diagnosticsConsentRevision;
         const current = settingsCache
-            ? cloneSettings(settingsCache)
+            ? cloneSettings(applyDiagnosticsDeniedOverride(settingsCache))
             : await loadSettings();
         const workingCopy = cloneSettings(current);
         const mutationResult = await mutate(workingCopy);
-        const next = sanitizeSettings(
+        let next = sanitizeSettings(
             isRecord(mutationResult)
                 ? {
                     ...workingCopy,
@@ -197,11 +224,28 @@ export async function updateSettings(
                 }
                 : workingCopy,
         );
+
+        let consentIntentRevision = options.diagnosticsConsentRevision;
+        if (
+            consentIntentRevision === undefined
+            && next.clientDiagnosticsPreference !== current.clientDiagnosticsPreference
+        ) {
+            consentIntentRevision = recordMainDiagnosticsConsentIntent(next.clientDiagnosticsPreference);
+        }
+
+        const staleConsentIntent = consentIntentRevision === undefined
+            ? startingConsentRevision !== diagnosticsConsentRevision
+            : consentIntentRevision !== diagnosticsConsentRevision;
+        if (next.clientDiagnosticsPreference === 'granted' && staleConsentIntent) {
+            next = sanitizeSettings({
+                ...next,
+                clientDiagnosticsPreference: diagnosticsDeniedOverride ?? 'unknown',
+            });
+        }
         if (
             next.clientDiagnosticsPreference !== current.clientDiagnosticsPreference
             && next.clientDiagnosticsPreference !== 'granted'
         ) {
-            setMainDiagnosticsPreference(next.clientDiagnosticsPreference);
             // Keep later settings writes from reopening a failed revocation
             // from the stale durable snapshot.
             settingsCache = {
@@ -209,10 +253,52 @@ export async function updateSettings(
                 clientDiagnosticsPreference: next.clientDiagnosticsPreference,
             };
         }
-        await writeSettingsAtomically(storagePath, next);
-        setMainDiagnosticsPreference(next.clientDiagnosticsPreference);
-        if (next.clientDiagnosticsPreference === 'granted') {
-            await waitForMainDiagnosticsTransportReady();
+        try {
+            const hasExplicitGrantIntent = next.clientDiagnosticsPreference === 'granted'
+                && consentIntentRevision !== undefined;
+            const persistedBeforeGrant = hasExplicitGrantIntent
+                ? sanitizeSettings({
+                    ...next,
+                    clientDiagnosticsPreference: 'denied',
+                })
+                : next;
+            await writeSettingsAtomically(storagePath, persistedBeforeGrant);
+            if (next.clientDiagnosticsPreference === 'granted') {
+                await waitForMainDiagnosticsTransportReady();
+                const consentStillCurrent = consentIntentRevision === undefined
+                    ? startingConsentRevision === diagnosticsConsentRevision
+                    : consentIntentRevision === diagnosticsConsentRevision;
+                if (!consentStillCurrent) {
+                    next = sanitizeSettings({
+                        ...next,
+                        clientDiagnosticsPreference: diagnosticsDeniedOverride ?? 'unknown',
+                    });
+                    if (
+                        !hasExplicitGrantIntent
+                        || next.clientDiagnosticsPreference !== persistedBeforeGrant.clientDiagnosticsPreference
+                    ) {
+                        await writeSettingsAtomically(storagePath, next);
+                    }
+                } else if (hasExplicitGrantIntent) {
+                    await writeSettingsAtomically(storagePath, next);
+                    diagnosticsDeniedOverride = null;
+                    setMainDiagnosticsPreference(next.clientDiagnosticsPreference);
+                } else {
+                    setMainDiagnosticsPreference(next.clientDiagnosticsPreference);
+                }
+            } else {
+                setMainDiagnosticsPreference(next.clientDiagnosticsPreference);
+            }
+        } catch (error) {
+            if (consentIntentRevision !== undefined && next.clientDiagnosticsPreference === 'granted') {
+                diagnosticsDeniedOverride = 'denied';
+                settingsCache = {
+                    ...current,
+                    clientDiagnosticsPreference: 'denied',
+                };
+                setMainDiagnosticsPreference('denied');
+            }
+            throw error;
         }
         settingsCache = next;
         return cloneSettings(next);

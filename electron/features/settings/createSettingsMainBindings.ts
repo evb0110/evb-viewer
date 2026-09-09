@@ -9,11 +9,11 @@ import type { ISettingsData } from '@contracts/shared';
 import { updateRecentFilesMenu } from '@electron/menu';
 import {
     loadSettings,
+    recordMainDiagnosticsConsentIntent,
     updateSettings,
 } from '@electron/settings';
 import { setElectronLocale } from '@electron/te';
 import { createLogger } from '@electron/utils/createLogger';
-import { setMainDiagnosticsPreference } from '@electron/features/diagnostics/public';
 
 const logger = createLogger('ipc');
 const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
@@ -21,6 +21,7 @@ const SETTINGS_SAVE_COALESCE_MS = 25;
 
 interface IQueuedSettingsSave {
     pendingPatch: TSettingsSavePatch;
+    diagnosticsConsentRevision: number | undefined;
     shutdownAssistant: () => Promise<void>;
     waiters: Array<{
         resolve: () => void;
@@ -35,6 +36,7 @@ const settingsSaveQueuesBySender = new Map<number, IQueuedSettingsSave>();
 async function applySettingsSavePatch(
     settingsPayload: TSettingsSavePatch,
     shutdownAssistant: () => Promise<void>,
+    diagnosticsConsentRevision: number | undefined,
 ) {
     let shouldShutdownAssistant = false as boolean;
     const savedSettings = await updateSettings((currentSettings: ISettingsData) => {
@@ -43,8 +45,10 @@ async function applySettingsSavePatch(
             ...settingsPayload,
         });
         shouldShutdownAssistant = currentSettings.assistantPanelEnabled && !incoming.assistantPanelEnabled;
-        return incoming;
-    });
+        return settingsPayload;
+    }, diagnosticsConsentRevision === undefined
+        ? {}
+        : {diagnosticsConsentRevision});
     if (shouldShutdownAssistant) {
         await shutdownAssistant();
     }
@@ -83,12 +87,18 @@ async function flushSettingsSaveQueue(senderId: number, queue: IQueuedSettingsSa
 
     queue.flushing = true;
     const settingsPayload = queue.pendingPatch;
+    const diagnosticsConsentRevision = queue.diagnosticsConsentRevision;
     const waiters = queue.waiters;
     queue.pendingPatch = {};
+    queue.diagnosticsConsentRevision = undefined;
     queue.waiters = [];
 
     try {
-        await applySettingsSavePatch(settingsPayload, queue.shutdownAssistant);
+        await applySettingsSavePatch(
+            settingsPayload,
+            queue.shutdownAssistant,
+            diagnosticsConsentRevision,
+        );
         for (const waiter of waiters) {
             waiter.resolve();
         }
@@ -115,6 +125,7 @@ function queueSettingsSave(
     if (!queue) {
         queue = {
             pendingPatch: {},
+            diagnosticsConsentRevision: undefined,
             shutdownAssistant,
             waiters: [],
             timer: null,
@@ -127,13 +138,10 @@ function queueSettingsSave(
         ...queue.pendingPatch,
         ...settingsPayload,
     };
-    if (
-        Object.hasOwn(settingsPayload, 'clientDiagnosticsPreference')
-        && settingsPayload.clientDiagnosticsPreference !== 'granted'
-    ) {
-        // Revocation must close the main-process path before the save queue or
-        // its persistence work can run.
-        setMainDiagnosticsPreference(settingsPayload.clientDiagnosticsPreference);
+    if (Object.hasOwn(settingsPayload, 'clientDiagnosticsPreference')) {
+        queue.diagnosticsConsentRevision = recordMainDiagnosticsConsentIntent(
+            settingsPayload.clientDiagnosticsPreference,
+        );
     }
 
     const savePromise = new Promise<void>((resolve, reject) => {
