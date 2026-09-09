@@ -10,6 +10,7 @@ import {
 import { runOcrFileBased } from '@electron/features/ocr/worker/tesseractRunner';
 
 const mocks = vi.hoisted(() => ({
+    execFile: vi.fn(),
     spawn: vi.fn(),
     readFile: vi.fn(),
     stat: vi.fn(),
@@ -17,7 +18,10 @@ const mocks = vi.hoisted(() => ({
     terminateDetachedChildProcess: vi.fn(),
 }));
 
-vi.mock('child_process', () => ({ spawn: mocks.spawn }));
+vi.mock('child_process', () => ({
+    execFile: mocks.execFile,
+    spawn: mocks.spawn,
+}));
 
 vi.mock('fs/promises', () => ({
     open: vi.fn(),

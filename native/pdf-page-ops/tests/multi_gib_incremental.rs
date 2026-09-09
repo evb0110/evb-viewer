@@ -346,6 +346,33 @@ fn qpdf_json_v2(pdf: &Path) -> String {
     String::from_utf8(output.stdout).unwrap()
 }
 
+fn assert_active_hash_resources(pdf: &Path) {
+    let root: Value = serde_json::from_str(&qpdf_json_v2(pdf)).unwrap();
+    let objects = root
+        .get("qpdf")
+        .and_then(Value::as_array)
+        .and_then(|qpdf| qpdf.get(1))
+        .and_then(Value::as_object)
+        .expect("qpdf JSON v2 must contain its object map");
+    let page = objects
+        .values()
+        .filter_map(|object| object.get("value"))
+        .find(|object| object.get("/Type") == Some(&Value::String("/Page".to_string())))
+        .expect("qpdf JSON v2 must contain an active page");
+    let resources = page
+        .get("/Resources")
+        .and_then(Value::as_object)
+        .expect("active page must contain resources");
+    assert!(resources
+        .get("/Font")
+        .and_then(Value::as_object)
+        .is_some_and(|font| font.contains_key("/F#31")));
+    assert!(resources
+        .get("/XObject")
+        .and_then(Value::as_object)
+        .is_some_and(|xobject| xobject.contains_key("/X##")));
+}
+
 fn qpdf_contains_pdf_text(pdf: &Path, text: &str) -> bool {
     let objects = qpdf_objects_json(pdf).to_lowercase();
     objects.contains(&pdf_utf16be_hex(text)) || objects.contains(&text.to_lowercase())
@@ -744,9 +771,7 @@ fn preserves_hash_named_resources_through_two_large_annotation_appends() {
     let original_len = write_sparse_structural_loader_pdf(&pdf);
     let original_prefix = sha256_prefix(&pdf, original_len);
     let original_pixels = render_page_png(&pdf, "structural-hash-original");
-    let original_objects = qpdf_json_v2(&pdf);
-    assert!(original_objects.contains("\"/F#31\""));
-    assert!(original_objects.contains("\"/X##\""));
+    assert_active_hash_resources(&pdf);
 
     fs::write(
         &first_mutations,
@@ -760,9 +785,7 @@ fn preserves_hash_named_resources_through_two_large_annotation_appends() {
         String::from_utf8_lossy(&first.stderr)
     );
     assert_eq!(sha256_prefix(&pdf, original_len), original_prefix);
-    let first_objects = qpdf_json_v2(&pdf);
-    assert!(first_objects.contains("\"/F#31\""));
-    assert!(first_objects.contains("\"/X##\""));
+    assert_active_hash_resources(&pdf);
     assert_eq!(
         render_page_png(&pdf, "structural-hash-first-render"),
         original_pixels
@@ -780,9 +803,7 @@ fn preserves_hash_named_resources_through_two_large_annotation_appends() {
         String::from_utf8_lossy(&second.stderr)
     );
     assert_eq!(sha256_prefix(&pdf, original_len), original_prefix);
-    let second_objects = qpdf_json_v2(&pdf);
-    assert!(second_objects.contains("\"/F#31\""));
-    assert!(second_objects.contains("\"/X##\""));
+    assert_active_hash_resources(&pdf);
     assert_eq!(
         render_page_png(&pdf, "structural-hash-second-render"),
         original_pixels

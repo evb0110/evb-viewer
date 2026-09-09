@@ -1067,6 +1067,7 @@ mod tests {
                 .to_string(),
             "qpdf name escape ended early"
         );
+        assert!(decode_qpdf_name("/one#GG", QpdfNameMode::Escaped).is_err());
         assert_eq!(
             decode_qpdf_name("n:/one#a0two", QpdfNameMode::Canonical).unwrap(),
             b"one\xa0two"
