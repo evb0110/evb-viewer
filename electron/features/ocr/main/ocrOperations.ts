@@ -398,12 +398,16 @@ export async function handleOcrAcknowledgeResultFileValidated(
     context: TOcrOperationContext,
     requestIdPayload: unknown,
     pdfPathPayload?: unknown,
+    documentRefPayload?: unknown,
+    sourceDocumentRevisionTokenPayload?: unknown,
 ) {
     try {
         return await handleOcrAcknowledgeResultFile(
             context,
             requestIdPayload,
             pdfPathPayload,
+            documentRefPayload,
+            sourceDocumentRevisionTokenPayload,
         );
     } catch (error) {
         const envelope = toOcrErrorEnvelope(error);

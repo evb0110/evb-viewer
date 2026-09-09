@@ -353,6 +353,8 @@ export function createOcrJobWorkerLifecycleController(
             job.scopedJobId,
             job.requestId,
             job.webContentsId,
+            job.documentRevision.documentRef,
+            job.documentRevision.token,
             result.pdfPath,
             result.resultSha256,
             result.requiresCleanupAck,

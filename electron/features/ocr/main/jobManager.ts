@@ -67,7 +67,11 @@ import {
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import { getWorkingCopyRevision } from '@electron/file-access/documentRevisionStore';
-import { normalizePathForLookup } from '@electron/file-access/workingCopyStore';
+import {
+    getWorkingCopyBackingEntry, normalizePathForLookup,
+} from '@electron/file-access/workingCopyStore';
+import {parseDocumentRef} from '@contracts/documentRef';
+import {parseDocumentRevisionToken} from '@contracts/documentRevision';
 import { estimateOcrRequestBytes } from '@electron/features/ocr/main/estimateOcrRequestBytes';
 import {
     ensureOcrQueueCapacity,
@@ -956,6 +960,8 @@ export async function handleOcrAcknowledgeResultFile(
     context: IOcrManagerContext,
     requestIdPayload: unknown,
     pdfPathPayload?: unknown,
+    documentRefPayload?: unknown,
+    sourceDocumentRevisionTokenPayload?: unknown,
 ): Promise<{
     cleaned: boolean;
     error?: string
@@ -970,10 +976,34 @@ export async function handleOcrAcknowledgeResultFile(
             error: 'requestId must be a non-empty string',
         };
     }
+    const documentRef = documentRefPayload === undefined ? undefined : parseDocumentRef(documentRefPayload);
+    const sourceDocumentRevisionToken = sourceDocumentRevisionTokenPayload === undefined
+        ? undefined
+        : parseDocumentRevisionToken(sourceDocumentRevisionTokenPayload);
+    if (documentRefPayload !== undefined && documentRef === null) {
+        return {
+            cleaned: false,
+            error: 'documentRef must be an absolute document path',
+        };
+    }
+    if (sourceDocumentRevisionTokenPayload !== undefined && sourceDocumentRevisionToken === null) {
+        return {
+            cleaned: false,
+            error: 'sourceDocumentRevisionToken must be a non-empty string',
+        };
+    }
+    if (documentRef && sourceDocumentRevisionToken && !getWorkingCopyBackingEntry(documentRef, context.senderId)) {
+        return {
+            cleaned: false,
+            error: 'Document owner is not authorized to discard this OCR result',
+        };
+    }
     return pendingResultFileStore.acknowledge(
         context.senderId,
         requestId,
         typeof pdfPathPayload === 'string' ? pdfPathPayload : undefined,
+        documentRef ?? undefined,
+        sourceDocumentRevisionToken ?? undefined,
     );
 }
 

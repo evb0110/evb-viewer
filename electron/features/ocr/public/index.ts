@@ -1,5 +1,9 @@
 export {cancelOcrJobsForWorkingCopy} from '@electron/features/ocr/main/jobManager';
-export {findPendingOcrResultFileForPath} from '@electron/features/ocr/main/createPendingResultFileStore';
+export {
+    claimPendingOcrResultForDocument,
+    findPendingOcrResultFileForPath,
+    releasePendingOcrResultClaim,
+} from '@electron/features/ocr/main/createPendingResultFileStore';
 export {
     getOcrCatalogV4PreparedDescriptorPath,
     publishPreparedOcrCatalogV4,

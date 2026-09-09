@@ -197,6 +197,8 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
             const result = await getOcrCapability().acknowledgeResultFile(
                 payload.requestId,
                 payload.pdfPath,
+                payload.sourceWorkingCopyPath,
+                payload.sourceDocumentRevisionToken,
             );
             if (!result.cleaned && result.error) {
                 BrowserLogger.warn('ocr', 'OCR cleanup acknowledgement was rejected', {

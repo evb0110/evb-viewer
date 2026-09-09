@@ -2,6 +2,8 @@ import { realpathSync } from 'fs';
 import { resolve } from 'path';
 import type { ILogger } from '@electron/utils/createLogger';
 import type {IOcrPendingResultFile} from '@electron/features/ocr/public/index';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 import { runDetached } from '@electron/utils/runDetached';
 import type {
     TJobId,
@@ -15,7 +17,14 @@ interface ICreatePendingResultFileStoreOptions {
     canonicalizePath?: (path: string) => string;
 }
 
-interface IPendingResultFileOwnershipRegistry { findByPath: (webContentsId: number, pdfPath: string) => IOcrPendingResultFile | null; }
+interface IPendingResultFileOwnershipRegistry {
+    findByPath: (webContentsId: number, pdfPath: string) => IOcrPendingResultFile | null;
+    claimForDocument: (webContentsId: number, pdfPath: string, documentRef: TDocumentRef, sourceDocumentRevisionToken: TDocumentRevisionToken) => {
+        status: 'claimed' | 'already-claimed' | 'not-found';
+        entry?: IOcrPendingResultFile;
+    };
+    releaseClaim: (webContentsId: number, requestId: TRequestId) => void;
+}
 
 let activeOwnershipRegistry: IPendingResultFileOwnershipRegistry | null = null;
 
@@ -49,9 +58,28 @@ export function findPendingOcrResultFileForPath(webContentsId: number, pdfPath: 
     return activeOwnershipRegistry?.findByPath(webContentsId, pdfPath) ?? null;
 }
 
+export function claimPendingOcrResultForDocument(
+    webContentsId: number,
+    pdfPath: string,
+    documentRef: TDocumentRef,
+    sourceDocumentRevisionToken: TDocumentRevisionToken,
+) {
+    return activeOwnershipRegistry?.claimForDocument(
+        webContentsId,
+        pdfPath,
+        documentRef,
+        sourceDocumentRevisionToken,
+    ) ?? {status: 'not-found' as const};
+}
+
+export function releasePendingOcrResultClaim(webContentsId: number, requestId: TRequestId) {
+    activeOwnershipRegistry?.releaseClaim(webContentsId, requestId);
+}
+
 export function createPendingResultFileStore(options: ICreatePendingResultFileStoreOptions) {
     const pendingResultFiles = new Map<TJobId, IOcrPendingResultFile>();
     const canonicalizePath = options.canonicalizePath ?? canonicalizePendingResultPath;
+    const normalizeDocumentRef = (documentRef: TDocumentRef) => normalizePendingResultPath(documentRef, canonicalizePath);
 
     function clearPendingResultFileCleanupTimer(entry: IOcrPendingResultFile | null | undefined) {
         if (!entry?.cleanupTimer) {
@@ -85,7 +113,8 @@ export function createPendingResultFileStore(options: ICreatePendingResultFileSt
     const store = {
         find(webContentsId: number, requestId: TRequestId) {
             return Array.from(pendingResultFiles.values())
-                .find(entry => entry.webContentsId === webContentsId && entry.requestId === requestId)
+                .find(entry => entry.requestId === requestId
+                    && (entry.webContentsId === webContentsId || entry.claimedByWebContentsId === webContentsId))
                 ?? null;
         },
         findByPath(webContentsId: number, pdfPath: string) {
@@ -100,7 +129,16 @@ export function createPendingResultFileStore(options: ICreatePendingResultFileSt
                 .find(entry => entry.webContentsId === webContentsId && entry.pdfPath === normalizedPath)
                 ?? null;
         },
-        track(scopedJobId: TJobId, requestId: TRequestId, webContentsId: number, pdfPath: string, resultSha256: string, requiresCleanupAck: boolean) {
+        track(
+            scopedJobId: TJobId,
+            requestId: TRequestId,
+            webContentsId: number,
+            documentRef: TDocumentRef,
+            sourceDocumentRevisionToken: TDocumentRevisionToken,
+            pdfPath: string,
+            resultSha256: string,
+            requiresCleanupAck: boolean,
+        ) {
             if (!requiresCleanupAck) {
                 runDetached(
                     () => removeTrackedEntry(removePendingResultFileEntry(scopedJobId)),
@@ -154,6 +192,8 @@ export function createPendingResultFileStore(options: ICreatePendingResultFileSt
                 scopedJobId,
                 requestId,
                 webContentsId,
+                documentRef: normalizeDocumentRef(documentRef) as TDocumentRef,
+                sourceDocumentRevisionToken,
                 pdfPath: normalizedPath,
                 resultSha256,
                 createdAtMs: Date.now(),
@@ -184,13 +224,56 @@ export function createPendingResultFileStore(options: ICreatePendingResultFileSt
         },
         async cleanupForSender(webContentsId: number) {
             const pendingEntries = Array.from(pendingResultFiles.values())
-                .filter(entry => entry.webContentsId === webContentsId);
+                .filter(entry => entry.webContentsId === webContentsId && entry.claimedByWebContentsId === undefined);
             for (const pendingEntry of pendingEntries) {
                 await removeTrackedEntry(pendingEntry);
             }
         },
-        async acknowledge(webContentsId: number, requestId: TRequestId, pdfPathPayload?: string) {
-            const pending = this.find(webContentsId, requestId);
+        claimForDocument(webContentsId: number, pdfPath: string, documentRef: TDocumentRef, sourceDocumentRevisionToken: TDocumentRevisionToken) {
+            const normalizedPath = normalizePendingResultPath(pdfPath, canonicalizePath);
+            const normalizedDocumentRef = normalizeDocumentRef(documentRef);
+            const pending = Array.from(pendingResultFiles.values())
+                .find(entry => entry.pdfPath === normalizedPath
+                    && entry.documentRef === normalizedDocumentRef
+                    && entry.sourceDocumentRevisionToken === sourceDocumentRevisionToken);
+            if (!pending) {
+                return {status: 'not-found' as const};
+            }
+            if (pending.claimedByWebContentsId !== undefined && pending.claimedByWebContentsId !== webContentsId) {
+                return {
+                    status: 'already-claimed' as const,
+                    entry: pending,
+                };
+            }
+            pending.claimedByWebContentsId = webContentsId;
+            return {
+                status: 'claimed' as const,
+                entry: pending,
+            };
+        },
+        releaseClaim(webContentsId: number, requestId: TRequestId) {
+            const pending = Array.from(pendingResultFiles.values())
+                .find(entry => entry.requestId === requestId && entry.claimedByWebContentsId === webContentsId);
+            if (pending) {
+                delete pending.claimedByWebContentsId;
+            }
+        },
+        async acknowledge(
+            webContentsId: number,
+            requestId: TRequestId,
+            pdfPathPayload?: string,
+            documentRef?: TDocumentRef,
+            sourceDocumentRevisionToken?: TDocumentRevisionToken,
+        ) {
+            const pending = Array.from(pendingResultFiles.values())
+                .find(entry => entry.requestId === requestId
+                    && (entry.claimedByWebContentsId === webContentsId
+                        || (entry.claimedByWebContentsId === undefined && entry.webContentsId === webContentsId)
+                        || (entry.claimedByWebContentsId === undefined
+                            && documentRef !== undefined
+                            && sourceDocumentRevisionToken !== undefined
+                            && entry.documentRef === normalizeDocumentRef(documentRef)
+                            && entry.sourceDocumentRevisionToken === sourceDocumentRevisionToken))) ?? null;
             if (!pending) {
                 return {
                     cleaned: false,
