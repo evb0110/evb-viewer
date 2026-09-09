@@ -5,9 +5,11 @@ import {
     vi,
 } from 'vitest';
 import {
+    mkdir,
     mkdtemp,
     readFile,
     rm,
+    stat,
     writeFile,
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -26,17 +28,19 @@ function createBudget(options: {
     maxBytes?: number;
     minFreeBytes?: number;
     pollIntervalMs?: number;
+    checkpointDir?: string;
+    tempDir?: string;
 }) {
     const abortController = new AbortController();
     const cleanupCheckpoint = vi.fn(async () => undefined);
     const budget = createOcrJobStorageBudget({
         abortController,
-        checkpointDir: '/tmp/checkpoints',
+        checkpointDir: options.checkpointDir ?? '/tmp/checkpoints',
         maxBytes: options.maxBytes ?? 100,
         minFreeBytes: options.minFreeBytes ?? 10,
         pollIntervalMs: options.pollIntervalMs ?? 5,
         sessionId: 'ocr-test',
-        tempDir: '/tmp',
+        tempDir: options.tempDir ?? '/tmp',
         cleanupCheckpoint,
         inspect: options.inspect,
     });
@@ -132,7 +136,7 @@ describe('OCR aggregate job storage budget', () => {
         const firstRelease = await budget.reserve(40);
         await expect(budget.reserve(30)).rejects.toMatchObject({code: 'OCR_STORAGE_QUOTA_EXCEEDED'});
         expect(abortController.signal.aborted).toBe(true);
-        firstRelease();
+        firstRelease.release();
         await budget.stop();
     });
 
@@ -150,7 +154,7 @@ describe('OCR aggregate job storage budget', () => {
         usedBytes = 81;
         await expect(budget.assertWithinBudget()).rejects.toMatchObject({code: 'OCR_STORAGE_QUOTA_EXCEEDED'});
         expect(abortController.signal.aborted).toBe(true);
-        release();
+        release.release();
         await budget.stop();
     });
 
@@ -169,5 +173,99 @@ describe('OCR aggregate job storage budget', () => {
         await expect(budget.reserve(36)).rejects.toMatchObject({code: 'OCR_STORAGE_RESERVE_EXHAUSTED'});
         expect(abortController.signal.aborted).toBe(true);
         await budget.stop();
+    });
+
+    it('transfers the exact PDF and JSON checkpoint bytes into committed accounting', async () => {
+        const root = await mkdtemp(path.join(tmpdir(), 'evb-ocr-committed-bytes-'));
+        const checkpointDir = path.join(root, 'checkpoints');
+        const sourcePdfPath = path.join(root, 'page.pdf');
+        const checkpointPdfPath = path.join(checkpointDir, 'page-1.pdf');
+        const checkpointJsonPath = path.join(checkpointDir, 'page-1.json');
+        const {
+            abortController,
+            budget,
+        } = createBudget({
+            inspect: async () => ({
+                availableBytes: 1_000,
+                usedBytes: 0,
+            }),
+            checkpointDir,
+            maxBytes: 1_000,
+            tempDir: root,
+        });
+        try {
+            await mkdir(checkpointDir, {recursive: true});
+            await writeFile(sourcePdfPath, 'pdf bytes', 'utf8');
+            await persistOcrPageCheckpoint({
+                checkpointData: {completedPages: 1},
+                checkpointJsonPath,
+                checkpointPdfPath,
+                pageNumber: 1,
+                sha256File: vi.fn(async () => 'sha256'),
+                signal: new AbortController().signal,
+                sourcePdfPath,
+                storageBudget: budget,
+            });
+
+            const committedBytes = (await stat(checkpointPdfPath)).size + (await stat(checkpointJsonPath)).size;
+            const reconciliationBudget = createOcrJobStorageBudget({
+                abortController: new AbortController(),
+                checkpointDir,
+                maxBytes: committedBytes,
+                minFreeBytes: 10,
+                sessionId: 'ocr-test',
+                tempDir: root,
+                inspect: async () => ({
+                    availableBytes: 1_000,
+                    usedBytes: 0,
+                }),
+            });
+            await expect(reconciliationBudget.reconcileCheckpoints()).resolves.toBeUndefined();
+            await reconciliationBudget.stop();
+            expect(abortController.signal.aborted).toBe(false);
+        } finally {
+            await budget.stop();
+            await rm(root, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
+    it('reconciles external checkpoint growth and deletion on an explicit sweep', async () => {
+        const root = await mkdtemp(path.join(tmpdir(), 'evb-ocr-reconcile-'));
+        const checkpointDir = path.join(root, 'checkpoints');
+        const abortController = new AbortController();
+        const budget = createOcrJobStorageBudget({
+            abortController,
+            checkpointDir,
+            maxBytes: 100,
+            minFreeBytes: 10,
+            sessionId: 'ocr-test',
+            tempDir: root,
+            inspect: async () => ({
+                availableBytes: 1_000,
+                usedBytes: 0,
+            }),
+        });
+        try {
+            await mkdir(checkpointDir, {recursive: true});
+            const checkpointPath = path.join(checkpointDir, 'page-1.pdf');
+            const removedPath = path.join(checkpointDir, 'page-2.pdf');
+            await writeFile(checkpointPath, '1234567890', 'utf8');
+            await writeFile(removedPath, '1234567890', 'utf8');
+            await budget.reconcileCheckpoints();
+            await writeFile(checkpointPath, '123456789012345678901234567890', 'utf8');
+            await rm(removedPath);
+            await expect(budget.reconcileCheckpoints()).resolves.toBeUndefined();
+            await expect(budget.assertWithinBudget()).resolves.toMatchObject({usedBytes: 0});
+            expect(abortController.signal.aborted).toBe(false);
+        } finally {
+            await budget.stop();
+            await rm(root, {
+                force: true,
+                recursive: true,
+            });
+        }
     });
 });

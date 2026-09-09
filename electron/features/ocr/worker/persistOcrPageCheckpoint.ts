@@ -25,13 +25,10 @@ export async function persistOcrPageCheckpoint(options: IPersistOcrPageCheckpoin
     const checkpointTempJson = `${options.checkpointJsonPath}.${process.pid}.${randomUUID()}.tmp`;
     const isAborted = () => options.signal.aborted;
     const ocrPdfSize = (await stat(options.sourcePdfPath)).size;
-    const releaseReservation = await options.storageBudget.reserve(ocrPdfSize);
+    const pdfReservation = await options.storageBudget.reserve(ocrPdfSize);
+    let jsonReservation: Awaited<ReturnType<TOcrJobStorageBudget['reserve']>> | null = null;
     try {
-        try {
-            await copyFile(options.sourcePdfPath, checkpointTempPdf);
-        } finally {
-            releaseReservation();
-        }
+        await copyFile(options.sourcePdfPath, checkpointTempPdf);
         await options.storageBudget.assertWithinBudget();
         const checkpointPdfStat = await stat(checkpointTempPdf);
         if (!checkpointPdfStat.isFile() || checkpointPdfStat.size <= 0) {
@@ -43,12 +40,20 @@ export async function persistOcrPageCheckpoint(options: IPersistOcrPageCheckpoin
             pdfSize: checkpointPdfStat.size,
             pdfSha256: await options.sha256File(checkpointTempPdf),
         };
-        await writeFile(checkpointTempJson, JSON.stringify(checkpoint), 'utf8');
+        const checkpointJson = JSON.stringify(checkpoint);
+        jsonReservation = await options.storageBudget.reserve(Buffer.byteLength(checkpointJson));
+        await writeFile(checkpointTempJson, checkpointJson, 'utf8');
         if (isAborted()) throw abortErrorFromSignal(options.signal);
         await rename(checkpointTempPdf, options.checkpointPdfPath);
         if (isAborted()) throw abortErrorFromSignal(options.signal);
         await rename(checkpointTempJson, options.checkpointJsonPath);
+        options.storageBudget.commitCheckpoint(checkpointPdfStat.size + Buffer.byteLength(checkpointJson), [
+            pdfReservation,
+            jsonReservation,
+        ]);
     } finally {
+        pdfReservation.release();
+        jsonReservation?.release();
         await Promise.all([
             rm(checkpointTempPdf, {force: true}),
             rm(checkpointTempJson, {force: true}),
