@@ -209,7 +209,9 @@ describe('electron-run-headless.sh startd interruption', () => {
             let runner: ReturnType<typeof spawn> | null = null;
 
             try {
-                expect(fixturePid).toBeDefined();
+                if (fixturePid === undefined) {
+                    throw new Error('Expected the fixture process to have a PID');
+                }
                 expect(await waitUntil(() => existsSync(`/proc/${String(fixturePid)}/stat`), 2_000)).toBe(true);
                 const executable = readlinkSync(`/proc/${String(fixturePid)}/exe`);
                 const bootId = readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim();
@@ -244,7 +246,7 @@ describe('electron-run-headless.sh startd interruption', () => {
                         stdio: ['ignore', 'pipe', 'pipe'],
                     });
                     let stderr = '';
-                    runner.stderr.on('data', (chunk: Buffer) => {
+                    runner.stderr!.on('data', (chunk: Buffer) => {
                         stderr += chunk.toString();
                     });
                     const outcome = await new Promise<{code: number | null}>((resolve) => {
@@ -281,7 +283,9 @@ describe('electron-run-headless.sh startd interruption', () => {
             let runner: ReturnType<typeof spawn> | null = null;
 
             try {
-                expect(fixturePid).toBeDefined();
+                if (fixturePid === undefined) {
+                    throw new Error('Expected the fixture process to have a PID');
+                }
                 expect(await waitUntil(() => existsSync(`/proc/${String(fixturePid)}/stat`), 2_000)).toBe(true);
                 mkdirSync(join(host.root, '.devkit', 'headless-xvfb', SESSION_NAME), {
                     recursive: true,
@@ -302,7 +306,7 @@ describe('electron-run-headless.sh startd interruption', () => {
                     stdio: ['ignore', 'pipe', 'pipe'],
                 });
                 let stderr = '';
-                runner.stderr.on('data', (chunk: Buffer) => {
+                runner.stderr!.on('data', (chunk: Buffer) => {
                     stderr += chunk.toString();
                 });
                 const outcome = await new Promise<{code: number | null}>((resolve) => {
