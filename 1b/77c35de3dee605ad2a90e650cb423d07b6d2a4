@@ -1,0 +1,26 @@
+tests/unit/server/viewerAnalyticsEndpoint.test.ts
+  s_904af1852b0705::t_2f7b63ce072534 152-156,178-182
+  s_904af1852b0705::t_3f170835590820 20,49,62,147-151,157-177,183-187,189-197
+  s_904af1852b0705::t_3173371c970789 78,97
+  s_904af1852b0705::t_a6e57402a1a1aa 135,188
+app/composables/useAnalytics.ts
+  s_904af1852b0705::t_3173371c970789 221,227,231,241-267,291-292
+server/api/analytics/events.post.ts
+  s_904af1852b0705::t_3173371c970789 35,60,67,77,109,124,131
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "1b77c35de3dee605ad2a90e650cb423d07b6d2a4",
+  "prompts": {},
+  "sessions": {
+    "s_904af1852b0705": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08876-3d60-72a3-b3ad-32c9784278b9",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
