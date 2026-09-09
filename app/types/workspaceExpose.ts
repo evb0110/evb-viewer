@@ -286,6 +286,7 @@ export interface IWorkspaceAutomationStateSnapshot {
         annotationDirty: boolean;
         bookmarksDirty: boolean;
         fileDirty: boolean;
+        recoveryDirtyBaseline?: boolean;
         hasAnnotationChanges: boolean;
         annotationDirtyEntityCount: number;
         hasPendingUnsavedChanges: boolean;

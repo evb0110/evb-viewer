@@ -80,6 +80,18 @@ function createHistoryHarness(isDesktopRuntime = false) {
 }
 
 describe('createDocumentHistory', () => {
+    it('keeps a recovered dirty baseline when history has no entries', () => {
+        const {
+            history,
+            state,
+        } = createHistoryHarness(true);
+        state.recoveryDirtyBaseline.value = true;
+
+        history.syncDirtyFromHistory();
+
+        expect(state.isDirty.value).toBe(true);
+    });
+
     it('keeps 2+ GiB desktop path history in managed files without a byte snapshot', async () => {
         const {
             documentFiles,

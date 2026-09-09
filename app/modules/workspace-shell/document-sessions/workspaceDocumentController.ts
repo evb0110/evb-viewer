@@ -642,13 +642,54 @@ export function createWorkspaceDocumentController(
         }, {incrementSessionRevision: true});
     }
 
-    function applyWorkspaceRecord(record: IWorkspaceDocumentRecord) {
+    function applyWorkspaceRecord(record: IWorkspaceDocumentRecord, source: 'host' | 'workspace' = 'workspace') {
         const normalizedRecord = createWorkspaceDocumentRecord(record);
         const hasIncomingDocument = normalizedRecord.documentIdentity !== null
             || normalizedRecord.tab.originalPath !== null
             || normalizedRecord.tab.fileName !== null
             || normalizedRecord.tab.isDjvu;
         const activeKind = snapshot.value.activeTransaction?.kind ?? null;
+        const incomingWorkingCopyPath = normalizedRecord.documentIdentity?.documentRef ?? null;
+        const sameLogicalDocument = Boolean(
+            snapshot.value.identity.originalPath
+            && normalizedRecord.tab.originalPath === snapshot.value.identity.originalPath
+            && (
+                incomingWorkingCopyPath === snapshot.value.identity.workingCopyPath
+                || incomingWorkingCopyPath === null
+            ),
+        );
+        const sameDocumentRevision = areDocumentRevisionInfosEqual(
+            snapshot.value.identity.revisionInfo,
+            normalizedRecord.documentIdentity,
+        );
+        const sameIdentityLessDocument = normalizedRecord.documentIdentity === null
+            && normalizedRecord.tab.originalPath === snapshot.value.identity.originalPath;
+        const preserveDirtyDuringRestore = (
+            (activeKind === 'restore' || activeKind === null)
+            && snapshot.value.dirty
+            && !normalizedRecord.tab.isDirty
+            && normalizedRecord.toolbarSnapshot.isOpeningDocument
+            && normalizedRecord.tab.originalPath === snapshot.value.identity.originalPath
+        );
+        if (
+            source === 'workspace'
+            && (
+                preserveDirtyDuringRestore
+                || (
+                    activeKind === null
+                    && snapshot.value.dirty
+                    && !normalizedRecord.tab.isDirty
+                    && sameLogicalDocument
+                    && (sameDocumentRevision || sameIdentityLessDocument)
+                )
+            )
+        ) {
+            // A pending restore or same-generation adoption record can lag the
+            // recovery open. It must not turn retained unsaved bytes into a
+            // clean document. A successful recovery publishes dirty=true. A
+            // real save publishes a new revision, and close clears identity.
+            return;
+        }
         if (
             !hasIncomingDocument
             && getLogicalDocumentSignature(snapshot.value.identity) !== null

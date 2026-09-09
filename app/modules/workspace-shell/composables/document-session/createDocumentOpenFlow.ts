@@ -410,6 +410,7 @@ export function createDocumentOpenFlow(
         try {
             await loadPdfFromPath(result.workingPath, {
                 markDirty: result.isGenerated === true || result.recoveryDirtyBaseline === true,
+                recoveryDirtyBaseline: result.recoveryDirtyBaseline === true,
                 openRequestId,
                 openingGeometryResolution: openingGeometry.resolution,
                 validationRevision: openingGeometry.validationRevision,
@@ -435,9 +436,14 @@ export function createDocumentOpenFlow(
                 result,
             } satisfies TDocumentOpenOutcome;
         }
+        if (result.recoveryDirtyBaseline === true) {
+            // Opening a retained working copy must finish dirty even if a
+            // path-backed projection adopted a clean history entry meanwhile.
+            state.recoveryDirtyBaseline.value = true;
+            state.isDirty.value = true;
+        }
         state.originalPath.value = result.originalPath;
         state.requiresSaveAsOnFirstSave.value = !!result.isGenerated;
-        state.recoveryDirtyBaseline.value = result.recoveryDirtyBaseline === true;
         state.pdfRasterDisplayProfile.value = rasterDisplayProfile;
         RETRYABLE_OPEN_RESULTS.delete(result);
         return {
@@ -709,6 +715,7 @@ export function createDocumentOpenFlow(
         nextState: IPdfLoadedState,
         options?: {
             markDirty?: boolean;
+            recoveryDirtyBaseline?: boolean;
             preserveHistory?: boolean;
             previousPath?: TDocumentRef | null;
             preparedDocumentRevision?: IDocumentRevisionInfo | null;
@@ -730,6 +737,8 @@ export function createDocumentOpenFlow(
         state.pdfData.value = nextState.pdfData;
         state.pdfSrc.value = nextState.pdfSrc;
         state.pdfReloadSrc.value = nextState.pdfSrc;
+        // Set recovery provenance before resetHistory derives dirty state.
+        state.recoveryDirtyBaseline.value = options?.recoveryDirtyBaseline === true;
         deps.clearPdfConformanceProfile();
 
         if (!options?.preserveHistory) {
@@ -888,6 +897,7 @@ export function createDocumentOpenFlow(
 
     async function loadPdfFromPath(path: TDocumentRef, opts?: {
         markDirty?: boolean;
+        recoveryDirtyBaseline?: boolean;
         openRequestId?: number;
         openingGeometryResolution?: Promise<IPdfOpeningGeometryResolution>;
         resetSourceBeforeCommit?: boolean;
@@ -1107,6 +1117,7 @@ export function createDocumentOpenFlow(
         const didCommit = await applyLoadedPdfState(path, nextState, {
             isCurrent,
             markDirty: !!opts?.markDirty,
+            recoveryDirtyBaseline: opts?.recoveryDirtyBaseline === true,
             previousPath: state.workingCopyPath.value,
             ...(pdfjsPreparation.preparedDocumentRevision === undefined
                 ? {}

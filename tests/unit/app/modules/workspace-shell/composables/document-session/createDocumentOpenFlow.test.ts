@@ -991,9 +991,15 @@ describe('createDocumentOpenFlow', () => {
 
     it('keeps a recovered ordinary PDF dirty without requiring Save As', async () => {
         const {
+            deps,
             openFlow,
             state,
         } = createOpenFlowHarness();
+        const recoveryBaselineDuringHistoryReset: boolean[] = [];
+        deps.resetHistory.mockImplementation(async (_snapshot, options?: IResetHistoryTestOptions) => {
+            recoveryBaselineDuringHistoryReset.push(state.recoveryDirtyBaseline.value);
+            return options?.isCurrent?.() !== false;
+        });
         const recoveredResult: TOpenFileResult = {
             kind: 'pdf',
             originalPath: requireDocumentRef('/documents/recovered.pdf'),
@@ -1005,6 +1011,7 @@ describe('createDocumentOpenFlow', () => {
         await expect(openFlow.openFile(recoveredResult)).resolves.toMatchObject({status: 'opened'});
 
         expect(state.isDirty.value).toBe(true);
+        expect(recoveryBaselineDuringHistoryReset).toEqual([true]);
         expect(state.requiresSaveAsOnFirstSave.value).toBe(false);
     });
 

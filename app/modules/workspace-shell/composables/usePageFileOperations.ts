@@ -45,6 +45,7 @@ export interface IPageFileOperationsDeps {
     hasPendingUnsavedChanges: ComputedRef<boolean>;
     annotationDirty: Ref<boolean>;
     isDirty: Ref<boolean>;
+    recoveryDirtyBaseline?: Ref<boolean>;
     pageLabelsDirty: Ref<boolean>;
     bookmarksDirty: Ref<boolean>;
     persistAllAnnotationNotes: () => Promise<boolean>;
@@ -72,6 +73,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         hasPendingUnsavedChanges,
         annotationDirty,
         isDirty,
+        recoveryDirtyBaseline,
         pageLabelsDirty,
         bookmarksDirty,
         persistAllAnnotationNotes,
@@ -327,6 +329,16 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
 
     async function runOpenOutcomeDetailed(open: () => Promise<TDocumentOpenOutcome>) {
         const outcome = await open();
+        if (
+            outcome.status === 'opened'
+            && outcome.result.kind === 'pdf'
+            && outcome.result.recoveryDirtyBaseline === true
+        ) {
+            if (recoveryDirtyBaseline) {
+                recoveryDirtyBaseline.value = true;
+            }
+            isDirty.value = true;
+        }
         const opened = didOpenDocument(outcome);
         if (opened) {
             closeAllDropdowns();
