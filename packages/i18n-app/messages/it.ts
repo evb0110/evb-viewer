@@ -767,18 +767,18 @@ export default {
         'customRange': 'Intervallo personalizzato',
         'customRangePlaceholder': 'es. 1-5, 8, 10-12',
         'supersession': {
-            'label': 'Existing text',
+            'label': 'Testo esistente',
             'options': {
-                'missing-only': 'OCR missing text only',
-                'replace-evb': 'Re-OCR EVB text',
-                'replace-all': 'Replace all hidden OCR',
+                'missing-only': 'Esegui OCR solo sul testo mancante',
+                'replace-evb': 'Ripeti l’OCR del testo EVB',
+                'replace-all': 'Sostituisci tutto l’OCR nascosto',
             },
             'descriptions': {
-                'missing-only': 'Keep existing text and OCR only pages without text.',
-                'replace-evb': 'Replace only the active EVB OCR generation.',
-                'replace-all': 'Replace EVB and foreign hidden OCR; visible native text stays untouched.',
+                'missing-only': 'Mantieni tutti i livelli di testo esistenti ed esegui l’OCR solo sulle pagine senza testo.',
+                'replace-evb': 'Sostituisci solo la generazione OCR EVB attiva; il testo nativo e quello di altre origini restano invariati.',
+                'replace-all': 'Sostituisci i livelli OCR nascosti di EVB e di altre origini; il testo nativo visibile resta invariato.',
             },
-            'replaceAllAcknowledgement': 'I understand that foreign hidden OCR on selected pages will be removed and replaced.',
+            'replaceAllAcknowledgement': 'Comprendo che il testo OCR nascosto di altre origini nelle pagine selezionate verrà rimosso e sostituito.',
         },
         'qualityProfile': {
             'label': 'Qualità',
@@ -794,10 +794,10 @@ export default {
             },
         },
         'preprocessing': {
-            'label': 'Preprocessing',
+            'label': 'Pre-elaborazione',
             'options': {
-                'off': 'Off',
-                'clean': 'Clean scan',
+                'off': 'Disattivata',
+                'clean': 'Scansione pulita',
             },
             'help': {
                 'off': 'Usa la scansione così com’è.',
@@ -805,11 +805,11 @@ export default {
             },
         },
         'pageSegmentation': {
-            'label': 'Text layout',
+            'label': 'Layout del testo',
             'options': {
                 'auto': 'Auto',
-                'singleBlock': 'Single block',
-                'sparseText': 'Sparse text',
+                'singleBlock': 'Blocco singolo',
+                'sparseText': 'Testo sparso',
             },
             'help': {
                 'auto': 'Rileva automaticamente il layout.',
