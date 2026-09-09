@@ -1,0 +1,29 @@
+app/modules/workspace-shell/composables/useExternalFileDrop.ts
+  s_9e790378b38a4d::t_c1c7e2e6aceccf 68-71,75-78,81-84,91-93,115-118
+  s_9e790378b38a4d::t_34e408b97f5033 16-17,56,59,64-67,73-74,79-80,85,101-103,151,161,195-206,209
+tests/unit/app/modules/workspace-shell/composables/useExternalFileDrop.test.ts
+  s_9e790378b38a4d::t_10be2f2c6ff2ce 100,253-257,259-269,278-282,284-285,287,292-294
+  s_9e790378b38a4d::t_a69c96d13a14cd 13,29
+  s_9e790378b38a4d::t_4f96589cd7e957 258,283
+  s_9e790378b38a4d::t_c1c7e2e6aceccf 24,27,270-277,288-291,300-303,314-317,326-333,340-343
+  s_9e790378b38a4d::t_6398d28f646ea3 286
+  s_9e790378b38a4d::t_70805a5b2023a4 298-299,307-313,318-325,334-339,344-348
+  s_9e790378b38a4d::t_3ab1225a3cea54 25,28,30-31,101,295-296
+  s_9e790378b38a4d::t_0f9c3d23e8eef6 304-306
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "adfa15475667ac0e9ec19848e3273b2f30dbd8d9",
+  "prompts": {},
+  "sessions": {
+    "s_9e790378b38a4d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a087a9-7355-75f2-9178-e9f3a98a2d8d",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
