@@ -206,6 +206,62 @@ describe('OCR worker page processing guards (SRCH-006)', () => {
         expect(mocks.runOcrFileBased).not.toHaveBeenCalled();
     });
 
+    it('returns unproven Tesseract termination as a fatal page result', async () => {
+        const detail = 'Tesseract process tree for page-1.png was not proven dead';
+        const retainedFiles: string[] = [];
+        mocks.runOcrFileBased.mockResolvedValueOnce({
+            success: false,
+            pageData: null,
+            pdfPath: null,
+            error: 'Tesseract aborted',
+            terminationUnproven: detail,
+        });
+
+        const result = await runSinglePage(createContext({retainTempFile: path => retainedFiles.push(path)}));
+
+        expect(result.errors).toEqual(['Page 1: Tesseract aborted']);
+        expect(result.terminationUnproven).toEqual({
+            pageNumber: 1,
+            detail,
+        });
+        expect(result.successfulPageCount).toBe(0);
+        expect(retainedFiles).toEqual(expect.arrayContaining([
+            expect.stringContaining('session-page-1.png'),
+            expect.stringContaining('session-page-1-ocr.tsv'),
+            expect.stringContaining('session-page-1-ocr.pdf'),
+        ]));
+        expect(mocks.postMessage.mock.calls.some(([message]) => (
+            typeof message === 'object'
+            && message !== null
+            && (message as {type?: unknown}).type === 'resource-release'
+        ))).toBe(false);
+    });
+
+    it('does not start another page after an unproven termination', async () => {
+        mocks.runOcrFileBased.mockResolvedValueOnce({
+            success: false,
+            pageData: null,
+            pdfPath: null,
+            error: 'Tesseract aborted',
+            terminationUnproven: 'Tesseract process tree was not proven dead',
+        });
+
+        const context = createContext();
+        const result = await processOcrPages(context.jobId, [
+            {
+                pageNumber: 1,
+                languages: ['eng'],
+            },
+            {
+                pageNumber: 2,
+                languages: ['eng'],
+            },
+        ], 1, context);
+
+        expect(mocks.runOcrFileBased).toHaveBeenCalledTimes(1);
+        expect(result.terminationUnproven?.pageNumber).toBe(1);
+    });
+
     it('probes the page size at low resolution before admission when the native probe is degraded', async () => {
         const result = await runSinglePage(createContext());
 

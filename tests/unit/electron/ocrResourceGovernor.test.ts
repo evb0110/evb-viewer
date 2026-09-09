@@ -83,6 +83,24 @@ describe('ocr resource governor', () => {
         expect(ocrResourceGovernor.release(activeLease.token)).toBe(false);
     });
 
+    it('cancels pending page admission without releasing an active page lease', async () => {
+        const ocrResourceGovernor = await loadOcrResourceGovernor();
+        const activeLease = await ocrResourceGovernor.acquire({
+            jobId: 'job-uncertain',
+            pageNumber: 1,
+            requestedDpi: 300,
+        });
+
+        ocrResourceGovernor.cancelPendingForJob('job-uncertain', 'worker termination is uncertain');
+
+        expect(mocks.brokerCancelOwner).toHaveBeenCalledWith(
+            'job-uncertain',
+            'worker termination is uncertain',
+        );
+        expect(mocks.brokerLeaseRelease).not.toHaveBeenCalled();
+        expect(ocrResourceGovernor.release(activeLease.token)).toBe(true);
+    });
+
     it('grants normal requests while a high-DPI request is active when weighted slots remain', async () => {
         const ocrResourceGovernor = await loadOcrResourceGovernor();
 

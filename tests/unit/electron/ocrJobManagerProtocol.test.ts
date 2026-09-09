@@ -123,4 +123,40 @@ describe('parseWorkerMessage', () => {
             },
         });
     });
+
+    it('preserves structured termination uncertainty on failed completion messages', () => {
+        const terminationUnproven = 'Tesseract process tree was not proven dead';
+
+        expect(parseWorkerMessage({
+            type: 'complete',
+            jobId: 'job-1',
+            result: {
+                success: false,
+                errors: ['Tesseract aborted'],
+                terminationUnproven,
+            },
+        })).toEqual({
+            type: 'complete',
+            jobId: 'job-1',
+            result: {
+                success: false,
+                errors: ['Tesseract aborted'],
+                terminationUnproven,
+            },
+        });
+    });
+
+    it('accepts a structured native-child uncertainty handoff with its proof detail', () => {
+        expect(parseWorkerMessage({
+            type: 'native-child-unproven',
+            jobId: 'job-1',
+            childId: 'ocr-child-1',
+            detail: 'termination helper returned false',
+        })).toEqual({
+            type: 'native-child-unproven',
+            jobId: 'job-1',
+            childId: 'ocr-child-1',
+            detail: 'termination helper returned false',
+        });
+    });
 });

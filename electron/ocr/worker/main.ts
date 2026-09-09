@@ -30,6 +30,7 @@ import { join } from 'path';
 import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
 import type {
     IOcrDiagnostic,
+    IOcrErrorEnvelope,
     IOcrSearchablePdfOptions,
     TOcrProgressPhase,
 } from '@contracts/electronApiOcr';
@@ -44,6 +45,8 @@ import type {
     IOcrWorkerLogMessage,
     TOcrWorkerOutboundMessage,
     IOcrPageWithWords,
+    IOcrPageProcessingResult,
+    IOcrPageTerminationUnproven,
     IOcrPdfPageRequest,
     TOcrPdfPageSelection,
     TWorkerLog,
@@ -308,9 +311,10 @@ interface IOcrPageProcessingContext {
     signal: AbortSignal;
     storageBudget: TOcrJobStorageBudget;
     trackTempFile: (path: string) => string;
+    retainTempFile?: (path: string) => void;
 }
 
-type TOcrPageProcessingResult = Awaited<ReturnType<typeof processOcrPage>>;
+type TOcrPageProcessingResult = IOcrPageProcessingResult;
 
 async function processOcrPage(
     page: IOcrPdfPageRequest,
@@ -363,7 +367,9 @@ async function processOcrPage(
     const preprocessedImagePath = context.trackTempFile(join(paths.tempDir, `${context.sessionId}-page-${page.pageNumber}-clean.png`));
     const preprocessMetadataPath = context.trackTempFile(join(paths.tempDir, `${context.sessionId}-page-${page.pageNumber}-clean.json`));
     let ocrOutputPath: string | null = null;
+    let ocrImagePath: string | null = null;
     let resourceToken: string | null = null;
+    let terminationUnprovenDetail: string | undefined;
     const diagnostics: IOcrDiagnostic[] = [];
 
     try {
@@ -408,7 +414,7 @@ async function processOcrPage(
         await context.storageBudget.assertWithinBudget();
 
         const dims = await readPngDimensions(pageImagePath);
-        let ocrImagePath = pageImagePath;
+        ocrImagePath = pageImagePath;
         let ocrDims = dims;
         if (context.options.preprocessingMode === 'clean') {
             const candidateOcrImagePath = await tryPreprocessOcrImage(
@@ -462,11 +468,16 @@ async function processOcrPage(
         );
 
         if (!ocrResult.success || !ocrResult.pageData) {
+            terminationUnprovenDetail = ocrResult.terminationUnproven;
             await context.storageBudget.assertFailureWithinBudget(ocrResult.error);
             return {
                 error: `Page ${page.pageNumber}: ${ocrResult.error ?? 'Unknown OCR error'}`,
                 checkpointJsonPath,
                 checkpointPdfPath,
+                ...(ocrResult.terminationUnproven === undefined ? {} : {terminationUnproven: {
+                    pageNumber: page.pageNumber,
+                    detail: ocrResult.terminationUnproven,
+                } satisfies IOcrPageTerminationUnproven}),
             };
         }
         await context.storageBudget.assertWithinBudget();
@@ -527,15 +538,36 @@ async function processOcrPage(
             checkpointPdfPath,
         };
     } finally {
-        if (resourceToken) {
+        if (terminationUnprovenDetail !== undefined) {
+            const tesseractOutputBase = ocrImagePath?.replace(/\.png$/, '');
+            for (const artifactPath of [
+                pageImagePath,
+                pageSizeProbeImagePath,
+                preprocessedImagePath,
+                preprocessMetadataPath,
+                checkpointJsonPath,
+                checkpointPdfPath,
+                ocrOutputPath,
+                ...(tesseractOutputBase === undefined ? [] : [
+                    `${tesseractOutputBase}-ocr.tsv`,
+                    `${tesseractOutputBase}-ocr.pdf`,
+                ]),
+            ]) {
+                if (artifactPath !== null) {
+                    context.retainTempFile?.(artifactPath);
+                }
+            }
+        } else if (resourceToken) {
             releaseOcrResourceSlot(context.jobId, resourceToken);
         }
-        await Promise.all([
-            rm(pageImagePath, {force: true}),
-            rm(preprocessedImagePath, {force: true}),
-            rm(preprocessMetadataPath, {force: true}),
-            ...(ocrOutputPath === null ? [] : [rm(ocrOutputPath, {force: true})]),
-        ]).catch(() => undefined);
+        if (terminationUnprovenDetail === undefined) {
+            await Promise.all([
+                rm(pageImagePath, {force: true}),
+                rm(preprocessedImagePath, {force: true}),
+                rm(preprocessMetadataPath, {force: true}),
+                ...(ocrOutputPath === null ? [] : [rm(ocrOutputPath, {force: true})]),
+            ]).catch(() => undefined);
+        }
     }
 }
 
@@ -572,6 +604,7 @@ export async function processOcrPages(
     }> = [];
     let effectiveRenderDpi = context.extractionDpi;
     const diagnostics: IOcrDiagnostic[] = [];
+    let terminationUnproven: IOcrPageTerminationUnproven | undefined;
     const MAX_AGGREGATED_DIAGNOSTICS = 10_000;
     let nextPageIndex = 0;
 
@@ -591,6 +624,7 @@ export async function processOcrPages(
                 });
             }
         }
+        terminationUnproven ??= result.terminationUnproven;
         if (typeof result.effectiveDpi === 'number') {
             effectiveRenderDpi = Math.min(effectiveRenderDpi, result.effectiveDpi);
         }
@@ -601,6 +635,9 @@ export async function processOcrPages(
 
     const runWorker = async () => {
         while (nextPageIndex < targetPages.length) {
+            if (terminationUnproven !== undefined) {
+                return;
+            }
             const page = targetPages[nextPageIndex];
             nextPageIndex += 1;
             if (!page) {
@@ -616,6 +653,9 @@ export async function processOcrPages(
                 totalPages,
                 { phase: 'processing' },
             );
+            if (terminationUnproven !== undefined) {
+                return;
+            }
         }
     };
     const workerResults = await Promise.allSettled(Array.from(
@@ -636,6 +676,7 @@ export async function processOcrPages(
         successfulPageCount: pageResults.length,
         effectiveRenderDpi,
         diagnostics,
+        ...(terminationUnproven === undefined ? {} : {terminationUnproven}),
     };
 }
 
@@ -721,11 +762,13 @@ async function buildOcrPageProcessingPlan(
 function sendEmptyOcrResultFailure(
     jobId: TJobId,
     errors: string[],
+    errorEnvelope?: IOcrErrorEnvelope,
 ) {
     log('error', `OCR failed to produce searchable output. errors=${errors.join(' | ') || 'none'}`);
     sendComplete(jobId, {
         success: false,
         errors,
+        ...(errorEnvelope === undefined ? {} : {errorEnvelope}),
     });
 }
 
@@ -898,6 +941,7 @@ async function processOcrJob(
             },
             storageBudget,
             trackTempFile,
+            retainTempFile: filePath => keepFiles.add(filePath),
         };
         if (popplerEnv !== undefined) {
             planOptions.popplerEnv = popplerEnv;
@@ -980,6 +1024,23 @@ async function processOcrJob(
             );
             appendMessages(jobErrors, batchResult.errors);
             appendDiagnostics(batchResult.diagnostics);
+            if (batchResult.terminationUnproven !== undefined) {
+                const {
+                    pageNumber, detail,
+                } = batchResult.terminationUnproven;
+                const fatalMessage = `OCR page ${pageNumber} stopped before Tesseract termination was proven: ${detail}`;
+                appendMessages(jobErrors, [fatalMessage]);
+                await durableManifest.setTerminal('failed').catch(() => undefined);
+                sendEmptyOcrResultFailure(
+                    jobId,
+                    [
+                        ...jobWarnings,
+                        ...jobErrors,
+                    ],
+                    buildOcrErrorEnvelope('OCR_INTERNAL_ERROR', fatalMessage, {details: detail}),
+                );
+                return;
+            }
             successfulPageCount += batchResult.successfulPageCount;
             actualRenderDpi = Math.min(actualRenderDpi, batchResult.effectiveRenderDpi);
             processedPageCount += requestBatch.length;

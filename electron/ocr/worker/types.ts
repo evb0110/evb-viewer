@@ -50,6 +50,23 @@ export interface IOcrPageWithWords {
     imageHeight: number;
 }
 
+export interface IOcrPageTerminationUnproven {
+    pageNumber: number;
+    detail: string;
+}
+
+export interface IOcrPageProcessingResult {
+    pageData?: IOcrPageWithWords;
+    pdfPath?: string;
+    checkpointJsonPath: string;
+    checkpointPdfPath: string;
+    effectiveDpi?: number;
+    diagnostics?: IOcrDiagnostic[];
+    error?: string;
+    /** Tesseract stopped before its native process tree was proven dead. */
+    terminationUnproven?: IOcrPageTerminationUnproven;
+}
+
 export interface IOcrFileResult {
     success: boolean;
     pageData: IOcrPageWithWords | null;
@@ -153,6 +170,7 @@ export type TOcrWorkerCompleteResult =
         errors: string[];
         diagnostics?: IOcrDiagnostic[];
         errorEnvelope?: IOcrErrorEnvelope;
+        terminationUnproven?: string;
     };
 
 export interface IOcrWorkerProgressMessage {

@@ -63,7 +63,13 @@ function isCurrentActiveResourceWorker(
     activeJob: IOcrActiveJob | undefined,
     worker: Worker,
 ) {
-    return Boolean(activeJob && activeJob.worker === worker && !activeJob.completed && !activeJob.terminatedByUs);
+    return Boolean(
+        activeJob
+        && activeJob.worker === worker
+        && !activeJob.completed
+        && !activeJob.terminatedByUs
+        && !activeJob.workerExitProven,
+    );
 }
 
 function createOcrResourceRequest(
@@ -95,7 +101,7 @@ export function handleWorkerResourceMessage(
         const releaseDisposition = getOcrWorkerMessageDisposition({
             incomingJobId: message.jobId,
             expectedRequestId: activeJob?.requestId ?? scopedJobId,
-            isCurrentWorker: Boolean(activeJob && activeJob.worker === worker),
+            isCurrentWorker: isCurrentActiveResourceWorker(activeJob, worker),
         });
         if (!releaseDisposition.accepted) {
             log.debug(`[${scopedJobId}] Ignoring OCR resource release: ${releaseDisposition.reason ?? '<unknown>'}`);

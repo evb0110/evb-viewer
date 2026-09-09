@@ -482,6 +482,10 @@ export function createOcrJobWorkerLifecycleController(
 
         activeJob.completed = true;
         activeJob.terminatedByUs = true;
+        ocrResourceGovernor.cancelPendingForJob(
+            scopedJobId,
+            `OCR worker termination became uncertain: ${terminateOptions.reason}`,
+        );
         if (terminateOptions.markCancelled) {
             if (!activeJob.terminalResultSent) {
                 removePendingCompletionResultFile(activeJob);
@@ -589,6 +593,10 @@ export function createOcrJobWorkerLifecycleController(
             activeJob.workerExitProven = true;
             activeJob.workerExitCode = code;
         }
+        ocrResourceGovernor.cancelPendingForJob(
+            scopedJobId,
+            'OCR worker exit stopped pending page resource requests',
+        );
         for (const child of activeJob.nativeChildren.values()) {
             beginNativeChildCleanup(activeJob, child, 'worker exit cleanup handoff');
         }

@@ -199,11 +199,16 @@ function parseFailedCompleteResult(
     diagnostics: IOcrDiagnostic[] | undefined,
 ) {
     const errorEnvelope = parseOcrErrorEnvelope(result.errorEnvelope);
+    const terminationUnproven = typeof result.terminationUnproven === 'string'
+        && result.terminationUnproven.trim().length > 0
+        ? result.terminationUnproven
+        : undefined;
     return {
         success: false as const,
         errors,
         ...(diagnostics === undefined ? {} : {diagnostics}),
         ...(errorEnvelope === undefined ? {} : {errorEnvelope}),
+        ...(terminationUnproven === undefined ? {} : {terminationUnproven}),
     };
 }
 

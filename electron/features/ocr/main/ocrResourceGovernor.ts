@@ -143,6 +143,13 @@ class OcrResourceGovernor {
         return this.release(token);
     }
 
+    cancelPendingForJob(jobId: string, reason = `OCR resource requests cancelled for job ${jobId}`) {
+        // Termination uncertainty closes admission for pages that have not
+        // received a lease. Existing leases remain owned by the job until
+        // their individual proof or physical finalization.
+        mainJobBroker.cancelOwner(jobId, reason);
+    }
+
     releaseJob(jobId: string) {
         for (const lease of this.activeLeases.values()) {
             if (lease.jobId === jobId) {
