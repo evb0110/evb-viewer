@@ -3,7 +3,10 @@ import type {
     IEditorPaneState,
     TEditorLayoutNode,
 } from '@contracts/editorPanes';
-import type { IWorkspaceCheckpoint } from '@contracts/workspaceCheckpoint';
+import type {
+    IWorkspaceCheckpoint,
+    IWorkspaceCheckpointAnnotationRecovery,
+} from '@contracts/workspaceCheckpoint';
 import { createEpochMs } from '@contracts/timestamps';
 import type { ITab } from '@app/types/tabs';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
@@ -74,6 +77,12 @@ export function buildWorkspaceCheckpoint(
             const tab = tabById.get(snapshot.tabId);
             const workspace = options.workspaceRefs.value.get(snapshot.tabId) ?? null;
             const documentRefs = readWorkspaceDocumentRefs(workspace, snapshot.tabId);
+            const documentIdentity = options.documentRecordsByTabId.value[snapshot.tabId]?.documentIdentity;
+            const workingByteRevision = documentIdentity?.token ?? null;
+            const capturedAnnotationRecovery = workspace?.captureCanonicalAnnotationRecovery?.() ?? null;
+            const annotationRecovery = capturedAnnotationRecovery && workingByteRevision
+                ? capturedAnnotationRecovery
+                : null;
             const viewState = options.documentRecordsByTabId.value[snapshot.tabId]?.viewState;
             const toolbar = options.documentRecordsByTabId.value[snapshot.tabId]?.toolbarSnapshot
                 ?? (() => {
@@ -103,6 +112,16 @@ export function buildWorkspaceCheckpoint(
                 // can contain one entry for every output page.
                 ...(viewState?.surfaceMode === 'scan-cleanup'
                     ? {surfaceMode: viewState.surfaceMode}
+                    : {}),
+                ...(annotationRecovery
+                    ? {annotationRecovery: {
+                        artifactId: `capture-${snapshot.tabId}`,
+                        documentInstanceId: tab?.documentInstanceId ?? snapshot.tabId,
+                        workingCopyRef: documentRefs.workingCopyRef,
+                        workingByteRevision: workingByteRevision ?? '',
+                        annotationMutationGeneration: annotationRecovery.annotationMutationGeneration,
+                        payload: annotationRecovery,
+                    } satisfies IWorkspaceCheckpointAnnotationRecovery}
                     : {}),
             };
         }),

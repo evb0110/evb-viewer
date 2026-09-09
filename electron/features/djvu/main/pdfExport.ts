@@ -47,6 +47,7 @@ import type { IPlatformMainSenderContext } from '@contracts/platformFeature';
 import {
     cancelConversion,
     convertDjvuToPdfFile,
+    withDjvuNativeResourceLease,
 } from '@electron/features/djvu/main/ddjvuConversion';
 import { buildCompactDjvuAwarePdfFromDjvu } from '@electron/features/djvu/main/buildCompactDjvuAwarePdfFromDjvu';
 import {
@@ -174,10 +175,10 @@ async function runDjvuConversionJobWithSlot<T>(
         priority: 'user',
         perOwnerLimit: 1,
         resources: {
-            cpuTokens: 1,
-            estimatedResidentBytes: 256 * 1024 * 1024,
-            nativeProcesses: 1,
-            ioWeight: 1,
+            cpuTokens: 0,
+            estimatedResidentBytes: 0,
+            nativeProcesses: 0,
+            ioWeight: 0,
         },
         signal,
     });
@@ -187,6 +188,15 @@ async function runDjvuConversionJobWithSlot<T>(
     } finally {
         lease.release();
     }
+}
+
+function runDjvuMetadataWithSlot<T>(jobId: TJobId, signal: AbortSignal, run: () => Promise<T>) {
+    return withDjvuNativeResourceLease({
+        jobId,
+        kind: 'metadata',
+        signal,
+        task: run,
+    });
 }
 
 async function requestDjvuNativeCancel(jobId: TJobId) {
@@ -817,8 +827,8 @@ async function runDjvuPrintPath(
                 pageCount,
                 sourceDpi,
             ] = await Promise.all([
-                getDjvuPageCount(djvuPath, { signal: job.signal }),
-                getDjvuResolution(djvuPath, { signal: job.signal }),
+                runDjvuMetadataWithSlot(jobId, job.signal, () => getDjvuPageCount(djvuPath, { signal: job.signal })),
+                runDjvuMetadataWithSlot(jobId, job.signal, () => getDjvuResolution(djvuPath, { signal: job.signal })),
             ]);
             throwIfCanceled(job.signal);
 
@@ -837,7 +847,7 @@ async function runDjvuPrintPath(
             // Do not scan a full document into a dense page-size array first.
             const pageSizes = selectedPages
                 ? null
-                : await getDjvuConversionPageSizes(jobId, djvuPath, pageCount, job.signal);
+                : await runDjvuMetadataWithSlot(jobId, job.signal, () => getDjvuConversionPageSizes(jobId, djvuPath, pageCount, job.signal));
             throwIfCanceled(job.signal);
 
             const shouldPrintConvertedPdfDirectly = canPrintSourcePdfDirectly({
@@ -1066,12 +1076,12 @@ async function runDjvuConvertToPdf(
                 pageCount,
                 sourceDpi,
             ] = await Promise.all([
-                getDjvuPageCount(djvuPath, { signal: job.signal }),
-                getDjvuResolution(djvuPath, { signal: job.signal }),
+                runDjvuMetadataWithSlot(jobId, job.signal, () => getDjvuPageCount(djvuPath, { signal: job.signal })),
+                runDjvuMetadataWithSlot(jobId, job.signal, () => getDjvuResolution(djvuPath, { signal: job.signal })),
             ]);
 
             throwIfCanceled(job.signal);
-            const pageSizes = await getDjvuConversionPageSizes(jobId, djvuPath, pageCount, job.signal);
+            const pageSizes = await runDjvuMetadataWithSlot(jobId, job.signal, () => getDjvuConversionPageSizes(jobId, djvuPath, pageCount, job.signal));
             throwIfCanceled(job.signal);
 
             const convertResult = strategy === 'compact-djvu-aware'
@@ -1141,7 +1151,7 @@ async function runDjvuConvertToPdf(
             throwIfCanceled(job.signal);
 
             const bookmarks = options.preserveBookmarks !== false
-                ? await getDjvuOutline(djvuPath, { signal: job.signal })
+                ? await runDjvuMetadataWithSlot(jobId, job.signal, () => getDjvuOutline(djvuPath, { signal: job.signal }))
                     .then(sexp => parseDjvuOutline(sexp))
                     .catch(() => [] as IPdfBookmarkEntry[])
                 : [];

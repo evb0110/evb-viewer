@@ -19,6 +19,8 @@ import {
     BrowserWorkerClient,
     canUseBrowserWorker,
 } from '@app/platform/browser-api/browserWorkerClient';
+import {browserAnnotationParseIsolation} from '@app/platform/browser-api/browserAnnotationParseIsolation';
+import {BrowserPageOpsWorkerUnavailableError} from '@app/platform/browser-api/browserPageOpsWorkerUnavailableError';
 import { getErrorMessage } from '@app/utils/error';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import {
@@ -30,12 +32,7 @@ import {
 const BROWSER_PAGE_OPS_WORKER_IDLE_TTL_MS = 15_000;
 const BROWSER_PAGE_OPS_WORKER_REQUEST_TIMEOUT_MS = 90_000;
 
-export class BrowserPageOpsWorkerUnavailableError extends Error {
-    public constructor(message: string) {
-        super(message);
-        this.name = 'BrowserPageOpsWorkerUnavailableError';
-    }
-}
+export {BrowserPageOpsWorkerUnavailableError} from '@app/platform/browser-api/browserPageOpsWorkerUnavailableError';
 
 interface IBrowserPageOpsWorkerFailure extends Error {failure?: FailureReceipt;}
 
@@ -71,13 +68,19 @@ function reportWorkerFailure(error: Error) {
     return error;
 }
 
+interface IBuildWorkerRequestWithTransfersOptions {preserveInputOwnership?: boolean;}
+
 function buildWorkerRequestWithTransfers(
     request: TBrowserPageOpsWorkerRequest,
+    options: IBuildWorkerRequestWithTransfersOptions = {},
 ) {
+    const toTransferableRequestData = (data: Uint8Array) => options.preserveInputOwnership
+        ? toTransferableUint8Array(data.slice())
+        : toTransferableUint8Array(data);
     const transfer: Transferable[] = [];
     if (request.type === 'insertPages') {
-        const transferableData = toTransferableUint8Array(request.payload.data);
-        const transferableInsertionData = toTransferableUint8Array(request.payload.insertionData);
+        const transferableData = toTransferableRequestData(request.payload.data);
+        const transferableInsertionData = toTransferableRequestData(request.payload.insertionData);
         return {
             request: {
                 ...request,
@@ -97,7 +100,7 @@ function buildWorkerRequestWithTransfers(
     if (request.type === 'mergePages') {
         const transferredBuffers = new Set<ArrayBuffer>();
         const documents = request.payload.documents.map((document) => {
-            let data = toTransferableUint8Array(document);
+            let data = toTransferableRequestData(document);
             if (transferredBuffers.has(data.buffer)) {
                 data = data.slice();
             }
@@ -114,7 +117,7 @@ function buildWorkerRequestWithTransfers(
         };
     }
 
-    const transferableData = toTransferableUint8Array(request.payload.data);
+    const transferableData = toTransferableRequestData(request.payload.data);
     return {
         request: {
             ...request,
@@ -298,10 +301,6 @@ function createBrowserPageOpsWorkerClient() {
 }
 
 const browserPageOpsWorkerClient = createBrowserPageOpsWorkerClient();
-// Parsing a document can be much slower than ordinary page operations. Keep
-// that work on its own worker so an opening document cannot starve navigation
-// or rendering requests on the shared page-ops worker.
-const browserAnnotationParseWorkerClient = createBrowserPageOpsWorkerClient();
 
 interface IRunBrowserPageOpsWorkerRequestOptions {
     signal?: AbortSignal;
@@ -314,14 +313,16 @@ function abortErrorFromSignal(signal: AbortSignal) {
         : new Error('Browser page operation request was aborted');
 }
 
-export async function runBrowserPageOpsWorkerRequest<K extends TBrowserPageOpsWorkerRequestType>(
+async function runBrowserPageOpsWorkerRequestWithClient<K extends TBrowserPageOpsWorkerRequestType>(
+    client: BrowserWorkerClient<IPendingBrowserWorkerRequest>,
     type: K,
     payload: IBrowserPageOpsWorkerRequestMap[K],
-    options: IRunBrowserPageOpsWorkerRequestOptions = {},
+    options: {
+        signal?: AbortSignal;
+        preserveInputOwnership?: boolean;
+        disposeWorkerOnSettlement?: boolean;
+    } = {},
 ): Promise<IBrowserPageOpsWorkerResultMap[K]> {
-    const client = options.dedicated
-        ? browserAnnotationParseWorkerClient
-        : browserPageOpsWorkerClient;
     const request: IBrowserPageOpsWorkerRequest<K> = {
         id: client.createRequestId(),
         type,
@@ -335,18 +336,35 @@ export async function runBrowserPageOpsWorkerRequest<K extends TBrowserPageOpsWo
 
     return new Promise<IBrowserPageOpsWorkerResultMap[K]>((resolve, reject) => {
         let removeAbortListener: () => void = () => undefined;
-        const rejectRequest = (error: Error) => {
+        let settled = false;
+        const finish = () => {
+            if (settled) {
+                return false;
+            }
+            settled = true;
             removeAbortListener();
+            if (options.disposeWorkerOnSettlement) {
+                client.resetWorker();
+            }
+            return true;
+        };
+        const rejectRequest = (error: Error) => {
+            if (!finish()) {
+                return;
+            }
             reject(error);
         };
         client.registerPendingRequest(request.id, {
             requestType: type,
             resolveData: (value) => {
+                if (settled) {
+                    return false;
+                }
                 const decoded = decodePageOpsWorkerResult(type, value);
                 if (!decoded) {
                     return false;
                 }
-                removeAbortListener();
+                finish();
                 resolve(decoded);
                 return true;
             },
@@ -370,7 +388,12 @@ export async function runBrowserPageOpsWorkerRequest<K extends TBrowserPageOpsWo
         }
 
         try {
-            const workerRequest = buildWorkerRequestWithTransfers(request as TBrowserPageOpsWorkerRequest);
+            const workerRequest = buildWorkerRequestWithTransfers(
+                request as TBrowserPageOpsWorkerRequest,
+                options.preserveInputOwnership === undefined
+                    ? {}
+                    : {preserveInputOwnership: options.preserveInputOwnership},
+            );
             worker.postMessage(workerRequest.request, workerRequest.transfer);
         } catch (error) {
             client.cancelPendingRequest(
@@ -379,4 +402,40 @@ export async function runBrowserPageOpsWorkerRequest<K extends TBrowserPageOpsWo
             );
         }
     });
+}
+
+async function runDedicatedBrowserPageOpsWorkerRequest<K extends TBrowserPageOpsWorkerRequestType>(
+    type: K,
+    payload: IBrowserPageOpsWorkerRequestMap[K],
+    signal?: AbortSignal,
+) {
+    const releaseAdmission = await browserAnnotationParseIsolation.acquire(signal);
+    const client = createBrowserPageOpsWorkerClient();
+    try {
+        return await runBrowserPageOpsWorkerRequestWithClient(client, type, payload, {
+            ...(signal ? {signal} : {}),
+            preserveInputOwnership: true,
+            disposeWorkerOnSettlement: true,
+        });
+    } finally {
+        client.resetWorker();
+        releaseAdmission();
+    }
+}
+
+export async function runBrowserPageOpsWorkerRequest<K extends TBrowserPageOpsWorkerRequestType>(
+    type: K,
+    payload: IBrowserPageOpsWorkerRequestMap[K],
+    options: IRunBrowserPageOpsWorkerRequestOptions = {},
+): Promise<IBrowserPageOpsWorkerResultMap[K]> {
+    if (options.dedicated) {
+        return runDedicatedBrowserPageOpsWorkerRequest(type, payload, options.signal);
+    }
+
+    return runBrowserPageOpsWorkerRequestWithClient(
+        browserPageOpsWorkerClient,
+        type,
+        payload,
+        options.signal ? {signal: options.signal} : {},
+    );
 }

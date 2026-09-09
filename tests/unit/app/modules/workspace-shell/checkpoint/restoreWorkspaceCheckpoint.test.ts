@@ -41,6 +41,7 @@ describe('restoreWorkspaceCheckpoint', () => {
     it('reopens a working copy and restores the active page and zoom', async () => {
         const workspace = createWorkspaceExposeFixture({
             waitForDocumentOpenSettled: vi.fn().mockResolvedValue(undefined),
+            restoreCanonicalAnnotationRecovery: vi.fn(),
             handleGoToPage: vi.fn(),
             setCustomZoomFromDisplay: vi.fn(),
             handleFitWidth: vi.fn(),
@@ -114,6 +115,14 @@ describe('restoreWorkspaceCheckpoint', () => {
                 viewMode: 'facing',
                 viewRotation: 90,
                 surfaceMode: 'scan-cleanup',
+                annotationRecovery: {
+                    artifactId: 'recovery-1',
+                    documentInstanceId: 'document-1',
+                    workingCopyRef: requireDocumentRef('/tmp/working/draft.pdf'),
+                    workingByteRevision: 'revision-1',
+                    annotationMutationGeneration: 4,
+                    payload: {version: 1},
+                },
             }],
         }, {
             tabs,
@@ -143,6 +152,7 @@ describe('restoreWorkspaceCheckpoint', () => {
         expect(workspace.handleViewModeFacing).toHaveBeenCalledOnce();
         expect(workspace.setViewRotation).toHaveBeenCalledWith(90);
         expect(activateTab).toHaveBeenCalledWith('restored-tab');
+        expect(workspace.restoreCanonicalAnnotationRecovery).toHaveBeenCalledWith({version: 1});
     });
 
     it('reopens a clean checkpoint through the source path to restore its process registration', async () => {

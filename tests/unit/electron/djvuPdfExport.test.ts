@@ -23,6 +23,7 @@ import {
     type ITestEventSender,
 } from '@tests/helpers/electronEventEmitterHarness';
 import {cast} from '@tests/helpers/cast';
+import {mainJobBroker} from '@electron/resources/jobBroker';
 
 const mocks = vi.hoisted(() => {
     class MockDjvuPdfWorkerStartupError extends Error {
@@ -104,6 +105,7 @@ vi.mock('fs/promises', () => ({
 vi.mock('@electron/features/djvu/main/ddjvuConversion', () => ({
     cancelConversion: mocks.cancelConversion,
     convertDjvuToPdfFile: mocks.convertDjvuToPdfFile,
+    withDjvuNativeResourceLease: async (options: {task: () => Promise<unknown>}) => options.task(),
 }));
 
 vi.mock('@electron/features/djvu/main/buildCompactDjvuAwarePdfFromDjvu', () => ({buildCompactDjvuAwarePdfFromDjvu: mocks.buildCompactDjvuAwarePdfFromDjvu}));
@@ -386,6 +388,29 @@ describe('handleDjvuConvertToPdf', () => {
         expect(mocks.optimizeGeneratedPdfForInteraction)
             .toHaveBeenCalledWith('/tmp/djvu-export-test/convert-123.bookmarks.pdf', { signal: expect.any(AbortSignal) });
         expect(mocks.loggerWarn).toHaveBeenCalledTimes(1);
+    });
+
+    it('admits the outer conversion without reserving native resources', async () => {
+        const acquireSpy = vi.spyOn(mainJobBroker, 'acquire');
+
+        await handleDjvuConvertToPdf(
+            createOperationContext(7),
+            trustedDjvuPath,
+            '/tmp/output.pdf',
+            {preserveBookmarks: false},
+        );
+
+        expect(acquireSpy.mock.calls.map(([request]) => request)).toEqual([expect.objectContaining({
+            ownerId: asJobId('djvu-convert-convert-123'),
+            kind: 'djvu-output',
+            perOwnerLimit: 1,
+            resources: {
+                cpuTokens: 0,
+                estimatedResidentBytes: 0,
+                nativeProcesses: 0,
+                ioWeight: 0,
+            },
+        })]);
     });
 
     it('keeps the path-backed bookmark helper above the former 64 MiB fallback cap', async () => {

@@ -39,6 +39,30 @@ vi.mock('@electron/features/djvu/main/buildDjvuRuntimeEnv', () => ({buildDjvuRun
 vi.mock('@electron/features/djvu/main/ddjvuConversion', () => ({
     renderDjvuPageToImage: mocks.renderDjvuPageToImage,
     runRegisteredDjvuProcess: mocks.runRegisteredDjvuProcess,
+    withDjvuNativeResourceLease: async (options: {
+        jobId: string;
+        kind: 'metadata' | 'structure';
+        signal?: AbortSignal;
+        task: () => Promise<unknown>;
+    }) => {
+        const lease = await mainJobBroker.acquire({
+            ownerId: options.jobId,
+            kind: `djvu-${options.kind}`,
+            priority: 'user',
+            resources: {
+                cpuTokens: 1,
+                estimatedResidentBytes: 64 * 1024 * 1024,
+                nativeProcesses: 1,
+                ioWeight: 1,
+            },
+            ...(options.signal ? {signal: options.signal} : {}),
+        });
+        try {
+            return await options.task();
+        } finally {
+            lease.release();
+        }
+    },
 }));
 vi.mock('@electron/native-tools/runNativeCommand', () => ({runNativeCommand: mocks.runNativeCommand}));
 vi.mock('@electron/native-tools/resolveNativeToolPath', () => ({resolveNativeToolPath: mocks.resolveNativeToolPath}));
@@ -181,6 +205,7 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
         ]);
         expect(progress).toHaveBeenCalled();
         expect(acquireSpy.mock.calls.map(([request]) => request.kind)).toEqual([
+            'djvu-structure',
             'djvu-compact-page',
             'djvu-compact-page',
             'djvu-compact-combine',

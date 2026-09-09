@@ -225,6 +225,46 @@ describe('workspace checkpoint store', () => {
         await expect(claimWorkspaceCheckpoint(33)).resolves.toBeNull();
     });
 
+    it('publishes annotation recovery as a fenced artifact and retires it after acknowledgement', async () => {
+        const recoveryCheckpoint: IWorkspaceCheckpoint = {
+            ...checkpoint,
+            tabs: checkpoint.tabs.map(tab => ({
+                ...tab,
+                annotationRecovery: {
+                    artifactId: 'capture-tab-1',
+                    documentInstanceId: 'document-1',
+                    workingCopyRef: tab.workingCopyRef,
+                    workingByteRevision: 'revision-1',
+                    annotationMutationGeneration: 7,
+                    payload: {
+                        version: 1,
+                        annotationMutationGeneration: 7,
+                        entities: [],
+                        foreign: [],
+                        drafts: [],
+                    },
+                },
+            })),
+        };
+        state.owners.set(workingCopyRef, 11);
+        state.originalPaths.set(workingCopyRef, '/documents/draft.pdf');
+
+        await saveWorkspaceCheckpoint(recoveryCheckpoint, 11);
+        const stored = JSON.parse(await readFile(join(state.userDataPath, 'workspace-checkpoint.json'), 'utf8'));
+        const storedRecovery = stored.checkpoint.tabs[0].annotationRecovery;
+        expect(storedRecovery).toMatchObject({
+            documentInstanceId: 'document-1',
+            workingByteRevision: 'revision-1',
+            annotationMutationGeneration: 7,
+        });
+        expect(storedRecovery.payload).toBeUndefined();
+        await expect(readdir(join(state.userDataPath, 'workspace-annotation-recovery'))).resolves.toHaveLength(1);
+
+        await expect(claimWorkspaceCheckpoint(22)).resolves.toMatchObject({tabs: [{annotationRecovery: {payload: recoveryCheckpoint.tabs[0]?.annotationRecovery?.payload}}]});
+        await acknowledgeWorkspaceCheckpoint(22);
+        await expect(readdir(join(state.userDataPath, 'workspace-annotation-recovery'))).resolves.toHaveLength(0);
+    });
+
     it('restores a materialized working-copy witness after the process registry is cleared', async () => {
         state.owners.set(workingCopyRef, 11);
         state.originalPaths.set(workingCopyRef, '/documents/draft.pdf');
