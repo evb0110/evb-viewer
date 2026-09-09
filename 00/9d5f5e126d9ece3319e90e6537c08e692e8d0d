@@ -1,0 +1,22 @@
+tests/helpers/ocrWorkerPipelineHarness.ts
+  s_5cf73ed9d5ac0d::t_1f9b55348023ae 148-171
+tests/unit/electron/ocrWorkerPreprocessOcrImage.test.ts
+  s_5cf73ed9d5ac0d::t_1f9b55348023ae 45,69
+  s_5cf73ed9d5ac0d::t_8cfe3df43051f6 63
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "009d5f5e126d9ece3319e90e6537c08e692e8d0d",
+  "prompts": {},
+  "sessions": {
+    "s_5cf73ed9d5ac0d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0867d-b6dd-7e43-9c33-184635a5f766",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
