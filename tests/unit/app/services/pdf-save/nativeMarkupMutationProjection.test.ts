@@ -117,10 +117,6 @@ describe('native markup builders', () => {
         ]]);
         expect(mutation?.hints).toEqual([
             expect.objectContaining({
-                subtype: 'Squiggly',
-                annotationId: '45R0',
-            }),
-            expect.objectContaining({
                 subtype: 'Highlight',
                 annotationId: '44R0',
                 markupGeometry: [markerRect],
@@ -131,8 +127,103 @@ describe('native markup builders', () => {
                 color: '#224466',
                 opacity: 0.4,
             }),
+            expect.objectContaining({
+                subtype: 'Squiggly',
+                annotationId: '45R0',
+            }),
         ]);
     });
+
+    it('gives changed canonical geometry precedence over a stale live hint', () => {
+        const canonicalRect = {
+            left: 0.2,
+            top: 0.2,
+            width: 0.5,
+            height: 0.1,
+        };
+        const staleLiveRect = {
+            left: 0.21,
+            top: 0.2,
+            width: 0.49,
+            height: 0.1,
+        };
+        const mutation = buildNativeMarkupMutationForSave({
+            canonicalComments: [createComment({
+                stableKey: 'ann:0:44R0',
+                subtype: 'Highlight',
+                annotationId: '44R0',
+                color: '#ffee00',
+                colorEdited: true,
+                markerRect: canonicalRect,
+                markupGeometry: [canonicalRect],
+            })],
+            changedComments: [createComment({
+                stableKey: 'ann:0:44R0',
+                subtype: 'Highlight',
+                annotationId: '44R0',
+                color: '#ffee00',
+                colorEdited: true,
+                markerRect: canonicalRect,
+                markupGeometry: [canonicalRect],
+            })],
+            annotationWorkDirty: true,
+            markupSubtypeOverrides: undefined,
+            markupSubtypeHints: [{
+                subtype: 'Highlight',
+                pageIndex: requirePageIndex(0),
+                markerRect: staleLiveRect,
+                markupGeometry: [staleLiveRect],
+                annotationId: '44R0',
+                color: '#ffee00',
+                id: 'stale-runtime-id',
+                pageMarkupIndex: 0,
+                source: 'editor-live',
+                consumed: false,
+            }],
+        });
+
+        expect(mutation?.hints).toHaveLength(2);
+        expect(mutation?.hints[0]).toEqual(expect.objectContaining({
+            annotationId: '44R0',
+            markupGeometry: [canonicalRect],
+        }));
+    });
+
+    it.each([
+        'Highlight',
+        'Underline',
+        'StrikeOut',
+        'Squiggly',
+    ] as const)(
+        'rejects malformed explicit %s geometry instead of saving only its style',
+        subtype => {
+            const markerRect = {
+                left: 0.1,
+                top: 0.2,
+                width: 0.3,
+                height: 0.04,
+            };
+            const comment = createComment({
+                subtype,
+                annotationId: '44R0',
+                markerRect,
+                markupGeometry: [
+                    markerRect,
+                    {
+                        ...markerRect,
+                        width: 0,
+                    },
+                ],
+            });
+            expect(() => buildNativeMarkupMutationForSave({
+                canonicalComments: [comment],
+                changedComments: [comment],
+                annotationWorkDirty: true,
+                markupSubtypeOverrides: undefined,
+                markupSubtypeHints: [],
+            })).toThrow('Cannot save text-markup annotation with invalid geometry');
+        },
+    );
 
     it('keeps the marker rectangle when detailed geometry exceeds the native bound', () => {
         const markerRect = {

@@ -164,6 +164,8 @@ fn resolves_a_legacy_markup_prefix_without_rewriting_it() {
         &[candidate],
         &HashMap::new(),
         &mut states,
+        page_view,
+        0,
         "D:20260831130000Z",
     )
     .unwrap());
@@ -171,6 +173,127 @@ fn resolves_a_legacy_markup_prefix_without_rewriting_it() {
     let after = document.get_dictionary(markup_id).unwrap();
     assert_eq!(read_annotation_name(after).as_deref(), Some("evb-markup:legacy-markup"));
     assert_eq!(canonical_markup_subtype(after).as_deref(), Some("Underline"));
+}
+
+#[test]
+fn rewrites_existing_markup_geometry_for_all_text_markup_subtypes() {
+    let marker_rect = MarkerRect {
+        left: 0.2,
+        top: 0.2,
+        width: 0.5,
+        height: 0.1,
+    };
+    let expected_quad_points = [40.0, 80.0, 140.0, 80.0, 40.0, 70.0, 140.0, 70.0];
+
+    for subtype in ["Highlight", "Underline", "StrikeOut", "Squiggly"] {
+        let (mut document, _page_id, markup_id) = create_test_markup_pdf(subtype);
+        let stale_appearance_id = document.add_object(Stream::new(Dictionary::new(), Vec::new()));
+        document
+            .get_dictionary_mut(markup_id)
+            .unwrap()
+            .set("AP", dictionary! {"N" => stale_appearance_id});
+        apply_markup_mutations(
+            &mut document,
+            &MarkupMutation {
+                overrides: Vec::new(),
+                hints: vec![MarkupSubtypeHint {
+                    subtype: subtype.to_string(),
+                    page_index: 0,
+                    marker_rect,
+                    markup_geometry: Some(vec![marker_rect]),
+                    app_annotation_id: None,
+                    annotation_id: Some(format_pdfjs_annotation_ref(markup_id)),
+                    color: None,
+                    opacity: None,
+                    author: None,
+                    contents: None,
+                    id: None,
+                    page_markup_index: Some(0),
+                    source: Some("editor".to_string()),
+                }],
+            },
+            "D:20260831130000Z",
+        )
+        .unwrap();
+
+        let annotation = document.get_dictionary(markup_id).unwrap();
+        let quad_points = read_markup_quad_points(&document, annotation).unwrap();
+        assert_quad_points_approximately(&quad_points, &expected_quad_points);
+        let rect = annotation.get(b"Rect").unwrap().as_array().unwrap();
+        assert_quad_points_approximately(
+            &rect
+                .iter()
+                .map(|value| value.as_float().unwrap() as f64)
+                .collect::<Vec<_>>(),
+            &[40.0, 70.0, 140.0, 80.0],
+        );
+        if subtype == "Squiggly" {
+            assert!(annotation.get(b"AP").is_ok());
+        } else {
+            assert!(annotation.get(b"AP").is_err());
+        }
+    }
+}
+
+#[test]
+fn keeps_existing_multiline_geometry_for_style_only_markup_hints() {
+    let (mut document, _page_id, markup_id) = create_test_markup_pdf("Highlight");
+    let original_quad_points = vec![
+        20.0, 80.0, 60.0, 80.0, 20.0, 70.0, 60.0, 70.0,
+        80.0, 55.0, 140.0, 55.0, 80.0, 45.0, 140.0, 45.0,
+    ];
+    let original_rect = vec![20.0, 45.0, 140.0, 80.0];
+    document
+        .get_dictionary_mut(markup_id)
+        .unwrap()
+        .set("QuadPoints", quad_points_object(&original_quad_points));
+    document
+        .get_dictionary_mut(markup_id)
+        .unwrap()
+        .set("Rect", Object::Array(original_rect.iter().copied().map(number_object).collect()));
+
+    apply_markup_mutations(
+        &mut document,
+        &MarkupMutation {
+            overrides: Vec::new(),
+            hints: vec![MarkupSubtypeHint {
+                subtype: "Highlight".to_string(),
+                page_index: 0,
+                marker_rect: MarkerRect {
+                    left: 0.1,
+                    top: 0.1,
+                    width: 0.2,
+                    height: 0.1,
+                },
+                markup_geometry: None,
+                app_annotation_id: None,
+                annotation_id: Some(format_pdfjs_annotation_ref(markup_id)),
+                color: Some("#00ff00".to_string()),
+                opacity: None,
+                author: None,
+                contents: None,
+                id: None,
+                page_markup_index: Some(0),
+                source: Some("editor".to_string()),
+            }],
+        },
+        "D:20260831130000Z",
+    )
+    .unwrap();
+
+    let annotation = document.get_dictionary(markup_id).unwrap();
+    assert_quad_points_approximately(
+        &read_markup_quad_points(&document, annotation).unwrap(),
+        &original_quad_points,
+    );
+    let rect = annotation.get(b"Rect").unwrap().as_array().unwrap();
+    assert_quad_points_approximately(
+        &rect
+            .iter()
+            .map(|value| value.as_float().unwrap() as f64)
+            .collect::<Vec<_>>(),
+        &original_rect,
+    );
 }
 
 #[test]
@@ -625,6 +748,77 @@ fn appends_highlight_color_rewrite_as_display_rgb() {
     assert!(markup.get(b"CA").is_err());
 
     let _ = remove_file(pdf_path);
+}
+
+#[test]
+fn appends_existing_markup_geometry_for_all_text_markup_subtypes() {
+    let marker_rect = MarkerRect {
+        left: 0.2,
+        top: 0.2,
+        width: 0.5,
+        height: 0.1,
+    };
+    let expected_quad_points = [40.0, 80.0, 140.0, 80.0, 40.0, 70.0, 140.0, 70.0];
+
+    for subtype in ["Highlight", "Underline", "StrikeOut", "Squiggly"] {
+        let (mut document, _page_id, markup_id) = create_test_markup_pdf(subtype);
+        let stale_appearance_id = document.add_object(Stream::new(Dictionary::new(), Vec::new()));
+        document
+            .get_dictionary_mut(markup_id)
+            .unwrap()
+            .set("AP", dictionary! {"N" => stale_appearance_id});
+        let pdf_path = temp_pdf_path("append-existing-markup-geometry");
+        let mut original_bytes = Vec::new();
+        document.save_to(&mut original_bytes).unwrap();
+        write(&pdf_path, &original_bytes).unwrap();
+
+        append_native_mutations(
+            &pdf_path,
+            &pdf_path,
+            &NativeMutationsFile {
+                markup: Some(MarkupMutation {
+                    overrides: Vec::new(),
+                    hints: vec![MarkupSubtypeHint {
+                        subtype: subtype.to_string(),
+                        page_index: 0,
+                        marker_rect,
+                        markup_geometry: Some(vec![marker_rect]),
+                        app_annotation_id: None,
+                        annotation_id: Some(format_pdfjs_annotation_ref(markup_id)),
+                        color: None,
+                        opacity: None,
+                        author: None,
+                        contents: None,
+                        id: None,
+                        page_markup_index: Some(0),
+                        source: Some("editor".to_string()),
+                    }],
+                }),
+                ..NativeMutationsFile::default()
+            },
+            "D:20260831130000Z",
+        )
+        .unwrap();
+
+        let loaded = Document::load(&pdf_path).unwrap();
+        let annotation = loaded.get_dictionary(markup_id).unwrap();
+        let quad_points = read_markup_quad_points(&loaded, annotation).unwrap();
+        assert_quad_points_approximately(&quad_points, &expected_quad_points);
+        let rect = annotation.get(b"Rect").unwrap().as_array().unwrap();
+        assert_quad_points_approximately(
+            &rect
+                .iter()
+                .map(|value| value.as_float().unwrap() as f64)
+                .collect::<Vec<_>>(),
+            &[40.0, 70.0, 140.0, 80.0],
+        );
+        if subtype == "Squiggly" {
+            assert!(annotation.get(b"AP").is_ok());
+        } else {
+            assert!(annotation.get(b"AP").is_err());
+        }
+        let _ = remove_file(pdf_path);
+    }
 }
 
 #[test]
@@ -1293,6 +1487,70 @@ fn test_markup_hint(index: usize) -> MarkupSubtypeHint {
         source: None,
         opacity: None,
     }
+}
+
+#[test]
+fn preserves_distinct_markup_identities_when_geometry_is_identical() {
+    for subtype in ["Highlight", "Underline", "StrikeOut", "Squiggly"] {
+        let mut first = test_markup_hint(0);
+        first.subtype = subtype.to_string();
+        first.app_annotation_id = Some(format!("{subtype}-app-first"));
+        first.id = Some(format!("{subtype}-first"));
+
+        let mut second = first.clone();
+        second.app_annotation_id = Some(format!("{subtype}-app-second"));
+        second.id = Some(format!("{subtype}-second"));
+
+        let states = dedupe_markup_subtype_hints(&[first, second])
+            .expect("identical geometry hints should remain bounded");
+        assert_eq!(
+            states.len(),
+            2,
+            "distinct {subtype} identities must not be merged by geometry"
+        );
+    }
+
+    let mut first = test_markup_hint(0);
+    first.id = None;
+    let mut second = first.clone();
+    second.page_markup_index = Some(1);
+    let states = dedupe_markup_subtype_hints(&[first, second])
+        .expect("legacy idless geometry hints should remain supported");
+    assert_eq!(states.len(), 1);
+}
+
+#[test]
+fn validates_each_distinct_new_markup_identity_after_save() {
+    let (document, page_id) = create_test_document();
+    let mut incremental = IncrementalDocument::from_document(document, 0, None);
+    let mut first = test_markup_hint(0);
+    first.app_annotation_id = Some("highlight-app-first".to_string());
+    first.id = Some("highlight-first".to_string());
+    first.source = Some("editor".to_string());
+    let mut second = first.clone();
+    second.app_annotation_id = Some("highlight-app-second".to_string());
+    second.id = Some("highlight-second".to_string());
+    let mutation = MarkupMutation {
+        overrides: Vec::new(),
+        hints: vec![first, second],
+    };
+
+    apply_markup_mutations_incremental(&mut incremental, &mutation, "D:20260831130000Z")
+        .expect("same-geometry markup annotations should be saved");
+    let revision = AppendedRevision::new(&incremental);
+    validate_markup_document_postconditions(&revision, &mutation)
+        .expect("each requested markup identity should survive save validation");
+
+    let names: Vec<_> = get_page_annots(&revision, page_id)
+        .expect("page annotations")
+        .iter()
+        .filter_map(|object| object.as_reference().ok())
+        .filter_map(|object_id| revision.dictionary(object_id).ok())
+        .filter_map(|dict| dict.get(b"NM").ok().and_then(pdf_string_to_text))
+        .collect();
+    assert_eq!(names.len(), 2);
+    assert!(names.iter().any(|name| name == "highlight-first"));
+    assert!(names.iter().any(|name| name == "highlight-second"));
 }
 
 #[test]

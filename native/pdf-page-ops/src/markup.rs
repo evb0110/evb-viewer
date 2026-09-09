@@ -483,6 +483,17 @@ fn create_markup_annotation(
     Ok(object_id)
 }
 
+struct MarkupRewrite<'a> {
+    target_subtype: &'a str,
+    color: Option<&'a str>,
+    opacity: Option<f64>,
+    contents: Option<&'a str>,
+    author: Option<&'a str>,
+    identity_name: Option<&'a str>,
+    modified_at: &'a str,
+    geometry: Option<(&'a MarkupSubtypeHint, PdfRect, i64)>,
+}
+
 pub(crate) fn apply_markup_rewrite_to_object(
     document: &mut Document,
     candidate: &MarkupAnnotationCandidate,
@@ -492,37 +503,77 @@ pub(crate) fn apply_markup_rewrite_to_object(
     identity_name: Option<&str>,
     modified_at: &str,
 ) -> Result<bool> {
-    apply_markup_rewrite_to_object_with_opacity(
+    apply_markup_rewrite_to_object_with_options(
         document,
         candidate,
-        target_subtype,
-        color,
-        None,
-        contents,
-        None,
-        identity_name,
-        modified_at,
+        MarkupRewrite {
+            target_subtype,
+            color,
+            opacity: None,
+            contents,
+            author: None,
+            identity_name,
+            modified_at,
+            geometry: None,
+        },
     )
 }
 
-fn apply_markup_rewrite_to_object_with_opacity(
+fn apply_markup_rewrite_to_object_with_options(
     document: &mut Document,
     candidate: &MarkupAnnotationCandidate,
-    target_subtype: &str,
-    color: Option<&str>,
-    opacity: Option<f64>,
-    contents: Option<&str>,
-    author: Option<&str>,
-    identity_name: Option<&str>,
-    modified_at: &str,
+    rewrite: MarkupRewrite<'_>,
 ) -> Result<bool> {
+    let MarkupRewrite {
+        target_subtype,
+        color,
+        opacity,
+        contents,
+        author,
+        identity_name,
+        modified_at,
+        geometry,
+    } = rewrite;
     let target_color = resolve_hint_target_color(target_subtype, color);
     let mut modified = false;
     let mut ensured_quad_points: Option<(Vec<f64>, bool)> = None;
     let mut squiggly_ap_ref: Option<ObjectId> = None;
+    let mut appearance_rect = candidate.rect;
+    let authoritative_geometry = geometry.filter(|(hint, _, _)| {
+        hint.markup_geometry
+            .as_ref()
+            .is_some_and(|rects| !rects.is_empty())
+    });
+    let has_authoritative_geometry = authoritative_geometry.is_some();
 
-    if target_subtype != "Highlight" {
+    if let Some((hint, page_view, page_rotation)) = authoritative_geometry {
+        let (values, rect) = markup_hint_pdf_quads(hint, page_view, page_rotation)?;
+        appearance_rect = Some(rect);
+        let changed = candidate.quad_points.as_ref().is_none_or(|existing| {
+            existing.len() != values.len()
+                || existing
+                    .iter()
+                    .zip(values.iter())
+                    .any(|(left, right)| (left - right).abs() > 0.000_001)
+        });
+        let rect_changed = candidate.rect.is_none_or(|existing| {
+            [
+                (existing.x1, rect.x1),
+                (existing.y1, rect.y1),
+                (existing.x2, rect.x2),
+                (existing.y2, rect.y2),
+            ]
+            .into_iter()
+            .any(|(left, right)| (left - right).abs() > 0.000_001)
+        });
+        ensured_quad_points = Some((values, changed));
+        if changed || rect_changed {
+            modified = true;
+        }
+    } else if target_subtype != "Highlight" {
         ensured_quad_points = ensure_markup_quad_points(candidate);
+    }
+    if target_subtype != "Highlight" {
         let subtype_already_applied = candidate.subtype == target_subtype;
         if !subtype_already_applied {
             modified = true;
@@ -536,7 +587,7 @@ fn apply_markup_rewrite_to_object_with_opacity(
         if target_subtype == "Squiggly" {
             if let (Some((values, _)), Some(rect), Some(color)) = (
                 &ensured_quad_points,
-                candidate.rect,
+                appearance_rect,
                 target_color.or(candidate.color),
             ) {
                 if let Some(stream) = build_squiggly_appearance_stream(values, rect, color) {
@@ -592,10 +643,19 @@ fn apply_markup_rewrite_to_object_with_opacity(
         // alpha state. Let the annotation-level opacity control rendering.
         dict.remove(b"AP");
     }
-    if target_subtype != "Highlight" {
-        if let Some((values, _)) = ensured_quad_points {
-            dict.set("QuadPoints", quad_points_object(&values));
+    if has_authoritative_geometry {
+        if let Some(rect) = appearance_rect {
+            dict.set("Rect", rect_object(rect));
         }
+        // Geometry changes invalidate any appearance stream generated for the
+        // old bounds. Squiggly gets a fresh stream below; other subtypes rely
+        // on their QuadPoints after this removal.
+        dict.remove(b"AP");
+    }
+    if let Some((values, _)) = ensured_quad_points {
+        dict.set("QuadPoints", quad_points_object(&values));
+    }
+    if target_subtype != "Highlight" {
         if candidate.subtype != target_subtype {
             let pdf_name =
                 markup_subtype_pdf_name(target_subtype).ok_or("Invalid text-markup subtype")?;
@@ -714,6 +774,8 @@ pub(crate) fn rewrite_page_markup_subtypes(
     candidates: &[MarkupAnnotationCandidate],
     overrides: &HashMap<String, String>,
     page_hints: &mut [MarkupHintState],
+    page_view: PdfRect,
+    page_rotation: i64,
     modified_at: &str,
 ) -> Result<bool> {
     let mut rewritten = false;
@@ -726,16 +788,19 @@ pub(crate) fn rewrite_page_markup_subtypes(
         {
             page_hints[hint_index].consumed = true;
             let hint = page_hints[hint_index].hint.clone();
-            rewritten = apply_markup_rewrite_to_object_with_opacity(
+            rewritten = apply_markup_rewrite_to_object_with_options(
                 document,
                 candidate,
-                &hint.subtype,
-                hint.color.as_deref(),
-                hint.opacity,
-                hint.contents.as_deref(),
-                hint.author.as_deref(),
-                markup_annotation_name(&hint).as_deref(),
-                modified_at,
+                MarkupRewrite {
+                    target_subtype: &hint.subtype,
+                    color: hint.color.as_deref(),
+                    opacity: hint.opacity,
+                    contents: hint.contents.as_deref(),
+                    author: hint.author.as_deref(),
+                    identity_name: markup_annotation_name(&hint).as_deref(),
+                    modified_at,
+                    geometry: Some((&hint, page_view, page_rotation)),
+                },
             )? || rewritten;
             continue;
         }
@@ -745,16 +810,19 @@ pub(crate) fn rewrite_page_markup_subtypes(
         {
             let hint = page_hints[hint_index].hint.clone();
             consume_exact_ref_hints(page_hints, candidate, &hints_by_ref);
-            rewritten = apply_markup_rewrite_to_object_with_opacity(
+            rewritten = apply_markup_rewrite_to_object_with_options(
                 document,
                 candidate,
-                &hint.subtype,
-                hint.color.as_deref(),
-                hint.opacity,
-                hint.contents.as_deref(),
-                hint.author.as_deref(),
-                markup_annotation_name(&hint).as_deref(),
-                modified_at,
+                MarkupRewrite {
+                    target_subtype: &hint.subtype,
+                    color: hint.color.as_deref(),
+                    opacity: hint.opacity,
+                    contents: hint.contents.as_deref(),
+                    author: hint.author.as_deref(),
+                    identity_name: markup_annotation_name(&hint).as_deref(),
+                    modified_at,
+                    geometry: Some((&hint, page_view, page_rotation)),
+                },
             )? || rewritten;
             continue;
         }
@@ -764,16 +832,19 @@ pub(crate) fn rewrite_page_markup_subtypes(
         {
             page_hints[hint_index].consumed = true;
             let hint = page_hints[hint_index].hint.clone();
-            rewritten = apply_markup_rewrite_to_object_with_opacity(
+            rewritten = apply_markup_rewrite_to_object_with_options(
                 document,
                 candidate,
-                &hint.subtype,
-                hint.color.as_deref(),
-                hint.opacity,
-                hint.contents.as_deref(),
-                hint.author.as_deref(),
-                markup_annotation_name(&hint).as_deref(),
-                modified_at,
+                MarkupRewrite {
+                    target_subtype: &hint.subtype,
+                    color: hint.color.as_deref(),
+                    opacity: hint.opacity,
+                    contents: hint.contents.as_deref(),
+                    author: hint.author.as_deref(),
+                    identity_name: markup_annotation_name(&hint).as_deref(),
+                    modified_at,
+                    geometry: Some((&hint, page_view, page_rotation)),
+                },
             )? || rewritten;
             continue;
         }
@@ -805,16 +876,19 @@ pub(crate) fn rewrite_page_markup_subtypes(
         page_hints[hint_index].consumed = true;
         let hint = page_hints[hint_index].hint.clone();
         let candidate = &unmatched_candidates[candidate_index];
-        rewritten = apply_markup_rewrite_to_object_with_opacity(
+        rewritten = apply_markup_rewrite_to_object_with_options(
             document,
             candidate,
-            &hint.subtype,
-            hint.color.as_deref(),
-            hint.opacity,
-            hint.contents.as_deref(),
-            hint.author.as_deref(),
-            markup_annotation_name(&hint).as_deref(),
-            modified_at,
+            MarkupRewrite {
+                target_subtype: &hint.subtype,
+                color: hint.color.as_deref(),
+                opacity: hint.opacity,
+                contents: hint.contents.as_deref(),
+                author: hint.author.as_deref(),
+                identity_name: markup_annotation_name(&hint).as_deref(),
+                modified_at,
+                geometry: Some((&hint, page_view, page_rotation)),
+            },
         )? || rewritten;
     }
     Ok(rewritten)
@@ -910,41 +984,51 @@ pub(crate) fn apply_markup_rewrite_to_incremental_object(
     identity_name: Option<&str>,
     modified_at: &str,
 ) -> Result<bool> {
-    apply_markup_rewrite_to_incremental_object_with_opacity(
+    apply_markup_rewrite_to_incremental_object_with_options(
         incremental,
         candidate,
-        target_subtype,
-        color,
-        None,
-        contents,
-        None,
-        identity_name,
-        modified_at,
+        MarkupRewrite {
+            target_subtype,
+            color,
+            opacity: None,
+            contents,
+            author: None,
+            identity_name,
+            modified_at,
+            geometry: None,
+        },
     )
 }
 
-fn apply_markup_rewrite_to_incremental_object_with_opacity(
+fn apply_markup_rewrite_to_incremental_object_with_options(
     incremental: &mut IncrementalDocument,
     candidate: &MarkupAnnotationCandidate,
-    target_subtype: &str,
-    color: Option<&str>,
-    opacity: Option<f64>,
-    contents: Option<&str>,
-    author: Option<&str>,
-    identity_name: Option<&str>,
-    modified_at: &str,
+    rewrite: MarkupRewrite<'_>,
 ) -> Result<bool> {
-    incremental.opt_clone_object_to_new_document(candidate.object_id)?;
-    let modified = apply_markup_rewrite_to_object_with_opacity(
-        &mut incremental.new_document,
-        candidate,
+    let MarkupRewrite {
         target_subtype,
         color,
         opacity,
-        None,
+        contents,
         author,
         identity_name,
         modified_at,
+        geometry,
+    } = rewrite;
+    incremental.opt_clone_object_to_new_document(candidate.object_id)?;
+    let modified = apply_markup_rewrite_to_object_with_options(
+        &mut incremental.new_document,
+        candidate,
+        MarkupRewrite {
+            target_subtype,
+            color,
+            opacity,
+            contents: None,
+            author,
+            identity_name,
+            modified_at,
+            geometry,
+        },
     )?;
     if let Some(contents) = contents {
         update_annotation_text_incremental_by_ref(
@@ -962,6 +1046,8 @@ pub(crate) fn rewrite_page_markup_subtypes_incremental(
     candidates: &[MarkupAnnotationCandidate],
     overrides: &HashMap<String, String>,
     page_hints: &mut [MarkupHintState],
+    page_view: PdfRect,
+    page_rotation: i64,
     modified_at: &str,
 ) -> Result<bool> {
     let mut rewritten = false;
@@ -985,16 +1071,19 @@ pub(crate) fn rewrite_page_markup_subtypes_incremental(
         ) {
             page_hints[hint_index].consumed = true;
             let hint = page_hints[hint_index].hint.clone();
-            rewritten = apply_markup_rewrite_to_incremental_object_with_opacity(
+            rewritten = apply_markup_rewrite_to_incremental_object_with_options(
                 incremental,
                 candidate,
-                &hint.subtype,
-                hint.color.as_deref(),
-                hint.opacity,
-                hint.contents.as_deref(),
-                hint.author.as_deref(),
-                markup_annotation_name(&hint).as_deref(),
-                modified_at,
+                MarkupRewrite {
+                    target_subtype: &hint.subtype,
+                    color: hint.color.as_deref(),
+                    opacity: hint.opacity,
+                    contents: hint.contents.as_deref(),
+                    author: hint.author.as_deref(),
+                    identity_name: markup_annotation_name(&hint).as_deref(),
+                    modified_at,
+                    geometry: Some((&hint, page_view, page_rotation)),
+                },
             )? || rewritten;
             continue;
         }
@@ -1004,16 +1093,19 @@ pub(crate) fn rewrite_page_markup_subtypes_incremental(
         {
             let hint = page_hints[hint_index].hint.clone();
             consume_exact_ref_hints(page_hints, candidate, &hints_by_ref);
-            rewritten = apply_markup_rewrite_to_incremental_object_with_opacity(
+            rewritten = apply_markup_rewrite_to_incremental_object_with_options(
                 incremental,
                 candidate,
-                &hint.subtype,
-                hint.color.as_deref(),
-                hint.opacity,
-                hint.contents.as_deref(),
-                hint.author.as_deref(),
-                markup_annotation_name(&hint).as_deref(),
-                modified_at,
+                MarkupRewrite {
+                    target_subtype: &hint.subtype,
+                    color: hint.color.as_deref(),
+                    opacity: hint.opacity,
+                    contents: hint.contents.as_deref(),
+                    author: hint.author.as_deref(),
+                    identity_name: markup_annotation_name(&hint).as_deref(),
+                    modified_at,
+                    geometry: Some((&hint, page_view, page_rotation)),
+                },
             )? || rewritten;
             continue;
         }
@@ -1023,16 +1115,19 @@ pub(crate) fn rewrite_page_markup_subtypes_incremental(
         {
             page_hints[hint_index].consumed = true;
             let hint = page_hints[hint_index].hint.clone();
-            rewritten = apply_markup_rewrite_to_incremental_object_with_opacity(
+            rewritten = apply_markup_rewrite_to_incremental_object_with_options(
                 incremental,
                 candidate,
-                &hint.subtype,
-                hint.color.as_deref(),
-                hint.opacity,
-                hint.contents.as_deref(),
-                hint.author.as_deref(),
-                markup_annotation_name(&hint).as_deref(),
-                modified_at,
+                MarkupRewrite {
+                    target_subtype: &hint.subtype,
+                    color: hint.color.as_deref(),
+                    opacity: hint.opacity,
+                    contents: hint.contents.as_deref(),
+                    author: hint.author.as_deref(),
+                    identity_name: markup_annotation_name(&hint).as_deref(),
+                    modified_at,
+                    geometry: Some((&hint, page_view, page_rotation)),
+                },
             )? || rewritten;
             continue;
         }
@@ -1064,16 +1159,19 @@ pub(crate) fn rewrite_page_markup_subtypes_incremental(
         page_hints[hint_index].consumed = true;
         let hint = page_hints[hint_index].hint.clone();
         let candidate = &unmatched_candidates[candidate_index];
-        rewritten = apply_markup_rewrite_to_incremental_object_with_opacity(
+        rewritten = apply_markup_rewrite_to_incremental_object_with_options(
             incremental,
             candidate,
-            &hint.subtype,
-            hint.color.as_deref(),
-            hint.opacity,
-            hint.contents.as_deref(),
-            hint.author.as_deref(),
-            markup_annotation_name(&hint).as_deref(),
-            modified_at,
+            MarkupRewrite {
+                target_subtype: &hint.subtype,
+                color: hint.color.as_deref(),
+                opacity: hint.opacity,
+                contents: hint.contents.as_deref(),
+                author: hint.author.as_deref(),
+                identity_name: markup_annotation_name(&hint).as_deref(),
+                modified_at,
+                geometry: Some((&hint, page_view, page_rotation)),
+            },
         )? || rewritten;
     }
     Ok(rewritten)
@@ -1220,6 +1318,8 @@ pub(crate) fn apply_markup_mutations_internal(
             &candidates,
             &overrides,
             &mut page_hints,
+            page_view,
+            page_rotation,
             modified_at,
         )? || modified;
         modified = match identity_bindings.as_mut() {
@@ -1284,7 +1384,7 @@ pub(crate) fn apply_markup_mutations_incremental_internal(
     let mut modified = false;
 
     for (page_id, mut page_hints) in page_targets {
-        let candidates = {
+        let (candidates, page_view, page_rotation) = {
             let document = incremental.get_prev_documents();
             let page_view = resolve_page_view(document, page_id)?;
             let page_rotation = resolve_page_rotation(document, page_id)?;
@@ -1306,13 +1406,15 @@ pub(crate) fn apply_markup_mutations_incremental_internal(
                     page_markup_index += 1;
                 }
             }
-            candidates
+            (candidates, page_view, page_rotation)
         };
         modified = rewrite_page_markup_subtypes_incremental(
             incremental,
             &candidates,
             &overrides,
             &mut page_hints,
+            page_view,
+            page_rotation,
             modified_at,
         )? || modified;
         let document = incremental.get_prev_documents();

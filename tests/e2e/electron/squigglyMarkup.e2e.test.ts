@@ -247,6 +247,11 @@ async function expectMarkupPaint(page: Page, subtype: string, lineCount: number)
         groups => groups.map(group => ({
             hitTargets: Array.from(group.querySelectorAll('[data-annotation-hit-target]')).map(element => ({
                 fill: getComputedStyle(element).fill,
+                painted: Array.from(group.closest('svg')!.querySelectorAll<SVGGeometryElement>('[data-markup-subtype="Highlight"] [data-annotation-visual]')).some(visual => {
+                    const x = Number(element.getAttribute('x')) + Number(element.getAttribute('width')) / 2;
+                    const y = Number(element.getAttribute('y')) + Number(element.getAttribute('height')) / 2;
+                    return Number(getComputedStyle(visual).opacity) > 0 && visual.isPointInFill(new DOMPoint(x, y));
+                }),
                 geometry: [
                     'x',
                     'y',
@@ -269,13 +274,12 @@ async function expectMarkupPaint(page: Page, subtype: string, lineCount: number)
     expect(paint.length).toBeGreaterThan(0);
     for (const group of paint) {
         expect(group.hitTargets).toHaveLength(lineCount);
-        expect(group.visuals).toHaveLength(lineCount);
         expect(group.hitTargets.every(target => target.fill === 'rgba(0, 0, 0, 0)')).toBe(true);
         expect(group.visuals.every(visual => visual.opacity > 0)).toBe(true);
         if (subtype === 'Highlight') {
-            expect(group.visuals.every(visual => visual.tag === 'rect')).toBe(true);
-            expect(group.visuals.map(visual => visual.geometry)).toEqual(group.hitTargets.map(target => target.geometry));
+            expect(group.hitTargets.every(target => target.painted)).toBe(true);
         } else {
+            expect(group.visuals).toHaveLength(lineCount);
             expect(group.visuals.every(visual => visual.tag === (subtype === 'Squiggly' ? 'path' : 'line'))).toBe(true);
         }
     }

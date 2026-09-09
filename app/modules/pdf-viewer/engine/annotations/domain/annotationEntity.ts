@@ -612,6 +612,281 @@ function geometryEqual(
     });
 }
 
+function rectBounds(rect: IAnnotationMarkerRect) {
+    const right = rect.left + rect.width;
+    const bottom = rect.top + rect.height;
+    return {
+        left: Math.min(rect.left, right),
+        top: Math.min(rect.top, bottom),
+        right: Math.max(rect.left, right),
+        bottom: Math.max(rect.top, bottom),
+    };
+}
+
+function rectanglesOverlap(left: IAnnotationMarkerRect, right: IAnnotationMarkerRect) {
+    const leftBounds = rectBounds(left);
+    const rightBounds = rectBounds(right);
+    return Math.min(leftBounds.right, rightBounds.right) > Math.max(leftBounds.left, rightBounds.left)
+        && Math.min(leftBounds.bottom, rightBounds.bottom) > Math.max(leftBounds.top, rightBounds.top);
+}
+
+function geometryOverlaps(
+    left: readonly IAnnotationMarkerRect[],
+    right: readonly IAnnotationMarkerRect[],
+) {
+    return left.some(source => right.some(candidate => rectanglesOverlap(source, candidate)));
+}
+
+/**
+ * Builds an axis-aligned union whose output rectangles never overlap. PDF
+ * viewers apply a highlight's alpha once per QuadPoints rectangle, so leaving
+ * intersecting rectangles in the saved annotation would still darken the
+ * overlap even when the browser renderer paints one SVG union.
+ */
+function unionTextMarkupGeometry(
+    geometries: ReadonlyArray<readonly IAnnotationMarkerRect[]>,
+) {
+    const epsilon = 1e-9;
+    const sources = geometries.flatMap(geometry => geometry.flatMap((rect) => {
+        const rawBounds = rectBounds(rect);
+        // PDF parsing introduces float32 drift. Round shared edges before
+        // partitioning, otherwise tiny slabs can become zero-width save quads.
+        const bounds = {
+            left: roundNumber(rawBounds.left, 6),
+            right: roundNumber(rawBounds.right, 6),
+            top: roundNumber(rawBounds.top, 6),
+            bottom: roundNumber(rawBounds.bottom, 6),
+        };
+        return bounds.right - bounds.left > epsilon && bounds.bottom - bounds.top > epsilon
+            ? [{
+                left: bounds.left,
+                right: bounds.right,
+                top: bounds.top,
+                bottom: bounds.bottom,
+            }]
+            : [];
+    }));
+    if (sources.length === 0) {
+        return [];
+    }
+
+    const xBreaks = [...new Set(sources.flatMap(source => [
+        source.left,
+        source.right,
+    ]))]
+        .sort((left, right) => left - right);
+    const slabs: IAnnotationMarkerRect[] = [];
+    for (let index = 0; index + 1 < xBreaks.length; index += 1) {
+        const left = xBreaks[index]!;
+        const right = xBreaks[index + 1]!;
+        if (right - left <= epsilon) {
+            continue;
+        }
+        const intervals = sources
+            .filter(source => source.left < right - epsilon && source.right > left + epsilon)
+            .map(source => ({
+                top: source.top,
+                bottom: source.bottom,
+            }))
+            .sort((first, second) => first.top - second.top || first.bottom - second.bottom);
+        const bands: Array<{
+            top: number;
+            bottom: number
+        }> = [];
+        intervals.forEach((interval) => {
+            const previous = bands.at(-1);
+            if (!previous || interval.top > previous.bottom + epsilon) {
+                bands.push({...interval});
+            } else {
+                previous.bottom = Math.max(previous.bottom, interval.bottom);
+            }
+        });
+        bands.forEach((band) => {
+            slabs.push({
+                left: roundNumber(left, 6),
+                top: roundNumber(band.top, 6),
+                width: roundNumber(right - left, 6),
+                height: roundNumber(band.bottom - band.top, 6),
+            });
+        });
+    }
+
+    const result: IAnnotationMarkerRect[] = [];
+    const lastRectByBand = new Map<string, IAnnotationMarkerRect>();
+    slabs.forEach((slab) => {
+        const band = `${slab.top}:${slab.height}`;
+        const previous = lastRectByBand.get(band);
+        if (previous && Math.abs(previous.left + previous.width - slab.left) <= epsilon) {
+            previous.width = roundNumber(slab.left + slab.width - previous.left, 6);
+            return;
+        }
+        result.push(slab);
+        lastRectByBand.set(band, slab);
+    });
+    return result;
+}
+
+function firstAuthoredText(entities: readonly ITextMarkupEntity[]) {
+    const notes: string[] = [];
+    const seen = new Set<string>();
+    entities.forEach((entity) => {
+        const text = normalizeAnnotationText(entity.contents);
+        if (!text || seen.has(text)) {
+            return;
+        }
+        seen.add(text);
+        notes.push(text);
+    });
+    return notes.join('\n\n');
+}
+
+function markupGeometryArea(entity: ITextMarkupEntity) {
+    return entity.quadPoints.reduce((area, rect) => area + Math.abs(rect.width * rect.height), 0);
+}
+
+function firstDerivedSelectedText(entities: readonly ITextMarkupEntity[]) {
+    const candidates = entities.filter(entity => (
+        entity.selectedText !== undefined
+        && entity.selectedText !== null
+        && entity.selectedText.trim().length > 0
+    ));
+    if (candidates.length > 0) {
+        // A newly selected range can expand a persisted preview. Keep one
+        // derived preview, choosing the text tied to the widest covered area,
+        // instead of concatenating overlapping fragments.
+        return [...candidates].sort((left, right) => markupGeometryArea(right) - markupGeometryArea(left))[0]!.selectedText!;
+    }
+    return entities.find(entity => entity.selectedText !== undefined && entity.selectedText !== null)?.selectedText ?? null;
+}
+
+function preferredHighlightIdentity(left: ITextMarkupEntity, right: ITextMarkupEntity) {
+    const leftPersisted = left.identity.pdfRef !== undefined || left.persistedRevision >= 0;
+    const rightPersisted = right.identity.pdfRef !== undefined || right.persistedRevision >= 0;
+    if (leftPersisted !== rightPersisted) {
+        return leftPersisted ? -1 : 1;
+    }
+    const leftCreatedAt = left.createdAt ?? Number.POSITIVE_INFINITY;
+    const rightCreatedAt = right.createdAt ?? Number.POSITIVE_INFINITY;
+    if (leftCreatedAt !== rightCreatedAt) {
+        return leftCreatedAt - rightCreatedAt;
+    }
+    return left.identity.id.localeCompare(right.identity.id);
+}
+
+function connectedHighlightEntities(
+    created: ITextMarkupEntity,
+    candidates: readonly ITextMarkupEntity[],
+) {
+    const connected: ITextMarkupEntity[] = [];
+    let frontier = [...created.quadPoints];
+    let changed = true;
+    while (changed) {
+        changed = false;
+        candidates.forEach((candidate) => {
+            if (connected.some(entity => entity.identity.id === candidate.identity.id)
+                || !geometryOverlaps(frontier, candidate.quadPoints)) {
+                return;
+            }
+            connected.push(candidate);
+            frontier = [
+                ...frontier,
+                ...candidate.quadPoints,
+            ];
+            changed = true;
+        });
+    }
+    return connected;
+}
+
+function buildHighlightSelectionPlan(input: {
+    created: ITextMarkupEntity;
+    entities: readonly AnnotationEntity[];
+}) {
+    const matching = input.entities.filter((entity): entity is ITextMarkupEntity => (
+        !entity.deleted
+        && entity.kind === 'text-markup'
+        && entity.pageIndex === input.created.pageIndex
+        && entity.subtype === 'Highlight'
+        && normalizeColor(entity.color) === normalizeColor(input.created.color)
+    ));
+    const connected = connectedHighlightEntities(input.created, matching);
+    const mergedGeometry = unionTextMarkupGeometry([
+        ...connected.map(entity => entity.quadPoints),
+        input.created.quadPoints,
+    ]);
+    if (!connected.length) {
+        if (geometryEqual(mergedGeometry, input.created.quadPoints)) {
+            return null;
+        }
+        return {
+            replacements: [],
+            projection: {
+                created: {
+                    ...input.created,
+                    quadPoints: mergedGeometry,
+                },
+                replacements: [],
+            } satisfies ITextMarkupSelectionProjection,
+        };
+    }
+    if (mergedGeometry.length === 0) {
+        return null;
+    }
+    const canonical = [...connected].sort(preferredHighlightIdentity)[0]!;
+    const ordered = [
+        canonical,
+        ...connected.filter(entity => entity.identity.id !== canonical.identity.id),
+        input.created,
+    ];
+    const mergedContents = firstAuthoredText(ordered);
+    const mergedSelectedText = firstDerivedSelectedText(ordered);
+    const modifiedAt = input.created.modifiedAt ?? canonical.modifiedAt;
+    const replacements = connected.map((entity): ITextMarkupReplacement => {
+        const after = entity.identity.id === canonical.identity.id
+            ? {
+                ...entity,
+                color: input.created.color,
+                opacity: input.created.opacity,
+                contents: mergedContents,
+                quadPoints: mergedGeometry,
+                selectedText: mergedSelectedText,
+                revision: entity.revision + 1,
+                modifiedAt,
+            }
+            : {
+                ...entity,
+                deleted: true,
+                revision: entity.revision + 1,
+                modifiedAt,
+            };
+        return {
+            before: entity,
+            after,
+        };
+    });
+    const changedReplacements = replacements.filter(({
+        before, after,
+    }) => (
+        semanticEntityFingerprint(before) !== semanticEntityFingerprint(after)
+        || before.selectedText !== after.selectedText
+    ));
+    const changedCanonical = changedReplacements.find(replacement => (
+        replacement.after.identity.id === canonical.identity.id
+    ));
+    const afterCanonical = changedCanonical?.after ?? canonical;
+    return {
+        replacements: changedReplacements,
+        projection: {
+            created: structuredClone(afterCanonical),
+            replacements: changedReplacements.map(({after}) => ({
+                annotationId: after.identity.id,
+                quadPoints: structuredClone(after.quadPoints),
+                deleted: after.deleted,
+            })),
+        } satisfies ITextMarkupSelectionProjection,
+    };
+}
+
 export function buildTextMarkupSelectionPlan(input: {
     created: ITextMarkupEntity;
     overlapCandidates: readonly ITextMarkupOverlapCandidate[];
@@ -623,6 +898,12 @@ export function buildTextMarkupSelectionPlan(input: {
     ]));
     const seen = new Set<AnnotationId>();
     const replacements: ITextMarkupReplacement[] = [];
+    if (input.created.subtype === 'Highlight') {
+        const highlightPlan = buildHighlightSelectionPlan(input);
+        if (highlightPlan) {
+            return highlightPlan;
+        }
+    }
     if (input.created.subtype !== 'Highlight') {
         input.overlapCandidates.forEach((candidate) => {
             if (seen.has(candidate.annotationId)) {

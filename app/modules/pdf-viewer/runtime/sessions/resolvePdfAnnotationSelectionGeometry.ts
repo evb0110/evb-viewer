@@ -9,6 +9,7 @@ import {
     type IHighlightSelectionPage,
     type IHighlightPageGeometry,
 } from '@app/modules/pdf-viewer/engine/annotation-highlight-geometry/buildHighlightQuadsFromSelection';
+import type {IPdfTextPreviewItem} from '@app/modules/pdf-viewer/engine/annotations/pdf-annotation-preview-text/pdfAnnotationPreviewTextTypes';
 import type { TPdfDocumentSession } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
 import { requirePageNumber } from '@contracts/pageNumbers';
 
@@ -82,6 +83,7 @@ export async function resolvePdfAnnotationSelectionGeometry(
     }
 
     const pages: IHighlightSelectionPage[] = [];
+    const previewTextByPage = new Map<number, NonNullable<IHighlightPageGeometry['previewText']>>();
     for (const candidate of candidates) {
         const textMapping = getTextLayerTextMapping(candidate.textLayer);
         if (!textMapping) {
@@ -110,6 +112,16 @@ export async function resolvePdfAnnotationSelectionGeometry(
             if (lineBoxes.length === 0) {
                 continue;
             }
+            const pageViewport = lease.page.getViewport({scale: 1});
+            previewTextByPage.set(candidate.pageNumber, {
+                textItems: textContent.items as IPdfTextPreviewItem[],
+                viewport: {
+                    transform: [...pageViewport.transform],
+                    width: pageViewport.width,
+                    height: pageViewport.height,
+                    scale: pageViewport.scale,
+                },
+            });
             pages.push({
                 pageNumber: candidate.pageNumber,
                 pageContainer: candidate.pageContainer,
@@ -133,10 +145,14 @@ export async function resolvePdfAnnotationSelectionGeometry(
     if (!isCurrent()) {
         return {status: 'stale'};
     }
-    const geometry = buildHighlightQuadsFromSelection(range, pages).map(page => ({
-        ...page,
-        quadPoints: page.quadPoints.map(rect => rotateAnnotationRect(rect, -viewRotation)),
-    }));
+    const geometry = buildHighlightQuadsFromSelection(range, pages).map(page => {
+        const previewText = previewTextByPage.get(page.pageNumber);
+        return {
+            ...page,
+            quadPoints: page.quadPoints.map(rect => rotateAnnotationRect(rect, -viewRotation)),
+            ...(previewText ? {previewText} : {}),
+        };
+    });
     return geometry.length > 0
         ? {
             status: 'ready',
