@@ -1,0 +1,19 @@
+tests/integration/native/windowsAtomicPdfReplacement.test.ts
+  s_9cd704c9fd4353::t_4b9480deff7ab9 84,128
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "8b85b72d0d02da756b39e14ada542ff919bc98d0",
+  "prompts": {},
+  "sessions": {
+    "s_9cd704c9fd4353": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a086c8-ea59-7732-bf36-a18e58ce1679",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
