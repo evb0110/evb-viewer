@@ -160,9 +160,7 @@ describe('Project 8 recovered close decisions', () => {
         });
         await waitForWorkspaceToolbarIdle(session.page, {timeoutMs: 60_000});
         expect(session.page.isClosed()).toBe(false);
-        const state = await readWorkspaceStateValues<{dirtyState?: {
-            fileDirty?: boolean;
-        };}>(session.page, ['dirtyState']);
+        const state = await readWorkspaceStateValues<{dirtyState?: {fileDirty?: boolean;};}>(session.page, ['dirtyState']);
         expect(state.dirtyState?.fileDirty).toBe(true);
         expect((await readPdfPageSnapshots(recovered.workingCopyPath))[0]?.rotation).toBe(90);
         await expect.poll(async () => {
