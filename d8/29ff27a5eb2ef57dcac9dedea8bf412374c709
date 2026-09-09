@@ -1,0 +1,23 @@
+scripts/run-all-gates.mjs
+  s_7c539d92f951c7::t_67651e619c6921 163-168,170-174,203-211
+scripts/validation-gates.mjs
+  s_7c539d92f951c7::t_67651e619c6921 1920-1924,2028-2033,2035-2039,2071-2082,2092-2096,2104-2107,2111-2119,2123-2127,2130-2133,2135-2139,2342-2345
+tests/unit/scripts/validationGatePolicy.test.ts
+  s_7c539d92f951c7::t_67651e619c6921 126-133,1155-1162,1169-1176,1183,1202-1206,1242-1244,1249-1251
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "d829ff27a5eb2ef57dcac9dedea8bf412374c709",
+  "prompts": {},
+  "sessions": {
+    "s_7c539d92f951c7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a087d6-ddb2-74f0-b850-c14ba109b8d3",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
