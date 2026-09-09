@@ -1,0 +1,23 @@
+tests/unit/electron/scanCleanupPreviewComposition.test.ts
+  s_c63d7a8363f7e9::t_52033b04e03d7d 7,68-72
+  s_c63d7a8363f7e9::t_3c199c9f2631e4 94-97
+  s_c63d7a8363f7e9::t_4f58c65eb9f9f9 67,73-84
+  s_c63d7a8363f7e9::t_aa2480d807de1b 6,8-14,57-66,85-93,98
+  s_c63d7a8363f7e9::t_f0e048b3d756a6 99
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "ce12204b669c7303eaafca71271e76e97aa84500",
+  "prompts": {},
+  "sessions": {
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
