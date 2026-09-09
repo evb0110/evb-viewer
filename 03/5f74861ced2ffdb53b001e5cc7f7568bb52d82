@@ -1,0 +1,23 @@
+app/modules/pdf-viewer/annotations/editor/useAnnotationKeyboardCommands.ts
+  s_0aba018850ac20::t_555de430a03d35 8,51,55-57
+  s_0aba018850ac20::t_adc911ec3f15b9 35,54
+app/modules/pdf-viewer/components/PdfAnnotationEditorLayer.vue
+  s_0aba018850ac20::t_adc911ec3f15b9 232-236,472-473
+  s_0aba018850ac20::t_555de430a03d35 237-259,467-471,474-504
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "035f74861ced2ffdb53b001e5cc7f7568bb52d82",
+  "prompts": {},
+  "sessions": {
+    "s_0aba018850ac20": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08853-d640-7890-8fc2-b7acd0cffd7d",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
