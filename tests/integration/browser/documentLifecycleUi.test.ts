@@ -377,8 +377,8 @@ describe('browser document lifecycle UI', () => {
     it('proves a dirty viewer transfer after source loss before target authority readback', async () => {
         const browser = await chromium.launch({headless: true});
         const context = await browser.newContext();
-            const source = await context.newPage();
-            const target = await context.newPage();
+        const source = await context.newPage();
+        const target = await context.newPage();
         try {
             await source.addInitScript(() => {
                 Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
@@ -534,7 +534,10 @@ describe('browser document lifecycle UI', () => {
                 });
                 await reopened.goto(origin, {waitUntil: 'domcontentloaded'});
                 const reopenChooserPromise = reopened.waitForEvent('filechooser');
-                await reopened.getByRole('button', {name: 'Open File', exact: true}).first().click();
+                await reopened.getByRole('button', {
+                    name: 'Open File',
+                    exact: true,
+                }).first().click();
                 await (await reopenChooserPromise).setFiles(savedPath);
                 await reopened.locator('.page_container--rendered .page_canvas canvas').first().waitFor({
                     state: 'visible',
