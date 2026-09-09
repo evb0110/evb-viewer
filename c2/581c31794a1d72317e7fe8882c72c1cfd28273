@@ -1,0 +1,31 @@
+app/modules/agent-panel/utils/assistantSelectionState.ts
+  s_18e11301ffceae::t_3090fb78107ef5 27-41,84-87,93
+tests/unit/app/modules/agent-panel/assistantSelectionState.test.ts
+  s_18e11301ffceae::t_1bc47d2f21aa63 405-413,422-426,431-433,438-440,445-453
+  s_18e11301ffceae::t_d6549c5a093273 414-421,427-430,434-437,441-444
+tests/unit/electron/agentAssistantProviderStatus.test.ts
+  s_18e11301ffceae::t_1bc47d2f21aa63 9,144-147,153,162-171,176-177
+  s_18e11301ffceae::t_d6549c5a093273 148-152,154-161,172-175
+  s_18e11301ffceae::t_4c1c5407395698 178
+app/modules/agent-panel/composables/useAgentAssistantPanelController.ts
+  s_18e11301ffceae::t_3090fb78107ef5 162,721-727
+  s_18e11301ffceae::t_151728d0ce2316 758-764
+electron/features/agent/assistantProviderStatus.ts
+  s_18e11301ffceae::t_3090fb78107ef5 178-185,314-323,334-335
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "c2581c31794a1d72317e7fe8882c72c1cfd28273",
+  "prompts": {},
+  "sessions": {
+    "s_18e11301ffceae": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08866-8762-7531-bde2-01c75f4409d0",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

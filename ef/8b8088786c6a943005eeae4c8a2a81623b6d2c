@@ -1,0 +1,22 @@
+app/modules/workspace-shell/viewers/useDocumentPageSourceRuntime.ts
+  s_a00735bca8e7db::t_ad6c1a8b3857c3 573
+  s_a00735bca8e7db::t_85c31f8216e23b 567-572,574-588,774-780
+tests/unit/app/utils/document-viewer/useDocumentViewportLayoutLifecycle.test.ts
+  s_a00735bca8e7db::t_85c31f8216e23b 38,47,52,61,79,82,87,93,100,103,108,117-118
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "ef8b8088786c6a943005eeae4c8a2a81623b6d2c",
+  "prompts": {},
+  "sessions": {
+    "s_a00735bca8e7db": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0886b-0715-7831-8f0a-83257031dcee",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
