@@ -1,0 +1,30 @@
+app/modules/workspace-shell/composables/useWorkspaceSplitPayload.ts
+  s_0e7307298be030::t_d22765322e5600 177-190
+  s_0e7307298be030::t_786f26da38deca 165-166,168-169,191-213
+  s_0e7307298be030::t_c03e22200d1dae 425
+app/platform/browser-api/createBrowserDocumentsFileCapability.ts
+  s_0e7307298be030::t_787a519371b1f3 120,570,588-617
+app/platform/browser-api/createBrowserDocumentsCapability.ts
+  s_0e7307298be030::t_a274c01f47139b 178-180
+app/modules/workspace-shell/composables/usePageSaveOrchestration.ts
+  s_0e7307298be030::t_67e10c5342e6d9 267
+tests/integration/browser/documentLifecycleUi.test.ts
+  s_0e7307298be030::t_b27bc4b2b7ac4b 31,500-516
+  s_0e7307298be030::t_e8aca08217befc 381-382
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0e0ed41582d6c5e082cad072851b7cf9b72e165b",
+  "prompts": {},
+  "sessions": {
+    "s_0e7307298be030": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a085a5-2d32-7c20-aec3-95b6b1cfc486",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
