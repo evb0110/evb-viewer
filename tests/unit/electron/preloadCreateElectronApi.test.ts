@@ -126,7 +126,6 @@ const documentsClientMock = vi.hoisted(() => ({
     recentFiles: {
         get: vi.fn(async () => []),
         remove: vi.fn(async () => undefined),
-        removeIfMissing: vi.fn(async () => false),
         clear: vi.fn(async () => undefined),
     },
     setMenuDocumentState: vi.fn(async () => undefined),

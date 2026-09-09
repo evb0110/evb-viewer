@@ -15,6 +15,7 @@ import { DOCUMENTS_IPC_CODECS } from '@electron/features/documents/documentsIpcC
 import { OCR_PLATFORM_FEATURE } from '@contracts/ocrPlatformFeature';
 import { SCAN_CLEANUP_PLATFORM_FEATURE } from '@contracts/scanCleanupPlatformFeature';
 import {PDF_DECRYPT_PASSWORD_MAX_BYTES} from '@contracts/pdfDecryptSchemas';
+import {createBrowserAssistantState} from '@app/platform/browser-api/browserAgentCapability';
 
 const AGENT_CHANNELS = AGENT_PLATFORM_FEATURE.invokeChannels;
 const AGENT_IPC_CODECS = AGENT_PLATFORM_FEATURE.ipcCodecs;
@@ -713,5 +714,25 @@ describe('feature IPC codec maps', () => {
             Array.from({length: 100_001}),
             'request-1',
         ])).toThrow('OCR searchable PDF pages exceeds maximum item count (100000)');
+    });
+    it('decodes resolved assistant send failures with their structured envelope', () => {
+        const errorEnvelope = {
+            code: 'RUNTIME_UNAVAILABLE' as const,
+            message: 'Provider unavailable.',
+            retryable: false,
+            timestamp: 0,
+        };
+        const result = agentCodec(AGENT_CHANNELS.sendAssistantMessage).decodeResult({
+            ok: false,
+            state: createBrowserAssistantState(),
+            error: errorEnvelope.message,
+            errorEnvelope,
+        });
+
+        expect(result).toMatchObject({
+            ok: false,
+            error: errorEnvelope.message,
+            errorEnvelope,
+        });
     });
 });

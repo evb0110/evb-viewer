@@ -270,7 +270,7 @@ async function filterExistingFiles(files: IRecentFile[]): Promise<IFilteredRecen
     } of inspections) {
         if (inspection.status === 'missing') {
             // ENOENT can mean a temporarily unmounted volume. Keep the entry
-            // until the user explicitly removes it with removeRecentFileIfMissing.
+            // until the user explicitly removes it.
             checks.push(file);
             continue;
         }
@@ -628,26 +628,6 @@ export async function removeRecentFile(originalPath: string) {
         // Update cache
         recentFilesCache = cloneRecentFiles(data.files);
         cacheTimestamp = Date.now();
-    });
-}
-
-export async function removeRecentFileIfMissing(originalPath: string) {
-    return enqueueRecentFilesOperation(async () => {
-        const data = await loadRecentFilesData();
-        if (!data.files.some(file => file.originalPath === originalPath)) {
-            return false;
-        }
-
-        const inspection = await inspectPath(originalPath);
-        if (inspection.status !== 'missing') {
-            return false;
-        }
-
-        data.files = data.files.filter(file => file.originalPath !== originalPath);
-        await saveRecentFilesData(data);
-        recentFilesCache = cloneRecentFiles(data.files);
-        cacheTimestamp = Date.now();
-        return true;
     });
 }
 

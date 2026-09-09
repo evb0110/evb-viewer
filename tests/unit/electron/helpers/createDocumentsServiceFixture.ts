@@ -60,7 +60,6 @@ const defaultDocumentsService = {
     releasePdfEmbeddedShapeIndex: unimplementedDocumentsServiceMethod,
     renderPdfNativePagePreview: unimplementedDocumentsServiceMethod,
     removeRecentFile: unimplementedDocumentsServiceMethod,
-    removeRecentFileIfMissing: unimplementedDocumentsServiceMethod,
     repairPdf: unimplementedDocumentsServiceMethod,
     replaceWorkingCopyFromPath: unimplementedDocumentsServiceMethod,
     replaceWorkingCopyFromStagedPdfNativeMutation: unimplementedDocumentsServiceMethod,
