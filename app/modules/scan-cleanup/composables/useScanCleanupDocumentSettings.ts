@@ -11,23 +11,17 @@ import {
     getScanCleanupPageOverride,
     setScanCleanupPageOverride,
 } from '@contracts/scanCleanupPageOverrides';
-import {
-    DEFAULT_SCAN_CLEANUP_DOCUMENT_OUTPUT_MODE,
-    SCAN_CLEANUP_PREFERENCES_PERSISTENCE_DEBOUNCE_MS,
-} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
+import {DEFAULT_SCAN_CLEANUP_DOCUMENT_OUTPUT_MODE} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
 import type {IScanCleanupDocumentPreferencePatch} from '@contracts/scanCleanupSettings';
 import {
-    captureScanCleanupDocumentPersistenceToken,
     flushScanCleanupPreferencesStore,
+    flushScanCleanupDocumentPreferencesStore,
     getScanCleanupPreferencesStore,
-    isScanCleanupDocumentPersistenceTokenCurrent,
     loadScanCleanupDocumentSettings,
     saveScanCleanupDocumentPreferencesInStore,
+    scheduleScanCleanupDocumentPreferencesInStore,
 } from '@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore';
-import type {
-    IScanCleanupDocumentPersistenceToken,
-    IScanCleanupDocumentSettingsSnapshot,
-} from '@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore';
+import type {IScanCleanupDocumentSettingsSnapshot} from '@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore';
 import {
     resolveScanCleanupMarginPatch,
     scanCleanupMarginsUniform,
@@ -97,91 +91,23 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
         sourceSha256: sourceSha256.value,
         legacyDocumentKey: legacyDocumentKey.value,
     });
-    interface IPendingDocumentPersistence extends IScanCleanupDocumentPreferencePatch {
-        sourceSha256: string | null;
-        legacyDocumentKey: string | null;
-        token: IScanCleanupDocumentPersistenceToken;
-    }
-    let persistenceTimer: ReturnType<typeof setTimeout> | null = null;
-    let pendingPersistence: IPendingDocumentPersistence | null = null;
-    let loadingDocument = false;
+    const loadingDocument = ref(false);
     let documentLoadGeneration = 0;
-
-    function flushDocumentPersistence(): Promise<void> {
-        if (persistenceTimer !== null) {
-            clearTimeout(persistenceTimer);
-            persistenceTimer = null;
-        }
-        const pending = pendingPersistence;
-        if (!pending) {
-            return Promise.resolve();
-        }
-        if (!isScanCleanupDocumentPersistenceTokenCurrent(pending.token)) {
-            pendingPersistence = null;
-            return Promise.resolve();
-        }
-        const {
-            sourceSha256,
-            legacyDocumentKey,
-            token: _token,
-            ...patch
-        } = pending;
-        pendingPersistence = null;
-        return Promise.resolve(saveScanCleanupDocumentPreferencesInStore(sourceSha256, legacyDocumentKey, patch))
-            .catch((error) => {
-                if (pendingPersistence === null) {
-                    pendingPersistence = pending;
-                } else if (
-                    pendingPersistence.sourceSha256 === pending.sourceSha256
-                    && pendingPersistence.legacyDocumentKey === pending.legacyDocumentKey
-                ) {
-                    const newerPending = pendingPersistence;
-                    pendingPersistence = {
-                        ...pending,
-                        ...newerPending,
-                        token: newerPending.token,
-                    };
-                }
-                throw error;
-            });
-    }
+    let applyingDocumentSettings = false;
+    const documentSettingsReady = ref(false);
+    const documentIntents = new Set<'overrides' | 'pageOverrideDefaults' | 'marginsMm' | 'outputMode'>();
 
     function scheduleDocumentPersistence(
         sourceSha256: string | null | undefined,
         legacyDocumentKey: string | null | undefined,
         patch: IScanCleanupDocumentPreferencePatch,
     ) {
-        if (!sourceSha256 && !legacyDocumentKey) {
-            void flushDocumentPersistence().catch(() => undefined);
-            return;
-        }
-        const pending = pendingPersistence;
-        if (
-            pending === null
-            || pending.sourceSha256 !== (sourceSha256 ?? null)
-            || pending.legacyDocumentKey !== (legacyDocumentKey ?? null)
-            || !isScanCleanupDocumentPersistenceTokenCurrent(pending.token)
-        ) {
-            void flushDocumentPersistence().catch(() => undefined);
-        }
-        pendingPersistence ??= {
-            sourceSha256: sourceSha256 ?? null,
-            legacyDocumentKey: legacyDocumentKey ?? null,
-            token: captureScanCleanupDocumentPersistenceToken(sourceSha256, legacyDocumentKey),
-        };
-        if (patch.overrides !== undefined) pendingPersistence.overrides = patch.overrides;
-        if (patch.pageOverrideDefaults !== undefined) pendingPersistence.pageOverrideDefaults = patch.pageOverrideDefaults;
-        if (patch.marginsMm !== undefined) pendingPersistence.marginsMm = patch.marginsMm;
-        if (patch.outputMode !== undefined) pendingPersistence.outputMode = patch.outputMode;
-        if (patch.resetOverrides === true) pendingPersistence.resetOverrides = true;
-        if (persistenceTimer !== null) clearTimeout(persistenceTimer);
-        persistenceTimer = setTimeout(() => {
-            void flushDocumentPersistence().catch(() => undefined);
-        }, SCAN_CLEANUP_PREFERENCES_PERSISTENCE_DEBOUNCE_MS);
+        void Promise.resolve(scheduleScanCleanupDocumentPreferencesInStore(sourceSha256, legacyDocumentKey, patch))
+            .catch(() => undefined);
     }
 
     async function flushPersistence() {
-        await flushDocumentPersistence();
+        await flushScanCleanupDocumentPreferencesStore();
         await flushScanCleanupPreferencesStore();
     }
 
@@ -345,7 +271,8 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
     async function finishDocumentLoad(generation: number) {
         await nextTick();
         if (generation === documentLoadGeneration) {
-            loadingDocument = false;
+            loadingDocument.value = false;
+            applyingDocumentSettings = false;
         }
     }
 
@@ -363,38 +290,41 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
             void finishDocumentLoad(generation);
             return;
         }
-        values.pageOverrides = snapshot.overrides;
-        values.pageOverrideDefaults = snapshot.pageOverrideDefaults
-            ?? createScanCleanupPageOverride();
+        applyingDocumentSettings = true;
+        if (!documentIntents.has('overrides')) values.pageOverrides = snapshot.overrides;
+        if (!documentIntents.has('pageOverrideDefaults')) {
+            values.pageOverrideDefaults = snapshot.pageOverrideDefaults ?? createScanCleanupPageOverride();
+        }
         const persistedOutputMode = snapshot.outputMode;
-        values.outputMode = persistedOutputMode === 'mixed'
-            ? DEFAULT_SCAN_CLEANUP_DOCUMENT_OUTPUT_MODE
-            : persistedOutputMode;
-        if (persistedOutputMode === 'mixed') {
+        if (!documentIntents.has('outputMode')) values.outputMode = persistedOutputMode === 'mixed'
+            ? DEFAULT_SCAN_CLEANUP_DOCUMENT_OUTPUT_MODE : persistedOutputMode;
+        if (persistedOutputMode === 'mixed' && !documentIntents.has('outputMode')) {
             void Promise.resolve(saveScanCleanupDocumentPreferencesInStore(
                 sourceSha256,
                 legacyDocumentKey,
                 {outputMode: DEFAULT_SCAN_CLEANUP_DOCUMENT_OUTPUT_MODE},
             )).catch(() => undefined);
         }
-        Object.assign(values.marginsMm, snapshot.marginsMm
-            ?? preferences.marginsMm);
+        if (!documentIntents.has('marginsMm')) Object.assign(values.marginsMm, snapshot.marginsMm ?? preferences.marginsMm);
         attachScanCleanupPageOverrideDefaults(
             values.pageOverrides,
             values.pageOverrideDefaults,
             values.marginsMm,
         );
         marginsLinked.value = scanCleanupMarginsUniform(values.marginsMm);
+        documentSettingsReady.value = true;
         void finishDocumentLoad(generation);
     }
 
     function loadDocumentSettingsForCurrentSource() {
         const generation = ++documentLoadGeneration;
+        documentIntents.clear();
+        documentSettingsReady.value = false;
         const lifecycleKey = options.documentLifecycleKey.value;
         void flushPersistence().catch(() => undefined);
         const currentSourceSha256 = sourceSha256.value;
         const currentLegacyDocumentKey = legacyDocumentKey.value;
-        loadingDocument = true;
+        loadingDocument.value = true;
         const snapshot = loadScanCleanupDocumentSettings(currentSourceSha256, currentLegacyDocumentKey);
         if (!(snapshot instanceof Promise)) {
             applyDocumentSettings(
@@ -416,6 +346,7 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
             ))
             .catch(() => {
                 if (generation === documentLoadGeneration) {
+                    documentSettingsReady.value = false;
                     void finishDocumentLoad(generation);
                 }
             });
@@ -424,9 +355,10 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
         void loadDocumentSettingsForCurrentSource();
     }, {immediate: true});
     watch(() => values.pageOverrides, overrides => {
-        if (loadingDocument) {
+        if (applyingDocumentSettings) {
             return;
         }
+        documentIntents.add('overrides');
         scheduleDocumentPersistence(sourceSha256.value, legacyDocumentKey.value, {overrides});
     }, {deep: true});
     watch(() => values.pageOverrideDefaults, pageOverrideDefaults => {
@@ -435,37 +367,39 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
             pageOverrideDefaults,
             values.marginsMm,
         );
-        if (loadingDocument) {
+        if (applyingDocumentSettings) {
             return;
         }
+        documentIntents.add('pageOverrideDefaults');
         scheduleDocumentPersistence(
             sourceSha256.value,
             legacyDocumentKey.value,
             pageOverrideDefaults === undefined ? {} : {pageOverrideDefaults},
         );
-    }, {
-        deep: true,
-        immediate: true,
-    });
+    }, {deep: true});
     watch(() => values.marginsMm, marginsMm => {
-        if (loadingDocument) {
+        if (applyingDocumentSettings) {
             return;
         }
+        documentIntents.add('marginsMm');
         Object.assign(preferences.marginsMm, marginsMm);
         scheduleDocumentPersistence(sourceSha256.value, legacyDocumentKey.value, {marginsMm});
     }, {deep: true});
     watch(() => values.outputMode, outputMode => {
-        if (loadingDocument) {
+        if (applyingDocumentSettings) {
             return;
         }
+        documentIntents.add('outputMode');
         scheduleDocumentPersistence(sourceSha256.value, legacyDocumentKey.value, {outputMode});
     });
 
     return {
         alignmentItems,
         dismissFirstRunGuidance,
+        documentSettingsReady,
         handleThicknessInput,
         layoutItems,
+        loadingDocument: computed(() => loadingDocument.value),
         marginsLinked,
         outputItems,
         readingOrderItems,

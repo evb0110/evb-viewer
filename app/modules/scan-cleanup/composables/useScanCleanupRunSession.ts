@@ -77,6 +77,7 @@ interface IUseScanCleanupRunSessionOptions {
     /** Bounded document-wide calibration for xlarge `ink` placement. */
     placementAnchorSummary?: Readonly<Ref<IScanCleanupPlacementAnchorSummary | null>>;
     detectionPending: ComputedRef<boolean>;
+    documentSettingsReady: ComputedRef<boolean>;
     detectionStatus: ComputedRef<Extract<TScanCleanupDetectionJobState['status'], 'completed' | 'failed' | 'canceled'> | null>;
     /**
      * Large detection jobs keep their page records in a file-backed store, so
@@ -291,6 +292,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         options.previewTotalPages(),
     ));
     const canRun = computed(() => Boolean(options.sourcePath.value)
+        && options.documentSettingsReady.value
         && !isRunning.value
         && hasIncludedPage.value
         && marginsAreValid.value
@@ -311,6 +313,9 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
     const runDisabledReason = computed(() => {
         if (!options.sourcePath.value) {
             return t('scanCleanup.runDisabled.noSource');
+        }
+        if (!options.documentSettingsReady.value) {
+            return t('scanCleanup.preview.loading');
         }
         if (!hasIncludedPage.value) {
             return t('scanCleanup.runDisabled.noIncludedPages');
