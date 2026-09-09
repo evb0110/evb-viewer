@@ -9,7 +9,10 @@ import {
 } from 'node:fs/promises';
 import type {Dirent} from 'node:fs';
 import {join} from 'node:path';
-import {isRecord} from '@contracts/runtimeGuards';
+import {
+    isErrnoException,
+    isRecord,
+} from '@contracts/runtimeGuards';
 import {
     requireDocumentRevisionToken,
     type TDocumentRevisionToken,
@@ -49,6 +52,7 @@ interface ITransitionSidecarBackup {
     targetPath: string;
     backupPath: string | null;
     directory: boolean;
+    originalState: 'present' | 'absent' | 'unknown';
     kind?: 'ocr-v4-root' | 'ocr-v3-untouched';
 }
 
@@ -63,6 +67,10 @@ interface IWorkingCopyContentTransitionJournal {
 
 function journalPathFor(workingCopyPath: string) {
     return `${workingCopyPath}.evb-content-transition.json`;
+}
+
+function isErrnoCode(error: unknown, code: string) {
+    return isErrnoException(error) && error.code === code;
 }
 
 async function writeJsonAtomic(path: string, value: unknown) {
@@ -89,6 +97,11 @@ function parseJournal(value: unknown): IWorkingCopyContentTransitionJournal | nu
             || (sidecar.backupPath !== null && typeof sidecar.backupPath !== 'string')
             || typeof sidecar.directory !== 'boolean'
             || (
+                sidecar.originalState !== undefined
+                && sidecar.originalState !== 'present'
+                && sidecar.originalState !== 'absent'
+            )
+            || (
                 sidecar.kind !== undefined
                 && sidecar.kind !== 'ocr-v4-root'
                 && sidecar.kind !== 'ocr-v3-untouched'
@@ -100,6 +113,11 @@ function parseJournal(value: unknown): IWorkingCopyContentTransitionJournal | nu
             targetPath: sidecar.targetPath,
             backupPath: sidecar.backupPath,
             directory: sidecar.directory,
+            originalState: sidecar.originalState === 'present' || sidecar.originalState === 'absent'
+                ? sidecar.originalState
+                : sidecar.backupPath !== null || sidecar.kind === 'ocr-v3-untouched'
+                    ? 'present'
+                    : 'unknown',
             ...(sidecar.kind === 'ocr-v4-root' || sidecar.kind === 'ocr-v3-untouched'
                 ? {kind: sidecar.kind}
                 : {}),
@@ -156,7 +174,13 @@ async function isLegacyOcrCatalogWithinBudget(targetPath: string) {
 
 async function isPreparedV4Root(targetPath: string) {
     const manifestPath = join(targetPath, OCR_ROOT_MANIFEST_FILENAME);
-    const manifestText = await readFile(manifestPath, 'utf8').catch(() => null);
+    let manifestText: string | null;
+    try {
+        manifestText = await readFile(manifestPath, 'utf8');
+    } catch (error) {
+        if (!isErrnoCode(error, 'ENOENT')) throw error;
+        manifestText = null;
+    }
     if (manifestText !== null) {
         let value: unknown;
         try {
@@ -176,7 +200,13 @@ async function isPreparedV4Root(targetPath: string) {
 
     // A worker can leave an unpublished generation under the shared root
     // before the root manifest is rebound by the apply transition.
-    const entries = await readdir(targetPath, {withFileTypes: true}).catch(() => [] as Dirent[]);
+    let entries: Dirent[];
+    try {
+        entries = await readdir(targetPath, {withFileTypes: true});
+    } catch (error) {
+        if (!isErrnoCode(error, 'ENOENT')) throw error;
+        entries = [];
+    }
     return entries.some(entry => entry.isDirectory() && OCR_GENERATION_DIRECTORY_PATTERN.test(entry.name));
 }
 
@@ -185,7 +215,13 @@ async function backupOcrCatalogRoot(
     backupPath: string,
 ): Promise<ITransitionSidecarBackup> {
     const manifestPath = join(targetPath, OCR_ROOT_MANIFEST_FILENAME);
-    const manifestStat = await lstat(manifestPath).catch(() => null);
+    let manifestStat;
+    try {
+        manifestStat = await lstat(manifestPath);
+    } catch (error) {
+        if (!isErrnoCode(error, 'ENOENT')) throw error;
+        manifestStat = null;
+    }
     if (manifestStat && (!manifestStat.isFile() || manifestStat.isSymbolicLink())) {
         throw new Error(`OCR v4 root manifest is not a regular file: ${manifestPath}`);
     }
@@ -195,6 +231,7 @@ async function backupOcrCatalogRoot(
             targetPath,
             backupPath,
             directory: true,
+            originalState: 'present',
             kind: 'ocr-v4-root',
         };
     }
@@ -202,6 +239,7 @@ async function backupOcrCatalogRoot(
         targetPath,
         backupPath: null,
         directory: true,
+        originalState: 'absent',
         kind: 'ocr-v4-root',
     };
 }
@@ -221,12 +259,19 @@ async function backupSidecars(
         index,
         targetPath,
     ] of targets.entries()) {
-        const targetStat = await stat(targetPath).catch(() => null);
+        let targetStat;
+        try {
+            targetStat = await stat(targetPath);
+        } catch (error) {
+            if (!isErrnoCode(error, 'ENOENT')) throw error;
+            targetStat = null;
+        }
         if (!targetStat) {
             backups.push({
                 targetPath,
                 backupPath: null,
                 directory: false,
+                originalState: 'absent',
             });
             continue;
         }
@@ -241,6 +286,7 @@ async function backupSidecars(
                     targetPath,
                     backupPath: null,
                     directory: true,
+                    originalState: 'present',
                     kind: 'ocr-v3-untouched',
                 });
                 continue;
@@ -252,11 +298,16 @@ async function backupSidecars(
             targetPath,
             backupPath,
             directory: targetStat.isDirectory(),
+            originalState: 'present',
         });
     }
 }
 
 async function restoreSidecars(sidecars: readonly ITransitionSidecarBackup[]) {
+    const uncertain = sidecars.find(sidecar => sidecar.originalState === 'unknown');
+    if (uncertain) {
+        throw new Error(`Cannot safely restore sidecar with unknown original state: ${uncertain.targetPath}`);
+    }
     await Promise.all(sidecars.map(async sidecar => {
         if (sidecar.kind === 'ocr-v4-root') {
             if (!sidecar.backupPath) {
@@ -276,15 +327,20 @@ async function restoreSidecars(sidecars: readonly ITransitionSidecarBackup[]) {
             // Leave the large tree where it is and avoid a recursive restore.
             return;
         }
-        await rm(sidecar.targetPath, {
-            recursive: true,
-            force: true,
-        });
         if (!sidecar.backupPath) {
+            await rm(sidecar.targetPath, {
+                recursive: true,
+                force: true,
+            });
             return;
         }
-        if (sidecar.directory) await cp(sidecar.backupPath, sidecar.targetPath, {recursive: true});
-        else await copyFileAtomic(sidecar.backupPath, sidecar.targetPath);
+        if (sidecar.directory) {
+            await rm(sidecar.targetPath, {
+                recursive: true,
+                force: true,
+            });
+            await cp(sidecar.backupPath, sidecar.targetPath, {recursive: true});
+        } else await copyFileAtomic(sidecar.backupPath, sidecar.targetPath);
     }));
 }
 

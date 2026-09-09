@@ -6,6 +6,7 @@ import {
     rm,
     writeFile,
 } from 'node:fs/promises';
+import * as FsPromises from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {
@@ -13,6 +14,7 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {
@@ -33,6 +35,7 @@ describe('workingCopyContentTransitionJournal', () => {
     let root = '';
 
     afterEach(async () => {
+        vi.restoreAllMocks();
         await rm(root, {
             recursive: true,
             force: true,
@@ -77,6 +80,93 @@ describe('workingCopyContentTransitionJournal', () => {
             journalPath,
         });
         await expect(readFile(journalPath, 'utf8')).resolves.toBe('{"version":1');
+    });
+
+    it('rejects a transient page-identity stat failure before recording absence', async () => {
+        root = await mkdtemp(join(tmpdir(), 'evb-content-transition-'));
+        const path = join(root, 'working.pdf');
+        const pageIdentityPath = `${path}.evb-pages.json`;
+        await writeFile(path, 'revision-n');
+        await writeFile(pageIdentityPath, 'old-page-identities');
+        const actualStat = FsPromises.stat;
+        vi.spyOn(FsPromises, 'stat').mockImplementation(async target => {
+            if (target === pageIdentityPath) {
+                throw Object.assign(new Error('transient stat failure'), {code: 'EIO'});
+            }
+            return actualStat(target);
+        });
+
+        await expect(prepareWorkingCopyContentTransition(
+            path,
+            requireDocumentRevisionToken('revision-n-plus-one'),
+        )).rejects.toMatchObject({code: 'EIO'});
+        await expect(readFile(path, 'utf8')).resolves.toBe('revision-n');
+        await expect(readFile(`${path}.evb-content-transition.json`)).rejects.toMatchObject({code: 'ENOENT'});
+        await expect(readFile(pageIdentityPath, 'utf8')).resolves.toBe('old-page-identities');
+    });
+
+    it('rejects an OCR root manifest lstat failure before recording an OCR backup mode', async () => {
+        root = await mkdtemp(join(tmpdir(), 'evb-content-transition-'));
+        const path = join(root, 'working.pdf');
+        const ocrPath = `${path}.ocr`;
+        const manifestPath = join(ocrPath, 'manifest.json');
+        await writeFile(path, 'revision-n');
+        await mkdir(ocrPath);
+        await writeFile(manifestPath, JSON.stringify({
+            version: 4,
+            catalogId: '00000000-0000-4000-8000-000000000001',
+            source: {pdfPath: path},
+            documentRevision: {token: requireDocumentRevisionToken('revision-n')},
+            pageCount: 1,
+            shardSize: 256,
+            generation: 1,
+            publishedAt: '2026-08-27T00:00:00.000Z',
+        }));
+        const actualLstat = FsPromises.lstat;
+        vi.spyOn(FsPromises, 'lstat').mockImplementation(async target => {
+            if (target === manifestPath) {
+                throw Object.assign(new Error('transient manifest lstat failure'), {code: 'EACCES'});
+            }
+            return actualLstat(target);
+        });
+
+        await expect(prepareWorkingCopyContentTransition(
+            path,
+            requireDocumentRevisionToken('revision-n-plus-one'),
+        )).rejects.toMatchObject({code: 'EACCES'});
+        await expect(readFile(path, 'utf8')).resolves.toBe('revision-n');
+        await expect(readFile(manifestPath, 'utf8')).resolves.toContain('"version":4');
+        await expect(readFile(`${path}.evb-content-transition.json`)).rejects.toMatchObject({code: 'ENOENT'});
+    });
+
+    it('preserves evidence when an old journal cannot establish a missing sidecar', async () => {
+        root = await mkdtemp(join(tmpdir(), 'evb-content-transition-'));
+        const path = join(root, 'working.pdf');
+        const backupPath = `${path}.evb-content-old.bak`;
+        const pageIdentityPath = `${path}.evb-pages.json`;
+        const journalPath = `${path}.evb-content-transition.json`;
+        await writeFile(path, 'prepared');
+        await writeFile(backupPath, 'original');
+        await writeFile(pageIdentityPath, 'new-page-identities');
+        await writeFile(journalPath, JSON.stringify({
+            version: 1,
+            state: 'prepared',
+            workingCopyPath: path,
+            backupPath,
+            nextRevisionToken: requireDocumentRevisionToken('revision-n-plus-one'),
+            sidecars: [{
+                targetPath: pageIdentityPath,
+                backupPath: null,
+                directory: false,
+            }],
+        }));
+
+        await expect(recoverWorkingCopyContentTransition(path)).rejects.toThrow(
+            'unknown original state',
+        );
+        await expect(readFile(path, 'utf8')).resolves.toBe('original');
+        await expect(readFile(pageIdentityPath, 'utf8')).resolves.toBe('new-page-identities');
+        await expect(readFile(journalPath)).resolves.toBeTruthy();
     });
 
     it('rolls back immediately when verify or commit fails', async () => {
