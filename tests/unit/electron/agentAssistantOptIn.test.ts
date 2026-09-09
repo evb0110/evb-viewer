@@ -678,6 +678,94 @@ describe('agent assistant opt-in gating', () => {
         expect(process.kill).toHaveBeenCalled();
     });
 
+    it('does not resurrect a reset turn after Codex runtime initialization returns', async () => {
+        configureEnabledAssistantRuntime();
+        mocks.initializeGate = createInitializeGate();
+        const process = new FakeCodexAppServerProcess();
+        mocks.spawn.mockImplementation(() => process);
+
+        const {
+            getAgentAssistantState,
+            resetAgentAssistantChat,
+            sendAgentAssistantMessage,
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+
+        const sendPromise = sendAgentAssistantMessage({
+            text: 'Do not restore this after reset',
+            scope: createDocumentScope('reset-during-initialize.pdf'),
+        });
+        await waitForCodexRequest(process, 'initialize');
+        await resetAgentAssistantChat({scope: createDocumentScope('reset-during-initialize.pdf')});
+        mocks.initializeGate.resolve();
+
+        await expect(sendPromise).resolves.toMatchObject({ok: false});
+        const state = await getAgentAssistantState({scope: createDocumentScope('reset-during-initialize.pdf')});
+        expect(state.messages).toEqual([]);
+        expect(process.requestMethods).not.toContain('turn/start');
+    });
+
+    it('archives a Codex thread created for a reset generation without starting its turn', async () => {
+        const documentScope = createDocumentScope('reset-during-thread-start.pdf');
+        const process = enableAssistantRuntime();
+        mocks.threadStartGate = createInitializeGate();
+
+        const {
+            getAgentAssistantState,
+            resetAgentAssistantChat,
+            sendAgentAssistantMessage,
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+
+        const sendPromise = sendAgentAssistantMessage({
+            text: 'Do not send this after reset',
+            scope: documentScope,
+        });
+        await waitForCodexRequest(process, 'thread/start');
+        await resetAgentAssistantChat({scope: documentScope});
+        mocks.threadStartGate.resolve();
+
+        await expect(sendPromise).resolves.toMatchObject({ok: false});
+        const state = await getAgentAssistantState({scope: documentScope});
+        expect(state.messages).toEqual([]);
+        expect(process.requestMethods).not.toContain('turn/start');
+        expect(process.requestMethods).toContain('thread/archive');
+
+        await expect(sendAgentAssistantMessage({
+            text: 'Intentional send after reset',
+            scope: documentScope,
+        })).resolves.toMatchObject({ok: true});
+        expect(process.requestMethods.filter(method => method === 'turn/start')).toHaveLength(1);
+    });
+
+    it('returns a terminal canceled result when Stop wins during Codex thread creation', async () => {
+        const documentScope = createDocumentScope('stop-during-thread-start.pdf');
+        const process = enableAssistantRuntime();
+        mocks.threadStartGate = createInitializeGate();
+
+        const {
+            getAgentAssistantState,
+            interruptAgentAssistant,
+            sendAgentAssistantMessage,
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+
+        const sendPromise = sendAgentAssistantMessage({
+            text: 'Do not send this after stop',
+            scope: documentScope,
+        });
+        await waitForCodexRequest(process, 'thread/start');
+        const stoppedState = await interruptAgentAssistant({scope: documentScope});
+        expect(stoppedState.status.turn.phase).toBe('cancelled');
+        mocks.threadStartGate.resolve();
+
+        await expect(sendPromise).resolves.toMatchObject({
+            ok: false,
+            error: 'Assistant turn was canceled before provider setup completed.',
+        });
+        const state = await getAgentAssistantState({scope: documentScope});
+        expect(state.messages).toEqual([]);
+        expect(process.requestMethods).not.toContain('turn/start');
+        expect(process.requestMethods).toContain('thread/archive');
+    });
+
     it('does not create a Claude session when opt-out wins during adapter loading', async () => {
         configureEnabledAssistantRuntime();
         const documentScope = createDocumentScope('disable-during-claude-load.pdf');
@@ -700,6 +788,34 @@ describe('agent assistant opt-in gating', () => {
         mocks.claudeRuntimeLoadGate?.resolve();
 
         await expect(sendPromise).resolves.toMatchObject({ok: false});
+        expect(mocks.claudeSessionConstructor).not.toHaveBeenCalled();
+    });
+
+    it('does not create a Claude session after Reset wins during adapter loading', async () => {
+        configureEnabledAssistantRuntime();
+        const documentScope = createDocumentScope('reset-during-claude-load.pdf');
+        const {
+            getAgentAssistantState,
+            resetAgentAssistantChat,
+            sendAgentAssistantMessage,
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+
+        const sendPromise = sendAgentAssistantMessage({
+            provider: 'claude',
+            text: 'Do not create this session after reset',
+            scope: documentScope,
+        });
+        await settleAsyncTicks();
+        expect(mocks.claudeRuntimeLoadGate).toBeTruthy();
+        await resetAgentAssistantChat({
+            provider: 'claude',
+            scope: documentScope,
+        });
+        mocks.claudeRuntimeLoadGate?.resolve();
+
+        await expect(sendPromise).resolves.toMatchObject({ok: false});
+        const state = await getAgentAssistantState({scope: documentScope});
+        expect(state.messages).toEqual([]);
         expect(mocks.claudeSessionConstructor).not.toHaveBeenCalled();
     });
 

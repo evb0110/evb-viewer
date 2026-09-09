@@ -72,6 +72,11 @@ interface IAssistantRuntime {
     mcpContractVersion: number;
 }
 
+interface IEnsuredAssistantThread {
+    threadId: string;
+    created: boolean;
+}
+
 interface IAssistantRuntimeLifecycleLogger {
     info(message: string): void;
     warn(message: string): void;
@@ -509,14 +514,17 @@ export function createAssistantRuntimeLifecycle(options: IAssistantRuntimeLifecy
         }
     }
 
-    async function ensureThread(session: IAssistantChatSession) {
+    async function ensureThread(session: IAssistantChatSession): Promise<IEnsuredAssistantThread> {
         const currentRuntime = await ensureRuntime();
         await assertRuntimeEnabled(currentRuntime, currentRuntime.generation);
         if (options.providerRuntime.authState !== 'signed-in') {
             throw new Error('Sign in with ChatGPT before using EVB Assistant.');
         }
         if (session.providerThreadId) {
-            return session.providerThreadId;
+            return {
+                threadId: session.providerThreadId,
+                created: false,
+            };
         }
 
         const codexModel = normalizeCodexAssistantModel(options.getCodexModels(), session.model);
@@ -535,11 +543,10 @@ export function createAssistantRuntimeLifecycle(options: IAssistantRuntimeLifecy
         if (!isRecord(response.thread) || typeof response.thread.id !== 'string') {
             throw new Error('Codex did not return an assistant thread.');
         }
-        session.providerThreadId = response.thread.id;
-        options.sessionStore.setActiveSession(session);
-        options.providerRuntime.runtimeState = 'ready';
-        options.publishCodexState(session.scope, session);
-        return session.providerThreadId;
+        return {
+            threadId: response.thread.id,
+            created: true,
+        };
     }
 
     return {

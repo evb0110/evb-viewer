@@ -102,6 +102,13 @@ import { loadSettings } from '@electron/settings';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 const logger = createLogger('agent-assistant-service');
+const ASSISTANT_TURN_CANCELLED_ERROR = 'Assistant turn was canceled before provider setup completed.';
+
+class AssistantTurnSupersededError extends Error {
+    constructor() {
+        super(ASSISTANT_TURN_CANCELLED_ERROR);
+    }
+}
 export interface IAgentAssistantSendMessageOptions { windowId?: number | null; }
 let codexAssistantModels: readonly TCodexAssistantModelOption[] = CODEX_ASSISTANT_FALLBACK_MODELS;
 let claudeAssistantModels: readonly IAgentAssistantModelOption[] = CLAUDE_AGENT_MODELS;
@@ -658,6 +665,7 @@ async function ensureClaudeAssistantSession(
     effort: TAgentAssistantEffort,
     speedMode: TAgentAssistantSpeedMode,
     generation: number,
+    isClaimCurrent: () => boolean,
 ) {
     await assistantFeatureLifecycle.assertEnabled(generation);
     const claudeInfo = await refreshClaudeInfo();
@@ -685,7 +693,10 @@ async function ensureClaudeAssistantSession(
             session.effort = normalizedEffort;
             session.speedMode = normalizedSpeedMode;
             sessionStore.recordSessionSnapshot(session);
-            return session.claudeSession;
+            return {
+                session: session.claudeSession,
+                created: false,
+            };
         }
         await session.claudeSession.close().catch((error: unknown) => {
             logger.warn(`Failed to close Claude assistant session for settings change: ${getErrorMessage(error)}`);
@@ -698,18 +709,27 @@ async function ensureClaudeAssistantSession(
     publishState(session.scope, session);
     const cwd = await ensureAssistantCwd();
     await assistantFeatureLifecycle.assertEnabled(generation);
+    if (!isClaimCurrent()) {
+        throw new AssistantTurnSupersededError();
+    }
     const {
         descriptor,
         token: mcpToken,
     } = await startEmbeddedMcpServer();
     await assistantFeatureLifecycle.assertEnabled(generation);
+    if (!isClaimCurrent()) {
+        throw new AssistantTurnSupersededError();
+    }
     session.model = normalizedModel;
     session.effort = normalizedEffort;
     session.speedMode = normalizedSpeedMode;
     sessionStore.recordSessionSnapshot(session);
     const {ClaudeAgentAssistantSession} = await loadClaudeRuntimeModule();
     await assistantFeatureLifecycle.assertEnabled(generation);
-    session.claudeSession = new ClaudeAgentAssistantSession({
+    if (!isClaimCurrent()) {
+        throw new AssistantTurnSupersededError();
+    }
+    const claudeSession = new ClaudeAgentAssistantSession({
         cwd,
         model: session.model,
         effort: session.effort,
@@ -720,9 +740,19 @@ async function ensureClaudeAssistantSession(
         executablePath: claudeInfo.executablePath,
         callbacks: createClaudeCallbacks(session),
     });
+    if (!isClaimCurrent()) {
+        await claudeSession.close().catch((error: unknown) => {
+            logger.warn(`Failed to close canceled Claude assistant session: ${getErrorMessage(error)}`);
+        });
+        throw new AssistantTurnSupersededError();
+    }
+    session.claudeSession = claudeSession;
     claudeProviderRuntime.runtimeState = 'ready';
     publishState(session.scope, session);
-    return session.claudeSession;
+    return {
+        session: claudeSession,
+        created: true,
+    };
 }
 export async function getAgentAssistantState(
     request?: IAgentAssistantStateRequest,
@@ -819,32 +849,52 @@ export async function sendAgentAssistantMessage(
         // thread/query is being created, not only after it has started.
         sessionStore.setActiveSession(session);
         const claimedTurnGeneration = claimSessionTurn(session);
+        const isClaimCurrent = () => session.turnOwner.generation === claimedTurnGeneration
+            && isActiveTurnScopeCurrent(session);
+        const assertClaimCurrent = async () => {
+            await assistantFeatureLifecycle.assertEnabled(operationGeneration);
+            if (!isClaimCurrent()) {
+                throw new AssistantTurnSupersededError();
+            }
+        };
 
         if (selection.provider === 'claude') {
+            let claudeSession: NonNullable<IAssistantChatSession['claudeSession']> | null = null;
+            let createdClaudeSession = false;
             try {
-                const claudeSession = await ensureClaudeAssistantSession(
+                const ensuredClaudeSession = await ensureClaudeAssistantSession(
                     session,
                     selection.model,
                     selection.effort,
                     selection.speedMode,
                     operationGeneration,
+                    isClaimCurrent,
                 );
-                await assistantFeatureLifecycle.assertEnabled(operationGeneration);
+                claudeSession = ensuredClaudeSession.session;
+                createdClaudeSession = ensuredClaudeSession.created;
+                await assertClaimCurrent();
                 if (session.claudeSession !== claudeSession) {
-                    releaseClaimedSessionTurn(session, claimedTurnGeneration);
-                    return createAssistantBusyResult(() => currentState(session.scope, session));
+                    throw new AssistantTurnSupersededError();
                 }
                 claudeProviderRuntime.runtimeState = 'busy';
                 delete session.lastError;
                 addUserMessageAndPublish(session, text, attachments);
                 await claudeSession.sendMessage(modelText, attachments, selection.model);
-                await assistantFeatureLifecycle.assertEnabled(operationGeneration);
-                if (session.claudeSession !== claudeSession) {
-                    return createAssistantBusyResult(() => currentState(session.scope, session));
-                }
+                await assertClaimCurrent();
                 publishState(session.scope, session);
                 return createAssistantSuccessResult(session);
             } catch (error) {
+                if (createdClaudeSession && claudeSession && session.claudeSession === claudeSession) {
+                    await claudeSession.close().catch((closeError: unknown) => {
+                        logger.warn(`Failed to close superseded Claude assistant session: ${getErrorMessage(closeError)}`);
+                    });
+                    session.claudeSession = undefined;
+                    session.providerThreadId = null;
+                }
+                if (error instanceof AssistantTurnSupersededError) {
+                    releaseClaimedSessionTurn(session, claimedTurnGeneration);
+                    return createAssistantErrorResult(ASSISTANT_TURN_CANCELLED_ERROR, session.scope, session);
+                }
                 if (!(await assistantFeatureLifecycle.isEnabled(operationGeneration))) {
                     releaseClaimedSessionTurn(session, claimedTurnGeneration);
                     return createAssistantDisabledResult(currentState(session.scope, session));
@@ -855,19 +905,25 @@ export async function sendAgentAssistantMessage(
             }
         }
         let currentThreadId: string | null = null;
+        let createdThread = false;
+        let providerTurnId: string | null = null;
         const turnGeneration = claimedTurnGeneration;
         try {
             const currentRuntime = await runtimeLifecycle.ensureRuntime();
-            await assistantFeatureLifecycle.assertEnabled(operationGeneration);
+            await assertClaimCurrent();
             await runtimeLifecycle.assertRuntimeEnabled(currentRuntime);
             const codexModel = normalizeCodexAssistantModel(codexAssistantModels, selection.model);
             const codexServiceTier = resolveCodexServiceTier(codexAssistantModels, selection.model, selection.speedMode);
             session.model = normalizeCodexAssistantModel(codexAssistantModels, selection.model);
             session.effort = selection.effort;
             session.speedMode = selection.speedMode;
-            currentThreadId = await runtimeLifecycle.ensureThread(session);
-            await assistantFeatureLifecycle.assertEnabled(operationGeneration);
+            const ensuredThread = await runtimeLifecycle.ensureThread(session);
+            currentThreadId = ensuredThread.threadId;
+            createdThread = ensuredThread.created;
+            await assertClaimCurrent();
             await runtimeLifecycle.assertRuntimeEnabled(currentRuntime);
+            session.providerThreadId = currentThreadId;
+            sessionStore.setActiveSession(session);
             codexProviderRuntime.runtimeState = 'busy';
             delete session.lastError;
             addUserMessageAndPublish(session, text, attachments);
@@ -895,9 +951,12 @@ export async function sendAgentAssistantMessage(
                 },
                 personality: 'friendly',
             }, value => isRecord(value) ? value : null);
-            await assistantFeatureLifecycle.assertEnabled(operationGeneration);
+            await assertClaimCurrent();
             await runtimeLifecycle.assertRuntimeEnabled(currentRuntime);
-            if (!isRecord(response.turn) || typeof response.turn.id !== 'string' || response.turn.id.trim() === '') {
+            providerTurnId = isRecord(response.turn) && typeof response.turn.id === 'string'
+                ? response.turn.id
+                : null;
+            if (!providerTurnId || providerTurnId.trim() === '') {
                 throw new Error('Codex returned an invalid turn/start response.');
             }
             session.model = normalizeCodexAssistantModel(codexAssistantModels, selection.model);
@@ -912,11 +971,34 @@ export async function sendAgentAssistantMessage(
                 releaseClaimedSessionTurn(session, turnGeneration);
                 return createAssistantErrorResult(getAssistantTurnBusyError(), session.scope, session);
             }
-            markSessionTurnRunning(session, turnGeneration, response.turn.id);
+            markSessionTurnRunning(session, turnGeneration, providerTurnId);
             publishState(session.scope, session);
             return createAssistantSuccessResult(session);
         } catch (error) {
+            if (error instanceof AssistantTurnSupersededError) {
+                const cleanupRuntime = runtimeLifecycle.getRuntime();
+                if (cleanupRuntime && currentThreadId) {
+                    requestBestEffortCodexTurnCleanup(
+                        cleanupRuntime,
+                        currentThreadId,
+                        providerTurnId,
+                        'superseded',
+                    );
+                }
+                if (createdThread && session.providerThreadId === currentThreadId) {
+                    session.providerThreadId = null;
+                }
+                releaseClaimedSessionTurn(session, turnGeneration);
+                return createAssistantErrorResult(ASSISTANT_TURN_CANCELLED_ERROR, session.scope, session);
+            }
             if (!(await assistantFeatureLifecycle.isEnabled(operationGeneration))) {
+                const cleanupRuntime = runtimeLifecycle.getRuntime();
+                if (cleanupRuntime && currentThreadId) {
+                    requestBestEffortCodexTurnCleanup(cleanupRuntime, currentThreadId, providerTurnId, 'disabled');
+                }
+                if (createdThread && session.providerThreadId === currentThreadId) {
+                    session.providerThreadId = null;
+                }
                 releaseClaimedSessionTurn(session, turnGeneration);
                 return createAssistantDisabledResult(currentState(session.scope, session));
             }
