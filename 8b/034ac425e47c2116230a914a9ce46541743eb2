@@ -1,0 +1,181 @@
+tests/unit/packages/releaseSelection.test.ts
+  s_c63d7a8363f7e9::t_362039662991be 6
+tests/unit/app/modules/workspace-shell/composables/usePdfFileNativeMutations.test.ts
+  s_c63d7a8363f7e9::t_c548fe5bc031e1 16
+tests/unit/electron/preloadFileClient.test.ts
+  s_c63d7a8363f7e9::t_c548fe5bc031e1 34
+tests/unit/electron/searchWorkerService.test.ts
+  s_c63d7a8363f7e9::t_c548fe5bc031e1 11
+tests/unit/app/platform/browserSaveTargets.test.ts
+  s_c63d7a8363f7e9::t_c548fe5bc031e1 8
+tests/unit/app/modules/pdf-viewer/composables/usePdfTextLayerRenderer.test.ts
+  s_c63d7a8363f7e9::t_c548fe5bc031e1 17
+docs/architecture/design-principles.md
+  s_c63d7a8363f7e9::t_7d4b9faf1b6923 14-16
+tests/unit/app/composables/useDocxExport.test.ts
+  s_c63d7a8363f7e9::t_c548fe5bc031e1 10
+tests/unit/app/modules/pdf-viewer/composables/usePageOperations.test.ts
+  s_c63d7a8363f7e9::t_c548fe5bc031e1 13
+scripts/checkSearchNativeParity.ts
+  s_c63d7a8363f7e9::t_c596162cd7553f 14
+  s_c63d7a8363f7e9::t_6972594528a1b6 15-16
+scripts/stress/stressCalibration.ts
+  s_c63d7a8363f7e9::t_c596162cd7553f 5
+  s_c63d7a8363f7e9::t_6972594528a1b6 6
+tests/unit/electron/fileOpsPathSecurity.test.ts
+  s_c63d7a8363f7e9::t_c548fe5bc031e1 10
+tests/unit/electron/handleNativeNoteTextSave.test.ts
+  s_c63d7a8363f7e9::t_c548fe5bc031e1 31
+tests/unit/electron/searchIndexBudget.test.ts
+  s_c63d7a8363f7e9::t_c548fe5bc031e1 8
+packages/i18n-core/localeDefinitions.ts
+  s_c63d7a8363f7e9::t_7329f79c33246a 1
+tests/unit/electron/documentsSavePdfAs.test.ts
+  s_c63d7a8363f7e9::t_c548fe5bc031e1 24
+scripts/stress/stressTypes.ts
+  s_c63d7a8363f7e9::t_8df653f1e96b71 1
+tests/unit/electron/workingCopySave.test.ts
+  s_c63d7a8363f7e9::t_c548fe5bc031e1 26
+tests/unit/app/modules/workspace-shell/composables/createDocumentHistory.test.ts
+  s_c63d7a8363f7e9::t_c548fe5bc031e1 20
+tests/unit/electron/xlargeIndexBuilder.test.ts
+  s_c63d7a8363f7e9::t_c548fe5bc031e1 14
+electron/te.ts
+  s_c63d7a8363f7e9::t_8abd32620f3cf3 9
+  s_c63d7a8363f7e9::t_8a8c76dbda8018 4-6,8
+tests/unit/app/modules/pdf-viewer/composables/usePdfSearch.test.ts
+  s_c63d7a8363f7e9::t_c548fe5bc031e1 20
+tests/unit/electron/searchIndexBuilderCancellation.test.ts
+  s_c63d7a8363f7e9::t_c548fe5bc031e1 9
+tests/unit/electron/ocrIndexWriterSidecar.test.ts
+  s_c63d7a8363f7e9::t_c548fe5bc031e1 25
+eslint-plugin-custom.mjs
+  s_c63d7a8363f7e9::t_9a33da90f1e112 100-157
+  s_c63d7a8363f7e9::t_ecf71b61a1fdfb 1209
+tests/unit/electron/nativeSearchIndex.test.ts
+  s_c63d7a8363f7e9::t_c548fe5bc031e1 22
+tests/unit/app/modules/workspace-shell/agent/useDocumentWorkspaceAgent.test.ts
+  s_c63d7a8363f7e9::t_c596162cd7553f 43
+  s_c63d7a8363f7e9::t_6972594528a1b6 44
+packages/i18n-core/index.ts
+  s_c63d7a8363f7e9::t_7329f79c33246a 7,9,15,31,40,45,47
+tests/unit/electron/xlargeNativeSearch.test.ts
+  s_c63d7a8363f7e9::t_c548fe5bc031e1 17
+docs/architecture/project6-315-contract-alias-migration-2026-09-09.md
+  s_c63d7a8363f7e9::t_7d4b9faf1b6923 1-41
+packages/i18n-app/index.ts
+  s_c63d7a8363f7e9::t_7329f79c33246a 11
+tests/unit/electron/serializedPdfPersistence.test.ts
+  s_c63d7a8363f7e9::t_c548fe5bc031e1 36
+tests/unit/electron/handleOptimizePdfAsCopy.test.ts
+  s_c63d7a8363f7e9::t_c548fe5bc031e1 8
+tests/unit/app/modules/workspace-shell/composables/createDocumentPersistence.test.ts
+  s_c63d7a8363f7e9::t_c548fe5bc031e1 16
+landing/server/db/schema.ts
+  s_c63d7a8363f7e9::t_8df653f1e96b71 11
+tests/unit/electron/assistantMcpSessionScope.test.ts
+  s_c63d7a8363f7e9::t_6972594528a1b6 24
+  s_c63d7a8363f7e9::t_c596162cd7553f 23
+tests/unit/electron/djvuPdfExport.test.ts
+  s_c63d7a8363f7e9::t_6972594528a1b6 18-19
+packages/i18n-core/privacyMessages.ts
+  s_c63d7a8363f7e9::t_7329f79c33246a 1
+tests/unit/app/modules/workspace-shell/composables/createPrintableSourceDataResolver.test.ts
+  s_c63d7a8363f7e9::t_c548fe5bc031e1 12
+tests/unit/app/modules/workspace-shell/composables/useWindowTabTransfers.test.ts
+  s_c63d7a8363f7e9::t_c596162cd7553f 22
+  s_c63d7a8363f7e9::t_6972594528a1b6 23
+tests/unit/electron/assistantTurnLifecycle.test.ts
+  s_c63d7a8363f7e9::t_d6ff9ce06d4a83 19
+tests/unit/electron/stagedPdfNativeMutationHandlers.test.ts
+  s_c63d7a8363f7e9::t_c548fe5bc031e1 16
+packages/release-selection/index.ts
+  s_c63d7a8363f7e9::t_362039662991be 33
+  s_c63d7a8363f7e9::t_7329f79c33246a 24,42,48,51
+tests/unit/architecture/sentryBoundaryPolicy.test.ts
+  s_c63d7a8363f7e9::t_618723dbadc750 108
+tests/unit/app/modules/agent-panel/assistantSelectionState.test.ts
+  s_c63d7a8363f7e9::t_c596162cd7553f 26
+  s_c63d7a8363f7e9::t_6972594528a1b6 27
+nuxt.config.ts
+  s_c63d7a8363f7e9::t_f79cd51efeb036 4-5
+tests/unit/electron/ocrIndexWriterPath.test.ts
+  s_c63d7a8363f7e9::t_c548fe5bc031e1 8
+tests/unit/contracts/ocrIndex.test.ts
+  s_c63d7a8363f7e9::t_c548fe5bc031e1 10
+tests/unit/electron/agentAssistantOptIn.test.ts
+  s_c63d7a8363f7e9::t_c548fe5bc031e1 29
+tests/unit/electron/searchIndexSidecar.test.ts
+  s_c63d7a8363f7e9::t_c548fe5bc031e1 38
+tests/unit/scripts/depGraph.test.ts
+  s_c63d7a8363f7e9::t_18eb7a8918f1b8 152,159,161,181-182,469,728
+  s_c63d7a8363f7e9::t_7329f79c33246a 164,186
+  s_c63d7a8363f7e9::t_3130e9a8ca6326 473-474
+  s_c63d7a8363f7e9::t_c320d334174bfb 576-577,582-583,589-590
+eslint.config.mjs
+  s_c63d7a8363f7e9::t_02d1d7bf2ef57f 144
+tests/unit/app/modules/pdf-viewer/annotations/annotationBackendConformance.test.ts
+  s_c63d7a8363f7e9::t_c548fe5bc031e1 9
+tests/unit/electron/workingCopy.test.ts
+  s_c63d7a8363f7e9::t_c548fe5bc031e1 30
+tests/unit/app/modules/workspace-shell/composables/useAppShellTabLifecycle.test.ts
+  s_c63d7a8363f7e9::t_c548fe5bc031e1 37
+tests/unit/electron/xlargeSearchRouting.test.ts
+  s_c63d7a8363f7e9::t_c548fe5bc031e1 15
+tests/unit/app/modules/workspace-shell/composables/useWorkspaceDocumentLifecycleEffects.test.ts
+  s_c63d7a8363f7e9::t_c548fe5bc031e1 17
+tests/unit/scripts/eslintPluginCustom.test.ts
+  s_c63d7a8363f7e9::t_c596162cd7553f 167-169,173,177
+  s_c63d7a8363f7e9::t_8abd32620f3cf3 174,178
+  s_c63d7a8363f7e9::t_6412a7c9bf24b6 163-166,170-172,175-176,179-184
+tests/unit/app/modules/pdf-viewer/annotations/annotationStoreSaveFrontierRollback.test.ts
+  s_c63d7a8363f7e9::t_c548fe5bc031e1 13
+tests/unit/app/modules/pdf-viewer/composables/useOcrTextContent.test.ts
+  s_c63d7a8363f7e9::t_c548fe5bc031e1 10
+tests/unit/app/services/pdf-save/nativeTextBoxMutations.test.ts
+  s_c63d7a8363f7e9::t_c548fe5bc031e1 14
+tests/unit/app/modules/workspace-shell/document-sessions/workspaceDocumentController.test.ts
+  s_c63d7a8363f7e9::t_c548fe5bc031e1 25
+tests/unit/app/modules/ocr-panel/useOcrPopupPresenter.test.ts
+  s_c63d7a8363f7e9::t_c548fe5bc031e1 28
+tests/unit/app/modules/workspace-shell/composables/useAgentWorkspaceSnapshot.test.ts
+  s_c63d7a8363f7e9::t_c548fe5bc031e1 44
+scripts/architecture/dep-graph.mjs
+  s_c63d7a8363f7e9::t_7329f79c33246a 62-65
+  s_c63d7a8363f7e9::t_29db92a8098e16 68-69
+tests/unit/electron/nativeSearch.test.ts
+  s_c63d7a8363f7e9::t_c548fe5bc031e1 23
+tests/unit/app/modules/workspace-shell/composables/file-operations/workspaceSavePlan.test.ts
+  s_c63d7a8363f7e9::t_8df653f1e96b71 12
+  s_c63d7a8363f7e9::t_c596162cd7553f 11
+tests/unit/server/analyticsMigrationContract.test.ts
+  s_c63d7a8363f7e9::t_7329f79c33246a 117
+landing/nuxt.config.ts
+  s_c63d7a8363f7e9::t_f79cd51efeb036 5-6
+packages/release-selection/releaseSelection.ts
+  s_c63d7a8363f7e9::t_362039662991be 6
+tests/unit/electron/documentRevisionStore.test.ts
+  s_c63d7a8363f7e9::t_c548fe5bc031e1 27
+packages/i18n-app/locales.ts
+  s_c63d7a8363f7e9::t_7329f79c33246a 1-9
+packages/i18n-core/schemaTypes.ts
+  s_c63d7a8363f7e9::t_7329f79c33246a 5
+tests/unit/electron/nativeSearchInvocation.test.ts
+  s_c63d7a8363f7e9::t_c548fe5bc031e1 9
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "8b034ac425e47c2116230a914a9ce46541743eb2",
+  "prompts": {},
+  "sessions": {
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

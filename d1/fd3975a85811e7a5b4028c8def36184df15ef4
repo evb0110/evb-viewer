@@ -1,0 +1,42 @@
+scripts/checkZeroExecutionCoverage.ts
+  s_c63d7a8363f7e9::t_93914a7073d795 9-12,232-234,279-282,287-295
+  s_c63d7a8363f7e9::t_9ee640ca2b34e7 283-286
+scripts/checkCoverageRatchet.ts
+  s_c63d7a8363f7e9::t_584007b083eb04 98-119,463-466
+  s_c63d7a8363f7e9::t_2f8641533a5c2c 227-247,292-295,304-316,319
+  s_c63d7a8363f7e9::t_c4c357fa0adcfe 393-428,451-462,467-474,477,483-484
+  s_c63d7a8363f7e9::t_af127d637f0dcb 255-259,296-303,502-507
+  s_c63d7a8363f7e9::t_365ee4ba5b4e64 50-54,58,61,95-97
+  s_c63d7a8363f7e9::t_eeebc17026f74f 260-262,478
+  s_c63d7a8363f7e9::t_67836003e0dc6d 120
+coverage-baseline.json
+  s_c63d7a8363f7e9::t_ca71ca98b07db7 148-169,177
+tests/unit/scripts/checkZeroExecutionCoverage.test.ts
+  s_c63d7a8363f7e9::t_e8cd3eecf8333a 29
+  s_c63d7a8363f7e9::t_775ffbf7857b78 63-65,233-285
+  s_c63d7a8363f7e9::t_0b057be87d6de0 286-287
+tests/unit/scripts/checkCoverageRatchet.test.ts
+  s_c63d7a8363f7e9::t_49c50de0b16037 160-219,221-226,250-277,432-433,438-440,447-453
+  s_c63d7a8363f7e9::t_c63e98d7e266ca 455-498
+  s_c63d7a8363f7e9::t_c21fa07c3a04dc 220
+  s_c63d7a8363f7e9::t_584007b083eb04 434-437
+  s_c63d7a8363f7e9::t_9ee640ca2b34e7 227-249
+  s_c63d7a8363f7e9::t_fd42fe46c3cb6a 21,47-64,72-75,96,101-105
+  s_c63d7a8363f7e9::t_93826d3a589a84 454
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "d1fd3975a85811e7a5b4028c8def36184df15ef4",
+  "prompts": {},
+  "sessions": {
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,27 @@
+coverage-baseline.json
+  s_c63d7a8363f7e9::t_eaf0d7578c67e5 144
+  s_c63d7a8363f7e9::t_de0062c37a1067 42-43
+tests/unit/packages/releaseSelection.test.ts
+  s_c63d7a8363f7e9::t_6d11dccf5b52ff 6-9,50-64
+scripts/checkCoverageRatchet.ts
+  s_c63d7a8363f7e9::t_eaf0d7578c67e5 83-86
+  s_c63d7a8363f7e9::t_9670c01c44dddf 65-67
+  s_c63d7a8363f7e9::t_de0062c37a1067 62-63
+  s_c63d7a8363f7e9::t_0038760699de2f 64
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "125f0bc2938a5d7fdf3ef94af3ff803feb20a080",
+  "prompts": {},
+  "sessions": {
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

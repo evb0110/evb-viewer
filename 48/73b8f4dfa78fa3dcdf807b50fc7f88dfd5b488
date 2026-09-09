@@ -1,0 +1,30 @@
+tests/unit/scripts/project6ConsolidationReport.test.ts
+  s_c63d7a8363f7e9::t_cafc16955653e9 55-59,64-69
+  s_c63d7a8363f7e9::t_ff120be582504b 1-50,60,72-73
+  s_c63d7a8363f7e9::t_15d0c337589706 51-52,54,61-63,70-71
+  s_c63d7a8363f7e9::t_2d38218bafcfd4 53
+docs/architecture/project6-consolidation-report.md
+  s_c63d7a8363f7e9::t_696c38099dbd17 1-32
+scripts/project6ConsolidationReport.mjs
+  s_c63d7a8363f7e9::t_ae75522c2244cc 1-6,10-27,37-48,57-65,70-74,80-84,91-108,113-122,128-138,143,145,154-156,162-171,175-184,188-197,204-216,220-229,235-279,288-290,300-303,307,315-345,354-432,436-442,444,449-461,471-475,478-501,506-559
+  s_c63d7a8363f7e9::t_2d28a1d95ef64a 142,151-153
+  s_c63d7a8363f7e9::t_6a0d2d5c1622be 144
+  s_c63d7a8363f7e9::t_2ec08a226a6a82 443,466-470,476
+  s_c63d7a8363f7e9::t_cafc16955653e9 7-9,28-36,49-56,66-69,75-79,85-90,109-112,123-127,139-141,146-150,157-161,172-174,185-187,198-203,217-219,230-234,280-287,291-299,304-306,308-314,346-353,433-435,445-448,462-465,477,502-505
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "4873b8f4dfa78fa3dcdf807b50fc7f88dfd5b488",
+  "prompts": {},
+  "sessions": {
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
