@@ -1,0 +1,21 @@
+native/pdf-page-ops/src/tests/page_tree_ops.rs
+  s_e25cb4c622631b::t_f0ab14cef21d24 233-315
+native/pdf-page-ops/src/page_tree_ops.rs
+  s_e25cb4c622631b::t_f0ab14cef21d24 58,447,449-454,677-679,681-685,688-691,736-737
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "40a9e2915b3b0acf5d1bb77a226cd54ba57ec5d6",
+  "prompts": {},
+  "sessions": {
+    "s_e25cb4c622631b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08821-d8de-71f3-a3b7-ed8d2b7fd539",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
