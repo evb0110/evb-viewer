@@ -76,6 +76,7 @@ interface IUseTabsShellBindingsOptions extends ITabsMenuBindingDeps {
     restoreWorkspaceCheckpointGraph: Parameters<typeof restoreWorkspaceCheckpoint>[1]['restoreGraph'];
     openPathInReservedTab: Parameters<typeof restoreWorkspaceCheckpoint>[1]['openPathInReservedTab'];
     getDocumentSession?: (tabId: string) => IWorkspaceDocumentController | null;
+    transferActiveTabToWindow?: (windowId: number) => Promise<unknown>;
 }
 
 export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
@@ -97,6 +98,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
         restoreWorkspaceCheckpointGraph,
         openPathInReservedTab,
         getDocumentSession,
+        transferActiveTabToWindow,
         clearRecentFiles,
         loadRecentFiles,
         checkForUpdates,
@@ -246,6 +248,8 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
             },
             callActiveWorkspaceCommand,
             callActiveWorkspaceSyncCommand,
+            listTargetWindows: () => getWindowTabsCapability().listTargetWindows(),
+            ...(transferActiveTabToWindow === undefined ? {} : {transferActiveTabToWindow}),
             collectWorkspaceDebugState: (): IEvbTestWorkspaceDebugState => {
                 const activeWorkspaceHandle = getActiveWorkspaceHandle();
                 return {

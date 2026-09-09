@@ -722,31 +722,40 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
                 return;
             }
 
-            const restored = await restoreWorkspacePayload(target.tab.tabId, transfer.payload);
-            if (!restored) {
-                removeCreatedTransferTab(target.tab);
-                await ackIncomingTransferFailure(transfer.transferId, t('tabs.transferErrors.restoreFailed'));
-                return;
-            }
-
             if (!isIncomingTransferSessionCurrent(target.tab.tabId, transfer)) {
-                await rollbackIncomingTransferTarget(target, transfer.payload);
                 await ackIncomingTransferFailure(transfer.transferId, t('tabs.transferErrors.restoreFailed'));
                 return;
             }
             const committed = await ackIncomingTransferSuccess(transfer.transferId);
             if (committed === null) {
                 // A missing durable decision is not proof of rejection. Keep
-                // the restored bytes provisional for reconciliation.
+                // the persisted bytes provisional for reconciliation. The
+                // target stays an uneditable empty tab until authority is
+                // available again.
                 return;
             }
             if (!committed) {
-                await rollbackIncomingTransferTarget(target, transfer.payload);
+                await cleanupSplitPayloadSnapshot(transfer.payload, {
+                    logSection: 'tabs',
+                    context: 'incoming-transfer-aborted-before-restore',
+                    metadata: {tabId: target.tab.tabId},
+                });
+                if (target.tab.created) removeCreatedTransferTab(target.tab);
                 return;
             }
+
+            const restored = await restoreWorkspacePayload(target.tab.tabId, transfer.payload);
+            if (!restored) {
+                BrowserLogger.error('tabs', 'Committed incoming transfer could not restore its payload', {transferId: transfer.transferId}, {
+                    code: 'RENDERER_TAB_TRANSFER_OPERATION_FAILED',
+                    context: {},
+                });
+                return;
+            }
+
             // The browser capability ACK is source-authorized only after its
-            // shared transfer decision commits. Keep the restored workspace
-            // detached from tab state until that durable decision succeeds.
+            // shared transfer decision commits. Apply the tab state only
+            // after the committed payload becomes the editable workspace.
             applyIncomingTransferTabState(target.pane.paneId, target.tab.tabId, transfer);
         } catch (error) {
             BrowserLogger.error('tabs', 'Unhandled incoming tab transfer failure', {

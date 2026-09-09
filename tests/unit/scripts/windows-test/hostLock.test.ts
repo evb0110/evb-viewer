@@ -130,6 +130,28 @@ async function forceKillAndWait(child: ChildProcess) {
 
 type TWorkerEventName = 'ready' | 'acquired' | 'busy' | 'released' | 'error';
 
+interface IParsedWorkerEvent {
+    event: TWorkerEventName;
+    message?: unknown;
+    pid: number;
+}
+
+function isWorkerEventName(value: unknown): value is TWorkerEventName {
+    return value === 'ready'
+        || value === 'acquired'
+        || value === 'busy'
+        || value === 'released'
+        || value === 'error';
+}
+
+function isParsedWorkerEvent(value: unknown): value is IParsedWorkerEvent {
+    if (value === null || typeof value !== 'object'
+        || !('event' in value) || !('pid' in value)) {
+        return false;
+    }
+    return isWorkerEventName(value.event) && typeof value.pid === 'number';
+}
+
 interface IWorkerEvent {
     event: TWorkerEventName;
     message?: string;
@@ -262,21 +284,11 @@ function spawnMultiprocessWorker(lockDirectory: string): ILockWorker {
     output.on('line', line => {
         try {
             const parsed: unknown = JSON.parse(line);
-            if (parsed === null || typeof parsed !== 'object'
-                || !('event' in parsed) || !('pid' in parsed)
-                || typeof parsed.event !== 'string'
-                || typeof parsed.pid !== 'number'
-                || ![
-                    'ready',
-                    'acquired',
-                    'busy',
-                    'released',
-                    'error',
-                ].includes(parsed.event)) {
+            if (!isParsedWorkerEvent(parsed)) {
                 throw new Error(`invalid worker event: ${line}`);
             }
             const event: IWorkerEvent = {
-                event: parsed.event as TWorkerEventName,
+                event: parsed.event,
                 pid: parsed.pid,
                 ...(typeof parsed.message === 'string' ? {message: parsed.message} : {}),
             };

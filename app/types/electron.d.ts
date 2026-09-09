@@ -26,6 +26,7 @@ interface IEvbRendererDiagnosticsCanaryApi {
 declare global {
     interface Window {
         electronAPI?: IElectronAPI;
+        __evbTransferAuthorityCommittedReadBarrier?: () => void | Promise<void>;
         __allowRendererFileOpenForAutomation?: (path: TDocumentRef) => Promise<boolean>;
         __deferDocumentOpenForAutomation?: (path: TDocumentRef) => boolean;
         __releaseDocumentOpenForAutomation?: (path: TDocumentRef) => boolean;

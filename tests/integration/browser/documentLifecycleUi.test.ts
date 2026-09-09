@@ -14,7 +14,29 @@ import {
 let devServer: ChildProcess | null = null;
 let origin = '';
 let serverOutput = '';
-interface IBrowserLifecycleTestApi {waitForActiveDocumentOpenSettled?: () => Promise<boolean>;}
+interface IBrowserLifecycleTestApi {
+    waitForActiveDocumentOpenSettled?: () => Promise<boolean>;
+    callActiveWorkspaceCommand?: <TResult = unknown>(commandName: string, args?: unknown[]) => Promise<{
+        called: boolean;
+        value: TResult | null;
+    }>;
+    callActiveWorkspaceSyncCommand?: <TResult = unknown>(commandName: string, args?: unknown[]) => {
+        called: boolean;
+        value: TResult | null;
+    };
+    getActiveToolbarSnapshot?: () => {
+        canSave: boolean;
+        viewerCapabilities: {save: boolean}
+    } | null;
+    listTargetWindows?: () => Promise<Array<{
+        windowId: number;
+        label: string
+    }>>;
+    transferActiveTabToWindow?: (windowId: number) => Promise<{
+        success: boolean;
+        error?: string
+    }>;
+}
 
 async function reservePort() {
     const reservation = createServer();
@@ -348,4 +370,123 @@ describe('browser document lifecycle UI', () => {
             await browser.close();
         }
     }, 180_000);
+
+    it('proves a dirty viewer transfer after source loss before target authority readback', async () => {
+        const browser = await chromium.launch({headless: true});
+        const context = await browser.newContext();
+        const source = await context.newPage();
+        const target = await context.newPage();
+        try {
+            await source.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                Reflect.set(window, 'showSaveFilePicker', undefined);
+            });
+            await target.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                Reflect.set(window, '__evbTransferAuthorityCommittedReadBarrier', () => new Promise<void>(resolveBarrier => {
+                    Reflect.set(window, '__evbReleaseTransferAuthorityCommittedReadBarrier', resolveBarrier);
+                }));
+            });
+            await Promise.all([
+                source.goto(origin, {waitUntil: 'domcontentloaded'}),
+                target.goto(`${origin}?evbWindowId=2`, {waitUntil: 'domcontentloaded'}),
+            ]);
+            await source.evaluate(() => {
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            await Promise.all([
+                source.waitForFunction(() => Boolean(Reflect.get(window, '__evbTestApi')), undefined, {timeout: 30_000}),
+                target.waitForFunction(() => Boolean(Reflect.get(window, '__evbTestApi')), undefined, {timeout: 30_000}),
+            ]);
+
+            const chooserPromise = source.waitForEvent('filechooser');
+            await source.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            await (await chooserPromise).setFiles(resolve(
+                process.cwd(),
+                'tests/fixtures/electron/interop/synthetic-annotation-interoperability.pdf',
+            ));
+            await source.locator('.page_container--rendered .page_canvas canvas').first().waitFor({
+                state: 'visible',
+                timeout: 60_000,
+            });
+            await source.evaluate(async () => {
+                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                if (!await api.waitForActiveDocumentOpenSettled?.()) throw new Error('Source PDF did not settle');
+                const command = api.callActiveWorkspaceSyncCommand?.('handleQuickNote');
+                if (!command?.called) throw new Error('Quick-note edit command was unavailable');
+            });
+            const noteSurface = source.locator(
+                '.page_container--rendered .pdf-annotation-editor-surface__background',
+            ).first();
+            await noteSurface.waitFor({
+                state: 'visible',
+                timeout: 30_000,
+            });
+            await noteSurface.click({position: {
+                x: 80,
+                y: 80,
+            }});
+            const noteEditor = source.locator('[contenteditable="true"]').last();
+            if (await noteEditor.isVisible().catch(() => false)) {
+                await noteEditor.fill('durable transfer edit');
+                await noteEditor.press('Tab');
+            }
+            await expect.poll(() => source.locator(
+                '[data-tab-list] [role="tab"][aria-selected="true"]',
+            ).getAttribute('aria-description')).toMatch(/unsaved/i);
+            const captured = await source.evaluate(async () => {
+                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                return api.callActiveWorkspaceCommand?.('captureSplitPayload');
+            });
+            expect(captured?.called).toBe(true);
+            expect(captured?.value).toEqual(expect.objectContaining({kind: 'pdfSnapshot'}));
+
+            await expect.poll(async () => source.evaluate(async () => {
+                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                return (await api.listTargetWindows?.())?.some(windowInfo => (
+                    windowInfo.windowId === 2
+                )) ?? false;
+            }), {timeout: 30_000}).toBe(true);
+
+            const transferPromise = source.evaluate(async () => {
+                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                return api.transferActiveTabToWindow?.(2);
+            });
+            await target.waitForFunction(() => typeof Reflect.get(
+                window,
+                '__evbReleaseTransferAuthorityCommittedReadBarrier',
+            ) === 'function', undefined, {timeout: 60_000});
+            const provisional = await target.evaluate(() => {
+                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                return api.getActiveToolbarSnapshot?.() ?? null;
+            });
+            expect(provisional?.canSave).toBe(false);
+            expect(await target.getByRole('button', {name: /sticky note/i}).first().isDisabled()).toBe(true);
+            await source.close();
+            await target.evaluate(() => {
+                const release = Reflect.get(window, '__evbReleaseTransferAuthorityCommittedReadBarrier');
+                if (typeof release !== 'function') throw new Error('Target authority read barrier was not installed');
+                release();
+            });
+            await transferPromise.catch(() => undefined);
+
+            await expect.poll(() => target.locator(
+                '[data-tab-list] [role="tab"][aria-selected="true"]',
+            ).textContent(), {timeout: 60_000}).toContain('synthetic-annotation-interoperability.pdf');
+            const save = await target.evaluate(async () => {
+                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                return api.callActiveWorkspaceCommand?.('handleSaveAs');
+            });
+            expect(save?.called).toBe(true);
+            // This headless harness cannot complete browser Save As. Keep
+            // the real limitation visible rather than substituting a byte
+            // assertion for save and reopen.
+            expect(save?.value).toBe(false);
+        } finally {
+            await browser.close();
+        }
+    }, 240_000);
 });

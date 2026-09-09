@@ -163,6 +163,7 @@ import { createDisposalFlag } from '@app/utils/createDisposalFlag';
 import { resolveAppWindowTitle } from '@app/utils/appWindowTitle';
 import { traceRendererStartup } from '@app/utils/traceRendererStartup';
 import { syncBrowserWindowTitle } from '@app/platform/browserWindowTabs';
+import { getWindowTabsCapability } from '@app/utils/platformWindowTabs';
 import AppUpdatesDialog from '@app/modules/workspace-shell/components/AppUpdatesDialog.vue';
 import DirtyTabCloseDialog from '@app/modules/workspace-shell/components/DirtyTabCloseDialog.vue';
 import DocumentPasswordDialog from '@app/modules/workspace-shell/components/DocumentPasswordDialog.vue';
@@ -903,6 +904,30 @@ useTabsShellBindings({
     restoreWorkspaceCheckpointGraph,
     openPathInReservedTab,
     getDocumentSession,
+    transferActiveTabToWindow: async (windowId) => {
+        const tab = tabs.value.find(candidate => candidate.id === activeTabId.value);
+        const workspace = activeWorkspace.value;
+        if (!tab || !workspace) {
+            return {
+                success: false,
+                error: 'No active workspace is available for browser transfer acceptance.',
+            };
+        }
+        const payload = await workspace.captureSplitPayload();
+        return getWindowTabsCapability().transfer({
+            target: {
+                kind: 'window',
+                windowId,
+            },
+            tab: {
+                fileName: tab.fileName,
+                originalPath: tab.originalPath,
+                isDirty: tab.isDirty,
+                isDjvu: tab.isDjvu,
+            },
+            payload,
+        });
+    },
     clearRecentFiles,
     loadRecentFiles,
     isStartupOpenClaimPending,
