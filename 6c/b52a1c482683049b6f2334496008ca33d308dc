@@ -1,0 +1,27 @@
+packages/contracts/search.ts
+  s_c63d7a8363f7e9::t_a30b6e0a409fcb 366,372,374-375,379-380
+packages/pdf-core/pdfSearchAlgorithms.ts
+  s_c63d7a8363f7e9::t_a30b6e0a409fcb 51-54
+tests/unit/scripts/depGraph.test.ts
+  s_c63d7a8363f7e9::t_a30b6e0a409fcb 724
+scripts/checkZeroExecutionCoverage.ts
+  s_c63d7a8363f7e9::t_a30b6e0a409fcb 232-237
+tests/unit/scripts/checkZeroExecutionCoverage.test.ts
+  s_c63d7a8363f7e9::t_a30b6e0a409fcb 61
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "6cb52a1c482683049b6f2334496008ca33d308dc",
+  "prompts": {},
+  "sessions": {
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
