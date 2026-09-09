@@ -594,8 +594,9 @@ function isUnsafeSearchRegexPattern(pattern: string) {
             const closedGroup = stack.pop();
             if (closedGroup) {
                 const parentGroup = stack.at(-1);
-                if (parentGroup && closedGroup.hasQuantifier) {
-                    parentGroup.hasQuantifier = true;
+                if (parentGroup) {
+                    parentGroup.hasAlternation ||= closedGroup.hasAlternation;
+                    parentGroup.hasQuantifier ||= closedGroup.hasQuantifier;
                 }
                 lastClosedGroup = {
                     ...closedGroup,
