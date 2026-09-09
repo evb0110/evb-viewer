@@ -14,6 +14,7 @@ import type {
     IDocumentRevisionInfo,
     TDocumentRevisionToken,
 } from '@contracts/documentRevision';
+import type {IScanCleanupPreviewAffine} from '@contracts/scan-cleanup/geometry';
 export type { IRunCommandResult } from '@electron/utils/runElectronCommand';
 
 export interface IWorkerPaths {
@@ -50,6 +51,23 @@ export interface IOcrPageWithWords {
     imageHeight: number;
 }
 
+/**
+ * The unrotated PDF rectangle that Poppler rendered for an OCR page.
+ * Raster coordinates start at the top-left of this rectangle. The assembler
+ * composes this with the source page rotation before embedding the hidden
+ * layer.
+ */
+export interface IOcrPageGeometry {
+    xPoints: number;
+    yPoints: number;
+    widthPoints: number;
+    heightPoints: number;
+    rotation: 0 | 90 | 180 | 270;
+    rasterWidthPx?: number;
+    rasterHeightPx?: number;
+    preprocessInverseTransform?: IScanCleanupPreviewAffine;
+}
+
 export interface IOcrPageTerminationUnproven {
     pageNumber: number;
     detail: string;
@@ -57,6 +75,7 @@ export interface IOcrPageTerminationUnproven {
 
 export interface IOcrPageProcessingResult {
     pageData?: IOcrPageWithWords;
+    pageGeometry?: IOcrPageGeometry;
     pdfPath?: string;
     checkpointJsonPath: string;
     checkpointPdfPath: string;

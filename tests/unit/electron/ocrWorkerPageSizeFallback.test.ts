@@ -67,6 +67,11 @@ describe('OCR worker native page-size probe', () => {
                 {
                     width: 8.5,
                     height: 11,
+                    xPoints: 0,
+                    yPoints: 0,
+                    widthPoints: 612,
+                    heightPoints: 792,
+                    rotation: 0,
                 },
             ]]),
         });

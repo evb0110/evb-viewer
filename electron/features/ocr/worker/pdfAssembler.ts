@@ -4,7 +4,6 @@ import {
     stat,
     writeFile,
 } from 'fs/promises';
-import { sortBy } from 'es-toolkit/array';
 import {
     decodePDFRawStream,
     PDFContentStream,
@@ -19,7 +18,10 @@ import type {
     PDFDict,
     PDFPage,
 } from 'pdf-lib';
-import type { TWorkerLog } from '@electron/ocr/worker/types';
+import type {
+    IOcrPageGeometry,
+    TWorkerLog,
+} from '@electron/ocr/worker/types';
 import {
     runOcrCommand,
     type TOcrRunCommandOptions,
@@ -56,6 +58,10 @@ const XOBJECT_NAME = PDFName.of('XObject');
 const EXT_G_STATE_NAME = PDFName.of('ExtGState');
 const EXT_G_STATE_TYPE_NAME = PDFName.of('ExtGState');
 const IMAGE_OR_FORM_DRAW_TEST_RE = /\/[^\s]+\s+Do\b/;
+export type TOcrPageEntryValue = string | {
+    path: string;
+    pageGeometry?: IOcrPageGeometry;
+};
 
 function throwIfAborted(signal?: AbortSignal) {
     if (signal?.aborted) {
@@ -73,6 +79,15 @@ export class OcrGeneratedPageArtifactLimitError extends RangeError {
         this.name = 'OcrGeneratedPageArtifactLimitError';
         this.path = path;
         this.size = size;
+    }
+}
+
+export class OcrPageGeometryError extends TypeError {
+    readonly code = 'OCR_PAGE_GEOMETRY_INVALID' as const;
+
+    constructor(detail: string) {
+        super(`OCR page geometry is invalid: ${detail}`);
+        this.name = 'OcrPageGeometryError';
     }
 }
 
@@ -504,14 +519,154 @@ function sanitizeOcrPageForEmbedding(page: PDFPage) {
     // resources is cheap and avoids guessing about names used by nested Forms.
 }
 
+function normalizeRotation(angle: number): IOcrPageGeometry['rotation'] {
+    const normalized = ((angle % 360) + 360) % 360;
+    if (normalized !== 0 && normalized !== 90 && normalized !== 180 && normalized !== 270) {
+        throw new OcrPageGeometryError(`unsupported source rotation ${angle}`);
+    }
+    return normalized;
+}
+
+function validatePageGeometry(geometry: IOcrPageGeometry) {
+    if (
+        !Number.isFinite(geometry.xPoints)
+        || !Number.isFinite(geometry.yPoints)
+        || !Number.isFinite(geometry.widthPoints)
+        || !Number.isFinite(geometry.heightPoints)
+        || geometry.widthPoints <= 0
+        || geometry.heightPoints <= 0
+    ) {
+        throw new OcrPageGeometryError('box must have finite coordinates and positive extents');
+    }
+    if (geometry.preprocessInverseTransform !== undefined && (
+        !Number.isFinite(geometry.rasterWidthPx)
+        || !Number.isFinite(geometry.rasterHeightPx)
+        || geometry.rasterWidthPx! <= 0
+        || geometry.rasterHeightPx! <= 0
+    )) {
+        throw new OcrPageGeometryError('preprocessed pages must carry positive raster dimensions');
+    }
+    const matrix = geometry.preprocessInverseTransform?.matrix;
+    if (matrix !== undefined) {
+        if (
+            matrix.length !== 3
+            || matrix.some(row => row.length !== 3 || row.some(value => !Number.isFinite(value)))
+        ) {
+            throw new OcrPageGeometryError('preprocessing inverse transform must be a finite 3x3 matrix');
+        }
+        const validatedMatrix = matrix as TMatrix3;
+        const determinant = (
+            validatedMatrix[0][0] * (validatedMatrix[1][1] * validatedMatrix[2][2] - validatedMatrix[1][2] * validatedMatrix[2][1])
+            - validatedMatrix[0][1] * (validatedMatrix[1][0] * validatedMatrix[2][2] - validatedMatrix[1][2] * validatedMatrix[2][0])
+            + validatedMatrix[0][2] * (validatedMatrix[1][0] * validatedMatrix[2][1] - validatedMatrix[1][1] * validatedMatrix[2][0])
+        );
+        if (Math.abs(determinant) <= 1e-12) {
+            throw new OcrPageGeometryError('preprocessing inverse transform must be invertible');
+        }
+    }
+    return {
+        ...geometry,
+        rotation: normalizeRotation(geometry.rotation),
+    };
+}
+
+type TMatrix3 = [
+    [number, number, number],
+    [number, number, number],
+    [number, number, number],
+];
+
+function multiplyMatrix3(left: TMatrix3, right: TMatrix3): TMatrix3 {
+    return [
+        0,
+        1,
+        2,
+    ].map(row => [
+        0,
+        1,
+        2,
+    ].map(column => (
+        left[row]![0] * right[0][column]!
+        + left[row]![1] * right[1][column]!
+        + left[row]![2] * right[2][column]!
+    ))) as TMatrix3;
+}
+
+function composePreprocessInverse(
+    embeddedPage: Awaited<ReturnType<PDFDocument['embedPage']>>,
+    geometry: IOcrPageGeometry,
+): TMatrix3 | undefined {
+    const inverse = geometry.preprocessInverseTransform?.matrix;
+    const rasterWidthPx = geometry.rasterWidthPx;
+    const rasterHeightPx = geometry.rasterHeightPx;
+    if (inverse === undefined || rasterWidthPx === undefined || rasterHeightPx === undefined) {
+        return undefined;
+    }
+    const outputToPixels: TMatrix3 = [
+        [
+            rasterWidthPx / embeddedPage.width,
+            0,
+            0,
+        ],
+        [
+            0,
+            -rasterHeightPx / embeddedPage.height,
+            rasterHeightPx,
+        ],
+        [
+            0,
+            0,
+            1,
+        ],
+    ];
+    const sourcePixelsToForm: TMatrix3 = [
+        [
+            embeddedPage.width / rasterWidthPx,
+            0,
+            0,
+        ],
+        [
+            0,
+            -embeddedPage.height / rasterHeightPx,
+            embeddedPage.height,
+        ],
+        [
+            0,
+            0,
+            1,
+        ],
+    ];
+    const nativeInverse = inverse as TMatrix3;
+    return multiplyMatrix3(sourcePixelsToForm, multiplyMatrix3(nativeInverse, outputToPixels));
+}
+
+function resolvePageGeometry(page: PDFPage, geometry?: IOcrPageGeometry) {
+    if (geometry !== undefined) {
+        return validatePageGeometry(geometry);
+    }
+
+    const media = page.getMediaBox();
+    const crop = page.getCropBox();
+    const left = Math.max(media.x, crop.x);
+    const bottom = Math.max(media.y, crop.y);
+    const right = Math.min(media.x + media.width, crop.x + crop.width);
+    const top = Math.min(media.y + media.height, crop.y + crop.height);
+    return validatePageGeometry({
+        xPoints: left,
+        yPoints: bottom,
+        widthPoints: right - left,
+        heightPoints: top - bottom,
+        rotation: normalizeRotation(page.getRotation().angle),
+    });
+}
+
 function appendOcrLayer(
     page: PDFPage,
     embeddedPage: Awaited<ReturnType<PDFDocument['embedPage']>>,
+    pageGeometry?: IOcrPageGeometry,
 ) {
-    const rotation = ((page.getRotation().angle % 360) + 360) % 360;
-    if (rotation !== 0 && rotation !== 90 && rotation !== 180 && rotation !== 270) {
-        throw new Error(`Cannot add OCR text layer to a non-right-angle PDF page rotation (${rotation} degrees)`);
-    }
+    const geometry = resolvePageGeometry(page, pageGeometry);
+    const rotation = geometry.rotation;
 
     const {
         extGState,
@@ -527,20 +682,18 @@ function appendOcrLayer(
     }));
     const xObjectToken = xObjectName.toString();
     const invisibleStateToken = invisibleStateName.toString();
-    const pageWidth = page.getWidth();
-    const pageHeight = page.getHeight();
-    const displayedWidth = rotation === 90 || rotation === 270 ? pageHeight : pageWidth;
-    const displayedHeight = rotation === 90 || rotation === 270 ? pageWidth : pageHeight;
+    const displayedWidth = rotation === 90 || rotation === 270 ? geometry.heightPoints : geometry.widthPoints;
+    const displayedHeight = rotation === 90 || rotation === 270 ? geometry.widthPoints : geometry.heightPoints;
     const xScale = displayedWidth / embeddedPage.width;
     const yScale = displayedHeight / embeddedPage.height;
-    const transform = rotation === 0
+    const baseTransform = rotation === 0
         ? [
             xScale,
             0,
             0,
             yScale,
-            0,
-            0,
+            geometry.xPoints,
+            geometry.yPoints,
         ]
         : rotation === 90
             ? [
@@ -548,8 +701,8 @@ function appendOcrLayer(
                 xScale,
                 -yScale,
                 0,
-                pageWidth,
-                0,
+                geometry.xPoints + geometry.widthPoints,
+                geometry.yPoints,
             ]
             : rotation === 180
                 ? [
@@ -557,17 +710,48 @@ function appendOcrLayer(
                     0,
                     0,
                     -yScale,
-                    pageWidth,
-                    pageHeight,
+                    geometry.xPoints + geometry.widthPoints,
+                    geometry.yPoints + geometry.heightPoints,
                 ]
                 : [
                     0,
                     -xScale,
                     yScale,
                     0,
-                    0,
-                    pageHeight,
+                    geometry.xPoints,
+                    geometry.yPoints + geometry.heightPoints,
                 ];
+    const preprocessTransform = composePreprocessInverse(embeddedPage, geometry);
+    const transform = preprocessTransform === undefined
+        ? baseTransform
+        : (() => {
+            const pageMatrix: TMatrix3 = [
+                [
+                    baseTransform[0]!,
+                    baseTransform[2]!,
+                    baseTransform[4]!,
+                ],
+                [
+                    baseTransform[1]!,
+                    baseTransform[3]!,
+                    baseTransform[5]!,
+                ],
+                [
+                    0,
+                    0,
+                    1,
+                ],
+            ];
+            const composed = multiplyMatrix3(pageMatrix, preprocessTransform);
+            return [
+                composed[0][0],
+                composed[1][0],
+                composed[0][1],
+                composed[1][1],
+                composed[0][2],
+                composed[1][2],
+            ];
+        })();
     const stream = [
         `% ${OCR_LAYER_MARKER}_BEGIN`,
         'q',
@@ -586,7 +770,7 @@ function appendOcrLayer(
 export async function assembleSearchablePdf(
     qpdfBinary: string,
     originalPdfPath: string,
-    ocrPdfEntries: Map<number, string> | AsyncIterable<readonly [number, string]>,
+    ocrPdfEntries: ReadonlyMap<number, TOcrPageEntryValue> | AsyncIterable<readonly [number, TOcrPageEntryValue]>,
     pageCount: number,
     tempDir: string,
     sessionId: string,
@@ -595,15 +779,41 @@ export async function assembleSearchablePdf(
     signal?: AbortSignal,
 ) {
     throwIfAborted(signal);
-    const mapPageEntries = ocrPdfEntries instanceof Map
-        ? sortBy(
-            Array.from(ocrPdfEntries.entries())
-                .filter(([pageNumber]) => pageNumber >= 1 && pageNumber <= pageCount),
-            [([pageNumber]) => pageNumber],
-        )
+    const mapEntries = ocrPdfEntries instanceof Map
+        ? ocrPdfEntries as ReadonlyMap<number, TOcrPageEntryValue>
         : null;
-    const ocrPageEntries: ReadonlyArray<readonly [number, string]> | AsyncIterable<readonly [number, string]> =
-        mapPageEntries ?? (ocrPdfEntries as AsyncIterable<readonly [number, string]>);
+    const mapPageEntries = mapEntries
+        ? Array.from(mapEntries.entries())
+            .filter(([pageNumber]) => pageNumber >= 1 && pageNumber <= pageCount)
+            .sort(([left], [right]) => left - right)
+        : null;
+    const geometryByOcrPath = new Map<string, IOcrPageGeometry>();
+    const normalizeEntry = (entry: TOcrPageEntryValue) => {
+        if (typeof entry === 'string') {
+            return entry;
+        }
+        if (entry.pageGeometry !== undefined) geometryByOcrPath.set(entry.path, entry.pageGeometry);
+        return entry.path;
+    };
+    const ocrPageEntries: ReadonlyArray<readonly [number, string]> | AsyncIterable<readonly [number, string]> = mapPageEntries
+        ? mapPageEntries.map(([
+            pageNumber,
+            entry,
+        ]) => [
+            pageNumber,
+            normalizeEntry(entry),
+        ] as const)
+        : (async function* () {
+            for await (const [
+                pageNumber,
+                entry,
+            ] of ocrPdfEntries as AsyncIterable<readonly [number, TOcrPageEntryValue]>) {
+                yield [
+                    pageNumber,
+                    normalizeEntry(entry),
+                ] as const;
+            }
+        })();
     const entryCount = mapPageEntries?.length ?? 'streaming';
     log('debug', `Replacing OCR text layer for ${String(entryCount)} page(s) while preserving original PDF pages`);
     await assertNonEmptyFile(originalPdfPath, 'Original PDF');
@@ -611,8 +821,8 @@ export async function assembleSearchablePdf(
         await Promise.all(mapPageEntries.map(
             ([
                 pageNumber,
-                ocrPath,
-            ]) => assertNonEmptyFile(ocrPath, `OCR PDF page ${pageNumber}`),
+                ocrEntry,
+            ]) => assertNonEmptyFile(typeof ocrEntry === 'string' ? ocrEntry : ocrEntry.path, `OCR PDF page ${pageNumber}`),
         ));
         if (mapPageEntries.length === 0) {
             throw new Error('No valid OCR pages were available to assemble');
@@ -635,7 +845,7 @@ export async function assembleSearchablePdf(
             const ocrPdf = await loadBoundedGeneratedPagePdf(ocrPagePath, 'Generated OCR PDF page');
             const ocrPage = ocrPdf.getPage(0);
             sanitizeOcrPageForEmbedding(ocrPage);
-            appendOcrLayer(page, await pdf.embedPage(ocrPage));
+            appendOcrLayer(page, await pdf.embedPage(ocrPage), geometryByOcrPath.get(ocrPagePath));
             throwIfAborted(signal);
             await writeFile(outputPath, await pdf.save({useObjectStreams: true}));
         },

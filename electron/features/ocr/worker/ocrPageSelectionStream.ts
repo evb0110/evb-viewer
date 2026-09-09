@@ -11,6 +11,7 @@ import type {
 import {iterateOcrPageRequestBatches} from '@electron/features/ocr/contracts';
 import type {
     IOcrPageWithWords,
+    IOcrPageGeometry,
     IOcrPdfPageRequest,
     TOcrPdfPageSelection,
 } from '@electron/ocr/worker/types';
@@ -21,6 +22,7 @@ export interface IOcrCheckpointPageResult {
     pdfPath: string;
     effectiveDpi?: number;
     diagnostics: IOcrDiagnostic[];
+    pageGeometry?: IOcrPageGeometry;
 }
 
 function throwIfAborted(signal?: AbortSignal) {
@@ -82,6 +84,7 @@ export async function* iterateCheckpointPageResults(
                 pdfPath,
                 ...(effectiveDpi === undefined ? {} : {effectiveDpi}),
                 diagnostics,
+                ...(isOcrPageGeometry(checkpoint.pageGeometry) ? {pageGeometry: checkpoint.pageGeometry} : {}),
             };
         }
     }
@@ -105,9 +108,30 @@ export async function* iterateCheckpointPdfEntries(
     for await (const result of iterateCheckpointPageResults(selection, checkpointDir, signal)) {
         yield [
             result.pageData.pageNumber,
-            result.pdfPath,
+            {
+                path: result.pdfPath,
+                ...(result.pageGeometry === undefined ? {} : {pageGeometry: result.pageGeometry}),
+            },
         ] as const;
     }
+}
+
+function isOcrPageGeometry(value: unknown): value is IOcrPageGeometry {
+    if (!value || typeof value !== 'object') {
+        return false;
+    }
+    const geometry = value as Partial<IOcrPageGeometry>;
+    return typeof geometry.xPoints === 'number'
+        && Number.isFinite(geometry.xPoints)
+        && typeof geometry.yPoints === 'number'
+        && Number.isFinite(geometry.yPoints)
+        && typeof geometry.widthPoints === 'number'
+        && Number.isFinite(geometry.widthPoints)
+        && geometry.widthPoints > 0
+        && typeof geometry.heightPoints === 'number'
+        && Number.isFinite(geometry.heightPoints)
+        && geometry.heightPoints > 0
+        && (geometry.rotation === 0 || geometry.rotation === 90 || geometry.rotation === 180 || geometry.rotation === 270);
 }
 
 export function getLastOcrSelectionPage(selection: TOcrPdfPageSelection) {

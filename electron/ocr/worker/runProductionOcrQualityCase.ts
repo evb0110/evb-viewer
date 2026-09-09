@@ -50,11 +50,11 @@ export async function runProductionOcrQualityCase(testCase: IOcrProductionQualit
         testCase.dpi,
     );
     const sourceDimensions = await getPngDimensionsFromFile(stagedInputPath);
-    const candidateDimensions = await getPngDimensionsFromFile(candidatePath);
+    const candidateDimensions = await getPngDimensionsFromFile(candidatePath.path);
     const candidatePreservesGeometry = sourceDimensions !== null
         && candidateDimensions?.width === sourceDimensions.width
         && candidateDimensions.height === sourceDimensions.height;
-    const processedPath = candidatePreservesGeometry ? candidatePath : stagedInputPath;
+    const processedPath = candidatePreservesGeometry ? candidatePath.path : stagedInputPath;
     const dimensions = await getPngDimensionsFromFile(processedPath);
     if (!dimensions) throw new Error('Production OCR quality input is not a valid PNG');
     const result = await runOcrFileBased(
