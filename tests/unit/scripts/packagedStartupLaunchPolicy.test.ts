@@ -12,7 +12,9 @@ describe('packaged startup launch policy', () => {
 
         expect(script).toContain('artifact_root="${EVB_PACKAGED_STARTUP_ARTIFACT_DIR:-.devkit/test/packaged-core-pdf-smoke}"');
         expect(script).toContain('artifact_dir="$(mktemp -d "$artifact_root/packaged-startup-$platform-$arch.XXXXXX")"');
-        expect(script).toContain('log_dir="$artifact_dir/electron-logs"');
+        expect(script).toContain('log_dir="$task_dir/electron-logs"');
+        expect(script).toContain('user_data_dir="$task_dir/user-data"');
+        expect(script).toContain('> "$artifact_dir/selected-paths.txt"');
         expect(script).toContain('task_dir="$(mktemp -d "${TMPDIR:-/tmp}/evb-packaged-startup-$platform-$arch.XXXXXX")"');
         expect(script).toContain('EVB_FILE_LOG_DIR="$log_dir"');
         expect(script).toContain('node --import tsx scripts/release/runPackagedAutomation.ts');
@@ -22,6 +24,9 @@ describe('packaged startup launch policy', () => {
         expect(script).toContain('trap \'forward_signal INT; exit 130\' INT');
         expect(script).toContain('trap \'forward_signal TERM; exit 143\' TERM');
         expect(script).toContain('wait "$runner_pid"');
+        expect(script).toContain('cleanup_status=0');
+        expect(script).toContain('if ! wait "$runner_pid"');
+        expect(script).toContain('preserving owned workspace: $task_dir');
         expect(script).toContain('trap cleanup EXIT');
         expect(script).toContain('rm -rf "$task_dir"');
         expect(script).not.toContain('rm -rf "$log_dir"');

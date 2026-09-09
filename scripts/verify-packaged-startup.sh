@@ -46,27 +46,41 @@ app_exec="$app_path/Contents/MacOS/EVB Viewer"
 artifact_root="${EVB_PACKAGED_STARTUP_ARTIFACT_DIR:-.devkit/test/packaged-core-pdf-smoke}"
 mkdir -p "$artifact_root"
 artifact_dir="$(mktemp -d "$artifact_root/packaged-startup-$platform-$arch.XXXXXX")"
-log_dir="$artifact_dir/electron-logs"
 task_dir="$(mktemp -d "${TMPDIR:-/tmp}/evb-packaged-startup-$platform-$arch.XXXXXX")"
-mkdir -p "$log_dir"
+log_dir="$task_dir/electron-logs"
+user_data_dir="$task_dir/user-data"
+{
+  printf 'artifact_root=%s\n' "$artifact_root"
+  printf 'artifact_dir=%s\n' "$artifact_dir"
+  printf 'task_dir=%s\n' "$task_dir"
+  printf 'user_data_dir=%s\n' "$user_data_dir"
+  printf 'log_dir=%s\n' "$log_dir"
+} > "$artifact_dir/selected-paths.txt"
 runner_pid=""
 cleanup() {
   local exit_code=$?
+  local cleanup_status=0
   trap - EXIT INT TERM
   if [ -n "$runner_pid" ]; then
     if kill -0 "$runner_pid" >/dev/null 2>&1; then
       kill -TERM "$runner_pid" >/dev/null 2>&1 || true
     fi
-    wait "$runner_pid" >/dev/null 2>&1 || true
+    if ! wait "$runner_pid" >/dev/null 2>&1; then
+      cleanup_status=1
+      echo "Error: packaged startup runner cleanup failed; preserving owned workspace: $task_dir" >&2
+    fi
   fi
   if [ -n "$task_dir" ] && [ -d "$task_dir" ]; then
     # The runner retains its launch copy if shutdown could not be verified.
     # Keep that directory too; removing it could break a surviving owned app.
-    if find "$task_dir" -maxdepth 1 -name 'hidden-packaged-app-*' | grep -q .; then
+    if [ "$cleanup_status" -ne 0 ] || find "$task_dir" -maxdepth 1 -name 'hidden-packaged-app-*' | grep -q .; then
       echo "Preserved packaged startup workspace for unfinished cleanup: $task_dir"
     else
       rm -rf "$task_dir"
     fi
+  fi
+  if [ "$cleanup_status" -ne 0 ]; then
+    return "$cleanup_status"
   fi
   return "$exit_code"
 }

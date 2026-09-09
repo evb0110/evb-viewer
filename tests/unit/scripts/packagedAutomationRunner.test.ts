@@ -4,6 +4,7 @@ import {
     mkdir,
     readFile,
     readdir,
+    realpath,
     rm,
     writeFile,
 } from 'node:fs/promises';
@@ -51,18 +52,22 @@ describe.skipIf(process.platform !== 'darwin')('packaged automation runner lifec
         }
     });
 
-    async function launch(body: string) {
+    async function launch(
+        body: string,
+        environment: NodeJS.ProcessEnv = {},
+        workDirectoryOverride?: string,
+    ) {
         const root = await mkdtemp(join(tmpdir(), 'evb-runner-test-'));
         roots.push(root);
         const app = join(root, 'Fixture.app');
         await mkdir(join(app, 'Contents', 'MacOS'), {recursive: true});
         const executable = join(app, 'Contents', 'MacOS', 'Fixture');
         await writeFile(executable, '#!/bin/sh\n'
-            + 'printf "%s\\n" "$EVB_AUTOMATION_HIDE_WINDOW" "$EVB_AUTOMATION_NO_FOCUS" "${ELECTRON_RUN_AS_NODE-unset}" "$$" > "$EVB_AUTOMATION_USER_DATA_DIR.env"\n'
+            + 'printf "%s\\n" "$EVB_AUTOMATION_HIDE_WINDOW" "$EVB_AUTOMATION_NO_FOCUS" "${ELECTRON_RUN_AS_NODE-unset}" "$$" "$EVB_FILE_LOG_DIR" > "$EVB_AUTOMATION_USER_DATA_DIR.env"\n'
             + body, {mode: 0o755});
         await writeFile(join(app, 'Contents', 'Info.plist'), '<?xml version="1.0"?>'
             + '<plist version="1.0"><dict><key>CFBundleExecutable</key><string>Fixture</string></dict></plist>');
-        const workDirectory = join(root, 'run');
+        const workDirectory = workDirectoryOverride ?? join(root, 'run');
         const child = spawn(process.execPath, [
             '--import',
             'tsx',
@@ -76,6 +81,7 @@ describe.skipIf(process.platform !== 'darwin')('packaged automation runner lifec
                 ...process.env,
                 ELECTRON_RUN_AS_NODE: '1',
                 EVB_AUTOMATION_HIDE_WINDOW: '0',
+                ...environment,
             },
             stdio: 'pipe',
         });
@@ -106,6 +112,59 @@ describe.skipIf(process.platform !== 'darwin')('packaged automation runner lifec
                 'unset',
             ]);
         expect((await readdir(run.workDirectory)).filter(name => name.startsWith('hidden-packaged-app-'))).toEqual([]);
+    });
+
+    it('selects an owned log directory when the caller inherits the shared default', async () => {
+        const run = await launch('exit 0\n', {EVB_FILE_LOG_DIR: join(tmpdir(), 'electron-logs')});
+        expect(await run.exited).toBe(0);
+        const values = (await readFile(join(run.workDirectory, 'user-data.env'), 'utf8')).trim().split('\n');
+        expect(values[4]).toBe(join(await realpath(run.workDirectory), 'electron-logs'));
+        expect(values[4]).not.toBe(join(tmpdir(), 'electron-logs'));
+    });
+
+    it('ignores an inherited log directory outside the owned work directory', async () => {
+        const sharedRoot = await mkdtemp(join(tmpdir(), 'evb-runner-shared-root-'));
+        roots.push(sharedRoot);
+        const sharedLogDirectory = join(sharedRoot, 'electron-logs');
+        const sharedUserDataDirectory = join(sharedRoot, 'user-data');
+        await mkdir(sharedLogDirectory);
+        await mkdir(sharedUserDataDirectory);
+        await writeFile(join(sharedLogDirectory, 'sentinel'), 'keep-log');
+        await writeFile(join(sharedUserDataDirectory, 'sentinel'), 'keep-profile');
+        const run = await launch('exit 0\n', {
+            EVB_FILE_LOG_DIR: sharedLogDirectory,
+            EVB_AUTOMATION_USER_DATA_DIR: sharedUserDataDirectory,
+        });
+        expect(await run.exited).toBe(0);
+        const values = (await readFile(join(run.workDirectory, 'user-data.env'), 'utf8')).trim().split('\n');
+        expect(values[4]).toBe(join(await realpath(run.workDirectory), 'electron-logs'));
+        expect(values[4]).not.toBe(sharedLogDirectory);
+        expect(await readFile(join(sharedLogDirectory, 'sentinel'), 'utf8')).toBe('keep-log');
+        expect(await readFile(join(sharedUserDataDirectory, 'sentinel'), 'utf8')).toBe('keep-profile');
+    });
+
+    it('allocates independent roots for concurrent fixtures', async () => {
+        const [
+            first,
+            second,
+        ] = await Promise.all([
+            launch('exit 0\n'),
+            launch('exit 0\n'),
+        ]);
+        expect(first.workDirectory).not.toBe(second.workDirectory);
+        expect(await first.exited).toBe(0);
+        expect(await second.exited).toBe(0);
+        const firstValues = (await readFile(join(first.workDirectory, 'user-data.env'), 'utf8')).trim().split('\n');
+        const secondValues = (await readFile(join(second.workDirectory, 'user-data.env'), 'utf8')).trim().split('\n');
+        expect(firstValues[4]).not.toBe(secondValues[4]);
+    });
+
+    it('rejects a second runner claiming an existing task root', async () => {
+        const first = await launch('exit 0\n');
+        expect(await first.exited).toBe(0);
+        const second = await launch('exit 0\n', {}, first.workDirectory);
+        expect(await second.exited).toBe(1);
+        expect(second.output()).toContain('empty and unused');
     });
 
     it('waits for its owned child to exit before removing the bundle on interruption', async () => {
