@@ -9,13 +9,22 @@
     >
         <template v-for="(quad, index) in entity.quadPoints" :key="`${entity.identity.id}-${index}`">
             <rect data-annotation-hit-target :x="quad.left" :y="quad.top" :width="quad.width" :height="quad.height" />
-            <rect
-                v-if="entity.subtype === 'Highlight'"
-                data-annotation-visual
-                :x="quad.left" :y="quad.top" :width="quad.width" :height="quad.height"
+            <path v-if="entity.subtype === 'Squiggly'" data-annotation-visual :d="squiggleFor(quad)" />
+            <line v-else-if="entity.subtype !== 'Highlight'" data-annotation-visual v-bind="lineFor(quad)" />
+        </template>
+        <path v-if="entity.subtype === 'Highlight' && highlightPath" data-annotation-visual :d="highlightPath" />
+        <template v-if="entity.subtype === 'Highlight' && selected">
+            <defs>
+                <mask :id="highlightOutlineMaskId" maskUnits="userSpaceOnUse" x="-1" y="-1" width="3" height="3">
+                    <rect x="-1" y="-1" width="3" height="3" fill="white" />
+                    <path :d="ownHighlightPath" fill="black" />
+                </mask>
+            </defs>
+            <path
+                class="pdf-annotation-editor-highlight-outline"
+                :d="ownHighlightPath"
+                :mask="`url(#${highlightOutlineMaskId})`"
             />
-            <path v-else-if="entity.subtype === 'Squiggly'" data-annotation-visual :d="squiggleFor(quad)" />
-            <line v-else data-annotation-visual v-bind="lineFor(quad)" />
         </template>
     </g>
 </template>
@@ -29,8 +38,17 @@ const props = defineProps<{
     entity: ITextMarkupEntity;
     selected: boolean;
     pageSize?: IAnnotationPageDimensions;
-    pageRotation?: number
+    pageRotation?: number;
+    highlightPaintQuads?: readonly IAnnotationMarkerRect[] | undefined;
 }>();
+// One nonzero-winding fill applies transparency once, including where text
+// line boxes overlap. Hit targets still belong to each original annotation.
+function highlightPathFor(quads: readonly IAnnotationMarkerRect[]) {
+    return quads.map(quad => `M${quad.left} ${quad.top}h${quad.width}v${quad.height}h${-quad.width}z`).join(' ');
+}
+const highlightPath = computed(() => highlightPathFor(props.highlightPaintQuads ?? props.entity.quadPoints));
+const ownHighlightPath = computed(() => highlightPathFor(props.entity.quadPoints));
+const highlightOutlineMaskId = useId();
 function lineFor(quad: IAnnotationMarkerRect) {
     const fraction = props.entity.subtype === 'StrikeOut' ? 0.5 : 0.94;
     switch (props.pageRotation ?? 0) {

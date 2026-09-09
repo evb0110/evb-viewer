@@ -369,12 +369,67 @@ pub(crate) fn normalize_hint_annotation_ref(hint: &MarkupSubtypeHint) -> Option<
         .and_then(normalize_pdfjs_annotation_id)
 }
 
+fn normalize_hint_identity(value: Option<&str>) -> Option<String> {
+    let value = value?.trim();
+    if value.is_empty() {
+        return None;
+    }
+    Some(normalize_pdfjs_annotation_id(value).unwrap_or_else(|| value.to_string()))
+}
+
+fn hint_identity_aliases(hint: &MarkupSubtypeHint) -> Vec<String> {
+    let mut aliases = Vec::new();
+    for value in [
+        normalize_hint_identity(hint.app_annotation_id.as_deref()),
+        normalize_hint_identity(hint.id.as_deref()),
+        normalize_hint_identity(hint.annotation_id.as_deref()),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if !aliases.contains(&value) {
+            aliases.push(value);
+        }
+    }
+    aliases
+}
+
+fn subtype_hints_have_distinct_identity(
+    left: &MarkupSubtypeHint,
+    right: &MarkupSubtypeHint,
+) -> bool {
+    if left.subtype != right.subtype {
+        return false;
+    }
+
+    let left_app_id = normalize_hint_identity(left.app_annotation_id.as_deref());
+    let right_app_id = normalize_hint_identity(right.app_annotation_id.as_deref());
+    if left_app_id.is_some() && left_app_id == right_app_id {
+        return false;
+    }
+    if left_app_id.is_some() && right_app_id.is_some() && left_app_id != right_app_id {
+        return true;
+    }
+
+    let left_aliases = hint_identity_aliases(left);
+    let right_aliases = hint_identity_aliases(right);
+    if left_aliases.iter().any(|left_alias| {
+        right_aliases
+            .iter()
+            .any(|right_alias| left_alias == right_alias)
+    }) {
+        return false;
+    }
+    !left_aliases.is_empty() && !right_aliases.is_empty()
+}
+
 pub(crate) fn subtype_hints_share_geometry(
     left: &MarkupSubtypeHint,
     right: &MarkupSubtypeHint,
 ) -> bool {
     left.page_index == right.page_index
         && left.subtype == right.subtype
+        && !subtype_hints_have_distinct_identity(left, right)
         && !hint_colors_conflict(left, right)
         && !hint_opacities_conflict(left, right)
         && marker_rect_iou(Some(left.marker_rect), Some(right.marker_rect))
@@ -452,29 +507,19 @@ pub(crate) fn dedupe_markup_subtype_hints(
     deduped
         .try_reserve_exact(hints.len())
         .map_err(|_| "Text-markup hint list is too large")?;
-    let mut hints_by_id: HashMap<(String, String), usize> = HashMap::new();
-    let mut hints_by_ref: HashMap<(String, String), usize> = HashMap::new();
+    let mut hints_by_identity: HashMap<(String, String), usize> = HashMap::new();
     let mut geometry_grid: HashMap<MarkupHintGridKey, Vec<usize>> = HashMap::new();
     let mut comparisons = 0usize;
 
     for hint in hints {
-        let id_key = hint
-            .id
-            .as_ref()
-            .map(|id| (hint.subtype.clone(), id.clone()));
-        let annotation_ref = normalize_hint_annotation_ref(hint);
-        let ref_key = annotation_ref
-            .as_ref()
-            .map(|reference| (hint.subtype.clone(), reference.clone()));
-        let mut existing_index = id_key
-            .as_ref()
-            .and_then(|key| hints_by_id.get(key).copied())
+        let identity_keys: Vec<_> = hint_identity_aliases(hint)
             .into_iter()
-            .chain(
-                ref_key
-                    .as_ref()
-                    .and_then(|key| hints_by_ref.get(key).copied()),
-            )
+            .map(|alias| (hint.subtype.clone(), alias))
+            .collect();
+        let mut existing_index = identity_keys
+            .iter()
+            .filter_map(|key| hints_by_identity.get(key).copied())
+            .filter(|index| !subtype_hints_have_distinct_identity(&deduped[*index], hint))
             .min();
 
         if existing_index.is_none() {
@@ -500,20 +545,14 @@ pub(crate) fn dedupe_markup_subtype_hints(
 
         if let Some(index) = existing_index {
             deduped[index] = merge_subtype_hints(&deduped[index], hint);
-            if let Some(key) = id_key {
-                hints_by_id.entry(key).or_insert(index);
-            }
-            if let Some(key) = ref_key {
-                hints_by_ref.entry(key).or_insert(index);
+            for key in identity_keys {
+                hints_by_identity.entry(key).or_insert(index);
             }
         } else {
             let index = deduped.len();
             deduped.push(hint.clone());
-            if let Some(key) = id_key {
-                hints_by_id.entry(key).or_insert(index);
-            }
-            if let Some(key) = ref_key {
-                hints_by_ref.entry(key).or_insert(index);
+            for key in identity_keys {
+                hints_by_identity.entry(key).or_insert(index);
             }
             for (row, column) in marker_rect_grid_cells(hint.marker_rect) {
                 geometry_grid

@@ -6,6 +6,7 @@ import {
 } from '@contracts/pageNumbers';
 import type {IPdfNativeAnnotationIdentityBinding} from '@contracts/electronApiDocuments';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
+import type {IAnnotationMarkerRect} from '@app/types/annotations';
 import type {
     AnnotationEntity,
     AnnotationId,
@@ -183,6 +184,42 @@ function cloneCanonicalEntity<T extends AnnotationEntity>(entity: T): T {
                 strokes: cloned.strokes?.map(stroke => stroke.map(point => ({...point}))),
             };
     }
+}
+
+function sameTextMarkupGeometry(
+    left: ITextMarkupEntity['quadPoints'],
+    right: ITextMarkupEntity['quadPoints'],
+) {
+    return left.length === right.length && left.every((rect, index) => {
+        const candidate = right[index];
+        return candidate?.left === rect.left
+            && candidate.top === rect.top
+            && candidate.width === rect.width
+            && candidate.height === rect.height;
+    });
+}
+
+function sameTextMarkupGeometryAfterRoundTrip(
+    left: ITextMarkupEntity['quadPoints'],
+    right: ITextMarkupEntity['quadPoints'],
+) {
+    const epsilon = 0.0001;
+    const order = (first: IAnnotationMarkerRect, second: IAnnotationMarkerRect) => (
+        first.top - second.top
+        || first.left - second.left
+        || first.width - second.width
+        || first.height - second.height
+    );
+    const sortedLeft = [...left].sort(order);
+    const sortedRight = [...right].sort(order);
+    return sortedLeft.length === sortedRight.length && sortedLeft.every((rect, index) => {
+        const candidate = sortedRight[index];
+        return candidate !== undefined
+            && Math.abs(candidate.left - rect.left) <= epsilon
+            && Math.abs(candidate.top - rect.top) <= epsilon
+            && Math.abs(candidate.width - rect.width) <= epsilon
+            && Math.abs(candidate.height - rect.height) <= epsilon;
+    });
 }
 
 function identityWithPdfRef(identity: IAnnotationIdentity, pdfRef: string | undefined) {
@@ -509,13 +546,30 @@ export class AnnotationStore {
             ...entity,
             ...structuredClone(patch),
             ...(patch.contents === undefined ? {} : {contents: normalizeAnnotationText(patch.contents)}),
+            ...(patch.quadPoints === undefined || sameTextMarkupGeometry(entity.quadPoints, patch.quadPoints)
+                ? {}
+                : {selectedText: null}),
         }));
     }
 
     /** Updates parser-derived preview text without creating an authored revision. */
-    updateTextMarkupSelectedText(id: AnnotationId, selectedText: string | null) {
+    updateTextMarkupSelectedText(
+        id: AnnotationId,
+        selectedText: string | null,
+        expectedQuadPoints?: ITextMarkupEntity['quadPoints'],
+    ) {
         const entity = this.#entities.get(id);
         if (!entity || entity.deleted || entity.kind !== 'text-markup') {
+            return false;
+        }
+        if (expectedQuadPoints && !sameTextMarkupGeometry(entity.quadPoints, expectedQuadPoints)) {
+            return false;
+        }
+        // Text extraction runs after the parsed annotation is committed. A
+        // transiently unavailable text layer reports null, but that result
+        // must not erase a preview captured when the markup was created or
+        // by an earlier successful extraction.
+        if (selectedText === null && entity.selectedText?.trim()) {
             return false;
         }
         if ((entity.selectedText ?? null) === selectedText) {
@@ -665,10 +719,20 @@ export class AnnotationStore {
                 });
                 return;
             }
+            const parsedCanonical = current.kind === 'text-markup'
+                && parsed.kind === 'text-markup'
+                && (parsed.selectedText === undefined || parsed.selectedText === null)
+                && current.selectedText?.trim()
+                && sameTextMarkupGeometryAfterRoundTrip(current.quadPoints, parsed.quadPoints)
+                ? {
+                    ...parsed,
+                    selectedText: current.selectedText,
+                }
+                : parsed;
             next.set(id, {
-                ...cloneCanonicalEntity(parsed),
+                ...cloneCanonicalEntity(parsedCanonical),
                 identity: {
-                    ...parsed.identity,
+                    ...parsedCanonical.identity,
                     id,
                 },
                 revision: current.revision,
@@ -706,27 +770,63 @@ export class AnnotationStore {
     applyTextMarkupSelection(
         created: ITextMarkupEntity,
         overlapCandidates: readonly ITextMarkupOverlapCandidate[],
+        resolveSelectedText?: (
+            quadPoints: readonly IAnnotationMarkerRect[],
+        ) => string | null | undefined,
     ): ITextMarkupSelectionProjection {
         if (this.#entities.has(created.identity.id)) {
             throw new Error(`Duplicate AnnotationId ${created.identity.id}`);
         }
         this.#assertNewEntity(created);
-        const plan = buildTextMarkupSelectionPlan({
+        const initialPlan = buildTextMarkupSelectionPlan({
             created,
             overlapCandidates,
             entities: Array.from(this.#entities.values()),
         });
+        const resolvedSelectedText = resolveSelectedText?.(initialPlan.projection.created.quadPoints);
+        let plan = initialPlan;
+        if (resolvedSelectedText !== undefined) {
+            const selectedText = resolvedSelectedText === null
+                && initialPlan.projection.created.selectedText?.trim()
+                ? initialPlan.projection.created.selectedText
+                : resolvedSelectedText;
+            plan = {
+                ...initialPlan,
+                replacements: initialPlan.replacements.map(replacement => (
+                    replacement.after.identity.id === initialPlan.projection.created.identity.id
+                        ? {
+                            ...replacement,
+                            after: {
+                                ...replacement.after,
+                                selectedText,
+                            },
+                        }
+                        : replacement
+                )),
+                projection: {
+                    ...initialPlan.projection,
+                    created: {
+                        ...initialPlan.projection.created,
+                        selectedText,
+                    },
+                },
+            };
+        }
         const entries: IHistoryEntry[] = plan.replacements.map(replacement => ({
             id: replacement.before.identity.id,
             before: cloneEntity(replacement.before),
             after: cloneEntity(replacement.after),
         }));
-        entries.push({
-            id: created.identity.id,
-            before: null,
-            after: cloneCanonicalEntity(created),
-        });
-        this.#commit(entries);
+        if (plan.projection.created.identity.id === created.identity.id) {
+            entries.push({
+                id: created.identity.id,
+                before: null,
+                after: cloneCanonicalEntity(plan.projection.created),
+            });
+        }
+        if (entries.length > 0) {
+            this.#commit(entries);
+        }
         return plan.projection;
     }
 

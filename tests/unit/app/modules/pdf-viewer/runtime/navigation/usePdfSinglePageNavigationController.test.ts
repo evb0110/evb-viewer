@@ -504,6 +504,126 @@ describe('usePdfSinglePageNavigationController', () => {
         }
     });
 
+    it('re-resolves a page jump after releasing the visual handoff geometry', async () => {
+        const scope = effectScope();
+        const viewer = document.createElement('div');
+        Object.defineProperties(viewer, {
+            clientHeight: {value: 700},
+            clientWidth: {value: 900},
+            scrollHeight: {value: 6_000},
+            scrollWidth: {value: 900},
+            scrollLeft: {
+                value: 0,
+                writable: true,
+            },
+            scrollTop: {
+                value: 0,
+                writable: true,
+            },
+        });
+        viewer.getBoundingClientRect = () => ({
+            bottom: 800,
+            height: 700,
+            left: 0,
+            right: 900,
+            top: 100,
+            width: 900,
+            x: 0,
+            y: 100,
+            toJSON: () => ({}),
+        });
+        const pageSlots = createPdfPageSlotRegistry();
+        let targetTop = 2_400;
+        let controller: ReturnType<typeof usePdfSinglePageNavigationController> | null = null;
+        for (let pageNumber = 1; pageNumber <= 2; pageNumber += 1) {
+            const page = document.createElement('div');
+            page.className = 'page_container page_container--rendered';
+            page.dataset.page = String(pageNumber);
+            page.innerHTML = '<div class="page_canvas"><canvas width="600" height="900"></canvas></div>';
+            page.getBoundingClientRect = () => {
+                const contentTop = pageNumber === 1 ? 20 : targetTop;
+                return {
+                    bottom: contentTop - viewer.scrollTop + 1_000,
+                    height: 1_000,
+                    left: 150,
+                    right: 750,
+                    top: contentTop - viewer.scrollTop + 100,
+                    width: 600,
+                    x: 150,
+                    y: contentTop - viewer.scrollTop + 100,
+                    toJSON: () => ({}),
+                };
+            };
+            viewer.append(page);
+            pageSlots.markMounted(pageNumber);
+        }
+        const layout = buildPageLayoutMetrics({
+            pageMetrics: Array.from({length: 2}, () => ({
+                width: 600,
+                height: 900,
+            })),
+            totalPages: 2,
+            viewMode: 'single',
+            scale: 1,
+            gap: 20,
+            paddingTop: 20,
+            paddingBottom: 20,
+        });
+        if (!layout) {
+            throw new Error('Expected a PDF layout');
+        }
+        const viewportWrites = createTestPdfViewportWritePort();
+
+        try {
+            controller = scope.run(() => usePdfSinglePageNavigationController({
+                viewerContainer: ref(viewer),
+                numPages: ref(2),
+                currentPage: ref(1),
+                scaledMargin: ref(20),
+                viewMode: ref('single'),
+                continuousScroll: ref(true),
+                isLoading: ref(false),
+                pdfDocument: shallowRef({numPages: 2} as IPdfDocument),
+                getMostVisiblePage: vi.fn(() => 1),
+                scrollToPageInternal: vi.fn(),
+                updateVisibleRange: vi.fn(),
+                updateCurrentPage: vi.fn(() => 1),
+                renderVisiblePages: vi.fn(async () => undefined),
+                isPageFreshlyRenderedForNavigation: vi.fn(() => true),
+                visibleRange: ref({
+                    start: 1,
+                    end: 1,
+                }),
+                emitCurrentPage: vi.fn(),
+                viewportWritePort: viewportWrites.port,
+                getPageLayoutMetrics: () => {
+                    if (controller?.navigationVisualHandoffTargetPage.value === null) {
+                        targetTop = 3_600;
+                    }
+                    return layout;
+                },
+                requestedCurrentPage: ref(undefined),
+                cancelPendingSearchScroll: vi.fn(),
+                pageSlots,
+                getDocumentRevision: () => 1,
+                getGeometryRevision: () => 1,
+            })) ?? null;
+            if (!controller) {
+                throw new Error('Expected navigation controller');
+            }
+
+            expect(controller.scrollToPage(requirePageNumber(2))).toBe(true);
+            await vi.waitFor(() => {
+                expect(controller?.viewportAuthority.currentPage.value).toBe(2);
+            });
+
+            expect(viewportWrites.writes.at(-1)?.top).toBe(3_580);
+        } finally {
+            pageSlots.dispose();
+            scope.stop();
+        }
+    });
+
     it('clamps a mounted narrow navigation row despite wider document overflow', async () => {
         const scope = effectScope();
         const viewer = document.createElement('div');
