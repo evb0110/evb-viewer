@@ -57,6 +57,7 @@ export interface IPdfPage {
         includeMarkedContent?: boolean;
         disableNormalization?: boolean
     }): ReadableStream<IPdfTextContentChunk>;
+    getStructTree?(): Promise<unknown | null>;
     getAnnotations(options?: {intent?: string}): Promise<readonly IPdfAnnotation[]>;
     getOperatorList(options?: {annotationMode?: number}): Promise<IPdfOperatorList>;
     render(options: object): IPdfRenderTask;
