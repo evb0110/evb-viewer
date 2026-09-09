@@ -14,7 +14,6 @@ import type {
     TDocxParagraphDirection,
     TDocxTextPageSource,
 } from '@app/utils/docxStreaming';
-import type * as DocxStreamingModule from '@app/utils/docxStreaming';
 
 type TDocxChunkBuilder = (
     pages: TDocxTextPageSource,
@@ -48,6 +47,7 @@ const documentFilesMock = vi.hoisted(() => ({
 const documentWorkingCopyMock = vi.hoisted(() => ({cleanupFile: vi.fn(async () => {})}));
 const TEST_DOCUMENT_REVISION = requireDocumentRevisionToken('revision-token');
 interface IActualDocxStreamingModule {
+    resolveDocxParagraphDirection: (text: string, fallbackRtl?: boolean) => boolean;
     createDocxFromTextChunks: (
         pages: Iterable<string> | AsyncIterable<string>,
         direction?: TDocxParagraphDirection,
@@ -65,7 +65,7 @@ vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: 
 vi.mock('@app/utils/ocr/loadOcrText', () => ({loadDocumentTextCatalogPages: loadDocumentTextCatalogPagesMock}));
 vi.mock('@app/utils/docx', () => ({createDocxFromTextAsync: createDocxFromTextAsyncMock}));
 vi.mock('@app/utils/docxStreaming', async () => {
-    const actual = await vi.importActual<DocxStreamingModule>('@app/utils/docxStreaming');
+    const actual = await vi.importActual<IActualDocxStreamingModule>('@app/utils/docxStreaming');
     return {
         ...actual,
         createDocxFromTextChunks: createDocxFromTextChunksMock,
