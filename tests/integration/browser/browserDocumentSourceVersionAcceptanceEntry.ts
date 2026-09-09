@@ -239,6 +239,92 @@ async function runBrowserRealInputPickerRecentAcceptance() {
     };
 }
 
+type TFileSystemAccessAcceptanceStage = 'first' | 'equal-size-replacement' | 'changed-size-replacement';
+
+let fileSystemAccessFirstRef: string | null = null;
+let fileSystemAccessDirtyRef: string | null = null;
+let fileSystemAccessHandle: FileSystemFileHandle | null = null;
+
+async function runBrowserRealFileSystemAccessAcceptance(stage: TFileSystemAccessAcceptanceStage) {
+    const picked = (await pickFiles({
+        accept: 'application/pdf',
+        preferFileSystemAccess: true,
+    }))[0];
+    if (!picked?.handle) {
+        throw new Error('Real File System Access picker did not return a FileSystemFileHandle');
+    }
+
+    if (stage === 'first') {
+        fileSystemAccessFirstRef = null;
+        fileSystemAccessDirtyRef = null;
+        fileSystemAccessHandle = null;
+        fileSystemAccessFirstRef = await browserDocumentStore.registerFile(picked.file, {
+            kind: 'source',
+            saveKind: 'pdf',
+            saveHandle: picked.handle,
+        });
+        fileSystemAccessHandle = picked.handle;
+        fileSystemAccessDirtyRef = await browserDocumentStore.cloneAsWorkingCopy(fileSystemAccessFirstRef);
+        await browserDocumentStore.writeForBootstrap(
+            fileSystemAccessDirtyRef,
+            Uint8Array.of(1, 2, 3),
+            'browser-file-system-access-acceptance',
+        );
+    } else {
+        if (!fileSystemAccessFirstRef || !fileSystemAccessDirtyRef || !fileSystemAccessHandle) {
+            throw new Error('File System Access acceptance did not start with a first selection');
+        }
+        const samePhysicalEntry = await fileSystemAccessHandle.isSameEntry(picked.handle);
+        if (!samePhysicalEntry) {
+            throw new Error('Replacement selection did not return the same physical file entry');
+        }
+        const replacementRef = await browserDocumentStore.registerFile(picked.file, {
+            kind: 'source',
+            saveKind: 'pdf',
+            saveHandle: picked.handle,
+        });
+        if (stage === 'changed-size-replacement') {
+            await browserDocumentStore.touchRecentFile(replacementRef);
+        }
+        const [
+            firstBytes,
+            replacementBytes,
+            dirtyBytes,
+        ] = await Promise.all([
+            browserDocumentStore.read(fileSystemAccessFirstRef),
+            browserDocumentStore.read(replacementRef),
+            browserDocumentStore.read(fileSystemAccessDirtyRef),
+        ]);
+        return {
+            dirtyBytes: Array.from(dirtyBytes),
+            firstBytes: Array.from(firstBytes),
+            handleName: picked.handle.name,
+            replacementBytes: Array.from(replacementBytes),
+            replacementRef,
+            samePhysicalEntry,
+            stage,
+        };
+    }
+
+    return {
+        firstRef: fileSystemAccessFirstRef,
+        handleName: picked.handle.name,
+        stage,
+    };
+}
+
+async function readBrowserRealFileSystemAccessRecentAfterReload() {
+    const recentFiles = await browserDocumentStore.recoverRecentFilesIfStorageMissing();
+    const recentRef = recentFiles[0]?.originalPath;
+    if (!recentRef) throw new Error('File System Access acceptance did not persist a Recent file');
+    return {
+        recentBytes: Array.from(await browserDocumentStore.read(recentRef)),
+        recentRef,
+    };
+}
+
 Reflect.set(globalThis, '__evbRunBrowserDocumentSourceVersionAcceptance', runBrowserDocumentSourceVersionAcceptance);
 Reflect.set(globalThis, '__evbRunBrowserPickerAndRecentAcceptance', runBrowserPickerAndRecentAcceptance);
 Reflect.set(globalThis, '__evbRunBrowserRealInputPickerRecentAcceptance', runBrowserRealInputPickerRecentAcceptance);
+Reflect.set(globalThis, '__evbRunBrowserRealFileSystemAccessAcceptance', runBrowserRealFileSystemAccessAcceptance);
+Reflect.set(globalThis, '__evbReadBrowserRealFileSystemAccessRecentAfterReload', readBrowserRealFileSystemAccessRecentAfterReload);

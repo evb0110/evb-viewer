@@ -11,6 +11,11 @@ interface IUseAnnotationTextSelectionCacheOptions {
     allowCrossPage?: boolean;
 }
 
+export interface IAnnotationTextSelectionSnapshot {
+    readonly range: Range;
+    readonly revision: number;
+}
+
 export const useAnnotationTextSelectionCache = ({
     viewerContainer,
     currentPage,
@@ -18,10 +23,29 @@ export const useAnnotationTextSelectionCache = ({
 }: IUseAnnotationTextSelectionCacheOptions) => {
     let cachedSelectionRange: Range | null = null;
     let cachedSelectionTimestamp = 0;
+    let cachedSelectionRevision = 0;
+    let nextSelectionRevision = 0;
+    let automaticSelectionAvailable = false;
+    let selectionGesturePending = false;
+
+    function sameRange(first: Range, second: Range) {
+        return first.startContainer === second.startContainer
+            && first.startOffset === second.startOffset
+            && first.endContainer === second.endContainer
+            && first.endOffset === second.endOffset;
+    }
+
+    function advanceSelectionRevision() {
+        nextSelectionRevision += 1;
+        cachedSelectionRevision = nextSelectionRevision;
+    }
 
     function clearSelectionCache() {
         cachedSelectionRange = null;
         cachedSelectionTimestamp = 0;
+        automaticSelectionAvailable = false;
+        selectionGesturePending = false;
+        advanceSelectionRevision();
     }
 
     tryOnScopeDispose(() => {
@@ -64,6 +88,16 @@ export const useAnnotationTextSelectionCache = ({
         return range.cloneRange();
     }
 
+    function cacheRange(range: Range) {
+        if (selectionGesturePending || !cachedSelectionRange || !sameRange(cachedSelectionRange, range)) {
+            advanceSelectionRevision();
+        }
+        selectionGesturePending = false;
+        cachedSelectionRange = range.cloneRange();
+        cachedSelectionTimestamp = Date.now();
+        automaticSelectionAvailable = true;
+    }
+
     function cacheCurrentTextSelection() {
         const container = viewerContainer.value;
         if (!container) {
@@ -82,25 +116,105 @@ export const useAnnotationTextSelectionCache = ({
             return;
         }
 
-        cachedSelectionRange = range.cloneRange();
-        cachedSelectionTimestamp = Date.now();
+        cacheRange(range);
     }
 
-    function getSelectionRangeForCommentAction() {
-        const direct = getSelectionRangeFromDocument();
-        if (direct) {
-            return direct;
-        }
+    function getCachedSelectionSnapshot() {
         if (!cachedSelectionRange) {
             return null;
         }
         if ((Date.now() - cachedSelectionTimestamp) > SELECTION_CACHE_TTL_MS) {
+            clearSelectionCache();
             return null;
         }
         if (!isRangeWithinViewerTextLayer(cachedSelectionRange)) {
+            clearSelectionCache();
             return null;
         }
-        return cachedSelectionRange.cloneRange();
+        return {
+            range: cachedSelectionRange.cloneRange(),
+            revision: cachedSelectionRevision,
+        } satisfies IAnnotationTextSelectionSnapshot;
+    }
+
+    function getSelectionSnapshotForCommentAction() {
+        const direct = getSelectionRangeFromDocument();
+        if (direct) {
+            cacheRange(direct);
+        }
+        return getCachedSelectionSnapshot();
+    }
+
+    function getSelectionSnapshotForToolActivation() {
+        if (!automaticSelectionAvailable) {
+            return null;
+        }
+        const direct = getSelectionRangeFromDocument();
+        if (direct) {
+            cacheRange(direct);
+            return getCachedSelectionSnapshot();
+        }
+        return automaticSelectionAvailable ? getCachedSelectionSnapshot() : null;
+    }
+
+    function getSelectionSnapshotForRange(range: Range) {
+        if (!isRangeWithinViewerTextLayer(range)) {
+            return null;
+        }
+        const current = getSelectionRangeFromDocument();
+        if (current && sameRange(current, range)) {
+            cacheRange(current);
+        } else if (!cachedSelectionRange || !sameRange(cachedSelectionRange, range)) {
+            cacheRange(range);
+        }
+        return getCachedSelectionSnapshot();
+    }
+
+    /**
+     * A blank pointer press inside the viewer invalidates automatic tool
+     * activation while retaining the cache for explicit context-menu or
+     * command actions. The revision still advances, so a pending creation
+     * cannot consume a later selection by accident.
+     */
+    function invalidateSelectionForToolActivation() {
+        automaticSelectionAvailable = false;
+        selectionGesturePending = false;
+        advanceSelectionRevision();
+    }
+
+    function beginSelectionGesture() {
+        selectionGesturePending = true;
+        automaticSelectionAvailable = true;
+    }
+
+    function consumeSelection(snapshot: IAnnotationTextSelectionSnapshot) {
+        if (selectionGesturePending || !cachedSelectionRange || snapshot.revision !== cachedSelectionRevision) {
+            return;
+        }
+        const selection = document.getSelection();
+        const current = getSelectionRangeFromDocument();
+        if (current && !sameRange(current, snapshot.range)) {
+            // Selectionchange is delivered asynchronously in some browsers.
+            // Capture a newer native range here before the older request can
+            // clear the cache that still points at its own snapshot.
+            cacheRange(current);
+            return;
+        }
+        if (current && sameRange(current, snapshot.range)) {
+            try {
+                selection?.removeAllRanges();
+            } catch (error) {
+                BrowserLogger.debug('annotations', `Failed to clear consumed text selection: ${errorToLogText(error)}`);
+            }
+        }
+        cachedSelectionRange = null;
+        cachedSelectionTimestamp = 0;
+        automaticSelectionAvailable = false;
+        advanceSelectionRevision();
+    }
+
+    function getSelectionRangeForCommentAction() {
+        return getSelectionSnapshotForCommentAction()?.range ?? null;
     }
 
     function restoreSelectionRange(activeRange: Range) {
@@ -173,6 +287,12 @@ export const useAnnotationTextSelectionCache = ({
         doesRangeSpanTextLayers,
         getPageNumberForTextLayer,
         getSelectionRangeForCommentAction,
+        getSelectionSnapshotForCommentAction,
+        getSelectionSnapshotForRange,
+        getSelectionSnapshotForToolActivation,
+        consumeSelection,
+        beginSelectionGesture,
+        invalidateSelectionForToolActivation,
         resolveTextLayerForRange,
         restoreSelectionRange,
     };

@@ -24,8 +24,18 @@ export interface IHighlightPageGeometry {
 
 interface ISelectedRun {
     readonly run: ITextLineRun;
-    readonly start: number;
-    readonly end: number;
+    readonly node: Text;
+    readonly nodeStart: number;
+    readonly nodeEnd: number;
+    readonly textStart: number;
+    readonly textEnd: number;
+}
+
+interface INormalizedSelectionExtent {
+    readonly inlineStart: number;
+    readonly inlineEnd: number;
+    readonly crossStart: number | null;
+    readonly crossEnd: number | null;
 }
 
 function boundaryOffset(
@@ -41,26 +51,31 @@ function boundaryOffset(
     return isStart ? 0 : length;
 }
 
-function selectedOffsets(range: Range, run: ITextLineRun): {
-    start: number;
-    end: number
-} | null {
-    const node = run.textNode;
-    const length = node?.length ?? run.text.length;
-    if (!node || length <= 0) {
-        return null;
-    }
-    if (!range.intersectsNode(node)
-        || range.comparePoint(node, length) < 0
-        || range.comparePoint(node, 0) > 0) {
-        return null;
-    }
-    const start = boundaryOffset(node, length, range.startContainer, range.startOffset, true);
-    const end = boundaryOffset(node, length, range.endContainer, range.endOffset, false);
-    return end > start ? {
-        start,
-        end,
-    } : null;
+function selectedOffsets(range: Range, run: ITextLineRun) {
+    const textNodes = run.textNodes.length > 0
+        ? run.textNodes
+        : run.textNode ? [run.textNode] : [];
+    let textOffset = 0;
+    return textNodes.flatMap((node) => {
+        const length = node.length;
+        const nodeTextStart = textOffset;
+        textOffset += length;
+        if (length <= 0
+            || !range.intersectsNode(node)
+            || range.comparePoint(node, length) < 0
+            || range.comparePoint(node, 0) > 0) {
+            return [];
+        }
+        const nodeStart = boundaryOffset(node, length, range.startContainer, range.startOffset, true);
+        const nodeEnd = boundaryOffset(node, length, range.endContainer, range.endOffset, false);
+        return nodeEnd > nodeStart ? [{
+            node,
+            nodeStart,
+            nodeEnd,
+            textStart: nodeTextStart + nodeStart,
+            textEnd: nodeTextStart + nodeEnd,
+        }] : [];
+    });
 }
 
 function pageRectFor(pageContainer: HTMLElement) {
@@ -68,50 +83,69 @@ function pageRectFor(pageContainer: HTMLElement) {
     return rect.width > 0 && rect.height > 0 ? rect : null;
 }
 
-function normalizedInlineExtent(
+function normalizedSelectionExtent(
     selected: ISelectedRun,
     pageRect: ReturnType<typeof pageRectFor>,
-) {
+): INormalizedSelectionExtent {
     const selectedRange = document.createRange();
-    selectedRange.setStart(selected.run.textNode!, selected.start);
-    selectedRange.setEnd(selected.run.textNode!, selected.end);
+    selectedRange.setStart(selected.node, selected.nodeStart);
+    selectedRange.setEnd(selected.node, selected.nodeEnd);
     const clientRects = Array.from(selectedRange.getClientRects?.() ?? [])
         .filter(rect => rect.width > 0 && rect.height > 0);
     if (clientRects.length > 0 && pageRect) {
         const isVertical = selected.run.isVertical;
-        const pageStart = isVertical ? pageRect.top : pageRect.left;
-        const pageSize = isVertical ? pageRect.height : pageRect.width;
-        return {
-            left: clamp01((Math.min(...clientRects.map(rect => isVertical ? rect.top : rect.left)) - pageStart) / pageSize),
-            right: clamp01((Math.max(...clientRects.map(rect => isVertical ? rect.bottom : rect.right)) - pageStart) / pageSize),
-        };
+        const normalizedRects = clientRects.map(rect => {
+            const left = clamp01((rect.left - pageRect.left) / pageRect.width);
+            const right = clamp01(((rect.right ?? rect.left + rect.width) - pageRect.left) / pageRect.width);
+            const top = clamp01((rect.top - pageRect.top) / pageRect.height);
+            const bottom = clamp01(((rect.bottom ?? rect.top + rect.height) - pageRect.top) / pageRect.height);
+            return {
+                left,
+                right,
+                top,
+                bottom,
+            };
+        }).filter(rect => rect.right > rect.left && rect.bottom > rect.top);
+        if (normalizedRects.length > 0) {
+            return {
+                inlineStart: Math.min(...normalizedRects.map(rect => isVertical ? rect.top : rect.left)),
+                inlineEnd: Math.max(...normalizedRects.map(rect => isVertical ? rect.bottom : rect.right)),
+                crossStart: Math.min(...normalizedRects.map(rect => isVertical ? rect.left : rect.top)),
+                crossEnd: Math.max(...normalizedRects.map(rect => isVertical ? rect.right : rect.bottom)),
+            };
+        }
     }
     const fullRect = selected.run.textDiv.getBoundingClientRect();
-    if (fullRect.width > 0 && pageRect) {
+    if (fullRect.width > 0 && fullRect.height > 0 && pageRect) {
         const isVertical = selected.run.isVertical;
         const fullStart = isVertical ? fullRect.top : fullRect.left;
         const fullEnd = isVertical ? fullRect.bottom : fullRect.right;
-        const start = fullStart + (fullEnd - fullStart) * selected.start / Math.max(1, selected.run.text.length);
-        const end = fullStart + (fullEnd - fullStart) * selected.end / Math.max(1, selected.run.text.length);
+        const start = fullStart + (fullEnd - fullStart) * selected.textStart / Math.max(1, selected.run.text.length);
+        const end = fullStart + (fullEnd - fullStart) * selected.textEnd / Math.max(1, selected.run.text.length);
         const pageStart = isVertical ? pageRect.top : pageRect.left;
         const pageSize = isVertical ? pageRect.height : pageRect.width;
         return {
-            left: clamp01((Math.min(start, end) - pageStart) / pageSize),
-            right: clamp01((Math.max(start, end) - pageStart) / pageSize),
+            inlineStart: clamp01((Math.min(start, end) - pageStart) / pageSize),
+            inlineEnd: clamp01((Math.max(start, end) - pageStart) / pageSize),
+            crossStart: null,
+            crossEnd: null,
         };
     }
     const start = selected.run.inlineStart + (selected.run.inlineEnd - selected.run.inlineStart)
-        * selected.start / Math.max(1, selected.run.text.length);
+        * selected.textStart / Math.max(1, selected.run.text.length);
     const end = selected.run.inlineStart + (selected.run.inlineEnd - selected.run.inlineStart)
-        * selected.end / Math.max(1, selected.run.text.length);
+        * selected.textEnd / Math.max(1, selected.run.text.length);
     return {
-        left: Math.min(start, end),
-        right: Math.max(start, end),
+        inlineStart: Math.min(start, end),
+        inlineEnd: Math.max(start, end),
+        crossStart: null,
+        crossEnd: null,
     };
 }
 
 function selectedTextForRuns(selectedRuns: readonly ISelectedRun[]) {
-    const ordered = [...selectedRuns].sort((left, right) => left.run.itemIndex - right.run.itemIndex);
+    const ordered = [...selectedRuns].sort((left, right) => left.run.itemIndex - right.run.itemIndex
+        || left.textStart - right.textStart);
     return ordered.reduce((parts, selected, index) => {
         const previous = ordered[index - 1];
         if (previous) {
@@ -124,7 +158,7 @@ function selectedTextForRuns(selectedRuns: readonly ISelectedRun[]) {
                 - Math.min(previousInlineEnd, selectedInlineEnd));
             parts.push(sameLine && gap <= ADJACENT_RUN_GAP ? '' : ' ');
         }
-        parts.push(selected.run.text.slice(selected.start, selected.end));
+        parts.push(selected.run.text.slice(selected.textStart, selected.textEnd));
         return parts;
     }, [] as string[])
         .join('')
@@ -133,13 +167,10 @@ function selectedTextForRuns(selectedRuns: readonly ISelectedRun[]) {
 }
 
 function selectedRunsForLine(range: Range, line: ITextLineBox) {
-    return line.runs.flatMap((run) => {
-        const offsets = selectedOffsets(range, run);
-        return offsets ? [{
-            run,
-            ...offsets,
-        }] : [];
-    });
+    return line.runs.flatMap(run => selectedOffsets(range, run).map(offsets => ({
+        run,
+        ...offsets,
+    })));
 }
 
 function lineRect(
@@ -147,17 +178,22 @@ function lineRect(
     selectedRuns: readonly ISelectedRun[],
     pageRect: ReturnType<typeof pageRectFor>,
 ) {
-    const extents = selectedRuns.map(selected => normalizedInlineExtent(
+    const extents = selectedRuns.map(selected => normalizedSelectionExtent(
         selected,
         pageRect,
     ));
     const isVertical = line.runs[0]?.isVertical === true;
-    const lineInlineStart = isVertical ? line.top : line.left;
-    const lineInlineEnd = isVertical ? line.bottom : line.right;
-    const inlineStart = Math.max(lineInlineStart, Math.min(...extents.map(extent => extent.left)));
-    const inlineEnd = Math.min(lineInlineEnd, Math.max(...extents.map(extent => extent.right)));
-    const crossStart = isVertical ? line.left : line.top;
-    const crossEnd = isVertical ? line.right : line.bottom;
+    const inlineStart = Math.min(...extents.map(extent => extent.inlineStart));
+    const inlineEnd = Math.max(...extents.map(extent => extent.inlineEnd));
+    const metricCrossStart = isVertical ? line.left : line.top;
+    const metricCrossEnd = isVertical ? line.right : line.bottom;
+    const hasDomCrossAxis = extents.every(extent => extent.crossStart !== null && extent.crossEnd !== null);
+    const crossStart = hasDomCrossAxis
+        ? Math.min(...extents.map(extent => extent.crossStart!))
+        : metricCrossStart;
+    const crossEnd = hasDomCrossAxis
+        ? Math.max(...extents.map(extent => extent.crossEnd!))
+        : metricCrossEnd;
     return inlineEnd > inlineStart && crossEnd > crossStart
         ? {
             left: isVertical ? crossStart : inlineStart,
@@ -169,9 +205,10 @@ function lineRect(
 }
 
 /**
- * Splits one DOM selection by rendered page and line. DOM ranges supply only
- * the partial inline endpoints. The line boxes carry the metric-derived
- * vertical bounds, so browser zoom never enters the stored geometry.
+ * Splits one DOM selection by rendered page and line. A usable DOM range
+ * supplies both display axes for the selected text. Metric line boxes remain
+ * the fallback for a missing DOM measurement, so stored geometry stays
+ * normalized and scale independent.
  */
 export function buildHighlightQuadsFromSelection(
     range: Range,

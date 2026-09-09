@@ -33,7 +33,10 @@ Scope: issues #370, #371, #381 only. Browser batch #479/#481/#489/#494 and issue
 
 ## Final receipt
 
-To be completed after integration, review, publication, and terminal hosted CI.
+- Reconciled incoming `origin/main` at `8412effa4a9e28f7734cde4e6c35fb0d68cacabb` without source conflicts. Current pre-publication HEAD: `ce86fb8b919a5f4cc1bb7e3a07e8734677aa1a23`.
+- Current worktree is clean except ignored generated `.nuxt` output. No real user service, shared T3 process, or other worktree was stopped.
+- Hosted macOS/Windows runs were not available from this VPS before publication. Linux results and synthetic Windows identity cases are recorded as local evidence only, not cross-platform proof. The applicable hosted obligations remain open.
+- Project item and issue evidence comments remain to be published after the normal main push.
 
 ## Review evidence
 
@@ -48,3 +51,5 @@ CodeRabbit pass 2 reviewed the same seven-file scope after those fixes. It retur
 - Focused six-file process-safety lane: 43 passed.
 - Full `vitest run --project unit-scripts --reporter dot`: 189 files passed, 3 skipped; 1,514 tests passed, 12 skipped. The Vite native-config notices are repository warnings.
 - Generated `.nuxt` output remains ignored and belongs to this worktree only. No user service or other worktree process was stopped.
+
+An independent Luna review of the pre-merge combined diff found the shared cleanup and migration issues listed in its report. Those findings were fixed, and the affected plus full local gates were rerun. A second fresh Luna review was started against the corrected diff but did not reach a terminal result during the available wait and was closed as unavailable. No approval is claimed for that second review.

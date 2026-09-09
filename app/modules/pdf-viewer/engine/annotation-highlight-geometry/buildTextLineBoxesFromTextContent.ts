@@ -14,6 +14,7 @@ export interface ITextLineRun {
     readonly text: string;
     readonly textDiv: HTMLElement;
     readonly textNode: Text | null;
+    readonly textNodes: readonly Text[];
     readonly rect: IAnnotationMarkerRect;
     readonly baseline: number;
     readonly inlineStart: number;
@@ -68,12 +69,15 @@ function add(point: IPoint, vector: IPoint, distance: number): IPoint {
     };
 }
 
-function firstTextNode(element: HTMLElement): Text | null {
-    if (element.firstChild?.nodeType === Node.TEXT_NODE) {
-        return element.firstChild as Text;
-    }
+function textNodesOf(element: HTMLElement): Text[] {
+    const textNodes: Text[] = [];
     const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
-    return walker.nextNode() as Text | null;
+    let node = walker.nextNode();
+    while (node) {
+        textNodes.push(node as Text);
+        node = walker.nextNode();
+    }
+    return textNodes;
 }
 
 function markerPointFromPdfPoint(
@@ -209,11 +213,15 @@ function buildRun(
     const inlineEnd = isVertical
         ? isFlowReversed ? rect.top : rect.top + rect.height
         : isFlowReversed ? rect.left : rect.left + rect.width;
+    // Search results wrap mapped text in nested spans, so one PDF item can
+    // have several descendant text nodes when the selection is resolved.
+    const textNodes = textNodesOf(textDiv);
     const run: ITextLineRun = {
         itemIndex,
         text,
         textDiv,
-        textNode: firstTextNode(textDiv),
+        textNode: textNodes[0] ?? null,
+        textNodes,
         rect,
         baseline: Number.isFinite(isVertical ? baselineMarker.x : baselineMarker.y)
             ? isVertical ? baselineMarker.x : baselineMarker.y

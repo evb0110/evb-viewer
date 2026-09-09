@@ -320,6 +320,11 @@
     pointer-events: all;
 }
 
+.pdfViewer.is-selection-markup-tool .pdf-annotation-editor-text-markup [data-annotation-hit-target] {
+    /* A markup gesture selects document text, including text already marked. */
+    pointer-events: none;
+}
+
 .pdfViewer .pdf-annotation-editor-text-markup [data-annotation-visual] {
     fill: var(--annotation-color);
     opacity: var(--annotation-opacity);

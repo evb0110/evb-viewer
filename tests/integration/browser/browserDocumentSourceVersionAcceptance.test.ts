@@ -87,6 +87,14 @@ afterAll(async () => {
 });
 
 describe('browser source version acceptance in Chromium', () => {
+    it.skip('requires a supported task-owned native picker controller for #481 handle, replacement, and Recent acceptance', () => {
+        // Playwright does not control Chromium's File System Access chooser.
+        // The host rule forbids blind xdotool input on shared DISPLAY=:1, so
+        // #481 handle acceptance, physical fixture replacement, and Recent
+        // Files readback remain external until a controller can target and
+        // verify its own browser and chooser window.
+    });
+
     it('uses Chromium file input selection and reopens the persisted Recent replacement', async () => {
         const browser = await chromium.launch({headless: true});
         try {

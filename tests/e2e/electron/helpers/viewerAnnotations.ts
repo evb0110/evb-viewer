@@ -349,12 +349,14 @@ export async function createCanonicalTextMarkup(
     await clickAnnotationTool(page, tool);
     const selectedText = await selectTextFromRenderedSpans(page, options);
     const commandResult = await callWorkspaceCommand<boolean>(page, 'highlightSelection');
-    await clearTextSelection(page);
     if (!commandResult.called || commandResult.value !== true) {
         throw new Error(`Canonical ${tool} creation failed for ${JSON.stringify({
             selectedText,
             commandResult,
         })}`);
+    }
+    if (await page.evaluate(() => (document.getSelection()?.rangeCount ?? 0) > 0)) {
+        throw new Error(`Canonical ${tool} creation left native selection over the annotation`);
     }
     const previous = await before;
     await page.waitForFunction((minimumCount: number) => (
