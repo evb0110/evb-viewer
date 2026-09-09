@@ -809,6 +809,56 @@ async function downloadLanguageModel(
     }
 }
 
+async function restoreBundledLanguageModel(
+    languageCode: string,
+    runtimeDir: string,
+    options: IEnsureTessdataLanguagesOptions = {},
+) {
+    if (!isElectronAppPackaged()) {
+        return false;
+    }
+
+    const bundledPath = getModelPath(getBundledTessdataDir(), languageCode);
+    const sourceValidation = validateTraineddataFile(bundledPath);
+    if (!sourceValidation.valid) {
+        log.warn(`Bundled OCR language model ${languageCode} is unavailable for offline restore: ${sourceValidation.error ?? 'unknown validation error'}`);
+        return false;
+    }
+
+    const modelPath = getModelPath(runtimeDir, languageCode);
+    const stagingPath = `${modelPath}.restore-${randomUUID()}`;
+    try {
+        throwIfAborted(options.signal);
+        await mkdir(runtimeDir, {recursive: true});
+        await copyFile(bundledPath, stagingPath);
+        throwIfAborted(options.signal);
+
+        const stagedValidation = validateTraineddataFile(stagingPath);
+        if (!stagedValidation.valid) {
+            log.warn(`Bundled OCR language model ${languageCode} failed staged restore validation: ${stagedValidation.error ?? 'unknown validation error'}`);
+            return false;
+        }
+
+        await rename(stagingPath, modelPath);
+        const installedValidation = validateTraineddataFile(modelPath);
+        if (!installedValidation.valid) {
+            log.warn(`Bundled OCR language model ${languageCode} failed final restore validation: ${installedValidation.error ?? 'unknown validation error'}`);
+            await rm(modelPath, {force: true});
+            return false;
+        }
+        log.info(`Restored OCR language model ${languageCode} from the packaged bundle`);
+        return true;
+    } catch (error) {
+        if (options.signal?.aborted) {
+            throw abortErrorFromSignal(options.signal);
+        }
+        log.warn(`Could not restore bundled OCR language model ${languageCode}: ${getErrorMessage(error)}`);
+        return false;
+    } finally {
+        await rm(stagingPath, {force: true}).catch(() => {});
+    }
+}
+
 function releaseDownloadWaiter(
     languageCode: string,
     waiterId: symbol,
@@ -854,8 +904,11 @@ async function ensureLanguageModel(
     task.promise = (async () => {
         let releaseSlot: (() => void) | null = null;
         try {
-            releaseSlot = await acquireGlobalModelDownloadSlot(task.controller.signal);
-            await downloadLanguageModel(languageCode, runtimeDir, { signal: task.controller.signal });
+            const restored = await restoreBundledLanguageModel(languageCode, runtimeDir, {signal: task.controller.signal});
+            if (!restored) {
+                releaseSlot = await acquireGlobalModelDownloadSlot(task.controller.signal);
+                await downloadLanguageModel(languageCode, runtimeDir, {signal: task.controller.signal});
+            }
         } finally {
             releaseSlot?.();
             if (inFlightDownloads.get(languageCode) === task) {

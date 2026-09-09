@@ -164,6 +164,89 @@ describe('ensureRuntimeTessdataSeeded', () => {
         expect(mocks.copyFile).not.toHaveBeenCalled();
     });
 
+    it('restores a missing packaged model after a current seed marker without downloading', async () => {
+        const runtimeModelPath = '/tmp/electron-user-data/tessdata/eng.traineddata';
+        const stagingModelPath = /\/tmp\/electron-user-data\/tessdata\/eng\.traineddata\.restore-/u;
+        let installed = false;
+        mocks.existsSync.mockImplementation((path: string) => (
+            path === '/tmp/resources/tesseract/tessdata'
+            || path === '/tmp/resources/tesseract/tessdata/eng.traineddata'
+            || path.includes('.evb-seeded-e12c65a915945e4c28e237a9b52bc4a8f39a0cec')
+            || stagingModelPath.test(path)
+            || (path === runtimeModelPath && installed)
+        ));
+        mocks.rename.mockImplementation(async (_source: string, destination: string) => {
+            if (destination === runtimeModelPath) {
+                installed = true;
+            }
+        });
+
+        const {ensureTessdataLanguages} = await import('@electron/features/ocr/languageModels');
+        await ensureTessdataLanguages(['eng']);
+
+        expect(mocks.fetch).not.toHaveBeenCalled();
+        expect(mocks.copyFile).toHaveBeenCalledWith(
+            '/tmp/resources/tesseract/tessdata/eng.traineddata',
+            expect.stringMatching(stagingModelPath),
+        );
+        expect(mocks.rename).toHaveBeenCalledWith(
+            expect.stringMatching(stagingModelPath),
+            runtimeModelPath,
+        );
+    });
+
+    it('falls through to the validated download when the packaged model is unavailable', async () => {
+        mocks.existsSync.mockImplementation((path: string) => (
+            path === '/tmp/resources/tesseract/tessdata'
+            || path.includes('.evb-seeded-e12c65a915945e4c28e237a9b52bc4a8f39a0cec')
+        ));
+        mocks.fetch.mockRejectedValue(Object.assign(
+            new Error('getaddrinfo EAI_AGAIN raw.githubusercontent.com'),
+            {code: 'EAI_AGAIN'},
+        ));
+
+        const {ensureTessdataLanguages} = await import('@electron/features/ocr/languageModels');
+        await expect(ensureTessdataLanguages(['eng'])).rejects.toMatchObject({code: 'NETWORK_UNREACHABLE'});
+        expect(mocks.fetch).toHaveBeenCalled();
+        expect(mocks.rename).not.toHaveBeenCalledWith(
+            expect.stringContaining('.traineddata.restore-'),
+            expect.any(String),
+        );
+    });
+
+    it('reclaims a failed restore staging file and retries the packaged copy', async () => {
+        const runtimeModelPath = '/tmp/electron-user-data/tessdata/eng.traineddata';
+        const stagingModelPath = /\/tmp\/electron-user-data\/tessdata\/eng\.traineddata\.restore-/u;
+        let installed = false;
+        mocks.existsSync.mockImplementation((path: string) => (
+            path === '/tmp/resources/tesseract/tessdata'
+            || path === '/tmp/resources/tesseract/tessdata/eng.traineddata'
+            || path.includes('.evb-seeded-e12c65a915945e4c28e237a9b52bc4a8f39a0cec')
+            || stagingModelPath.test(path)
+            || (path === runtimeModelPath && installed)
+        ));
+        mocks.copyFile.mockRejectedValueOnce(new Error('copy failed'));
+        mocks.fetch.mockResolvedValue({
+            ok: false,
+            status: 404,
+        });
+
+        const {ensureTessdataLanguages} = await import('@electron/features/ocr/languageModels');
+        await expect(ensureTessdataLanguages(['eng'])).rejects.toMatchObject({code: 'HTTP_404'});
+        expect(mocks.rm).toHaveBeenCalledWith(expect.stringMatching(stagingModelPath), {force: true});
+
+        mocks.fetch.mockReset();
+        mocks.rename.mockImplementation(async (_source: string, destination: string) => {
+            if (destination === runtimeModelPath) {
+                installed = true;
+            }
+        });
+        await ensureTessdataLanguages(['eng']);
+
+        expect(mocks.fetch).not.toHaveBeenCalled();
+        expect(mocks.rename).toHaveBeenCalledWith(expect.stringMatching(stagingModelPath), runtimeModelPath);
+    });
+
     it('uses Electron userData as the packaged runtime tessdata base', async () => {
         mocks.app.getPath.mockReturnValue('/tmp/profile/user-data');
         const { getRuntimeTessdataDir } = await import('@electron/features/ocr/languageModels');
