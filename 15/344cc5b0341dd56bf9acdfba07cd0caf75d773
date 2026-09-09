@@ -1,0 +1,19 @@
+.devkit/project-8-p1-ledger.md
+  s_cecaf0b4e6f1bc::t_786126d40439bc 36-39,54-55
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "15344cc5b0341dd56bf9acdfba07cd0caf75d773",
+  "prompts": {},
+  "sessions": {
+    "s_cecaf0b4e6f1bc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08517-ecb1-77b0-a38b-3a44dfc5f370",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
