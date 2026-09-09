@@ -10,9 +10,12 @@ import {
 } from '@electron/features/ocr/main/jobManager.config';
 import type {
     IOcrActiveJob,
+    IOcrNativeChildRecord,
     IOcrPreparingJob,
     IOcrQueuedJob,
 } from '@electron/features/ocr/main/jobManager.types';
+import type { IOcrNativeChildProcessIdentity } from '@electron/ocr/worker/types';
+import type { IOcrNativeChildTerminationController } from '@electron/features/ocr/main/ocrNativeChildProcessIdentity';
 import type { createPendingResultFileStore } from '@electron/features/ocr/main/createPendingResultFileStore';
 import { ocrResourceGovernor } from '@electron/features/ocr/main/ocrResourceGovernor';
 import { OCR_COMPLETE_EVENT_CHANNEL } from '@contracts/electronApiOcr';
@@ -60,12 +63,21 @@ const OCR_WORKER_CLEANUP_GRACE_MS = (() => {
     }
     return Math.min(parsed, 60_000);
 })();
+const OCR_NATIVE_CHILD_CLEANUP_RETRY_MS = (() => {
+    const parsed = Number.parseInt(process.env.EVB_OCR_NATIVE_CHILD_CLEANUP_RETRY_MS ?? '1000', 10);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+        return 1_000;
+    }
+    return Math.min(parsed, 60_000);
+})();
 
 type TOcrPendingResultFileStore = ReturnType<typeof createPendingResultFileStore>;
 
 interface IOcrJobWorkerLifecycleControllerOptions {
     activeJobs: Map<string, IOcrActiveJob>;
     workerCleanupTimersByScopedJobId: Map<string, NodeJS.Timeout>;
+    nativeChildCleanupTimersByScopedJobId?: Map<string, NodeJS.Timeout>;
+    nativeChildTermination?: IOcrNativeChildTerminationController;
     pendingResultFileStore: TOcrPendingResultFileStore;
     logger: ILogger;
     publishProgress: (job: IOcrQueuedJob, progress: IOcrProgress) => void;
@@ -102,6 +114,14 @@ export interface IOcrJobWorkerLifecycleController {
     sendPendingCompletionResult(job: IOcrActiveJob): boolean;
     terminateAndFinalizeActiveJob(scopedJobId: string, terminateOptions: IOcrTerminateActiveJobOptions): void;
     terminateWorkerSafely(scopedJobId: string, worker: Worker, reason: string, requestId?: string): Promise<void>;
+    markWorkerExit(scopedJobId: string, worker: Worker, code: number | null): void;
+    markWorkerTerminationProven(scopedJobId: string, worker: Worker): void;
+    markWorkerCleanupComplete(scopedJobId: string, worker: Worker): void;
+    handleNativeChildIntent(scopedJobId: string, worker: Worker, jobId: string, childId: string, commandLabel: string): void;
+    handleNativeChildRegister(scopedJobId: string, worker: Worker, jobId: string, childId: string, pid: number, processIdentity: IOcrNativeChildProcessIdentity): void;
+    handleNativeChildNoSpawn(scopedJobId: string, worker: Worker, jobId: string, childId: string): void;
+    handleNativeChildExit(scopedJobId: string, worker: Worker, jobId: string, childId: string, pid: number, processIdentity: IOcrNativeChildProcessIdentity): void;
+    handleNativeChildUnproven(scopedJobId: string, worker: Worker, jobId: string, childId: string, detail: string): void;
 }
 
 export function createOcrJobWorkerLifecycleController(
@@ -110,6 +130,8 @@ export function createOcrJobWorkerLifecycleController(
     const {
         activeJobs,
         workerCleanupTimersByScopedJobId,
+        nativeChildCleanupTimersByScopedJobId = new Map<string, NodeJS.Timeout>(),
+        nativeChildTermination = {terminate: () => Promise.resolve(false)},
         pendingResultFileStore,
         logger,
         publishProgress,
@@ -135,6 +157,132 @@ export function createOcrJobWorkerLifecycleController(
         }
         clearTimeout(timer);
         workerCleanupTimersByScopedJobId.delete(scopedJobId);
+    }
+
+    function clearNativeChildCleanupTimer(scopedJobId: string) {
+        const timer = nativeChildCleanupTimersByScopedJobId.get(scopedJobId);
+        if (!timer) {
+            return;
+        }
+        clearTimeout(timer);
+        nativeChildCleanupTimersByScopedJobId.delete(scopedJobId);
+    }
+
+    function markNativeChildProtocolUnsafe(activeJob: IOcrActiveJob, reason: string) {
+        if (activeJob.nativeChildProtocolUnsafe) {
+            return;
+        }
+        activeJob.nativeChildProtocolUnsafe = true;
+        logger.warn(`[${activeJob.scopedJobId}] Retaining OCR job because native-child proof is unsafe: ${reason}`);
+    }
+
+    function postNativeChildAck(
+        activeJob: IOcrActiveJob,
+        worker: Worker,
+        type: 'native-child-intent-ack' | 'native-child-register-ack' | 'native-child-exit-ack',
+        childId: string,
+        accepted: boolean,
+        reason?: string,
+    ) {
+        try {
+            worker.postMessage({
+                type,
+                jobId: activeJob.requestId,
+                childId,
+                accepted,
+                ...(reason === undefined ? {} : {reason}),
+            });
+        } catch (error) {
+            markNativeChildProtocolUnsafe(activeJob, `could not send ${type}: ${getErrorMessage(error)}`);
+        }
+    }
+
+    function getNativeChildJob(
+        scopedJobId: string,
+        worker: Worker,
+        jobId: string,
+        label: string,
+    ) {
+        const activeJob = activeJobs.get(scopedJobId);
+        if (!activeJob || activeJob.worker !== worker || activeJob.physicalFinalized) {
+            return null;
+        }
+        if (activeJob.requestId !== jobId) {
+            markNativeChildProtocolUnsafe(activeJob, `${label} used job id ${jobId} instead of ${activeJob.requestId}`);
+            return null;
+        }
+        return activeJob;
+    }
+
+    function identitiesMatch(
+        left: IOcrNativeChildProcessIdentity | null,
+        right: IOcrNativeChildProcessIdentity | null,
+    ) {
+        return left !== null
+            && right !== null
+            && left.kind === right.kind
+            && left.value === right.value;
+    }
+
+    function scheduleNativeChildCleanupRetry(activeJob: IOcrActiveJob) {
+        if (nativeChildCleanupTimersByScopedJobId.has(activeJob.scopedJobId)) {
+            return;
+        }
+        const timer = setTimeout(() => {
+            nativeChildCleanupTimersByScopedJobId.delete(activeJob.scopedJobId);
+            const current = activeJobs.get(activeJob.scopedJobId);
+            if (!current || current !== activeJob || !current.workerExitProven || current.physicalFinalized) {
+                return;
+            }
+            for (const child of current.nativeChildren.values()) {
+                beginNativeChildCleanup(current, child, 'retry after unproven native-child cleanup');
+            }
+            tryPhysicalFinalize(current.scopedJobId);
+        }, OCR_NATIVE_CHILD_CLEANUP_RETRY_MS);
+        timer.unref();
+        nativeChildCleanupTimersByScopedJobId.set(activeJob.scopedJobId, timer);
+    }
+
+    function beginNativeChildCleanup(
+        activeJob: IOcrActiveJob,
+        child: IOcrNativeChildRecord,
+        reason: string,
+    ) {
+        if (
+            activeJob.physicalFinalized
+            || !activeJob.workerExitProven
+            || (child.state !== 'registered' && child.state !== 'unproven')
+            || child.cleanupAttemptInFlight
+        ) {
+            return;
+        }
+        child.cleanupAttemptInFlight = true;
+        void Promise.resolve()
+            .then(() => nativeChildTermination.terminate(child, reason))
+            .then((proven) => {
+                const current = activeJobs.get(activeJob.scopedJobId);
+                if (!current || current !== activeJob || current.physicalFinalized) {
+                    return;
+                }
+                child.cleanupAttemptInFlight = false;
+                if (proven === true) {
+                    child.state = 'exited';
+                    clearNativeChildCleanupTimer(activeJob.scopedJobId);
+                } else {
+                    child.state = 'unproven';
+                    scheduleNativeChildCleanupRetry(activeJob);
+                }
+                tryPhysicalFinalize(activeJob.scopedJobId);
+            }, (error: unknown) => {
+                const current = activeJobs.get(activeJob.scopedJobId);
+                if (!current || current !== activeJob || current.physicalFinalized) {
+                    return;
+                }
+                child.cleanupAttemptInFlight = false;
+                child.state = 'unproven';
+                logger.warn(`[${activeJob.scopedJobId}] Native-child cleanup failed: ${getErrorMessage(error)}`);
+                scheduleNativeChildCleanupRetry(activeJob);
+            });
     }
 
     function createTerminalOcrErrorEnvelope(
@@ -226,14 +374,10 @@ export function createOcrJobWorkerLifecycleController(
             return;
         }
 
-        job.pendingCompletionResult = null;
-        runDetached(
-            () => removeResultFile(result.pdfPath),
-            {
-                label: `remove incomplete OCR result ${job.requestId}`,
-                logger,
-            },
-        );
+        // Keep the artifact owned by the active job until the worker and all
+        // registered native children have proven exit. The cancellation result
+        // may already be visible, but cleanup still belongs to this job.
+        job.discardPendingCompletionResult = true;
     }
 
     async function terminateWorkerSafely(
@@ -247,11 +391,27 @@ export function createOcrJobWorkerLifecycleController(
                 type: 'cancel',
                 jobId: requestId ?? activeJobs.get(scopedJobId)?.requestId ?? scopedJobId,
             });
-            if (OCR_WORKER_COOPERATIVE_CANCEL_DELAY_MS > 0) {
-                await delay(OCR_WORKER_COOPERATIVE_CANCEL_DELAY_MS);
-            }
-            const terminatePromise = worker.terminate();
-            void terminatePromise.catch(() => undefined);
+        } catch (error) {
+            logger.warn(`[${scopedJobId}] Failed to send OCR worker cancellation (${reason}): ${getErrorMessage(error)}`);
+        }
+
+        if (OCR_WORKER_COOPERATIVE_CANCEL_DELAY_MS > 0) {
+            await delay(OCR_WORKER_COOPERATIVE_CANCEL_DELAY_MS);
+        }
+
+        let terminatePromise: Promise<number>;
+        try {
+            terminatePromise = Promise.resolve(worker.terminate());
+        } catch (error) {
+            logger.warn(`[${scopedJobId}] Failed to terminate OCR worker (${reason}): ${getErrorMessage(error)}`);
+            return;
+        }
+
+        void terminatePromise.then(
+            () => markWorkerTerminationProven(scopedJobId, worker),
+            () => undefined,
+        );
+        try {
             await withTimeout(() => terminatePromise, OCR_WORKER_TERMINATE_TIMEOUT_MS);
         } catch (error) {
             logger.warn(`[${scopedJobId}] Failed to terminate OCR worker (${reason}): ${getErrorMessage(error)}`);
@@ -259,11 +419,39 @@ export function createOcrJobWorkerLifecycleController(
     }
 
     function finalizeActiveJob(scopedJobId: string) {
+        const activeJob = activeJobs.get(scopedJobId);
+        if (!activeJob || activeJob.physicalFinalized || !activeJob.workerExitProven) {
+            return;
+        }
+        for (const child of activeJob.nativeChildren.values()) {
+            if (child.state === 'registered' || child.state === 'unproven') {
+                beginNativeChildCleanup(activeJob, child, 'worker exited before native child proof');
+            }
+        }
+        if (activeJob.nativeChildProtocolUnsafe || [...activeJob.nativeChildren.values()].some(child => (
+            child.state !== 'exited' && child.state !== 'no-child'
+        ))) {
+            return;
+        }
+
+        activeJob.physicalFinalized = true;
         clearJobWatchdog(scopedJobId);
         clearWorkerCleanupTimer(scopedJobId);
+        clearNativeChildCleanupTimer(scopedJobId);
         ocrResourceGovernor.releaseJob(scopedJobId);
-        const activeJob = activeJobs.get(scopedJobId);
-        if (activeJob) {
+        if (activeJob.discardPendingCompletionResult) {
+            const result = activeJob.pendingCompletionResult;
+            activeJob.pendingCompletionResult = null;
+            if (result?.success) {
+                runDetached(
+                    () => removeResultFile(result.pdfPath),
+                    {
+                        label: `remove incomplete OCR result ${activeJob.requestId}`,
+                        logger,
+                    },
+                );
+            }
+        } else {
             trackPendingCompletionResultFile(activeJob);
         }
         activeJobs.delete(scopedJobId);
@@ -303,9 +491,7 @@ export function createOcrJobWorkerLifecycleController(
         }
         clearJobWatchdog(scopedJobId);
         clearWorkerCleanupTimer(scopedJobId);
-        void terminateWorkerSafely(scopedJobId, activeJob.worker, terminateOptions.reason, activeJob.requestId).finally(() => {
-            finalizeActiveJob(scopedJobId);
-        });
+        void terminateWorkerSafely(scopedJobId, activeJob.worker, terminateOptions.reason, activeJob.requestId);
     }
 
     function startWorkerCleanupGraceTimer(job: IOcrActiveJob) {
@@ -349,7 +535,6 @@ export function createOcrJobWorkerLifecycleController(
         }
         job.terminalResultSent = true;
         clearJobWatchdog(job.scopedJobId);
-        startWorkerCleanupGraceTimer(job);
         const completeResult: IOcrCompleteResult = result.success
             ? {
                 requestId: job.requestId,
@@ -387,7 +572,208 @@ export function createOcrJobWorkerLifecycleController(
             OCR_COMPLETE_EVENT_CHANNEL,
             completeResult,
         );
+        startWorkerCleanupGraceTimer(job);
         return true;
+    }
+
+    function tryPhysicalFinalize(scopedJobId: string) {
+        finalizeActiveJob(scopedJobId);
+    }
+
+    function markWorkerExit(scopedJobId: string, worker: Worker, code: number | null) {
+        const activeJob = activeJobs.get(scopedJobId);
+        if (!activeJob || activeJob.worker !== worker || activeJob.physicalFinalized) {
+            return;
+        }
+        if (!activeJob.workerExitProven) {
+            activeJob.workerExitProven = true;
+            activeJob.workerExitCode = code;
+        }
+        for (const child of activeJob.nativeChildren.values()) {
+            beginNativeChildCleanup(activeJob, child, 'worker exit cleanup handoff');
+        }
+        tryPhysicalFinalize(scopedJobId);
+    }
+
+    function markWorkerTerminationProven(scopedJobId: string, worker: Worker) {
+        markWorkerExit(scopedJobId, worker, null);
+    }
+
+    function markWorkerCleanupComplete(scopedJobId: string, worker: Worker) {
+        const activeJob = activeJobs.get(scopedJobId);
+        if (!activeJob || activeJob.worker !== worker || activeJob.physicalFinalized) {
+            return;
+        }
+        activeJob.cleanupCompleteReceived = true;
+        tryPhysicalFinalize(scopedJobId);
+    }
+
+    function handleNativeChildIntent(
+        scopedJobId: string,
+        worker: Worker,
+        jobId: string,
+        childId: string,
+        commandLabel: string,
+    ) {
+        const activeJob = getNativeChildJob(scopedJobId, worker, jobId, 'native-child intent');
+        if (!activeJob) {
+            return;
+        }
+        const existing = activeJob.nativeChildren.get(childId);
+        if (existing) {
+            if (existing.commandLabel === commandLabel && existing.state === 'intent') {
+                postNativeChildAck(activeJob, worker, 'native-child-intent-ack', childId, true);
+                return;
+            }
+            markNativeChildProtocolUnsafe(activeJob, `reused native child id ${childId}`);
+            postNativeChildAck(activeJob, worker, 'native-child-intent-ack', childId, false, 'native child id was already used');
+            return;
+        }
+        if (activeJob.workerExitProven || activeJob.nativeChildProtocolUnsafe) {
+            markNativeChildProtocolUnsafe(activeJob, `native child intent arrived after worker proof for ${childId}`);
+            postNativeChildAck(activeJob, worker, 'native-child-intent-ack', childId, false, 'worker cleanup handoff is closed');
+            return;
+        }
+        activeJob.nativeChildren.set(childId, {
+            childId,
+            commandLabel,
+            pid: null,
+            processIdentity: null,
+            state: 'intent',
+            cleanupAttemptInFlight: false,
+        });
+        postNativeChildAck(activeJob, worker, 'native-child-intent-ack', childId, true);
+    }
+
+    function handleNativeChildRegister(
+        scopedJobId: string,
+        worker: Worker,
+        jobId: string,
+        childId: string,
+        pid: number,
+        processIdentity: IOcrNativeChildProcessIdentity,
+    ) {
+        const activeJob = getNativeChildJob(scopedJobId, worker, jobId, 'native-child registration');
+        if (!activeJob) {
+            return;
+        }
+        const child = activeJob.nativeChildren.get(childId);
+        if (!child) {
+            markNativeChildProtocolUnsafe(activeJob, `registration arrived for unknown child ${childId}`);
+            postNativeChildAck(activeJob, worker, 'native-child-register-ack', childId, false, 'native child intent was not accepted');
+            return;
+        }
+        if (
+            child.state === 'registered'
+            && child.pid === pid
+            && identitiesMatch(child.processIdentity, processIdentity)
+        ) {
+            postNativeChildAck(activeJob, worker, 'native-child-register-ack', childId, true);
+            return;
+        }
+        if (child.state !== 'intent' || activeJob.workerExitProven || activeJob.nativeChildProtocolUnsafe) {
+            markNativeChildProtocolUnsafe(activeJob, `registration was late or reused for ${childId}`);
+            postNativeChildAck(activeJob, worker, 'native-child-register-ack', childId, false, 'native child registration was not current');
+            return;
+        }
+        child.pid = pid;
+        child.processIdentity = processIdentity;
+        child.state = 'registered';
+        postNativeChildAck(activeJob, worker, 'native-child-register-ack', childId, true);
+    }
+
+    function handleNativeChildNoSpawn(
+        scopedJobId: string,
+        worker: Worker,
+        jobId: string,
+        childId: string,
+    ) {
+        const activeJob = getNativeChildJob(scopedJobId, worker, jobId, 'native-child no-spawn');
+        if (!activeJob) {
+            return;
+        }
+        const child = activeJob.nativeChildren.get(childId);
+        if (!child) {
+            markNativeChildProtocolUnsafe(activeJob, `no-spawn arrived for unknown child ${childId}`);
+            return;
+        }
+        if (child.state === 'no-child') {
+            return;
+        }
+        if (child.state !== 'intent') {
+            markNativeChildProtocolUnsafe(activeJob, `no-spawn contradicted registration for ${childId}`);
+            return;
+        }
+        child.state = 'no-child';
+        tryPhysicalFinalize(scopedJobId);
+    }
+
+    function handleNativeChildExit(
+        scopedJobId: string,
+        worker: Worker,
+        jobId: string,
+        childId: string,
+        pid: number,
+        processIdentity: IOcrNativeChildProcessIdentity,
+    ) {
+        const activeJob = getNativeChildJob(scopedJobId, worker, jobId, 'native-child exit');
+        if (!activeJob) {
+            return;
+        }
+        const child = activeJob.nativeChildren.get(childId);
+        if (!child) {
+            markNativeChildProtocolUnsafe(activeJob, `exit arrived for unknown child ${childId}`);
+            postNativeChildAck(activeJob, worker, 'native-child-exit-ack', childId, false, 'native child was not registered');
+            return;
+        }
+        if (child.state === 'exited' && child.pid === pid && identitiesMatch(child.processIdentity, processIdentity)) {
+            postNativeChildAck(activeJob, worker, 'native-child-exit-ack', childId, true);
+            return;
+        }
+        if (
+            (child.state !== 'registered' && child.state !== 'unproven')
+            || child.pid !== pid
+            || !identitiesMatch(child.processIdentity, processIdentity)
+        ) {
+            markNativeChildProtocolUnsafe(activeJob, `exit proof did not match registered child ${childId}`);
+            postNativeChildAck(activeJob, worker, 'native-child-exit-ack', childId, false, 'native child identity did not match');
+            return;
+        }
+        child.state = 'exited';
+        child.cleanupAttemptInFlight = false;
+        clearNativeChildCleanupTimer(scopedJobId);
+        postNativeChildAck(activeJob, worker, 'native-child-exit-ack', childId, true);
+        tryPhysicalFinalize(scopedJobId);
+    }
+
+    function handleNativeChildUnproven(
+        scopedJobId: string,
+        worker: Worker,
+        jobId: string,
+        childId: string,
+        detail: string,
+    ) {
+        const activeJob = getNativeChildJob(scopedJobId, worker, jobId, 'native-child unproven');
+        if (!activeJob) {
+            return;
+        }
+        const child = activeJob.nativeChildren.get(childId);
+        if (!child) {
+            markNativeChildProtocolUnsafe(activeJob, `unproven proof arrived for unknown child ${childId}`);
+            return;
+        }
+        if (child.state === 'exited') {
+            return;
+        }
+        if (child.state === 'intent' || child.state === 'no-child') {
+            markNativeChildProtocolUnsafe(activeJob, `unproven proof contradicted child state for ${childId}`);
+            return;
+        }
+        child.state = 'unproven';
+        logger.warn(`[${scopedJobId}] OCR native child ${childId} termination is unproven: ${detail}`);
+        if (activeJob.workerExitProven) {
+            beginNativeChildCleanup(activeJob, child, 'worker cleanup handoff after unproven child termination');
+        }
     }
 
     function resetJobWatchdog(job: IOcrQueuedJob) {
@@ -432,5 +818,13 @@ export function createOcrJobWorkerLifecycleController(
         sendPendingCompletionResult,
         terminateAndFinalizeActiveJob,
         terminateWorkerSafely,
+        markWorkerExit,
+        markWorkerTerminationProven,
+        markWorkerCleanupComplete,
+        handleNativeChildIntent,
+        handleNativeChildRegister,
+        handleNativeChildNoSpawn,
+        handleNativeChildExit,
+        handleNativeChildUnproven,
     };
 }

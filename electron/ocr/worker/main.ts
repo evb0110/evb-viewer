@@ -109,6 +109,11 @@ import {
     type TJobId,
     type TRequestId,
 } from '@contracts/shared';
+import {
+    createOcrNativeChildRegistrationProvider,
+    getOcrNativeChildRegistrationProvider,
+    setOcrNativeChildRegistrationProvider,
+} from '@electron/features/ocr/worker/nativeChildRegistration';
 
 const initialWorkerData: unknown = workerData;
 const paths = resolveWorkerPaths(initialWorkerData);
@@ -1152,6 +1157,7 @@ parentPort?.on('message', async (rawMessage: unknown) => {
                 ),
             });
             sendCleanupComplete(invalidStart.jobId);
+            parentPort?.close();
             return;
         }
 
@@ -1160,17 +1166,35 @@ parentPort?.on('message', async (rawMessage: unknown) => {
     }
 
     switch (message.type) {
-        case 'start':
-            await processOcrJob(
+        case 'start': {
+            const nativeChildRegistrationProvider = createOcrNativeChildRegistrationProvider(
                 message.jobId,
-                message.data.sourcePdfPath,
-                message.data.documentRevision,
-                message.data.pages,
-                message.data.options ?? (message.data.renderDpi !== undefined ? {renderDpi: message.data.renderDpi} : {}),
+                outboundMessage => parentPort?.postMessage(outboundMessage),
             );
+            setOcrNativeChildRegistrationProvider(nativeChildRegistrationProvider);
+            try {
+                await processOcrJob(
+                    message.jobId,
+                    message.data.sourcePdfPath,
+                    message.data.documentRevision,
+                    message.data.pages,
+                    message.data.options ?? (message.data.renderDpi !== undefined ? {renderDpi: message.data.renderDpi} : {}),
+                );
+            } finally {
+                if (getOcrNativeChildRegistrationProvider() === nativeChildRegistrationProvider) {
+                    setOcrNativeChildRegistrationProvider(null);
+                }
+                parentPort?.close();
+            }
             return;
+        }
         case 'cancel':
             activeJobControllers.get(message.jobId)?.abort();
+            return;
+        case 'native-child-intent-ack':
+        case 'native-child-register-ack':
+        case 'native-child-exit-ack':
+            getOcrNativeChildRegistrationProvider()?.handleMessage(message);
             return;
         case 'resource-acquired': {
             const pending = pendingResourceAcquires.get(message.requestId);

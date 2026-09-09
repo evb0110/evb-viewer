@@ -14,6 +14,7 @@ import type {
 import type { IJobBrokerLease } from '@electron/resources/jobBroker';
 import type {
     TOcrPdfPageSelection,
+    IOcrNativeChildProcessIdentity,
     TOcrWorkerCompleteResult,
 } from '@electron/ocr/worker/types';
 import type { IMainJobRunContext } from '@electron/operation-lifecycle/createMainJobRegistry';
@@ -62,6 +63,17 @@ export interface IOcrPreparingJob extends IOcrRegistryJob {
     startedAtMs: number;
 }
 
+export type TOcrNativeChildState = 'intent' | 'registered' | 'unproven' | 'exited' | 'no-child';
+
+export interface IOcrNativeChildRecord {
+    childId: string;
+    commandLabel: string;
+    pid: number | null;
+    processIdentity: IOcrNativeChildProcessIdentity | null;
+    state: TOcrNativeChildState;
+    cleanupAttemptInFlight: boolean;
+}
+
 export interface IOcrActiveJob extends IOcrQueuedJob {
     workerAdmissionLease: IJobBrokerLease;
     worker: Worker;
@@ -71,6 +83,13 @@ export interface IOcrActiveJob extends IOcrQueuedJob {
     terminalResultSent: boolean;
     startedAtMs: number;
     watchdogTimer: NodeJS.Timeout | null;
+    workerExitProven: boolean;
+    workerExitCode: number | null;
+    cleanupCompleteReceived: boolean;
+    nativeChildren: Map<string, IOcrNativeChildRecord>;
+    nativeChildProtocolUnsafe: boolean;
+    physicalFinalized: boolean;
+    discardPendingCompletionResult: boolean;
 }
 
 export interface IOcrPendingResultFile {

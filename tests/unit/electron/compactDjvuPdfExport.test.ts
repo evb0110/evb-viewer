@@ -20,6 +20,7 @@ import {
 } from 'vitest';
 import { mainJobBroker } from '@electron/resources/jobBroker';
 import {PDF_COMBINE_MAX_OUTPUT_BYTES} from '@contracts/pdfCombineOutputPolicy';
+import { markUnprovenNativeTermination } from '@electron/utils/nativeTerminationProof';
 
 const mocks = vi.hoisted(() => ({
     getDjvuNativeToolPaths: vi.fn(),
@@ -293,6 +294,35 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
             code: 'too-large',
             name: 'SerializableError',
         });
+    });
+
+    it('does not convert unproven native termination into a compact fallback result', async () => {
+        setDjvuDump([{
+            pageNumber: 1,
+            pageBytes: 32_705,
+            maskBytes: 512,
+            background: true,
+        }]);
+        const terminationError = markUnprovenNativeTermination(
+            new Error('native compact combiner tree is still running'),
+            'native compact combiner process tree was not proven dead',
+        );
+        mocks.runRegisteredDjvuProcess.mockResolvedValueOnce({
+            success: false,
+            error: 'DjVu conversion canceled',
+            cause: terminationError,
+        });
+
+        await expect(buildCompactDjvuAwarePdfFromDjvu({
+            jobId: 'job-unproven-termination',
+            djvuPath: join(tempDir, 'input.djvu'),
+            outputPath: join(tempDir, 'unproven.pdf'),
+            tempDir,
+            pageCount: 1,
+            sourceDpi: 300,
+            pageSizes: pageSizes(1),
+            pages: [1],
+        })).rejects.toBe(terminationError);
     });
 
     it('keeps progress moving during native PDF assembly', async () => {

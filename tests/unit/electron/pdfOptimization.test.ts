@@ -7,6 +7,7 @@ import {
     vi,
 } from 'vitest';
 import {
+    existsSync,
     mkdtempSync,
     readFileSync,
     rmSync,
@@ -24,6 +25,7 @@ import {
 } from 'path';
 import { tmpdir } from 'os';
 import {requireRequestId} from '@contracts/shared';
+import { markUnprovenNativeTermination } from '@electron/utils/nativeTerminationProof';
 
 const mocks = vi.hoisted(() => ({
     getPdfPageCount: vi.fn(),
@@ -263,6 +265,36 @@ describe('pdfOptimization', () => {
                 percent: 100,
             }),
         ]));
+    });
+
+    it('propagates unproven image termination and retains scan scratch', async () => {
+        const inputPath = join(tempRoot, 'scan-unproven-input.pdf');
+        const outputPath = join(tempRoot, 'scan-unproven-output.pdf');
+        writeFileSync(inputPath, 'scan-input');
+        const terminationError = markUnprovenNativeTermination(
+            new Error('native image tree is still running'),
+            'native image combine process tree was not proven dead',
+        );
+        let failedChunkPath = '';
+        mocks.tryWritePdfWithNativeImageCombiner.mockImplementationOnce(async (
+            _imagePaths: string[],
+            chunkPath: string,
+        ) => {
+            failedChunkPath = chunkPath;
+            throw terminationError;
+        });
+        const { optimizePdfToFile } = await import('@electron/features/documents/main/pdfOptimization');
+
+        await expect(optimizePdfToFile(inputPath, outputPath, {preset: 'smallScanned'}, {requestId: requireRequestId('opt-unproven')})).rejects.toBe(terminationError);
+
+        expect(failedChunkPath).not.toBe('');
+        const nativeScratchDir = dirname(failedChunkPath);
+        expect(existsSync(nativeScratchDir)).toBe(true);
+        expect(mocks.runQpdfCommand).not.toHaveBeenCalled();
+        rmSync(nativeScratchDir, {
+            force: true,
+            recursive: true,
+        });
     });
 
     it('passes cancellation through rendering, merging, optimization, and validation', async () => {

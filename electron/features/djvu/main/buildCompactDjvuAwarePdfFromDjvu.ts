@@ -38,6 +38,7 @@ import { withCompactDjvuResourceLease } from '@electron/features/djvu/main/withC
 import { createPdfCombineProgressHandler } from '@electron/native-tools/createPdfCombineProgressHandler';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
+import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
 import {
     getCompactDjvuFidelity,
     openCompactDjvuFidelityManifestWriter,
@@ -386,6 +387,12 @@ export async function buildCompactDjvuAwarePdfFromDjvu(options: ICompactDjvuPdfE
             ),
         });
         if (!result.success) {
+            const unprovenTermination = getUnprovenNativeTerminationDetail(result.cause);
+            if (unprovenTermination !== undefined) {
+                throw result.cause instanceof Error
+                    ? result.cause
+                    : new Error(`${result.error}: ${unprovenTermination}`);
+            }
             const nativeCode = typeof result.cause === 'object'
                 && result.cause !== null
                 && 'code' in result.cause

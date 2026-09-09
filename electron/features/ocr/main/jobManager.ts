@@ -18,6 +18,7 @@ import { getOcrWorkerMessageDisposition } from '@electron/features/ocr/main/getO
 import { createPendingResultFileStore } from '@electron/features/ocr/main/createPendingResultFileStore';
 import { createOcrWorker } from '@electron/features/ocr/main/createOcrWorker.worker';
 import { createOcrJobWorkerLifecycleController } from '@electron/features/ocr/main/ocrJobWorkerLifecycle';
+import { createOcrNativeChildTerminationController } from '@electron/features/ocr/main/ocrNativeChildProcessIdentity';
 import { ocrResourceGovernor } from '@electron/features/ocr/main/ocrResourceGovernor';
 import {
     handleWorkerResourceMessage,
@@ -92,6 +93,7 @@ const activeJobs = new Map<string, IOcrActiveJob>();
 const preparingJobs = new Map<string, IOcrPreparingJob>();
 const scopedJobIdsByDocumentJobKey = new Map<string, string>();
 const workerCleanupTimersByScopedJobId = new Map<string, NodeJS.Timeout>();
+const nativeChildCleanupTimersByScopedJobId = new Map<string, NodeJS.Timeout>();
 const OCR_TERMINAL_EVENT_RETENTION_MS = 30_000;
 const OCR_TERMINAL_RECORD_RETENTION_MS = 60 * 60 * 1_000;
 const OCR_WORKER_BROKER_OWNER_ID = 'ocr-worker-pool';
@@ -229,16 +231,24 @@ function publishOcrProgress(job: IOcrQueuedJob, progress: IOcrProgress) {
 }
 
 const {
-    finalizeActiveJob,
     isCurrentActiveWorker,
     resetJobWatchdog,
     sendJobFailure,
     sendJobCancellation,
     sendPendingCompletionResult,
     terminateAndFinalizeActiveJob,
+    markWorkerExit,
+    markWorkerCleanupComplete,
+    handleNativeChildIntent,
+    handleNativeChildRegister,
+    handleNativeChildNoSpawn,
+    handleNativeChildExit,
+    handleNativeChildUnproven,
 } = createOcrJobWorkerLifecycleController({
     activeJobs,
     workerCleanupTimersByScopedJobId,
+    nativeChildCleanupTimersByScopedJobId,
+    nativeChildTermination: createOcrNativeChildTerminationController(),
     pendingResultFileStore,
     logger: log,
     publishProgress: publishOcrProgress,
@@ -351,12 +361,59 @@ function handleWorkerMessage(
             }
             return;
         }
+        case 'native-child-intent':
+            handleNativeChildIntent(
+                scopedJobId,
+                worker,
+                message.jobId,
+                message.childId,
+                message.commandLabel,
+            );
+            return;
+        case 'native-child-register':
+            handleNativeChildRegister(
+                scopedJobId,
+                worker,
+                message.jobId,
+                message.childId,
+                message.pid,
+                message.processIdentity,
+            );
+            return;
+        case 'native-child-no-spawn':
+            handleNativeChildNoSpawn(scopedJobId, worker, message.jobId, message.childId);
+            return;
+        case 'native-child-exit':
+            handleNativeChildExit(
+                scopedJobId,
+                worker,
+                message.jobId,
+                message.childId,
+                message.pid,
+                message.processIdentity,
+            );
+            return;
+        case 'native-child-unproven':
+            handleNativeChildUnproven(
+                scopedJobId,
+                worker,
+                message.jobId,
+                message.childId,
+                message.detail,
+            );
+            return;
         case 'cleanup-complete': {
-            if (!acceptWorkerMessage(message.jobId, 'cleanup completion')) {
+            const activeJob = activeJobs.get(scopedJobId);
+            if (
+                !activeJob
+                || activeJob.worker !== worker
+                || activeJob.physicalFinalized
+                || String(message.jobId) !== String(requestId)
+            ) {
+                log.debug(`Ignoring late OCR cleanup completion for job "${requestId}"`);
                 return;
             }
 
-            const activeJob = activeJobs.get(scopedJobId);
             const result = activeJob?.pendingCompletionResult ?? null;
             if (!result) {
                 if (!activeJob?.terminalResultSent) {
@@ -375,7 +432,7 @@ function handleWorkerMessage(
                 sendPendingCompletionResult(activeJob);
             }
 
-            finalizeActiveJob(scopedJobId);
+            markWorkerCleanupComplete(scopedJobId, worker);
             return;
         }
     }
@@ -413,6 +470,13 @@ function startBrokerAdmittedJob(job: IOcrQueuedJob, workerAdmissionLease: IJobBr
         terminalResultSent: false,
         startedAtMs: Date.now(),
         watchdogTimer: null,
+        workerExitProven: false,
+        workerExitCode: null,
+        cleanupCompleteReceived: false,
+        nativeChildren: new Map(),
+        nativeChildProtocolUnsafe: false,
+        physicalFinalized: false,
+        discardPendingCompletionResult: false,
     };
     activeJobs.set(job.scopedJobId, activeJob);
     resetJobWatchdog(job);
@@ -434,11 +498,6 @@ function startBrokerAdmittedJob(job: IOcrQueuedJob, workerAdmissionLease: IJobBr
     });
 
     worker.on('error', (err: Error) => {
-        if (job.registry.signal.aborted) {
-            finalizeActiveJob(job.scopedJobId);
-            return;
-        }
-
         log.error(`Worker error for job ${job.requestId}: ${err.message}`, {
             code: 'MAIN_OCR_OPERATION_FAILED',
             context: {},
@@ -449,7 +508,8 @@ function startBrokerAdmittedJob(job: IOcrQueuedJob, workerAdmissionLease: IJobBr
             return;
         }
         if (active.completed || active.terminatedByUs || active.terminalResultSent) {
-            finalizeActiveJob(job.scopedJobId);
+            // Error is not exit proof. The exit event or a resolved terminate()
+            // promise still owns admission, resources, and artifacts.
             return;
         }
         sendJobFailure(active, `Worker error: ${err.message}`);
@@ -484,7 +544,7 @@ function startBrokerAdmittedJob(job: IOcrQueuedJob, workerAdmissionLease: IJobBr
             sendPendingCompletionResult(active);
         }
 
-        finalizeActiveJob(job.scopedJobId);
+        markWorkerExit(job.scopedJobId, worker, code);
     });
 
     try {

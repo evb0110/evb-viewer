@@ -15,7 +15,7 @@ const mocks = vi.hoisted(() => {
         readFile: vi.fn(),
         rm: vi.fn(async () => undefined),
         spawn: vi.fn(),
-        terminateDetachedChildProcess: vi.fn(async () => undefined),
+        terminateDetachedChildProcess: vi.fn(async () => true),
         verifyNativeToolProtocol: vi.fn(async () => undefined),
         warn: vi.fn(),
         writeFile: vi.fn(async () => undefined),
@@ -103,6 +103,7 @@ describe('native PDF image combiner output validation', () => {
     });
 
     afterEach(() => {
+        vi.useRealTimers();
         vi.unstubAllEnvs();
     });
 
@@ -155,6 +156,7 @@ describe('native PDF image combiner output validation', () => {
         mocks.spawn.mockReturnValueOnce(proc);
         mocks.terminateDetachedChildProcess.mockImplementationOnce(async () => {
             proc.emit('close', null, 'SIGTERM');
+            return true;
         });
         const { tryWritePdfWithNativeImageCombiner } = await import('@electron/image/tryCreatePdfWithNativeImageCombiner');
         const controller = new AbortController();
@@ -170,6 +172,170 @@ describe('native PDF image combiner output validation', () => {
         expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledWith(proc, 1_000);
         expect(mocks.readFile).not.toHaveBeenCalledWith('/tmp/input.jpg');
         expect(mocks.rm).toHaveBeenCalledWith('/tmp/pdf-image-combine-test', {
+            recursive: true,
+            force: true,
+        });
+    });
+
+    it('rejects cancellation when native tree termination is false and retains scratch', async () => {
+        mocks.terminateDetachedChildProcess.mockResolvedValueOnce(false);
+        const proc = new MockProcess();
+        mocks.spawn.mockReturnValueOnce(proc);
+        const { tryWritePdfWithNativeImageCombiner } = await import('@electron/image/tryCreatePdfWithNativeImageCombiner');
+        const { getUnprovenNativeTerminationDetail } = await import('@electron/utils/nativeTerminationProof');
+        const controller = new AbortController();
+        const abortError = new Error('Canceled by test');
+        abortError.name = 'AbortError';
+
+        const pending = tryWritePdfWithNativeImageCombiner(['/tmp/input.jpg'], '/tmp/output.pdf', {signal: controller.signal});
+        await vi.waitFor(() => {
+            expect(mocks.spawn).toHaveBeenCalled();
+        });
+        controller.abort(abortError);
+
+        const error = await pending.catch((caught: unknown) => caught);
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).toContain('termination was not proven');
+        expect(getUnprovenNativeTerminationDetail(error)).toContain('was not proven dead');
+        expect(mocks.rm).not.toHaveBeenCalledWith('/tmp/pdf-image-combine-test', {
+            recursive: true,
+            force: true,
+        });
+    });
+
+    it('fails closed when the native child identity is ambiguous', async () => {
+        const proc = new MockProcess();
+        Object.defineProperty(proc, 'pid', {value: 0});
+        mocks.spawn.mockReturnValueOnce(proc);
+        const { tryWritePdfWithNativeImageCombiner } = await import('@electron/image/tryCreatePdfWithNativeImageCombiner');
+        const { getUnprovenNativeTerminationDetail } = await import('@electron/utils/nativeTerminationProof');
+        const controller = new AbortController();
+
+        const pending = tryWritePdfWithNativeImageCombiner(['/tmp/input.jpg'], '/tmp/output.pdf', {signal: controller.signal});
+        const result = pending.catch((caught: unknown) => caught);
+        await vi.waitFor(() => {
+            expect(mocks.spawn).toHaveBeenCalled();
+        });
+        controller.abort(new Error('Canceled by test'));
+
+        const error = await result;
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).toContain('termination was not proven');
+        expect(getUnprovenNativeTerminationDetail(error)).toContain('child identity was not usable');
+        expect(mocks.rm).not.toHaveBeenCalledWith('/tmp/pdf-image-combine-test', {
+            recursive: true,
+            force: true,
+        });
+    });
+
+    it('does not let an early close settle a timeout before tree proof', async () => {
+        vi.useFakeTimers();
+        vi.stubEnv('EVB_PDF_IMAGE_COMBINE_TIMEOUT_MS', '10000');
+        mocks.terminateDetachedChildProcess.mockResolvedValueOnce(false);
+        const proc = new MockProcess();
+        mocks.spawn.mockReturnValueOnce(proc);
+        const { tryWritePdfWithNativeImageCombiner } = await import('@electron/image/tryCreatePdfWithNativeImageCombiner');
+        const { getUnprovenNativeTerminationDetail } = await import('@electron/utils/nativeTerminationProof');
+
+        const pending = tryWritePdfWithNativeImageCombiner(['/tmp/input.jpg'], '/tmp/output.pdf');
+        const result = pending.catch((caught: unknown) => caught);
+        await vi.waitFor(() => {
+            expect(mocks.spawn).toHaveBeenCalled();
+        });
+        await vi.advanceTimersByTimeAsync(10_000);
+        proc.emit('close', null, 'SIGTERM');
+
+        const error = await result;
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).toContain('termination was not proven');
+        expect(getUnprovenNativeTerminationDetail(error)).toContain('was not proven dead');
+        expect(mocks.rm).not.toHaveBeenCalledWith('/tmp/pdf-image-combine-test', {
+            recursive: true,
+            force: true,
+        });
+    });
+
+    it('rejects a stdout-limit stop as unproven instead of admitting fallback', async () => {
+        mocks.terminateDetachedChildProcess.mockResolvedValueOnce(false);
+        const proc = new MockProcess();
+        mocks.spawn.mockReturnValueOnce(proc);
+        const { tryCreatePdfWithNativeImageCombiner } = await import('@electron/image/tryCreatePdfWithNativeImageCombiner');
+        const { getUnprovenNativeTerminationDetail } = await import('@electron/utils/nativeTerminationProof');
+
+        const pending = tryCreatePdfWithNativeImageCombiner(['/tmp/input.png']);
+        await vi.waitFor(() => {
+            expect(mocks.spawn).toHaveBeenCalled();
+        });
+        proc.stdout.emit('data', Buffer.alloc(64 * 1024 + 1, 'x'));
+
+        const error = await pending.catch((caught: unknown) => caught);
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).toContain('termination was not proven');
+        expect(getUnprovenNativeTerminationDetail(error)).toContain('was not proven dead');
+        expect(mocks.rm).not.toHaveBeenCalledWith('/tmp/pdf-image-combine-test', {
+            recursive: true,
+            force: true,
+        });
+    });
+
+    it('rejects a pending termination proof and cleans only after later proof', async () => {
+        vi.useFakeTimers();
+        const termination = Promise.withResolvers<boolean>();
+        mocks.terminateDetachedChildProcess.mockReturnValueOnce(termination.promise);
+        const proc = new MockProcess();
+        mocks.spawn.mockReturnValueOnce(proc);
+        const { tryWritePdfWithNativeImageCombiner } = await import('@electron/image/tryCreatePdfWithNativeImageCombiner');
+        const { getUnprovenNativeTerminationDetail } = await import('@electron/utils/nativeTerminationProof');
+        const controller = new AbortController();
+
+        const pending = tryWritePdfWithNativeImageCombiner(['/tmp/input.jpg'], '/tmp/output.pdf', {signal: controller.signal});
+        const result = pending.catch((caught: unknown) => caught);
+        await vi.waitFor(() => {
+            expect(mocks.spawn).toHaveBeenCalled();
+        });
+        controller.abort(new Error('Canceled by test'));
+        await vi.advanceTimersByTimeAsync(3_000);
+
+        const error = await result;
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).toContain('termination was not proven');
+        expect(getUnprovenNativeTerminationDetail(error)).toContain('within 3000ms');
+        expect(mocks.rm).not.toHaveBeenCalledWith('/tmp/pdf-image-combine-test', {
+            recursive: true,
+            force: true,
+        });
+
+        termination.resolve(true);
+        await vi.advanceTimersByTimeAsync(0);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(mocks.rm).toHaveBeenCalledTimes(1);
+        expect(mocks.rm).toHaveBeenCalledWith('/tmp/pdf-image-combine-test', {
+            recursive: true,
+            force: true,
+        });
+    });
+
+    it('rejects a termination proof that rejects instead of admitting fallback', async () => {
+        vi.useFakeTimers();
+        mocks.terminateDetachedChildProcess.mockRejectedValueOnce(new Error('termination unavailable'));
+        const proc = new MockProcess();
+        mocks.spawn.mockReturnValueOnce(proc);
+        const { tryCreatePdfWithNativeImageCombiner } = await import('@electron/image/tryCreatePdfWithNativeImageCombiner');
+        const { getUnprovenNativeTerminationDetail } = await import('@electron/utils/nativeTerminationProof');
+        const controller = new AbortController();
+
+        const pending = tryCreatePdfWithNativeImageCombiner(['/tmp/input.png'], {signal: controller.signal});
+        const result = pending.catch((caught: unknown) => caught);
+        await vi.waitFor(() => {
+            expect(mocks.spawn).toHaveBeenCalled();
+        });
+        controller.abort(new Error('Canceled by test'));
+
+        const error = await result;
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).toContain('termination was not proven');
+        expect(getUnprovenNativeTerminationDetail(error)).toContain('was not proven dead');
+        expect(mocks.rm).not.toHaveBeenCalledWith('/tmp/pdf-image-combine-test', {
             recursive: true,
             force: true,
         });

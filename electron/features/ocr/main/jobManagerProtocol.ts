@@ -251,6 +251,106 @@ function parseWorkerCleanupCompleteMessage(message: Record<string, unknown>): TO
         : null;
 }
 
+function parseNativeChildProcessIdentity(value: unknown) {
+    if (!isRecord(value) || !isOneOf([
+        'linux-proc-start-time',
+        'opaque',
+    ] as const, value.kind)) {
+        return null;
+    }
+    const normalizedValue = typeof value.value === 'string' ? value.value.trim() : '';
+    return normalizedValue.length > 0
+        ? {
+            kind: value.kind,
+            value: normalizedValue,
+        }
+        : null;
+}
+
+function parseNativeChildId(value: unknown) {
+    return parseRequestId(value);
+}
+
+function parseNativeChildIntentMessage(message: Record<string, unknown>): TOcrWorkerManagerMessage | null {
+    const jobId = parseJobId(message.jobId);
+    const childId = parseNativeChildId(message.childId);
+    const commandLabel = typeof message.commandLabel === 'string' ? message.commandLabel.trim() : '';
+    return jobId !== null && childId !== null && commandLabel.length > 0
+        ? {
+            type: 'native-child-intent',
+            jobId,
+            childId,
+            commandLabel,
+        }
+        : null;
+}
+
+function parseNativeChildRegisterMessage(message: Record<string, unknown>): TOcrWorkerManagerMessage | null {
+    const jobId = parseJobId(message.jobId);
+    const childId = parseNativeChildId(message.childId);
+    const processIdentity = parseNativeChildProcessIdentity(message.processIdentity);
+    return jobId !== null
+        && childId !== null
+        && processIdentity !== null
+        && typeof message.pid === 'number'
+        && Number.isSafeInteger(message.pid)
+        && message.pid > 0
+        ? {
+            type: 'native-child-register',
+            jobId,
+            childId,
+            pid: message.pid,
+            processIdentity,
+        }
+        : null;
+}
+
+function parseNativeChildExitMessage(message: Record<string, unknown>): TOcrWorkerManagerMessage | null {
+    const jobId = parseJobId(message.jobId);
+    const childId = parseNativeChildId(message.childId);
+    const processIdentity = parseNativeChildProcessIdentity(message.processIdentity);
+    return jobId !== null
+        && childId !== null
+        && processIdentity !== null
+        && typeof message.pid === 'number'
+        && Number.isSafeInteger(message.pid)
+        && message.pid > 0
+        ? {
+            type: 'native-child-exit',
+            jobId,
+            childId,
+            pid: message.pid,
+            processIdentity,
+        }
+        : null;
+}
+
+function parseNativeChildNoSpawnMessage(message: Record<string, unknown>): TOcrWorkerManagerMessage | null {
+    const jobId = parseJobId(message.jobId);
+    const childId = parseNativeChildId(message.childId);
+    return jobId !== null && childId !== null
+        ? {
+            type: 'native-child-no-spawn',
+            jobId,
+            childId,
+        }
+        : null;
+}
+
+function parseNativeChildUnprovenMessage(message: Record<string, unknown>): TOcrWorkerManagerMessage | null {
+    const jobId = parseJobId(message.jobId);
+    const childId = parseNativeChildId(message.childId);
+    const detail = typeof message.detail === 'string' ? message.detail.trim() : '';
+    return jobId !== null && childId !== null && detail.length > 0
+        ? {
+            type: 'native-child-unproven',
+            jobId,
+            childId,
+            detail,
+        }
+        : null;
+}
+
 export function parseWorkerMessage(message: unknown): TOcrWorkerManagerMessage | null {
     if (!isRecord(message) || typeof message.type !== 'string') {
         return null;
@@ -265,6 +365,16 @@ export function parseWorkerMessage(message: unknown): TOcrWorkerManagerMessage |
             return parseWorkerCompleteMessage(message);
         case 'cleanup-complete':
             return parseWorkerCleanupCompleteMessage(message);
+        case 'native-child-intent':
+            return parseNativeChildIntentMessage(message);
+        case 'native-child-register':
+            return parseNativeChildRegisterMessage(message);
+        case 'native-child-exit':
+            return parseNativeChildExitMessage(message);
+        case 'native-child-no-spawn':
+            return parseNativeChildNoSpawnMessage(message);
+        case 'native-child-unproven':
+            return parseNativeChildUnprovenMessage(message);
         default:
             return null;
     }

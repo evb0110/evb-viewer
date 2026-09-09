@@ -7,6 +7,7 @@ import {
 } from 'vitest';
 import type * as PdfCoreModule from '@pdf-core';
 import { PdfCombineCapabilityError } from '@electron/image/pdfCombineErrors';
+import { markUnprovenNativeTermination } from '@electron/utils/nativeTerminationProof';
 
 const mocks = vi.hoisted(() => {
     const nativeCombine = vi.fn();
@@ -256,6 +257,26 @@ describe('createCombinedPdf native image fast path', () => {
         );
         expect(mocks.embedPng).not.toHaveBeenCalled();
         expect(mocks.rm).toHaveBeenCalledWith('/tmp/pdf-combine-normalized', {
+            recursive: true,
+            force: true,
+        });
+    });
+
+    it('propagates unproven native termination without cleaning staged image inputs', async () => {
+        mocks.headerPrefix = createBmpCoreHeader(10, 20);
+        const terminationError = markUnprovenNativeTermination(
+            new Error('native image tree is still running'),
+            'native image combine process tree was not proven dead',
+        );
+        mocks.nativeCombine.mockRejectedValueOnce(terminationError);
+
+        await expect(createCombinedPdf(['/tmp/small.bmp'], {unsupportedFileError: path => `Unsupported: ${path}`})).rejects.toBe(terminationError);
+
+        expect(mocks.nativeCombine).toHaveBeenCalledWith(
+            ['/tmp/pdf-combine-normalized/input-1.png'],
+            expect.any(Object),
+        );
+        expect(mocks.rm).not.toHaveBeenCalledWith('/tmp/pdf-combine-normalized', {
             recursive: true,
             force: true,
         });

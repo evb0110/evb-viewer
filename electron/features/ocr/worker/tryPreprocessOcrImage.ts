@@ -1,6 +1,5 @@
 import { stat } from 'fs/promises';
 import { runOcrCommand } from '@electron/features/ocr/worker/runOcrCommand';
-import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import type { TWorkerLog } from '@electron/ocr/worker/types';
 import { getErrorMessage } from '@electron/utils/error';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
@@ -135,7 +134,7 @@ export async function tryPreprocessOcrImage(
 ) {
     if (scanCleanupBinary) {
         try {
-            await runNativeToolCommand(scanCleanupBinary, [
+            await runOcrCommand(scanCleanupBinary, [
                 '--input',
                 inputPath,
                 '--output',
