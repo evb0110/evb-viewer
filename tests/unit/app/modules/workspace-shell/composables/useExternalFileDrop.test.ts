@@ -10,6 +10,7 @@ import { delay } from 'es-toolkit/promise';
 import { useExternalFileDrop } from '@app/modules/workspace-shell/composables/useExternalFileDrop';
 import { requireDocumentRef } from '@contracts/documentRef';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
+import type * as PlatformDocuments from '@app/utils/platformDocuments';
 
 type TCapturedListener = (event: DragEvent) => void;
 
@@ -20,6 +21,14 @@ interface ICapturedListeners {
 
 let capturedListeners: ICapturedListeners = {};
 const toastAddMock = vi.fn();
+const browserDocumentStoreMock = vi.hoisted(() => ({registerFileWithOwnership: vi.fn()}));
+const cleanupFileMock = vi.hoisted(() => vi.fn(async (_path: string) => {}));
+
+vi.mock('@app/platform/browserDocumentStore', () => ({browserDocumentStore: browserDocumentStoreMock}));
+vi.mock('@app/utils/platformDocuments', async importOriginal => ({
+    ...await importOriginal<typeof PlatformDocuments>(),
+    getDocumentWorkingCopyCapability: () => ({cleanupFile: cleanupFileMock}),
+}));
 
 vi.mock('@vueuse/core', () => ({ useEventListener: vi.fn((_target: unknown, event: string, listener: TCapturedListener) => {
     if (event === 'dragover' || event === 'drop') {
@@ -88,6 +97,8 @@ describe('useExternalFileDrop', () => {
     beforeEach(() => {
         capturedListeners = {};
         toastAddMock.mockClear();
+        browserDocumentStoreMock.registerFileWithOwnership.mockReset();
+        cleanupFileMock.mockClear();
         vi.stubGlobal('useTypedI18n', () => ({ t: (key: string) => key }));
         vi.stubGlobal('useToast', () => ({ add: toastAddMock }));
     });
@@ -238,5 +249,101 @@ describe('useExternalFileDrop', () => {
             description: expect.stringContaining('ingestion failed'),
         }));
         expect(openPathsInAppropriateTab).toHaveBeenCalledWith(['/docs/b.pdf']);
+    });
+
+    it('does not start browser registration after cleanup', async () => {
+        const openPathsInAppropriateTab = vi.fn(async (_paths: string[]) => {});
+        const registerFilesForOpen = vi.fn(async () => [requireDocumentRef('/docs/a.pdf')]);
+
+        vi.stubGlobal('window', undefined);
+        const { cleanup } = useExternalFileDrop({ openPathsInAppropriateTab });
+        capturedListeners.drop?.(createDragEvent(['/docs/a.pdf']));
+        cleanup();
+        await flushDropQueue();
+
+        expect(browserDocumentStoreMock.registerFileWithOwnership).not.toHaveBeenCalled();
+        expect(registerFilesForOpen).not.toHaveBeenCalled();
+        expect(openPathsInAppropriateTab).not.toHaveBeenCalled();
+    });
+
+    it('releases newly owned browser refs when registration finishes after cleanup', async () => {
+        let releaseRegistration!: (value: {
+            ref: ReturnType<typeof requireDocumentRef>;
+            created: boolean
+        }) => void;
+        const registration = new Promise<{
+            ref: ReturnType<typeof requireDocumentRef>;
+            created: boolean
+        }>(resolve => {
+            releaseRegistration = resolve;
+        });
+        browserDocumentStoreMock.registerFileWithOwnership.mockReturnValue(registration);
+        const openPathsInAppropriateTab = vi.fn(async (_paths: string[]) => {});
+
+        vi.stubGlobal('window', undefined);
+        const { cleanup } = useExternalFileDrop({ openPathsInAppropriateTab });
+        capturedListeners.drop?.(createDragEvent(['/docs/a.pdf']));
+        await vi.waitFor(() => expect(browserDocumentStoreMock.registerFileWithOwnership).toHaveBeenCalledTimes(1));
+        cleanup();
+        releaseRegistration({
+            ref: requireDocumentRef('/docs/a.pdf'),
+            created: true,
+        });
+        await flushDropQueue();
+
+        expect(openPathsInAppropriateTab).not.toHaveBeenCalled();
+        expect(cleanupFileMock).toHaveBeenCalledTimes(1);
+        expect(cleanupFileMock).toHaveBeenCalledWith('/docs/a.pdf');
+    });
+
+    it('keeps a deduplicated browser ref when the drop is canceled', async () => {
+        let releaseRegistration!: (value: {
+            ref: ReturnType<typeof requireDocumentRef>;
+            created: boolean
+        }) => void;
+        browserDocumentStoreMock.registerFileWithOwnership.mockReturnValue(new Promise(resolve => {
+            releaseRegistration = resolve;
+        }));
+        const openPathsInAppropriateTab = vi.fn(async (_paths: string[]) => {});
+
+        vi.stubGlobal('window', undefined);
+        const { cleanup } = useExternalFileDrop({ openPathsInAppropriateTab });
+        capturedListeners.drop?.(createDragEvent(['/docs/recent.pdf']));
+        await vi.waitFor(() => expect(browserDocumentStoreMock.registerFileWithOwnership).toHaveBeenCalledTimes(1));
+        cleanup();
+        releaseRegistration({
+            ref: requireDocumentRef('/docs/recent.pdf'),
+            created: false,
+        });
+        await flushDropQueue();
+
+        expect(cleanupFileMock).not.toHaveBeenCalled();
+        expect(openPathsInAppropriateTab).not.toHaveBeenCalled();
+    });
+
+    it('releases only newly owned refs after a callback failure', async () => {
+        browserDocumentStoreMock.registerFileWithOwnership
+            .mockResolvedValueOnce({
+                ref: requireDocumentRef('/docs/a.pdf'),
+                created: true,
+            })
+            .mockResolvedValueOnce({
+                ref: requireDocumentRef('/docs/recent.pdf'),
+                created: false,
+            });
+        const openPathsInAppropriateTab = vi.fn(async () => {
+            throw new Error('open failed');
+        });
+
+        vi.stubGlobal('window', undefined);
+        useExternalFileDrop({ openPathsInAppropriateTab });
+        capturedListeners.drop?.(createDragEvent([
+            '/docs/a.pdf',
+            '/docs/recent.pdf',
+        ]));
+        await flushDropQueue();
+
+        expect(cleanupFileMock).toHaveBeenCalledTimes(1);
+        expect(cleanupFileMock).toHaveBeenCalledWith('/docs/a.pdf');
     });
 });
