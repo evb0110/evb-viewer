@@ -31,12 +31,14 @@ vi.mock('@electron/utils/createLogger', () => ({ createLogger: () => ({
 class FakeClaudeQuery {
     private readonly messages: unknown[] = [];
     private readonly resolvers: Array<(value: IteratorResult<unknown>) => void> = [];
+    private closed = false;
 
     readonly accountInfo = vi.fn(async () => null);
     readonly supportedModels = vi.fn(async () => []);
     readonly setModel = vi.fn(async () => undefined);
     readonly interrupt = vi.fn(async () => undefined);
     readonly close = vi.fn(() => {
+        this.closed = true;
         while (this.resolvers.length > 0) {
             const resolve = this.resolvers.shift();
             resolve?.({
@@ -60,6 +62,12 @@ class FakeClaudeQuery {
 
     [Symbol.asyncIterator](): AsyncIterator<unknown> {
         return {next: () => {
+            if (this.closed) {
+                return Promise.resolve({
+                    value: undefined,
+                    done: true,
+                });
+            }
             const message = this.messages.shift();
             if (message) {
                 return Promise.resolve({
@@ -364,5 +372,104 @@ describe('claudeAgentSdkAssistant', () => {
         expect(fakeQuery.close).toHaveBeenCalledTimes(1);
 
         await expect(closePromise).resolves.toBeUndefined();
+    });
+
+    it('retires a query when interruption fails before accepting another turn', async () => {
+        const firstQuery = new FakeClaudeQuery();
+        const secondQuery = new FakeClaudeQuery();
+        let rejectInterrupt: ((error: Error) => void) | undefined;
+        firstQuery.interrupt.mockImplementationOnce(() => new Promise((_, reject) => {
+            rejectInterrupt = reject;
+        }));
+        sdkMocks.query.mockReturnValueOnce(firstQuery).mockReturnValueOnce(secondQuery);
+        const callbacks = {
+            onInitialized: vi.fn(),
+            onTurnStarted: vi.fn(),
+            onAssistantDelta: vi.fn(),
+            onReasoningDelta: vi.fn(),
+            onToolActivity: vi.fn(),
+            onUsage: vi.fn(),
+            onAssistantMessage: vi.fn(),
+            onTurnCompleted: vi.fn(),
+            onError: vi.fn(),
+        };
+        const session = new ClaudeAgentAssistantSession({
+            cwd: '/tmp',
+            model: 'opus',
+            effort: 'low',
+            speedMode: 'standard',
+            mcpServerName: 'evb_viewer_embedded',
+            mcpServerUrl: 'http://127.0.0.1:3000',
+            mcpToken: 'token',
+            executablePath: '/usr/bin/claude',
+            callbacks,
+        });
+
+        const firstTurnId = await session.sendMessage('A', [], 'opus');
+        const interruptPromise = session.interrupt();
+        firstQuery.push({
+            type: 'stream_event',
+            event: {
+                type: 'content_block_delta',
+                delta: {
+                    type: 'text_delta',
+                    text: 'late A',
+                },
+            },
+        });
+        firstQuery.push({
+            type: 'assistant',
+            message: {content: [
+                {
+                    type: 'text',
+                    text: 'late assistant A',
+                },
+                {
+                    type: 'tool_use',
+                    id: 'late-tool',
+                    name: 'mcp__evb_viewer_embedded__evb_run_action',
+                    input: {},
+                },
+            ]},
+        });
+        firstQuery.push({
+            type: 'tool_progress',
+            tool_use_id: 'late-tool',
+            tool_name: 'mcp__evb_viewer_embedded__evb_run_action',
+            elapsed_time_seconds: 1,
+        });
+        firstQuery.push({
+            type: 'result',
+            subtype: 'success',
+            is_error: false,
+            usage: {
+                input_tokens: 1,
+                output_tokens: 1,
+            },
+        });
+        await settleAsyncTicks();
+        expect(rejectInterrupt).toBeTypeOf('function');
+        rejectInterrupt?.(new Error('interrupt rejected'));
+        await interruptPromise;
+
+        const secondTurnId = await session.sendMessage('B', [], 'opus');
+        secondQuery.push({
+            type: 'stream_event',
+            event: {
+                type: 'content_block_delta',
+                delta: {
+                    type: 'text_delta',
+                    text: 'B',
+                },
+            },
+        });
+        await settleAsyncTicks();
+
+        expect(firstTurnId).not.toBe(secondTurnId);
+        expect(callbacks.onAssistantDelta).toHaveBeenCalledWith(secondTurnId, expect.any(String), 'B');
+        expect(callbacks.onAssistantDelta).not.toHaveBeenCalledWith(secondTurnId, expect.any(String), 'late A');
+        expect(callbacks.onTurnCompleted).toHaveBeenCalledWith(firstTurnId);
+        expect(sdkMocks.query).toHaveBeenCalledTimes(2);
+        expect(firstQuery.close).toHaveBeenCalledTimes(1);
     });
 });
