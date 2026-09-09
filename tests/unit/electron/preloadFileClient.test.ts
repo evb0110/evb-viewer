@@ -1135,6 +1135,75 @@ describe('createDocumentsPreloadFileClient', () => {
         }
     });
 
+    it('settles and closes a source iterator when generation stops making progress', async () => {
+        vi.useFakeTimers({toFake: [
+            'setTimeout',
+            'clearTimeout',
+        ]});
+        try {
+            const port1 = new FakeMessagePort();
+            const port2 = new FakeMessagePort();
+            vi.stubGlobal('MessageChannel', class {
+                readonly port1 = port1;
+                readonly port2 = port2;
+            });
+            const ipcRenderer = {
+                invoke: vi.fn(async (channel: string) => {
+                    if (channel === DOCUMENTS_CHANNELS.fileSavePdfDataBegin) {
+                        return {
+                            sessionId: 'session-1',
+                            protocolVersion: 1,
+                            maxChunkBytes: 8 * 1024 * 1024,
+                            maxInFlightChunks: 2,
+                            maxTotalBytes: Number.MAX_SAFE_INTEGER,
+                            ackTimeoutMs: 100,
+                            progressTimeoutMs: 20,
+                            resultTimeoutMs: 100,
+                        };
+                    }
+                    throw new Error(`Unexpected invoke: ${channel}`);
+                }),
+                postMessage: vi.fn(() => {
+                    queueMicrotask(() => port1.emit({type: 'ready'}));
+                }),
+            } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+            let resolveNextStarted!: () => void;
+            const nextStarted = new Promise<void>(resolve => {
+                resolveNextStarted = resolve;
+            });
+            const next = vi.fn<() => Promise<IteratorResult<Uint8Array>>>(() => {
+                resolveNextStarted();
+                return new Promise<IteratorResult<Uint8Array>>(() => undefined);
+            });
+            const returnIterator = vi.fn<() => Promise<IteratorResult<Uint8Array>>>(async () => ({
+                done: true,
+                value: undefined,
+            }));
+            const chunks: AsyncIterable<Uint8Array> = {[Symbol.asyncIterator]: () => ({
+                next,
+                return: returnIterator,
+            })};
+            const client = createDocumentsPreloadFileClient(ipcRenderer);
+            const savePromise = client.savePdfDataChunks(
+                requireDocumentRef('/tmp/working.pdf'),
+                1,
+                chunks,
+                revisionOptions,
+            );
+
+            await nextStarted;
+            vi.advanceTimersByTime(21);
+
+            await expect(savePromise).rejects.toThrow('PDF persistence stream made no progress');
+            expect(next).toHaveBeenCalledOnce();
+            expect(returnIterator).toHaveBeenCalledOnce();
+            expect(port1.postedMessages).toContainEqual({type: 'cancel'});
+            expect(port1.close).toHaveBeenCalledOnce();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('streams caller-provided PDF chunks through the persistence port', async () => {
         const port1 = new FakeMessagePort();
         const port2 = new FakeMessagePort();
