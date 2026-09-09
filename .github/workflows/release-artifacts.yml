@@ -268,18 +268,6 @@ jobs:
       SENTRY_DESKTOP_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}
       SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN }}
 
-  build_win7_legacy:
-    name: Package Release Artifacts / build (windows-2022, win7 legacy, x64)
-    needs:
-      - prepare
-      - quality
-    if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.quality.result != 'failure' && needs.quality.result != 'cancelled' }}
-    # Advisory: the called workflow's job carries continue-on-error, because a
-    # reusable-workflow call job cannot declare it itself.
-    uses: ./.github/workflows/build-win7-legacy.yml
-    with:
-      ref: ${{ needs.prepare.outputs.target_sha }}
-
   build_store:
     name: Package Microsoft Store AppX
     needs:
@@ -305,7 +293,6 @@ jobs:
       - build_artifacts
       - build_win_arm64
       - build_mac_intel
-      - build_win7_legacy
       - build_store
     if: ${{ always() && needs.prepare.result == 'success' }}
     runs-on: ubuntu-latest
@@ -318,11 +305,9 @@ jobs:
           BUILD_ARTIFACTS_RESULT: ${{ needs.build_artifacts.result }}
           BUILD_WIN_ARM64_RESULT: ${{ needs.build_win_arm64.result }}
           BUILD_MAC_INTEL_RESULT: ${{ needs.build_mac_intel.result }}
-          BUILD_WIN7_LEGACY_RESULT: ${{ needs.build_win7_legacy.result }}
           BUILD_STORE_RESULT: ${{ needs.build_store.result }}
           TARGET_SHA: ${{ needs.prepare.outputs.target_sha }}
           VERSION: ${{ needs.prepare.outputs.version }}
-          WIN7_READY: ${{ needs.build_win7_legacy.outputs.artifact_ready }}
         run: |
           set -euo pipefail
 
@@ -341,11 +326,6 @@ jobs:
             echo "- \`dist-win-x64\` ($BUILD_ARTIFACTS_RESULT)"
             echo "- \`supplemental-win-arm64\` ($BUILD_WIN_ARM64_RESULT)"
             echo "- \`supplemental-mac-x64\` ($BUILD_MAC_INTEL_RESULT)"
-            if [ "$WIN7_READY" = "true" ]; then
-              echo "- \`legacy-win7-x64\` ($BUILD_WIN7_LEGACY_RESULT)"
-            else
-              echo "- \`legacy-win7-x64\` ($BUILD_WIN7_LEGACY_RESULT, optional artifact not produced)"
-            fi
             echo "- \`store-appx-win-x64\` ($BUILD_STORE_RESULT)"
             echo "- \`store-appx-win-arm64\` ($BUILD_STORE_RESULT)"
           } >> "$GITHUB_STEP_SUMMARY"

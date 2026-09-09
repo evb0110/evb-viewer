@@ -486,6 +486,11 @@ export function createWorkspaceDocumentController(
     const waiters = new Set<IWorkspaceWaiter>();
     let nextTransactionIndex = 0;
     let closeRecordFenceActive = false;
+    // The revision at which the current dirty state was asserted. A clean
+    // record that still carries this revision (or none) is a projection that
+    // lags the dirty bytes; a save mints a newer revision before it publishes
+    // the clean flag, so a clean record at a newer revision is trusted.
+    let dirtyRevisionInfo: IDocumentRevisionInfo | null = null;
 
     function updateSnapshot(
         updater: (current: IWorkspaceDocumentSnapshot) => IWorkspaceDocumentSnapshot,
@@ -504,6 +509,11 @@ export function createWorkspaceDocumentController(
         }
 
         snapshot.value = nextSnapshot;
+        if (!nextSnapshot.dirty) {
+            dirtyRevisionInfo = null;
+        } else if (!current.dirty || dirtyRevisionInfo === null) {
+            dirtyRevisionInfo = nextSnapshot.identity.revisionInfo;
+        }
         rejectStaleWaiters();
         return true;
     }
@@ -658,18 +668,19 @@ export function createWorkspaceDocumentController(
                 || incomingWorkingCopyPath === null
             ),
         );
-        const sameDocumentRevision = areDocumentRevisionInfosEqual(
-            snapshot.value.identity.revisionInfo,
-            normalizedRecord.documentIdentity,
-        );
         const sameIdentityLessDocument = normalizedRecord.documentIdentity === null
             && normalizedRecord.tab.originalPath === snapshot.value.identity.originalPath;
+        const cleanRecordLagsDirtyState = areDocumentRevisionInfosEqual(
+            dirtyRevisionInfo,
+            normalizedRecord.documentIdentity,
+        );
         const preserveDirtyDuringRestore = (
             (activeKind === 'restore' || activeKind === null)
             && snapshot.value.dirty
             && !normalizedRecord.tab.isDirty
             && normalizedRecord.toolbarSnapshot.isOpeningDocument
             && normalizedRecord.tab.originalPath === snapshot.value.identity.originalPath
+            && (cleanRecordLagsDirtyState || normalizedRecord.documentIdentity === null)
         );
         if (
             source === 'workspace'
@@ -680,14 +691,16 @@ export function createWorkspaceDocumentController(
                     && snapshot.value.dirty
                     && !normalizedRecord.tab.isDirty
                     && sameLogicalDocument
-                    && (sameDocumentRevision || sameIdentityLessDocument)
+                    && (cleanRecordLagsDirtyState || sameIdentityLessDocument)
                 )
             )
         ) {
             // A pending restore or same-generation adoption record can lag the
             // recovery open. It must not turn retained unsaved bytes into a
             // clean document. A successful recovery publishes dirty=true. A
-            // real save publishes a new revision, and close clears identity.
+            // save mints a new revision first and publishes the clean flag at
+            // that revision afterwards, so only a clean record at the revision
+            // where dirty was asserted is a lag. Close clears identity.
             return;
         }
         if (

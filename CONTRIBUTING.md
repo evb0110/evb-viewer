@@ -37,7 +37,9 @@ Extend an existing test only when user-observable behavior changed and no
 check covers it. The commit-msg hook, the pre-push hook, and CI reject a
 commit that adds a check unless its message carries an
 `Adds-Checks: <the words that asked for it>` trailer. Deleting or editing a
-check needs no trailer.
+check needs no trailer. The same trailer covers a test retry, a wall-clock
+sleep, a raised timeout, or a step allowed to fail: fix the flake or delete the
+check instead of tolerating it (see [Flaky checks](docs/local-gates.md#flaky-checks)).
 
 Use one independent reviewer and one correction follow-up when review adds
 value. Optional suggestions do not reopen acceptance. An extra review needs a

@@ -61,6 +61,18 @@ const checker = await import(
     pathToFileURL(path.resolve(process.cwd(), 'scripts/check-commit-attribution.mjs')).href
 ) as ICommitAttributionModule;
 
+interface IAddedChecksModule {findAddedChecks: (
+    entries: Array<{
+        path: string,
+        status: string
+    }>,
+    readAddedLines: (path: string) => string[],
+) => string[];}
+
+const addedChecks = await import(
+    pathToFileURL(path.resolve(process.cwd(), 'scripts/lib/added-checks.mjs')).href
+) as IAddedChecksModule;
+
 const ZERO_OID = '0'.repeat(40);
 const UNREACHABLE_OID = 'f'.repeat(40);
 
@@ -398,6 +410,87 @@ describe('commit attribution policy', () => {
         expect(invocations[0]).toMatch(
             new RegExp(`^node scripts/check-commit-attribution\\.mjs ${mode}(\\s|$)`, 'u'),
         );
+    });
+});
+
+describe('added check and flake tolerance detection', () => {
+    function findInAddedLines(filePath: string, addedLines: string[]) {
+        return addedChecks.findAddedChecks([{
+            path: filePath,
+            status: 'M',
+        }], () => addedLines);
+    }
+
+    it.each([
+        [
+            'tests/unit/a.test.ts',
+            'await new Promise(resolve => setTimeout(resolve, 500));',
+            'wall-clock sleep in a test',
+        ],
+        [
+            'tests/unit/a.test.ts',
+            '    await sleep(250);',
+            'wall-clock sleep in a test',
+        ],
+        [
+            'tests/unit/a.test.ts',
+            'it(\'x\', {retry: 3}, async () => {',
+            'test retry',
+        ],
+        [
+            'tests/e2e/electron/b.e2e.test.ts',
+            '    }, 120_000);',
+            'test timeout override',
+        ],
+        [
+            'tests/helpers/session.ts',
+            'throw new Error(\'[INFRA] session boot failed\');',
+            'infrastructure retry marker',
+        ],
+        [
+            'vitest.shared.config.ts',
+            '            retry: 2,',
+            'test retry',
+        ],
+        [
+            'vitest.shared.config.ts',
+            '            testTimeout: 180_000,',
+            'test timeout raised',
+        ],
+        [
+            '.github/workflows/ci.yml',
+            '        continue-on-error: true',
+            'step allowed to fail',
+        ],
+        [
+            '.github/workflows/ci.yml',
+            '          bash scripts/release/run-with-retries.sh 3 20 "Packaging" \\',
+            'retried step',
+        ],
+        [
+            '.github/workflows/ci.yml',
+            '    timeout-minutes: 90',
+            'job timeout changed',
+        ],
+    ])('flags %s line %j as %s', (filePath, line, label) => {
+        expect(findInAddedLines(filePath, [line])).toEqual([`${label}: ${filePath} (${line.trim()})`]);
+    });
+
+    it('ignores ordinary assertions, zero retries, and removed lines', () => {
+        expect(findInAddedLines('tests/unit/a.test.ts', [
+            '    expect(await run()).toBe(3);',
+            '    }, 3);',
+            '    await expect.poll(() => count(), {timeout: 5_000}).toBe(1);',
+        ])).toEqual([]);
+        expect(findInAddedLines('vitest.shared.config.ts', ['            retry: 0,'])).toEqual([]);
+        expect(findInAddedLines('.github/workflows/ci.yml', ['        continue-on-error: false'])).toEqual([]);
+        expect(addedChecks.findAddedChecks(
+            [{
+                path: 'tests/unit/a.test.ts',
+                status: 'D',
+            }],
+            () => ['await new Promise(resolve => setTimeout(resolve, 500));'],
+        )).toEqual([]);
     });
 });
 

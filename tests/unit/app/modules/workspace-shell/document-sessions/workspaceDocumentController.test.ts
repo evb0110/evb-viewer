@@ -199,6 +199,83 @@ describe('WorkspaceDocumentController', () => {
         expect(session.snapshot.value.dirty).toBe(false);
     });
 
+    it('clears recovered dirty state when the save revision arrives before the clean flag', () => {
+        const session = createWorkspaceDocumentController({
+            tabId: 'tab-1',
+            sessionId: 'session-1',
+        });
+        const recoveredRecord = createWorkspaceDocumentRecord({
+            tab: {
+                fileName: 'Document.pdf',
+                originalPath: requireDocumentRef('/tmp/original.pdf'),
+                isDirty: true,
+                isDjvu: false,
+            },
+            documentIdentity: createDocumentRevision('revision-1', '/tmp/working.pdf'),
+            toolbarSnapshot: {initialVisualReady: true},
+        });
+        session.applyWorkspaceRecord(recoveredRecord, 'workspace');
+
+        const savedRecord = createWorkspaceDocumentRecord({
+            ...recoveredRecord,
+            documentIdentity: createDocumentRevision('revision-2', '/tmp/working.pdf'),
+        });
+        session.applyWorkspaceRecord(savedRecord, 'workspace');
+
+        expect(session.snapshot.value.dirty).toBe(true);
+
+        session.applyWorkspaceRecord(createWorkspaceDocumentRecord({
+            ...savedRecord,
+            tab: {
+                ...savedRecord.tab,
+                isDirty: false,
+            },
+        }), 'workspace');
+
+        expect(session.snapshot.value.dirty).toBe(false);
+    });
+
+    it('lets a saved revision clear recovered dirty state while the viewer reloads', () => {
+        const session = createWorkspaceDocumentController({
+            tabId: 'tab-1',
+            sessionId: 'session-1',
+        });
+        const recoveredRecord = createWorkspaceDocumentRecord({
+            tab: {
+                fileName: 'Document.pdf',
+                originalPath: requireDocumentRef('/tmp/original.pdf'),
+                isDirty: true,
+                isDjvu: false,
+            },
+            documentIdentity: createDocumentRevision('revision-1', '/tmp/working.pdf'),
+            toolbarSnapshot: {initialVisualReady: true},
+        });
+        session.applyWorkspaceRecord(recoveredRecord, 'workspace');
+
+        session.applyWorkspaceRecord(createWorkspaceDocumentRecord({
+            ...recoveredRecord,
+            tab: {
+                ...recoveredRecord.tab,
+                isDirty: false,
+            },
+            toolbarSnapshot: {isOpeningDocument: true},
+        }), 'workspace');
+
+        expect(session.snapshot.value.dirty).toBe(true);
+
+        session.applyWorkspaceRecord(createWorkspaceDocumentRecord({
+            ...recoveredRecord,
+            tab: {
+                ...recoveredRecord.tab,
+                isDirty: false,
+            },
+            documentIdentity: createDocumentRevision('revision-2', '/tmp/working.pdf'),
+            toolbarSnapshot: {isOpeningDocument: true},
+        }), 'workspace');
+
+        expect(session.snapshot.value.dirty).toBe(false);
+    });
+
     it('keeps checkpoint dirty state through a failed restore opening record', () => {
         const initialTab = {
             fileName: 'Document.pdf',

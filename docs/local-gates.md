@@ -41,6 +41,12 @@ Adds-Checks: user asked for "a real Windows filesystem test for atomic save"
 the pre-push hook, and the CI attribution job. Deleting or editing a check
 needs no trailer. Audit past additions with `git log --grep=Adds-Checks`.
 
+The same trailer covers flake tolerance. A test retry, a wall-clock sleep in a
+test, a raised `testTimeout` or `hookTimeout`, a per-test timeout argument, an
+`[INFRA]` retry marker, a `continue-on-error` step, a retried packaging step,
+or a changed `timeout-minutes` needs the user's words too. See
+[Flaky checks](#flaky-checks).
+
 ## Routine CI
 
 Each main push still gets CI and the `gates_ok` aggregate used by the release
@@ -49,6 +55,33 @@ unit suite on main avoids missing filesystem and auto-import dependencies. Relev
 browser, Electron, native, and packaging lanes follow the changed areas.
 Coverage is an optional diagnostic without percentage thresholds. See
 [ci.yml](../.github/workflows/ci.yml) for the current selections.
+
+A newer push to main cancels the in-progress run of the previous push. A
+cancelled run is superseded, not failed; the newer run's verdict covers both
+commits. The release waiter accepts a cancelled parent run through the newer
+green run that contains it. Re-run a cancelled run with `gh run rerun <id>`
+when the exact commit needs its own verdict.
+
+## Flaky checks
+
+A check that fails without a related change is either broken or measuring
+something nondeterministic. Both are defects in the check. Fix the cause or
+delete the check. Do not add a retry, a sleep, a longer timeout, or
+`continue-on-error` to make it pass; each of those hides the defect, slows
+every run, and needs an `Adds-Checks:` trailer with the user's words.
+
+- Diagnose from the run: `node scripts/ci/ci-health.mjs --days 7` lists
+  failure and cancellation rates, commits whose reruns flipped between red and
+  green, the jobs and steps that fail most, and the slowest green jobs.
+- A failure that starts at one commit and repeats on every later run is a
+  regression in that commit, not flake. Fix the product or the test.
+- An Electron E2E test with a named product or harness failure under
+  investigation moves to `tests/e2e/electron/quarantine/` with its reason and
+  expiry recorded in `graduation-policy.json`, and moves back when fixed.
+- Deep-equality on large buffers, real sleeps, and shared fixtures under
+  parallel writers are the usual causes of slow and unstable tests. Compare
+  bytes with `Buffer#equals`, wait on events or `expect.poll`, and give each
+  test its own temporary directory.
 
 A failing behavior test needs diagnosis. A broken test or measurement needs
 repair. Passing local tests do not establish behavior on an untested platform.

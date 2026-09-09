@@ -5,6 +5,11 @@
 // one must say who asked for it in an `Adds-Checks:` trailer. Deleting or
 // editing an existing check never needs the trailer.
 //
+// The same trailer covers flake tolerance: a retry, a wall-clock sleep, a
+// raised timeout, or a step allowed to fail hides a defect instead of fixing
+// it, and each one made CI slower and less trustworthy in the past. Fix the
+// flake or delete the check; tolerating it needs the user's words too.
+//
 // The commit-msg hook, the pre-push hook, and the CI attribution job all run
 // this through `check-commit-attribution.mjs`.
 
@@ -38,10 +43,66 @@ const ADDED_CHECK_FILE_PATTERNS = [
     },
 ];
 
+const TEST_FILE_PATTERN = /^tests\/.*\.(?:test|spec|e2e)\.[cm]?[jt]sx?$/u;
+const VITEST_CONFIG_PATTERN = /^vitest[A-Za-z.-]*\.config\.[cm]?[jt]s$/u;
+const WORKFLOW_PATTERN = /^\.github\/workflows\/.*\.ya?ml$/u;
+
+// Lines that make a check tolerate its own failures instead of catching a
+// defect. Matched only on added lines, so removing one never needs a trailer.
+const FLAKE_TOLERANCE_LINE_PATTERNS = [
+    {
+        file: TEST_FILE_PATTERN,
+        label: 'wall-clock sleep in a test',
+        pattern: /\bsetTimeout\(\s*(?:resolve|res|r|done)\b|\bawait\s+(?:sleep|delay|wait|pause)\(\s*\d/u,
+    },
+    {
+        file: TEST_FILE_PATTERN,
+        label: 'test retry',
+        pattern: /\bretry:\s*[1-9]|\.retry\(\s*[1-9]/u,
+    },
+    {
+        file: TEST_FILE_PATTERN,
+        label: 'test timeout override',
+        pattern: /\b(?:testTimeout|hookTimeout):\s*\d|^\s*\},?\s*\d{1,3}(?:_\d{3})+\);?\s*$|^\s*\},?\s*\d{4,}\);?\s*$/u,
+    },
+    {
+        // CI retries an Electron E2E failure whose message carries this
+        // marker, so tagging a new failure with it buys silent reruns.
+        file: /^tests\//u,
+        label: 'infrastructure retry marker',
+        pattern: /\[INFRA\]/u,
+    },
+    {
+        file: VITEST_CONFIG_PATTERN,
+        label: 'test retry',
+        pattern: /\bretry:\s*(?!0\b)\S/u,
+    },
+    {
+        file: VITEST_CONFIG_PATTERN,
+        label: 'test timeout raised',
+        pattern: /\b(?:testTimeout|hookTimeout|teardownTimeout):\s*\d/u,
+    },
+    {
+        file: WORKFLOW_PATTERN,
+        label: 'step allowed to fail',
+        pattern: /^\s*continue-on-error:\s*(?!false\b)\S/u,
+    },
+    {
+        file: WORKFLOW_PATTERN,
+        label: 'retried step',
+        pattern: /run-with-retries|nick-fields\/retry|Wandalen\/wretry/u,
+    },
+    {
+        file: WORKFLOW_PATTERN,
+        label: 'job timeout changed',
+        pattern: /^\s*timeout-minutes:/u,
+    },
+];
+
 // Lines whose addition to an existing file registers a new check.
 const ADDED_CHECK_LINE_PATTERNS = [
     {
-        file: /^\.github\/workflows\/.*\.ya?ml$/u,
+        file: WORKFLOW_PATTERN,
         label: 'new workflow job or trigger',
         pattern: /^ {2}[A-Za-z0-9_-]+:[ \t]*$/u,
     },
@@ -51,7 +112,7 @@ const ADDED_CHECK_LINE_PATTERNS = [
         pattern: /^\s*"(?:test|check|validate|verify|gate|audit)[A-Za-z0-9:-]*":\s*"/u,
     },
     {
-        file: /^vitest[A-Za-z.-]*\.config\.[cm]?[jt]s$/u,
+        file: VITEST_CONFIG_PATTERN,
         label: 'new vitest project',
         pattern: /\bcreate[A-Za-z]*TestProject\(/u,
     },
@@ -70,6 +131,7 @@ const ADDED_CHECK_LINE_PATTERNS = [
         label: 'new gate policy entry',
         pattern: /^\s*id: '/u,
     },
+    ...FLAKE_TOLERANCE_LINE_PATTERNS,
 ];
 
 export function readAddsChecksTrailer(message) {
@@ -114,9 +176,10 @@ export function findAddedChecks(entries, readAddedLines) {
 
 export function describeMissingTrailer(added) {
     return [
-        `commit adds checks without an \`${ADDS_CHECKS_TRAILER}:\` trailer: ${added.join('; ')}`,
-        `Add \`${ADDS_CHECKS_TRAILER}: <the user's words that asked for this check>\` to the message, `
-        + 'or drop the new check. Deleting or editing an existing check needs no trailer.',
+        `commit adds checks or flake tolerance without an \`${ADDS_CHECKS_TRAILER}:\` trailer: ${added.join('; ')}`,
+        `Add \`${ADDS_CHECKS_TRAILER}: <the user's words that asked for this>\` to the message, `
+        + 'or drop the new check. A retry, sleep, raised timeout, or allowed failure hides a defect: '
+        + 'fix the flake or delete the check instead. Deleting or editing an existing check needs no trailer.',
     ];
 }
 
