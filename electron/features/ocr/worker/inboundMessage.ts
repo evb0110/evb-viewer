@@ -8,6 +8,7 @@ import {parseDocumentRef} from '@contracts/documentRef';
 import {parseEpochMs} from '@contracts/timestamps';
 import {
     parseJobId,
+    parseRequestId,
     type TJobId,
     type TRequestId,
 } from '@contracts/shared';
@@ -145,6 +146,33 @@ function parseValidatedWorkerId(value: unknown): TJobId | null {
     return parseJobId(value);
 }
 
+function parseNativeChildAck(
+    value: Record<string, unknown>,
+    jobId: TJobId,
+): TOcrWorkerInboundMessage | null {
+    if (
+        value.type !== 'native-child-intent-ack'
+        && value.type !== 'native-child-register-ack'
+        && value.type !== 'native-child-exit-ack'
+    ) {
+        return null;
+    }
+    const childId = parseRequestId(value.childId);
+    if (childId === null || typeof value.accepted !== 'boolean') {
+        return null;
+    }
+    if (value.reason !== undefined && (typeof value.reason !== 'string' || value.reason.trim().length === 0)) {
+        return null;
+    }
+    return {
+        type: value.type,
+        jobId,
+        childId,
+        accepted: value.accepted,
+        ...(value.reason === undefined ? {} : {reason: value.reason}),
+    };
+}
+
 export function parseOcrWorkerInboundMessage(value: unknown): TOcrWorkerInboundMessage | null {
     if (!isRecord(value)) {
         return null;
@@ -196,6 +224,11 @@ export function parseOcrWorkerInboundMessage(value: unknown): TOcrWorkerInboundM
             requestId,
             reason: value.reason,
         };
+    }
+
+    const nativeChildAck = parseNativeChildAck(value, jobId);
+    if (nativeChildAck !== null) {
+        return nativeChildAck;
     }
 
     if (value.type !== 'start') {

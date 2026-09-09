@@ -22,6 +22,8 @@ import {
     createDetachedChildProcessSpawnOptions,
     terminateDetachedChildProcess,
 } from '@electron/utils/nativeChildProcess';
+import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
+import { getOcrNativeChildRegistrationProvider } from '@electron/features/ocr/worker/nativeChildRegistration';
 
 const PNG_SIGNATURE = Buffer.from([
     0x89,
@@ -168,7 +170,9 @@ export async function runOcrFileBased(
         'textonly_pdf=1',
     ];
 
-    return new Promise((resolve) => {
+    const registration = await getOcrNativeChildRegistrationProvider()?.prepare(`tesseract(${imagePath})`);
+    let registrationPromise: Promise<void> | null = null;
+    const result = await new Promise<IOcrFileResult>((resolve) => {
         if (signal?.aborted) {
             resolve({
                 success: false,
@@ -180,6 +184,12 @@ export async function runOcrFileBased(
         }
 
         const proc = spawn(tesseractBinary, args, createDetachedChildProcessSpawnOptions({ env: buildTesseractEnv(tessdataPath, threads) }));
+        registrationPromise = registration === undefined
+            ? null
+            : typeof proc.pid === 'number' && proc.pid > 0
+                ? registration.register(proc.pid)
+                : Promise.reject(new Error('Tesseract spawned without a valid process id'));
+        void registrationPromise?.catch(() => undefined);
 
         let stderr = '';
         let stderrTruncated = false;
@@ -237,7 +247,9 @@ export async function runOcrFileBased(
         };
 
         const finalizeFailureAfterCleanup = async (error: string) => {
-            await cleanupTempOutputs();
+            if (getTerminationUnprovenDetail() === undefined) {
+                await cleanupTempOutputs();
+            }
             finalize(createFailureResult(error));
         };
 
@@ -246,8 +258,7 @@ export async function runOcrFileBased(
                 return;
             }
             handles.forceFinalizeHandle = setTimeout(async () => {
-                await cleanupTempOutputs();
-                finalize(createFailureResult(error));
+                await finalizeFailureAfterCleanup(error);
             }, FILE_BASED_OCR_KILL_GRACE_MS + 1_000);
             handles.forceFinalizeHandle.unref();
         };
@@ -372,6 +383,34 @@ export async function runOcrFileBased(
             await finalizeFailureAfterCleanup(err.message);
         });
     });
+
+    if (!registration) {
+        return result;
+    }
+    if (registrationPromise === null) {
+        registration.markNoSpawn();
+        return result;
+    }
+    if (result.terminationUnproven !== undefined) {
+        registration.markUnproven(result.terminationUnproven);
+        return result;
+    }
+    try {
+        await Promise.resolve(registrationPromise);
+        await registration.markExited();
+        return result;
+    } catch (error) {
+        const detail = getUnprovenNativeTerminationDetail(error)
+            ?? (error instanceof Error ? error.message : String(error));
+        registration.markUnproven(detail);
+        return {
+            success: false,
+            pageData: null,
+            pdfPath: null,
+            error: `Tesseract native-child cleanup proof failed: ${detail}`,
+            terminationUnproven: detail,
+        };
+    }
 }
 
 interface ITsvLineBox {

@@ -6,6 +6,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import { markUnprovenNativeTermination } from '@electron/utils/nativeTerminationProof';
 
 interface IMockNativeWriteProgress {
     processed: number;
@@ -302,6 +303,23 @@ describe('tryCreatePdfFromInputPathsNative', () => {
         expect(result).toBeNull();
         expect(mocks.runQpdfCommand).not.toHaveBeenCalled();
         expect(mocks.rm).toHaveBeenCalledWith('/tmp/native-assembler', {
+            recursive: true,
+            force: true,
+        });
+    });
+
+    it('propagates unproven image termination and retains assembler scratch', async () => {
+        vi.stubEnv('EVB_PDF_NATIVE_ASSEMBLER_ENABLE', '1');
+        const terminationError = markUnprovenNativeTermination(
+            new Error('native image tree is still running'),
+            'native image combine process tree was not proven dead',
+        );
+        mocks.nativeWrite.mockRejectedValueOnce(terminationError);
+
+        await expect(tryCreatePdfFromInputPathsNative(['/tmp/one.png']))
+            .rejects.toBe(terminationError);
+
+        expect(mocks.rm).not.toHaveBeenCalledWith('/tmp/native-assembler', {
             recursive: true,
             force: true,
         });

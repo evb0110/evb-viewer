@@ -59,6 +59,19 @@ export interface IOcrFileResult {
     terminationUnproven?: string;
 }
 
+export type TOcrNativeChildProcessIdentityKind = 'linux-proc-start-time' | 'opaque';
+
+export interface IOcrNativeChildProcessIdentity {
+    kind: TOcrNativeChildProcessIdentityKind;
+    value: string;
+}
+
+export interface IOcrNativeChildRegistration {
+    childId: TRequestId;
+    pid: number;
+    processIdentity: IOcrNativeChildProcessIdentity;
+}
+
 export interface IOcrWorkerStartPayload {
     sourcePdfPath: string;
     documentRevision: IDocumentRevisionInfo;
@@ -89,6 +102,27 @@ export type TOcrWorkerInboundMessage =
         jobId: TJobId;
         requestId: TRequestId;
         reason: string;
+    }
+    | {
+        type: 'native-child-intent-ack';
+        jobId: TJobId;
+        childId: TRequestId;
+        accepted: boolean;
+        reason?: string;
+    }
+    | {
+        type: 'native-child-register-ack';
+        jobId: TJobId;
+        childId: TRequestId;
+        accepted: boolean;
+        reason?: string;
+    }
+    | {
+        type: 'native-child-exit-ack';
+        jobId: TJobId;
+        childId: TRequestId;
+        accepted: boolean;
+        reason?: string;
     };
 
 interface IOcrWorkerProgressPayload {
@@ -134,6 +168,42 @@ export interface IOcrWorkerCleanupCompleteMessage {
     jobId: TJobId;
 }
 
+export interface IOcrWorkerNativeChildIntentMessage {
+    type: 'native-child-intent';
+    jobId: TJobId;
+    childId: TRequestId;
+    commandLabel: string;
+}
+
+export interface IOcrWorkerNativeChildRegisterMessage {
+    type: 'native-child-register';
+    jobId: TJobId;
+    childId: TRequestId;
+    pid: number;
+    processIdentity: IOcrNativeChildProcessIdentity;
+}
+
+export interface IOcrWorkerNativeChildExitMessage {
+    type: 'native-child-exit';
+    jobId: TJobId;
+    childId: TRequestId;
+    pid: number;
+    processIdentity: IOcrNativeChildProcessIdentity;
+}
+
+export interface IOcrWorkerNativeChildNoSpawnMessage {
+    type: 'native-child-no-spawn';
+    jobId: TJobId;
+    childId: TRequestId;
+}
+
+export interface IOcrWorkerNativeChildUnprovenMessage {
+    type: 'native-child-unproven';
+    jobId: TJobId;
+    childId: TRequestId;
+    detail: string;
+}
+
 export interface IOcrWorkerLogMessage {
     type: 'log';
     level: TOcrWorkerLogLevel;
@@ -160,6 +230,11 @@ export type TOcrWorkerOutboundMessage =
     | IOcrWorkerProgressMessage
     | IOcrWorkerCompleteMessage
     | IOcrWorkerCleanupCompleteMessage
+    | IOcrWorkerNativeChildIntentMessage
+    | IOcrWorkerNativeChildRegisterMessage
+    | IOcrWorkerNativeChildExitMessage
+    | IOcrWorkerNativeChildNoSpawnMessage
+    | IOcrWorkerNativeChildUnprovenMessage
     | IOcrWorkerLogMessage
     | IOcrWorkerResourceAcquireMessage
     | IOcrWorkerResourceReleaseMessage;

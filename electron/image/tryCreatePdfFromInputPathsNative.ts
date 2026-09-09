@@ -44,6 +44,7 @@ import {
     abortErrorFromSignal,
     isAbortError,
 } from '@electron/utils/abort';
+import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
 import {
     atomicReplace,
     makeSiblingTempPath,
@@ -661,6 +662,9 @@ async function writePdfFromInputPathsNativeWithTempDir(
         emitProgress(progress, options, progress.total);
         return pageCount;
     } catch (error) {
+        if (getUnprovenNativeTerminationDetail(error) !== undefined) {
+            throw error;
+        }
         if (options?.signal?.aborted || isAbortError(error)) {
             throw error;
         }
@@ -759,6 +763,7 @@ export async function tryWritePdfFromInputPathsNative(
     }
     const stagedOutputPath = makeSiblingTempPath(normalizedOutputPath);
     const limits = getResourceLimits('file-backed');
+    let retainNativeCleanup = false;
 
     try {
         await assertNativeCombineDiskSpace(inputPaths, normalizedOutputPath, limits);
@@ -793,6 +798,10 @@ export async function tryWritePdfFromInputPathsNative(
         await atomicReplace(stagedOutputPath, normalizedOutputPath);
         return true;
     } catch (error) {
+        if (getUnprovenNativeTerminationDetail(error) !== undefined) {
+            retainNativeCleanup = true;
+            throw error;
+        }
         if (options?.signal?.aborted || isAbortError(error)) {
             throw error;
         }
@@ -811,11 +820,13 @@ export async function tryWritePdfFromInputPathsNative(
             error,
         );
     } finally {
-        await rm(stagedOutputPath, { force: true }).catch(() => undefined);
-        await rm(tempDir, {
-            recursive: true,
-            force: true,
-        }).catch(() => undefined);
+        if (!retainNativeCleanup) {
+            await rm(stagedOutputPath, { force: true }).catch(() => undefined);
+            await rm(tempDir, {
+                recursive: true,
+                force: true,
+            }).catch(() => undefined);
+        }
     }
 }
 
@@ -858,6 +869,7 @@ export async function tryCreatePdfFromInputPathsNative(
     // file-backed form keeps bytes on disk, but it still cannot publish an
     // oversized combine result to its caller.
     const limits = getResourceLimits(strict ? 'file-backed' : 'memory');
+    let retainNativeCleanup = false;
 
     try {
         const expectedPageCount = await writePdfFromInputPathsNativeWithTempDir(
@@ -882,6 +894,10 @@ export async function tryCreatePdfFromInputPathsNative(
         }
         return await readLimitedPdfOutput(outputPath, limits);
     } catch (error) {
+        if (getUnprovenNativeTerminationDetail(error) !== undefined) {
+            retainNativeCleanup = true;
+            throw error;
+        }
         if (options?.signal?.aborted || isAbortError(error)) {
             throw error;
         }
@@ -901,9 +917,11 @@ export async function tryCreatePdfFromInputPathsNative(
         log.warn(`Native PDF assembler failed, falling back to JS combine: ${getErrorMessage(error)}`);
         return null;
     } finally {
-        await rm(tempDir, {
-            recursive: true,
-            force: true,
-        }).catch(() => undefined);
+        if (!retainNativeCleanup) {
+            await rm(tempDir, {
+                recursive: true,
+                force: true,
+            }).catch(() => undefined);
+        }
     }
 }

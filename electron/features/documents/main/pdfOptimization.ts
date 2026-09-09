@@ -39,6 +39,7 @@ import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory'
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 import { parseDocumentRef } from '@contracts/documentRef';
 import type { TRequestId } from '@contracts/shared';
+import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
 
 const PDF_OPTIMIZE_RENDER_CHUNK_PAGES = parseIntegerEnv(
     'EVB_PDF_OPTIMIZE_RENDER_CHUNK_PAGES',
@@ -340,10 +341,12 @@ async function optimizeRasterCopy(
     const tempDir = await mkdtemp(join(tmpdir(), 'pdf-optimize-'));
     const chunkPaths: string[] = [];
     let processedPages = 0;
+    let retainNativeCleanup = false;
 
     try {
         for (const range of createPageRanges(pageCount)) {
             const actualRenderDir = await mkdtemp(join(tempDir, 'render-pages-'));
+            let retainRenderCleanup = false;
             try {
                 const renderedPages = await renderPdfRangeToJpegPages(
                     inputPath,
@@ -365,21 +368,36 @@ async function optimizeRasterCopy(
                     context,
                 );
                 chunkPaths.push(chunkPath);
+            } catch (error) {
+                if (getUnprovenNativeTerminationDetail(error) !== undefined) {
+                    retainRenderCleanup = true;
+                    retainNativeCleanup = true;
+                }
+                throw error;
             } finally {
-                await rm(actualRenderDir, {
-                    recursive: true,
-                    force: true,
-                }).catch(() => undefined);
+                if (!retainRenderCleanup) {
+                    await rm(actualRenderDir, {
+                        recursive: true,
+                        force: true,
+                    }).catch(() => undefined);
+                }
             }
         }
 
         await mergePdfChunks(chunkPaths, tempOutputPath, context);
         return await finalizeOptimizedPdf(tempOutputPath, outputPath, context, pageCount);
+    } catch (error) {
+        if (getUnprovenNativeTerminationDetail(error) !== undefined) {
+            retainNativeCleanup = true;
+        }
+        throw error;
     } finally {
-        await rm(tempDir, {
-            recursive: true,
-            force: true,
-        }).catch(() => undefined);
+        if (!retainNativeCleanup) {
+            await rm(tempDir, {
+                recursive: true,
+                force: true,
+            }).catch(() => undefined);
+        }
     }
 }
 

@@ -858,6 +858,73 @@ describe('ocr job manager preparing-stage robustness', {timeout: 20_000}, () => 
         });
     });
 
+    it('keeps admission when worker termination is still pending beyond its deadline', async () => {
+        vi.useFakeTimers();
+        vi.stubEnv('EVB_OCR_WORKER_TERMINATE_TIMEOUT_MS', '1000');
+        vi.stubEnv('EVB_OCR_WORKER_POOL_SIZE', '1');
+        mocks.ensureTessdataLanguages.mockResolvedValue(undefined);
+
+        const {
+            handleOcrCancel,
+            handleOcrCreateSearchablePdfAsync,
+        } = await import('@electron/features/ocr/main/jobManager');
+
+        const firstContext = createContext(183);
+        await expect(startOcrJob(handleOcrCreateSearchablePdfAsync, firstContext, 'job-183')).resolves.toMatchObject({
+            started: true,
+            jobId: 'job-183',
+        });
+        const firstWorker = mocks.workerInstances[0];
+        expect(firstWorker).toBeDefined();
+        firstWorker?.terminate.mockImplementationOnce(() => new Promise<number>(() => undefined));
+
+        const secondPromise = startOcrJob(handleOcrCreateSearchablePdfAsync, createContext(184), 'job-184');
+        expect(handleOcrCancel(firstContext, requireRequestId('job-183'))).toEqual({canceled: true});
+        await vi.advanceTimersByTimeAsync(1_001);
+        expect(mocks.workerInstances).toHaveLength(1);
+
+        firstWorker?.emit('exit', 0);
+        await expect(secondPromise).resolves.toMatchObject({
+            started: true,
+            jobId: 'job-184',
+        });
+        expect(mocks.workerInstances).toHaveLength(2);
+        mocks.workerInstances[1]?.emit('exit', 0);
+    });
+
+    it('keeps admission after a rejected worker termination until exit is proven', async () => {
+        vi.stubEnv('EVB_OCR_WORKER_POOL_SIZE', '1');
+        mocks.ensureTessdataLanguages.mockResolvedValue(undefined);
+
+        const {
+            handleOcrCancel,
+            handleOcrCreateSearchablePdfAsync,
+        } = await import('@electron/features/ocr/main/jobManager');
+
+        const firstContext = createContext(185);
+        await expect(startOcrJob(handleOcrCreateSearchablePdfAsync, firstContext, 'job-185')).resolves.toMatchObject({
+            started: true,
+            jobId: 'job-185',
+        });
+        const firstWorker = mocks.workerInstances[0];
+        expect(firstWorker).toBeDefined();
+        firstWorker?.terminate.mockRejectedValueOnce(new Error('termination rejected'));
+
+        const secondPromise = startOcrJob(handleOcrCreateSearchablePdfAsync, createContext(186), 'job-186');
+        expect(handleOcrCancel(firstContext, requireRequestId('job-185'))).toEqual({canceled: true});
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(mocks.workerInstances).toHaveLength(1);
+
+        firstWorker?.emit('exit', 0);
+        await expect(secondPromise).resolves.toMatchObject({
+            started: true,
+            jobId: 'job-186',
+        });
+        expect(mocks.workerInstances).toHaveLength(2);
+        mocks.workerInstances[1]?.emit('exit', 0);
+    });
+
     it('still forwards completion from the current active worker', async () => {
         mocks.ensureTessdataLanguages.mockResolvedValueOnce(undefined);
 

@@ -21,6 +21,10 @@ import { getErrorMessage } from '@electron/utils/error';
 import { createLogger } from '@electron/utils/createLogger';
 import { abortErrorFromSignal } from '@electron/utils/abort';
 import {
+    getUnprovenNativeTerminationDetail,
+    markUnprovenNativeTermination,
+} from '@electron/utils/nativeTerminationProof';
+import {
     createDetachedChildProcessSpawnOptions,
     terminateDetachedChildProcess,
 } from '@electron/utils/nativeChildProcess';
@@ -67,6 +71,24 @@ type TNativePdfImageCombineTermination =
         kind: 'reject';
         error: Error;
     };
+
+interface INativePdfImageCombineTerminationRequest {
+    completion: TNativePdfImageCombineTermination;
+    childPid: number | null;
+}
+
+type TNativePdfImageCombineTerminationOutcome =
+    | {proven: true;}
+    | {
+        proven: false;
+        cause?: unknown;
+    };
+
+type TNativePdfImageCombineRetainCleanup = (
+    proof: Promise<boolean>,
+    childPid: number | null,
+    outputPath: string,
+) => void;
 
 const logger = createLogger('nativePdfImageCombine');
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -326,6 +348,18 @@ interface INativePdfImageCombineTempFiles {
     tempDir: string;
     inputsPath: string;
     rotationsPath: string;
+    retainCleanupUntilTerminationProof: TNativePdfImageCombineRetainCleanup;
+}
+
+function createIdempotentCleanup(cleanup: () => Promise<void>) {
+    let cleanupPromise: Promise<void> | null = null;
+    return () => {
+        cleanupPromise ??= cleanup().catch(error => {
+            cleanupPromise = null;
+            throw error;
+        });
+        return cleanupPromise;
+    };
 }
 
 async function withNativePdfImageCombineTempFiles<T>(
@@ -334,10 +368,35 @@ async function withNativePdfImageCombineTempFiles<T>(
     operation: (files: INativePdfImageCombineTempFiles) => Promise<T>,
 ) {
     const tempDir = await mkdtemp(join(tmpdir(), 'pdf-image-combine-'));
-    const files = {
+    const cleanupTempDir = createIdempotentCleanup(() => rm(tempDir, {
+        recursive: true,
+        force: true,
+    }));
+    let retainedCleanupProof: Promise<boolean> | null = null;
+    const retainCleanupUntilTerminationProof: TNativePdfImageCombineRetainCleanup = (
+        proof,
+        childPid,
+        outputPath,
+    ) => {
+        if (retainedCleanupProof) {
+            return;
+        }
+        retainedCleanupProof = proof;
+        void proof.then(proven => {
+            if (proven) {
+                void cleanupTempDir().catch(error => {
+                    logger.warn(`Failed to cleanup native image combine scratch for child pid=${String(childPid)} output="${outputPath}": ${getErrorMessage(error)}`);
+                });
+                return;
+            }
+            logger.warn(`Retaining native image combine scratch for child pid=${String(childPid)} output="${outputPath}" until termination is proven`);
+        });
+    };
+    const files: INativePdfImageCombineTempFiles = {
         tempDir,
         inputsPath: join(tempDir, 'inputs.txt'),
         rotationsPath: join(tempDir, 'rotations.txt'),
+        retainCleanupUntilTerminationProof,
     };
 
     try {
@@ -349,10 +408,9 @@ async function withNativePdfImageCombineTempFiles<T>(
         );
         return await operation(files);
     } finally {
-        await rm(tempDir, {
-            recursive: true,
-            force: true,
-        }).catch(() => undefined);
+        if (!retainedCleanupProof) {
+            await cleanupTempDir().catch(() => undefined);
+        }
     }
 }
 
@@ -501,6 +559,7 @@ async function createPdfWithNativeImageCombiner(
         tempDir,
         inputsPath,
         rotationsPath,
+        retainCleanupUntilTerminationProof,
     }) => {
         const outputPath = join(tempDir, `${randomUUID()}.pdf`);
         const ok = await runNativePdfImageCombine(binaryPath, outputPath, [], options, [
@@ -509,7 +568,7 @@ async function createPdfWithNativeImageCombiner(
             inputsPath,
             '--rotations-file',
             rotationsPath,
-        ]);
+        ], retainCleanupUntilTerminationProof);
         if (!ok) {
             return null;
         }
@@ -541,6 +600,7 @@ async function writePdfWithNativeImageCombiner(
     return withNativePdfImageCombineTempFiles(inputPaths, options?.rotationDegrees, async ({
         inputsPath,
         rotationsPath,
+        retainCleanupUntilTerminationProof,
     }) => {
         try {
             const ok = await runNativePdfImageCombine(binaryPath, outputPath, [], options, [
@@ -548,7 +608,7 @@ async function writePdfWithNativeImageCombiner(
                 inputsPath,
                 '--rotations-file',
                 rotationsPath,
-            ]);
+            ], retainCleanupUntilTerminationProof);
             if (!ok) {
                 await rm(outputPath, { force: true }).catch(() => undefined);
                 return false;
@@ -560,6 +620,7 @@ async function writePdfWithNativeImageCombiner(
         } catch (error) {
             if (
                 error instanceof Error
+            && getUnprovenNativeTerminationDetail(error) === undefined
             && error.message.startsWith('Native image PDF combine fallback is not allowed in tests:')
             ) {
                 await rm(outputPath, { force: true }).catch(() => undefined);
@@ -575,6 +636,7 @@ async function runNativePdfImageCombine(
     inputPaths: string[],
     options?: INativePdfImageCombineOptions,
     extraArgs: string[] = [],
+    retainCleanupUntilTerminationProof?: TNativePdfImageCombineRetainCleanup,
 ) {
     if (options?.signal?.aborted) {
         throw abortErrorFromSignal(options.signal);
@@ -625,7 +687,7 @@ async function runNativePdfImageCombine(
         let abortHandler: (() => void) | null = null;
         let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
         let forceSettleHandle: ReturnType<typeof setTimeout> | null = null;
-        let pendingTermination: TNativePdfImageCombineTermination | null = null;
+        let pendingTermination: INativePdfImageCombineTerminationRequest | null = null;
 
         const cleanup = () => {
             if (timeoutHandle) {
@@ -689,31 +751,104 @@ async function runNativePdfImageCombine(
                 });
         };
 
-        const settleAfterTermination = (completion: TNativePdfImageCombineTermination) => {
-            if (pendingTermination !== completion) {
+        const getChildPid = () => {
+            const childPid = proc.pid;
+            return typeof childPid === 'number'
+                && Number.isSafeInteger(childPid)
+                && childPid > 0
+                ? childPid
+                : null;
+        };
+
+        const createUnprovenTerminationFailure = (
+            completion: TNativePdfImageCombineTermination,
+            detail: string,
+            cause?: unknown,
+        ) => {
+            const completionCause = completion.kind === 'reject'
+                ? completion.error
+                : cause;
+            const failure = new Error(
+                `Native image PDF combine termination was not proven: ${detail}`,
+                completionCause === undefined ? undefined : {cause: completionCause},
+            );
+            if (completion.kind === 'reject' && completion.error.name === 'AbortError') {
+                failure.name = 'AbortError';
+            }
+            return markUnprovenNativeTermination(failure, detail);
+        };
+
+        const settleAfterTermination = (
+            request: INativePdfImageCombineTerminationRequest,
+            outcome: TNativePdfImageCombineTerminationOutcome,
+        ) => {
+            if (pendingTermination !== request || settled) {
                 return;
             }
             pendingTermination = null;
-            if (completion.kind === 'reject') {
-                fail(completion.error);
+            if (!outcome.proven) {
+                const detail = request.childPid === null
+                    ? 'native image combine child identity was not usable; process tree termination was not proven'
+                    : `native image combine process tree (pid=${String(request.childPid)}) was not proven dead`;
+                fail(createUnprovenTerminationFailure(
+                    request.completion,
+                    detail,
+                    outcome.cause,
+                ));
                 return;
             }
-            finish(completion.ok);
+            if (request.completion.kind === 'reject') {
+                fail(request.completion.error);
+                return;
+            }
+            finish(request.completion.ok);
         };
 
         const requestTermination = (completion: TNativePdfImageCombineTermination) => {
             if (settled || pendingTermination) {
                 return;
             }
-            pendingTermination = completion;
+            const childPid = getChildPid();
+            const request: INativePdfImageCombineTerminationRequest = {
+                completion,
+                childPid,
+            };
+            pendingTermination = request;
             proc.stdout?.removeAllListeners('data');
             proc.stderr?.removeAllListeners('data');
             proc.stdout?.destroy?.();
             proc.stderr?.destroy?.();
-            void terminateDetachedChildProcess(proc, 1_000)
-                .finally(() => settleAfterTermination(completion));
+            const terminationOutcome = Promise.resolve()
+                .then(() => terminateDetachedChildProcess(proc, 1_000))
+                .then<TNativePdfImageCombineTerminationOutcome, TNativePdfImageCombineTerminationOutcome>(
+                    terminated => childPid !== null && terminated === true
+                        ? {proven: true}
+                        : {
+                            proven: false,
+                            cause: childPid === null
+                                ? new Error('Native image combine child identity was not usable')
+                                : undefined,
+                        },
+                    (error: unknown) => ({
+                        proven: false,
+                        cause: error,
+                    }),
+                );
+            const terminationProof = terminationOutcome.then(outcome => outcome.proven);
+            retainCleanupUntilTerminationProof?.(terminationProof, childPid, outputPath);
+            void terminationOutcome.then(outcome => settleAfterTermination(request, outcome));
             forceSettleHandle = setTimeout(() => {
-                settleAfterTermination(completion);
+                if (pendingTermination !== request || settled) {
+                    return;
+                }
+                pendingTermination = null;
+                const detail = childPid === null
+                    ? 'native image combine child identity was not usable; process tree termination was not proven'
+                    : `native image combine process tree (pid=${String(childPid)}) was not proven dead within 3000ms`;
+                fail(createUnprovenTerminationFailure(
+                    completion,
+                    detail,
+                ));
             }, 3_000);
             forceSettleHandle.unref?.();
         };
@@ -780,16 +915,15 @@ async function runNativePdfImageCombine(
         });
 
         proc.on('error', (error) => {
+            if (settled || pendingTermination) {
+                return;
+            }
             logger.warn(`Native image PDF combine failed to start: ${getErrorMessage(error)}`);
             finishFailure('native process failed to start', error);
         });
 
         proc.on('close', (code) => {
-            if (settled) {
-                return;
-            }
-            if (pendingTermination) {
-                settleAfterTermination(pendingTermination);
+            if (settled || pendingTermination) {
                 return;
             }
             if (stdoutBuffer) {

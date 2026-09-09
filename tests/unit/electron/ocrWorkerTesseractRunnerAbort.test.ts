@@ -84,6 +84,7 @@ describe('runOcrFileBased abort handling', () => {
             abortController.signal,
         );
 
+        await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalled());
         abortController.abort();
         await vi.advanceTimersByTimeAsync(1_006);
 
@@ -94,8 +95,8 @@ describe('runOcrFileBased abort handling', () => {
             error: 'Tesseract aborted',
             terminationUnproven: expect.stringContaining('was not proven dead'),
         });
-        expect(mocks.unlink).toHaveBeenCalledWith('/tmp/page-ocr.tsv');
-        expect(mocks.unlink).toHaveBeenCalledWith('/tmp/page-ocr.pdf');
+        expect(mocks.unlink).not.toHaveBeenCalledWith('/tmp/page-ocr.tsv');
+        expect(mocks.unlink).not.toHaveBeenCalledWith('/tmp/page-ocr.pdf');
     });
 
     it('propagates a false native termination result instead of treating cancellation as clean', async () => {
@@ -116,6 +117,7 @@ describe('runOcrFileBased abort handling', () => {
             abortController.signal,
         );
 
+        await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalled());
         abortController.abort();
         await vi.advanceTimersByTimeAsync(1_006);
 

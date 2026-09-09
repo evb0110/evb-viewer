@@ -14,6 +14,7 @@ import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { iterateDecodedTiffFrames } from '@pdf-core/iterateDecodedTiffFrames';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
+import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
 import { tryCreatePdfWithNativeImageCombiner } from '@electron/image/tryCreatePdfWithNativeImageCombiner';
 import { tryCreatePdfFromInputPathsNative } from '@electron/image/tryCreatePdfFromInputPathsNative';
 import { PdfCombineCapabilityError } from '@contracts/pdfCombineErrors';
@@ -570,6 +571,7 @@ export async function createCombinedPdf(
         options.unsupportedFileError,
     );
     const staged = await stageNativeCombineInputs(normalizedPaths, options.signal);
+    let retainStagedInputs = false;
     try {
         const nativeOptions = {
             maxPages: limits.maxPages,
@@ -594,7 +596,12 @@ export async function createCombinedPdf(
         throwIfAborted(options.signal);
         assertOutputLimit(nativeOutput, limits);
         return nativeOutput;
+    } catch (error) {
+        retainStagedInputs = getUnprovenNativeTerminationDetail(error) !== undefined;
+        throw error;
     } finally {
-        await staged.cleanup();
+        if (!retainStagedInputs) {
+            await staged.cleanup();
+        }
     }
 }
