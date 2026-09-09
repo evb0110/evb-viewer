@@ -538,6 +538,64 @@ describe('usePdfAnnotationEditorSurface', () => {
         harness.stop();
     });
 
+    it('refreshes a merged highlight preview from its resolved union geometry', () => {
+        const harness = createSurfaceHarness();
+        const first = harness.surface.createHighlightFromSelection(0, [rect], {selectedText: 'first text'});
+        const resolveSelectedText = vi.fn((quadPoints) => {
+            expect(quadPoints).toEqual([{
+                left: 0.1,
+                top: 0.2,
+                width: 0.3,
+                height: 0.05,
+            }]);
+            return 'first and second text';
+        });
+
+        const merged = harness.surface.createHighlightFromSelection(0, [{
+            ...rect,
+            left: 0.2,
+        }], {selectedText: 'second text'}, {resolveSelectedText});
+
+        expect(merged.identity.id).toBe(first.identity.id);
+        expect(resolveSelectedText).toHaveBeenCalledOnce();
+        expect(harness.annotationApplication.value.store.get(first.identity.id)).toMatchObject({selectedText: 'first and second text'});
+        harness.stop();
+    });
+
+    it('keeps a partial overlap preview through merge undo and redo', () => {
+        const harness = createSurfaceHarness();
+        const first = harness.surface.createHighlightFromSelection(0, [{
+            left: 0.1,
+            top: 0.2,
+            width: 0.3,
+            height: 0.05,
+        }], {selectedText: 'AB'});
+        const resolveSelectedText = vi.fn((quadPoints) => {
+            expect(quadPoints).toEqual([{
+                left: 0.1,
+                top: 0.2,
+                width: 0.45,
+                height: 0.05,
+            }]);
+            return 'ABC';
+        });
+
+        const merged = harness.surface.createHighlightFromSelection(0, [{
+            left: 0.25,
+            top: 0.2,
+            width: 0.3,
+            height: 0.05,
+        }], {selectedText: 'BC'}, {resolveSelectedText});
+
+        expect(merged.identity.id).toBe(first.identity.id);
+        expect(harness.annotationApplication.value.store.get(first.identity.id)).toMatchObject({selectedText: 'ABC'});
+        expect(harness.surface.undo()).toBe(true);
+        expect(harness.annotationApplication.value.store.get(first.identity.id)).toMatchObject({selectedText: 'AB'});
+        expect(harness.surface.redo()).toBe(true);
+        expect(harness.annotationApplication.value.store.get(first.identity.id)).toMatchObject({selectedText: 'ABC'});
+        harness.stop();
+    });
+
     it('creates and selects one canonical stamp with its JPEG image reference', () => {
         const harness = createSurfaceHarness();
         const image = {

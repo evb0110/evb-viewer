@@ -225,7 +225,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         },
         refine: refineNavigationCommit,
         refineAfterVisual: (intent, commit) => (
-            intent.navigation?.target.kind === 'text-anchor'
+            intent.navigation
                 ? refineNavigationCommit(intent, commit)
                 : Promise.resolve(commit)
         ),

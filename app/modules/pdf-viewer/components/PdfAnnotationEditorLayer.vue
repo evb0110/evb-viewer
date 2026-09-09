@@ -36,6 +36,7 @@
                 :key="entity.identity.id"
                 :page-rotation="surface.getPageGeometry(pageIndex)?.rotation ?? 0"
                 :entity="entity"
+                :highlight-paint-quads="highlightPaintQuads.get(entity.identity.id)"
                 :selected="isSelected(entity.identity.id)"
                 :page-size="pageDimensions"
             />
@@ -293,6 +294,25 @@ const svgEntities = computed(() => {
             .filter((entity): entity is IShapeEntity => entity.kind === 'shape')
             .map(shapeForRender),
     };
+});
+
+const highlightPaintQuads = computed(() => {
+    const groups = new Map<string, IAnnotationMarkerRect[]>();
+    const byAnnotation = new Map<AnnotationId, readonly IAnnotationMarkerRect[]>();
+    for (const entity of svgEntities.value.textMarkup) {
+        if (entity.subtype !== 'Highlight') continue;
+        const key = `${entity.color?.toLowerCase() ?? 'default'}:${entity.opacity ?? 0.45}`;
+        const group = groups.get(key);
+        if (group) {
+            group.push(...entity.quadPoints);
+            byAnnotation.set(entity.identity.id, []);
+        } else {
+            const quads = [...entity.quadPoints];
+            groups.set(key, quads);
+            byAnnotation.set(entity.identity.id, quads);
+        }
+    }
+    return byAnnotation;
 });
 
 function shapeForRender(entity: IShapeEntity) {

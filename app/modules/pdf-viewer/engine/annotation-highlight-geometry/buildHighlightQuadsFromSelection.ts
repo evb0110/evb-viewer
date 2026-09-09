@@ -9,6 +9,10 @@ import {
     ADJACENT_RUN_GAP,
     BASELINE_TOLERANCE,
 } from '@app/modules/pdf-viewer/engine/annotation-highlight-geometry/mergeLineBoxesOnBaseline';
+import type {
+    IPdfTextPreviewItem,
+    IPdfTextPreviewViewport,
+} from '@app/modules/pdf-viewer/engine/annotations/pdf-annotation-preview-text/pdfAnnotationPreviewTextTypes';
 
 export interface IHighlightSelectionPage {
     readonly pageNumber: number;
@@ -20,6 +24,10 @@ export interface IHighlightPageGeometry {
     readonly pageNumber: number;
     readonly quadPoints: readonly IAnnotationMarkerRect[];
     readonly selectedText: string;
+    readonly previewText?: {
+        readonly textItems: readonly IPdfTextPreviewItem[];
+        readonly viewport: IPdfTextPreviewViewport;
+    };
 }
 
 interface ISelectedRun {

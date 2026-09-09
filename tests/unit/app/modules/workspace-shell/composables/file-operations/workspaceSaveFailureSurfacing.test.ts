@@ -9,6 +9,7 @@ import {
 import { ref } from 'vue';
 import { requireDocumentRevisionToken } from '@contracts/documentRevision';
 import { requireDocumentRef } from '@contracts/documentRef';
+import { requirePageIndex } from '@contracts/pageNumbers';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import type {IPdfNativePlacedImageGeometryUpdate} from '@contracts/electronApiDocuments';
 import {
@@ -365,7 +366,12 @@ describe('workspace save failure surfacing', () => {
             bookmarksDirty: ref(true),
             bookmarkItems: ref([{
                 title: 'Pending bookmark',
-                dest: {pageIndex: 0},
+                pageIndex: requirePageIndex(0),
+                namedDest: null,
+                bold: false,
+                italic: false,
+                color: null,
+                items: [],
             }]),
             trySavePdfNativeMutations,
             repairWorkingCopy,
@@ -395,7 +401,15 @@ describe('workspace save failure surfacing', () => {
         const {deps} = createDeps({
             annotationDirty: ref(true),
             bookmarksDirty: ref(true),
-            bookmarkItems: ref([{title: 'Pending bookmark', dest: {pageIndex: 0}}]),
+            bookmarkItems: ref([{
+                title: 'Pending bookmark',
+                pageIndex: requirePageIndex(0),
+                namedDest: null,
+                bold: false,
+                italic: false,
+                color: null,
+                items: [],
+            }]),
             trySavePdfNativeMutations,
             repairWorkingCopy,
         });

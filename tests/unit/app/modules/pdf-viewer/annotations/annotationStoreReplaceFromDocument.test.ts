@@ -119,6 +119,107 @@ describe('AnnotationStore.replaceFromDocument', () => {
         expect(store.get(missingId)).toBeNull();
     });
 
+    it('keeps a known markup preview when a later text extraction has no result', () => {
+        const store = new AnnotationStore();
+        const markup = store.createTextMarkup(textMarkup('preview-retention', {
+            contents: 'Authored note',
+            selectedText: 'selected text',
+        }));
+
+        expect(store.updateTextMarkupSelectedText(markup.identity.id, null)).toBe(false);
+        expect(store.get(markup.identity.id)).toMatchObject({
+            contents: 'Authored note',
+            selectedText: 'selected text',
+        });
+    });
+
+    it('keeps a saved markup preview when the parsed baseline has no extracted text', () => {
+        const store = new AnnotationStore();
+        const markup = store.createTextMarkup(textMarkup('saved-preview', {
+            identity: {
+                id: asAnnotationId('saved-preview'),
+                pdfRef: '12 0 R',
+            },
+            selectedText: 'selected text',
+        }));
+        const frontier = store.beginSave();
+        store.markPersisted(frontier, [{
+            annotationId: markup.identity.id,
+            pdfRef: '12 0 R',
+        }]);
+
+        store.replaceFromDocument([textMarkup('saved-preview', {
+            identity: {
+                id: asAnnotationId('saved-preview'),
+                pdfRef: '12 0 R',
+            },
+            revision: 12,
+            persistedRevision: 12,
+            quadPoints: [{
+                ...rect,
+                left: rect.left + 0.00005,
+            }],
+            selectedText: null,
+        })], []);
+
+        expect(store.get(markup.identity.id)).toMatchObject({
+            selectedText: 'selected text',
+            identity: {pdfRef: '12 0 R'},
+        });
+    });
+
+    it('invalidates markup preview only when geometry changes', () => {
+        const store = new AnnotationStore();
+        const movedRect = {
+            ...rect,
+            left: 0.5,
+        };
+        const markup = store.createTextMarkup(textMarkup('preview-geometry', {
+            contents: 'Authored note',
+            selectedText: 'selected text',
+        }));
+
+        expect(store.updateTextMarkup(markup.identity.id, {
+            color: '#00ff00',
+            opacity: 0.5,
+            contents: 'Updated note',
+        })).toMatchObject({
+            contents: 'Updated note',
+            selectedText: 'selected text',
+        });
+
+        expect(store.updateTextMarkup(markup.identity.id, {quadPoints: [movedRect]})).toMatchObject({
+            contents: 'Updated note',
+            selectedText: null,
+        });
+    });
+
+    it('rejects text enrichment resolved for obsolete markup geometry', () => {
+        const store = new AnnotationStore();
+        const movedRect = {
+            ...rect,
+            left: 0.5,
+        };
+        const markup = store.createTextMarkup(textMarkup('stale-enrichment', {
+            identity: {
+                id: asAnnotationId('stale-enrichment'),
+                pdfRef: '12 0 R',
+            },
+            selectedText: 'selected text',
+        }));
+        const parsedGeometry = markup.quadPoints;
+        store.updateTextMarkup(markup.identity.id, {quadPoints: [movedRect]});
+
+        expect(store.updateTextMarkupSelectedText(markup.identity.id, 'stale text', parsedGeometry)).toBe(false);
+        expect(store.get(markup.identity.id)).toMatchObject({selectedText: null});
+        expect(store.updateTextMarkupSelectedText(
+            markup.identity.id,
+            'current text',
+            [movedRect],
+        )).toBe(true);
+        expect(store.get(markup.identity.id)).toMatchObject({selectedText: 'current text'});
+    });
+
     it('keeps a dirty local entity and adopts only the parsed PDF reference', () => {
         const store = new AnnotationStore();
         const local = store.createNote(note('paired', {identity: {
