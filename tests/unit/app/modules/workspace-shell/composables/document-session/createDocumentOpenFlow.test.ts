@@ -1015,6 +1015,23 @@ describe('createDocumentOpenFlow', () => {
         expect(state.requiresSaveAsOnFirstSave.value).toBe(false);
     });
 
+    it('does not request cleanup when a recovered PDF fails before adoption', async () => {
+        const {
+            deps,
+            openFlow,
+        } = createOpenFlowHarness();
+        deps.resetHistory.mockRejectedValue(new Error('injected recovered read failure'));
+        const recoveredResult: TOpenFileResult = {
+            kind: 'pdf',
+            originalPath: requireDocumentRef('/documents/recovered-failure.pdf'),
+            workingPath: requireDocumentRef('/tmp/recovered-failure-working.pdf'),
+            recoveryDirtyBaseline: true,
+        };
+
+        await expect(openFlow.openFile(recoveredResult)).resolves.toMatchObject({status: 'failed'});
+        expect(deps.cleanupAbandonedWorkingCopy).not.toHaveBeenCalled();
+    });
+
     it('keeps a normal source reopen clean after a recovered dirty PDF', async () => {
         const {
             openFlow,

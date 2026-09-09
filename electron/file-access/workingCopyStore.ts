@@ -85,6 +85,11 @@ interface IRetiredWorkingCopyOriginalEntry {
     role: TWorkingCopyRole;
     sourceBackingErrorCode?: TWorkingCopyBackingErrorCode;
 }
+
+interface IWorkingCopyRecoveryClaim {
+    generation: number;
+    registrationId: number | null;
+}
 let retiredWorkingCopyPruneTimer: ReturnType<typeof setTimeout> | null = null;
 const currentWorkingCopyByOriginalPath = new Map<string, {
     ownerWebContentsId?: number;
@@ -268,6 +273,8 @@ class TCanonicalWorkingCopyMap<TValue> extends Map<string, TValue> {
 export const workingCopyMap = new TCanonicalWorkingCopyMap<IWorkingCopyOriginalEntry>();
 const retiredWorkingCopyOriginalMap = new TCanonicalWorkingCopyMap<IRetiredWorkingCopyOriginalEntry>();
 const workingCopyRegistrationTransitions = new TCanonicalWorkingCopyMap<Promise<void>>();
+const workingCopyRecoveryClaims = new TCanonicalWorkingCopyMap<IWorkingCopyRecoveryClaim>();
+let nextWorkingCopyRecoveryClaimGeneration = 0;
 
 async function createOriginalFileExpectation(
     originalPath: string,
@@ -785,6 +792,38 @@ export function isWorkingCopyOriginalPathRegistered(originalPath: string) {
 
 export function getWorkingCopyOwnerWebContentsId(workingPath: string): number | undefined {
     return workingCopyMap.get(workingPath)?.ownerWebContentsId;
+}
+
+/**
+ * A claimed recovery copy remains protected while the renderer proves that it
+ * opened and adopted the bytes. The checkpoint acknowledgement or explicit
+ * discard retires the claim. Registration ids make a claim auditable without
+ * making a path reusable by a late failed open.
+ */
+export function claimWorkingCopyRecovery(workingPath: string) {
+    const normalizedPath = normalizePathForLookup(workingPath) || workingPath;
+    const entry = workingCopyMap.get(normalizedPath) ?? workingCopyMap.get(workingPath);
+    const generation = nextWorkingCopyRecoveryClaimGeneration += 1;
+    workingCopyRecoveryClaims.set(normalizedPath, {
+        generation,
+        registrationId: entry?.registrationId ?? null,
+    });
+    return generation;
+}
+
+export function hasWorkingCopyRecoveryClaim(workingPath: string) {
+    const normalizedPath = normalizePathForLookup(workingPath) || workingPath;
+    return workingCopyRecoveryClaims.has(normalizedPath);
+}
+
+export function releaseWorkingCopyRecovery(workingPath: string, generation?: number) {
+    const normalizedPath = normalizePathForLookup(workingPath) || workingPath;
+    const claim = workingCopyRecoveryClaims.get(normalizedPath);
+    if (!claim || (generation !== undefined && claim.generation !== generation)) {
+        return false;
+    }
+    workingCopyRecoveryClaims.delete(normalizedPath);
+    return true;
 }
 
 export function claimWorkingCopyOwnership(

@@ -28,10 +28,12 @@ import { createLogger } from '@electron/utils/createLogger';
 import { quarantineCorruptFile } from '@electron/utils/quarantineCorruptFile';
 import {
     claimWorkingCopyOwnership,
+    claimWorkingCopyRecovery,
     getWorkingCopyBackingEntry,
     getWorkingCopyOriginalPath,
     getWorkingCopyOwnerWebContentsId,
     setWorkingCopyOriginalPath,
+    releaseWorkingCopyRecovery,
     transitionWorkingCopyBackingState,
     type TWorkingCopyBackingState,
     type IWorkingCopyAdmissionSnapshot,
@@ -597,6 +599,14 @@ function assertDurableSourceProvenance(
     }
 }
 
+function releaseRecoveryClaims(checkpoint: IWorkspaceCheckpoint | null) {
+    for (const tab of checkpoint?.tabs ?? []) {
+        if (tab.workingCopyRef) {
+            releaseWorkingCopyRecovery(tab.workingCopyRef);
+        }
+    }
+}
+
 async function quarantineCorruptWorkspaceCheckpoint(reason: string) {
     // A corrupt checkpoint must not silently masquerade as "no checkpoint" on
     // every startup: log it and move it aside so recovery stops repeating while
@@ -1087,6 +1097,11 @@ export async function claimWorkspaceCheckpoint(newOwnerWebContentsId: number) {
             claimedByWebContentsId: newOwnerWebContentsId,
             checkpoint: canonicalCheckpoint,
         };
+        for (const tab of canonicalCheckpoint.tabs) {
+            if (tab.workingCopyRef) {
+                claimWorkingCopyRecovery(tab.workingCopyRef);
+            }
+        }
         claimedWorkspaceCheckpointOwnerWebContentsId = newOwnerWebContentsId;
         claimedWorkspaceCheckpointPath = getStoragePath();
         return canonicalCheckpoint;
@@ -1105,6 +1120,7 @@ export function acknowledgeWorkspaceCheckpoint(ownerWebContentsId: number) {
                     claimedWorkspaceCheckpointPath === storagePath
                     && claimedWorkspaceCheckpointOwnerWebContentsId === ownerWebContentsId
                 ) {
+                    releaseRecoveryClaims(lastDurableWorkspaceCheckpoint?.checkpoint ?? null);
                     claimedWorkspaceCheckpointOwnerWebContentsId = null;
                     claimedWorkspaceCheckpointPath = null;
                 }
@@ -1139,6 +1155,7 @@ export function acknowledgeWorkspaceCheckpoint(ownerWebContentsId: number) {
             throw new Error('Workspace checkpoint acknowledgement is not owned by this renderer');
         }
         await rm(storagePath, {force: true});
+        releaseRecoveryClaims(stored.checkpoint);
         lastDurableWorkspaceCheckpoint = null;
         if (
             claimedWorkspaceCheckpointPath === storagePath
@@ -1154,6 +1171,7 @@ export function acknowledgeWorkspaceCheckpoint(ownerWebContentsId: number) {
 export function clearWorkspaceCheckpoint() {
     return enqueueWorkspaceCheckpointBarrier(async () => {
         await rm(getStoragePath(), {force: true});
+        releaseRecoveryClaims(lastDurableWorkspaceCheckpoint?.checkpoint ?? null);
         lastDurableWorkspaceCheckpoint = null;
         claimedWorkspaceCheckpointOwnerWebContentsId = null;
         claimedWorkspaceCheckpointPath = null;

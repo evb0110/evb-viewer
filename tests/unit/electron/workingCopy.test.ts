@@ -1468,6 +1468,40 @@ describe('workingCopy', () => {
         await clearAllWorkingCopies();
     });
 
+    it('retains a recovery-claimed working copy until the claim is retired', async () => {
+        const {
+            claimWorkingCopyRecovery,
+            releaseWorkingCopyRecovery,
+            setWorkingCopyOriginalPath,
+        } = await import('@electron/file-access/workingCopyStore');
+        const {cleanupWorkingCopy} = await import('@electron/file-access/workingCopyCleanup');
+        const originalPath = join(tempRoot, 'recovery-claim-original.pdf');
+        const workingDir = join(tempRoot, 'evb-viewer', 'pdf-work-recovery-claim');
+        const workingPath = join(workingDir, 'recovery-claim-original.pdf');
+        mkdirSync(workingDir, {recursive: true});
+        writeFileSync(originalPath, new Uint8Array([
+            1,
+            2,
+            3,
+        ]));
+        writeFileSync(workingPath, new Uint8Array([
+            9,
+            8,
+            7,
+        ]));
+        await setWorkingCopyOriginalPath(workingPath, originalPath, 7);
+
+        const generation = claimWorkingCopyRecovery(workingPath);
+        await cleanupWorkingCopy(workingPath, 7);
+
+        expect(existsSync(workingPath)).toBe(true);
+        expect(existsSync(workingDir)).toBe(true);
+
+        expect(releaseWorkingCopyRecovery(workingPath, generation)).toBe(true);
+        await cleanupWorkingCopy(workingPath, 7);
+        expect(existsSync(workingDir)).toBe(false);
+    });
+
     it('waits for an in-flight mutation before retiring ownership and removing the working directory', async () => {
         const {createWorkingCopyFromPath} = await import('@electron/file-access/workingCopyCreation');
         const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
