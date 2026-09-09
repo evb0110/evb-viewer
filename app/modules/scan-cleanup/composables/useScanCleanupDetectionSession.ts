@@ -1,4 +1,3 @@
-/* eslint-disable max-lines -- Sparse detection state and lifecycle ownership live together. */
 import type {
     IScanCleanupDetectionResult,
     IScanCleanupSourcePageMetadata,

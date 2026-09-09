@@ -24,7 +24,7 @@ export function getAllGateDefinitions() {
                 'acceptance',
             ],
             command: 'node',
-            description: 'Consolidated clean checks, coverage, native tests, one strict build, and blocking Electron smoke',
+            description: 'Consolidated lint, types, unit and native tests, one strict build, and blocking Electron smoke',
             id: 'validate',
         },
         {

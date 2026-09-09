@@ -311,10 +311,12 @@ describe('validation gate policy', () => {
             'lint.full',
             'typecheck.full',
             'test.unit.full',
-            'fallow.dead-code',
             'build.strict',
             'electron.blocking-smoke',
         ]));
+        expect(stageIds).not.toContain('fallow.dupes');
+        expect(stageIds).not.toContain('test.coverage');
+        expect(stageIds).not.toContain('typecheck.coverage');
 
         const iterationStageIds = validationGates.getValidationPlan({
             changes: {
@@ -362,12 +364,232 @@ describe('validation gate policy', () => {
         });
         const related = plan.find(stage => stage.id === 'test.unit.related');
 
+        expect(related?.args).toContain('--run');
         expect(related?.args).toContain('unit-app');
         expect(related?.args).toContain('unit-static-architecture');
         expect(related?.args).not.toContain('unit-core');
         expect(related?.args).not.toContain('unit-electron');
         expect(related?.args).not.toContain('unit-scripts');
         expect(related?.args).not.toContain('unit-policy');
+    });
+
+    it('does no work for documentation-only changes without lintable files', () => {
+        const changes = {
+            files: ['docs/releasing.md'],
+            known: true,
+            reason: 'explicit-files',
+        };
+        const classification = validationGates.classifyValidationImpacts(changes.files);
+
+        expect(validationGates.getValidationPlan({
+            changes,
+            classification,
+            tier: 'iteration',
+        })).toEqual([]);
+        expect(validationGates.getValidationPlan({
+            changes,
+            classification,
+            tier: 'acceptance',
+        })).toEqual([]);
+        expect(validationGates.getValidationPlan({
+            changes,
+            classification,
+            tier: 'integration',
+        })).toEqual([]);
+    });
+
+    it('does no work for a verified clean tree while keeping explicit all-gates available', () => {
+        const changes = {
+            files: [],
+            known: true,
+            reason: 'git',
+        };
+        const classification = validationGates.classifyValidationImpacts(changes.files);
+
+        expect(validationGates.getValidationPlan({
+            changes,
+            classification,
+            tier: 'acceptance',
+        })).toEqual([]);
+        expect(validationGates.getValidationPlan({
+            allGates: true,
+            changes,
+            classification,
+            tier: 'acceptance',
+        }).map(stage => stage.id)).toContain('build.prepare');
+    });
+
+    it('keeps ordinary script-test acceptance on changed lint, types, and tests', () => {
+        const changes = {
+            files: ['tests/unit/scripts/packageScripts.test.ts'],
+            known: true,
+            reason: 'explicit-files',
+        };
+        const classification = validationGates.classifyValidationImpacts(changes.files);
+        const plan = validationGates.getValidationPlan({
+            changes,
+            classification,
+            tier: 'acceptance',
+        });
+        const stageIds = plan.map(stage => stage.id);
+
+        expect(stageIds).toEqual([
+            'lint.affected',
+            'typecheck.ts7',
+            'test.unit.affected-projects',
+        ]);
+        expect(plan.find(stage => stage.id === 'test.unit.affected-projects')?.args)
+            .toContain('tests/unit/scripts/packageScripts.test.ts');
+        expect(stageIds).not.toContain('build.strict');
+        expect(stageIds).not.toContain('electron.blocking-smoke');
+    });
+
+    it('targets the landing unit project for an ordinary landing test', () => {
+        const file = 'tests/unit/landing/analytics.test.ts';
+        const plan = validationGates.getValidationPlan({
+            changes: {
+                files: [file],
+                known: true,
+                reason: 'explicit-files',
+            },
+            tier: 'acceptance',
+        });
+        const unitStage = plan.find(stage => stage.id === 'test.unit.affected-projects');
+
+        expect(unitStage?.args).toContain('unit-landing');
+        expect(unitStage?.args).not.toContain('unit-core');
+        expect(unitStage?.args).toContain(file);
+    });
+
+    it('keeps shared unit setup on every consumer project', () => {
+        const plan = validationGates.getValidationPlan({
+            changes: {
+                files: ['tests/setup.ts'],
+                known: true,
+                reason: 'explicit-files',
+            },
+            tier: 'acceptance',
+        });
+        const unitStage = plan.find(stage => stage.id === 'test.unit.affected-projects');
+
+        expect(unitStage?.args).toEqual(expect.arrayContaining([
+            'unit-core',
+            'unit-app',
+            'unit-electron',
+            'unit-scripts',
+            'unit-policy',
+            'unit-static-architecture',
+        ]));
+        expect(unitStage?.args).not.toContain('tests/setup.ts');
+    });
+
+    it('keeps project selection when an ordinary unit test is deleted', () => {
+        const deletedFile = 'tests/unit/scripts/deletedValidationGate.test.ts';
+        const plan = validationGates.getValidationPlan({
+            changes: {
+                files: [deletedFile],
+                known: true,
+                reason: 'explicit-files',
+            },
+            tier: 'acceptance',
+        });
+        const unitStage = plan.find(stage => stage.id === 'test.unit.affected-projects');
+
+        expect(unitStage?.args).toEqual(expect.arrayContaining([
+            'unit-scripts',
+            'unit-policy',
+        ]));
+        expect(unitStage?.args).not.toContain(deletedFile);
+    });
+
+    it('runs ordinary unit files directly during bounded integration', () => {
+        const file = 'tests/unit/scripts/packageScripts.test.ts';
+        const plan = validationGates.getValidationPlan({
+            changes: {
+                files: [file],
+                known: true,
+                reason: 'explicit-files',
+            },
+            tier: 'integration',
+        });
+        const stageIds = plan.map(stage => stage.id);
+
+        expect(stageIds).toEqual([
+            'lint.affected',
+            'typecheck.ts7',
+            'test.unit.affected-projects',
+        ]);
+        expect(plan.find(stage => stage.id === 'test.unit.affected-projects')?.args)
+            .toContain(file);
+        expect(stageIds).not.toContain('electron.regression');
+        expect(stageIds).not.toContain('test.unit.full');
+    });
+
+    it('adds the Electron regression lane only for affected app integration', () => {
+        const plan = validationGates.getValidationPlan({
+            changes: {
+                files: ['app/composables/useExample.ts'],
+                known: true,
+                reason: 'explicit-files',
+            },
+            tier: 'integration',
+        });
+        const stageIds = plan.map(stage => stage.id);
+
+        expect(stageIds).toContain('electron.regression');
+        expect(stageIds).not.toContain('electron.blocking-smoke');
+        expect(stageIds).not.toContain('lint.full');
+        expect(stageIds).not.toContain('typecheck.full');
+        expect(stageIds).not.toContain('test.unit.full');
+        expect(stageIds).not.toContain('build.strict');
+        expect(plan.find(stage => stage.id === 'electron.regression')?.args)
+            .toEqual([
+                'run',
+                'test:e2e:electron:headless',
+            ]);
+    });
+
+    it('reuses a strict build for affected Electron integration', () => {
+        const plan = validationGates.getValidationPlan({
+            changes: {
+                files: [
+                    'app/composables/useExample.ts',
+                    'scripts/build-electron.mjs',
+                ],
+                known: true,
+                reason: 'explicit-files',
+            },
+            tier: 'integration',
+        });
+        const regression = plan.find(stage => stage.id === 'electron.regression');
+
+        expect(regression?.command).toBe('bash');
+        expect(regression?.args).toEqual([
+            'scripts/test-electron-e2e-headless.sh',
+            '--no-build',
+            'e2e-regression',
+        ]);
+        expect(regression?.dependsOn).toEqual(['build.strict']);
+    });
+
+    it('reuses the strict build in broad integration fallback', () => {
+        const plan = validationGates.getValidationPlan({
+            changes: {
+                files: [],
+                known: false,
+                reason: 'missing-base',
+            },
+            tier: 'integration',
+        });
+        const regression = plan.find(stage => stage.id === 'electron.regression');
+
+        expect(regression?.command).toBe('bash');
+        expect(regression?.args).toEqual([
+            'scripts/test-electron-e2e-headless.sh',
+            '--no-build',
+            'e2e-regression',
+        ]);
+        expect(regression?.dependsOn).toEqual(['build.strict']);
     });
 
     it('targets the static architecture lane when quarantine metadata changes', () => {
@@ -446,8 +668,36 @@ describe('validation gate policy', () => {
             'native.resource-matrix',
             'build.strict',
         ]));
+        expect(plan.find(stage => stage.id === 'native.resource-matrix')?.dependsOn)
+            .toEqual(['build.strict']);
+        expect(plan.find(stage => stage.id === 'native.resource-matrix')?.env)
+            .toMatchObject({EVB_BUILD_ARTIFACTS_PREPARED: '1'});
         expect(plan.find(stage => stage.id === 'test.unit.affected-projects')?.args)
             .toContain('unit-static-architecture');
+    });
+
+    it('includes Rust formatting and tests in affected native iteration', () => {
+        const plan = validationGates.getValidationPlan({
+            changes: {
+                files: ['native/pdf-page-ops/src/lib.rs'],
+                known: true,
+                reason: 'explicit-files',
+            },
+            tier: 'iteration',
+        });
+        const stageIds = plan.map(stage => stage.id);
+
+        expect(stageIds).toEqual([
+            'typecheck.ts7',
+            'native.lint',
+            'native.test',
+        ]);
+        expect(stageIds).not.toContain('build.strict');
+        expect(stageIds).not.toContain('native.resource-matrix');
+        expect(plan.find(stage => stage.id === 'typecheck.ts7')?.args)
+            .toContain('tsconfig.scripts.json');
+        expect(plan.find(stage => stage.id === 'typecheck.ts7')?.args)
+            .not.toContain('tsconfig.scripts-js.json');
     });
 
     it('consolidates the full local gate sequence without duplicate unit or build work', () => {
@@ -469,14 +719,9 @@ describe('validation gate policy', () => {
 
         expect(stageIds).toEqual([
             'build.prepare',
-            'scan-cleanup.line-budget',
             'lint.full',
             'typecheck.full',
-            'test.coverage',
-            'typecheck.coverage',
-            'fallow.dead-code',
-            'fallow.dupes',
-            'static.platform-report',
+            'test.unit.full',
             'static.web-deploy-source',
             'native.lint',
             'native.test',
@@ -487,13 +732,14 @@ describe('validation gate policy', () => {
         ]);
         expect(scripts).toContain('lint');
         expect(scripts).toContain('typecheck');
-        expect(scripts).toContain('test:coverage');
-        expect(scripts).toContain('fallow');
-        expect(scripts).toContain('fallow:dupes');
+        expect(scripts).toContain('test:unit');
+        expect(scripts).not.toContain('test:coverage');
+        expect(scripts).not.toContain('fallow');
+        expect(scripts).not.toContain('fallow:dupes');
+        expect(stageIds).not.toContain('typecheck.coverage');
         expect(scripts).not.toContain('lint:clean');
         expect(scripts).not.toContain('typecheck:clean');
         expect(scripts).not.toContain('fallow:all');
-        expect(scripts).not.toContain('test:unit');
         expect(plan.find(stage => stage.id === 'electron.blocking-smoke')?.args)
             .toContain('--no-build');
         expect(plan.find(stage => stage.id === 'electron.blocking-smoke')?.env)
@@ -514,10 +760,6 @@ describe('validation gate policy', () => {
         expect(plan.filter(stage => stage.cacheable).map(stage => stage.id)).toEqual(expect.arrayContaining([
             'lint.full',
             'typecheck.full',
-            'typecheck.coverage',
-            'fallow.dead-code',
-            'fallow.dupes',
-            'static.platform-report',
             'static.web-deploy-source',
             'native.lint',
         ]));

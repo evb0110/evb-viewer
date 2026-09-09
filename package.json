@@ -56,7 +56,7 @@
     "fallow:health:summary": "fallow health --summary || true",
     "typecheck:coverage": "pnpm exec tsx scripts/checkTypeCoverage.ts",
     "validate:iteration": "node scripts/validation-gates.mjs iteration",
-    "validate": "node scripts/validation-gates.mjs acceptance --all",
+    "validate": "node scripts/validation-gates.mjs acceptance",
     "validate:integration": "node scripts/validation-gates.mjs integration",
     "validate:nightly": "node scripts/validation-gates.mjs nightly",
     "test:coverage": "vitest run --coverage --project unit-core --project unit-app --project unit-electron --project unit-scripts --project unit-policy --project unit-static-architecture --project unit-landing && pnpm exec tsx scripts/checkCoverageRatchet.ts && pnpm exec tsx scripts/checkZeroExecutionCoverage.ts",

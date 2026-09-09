@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-/* eslint-disable max-lines -- The corpus ledger intentionally keeps its end-to-end assertions in one auditable CLI transaction. */
 import { getCliErrorMessage } from '../lib/cli-error.mjs';
 import {createHash} from 'node:crypto';
 import {

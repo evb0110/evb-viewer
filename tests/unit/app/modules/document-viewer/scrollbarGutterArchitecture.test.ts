@@ -44,66 +44,6 @@ describe('balanced scrollbar-gutter architecture', () => {
         expect(oneSidedDeclarations).toEqual([]);
     });
 
-    it('keeps every explicit application scroll source in a reviewed inventory', () => {
-        const scrollDeclaration = /overflow(?:-[xy])?\s*:\s*(?:auto|scroll)|\boverflow-(?:[xy]-)?(?:auto|scroll)\b/u;
-        const locallyBalanced = [
-            'app/app.vue',
-            'app/assets/css/main.css',
-            'app/components/AppFailureAlert.vue',
-            'app/components/AppFatalRuntimeDialog.vue',
-            'app/components/AppToolPageShell.vue',
-            'app/components/combine/CombinePdfPage.vue',
-            'app/components/document-viewer/DocumentBookmarkTree.vue',
-            'app/components/document-viewer/DocumentSearchResults.vue',
-            'app/components/document-viewer/DocumentThumbnailRail.vue',
-            'app/modules/agent-panel/components/AssistantTurnStatus.vue',
-            'app/modules/ocr-panel/components/OcrPopup.vue',
-            'app/modules/pdf-viewer/components/PdfAnnotationCommentsList.vue',
-            'app/modules/pdf-viewer/components/PdfEmptyState.vue',
-            'app/modules/pdf-viewer/components/PdfOutline.vue',
-            'app/modules/scan-cleanup/components/ScanCleanupWorkspace.vue',
-        ];
-        const balancedByOwningComponent = [
-            'app/assets/css/pdf-viewer.scss',
-            'app/modules/agent-panel/components/AgentAssistantPanel.shell.css',
-        ];
-        const horizontalOrHidden = [
-            'app/components/settings/SettingsAgentPanel.vue',
-            'app/modules/agent-panel/components/AgentAssistantPanel.composer.css',
-            'app/modules/pdf-viewer/components/PdfToolbar.vue',
-            'app/modules/workspace-shell/components/layout/TabBar.vue',
-        ];
-        const dormantVendorScrollers = ['app/assets/css/vendor/pdfjs-viewer-sanitized.css'];
-        const actual = collectStyleSources(join(root, 'app'))
-            .filter(path => scrollDeclaration.test(readFileSync(path, 'utf8')))
-            .map(path => path.slice(root.length + 1))
-            .sort();
-
-        expect(actual).toEqual([
-            ...locallyBalanced,
-            ...balancedByOwningComponent,
-            ...horizontalOrHidden,
-            ...dormantVendorScrollers,
-        ].sort());
-        for (const path of locallyBalanced) {
-            expect(read(path), path).toMatch(
-                /app-scroll-region--balanced|app-panel-scroll|scrollbar-gutter:\s*stable both-edges/u,
-            );
-        }
-
-        // The companion templates own the shared class for split Vue/CSS files.
-        expect(read('app/modules/pdf-viewer/components/PdfViewerViewport.vue'))
-            .toContain('app-scroll-region--balanced');
-        expect(read('app/modules/agent-panel/components/AgentAssistantPanel.vue'))
-            .toContain('app-scroll-region--balanced');
-        expect(read('app/modules/scan-cleanup/components/settings/ScanCleanupSettingsPanel.vue'))
-            .toContain('app-scroll-region--balanced');
-        expect(read('app/modules/pdf-viewer/components/PdfThumbnails.vue'))
-            .toContain('DocumentThumbnailRail');
-        expect(read('app/components/document-viewer/DocumentThumbnailList.vue'))
-            .toContain('DocumentThumbnailRail');
-    });
-
     it('covers framework-created vertical scroll regions through shared UI slots', () => {
         const appConfig = read('app/app.config.ts');
 

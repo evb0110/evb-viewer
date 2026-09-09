@@ -1,4 +1,3 @@
-/* eslint-disable max-lines -- the reader keeps v3 compatibility and v4 streaming paths together. */
 import {
     lstat,
     mkdtemp,

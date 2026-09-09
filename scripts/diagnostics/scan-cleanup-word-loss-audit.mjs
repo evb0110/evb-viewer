@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-/* eslint-disable max-lines -- The audit keeps its extraction, matching, and report policy in one inspectable CLI. */
 
 import { getCliErrorMessage } from '../lib/cli-error.mjs';
 import {inflateSync} from 'node:zlib';

@@ -1,4 +1,3 @@
-/* eslint-disable max-lines -- The agent registry keeps action IDs, policies, and execution together. */
 import type { TAnnotationTool } from '@app/types/annotations';
 import { isAgentRecord } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentInputs';
 import type {

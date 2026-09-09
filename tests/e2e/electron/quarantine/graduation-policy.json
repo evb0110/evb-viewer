@@ -6,22 +6,20 @@
       "workflow_dispatch"
     ],
     "blocking": false,
-    "infraRetryCount": 2,
-    "reviewAfterManualRuns": 30,
-    "graduationEvidence": "github-actions-manual-run-history-and-review"
+    "infraRetryCount": 2
   },
   "operatorDiagnostics": [
     {
       "path": "tests/e2e/electron/quarantine/scanCleanupAppTruthProbe.e2e.test.ts",
-      "reason": "Requires an operator-supplied PDF and is excluded from graduation evidence."
+      "reason": "Requires an operator-supplied PDF; kept as an operator diagnostic."
     },
     {
       "path": "tests/e2e/electron/quarantine/scanCleanupMatchedCanvas.e2e.test.ts",
-      "reason": "Requires an operator-supplied PDF and is excluded from graduation evidence."
+      "reason": "Requires an operator-supplied PDF; kept as an operator diagnostic."
     },
     {
       "path": "tests/e2e/electron/quarantine/scanCleanupUniformity.e2e.test.ts",
-      "reason": "Requires an operator-supplied PDF and is excluded from graduation evidence."
+      "reason": "Requires an operator-supplied PDF; kept as an operator diagnostic."
     }
   ],
   "tests": [

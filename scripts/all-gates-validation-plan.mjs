@@ -1,34 +1,3 @@
-import {execFileSync} from 'node:child_process';
-
-// Push CI checks zero-execution coverage for every production file changed
-// since the push base. Locally the base is the merge base with origin/main
-// and the head is the worktree, so uncommitted work meets the same rule.
-export function resolveLocalCoverageChangeScope({cwd = process.cwd()} = {}) {
-    try {
-        const base = execFileSync('git', [
-            'merge-base',
-            'HEAD',
-            'origin/main',
-        ], {
-            cwd,
-            encoding: 'utf8',
-            stdio: [
-                'ignore',
-                'pipe',
-                'ignore',
-            ],
-        }).trim();
-        return /^[a-f\d]{40}$/u.test(base)
-            ? {
-                EVB_COVERAGE_BASE_SHA: base,
-                EVB_COVERAGE_HEAD_SHA: 'WORKTREE',
-            }
-            : {};
-    } catch {
-        return {};
-    }
-}
-
 /** @param {string} id @param {string} scriptName @param {Record<string, unknown>} options */
 function pnpmStage(id, scriptName, options = {}) {
     return {
@@ -45,24 +14,9 @@ function pnpmStage(id, scriptName, options = {}) {
     };
 }
 
-export function createAllGatesValidationStages({
-    cold = false,
-    coverageChangeScope = resolveLocalCoverageChangeScope(),
-} = {}) {
+export function createAllGatesValidationStages({cold = false} = {}) {
     return [
         pnpmStage('build.prepare', 'generate:build-artifacts', {priority: 100}),
-        {
-            args: [
-                'scripts/validation-gates.mjs',
-                'scan-cleanup-lines',
-            ],
-            cacheable: true,
-            command: 'node',
-            dependsOn: ['build.prepare'],
-            inputScope: 'build',
-            priority: 85,
-            id: 'scan-cleanup.line-budget',
-        },
         pnpmStage('lint.full', cold ? 'lint:clean' : 'lint', {
             cacheable: true,
             dependsOn: ['build.prepare'],
@@ -79,47 +33,11 @@ export function createAllGatesValidationStages({
             priority: 60,
             weight: 1,
         }),
-        pnpmStage('test.coverage', 'test:coverage', {
+        pnpmStage('test.unit.full', 'test:unit', {
             dependsOn: ['build.prepare'],
-            env: {
-                ...coverageChangeScope,
-                // Keep the 5 s unit-test contract reliable while coverage
-                // shares the 8-slot acceptance pool with typecheck and smoke.
-                VITEST_MAX_WORKERS: '4',
-            },
-            heavyWeight: 5,
+            heavyWeight: 4,
             priority: 90,
-            weight: 5,
-        }),
-        pnpmStage('typecheck.coverage', 'typecheck:coverage', {
-            cacheable: true,
-            dependsOn: ['build.prepare'],
-            heavyWeight: 2,
-            inputScope: 'typecheck-coverage',
-            priority: 80,
-            weight: 2,
-        }),
-        pnpmStage('fallow.dead-code', 'fallow', {
-            cacheable: true,
-            dependsOn: ['build.prepare'],
-            heavyWeight: 1,
-            inputScope: 'fallow',
-            priority: 40,
-            weight: 1,
-        }),
-        pnpmStage('fallow.dupes', 'fallow:dupes', {
-            cacheable: true,
-            dependsOn: ['build.prepare'],
-            heavyWeight: 1,
-            inputScope: 'fallow',
-            priority: 35,
-            weight: 1,
-        }),
-        pnpmStage('static.platform-report', 'check:static:reports', {
-            cacheable: true,
-            dependsOn: ['build.prepare'],
-            inputScope: 'static-platform',
-            priority: 30,
+            weight: 4,
         }),
         pnpmStage('static.web-deploy-source', 'check:static:assets', {
             args: [

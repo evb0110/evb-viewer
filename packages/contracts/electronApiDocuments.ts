@@ -1,4 +1,3 @@
-/* eslint-disable max-lines -- This file is the public desktop document protocol contract. */
 import type {
     TPageNumber,
     TPageIndex,

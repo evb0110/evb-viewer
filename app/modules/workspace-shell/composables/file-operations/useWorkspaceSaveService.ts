@@ -1,5 +1,4 @@
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
-/* eslint-disable max-lines -- Save planning and persistence share one document ownership boundary. */
 import type {
     Ref,
     ShallowRef,

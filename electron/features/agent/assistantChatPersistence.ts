@@ -1,5 +1,3 @@
-/* eslint-disable max-lines -- Session transcript recovery and blob reachability share one persistence transaction. */
-
 import {
     createHash,
     randomBytes,
