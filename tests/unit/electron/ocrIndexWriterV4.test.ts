@@ -103,7 +103,7 @@ describe('writeOcrIndexV4', () => {
             documentRevision: revision,
             pageCount: 1,
             pageBatches: batches([page(1, 'new')]),
-            durabilityBoundary: {afterRootRename: async () => {throw new Error('injected directory close failure');}},
+            durabilityBoundary: {syncDirectory: async () => {throw new Error('injected directory sync failure');}},
             assertRevisionCurrent: async () => {},
         })).rejects.toBeInstanceOf(OcrCatalogCommittedDurabilityError);
 
