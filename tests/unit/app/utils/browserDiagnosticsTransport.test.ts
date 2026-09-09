@@ -5,6 +5,7 @@ import {
     vi,
 } from 'vitest';
 import type {Transport} from '@sentry/core/browser';
+import {makeFetchTransport} from '@sentry/browser';
 import {requireDiagnosticRecord} from '@contracts/diagnostics/diagnosticRecord';
 import {createBrowserDiagnosticsTransport} from '@app/utils/browserDiagnosticsTransport';
 
@@ -25,11 +26,14 @@ const RECORD = requireDiagnosticRecord({
     context: {phase: 'operation'},
 });
 
-function setup(resolveFilenameDebugIds?: () => Readonly<Record<string, string>>) {
+function setup(
+    resolveFilenameDebugIds?: () => Readonly<Record<string, string>>,
+    statusCode: number | null = 200,
+) {
     const envelopes: unknown[] = [];
     const send = vi.fn((envelope: unknown) => {
         envelopes.push(envelope);
-        return Promise.resolve({statusCode: 200});
+        return Promise.resolve(statusCode === null ? {} : {statusCode});
     });
     const flush = vi.fn(() => Promise.resolve(true));
     const adapter = createBrowserDiagnosticsTransport({
@@ -78,6 +82,43 @@ describe('hosted browser diagnostics transport', () => {
         const envelope = envelopes[0] as [unknown, unknown[]];
         expect(envelope[1]).toHaveLength(1);
         expect((envelope[1][0] as [{type: string}, unknown])[0]).toEqual({type: 'event'});
+    });
+
+    it('does not accept a transport result without an explicit numeric status', async () => {
+        const {adapter} = setup(undefined, null);
+
+        await expect(adapter.send(RECORD)).resolves.toBe(false);
+    });
+
+    it('keeps the pinned browser transport backoff from becoming accepted delivery', async () => {
+        let fetchCalls = 0;
+        const adapter = createBrowserDiagnosticsTransport({
+            dsn: 'https://browserkey@o123.ingest.de.sentry.io/456',
+            identity: {
+                target: 'web',
+                release: 'evb-viewer-web@dpl-42',
+                dist: 'production',
+                environment: 'production',
+            },
+            makeTransport: options => makeFetchTransport(options, async () => {
+                fetchCalls += 1;
+                return {
+                    status: 200,
+                    headers: {
+                        get: (name: string) => name.toLowerCase() === 'x-sentry-rate-limits'
+                            ? '60::error'
+                            : null,
+                    },
+                } as Response;
+            }),
+        });
+
+        await expect(adapter.send(RECORD)).resolves.toBe(true);
+        await expect(adapter.send({
+            ...RECORD,
+            eventId: `${RECORD.eventId.slice(0, -2)}01`,
+        })).resolves.toBe(false);
+        expect(fetchCalls).toBe(1);
     });
 
     it('attaches the injected Debug ID without exposing the deployment URL', async () => {
