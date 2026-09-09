@@ -1,0 +1,44 @@
+app/modules/workspace-shell/composables/useWorkspacePrint.ts
+  s_48f0ecec6d17b0::t_7f558dcfc4599f 831-835,1024-1027
+  s_48f0ecec6d17b0::t_f09f276a0892e0 698,724-726,742,756,765,781,790,792-796,816-818,850,907,980-984,1006-1008,1028
+  s_48f0ecec6d17b0::t_f356596accc355 160-169,192,304-339,342-347,350-352,355-366,494-497,503,512,1052,1055-1059,1062-1063,1091,1098,1102,1105,1114,1126-1127,1134,1140,1145,1147,1158,1174,1181,1191,1204
+  s_48f0ecec6d17b0::t_aee7f8ee5d7c94 824
+  s_48f0ecec6d17b0::t_83be9d1a2eb3c8 714-718,948-950,952
+  s_48f0ecec6d17b0::t_0256db6ca43a38 340-341,348-349,353-354
+  s_48f0ecec6d17b0::t_815bf8e8540e41 2,367,422-436,1217-1226
+  s_48f0ecec6d17b0::t_744238ded9ddbf 465-468,470,1131
+  s_48f0ecec6d17b0::t_54aa8d4e262409 951,1010
+  s_48f0ecec6d17b0::t_0b090211e8acd8 369-421,517-539,1197,1199
+  s_5f0a2670c362dd::t_9af26c242c5784 368,1227
+tests/unit/app/modules/workspace-shell/composables/useWorkspacePrint.test.ts
+  s_48f0ecec6d17b0::t_bc22181ad27a41 677-680,682,684-688,690-691,696-698,700,702-710
+  s_48f0ecec6d17b0::t_4edb796972fdd8 275-279,291-293,328-330
+  s_48f0ecec6d17b0::t_0d50f7862f9993 676,683,689,692-695,701
+  s_48f0ecec6d17b0::t_45b92273ac0ba9 21,681,699
+  s_48f0ecec6d17b0::t_0af17d69d65333 617-674,711-733
+  s_48f0ecec6d17b0::t_b9c1aa0601ffbd 675
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "8dfb8d946ae91e20e73581d464dee58a2424a427",
+  "prompts": {},
+  "sessions": {
+    "s_48f0ecec6d17b0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08798-87a5-78a2-82aa-372c864723fc",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_5f0a2670c362dd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0877c-d16e-7641-994d-d3f1444a10c7",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
