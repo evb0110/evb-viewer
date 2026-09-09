@@ -460,6 +460,24 @@ pub(crate) fn read_page_label_ranges(
     Ok(output)
 }
 
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+pub(crate) fn add_implicit_default_page_label_range(
+    ranges: &mut Vec<PdfCombinePageLabelRange>,
+    page_count: u32,
+) {
+    if page_count > 0 && ranges.first().is_none_or(|range| range.page_index > 0) {
+        ranges.insert(
+            0,
+            PdfCombinePageLabelRange {
+                page_index: 0,
+                style: None,
+                prefix: None,
+                start: None,
+            },
+        );
+    }
+}
+
 fn read_number_tree(
     document: &impl PdfObjectSource,
     node_object: &Object,
