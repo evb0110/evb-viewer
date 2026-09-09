@@ -1,0 +1,32 @@
+scripts/electron-run-headless.sh
+  s_964a2d226ccd90::t_9de03c9dde63f3 201,212
+  s_964a2d226ccd90::t_2ecd1f5a7340b6 202-211
+  s_964a2d226ccd90::t_3b22b39e26206f 216-228,273-275,279-283,308,311-316,319,325,330-331,347,359
+  s_964a2d226ccd90::t_99e89d3f4470e9 289,291-297,302,304
+  s_964a2d226ccd90::t_cd358d93a5cbb3 268-271
+  s_964a2d226ccd90::t_475efa39b805ed 346
+  s_964a2d226ccd90::t_48aa826c57a9cd 69,72-79,86-118,131-199,213,229-249,263-267,272,276-277,284,298-301,318,320,323-324,326-329,340-341,344,348,351-358,361
+tests/unit/scripts/electronRunHeadlessStartdInterrupt.test.ts
+  s_964a2d226ccd90::t_c411f5cb05caac 33,82,122-128,200-208,210-213,215-231,253,316,320-327
+  s_964a2d226ccd90::t_4cfa08d2687303 9,214
+  s_964a2d226ccd90::t_141bab3ec38de5 130,174,183,259,263-315,317-319
+  s_964a2d226ccd90::t_9de03c9dde63f3 57-61
+  s_964a2d226ccd90::t_5369ecabc4b7a8 209,233,251,260-262
+  s_964a2d226ccd90::t_59000690148e37 232,234-250,252,254-258
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "bf2dfd9f74837c856aa2af8439a72d884818005b",
+  "prompts": {},
+  "sessions": {
+    "s_964a2d226ccd90": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08723-ee80-7283-af20-56bc052c7964",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
