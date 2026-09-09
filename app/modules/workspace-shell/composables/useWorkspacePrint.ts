@@ -164,7 +164,6 @@ interface IPrintRunOwner {
     readonly workingCopyPath: string | null;
     readonly fileName: string | null;
     readonly totalPages: number;
-    intent: IPrintDialogSubmitPayload;
 }
 
 export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
@@ -318,7 +317,6 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
             workingCopyPath: deps.workingCopyPath.value,
             fileName: deps.fileName.value,
             totalPages: deps.totalPages.value,
-            intent,
         };
         activePrintAbortController = abortController;
         closeDialogForSystemPrint = false;
@@ -1088,7 +1086,6 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
                         : {pageNumbers: materializePageSelection(selection)}),
                 };
             }
-            printOwner.intent = payload;
             if (
                 !isPathPdfSource(deps.sourcePdf.value)
                 && requiresNativePrintForHighPageCountLayout(payload)

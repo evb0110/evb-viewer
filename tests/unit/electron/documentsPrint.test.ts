@@ -1338,17 +1338,21 @@ describe('documents print', () => {
         );
         const result = await settleNativePrint(resultPromise);
 
-        expect(result).toEqual({success: true});
-        expect(selectedPagesPath).toBeDefined();
-        const selectedPagesName = basename(selectedPagesPath!);
-        expect(Buffer.byteLength(selectedPagesName, 'utf8')).toBeLessThanOrEqual(255);
-        expect(selectedPagesName).toMatch(/^print-pages-[A-Za-z0-9-]+\.pdf$/u);
-        expect(selectedPagesName).not.toContain('документ');
-        expect(existsSync(selectedPagesPath!)).toBe(true);
-        expect(mocks.browserWindowInstances[0]?.options).toEqual(expect.objectContaining({title: userFileName.slice(0, -4)}));
-
-        await vi.runOnlyPendingTimersAsync();
-        rmSync(selectedPagesPath!, {force: true});
+        try {
+            expect(result).toEqual({success: true});
+            expect(selectedPagesPath).toBeDefined();
+            const selectedPagesName = basename(selectedPagesPath!);
+            expect(Buffer.byteLength(selectedPagesName, 'utf8')).toBeLessThanOrEqual(255);
+            expect(selectedPagesName).toMatch(/^print-pages-[A-Za-z0-9-]+\.pdf$/u);
+            expect(selectedPagesName).not.toContain('документ');
+            expect(existsSync(selectedPagesPath!)).toBe(true);
+            expect(mocks.browserWindowInstances[0]?.options).toEqual(expect.objectContaining({title: userFileName.slice(0, -4)}));
+            await vi.runOnlyPendingTimersAsync();
+        } finally {
+            if (selectedPagesPath) {
+                rmSync(selectedPagesPath, {force: true});
+            }
+        }
     });
 
     it('uses distinct operation-owned staging names for concurrent selected-page prints', async () => {
