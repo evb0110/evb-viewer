@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@app/utils/yieldToBrowser';
+
 import {
     describe,
     expect,
@@ -7,7 +9,10 @@ import {
 
 const yieldToBrowserMock = vi.hoisted(() => vi.fn(async () => {}));
 
-vi.mock('@app/utils/yieldToBrowser', () => ({yieldToBrowser: yieldToBrowserMock}));
+vi.mock('@app/utils/yieldToBrowser', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    yieldToBrowser: yieldToBrowserMock,
+}));
 
 describe('ocrProcessing', () => {
     it('yields while extracting pdf text page by page', async () => {

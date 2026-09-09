@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 
+import type * as TViMockOriginalModule from '@app/utils/document-viewer/source/createDjvuPageSource';
+
 import {
     afterEach,
     describe,
@@ -37,8 +39,11 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@app/platform/browser-api/public', () => ({createDjvuPagePreviewSourceFromPath:
     mocks.createDjvuPagePreviewSourceFromPath}));
-vi.mock('@app/utils/document-viewer/source/createDjvuPageSource', () => ({createDjvuPageSource:
-    mocks.createDjvuPageSource}));
+vi.mock('@app/utils/document-viewer/source/createDjvuPageSource', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    createDjvuPageSource:
+    mocks.createDjvuPageSource,
+}));
 
 const mountedApps = new Set<() => void>();
 

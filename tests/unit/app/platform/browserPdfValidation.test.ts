@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@app/platform/browser-api/browserYield';
+
 import {
     beforeEach,
     describe,
@@ -19,7 +21,10 @@ vi.mock('@app/platform/browser-api/browserPdfjsDocumentInit', () => ({
     createPdfjsDocumentInitFromBrowserDocument: vi.fn(),
     getPdfjsLib: vi.fn(),
 }));
-vi.mock('@app/platform/browser-api/browserYield', () => ({yieldToBrowser: vi.fn(async () => {})}));
+vi.mock('@app/platform/browser-api/browserYield', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    yieldToBrowser: vi.fn(async () => {}),
+}));
 
 describe('browserPdfValidation', () => {
     beforeEach(() => {

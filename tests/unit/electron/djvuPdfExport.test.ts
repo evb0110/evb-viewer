@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@electron/features/djvu/main/parseDjvuOutline';
+
 import {
     afterEach,
     beforeEach,
@@ -121,7 +123,10 @@ vi.mock('@electron/features/djvu/main/pagePreview', () => ({
     getDjvuPageSizesForViewing: mocks.getDjvuPageSizesForViewing,
 }));
 
-vi.mock('@electron/features/djvu/main/parseDjvuOutline', () => ({parseDjvuOutline: mocks.parseDjvuOutline}));
+vi.mock('@electron/features/djvu/main/parseDjvuOutline', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    parseDjvuOutline: mocks.parseDjvuOutline,
+}));
 vi.mock('@electron/features/djvu/main/embedBookmarksIntoPdfFile', () => ({embedBookmarksIntoPdfFile: mocks.embedBookmarksIntoPdfFile}));
 vi.mock('@electron/features/documents/public/pdfSaveAsOptimization', () => ({optimizeGeneratedPdfForInteraction: (...args: unknown[]) => mocks.optimizeGeneratedPdfForInteraction(...args)}));
 vi.mock('@electron/utils/printHandoff', () => ({

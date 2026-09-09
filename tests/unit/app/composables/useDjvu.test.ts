@@ -1,3 +1,6 @@
+import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
+import type * as TViMockOriginalModule2 from '@app/utils/platformDocuments';
+
 import {
     beforeEach,
     describe,
@@ -93,9 +96,13 @@ const mockDjvuModeState = {
 };
 
 vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => mockElectronAPI}));
-vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string) => key})}));
+vi.mock('@app/composables/useTypedI18n', async (importOriginal_1) => ({
+    ...(await importOriginal_1<typeof TViMockOriginalModule>()),
+    useTypedI18n: () => ({t: (key: string) => key}),
+}));
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: browserLoggerMock}));
-vi.mock('@app/utils/platformDocuments', () => ({
+vi.mock('@app/utils/platformDocuments', async (importOriginal_2) => ({
+    ...(await importOriginal_2<typeof TViMockOriginalModule2>()),
     getDocumentFilesCapability: () => mockElectronAPI.documentFiles,
     getDocumentWorkingCopyCapability: () => mockElectronAPI.documentWorkingCopy,
 }));

@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@electron/features/search/domPolyfill';
+
 import {
     beforeEach,
     describe,
@@ -34,7 +36,7 @@ const mocks = vi.hoisted(() => ({
     },
 }));
 
-vi.mock('@electron/features/search/domPolyfill', () => ({}));
+vi.mock('@electron/features/search/domPolyfill', async (importOriginal) => ({...(await importOriginal<typeof TViMockOriginalModule>()) }));
 
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({debug: vi.fn()})}));
 

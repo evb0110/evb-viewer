@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
+
 import { requirePageIndex } from '@contracts/pageNumbers';
 // @vitest-environment happy-dom
 
@@ -19,7 +21,10 @@ import type {PDFDocumentProxy} from 'pdfjs-dist';
 import PdfOutline from '@app/modules/pdf-viewer/components/PdfOutline.vue';
 import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
 
-vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string, parameters?: Record<string, string | number>) => parameters ? `${key} ${Object.values(parameters).join(' ')} retained read-only` : key})}));
+vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    useTypedI18n: () => ({t: (key: string, parameters?: Record<string, string | number>) => parameters ? `${key} ${Object.values(parameters).join(' ')} retained read-only` : key}),
+}));
 
 function stub(marker: string) {
     return {default: defineComponent({

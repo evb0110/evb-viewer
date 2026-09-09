@@ -1,3 +1,6 @@
+import type * as TViMockOriginalModule from '@electron/file-access/workingCopyStore';
+import type * as TViMockOriginalModule2 from '@electron/file-access/workingCopyMutationCommitSignal';
+
 import {
     beforeEach,
     describe,
@@ -21,7 +24,10 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     warn: (...args: unknown[]) => mocks.warn(...args),
     error: vi.fn(),
 })}));
-vi.mock('@electron/file-access/workingCopyStore', () => ({normalizePathForLookup: (path: string) => path.trim().toLowerCase()}));
+vi.mock('@electron/file-access/workingCopyStore', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    normalizePathForLookup: (path: string) => path.trim().toLowerCase(),
+}));
 vi.mock('@electron/native-tools/runNativeCommand', () => ({cancelNativeCommandGroup: vi.fn()}));
 vi.mock('@electron/operation-lifecycle/mainOperationLifecycle', () => ({
     registerMainOperation: (registration: Record<string, unknown>) => {
@@ -44,7 +50,10 @@ vi.mock('@electron/operation-lifecycle/mainOperationLifecycle', () => ({
         });
     },
 }));
-vi.mock('@electron/file-access/workingCopyMutationCommitSignal', () => ({runWithWorkingCopyMutationCommitSignal: (_operation: unknown, callback: () => Promise<unknown>) => callback()}));
+vi.mock('@electron/file-access/workingCopyMutationCommitSignal', async (importOriginal_1) => ({
+    ...(await importOriginal_1<typeof TViMockOriginalModule2>()),
+    runWithWorkingCopyMutationCommitSignal: (_operation: unknown, callback: () => Promise<unknown>) => callback(),
+}));
 vi.mock('@electron/features/search/public', () => ({getCompactSearchIndexPath: (path: string) => `${path}.compact-index`}));
 
 function deferred<T>() {

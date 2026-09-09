@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
+
 import {
     afterEach,
     beforeEach,
@@ -50,7 +52,10 @@ vi.mock('@app/services/pdfjs/runtimeLib', () => ({
 }));
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: mocks.browserLogger}));
 vi.mock('@app/utils/pdfRenderTrace', () => ({logPdfRenderTrace: mocks.logPdfRenderTrace}));
-vi.mock('@app/utils/platformDocuments', () => ({getDocumentFilesCapability: () => mocks.documentFiles}));
+vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    getDocumentFilesCapability: () => mocks.documentFiles,
+}));
 
 interface IMockTask {
     destroy: ReturnType<typeof vi.fn>;

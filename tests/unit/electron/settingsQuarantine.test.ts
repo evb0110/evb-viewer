@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@electron/features/diagnostics/public';
+
 import {
     mkdirSync,
     mkdtempSync,
@@ -30,7 +32,8 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('electron', () => ({app: {getPath: () => mocks.userDataPath}}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
-vi.mock('@electron/features/diagnostics/public', () => ({
+vi.mock('@electron/features/diagnostics/public', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
     setMainDiagnosticsPreference: mocks.setMainDiagnosticsPreference,
     waitForMainDiagnosticsTransportReady: mocks.waitForMainDiagnosticsTransportReady,
 }));

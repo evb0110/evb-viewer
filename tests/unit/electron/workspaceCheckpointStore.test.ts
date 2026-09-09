@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@electron/file-access/workingCopyStore';
+
 import {
     mkdir,
     mkdtemp,
@@ -84,7 +86,8 @@ vi.mock('electron', () => ({
         : undefined},
 }));
 
-vi.mock('@electron/file-access/workingCopyStore', () => ({
+vi.mock('@electron/file-access/workingCopyStore', async (importOriginal_1) => ({
+    ...(await importOriginal_1<typeof TViMockOriginalModule>()),
     getWorkingCopyOwnerWebContentsId: (path: string) => state.owners.get(path),
     getWorkingCopyOriginalPath: (path: string, owner: number) => state.owners.get(path) === owner
         ? {originalPath: state.originalPaths.get(path)}

@@ -1,3 +1,6 @@
+import type * as TViMockOriginalModule from '@electron/config/constants';
+import type * as TViMockOriginalModule2 from '@electron/features/diagnostics/public';
+
 import {
     beforeEach,
     describe,
@@ -209,7 +212,10 @@ vi.mock('electron', () => ({
 
 vi.mock('@electron/config', () => ({config: mocks.config}));
 
-vi.mock('@electron/config/constants', () => ({WINDOW_RENDERER_READY_TIMEOUT_MS: 30_000}));
+vi.mock('@electron/config/constants', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    WINDOW_RENDERER_READY_TIMEOUT_MS: 30_000,
+}));
 vi.mock('@electron/te', () => ({te: mocks.te}));
 
 vi.mock('@electron/security/csp', () => ({setupContentSecurityPolicy: mocks.setupContentSecurityPolicy}));
@@ -219,7 +225,8 @@ vi.mock('@electron/resources/hostResourceProfile', () => ({
     encodeHostResourceProfileArgument: vi.fn(() => '--evb-host-resource-profile=test'),
     getHostResourceProfileSnapshot: vi.fn(() => ({})),
 }));
-vi.mock('@electron/features/diagnostics/public', () => ({
+vi.mock('@electron/features/diagnostics/public', async (importOriginal_1) => ({
+    ...(await importOriginal_1<typeof TViMockOriginalModule2>()),
     captureMainFailure: (input: {code: string}) => mocks.reporter.capture(input),
     getMainFailureReporter: mocks.getMainFailureReporter,
 }));

@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 
+import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
+
 import {
     afterEach,
     beforeEach,
@@ -20,7 +22,10 @@ import PdfInitialSurfacePlaceholder from '@app/modules/pdf-viewer/components/Pdf
 import { WORKSPACE_VIEWER_ADAPTERS } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 import type { IDocumentPreviewPageState } from '@app/utils/document-viewer/pagePreviewSource';
 
-vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string) => key})}));
+vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    useTypedI18n: () => ({t: (key: string) => key}),
+}));
 
 const SkeletonStub = defineComponent({setup: () => () => h('span', {'data-ui-skeleton': ''})});
 const ButtonStub = defineComponent({

@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 
+import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
+
 import {
     afterEach,
     describe,
@@ -18,7 +20,10 @@ import {DEFAULT_SETTINGS} from '@contracts/settings';
 import type {TPerformanceMode} from '@contracts/hostResourceProfile';
 import SettingsPerformancePanel from '@app/components/settings/SettingsPerformancePanel.vue';
 
-vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string) => key})}));
+vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    useTypedI18n: () => ({t: (key: string) => key}),
+}));
 
 const FormFieldStub = defineComponent({setup: (_props, {slots}) => () => h('div', slots.default?.())});
 const SelectMenuStub = defineComponent({

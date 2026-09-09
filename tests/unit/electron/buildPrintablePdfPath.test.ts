@@ -1,3 +1,6 @@
+import type * as TViMockOriginalModule from '@electron/resources/jobBroker';
+import type * as TViMockOriginalModule2 from '@electron/features/documents/main/resolvePdfPrintLayoutAdmission';
+
 import {EventEmitter} from 'node:events';
 import {
     afterEach,
@@ -26,8 +29,14 @@ const mocks = vi.hoisted(() => ({
 vi.mock('electron', () => ({utilityProcess: {fork: mocks.fork}}));
 vi.mock('@electron-worker-bundles/electronWorkerBundles.js', () => ({WORKER_BUNDLES_BY_ID: {'pdf-print-layout': {fileName: 'pdf-print-layout.mjs'}}}));
 vi.mock('@electron/utils/workerTask', () => ({resolveUnpackedWorkerPath: () => '/tmp/pdf-print-layout.mjs'}));
-vi.mock('@electron/resources/jobBroker', () => ({mainJobBroker: {acquire: mocks.acquire}}));
-vi.mock('@electron/features/documents/main/resolvePdfPrintLayoutAdmission', () => ({resolvePdfPrintLayoutAdmission: mocks.resolveAdmission}));
+vi.mock('@electron/resources/jobBroker', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    mainJobBroker: {acquire: mocks.acquire},
+}));
+vi.mock('@electron/features/documents/main/resolvePdfPrintLayoutAdmission', async (importOriginal_1) => ({
+    ...(await importOriginal_1<typeof TViMockOriginalModule2>()),
+    resolvePdfPrintLayoutAdmission: mocks.resolveAdmission,
+}));
 vi.mock('@electron/utils/processTree', () => ({terminateProcessTree: mocks.terminateProcessTree}));
 
 function createChild(pid = 9_123) {

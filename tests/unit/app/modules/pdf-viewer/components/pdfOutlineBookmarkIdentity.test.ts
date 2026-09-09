@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
+
 import type {
     IPdfDocument,
     IPdfPage,
@@ -27,7 +29,10 @@ import PdfOutline from '@app/modules/pdf-viewer/components/PdfOutline.vue';
 import { cast } from '@tests/helpers/cast';
 import {requirePageIndex} from '@contracts/pageNumbers';
 
-vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string) => key})}));
+vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    useTypedI18n: () => ({t: (key: string) => key}),
+}));
 
 interface ITreeStubState {
     items: readonly IDocumentBookmarkTreeItem[];

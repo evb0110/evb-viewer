@@ -1,3 +1,6 @@
+import type * as TViMockOriginalModule from '@electron/file-access/workingCopyStore';
+import type * as TViMockOriginalModule2 from '@electron/file-access/originalPathSaveWitness';
+
 import {
     afterEach,
     beforeEach,
@@ -49,6 +52,8 @@ const mocks = vi.hoisted(() => ({
     originalPathSaveBaseMatches: vi.fn(),
     isAllowedDjvuViewingPath: vi.fn<(path: string) => boolean>(),
     findPendingOcrResultFileForPath: vi.fn(),
+    claimPendingOcrResultForDocument: vi.fn(),
+    releasePendingOcrResultClaim: vi.fn(),
     publishPreparedOcrCatalogV4: vi.fn(),
     rollbackPreparedOcrCatalogV4: vi.fn(),
     backingSwapCacheInvalidator: null as null | ((logicalRef: string, previousPhysicalPath: string) => Promise<void> | void),
@@ -104,7 +109,8 @@ vi.mock('@electron/features/documents/main/pdfConformance', () => ({
 }));
 vi.mock('@electron/file-access/docxExportPaths', () => ({consumeAllowedDocxWritePath: mocks.consumeAllowedDocxWritePath}));
 vi.mock('@electron/file-access/workingCopyCreation', () => ({ensureWorkingCopyDirectory: mocks.ensureWorkingCopyDirectory}));
-vi.mock('@electron/file-access/workingCopyStore', () => ({
+vi.mock('@electron/file-access/workingCopyStore', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
     captureWorkingCopyAdmissionSnapshot: mocks.captureWorkingCopyAdmissionSnapshot,
     getWorkingCopyOwnerWebContentsId: () => undefined,
     findWorkingCopyPathByOriginalPath: mocks.findWorkingCopyPathByOriginalPath,
@@ -154,10 +160,15 @@ vi.mock('@electron/file-access/documentMutationGuards', () => ({
     normalizeExpectedDocumentRevisionToken: (options?: { expectedDocumentRevisionToken?: string | null; } | null) =>
         options?.expectedDocumentRevisionToken?.trim() ?? null,
 }));
-vi.mock('@electron/file-access/originalPathSaveWitness', () => ({originalPathSaveBaseMatches: mocks.originalPathSaveBaseMatches}));
+vi.mock('@electron/file-access/originalPathSaveWitness', async (importOriginal_1) => ({
+    ...(await importOriginal_1<typeof TViMockOriginalModule2>()),
+    originalPathSaveBaseMatches: mocks.originalPathSaveBaseMatches,
+}));
 vi.mock('@electron/features/djvu/public', () => ({isAllowedDjvuViewingPath: mocks.isAllowedDjvuViewingPath}));
 vi.mock('@electron/features/ocr/public/index', () => ({
+    claimPendingOcrResultForDocument: mocks.claimPendingOcrResultForDocument,
     findPendingOcrResultFileForPath: mocks.findPendingOcrResultFileForPath,
+    releasePendingOcrResultClaim: mocks.releasePendingOcrResultClaim,
     rebindDocumentTextCatalogRevision: vi.fn(),
     getOcrCatalogV4PreparedDescriptorPath: (path: string) => `${path}.ocr-v4-prepared.json`,
     publishPreparedOcrCatalogV4: mocks.publishPreparedOcrCatalogV4,
@@ -262,6 +273,15 @@ describe('fileOps path security', () => {
             createdAtMs: Date.now(),
             cleanupTimer: null,
             resultSha256: '039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81',
+        });
+        mocks.claimPendingOcrResultForDocument.mockImplementation((webContentsId: number, pdfPath: string) => {
+            const entry = mocks.findPendingOcrResultFileForPath(webContentsId, pdfPath);
+            return entry === null
+                ? {status: 'not-found' as const}
+                : {
+                    status: 'claimed' as const,
+                    entry,
+                };
         });
         mocks.readFile.mockResolvedValue(Buffer.from([
             1,

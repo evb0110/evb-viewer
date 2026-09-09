@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 
+import type * as TViMockOriginalModule from '@app/utils/traceRendererStartup';
+
 import {
     computed,
     createApp,
@@ -30,7 +32,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {error: mocks.logError}}));
 vi.mock('@app/utils/platformWindowTabs', () => ({getWindowTabsCapability: () => ({onIncomingTransfer: mocks.onIncomingTransfer})}));
-vi.mock('@app/utils/traceRendererStartup', () => ({traceRendererStartup: mocks.traceRendererStartup}));
+vi.mock('@app/utils/traceRendererStartup', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    traceRendererStartup: mocks.traceRendererStartup,
+}));
 
 beforeEach(() => {
     vi.clearAllMocks();

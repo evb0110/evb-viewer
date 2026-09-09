@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
+
 import {
     beforeEach,
     describe,
@@ -12,7 +14,10 @@ const documentsMock = vi.hoisted(() => ({
     readTextFile: vi.fn(),
 }));
 
-vi.mock('@app/utils/platformDocuments', () => ({getDocumentFilesCapability: () => documentsMock}));
+vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    getDocumentFilesCapability: () => documentsMock,
+}));
 
 describe('platform OCR artifacts', () => {
     beforeEach(() => {

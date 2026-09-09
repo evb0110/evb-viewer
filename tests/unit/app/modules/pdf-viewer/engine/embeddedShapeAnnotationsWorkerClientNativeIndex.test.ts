@@ -1,3 +1,6 @@
+import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
+import type * as TViMockOriginalModule2 from '@app/utils/documentBytes';
+
 import { requireEpochMs } from '@contracts/timestamps';
 import { requireSessionId } from '@contracts/shared';
 import { requireDocumentRef } from '@contracts/documentRef';
@@ -37,8 +40,14 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@app/utils/platform', () => ({isDesktopPlatformActive: () => true}));
-vi.mock('@app/utils/platformDocuments', () => ({getDocumentFilesCapability: () => mocks.capabilityOverride ?? mocks.files}));
-vi.mock('@app/utils/documentBytes', () => ({readDocumentBytes: vi.fn()}));
+vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    getDocumentFilesCapability: () => mocks.capabilityOverride ?? mocks.files,
+}));
+vi.mock('@app/utils/documentBytes', async (importOriginal_1) => ({
+    ...(await importOriginal_1<typeof TViMockOriginalModule2>()),
+    readDocumentBytes: vi.fn(),
+}));
 
 const path = '/tmp/native-index-large.pdf';
 const revision = requireDocumentRevisionToken('drt1:native-index-test');

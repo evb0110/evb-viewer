@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 
+import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
+
 import {
     afterEach,
     describe,
@@ -20,7 +22,10 @@ import type {
 } from '@app/utils/document-viewer/bookmarks/documentBookmarks';
 import DocumentBookmarkTree from '@app/components/document-viewer/DocumentBookmarkTree.vue';
 
-vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string) => key})}));
+vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    useTypedI18n: () => ({t: (key: string) => key}),
+}));
 
 const IconStub = defineComponent({
     props: {name: {

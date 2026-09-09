@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@electron/file-access/originalPathSaveWitness';
+
 import {
     afterEach,
     beforeEach,
@@ -112,7 +114,10 @@ vi.mock('@electron/file-access/documentMutationGuards', () => ({
         options?.expectedDocumentRevisionToken?.trim() ?? null,
 }));
 
-vi.mock('@electron/file-access/originalPathSaveWitness', () => ({originalPathSaveBaseMatches: mocks.originalPathSaveBaseMatches}));
+vi.mock('@electron/file-access/originalPathSaveWitness', async (importOriginal_1) => ({
+    ...(await importOriginal_1<typeof TViMockOriginalModule>()),
+    originalPathSaveBaseMatches: mocks.originalPathSaveBaseMatches,
+}));
 
 vi.mock('@electron/features/ocr/main/documentTextCatalog', () => ({rebindDocumentTextCatalogRevision: (...args: unknown[]) => mocks.rebindDocumentTextCatalogRevision(...args)}));
 
