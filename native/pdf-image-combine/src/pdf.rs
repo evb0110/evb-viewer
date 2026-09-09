@@ -27,7 +27,8 @@ pub(crate) enum ImagePayload {
 pub(crate) struct ImagePage {
     pub(crate) width: u32,
     pub(crate) height: u32,
-    pub(crate) dpi: u32,
+    pub(crate) dpi_x: u32,
+    pub(crate) dpi_y: u32,
     pub(crate) color_space: &'static str,
     pub(crate) icc_profile: Option<Vec<u8>>,
     pub(crate) payload: ImagePayload,
@@ -534,10 +535,10 @@ impl<W: IoWrite> PdfWriter<W> {
         let image_name = format!("Im{}", self.page_objects.len());
         let page_width = page_size
             .map(|size| size.width_points)
-            .unwrap_or_else(|| points(page.width, page.dpi));
+            .unwrap_or_else(|| points(page.width, page.dpi_x));
         let page_height = page_size
             .map(|size| size.height_points)
-            .unwrap_or_else(|| points(page.height, page.dpi));
+            .unwrap_or_else(|| points(page.height, page.dpi_y));
         let rotation = if rotation_degrees == 0 {
             String::new()
         } else {
@@ -1720,7 +1721,8 @@ mod tests {
         let page = ImagePage {
             width: 2,
             height: 2,
-            dpi: 72,
+            dpi_x: 72,
+            dpi_y: 72,
             color_space: "DeviceGray",
             icc_profile: None,
             payload: ImagePayload::RawFlate {
@@ -1761,7 +1763,8 @@ mod tests {
         let page = ImagePage {
             width: 2,
             height: 2,
-            dpi: 72,
+            dpi_x: 72,
+            dpi_y: 72,
             color_space: "DeviceGray",
             icc_profile: None,
             payload: ImagePayload::RawFlate {
@@ -1805,7 +1808,8 @@ mod tests {
         let page = ImagePage {
             width: 2,
             height: 2,
-            dpi: 72,
+            dpi_x: 72,
+            dpi_y: 72,
             color_space: "DeviceGray",
             icc_profile: None,
             payload: ImagePayload::RawFlate {
@@ -1860,7 +1864,8 @@ mod tests {
         let page = ImagePage {
             width: 2,
             height: 2,
-            dpi: 72,
+            dpi_x: 72,
+            dpi_y: 72,
             color_space: "DeviceGray",
             icc_profile: None,
             payload: ImagePayload::RawFlate {
@@ -2218,7 +2223,8 @@ mod tests {
         let page = ImagePage {
             width: 1,
             height: 1,
-            dpi: 72,
+            dpi_x: 72,
+            dpi_y: 72,
             color_space: "DeviceGray",
             icc_profile: None,
             payload: ImagePayload::RawFlate {
@@ -2803,7 +2809,8 @@ mod tests {
         let pages = [first, second].map(|stream| ImagePage {
             width: stream.width,
             height: stream.height,
-            dpi: 300,
+            dpi_x: 300,
+            dpi_y: 300,
             color_space: "DeviceGray",
             icc_profile: None,
             payload: ImagePayload::Bilevel(stream),
@@ -2828,7 +2835,8 @@ mod tests {
             let page = ImagePage {
                 width: 8,
                 height: 8,
-                dpi: 300,
+                dpi_x: 300,
+                dpi_y: 300,
                 color_space: "DeviceGray",
                 icc_profile: None,
                 payload: ImagePayload::Bilevel(BilevelStream {
@@ -2854,7 +2862,8 @@ mod tests {
         let last_page = ImagePage {
             width: 8,
             height: 8,
-            dpi: 300,
+            dpi_x: 300,
+            dpi_y: 300,
             color_space: "DeviceGray",
             icc_profile: None,
             payload: ImagePayload::Bilevel(BilevelStream {

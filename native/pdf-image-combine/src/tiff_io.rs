@@ -169,7 +169,8 @@ fn build_tiff_pdf_page(
     Ok(ImagePage {
         width,
         height,
-        dpi,
+        dpi_x: dpi,
+        dpi_y: dpi,
         color_space,
         icc_profile: None,
         payload: ImagePayload::RawFlate {
@@ -420,7 +421,8 @@ mod tests {
         assert_eq!(pages.len(), 1);
         assert_eq!(pages[0].width, 2);
         assert_eq!(pages[0].height, 1);
-        assert_eq!(pages[0].dpi, 300);
+        assert_eq!(pages[0].dpi_x, 300);
+        assert_eq!(pages[0].dpi_y, 300);
         assert_eq!(pages[0].color_space, "DeviceRGB");
         match &pages[0].payload {
             ImagePayload::RawFlate {

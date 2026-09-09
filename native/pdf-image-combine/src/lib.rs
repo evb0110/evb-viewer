@@ -986,7 +986,8 @@ fn bilevel_image_page(mut image: crate::netpbm::PbmP4Image) -> Result<ImagePage>
     Ok(ImagePage {
         width: image.width,
         height: image.height,
-        dpi: DEFAULT_DPI,
+        dpi_x: DEFAULT_DPI,
+        dpi_y: DEFAULT_DPI,
         color_space: "DeviceGray",
         icc_profile: None,
         payload: ImagePayload::Bilevel(BilevelStream::encode(&image)?),

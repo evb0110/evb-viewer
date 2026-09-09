@@ -1,8 +1,11 @@
+use crc32fast::Hasher;
 use evb_raster_io::{
     decode_png, decode_png_composited_rgb, encode_png, encode_png_fast, read_png_dimensions,
     read_png_metadata, read_png_passthrough, write_png_with_dpi, DecodeLimits, PassthroughLimits,
-    PixelBuffer, PngColorType, RasterError,
+    PixelBuffer, PngColorType, PngDensity, RasterError,
 };
+use flate2::{write::ZlibEncoder, Compression};
+use std::io::Write;
 
 const FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures");
 const PASSTHROUGH: PassthroughLimits = PassthroughLimits {
@@ -30,8 +33,11 @@ fn passthrough_preserves_compressed_data_and_metadata_without_decoding() {
     assert_eq!(
         read_png_passthrough(fixture("phys.png").as_slice(), PASSTHROUGH)
             .unwrap()
-            .dpi,
-        Some(300)
+            .density,
+        Some(PngDensity {
+            x_dpi: 300,
+            y_dpi: 300
+        })
     );
     assert_eq!(
         read_png_passthrough(fixture("iccp.png").as_slice(), PASSTHROUGH)
@@ -62,8 +68,11 @@ fn metadata_reader_preserves_metadata_without_retaining_idat_bytes() {
     assert_eq!(
         read_png_metadata(fixture("phys.png").as_slice(), PASSTHROUGH)
             .unwrap()
-            .dpi,
-        Some(300)
+            .density,
+        Some(PngDensity {
+            x_dpi: 300,
+            y_dpi: 300
+        })
     );
     assert_eq!(
         read_png_metadata(fixture("iccp.png").as_slice(), PASSTHROUGH)
@@ -96,8 +105,11 @@ fn composites_alpha_png_onto_white_and_preserves_requested_dpi() {
     assert_eq!(
         read_png_passthrough(encoded.as_slice(), PASSTHROUGH)
             .unwrap()
-            .dpi,
-        Some(300)
+            .density,
+        Some(PngDensity {
+            x_dpi: 300,
+            y_dpi: 300
+        })
     );
 }
 
@@ -143,6 +155,11 @@ fn decode_matches_scan_cleanup_luma_alpha_and_filter_behavior() {
         &[200, 10, 20, 40, 50, 60, 70, 80, 90, 128, 110, 120]
     );
     for filter in 0..=4 {
+        assert!(read_png_passthrough(
+            fixture(&format!("filter-{filter}.png")).as_slice(),
+            PASSTHROUGH
+        )
+        .is_ok());
         let decoded =
             decode_png(fixture(&format!("filter-{filter}.png")).as_slice(), DECODE).unwrap();
         assert_eq!(decoded.rgb.data(), RGB, "filter {filter}");
@@ -255,6 +272,63 @@ fn rejects_truncation_and_short_or_long_inflated_payloads() {
     }
 }
 
+#[test]
+fn passthrough_rejects_invalid_scanline_filters_across_stream_boundaries() {
+    for (color_type, row_bytes_list) in [
+        (PngColorType::Gray8, [8191usize, 8192, 8193]),
+        (PngColorType::Rgb8, [8190usize, 8193, 8196]),
+    ] {
+        for row_bytes in row_bytes_list {
+            let mut rows = vec![0; (row_bytes + 1) * 2];
+            rows[row_bytes + 1] = 5;
+            let png = make_png(
+                row_bytes / color_type.channels_for_test(),
+                2,
+                color_type,
+                &rows,
+                None,
+                true,
+            );
+            assert!(read_png_passthrough(&png[..], PASSTHROUGH).is_err());
+            assert!(decode_png(&png[..], DECODE).is_err());
+        }
+    }
+}
+
+#[test]
+fn phys_preserves_horizontal_and_vertical_density() {
+    let png = make_png(
+        3,
+        2,
+        PngColorType::Rgb8,
+        &[0; 20],
+        Some((11811, 23622)),
+        true,
+    );
+    assert_eq!(
+        read_png_metadata(&png[..], PASSTHROUGH).unwrap().density,
+        Some(PngDensity {
+            x_dpi: 300,
+            y_dpi: 600
+        })
+    );
+}
+
+#[test]
+fn passthrough_rejects_invalid_filter_in_first_middle_and_last_rows() {
+    for color_type in [PngColorType::Gray8, PngColorType::Rgb8] {
+        let channels = color_type.channels_for_test();
+        let width = 3;
+        let row_length = width * channels + 1;
+        for bad_row in 0..3 {
+            let mut rows = vec![0; row_length * 3];
+            rows[bad_row * row_length] = 5;
+            let png = make_png(width, 3, color_type, &rows, None, true);
+            assert!(read_png_passthrough(&png[..], PASSTHROUGH).is_err());
+        }
+    }
+}
+
 fn fixture(name: &str) -> Vec<u8> {
     std::fs::read(format!("{FIXTURES}/{name}")).unwrap()
 }
@@ -288,4 +362,66 @@ fn corrupt_chunk_crc(mut bytes: Vec<u8>, target: [u8; 4]) -> Vec<u8> {
         "fixture did not contain chunk {}",
         String::from_utf8_lossy(&target)
     );
+}
+
+fn make_png(
+    width: usize,
+    height: usize,
+    color_type: PngColorType,
+    filtered_rows: &[u8],
+    density: Option<(u32, u32)>,
+    split_idat: bool,
+) -> Vec<u8> {
+    let channels = color_type.channels_for_test();
+    assert_eq!(filtered_rows.len(), (width * channels + 1) * height);
+    let mut compressed = ZlibEncoder::new(Vec::new(), Compression::default());
+    compressed.write_all(filtered_rows).unwrap();
+    let compressed = compressed.finish().unwrap();
+    let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
+    let mut ihdr = Vec::new();
+    ihdr.extend_from_slice(&(width as u32).to_be_bytes());
+    ihdr.extend_from_slice(&(height as u32).to_be_bytes());
+    ihdr.extend_from_slice(&[8, color_type as u8, 0, 0, 0]);
+    append_chunk(&mut png, b"IHDR", &ihdr);
+    if let Some((x, y)) = density {
+        let mut phys = Vec::new();
+        phys.extend_from_slice(&x.to_be_bytes());
+        phys.extend_from_slice(&y.to_be_bytes());
+        phys.push(1);
+        append_chunk(&mut png, b"pHYs", &phys);
+    }
+    if split_idat {
+        let midpoint = compressed.len() / 2;
+        append_chunk(&mut png, b"IDAT", &compressed[..midpoint]);
+        append_chunk(&mut png, b"IDAT", &compressed[midpoint..]);
+    } else {
+        append_chunk(&mut png, b"IDAT", &compressed);
+    }
+    append_chunk(&mut png, b"IEND", &[]);
+    png
+}
+
+fn append_chunk(png: &mut Vec<u8>, kind: &[u8; 4], data: &[u8]) {
+    png.extend_from_slice(&(data.len() as u32).to_be_bytes());
+    png.extend_from_slice(kind);
+    png.extend_from_slice(data);
+    let mut hasher = Hasher::new();
+    hasher.update(kind);
+    hasher.update(data);
+    png.extend_from_slice(&hasher.finalize().to_be_bytes());
+}
+
+trait TestColorType {
+    fn channels_for_test(self) -> usize;
+}
+
+impl TestColorType for PngColorType {
+    fn channels_for_test(self) -> usize {
+        match self {
+            PngColorType::Gray8 => 1,
+            PngColorType::Rgb8 => 3,
+            PngColorType::GrayAlpha8 => 2,
+            PngColorType::Rgba8 => 4,
+        }
+    }
 }

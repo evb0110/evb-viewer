@@ -13,7 +13,7 @@ use evb_native_support::bounded_io::read_open_file_bounded;
 use evb_native_support::{NativeError, NativeErrorCode};
 use evb_raster_io::{
     decode_png, decode_png_composited_rgb, read_png_metadata, read_png_passthrough, CompressedPng,
-    DecodeLimits, PassthroughLimits, PngColorType, PngMetadata,
+    DecodeLimits, PassthroughLimits, PngColorType, PngDensity, PngMetadata,
 };
 
 use crate::{
@@ -350,6 +350,13 @@ fn read_bounded_reader<R: Read>(reader: R) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 
+fn png_dpi(density: Option<PngDensity>, default_dpi: Option<u32>) -> (u32, u32) {
+    density
+        .map(|density| (density.x_dpi, density.y_dpi))
+        .or_else(|| default_dpi.map(|dpi| (dpi, dpi)))
+        .unwrap_or((DEFAULT_DPI, DEFAULT_DPI))
+}
+
 fn png_flate_page(png: CompressedPng, default_dpi: Option<u32>) -> ImagePage {
     let (colors, color_space) = match png.color_type {
         PngColorType::Gray8 => (1, "DeviceGray"),
@@ -364,10 +371,12 @@ fn png_flate_page(png: CompressedPng, default_dpi: Option<u32>) -> ImagePage {
         png.width
     );
 
+    let (dpi_x, dpi_y) = png_dpi(png.density, default_dpi);
     ImagePage {
         width: png.width,
         height: png.height,
-        dpi: png.dpi.or(default_dpi).unwrap_or(DEFAULT_DPI),
+        dpi_x,
+        dpi_y,
         color_space,
         icc_profile: png.icc_profile,
         payload: ImagePayload::RawFlate {
@@ -393,10 +402,12 @@ fn png_composited_flate_page(
     )?;
     let compressed =
         deflate_up_filtered_slices(decoded.data(), png.width as usize * 3, png.height as usize)?;
+    let (dpi_x, dpi_y) = png_dpi(png.density, default_dpi);
     Ok(ImagePage {
         width: png.width,
         height: png.height,
-        dpi: png.dpi.or(default_dpi).unwrap_or(DEFAULT_DPI),
+        dpi_x,
+        dpi_y,
         color_space: "DeviceRGB",
         icc_profile: png.icc_profile,
         payload: ImagePayload::RawFlate {
@@ -425,10 +436,12 @@ fn read_jpeg_page(bytes: Vec<u8>, max_pixels: u64, default_dpi: Option<u32>) -> 
         }
     };
 
+    let dpi = metadata.dpi.or(default_dpi).unwrap_or(DEFAULT_DPI);
     Ok(ImagePage {
         width: metadata.width,
         height: metadata.height,
-        dpi: metadata.dpi.or(default_dpi).unwrap_or(DEFAULT_DPI),
+        dpi_x: dpi,
+        dpi_y: dpi,
         color_space,
         icc_profile: metadata.icc_profile,
         payload: ImagePayload::Jpeg { data: bytes },
@@ -439,10 +452,12 @@ fn read_jpx_page(bytes: Vec<u8>, max_pixels: u64, default_dpi: Option<u32>) -> R
     let metadata = parse_jpx_metadata(&bytes)?;
     assert_pixel_limit(metadata.width, metadata.height, max_pixels)?;
     with_image_decode_admission(|| validate_jpx_codestream(&bytes, metadata))?;
+    let dpi = default_dpi.unwrap_or(DEFAULT_DPI);
     Ok(ImagePage {
         width: metadata.width,
         height: metadata.height,
-        dpi: default_dpi.unwrap_or(DEFAULT_DPI),
+        dpi_x: dpi,
+        dpi_y: dpi,
         color_space: if metadata.components == 1 {
             "DeviceGray"
         } else {
@@ -522,10 +537,12 @@ fn read_png_jpeg_page(
     if use_flate_fallback {
         let flate = encode_prepared_netpbm_as_flate(&prepared)?;
         if flate.data.len() < data.len() {
+            let (dpi_x, dpi_y) = png_dpi(png.density, default_dpi);
             return Ok(ImagePage {
                 width: prepared.width,
                 height: prepared.height,
-                dpi: png.dpi.or(default_dpi).unwrap_or(DEFAULT_DPI),
+                dpi_x,
+                dpi_y,
                 color_space: flate.color_space,
                 icc_profile: png.icc_profile,
                 payload: ImagePayload::RawFlate {
@@ -535,10 +552,12 @@ fn read_png_jpeg_page(
             });
         }
     }
+    let (dpi_x, dpi_y) = png_dpi(png.density, default_dpi);
     Ok(ImagePage {
         width: prepared.width,
         height: prepared.height,
-        dpi: png.dpi.or(default_dpi).unwrap_or(DEFAULT_DPI),
+        dpi_x,
+        dpi_y,
         color_space,
         icc_profile: None,
         payload: ImagePayload::Jpeg { data },
@@ -586,7 +605,8 @@ fn read_netpbm_page_data(netpbm: &NetpbmData<'_>, dpi: u32) -> Result<ImagePage>
     Ok(ImagePage {
         width: netpbm.width,
         height: netpbm.height,
-        dpi,
+        dpi_x: dpi,
+        dpi_y: dpi,
         color_space,
         icc_profile: None,
         payload: ImagePayload::RawFlate {
@@ -718,7 +738,8 @@ fn read_netpbm_jpeg_page_data(
             return Ok(ImagePage {
                 width: prepared.width,
                 height: prepared.height,
-                dpi,
+                dpi_x: dpi,
+                dpi_y: dpi,
                 color_space: flate.color_space,
                 icc_profile: None,
                 payload: ImagePayload::RawFlate {
@@ -731,7 +752,8 @@ fn read_netpbm_jpeg_page_data(
     Ok(ImagePage {
         width: prepared.width,
         height: prepared.height,
-        dpi,
+        dpi_x: dpi,
+        dpi_y: dpi,
         color_space: jpeg_color_space,
         icc_profile: None,
         payload: ImagePayload::Jpeg { data: jpeg_data },
@@ -1110,6 +1132,8 @@ pub(crate) fn assert_pixel_limit(width: u32, height: u32, max_pixels: u64) -> Re
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crc32fast::Hasher;
+    use evb_raster_io::{encode_png, PixelBuffer};
     use std::{
         sync::{
             atomic::{AtomicUsize, Ordering},
@@ -1163,7 +1187,8 @@ mod tests {
 
         assert_eq!(page.width, 2);
         assert_eq!(page.height, 1);
-        assert_eq!(page.dpi, 300);
+        assert_eq!(page.dpi_x, 300);
+        assert_eq!(page.dpi_y, 300);
         assert_eq!(page.color_space, "DeviceGray");
         match page.payload {
             ImagePayload::RawFlate {
@@ -1178,6 +1203,47 @@ mod tests {
                 panic!("expected flate payload")
             }
         }
+    }
+
+    #[test]
+    fn png_page_keeps_horizontal_and_vertical_density_independent() {
+        let pixels = vec![128u8; 300 * 600 * 3];
+        let encoded = encode_png(PixelBuffer::Rgb {
+            width: 300,
+            height: 600,
+            stride: 900,
+            data: &pixels,
+        })
+        .unwrap();
+        let mut png = encoded[..33].to_vec();
+        let mut phys = Vec::new();
+        phys.extend_from_slice(&11811u32.to_be_bytes());
+        phys.extend_from_slice(&23622u32.to_be_bytes());
+        phys.push(1);
+        append_test_chunk(&mut png, b"pHYs", &phys);
+        png.extend_from_slice(&encoded[33..]);
+
+        let page = read_image_page_from_bytes(
+            "asymmetric.png",
+            &png,
+            &PdfBuildOptions::default(),
+            PdfImageCompression::Auto,
+            ImageProcessing::None,
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!((page.dpi_x, page.dpi_y), (300, 600));
+    }
+
+    fn append_test_chunk(png: &mut Vec<u8>, kind: &[u8; 4], data: &[u8]) {
+        png.extend_from_slice(&(data.len() as u32).to_be_bytes());
+        png.extend_from_slice(kind);
+        png.extend_from_slice(data);
+        let mut hasher = Hasher::new();
+        hasher.update(kind);
+        hasher.update(data);
+        png.extend_from_slice(&hasher.finalize().to_be_bytes());
     }
 
     #[test]

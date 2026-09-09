@@ -40,17 +40,22 @@ pub struct CompressedPng {
     pub width: u32,
     pub height: u32,
     pub color_type: PngColorType,
-    pub dpi: Option<u32>,
+    pub density: Option<PngDensity>,
     /// Concatenated original IDAT bytes; never decoded or re-encoded.
     pub idat: Vec<u8>,
     pub icc_profile: Option<Vec<u8>>,
+}
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PngDensity {
+    pub x_dpi: u32,
+    pub y_dpi: u32,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PngMetadata {
     pub width: u32,
     pub height: u32,
     pub color_type: PngColorType,
-    pub dpi: Option<u32>,
+    pub density: Option<PngDensity>,
     pub icc_profile: Option<Vec<u8>>,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -96,12 +101,20 @@ pub fn read_png_passthrough<R: Read>(
     limits: PassthroughLimits,
 ) -> Result<CompressedPng, RasterError> {
     let parsed = walk_chunks(reader, WalkMode::Passthrough(limits))?;
-    validate_inflated_length(&parsed.idat, parsed.header.expected_data_len()?)?;
+    let row_bytes = (parsed.header.width as usize)
+        .checked_mul(parsed.header.color_type.channels())
+        .ok_or_else(|| RasterError::invalid("PNG row overflow"))?;
+    validate_inflated_rows(
+        &parsed.idat,
+        parsed.header.expected_data_len()?,
+        row_bytes,
+        parsed.header.height as usize,
+    )?;
     Ok(CompressedPng {
         width: parsed.header.width,
         height: parsed.header.height,
         color_type: parsed.header.color_type,
-        dpi: parsed.dpi,
+        density: parsed.density,
         idat: parsed.idat,
         icc_profile: parsed.icc_profile,
     })
@@ -115,7 +128,7 @@ pub fn read_png_metadata<R: Read>(
         width: parsed.header.width,
         height: parsed.header.height,
         color_type: parsed.header.color_type,
-        dpi: parsed.dpi,
+        density: parsed.density,
         icc_profile: parsed.icc_profile,
     })
 }
@@ -742,7 +755,7 @@ impl PngHeader {
 }
 struct WalkedPng {
     header: PngHeader,
-    dpi: Option<u32>,
+    density: Option<PngDensity>,
     idat: Vec<u8>,
     icc_profile: Option<Vec<u8>>,
 }
@@ -753,7 +766,7 @@ fn walk_chunks<R: Read>(mut reader: R, mode: WalkMode) -> Result<WalkedPng, Rast
         return Err(RasterError::invalid("Invalid PNG signature"));
     }
     let mut header = None;
-    let mut dpi = None;
+    let mut density = None;
     let mut idat = Vec::new();
     let mut idat_len = 0usize;
     let mut icc_profile = None;
@@ -778,7 +791,7 @@ fn walk_chunks<R: Read>(mut reader: R, mode: WalkMode) -> Result<WalkedPng, Rast
                 let mut data = [0u8; 9];
                 read_chunk_bytes(&mut reader, &mut data, &mut hasher)?;
                 if matches!(mode, WalkMode::Passthrough(_) | WalkMode::Metadata(_)) {
-                    dpi = read_phys_dpi(&data);
+                    density = read_phys_density(&data);
                 }
             }
             b"iCCP" if matches!(mode, WalkMode::Passthrough(_) | WalkMode::Metadata(_)) => {
@@ -854,7 +867,7 @@ fn walk_chunks<R: Read>(mut reader: R, mode: WalkMode) -> Result<WalkedPng, Rast
             if let Some(header) = parsed_header {
                 return Ok(WalkedPng {
                     header,
-                    dpi: None,
+                    density: None,
                     idat,
                     icc_profile: None,
                 });
@@ -867,7 +880,7 @@ fn walk_chunks<R: Read>(mut reader: R, mode: WalkMode) -> Result<WalkedPng, Rast
             }
             return Ok(WalkedPng {
                 header,
-                dpi,
+                density,
                 idat,
                 icc_profile,
             });
@@ -964,10 +977,22 @@ fn decode_icc_profile(data: &[u8], limit: usize) -> Result<Vec<u8>, RasterError>
     }
     Ok(profile)
 }
-fn validate_inflated_length(idat: &[u8], expected: usize) -> Result<(), RasterError> {
+fn validate_inflated_rows(
+    idat: &[u8],
+    expected: usize,
+    row_bytes: usize,
+    height: usize,
+) -> Result<(), RasterError> {
     let mut decoder = ZlibDecoder::new(idat);
     let mut buffer = [0u8; 8192];
     let mut decoded = 0usize;
+    let row_length = row_bytes
+        .checked_add(1)
+        .ok_or_else(|| RasterError::invalid("PNG row length overflow"))?;
+    let expected_rows = row_length
+        .checked_mul(height)
+        .ok_or_else(|| RasterError::invalid("PNG scanline length overflow"))?;
+    let mut row_position = 0usize;
     loop {
         let count = expected
             .saturating_sub(decoded)
@@ -976,6 +1001,16 @@ fn validate_inflated_length(idat: &[u8], expected: usize) -> Result<(), RasterEr
         let read = decoder.read(&mut buffer[..count])?;
         if read == 0 {
             break;
+        }
+        for &byte in &buffer[..read] {
+            if row_position % row_length == 0 && byte > 4 {
+                return Err(RasterError::invalid(format!(
+                    "Unsupported PNG filter: {byte}"
+                )));
+            }
+            row_position = row_position
+                .checked_add(1)
+                .ok_or_else(|| RasterError::invalid("PNG row position overflow"))?;
         }
         decoded = decoded
             .checked_add(read)
@@ -991,6 +1026,9 @@ fn validate_inflated_length(idat: &[u8], expected: usize) -> Result<(), RasterEr
             "PNG image data length mismatch: expected {expected} bytes, got {decoded}"
         )));
     }
+    if row_position != expected_rows {
+        return Err(RasterError::invalid("PNG scanline length mismatch"));
+    }
     Ok(())
 }
 fn max_png_compressed_length(uncompressed: usize) -> Result<usize, RasterError> {
@@ -1001,12 +1039,20 @@ fn max_png_compressed_length(uncompressed: usize) -> Result<usize, RasterError> 
         .and_then(|value| value.checked_add(64))
         .ok_or_else(|| RasterError::invalid("Invalid PNG compressed image data limit"))
 }
-fn read_phys_dpi(data: &[u8; 9]) -> Option<u32> {
+fn read_phys_density(data: &[u8; 9]) -> Option<PngDensity> {
     let x = u32::from_be_bytes(data[..4].try_into().unwrap());
     let y = u32::from_be_bytes(data[4..8].try_into().unwrap());
-    if data[8] == 1 && (x > 0 || y > 0) {
-        let dpi = (f64::from(x.max(y)) * METERS_PER_INCH).round() as u32;
-        (dpi > 0).then_some(dpi)
+    if data[8] == 1 && x > 0 && y > 0 {
+        let x_dpi = (f64::from(x) * METERS_PER_INCH).round();
+        let y_dpi = (f64::from(y) * METERS_PER_INCH).round();
+        if x_dpi.is_finite() && y_dpi.is_finite() && x_dpi >= 1.0 && y_dpi >= 1.0 {
+            Some(PngDensity {
+                x_dpi: x_dpi as u32,
+                y_dpi: y_dpi as u32,
+            })
+        } else {
+            None
+        }
     } else {
         None
     }
