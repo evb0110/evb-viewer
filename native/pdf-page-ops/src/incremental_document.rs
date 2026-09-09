@@ -804,13 +804,19 @@ fn qpdf_dictionary(value: &Value) -> Result<Dictionary> {
     qpdf_dictionary_with_mode(value, false)
 }
 
+#[derive(Clone, Copy)]
+enum QpdfNameMode {
+    Canonical,
+    Escaped,
+}
+
 fn qpdf_dictionary_with_mode(value: &Value, allow_legacy_encoding: bool) -> Result<Dictionary> {
     let values = value
         .as_object()
         .ok_or("qpdf dictionary value is not an object")?;
     let mut dictionary = Dictionary::new();
     for (key, value) in values {
-        let decoded_key = decode_qpdf_name(key)?;
+        let decoded_key = decode_qpdf_name(key, qpdf_name_mode(allow_legacy_encoding))?;
         dictionary.set(
             decoded_key.clone(),
             if decoded_key == b"DA" {
@@ -876,7 +882,10 @@ fn qpdf_string_object_with_mode(value: &str, allow_legacy_encoding: bool) -> Res
         return Ok(Object::Reference(reference));
     }
     if value.starts_with('/') || value.starts_with("n:/") {
-        return Ok(Object::Name(decode_qpdf_name(value)?));
+        return Ok(Object::Name(decode_qpdf_name(
+            value,
+            qpdf_name_mode(allow_legacy_encoding),
+        )?));
     }
     if let Some(text) = value.strip_prefix("u:") {
         return Ok(Object::String(
@@ -911,12 +920,24 @@ fn qpdf_default_appearance_object(value: &Value, allow_legacy_encoding: bool) ->
     qpdf_object_with_mode(value, allow_legacy_encoding)
 }
 
-fn decode_qpdf_name(value: &str) -> Result<Vec<u8>> {
+fn qpdf_name_mode(allow_legacy_encoding: bool) -> QpdfNameMode {
+    if allow_legacy_encoding {
+        QpdfNameMode::Escaped
+    } else {
+        QpdfNameMode::Canonical
+    }
+}
+
+fn decode_qpdf_name(value: &str, mode: QpdfNameMode) -> Result<Vec<u8>> {
+    let explicit_encoding = value.starts_with("n:");
     let encoded = value.strip_prefix("n:").unwrap_or(value);
     let encoded = encoded
         .strip_prefix('/')
         .ok_or("qpdf name is missing its slash")?
         .as_bytes();
+    if !explicit_encoding && matches!(mode, QpdfNameMode::Canonical) {
+        return Ok(encoded.to_vec());
+    }
     let mut decoded = Vec::with_capacity(encoded.len());
     let mut index = 0;
     while index < encoded.len() {
@@ -1024,8 +1045,36 @@ mod tests {
 
     #[test]
     fn parses_qpdf_names_references_and_strings() {
-        assert_eq!(decode_qpdf_name("/text/plain").unwrap(), b"text/plain");
-        assert_eq!(decode_qpdf_name("n:/one#a0two").unwrap(), b"one\xa0two");
+        assert_eq!(
+            decode_qpdf_name("/text/plain", QpdfNameMode::Canonical).unwrap(),
+            b"text/plain"
+        );
+        assert_eq!(
+            decode_qpdf_name("/one#31", QpdfNameMode::Canonical).unwrap(),
+            b"one#31"
+        );
+        assert_eq!(
+            decode_qpdf_name("/one#31", QpdfNameMode::Escaped).unwrap(),
+            b"one1"
+        );
+        assert_eq!(
+            decode_qpdf_name("/one#", QpdfNameMode::Canonical).unwrap(),
+            b"one#"
+        );
+        assert_eq!(
+            decode_qpdf_name("/one#", QpdfNameMode::Escaped)
+                .unwrap_err()
+                .to_string(),
+            "qpdf name escape ended early"
+        );
+        assert_eq!(
+            decode_qpdf_name("n:/one#a0two", QpdfNameMode::Canonical).unwrap(),
+            b"one\xa0two"
+        );
+        assert_eq!(
+            decode_qpdf_name("n:/one#a0two", QpdfNameMode::Escaped).unwrap(),
+            b"one\xa0two"
+        );
         assert_eq!(parse_qpdf_reference("12 3 R"), Some((12, 3)));
         assert_eq!(
             qpdf_string_object("b:00ff").unwrap(),
@@ -1049,6 +1098,29 @@ mod tests {
             dictionary.get(b"Contents").unwrap().as_str().unwrap(),
             encode_pdf_text_string("canonical text box"),
         );
+    }
+
+    #[test]
+    fn applies_name_mode_to_dictionary_keys_and_values() {
+        let canonical = qpdf_dictionary(&serde_json::json!({
+            "/F#31": "/F#31",
+            "/XObject": {"/Im#32": "n:/Im#32"},
+        }))
+        .unwrap();
+        assert!(canonical.get(b"F#31").is_ok());
+        assert_eq!(canonical.get(b"F#31").unwrap().as_name().unwrap(), b"F#31");
+        let xobjects = canonical.get(b"XObject").unwrap().as_dict().unwrap();
+        assert!(xobjects.get(b"Im#32").is_ok());
+        assert_eq!(xobjects.get(b"Im#32").unwrap().as_name().unwrap(), b"Im2");
+
+        let escaped = qpdf_dictionary_with_mode(
+            &serde_json::json!({"/F#31": "/F#31", "/X#32": "/X#32"}),
+            true,
+        )
+        .unwrap();
+        assert!(escaped.get(b"F1").is_ok());
+        assert_eq!(escaped.get(b"F1").unwrap().as_name().unwrap(), b"F1");
+        assert!(escaped.get(b"X2").is_ok());
     }
 
     #[test]

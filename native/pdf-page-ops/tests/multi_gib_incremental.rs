@@ -2,6 +2,7 @@
 
 use lopdf::{dictionary, Document, Object, Stream};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::{
     env,
     fs::{self, File},
@@ -109,11 +110,16 @@ fn write_sparse_structural_loader_pdf(path: &Path) -> u64 {
     write_object(
         &mut file,
         &mut offsets,
-        b"3 0 obj\n<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 100]/Resources<<>>/Contents 4 0 R>>\nendobj\n",
+        b"3 0 obj\n<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 100]/Resources<</Font<</F#2331 6 0 R>>/XObject<</X#23#23 7 0 R>>>>/Contents 4 0 R>>\nendobj\n",
+    );
+    write_object(
+        &mut file,
+        &mut offsets,
+        b"4 0 obj\n<</Length 63>>\nstream\nBT /F#2331 12 Tf 10 70 Td (Structural names) Tj ET /X#23#23 Do\nendstream\nendobj\n",
     );
     offsets.push(file.stream_position().unwrap());
     file.write_all(
-        format!("4 0 obj\n<</Length {STRUCTURAL_LOADER_STREAM_BYTES}>>\nstream\n").as_bytes(),
+        format!("5 0 obj\n<</Length {STRUCTURAL_LOADER_STREAM_BYTES}>>\nstream\n").as_bytes(),
     )
     .unwrap();
     file.seek(SeekFrom::Current(
@@ -122,14 +128,25 @@ fn write_sparse_structural_loader_pdf(path: &Path) -> u64 {
     .unwrap();
     file.write_all(b"\nendstream\nendobj\n").unwrap();
 
+    write_object(
+        &mut file,
+        &mut offsets,
+        b"6 0 obj\n<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>\nendobj\n",
+    );
+    write_object(
+        &mut file,
+        &mut offsets,
+        b"7 0 obj\n<</Type/XObject/Subtype/Form/BBox[0 0 200 100]/Resources<<>>/Length 26>>\nstream\n0 0 1 rg 20 20 40 40 re f\nendstream\nendobj\n",
+    );
+
     let xref_offset = file.stream_position().unwrap();
-    file.write_all(b"xref\n0 5\n0000000000 65535 f \n").unwrap();
+    file.write_all(b"xref\n0 8\n0000000000 65535 f \n").unwrap();
     for offset in offsets {
         file.write_all(format!("{offset:010} 00000 n \n").as_bytes())
             .unwrap();
     }
     file.write_all(
-        format!("trailer\n<</Size 5/Root 1 0 R>>\nstartxref\n{xref_offset}\n%%EOF\n").as_bytes(),
+        format!("trailer\n<</Size 8/Root 1 0 R>>\nstartxref\n{xref_offset}\n%%EOF\n").as_bytes(),
     )
     .unwrap();
     file.sync_all().unwrap();
@@ -314,6 +331,21 @@ fn qpdf_objects_json(pdf: &Path) -> String {
     String::from_utf8(output.stdout).unwrap()
 }
 
+fn qpdf_json_v2(pdf: &Path) -> String {
+    let output = Command::new(qpdf_path())
+        .args(["--json=2", "--json-stream-data=none"])
+        .arg("--")
+        .arg(pdf)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "qpdf JSON v2 read failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).unwrap()
+}
+
 fn qpdf_contains_pdf_text(pdf: &Path, text: &str) -> bool {
     let objects = qpdf_objects_json(pdf).to_lowercase();
     objects.contains(&pdf_utf16be_hex(text)) || objects.contains(&text.to_lowercase())
@@ -352,6 +384,50 @@ fn qpdf_text_note_objects(pdf: &Path) -> Vec<((u32, u16), String)> {
             Some(((object_number, generation_number), contents))
         })
         .collect()
+}
+
+fn sha256_prefix(path: &Path, length: u64) -> [u8; 32] {
+    let mut file = File::open(path).unwrap();
+    let mut hasher = Sha256::new();
+    let mut remaining = length;
+    let mut buffer = [0_u8; 64 * 1024];
+    while remaining > 0 {
+        let chunk_len = usize::try_from(remaining)
+            .unwrap_or(buffer.len())
+            .min(buffer.len());
+        let read = file.read(&mut buffer[..chunk_len]).unwrap();
+        assert!(read > 0, "PDF ended before its original prefix");
+        hasher.update(&buffer[..read]);
+        remaining -= read as u64;
+    }
+    hasher.finalize().into()
+}
+
+fn render_page_png(pdf: &Path, label: &str) -> Vec<u8> {
+    let prefix = temp_path(label, "render");
+    let png = PathBuf::from(format!("{}.png", prefix.display()));
+    let result = Command::new("pdftoppm")
+        .args([
+            "-f",
+            "1",
+            "-l",
+            "1",
+            "-singlefile",
+            "-png",
+            "-hide-annotations",
+        ])
+        .arg(pdf)
+        .arg(&prefix)
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "pdftoppm failed: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let pixels = fs::read(&png).unwrap();
+    fs::remove_file(png).unwrap();
+    pixels
 }
 
 fn pdf_utf16be_hex(value: &str) -> String {
@@ -652,6 +728,65 @@ fn qpdf_structural_loader_resolves_repeated_native_mutations() {
         .iter()
         .any(|(_, contents)| contents == "second text"));
     assert!(!qpdf_contains_pdf_text(&pdf, "first text"));
+    assert_qpdf_check(&pdf);
+}
+
+#[test]
+fn preserves_hash_named_resources_through_two_large_annotation_appends() {
+    let pdf = temp_path("structural-hash-resources", "pdf");
+    let first_mutations = temp_path("structural-hash-first", "json");
+    let second_mutations = temp_path("structural-hash-second", "json");
+    let _cleanup = TempFiles(vec![
+        pdf.clone(),
+        first_mutations.clone(),
+        second_mutations.clone(),
+    ]);
+    let original_len = write_sparse_structural_loader_pdf(&pdf);
+    let original_prefix = sha256_prefix(&pdf, original_len);
+    let original_pixels = render_page_png(&pdf, "structural-hash-original");
+    let original_objects = qpdf_json_v2(&pdf);
+    assert!(original_objects.contains("\"/F#31\""));
+    assert!(original_objects.contains("\"/X##\""));
+
+    fs::write(
+        &first_mutations,
+        br#"{"freeTextNotes":[{"pageIndex":0,"stableKey":"uid:0:hash-first","text":"first text","markerRect":{"left":0.1,"top":0.2,"width":0.01,"height":0.01},"author":null,"color":null,"createdAt":1}]}"#,
+    )
+    .unwrap();
+    let first = append_mutations(&pdf, &first_mutations);
+    assert!(
+        first.status.success(),
+        "first append failed: {}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    assert_eq!(sha256_prefix(&pdf, original_len), original_prefix);
+    let first_objects = qpdf_json_v2(&pdf);
+    assert!(first_objects.contains("\"/F#31\""));
+    assert!(first_objects.contains("\"/X##\""));
+    assert_eq!(
+        render_page_png(&pdf, "structural-hash-first-render"),
+        original_pixels
+    );
+
+    fs::write(
+        &second_mutations,
+        br#"{"freeTextNotes":[{"pageIndex":0,"stableKey":"uid:0:hash-second","text":"second text","markerRect":{"left":0.3,"top":0.4,"width":0.01,"height":0.01},"author":null,"color":null,"createdAt":2}]}"#,
+    )
+    .unwrap();
+    let second = append_mutations(&pdf, &second_mutations);
+    assert!(
+        second.status.success(),
+        "second append failed: {}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+    assert_eq!(sha256_prefix(&pdf, original_len), original_prefix);
+    let second_objects = qpdf_json_v2(&pdf);
+    assert!(second_objects.contains("\"/F#31\""));
+    assert!(second_objects.contains("\"/X##\""));
+    assert_eq!(
+        render_page_png(&pdf, "structural-hash-second-render"),
+        original_pixels
+    );
     assert_qpdf_check(&pdf);
 }
 
