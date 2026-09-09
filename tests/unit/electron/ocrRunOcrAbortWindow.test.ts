@@ -9,12 +9,16 @@ import {
 import { runOcr } from '@electron/features/ocr/main/runOcr';
 
 const mocks = vi.hoisted(() => ({
+    execFile: vi.fn(),
     spawn: vi.fn(),
     ensureTessdataLanguages: vi.fn(async () => {}),
     getOcrPaths: vi.fn(),
 }));
 
-vi.mock('child_process', () => ({ spawn: mocks.spawn }));
+vi.mock('child_process', () => ({
+    execFile: mocks.execFile,
+    spawn: mocks.spawn,
+}));
 
 vi.mock('@electron/features/ocr/languageModels', () => ({ ensureTessdataLanguages: mocks.ensureTessdataLanguages }));
 

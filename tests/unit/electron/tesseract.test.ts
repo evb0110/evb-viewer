@@ -31,13 +31,17 @@ class MockChildProcess extends EventEmitter {
 }
 
 const mocks = vi.hoisted(() => ({
+    execFile: vi.fn(),
     spawn: vi.fn(),
     ensureTessdataLanguages: vi.fn(),
     getOcrPaths: vi.fn(),
     resolveTesseractLanguageConfig: vi.fn(),
 }));
 
-vi.mock('child_process', () => ({spawn: mocks.spawn}));
+vi.mock('child_process', () => ({
+    execFile: mocks.execFile,
+    spawn: mocks.spawn,
+}));
 vi.mock('@electron/features/ocr/languageModels', () => ({ensureTessdataLanguages: mocks.ensureTessdataLanguages}));
 vi.mock('@electron/features/ocr/main/paths', () => ({getOcrPaths: mocks.getOcrPaths}));
 vi.mock('@electron/features/ocr/main/resolveTesseractLanguageConfig', () => ({resolveTesseractLanguageConfig: mocks.resolveTesseractLanguageConfig}));
