@@ -1,0 +1,36 @@
+tests/unit/app/platform/browserSaveTargets.test.ts
+  s_ee8c521281e0f3::t_e1b7cf1bf92c18 65
+  s_ee8c521281e0f3::t_87652cd59aac04 63-64,66-67
+app/platform/browser/browserDocumentRecords.ts
+  s_ee8c521281e0f3::t_87652cd59aac04 41,71,181-183,190,325,426
+app/platform/browser/browserDocumentRepository.ts
+  s_ee8c521281e0f3::t_87652cd59aac04 82,227,488,509,725,740,743-778,871
+  s_ee8c521281e0f3::t_e1b7cf1bf92c18 81,738,866-870
+  s_ee8c521281e0f3::t_2e43fb9b00bc68 394,420-422
+app/platform/browser/browserDocumentTypes.ts
+  s_ee8c521281e0f3::t_b31f6565f61914 79
+  s_ee8c521281e0f3::t_87652cd59aac04 27,51,69,136
+tests/unit/app/platform/browserDocumentRepository.test.ts
+  s_ee8c521281e0f3::t_b13bd2cbe1eba2 143-150
+  s_ee8c521281e0f3::t_03943a4956360d 123-142,151-160,162-173
+  s_ee8c521281e0f3::t_49a9b6598e2e2d 161
+app/platform/browser-api/browserSaveTargets.ts
+  s_ee8c521281e0f3::t_e1b7cf1bf92c18 84
+  s_ee8c521281e0f3::t_87652cd59aac04 99
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "7691321dede8dc3cbe10a7cc70b0c9a3d9d0d9dd",
+  "prompts": {},
+  "sessions": {
+    "s_ee8c521281e0f3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08766-81da-7180-b229-1a1779baa245",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
