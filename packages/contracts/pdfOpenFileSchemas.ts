@@ -46,6 +46,7 @@ export function decodeOpenFileResult(value: unknown): TOpenFileResult | null {
         workingPath === null
         || originalPath === null
         || (value.isGenerated !== undefined && typeof value.isGenerated !== 'boolean')
+        || (value.recoveryDirtyBaseline !== undefined && typeof value.recoveryDirtyBaseline !== 'boolean')
         || (value.wasEncrypted !== undefined && value.wasEncrypted !== true)
     ) {
         fail('invalid PDF open-file result');
@@ -58,6 +59,7 @@ export function decodeOpenFileResult(value: unknown): TOpenFileResult | null {
         workingPath,
         originalPath,
         ...(value.isGenerated === undefined ? {} : {isGenerated: value.isGenerated}),
+        ...(value.recoveryDirtyBaseline === undefined ? {} : {recoveryDirtyBaseline: value.recoveryDirtyBaseline}),
         ...(value.wasEncrypted === true ? {wasEncrypted: true as const} : {}),
         ...(openingGeometry === undefined ? {} : {openingGeometry}),
     };

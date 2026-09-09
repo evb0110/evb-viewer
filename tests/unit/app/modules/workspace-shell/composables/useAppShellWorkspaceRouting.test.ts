@@ -998,6 +998,106 @@ describe('useAppShellWorkspaceRouting', () => {
         expect(failedPaths).toEqual(['/docs/startup-failed.pdf']);
     });
 
+    it('keeps a startup open with an error unresolved after a false result', async () => {
+        vi.useFakeTimers();
+        try {
+            const activePaneId = ref('pane-1');
+            const activeTabId = ref('tab-1');
+            const workspaceRefs = ref(new Map<string, IWorkspaceExpose>());
+            const initialWorkspace = createWorkspace(true);
+            workspaceRefs.value.set('tab-1', initialWorkspace.workspace);
+            const failedPath = requireDocumentRef('/docs/startup-error.pdf');
+
+            const routingOptions = createRoutingOptions({
+                activePaneId,
+                activeTabId,
+                workspaceRefs,
+                createTab: () => {
+                    const tabId = 'tab-2';
+                    const record = createWorkspace(false);
+                    record.openPath.mockResolvedValueOnce(false);
+                    workspaceRefs.value.set(tabId, record.workspace);
+                    return createTabStub(tabId);
+                },
+            });
+            routingOptions.getDocumentRecord.mockImplementation((tabId: string | null | undefined) => (
+                tabId === 'tab-2'
+                    ? createWorkspaceDocumentRecord({
+                        tab: {
+                            fileName: 'startup-error.pdf',
+                            originalPath: failedPath,
+                            isDirty: false,
+                            isDjvu: false,
+                        },
+                        toolbarSnapshot: {
+                            ...createDefaultWorkspaceToolbarSnapshot(),
+                            hasOpenError: true,
+                        },
+                    })
+                    : null
+            ));
+            const routing = useAppShellWorkspaceRouting(routingOptions);
+
+            const opening = routing.beginOpenPathsInAppropriateTab([failedPath]);
+            await vi.advanceTimersByTimeAsync(1_000);
+
+            await expect(opening).resolves.toEqual([failedPath]);
+            expect(routingOptions.removeTabFromState).toHaveBeenCalledWith('tab-2');
+            expect(routingOptions.updateTab).not.toHaveBeenCalled();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('accepts a matching startup document with positive readiness after a false result', async () => {
+        const activePaneId = ref('pane-1');
+        const activeTabId = ref('tab-1');
+        const workspaceRefs = ref(new Map<string, IWorkspaceExpose>());
+        const initialWorkspace = createWorkspace(true);
+        workspaceRefs.value.set('tab-1', initialWorkspace.workspace);
+        const openedPath = requireDocumentRef('/docs/startup-ready.pdf');
+
+        const routingOptions = createRoutingOptions({
+            activePaneId,
+            activeTabId,
+            workspaceRefs,
+            createTab: () => {
+                const tabId = 'tab-2';
+                const record = createWorkspace(false);
+                record.openPath.mockResolvedValueOnce(false);
+                workspaceRefs.value.set(tabId, record.workspace);
+                return createTabStub(tabId);
+            },
+        });
+        routingOptions.getDocumentRecord.mockImplementation((tabId: string | null | undefined) => (
+            tabId === 'tab-2'
+                ? createWorkspaceDocumentRecord({
+                    tab: {
+                        fileName: 'startup-ready.pdf',
+                        originalPath: openedPath,
+                        isDirty: false,
+                        isDjvu: false,
+                    },
+                    toolbarSnapshot: {
+                        ...createDefaultWorkspaceToolbarSnapshot(),
+                        hasPdf: true,
+                        totalPages: 9,
+                    },
+                })
+                : null
+        ));
+        const routing = useAppShellWorkspaceRouting(routingOptions);
+
+        await expect(routing.beginOpenPathsInAppropriateTab([openedPath])).resolves.toEqual([]);
+
+        expect(routingOptions.removeTabFromState).not.toHaveBeenCalled();
+        expect(routingOptions.updateTab).toHaveBeenCalledWith('tab-2', expect.objectContaining({
+            fileName: 'startup-ready.pdf',
+            originalPath: openedPath,
+            isDjvu: false,
+        }));
+    });
+
     it('keeps a new external-open tab when document state settles after a false open return', async () => {
         const activePaneId = ref('pane-1');
         const activeTabId = ref('tab-1');

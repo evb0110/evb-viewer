@@ -989,6 +989,68 @@ describe('createDocumentOpenFlow', () => {
         expect(deps.cleanupAbandonedWorkingCopy).toHaveBeenCalledWith('/tmp/corrupt-working.pdf');
     });
 
+    it('keeps a recovered ordinary PDF dirty without requiring Save As', async () => {
+        const {
+            openFlow,
+            state,
+        } = createOpenFlowHarness();
+        const recoveredResult: TOpenFileResult = {
+            kind: 'pdf',
+            originalPath: requireDocumentRef('/documents/recovered.pdf'),
+            workingPath: requireDocumentRef('/tmp/recovered-working.pdf'),
+            isGenerated: false,
+            recoveryDirtyBaseline: true,
+        };
+
+        await expect(openFlow.openFile(recoveredResult)).resolves.toMatchObject({status: 'opened'});
+
+        expect(state.isDirty.value).toBe(true);
+        expect(state.requiresSaveAsOnFirstSave.value).toBe(false);
+    });
+
+    it('keeps a normal source reopen clean after a recovered dirty PDF', async () => {
+        const {
+            openFlow,
+            state,
+        } = createOpenFlowHarness();
+        await openFlow.openFile({
+            kind: 'pdf',
+            originalPath: requireDocumentRef('/documents/recovered.pdf'),
+            workingPath: requireDocumentRef('/tmp/recovered-working.pdf'),
+            recoveryDirtyBaseline: true,
+        });
+
+        const cleanResult: TOpenFileResult = {
+            kind: 'pdf',
+            originalPath: requireDocumentRef('/documents/source.pdf'),
+            workingPath: requireDocumentRef('/tmp/source-working.pdf'),
+            recoveryDirtyBaseline: false,
+        };
+        await expect(openFlow.openFile(cleanResult)).resolves.toMatchObject({status: 'opened'});
+
+        expect(state.isDirty.value).toBe(false);
+        expect(state.requiresSaveAsOnFirstSave.value).toBe(false);
+    });
+
+    it('keeps generated PDFs dirty and requires their first Save As', async () => {
+        const {
+            openFlow,
+            state,
+        } = createOpenFlowHarness();
+        const generatedResult: TOpenFileResult = {
+            kind: 'pdf',
+            originalPath: requireDocumentRef('/documents/generated.pdf'),
+            workingPath: requireDocumentRef('/tmp/generated-working.pdf'),
+            isGenerated: true,
+            recoveryDirtyBaseline: false,
+        };
+
+        await expect(openFlow.openFile(generatedResult)).resolves.toMatchObject({status: 'opened'});
+
+        expect(state.isDirty.value).toBe(true);
+        expect(state.requiresSaveAsOnFirstSave.value).toBe(true);
+    });
+
     it('keeps PDFs above the direct IPC ceiling path-backed', async () => {
         const { openFlow } = createOpenFlowHarness();
         const size = IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES + 1;
@@ -1323,7 +1385,7 @@ describe('createDocumentOpenFlow', () => {
             kind: 'pdf',
             originalPath: requireDocumentRef('/first.pdf'),
             workingPath: requireDocumentRef('/tmp/first-working.pdf'),
-            isGenerated: true,
+            recoveryDirtyBaseline: true,
         };
         const secondResult: TOpenFileResult = {
             kind: 'pdf',

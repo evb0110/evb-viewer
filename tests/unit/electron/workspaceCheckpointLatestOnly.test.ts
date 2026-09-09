@@ -23,6 +23,7 @@ function deferred() {
 const mocks = vi.hoisted(() => ({
     atomicReplace: vi.fn(),
     persisted: null as string | null,
+    syncReadError: null as Error | null,
     remove: vi.fn(),
     staged: new Map<string, string>(),
     tempIndex: 0,
@@ -32,13 +33,28 @@ vi.mock('electron', () => ({app: {getPath: () => '/profile'}}));
 vi.mock('node:fs/promises', () => ({
     readFile: vi.fn(async () => {
         if (mocks.persisted === null) {
-            throw new Error('missing');
+            const error = new Error('missing');
+            Object.assign(error, {code: 'ENOENT'});
+            throw error;
         }
         return mocks.persisted;
     }),
     rm: mocks.remove,
     writeFile: vi.fn(async (path: string, value: string) => {
         mocks.staged.set(path, value);
+    }),
+}));
+vi.mock('node:fs', () => ({
+    readFileSync: vi.fn(() => {
+        if (mocks.syncReadError) {
+            throw mocks.syncReadError;
+        }
+        if (mocks.persisted === null) {
+            const error = new Error('missing');
+            Object.assign(error, {code: 'ENOENT'});
+            throw error;
+        }
+        return mocks.persisted;
     }),
 }));
 vi.mock('@electron/utils/atomicReplace', () => ({
@@ -76,6 +92,7 @@ describe('workspace checkpoint latest-only writer', () => {
         vi.resetModules();
         vi.clearAllMocks();
         mocks.persisted = null;
+        mocks.syncReadError = null;
         mocks.remove.mockImplementation(async () => {
             mocks.persisted = null;
         });
@@ -344,6 +361,24 @@ describe('workspace checkpoint latest-only writer', () => {
 
         await expect(discardWorkspaceCheckpoint(10)).rejects.toThrow('checkpoint delete failed');
         await saveWorkspaceCheckpoint(createCheckpoint(1), 10);
+        expect(JSON.parse(mocks.persisted ?? '{}').checkpoint.capturedAt).toBe(1);
+    });
+
+    it('does not replace unread durable evidence with an empty autosave', async () => {
+        mocks.atomicReplace.mockImplementation(async (source: string) => {
+            mocks.persisted = mocks.staged.get(source) ?? null;
+        });
+        const firstStore = await import('@electron/workspaceCheckpointStore');
+        await firstStore.saveWorkspaceCheckpoint(createCheckpoint(1), 10);
+
+        vi.resetModules();
+        const readError = new Error('checkpoint read EIO');
+        Object.assign(readError, {code: 'EIO'});
+        mocks.syncReadError = readError;
+        const restartedStore = await import('@electron/workspaceCheckpointStore');
+
+        await expect(restartedStore.saveWorkspaceCheckpoint(createCheckpoint(2), 10))
+            .rejects.toMatchObject({code: 'WORKSPACE_CHECKPOINT_READ_FAILED'});
         expect(JSON.parse(mocks.persisted ?? '{}').checkpoint.capturedAt).toBe(1);
     });
 });

@@ -409,7 +409,7 @@ export function createDocumentOpenFlow(
         });
         try {
             await loadPdfFromPath(result.workingPath, {
-                markDirty: !!result.isGenerated,
+                markDirty: result.isGenerated === true || result.recoveryDirtyBaseline === true,
                 openRequestId,
                 openingGeometryResolution: openingGeometry.resolution,
                 validationRevision: openingGeometry.validationRevision,
@@ -437,6 +437,7 @@ export function createDocumentOpenFlow(
         }
         state.originalPath.value = result.originalPath;
         state.requiresSaveAsOnFirstSave.value = !!result.isGenerated;
+        state.recoveryDirtyBaseline.value = result.recoveryDirtyBaseline === true;
         state.pdfRasterDisplayProfile.value = rasterDisplayProfile;
         RETRYABLE_OPEN_RESULTS.delete(result);
         return {

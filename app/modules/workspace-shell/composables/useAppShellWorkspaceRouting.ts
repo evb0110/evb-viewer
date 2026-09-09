@@ -185,14 +185,11 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
             return false;
         }
 
-        return record.toolbarSnapshot.hasOpenError === true
-            || (
-                recordMatchesDocumentTarget(record, pathOrResult)
-                && (
-                    record.toolbarSnapshot.initialVisualReady
-                    || record.toolbarSnapshot.hasPdf
-                    || hasWorkspaceViewerDocumentCapabilities(record.toolbarSnapshot.viewerCapabilities)
-                )
+        return recordMatchesDocumentTarget(record, pathOrResult)
+            && (
+                record.toolbarSnapshot.initialVisualReady
+                || record.toolbarSnapshot.hasPdf
+                || hasWorkspaceViewerDocumentCapabilities(record.toolbarSnapshot.viewerCapabilities)
             );
     }
 
@@ -213,7 +210,12 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
         return Boolean(
             snapshot
             && !snapshot.isOpeningDocument
-            && snapshot.hasOpenError,
+            && !snapshot.hasOpenError
+            && (
+                snapshot.initialVisualReady
+                || snapshot.hasPdf
+                || hasWorkspaceViewerDocumentCapabilities(snapshot.viewerCapabilities)
+            ),
         );
     }
 
