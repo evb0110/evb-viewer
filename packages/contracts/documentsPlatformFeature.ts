@@ -924,10 +924,6 @@ export const DOCUMENT_RECENT_FILES_PLATFORM_FEATURE = definePlatformFeature({
         remove: defineIpcMethod(
             'remove', 'recentFiles:remove', s.tuple([documentRefResult]), voidResult, 'removeRecentFile', 'none',
         ),
-        removeIfMissing: defineIpcMethod(
-            'removeIfMissing', 'recentFiles:removeIfMissing', s.tuple([documentRefResult]),
-            s.boolean(), 'removeRecentFileIfMissing', 'none',
-        ),
         clear: defineIpcMethod(
             'clear', 'recentFiles:clear', noArgs, voidResult, 'clearRecentFiles', 'none',
         ),

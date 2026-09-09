@@ -392,6 +392,5 @@ export interface IDocumentsService {
     setMenuTabCount: (context: IDocumentsWindowContext, tabCount: number) => void;
     getRecentFiles: (context: IDocumentsWebContentsContext) => Promise<IRecentFile[]>;
     removeRecentFile: (originalPath: string) => Promise<void>;
-    removeRecentFileIfMissing: (originalPath: string) => Promise<boolean>;
     clearRecentFiles: () => Promise<void>;
 }

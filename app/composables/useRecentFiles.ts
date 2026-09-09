@@ -11,8 +11,6 @@ import {
     getDocumentOpenCapability as getPlatformDocumentOpenCapability,
     getDocumentRecentFilesCapability as getPlatformDocumentRecentFilesCapability,
 } from '@app/utils/platformDocuments';
-import type { ExpectedOutcome } from '@contracts/diagnostics/failureReceipt';
-import { BrowserLogger } from '@app/utils/browserLogger';
 
 const ELECTRON_BRIDGE_RETRY_DELAY_MS = 25;
 const ELECTRON_BRIDGE_RETRY_ATTEMPTS = 20;
@@ -21,7 +19,6 @@ const ELECTRON_RECENT_FILES_MAX_AUTOMATIC_RETRIES = 5;
 
 export const useRecentFiles = () => {
     const { t } = useTypedI18n();
-    const toast = useToast();
     const { isDesktopRuntime } = useRuntimeEnvironment();
     const route = useRoute();
     const initialCookieSnapshot = readBrowserRecentFilesSnapshot();
@@ -114,35 +111,6 @@ export const useRecentFiles = () => {
         }
     }
 
-    async function removeRecentFileIfMissing(file: IRecentFile) {
-        error.value = null;
-        try {
-            const removed = await (await getDocumentRecentFilesCapability())
-                .recentFiles.removeIfMissing(file.originalPath);
-            if (!removed) {
-                return false;
-            }
-            recentFiles.value = recentFiles.value.filter(
-                candidate => candidate.originalPath !== file.originalPath,
-            );
-            isResolved.value = true;
-            clearRetryTimer();
-            BrowserLogger.warn('recent-files', 'Recent file was absent and removed', {
-                kind: 'expected',
-                code: 'handled-absence',
-            } satisfies ExpectedOutcome);
-            toast.add({
-                color: 'warning',
-                title: t('errors.recent.notFoundTitle'),
-                description: t('errors.recent.notFoundDescription', {name: file.fileName}),
-            });
-            return true;
-        } catch (e) {
-            error.value = e instanceof Error ? getErrorMessage(e) : t('errors.recent.remove');
-            return false;
-        }
-    }
-
     async function clearRecentFiles() {
         error.value = null;
         try {
@@ -165,7 +133,6 @@ export const useRecentFiles = () => {
         retryRecentFiles,
         openRecentFile,
         removeRecentFile,
-        removeRecentFileIfMissing,
         clearRecentFiles,
     };
 };

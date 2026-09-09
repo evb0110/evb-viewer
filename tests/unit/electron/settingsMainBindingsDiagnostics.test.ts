@@ -11,6 +11,12 @@ import {DEFAULT_SETTINGS} from '@contracts/settings';
 const mocks = vi.hoisted(() => ({
     events: [] as string[],
     loadSettings: vi.fn(),
+    diagnosticsConsentRevision: 0,
+    recordMainDiagnosticsConsentIntent: vi.fn((preference: unknown) => {
+        mocks.events.push(`consent-intent:${String(preference)}`);
+        mocks.diagnosticsConsentRevision += 1;
+        return mocks.diagnosticsConsentRevision;
+    }),
     setMainDiagnosticsPreference: vi.fn((preference: unknown) => {
         mocks.events.push(`preference:${String(preference)}`);
     }),
@@ -23,6 +29,7 @@ vi.mock('@electron/menu', () => ({updateRecentFilesMenu: mocks.updateRecentFiles
 vi.mock('@electron/features/diagnostics/public', () => ({setMainDiagnosticsPreference: mocks.setMainDiagnosticsPreference}));
 vi.mock('@electron/settings', () => ({
     loadSettings: mocks.loadSettings,
+    recordMainDiagnosticsConsentIntent: mocks.recordMainDiagnosticsConsentIntent,
     updateSettings: mocks.updateSettings,
 }));
 vi.mock('@electron/te', () => ({setElectronLocale: mocks.setElectronLocale}));
@@ -38,6 +45,7 @@ describe('Electron settings diagnostics scheduling', () => {
         vi.resetModules();
         vi.clearAllMocks();
         mocks.events.length = 0;
+        mocks.diagnosticsConsentRevision = 0;
         vi.useFakeTimers();
         mocks.updateSettings.mockImplementation(async (mutate: (settings: typeof DEFAULT_SETTINGS) => unknown) => {
             mocks.events.push('persist');
@@ -61,7 +69,7 @@ describe('Electron settings diagnostics scheduling', () => {
 
         expect(mocks.updateSettings).toHaveBeenCalledOnce();
         expect(mocks.events).toEqual([
-            'preference:denied',
+            'consent-intent:denied',
             'persist',
         ]);
         await savePromise;
