@@ -108,6 +108,7 @@ export interface IRendererFailureReporter {
     withSuppressedCapture<T>(callback: () => T): T;
     /** Adds late-bound integration callbacks without resetting reporter state. */
     fillMissingOptions(options: IRendererFailureReporterOptions): void;
+    dispose(): void;
 }
 
 export interface IRendererFailureCaptureOptions {
@@ -320,6 +321,7 @@ export function createRendererFailureReporter(
     let preference = initialPreference;
     let preferencePinned = options.preference !== undefined || host === 'electron';
     let generation = 0;
+    let disposed = false;
     const dropLiveSender: TRendererDiagnosticSender = () => undefined;
     let liveSender: TRendererDiagnosticSender = preference === 'granted'
         ? sendLiveRecord
@@ -351,7 +353,7 @@ export function createRendererFailureReporter(
     }
 
     function syncHostedPreference() {
-        if (host !== 'hosted-browser' || preferencePinned) {
+        if (host !== 'hosted-browser') {
             return;
         }
 
@@ -365,7 +367,55 @@ export function createRendererFailureReporter(
         } catch {
             nextPreference = 'unknown';
         }
-        applyPreference(nextPreference, false);
+        if (nextPreference !== 'granted' || !preferencePinned) {
+            applyPreference(nextPreference, false);
+        }
+    }
+
+    function onHostedSettingsChanged(event?: Event) {
+        if (disposed || host !== 'hosted-browser') {
+            return;
+        }
+        if (
+            event?.type === 'storage'
+            && (event as StorageEvent).key !== null
+            && (event as StorageEvent).key !== BROWSER_SETTINGS_STORAGE_KEY
+        ) {
+            return;
+        }
+        syncHostedPreference();
+    }
+
+    function addHostedPreferenceListeners() {
+        if (
+            host !== 'hosted-browser'
+            || typeof window === 'undefined'
+            || typeof window.addEventListener !== 'function'
+        ) {
+            return;
+        }
+        window.addEventListener('storage', onHostedSettingsChanged);
+        window.addEventListener('focus', onHostedSettingsChanged);
+        window.addEventListener('pageshow', onHostedSettingsChanged);
+        if (typeof document !== 'undefined') {
+            document.addEventListener('visibilitychange', onHostedSettingsChanged);
+        }
+    }
+
+    function removeHostedPreferenceListeners() {
+        if (
+            host !== 'hosted-browser'
+            || typeof window === 'undefined'
+            || typeof window.removeEventListener !== 'function'
+        ) {
+            return;
+        }
+        window.removeEventListener('storage', onHostedSettingsChanged);
+        window.removeEventListener('focus', onHostedSettingsChanged);
+        window.removeEventListener('pageshow', onHostedSettingsChanged);
+        if (typeof document !== 'undefined') {
+            document.removeEventListener('visibilitychange', onHostedSettingsChanged);
+        }
     }
 
     function setDropReason(reason: TRendererDiagnosticsDropReason) {
@@ -617,6 +667,9 @@ export function createRendererFailureReporter(
         captureOptions: IRendererFailureCaptureOptions = {},
     ): FailureReceipt {
         const receipt = createDiagnosticFailureReceipt(record);
+        if (disposed) {
+            return receipt;
+        }
         if (suppressionDepth > 0) {
             health.ownedProjection = increment(health.ownedProjection);
             setDropReason('owned-projection');
@@ -734,6 +787,8 @@ export function createRendererFailureReporter(
         };
     }
 
+    addHostedPreferenceListeners();
+
     return {
         capture: <C extends DiagnosticCode>(
             input: CaptureFailureInput<C>,
@@ -814,6 +869,16 @@ export function createRendererFailureReporter(
             loadHostedTransport ??= lateOptions.loadHostedTransport;
             localSink ??= lateOptions.localSink;
             rawWarningSink ??= lateOptions.rawWarningSink;
+        },
+        dispose: () => {
+            if (disposed) {
+                return;
+            }
+            disposed = true;
+            removeHostedPreferenceListeners();
+            hostedTransportLoad = null;
+            liveSender = dropLiveSender;
+            generation = increment(generation);
         },
     };
 }
