@@ -68,6 +68,7 @@ const steerImage = {
     mimeType: 'image/png',
     sizeBytes: 100,
     dataUrl: 'data:image/png;base64,c3RlZXI=',
+    previewDataUrl: 'data:image/png;base64,cHJldmlldw==',
 };
 
 function createReadyState(phase: IAgentAssistantState['status']['turn']['phase'] = 'streaming') {
@@ -162,11 +163,21 @@ async function mountHarness(initialState: IAgentAssistantState | null) {
                 },
             }, 'Set draft'),
             h('button', {
+                class: 'edit-draft',
+                onClick: () => {
+                    controller.draft.value = 'New draft';
+                },
+            }, 'Edit draft'),
+            h('button', {
                 class: 'set-image',
                 onClick: () => {
                     controller.composerImages.value = [{...steerImage}];
                 },
             }, 'Set image'),
+            h('button', {
+                class: 'remove-image',
+                onClick: () => controller.removeComposerImage(steerImage.id),
+            }, 'Remove image'),
             h('button', {
                 class: 'send',
                 onClick: controller.handleSendMessage,
@@ -174,6 +185,9 @@ async function mountHarness(initialState: IAgentAssistantState | null) {
             h('output', {class: 'draft'}, controller.draft.value),
             h('output', {class: 'queued'}, String(controller.hasQueuedSteer.value)),
             h('output', {class: 'image-count'}, String(controller.composerImages.value.length)),
+            h('output', {class: 'state-error'}, controller.status.value.error ?? ''),
+            h('output', {class: 'composer-error'}, controller.composerError.value),
+            h('output', {class: 'failure'}, controller.assistantFailurePresentation.value?.description ?? ''),
             h('button', {
                 class: 'set-retired-model',
                 onClick: () => controller.updateModel('gpt-5.5'),
@@ -388,6 +402,161 @@ describe('mounted assistant panel lifecycle', () => {
         await nextTick();
         await nextTick();
         expect(mocks.sendAssistantMessage).toHaveBeenCalledOnce();
+        harness.unmount();
+    });
+
+    it('restores a resolved refusal as an editable ordinary draft with its image and error', async () => {
+        const refusalState = createReadyState('idle');
+        refusalState.status.runtimeState = 'error';
+        refusalState.status.error = 'Assistant is unavailable.';
+        refusalState.status.errorEnvelope = {
+            code: 'INTERNAL',
+            message: 'Assistant is unavailable.',
+            retryable: false,
+            timestamp: requireEpochMs(Date.now()),
+        };
+        mocks.sendAssistantMessage.mockResolvedValueOnce({
+            ok: false,
+            state: refusalState,
+            error: 'Assistant is unavailable.',
+            errorEnvelope: refusalState.status.errorEnvelope,
+        });
+        const harness = await mountHarness(createReadyState('idle'));
+
+        (harness.host.querySelector('.set-image') as HTMLButtonElement).click();
+        (harness.host.querySelector('.set-draft') as HTMLButtonElement).click();
+        (harness.host.querySelector('.send') as HTMLButtonElement).click();
+
+        await vi.waitFor(() => expect(mocks.sendAssistantMessage).toHaveBeenCalledOnce());
+        await nextTick();
+        expect(harness.host.querySelector('.draft')?.textContent).toBe('Continue');
+        expect(harness.host.querySelector('.image-count')?.textContent).toBe('1');
+        expect(harness.host.querySelector('.failure')?.textContent).toBe('Assistant is unavailable.');
+        expect(harness.host.querySelector('.state-error')?.textContent).toBe('Assistant is unavailable.');
+        harness.unmount();
+    });
+
+    it('restores a resolved refusal for queued steering without retrying it', async () => {
+        const refusalState = createReadyState('idle');
+        refusalState.status.runtimeState = 'error';
+        refusalState.status.error = 'Busy in another document.';
+        refusalState.status.errorEnvelope = {
+            code: 'INTERNAL',
+            message: 'Busy in another document.',
+            retryable: false,
+            timestamp: requireEpochMs(Date.now()),
+        };
+        mocks.sendAssistantMessage.mockResolvedValueOnce({
+            ok: false,
+            state: refusalState,
+            error: 'Busy in another document.',
+            errorEnvelope: refusalState.status.errorEnvelope,
+        });
+        const harness = await mountHarness(createReadyState());
+
+        (harness.host.querySelector('.set-image') as HTMLButtonElement).click();
+        (harness.host.querySelector('.set-draft') as HTMLButtonElement).click();
+        (harness.host.querySelector('.send') as HTMLButtonElement).click();
+
+        await vi.waitFor(() => expect(mocks.sendAssistantMessage).toHaveBeenCalledOnce());
+        await vi.waitFor(() => expect(harness.host.querySelector('.queued')?.textContent).toBe('false'));
+        expect(harness.host.querySelector('.draft')?.textContent).toBe('Continue');
+        expect(harness.host.querySelector('.image-count')?.textContent).toBe('1');
+        expect(harness.host.querySelector('.failure')?.textContent).toBe('Busy in another document.');
+        harness.unmount();
+    });
+
+    it('does not restore a resolved recorded failure and retries its exact recorded turn', async () => {
+        const recordedFailureState = createReadyState('stalled');
+        recordedFailureState.messages = [
+            ...recordedFailureState.messages,
+            {
+                id: 'recorded-user',
+                role: 'user',
+                text: 'Continue',
+                attachments: [{
+                    ...steerImage,
+                    previewDataUrl: undefined,
+                }],
+                createdAt: requireIsoTimestamp(new Date(2).toISOString()),
+            },
+        ];
+        recordedFailureState.status.error = 'Provider failed after recording the turn.';
+        recordedFailureState.status.errorEnvelope = {
+            code: 'INTERNAL',
+            message: 'Provider failed after recording the turn.',
+            retryable: true,
+            timestamp: requireEpochMs(Date.now()),
+        };
+        mocks.sendAssistantMessage.mockResolvedValueOnce({
+            ok: false,
+            state: recordedFailureState,
+            error: 'Provider failed after recording the turn.',
+            errorEnvelope: recordedFailureState.status.errorEnvelope,
+        });
+        const harness = await mountHarness(createReadyState('idle'));
+
+        (harness.host.querySelector('.set-image') as HTMLButtonElement).click();
+        (harness.host.querySelector('.set-draft') as HTMLButtonElement).click();
+        (harness.host.querySelector('.send') as HTMLButtonElement).click();
+
+        await vi.waitFor(() => expect(mocks.sendAssistantMessage).toHaveBeenCalledOnce());
+        await nextTick();
+        expect(harness.host.querySelector('.draft')?.textContent).toBe('');
+        expect(harness.host.querySelector('.image-count')?.textContent).toBe('0');
+        expect(harness.host.querySelector('.retry')).not.toBeNull();
+
+        (harness.host.querySelector('.retry') as HTMLButtonElement).click();
+        await vi.waitFor(() => expect(mocks.sendAssistantMessage).toHaveBeenCalledTimes(2));
+        expect(mocks.sendAssistantMessage).toHaveBeenLastCalledWith(expect.objectContaining({
+            text: 'Continue',
+            attachments: [{
+                ...steerImage,
+                previewDataUrl: undefined,
+            }],
+            scope,
+        }));
+        harness.unmount();
+    });
+
+    it('does not let a resolved refusal overwrite edits made while the send is pending', async () => {
+        let resolveSend: ((result: {
+            ok: false;
+            state: IAgentAssistantState;
+            error: string;
+            errorEnvelope: NonNullable<IAgentAssistantState['status']['errorEnvelope']>;
+        }) => void) | undefined;
+        const refusalState = createReadyState('idle');
+        refusalState.status.runtimeState = 'error';
+        refusalState.status.error = 'Provider unavailable.';
+        refusalState.status.errorEnvelope = {
+            code: 'RUNTIME_UNAVAILABLE',
+            message: 'Provider unavailable.',
+            retryable: false,
+            timestamp: requireEpochMs(Date.now()),
+        };
+        mocks.sendAssistantMessage.mockReturnValueOnce(new Promise(resolve => {
+            resolveSend = resolve;
+        }));
+        const harness = await mountHarness(createReadyState('idle'));
+
+        (harness.host.querySelector('.set-image') as HTMLButtonElement).click();
+        (harness.host.querySelector('.set-draft') as HTMLButtonElement).click();
+        (harness.host.querySelector('.send') as HTMLButtonElement).click();
+        await vi.waitFor(() => expect(mocks.sendAssistantMessage).toHaveBeenCalledOnce());
+
+        (harness.host.querySelector('.edit-draft') as HTMLButtonElement).click();
+        (harness.host.querySelector('.remove-image') as HTMLButtonElement).click();
+        resolveSend?.({
+            ok: false,
+            state: refusalState,
+            error: 'Provider unavailable.',
+            errorEnvelope: refusalState.status.errorEnvelope,
+        });
+
+        await vi.waitFor(() => expect(harness.host.querySelector('.state-error')?.textContent).toBe('Provider unavailable.'));
+        expect(harness.host.querySelector('.draft')?.textContent).toBe('New draft');
+        expect(harness.host.querySelector('.image-count')?.textContent).toBe('0');
         harness.unmount();
     });
 

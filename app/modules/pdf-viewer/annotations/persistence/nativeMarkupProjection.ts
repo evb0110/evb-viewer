@@ -167,6 +167,24 @@ export function buildNativeMarkupMutationForSave(opts: {
     if (!opts.annotationWorkDirty) {
         return null;
     }
+    // Explicit geometry is authored work. Never acknowledge it as a style-only
+    // save if a malformed quad would make the collector omit the entire list.
+    for (const comment of opts.changedComments ?? opts.canonicalComments) {
+        if (!isNativeMarkupSubtype(comment.subtype) || comment.markupGeometry == null) {
+            continue;
+        }
+        if (comment.markupGeometry.length === 0 || comment.markupGeometry.some(rect => (
+            ![
+                rect.left,
+                rect.top,
+                rect.width,
+                rect.height,
+            ].every(Number.isFinite)
+            || !normalizeMarkerRect(rect)
+        ))) {
+            throw new Error('Cannot save text-markup annotation with invalid geometry');
+        }
+    }
     const currentMarkupHints = collectMarkupSubtypeHints(opts.canonicalComments);
     const changedMarkupHints = opts.changedComments
         ? collectMarkupSubtypeHints(opts.changedComments, {includeContents: true})
@@ -212,8 +230,11 @@ export function buildNativeMarkupMutationForSave(opts: {
     return {
         overrides,
         hints: [
-            ...liveHints,
             ...editedCommentHints,
+            // The canonical changed comment owns the current geometry and
+            // style. Native hint deduplication keeps the first matching hint,
+            // so place it before the renderer's live snapshot.
+            ...liveHints,
         ],
     };
 }

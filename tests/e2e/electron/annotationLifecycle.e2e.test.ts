@@ -145,7 +145,7 @@ async function readPaintedAnnotation(page: Page) {
             id: entity.dataset.annotationId,
             kind: entity.dataset.annotationKind,
             subtype: entity.dataset.markupSubtype ?? null,
-            color: entity.dataset.annotationKind === 'shape' || visual.tagName.toLowerCase() !== 'rect' ? style.stroke : style.fill,
+            color: entity.dataset.markupSubtype === 'Highlight' ? style.fill : style.stroke,
             opacity: Number(style.opacity),
             cardColor: getComputedStyle(chip).backgroundColor,
             chipWidth: chip.getBoundingClientRect().width,

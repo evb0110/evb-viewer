@@ -492,7 +492,10 @@ describe('createDocumentPersistence', () => {
 
     it('replaces only the working copy when native mutations are staged for a later repair', async () => {
         const {persistence} = createPersistenceHarness();
-        const mutations = {pageLabels: {ranges: []}};
+        const mutations = {pageLabels: {
+            totalPages: 1,
+            ranges: [],
+        }};
 
         const result = await persistence.trySavePdfNativeMutations(mutations, {
             saveMode: 'rewrite',
