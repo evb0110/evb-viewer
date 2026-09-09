@@ -86,9 +86,16 @@ export interface ICleanupStaleSessionArtifactsOptions extends IClassifySessionCo
     nuxtPort: number | null,
 ) => INuxtSessionOwnerCheck | Promise<INuxtSessionOwnerCheck>; }
 
+export type TStaleSessionArtifactsCleanupKind = 'clean' | 'preserved-recovery' | 'retained-unsafe';
+
 export interface IStaleSessionArtifactsCleanupResult {
     retained: boolean;
+    kind: TStaleSessionArtifactsCleanupKind;
     reason: string | null;
+}
+
+export function canProceedAfterStaleArtifactCleanup(result: IStaleSessionArtifactsCleanupResult) {
+    return !result.retained || result.kind === 'preserved-recovery';
 }
 
 function parseJsonFile(path: string) {
@@ -719,6 +726,7 @@ export async function cleanupStaleSessionArtifacts(
         console.warn(`${reason} Automatic stale-artifact cleanup retained the session.`);
         return {
             retained: true,
+            kind: 'retained-unsafe',
             reason,
         };
     }
@@ -732,6 +740,7 @@ export async function cleanupStaleSessionArtifacts(
         console.warn(reason);
         return {
             retained: true,
+            kind: 'retained-unsafe',
             reason,
         };
     }
@@ -751,6 +760,7 @@ export async function cleanupStaleSessionArtifacts(
             console.warn(reason);
             return {
                 retained: true,
+                kind: 'retained-unsafe',
                 reason,
             };
         }
@@ -769,6 +779,7 @@ export async function cleanupStaleSessionArtifacts(
             console.warn(reason);
             return {
                 retained: true,
+                kind: 'retained-unsafe',
                 reason,
             };
         }
@@ -795,6 +806,7 @@ export async function cleanupStaleSessionArtifacts(
         console.warn(reason);
         return {
             retained: true,
+            kind: 'retained-unsafe',
             reason,
         };
     }
@@ -810,6 +822,7 @@ export async function cleanupStaleSessionArtifacts(
             console.warn(reason);
             return {
                 retained: true,
+                kind: 'retained-unsafe',
                 reason,
             };
         }
@@ -818,6 +831,7 @@ export async function cleanupStaleSessionArtifacts(
     if (hasWorkspaceRecoveryEvidence(name)) {
         return {
             retained: true,
+            kind: 'preserved-recovery',
             reason: 'workspace recovery evidence is present; retained for later recovery',
         };
     }
@@ -828,6 +842,7 @@ export async function cleanupStaleSessionArtifacts(
             console.warn(reason);
             return {
                 retained: true,
+                kind: 'retained-unsafe',
                 reason,
             };
         }
@@ -837,6 +852,7 @@ export async function cleanupStaleSessionArtifacts(
         console.warn(reason);
         return {
             retained: true,
+            kind: 'retained-unsafe',
             reason,
         };
     }
@@ -848,6 +864,7 @@ export async function cleanupStaleSessionArtifacts(
     }
     return {
         retained: false,
+        kind: 'clean',
         reason: null,
     };
 }

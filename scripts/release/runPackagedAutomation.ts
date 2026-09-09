@@ -1,8 +1,19 @@
 import {spawn} from 'node:child_process';
-import {rm} from 'node:fs/promises';
 import {
+    access,
+    lstat,
+    mkdir,
+    open,
+    realpath,
+    readdir,
+    rm,
+} from 'node:fs/promises';
+import {
+    dirname,
     join,
+    relative,
     resolve,
+    sep,
 } from 'node:path';
 import {parseArgs} from 'node:util';
 import {setTimeout as delay} from 'node:timers/promises';
@@ -63,6 +74,65 @@ async function stopOwnedProcesses(pid: number | undefined, stopPromise: Promise<
     }
 }
 
+async function resolveOwnedLogDirectory(workDirectory: string) {
+    const logDirectory = join(workDirectory, 'electron-logs');
+    await mkdir(logDirectory, {recursive: true});
+    return realpath(logDirectory);
+}
+
+async function claimWorkDirectory(workDirectory: string, executablePath: string) {
+    const sourceAppPath = resolve(dirname(dirname(dirname(executablePath))));
+    const sourceRealPath = await realpath(sourceAppPath);
+    let existingAncestor = workDirectory;
+    while (true) {
+        try {
+            await access(existingAncestor);
+            break;
+        } catch {
+            const parent = dirname(existingAncestor);
+            if (parent === existingAncestor) throw new Error(`Cannot resolve packaged automation work directory: ${workDirectory}`);
+            existingAncestor = parent;
+        }
+    }
+    const existingAncestorRealPath = await realpath(existingAncestor);
+    const relativeSourceAncestor = relative(sourceRealPath, existingAncestorRealPath);
+    if (relativeSourceAncestor === ''
+        || (relativeSourceAncestor !== '..'
+        && !relativeSourceAncestor.startsWith(`..${sep}`))) {
+        throw new Error('Packaged automation workDirectory must be outside the source app bundle.');
+    }
+
+    await mkdir(dirname(workDirectory), {recursive: true});
+    let workDirectoryExists = true;
+    try {
+        if ((await lstat(workDirectory)).isSymbolicLink()) {
+            throw new Error(`Packaged automation work directory must not be a symlink: ${workDirectory}`);
+        }
+        const entries = await readdir(workDirectory);
+        if (entries.length > 0) {
+            throw new Error(`Packaged automation work directory must be empty and unused: ${workDirectory}`);
+        }
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+        workDirectoryExists = false;
+        await mkdir(workDirectory);
+    }
+    const ownerPath = join(workDirectory, '.packaged-automation-owner');
+    try {
+        const owner = await open(ownerPath, 'wx');
+        await owner.writeFile(`${process.pid}\n`);
+        await owner.close();
+    } catch (error) {
+        if (!workDirectoryExists && (error as NodeJS.ErrnoException).code === 'EEXIST') {
+            await rm(workDirectory, {
+                recursive: true,
+                force: true,
+            });
+        }
+        throw new Error(`Packaged automation work directory is already claimed: ${workDirectory}`, {cause: error});
+    }
+}
+
 async function run() {
     const {
         values,
@@ -81,7 +151,10 @@ async function run() {
         throw new Error('The runner owns --user-data-dir under --work-directory.');
     }
     const workDirectory = resolve(values['work-directory']);
+    await claimWorkDirectory(workDirectory, values.executable);
     const userDataPath = join(workDirectory, 'user-data');
+    const logDirectory = await resolveOwnedLogDirectory(workDirectory);
+    let stopRequested = false;
     const launch = preparePackagedAutomationLaunch({
         executablePath: values.executable,
         workDirectory,
@@ -90,8 +163,10 @@ async function run() {
             EVB_ALLOW_MULTI_AUTOMATION_SESSIONS: '1',
             EVB_AUTOMATION_SESSION_NAME: `packaged-automation-${process.pid}`,
             EVB_AUTOMATION_USER_DATA_DIR: userDataPath,
+            EVB_FILE_LOG_DIR: logDirectory,
         },
     });
+    console.info(`Packaged automation paths: userData=${userDataPath}; logs=${logDirectory}`);
     const child = spawn(launch.executablePath, [
         ...positionals,
         `--user-data-dir=${userDataPath}`,
@@ -103,6 +178,7 @@ async function run() {
     console.info(`Packaged automation runner PID ${process.pid}; child PID ${String(child.pid)}`);
     let stopPromise: Promise<void> | undefined;
     const stop = () => {
+        stopRequested = true;
         if (child.pid) {
             stopPromise ??= killProcessTree(child.pid, 1_500);
             void stopPromise.catch(error => console.error(error));
@@ -128,6 +204,7 @@ async function run() {
                 force: true,
             });
         }
+        if (stopRequested) process.exitCode = 0;
     }
 }
 
