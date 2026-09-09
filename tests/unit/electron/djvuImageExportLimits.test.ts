@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@electron/resources/jobBroker';
+
 import {
     mkdtemp,
     rm,
@@ -35,7 +37,10 @@ vi.mock('@electron/features/image-export/main/export', () => ({
     promoteStagedFiles: mocks.promoteStagedFiles,
 }));
 vi.mock('@electron/features/image-export/main/tryCombinePagesWithNativeTiffCombiner', () => ({tryCombinePagesWithNativeTiffCombiner: mocks.combineTiff}));
-vi.mock('@electron/resources/jobBroker', () => ({mainJobBroker: {acquire: mocks.acquire}}));
+vi.mock('@electron/resources/jobBroker', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    mainJobBroker: {acquire: mocks.acquire},
+}));
 
 describe('DjVu image export limits', () => {
     let tempDir = '';

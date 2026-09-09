@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 
+import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
+
 import {
     afterEach,
     describe,
@@ -183,16 +185,19 @@ const messages: Record<string, string> = {
     'scanCleanup.output.mixedShort': 'Mixed',
 };
 
-vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (
-    key: string,
-    parameters?: Record<string, string | number>,
-) => Object.entries(parameters ?? {}).reduce(
-    (value, [
-        parameter,
-        replacement,
-    ]) => value.replace(`{${parameter}}`, String(replacement)),
-    messages[key] ?? key,
-)})}));
+vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    useTypedI18n: () => ({t: (
+        key: string,
+        parameters?: Record<string, string | number>,
+    ) => Object.entries(parameters ?? {}).reduce(
+        (value, [
+            parameter,
+            replacement,
+        ]) => value.replace(`{${parameter}}`, String(replacement)),
+        messages[key] ?? key,
+    )}),
+}));
 
 const ButtonStub = defineComponent({
     inheritAttrs: false,

@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@electron/file-access/workingCopyStore';
+
 import {
     beforeEach,
     describe,
@@ -55,7 +57,8 @@ vi.mock('fs/promises', async (importOriginal) => ({
 vi.mock('@electron/file-access/workingCopyCreation', () => ({ ensureWorkingCopyDirectory: mocks.ensureWorkingCopyDirectory }));
 
 vi.mock('@electron/utils/pathValidator', () => ({ resolveAllowedWritePath: mocks.resolveAllowedWritePath }));
-vi.mock('@electron/file-access/workingCopyStore', () => ({
+vi.mock('@electron/file-access/workingCopyStore', async (importOriginal_1) => ({
+    ...(await importOriginal_1<typeof TViMockOriginalModule>()),
     captureWorkingCopyAdmissionSnapshot: (path: string) =>
         mocks.captureWorkingCopyAdmissionSnapshot(path),
     getWorkingCopyBackingEntry: (path: string, senderId?: number) => ({

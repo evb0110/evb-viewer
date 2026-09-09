@@ -229,6 +229,34 @@ const keyboardCommands = useAnnotationKeyboardCommands({
     surface,
     pageView: () => surface.getPageGeometry(props.pageIndex)?.pageView ?? null,
     pageRotation: () => surface.getPageGeometry(props.pageIndex)?.rotation ?? 0,
+    placeTextBox: event => {
+        if (event.target !== layerRef.value
+            || surface.activeTool.value !== 'text'
+            || editingId.value !== null
+            || !layerRef.value) {
+            return false;
+        }
+        const layerRect = visibleLayerRect(layerRef.value);
+        if (!layerRect || layerRect.width <= 0 || layerRect.height <= 0) {
+            return false;
+        }
+        const point = pointFromVisibleCenter(layerRect);
+        const rect = textPlacementRect(point, point, false);
+        const created = creationTools.create(
+            'text',
+            props.pageIndex,
+            rect,
+            undefined,
+            (360 - viewRotation.value) % 360 as ITextBoxEntity['rotation'],
+        );
+        if (!created || created.kind !== 'text-box') {
+            return false;
+        }
+        newTextBoxIds.add(created.identity.id);
+        autoSizeTextBoxIds.add(created.identity.id);
+        surface.beginTextEditing(created.identity.id);
+        return true;
+    },
 });
 const isInteractive = computed(() => (
     surface.activeTool.value === 'select'
@@ -433,6 +461,47 @@ function pointFromEvent(event: Pick<PointerEvent, 'clientX' | 'clientY'>): IAnno
     return rotateAnnotationPoint({
         x: (event.clientX - layerRect.left) / layerRect.width,
         y: (event.clientY - layerRect.top) / layerRect.height,
+    }, -viewRotation.value);
+}
+
+function visibleLayerRect(layer: HTMLElement) {
+    const layerRect = layer.getBoundingClientRect();
+    const viewport = {
+        left: 0,
+        top: 0,
+        right: window.innerWidth > 0 ? window.innerWidth : layerRect.right,
+        bottom: window.innerHeight > 0 ? window.innerHeight : layerRect.bottom,
+    };
+    const visible = {
+        left: Math.max(layerRect.left, viewport.left),
+        top: Math.max(layerRect.top, viewport.top),
+        right: Math.min(layerRect.right, viewport.right),
+        bottom: Math.min(layerRect.bottom, viewport.bottom),
+    };
+    for (let parent = layer.parentElement; parent; parent = parent.parentElement) {
+        const style = getComputedStyle(parent);
+        if (!/(auto|clip|hidden|scroll)/.test(`${style.overflow}${style.overflowX}${style.overflowY}`)) {
+            continue;
+        }
+        const parentRect = parent.getBoundingClientRect();
+        visible.left = Math.max(visible.left, parentRect.left);
+        visible.top = Math.max(visible.top, parentRect.top);
+        visible.right = Math.min(visible.right, parentRect.right);
+        visible.bottom = Math.min(visible.bottom, parentRect.bottom);
+    }
+    return {
+        left: visible.left,
+        top: visible.top,
+        width: visible.right - visible.left,
+        height: visible.bottom - visible.top,
+    };
+}
+
+function pointFromVisibleCenter(rect: {left: number; top: number; width: number; height: number}) {
+    const layerRect = layerRef.value!.getBoundingClientRect();
+    return rotateAnnotationPoint({
+        x: (rect.left + rect.width / 2 - layerRect.left) / layerRect.width,
+        y: (rect.top + rect.height / 2 - layerRect.top) / layerRect.height,
     }, -viewRotation.value);
 }
 

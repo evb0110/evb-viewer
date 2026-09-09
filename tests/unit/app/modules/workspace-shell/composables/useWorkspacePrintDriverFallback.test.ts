@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
+
 import {
     beforeEach,
     describe,
@@ -23,7 +25,8 @@ const documentsCapabilityMock = vi.hoisted(() => ({
 const toastAddMock = vi.hoisted(() => vi.fn());
 const toastRemoveMock = vi.hoisted(() => vi.fn());
 
-vi.mock('@app/utils/platformDocuments', () => ({
+vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
     getDocumentPdfCapability: () => documentsCapabilityMock,
     isNativePrintCapabilityUnavailable: (result: {
         success: boolean;

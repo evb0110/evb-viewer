@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
+
 import {
     beforeEach,
     describe,
@@ -38,10 +40,13 @@ const {
 }));
 
 vi.mock('@app/utils/platform', () => ({hasElectronAPI: () => mockHasElectronAPI()}));
-vi.mock('@app/utils/platformDocuments', () => ({getDocumentPickerCapability: () => ({
-    openCombineDialog: mockOpenCombineDialog,
-    openFolderDialog: mockOpenFolderDialog,
-})}));
+vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    getDocumentPickerCapability: () => ({
+        openCombineDialog: mockOpenCombineDialog,
+        openFolderDialog: mockOpenFolderDialog,
+    }),
+}));
 
 function openedOutcome(path = '/tmp/working.pdf'): TDocumentOpenOutcome {
     return {

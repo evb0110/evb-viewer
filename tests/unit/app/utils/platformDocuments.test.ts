@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@app/utils/yieldToBrowser';
+
 import {
     beforeEach,
     describe,
@@ -28,7 +30,10 @@ const yieldToBrowserMock = vi.hoisted(() => vi.fn(async () => {}));
 
 vi.mock('@app/utils/platform', () => ({ getPlatformAPI: () => getPlatformApiMock() }));
 
-vi.mock('@app/utils/yieldToBrowser', () => ({ yieldToBrowser: yieldToBrowserMock }));
+vi.mock('@app/utils/yieldToBrowser', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    yieldToBrowser: yieldToBrowserMock,
+}));
 
 describe('platformDocuments', () => {
     beforeEach(() => {

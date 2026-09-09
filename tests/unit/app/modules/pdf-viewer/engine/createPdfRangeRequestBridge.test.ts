@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
+
 import { requireDocumentRef } from '@contracts/documentRef';
 import {
     afterEach,
@@ -15,7 +17,10 @@ import {
 
 const documentMocks = vi.hoisted(() => ({readFileRange: vi.fn()}));
 
-vi.mock('@app/utils/platformDocuments', () => ({getDocumentFilesCapability: () => documentMocks}));
+vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    getDocumentFilesCapability: () => documentMocks,
+}));
 vi.mock('@app/utils/pdfRenderTrace', () => ({logPdfRenderTrace: vi.fn()}));
 
 const DELIVERY_BYTES = 1024 * 1024;

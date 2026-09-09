@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@electron/pdf/nativeToolPaths';
+
 import {
     afterEach,
     beforeEach,
@@ -157,7 +159,10 @@ vi.mock('@electron/features/page-ops/publicNative', () => ({
 }));
 vi.mock('@electron/features/page-ops/main/nativePageOpsPath', () => ({resolveNativePageOpsPath: () => process.env.EVB_TEST_NATIVE_PAGE_OPS === '1' ? '/tmp/page-ops' : null}));
 vi.mock('@electron/native-tools/runNativeCommand', () => ({runNativeCommand: mocks.runNativeCommand}));
-vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: () => ({qpdf: '/tmp/qpdf'})}));
+vi.mock('@electron/pdf/nativeToolPaths', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    getPdfNativeToolPaths: () => ({qpdf: '/tmp/qpdf'}),
+}));
 
 vi.mock('@electron/features/djvu/public', () => ({
     cancelConversion: mocks.cancelConversion,

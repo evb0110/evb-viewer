@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@electron/config/constants';
+
 import {
     beforeEach,
     describe,
@@ -40,7 +42,8 @@ vi.mock('@electron/features/search/indexBuilder', () => ({
     buildSearchIndex: mocks.buildSearchIndex,
 }));
 
-vi.mock('@electron/config/constants', () => ({
+vi.mock('@electron/config/constants', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
     EXCERPT_CONTEXT_CHARS: 32,
     SEARCH_RESULT_LIMIT: 100,
 }));

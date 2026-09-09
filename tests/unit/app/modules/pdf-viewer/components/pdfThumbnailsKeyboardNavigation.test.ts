@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 
+import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
+
 import {
     afterEach,
     describe,
@@ -17,10 +19,13 @@ import {
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/scrollToPageOptions';
 import PdfThumbnails from '@app/modules/pdf-viewer/components/PdfThumbnails.vue';
 
-vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (
-    key: string,
-    parameters?: Record<string, string | number>,
-) => (parameters ? `${key}:${String(Object.values(parameters)[0])}` : key)})}));
+vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    useTypedI18n: () => ({t: (
+        key: string,
+        parameters?: Record<string, string | number>,
+    ) => (parameters ? `${key}:${String(Object.values(parameters)[0])}` : key)}),
+}));
 
 // The reorder/file-drop composable reaches for the Nuxt UI toast singleton,
 // which no unit environment provides; the rail's keyboard contract does not

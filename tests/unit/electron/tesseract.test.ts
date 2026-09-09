@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@electron/features/ocr/main/resolveTesseractLanguageConfig';
+
 import { EventEmitter } from 'node:events';
 import {
     mkdtemp,
@@ -44,7 +46,10 @@ vi.mock('child_process', () => ({
 }));
 vi.mock('@electron/features/ocr/languageModels', () => ({ensureTessdataLanguages: mocks.ensureTessdataLanguages}));
 vi.mock('@electron/features/ocr/main/paths', () => ({getOcrPaths: mocks.getOcrPaths}));
-vi.mock('@electron/features/ocr/main/resolveTesseractLanguageConfig', () => ({resolveTesseractLanguageConfig: mocks.resolveTesseractLanguageConfig}));
+vi.mock('@electron/features/ocr/main/resolveTesseractLanguageConfig', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    resolveTesseractLanguageConfig: mocks.resolveTesseractLanguageConfig,
+}));
 
 const PNG_SIGNATURE = Buffer.from([
     0x89,

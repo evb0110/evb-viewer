@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 
+import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
+
 import {
     afterEach,
     beforeEach,
@@ -38,7 +40,10 @@ vi.mock('@app/utils/document-viewer/thumbnails/documentThumbnailMetricsCache', a
     };
 });
 
-vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string) => key})}));
+vi.mock('@app/composables/useTypedI18n', async (importOriginal_1) => ({
+    ...(await importOriginal_1<typeof TViMockOriginalModule>()),
+    useTypedI18n: () => ({t: (key: string) => key}),
+}));
 
 /** Walks far enough away that any page-metrics budget smaller than the trip is exceeded. */
 async function scrollAwayAndBack(host: HTMLElement, target: number) {

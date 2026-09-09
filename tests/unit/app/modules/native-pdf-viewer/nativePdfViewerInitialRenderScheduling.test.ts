@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 
+import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
+
 import {
     afterEach,
     describe,
@@ -17,7 +19,10 @@ import NativePdfPageContent from '@app/modules/native-pdf-viewer/components/Nati
 import { resolveNativePdfRenderQueue } from '@app/modules/native-pdf-viewer/runtime/resolveNativePdfRenderQueue';
 import type { IDocumentPreviewPageState } from '@app/utils/document-viewer/pagePreviewSource';
 
-vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string) => key})}));
+vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    useTypedI18n: () => ({t: (key: string) => key}),
+}));
 
 const activeUnmounts = new Set<() => void>();
 const originalRequestAnimationFrame = window.requestAnimationFrame;

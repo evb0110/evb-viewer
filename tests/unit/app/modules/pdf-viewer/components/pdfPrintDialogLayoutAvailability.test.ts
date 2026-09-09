@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 
+import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
+
 import {
     afterEach,
     describe,
@@ -16,7 +18,10 @@ import {
 } from 'vue';
 import PdfPrintDialog from '@app/modules/pdf-viewer/components/PdfPrintDialog.vue';
 
-vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string) => key})}));
+vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    useTypedI18n: () => ({t: (key: string) => key}),
+}));
 
 const ModalStub = defineComponent({setup: (_props, {slots}) => () => h('section', [
     slots.description?.(),

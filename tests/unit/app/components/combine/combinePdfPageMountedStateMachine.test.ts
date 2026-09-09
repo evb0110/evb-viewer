@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 
+import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
+
 import {
     createApp,
     defineComponent,
@@ -50,7 +52,10 @@ vi.mock('@app/services/pdf/combinePdfFiles', () => ({
         maxTotalInputBytes: 64 * 1024 * 1024,
     }),
 }));
-vi.mock('@app/utils/platformDocuments', () => ({getDocumentFilesCapability: () => ({ savePdfAs: mocks.savePdfAs })}));
+vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    getDocumentFilesCapability: () => ({ savePdfAs: mocks.savePdfAs }),
+}));
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {error: mocks.logError}}));
 
 const ButtonStub = defineComponent({

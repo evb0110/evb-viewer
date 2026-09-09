@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@electron/file-access/workingCopyStore';
+
 import {
     beforeEach,
     describe,
@@ -59,7 +61,8 @@ vi.mock('@electron/utils/atomicReplace', () => ({
     atomicReplace: mocks.atomicReplace,
     makeSiblingTempPath: () => `/profile/checkpoint-${mocks.tempIndex += 1}.tmp`,
 }));
-vi.mock('@electron/file-access/workingCopyStore', () => ({
+vi.mock('@electron/file-access/workingCopyStore', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
     claimWorkingCopyOwnership: vi.fn(),
     getWorkingCopyOriginalPath: vi.fn(() => null),
     getWorkingCopyOwnerWebContentsId: vi.fn(() => undefined),

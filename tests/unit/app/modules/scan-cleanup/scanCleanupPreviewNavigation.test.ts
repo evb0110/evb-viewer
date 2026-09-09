@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 
+import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
+
 import {writeFileSync} from 'node:fs';
 import {
     afterEach,
@@ -47,7 +49,10 @@ const capability = vi.hoisted(() => ({value: null as IScanCleanupCapability | nu
 const cacheProbe = vi.hoisted(() => ({instances: [] as IScanCleanupPreviewCache[]}));
 
 vi.mock('@app/utils/getScanCleanupCapability', () => ({getScanCleanupCapability: () => capability.value}));
-vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string) => key})}));
+vi.mock('@app/composables/useTypedI18n', async (importOriginal_1) => ({
+    ...(await importOriginal_1<typeof TViMockOriginalModule>()),
+    useTypedI18n: () => ({t: (key: string) => key}),
+}));
 vi.mock('@app/modules/scan-cleanup/runtime/createScanCleanupPreviewCache', async importOriginal => {
     const actual = await importOriginal<typeof scanCleanupPreviewCacheModule>();
     return {

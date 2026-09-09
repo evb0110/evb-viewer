@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
+
 import {
     beforeEach,
     describe,
@@ -64,7 +66,10 @@ vi.mock('@app/utils/platform', () => ({
     shouldPreferDesktopPlatform: mocks.shouldPreferDesktopPlatform,
     waitForDesktopPlatformBridge: mocks.waitForDesktopPlatformBridge,
 }));
-vi.mock('@app/utils/platformDocuments', () => ({getDocumentMenuCapability: () => mocks.documentMenuCapability}));
+vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    getDocumentMenuCapability: () => mocks.documentMenuCapability,
+}));
 vi.mock('@app/utils/getSettingsCapability', () => ({getSettingsCapability: () => mocks.settingsCapability}));
 vi.mock('@app/utils/platformUpdates', () => ({getUpdatesCapability: () => mocks.updatesCapability}));
 vi.mock('@app/utils/getDjvuCapability', () => ({getDjvuCapability: () => mocks.djvuCapability}));

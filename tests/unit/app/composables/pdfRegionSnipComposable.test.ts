@@ -1,5 +1,8 @@
 // @vitest-environment happy-dom
 
+import type * as TViMockOriginalModule from '@app/modules/pdf-viewer/engine/pdf-region-capture/capturePdfRegionAsPngBlob';
+import type * as TViMockOriginalModule2 from '@app/modules/pdf-viewer/engine/pdf-region-clipboard/writePngBlobToClipboard';
+
 import {
     afterEach,
     describe,
@@ -17,9 +20,15 @@ import { capturePdfRegionAsPngBlob } from '@app/modules/pdf-viewer/engine/pdf-re
 import { writePngBlobToClipboard } from '@app/modules/pdf-viewer/engine/pdf-region-clipboard/writePngBlobToClipboard';
 import type { ISnipPointerPayload } from '@app/modules/pdf-viewer/engine/pdf-region-drag/snipPointerPayload';
 
-vi.mock('@app/modules/pdf-viewer/engine/pdf-region-capture/capturePdfRegionAsPngBlob', () => ({ capturePdfRegionAsPngBlob: vi.fn() }));
+vi.mock('@app/modules/pdf-viewer/engine/pdf-region-capture/capturePdfRegionAsPngBlob', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    capturePdfRegionAsPngBlob: vi.fn(),
+}));
 
-vi.mock('@app/modules/pdf-viewer/engine/pdf-region-clipboard/writePngBlobToClipboard', () => ({ writePngBlobToClipboard: vi.fn() }));
+vi.mock('@app/modules/pdf-viewer/engine/pdf-region-clipboard/writePngBlobToClipboard', async (importOriginal_1) => ({
+    ...(await importOriginal_1<typeof TViMockOriginalModule2>()),
+    writePngBlobToClipboard: vi.fn(),
+}));
 
 function createDeferred<T>() {
     let resolve!: (value: T) => void;

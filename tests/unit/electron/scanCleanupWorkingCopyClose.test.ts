@@ -1,3 +1,6 @@
+import type * as TViMockOriginalModule from '@electron/pdf/nativeToolPaths';
+import type * as TViMockOriginalModule2 from '@electron/file-access/workingCopyStore';
+
 import {
     existsSync,
     mkdirSync,
@@ -107,11 +110,14 @@ vi.mock('@electron/resources/jobBroker', async importOriginal => {
     };
 });
 vi.mock('@electron/resources/hostResourceProfile', () => ({getHostResourceProfileSnapshot: mocks.hostProfile}));
-vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: () => ({
-    qpdf: '/qpdf',
-    pdftoppm: '/pdftoppm',
-    pdfinfo: '/pdfinfo',
-})}));
+vi.mock('@electron/pdf/nativeToolPaths', async (importOriginal_1) => ({
+    ...(await importOriginal_1<typeof TViMockOriginalModule>()),
+    getPdfNativeToolPaths: () => ({
+        qpdf: '/qpdf',
+        pdftoppm: '/pdftoppm',
+        pdfinfo: '/pdfinfo',
+    }),
+}));
 vi.mock('@electron/native-tools/resolveNativeToolPath', () => ({resolveNativeToolPath: () => '/scan-cleanup'}));
 vi.mock('@electron/image/tryCreatePdfWithNativeImageCombiner', () => (
     {resolveNativePdfImageCombinePath: () => '/pdf-image-combine'}
@@ -131,7 +137,8 @@ vi.mock('@electron/file-access/openPathCapabilities', () => ({
     OPEN_PATH_CAPABILITY_TTL_MS: 60_000,
 }));
 
-vi.mock('@electron/file-access/workingCopyStore', () => ({
+vi.mock('@electron/file-access/workingCopyStore', async (importOriginal_2) => ({
+    ...(await importOriginal_2<typeof TViMockOriginalModule2>()),
     clearRetiredWorkingCopyOriginals: vi.fn(),
     forgetRetiredWorkingCopyOriginal: vi.fn(),
     forgetWorkingCopyOriginalPath: (path: string) => state.workingCopyMap.delete(path),

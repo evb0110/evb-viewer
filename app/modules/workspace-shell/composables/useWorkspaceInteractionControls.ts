@@ -30,6 +30,8 @@ import type {
 import type { TPdfSource } from '@app/types/pdfUi';
 import { runDetached } from '@app/utils/asyncGuard';
 import type { INativePdfSaveTransactionOptions } from '@app/modules/workspace-shell/composables/nativePdfMutationArtifact';
+import { resolveWorkspaceViewerViewMode } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
+import type { IWorkspaceViewerCapabilities } from '@app/types/workspaceExpose';
 
 interface IWorkspaceInteractionControlsOptions {
     isActive: Ref<boolean>;
@@ -67,6 +69,7 @@ interface IWorkspaceInteractionControlsOptions {
     clearDocxExportError: () => void;
     workingCopyPath: Ref<TDocumentRef | null>;
     isDjvuMode: Ref<boolean>;
+    viewerCapabilities: ComputedRef<Readonly<IWorkspaceViewerCapabilities> | undefined>;
     djvuSourcePath: Ref<TDocumentRef | null>;
     currentPage: Ref<number>;
     navigationPage: Ref<number>;
@@ -116,6 +119,7 @@ export const useWorkspaceInteractionControls = (options: IWorkspaceInteractionCo
         clearDocxExportError,
         workingCopyPath,
         isDjvuMode,
+        viewerCapabilities,
         djvuSourcePath,
         currentPage,
         totalPages,
@@ -131,6 +135,10 @@ export const useWorkspaceInteractionControls = (options: IWorkspaceInteractionCo
         getNativeSaveTransactionOptions,
         runWithDocumentOperationLease,
     } = options;
+    const effectiveViewMode = computed(() => resolveWorkspaceViewerViewMode(
+        viewerCapabilities.value,
+        viewMode.value,
+    ));
 
     const {
         resolveDisplayZoom,
@@ -193,7 +201,7 @@ export const useWorkspaceInteractionControls = (options: IWorkspaceInteractionCo
         handleFitMode: options.handleFitMode,
         navigationPage: options.navigationPage,
         totalPages,
-        viewMode,
+        viewMode: effectiveViewMode,
         handleGoToPage: options.handleGoToPage,
         handleSave: () => {
             void runDetached(handleSave, {

@@ -1,3 +1,6 @@
+import type * as TViMockOriginalModule from '@electron/file-access/workingCopyStore';
+import type * as TViMockOriginalModule2 from '@electron/file-access/isAllowedOriginalSavePath';
+
 import { EventEmitter } from 'node:events';
 import {
     afterEach,
@@ -82,7 +85,8 @@ vi.mock('@electron/features/documents/main/pdfSaveAsOptimization', () => ({
     optimizeLargePdfForOrdinarySave: (...args: unknown[]) => mocks.optimizeLargePdfForOrdinarySave(...args),
 }));
 vi.mock('@electron/file-access/workingCopyCreation', () => ({ensureWorkingCopyDirectory: (...args: unknown[]) => mocks.ensureWorkingCopyDirectory(...args)}));
-vi.mock('@electron/file-access/workingCopyStore', () => ({
+vi.mock('@electron/file-access/workingCopyStore', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
     getWorkingCopyOriginalFileExpectation: (...args: unknown[]) => mocks.getWorkingCopyOriginalFileExpectation(...args),
     getWorkingCopyOriginalPath: (...args: [string, number?]) => mocks.getWorkingCopyOriginalPath(...args),
     normalizePathForLookup: (path: string) => path.trim(),
@@ -98,7 +102,10 @@ vi.mock('@electron/file-access/documentRevisionStore', () => ({
     transitionWorkingCopyContentRevision: (...args: unknown[]) => mocks.transitionWorkingCopyContentRevision(...args),
     markWorkingCopySyncRequired: (...args: unknown[]) => mocks.markWorkingCopySyncRequired(...args),
 }));
-vi.mock('@electron/file-access/isAllowedOriginalSavePath', () => ({isAllowedOriginalSavePath: vi.fn(() => true)}));
+vi.mock('@electron/file-access/isAllowedOriginalSavePath', async (importOriginal_1) => ({
+    ...(await importOriginal_1<typeof TViMockOriginalModule2>()),
+    isAllowedOriginalSavePath: vi.fn(() => true),
+}));
 vi.mock('@electron/file-access/workingCopyDirectory', () => ({copyFileCopyOnWrite: (...args: [string, string]) => mocks.copyFileCopyOnWrite(...args)}));
 vi.mock('@electron/file-access/openPathCapabilities', () => ({
     allowOpenPath: (...args: unknown[]) => mocks.allowOpenPath(...args),
