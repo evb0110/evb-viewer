@@ -13,6 +13,11 @@ import {join} from 'node:path';
 import {promisify} from 'node:util';
 import type * as DocumentRevisionSidecarModule from '@electron/file-access/documentRevisionSidecar';
 import type * as WorkingCopyContentTransitionJournalModule from '@electron/file-access/workingCopyContentTransitionJournal';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requirePaneId} from '@contracts/editorPanes';
+import {requireEpochMs} from '@contracts/timestamps';
+import {requireTabId} from '@contracts/windowTabs';
+import type {IWorkspaceCheckpoint} from '@contracts/workspaceCheckpoint';
 import {
     afterEach,
     beforeEach,
@@ -33,6 +38,38 @@ function deferred() {
     return {
         promise,
         resolve,
+    };
+}
+
+function createCheckpoint(sourcePath: string, workingCopyPath: string): IWorkspaceCheckpoint {
+    const paneId = requirePaneId('issue-398-pane');
+    const tabId = requireTabId('issue-398-tab');
+    return {
+        version: 1,
+        capturedAt: requireEpochMs(123),
+        activePaneId: paneId,
+        activeTabId: tabId,
+        layout: {
+            type: 'leaf',
+            paneId,
+        },
+        panes: [{
+            paneId,
+            tabIds: [tabId],
+            activeTabId: tabId,
+        }],
+        tabs: [{
+            tabId,
+            paneId,
+            fileName: 'issue-398-source.pdf',
+            sourceRef: requireDocumentRef(sourcePath),
+            workingCopyRef: requireDocumentRef(workingCopyPath),
+            isDirty: true,
+            isDjvu: false,
+            currentPage: 1,
+            zoom: 1,
+            zoomMode: 'fit-width',
+        }],
     };
 }
 
@@ -533,6 +570,54 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         await rename(replacementPath, originalPath);
 
         await expect(captureOriginalPathSaveWitness(workingCopyPath, originalPath, 7)).resolves.toBeNull();
+    });
+
+    it('rejects Save after recovering a dirty materialized checkpoint over an external replacement', async () => {
+        const originalBytes = Buffer.from('%PDF-1.7\n% issue-398 source A\n%%EOF\n');
+        const unsavedWorkingBytes = Buffer.from('%PDF-1.7\n% issue-398 unsaved C\n%%EOF\n');
+        const externalBytes = Buffer.from('%PDF-1.7\n% issue-398 external B\n%%EOF\n');
+        const originalPath = join(tempRoot, 'issue-398-source.pdf');
+        const workingCopyPath = join(tempRoot, 'issue-398-working.pdf');
+        const replacementPath = join(tempRoot, 'issue-398-replacement.pdf');
+        await Promise.all([
+            writeFile(originalPath, originalBytes),
+            writeFile(workingCopyPath, unsavedWorkingBytes),
+            writeFile(replacementPath, externalBytes),
+        ]);
+
+        const {
+            clearWorkingCopyOriginalPaths,
+            getWorkingCopyOriginalFileExpectation,
+            setWorkingCopyOriginalPath,
+        } = await import('@electron/file-access/workingCopyStore');
+        const {
+            claimWorkspaceCheckpoint,
+            flushPendingWorkspaceCheckpointSave,
+            saveWorkspaceCheckpoint,
+        } = await import('@electron/workspaceCheckpointStore');
+        const {captureOriginalPathSaveWitness} = await import('@electron/file-access/originalPathSaveWitness');
+
+        await setWorkingCopyOriginalPath(workingCopyPath, originalPath, 7, {backingState: 'materialized'});
+        expect(getWorkingCopyOriginalFileExpectation(workingCopyPath, 7)).not.toBeNull();
+        await saveWorkspaceCheckpoint(createCheckpoint(originalPath, workingCopyPath), 7);
+        await flushPendingWorkspaceCheckpointSave();
+
+        clearWorkingCopyOriginalPaths();
+        await rename(replacementPath, originalPath);
+        await expect(claimWorkspaceCheckpoint(22)).resolves.toMatchObject({tabs: [{
+            sourceRef: originalPath,
+            workingCopyRef: workingCopyPath,
+            isDirty: true,
+        }]});
+
+        const recoveredWitness = await captureOriginalPathSaveWitness(workingCopyPath, originalPath, 22);
+        try {
+            expect(recoveredWitness).toBeNull();
+        } finally {
+            await recoveredWitness?.close();
+        }
+        await expect(readFile(originalPath)).resolves.toEqual(externalBytes);
+        await expect(readFile(workingCopyPath)).resolves.toEqual(unsavedWorkingBytes);
     });
 
     it('preserves a same-size external replacement made after save admission', async () => {

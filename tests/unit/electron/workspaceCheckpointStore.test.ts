@@ -41,7 +41,7 @@ const state = vi.hoisted(() => ({
             mtimeNs: bigint;
             size: bigint;
         };
-        backingState: 'eager' | 'lazy-original' | 'materializing';
+        backingState: 'cloned' | 'eager' | 'lazy-original' | 'materializing' | 'materialized';
         originalFileExpectation?: {
             contentFingerprint?: string;
             mtimeMs: number;
@@ -105,7 +105,7 @@ vi.mock('@electron/file-access/workingCopyStore', () => ({
                 mtimeNs: bigint;
                 size: bigint;
             };
-            backingState?: 'eager' | 'lazy-original';
+            backingState?: 'cloned' | 'eager' | 'lazy-original' | 'materializing' | 'materialized';
             originalFileExpectation?: {
                 contentFingerprint?: string;
                 mtimeMs: number;
@@ -214,6 +214,52 @@ describe('workspace checkpoint store', () => {
         await expect(readdir(state.userDataPath)).resolves.toContain('workspace-checkpoint.json');
         await expect(acknowledgeWorkspaceCheckpoint(22)).resolves.toBe(true);
         await expect(claimWorkspaceCheckpoint(33)).resolves.toBeNull();
+    });
+
+    it('restores a materialized working-copy witness after the process registry is cleared', async () => {
+        state.owners.set(workingCopyRef, 11);
+        state.originalPaths.set(workingCopyRef, '/documents/draft.pdf');
+        state.backingEntries.set(workingCopyRef, {
+            backingState: 'materialized',
+            originalFileExpectation: {
+                contentFingerprint: 'sha256-full-v1:original-a',
+                mtimeMs: 123.456789,
+                size: 987_654,
+            },
+            originalPath: '/documents/draft.pdf',
+            ownerWebContentsId: 11,
+            registrationId: 41,
+            role: 'current',
+        });
+
+        await saveWorkspaceCheckpoint(checkpoint, 11);
+        const stored = JSON.parse(await readFile(join(state.userDataPath, 'workspace-checkpoint.json'), 'utf8'));
+        expect(stored.workingCopies).toEqual([expect.objectContaining({
+            backingState: 'materialized',
+            originalFileExpectation: {
+                contentFingerprint: 'sha256-full-v1:original-a',
+                mtimeMs: 123.456789,
+                size: 987_654,
+            },
+            originalPath: '/documents/draft.pdf',
+            registrationId: 41,
+            workingCopyRef,
+        })]);
+
+        state.backingEntries.clear();
+        state.owners.clear();
+        state.originalPaths.clear();
+
+        await expect(claimWorkspaceCheckpoint(22)).resolves.toEqual(checkpoint);
+        expect(state.restoredOptions.get(workingCopyRef)).toMatchObject({
+            backingState: 'materialized',
+            deferOriginalFileExpectation: true,
+            originalFileExpectation: {
+                contentFingerprint: 'sha256-full-v1:original-a',
+                mtimeMs: 123.456789,
+                size: 987_654,
+            },
+        });
     });
 
     it('persists the working-copy mapping as canonical source instead of a renderer temp-path hint', async () => {

@@ -33,6 +33,7 @@ import {
     getWorkingCopyOwnerWebContentsId,
     setWorkingCopyOriginalPath,
     transitionWorkingCopyBackingState,
+    type TWorkingCopyBackingState,
     type IWorkingCopyAdmissionSnapshot,
     type IWorkingCopyOriginalFileExpectation,
     type TWorkingCopyBackingErrorCode,
@@ -62,7 +63,22 @@ interface IStoredWorkspaceCheckpoint {
     claimedByWebContentsId?: number;
     checkpoint: IWorkspaceCheckpoint;
     lazyWorkingCopies?: IStoredLazyWorkingCopy[];
+    workingCopies?: IStoredWorkingCopy[];
     sourceProvenance?: IStoredSourceProvenance[];
+}
+
+interface IStoredWorkingCopy {
+    admissionSnapshot?: {
+        mtimeNs: string;
+        size: string;
+    };
+    backingState: TWorkingCopyBackingState;
+    originalFileExpectation?: IWorkingCopyOriginalFileExpectation;
+    originalPath: string;
+    registrationId: number;
+    role: TWorkingCopyRole;
+    sourceBackingErrorCode?: TWorkingCopyBackingErrorCode;
+    workingCopyRef: string;
 }
 
 interface IStoredSourceProvenance {
@@ -226,6 +242,60 @@ function decodeLazyWorkingCopy(value: unknown): IStoredLazyWorkingCopy | null {
     };
 }
 
+function decodeWorkingCopy(value: unknown): IStoredWorkingCopy | null {
+    if (
+        !isRecord(value)
+        || (value.admissionSnapshot !== undefined && (
+            !isRecord(value.admissionSnapshot)
+            || typeof value.admissionSnapshot.mtimeNs !== 'string'
+            || !/^\d+$/.test(value.admissionSnapshot.mtimeNs)
+            || typeof value.admissionSnapshot.size !== 'string'
+            || !/^\d+$/.test(value.admissionSnapshot.size)
+        ))
+        || typeof value.originalPath !== 'string'
+        || !value.originalPath
+        || !Number.isSafeInteger(value.registrationId)
+        || (
+            value.backingState !== 'cloned'
+            && value.backingState !== 'eager'
+            && value.backingState !== 'lazy-original'
+            && value.backingState !== 'materializing'
+            && value.backingState !== 'materialized'
+        )
+        || (value.role !== 'current' && value.role !== 'snapshot')
+        || typeof value.workingCopyRef !== 'string'
+        || !value.workingCopyRef
+        || (
+            value.sourceBackingErrorCode !== undefined
+            && (
+                typeof value.sourceBackingErrorCode !== 'string'
+                || !BACKING_ERROR_CODES.has(value.sourceBackingErrorCode as TWorkingCopyBackingErrorCode)
+            )
+        )
+    ) {
+        return null;
+    }
+    const originalFileExpectation = decodeOriginalFileExpectation(value.originalFileExpectation);
+    if (value.originalFileExpectation !== undefined && !originalFileExpectation) {
+        return null;
+    }
+    return {
+        ...(value.admissionSnapshot === undefined ? {} : {admissionSnapshot: {
+            mtimeNs: value.admissionSnapshot.mtimeNs as string,
+            size: value.admissionSnapshot.size as string,
+        }}),
+        backingState: value.backingState,
+        ...(originalFileExpectation ? {originalFileExpectation} : {}),
+        originalPath: value.originalPath,
+        registrationId: value.registrationId as number,
+        role: value.role,
+        ...(value.sourceBackingErrorCode === undefined
+            ? {}
+            : {sourceBackingErrorCode: value.sourceBackingErrorCode as TWorkingCopyBackingErrorCode}),
+        workingCopyRef: value.workingCopyRef,
+    };
+}
+
 function decodeStoredCheckpoint(value: unknown): IStoredWorkspaceCheckpoint | null {
     if (
         !isRecord(value)
@@ -253,6 +323,19 @@ function decodeStoredCheckpoint(value: unknown): IStoredWorkspaceCheckpoint | nu
                 return null;
             }
             lazyWorkingCopies.push(decoded);
+        }
+    }
+    const workingCopies: IStoredWorkingCopy[] = [];
+    if (value.workingCopies !== undefined) {
+        if (!Array.isArray(value.workingCopies)) {
+            return null;
+        }
+        for (const candidate of value.workingCopies) {
+            const decoded = decodeWorkingCopy(candidate);
+            if (!decoded) {
+                return null;
+            }
+            workingCopies.push(decoded);
         }
     }
     const sourceProvenance: IStoredSourceProvenance[] = [];
@@ -291,6 +374,7 @@ function decodeStoredCheckpoint(value: unknown): IStoredWorkspaceCheckpoint | nu
             : {claimedByWebContentsId: value.claimedByWebContentsId as number}),
         checkpoint,
         ...(lazyWorkingCopies.length === 0 ? {} : {lazyWorkingCopies}),
+        ...(workingCopies.length === 0 ? {} : {workingCopies}),
         ...(sourceProvenance.length === 0 ? {} : {sourceProvenance}),
     };
 }
@@ -343,6 +427,44 @@ function collectLazyWorkingCopies(
     return Array.from(lazyWorkingCopies.values());
 }
 
+function collectMaterializedWorkingCopies(
+    checkpoint: IWorkspaceCheckpoint,
+    ownerWebContentsId: number,
+) {
+    const workingCopies = new Map<string, IStoredWorkingCopy>();
+    for (const tab of checkpoint.tabs) {
+        if (!tab.workingCopyRef || workingCopies.has(tab.workingCopyRef)) {
+            continue;
+        }
+        const entry = getWorkingCopyBackingEntry(tab.workingCopyRef, ownerWebContentsId);
+        if (
+            !entry
+            || entry.backingState === 'lazy-original'
+            || entry.backingState === 'materializing'
+        ) {
+            continue;
+        }
+        workingCopies.set(tab.workingCopyRef, {
+            ...(entry.admissionSnapshot ? {admissionSnapshot: {
+                mtimeNs: entry.admissionSnapshot.mtimeNs.toString(),
+                size: entry.admissionSnapshot.size.toString(),
+            }} : {}),
+            backingState: entry.backingState,
+            ...(entry.originalFileExpectation
+                ? {originalFileExpectation: entry.originalFileExpectation}
+                : {}),
+            originalPath: entry.originalPath,
+            registrationId: entry.registrationId,
+            role: entry.role,
+            ...(entry.sourceBackingErrorCode
+                ? {sourceBackingErrorCode: entry.sourceBackingErrorCode}
+                : {}),
+            workingCopyRef: tab.workingCopyRef,
+        });
+    }
+    return Array.from(workingCopies.values());
+}
+
 function assertNoDirtyLazyRecovery(stored: IStoredWorkspaceCheckpoint) {
     const lazyWorkingCopyRefs = new Set(
         (stored.lazyWorkingCopies ?? []).map(entry => entry.workingCopyRef),
@@ -356,10 +478,13 @@ function assertNoDirtyLazyRecovery(stored: IStoredWorkspaceCheckpoint) {
     }
 }
 
-function toAdmissionSnapshot(stored: IStoredLazyWorkingCopy): IWorkingCopyAdmissionSnapshot {
+function toAdmissionSnapshot(admissionSnapshot: {
+    mtimeNs: string;
+    size: string;
+}): IWorkingCopyAdmissionSnapshot {
     return {
-        mtimeNs: BigInt(stored.admissionSnapshot.mtimeNs),
-        size: BigInt(stored.admissionSnapshot.size),
+        mtimeNs: BigInt(admissionSnapshot.mtimeNs),
+        size: BigInt(admissionSnapshot.size),
     };
 }
 
@@ -762,6 +887,7 @@ export async function saveWorkspaceCheckpoint(
         sourceAuthorizationOwner,
     );
     const lazyWorkingCopies = collectLazyWorkingCopies(checkpointWithRetainedTabs, ownerWebContentsId);
+    const workingCopies = collectMaterializedWorkingCopies(checkpointWithRetainedTabs, ownerWebContentsId);
     const stored: IStoredWorkspaceCheckpoint = {
         version: 1,
         ownerWebContentsId,
@@ -771,6 +897,7 @@ export async function saveWorkspaceCheckpoint(
             : {}),
         checkpoint: canonicalCheckpoint,
         ...(lazyWorkingCopies.length === 0 ? {} : {lazyWorkingCopies}),
+        ...(workingCopies.length === 0 ? {} : {workingCopies}),
         ...(sourceProvenance.length === 0 ? {} : {sourceProvenance}),
     };
     await checkpointBarrierQueue;
@@ -861,6 +988,12 @@ export async function claimWorkspaceCheckpoint(newOwnerWebContentsId: number) {
                 entry,
             ]),
         );
+        const workingCopies = new Map(
+            (stored.workingCopies ?? []).map(entry => [
+                entry.workingCopyRef,
+                entry,
+            ]),
+        );
         for (const tab of canonicalCheckpoint.tabs) {
             if (tab.workingCopyRef) {
                 const transferred = claimWorkingCopyOwnership(
@@ -869,13 +1002,14 @@ export async function claimWorkspaceCheckpoint(newOwnerWebContentsId: number) {
                     newOwnerWebContentsId,
                 );
                 const lazyWorkingCopy = lazyWorkingCopies.get(tab.workingCopyRef);
+                const storedWorkingCopy = workingCopies.get(tab.workingCopyRef);
                 if (!transferred && lazyWorkingCopy) {
                     await setWorkingCopyOriginalPath(
                         tab.workingCopyRef,
                         lazyWorkingCopy.originalPath,
                         newOwnerWebContentsId,
                         {
-                            admissionSnapshot: toAdmissionSnapshot(lazyWorkingCopy),
+                            admissionSnapshot: toAdmissionSnapshot(lazyWorkingCopy.admissionSnapshot),
                             backingState: 'lazy-original',
                             deferOriginalFileExpectation: true,
                             ...(lazyWorkingCopy.originalFileExpectation
@@ -898,11 +1032,43 @@ export async function claimWorkspaceCheckpoint(newOwnerWebContentsId: number) {
                             );
                         }
                     }
+                } else if (!transferred && storedWorkingCopy) {
+                    await setWorkingCopyOriginalPath(
+                        tab.workingCopyRef,
+                        storedWorkingCopy.originalPath,
+                        newOwnerWebContentsId,
+                        {
+                            ...(storedWorkingCopy.admissionSnapshot
+                                ? {admissionSnapshot: toAdmissionSnapshot(storedWorkingCopy.admissionSnapshot)}
+                                : {}),
+                            backingState: storedWorkingCopy.backingState,
+                            deferOriginalFileExpectation: true,
+                            ...(storedWorkingCopy.originalFileExpectation
+                                ? {originalFileExpectation: storedWorkingCopy.originalFileExpectation}
+                                : {}),
+                            role: storedWorkingCopy.role,
+                        },
+                    );
+                    if (storedWorkingCopy.sourceBackingErrorCode) {
+                        const restoredEntry = getWorkingCopyBackingEntry(
+                            tab.workingCopyRef,
+                            newOwnerWebContentsId,
+                        );
+                        if (restoredEntry) {
+                            transitionWorkingCopyBackingState(
+                                tab.workingCopyRef,
+                                restoredEntry.registrationId,
+                                storedWorkingCopy.backingState,
+                                {sourceBackingErrorCode: storedWorkingCopy.sourceBackingErrorCode},
+                            );
+                        }
+                    }
                 } else if (!transferred && tab.sourceRef) {
                     await setWorkingCopyOriginalPath(
                         tab.workingCopyRef,
                         tab.sourceRef,
                         newOwnerWebContentsId,
+                        {deferOriginalFileExpectation: true},
                     );
                 }
             }
