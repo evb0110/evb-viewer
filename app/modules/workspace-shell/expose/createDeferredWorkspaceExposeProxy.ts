@@ -225,6 +225,19 @@ export function createDeferredWorkspaceExposeProxy(
     }
 
     const customHandlers: Partial<TWorkspaceExposeCommandHandlerMap> = {
+        captureCanonicalAnnotationRecovery: () => {
+            const workspace = deps.getMounted();
+            return workspace
+                ? invokeWorkspaceExposeCommand(workspace, 'captureCanonicalAnnotationRecovery')
+                : null;
+        },
+        restoreCanonicalAnnotationRecovery: (value: unknown) => {
+            const workspace = deps.getMounted();
+            if (!workspace) {
+                throw new WorkspaceExposeCommandUnavailableError('restoreCanonicalAnnotationRecovery');
+            }
+            return invokeWorkspaceExposeCommand(workspace, 'restoreCanonicalAnnotationRecovery', [value]);
+        },
         createRecoverySnapshotBytes: async () => {
             const target = createCommandTarget();
             return withTargetedLoadedWorkspace(

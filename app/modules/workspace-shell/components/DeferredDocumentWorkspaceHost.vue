@@ -223,7 +223,6 @@ const {
     loadRecentFiles,
     retryRecentFiles,
     removeRecentFile,
-    removeRecentFileIfMissing,
     clearRecentFiles,
 } = useRecentFiles();
 
@@ -658,10 +657,6 @@ async function handleOpenRecentFromPlaceholder(file: IRecentFile) {
         workspaceRequested: workspaceRequested.value,
         hasMountedWorkspace: hasMountedWorkspace.value,
     });
-
-    if (await removeRecentFileIfMissing(file)) {
-        return false;
-    }
 
     return activeDocumentSession.value.open({
         action: 'openRecentFromPlaceholder',

@@ -513,7 +513,7 @@ async function createSearchRequestContext(request: ISearchWorkerRequest): Promis
         requestId,
         pdfPath,
         documentRevision,
-        normalizedQuery: query.trim(),
+        normalizedQuery: query,
         isXlarge: classification.isXlarge,
         shouldWarmup: warmup === true,
         matchCase,
@@ -727,10 +727,7 @@ function createIndexedPageResultStreamer(context: ISearchRequestContext) {
         processedCount += 1;
         const wasTruncated = truncated;
         const previousResultCount = results.length;
-        if (previousResultCount >= SEARCH_RESULT_LIMIT) {
-            truncated = true;
-        }
-        if (!truncated && results.length < SEARCH_RESULT_LIMIT) {
+        if (!truncated) {
             const pageResult = appendPageMatches({
                 context,
                 page,
@@ -739,9 +736,6 @@ function createIndexedPageResultStreamer(context: ISearchRequestContext) {
             });
             globalMatchIndex = pageResult.globalMatchIndex;
             truncated = pageResult.truncated;
-            if (!truncated && results.length >= SEARCH_RESULT_LIMIT && processedCount < total) {
-                truncated = true;
-            }
         }
 
         if (results.length !== previousResultCount || (!wasTruncated && truncated)) {

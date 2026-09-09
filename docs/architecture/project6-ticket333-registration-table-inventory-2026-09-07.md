@@ -40,7 +40,7 @@ is safe, then puts lifecycle-bearing providers after their prerequisites.
 | 3 | Documents working copy | `createWorkingCopyFromData`, `createWorkingCopyFromPath`, `parsePdfAnnotations`, `cleanupFile`, `cleanupOcrTemp` | Same adapter; sender cleanup and working-copy permissions are established here. |
 | 4 | Documents files | File reads/stat/ranges, managed handles, revision and backing status, all file writes, structured save/resync/repair, PDF note/native mutation staging and commit methods | Same adapter; depends on operation lifecycle and serialized PDF persistence during shutdown. |
 | 5 | Documents PDF | PDF conformance/validation, default-app open, print data/path/cancel | Same adapter; print handlers register sender cleanup. |
-| 6 | Documents recent files | `getRecentFiles`, `removeRecentFile`, `removeRecentFileIfMissing`, `clearRecentFiles` | Same adapter; recent-files cache/menu refresh is a startup dependency. |
+| 6 | Documents recent files | `getRecentFiles`, `removeRecentFile`, `clearRecentFiles` | Same adapter; recent-files cache/menu refresh is a startup dependency. |
 | 7 | Documents window | `setWindowTitle`, `showItemInFolder` | Same adapter; depends on registered windows and trusted sender checks. |
 | 8 | Documents menu | `setMenuDocumentState`, `setMenuTabCount` | Same adapter; depends on menu/window state. |
 | 9 | Window tabs / core | Transfer, transfer ack, target listing, close current window, pending external-open claim/ack, workspace checkpoint save/discard/resume/claim/ack | `registerCoreIpcHandlers`; also owns renderer-ready, renderer-log, renderer-diagnostic bridges. Start after window registry and checkpoint services exist. |

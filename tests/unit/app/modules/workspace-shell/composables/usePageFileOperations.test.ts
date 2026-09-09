@@ -87,7 +87,6 @@ function createDeps(overrides: Partial<Parameters<typeof usePageFileOperations>[
         closeFile: vi.fn(async () => {}),
         closeAllDropdowns: vi.fn(),
         emitOpenInNewTab: vi.fn(),
-        removeRecentFileIfMissing: vi.fn(async () => false),
         ...overrides,
     } satisfies Parameters<typeof usePageFileOperations>[0];
 }
@@ -462,9 +461,11 @@ describe('usePageFileOperations', () => {
         expect(deps.closeAllDropdowns).toHaveBeenCalledOnce();
     });
 
-    it('does not open a recent file removed by the missing-file preflight', async () => {
-        const warnSpy = vi.spyOn(BrowserLogger, 'warn').mockImplementation(() => {});
-        const deps = createDeps({removeRecentFileIfMissing: vi.fn(async () => true)});
+    it('opens a missing recent file through the normal direct-open failure path', async () => {
+        const deps = createDeps({openFileDirect: vi.fn(async () => ({
+            status: 'failed' as const,
+            error: 'File is unavailable',
+        }))});
         const { openRecentFile } = usePageFileOperations(deps);
         const file: IRecentFile = {
             originalPath: requireDocumentRef('/tmp/missing.pdf'),
@@ -473,18 +474,11 @@ describe('usePageFileOperations', () => {
             fileSize: 0,
         };
 
-        await openRecentFile(file);
-
-        expect(deps.openFileDirect).not.toHaveBeenCalled();
-        expect(deps.removeRecentFileIfMissing).toHaveBeenCalledWith(file);
-        expect(warnSpy).toHaveBeenCalledWith(
-            'recent-open',
-            'Recent file no longer exists; removed from recents',
-            {path: '/tmp/missing.pdf'},
-        );
+        await expect(openRecentFile(file)).resolves.toBe(false);
+        expect(deps.openFileDirect).toHaveBeenCalledWith('/tmp/missing.pdf');
     });
 
-    it('opens a recent file retained by the missing-file preflight', async () => {
+    it('opens an available recent file directly without a history preflight', async () => {
         const deps = createDeps();
         const { openRecentFile } = usePageFileOperations(deps);
         const file: IRecentFile = {
@@ -496,7 +490,6 @@ describe('usePageFileOperations', () => {
 
         await openRecentFile(file);
 
-        expect(deps.removeRecentFileIfMissing).toHaveBeenCalledWith(file);
         expect(deps.openFileDirect).toHaveBeenCalledWith('/tmp/present.pdf');
     });
 

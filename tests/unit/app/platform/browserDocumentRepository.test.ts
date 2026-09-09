@@ -140,14 +140,14 @@ describe('BrowserDocumentStore source registration', () => {
         await store.writeForBootstrap(workingRef, Uint8Array.of(9, 8, 7), 'materialize-working-copy');
 
         const openingWitness = (await store.requireEntry(workingRef)).sourceBaseWitness;
-        currentFile = new File([
+        currentFile = new File([Uint8Array.of(
             37,
             80,
             68,
             71,
             1,
             2,
-        ], 'materialized-source.pdf', {
+        )], 'materialized-source.pdf', {
             type: 'application/pdf',
             lastModified: 777,
         });

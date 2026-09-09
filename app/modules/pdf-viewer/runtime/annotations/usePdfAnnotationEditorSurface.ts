@@ -72,6 +72,10 @@ export type TAnnotationGesturePatch = Partial<Pick<
     'tool' | 'rect' | 'points' | 'strokes' | 'strokeColor' | 'strokeWidth' | 'fill' | 'opacity'
 >>;
 
+export type TResolveTextMarkupPreview = (
+    quadPoints: readonly IAnnotationMarkerRect[],
+) => string | null | undefined;
+
 export interface IAnnotationEditorSurface {
     readonly editingId: Readonly<Ref<AnnotationId | null>>;
     readonly selectionMoveDelta: Readonly<Ref<{
@@ -158,6 +162,7 @@ export interface IAnnotationEditorSurface {
         pageIndex: number,
         quadPoints: readonly IAnnotationMarkerRect[],
         overrides?: Partial<Omit<ITextMarkupEntity, 'kind' | 'identity' | 'pageIndex' | 'revision' | 'persistedRevision' | 'deleted' | 'quadPoints'>>,
+        options?: {resolveSelectedText?: TResolveTextMarkupPreview;},
     ): ITextMarkupEntity;
     createShape(entity: IShapeEntity): IShapeEntity;
     openNote(annotationId: AnnotationId): void;
@@ -1031,7 +1036,8 @@ export const usePdfAnnotationEditorSurface = (
         pageIndex: number,
         quadPoints: readonly IAnnotationMarkerRect[],
         overrides: Partial<Omit<ITextMarkupEntity, 'kind' | 'identity' | 'pageIndex' | 'revision' | 'persistedRevision' | 'deleted' | 'quadPoints'>> = {},
-    ) {
+        creationOptions: {resolveSelectedText?: TResolveTextMarkupPreview;} = {},
+    ): ITextMarkupEntity {
         const subtype = overrides.subtype ?? 'Highlight' satisfies TMarkupSubtype;
         const style = textMarkupStyle(options.settings.value, subtype);
         const {
@@ -1050,12 +1056,16 @@ export const usePdfAnnotationEditorSurface = (
             opacity: style.opacity,
             ...restOverrides,
         };
-        return store().createTextMarkup(
+        const selection = store().applyTextMarkupSelection(
             selectedText === undefined ? entity : {
                 ...entity,
                 selectedText,
             },
+            [],
+            creationOptions.resolveSelectedText,
         );
+        const stored = store().get(selection.created.identity.id);
+        return stored?.kind === 'text-markup' ? stored : selection.created;
     }
 
     function createShape(entity: IShapeEntity) {

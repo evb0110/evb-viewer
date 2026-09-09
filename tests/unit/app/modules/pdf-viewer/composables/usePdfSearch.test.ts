@@ -127,6 +127,27 @@ describe('usePdfSearch', () => {
         expect(search.submittedSearchQuery.value).toBe(' a ');
     });
 
+    it('passes a quoted single space to the search backend', async () => {
+        const search = await createPdfSearch();
+
+        const promise = search.search('" "', '/tmp/work.pdf');
+        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        await promise;
+
+        expect(mockSearch.run).toHaveBeenCalledWith('/tmp/work.pdf', ' ', expect.any(Object));
+        expect(search.submittedSearchQuery.value).toBe(' ');
+    });
+
+    it('keeps an unquoted whitespace-only query empty', async () => {
+        const search = await createPdfSearch();
+
+        const applied = await search.search(' \t\n', '/tmp/work.pdf');
+
+        expect(applied).toBe(false);
+        expect(mockSearch.run).not.toHaveBeenCalled();
+        expect(search.submittedSearchQuery.value).toBe('');
+    });
+
     it('replaces the previous submitted query with a single-character search', async () => {
         mockSearch.run.mockResolvedValue({
             results: [{

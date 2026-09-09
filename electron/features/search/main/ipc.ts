@@ -301,7 +301,7 @@ async function handlePdfSearch(
         useRegex,
     } = request;
 
-    if (!query.trim()) {
+    if (query.length === 0) {
         return {
             results: [],
             truncated: false,

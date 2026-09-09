@@ -1,6 +1,7 @@
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 import type {IPdfAnnotationParseResult} from '@contracts/pdfAnnotationParseTypes';
 import type {AnnotationStore} from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
+import type {ITextMarkupEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {
     mapPdfAnnotationParseEntity,
     mapPdfAnnotationParseForeign,
@@ -20,6 +21,20 @@ export interface ICommitPdfAnnotationParseToStoreOptions {
     expectedRevisionToken: TDocumentRevisionToken;
     currentRevisionToken: TDocumentRevisionToken | null;
     selectedTextByPdfRef?: ReadonlyMap<string, string | null>;
+}
+
+export function applyParsedHighlightTextToStore(options: {
+    targetStore: AnnotationStore;
+    selectedTextByPdfRef: ReadonlyMap<string, string | null>;
+    parsedMarkupGeometryByPdfRef: ReadonlyMap<string, ITextMarkupEntity['quadPoints']>;
+}) {
+    options.selectedTextByPdfRef.forEach((selectedText, pdfRef) => {
+        const id = options.targetStore.resolveExternal({pdfRef});
+        const expectedQuadPoints = options.parsedMarkupGeometryByPdfRef.get(pdfRef);
+        if (id && expectedQuadPoints) {
+            options.targetStore.updateTextMarkupSelectedText(id, selectedText, expectedQuadPoints);
+        }
+    });
 }
 
 /**

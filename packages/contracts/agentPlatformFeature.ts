@@ -1637,7 +1637,7 @@ const assistantLoginResult = nullableResultSchema(
         loginId: 'login-1',
     }),
 );
-const assistantMessageResult = nullableResultSchema(
+const assistantMessageResult = nullableResultSchema<IAgentAssistantSendMessageResult>(
     decodeAgentAssistantSendMessageResult,
     'assistant message',
     () => ({

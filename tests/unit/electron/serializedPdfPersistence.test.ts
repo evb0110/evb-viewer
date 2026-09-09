@@ -1080,7 +1080,7 @@ describe('serializedPdfPersistence', () => {
             attachSerializedPdfPersistencePort(createPortEvent(sender, port2), secondBeginResult.sessionId);
 
             const progressTimeoutMs = firstBeginResult.progressTimeoutMs;
-            vi.advanceTimersByTime(progressTimeoutMs - 1_000);
+            vi.advanceTimersByTime(progressTimeoutMs - 2_000);
             port1.emit('message', {data: {
                 type: 'chunk',
                 seq: 0,
@@ -1091,7 +1091,7 @@ describe('serializedPdfPersistence', () => {
                 seq: 0,
             });
 
-            vi.advanceTimersByTime(1_000);
+            vi.advanceTimersByTime(2_001);
             await waitForCondition(() => {
                 expect(existsSync(secondTempPath)).toBe(false);
             });
