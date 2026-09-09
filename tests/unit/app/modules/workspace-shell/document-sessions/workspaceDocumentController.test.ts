@@ -149,6 +149,45 @@ describe('WorkspaceDocumentController', () => {
         expect(session.snapshot.value.phase).toBe('ready');
     });
 
+    it('does not let a same-revision clean adoption clear recovered dirty state', () => {
+        const session = createWorkspaceDocumentController({
+            tabId: 'tab-1',
+            sessionId: 'session-1',
+        });
+        const recoveredRecord = createWorkspaceDocumentRecord({
+            tab: {
+                fileName: 'Document.pdf',
+                originalPath: requireDocumentRef('/tmp/original.pdf'),
+                isDirty: true,
+                isDjvu: false,
+            },
+            documentIdentity: createDocumentRevision('revision-1', '/tmp/working.pdf'),
+            toolbarSnapshot: {initialVisualReady: true},
+        });
+        session.applyWorkspaceRecord(recoveredRecord, 'workspace');
+
+        session.applyWorkspaceRecord(createWorkspaceDocumentRecord({
+            ...recoveredRecord,
+            tab: {
+                ...recoveredRecord.tab,
+                isDirty: false,
+            },
+        }), 'workspace');
+
+        expect(session.snapshot.value.dirty).toBe(true);
+
+        session.applyWorkspaceRecord(createWorkspaceDocumentRecord({
+            ...recoveredRecord,
+            tab: {
+                ...recoveredRecord.tab,
+                isDirty: false,
+            },
+            documentIdentity: createDocumentRevision('revision-2', '/tmp/working.pdf'),
+        }), 'workspace');
+
+        expect(session.snapshot.value.dirty).toBe(false);
+    });
+
     it('does not infer readiness from document identity and viewer capabilities alone', () => {
         const session = createWorkspaceDocumentController({
             tabId: 'tab-1',

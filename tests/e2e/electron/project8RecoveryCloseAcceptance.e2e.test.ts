@@ -355,7 +355,23 @@ describe('Project 8 recovered close decisions', () => {
         expect(finalFailedState?.workingCopyPath).toEqual(expect.any(String));
         expect(settledFailedState.workingCopyPath).toEqual(expect.any(String));
         expect(settledFailedState.originalPath).toBe(firstPdfPath);
+        expect(settledFailedState.dirtyState?.fileDirty).toBe(true);
         expect((await readPdfPageSnapshots(firstWorkingCopyPath))[0]?.rotation).toBe(90);
+        await expect.poll(async () => {
+            if (!existsSync(checkpointPath)) {
+                return null;
+            }
+            const stored = JSON.parse(await readFile(checkpointPath, 'utf8')) as {checkpoint?: {tabs?: Array<{
+                sourceRef?: string | null;
+                workingCopyRef?: string | null;
+                isDirty?: boolean;
+            }>};};
+            return stored.checkpoint?.tabs?.find(tab => tab.sourceRef === firstPdfPath) ?? null;
+        }, {timeout: 60_000}).toMatchObject({
+            sourceRef: firstPdfPath,
+            workingCopyRef: firstWorkingCopyPath,
+            isDirty: true,
+        });
         const finalSuccessfulState = await activateTabWithWorkingCopy(session, secondWorkingCopyPath, secondPdfPath);
         await waitForPdfLoaded(session.page, 60_000);
         const settledSuccessfulState = await readWorkspaceStateValues<{workingCopyPath?: string | null}>(session.page, ['workingCopyPath']);

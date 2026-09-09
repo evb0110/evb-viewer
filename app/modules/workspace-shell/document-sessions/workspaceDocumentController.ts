@@ -642,13 +642,40 @@ export function createWorkspaceDocumentController(
         }, {incrementSessionRevision: true});
     }
 
-    function applyWorkspaceRecord(record: IWorkspaceDocumentRecord) {
+    function applyWorkspaceRecord(record: IWorkspaceDocumentRecord, source: 'host' | 'workspace' = 'workspace') {
         const normalizedRecord = createWorkspaceDocumentRecord(record);
         const hasIncomingDocument = normalizedRecord.documentIdentity !== null
             || normalizedRecord.tab.originalPath !== null
             || normalizedRecord.tab.fileName !== null
             || normalizedRecord.tab.isDjvu;
         const activeKind = snapshot.value.activeTransaction?.kind ?? null;
+        const incomingWorkingCopyPath = normalizedRecord.documentIdentity?.documentRef ?? null;
+        const sameLogicalDocument = Boolean(
+            snapshot.value.identity.originalPath
+            && normalizedRecord.tab.originalPath === snapshot.value.identity.originalPath
+            && (
+                incomingWorkingCopyPath === snapshot.value.identity.workingCopyPath
+                || incomingWorkingCopyPath === null
+            ),
+        );
+        const sameDocumentRevision = areDocumentRevisionInfosEqual(
+            snapshot.value.identity.revisionInfo,
+            normalizedRecord.documentIdentity,
+        );
+        if (
+            source === 'workspace'
+            && activeKind === null
+            && snapshot.value.dirty
+            && !normalizedRecord.tab.isDirty
+            && sameLogicalDocument
+            && sameDocumentRevision
+        ) {
+            // A mount or adoption record from the same generation can lag the
+            // recovery open. It must not turn retained unsaved bytes into a
+            // clean document. A real save publishes a new revision, and the
+            // explicit close path clears identity before accepting clean state.
+            return;
+        }
         if (
             !hasIncomingDocument
             && getLogicalDocumentSignature(snapshot.value.identity) !== null

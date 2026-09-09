@@ -196,7 +196,7 @@ export function createDocumentHistory(
 
     function syncDirtyFromHistory() {
         if (history.value.length === 0) {
-            state.isDirty.value = false;
+            state.isDirty.value = state.recoveryDirtyBaseline.value;
             return;
         }
         state.isDirty.value = state.recoveryDirtyBaseline.value
