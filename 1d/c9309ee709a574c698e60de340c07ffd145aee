@@ -1,0 +1,62 @@
+tests/integration/native/windowsAtomicPdfReplacement.test.ts
+  s_9cd704c9fd4353::t_7868a861137a3d 1-11,16-61,63-65,70-136
+  s_9cd704c9fd4353::t_9c9d390e31d1b7 12-15,66-69
+  s_9cd704c9fd4353::t_99375152b17046 62
+tests/unit/electron/atomicReplace.test.ts
+  s_9cd704c9fd4353::t_6b5d00287cb9e0 24,37,67,87,207,209-210,215-217,232,240,247,261
+electron/utils/atomicReplace.ts
+  s_9cd704c9fd4353::t_8ed169555f7eda 188,190-195,211-214,216
+  s_9cd704c9fd4353::t_50823f3578d664 502-504
+  s_9cd704c9fd4353::t_7a7c62e7bf0395 5,8,26-30,35,42,47-54,132-187,189,196-210,215,217-224
+  s_9cd704c9fd4353::t_a9b2e4b1bdb128 43-46,397,451-467
+  s_9cd704c9fd4353::t_9ba0f3eeeeb423 36-41
+  s_9cd704c9fd4353::t_98557352e4b442 447
+  s_9cd704c9fd4353::t_e4b26907a73453 534-535
+  s_9cd704c9fd4353::t_e7b9f6b64467f4 398-399,440-442,444,468,470-489,491-493,496-501,505-524,526-530,532
+  s_d2197edb66589b::t_a3a11ef6fd909a 225,469
+electron/features/documents/main/documentSaveUtilityProcess.ts
+  s_9cd704c9fd4353::t_9ba0f3eeeeb423 176
+  s_9cd704c9fd4353::t_7cd2793e92b4e4 13
+.github/workflows/ci.yml
+  s_9cd704c9fd4353::t_341e7028bc1413 277-297
+  s_9cd704c9fd4353::t_2ecb802b510e30 585
+tests/unit/electron/twoTargetDocumentTransitionRecovery.test.ts
+  s_9cd704c9fd4353::t_5fd45e0472f671 87-92,108-115,117-124
+  s_9cd704c9fd4353::t_b682f7ecb31fca 93
+  s_9cd704c9fd4353::t_90e207caa8e038 4,95-96,101-103
+  s_9cd704c9fd4353::t_be03e5f518b64a 94,97-100,104-107,116
+electron/file-access/recoverTwoTargetDocumentTransition.ts
+  s_9cd704c9fd4353::t_be03e5f518b64a 92
+  s_9cd704c9fd4353::t_e69e28c9797a6a 93
+  s_9cd704c9fd4353::t_dcf0f7731a6efe 80-91,94-100
+  s_9cd704c9fd4353::t_9ba0f3eeeeb423 1-4
+electron/file-access/originalPathSaveWitness.ts
+  s_9cd704c9fd4353::t_814b98048bde8f 419
+  s_9cd704c9fd4353::t_2e51ae3bf191a5 89-90,93
+  s_9cd704c9fd4353::t_e69e28c9797a6a 84-87,408-411
+  s_9cd704c9fd4353::t_6560662a5b4613 99
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "1dc9309ee709a574c698e60de340c07ffd145aee",
+  "prompts": {},
+  "sessions": {
+    "s_9cd704c9fd4353": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a086c8-ea59-7732-bf36-a18e58ce1679",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_d2197edb66589b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0867f-bc35-77c0-b58a-402ea6b0e92d",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
