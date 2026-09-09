@@ -1,0 +1,19 @@
+tests/unit/electron/serializedPdfPersistence.test.ts
+  s_b94294f4efd706::t_6e7e626a3488d5 1083,1094
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e6d9da921d3d070eaa8be03e9a7330fc5f74e40f",
+  "prompts": {},
+  "sessions": {
+    "s_b94294f4efd706": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a087b2-9a21-7cb0-a308-94d1a6754736",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
