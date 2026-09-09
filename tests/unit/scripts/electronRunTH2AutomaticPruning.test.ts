@@ -368,6 +368,7 @@ describe('TH-2 automatic E2E session pruning', () => {
                 const listCleanup = await cleanupStaleSessionArtifacts(listName);
                 expect(listCleanup).toEqual({
                     retained: false,
+                    kind: 'clean',
                     reason: null,
                 });
                 expect(existsSync(sessionFilePath(listName))).toBe(false);
@@ -414,6 +415,8 @@ describe('TH-2 automatic E2E session pruning', () => {
                 name,
                 reason: 'workspace recovery evidence is present; retained for later recovery',
             }]);
+            const cleanup = await cleanupStaleSessionArtifacts(name);
+            expect(cleanup.kind).toBe('preserved-recovery');
             expect(existsSync(sessionFilePath(name))).toBe(true);
             expect(existsSync(workingCopyPath)).toBe(true);
             expect(existsSync(checkpointPath)).toBe(true);
