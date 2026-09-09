@@ -1,0 +1,25 @@
+tests/e2e/electron/annotationLifecycle.e2e.test.ts
+  s_3714dbd385eea2::t_f5168b6a364025 164-168,170-175,201,203-208,2736-2737,2746
+  s_3714dbd385eea2::t_ee78d56d034515 2750
+  s_3714dbd385eea2::t_1487415deda1be 160,2747-2749
+  s_3714dbd385eea2::t_2ba4a1598fa81b 161-163,169,176-200,202,2751
+  s_3714dbd385eea2::t_a631e7566d9e2c 2245
+app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession.ts
+  s_3714dbd385eea2::t_45de0df7d2066c 231-244,276-288,292-294,333-335,937,940,949,1212
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "25ebabdd33517418c7691f4cf20c99b27b1b74a6",
+  "prompts": {},
+  "sessions": {
+    "s_3714dbd385eea2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cb0291e8-a943-4480-a76c-538b5da5974a",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
