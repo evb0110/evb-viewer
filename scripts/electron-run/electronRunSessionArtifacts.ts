@@ -869,7 +869,10 @@ export async function cleanupStaleSessionArtifacts(
     };
 }
 
-export async function isSessionRunning(name = getCurrentSessionName()) {
+export async function isSessionRunning(
+    name = getCurrentSessionName(),
+    signal?: AbortSignal,
+) {
     const info = getSessionInfo(name);
     if (!info) {
         return false;
@@ -897,6 +900,7 @@ export async function isSessionRunning(name = getCurrentSessionName()) {
                 command: 'ping' satisfies TElectronRunCommand,
                 args: [],
             }),
+            ...(signal ? {signal} : {}),
         });
         if (!res.ok) {
             return false;
@@ -909,17 +913,35 @@ export async function isSessionRunning(name = getCurrentSessionName()) {
                 unlinkSync(sessionFilePath(name));
             } catch {}
         }
+        if (signal?.aborted && signal.reason?.name !== 'TimeoutError') {
+            throw signal.reason ?? new DOMException('Session readiness probe canceled', 'AbortError');
+        }
         return false;
     }
 }
 
-export async function waitForSessionReady(timeoutMs = SESSION_WAIT_TIMEOUT_MS) {
-    const start = Date.now();
-    while (Date.now() - start < timeoutMs) {
-        if (await isSessionRunning()) {
-            return true;
+export async function waitForSessionReady(timeoutMs = SESSION_WAIT_TIMEOUT_MS, signal?: AbortSignal) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        const remainingMs = deadline - Date.now();
+        const timeoutSignal = AbortSignal.timeout(remainingMs);
+        const probeSignal = signal
+            ? AbortSignal.any([signal, timeoutSignal])
+            : timeoutSignal;
+        try {
+            if (await isSessionRunning(getCurrentSessionName(), probeSignal)) {
+                return true;
+            }
+        } catch (error) {
+            if (timeoutSignal.aborted && !signal?.aborted) {
+                return false;
+            }
+            throw error;
         }
-        await delay(250);
+        const delayMs = Math.min(250, deadline - Date.now());
+        if (delayMs > 0) {
+            await delay(delayMs);
+        }
     }
     return false;
 }
