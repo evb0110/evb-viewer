@@ -1,0 +1,59 @@
+app/assets/css/pdf-viewer.scss
+  s_c63d7a8363f7e9::t_3a2d8f66eaf3af 323-327
+app/modules/pdf-viewer/engine/annotation-highlight-geometry/buildHighlightQuadsFromSelection.ts
+  s_c63d7a8363f7e9::t_9b2a68ec9961f2 27-38,54-78,86,89,91-92,97-116,119,123-124,128-131,135,137,139-142,147-148,161,170-173,181,186-196,208-211
+app/modules/pdf-viewer/engine/annotation-highlight-geometry/buildTextLineBoxesFromTextContent.ts
+  s_c63d7a8363f7e9::t_7b56cadf56866a 17,72-73,75-80,216-218,223-224
+app/modules/pdf-viewer/runtime/annotations/createAnnotationSelectionInteractionController.ts
+  s_e6afbc66b58e4d::t_46cdc361c195ec 1-143
+app/modules/pdf-viewer/runtime/annotations/createAnnotationSelectionLifecycle.ts
+  s_e6afbc66b58e4d::t_aa9145d1e892a2 1-104
+app/modules/pdf-viewer/runtime/annotations/createPdfAnnotationSelectionMarkup.ts
+  s_e6afbc66b58e4d::t_20edb9c5e64003 1-73
+app/modules/pdf-viewer/runtime/annotations/useAnnotationTextSelectionCache.ts
+  s_e6afbc66b58e4d::t_6183b01066ad49 14-18,26-41,46-48,91-100,119,122,127,131-149,152-217,290-295
+app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession.ts
+  s_e6afbc66b58e4d::t_8d76bd61ca09d2 63-71,94,424-425,430-451,453-465,499-504,506,512-519,528-529,532-546,551-559,572,611-618,664-672
+tests/e2e/electron/annotationLifecycle.e2e.test.ts
+  s_e6afbc66b58e4d::t_821e95b2ac1eb2 2291-2293
+tests/e2e/electron/annotationTextInteraction.e2e.test.ts
+  s_e6afbc66b58e4d::t_68d9d956bc1352 18,21,31,45-188,214,245,275,286,299-304,312-481
+tests/e2e/electron/helpers/viewerAnnotations.ts
+  s_e6afbc66b58e4d::t_30ff6655023e35 358-360
+tests/integration/browser/pdfTextSelection.test.ts
+  s_e6afbc66b58e4d::t_5475ac30d3a334 153-155,157,172-195
+tests/unit/app/modules/pdf-viewer/engine/annotationHighlightGeometry.test.ts
+  s_e6afbc66b58e4d::t_a1e93bcfd7ab23 88,109-135,303-305,308-522,667-803,836-839,842-845,875-906
+tests/unit/app/modules/pdf-viewer/runtime/annotations/annotationTextSelectionCache.test.ts
+  s_e6afbc66b58e4d::t_ffe004e7f5a7f2 61-176
+tests/unit/app/modules/pdf-viewer/runtime/annotations/createAnnotationSelectionInteractionController.test.ts
+  s_e6afbc66b58e4d::t_ed99d193b689fa 1-169
+tests/unit/app/modules/pdf-viewer/runtime/annotations/createAnnotationSelectionLifecycle.test.ts
+  s_e6afbc66b58e4d::t_2c914810dcbfe7 1-243
+tests/unit/app/modules/pdf-viewer/runtime/annotations/createPdfAnnotationSelectionMarkup.test.ts
+  s_e6afbc66b58e4d::t_cbe1c448febaac 1-49
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "caec0e8f35aa84a524fc7d5d9d975d33c8f72f89",
+  "prompts": {},
+  "sessions": {
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_e6afbc66b58e4d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07cdb-5143-7e02-a580-29471422fbfa",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
