@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@electron/resources/jobBroker';
+
 import {
     beforeEach,
     describe,
@@ -26,7 +28,10 @@ vi.mock('@electron-worker-bundles/electronWorkerBundles.js', () => ({WORKER_BUND
 vi.mock('@electron/utils/workerTask', () => ({resolveUnpackedWorkerPath: vi.fn(
     () => '/tmp/document-save-utility.mjs',
 )}));
-vi.mock('@electron/resources/jobBroker', () => ({mainJobBroker: {acquire: mocks.brokerAcquire}}));
+vi.mock('@electron/resources/jobBroker', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    mainJobBroker: {acquire: mocks.brokerAcquire},
+}));
 vi.mock('@electron/utils/processTree', () => ({terminateProcessTree: mocks.terminateProcessTree}));
 
 describe('runDocumentSaveUtilityProcess cancellation', () => {

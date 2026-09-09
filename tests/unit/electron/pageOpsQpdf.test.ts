@@ -1,3 +1,6 @@
+import type * as TViMockOriginalModule from '@electron/pdf/nativeToolPaths';
+import type * as TViMockOriginalModule2 from '@electron/file-access/workingCopyStore';
+
 import {
     beforeEach,
     describe,
@@ -53,10 +56,16 @@ vi.mock('node:crypto', async (importOriginal) => {
     };
 });
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => runNativeToolCommandMock(...args)}));
-vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: () => ({ qpdf: '/mock/qpdf' })}));
+vi.mock('@electron/pdf/nativeToolPaths', async (importOriginal_1) => ({
+    ...(await importOriginal_1<typeof TViMockOriginalModule>()),
+    getPdfNativeToolPaths: () => ({ qpdf: '/mock/qpdf' }),
+}));
 vi.mock('@electron/file-access/workingCopyCreation', () => ({ensureWorkingCopyDirectory: (...args: unknown[]) => ensureWorkingCopyDirectoryMock(...args)}));
 vi.mock('@electron/file-access/workingCopyMaterialization', () => ({ensureWorkingCopyMaterialized: (...args: unknown[]) => ensureWorkingCopyMaterializedMock(...args)}));
-vi.mock('@electron/file-access/workingCopyStore', () => ({getWorkingCopyBackingEntry: (...args: unknown[]) => getWorkingCopyBackingEntryMock(...args)}));
+vi.mock('@electron/file-access/workingCopyStore', async (importOriginal_2) => ({
+    ...(await importOriginal_2<typeof TViMockOriginalModule2>()),
+    getWorkingCopyBackingEntry: (...args: unknown[]) => getWorkingCopyBackingEntryMock(...args),
+}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     debug: vi.fn(),
     info: vi.fn(),

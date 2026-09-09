@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@app/constants/storageKeys';
+
 import {
     beforeEach,
     describe,
@@ -6,11 +8,14 @@ import {
     vi,
 } from 'vitest';
 
-vi.mock('@app/constants/storageKeys', () => ({STORAGE_KEYS: {
-    HIGHLIGHT_MODE: 'pdfHighlightMode',
-    HIGHLIGHT_DEBUG: 'pdfHighlightDebug',
-    HIGHLIGHT_DEBUG_VERBOSE: 'pdfHighlightDebugVerbose',
-}}));
+vi.mock('@app/constants/storageKeys', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    STORAGE_KEYS: {
+        HIGHLIGHT_MODE: 'pdfHighlightMode',
+        HIGHLIGHT_DEBUG: 'pdfHighlightDebug',
+        HIGHLIGHT_DEBUG_VERBOSE: 'pdfHighlightDebugVerbose',
+    },
+}));
 
 const {
     createCssHighlightState,
@@ -76,7 +81,7 @@ describe('registerHighlightRange', () => {
 
         const ids = (state.layerRangeIds as WeakMap<object, {
             normal: Set<string>;
-            current: Set<string> 
+            current: Set<string>
         }>).get(container);
         expect(ids).toBeDefined();
         expect(ids!.normal.has('r1')).toBe(true);

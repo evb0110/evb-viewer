@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@electron/resources/jobBroker';
+
 import {
     afterEach,
     beforeEach,
@@ -30,10 +32,13 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@electron/resources/hostResourceProfile', () => ({getHostResourceProfileSnapshot: () => mocks.resourceProfile}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
-vi.mock('@electron/resources/jobBroker', () => ({mainJobBroker: {
-    acquire: mocks.brokerAcquire,
-    cancelOwner: mocks.brokerCancelOwner,
-}}));
+vi.mock('@electron/resources/jobBroker', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    mainJobBroker: {
+        acquire: mocks.brokerAcquire,
+        cancelOwner: mocks.brokerCancelOwner,
+    },
+}));
 
 type TOcrResourceGovernor = typeof importedOcrResourceGovernor;
 

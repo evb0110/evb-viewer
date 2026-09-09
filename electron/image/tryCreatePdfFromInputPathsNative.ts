@@ -523,6 +523,14 @@ async function readAndOffsetPdfCatalogs(chunkPaths: string[], signal?: AbortSign
             if (!Array.isArray(catalog.bookmarks) || !Array.isArray(catalog.pageLabels)) {
                 throw new Error(`Native PDF catalog read returned an invalid result for ${inputPath}`);
             }
+            if (pageCount > 0 && (catalog.pageLabels[0]?.pageIndex ?? 1) > 0) {
+                labels.push({
+                    pageIndex: pageOffset,
+                    style: 'D',
+                    prefix: '',
+                    start: 1,
+                });
+            }
             const offsetBookmark = (item: IPdfCatalogBookmark): IPdfCatalogBookmark => ({
                 ...item,
                 pageIndex: item.pageIndex === null ? null : item.pageIndex + pageOffset,

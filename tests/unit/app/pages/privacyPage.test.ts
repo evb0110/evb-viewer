@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 
+import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
+
 import {
     afterEach,
     beforeEach,
@@ -17,7 +19,10 @@ import PrivacyPage from '@app/pages/privacy.vue';
 
 const locale = ref('en');
 
-vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({locale})}));
+vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    useTypedI18n: () => ({locale}),
+}));
 
 const head = vi.fn();
 

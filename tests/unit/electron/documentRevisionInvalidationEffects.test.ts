@@ -20,6 +20,7 @@ import { tmpdir } from 'os';
 
 const invalidationMocks = vi.hoisted(() => ({
     cancelOcrJobsForWorkingCopy: vi.fn(),
+    claimPendingOcrResultForDocument: vi.fn(() => ({status: 'not-found' as const})),
     cancelRequestsForPdfPath: vi.fn(),
     recoverPreparedOcrRevisionTransition: vi.fn(),
 }));
@@ -28,7 +29,10 @@ let tempRoot = '';
 
 vi.mock('electron', () => ({ app: { getPath: vi.fn(() => tempRoot) } }));
 
-vi.mock('@electron/features/ocr/public/index', () => ({cancelOcrJobsForWorkingCopy: invalidationMocks.cancelOcrJobsForWorkingCopy}));
+vi.mock('@electron/features/ocr/public/index', () => ({
+    cancelOcrJobsForWorkingCopy: invalidationMocks.cancelOcrJobsForWorkingCopy,
+    claimPendingOcrResultForDocument: invalidationMocks.claimPendingOcrResultForDocument,
+}));
 
 vi.mock('@electron/features/ocr/public/recovery', () => ({recoverPreparedOcrRevisionTransition: invalidationMocks.recoverPreparedOcrRevisionTransition}));
 

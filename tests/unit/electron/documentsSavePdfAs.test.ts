@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@electron/file-access/workingCopyStore';
+
 import {cast} from '@tests/helpers/cast';
 import {
     afterEach,
@@ -82,7 +84,8 @@ vi.mock('@electron/file-access/workingCopyCreation', () => ({
     createWorkingCopyFromPath: vi.fn(),
     ensureWorkingCopyDirectory: (...args: unknown[]) => mocks.ensureWorkingCopyDirectory(...args),
 }));
-vi.mock('@electron/file-access/workingCopyStore', () => ({
+vi.mock('@electron/file-access/workingCopyStore', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
     getWorkingCopyOriginalPath: (...args: unknown[]) => mocks.getWorkingCopyOriginalPath(...args),
     isKnownWorkingCopyOriginalPath: vi.fn(() => false),
     normalizePathForLookup: (path: string) => path.trim(),

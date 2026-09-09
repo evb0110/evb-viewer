@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 
+import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
+
 import {
     describe,
     expect,
@@ -18,7 +20,10 @@ import PdfAnnotationToolbar from '@app/modules/pdf-viewer/components/PdfAnnotati
 import {usePageAnnotationTools} from '@app/modules/workspace-shell/composables/usePageAnnotationTools';
 import type {TAnnotationTool} from '@app/types/annotations';
 
-vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string) => key})}));
+vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    useTypedI18n: () => ({t: (key: string) => key}),
+}));
 
 function mountToolbar() {
     const prepareAnnotationToolChange = vi.fn();

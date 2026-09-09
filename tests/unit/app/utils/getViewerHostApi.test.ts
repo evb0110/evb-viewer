@@ -1,3 +1,6 @@
+import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
+import type * as TViMockOriginalModule2 from '@app/utils/viewerAssets';
+
 import {
     beforeEach,
     describe,
@@ -31,7 +34,8 @@ const mocks = vi.hoisted(() => {
 
 vi.mock('@app/utils/platform', () => ({hasElectronAPI: () => mocks.hasElectronAPI()}));
 
-vi.mock('@app/utils/platformDocuments', () => ({
+vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
     getDocumentFilesCapability: () => mocks.documentFiles,
     getDocumentOpenCapability: () => mocks.documentOpen,
     getDocumentPickerCapability: () => mocks.documentPicker,
@@ -39,7 +43,10 @@ vi.mock('@app/utils/platformDocuments', () => ({
 vi.mock('@app/utils/getSearchCapability', () => ({getSearchCapability: () => mocks.search}));
 vi.mock('@app/utils/getSettingsCapability', () => ({getSettingsCapability: () => mocks.settings}));
 vi.mock('@app/utils/getShellCapability', () => ({getShellCapability: () => mocks.shell}));
-vi.mock('@app/utils/viewerAssets', () => ({getViewerAssetResolver: () => ({pdfWorkerUrl: () => '/pdf.worker.js'})}));
+vi.mock('@app/utils/viewerAssets', async (importOriginal_1) => ({
+    ...(await importOriginal_1<typeof TViMockOriginalModule2>()),
+    getViewerAssetResolver: () => ({pdfWorkerUrl: () => '/pdf.worker.js'}),
+}));
 
 const { getViewerHostApi } = await import('@app/utils/getViewerHostApi');
 

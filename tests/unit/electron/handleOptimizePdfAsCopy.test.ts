@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@electron/file-access/workingCopyStore';
+
 import {
     beforeEach,
     describe,
@@ -30,7 +32,10 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@electron/file-access/workingCopyCreation', () => ({ensureWorkingCopyDirectory: mocks.ensureWorkingCopyDirectory}));
-vi.mock('@electron/file-access/workingCopyStore', () => ({getWorkingCopyOriginalPath: mocks.getWorkingCopyOriginalPath}));
+vi.mock('@electron/file-access/workingCopyStore', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    getWorkingCopyOriginalPath: mocks.getWorkingCopyOriginalPath,
+}));
 vi.mock('@electron/file-access/workingCopyMutationQueue', () => ({enqueueWorkingCopyMutation: mocks.enqueueWorkingCopyMutation}));
 vi.mock('@electron/file-access/openPathCapabilities', () => ({allowOpenPath: mocks.allowOpenPath}));
 vi.mock('@electron/file-access/documentMutationGuards', () => ({

@@ -612,6 +612,7 @@ describe('browser page-ops WASM fast path', () => {
                     pageIndex: 1,
                     style: 'R',
                 },
+                {pageIndex: 3},
             ],
         });
         expect(readOutlineDestination(merged).objectNumber)

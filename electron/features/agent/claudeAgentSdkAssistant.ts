@@ -342,7 +342,7 @@ function toClaudeEffortLevel(effort: TAgentAssistantEffort): EffortLevel {
 }
 
 export class ClaudeAgentAssistantSession {
-    private readonly promptQueue = new ClaudePromptQueue();
+    private promptQueue: ClaudePromptQueue | null = null;
     private query: Query | null = null;
     private consumeStreamPromise: Promise<void> | null = null;
     private closing = false;
@@ -389,11 +389,15 @@ export class ClaudeAgentAssistantSession {
     ) {
         this.ensureStarted();
         await this.setModel(model);
+        const promptQueue = this.promptQueue;
+        if (!promptQueue) {
+            throw new Error('Claude assistant query is unavailable.');
+        }
         const turnId = randomUUID();
         this.currentTurnId = turnId;
         this.currentAssistantMessageId = randomUUID();
         this.options.callbacks.onTurnStarted(turnId);
-        this.promptQueue.push(buildClaudeUserMessage(text, attachments));
+        promptQueue.push(buildClaudeUserMessage(text, attachments));
         return turnId;
     }
 
@@ -402,20 +406,35 @@ export class ClaudeAgentAssistantSession {
             return;
         }
 
+        const queryToRetire = this.query;
+        const streamToRetire = this.consumeStreamPromise;
         this.interrupting = true;
+        this.query = null;
+        this.promptQueue?.close();
+        this.promptQueue = null;
+        const turnId = this.currentTurnId;
+        this.currentTurnId = null;
+        this.currentAssistantMessageId = null;
         try {
-            await this.query.interrupt();
+            await queryToRetire.interrupt();
         } catch (error) {
             logger.warn(`Failed to interrupt Claude assistant turn: ${getErrorMessage(error)}`);
         } finally {
-            this.completeTurn();
+            try {
+                queryToRetire.close();
+            } catch (error) {
+                logger.warn(`Failed to close retired Claude assistant query: ${getErrorMessage(error)}`);
+            }
+            await streamToRetire;
+            this.options.callbacks.onTurnCompleted(turnId);
             this.interrupting = false;
         }
     }
 
     close(): Promise<void> {
         this.closing = true;
-        this.promptQueue.close();
+        this.promptQueue?.close();
+        this.promptQueue = null;
         try {
             this.query?.close();
         } catch (error) {
@@ -440,8 +459,9 @@ export class ClaudeAgentAssistantSession {
             });
         }) satisfies CanUseTool;
         const sdkModel = getClaudeSdkModel(this.currentModel);
-        this.query = query({
-            prompt: this.promptQueue,
+        const promptQueue = new ClaudePromptQueue();
+        const claudeQuery = query({
+            prompt: promptQueue,
             options: {
                 cwd: this.options.cwd,
                 ...(sdkModel ? { model: sdkModel } : {}),
@@ -476,7 +496,9 @@ export class ClaudeAgentAssistantSession {
                 stderr: message => logger.info(`[sdk] ${message.trim()}`),
             },
         });
-        this.consumeStreamPromise = this.consumeStream().finally(() => {
+        this.promptQueue = promptQueue;
+        this.query = claudeQuery;
+        this.consumeStreamPromise = this.consumeStream(claudeQuery).finally(() => {
             this.consumeStreamPromise = null;
         });
         void this.refreshAccountInfo();
@@ -524,13 +546,9 @@ export class ClaudeAgentAssistantSession {
         }
     }
 
-    private async consumeStream() {
+    private async consumeStream(queryToConsume: Query) {
         try {
-            if (!this.query) {
-                return;
-            }
-
-            for await (const message of this.query) {
+            for await (const message of queryToConsume) {
                 this.handleMessage(message);
             }
 

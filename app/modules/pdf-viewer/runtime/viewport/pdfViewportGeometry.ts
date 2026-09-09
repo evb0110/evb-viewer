@@ -44,6 +44,7 @@ export function createPdfViewportGeometryFromLayout(
         height: number
     },
     revision: number,
+    physicalScrollOrigin = 0,
 ): IPdfViewportGeometry {
     const getPageRect = (index: number): IPdfViewportRect => {
         const rowIndex = metrics.base.pageRowIndices[index] ?? 0;
@@ -123,6 +124,7 @@ export function createPdfViewportGeometryFromLayout(
         viewportHeight: viewport.height,
         contentWidth,
         contentHeight: Math.max(viewport.height, getLayoutContentHeight(metrics)),
+        physicalScrollOrigin: Math.max(0, physicalScrollOrigin),
         pageRects,
         rows,
     };
@@ -135,6 +137,7 @@ export interface IPdfViewportGeometry {
     viewportHeight: number;
     contentWidth: number;
     contentHeight: number;
+    physicalScrollOrigin: number;
     pageRects: readonly IPdfViewportRect[];
     rows: ReadonlyArray<{
         startPage: number;
@@ -256,6 +259,7 @@ export function computePdfViewportGeometry(
         viewportHeight: options.viewportHeight,
         contentWidth,
         contentHeight: Math.max(options.viewportHeight, top - (rows.length ? gap : 0) + padding),
+        physicalScrollOrigin: 0,
         pageRects,
         rows,
     };
@@ -269,6 +273,13 @@ export function resolveScrollForAnchor(geometry: IPdfViewportGeometry, anchor: I
             top: 0,
         };
     }
+    const logicalTop = rect.top + clamp(anchor.pageYFraction, 0, 1) * rect.height
+        - clamp(anchor.viewportYFraction, 0, 1) * geometry.viewportHeight
+        - (anchor.affinity === 'start' ? geometry.insetTop : 0);
+    const physicalContentHeight = Math.max(
+        geometry.viewportHeight,
+        geometry.contentHeight - geometry.physicalScrollOrigin,
+    );
     return {
         left: clamp(
             rect.left + clamp(anchor.pageXFraction, 0, 1) * rect.width
@@ -277,11 +288,9 @@ export function resolveScrollForAnchor(geometry: IPdfViewportGeometry, anchor: I
             Math.max(0, geometry.contentWidth - geometry.viewportWidth),
         ),
         top: clamp(
-            rect.top + clamp(anchor.pageYFraction, 0, 1) * rect.height
-                - clamp(anchor.viewportYFraction, 0, 1) * geometry.viewportHeight
-                - (anchor.affinity === 'start' ? geometry.insetTop : 0),
+            logicalTop - geometry.physicalScrollOrigin,
             0,
-            Math.max(0, geometry.contentHeight - geometry.viewportHeight),
+            Math.max(0, physicalContentHeight - geometry.viewportHeight),
         ),
     };
 }
@@ -298,7 +307,8 @@ export function resolveAnchorFromScroll(
     },
 ): IPdfSemanticAnchor {
     const x = scroll.left + geometry.viewportWidth * viewportFraction.x;
-    const y = scroll.top + geometry.viewportHeight * viewportFraction.y;
+    const y = scroll.top + geometry.physicalScrollOrigin
+        + geometry.viewportHeight * viewportFraction.y;
     const rowCount = geometry.rows.length;
     if (rowCount === 0 || geometry.pageRects.length === 0) {
         return {

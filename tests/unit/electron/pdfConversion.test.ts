@@ -8,6 +8,7 @@ import {
 import type * as PdfLibModule from 'pdf-lib';
 import type * as PdfCoreModule from '@pdf-core';
 import type * as DjvuPublicModule from '@electron/features/djvu/public';
+import type * as PdfCombineSharedModule from '@electron/image/pdfCombineShared';
 import { PdfCombineCapabilityError } from '@electron/image/pdfCombineErrors';
 
 interface IMockDjvuConvertSuccess {
@@ -46,6 +47,10 @@ const mocks = vi.hoisted(() => {
         _outputPath: string,
         _options?: unknown,
     ) => false);
+    const stageNativeCombineInputs = vi.fn(async (inputPaths: string[]) => ({
+        inputPaths,
+        cleanup: vi.fn(async () => undefined),
+    }));
     const getDjvuPageCount = vi.fn(async () => 2);
     const buildCompactDjvuAwarePdfFromDjvu = vi.fn(async (
         _options: { jobId: string },
@@ -86,6 +91,7 @@ const mocks = vi.hoisted(() => {
         stat,
         nativeAssembler,
         nativeFileAssembler,
+        stageNativeCombineInputs,
         getDjvuPageCount,
         buildCompactDjvuAwarePdfFromDjvu,
         cancelConversion,
@@ -257,6 +263,11 @@ vi.mock('@electron/image/tryCreatePdfFromInputPathsNative', () => ({
     ) => mocks.nativeFileAssembler(inputPaths, outputPath, options),
 }));
 
+vi.mock('@electron/image/pdfCombineShared', async (importOriginal) => ({
+    ...await importOriginal<typeof PdfCombineSharedModule>(),
+    stageNativeCombineInputs: mocks.stageNativeCombineInputs,
+}));
+
 const {
     createPdfFileFromInputPaths,
     createPdfFromInputPaths,
@@ -283,6 +294,10 @@ describe('createPdfFromInputPaths worker fallback', () => {
         });
         mocks.nativeAssembler.mockResolvedValue(null);
         mocks.nativeFileAssembler.mockResolvedValue(false);
+        mocks.stageNativeCombineInputs.mockImplementation(async (inputPaths: string[]) => ({
+            inputPaths,
+            cleanup: vi.fn(async () => undefined),
+        }));
         mocks.cancelConversion.mockResolvedValue(true);
     });
 
@@ -418,6 +433,33 @@ describe('createPdfFromInputPaths worker fallback', () => {
         expect(mocks.load).not.toHaveBeenCalled();
         expect(mocks.readFile).not.toHaveBeenCalled();
         expect(mocks.writeFile).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        'bmp',
+        'gif',
+        'webp',
+    ])('normalizes advertised %s files before strict file-backed assembly', async extension => {
+        const cleanup = vi.fn(async () => undefined);
+        const sourcePath = `/tmp/photo.${extension}`;
+        mocks.stageNativeCombineInputs.mockResolvedValueOnce({
+            inputPaths: ['/tmp/photo.png'],
+            cleanup,
+        });
+        mocks.nativeFileAssembler.mockResolvedValueOnce(true);
+
+        await expect(createPdfFileFromInputPaths(
+            [sourcePath],
+            '/tmp/output.pdf',
+        )).resolves.toBe('/tmp/output.pdf');
+
+        expect(mocks.stageNativeCombineInputs).toHaveBeenCalledWith([sourcePath], undefined);
+        expect(mocks.nativeFileAssembler).toHaveBeenCalledWith(
+            ['/tmp/photo.png'],
+            '/tmp/output.pdf',
+            {failureMode: 'capability-error'},
+        );
+        expect(cleanup).toHaveBeenCalledTimes(1);
     });
 
     it('does not fall back to in-process conversion after runtime worker failure', async () => {

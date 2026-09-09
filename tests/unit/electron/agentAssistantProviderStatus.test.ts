@@ -6,6 +6,7 @@ import {
 } from 'vitest';
 import {
     buildCodexProviderStatus,
+    buildClaudeProviderStatus,
     getProviderEfforts,
     getProviderSpeedModes,
     normalizeAssistantEffort,
@@ -139,5 +140,40 @@ describe('agent assistant provider status', () => {
         expect(status.defaultEffort).toBe('medium');
         expect(status.activeEffort).toBe('xhigh');
         expect(normalizeAssistantEffort(models, 'codex', 'gpt-5.6-sol', 'not-advertised')).toBe('medium');
+    });
+
+    it('advertises Claude speed tiers on every model in the shared capability catalog', () => {
+        const status = buildClaudeProviderStatus({
+            platform: 'darwin',
+            claudeInfo: {
+                installed: true,
+                version: '1.0.0',
+                executablePath: '/bin/claude',
+            },
+            models: [
+                {
+                    id: 'opus',
+                    label: 'Claude Opus',
+                },
+                {
+                    id: 'sonnet',
+                    label: 'Claude Sonnet',
+                },
+            ],
+            model: 'opus',
+            effort: 'low',
+            speedMode: 'fast',
+            authState: 'signed-in',
+            runtimeState: 'ready',
+            account: null,
+        });
+
+        expect(status.models.find(model => model.id === 'opus')?.serviceTiers?.map(tier => tier.id))
+            .toEqual([
+                'fast',
+                'standard',
+            ]);
+        expect(status.models.find(model => model.id === 'sonnet')?.serviceTiers?.map(tier => tier.id))
+            .toEqual(['standard']);
     });
 });

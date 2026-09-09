@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@electron/pdf/nativeToolPaths';
+
 import {
     mkdtemp,
     readFile,
@@ -21,7 +23,10 @@ const copyFileCopyOnWriteMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => runNativeToolCommandMock(...args)}));
 vi.mock('@electron/file-access/workingCopyDirectory', () => ({copyFileCopyOnWrite: (...args: unknown[]) => copyFileCopyOnWriteMock(...args)}));
-vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: () => ({qpdf: '/tools/qpdf'})}));
+vi.mock('@electron/pdf/nativeToolPaths', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    getPdfNativeToolPaths: () => ({qpdf: '/tools/qpdf'}),
+}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     debug: vi.fn(),
     info: vi.fn(),

@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
+
 import {
     beforeEach,
     describe,
@@ -28,7 +30,8 @@ const {
     statFileMock: vi.fn(async () => ({ size: 0 })),
 }));
 
-vi.mock('@app/utils/platformDocuments', () => ({
+vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
     getDocumentWindowCapability: () => ({ showItemInFolder: showItemInFolderMock }),
     getDocumentFilesCapability: () => ({
         getWorkingCopyBackingStatus: getWorkingCopyBackingStatusMock,
@@ -81,7 +84,7 @@ describe('usePageStatusBar', () => {
     it('shows the folder action only for filesystem-backed document refs', async () => {
         vi.stubGlobal('useTypedI18n', () => ({ t: (key: string, params?: {
             size?: string;
-            zoom?: number 
+            zoom?: number
         }) => {
             if (key === 'status.fileSizeValue') {
                 return `size:${params?.size ?? ''}`;

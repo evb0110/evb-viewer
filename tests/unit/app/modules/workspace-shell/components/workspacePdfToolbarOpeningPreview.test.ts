@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 
+import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
+
 import {
     afterEach,
     describe,
@@ -23,7 +25,10 @@ const toolbarRenders: Array<Record<string, unknown>> = [];
 const pageRenders: Array<Record<string, unknown>> = [];
 const zoomRenders: Array<Record<string, unknown>> = [];
 
-vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string) => key})}));
+vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    useTypedI18n: () => ({t: (key: string) => key}),
+}));
 vi.mock('@app/composables/useAssistantPanel', () => ({useAssistantPanel: () => ({
     isAvailable: ref(false),
     isEnabled: ref(false),

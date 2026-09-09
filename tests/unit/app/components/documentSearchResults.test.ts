@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 
+import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
+
 import {
     afterEach,
     describe,
@@ -17,7 +19,10 @@ import {
 import type { IDocumentSearchMatch } from '@app/utils/document-viewer/search/documentSearch';
 import DocumentSearchResults from '@app/components/document-viewer/DocumentSearchResults.vue';
 
-vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string, values?: Record<string, unknown>) => `${key}:${JSON.stringify(values ?? {})}`})}));
+vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    useTypedI18n: () => ({t: (key: string, values?: Record<string, unknown>) => `${key}:${JSON.stringify(values ?? {})}`}),
+}));
 
 const Stub = defineComponent({setup: () => () => h('i')});
 

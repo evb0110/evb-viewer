@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 
+import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
+
 import {
     afterEach,
     describe,
@@ -18,7 +20,10 @@ import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import type { TPdfSidebarTab } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerExpose.types';
 import PdfSidebar from '@app/modules/pdf-viewer/components/PdfSidebar.vue';
 
-vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string) => key})}));
+vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    useTypedI18n: () => ({t: (key: string) => key}),
+}));
 
 function stubPanel(marker: string) {
     const component = defineComponent({

@@ -1,5 +1,8 @@
 // @vitest-environment happy-dom
 
+import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
+import type * as TViMockOriginalModule2 from '@app/composables/useTypedI18n';
+
 import {
     afterEach,
     describe,
@@ -37,7 +40,10 @@ const vueUseMocks = vi.hoisted(() => ({
 
 vi.mock('@app/platform/browser-api/public', () => ({createNativePdfPreviewSourceFromPath: nativePdfMocks.createSource}));
 
-vi.mock('@app/utils/platformDocuments', () => ({getDocumentFilesCapability: () => ({})}));
+vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    getDocumentFilesCapability: () => ({}),
+}));
 
 vi.mock('@vueuse/core', () => ({
     useDevicePixelRatio: () => ({pixelRatio: vueUseMocks.pixelRatio ??= ref(1)}),
@@ -53,7 +59,10 @@ vi.mock('@vueuse/core', () => ({
     useResizeObserver: vi.fn(),
 }));
 
-vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string) => key})}));
+vi.mock('@app/composables/useTypedI18n', async (importOriginal_1) => ({
+    ...(await importOriginal_1<typeof TViMockOriginalModule2>()),
+    useTypedI18n: () => ({t: (key: string) => key}),
+}));
 
 interface IViewerExpose {waitForViewerLoadSettled(): Promise<void>;}
 

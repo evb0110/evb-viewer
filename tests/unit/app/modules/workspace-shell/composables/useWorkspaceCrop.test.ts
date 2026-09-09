@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
+
 import {
     beforeEach,
     describe,
@@ -26,7 +28,10 @@ const mocks = vi.hoisted(() => ({
     warn: vi.fn(),
 }));
 
-vi.mock('@app/utils/platformDocuments', () => ({ getPageOpsCapability: () => ({ getPageGeometry: (...args: unknown[]) => mocks.getPageGeometry(...args) }) }));
+vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    getPageOpsCapability: () => ({ getPageGeometry: (...args: unknown[]) => mocks.getPageGeometry(...args) }),
+}));
 vi.mock('@app/utils/browserLogger', () => ({ BrowserLogger: {
     diagnostic: (...args: unknown[]) => mocks.diagnostic(...args),
     diagnosticThrottled: (...args: unknown[]) => mocks.diagnosticThrottled(...args),

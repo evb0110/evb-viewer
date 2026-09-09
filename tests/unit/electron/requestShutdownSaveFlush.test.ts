@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@electron/file-access/workingCopyStore';
+
 import {
     beforeEach,
     describe,
@@ -31,7 +33,10 @@ vi.mock('electron', () => ({ipcMain: {
     }),
 }}));
 
-vi.mock('@electron/file-access/workingCopyStore', () => ({workingCopyMap: state.workingCopyMap}));
+vi.mock('@electron/file-access/workingCopyStore', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    workingCopyMap: state.workingCopyMap,
+}));
 
 function createWindow(response: (requestId: string) => Record<string, unknown>) {
     return {

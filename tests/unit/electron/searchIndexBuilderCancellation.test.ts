@@ -221,7 +221,13 @@ describe('buildSearchIndex cancellation', () => {
     it('keeps extractor failures retryable instead of padding and persisting an empty index', async () => {
         const { buildSearchIndex } = await import('@electron/features/search/indexBuilder');
         const extractorError = new Error('page 2 extractor failed');
-        mocks.extractTextWithPdfjs.mockRejectedValue(new Error('pdfjs unavailable'));
+        mocks.extractTextWithPdfjs.mockImplementation(async (_path: string, options: IPdfjsMockOptions) => {
+            options.onPageText?.({
+                pageNumber: 1,
+                text: 'page one',
+            });
+            throw new Error('page 2 pdfjs extraction failed');
+        });
         mocks.extractTextFromPdf.mockRejectedValue(extractorError);
 
         await expect(buildSearchIndex('/tmp/file.pdf', [], {

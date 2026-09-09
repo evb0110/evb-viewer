@@ -1,3 +1,6 @@
+import type * as TViMockOriginalModule from '@electron/pdf/nativeToolPaths';
+import type * as TViMockOriginalModule2 from '@electron/native-tools/buildPopplerEnv';
+
 import {
     afterEach,
     beforeEach,
@@ -40,11 +43,17 @@ const mocks = vi.hoisted(() => ({
     copyFileCopyOnWrite: vi.fn(),
 }));
 
-vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: () => ({
-    pdftoppm: '/native/pdftoppm',
-    qpdf: '/native/qpdf',
-})}));
-vi.mock('@electron/native-tools/buildPopplerEnv', () => ({buildPopplerEnv: () => undefined}));
+vi.mock('@electron/pdf/nativeToolPaths', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    getPdfNativeToolPaths: () => ({
+        pdftoppm: '/native/pdftoppm',
+        qpdf: '/native/qpdf',
+    }),
+}));
+vi.mock('@electron/native-tools/buildPopplerEnv', async (importOriginal_1) => ({
+    ...(await importOriginal_1<typeof TViMockOriginalModule2>()),
+    buildPopplerEnv: () => undefined,
+}));
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => mocks.runNativeToolCommand(...args)}));
 vi.mock('@electron/features/page-ops/public', () => ({
     assertNonEmptyPdfOutput: (...args: unknown[]) => mocks.assertNonEmptyPdfOutput(...args),

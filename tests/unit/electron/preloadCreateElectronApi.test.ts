@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@electron/preload/debugLogBuffer';
+
 import {
     afterEach,
     beforeEach,
@@ -167,7 +169,10 @@ const documentsClientMock = vi.hoisted(() => ({
     onOpenDocumentDirectBatchProgress: vi.fn(),
 }));
 vi.mock('@electron/features/documents/createDocumentsPreloadClient', () => ({createDocumentsPreloadClient: () => documentsClientMock}));
-vi.mock('@electron/preload/debugLogBuffer', () => ({ getDebugLogMessages: () => [] }));
+vi.mock('@electron/preload/debugLogBuffer', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    getDebugLogMessages: () => [],
+}));
 
 let expectedDecodedEventWarningSpy: ReturnType<typeof vi.spyOn> | null = null;
 

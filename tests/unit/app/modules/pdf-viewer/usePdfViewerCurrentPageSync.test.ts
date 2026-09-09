@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@app/utils/asyncHelpers';
+
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {
     describe,
@@ -12,7 +14,10 @@ import {
 } from 'vue';
 import { cast } from '@tests/helpers/cast';
 
-vi.mock('@app/utils/asyncHelpers', () => ({waitForVisualFrames: vi.fn(async () => {})}));
+vi.mock('@app/utils/asyncHelpers', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    waitForVisualFrames: vi.fn(async () => {}),
+}));
 
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {diagnostic: vi.fn()}}));
 

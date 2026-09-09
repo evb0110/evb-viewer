@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
+
 import {
     beforeEach,
     describe,
@@ -15,7 +17,10 @@ const mocks = vi.hoisted(() => ({
     loggerWarn: vi.fn(),
 }));
 
-vi.mock('@app/utils/platformDocuments', () => ({getDocumentWorkingCopyCapability: () => ({ cleanupFile: mocks.cleanupFile })}));
+vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    getDocumentWorkingCopyCapability: () => ({ cleanupFile: mocks.cleanupFile }),
+}));
 
 vi.mock('@app/utils/browserLogger', () => ({ BrowserLogger: { warn: mocks.loggerWarn } }));
 

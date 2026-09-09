@@ -1,3 +1,6 @@
+import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
+import type * as TViMockOriginalModule2 from '@app/utils/documentBytes';
+
 import {
     beforeEach,
     describe,
@@ -33,7 +36,8 @@ const mocks = vi.hoisted(() => ({
     readDocumentBytes: vi.fn(),
 }));
 
-vi.mock('@app/utils/platformDocuments', () => ({
+vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
     getDocumentWorkingCopyCapability: () => ({
         cleanupFile: mocks.cleanupFile,
         createWorkingCopyFromPath: mocks.createWorkingCopyFromPath,
@@ -50,7 +54,10 @@ vi.mock('@app/utils/platformDocuments', () => ({
     }),
 }));
 
-vi.mock('@app/utils/documentBytes', () => ({ readDocumentBytes: mocks.readDocumentBytes }));
+vi.mock('@app/utils/documentBytes', async (importOriginal_1) => ({
+    ...(await importOriginal_1<typeof TViMockOriginalModule2>()),
+    readDocumentBytes: mocks.readDocumentBytes,
+}));
 
 type TUseWorkspaceSplitPayloadOptions = Parameters<typeof useWorkspaceSplitPayload>[0];
 

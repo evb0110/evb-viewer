@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
+
 import {
     beforeEach,
     describe,
@@ -14,7 +16,10 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@app/utils/browserLogger', () => ({ BrowserLogger: mocks.browserLogger }));
-vi.mock('@app/utils/platformDocuments', () => ({getDocumentPdfCapability: () => mocks.documentPdf}));
+vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    getDocumentPdfCapability: () => mocks.documentPdf,
+}));
 
 describe('readPdfConformanceProfile', () => {
     beforeEach(() => {

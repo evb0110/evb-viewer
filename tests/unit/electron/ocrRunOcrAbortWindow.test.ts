@@ -1,3 +1,6 @@
+import type * as TViMockOriginalModule from '@electron/features/ocr/main/resolveTesseractLanguageConfig';
+import type * as TViMockOriginalModule2 from '@electron/features/ocr/main/buildTesseractEnv';
+
 import { EventEmitter } from 'events';
 import {
     beforeEach,
@@ -24,12 +27,18 @@ vi.mock('@electron/features/ocr/languageModels', () => ({ ensureTessdataLanguage
 
 vi.mock('@electron/features/ocr/main/paths', () => ({ getOcrPaths: mocks.getOcrPaths }));
 
-vi.mock('@electron/features/ocr/main/resolveTesseractLanguageConfig', () => ({ resolveTesseractLanguageConfig: (languages: string[]) => ({
-    orderedLanguages: languages,
-    extraConfigArgs: [],
-}) }));
+vi.mock('@electron/features/ocr/main/resolveTesseractLanguageConfig', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    resolveTesseractLanguageConfig: (languages: string[]) => ({
+        orderedLanguages: languages,
+        extraConfigArgs: [],
+    }),
+}));
 
-vi.mock('@electron/features/ocr/main/buildTesseractEnv', () => ({ buildTesseractEnv: () => ({}) }));
+vi.mock('@electron/features/ocr/main/buildTesseractEnv', async (importOriginal_1) => ({
+    ...(await importOriginal_1<typeof TViMockOriginalModule2>()),
+    buildTesseractEnv: () => ({}),
+}));
 
 function createMockTesseractProcess() {
     const stdin = new EventEmitter() as EventEmitter & {end: (buffer: Buffer, callback: (error?: Error | null) => void) => void};

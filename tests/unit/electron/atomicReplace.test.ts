@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@electron/file-access/workingCopyMutationCommitSignal';
+
 import {
     mkdtempSync,
     readFileSync,
@@ -46,7 +48,10 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     info: vi.fn(),
     warn: vi.fn(),
 })}));
-vi.mock('@electron/file-access/workingCopyMutationCommitSignal', () => ({markActiveWorkingCopyMutationCommitStarted: mocks.markMutationCommitStarted}));
+vi.mock('@electron/file-access/workingCopyMutationCommitSignal', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    markActiveWorkingCopyMutationCommitStarted: mocks.markMutationCommitStarted,
+}));
 
 function setPlatform(platform: NodeJS.Platform) {
     Object.defineProperty(process, 'platform', {

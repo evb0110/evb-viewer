@@ -1,3 +1,6 @@
+import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
+import type * as TViMockOriginalModule2 from '@app/utils/platformDocuments';
+
 import {
     beforeEach,
     describe,
@@ -54,8 +57,12 @@ const mockElectronAPI = createElectronPlatformApiFixture({
 const WORKING_COPY_PATH = requireDocumentRef('/tmp/work.pdf');
 
 vi.mock('@app/utils/getOcrCapability', () => ({ getOcrCapability: () => mockElectronAPI.ocr }));
-vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string) => key})}));
-vi.mock('@app/utils/platformDocuments', () => ({
+vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    useTypedI18n: () => ({t: (key: string) => key}),
+}));
+vi.mock('@app/utils/platformDocuments', async (importOriginal_1) => ({
+    ...(await importOriginal_1<typeof TViMockOriginalModule2>()),
     getDocumentFilesCapability: () => mockElectronAPI.documentFiles,
     getDocumentWorkingCopyCapability: () => mockElectronAPI.documentWorkingCopy,
 }));

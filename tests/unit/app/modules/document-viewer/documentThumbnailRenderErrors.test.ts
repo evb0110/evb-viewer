@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 
+import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
+
 import {
     afterEach,
     beforeEach,
@@ -53,7 +55,10 @@ function translate(key: string, parameters?: Record<string, string | number>) {
     );
 }
 
-vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: translate})}));
+vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    useTypedI18n: () => ({t: translate}),
+}));
 
 beforeEach(installDocumentThumbnailListEnvironment);
 afterEach(restoreDocumentThumbnailListEnvironment);

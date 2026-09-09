@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@electron/features/djvu/main/parseDjvuOutline';
+
 import type { TRegisteredHandler } from '@tests/unit/electron/helpers/ipcRegistryHarness';
 import {
     mkdtempSync,
@@ -76,7 +78,10 @@ vi.mock('@electron/features/djvu/main/metadata', () => ({
     getDjvuHasText: mocks.getDjvuHasText,
     getDjvuMetadata: mocks.getDjvuMetadata,
 }));
-vi.mock('@electron/features/djvu/main/parseDjvuOutline', () => ({parseDjvuOutline: mocks.parseDjvuOutline}));
+vi.mock('@electron/features/djvu/main/parseDjvuOutline', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    parseDjvuOutline: mocks.parseDjvuOutline,
+}));
 vi.mock('@electron/features/djvu/main/pdfExport', () => ({
     handleDjvuConvertToPdf: mocks.handleDjvuConvertToPdf,
     handleDjvuCancel: mocks.handleDjvuCancel,

@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
+
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {
     beforeEach,
@@ -44,7 +46,10 @@ vi.mock(
         };
     })}),
 );
-vi.mock('@app/utils/platformDocuments', () => ({getDocumentFilesCapability: () => ({statFile: platformMocks.statFile})}));
+vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    getDocumentFilesCapability: () => ({statFile: platformMocks.statFile}),
+}));
 vi.mock(
     '@app/modules/pdf-viewer/runtime/composables/pdf/createPdfSourceDataReader',
     () => ({createPdfSourceDataReader: () => vi.fn(async () => new Uint8Array([1]))}),

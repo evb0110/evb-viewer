@@ -13,6 +13,7 @@ import type {
     TWorkspaceViewerDocumentType,
 } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapterTypes';
 import { workspaceViewerChunkLoaders } from '@app/modules/workspace-shell/viewers/workspaceViewerChunkLoaders';
+import type { TPdfViewMode } from '@contracts/shared';
 
 const DocumentViewerChassis = defineAsyncComponent(
     () => workspaceViewerChunkLoaders.chassis()
@@ -57,6 +58,13 @@ const DJVU_VIEWER_CAPABILITIES: IWorkspaceViewerCapabilities = {
     viewMode: false,
     viewRotation: false,
 };
+
+export function resolveWorkspaceViewerViewMode(
+    capabilities: Pick<IWorkspaceViewerCapabilities, 'viewMode'> | undefined,
+    storedViewMode: TPdfViewMode,
+): TPdfViewMode {
+    return capabilities?.viewMode === true ? storedViewMode : 'single';
+}
 
 function createDjvuLifecycleHooks(context: IWorkspaceViewerLifecycleContext): IWorkspaceViewerLifecycleHooks {
     return {

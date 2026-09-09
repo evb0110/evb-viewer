@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
+
 import {
     afterEach,
     beforeEach,
@@ -51,7 +53,8 @@ const mockImageExportCapability = {
     onProgress: onProgressMock,
 };
 
-vi.mock('@app/utils/platformDocuments', () => ({
+vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
     getDocumentWorkingCopyCapability: () => mockDocumentWorkingCopyCapability,
     getImageExportCapability: () => mockImageExportCapability,
 }));

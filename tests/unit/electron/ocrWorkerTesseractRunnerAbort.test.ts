@@ -1,3 +1,7 @@
+import type * as TViMockOriginalModule from '@electron/features/ocr/main/resolveTesseractLanguageConfig';
+import type * as TViMockOriginalModule2 from '@electron/features/ocr/main/buildTesseractEnv';
+import type * as TViMockOriginalModule3 from '@electron/utils/parseIntegerEnv';
+
 import { EventEmitter } from 'events';
 import {
     afterEach,
@@ -30,23 +34,32 @@ vi.mock('fs/promises', () => ({
     unlink: mocks.unlink,
 }));
 
-vi.mock('@electron/features/ocr/main/resolveTesseractLanguageConfig', () => ({ resolveTesseractLanguageConfig: (languages: string[]) => ({
-    orderedLanguages: languages,
-    extraConfigArgs: [],
-}) }));
+vi.mock('@electron/features/ocr/main/resolveTesseractLanguageConfig', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    resolveTesseractLanguageConfig: (languages: string[]) => ({
+        orderedLanguages: languages,
+        extraConfigArgs: [],
+    }),
+}));
 
-vi.mock('@electron/features/ocr/main/buildTesseractEnv', () => ({ buildTesseractEnv: () => ({}) }));
+vi.mock('@electron/features/ocr/main/buildTesseractEnv', async (importOriginal_1) => ({
+    ...(await importOriginal_1<typeof TViMockOriginalModule2>()),
+    buildTesseractEnv: () => ({}),
+}));
 
 vi.mock('@electron/utils/nativeChildProcess', () => ({
     createDetachedChildProcessSpawnOptions: (options: unknown) => options,
     terminateDetachedChildProcess: mocks.terminateDetachedChildProcess,
 }));
 
-vi.mock('@electron/utils/parseIntegerEnv', () => ({ parseIntegerEnv: (name: string, fallback: number) => (
-    name === 'EVB_OCR_FILE_BASED_KILL_GRACE_MS'
-        ? 5
-        : fallback
-) }));
+vi.mock('@electron/utils/parseIntegerEnv', async (importOriginal_2) => ({
+    ...(await importOriginal_2<typeof TViMockOriginalModule3>()),
+    parseIntegerEnv: (name: string, fallback: number) => (
+        name === 'EVB_OCR_FILE_BASED_KILL_GRACE_MS'
+            ? 5
+            : fallback
+    ),
+}));
 
 function createMockChildProcess() {
     const child = new EventEmitter() as EventEmitter & {

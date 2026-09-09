@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@electron/utils/syncFileHandleForDurability';
+
 import { EventEmitter } from 'node:events';
 import {
     mkdtemp,
@@ -38,7 +40,10 @@ vi.mock('@electron/utils/atomicReplace', async () => {
         atomicReplace: (...args: Parameters<typeof actual.atomicReplace>) => mocks.atomicReplace(...args),
     };
 });
-vi.mock('@electron/utils/syncFileHandleForDurability', () => ({syncFileHandleForDurability: (...args: unknown[]) => mocks.syncFileHandleForDurability(...args)}));
+vi.mock('@electron/utils/syncFileHandleForDurability', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    syncFileHandleForDurability: (...args: unknown[]) => mocks.syncFileHandleForDurability(...args),
+}));
 
 const {
     beginDocxExportStream,
