@@ -73,7 +73,6 @@ type TFileOperationsSaveControllerTestDeps =
         commitPdfEditorsForSave?: IWorkspaceSaveDependencies['pdf']['commitEditorsForSave'];
         runSaveTransaction: IWorkspaceSaveDependencies['pdf']['runSaveTransaction'];
         getSourcePdfData: IWorkspaceSaveDependencies['pdf']['getSourceData'];
-        serializePdfForSave: IWorkspaceSaveDependencies['pdf']['serializeForSave'];
         validatePdfPath: IWorkspaceSaveDependencies['persistence']['validatePdfPath'];
         saveFile: IWorkspaceSaveDependencies['persistence']['saveSerialized'];
         saveWorkingCopy: IWorkspaceSaveDependencies['persistence']['saveWorkingCopy'];
@@ -182,7 +181,6 @@ function createSaveDependencies(
                 : {}),
             runSaveTransaction: deps.runSaveTransaction,
             getSourceData: deps.getSourcePdfData,
-            serializeForSave: deps.serializePdfForSave,
         },
         persistence: {
             validatePdfPath: deps.validatePdfPath,
@@ -393,14 +391,6 @@ export function createDeps(overrides: Partial<Parameters<typeof useWorkspaceSave
         markBookmarksSaved: vi.fn(),
         hasAnnotationChanges: vi.fn(() => false),
         hasShapeChanges: vi.fn(() => false),
-        serializePdfForSave: vi.fn(async (data: Uint8Array) => new Uint8Array([
-            ...data,
-            2,
-            3,
-            6,
-            4,
-            5,
-        ])),
         persistAllAnnotationNotes: vi.fn(async () => true),
         captureCanonicalPendingTextUpdates: vi.fn(() => null),
         captureCanonicalPendingAnnotationDeletes: vi.fn(() => null),

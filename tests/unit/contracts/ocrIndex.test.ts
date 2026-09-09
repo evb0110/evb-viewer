@@ -7,7 +7,7 @@ import {
     decodeOcrPage,
     parseOcrIndexV3Manifest,
 } from '@contracts/ocrIndex';
-import {requireDocumentRevisionToken} from '@contracts';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 
 const revision = requireDocumentRevisionToken('drt1:test');
 

@@ -21,8 +21,8 @@ inputs:
     description: >-
       Cache key prefix for the Windows native-tool archive cache (for example
       win-native-tools-x64). Empty skips the cache step. The bundling script
-      verifies every archive against its SHA256 pin whether it comes from the
-      cache or a fallback download.
+      and its runtime manifest verify every archive against its SHA256 pin
+      whether it comes from the cache or a fallback download.
     default: ''
   needs-msys2:
     description: Install MSYS2 (CLANGARM64) and export a verified MSYS2_ROOT for Windows ARM64 bundling.
@@ -80,7 +80,7 @@ runs:
       uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
       with:
         path: ${{ runner.temp }}/win-bundle-cache
-        key: ${{ inputs.windows-bundle-cache-key }}-${{ hashFiles('scripts/bundle-tools-windows.sh') }}
+        key: ${{ inputs.windows-bundle-cache-key }}-${{ hashFiles('scripts/bundle-tools-windows.sh', 'scripts/runtimeBinaryManifest.ts') }}
         # Bundler logic changes must not discard already verified archives for
         # the same platform and pinned tool versions. The script verifies
         # every restored archive before using it.

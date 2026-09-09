@@ -140,6 +140,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         originalPath,
         fileName,
         isDirty,
+        requiresSaveAsOnFirstSave,
         pdfError,
         wasEncrypted,
         pdfFailurePresentation,
@@ -157,32 +158,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         markDirty,
         setWorkspaceCommandSink,
     } = fileLifecycle;
-    const documentDriver = useWorkspaceDocumentDriver({
-        djvuSourcePath,
-        isDjvuMode,
-        pdfSrc,
-        workingCopyPath,
-        ...(deps.pendingDocumentPath === undefined
-            ? {}
-            : {pendingDocumentPath: deps.pendingDocumentPath}),
-        ...(deps.pendingDocumentSize === undefined
-            ? {}
-            : {pendingDocumentSize: deps.pendingDocumentSize}),
-    });
-    watch(documentDriver.activeDocumentDriver, (driver) => {
-        if (driver?.view.defaultSourceCapabilities) {
-            deps.sourceCapabilities.value = driver.view.defaultSourceCapabilities;
-        } else if (!driver) {
-            deps.sourceCapabilities.value = {
-                annotations: false,
-                directImageExport: false,
-                outline: false,
-                pageEdits: false,
-                search: false,
-                text: false,
-            };
-        }
-    }, {immediate: true});
     const sidebarSearch = useWorkspaceSidebarSearchSyncController({
         workingCopyPath,
         documentRevisionToken,
@@ -470,7 +445,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         runWithDocumentOperationLease: documentOperationLease.runExclusive,
     });
     const {
-        handleSave,
+        handleSave: pageSaveHandleSave,
         isAnySaving,
         canSave,
         hasSaveFailure,
@@ -478,6 +453,48 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         saveForExternalRead,
         getNativeSaveTransactionOptions,
     } = pageSaveOrchestration;
+    const documentDriver = useWorkspaceDocumentDriver({
+        djvuSourcePath,
+        isDjvuMode,
+        pdfSrc,
+        workingCopyPath,
+        save: {
+            save: pageSaveHandleSave,
+            saveAs: pageSaveOrchestration.handleSaveAs,
+            saveAsDjvuProjection: () => (
+                fileLifecycle.ensureDjvuPdfProjection(
+                    'save-as-pdf',
+                    new AbortController().signal,
+                )
+            ),
+        },
+        ...(deps.pendingDocumentPath === undefined
+            ? {}
+            : {pendingDocumentPath: deps.pendingDocumentPath}),
+        ...(deps.pendingDocumentSize === undefined
+            ? {}
+            : {pendingDocumentSize: deps.pendingDocumentSize}),
+    });
+    watch(documentDriver.activeDocumentDriver, (driver) => {
+        if (driver?.view.defaultSourceCapabilities) {
+            deps.sourceCapabilities.value = driver.view.defaultSourceCapabilities;
+        } else if (!driver) {
+            deps.sourceCapabilities.value = {
+                annotations: false,
+                directImageExport: false,
+                outline: false,
+                pageEdits: false,
+                search: false,
+                text: false,
+            };
+        }
+    }, {immediate: true});
+    const driverSave = (action: 'save' | 'save-as') => (
+        documentDriver.activeDocumentDriver.value?.operations.save.execute(action)
+        ?? Promise.resolve(false)
+    );
+    const handleSaveThroughDriver = () => driverSave('save');
+    const handleSaveAsThroughDriver = () => driverSave('save-as');
     useShutdownSaveFlushReporting({
         workingCopyPath,
         hasPendingUnsavedChanges,
@@ -491,10 +508,14 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     }
     const exportControls = useWorkspaceExport({
         workingCopyPath,
-        sourceKind: computed(() => documentDriver.activeDocumentDriver.value?.source.kind ?? 'pdf'),
-        sourcePath: computed(() => (
-            documentDriver.activeDocumentDriver.value?.source.path ?? workingCopyPath.value
-        )),
+        exportTargets: {
+            imageTarget: computed(() => (
+                documentDriver.activeDocumentDriver.value?.operations.export.imageTarget ?? null
+            )),
+            multiPageTiffTarget: computed(() => (
+                documentDriver.activeDocumentDriver.value?.operations.export.multiPageTiffTarget ?? null
+            )),
+        },
         documentRevisionToken,
         totalPages,
         ensureWorkingCopyFreshForRead,
@@ -666,7 +687,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         hasSaveFailure,
         isAnySaving,
         isHistoryBusy,
-        handleSave,
+        handleSave: handleSaveThroughDriver,
         totalPages,
         selectedThumbnailPages,
         setSelectedThumbnailPages,
@@ -776,9 +797,12 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     ) {
         const driver = documentDriver.activeDocumentDriver.value;
         if (!driver) {
-            throw new Error('DjVu printing is unavailable');
+            return {
+                status: 'unavailable' as const,
+                capability: 'print' as const,
+            };
         }
-        const result = await driver.run({
+        return driver.run({
             kind: 'prepare-print',
             request: payload,
             fileName: fileName.value,
@@ -788,9 +812,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
                 : {onNativePrintHandoffStart: options.onNativePrintHandoffStart}),
             ...(options?.signal === undefined ? {} : {signal: options.signal}),
         });
-        if (result.status === 'unavailable') {
-            throw new Error('DjVu printing is unavailable');
-        }
     }
     const workspacePrint = useWorkspacePrint({
         totalPages,
@@ -802,17 +823,17 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         fileName,
         hasPendingUnsavedChanges,
         hasPendingPrintSerializationChanges,
-        canPrintDjvuSource: computed(() => (
-            documentDriver.activeDocumentDriver.value?.canPreparePrint === true
-        )),
         getCurrentPrintPage: () => documentViewerRef.value?.getCurrentPage?.() ?? currentPage.value,
         getQuickPrintPageMetrics,
+        isDriverOwnedQuickPrint: () => (
+            documentDriver.activeDocumentDriver.value?.canPreparePrint === true
+        ),
         ensurePrintReady,
         ensureWorkingCopyFreshForRead,
         getLastFailurePresentation: failureSurface.getLastFailurePresentation,
         getPrintableSourceData,
         renderLoadedPdfPagesForBrowserPrint,
-        printDjvuSource: printDriverSource,
+        preparePrintSource: printDriverSource,
     });
     const interactionControls = useWorkspaceInteractionControls({
         isActive,
@@ -843,7 +864,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         handleAnnotationToolChange,
         handleFitMode: viewState.handleFitMode,
         handleGoToPage,
-        handleSave,
+        handleSave: handleSaveThroughDriver,
         handlePrint: workspacePrint.handlePrint,
         handleToggleSidebar: () => {
             showSidebar.value = !showSidebar.value;
@@ -859,6 +880,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         fileName,
         originalPath,
         hasPendingTabChanges,
+        requiresSaveAsOnFirstSave,
         pdfData,
         openFileWithViewerLifecycle,
         waitForPdfReload,
@@ -1143,6 +1165,8 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         },
         saveWorkflow: {
             ...pageSaveOrchestration,
+            handleSave: handleSaveThroughDriver,
+            handleSaveAs: handleSaveAsThroughDriver,
             isSaving,
             isSavingAs,
             isHistoryBusy,

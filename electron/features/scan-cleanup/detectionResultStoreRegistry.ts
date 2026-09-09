@@ -1,5 +1,5 @@
 import {randomUUID} from 'node:crypto';
-import type {IScanCleanupDetectionResultStore} from '@scan-cleanup-core/types';
+import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/types';
 
 /**
  * A renderer only receives this opaque id. The result store itself stays in

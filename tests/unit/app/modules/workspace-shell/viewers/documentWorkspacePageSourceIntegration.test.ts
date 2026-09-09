@@ -29,7 +29,7 @@ vi.mock('@app/modules/workspace-shell/viewers/workspaceViewerFeatureChunkLoaders
     const {documentViewerChassisAuthorityKey} = await import(
         '@app/utils/document-viewer/chassis/documentViewerChassisAuthority'
     );
-    const FeaturePackStub = vue.defineComponent({
+    const createFeaturePackStub = (kind: string) => vue.defineComponent({
         inheritAttrs: false,
         props: {
             bindDelayMs: {
@@ -46,13 +46,16 @@ vi.mock('@app/modules/workspace-shell/viewers/workspaceViewerFeatureChunkLoaders
             vue.onMounted(() => {
                 setTimeout(() => authority?.bindSource(props.testSource as IDocumentPageSource), props.bindDelayMs);
             });
-            return () => vue.h('div', {'data-feature-pack-stub': ''});
+            return () => vue.h('div', {
+                'data-feature-pack-kind': kind,
+                'data-feature-pack-stub': '',
+            });
         },
     });
     return {workspaceViewerFeatureChunkLoaders: {
-        pdfjs: async () => ({PdfViewer: FeaturePackStub}),
-        'native-pdf': async () => ({NativePdfViewer: FeaturePackStub}),
-        'page-source': async () => ({default: FeaturePackStub}),
+        pdfjs: async () => ({PdfViewer: createFeaturePackStub('pdfjs')}),
+        'native-pdf': async () => ({NativePdfViewer: createFeaturePackStub('native-pdf')}),
+        'page-source': async () => ({default: createFeaturePackStub('page-source')}),
     }};
 });
 
@@ -96,7 +99,10 @@ const source: IDocumentPageSource = {
 
 const mountedApps = new Set<() => void>();
 
-function mountWorkspaceChain(openInitially: boolean) {
+function mountWorkspaceChain(
+    openInitially: boolean,
+    rendererKind: 'pdfjs' | 'native-pdf' | 'page-source' = 'pdfjs',
+) {
     const host = document.createElement('div');
     document.body.append(host);
     const cleanupOpen = shallowRef(openInitially);
@@ -106,6 +112,7 @@ function mountWorkspaceChain(openInitially: boolean) {
         return () => h('div', [
             h(DocumentViewerChassis, {
                 sourceKind: 'pdf',
+                rendererKind,
                 bindDelayMs: 25,
                 testSource: source,
                 'onUpdate:pageSource': (value: IDocumentPageSource | null) => {
@@ -159,6 +166,27 @@ afterEach(() => {
 });
 
 describe('DocumentWorkspace page-source integration', () => {
+    it.each([
+        [
+            'pdfjs',
+            'pdfjs',
+        ],
+        [
+            'native-pdf',
+            'native-pdf',
+        ],
+        [
+            'page-source',
+            'page-source',
+        ],
+    ] as const)('mounts the driver-selected %s feature pack', async (rendererKind, expectedKind) => {
+        const harness = mountWorkspaceChain(false, rendererKind);
+
+        await vi.waitFor(() => {
+            expect(harness.host.querySelector(`[data-feature-pack-kind="${expectedKind}"]`)).not.toBeNull();
+        });
+    });
+
     it('delivers a chassis-bound source when cleanup opens before the delayed bind', async () => {
         const harness = mountWorkspaceChain(true);
         expect(harness.host.querySelector('.scan-thumbnail-source-state')).not.toBeNull();

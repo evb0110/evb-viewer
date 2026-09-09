@@ -6,7 +6,10 @@ import {
 } from 'node:fs/promises';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
-import {LOAD_BEARING_COVERAGE_FILES} from '@scripts/checkCoverageRatchet';
+import {
+    LOAD_BEARING_COVERAGE_FILES,
+    LOAD_BEARING_COVERAGE_GROUP_FILES,
+} from '@scripts/checkCoverageRatchet';
 
 const DEFAULT_SUMMARY_PATH = 'coverage/coverage-summary.json';
 const COVERAGE_BASE_SHA_ENV = 'EVB_COVERAGE_BASE_SHA';
@@ -30,8 +33,6 @@ const PRODUCTION_COVERAGE_ROOTS = [
     'app/',
     'electron/',
     'packages/',
-    'scan-cleanup-adapters/',
-    'scan-cleanup-core/',
     'scripts/',
     'server/',
 ] as const;
@@ -228,7 +229,16 @@ export function isZeroExecutionTripwireTarget(filePath: string) {
     if ((LOAD_BEARING_COVERAGE_FILES as readonly string[]).includes(normalized)) {
         return true;
     }
-    if (normalized.startsWith('scan-cleanup-core/') || normalized.startsWith('scan-cleanup-adapters/')) {
+    if (LOAD_BEARING_COVERAGE_GROUP_FILES.includes(normalized)) {
+        return true;
+    }
+    if (normalized.startsWith('packages/scan-cleanup/')) {
+        return true;
+    }
+    // Search matching moved out of the portable contracts package. Keep the
+    // new domain module in the zero-execution tripwire so a future move cannot
+    // silently lose its import-and-run proof.
+    if (normalized === 'packages/pdf-core/pdfSearchAlgorithms.ts') {
         return true;
     }
 
@@ -264,11 +274,25 @@ export async function collectZeroExecutionTripwireTargets(projectRoot = process.
         'app',
         'electron',
         'packages',
-        'scan-cleanup-adapters',
-        'scan-cleanup-core',
     ];
     const files = (await Promise.all(roots.map(root => collectProductionTypeScriptFiles(projectRoot, root)))).flat();
-    return files.sort((left, right) => left.localeCompare(right));
+    let expectedGroupFiles: readonly string[] = [];
+    try {
+        await readdir(path.join(projectRoot, 'electron/features/scan-cleanup'));
+        expectedGroupFiles = LOAD_BEARING_COVERAGE_GROUP_FILES;
+    } catch (error) {
+        if (!isRecord(error) || error.code !== 'ENOENT') {
+            throw error;
+        }
+        // The coverage ratchet reports a missing source tree. If the feature
+        // directory exists, include every expected group member here so a
+        // deleted successor cannot disappear from the zero-execution target
+        // set while its directory remains present.
+    }
+    return [...new Set([
+        ...files,
+        ...expectedGroupFiles,
+    ])].sort((left, right) => left.localeCompare(right));
 }
 
 export function checkZeroExecutionCoverage(

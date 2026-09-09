@@ -10,6 +10,7 @@ import {
     decodeWindowCloseResponse,
 } from '@electron/platform-ipc/coreContract';
 import type { ILogger } from '@electron/utils/createLogger';
+import type {IRawIpcRegistrationAudit} from '@electron/platform-ipc/rawIpcRegistration';
 
 export const NATIVE_WINDOW_CLOSE_HANDSHAKE_TIMEOUT_MS = 10_000;
 
@@ -19,6 +20,7 @@ interface IWindowCloseHandshakeOptions {
     logger: Pick<ILogger, 'warn'>;
     shouldBypass?: () => boolean;
     timeoutMs?: number;
+    rawIpcRegistrationAudit?: IRawIpcRegistrationAudit;
 }
 
 interface IWindowCloseEvent {preventDefault(): void;}
@@ -29,6 +31,7 @@ export function attachNativeWindowCloseHandshake(
 ) {
     const timeoutMs = options.timeoutMs ?? NATIVE_WINDOW_CLOSE_HANDSHAKE_TIMEOUT_MS;
     const createRequestId = options.createRequestId ?? randomUUID;
+    const registrationScope = `window:${window.id}`;
     let disposed = false;
     let approvedClose = false;
     let pendingRequestId: string | null = null;
@@ -142,9 +145,15 @@ export function attachNativeWindowCloseHandshake(
         disposed = true;
         clearPendingRequest();
         options.ipcMain.removeListener(CORE_IPC_SEND_CHANNELS.windowCloseResponse, handleResponse);
+        options.rawIpcRegistrationAudit?.release('window-close-response', registrationScope);
     }
 
-    options.ipcMain.on(CORE_IPC_SEND_CHANNELS.windowCloseResponse, handleResponse);
+    const register = () => options.ipcMain.on(CORE_IPC_SEND_CHANNELS.windowCloseResponse, handleResponse);
+    if (options.rawIpcRegistrationAudit) {
+        options.rawIpcRegistrationAudit.register('window-close-response', register, registrationScope);
+    } else {
+        register();
+    }
     window.on('close', handleClose);
     window.once('closed', cleanup);
 

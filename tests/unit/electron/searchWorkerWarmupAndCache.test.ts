@@ -37,12 +37,12 @@ vi.mock('worker_threads', () => ({
     },
 }));
 vi.mock('fs/promises', () => ({stat: mocks.stat}));
-vi.mock('@electron/search/indexBuilder', () => ({
+vi.mock('@electron/features/search/indexBuilder', () => ({
     SEARCH_INDEX_SCHEMA_VERSION: 7,
     loadSearchIndex: mocks.loadSearchIndex,
     buildSearchIndex: mocks.buildSearchIndex,
 }));
-vi.mock('@electron/search/nativeSearch', () => {
+vi.mock('@electron/features/search/nativeSearch', () => {
     class XlargeNativeSearchCapabilityError extends Error {
         constructor(readonly kind: string, message: string) {
             super(message);
@@ -56,7 +56,7 @@ vi.mock('@electron/search/nativeSearch', () => {
         ),
     };
 });
-vi.mock('@electron/search/xlargeIndexBuilder', () => ({buildXlargeSearchIndex: mocks.buildXlargeSearchIndex}));
+vi.mock('@electron/features/search/xlargeIndexBuilder', () => ({buildXlargeSearchIndex: mocks.buildXlargeSearchIndex}));
 vi.mock('@electron/config/constants', () => ({
     EXCERPT_CONTEXT_CHARS: 32,
     SEARCH_RESULT_LIMIT: 100,
@@ -156,7 +156,7 @@ describe('search worker warmup and cache behavior', () => {
             totalPages: 3,
         });
 
-        await import('@electron/search/worker');
+        await import('@electron/features/search/worker');
         const handleMessage = mocks.messageHandlers.get('message');
         expect(handleMessage).toBeTypeOf('function');
 
@@ -204,7 +204,7 @@ describe('search worker warmup and cache behavior', () => {
             throw new Error(`Unexpected stat path: ${path}`);
         });
 
-        await import('@electron/search/worker');
+        await import('@electron/features/search/worker');
         const handleMessage = mocks.messageHandlers.get('message');
         expect(handleMessage).toBeTypeOf('function');
 
@@ -266,7 +266,7 @@ describe('search worker warmup and cache behavior', () => {
     });
 
     it('builds and warms index on explicit warmup requests', async () => {
-        await import('@electron/search/worker');
+        await import('@electron/features/search/worker');
         const handleMessage = mocks.messageHandlers.get('message');
         expect(handleMessage).toBeTypeOf('function');
 
@@ -313,7 +313,7 @@ describe('search worker warmup and cache behavior', () => {
             });
         }));
 
-        await import('@electron/search/worker');
+        await import('@electron/features/search/worker');
         const handleMessage = mocks.messageHandlers.get('message');
         expect(handleMessage).toBeTypeOf('function');
 
@@ -406,7 +406,7 @@ describe('search worker warmup and cache behavior', () => {
             };
         });
 
-        await import('@electron/search/worker');
+        await import('@electron/features/search/worker');
         const handleMessage = mocks.messageHandlers.get('message');
         expect(handleMessage).toBeTypeOf('function');
 
@@ -487,7 +487,7 @@ describe('search worker warmup and cache behavior', () => {
             };
         });
 
-        await import('@electron/search/worker');
+        await import('@electron/features/search/worker');
         const handleMessage = mocks.messageHandlers.get('message');
         handleMessage?.({
             type: 'search',
@@ -520,7 +520,7 @@ describe('search worker warmup and cache behavior', () => {
     });
 
     it('evicts the oldest cached index once the default cache budget is exceeded', async () => {
-        await import('@electron/search/worker');
+        await import('@electron/features/search/worker');
         const handleMessage = mocks.messageHandlers.get('message');
         expect(handleMessage).toBeTypeOf('function');
 
@@ -579,7 +579,7 @@ describe('search worker warmup and cache behavior', () => {
             })),
         }));
 
-        await import('@electron/search/worker');
+        await import('@electron/features/search/worker');
         const handleMessage = mocks.messageHandlers.get('message');
         for (const [
             index,
@@ -622,7 +622,7 @@ describe('search worker warmup and cache behavior', () => {
             },
         };
 
-        await expect(import('@electron/search/worker'))
+        await expect(import('@electron/features/search/worker'))
             .rejects.toThrow('Invalid search workerData');
         expect(mocks.parentPort.on).not.toHaveBeenCalled();
     });
@@ -640,7 +640,7 @@ describe('search worker warmup and cache behavior', () => {
             });
 
         try {
-            await import('@electron/search/worker');
+            await import('@electron/features/search/worker');
             const handleMessage = mocks.messageHandlers.get('message');
             expect(handleMessage).toBeTypeOf('function');
 
@@ -696,7 +696,7 @@ describe('search worker warmup and cache behavior', () => {
             }],
         });
 
-        await import('@electron/search/worker');
+        await import('@electron/features/search/worker');
         const handleMessage = mocks.messageHandlers.get('message');
         expect(handleMessage).toBeTypeOf('function');
 
@@ -730,7 +730,7 @@ describe('search worker warmup and cache behavior', () => {
             }],
         });
 
-        await import('@electron/search/worker');
+        await import('@electron/features/search/worker');
         const handleMessage = mocks.messageHandlers.get('message');
         expect(handleMessage).toBeTypeOf('function');
 
@@ -781,7 +781,7 @@ describe('search worker warmup and cache behavior', () => {
             };
         });
 
-        await import('@electron/search/worker');
+        await import('@electron/features/search/worker');
         const handleMessage = mocks.messageHandlers.get('message');
         expect(handleMessage).toBeTypeOf('function');
 
@@ -864,7 +864,7 @@ describe('search worker warmup and cache behavior', () => {
             };
         });
 
-        await import('@electron/search/worker');
+        await import('@electron/features/search/worker');
         const handleMessage = mocks.messageHandlers.get('message');
         handleMessage?.({
             type: 'search',
@@ -928,7 +928,7 @@ describe('search worker warmup and cache behavior', () => {
             });
         }));
 
-        await import('@electron/search/worker');
+        await import('@electron/features/search/worker');
         const handleMessage = mocks.messageHandlers.get('message');
         for (const requestId of [
             'xlarge-warmup-1',
@@ -992,7 +992,7 @@ describe('search worker warmup and cache behavior', () => {
             complete: true,
         });
 
-        await import('@electron/search/worker');
+        await import('@electron/features/search/worker');
         const handleMessage = mocks.messageHandlers.get('message');
         handleMessage?.({
             type: 'search',
@@ -1033,7 +1033,7 @@ describe('search worker warmup and cache behavior', () => {
             message: 'native unavailable',
         });
 
-        await import('@electron/search/worker');
+        await import('@electron/features/search/worker');
         const handleMessage = mocks.messageHandlers.get('message');
         handleMessage?.({
             type: 'search',

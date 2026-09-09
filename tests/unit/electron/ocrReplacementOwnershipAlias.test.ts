@@ -80,7 +80,7 @@ vi.mock('@electron/utils/pathValidator', () => ({
     resolveAllowedWritePath: mocks.resolveAllowedWritePath,
 }));
 
-vi.mock('@electron/ocr/worker/indexWriterV4', () => ({
+vi.mock('@electron/features/ocr/worker/indexWriterV4', () => ({
     getOcrCatalogV4PreparedDescriptorPath: (resultPath: string) => `${resultPath}.ocr-v4-prepared.json`,
     prepareOcrCatalogV4Generation: mocks.prepareOcrCatalogV4Generation,
     publishPreparedOcrCatalogV4: mocks.publishPreparedOcrCatalogV4,
@@ -114,11 +114,11 @@ vi.mock('@electron/file-access/documentMutationGuards', () => ({
 
 vi.mock('@electron/file-access/originalPathSaveWitness', () => ({originalPathSaveBaseMatches: mocks.originalPathSaveBaseMatches}));
 
-vi.mock('@electron/ocr/documentTextCatalog', () => ({rebindDocumentTextCatalogRevision: (...args: unknown[]) => mocks.rebindDocumentTextCatalogRevision(...args)}));
+vi.mock('@electron/features/ocr/main/documentTextCatalog', () => ({rebindDocumentTextCatalogRevision: (...args: unknown[]) => mocks.rebindDocumentTextCatalogRevision(...args)}));
 
 vi.mock('@electron/file-access/docxExportPaths', () => ({consumeAllowedDocxWritePath: vi.fn(() => true)}));
 
-const { createPendingResultFileStore } = await import('@electron/ocr/createPendingResultFileStore');
+const { createPendingResultFileStore } = await import('@electron/features/ocr/main/createPendingResultFileStore');
 const { handleReplaceWorkingCopyFromPath } = await import('@electron/features/documents/main/documentFileWriteHandlers');
 const { writeOcrIndexes } = await import('@electron/ocr/worker/writeOcrIndexes');
 

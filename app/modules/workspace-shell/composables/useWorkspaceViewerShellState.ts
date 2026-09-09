@@ -13,12 +13,12 @@ import type {
     IPdfViewerExpose,
 } from '@app/modules/pdf-viewer/public';
 import type { TDocumentSidebarTab } from '@app/utils/document-viewer/sidebar/documentSidebarTabs';
-import type { TPageSelection } from '@contracts/pageNumbers';
+import type { TPageSelection } from '@pdf-core/pdfPageSelection';
 import {
     createExplicitPageSelection,
     materializePageSelection,
     pageSelectionCount,
-} from '@contracts/pageNumbers';
+} from '@pdf-core/pdfPageSelection';
 
 const LEGACY_SELECTION_MATERIALIZATION_LIMIT = 100_000;
 

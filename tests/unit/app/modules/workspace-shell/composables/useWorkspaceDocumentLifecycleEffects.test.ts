@@ -14,7 +14,7 @@ import { useWorkspaceDocumentLifecycleEffects } from '@app/modules/workspace-she
 import { createStaleRevisionError } from '@contracts/documentMutationErrors';
 import { requireDocumentRef } from '@contracts/documentRef';
 import { requireRequestId } from '@contracts/shared';
-import {requireDocumentRevisionToken} from '@contracts';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import { cast } from '@tests/helpers/cast';
 
 const mocks = vi.hoisted(() => ({

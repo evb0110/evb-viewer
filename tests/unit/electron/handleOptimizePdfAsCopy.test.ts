@@ -5,7 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import {requireDocumentRevisionToken} from '@contracts';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 
 const mocks = vi.hoisted(() => ({
     addRecentFile: vi.fn(async () => undefined),

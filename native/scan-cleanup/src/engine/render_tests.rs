@@ -37,7 +37,7 @@ mod tests {
             tone_preservation_alpha: Some(GrayImage::new(2, 2, 7)),
             mixed_layers: None,
             effectively_blank: true,
-            metadata: region_rendering::RegionSemanticMetadata {
+            metadata: CleanupMetadata {
                 source_page_index: 4,
                 half: PageHalf::Right,
                 detected_skew_degrees: 1.5,
@@ -48,7 +48,7 @@ mod tests {
                 layout_confidence: 0.9,
                 cutter_x: Some(10.0),
                 split_geometry: Vec::new(),
-                split_seam: Some(region_rendering::RegionSeamPolyline {
+                split_seam: Some(crate::protocol::manifest_v3::SplitSeamPolyline {
                     points: vec![Point::new(3.0, 4.0), Point::new(5.0, 6.0)],
                 }),
                 source_region: Rect::new(1.0, 2.0, 2.0, 2.0),
@@ -106,6 +106,7 @@ mod tests {
                 placement_offset_x: 0,
                 placement_offset_y: 0,
                 rotation: OrthogonalRotation::None,
+                canvas_scope: CanvasScope::Page,
                 resample_passes: 1,
                 source_dpi: 300.0,
                 render_dpi: 300.0,

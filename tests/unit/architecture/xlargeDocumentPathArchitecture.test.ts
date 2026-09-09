@@ -194,8 +194,8 @@ const KNOWN_NON_DOCUMENT_READS: readonly IKnownNonDocumentRead[] = [
         reason: 'TIFF page input, not a document PDF.',
     },
     {
-        module: 'electron/features/scan-cleanup/createScanCleanupPreviewService.ts',
-        pattern: /const bytes = new Uint8Array\(await readFile\(path\)\)/u,
+        module: 'electron/features/scan-cleanup/scanCleanupPreviewRenderingPipeline.ts',
+        pattern: /const bytes = new Uint8Array\(await dependencies\.readFile\(path\)\)/u,
         reason: 'PNG scan-cleanup preview output, not a document PDF.',
     },
     {
@@ -219,7 +219,7 @@ const KNOWN_ARRAY_BUFFER_EXCEPTIONS: readonly IKnownNonDocumentRead[] = [
         reason: 'Captured page image Blob, not a document PDF.',
     },
     {
-        module: 'electron/ocr/languageModels.ts',
+        module: 'electron/features/ocr/languageModels.ts',
         pattern: /response\.arrayBuffer\(\)/u,
         reason: 'Downloaded OCR model payload, not a document PDF.',
     },
@@ -297,7 +297,7 @@ function collectWholeDocumentCallSites() {
                     /\bPDFDocument\.load\s*\(/gu,
                 )
                     .filter(() => !isBrowserModule(modulePath))
-                    .filter(() => modulePath !== 'electron/ocr/worker/pdfAssembler.ts'),
+                    .filter(() => modulePath !== 'electron/features/ocr/worker/pdfAssembler.ts'),
                 ...findCallSites(
                     modulePath,
                     source,
@@ -381,7 +381,7 @@ function isDocumentFsRead(
         'electron/ocr/worker/pageTextClassifier.ts',
         'electron/features/page-ops/main/cropLocal.ts',
         'electron/ocr/worker/main.ts',
-        'electron/search/extractTextWithPdfjs.ts',
+        'electron/features/search/extractTextWithPdfjs.ts',
         'electron/features/djvu/main/pdfExport.ts',
         'electron/features/documents/main/pdfConformance.ts',
         'electron/features/documents/main/analyzePdfConformanceFileDirect.ts',

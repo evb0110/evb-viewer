@@ -33,9 +33,9 @@ import {
     openCompactSearchIndexWriter,
     persistCompactSearchIndexStreaming,
     persistCompactSearchIndex,
-} from '@electron/search/searchIndexSidecar';
+} from '@electron/features/search/searchIndexSidecar';
 import { OCR_TEXT_LAYER_INDEX_VERSION } from '@contracts/ocrText';
-import {requireDocumentRevisionToken} from '@contracts';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {requirePageNumber} from '@contracts/pageNumbers';
 
 const DOCUMENT_REVISION = requireDocumentRevisionToken('revision-token');

@@ -8,26 +8,26 @@ import {detectSourceDpiDetails} from '@electron/pdf/sourceDpiDetection';
 import {
     extractPdfMrcLayers,
     extractPdfMrcLayersBatch,
-} from '@scan-cleanup-adapters/extractPdfMrcLayers';
+} from '@evb/scan-cleanup/adapters/extractPdfMrcLayers';
 import {
     renderPdfPageToPng,
     renderPdfPageToPpm,
-} from '@electron/ocr/worker/popplerStage';
+} from '@electron/features/ocr/publicNative';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
 import type {TWorkerLog} from '@electron/ocr/worker/types';
 import {
     requirePublishedRaster,
     runScanCleanupSidecar,
 } from '@electron/features/scan-cleanup/worker/runScanCleanupSidecar';
-import {readAvailableScratchBytes} from '@scan-cleanup-core/resolveRasterHandoff';
-import {createPdfPageSizeStore} from '@scan-cleanup-core/pdfPageSizes';
+import {readAvailableScratchBytes} from '@evb/scan-cleanup/core/resolveRasterHandoff';
+import {createPdfPageSizeStore} from '@evb/scan-cleanup/core/pdfPageSizes';
 import {attachScanCleanupPageOverrideDefaults} from '@contracts/scanCleanupPageOverrides';
 import {
     runScanCleanupConversion,
     type IRunScanCleanupPipelineDependencies,
     type IRunScanCleanupPipelineRequest,
     type IScanCleanupWorkerPaths,
-} from '@scan-cleanup-core/runScanCleanupConversion';
+} from '@evb/scan-cleanup/core/runScanCleanupConversion';
 
 const defaultDependencies: IRunScanCleanupPipelineDependencies = {
     getPageCount: getPdfPageCount,
@@ -79,4 +79,4 @@ export type {
     IRunScanCleanupPipelineDependencies,
     IRunScanCleanupPipelineRequest,
     IScanCleanupWorkerPaths,
-} from '@scan-cleanup-core/types';
+} from '@evb/scan-cleanup/core/types';

@@ -24,7 +24,7 @@ const INSTALLED_LANGUAGE_CODES = [
 
 const mocks = vi.hoisted(() => ({
     existsSync: vi.fn(),
-    fileUrl: '/repo/electron/ocr/paths.ts',
+    fileUrl: '/repo/electron/features/ocr/main/paths.ts',
     app: {isPackaged: false},
     ensureRuntimeTessdataSeeded: vi.fn(),
     readdirSync: vi.fn(),
@@ -40,7 +40,7 @@ vi.mock('fs', () => ({
 vi.mock('child_process', () => ({spawn: vi.fn()}));
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => mocks.runNativeToolCommand(...args)}));
 vi.mock('@electron/utils/platformArch', () => ({resolvePlatformArchTag: () => 'darwin-arm64'}));
-vi.mock('@electron/ocr/languageModels', () => ({
+vi.mock('@electron/features/ocr/languageModels', () => ({
     TESSDATA_BEST_REF: 'test-tessdata-resource-version',
     ensureRuntimeTessdataSeeded: () => mocks.ensureRuntimeTessdataSeeded(),
     getRuntimeTessdataDir: () => '/repo/resources/tesseract/tessdata',
@@ -74,7 +74,7 @@ describe('getOcrToolPaths resource base resolution', () => {
     });
 
     it('builds tool paths from repository resources when loaded from source', async () => {
-        const { getOcrToolPaths } = await import('@electron/ocr/paths');
+        const { getOcrToolPaths } = await import('@electron/features/ocr/main/paths');
 
         expect(getOcrToolPaths()).toMatchObject({
             tesseract: '/repo/resources/tesseract/darwin-arm64/bin/tesseract',
@@ -86,7 +86,7 @@ describe('getOcrToolPaths resource base resolution', () => {
     });
 
     it('resolves OCR-owned native paths without Poppler or QPDF fields', async () => {
-        const { resolveOcrNativeToolPaths } = await import('@electron/ocr/nativeToolPaths');
+        const { resolveOcrNativeToolPaths } = await import('@electron/features/ocr/main/nativeToolPaths');
 
         expect(resolveOcrNativeToolPaths({
             exists: candidate => candidate.includes('/tesseract/darwin-arm64/bin/'),
@@ -103,7 +103,7 @@ describe('getOcrToolPaths resource base resolution', () => {
     });
 
     it('keeps OCR tool paths awaitable so runtime tessdata seeding is preserved', async () => {
-        const { getOcrToolPaths } = await import('@electron/ocr/paths');
+        const { getOcrToolPaths } = await import('@electron/features/ocr/main/paths');
 
         const paths = getOcrToolPaths();
 
@@ -121,7 +121,7 @@ describe('getOcrToolPaths resource base resolution', () => {
             stdout: command.includes('tesseract') ? 'tesseract 5.5.0\n' : '/usr/bin/tool\n',
             stderr: '',
         }));
-        const { validateOcrTools } = await import('@electron/ocr/paths');
+        const { validateOcrTools } = await import('@electron/features/ocr/main/paths');
 
         await expect(validateOcrTools()).resolves.toEqual({
             valid: true,
@@ -171,7 +171,7 @@ describe('getOcrToolPaths resource base resolution', () => {
             stdout: '',
             stderr: 'not found',
         });
-        const { validateOcrTools } = await import('@electron/ocr/paths');
+        const { validateOcrTools } = await import('@electron/features/ocr/main/paths');
 
         const result = await validateOcrTools();
 
@@ -199,7 +199,7 @@ describe('getOcrToolPaths resource base resolution', () => {
 
     it('rejects empty or unreadable tessdata language directories', async () => {
         mocks.readdirSync.mockReturnValue([]);
-        const { validateOcrTools } = await import('@electron/ocr/paths');
+        const { validateOcrTools } = await import('@electron/features/ocr/main/paths');
 
         await expect(validateOcrTools()).resolves.toMatchObject({
             valid: false,
@@ -215,7 +215,7 @@ describe('getOcrToolPaths resource base resolution', () => {
         mocks.readdirSync.mockImplementation(() => {
             throw new Error('permission denied');
         });
-        const fresh = await import('@electron/ocr/paths');
+        const fresh = await import('@electron/features/ocr/main/paths');
         await expect(fresh.validateOcrTools()).resolves.toMatchObject({
             valid: false,
             tools: {tessdata: {
@@ -231,7 +231,7 @@ describe('getOcrToolPaths resource base resolution', () => {
             'eng.traineddata',
             'rus.traineddata',
         ]);
-        const { validateOcrTools } = await import('@electron/ocr/paths');
+        const { validateOcrTools } = await import('@electron/features/ocr/main/paths');
 
         const result = await validateOcrTools();
 
@@ -252,7 +252,7 @@ describe('getOcrToolPaths resource base resolution', () => {
 
     it('rejects tessdata directories missing a bundled default', async () => {
         mocks.readdirSync.mockReturnValue(['eng.traineddata']);
-        const { validateOcrTools } = await import('@electron/ocr/paths');
+        const { validateOcrTools } = await import('@electron/features/ocr/main/paths');
 
         const result = await validateOcrTools();
 

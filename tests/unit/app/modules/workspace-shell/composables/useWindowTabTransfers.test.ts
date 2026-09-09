@@ -19,10 +19,8 @@ import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/
 import { createWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import { createWorkspaceExposeFixture } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 import type { ITab } from '@app/types/tabs';
-import {
-    requireDocumentInstanceId,
-    requireDocumentRevisionToken,
-} from '@contracts';
+import {requireDocumentInstanceId} from '@contracts/documentInstanceId';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 
 const mocks = vi.hoisted(() => ({
     cleanupSplitPayloadSnapshot: vi.fn(async () => undefined),
@@ -39,7 +37,7 @@ vi.mock('@app/utils/platformWindowTabs', () => ({getWindowTabsCapability: () => 
     closeCurrentWindow: mocks.closeCurrentWindow,
 })}));
 
-function createPayload(): TSplitPayload {
+function createPayload(): Extract<TSplitPayload, {kind: 'pdfSnapshot'}> {
     return {
         kind: 'pdfSnapshot',
         fileName: 'sample.pdf',
@@ -393,7 +391,14 @@ describe('useWindowTabTransfers', () => {
         const workspaceRefs = ref(new Map<string, IWorkspaceExpose>());
         const restoredWorkspace = createWorkspaceExposeFixture({
             hasPdf: true,
-            restoreSplitPayload: vi.fn(async () => undefined),
+            restoreSplitPayload: vi.fn(async () => ({
+                status: 'opened' as const,
+                result: {
+                    kind: 'pdf' as const,
+                    workingPath: payload.snapshotPath,
+                    originalPath: payload.originalPath!,
+                },
+            })),
         });
         const existingWorkspace = createWorkspaceExposeFixture({ hasPdf: true });
         workspaceRefs.value.set('tab-existing', existingWorkspace);
@@ -500,7 +505,14 @@ describe('useWindowTabTransfers', () => {
         const documentSessionsByTabId = shallowRef<Record<string, ReturnType<typeof createWorkspaceDocumentController>>>({});
         const restoredWorkspace = createWorkspaceExposeFixture({
             hasPdf: true,
-            restoreSplitPayload: vi.fn(async () => undefined),
+            restoreSplitPayload: vi.fn(async () => ({
+                status: 'opened' as const,
+                result: {
+                    kind: 'pdf' as const,
+                    workingPath: payload.snapshotPath,
+                    originalPath: payload.originalPath!,
+                },
+            })),
         });
         workspaceRefs.value.set('tab-existing', createWorkspaceExposeFixture({ hasPdf: true }));
         let destinationMounted = false;
@@ -625,7 +637,14 @@ describe('useWindowTabTransfers', () => {
         };
         const restoredWorkspace = createWorkspaceExposeFixture({
             hasPdf: true,
-            restoreSplitPayload: vi.fn(async () => undefined),
+            restoreSplitPayload: vi.fn(async () => ({
+                status: 'opened' as const,
+                result: {
+                    kind: 'pdf' as const,
+                    workingPath: payload.snapshotPath,
+                    originalPath: payload.originalPath!,
+                },
+            })),
         });
         const updateTab = vi.fn();
         const activatePane = vi.fn();

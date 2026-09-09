@@ -34,7 +34,11 @@ interface IPdfToolBinaryPathOptions {
     platform?: NodeJS.Platform | undefined;
 }
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
+function resolveModuleDirectory(moduleUrl: string | undefined) {
+    return moduleUrl === undefined ? process.cwd() : dirname(fileURLToPath(moduleUrl));
+}
+
+const __dirname = resolveModuleDirectory((import.meta as ImportMeta & {url?: string}).url);
 
 function isElectronAppPackaged() {
     return __dirname.includes('app.asar');

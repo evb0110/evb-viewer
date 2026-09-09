@@ -1,5 +1,5 @@
 import type { IDocumentRevisionChangedEvent } from '@contracts/documentRevision';
-import { cancelOcrJobsForWorkingCopy } from '@electron/ocr/jobManager';
+import { cancelOcrJobsForWorkingCopy } from '@electron/features/ocr/public/index';
 import { searchWorkerService } from '@electron/features/search/public';
 import { onWorkingCopyRevisionChanged } from '@electron/file-access/documentRevisionStore';
 

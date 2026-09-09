@@ -15,21 +15,36 @@ import {
     attachNativeWindowCloseHandshake,
     NATIVE_WINDOW_CLOSE_HANDSHAKE_TIMEOUT_MS,
 } from '@electron/window/windowCloseHandshake';
+import {createRawIpcRegistrationAudit} from '@electron/platform-ipc/rawIpcRegistration';
+
+type TResponseHandler = (event: IpcMainEvent, payload: unknown) => void;
+interface ITestIpcMain {
+    on(channel: string, handler: TResponseHandler): ITestIpcMain;
+    removeListener(channel: string, handler: TResponseHandler): ITestIpcMain;
+}
+interface ISharedIpcHarness {
+    responseHandlers: Set<TResponseHandler>;
+    ipcMain: ITestIpcMain;
+}
 
 function createHarness(options: {
     shouldBypass?: () => boolean;
-    timeoutMs?: number
+    timeoutMs?: number;
+    windowId?: number;
+    shared?: ISharedIpcHarness;
+    rawIpcRegistrationAudit?: ReturnType<typeof createRawIpcRegistrationAudit>;
 } = {}) {
     const windowHandlers = new Map<string, Array<(...args: unknown[]) => void>>();
-    const responseHandlers = new Set<(event: IpcMainEvent, payload: unknown) => void>();
+    const responseHandlers = options.shared?.responseHandlers ?? new Set<TResponseHandler>();
     const webContents = {
         isDestroyed: vi.fn(() => false),
         send: vi.fn(),
     };
     const logger = {warn: vi.fn()};
+    const rawIpcRegistrationAudit = options.rawIpcRegistrationAudit ?? createRawIpcRegistrationAudit();
 
     const window = {
-        id: 7,
+        id: options.windowId ?? 7,
         webContents,
         isDestroyed: vi.fn(() => false),
         on(event: string, handler: (...args: unknown[]) => void) {
@@ -68,20 +83,20 @@ function createHarness(options: {
         }
     }
 
-    const ipcMain = {
-        on: vi.fn((channel: string, handler: (event: IpcMainEvent, payload: unknown) => void) => {
-            if (channel === CORE_IPC_SEND_CHANNELS.windowCloseResponse) {
-                responseHandlers.add(handler);
-            }
-            return ipcMain;
-        }),
-        removeListener: vi.fn((channel: string, handler: (event: IpcMainEvent, payload: unknown) => void) => {
-            if (channel === CORE_IPC_SEND_CHANNELS.windowCloseResponse) {
-                responseHandlers.delete(handler);
-            }
-            return ipcMain;
-        }),
-    };
+    const localIpcMain = {} as ITestIpcMain;
+    localIpcMain.on = vi.fn((channel: string, handler: TResponseHandler): ITestIpcMain => {
+        if (channel === CORE_IPC_SEND_CHANNELS.windowCloseResponse) {
+            responseHandlers.add(handler);
+        }
+        return localIpcMain;
+    });
+    localIpcMain.removeListener = vi.fn((channel: string, handler: TResponseHandler): ITestIpcMain => {
+        if (channel === CORE_IPC_SEND_CHANNELS.windowCloseResponse) {
+            responseHandlers.delete(handler);
+        }
+        return localIpcMain;
+    });
+    const ipcMain = options.shared?.ipcMain ?? localIpcMain;
 
     const cleanup = attachNativeWindowCloseHandshake(
         window as never,
@@ -92,6 +107,7 @@ function createHarness(options: {
             })(),
             ipcMain: ipcMain as never,
             logger,
+            rawIpcRegistrationAudit,
             ...(options.shouldBypass ? {shouldBypass: options.shouldBypass} : {}),
             ...(options.timeoutMs === undefined ? {} : {timeoutMs: options.timeoutMs}),
         },
@@ -107,6 +123,8 @@ function createHarness(options: {
         emitWindowEvent,
         ipcMain,
         logger,
+        rawIpcRegistrationAudit,
+        responseHandlers,
         webContents,
         window,
     };
@@ -119,6 +137,61 @@ describe('native window close handshake', () => {
 
     afterEach(() => {
         vi.useRealTimers();
+    });
+
+    it('records the real response listener and removes it on cleanup', () => {
+        const harness = createHarness();
+
+        expect(harness.rawIpcRegistrationAudit.getRegisteredNames())
+            .toEqual(['window-close-response']);
+        harness.cleanup();
+        expect(harness.ipcMain.removeListener).toHaveBeenCalledWith(
+            CORE_IPC_SEND_CHANNELS.windowCloseResponse,
+            expect.any(Function),
+        );
+    });
+
+    it('supports two live window listeners and cleans up both scoped registrations', () => {
+        const audit = createRawIpcRegistrationAudit();
+        const first = createHarness({
+            rawIpcRegistrationAudit: audit,
+            windowId: 1,
+        });
+        const second = createHarness({
+            rawIpcRegistrationAudit: audit,
+            windowId: 2,
+            shared: {
+                responseHandlers: first.responseHandlers,
+                ipcMain: first.ipcMain,
+            },
+        });
+
+        first.emitWindowEvent('close', {preventDefault: vi.fn()});
+        second.emitWindowEvent('close', {preventDefault: vi.fn()});
+        expect(first.webContents.send).toHaveBeenCalledWith(
+            CORE_IPC_EVENT_CHANNELS.windowCloseRequest,
+            {requestId: 'close-request-1'},
+        );
+        expect(second.webContents.send).toHaveBeenCalledWith(
+            CORE_IPC_EVENT_CHANNELS.windowCloseRequest,
+            {requestId: 'close-request-1'},
+        );
+
+        first.emitResponse({
+            requestId: 'close-request-1',
+            decision: 'save',
+        }, first.webContents);
+        second.emitResponse({
+            requestId: 'close-request-1',
+            decision: 'discard',
+        }, second.webContents);
+        expect(first.window.close).toHaveBeenCalledOnce();
+        expect(second.window.close).toHaveBeenCalledOnce();
+
+        first.cleanup();
+        second.cleanup();
+        expect(audit.getRegisteredNames()).toEqual([]);
+        expect(first.responseHandlers).toHaveLength(0);
     });
 
     it.each([

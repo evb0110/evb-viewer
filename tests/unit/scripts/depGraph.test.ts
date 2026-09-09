@@ -149,19 +149,19 @@ describe('dependency graph', () => {
         expect(graph.unresolvedInternalImports).toEqual([]);
     });
 
-    it('resolves @evb workspace package aliases into package graph edges', async () => {
+    it('resolves canonical workspace package aliases into package graph edges', async () => {
         const projectRoot = await createTemporaryProjectRoot();
         await mkdir(join(projectRoot, 'app'), { recursive: true });
         await mkdir(join(projectRoot, 'packages/contracts'), { recursive: true });
         await mkdir(join(projectRoot, 'packages/i18n-core'), { recursive: true });
         await writeFile(
             join(projectRoot, 'app/usesContracts.ts'),
-            'import { contract } from \'@evb/contracts\';\nexport const appContract = contract;\n',
+            'import { contract } from \'@contracts/contract\';\nexport const appContract = contract;\n',
         );
-        await writeFile(join(projectRoot, 'packages/contracts/index.ts'), 'export const contract = true;\n');
+        await writeFile(join(projectRoot, 'packages/contracts/contract.ts'), 'export const contract = true;\n');
         await writeFile(
             join(projectRoot, 'packages/i18n-core/index.ts'),
-            'import { format } from \'@evb/i18n-core/messageFormat\';\nexport const i18n = format;\n',
+            'import { format } from \'@i18n-core/messageFormat\';\nexport const i18n = format;\n',
         );
         await writeFile(join(projectRoot, 'packages/i18n-core/messageFormat.ts'), 'export const format = true;\n');
 
@@ -178,12 +178,12 @@ describe('dependency graph', () => {
         expect(graph.edges).toEqual(expect.arrayContaining([
             {
                 source: 'app/usesContracts.ts',
-                specifier: '@evb/contracts',
-                target: 'packages/contracts/index.ts',
+                specifier: '@contracts/contract',
+                target: 'packages/contracts/contract.ts',
             },
             {
                 source: 'packages/i18n-core/index.ts',
-                specifier: '@evb/i18n-core/messageFormat',
+                specifier: '@i18n-core/messageFormat',
                 target: 'packages/i18n-core/messageFormat.ts',
             },
         ]));
@@ -466,12 +466,12 @@ describe('dependency graph', () => {
             'app/types/electron.d.ts',
             'app/utils/platform.ts',
             'packages/contracts/electronApi.ts',
-            'packages/contracts/index.ts',
+            'packages/contracts/electronApi.ts',
         ]) {
             expect(checkArchitectureBoundaryEdge({
                 source,
-                target: 'packages/contracts/platformApi.ts',
-                specifier: '@contracts/platformApi',
+                target: 'packages/contracts/documentRef.ts',
+                specifier: '@contracts/documentRef',
             })).toEqual([]);
         }
     });
@@ -573,21 +573,21 @@ describe('dependency graph', () => {
 
         expect(checkArchitectureBoundaryEdge({
             source: 'packages/i18n-app/index.ts',
-            target: 'packages/contracts/index.ts',
-            specifier: '@contracts',
+            target: 'packages/contracts/documentRef.ts',
+            specifier: '@contracts/documentRef',
         })).toEqual([
             {
                 rule: 'packages-i18n-app-layer',
                 source: 'packages/i18n-app/index.ts',
-                target: 'packages/contracts/index.ts',
-                specifier: '@contracts',
+                target: 'packages/contracts/documentRef.ts',
+                specifier: '@contracts/documentRef',
                 message: 'packages/i18n-app may depend only on itself and i18n-core.',
             },
             {
                 rule: 'packages-contracts-reverse-edge',
                 source: 'packages/i18n-app/index.ts',
-                target: 'packages/contracts/index.ts',
-                specifier: '@contracts',
+                target: 'packages/contracts/documentRef.ts',
+                specifier: '@contracts/documentRef',
                 message: 'Only approved leaf packages may depend on contracts; do not add reverse package edges into contracts.',
             },
         ]);
@@ -721,11 +721,11 @@ describe('dependency graph', () => {
 
         expect(checkArchitectureBoundarySource(
             'tests/unit/contracts/search.test.ts',
-            'import { findPdfSearchMatches } from \'@contracts/search\';\nexpect(findPdfSearchMatches).toBeDefined();\n',
+            'import { buildPdfSearchRegex } from \'@contracts/search\';\nexpect(buildPdfSearchRegex).toBeDefined();\n',
         )).toEqual([]);
 
         expect(checkArchitectureBoundarySource(
-            'packages/contracts/index.ts',
+            'packages/contracts/electronApi.ts',
             'export { normalizePdfNativeMutationSet } from \'@contracts/nativePdfMutations\';\n',
         )).toEqual([]);
     });
@@ -767,24 +767,6 @@ describe('dependency graph', () => {
             .filter((violation: { rule: string }) => violation.rule === 'pdf-viewer-engine-layer-back-edge');
 
         expect(engineLayerViolations).toEqual([]);
-    });
-
-    it('keeps legacy Electron feature re-export shims thin', () => {
-        expect(checkArchitectureBoundarySource(
-            'electron/search/protocol.ts',
-            'export type * from \'@electron/features/search/protocol\';\n',
-        )).toEqual([]);
-
-        expect(checkArchitectureBoundarySource(
-            'electron/search/protocol.ts',
-            'export * from \'@electron/features/search/protocol\';\n',
-        )).toEqual([{
-            rule: 'electron-legacy-feature-reexport-shim',
-            source: 'electron/search/protocol.ts',
-            target: 'electron/search/protocol.ts',
-            specifier: 'source',
-            message: 'Legacy Electron feature shims must stay one-line re-exports to their feature entrypoint.',
-        }]);
     });
 
     it('allows worker-safe Electron feature publicNative entrypoints but still blocks main internals', () => {

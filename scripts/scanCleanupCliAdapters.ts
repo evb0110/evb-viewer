@@ -34,16 +34,16 @@ import {
     getCheckedWasmMemoryView,
     WASM_REQUEST_ALLOCATION_ABI_VERSION,
 } from '@contracts/getCheckedWasmMemoryView';
-import {createScanCleanupRenderers} from '@scan-cleanup-adapters/createScanCleanupRenderers';
-import {parseScanCleanupCompactManifest} from '@scan-cleanup-core/compactManifest';
-import {createScanCleanupSidecarProtocolHandler} from '@scan-cleanup-core/createScanCleanupSidecarProtocolHandler';
+import {createScanCleanupRenderers} from '@evb/scan-cleanup/adapters/createScanCleanupRenderers';
+import {parseScanCleanupCompactManifest} from '@evb/scan-cleanup/core/compactManifest';
+import {createScanCleanupSidecarProtocolHandler} from '@evb/scan-cleanup/core/createScanCleanupSidecarProtocolHandler';
 import type {
     TScanCleanupLog,
     IScanCleanupProcessResult,
     TScanCleanupRunCommand,
     IScanCleanupRunCommandOptions,
     TScanCleanupSidecarProgress,
-} from '@scan-cleanup-core/types';
+} from '@evb/scan-cleanup/core/types';
 
 export interface IScanCleanupCompactDetectionVerdict {
     pageNumber: number;

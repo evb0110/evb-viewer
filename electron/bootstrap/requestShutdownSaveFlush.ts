@@ -1,6 +1,5 @@
 import { randomUUID } from 'crypto';
 import { ipcMain } from 'electron';
-import type { BrowserWindow } from 'electron';
 import {
     CORE_IPC_EVENT_CHANNELS,
     CORE_IPC_SEND_CHANNELS,
@@ -9,6 +8,7 @@ import {
 import type { ILogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import { workingCopyMap } from '@electron/file-access/workingCopyStore';
+import type {IRawIpcRegistrationAudit} from '@electron/platform-ipc/rawIpcRegistration';
 
 export interface IShutdownSaveFlushSummary {
     dirtyWorkingCopyPaths: string[];
@@ -31,10 +31,21 @@ function normalizePathList(value: unknown): string[] {
         : [];
 }
 
+interface IShutdownSaveWindow {
+    id: number;
+    isDestroyed: () => boolean;
+    webContents: {
+        id: number;
+        isDestroyed: () => boolean;
+        send: (channel: string, payload: {requestId: string}) => void;
+    };
+}
+
 export async function requestShutdownSaveFlush(options: {
-    getWindows: () => BrowserWindow[];
+    getWindows: () => IShutdownSaveWindow[];
     logger: ILogger;
     timeoutMs: number;
+    rawIpcRegistrationAudit?: IRawIpcRegistrationAudit;
 }): Promise<IShutdownSaveFlushSummary> {
     const windows = options.getWindows()
         .filter(window => !window.isDestroyed() && !window.webContents.isDestroyed());
@@ -96,6 +107,7 @@ export async function requestShutdownSaveFlush(options: {
         const cleanup = () => {
             clearTimeout(timeout);
             ipcMain.removeListener(CORE_IPC_SEND_CHANNELS.shutdownSaveFlushResult, handleResponse);
+            options.rawIpcRegistrationAudit?.release('shutdown-save-flush-result');
         };
 
         const finishIfDone = () => {
@@ -186,7 +198,12 @@ export async function requestShutdownSaveFlush(options: {
             finishIfDone();
         };
 
-        ipcMain.on(CORE_IPC_SEND_CHANNELS.shutdownSaveFlushResult, handleResponse);
+        const register = () => ipcMain.on(CORE_IPC_SEND_CHANNELS.shutdownSaveFlushResult, handleResponse);
+        if (options.rawIpcRegistrationAudit) {
+            options.rawIpcRegistrationAudit.register('shutdown-save-flush-result', register);
+        } else {
+            register();
+        }
         for (const window of windows) {
             try {
                 window.webContents.send(CORE_IPC_EVENT_CHANNELS.shutdownSaveFlushRequest, {requestId});

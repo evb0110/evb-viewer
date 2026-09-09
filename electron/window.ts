@@ -27,6 +27,7 @@ import {
 } from '@electron/window/registry';
 import { attachShowLifecycle } from '@electron/window/attachShowLifecycle';
 import { attachNativeWindowCloseHandshake } from '@electron/window/windowCloseHandshake';
+import type {IRawIpcRegistrationAudit} from '@electron/platform-ipc/rawIpcRegistration';
 import {
     encodeHostResourceProfileArgument,
     getHostResourceProfileSnapshot,
@@ -136,9 +137,14 @@ function logWindowStartup(phase: string, details?: Record<string, unknown>) {
 
 let createMainWindowPromise: Promise<BrowserWindow> | null = null;
 let shouldBypassNativeWindowClose = () => false;
+let rawIpcRegistrationAudit: IRawIpcRegistrationAudit | undefined;
 
-export function configureNativeWindowCloseHandshake(options: {shouldBypass: () => boolean}) {
+export function configureNativeWindowCloseHandshake(options: {
+    shouldBypass: () => boolean;
+    rawIpcRegistrationAudit?: IRawIpcRegistrationAudit;
+}) {
     shouldBypassNativeWindowClose = options.shouldBypass;
+    rawIpcRegistrationAudit = options.rawIpcRegistrationAudit;
 }
 
 interface ICreateAppWindowOptions {
@@ -606,6 +612,7 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
         ipcMain,
         logger,
         shouldBypass: () => shouldBypassNativeWindowClose(),
+        ...(rawIpcRegistrationAudit ? {rawIpcRegistrationAudit} : {}),
     });
 
     const shouldWaitForInitialRendererReady = options.waitForInitialRendererReady ?? false;

@@ -12,7 +12,7 @@ import {
     isGreekOcrLanguage,
     isRtlOcrLanguage,
 } from '@contracts/ocrLanguages';
-import { resolveTesseractLanguageConfig } from '@electron/ocr/resolveTesseractLanguageConfig';
+import { resolveTesseractLanguageConfig } from '@electron/features/ocr/main/resolveTesseractLanguageConfig';
 
 describe('resolveTesseractLanguageConfig', () => {
     it('ships English and Russian offline while retaining every supported on-demand language', () => {

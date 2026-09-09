@@ -15,8 +15,8 @@ import path from 'node:path';
 import {
     createOcrJobStorageBudget,
     OcrStorageBudgetError,
-} from '@electron/ocr/worker/ocrJobStorageBudget';
-import {persistOcrPageCheckpoint} from '@electron/ocr/worker/persistOcrPageCheckpoint';
+} from '@electron/features/ocr/worker/ocrJobStorageBudget';
+import {persistOcrPageCheckpoint} from '@electron/features/ocr/worker/persistOcrPageCheckpoint';
 
 function createBudget(options: {
     inspect: () => Promise<{

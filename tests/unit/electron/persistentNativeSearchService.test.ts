@@ -57,7 +57,7 @@ const request = {
 
 describe('persistent native search service', () => {
     afterEach(async () => {
-        const {shutdownPersistentNativeSearchServices} = await import('@electron/search/tryRunPersistentNativeSearch');
+        const {shutdownPersistentNativeSearchServices} = await import('@electron/features/search/tryRunPersistentNativeSearch');
         await shutdownPersistentNativeSearchServices('test cleanup').catch(() => undefined);
         vi.restoreAllMocks();
         vi.unstubAllEnvs();
@@ -73,7 +73,7 @@ describe('persistent native search service', () => {
             executablePath,
             markerPath,
         } = await createWrongProtocolService();
-        const {tryRunPersistentNativeSearch} = await import('@electron/search/tryRunPersistentNativeSearch');
+        const {tryRunPersistentNativeSearch} = await import('@electron/features/search/tryRunPersistentNativeSearch');
         const startedAt = Date.now();
         await expect(tryRunPersistentNativeSearch(executablePath, request, {timeoutMs: 1_000}))
             .rejects.toThrow(/protocol mismatch: expected 1, got 99; \[native stderr truncated to 65536 bytes\] native stderr: .*diagnostic-tail/u);
@@ -91,7 +91,7 @@ describe('persistent native search service', () => {
             persistentNativeSearchRuntime,
             shutdownPersistentNativeSearchServices,
             tryRunPersistentNativeSearch,
-        } = await import('@electron/search/tryRunPersistentNativeSearch');
+        } = await import('@electron/features/search/tryRunPersistentNativeSearch');
         const terminate = persistentNativeSearchRuntime.terminateDetachedChildProcess;
         let markTerminationStarted!: () => void;
         const terminationStarted = new Promise<void>(resolve => {
@@ -128,7 +128,7 @@ describe('persistent native search service', () => {
             persistentNativeSearchRuntime,
             shutdownPersistentNativeSearchServices,
             tryRunPersistentNativeSearch,
-        } = await import('@electron/search/tryRunPersistentNativeSearch');
+        } = await import('@electron/features/search/tryRunPersistentNativeSearch');
         const terminate = persistentNativeSearchRuntime.terminateDetachedChildProcess;
         let cleanupFinished!: () => void;
         const cleanupCompletion = new Promise<void>(resolve => {
@@ -154,7 +154,7 @@ setTimeout(() => process.stdout.write(JSON.stringify({type: 'ready', protocolVer
 setTimeout(() => process.exit(0), 500);
 process.stdin.resume();
 `);
-        const {tryRunPersistentNativeSearch} = await import('@electron/search/tryRunPersistentNativeSearch');
+        const {tryRunPersistentNativeSearch} = await import('@electron/features/search/tryRunPersistentNativeSearch');
         const controller = new AbortController();
         const result = tryRunPersistentNativeSearch(executablePath, request, {
             signal: controller.signal,
@@ -172,7 +172,7 @@ process.stdout.write(JSON.stringify({type: 'ready', protocolVersion: 1}) + '\\n'
 process.stdin.destroy();
 setTimeout(() => process.exit(0), 500);
 `);
-        const {tryRunPersistentNativeSearch} = await import('@electron/search/tryRunPersistentNativeSearch');
+        const {tryRunPersistentNativeSearch} = await import('@electron/features/search/tryRunPersistentNativeSearch');
 
         await expect(tryRunPersistentNativeSearch(executablePath, request, {timeoutMs: 30}))
             .rejects.toThrow(/request timeout|unavailable|EPIPE/u);
@@ -194,7 +194,7 @@ readline.createInterface({input: process.stdin}).on('line', line => {
     }) + '\\n'), 100);
 });
 `);
-        const {tryRunPersistentNativeSearch} = await import('@electron/search/tryRunPersistentNativeSearch');
+        const {tryRunPersistentNativeSearch} = await import('@electron/features/search/tryRunPersistentNativeSearch');
 
         await expect(tryRunPersistentNativeSearch(executablePath, request, {
             idleTimeoutMs: 30,
@@ -229,7 +229,7 @@ readline.createInterface({input: process.stdin}).on('line', line => {
         const {
             resetPersistentNativeSearchServiceCaches,
             tryRunPersistentNativeSearch,
-        } = await import('@electron/search/tryRunPersistentNativeSearch');
+        } = await import('@electron/features/search/tryRunPersistentNativeSearch');
         await tryRunPersistentNativeSearch(executablePath, request, {timeoutMs: 1_000});
 
         resetPersistentNativeSearchServiceCaches();
@@ -266,7 +266,7 @@ readline.createInterface({input: process.stdin}).on('line', line => {
         const {
             shutdownPersistentNativeSearchServices,
             tryRunPersistentNativeSearch,
-        } = await import('@electron/search/tryRunPersistentNativeSearch');
+        } = await import('@electron/features/search/tryRunPersistentNativeSearch');
         await tryRunPersistentNativeSearch(executablePath, request, {timeoutMs: 1_000});
 
         await shutdownPersistentNativeSearchServices('app shutdown');
@@ -287,7 +287,7 @@ readline.createInterface({input: process.stdin}).on('line', line => {
         const {
             shutdownPersistentNativeSearchServices,
             tryRunPersistentNativeSearch,
-        } = await import('@electron/search/tryRunPersistentNativeSearch');
+        } = await import('@electron/features/search/tryRunPersistentNativeSearch');
         const activeSearch = tryRunPersistentNativeSearch(executablePath, request, {timeoutMs: 10_000});
         const activeSettlement = vi.fn();
         void activeSearch.then(activeSettlement, activeSettlement);
@@ -325,7 +325,7 @@ readline.createInterface({input: process.stdin}).on('line', line => {
             persistentNativeSearchRuntime,
             shutdownPersistentNativeSearchServices,
             tryRunPersistentNativeSearch,
-        } = await import('@electron/search/tryRunPersistentNativeSearch');
+        } = await import('@electron/features/search/tryRunPersistentNativeSearch');
         const terminate = persistentNativeSearchRuntime.terminateDetachedChildProcess;
         const terminateSpy = vi.spyOn(persistentNativeSearchRuntime, 'terminateDetachedChildProcess')
             .mockImplementation((...args) => terminate(...args));
@@ -360,7 +360,7 @@ readline.createInterface({input: process.stdin}).on('line', line => {
             persistentNativeSearchRuntime,
             shutdownPersistentNativeSearchServices,
             tryRunPersistentNativeSearch,
-        } = await import('@electron/search/tryRunPersistentNativeSearch');
+        } = await import('@electron/features/search/tryRunPersistentNativeSearch');
         const terminate = persistentNativeSearchRuntime.terminateDetachedChildProcess;
         vi.spyOn(persistentNativeSearchRuntime, 'terminateDetachedChildProcess').mockImplementation(async (...args) => {
             await terminate(...args);

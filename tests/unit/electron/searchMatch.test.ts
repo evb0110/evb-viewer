@@ -13,7 +13,7 @@ import {
     buildExcerpt,
     findPageMatches,
     iteratePageMatches,
-} from '@electron/search/worker/searchMatch';
+} from '@electron/features/search/worker/searchMatch';
 
 const DEFAULT_OPTIONS = {
     matchCase: false,

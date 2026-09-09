@@ -8,7 +8,7 @@ import {
 } from 'vitest';
 import type { SearchWorkerService } from '@electron/features/search/main/searchWorkerService';
 import type { ISearchResourcePolicy } from '@electron/features/search/main/searchResourcePolicy';
-import {requireDocumentRevisionToken} from '@contracts';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {requireRequestId} from '@contracts/shared';
 
 const workerMocks = vi.hoisted(() => ({instances: [] as Array<{

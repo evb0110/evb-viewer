@@ -1115,7 +1115,6 @@ describe('createElectronApi', () => {
         expect(documentsClientMock.openDocumentDirectBatch).not.toHaveBeenCalled();
     });
 });
-
 async function flushMicrotasks() {
     await Promise.resolve();
     await Promise.resolve();

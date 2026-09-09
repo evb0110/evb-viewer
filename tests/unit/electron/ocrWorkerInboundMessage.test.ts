@@ -7,7 +7,7 @@ import {
     parseInvalidOcrWorkerStartMessage,
     parseOcrWorkerInboundMessage,
     parseOcrWorkerStartPayload,
-} from '@electron/ocr/worker/inboundMessage';
+} from '@electron/features/ocr/worker/inboundMessage';
 
 const documentRevision = {
     version: 1 as const,

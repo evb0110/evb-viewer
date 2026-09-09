@@ -5,7 +5,7 @@ import type {
     IPageMoveRangeSegment,
     TPageSelection,
     TPageMoveOperation,
-} from '@contracts/pageNumbers';
+} from '@pdf-core/pdfPageSelection';
 import {
     getFailureReceipt,
     type ExpectedOutcome,
@@ -19,7 +19,7 @@ import {
     isPageSelected,
     mapPageNumberAfterPageMove,
     pageMoveRangesRestInsertIndex,
-} from '@contracts/pageNumbers';
+} from '@pdf-core/pdfPageSelection';
 import { getErrorMessage } from '@contracts/getErrorMessage';
 import {
     useEventListener,

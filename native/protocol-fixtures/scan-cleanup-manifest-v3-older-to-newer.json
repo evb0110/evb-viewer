@@ -1,0 +1,15 @@
+{
+  "version": 3,
+  "operation": "analyze",
+  "renderMode": "preview",
+  "canvasScope": "page",
+  "pages": [
+    {
+      "inputPath": "/fixtures/input/page-1.png",
+      "sourcePageIndex": 0,
+      "pageMetadataPath": "/fixtures/output/page-1.json",
+      "options": {},
+      "outputs": []
+    }
+  ]
+}

@@ -29,12 +29,12 @@ import {
     resolveMainJobBrokerCapacity,
 } from '@electron/resources/jobBroker';
 import {
-    classifyScanCleanupError,
     createScanCleanupService,
     grantScanCleanupOutputAccess,
 } from '@electron/features/scan-cleanup/createScanCleanupService';
-import {ScanCleanupPageScopeError} from '@scan-cleanup-core/pageScope';
-import type {IScanCleanupDetectionResultStore} from '@scan-cleanup-core/types';
+import {classifyScanCleanupPreviewError as classifyScanCleanupError} from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
+import {ScanCleanupPageScopeError} from '@evb/scan-cleanup/core/pageScope';
+import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/types';
 import {registerScanCleanupDetectionResultStore} from '@electron/features/scan-cleanup/detectionResultStoreRegistry';
 import {
     beginMainOperationShutdown,

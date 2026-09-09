@@ -22,6 +22,7 @@ import {
     type TWorkspaceExposeMethod,
 } from '@app/modules/workspace-shell/expose/workspaceExposeDescriptors';
 import { getErrorMessage } from '@app/utils/error';
+import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 
 interface ICreateDeferredWorkspaceExposeProxyDeps {
     documentSession?: IWorkspaceDocumentController | null | undefined;
@@ -278,27 +279,31 @@ export function createDeferredWorkspaceExposeProxy(
             ) === true;
         },
         captureSplitPayload: () => deps.getMounted()?.captureSplitPayload() ?? Promise.resolve({kind: 'empty'} satisfies TSplitPayload),
-        restoreSplitPayload: async (payload: TSplitPayload) => {
+        restoreSplitPayload: async (payload: TSplitPayload): Promise<TDocumentOpenOutcome> => {
             if (!deps.getMounted() && payload.kind === 'empty') {
-                return;
+                return {status: 'cancelled'};
             }
 
-            const restorePayload = async (signal?: AbortSignal) => {
-                await deps.withWorkspace('restoreSplitPayload', async (workspace) => {
-                    await workspace.restoreSplitPayload(payload);
-                    return true;
-                }, signal);
+            const restorePayload = async (signal?: AbortSignal): Promise<TDocumentOpenOutcome> => {
+                if (signal?.aborted) {
+                    return {status: 'cancelled'};
+                }
+                const outcome = await deps.withLoadedWorkspace(
+                    'restoreSplitPayload',
+                    workspace => workspace.restoreSplitPayload(payload),
+                );
+                return outcome ?? {status: 'cancelled'};
             };
 
             if (payload.kind === 'empty') {
-                await restorePayload();
-                return;
+                return restorePayload();
             }
 
-            await openQueued({
+            const outcome = await openQueued({
                 action: 'restoreSplitPayload',
                 target: null,
             }, restorePayload);
+            return outcome === false ? {status: 'cancelled'} : outcome;
         },
         runAgentAction: async (actionId, input, options, context) => {
             const target = context?.commandTarget ?? createCommandTarget();

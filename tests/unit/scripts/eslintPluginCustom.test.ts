@@ -9,6 +9,9 @@ import * as vueParser from 'vue-eslint-parser';
 import stylelint from 'stylelint';
 
 const customPlugin = (await import(new URL('../../../eslint-plugin-custom.mjs', import.meta.url).href)).default;
+const {getInternalMockAllowlistGrowth} = await import(new URL('../../../eslint-plugin-custom.mjs', import.meta.url).href);
+const {internalMockAllowlist} = await import(new URL('../../../eslint.internal-mock-allowlist.mjs', import.meta.url).href) as {internalMockAllowlist: Record<string, number>;};
+const {internalMockAllowlistBaseline} = await import(new URL('../../../eslint.internal-mock-allowlist-baseline.mjs', import.meta.url).href);
 const stylelintConfigModule = await import(new URL('../../../stylelint.config.mjs', import.meta.url).href);
 const stylelintConfig = stylelintConfigModule.default;
 const stylelintCustomPlugins = stylelintConfigModule.stylelintCustomPlugins;
@@ -76,6 +79,116 @@ describe('commonjs-named-imports rule', () => {
                 }],
             },
         );
+    });
+});
+
+describe('no-internal-test-mocks rule', () => {
+    it('rejects same-layer vi.mock, vi.doMock, and vi.spyOn while allowing boundaries', () => {
+        tester.run('no-internal-test-mocks', rules['no-internal-test-mocks'] as Parameters<typeof tester.run>[1], {
+            valid: [
+                {
+                    code: 'vi.mock(\'fs\', () => ({}));',
+                    filename: 'tests/unit/electron/example.test.ts',
+                },
+                {
+                    code: 'vi.mock(\'@electron/features/ocr/worker/runOcrCommand\', () => ({}));',
+                    filename: 'tests/unit/electron/ocrWorkerPageProcessing.test.ts',
+                },
+                {
+                    code: 'vi.mock(\'@electron/pdf/pdfPageCount\', () => ({}));',
+                    filename: 'tests/unit/electron/example.test.ts',
+                },
+                {
+                    code: 'vi.mock(\'@electron/file-access/workingCopyStore\', () => ({}));',
+                    filename: 'tests/unit/electron/example.test.ts',
+                },
+                {
+                    code: `vi.mock('@app/composables/useSettings', () => ({}));
+vi.mock('@app/modules/pdf-viewer/components/PdfAnnotationToolbar.vue', () => ({}));
+vi.mock('@app/modules/workspace-shell/composables/nativePdfMutationArtifact', () => ({}));
+vi.doMock('@app/utils/platformDocuments', () => ({}));
+vi.mock('@app/utils/platformWindowTabs', () => ({}));`,
+                    filename: 'tests/unit/app/boundary.test.ts',
+                },
+            ],
+            invalid: [
+                {
+                    code: 'vi.mock(\'@electron/features/search/searchService\', () => ({}));',
+                    filename: 'tests/unit/electron/example.test.ts',
+                    errors: 1,
+                },
+                {
+                    code: 'vi.doMock(\'@app/services/recentFiles\', () => ({}));',
+                    filename: 'tests/unit/app/example.test.ts',
+                    errors: 1,
+                },
+                {
+                    code: 'import * as service from \'@server/utils/getRuntimeEnv\'; vi.spyOn(service, \'getRuntimeEnv\');',
+                    filename: 'tests/unit/server/example.test.ts',
+                    errors: 1,
+                },
+                {
+                    code: `vi.mock('@app/services/one', () => ({}));
+vi.doMock('@app/services/two', () => ({}));`,
+                    filename: 'tests/unit/app/allowlisted.test.ts',
+                    options: [{allowlist: {'tests/unit/app/allowlisted.test.ts': 1}}],
+                    errors: 1,
+                },
+                {
+                    code: 'vi.mock(\'@app/services/new\', () => ({}));',
+                    filename: 'tests/unit/app/new-file.test.ts',
+                    options: [{
+                        allowlist: {'tests/unit/app/new-file.test.ts': 1},
+                        baseline: internalMockAllowlistBaseline,
+                    }],
+                    errors: 1,
+                },
+                {
+                    code: 'vi.mock(\'@app/services/one\', () => ({}));',
+                    filename: 'tests/unit/app/components/appSearchInput.test.ts',
+                    options: [{
+                        allowlist: {'tests/unit/app/components/appSearchInput.test.ts': 2},
+                        baseline: internalMockAllowlistBaseline,
+                    }],
+                    errors: 1,
+                },
+            ],
+        });
+    });
+});
+
+describe('no-removed-package-aliases rule', () => {
+    it('rejects the contracts barrel and removed scoped aliases while allowing canonical subpaths', () => {
+        tester.run('no-removed-package-aliases', rules['no-removed-package-aliases'] as Parameters<typeof tester.run>[1], {
+            valid: [
+                { code: 'import { requireDocumentRevisionToken } from \'@contracts/documentRevision\';' },
+                { code: 'import { LOCALE_CODES } from \'@i18n-core/localeCodes\';' },
+                { code: 'export { selectPreferredInstallers } from \'@releaseSelection\';' },
+            ],
+            invalid: [
+                {
+                    code: 'import { requireDocumentRevisionToken } from \'@contracts\';',
+                    errors: [{message: 'Use a canonical package subpath instead of removed alias "@contracts".'}],
+                },
+                {
+                    code: 'export { plural } from \'@evb/i18n-core/messageFormat\';',
+                    errors: [{message: 'Use a canonical package subpath instead of removed alias "@evb/i18n-core/messageFormat".'}],
+                },
+            ],
+        });
+    });
+});
+
+describe('no-internal-test-mocks allowlist baseline', () => {
+    it('matches the current 997-violation, 327-file baseline and permits shrinkage', () => {
+        expect(getInternalMockAllowlistGrowth(internalMockAllowlist, internalMockAllowlistBaseline)).toEqual([]);
+        expect(Object.values(internalMockAllowlist).reduce((total, count) => total + count, 0)).toBe(997);
+        expect(Object.keys(internalMockAllowlist)).toHaveLength(327);
+
+        const shrunk = {...internalMockAllowlist};
+        delete shrunk['tests/unit/app/components/appSearchInput.test.ts'];
+        shrunk['tests/unit/electron/agentAssistantOptIn.test.ts'] = 7;
+        expect(getInternalMockAllowlistGrowth(shrunk, internalMockAllowlistBaseline)).toEqual([]);
     });
 });
 
@@ -607,43 +720,37 @@ describe('nuxt-ui-semantic-utilities rule', () => {
     });
 });
 
-describe('tailwind-class-shorthand rule', () => {
-    it('passes RuleTester valid/invalid scenarios', () => {
+describe('tailwind-class-policy rule', () => {
+    it('keeps layout-token and conflicting-utility checks', () => {
         tester.run(
             'tailwind-class-shorthand',
             rules['tailwind-class-shorthand'] as Parameters<typeof tester.run>[1],
             {
                 valid: [
                     { code: '<template><div class="py-2" /></template>' },
-                    { code: '<template><div :class="`px-3`" /></template>' },
+                    { code: '<template><div class="grid-cols-3" /></template>' },
                 ],
                 invalid: [
-                    {
-                        code: '<template><div class="pt-2 pb-2" /></template>',
-                        output: '<template><div class="py-2" /></template>',
-                        errors: 1,
-                    },
-                    {
-                        code: '<template><div :class="`pl-3 pr-3`" /></template>',
-                        output: '<template><div :class="`px-3`" /></template>',
-                        errors: 1,
-                    },
-                    {
-                        code: '<template><div class="px-2 px-2" /></template>',
-                        output: '<template><div class="px-2" /></template>',
-                        errors: 1,
-                    },
                     {
                         code: '<template><div class="grid-cols-[13]" /></template>',
                         output: null,
                         errors: [{message: 'Use layout tokens instead of arbitrary numeric Tailwind utilities: grid-cols-[13]'}],
+                    },
+                    {
+                        code: '<template><div class="md:-mt-[13%]" /></template>',
+                        output: null,
+                        errors: [{message: 'Use layout tokens instead of arbitrary numeric Tailwind utilities: md:-mt-[13%]'}],
+                    },
+                    {
+                        code: '<template><div class="p-2 p-4" /></template>',
+                        output: null,
+                        errors: [{message: 'Conflicting Tailwind utilities: p -> p-2 vs p-4'}],
                     },
                 ],
             },
         );
     });
 });
-
 describe('app-tooltip-only rule', () => {
     it('rejects raw tooltip APIs but allows AppTooltip and component title props', () => {
         tester.run(
@@ -668,53 +775,6 @@ describe('app-tooltip-only rule', () => {
                     {
                         code: '<template><div :title="label" /></template>',
                         errors: [{ message: 'Do not use native title tooltips. Use AppTooltip for useful tooltips, or aria-label for accessibility-only labels.' }],
-                    },
-                ],
-            },
-        );
-    });
-});
-
-describe('destructuring-property-newline rule', () => {
-    it('splits properties without discarding annotations, rest elements, or comments', () => {
-        tester.run(
-            'destructuring-property-newline',
-            rules['destructuring-property-newline'] as Parameters<typeof tester.run>[1],
-            {
-                valid: [
-                    { code: 'const {alpha} = source;' },
-                    { code: 'const {\n    alpha,\n    beta,\n} = source;' },
-                ],
-                invalid: [
-                    {
-                        code: 'const {alpha, beta} = source;',
-                        output: 'const {\n    alpha,\n    beta,\n} = source;',
-                        errors: [{message: 'Destructuring properties should be on separate lines when there are 2 or more'}],
-                    },
-                    {
-                        code: 'function useThing({alpha, beta}: IThing) {}',
-                        output: 'function useThing({\n    alpha,\n    beta,\n}: IThing) {}',
-                        errors: 1,
-                    },
-                    {
-                        code: 'function useThing({\n    alpha,\n    beta, gamma\n}: IThing) {}',
-                        output: 'function useThing({\n    alpha,\n    beta,\n    gamma,\n}: IThing) {}',
-                        errors: [{message: 'Each destructuring property should be on its own line'}],
-                    },
-                    {
-                        code: 'function maybe({alpha, beta}: IOpts = {}) {}',
-                        output: 'function maybe({\n    alpha,\n    beta,\n}: IOpts = {}) {}',
-                        errors: 1,
-                    },
-                    {
-                        code: 'const {alpha, ...rest} = source;',
-                        output: 'const {\n    alpha,\n    ...rest\n} = source;',
-                        errors: 1,
-                    },
-                    {
-                        code: 'const {alpha, /* load-bearing */ beta} = source;',
-                        output: null,
-                        errors: 1,
                     },
                 ],
             },

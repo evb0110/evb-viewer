@@ -21,7 +21,7 @@ export {
     parseUserAgent,
     recommendInstaller,
     selectPreferredInstallers,
-} from '@evb/releaseSelection/releaseSelection';
+} from '@releaseSelection/releaseSelection';
 
 export type {
     ILatestReleaseResponse,
@@ -30,7 +30,7 @@ export type {
     IUserAgentProfile,
     TReleaseArch,
     TReleasePlatform,
-} from '@contracts';
+} from '@contracts/release';
 
 export {
     createReleaseCatalogLoader,
@@ -39,13 +39,13 @@ export {
     getMissingConfiguredReleaseTags,
     parseRetryAfterMs,
     shouldRetryReleaseFetch,
-} from '@evb/releaseSelection/latestReleaseRetry';
+} from '@releaseSelection/latestReleaseRetry';
 
 export {
     normalizeCanaryPercent,
     parseReleaseTagList,
     selectReleaseForRollout,
-} from '@evb/releaseSelection/releaseRolloutPolicy';
+} from '@releaseSelection/releaseRolloutPolicy';
 export type {
     IReleaseRolloutPolicy, IRolloutRelease,
-} from '@evb/releaseSelection/releaseRolloutPolicy';
+} from '@releaseSelection/releaseRolloutPolicy';

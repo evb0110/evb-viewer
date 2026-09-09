@@ -3,6 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
+import { requireDocumentRef } from '@contracts/documentRef';
 import { WINDOW_TABS_PLATFORM_FEATURE } from '@contracts/windowTabsPlatformFeature';
 
 const [transferRequest] = WINDOW_TABS_PLATFORM_FEATURE.methods.transfer.ipc.args.example();
@@ -62,6 +63,52 @@ describe('window tabs platform feature schemas', () => {
         expect(codecs[channels.acknowledgeWorkspaceCheckpoint]!.decodeArgs([])).toEqual([]);
         expect(codecs[channels.acknowledgePendingExternalOpenPaths]!.decodeArgs([['/tmp/a.pdf']]))
             .toEqual([['/tmp/a.pdf']]);
+    });
+
+    it('preserves generated and ordinary dirty PDF payloads through transfer decoding', () => {
+        const generatedPayload = {
+            kind: 'pdfSnapshot' as const,
+            fileName: 'generated.pdf',
+            originalPath: requireDocumentRef('/tmp/source.pdf'),
+            snapshotPath: requireDocumentRef('/tmp/generated-working.pdf'),
+            isDirty: true,
+            isGenerated: true,
+        };
+        const ordinaryDirtyPayload = {
+            kind: 'pdfSnapshot' as const,
+            fileName: 'ordinary.pdf',
+            originalPath: requireDocumentRef('/tmp/source-ordinary.pdf'),
+            snapshotPath: requireDocumentRef('/tmp/ordinary-working.pdf'),
+            isDirty: true,
+        };
+        const generatedRequest = {
+            ...transferRequest,
+            payload: generatedPayload,
+        };
+        const ordinaryRequest = {
+            ...transferRequest,
+            payload: ordinaryDirtyPayload,
+        };
+
+        expect(codecs[channels.transfer]!.decodeArgs([generatedRequest])).toEqual([generatedRequest]);
+        expect(codecs[channels.transfer]!.decodeArgs([ordinaryRequest])).toEqual([ordinaryRequest]);
+
+        const generatedIncoming = {
+            transferId: 'transfer-generated',
+            sourceWindowId: 1,
+            targetWindowId: 2,
+            tab: transferRequest.tab,
+            payload: generatedPayload,
+        };
+        const ordinaryIncoming = {
+            ...generatedIncoming,
+            transferId: 'transfer-ordinary',
+            payload: ordinaryDirtyPayload,
+        };
+        expect(WINDOW_TABS_PLATFORM_FEATURE.events.onIncomingTransfer.payload.decode(generatedIncoming).payload)
+            .toEqual(generatedPayload);
+        expect(WINDOW_TABS_PLATFORM_FEATURE.events.onIncomingTransfer.payload.decode(ordinaryIncoming).payload)
+            .toEqual(ordinaryDirtyPayload);
     });
 
     it('decodes event payloads and rejects malformed boundary values', () => {

@@ -13,7 +13,16 @@ import type { TWorkerLog } from '@electron/ocr/worker/types';
 const mocks = vi.hoisted(() => ({
     spawn: vi.fn(),
     terminateDetachedChildProcess: vi.fn(async () => {}),
-    verifyNativeToolProtocol: vi.fn(async () => {}),
+    verifyNativeToolProtocol: vi.fn(async (): Promise<{
+        protocolVersion: number;
+        capabilities: readonly string[];
+    }> => ({
+        protocolVersion: 10,
+        capabilities: [
+            'manifest-v3',
+            'structured-warning-events',
+        ],
+    })),
 }));
 
 vi.mock('child_process', () => ({spawn: mocks.spawn}));
@@ -180,6 +189,49 @@ describe('scan cleanup sidecar stage timings', () => {
         });
     });
 
+    it.each([
+        [
+            'legacy revision 9',
+            {
+                protocolVersion: 9,
+                capabilities: ['manifest-v3'],
+            },
+            false,
+        ],
+        [
+            'revision 10 structured warnings',
+            {
+                protocolVersion: 10,
+                capabilities: [
+                    'manifest-v3',
+                    'structured-warning-events',
+                ],
+            },
+            true,
+        ],
+    ] as const)('returns the %s warning capability gate to the production pipeline', async (
+        _label,
+        handshake,
+        structuredWarningEventsSupported,
+    ) => {
+        const child = new MockSidecarProcess();
+        mocks.spawn.mockReturnValue(child);
+        mocks.verifyNativeToolProtocol.mockResolvedValue(handshake);
+        const {runScanCleanupSidecar} = await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
+        const run = runScanCleanupSidecar(
+            '/native/evb-scan-cleanup',
+            '/scratch/capability-manifest.json',
+            new AbortController().signal,
+            vi.fn<TWorkerLog>(),
+            () => {},
+        );
+        child.stdout.write(resultLine('success'));
+        await new Promise(resolve => setImmediate(resolve));
+        child.emit('close', 0, null);
+
+        await expect(run).resolves.toEqual({structuredWarningEventsSupported});
+    });
+
     it('reports per-stage totals summed across every page the sidecar timed', async () => {
         const child = new MockSidecarProcess();
         mocks.spawn.mockReturnValue(child);
@@ -279,7 +331,7 @@ describe('scan cleanup sidecar stage timings', () => {
         });
         child.emit('close', 0, null);
 
-        await expect(run).resolves.toBeUndefined();
+        await expect(run).resolves.toEqual({structuredWarningEventsSupported: true});
     });
 
     it('awaits process-tree cleanup before a wall-clock timeout rejects', async () => {

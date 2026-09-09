@@ -60,8 +60,8 @@
 import { parsePageRangeInput } from '@app/utils/document-viewer/pageLabels';
 import { createPageSelectionFromRange } from '@app/utils/pdfPageSelection';
 import { usePdfPageScopeSelection } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfPageScopeSelection';
-import type { TPageSelection } from '@contracts/pageNumbers';
-import { pageSelectionCount } from '@contracts/pageNumbers';
+import type { TPageSelection } from '@pdf-core/pdfPageSelection';
+import { pageSelectionCount } from '@pdf-core/pdfPageSelection';
 
 type TExportMode = 'images' | 'multipage-tiff';
 

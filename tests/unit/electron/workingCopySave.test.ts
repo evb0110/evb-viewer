@@ -23,7 +23,7 @@ import {
 import { join } from 'path';
 import { tmpdir } from 'os';
 import {promisify} from 'node:util';
-import {requireDocumentRevisionToken} from '@contracts';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 
 const execFileAsync = promisify(execFile);
 

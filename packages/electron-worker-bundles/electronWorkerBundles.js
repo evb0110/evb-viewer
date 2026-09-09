@@ -58,7 +58,7 @@ export const WORKER_BUNDLES = [
     },
     {
         id: 'search',
-        entryPoint: 'electron/search/worker.ts',
+        entryPoint: 'electron/features/search/worker.ts',
         fileName: 'search-worker.js',
         format: 'esm',
         unpacked: true,

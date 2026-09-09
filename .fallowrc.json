@@ -28,7 +28,7 @@
         "electron/ocr/worker/main.ts",
         "electron/ocr/worker/runProductionOcrQualityCase.ts",
         "electron/features/scan-cleanup/worker/main.ts",
-        "electron/search/worker.ts",
+        "electron/features/search/worker.ts",
         "packages/*/index.ts",
         // The package export map exposes nested diagnostics contracts as
         // public subpath entry points, not only through the root barrel.
@@ -81,6 +81,9 @@
         "@vue/runtime-dom",
         "@vue/server-renderer",
         "@vue/shared",
+        // Scan-cleanup package sources use the repository's @contracts path
+        // alias, which resolves to this workspace package at typecheck time.
+        "@evb/contracts",
         "consola",
         "cookie-es",
         "defu",
@@ -90,6 +93,10 @@
         "eslint",
         "eslint-import-resolver-typescript",
         "eslint-plugin-import",
+        // ESLint's flat config and format-comparison policy parse source at
+        // runtime; these are repository tooling, not application imports.
+        "@typescript-eslint/parser",
+        "vue-eslint-parser",
         "hookable",
         "iron-webcrypto",
         "@napi-rs/canvas",
@@ -153,6 +160,12 @@
             "exports": [
                 "SCAN_CLEANUP_MARGIN_SIDES"
             ]
+        },
+        {
+            "file": "electron/features/scan-cleanup/scanCleanupMainBindings.ts",
+            "exports": [
+                "disposeScanCleanupMainBindings"
+            ]
         }
     ],
     "usedClassMembers": [
@@ -166,7 +179,7 @@
     "workspaces": {
         "patterns": [
             "packages/*",
-            "scan-cleanup-core"
+            "packages/scan-cleanup/*"
         ]
     },
     // Sentry diagnostics repeat small adapters across renderer, Electron,

@@ -9,7 +9,7 @@ import { resolve } from 'path';
 import {
     createPendingResultFileStore,
     findPendingOcrResultFileForPath,
-} from '@electron/ocr/createPendingResultFileStore';
+} from '@electron/features/ocr/main/createPendingResultFileStore';
 import {
     requireJobId,
     requireRequestId,

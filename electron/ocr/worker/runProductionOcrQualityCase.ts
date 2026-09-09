@@ -5,11 +5,11 @@ import {
 } from 'node:fs/promises';
 import {join} from 'node:path';
 import type {IOcrDiagnostic} from '@contracts/electronApiOcr';
-import {tryPreprocessOcrImage} from '@electron/ocr/worker/tryPreprocessOcrImage';
+import {tryPreprocessOcrImage} from '@electron/features/ocr/worker/tryPreprocessOcrImage';
 import {
     getPngDimensionsFromFile,
     runOcrFileBased,
-} from '@electron/ocr/worker/tesseractRunner';
+} from '@electron/features/ocr/worker/tesseractRunner';
 
 export interface IOcrProductionQualityCase {
     dpi: number;

@@ -12,25 +12,24 @@ import {createRequestId} from '@contracts/shared';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import { createLogger } from '@electron/utils/createLogger';
 import {
+    buildExcerpt,
+    classifyXlargeSearchPath,
+    extractTextFromPdf,
+    iteratePageMatches,
+    loadCompactSearchIndex,
+    loadPdfjsTextExtractor,
+    loadSearchIndex,
     parseOptionalSearchPageCount,
     resolveSearchablePdfPath,
     resolveSearchWorkerPath,
     SearchWorkerService,
     validateSearchQuery,
 } from '@electron/features/search/public';
-import { loadSearchIndex } from '@electron/search/indexBuilder';
-import {
-    loadCompactSearchIndex,
-    type ICompactSearchIndex,
-} from '@electron/search/searchIndexSidecar';
-import {classifyXlargeSearchPath} from '@electron/search/xlargeSearchRouting';
-import {loadPdfjsTextExtractor} from '@electron/search/loadPdfjsTextExtractor';
+import type {
+    ICompactSearchIndex,
+    IPageText,
+} from '@electron/features/search/public';
 import { getWorkingCopyRevision } from '@electron/file-access/documentRevisionStore';
-import type { IPageText } from '@electron/search/pageText';
-import {
-    buildExcerpt,
-    iteratePageMatches,
-} from '@electron/search/worker/searchMatch';
 
 export interface IAgentDocumentSearchOptions extends ISearchMatchOptions {
     query: string;
@@ -612,7 +611,6 @@ async function extractSelectedPdfPageTextWithFallback(
     } catch (pdfjsError) {
         throwIfAborted(signal);
         logger.debug(`Direct PDF.js page text probe failed; falling back to pdftotext: ${getErrorMessage(pdfjsError)}`);
-        const { extractTextFromPdf } = await import('@electron/search/extractTextFromPdf');
         return {
             source: 'direct-pdftotext' as const,
             pages: completeRequestedPageTexts(await extractTextFromPdf(pdfPath, {

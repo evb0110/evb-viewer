@@ -13,8 +13,8 @@ import {
     createPageMoveRanges,
     isPageMoveNoOp,
     isPageMoveRangesNoOp,
-} from '@contracts/pageNumbers';
-import type { IPageMoveRangeSegment } from '@contracts/pageNumbers';
+} from '@pdf-core/pdfPageSelection';
+import type { IPageMoveRangeSegment } from '@pdf-core/pdfPageSelection';
 import type { TFeatureBrowserBindings } from '@contracts/platformFeature';
 import {
     createRequestId,

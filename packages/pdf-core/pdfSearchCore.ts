@@ -1,4 +1,5 @@
 export type {
+    IAssembledSearchablePageText,
     INormalizedPdfSearchRequest,
     INormalizedPdfSearchWarmIndexRequest,
     IPdfSearchExcerpt,
@@ -8,19 +9,23 @@ export type {
     TPdfSearchUtf16Offset,
 } from '@contracts/search';
 
-export { PDF_SEARCH_PROGRESS_RESULT_BATCH_LIMIT } from '@pdf-core/pdfSearchProgressResultBatchLimit';
-
 export {
-    assertSafePdfSearchRegex,
     buildPdfSearchExcerpt,
-    buildPdfSearchRegex,
-    assembleSearchablePageText,
-    collapseRepeatedPdfSearchPageText,
-    escapeSearchRegex,
     findPdfSearchMatches,
     iteratePdfSearchMatches,
     mapAssembledSearchablePageTextRange,
     normalizeSearchText,
+    SearchTextBudgetError,
+} from '@pdf-core/pdfSearchAlgorithms';
+
+export { PDF_SEARCH_PROGRESS_RESULT_BATCH_LIMIT } from '@pdf-core/pdfSearchProgressResultBatchLimit';
+
+export {
+    assertSafePdfSearchRegex,
+    buildPdfSearchRegex,
+    assembleSearchablePageText,
+    collapseRepeatedPdfSearchPageText,
+    escapeSearchRegex,
     normalizeOptionalSearchPageCount,
     normalizeOptionalSearchRequestId,
     normalizePdfSearchRequestPayload,

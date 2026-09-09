@@ -39,12 +39,12 @@ import {
     buildOcrTextLayerIndexText,
 } from '@contracts/ocrText';
 import {
-    COMPACT_SEARCH_INDEX_SOURCE_KIND_OCR_TEXT_LAYER,
-    getCompactSearchIndexPath,
-    loadCompactSearchIndex,
-    persistCompactSearchIndex,
-} from '@electron/search/searchIndexSidecar';
-import {classifyXlargeSearchPathFromFile} from '@electron/search/xlargeSearchRouting';
+    NATIVE_COMPACT_SEARCH_INDEX_SOURCE_KIND_OCR_TEXT_LAYER as COMPACT_SEARCH_INDEX_SOURCE_KIND_OCR_TEXT_LAYER,
+    getNativeCompactSearchIndexPath as getCompactSearchIndexPath,
+    loadNativeCompactSearchIndex as loadCompactSearchIndex,
+    persistNativeCompactSearchIndex as persistCompactSearchIndex,
+    classifyXlargeSearchPathFromFile,
+} from '@electron/features/search/publicNative';
 import { getErrorMessage } from '@electron/utils/error';
 import {
     abortErrorFromSignal,
@@ -52,12 +52,12 @@ import {
 } from '@electron/utils/abort';
 import { assertWorkingCopyRevisionSidecarCurrent as assertWorkingCopyRevisionCurrent } from '@electron/file-access/documentRevisionSidecar';
 import {
-    streamOcrIndexV3ManifestMappings,
     readOcrIndexV3ManifestMetadata,
-} from '@electron/ocr/ocrIndexV3Stream';
-import type {IOcrIndexV3ManifestStreamMetadata} from '@electron/ocr/ocrIndexV3Stream';
-import {resolveCatalogPath} from '@electron/ocr/ocrCatalogV4';
-import {writeOcrIndexV4} from '@electron/ocr/worker/indexWriterV4';
+    resolveCatalogPath,
+    streamOcrIndexV3ManifestMappings,
+} from '@electron/features/ocr/workerPublic';
+import type {IOcrIndexV3ManifestStreamMetadata} from '@electron/features/ocr/workerPublic';
+import {writeOcrIndexV4} from '@electron/features/ocr/worker/indexWriterV4';
 import {
     createEpochMs,
     requireEpochMs,

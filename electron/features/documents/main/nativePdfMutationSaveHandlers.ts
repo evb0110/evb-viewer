@@ -21,7 +21,7 @@ import type {
 import {
     collectExpectedNativeIdentityIds,
     splitPdfNativeMutationSetIntoBoundedChunks,
-} from '@contracts/nativePdfMutations';
+} from '@pdf-core/nativePdfMutationPolicy';
 import type { IPdfValidationResult } from '@contracts/pdfConformance';
 import type { ITypedStagedArtifact } from '@contracts/stagedArtifacts';
 import {

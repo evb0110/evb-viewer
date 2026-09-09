@@ -6,7 +6,7 @@ import {
     formatScanCleanupWarningEvent,
     toScanCleanupDpiThousandths,
     toScanCleanupPercentTenths,
-} from '@scan-cleanup-core/policy/scanCleanupWarningEvents';
+} from '@evb/scan-cleanup/core/policy/scanCleanupWarningEvents';
 import {
     describe,
     expect,

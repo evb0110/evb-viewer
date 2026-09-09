@@ -9,9 +9,27 @@ pub mod pdf_catalog;
 pub mod wasm_request_allocation;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct NativeToolCapability {
+    pub name: &'static str,
+    pub required: bool,
+    pub introduced_in: u32,
+}
+
+impl NativeToolCapability {
+    pub const fn new(name: &'static str, required: bool, introduced_in: u32) -> Self {
+        Self {
+            name,
+            required,
+            introduced_in,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct NativeToolDescriptor {
     pub binary_name: &'static str,
     pub protocol_version: u32,
+    pub capabilities: &'static [NativeToolCapability],
 }
 
 impl NativeToolDescriptor {
@@ -19,6 +37,19 @@ impl NativeToolDescriptor {
         Self {
             binary_name,
             protocol_version,
+            capabilities: &[],
+        }
+    }
+
+    pub const fn with_capabilities(
+        binary_name: &'static str,
+        protocol_version: u32,
+        capabilities: &'static [NativeToolCapability],
+    ) -> Self {
+        Self {
+            binary_name,
+            protocol_version,
+            capabilities,
         }
     }
 }
@@ -149,7 +180,28 @@ fn standard_cli_output(
 ) -> Option<String> {
     match args {
         [flag] if flag == "--protocol-version" => {
-            Some(format!("{}\n", descriptor.protocol_version))
+            if descriptor.capabilities.is_empty() {
+                Some(format!("{}\n", descriptor.protocol_version))
+            } else {
+                #[derive(Serialize)]
+                #[serde(rename_all = "camelCase")]
+                struct ProtocolHandshake {
+                    protocol_version: u32,
+                    capabilities: Vec<&'static str>,
+                }
+                Some(format!(
+                    "{}\n",
+                    serde_json::to_string(&ProtocolHandshake {
+                        protocol_version: descriptor.protocol_version,
+                        capabilities: descriptor
+                            .capabilities
+                            .iter()
+                            .map(|capability| capability.name)
+                            .collect(),
+                    })
+                    .expect("native protocol handshake serialization cannot fail"),
+                ))
+            }
         }
         [flag] if flag == "--version" || flag == "-V" => {
             Some(format!("{} {package_version}\n", descriptor.binary_name))
@@ -200,9 +252,14 @@ mod tests {
 
         for (descriptor, protocol_version) in expected {
             assert_eq!(descriptor.protocol_version, protocol_version);
+            let expected_protocol_output = if descriptor == SCAN_CLEANUP {
+                Some("{\"protocolVersion\":10,\"capabilities\":[\"manifest-v3\",\"structured-warning-events\"]}\n".to_string())
+            } else {
+                Some(format!("{protocol_version}\n"))
+            };
             assert_eq!(
                 standard_cli_output(descriptor, "9.8.7", &["--protocol-version".to_string()]),
-                Some(format!("{protocol_version}\n"))
+                expected_protocol_output,
             );
             for flag in ["--version", "-V"] {
                 assert_eq!(

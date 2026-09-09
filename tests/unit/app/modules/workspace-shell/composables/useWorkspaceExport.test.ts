@@ -61,6 +61,8 @@ function createComposable(options: {
     ensureWorkingCopyFreshForRead?: () => Promise<boolean>;
     sourceKind?: 'pdf' | 'djvu';
     sourcePath?: string;
+    multiPageTiffSourceKind?: 'pdf' | 'djvu';
+    multiPageTiffSourcePath?: string;
     totalPages?: number;
     runWithDocumentOperationLease?: <T>(
         kind: TDocumentOperationKind,
@@ -71,10 +73,22 @@ function createComposable(options: {
     const workingCopyPath = ref<TDocumentRef>(requireDocumentRef('/tmp/work.pdf'));
     const sourceKind = ref<'pdf' | 'djvu'>(options.sourceKind ?? 'pdf');
     const sourcePath = ref<TDocumentRef>(requireDocumentRef(options.sourcePath ?? '/tmp/work.pdf'));
+    const imageTarget = computed(() => ({
+        sourceKind: sourceKind.value,
+        sourcePath: sourcePath.value,
+        requiresFreshWorkingCopy: sourceKind.value === 'pdf',
+    }));
+    const multiPageTiffTarget = computed(() => ({
+        sourceKind: options.multiPageTiffSourceKind ?? sourceKind.value,
+        sourcePath: requireDocumentRef(options.multiPageTiffSourcePath ?? options.sourcePath ?? '/tmp/work.pdf'),
+        requiresFreshWorkingCopy: (options.multiPageTiffSourceKind ?? sourceKind.value) === 'pdf',
+    }));
     const state = scope.run(() => useWorkspaceExport({
         workingCopyPath,
-        sourceKind,
-        sourcePath,
+        exportTargets: {
+            imageTarget,
+            multiPageTiffTarget,
+        },
         totalPages: ref(options.totalPages ?? 5),
         ...(options.ensureWorkingCopyFreshForRead ? { ensureWorkingCopyFreshForRead: options.ensureWorkingCopyFreshForRead } : {}),
         ...(options.runWithDocumentOperationLease
@@ -126,6 +140,40 @@ describe('useWorkspaceExport', () => {
             scope.stop();
             await exportPromise;
         }
+    });
+
+    it('uses the driver target declared for TIFF instead of the image target', async () => {
+        const {
+            state,
+            scope,
+        } = createComposable({
+            sourceKind: 'djvu',
+            sourcePath: '/tmp/source.djvu',
+            multiPageTiffSourceKind: 'pdf',
+            multiPageTiffSourcePath: '/tmp/tiff-source.pdf',
+        });
+        exportTiffMock.mockResolvedValue({
+            success: true,
+            outputPaths: ['/tmp/output.tiff'],
+        });
+
+        const exportPromise = state.handleExportMultiPageTiff([1]);
+        state.handleExportScopeDialogSubmit({pageNumbers: [1]});
+        await exportPromise;
+
+        expect(exportTiffMock).toHaveBeenCalledWith(
+            requireDocumentRef('/tmp/tiff-source.pdf'),
+            [1],
+            expect.any(String),
+            'pdf',
+        );
+        expect(exportTiffMock).not.toHaveBeenCalledWith(
+            requireDocumentRef('/tmp/source.djvu'),
+            expect.anything(),
+            expect.anything(),
+            'djvu',
+        );
+        scope.stop();
     });
 
     it('refuses an oversized partial compact TIFF selection instead of opening an all-pages dialog', async () => {

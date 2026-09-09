@@ -13,7 +13,7 @@ import {
     handleResolveDocumentTextCatalogWindow,
     handleResolveDocumentTextCatalog,
 } from '@electron/features/ocr/main/ocrOperations';
-import { subscribeManagedOcrProgress } from '@electron/ocr/jobManager';
+import { subscribeManagedOcrProgress } from '@electron/features/ocr/main/jobManager';
 
 export const ocrMainBindings = {
     cancel: handleOcrCancelValidated,

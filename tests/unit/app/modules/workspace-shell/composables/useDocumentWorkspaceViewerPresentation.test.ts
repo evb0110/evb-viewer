@@ -1,9 +1,14 @@
+import {ref} from 'vue';
 import {
     describe,
     expect,
     it,
 } from 'vitest';
-import { shouldShowDjvuConversionBanner } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceViewerPresentation';
+import {
+    shouldShowDjvuConversionBanner,
+    useDocumentWorkspaceViewerPresentation,
+} from '@app/modules/workspace-shell/composables/useDocumentWorkspaceViewerPresentation';
+import {createDefaultWorkspaceViewerCapabilities} from '@app/types/workspaceExpose';
 
 describe('shouldShowDjvuConversionBanner', () => {
     const readyPresentation = {
@@ -39,5 +44,45 @@ describe('shouldShowDjvuConversionBanner', () => {
             ...readyPresentation,
             showDjvuBanner: false,
         })).toBe(false);
+    });
+});
+
+describe('useDocumentWorkspaceViewerPresentation', () => {
+    const baseOptions = {
+        activeViewerCapabilities: ref({
+            ...createDefaultWorkspaceViewerCapabilities(),
+            closeableDocument: true,
+            conversionBanner: false,
+            conversionDialog: false,
+        }),
+        canUseDjvu: true,
+        conversionState: ref({isConverting: false}),
+        documentOpenReady: ref(true),
+        djvuOpeningPath: ref<unknown>(null),
+        djvuShowBanner: ref(false),
+        initialDocumentVisualReady: ref(true),
+        pendingDjvuDocumentOpen: ref(false),
+        showDjvuSource: ref(false),
+        showNativePdfViewer: ref(false),
+        showStandardPdfViewer: ref(true),
+    };
+
+    it('requires the active driver capability before exposing a viewer document', () => {
+        const options = {
+            ...baseOptions,
+            activeViewerCapabilities: ref({
+                ...baseOptions.activeViewerCapabilities.value,
+                closeableDocument: false,
+            }),
+        };
+        const presentation = useDocumentWorkspaceViewerPresentation(options);
+
+        expect(presentation.showWorkspaceViewerDocument.value).toBe(false);
+
+        options.activeViewerCapabilities.value = {
+            ...options.activeViewerCapabilities.value,
+            closeableDocument: true,
+        };
+        expect(presentation.showWorkspaceViewerDocument.value).toBe(true);
     });
 });

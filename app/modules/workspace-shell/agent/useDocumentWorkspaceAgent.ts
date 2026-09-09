@@ -21,7 +21,7 @@ import { createDocumentWorkspaceAgentParsers } from '@app/modules/workspace-shel
 import {
     pageSelectionCount,
     requirePageNumber,
-} from '@contracts/pageNumbers';
+} from '@pdf-core/pdfPageSelection';
 export type { IOcrPopupAgentExpose } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentTypes';
 export const DOCUMENT_WORKSPACE_AGENT_PRIMARY_ACTION_IDS = [
     'ui.open_sidebar_tab',

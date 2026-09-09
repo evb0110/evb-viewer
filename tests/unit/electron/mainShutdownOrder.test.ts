@@ -8,7 +8,7 @@ import {
 
 describe('main shutdown ordering', () => {
     it('requests renderer save flush before closing main operation admission', () => {
-        const source = readFileSync(join(process.cwd(), 'electron/main.ts'), 'utf8');
+        const source = readFileSync(join(process.cwd(), 'electron/bootstrap/mainProcess.ts'), 'utf8');
         const flushStepIndex = source.indexOf('label: \'renderer-save-flush\'');
         const shutdownStepIndex = source.indexOf('label: \'main-operation-shutdown\'');
         const beginShutdownIndex = source.indexOf(
@@ -22,7 +22,7 @@ describe('main shutdown ordering', () => {
     });
 
     it('settles cancelled materialization flights before closing read handles or deleting working copies', () => {
-        const source = readFileSync(join(process.cwd(), 'electron/main.ts'), 'utf8');
+        const source = readFileSync(join(process.cwd(), 'electron/bootstrap/mainProcess.ts'), 'utf8');
         const cancelIndex = source.indexOf('cancelAllMainOperations(\'app shutdown\')');
         const materializationIndex = source.indexOf('label: \'working-copy-materializations\'');
         const settleIndex = source.indexOf(
@@ -39,8 +39,19 @@ describe('main shutdown ordering', () => {
         expect(cleanupIndex).toBeGreaterThan(rangeHandleIndex);
     });
 
+    it('runs table-owned disposal before the established cleanup sequence', () => {
+        const source = readFileSync(join(process.cwd(), 'electron/bootstrap/mainProcess.ts'), 'utf8');
+        const disposalIndex = source.indexOf('label: \'feature-registration-disposal\'');
+        const agentIndex = source.indexOf('label: \'agent-assistant\'');
+        const logFlushIndex = source.indexOf('label: \'log-flush\'');
+
+        expect(disposalIndex).toBeGreaterThan(-1);
+        expect(agentIndex).toBeGreaterThan(disposalIndex);
+        expect(logFlushIndex).toBeGreaterThan(agentIndex);
+    });
+
     it('installs fatal process handlers only after shutdown coordination is ready', () => {
-        const source = readFileSync(join(process.cwd(), 'electron/main.ts'), 'utf8');
+        const source = readFileSync(join(process.cwd(), 'electron/bootstrap/mainProcess.ts'), 'utf8');
         const coordinatorIndex = source.indexOf('shutdownCoordinator = createShutdownCoordinator({');
         const rejectionHandlerIndex = source.indexOf(
             'process.on(\'unhandledRejection\', (reason) => {',

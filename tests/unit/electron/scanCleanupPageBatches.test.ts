@@ -3,11 +3,11 @@ import {
     runScanCleanupPageBatches,
     SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES,
     SCAN_CLEANUP_STREAMING_BATCH_PAGES,
-} from '@scan-cleanup-core/pageBatches';
+} from '@evb/scan-cleanup/core/pageBatches';
 import {
     getScanCleanupPageAt,
     resolveScanCleanupPageScopeLazy,
-} from '@scan-cleanup-core/pageScope';
+} from '@evb/scan-cleanup/core/pageScope';
 import {
     describe,
     expect,

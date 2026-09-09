@@ -7,7 +7,7 @@ import type {
 } from '@contracts/electronApiDocuments';
 import {normalizePdfNativeAnnotationIdentityBindings} from '@contracts/nativePdfMutations';
 
-export {collectExpectedNativeIdentityIds} from '@contracts/nativePdfMutations';
+export {collectExpectedNativeIdentityIds} from '@pdf-core/nativePdfMutationPolicy';
 
 const MAX_TARGETED_PDF_OBJECT_REFS = 128;
 const CANONICAL_PDF_OBJECT_REF_PATTERN = /(?:^|\D)(\d+)\s+(\d+)\s+R(?:$|\D)/i;

@@ -40,6 +40,7 @@ import type {
     IPdfConformanceProfile,
     TPdfSaveMode,
 } from '@app/types/pdfContracts';
+import type {TDocumentImageExportSourceKind} from '@contracts/electronApiDocuments';
 import type { IWorkspaceViewerCapabilities } from '@app/types/workspaceExpose';
 import {
     getWorkspaceViewerAdapter,
@@ -240,6 +241,28 @@ export interface IWorkspaceDocumentDriverSource {
     path: TDocumentRef | null;
 }
 
+export type TWorkspaceDocumentSaveStrategy = 'pdf-working-copy' | 'djvu-pdf-projection';
+export type TWorkspaceDocumentSaveAction = 'save' | 'save-as';
+export type TWorkspaceDocumentPrintStrategy = 'pdf' | 'djvu-pdf-projection';
+
+export interface IWorkspaceDocumentDriverExportTarget {
+    sourceKind: TDocumentImageExportSourceKind;
+    sourcePath: TDocumentRef;
+    requiresFreshWorkingCopy: boolean;
+}
+
+export interface IWorkspaceDocumentDriverOperations {
+    save: {
+        strategy: TWorkspaceDocumentSaveStrategy;
+        execute: (action: TWorkspaceDocumentSaveAction) => Promise<boolean>;
+    };
+    export: {
+        imageTarget: IWorkspaceDocumentDriverExportTarget | null;
+        multiPageTiffTarget: IWorkspaceDocumentDriverExportTarget | null;
+    };
+    print: { strategy: TWorkspaceDocumentPrintStrategy | null };
+}
+
 export interface IWorkspaceDocumentDriverView {
     component: Component;
     sourcePath: TDocumentRef | null;
@@ -276,6 +299,7 @@ export interface IWorkspaceDocumentDriver {
     readonly id: TWorkspaceDocumentDriverId;
     readonly capabilities: Readonly<IWorkspaceViewerCapabilities>;
     readonly canPreparePrint: boolean;
+    readonly operations: IWorkspaceDocumentDriverOperations;
     readonly source: IWorkspaceDocumentDriverSource;
     readonly view: IWorkspaceDocumentDriverView;
     run(command: IWorkspaceDriverCommand): Promise<TWorkspaceDriverCommandResult>;
@@ -285,6 +309,11 @@ interface IWorkspaceDocumentDriverSources {
     djvuSourcePath: Ref<TDocumentRef | null>;
     nativePdfSourcePath: TReadableRef<TDocumentRef | null>;
     workingCopyPath: Ref<TDocumentRef | null>;
+    save?: {
+        save: () => Promise<boolean>;
+        saveAs: () => Promise<boolean>;
+        saveAsDjvuProjection: () => Promise<boolean>;
+    };
 }
 
 export interface IWorkspaceDocumentDriverOptions {
@@ -294,6 +323,7 @@ export interface IWorkspaceDocumentDriverOptions {
     workingCopyPath: Ref<TDocumentRef | null>;
     pendingDocumentPath?: TReadableRef<TDocumentRef | null>;
     pendingDocumentSize?: TReadableRef<number | null>;
+    save?: IWorkspaceDocumentDriverSources['save'];
 }
 
 function createDriverPrintRequestId() {
@@ -413,6 +443,39 @@ export function createWorkspaceDocumentDriverForAdapter(
         get canPreparePrint() {
             return isDjvu && sources.djvuSourcePath.value !== null;
         },
+        get operations(): IWorkspaceDocumentDriverOperations {
+            const sourcePath = isDjvu
+                ? sources.djvuSourcePath.value
+                : sources.workingCopyPath.value;
+            const imageTarget = sourcePath === null
+                ? null
+                : {
+                    sourceKind: isDjvu ? 'djvu' : 'pdf',
+                    sourcePath,
+                    requiresFreshWorkingCopy: !isDjvu,
+                } satisfies IWorkspaceDocumentDriverExportTarget;
+            const multiPageTiffTarget = imageTarget === null
+                ? null
+                : {...imageTarget};
+            return {
+                save: {
+                    strategy: isDjvu ? 'djvu-pdf-projection' : 'pdf-working-copy',
+                    execute: action => {
+                        if (isDjvu && action === 'save-as') {
+                            return sources.save?.saveAsDjvuProjection() ?? Promise.resolve(false);
+                        }
+                        return action === 'save'
+                            ? sources.save?.save() ?? Promise.resolve(false)
+                            : sources.save?.saveAs() ?? Promise.resolve(false);
+                    },
+                },
+                export: {
+                    imageTarget,
+                    multiPageTiffTarget,
+                },
+                print: {strategy: isDjvu ? 'djvu-pdf-projection' : 'pdf'},
+            };
+        },
         get source(): IWorkspaceDocumentDriverSource {
             return {
                 kind: isDjvu ? 'djvu' : 'pdf',
@@ -457,6 +520,20 @@ export const useWorkspaceDocumentDriver = (
         djvuSourcePath: options.djvuSourcePath,
         nativePdfSourcePath,
         workingCopyPath: options.workingCopyPath,
+        save: options.save ?? {
+            save: async () => {
+                await Promise.resolve();
+                return false;
+            },
+            saveAs: async () => {
+                await Promise.resolve();
+                return false;
+            },
+            saveAsDjvuProjection: async () => {
+                await Promise.resolve();
+                return false;
+            },
+        },
     };
     const drivers = {
         djvu: createWorkspaceDocumentDriverForAdapter(getWorkspaceViewerAdapter('djvu'), sources),

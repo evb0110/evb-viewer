@@ -13,7 +13,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import {recoverPreparedOcrRevisionTransition} from '@electron/ocr/recoverPreparedOcrRevisionTransition';
+import {recoverPreparedOcrRevisionTransition} from '@electron/features/ocr/main/recoverPreparedOcrRevisionTransition';
 
 let root: string | null = null;
 

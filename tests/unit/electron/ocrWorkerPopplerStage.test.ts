@@ -12,7 +12,7 @@ import {
     probeOcrPageSizeInches,
     renderPdfPageToPng,
     renderPdfPageToPpm,
-} from '@electron/ocr/worker/popplerStage';
+} from '@electron/features/ocr/worker/popplerStage';
 import type { IWorkerPaths } from '@electron/ocr/worker/types';
 
 const mocks = vi.hoisted(() => ({
@@ -22,8 +22,8 @@ const mocks = vi.hoisted(() => ({
     stat: vi.fn(),
 }));
 
-vi.mock('@electron/ocr/worker/runOcrCommand', () => ({ runOcrCommand: mocks.runOcrCommand }));
-vi.mock('@scan-cleanup-core/rasterLayerDimensions', () => ({readPngDimensions: mocks.readPngDimensions}));
+vi.mock('@electron/features/ocr/worker/runOcrCommand', () => ({ runOcrCommand: mocks.runOcrCommand }));
+vi.mock('@evb/scan-cleanup/core/rasterLayerDimensions', () => ({readPngDimensions: mocks.readPngDimensions}));
 
 vi.mock('node:fs/promises', () => ({
     rm: mocks.rm,

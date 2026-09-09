@@ -10,7 +10,7 @@ import {
     resolveRasterHandoff,
     resolveRequiredScratchBytes,
     resolveStagedRasterWindow,
-} from '@scan-cleanup-core/resolveRasterHandoff';
+} from '@evb/scan-cleanup/core/resolveRasterHandoff';
 
 const mocks = vi.hoisted(() => ({statfs: vi.fn()}));
 

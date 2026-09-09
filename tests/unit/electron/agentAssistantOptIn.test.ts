@@ -20,8 +20,13 @@ import type {
     IAgentAssistantEvent,
 } from '@contracts/agent';
 import type * as CodexAssistantModule from '@electron/features/agent/codexAssistant';
+import {
+    runDualProviderCompletionDriver,
+    waitForCodexRequest,
+    waitForCodexRequestCount,
+} from '@tests/unit/electron/helpers/dualProviderCompletionDriver';
 import {requireDocumentRef} from '@contracts/documentRef';
-import {requireDocumentRevisionToken} from '@contracts';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {requireEpochMs} from '@contracts/timestamps';
 import {requireTabId} from '@contracts/windowTabs';
 
@@ -394,55 +399,6 @@ function createInitializeGate() {
     };
 }
 
-async function waitForCodexRequest(process: FakeCodexAppServerProcess, method: string) {
-    if (process.requestMethods.includes(method)) {
-        return;
-    }
-
-    await new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(() => {
-            process.off('codex-request', onRequest);
-            reject(new Error(`Timed out waiting for Codex request ${method}`));
-        }, 5_000);
-        function onRequest(candidate: string) {
-            if (candidate !== method) {
-                return;
-            }
-            clearTimeout(timeout);
-            process.off('codex-request', onRequest);
-            resolve();
-        }
-
-        process.on('codex-request', onRequest);
-    });
-}
-
-async function waitForCodexRequestCount(process: FakeCodexAppServerProcess, method: string, count: number) {
-    if (process.requestMethods.filter(candidate => candidate === method).length >= count) {
-        return;
-    }
-
-    await new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(() => {
-            process.off('codex-request', onRequest);
-            reject(new Error(`Timed out waiting for Codex request ${method} count ${count}`));
-        }, 5_000);
-        function onRequest(candidate: string) {
-            if (candidate !== method) {
-                return;
-            }
-            if (process.requestMethods.filter(requestMethod => requestMethod === method).length < count) {
-                return;
-            }
-            clearTimeout(timeout);
-            process.off('codex-request', onRequest);
-            resolve();
-        }
-
-        process.on('codex-request', onRequest);
-    });
-}
-
 async function settleAsyncTicks(count = 3) {
     for (let index = 0; index < count; index += 1) {
         await new Promise(resolve => setImmediate(resolve));
@@ -745,6 +701,27 @@ describe('agent assistant opt-in gating', () => {
 
         await expect(sendPromise).resolves.toMatchObject({ok: false});
         expect(mocks.claudeSessionConstructor).not.toHaveBeenCalled();
+    });
+
+    it('completes through each selected backend with provider-specific drivers', async () => {
+        const {sendAgentAssistantMessage}: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        const driver = await runDualProviderCompletionDriver({
+            startCodex: () => enableAssistantRuntime(),
+            installClaudeSession: constructor => mocks.claudeSessionConstructor.mockImplementation(constructor),
+            resolveClaudeRuntime: () => mocks.claudeRuntimeLoadGate?.resolve(),
+            send: sendAgentAssistantMessage,
+            createScope: createDocumentScope,
+        });
+
+        expect(driver.codexResult.ok).toBe(true);
+        expect(driver.codexResult.state.messages.map(message => message.text)).toContain('Hello there');
+        expect(driver.codexProcess.requestMethods).toContain('turn/start');
+
+        expect(driver.claudeResult.ok).toBe(true);
+        expect(driver.claudeResult.state.messages.map(message => message.text)).toContain('Claude completed: claude completion');
+        expect(driver.claudeSessions).toHaveLength(1);
+        expect(driver.claudeSessions[0]?.completedMessages).toEqual(['Claude completed: claude completion']);
+        expect(mocks.spawn).toHaveBeenCalledOnce();
     });
 
     it('waits for an old client shutdown before starting again after rapid re-enable', async () => {

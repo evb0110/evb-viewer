@@ -1,7 +1,9 @@
 import {
     mkdtemp,
+    open as fsOpen,
     readFile,
     readdir,
+    rename,
     rm,
     writeFile,
 } from 'node:fs/promises';
@@ -14,13 +16,27 @@ import {
     it,
     vi,
 } from 'vitest';
-import {createScanCleanupRasterBatchRenderer} from '@electron/features/scan-cleanup/renderScanCleanupRasterBatch';
+import {
+    createScanCleanupRasterBatchRenderer,
+    type IScanCleanupRasterBatchFileSystem,
+} from '@electron/features/scan-cleanup/createScanCleanupRasterBatchRenderer';
 
 const PNG = Buffer.from(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
     'base64',
 );
 const roots: string[] = [];
+
+function createFileSystem() {
+    const fileSystem: IScanCleanupRasterBatchFileSystem = {
+        mkdtemp: vi.fn(prefix => mkdtemp(prefix)),
+        open: vi.fn((path, flags) => fsOpen(path, flags)),
+        readdir: vi.fn(async (path: string, options: {withFileTypes: true}) => readdir(path, options)),
+        rename: vi.fn((oldPath, newPath) => rename(oldPath, newPath)),
+        rm: vi.fn((path, options) => rm(path, options)),
+    };
+    return fileSystem;
+}
 
 afterEach(async () => {
     await Promise.all(roots.splice(0).map(root => rm(root, {
@@ -45,7 +61,8 @@ describe('scan cleanup raster batch renderer', () => {
                 stdout: '',
             };
         });
-        const renderBatch = createScanCleanupRasterBatchRenderer(runCommand);
+        const fileSystem = createFileSystem();
+        const renderBatch = createScanCleanupRasterBatchRenderer(runCommand, fileSystem);
         const targets = [
             17,
             18,
@@ -100,11 +117,16 @@ describe('scan cleanup raster batch renderer', () => {
             'page-17.png',
             'page-18.png',
         ]);
+        expect(fileSystem.mkdtemp).toHaveBeenCalledOnce();
+        expect(fileSystem.readdir).toHaveBeenCalledOnce();
+        expect(fileSystem.open).toHaveBeenCalledTimes(2);
+        expect(fileSystem.rename).toHaveBeenCalledTimes(2);
+        expect(fileSystem.rm).toHaveBeenCalledOnce();
     });
 
     it('rejects non-contiguous windows before starting Poppler', async () => {
         const runCommand = vi.fn();
-        const renderBatch = createScanCleanupRasterBatchRenderer(runCommand);
+        const renderBatch = createScanCleanupRasterBatchRenderer(runCommand, createFileSystem());
 
         await expect(renderBatch({
             dpi: 150,
@@ -131,7 +153,7 @@ describe('scan cleanup raster batch renderer', () => {
 
     it('rejects dimension and pixel-limit violations before starting Poppler', async () => {
         const runCommand = vi.fn();
-        const renderBatch = createScanCleanupRasterBatchRenderer(runCommand);
+        const renderBatch = createScanCleanupRasterBatchRenderer(runCommand, createFileSystem());
         const renderTarget = (limits: {
             expectedHeightPx: number;
             expectedWidthPx: number;
@@ -182,7 +204,7 @@ describe('scan cleanup raster batch renderer', () => {
                 stdout: '',
             };
         });
-        const renderBatch = createScanCleanupRasterBatchRenderer(runCommand);
+        const renderBatch = createScanCleanupRasterBatchRenderer(runCommand, createFileSystem());
         const targets = Array.from({length: 1_024}, (_, index) => ({
             limits: {
                 expectedHeightPx: 1,

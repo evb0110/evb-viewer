@@ -3,7 +3,7 @@ import type {
     IUserAgentProfile,
     TReleaseArch,
     TReleasePlatform,
-} from '@contracts';
+} from '@contracts/release';
 import {
     groupBy,
     orderBy,

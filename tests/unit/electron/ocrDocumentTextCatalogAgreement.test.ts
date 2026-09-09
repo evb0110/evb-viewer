@@ -10,13 +10,14 @@ import {
 } from 'vitest';
 import {loadDocumentTextCatalogPages} from '@app/utils/ocr/loadOcrText';
 import {useOcrTextContent} from '@app/modules/pdf-viewer/runtime/composables/pdf/useOcrTextContent';
-import {buildSearchIndex} from '@electron/search/indexBuilder';
+import {buildSearchIndex} from '@electron/features/search/public';
+import type * as SearchPublicNative from '@electron/features/search/publicNative';
 import {
     resolveDocumentOcrAvailability,
     resolveDocumentOcrPage,
     resolveDocumentTextCatalogSnapshot,
     resolveDocumentTextCatalogWindow,
-} from '@electron/ocr/documentTextCatalog';
+} from '@electron/features/ocr/main/documentTextCatalog';
 import {
     createOcrDocumentTextCatalogFixture,
     OCR_CATALOG_FIXTURE_PATH,
@@ -173,20 +174,32 @@ vi.mock('@app/utils/getOcrCapability', () => ({getOcrCapability: () => ({
     resolveDocumentOcrPage: (...args: unknown[]) => mocks.resolvePageViaCapability(...args),
     resolveDocumentTextCatalog: (...args: unknown[]) => mocks.resolveCatalogViaCapability(...args),
 })}));
-vi.mock('@electron/search/extractTextFromPdf', () => ({extractTextFromPdf: mocks.extractTextFromPdf}));
-vi.mock('@electron/search/extractTextWithPdfjs', () => ({
+vi.mock('@electron/features/search/publicNative', async () => {
+    const actual = await vi.importActual<typeof SearchPublicNative>('@electron/features/search/publicNative');
+    return {
+        ...actual,
+        persistNativeCompactSearchIndex: mocks.persistCompactSearchIndexBestEffort,
+        extractTextFromPdf: mocks.extractTextFromPdf,
+        extractTextWithPdfjs: mocks.extractTextWithPdfjs,
+        extractTextWithPdfjsWordBoxes: mocks.extractTextWithPdfjsWordBoxes,
+        loadPdfjsTextExtractor: async () => ({
+            extractTextWithPdfjs: mocks.extractTextWithPdfjs,
+            extractTextWithPdfjsWordBoxes: mocks.extractTextWithPdfjsWordBoxes,
+        }),
+    };
+});
+vi.mock('@electron/features/search/extractTextFromPdf', () => ({
+    extractTextFromPdf: mocks.extractTextFromPdf,
+    isPdfTextExtractionCapabilityError: () => false,
+}));
+vi.mock('@electron/features/search/loadPdfjsTextExtractor', () => ({loadPdfjsTextExtractor: async () => ({
     extractTextWithPdfjs: mocks.extractTextWithPdfjs,
     extractTextWithPdfjsWordBoxes: mocks.extractTextWithPdfjsWordBoxes,
-}));
+})}));
 vi.mock('@electron/utils/atomicReplace', () => ({
     atomicReplace: mocks.atomicReplace,
     makeSiblingTempPath: (path: string) => `${path}.tmp`,
 }));
-vi.mock('@electron/search/searchIndexSidecar', () => ({
-    COMPACT_SEARCH_INDEX_SOURCE_KIND_OCR_TEXT_LAYER: 1,
-    persistCompactSearchIndexBestEffort: mocks.persistCompactSearchIndexBestEffort,
-}));
-vi.mock('@electron/search/nativeSearchIndex', () => ({ensureNativeSearchIndexBestEffort: mocks.ensureNativeSearchIndexBestEffort}));
 vi.mock('@electron/file-access/documentRevisionSidecar', () => ({
     assertWorkingCopyRevisionSidecarCurrent: mocks.assertWorkingCopyRevisionSidecarCurrent,
     reconcileWorkingCopyRevisionSidecarJournal: vi.fn(async () => null),

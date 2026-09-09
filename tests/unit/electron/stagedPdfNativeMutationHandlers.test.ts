@@ -13,7 +13,7 @@ import {
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
-import {requireDocumentRevisionToken} from '@contracts';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requireLeaseId} from '@contracts/shared';
 

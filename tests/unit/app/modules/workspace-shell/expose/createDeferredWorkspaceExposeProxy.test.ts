@@ -18,6 +18,7 @@ import { createDocumentOpenSurfaceSession } from '@app/utils/document-viewer/cha
 import { createWorkspaceExposeFixture } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { IDocumentOpenIntent } from '@app/modules/workspace-shell/document-sessions/documentOpenIntent';
+import type { TSplitPayload } from '@contracts/windowTabs';
 
 interface IEnqueueDocumentOpenCall {
     intent: IDocumentOpenIntent;
@@ -336,5 +337,32 @@ describe('createDeferredWorkspaceExposeProxy', () => {
             'handleCombineImages',
             expect.any(WorkspaceExposeCommandUnavailableError),
         );
+    });
+
+    it('propagates failed and successful split restore outcomes through the deferred proxy', async () => {
+        const payload: TSplitPayload = {
+            kind: 'djvu',
+            sourcePath: requireDocumentRef('/tmp/scan.djvu'),
+        };
+        const restoreSplitPayload = vi.fn()
+            .mockResolvedValueOnce({
+                status: 'failed' as const,
+                error: 'restore failed',
+            })
+            .mockResolvedValueOnce({
+                status: 'opened' as const,
+                result: {
+                    kind: 'djvu' as const,
+                    workingPath: '' as const,
+                    originalPath: payload.sourcePath,
+                },
+            });
+        const proxy = createDeferredWorkspaceExposeProxy(createDeps(createWorkspace({restoreSplitPayload})));
+
+        await expect(proxy.restoreSplitPayload(payload)).resolves.toEqual({
+            status: 'failed',
+            error: 'restore failed',
+        });
+        await expect(proxy.restoreSplitPayload(payload)).resolves.toMatchObject({status: 'opened'});
     });
 });

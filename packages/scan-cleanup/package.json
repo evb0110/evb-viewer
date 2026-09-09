@@ -1,0 +1,16 @@
+{
+    "name": "@evb/scan-cleanup",
+    "private": true,
+    "type": "module",
+    "exports": {
+        ".": "./index.ts",
+        "./core": "./core/index.ts",
+        "./core/*": "./core/*.ts",
+        "./adapters": "./adapters/index.ts",
+        "./adapters/*": "./adapters/*.ts"
+    },
+    "dependencies": {
+        "@evb/contracts": "workspace:*",
+        "fast-png": "^8.0.0"
+    }
+}

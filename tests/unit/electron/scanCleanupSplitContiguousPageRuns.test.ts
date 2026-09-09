@@ -3,7 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import {splitContiguousPageRuns} from '@scan-cleanup-core/splitContiguousPageRuns';
+import {splitContiguousPageRuns} from '@evb/scan-cleanup/core/splitContiguousPageRuns';
 
 describe('splitContiguousPageRuns', () => {
     it('keeps a gap-free window as one run', () => {

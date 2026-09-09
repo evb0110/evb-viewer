@@ -1,4 +1,4 @@
-import type { TLocale } from '@evb/i18n-core/localeCodes';
+import type { TLocale } from '@i18n-core/localeCodes';
 
 export interface IPrivacySectionMessages {
     heading: string;

@@ -193,8 +193,54 @@ describe('WorkspaceDocumentDriver', () => {
                 kind: 'djvu',
                 path: '/managed/source.djvu',
             },
+            operations: {
+                save: {strategy: 'djvu-pdf-projection'},
+                export: {imageTarget: {
+                    sourceKind: 'djvu',
+                    sourcePath: '/managed/source.djvu',
+                    requiresFreshWorkingCopy: false,
+                }},
+                print: {strategy: 'djvu-pdf-projection'},
+            },
             view: {showDjvuSource: true},
         });
+
+        const pdf = createWorkspaceDocumentDriverForAdapter(getWorkspaceViewerAdapter('pdf'), {
+            djvuSourcePath: ref<TDocumentRef | null>(null),
+            nativePdfSourcePath: ref<TDocumentRef | null>(null),
+            workingCopyPath: ref<TDocumentRef | null>(null),
+        });
+        expect(pdf.operations).toEqual({
+            save: {
+                strategy: 'pdf-working-copy',
+                execute: expect.any(Function),
+            },
+            export: {
+                imageTarget: null,
+                multiPageTiffTarget: null,
+            },
+            print: {strategy: 'pdf'},
+        });
+
+        const save = vi.fn(async () => true);
+        const saveAs = vi.fn(async () => true);
+        const saveAsDjvuProjection = vi.fn(async () => true);
+        const djvuWithSave = useWorkspaceDocumentDriver({
+            djvuSourcePath: ref<TDocumentRef | null>(requireDocumentRef('/managed/source.djvu')),
+            isDjvuMode: ref(true),
+            pdfSrc: ref<TPdfSource | null>(null),
+            workingCopyPath: ref<TDocumentRef | null>(null),
+            save: {
+                save,
+                saveAs,
+                saveAsDjvuProjection,
+            },
+        }).activeDocumentDriver.value!;
+        await djvuWithSave.operations.save.execute('save');
+        await djvuWithSave.operations.save.execute('save-as');
+        expect(save).toHaveBeenCalledOnce();
+        expect(saveAs).not.toHaveBeenCalled();
+        expect(saveAsDjvuProjection).toHaveBeenCalledOnce();
 
         await expect(selectPendingDocument('/managed/document.pdf', 1).activeDocumentDriver.value?.run({
             kind: 'prepare-print',
@@ -327,6 +373,31 @@ describe('WorkspaceDocumentDriver', () => {
         expect(harness.binding.activeViewerListeners.value['update:rasterScheduler'])
             .toBe(harness.onRasterSchedulerUpdate);
         expect(harness.binding.activeViewerListeners.value['update:sourceCapabilities']).toBe(harness.onSourceCapabilitiesUpdate);
+    });
+
+    it('binds the active driver component and renderer props for the chassis mount', () => {
+        const harness = createBindingHarness();
+
+        expect(harness.binding.activeViewerComponent.value)
+            .toMatchObject({name: getWorkspaceViewerAdapter('pdf').component.name});
+        expect(harness.binding.activeViewerProps.value).toMatchObject({sourceKind: 'pdf'});
+        expect(harness.binding.activeViewerProps.value).not.toHaveProperty('rendererKind');
+
+        harness.activeDocumentDriver.value = harness.createDriver('djvu');
+        expect(harness.binding.activeViewerComponent.value)
+            .toMatchObject({name: getWorkspaceViewerAdapter('djvu').component.name});
+        expect(harness.binding.activeViewerProps.value).toMatchObject({
+            sourceKind: 'djvu',
+            rendererKind: 'page-source',
+        });
+
+        harness.activeDocumentDriver.value = harness.createDriver('native-pdf');
+        expect(harness.binding.activeViewerComponent.value)
+            .toMatchObject({name: getWorkspaceViewerAdapter('native-pdf').component.name});
+        expect(harness.binding.activeViewerProps.value).toMatchObject({
+            sourceKind: 'pdf',
+            rendererKind: 'native-pdf',
+        });
     });
 
     it('feeds an unvalidated opening source only to PDF.js with its fenced revision and path', () => {

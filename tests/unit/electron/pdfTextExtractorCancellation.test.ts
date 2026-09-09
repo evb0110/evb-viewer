@@ -30,7 +30,7 @@ describe('extractTextFromPdf cancellation', () => {
     });
 
     it('returns AbortError immediately when signal is already aborted', async () => {
-        const { extractTextFromPdf } = await import('@electron/search/extractTextFromPdf');
+        const { extractTextFromPdf } = await import('@electron/features/search/extractTextFromPdf');
         const controller = new AbortController();
         controller.abort();
 
@@ -41,7 +41,7 @@ describe('extractTextFromPdf cancellation', () => {
     });
 
     it('forwards signal to runCommand and preserves paging behavior', async () => {
-        const { extractTextFromPdf } = await import('@electron/search/extractTextFromPdf');
+        const { extractTextFromPdf } = await import('@electron/features/search/extractTextFromPdf');
         const controller = new AbortController();
 
         mocks.runCommand.mockResolvedValue({
@@ -86,7 +86,7 @@ describe('extractTextFromPdf cancellation', () => {
     });
 
     it('extracts only requested page ranges with pdftotext', async () => {
-        const { extractTextFromPdf } = await import('@electron/search/extractTextFromPdf');
+        const { extractTextFromPdf } = await import('@electron/features/search/extractTextFromPdf');
         mocks.runCommand
             .mockResolvedValueOnce({
                 stdout: 'page-2\f',
@@ -162,8 +162,52 @@ describe('extractTextFromPdf cancellation', () => {
         ]);
     });
 
+    it('falls back to full-document extraction when requested pages normalize away', async () => {
+        const { extractTextFromPdf } = await import('@electron/features/search/extractTextFromPdf');
+        mocks.runCommand.mockResolvedValue({
+            stdout: 'page-1\fpage-2',
+            stderr: '',
+            exitCode: 0,
+        });
+
+        await expect(extractTextFromPdf('/tmp/file.pdf', {
+            pageCount: 2,
+            pages: [
+                0,
+                -1,
+                Number.NaN,
+                Number.POSITIVE_INFINITY,
+            ],
+        })).resolves.toEqual([
+            {
+                pageNumber: 1,
+                text: 'page-1',
+            },
+            {
+                pageNumber: 2,
+                text: 'page-2',
+            },
+        ]);
+        expect(mocks.runCommand).toHaveBeenCalledWith(
+            'pdftotext',
+            [
+                '-layout',
+                '-f',
+                '1',
+                '-l',
+                '2',
+                '/tmp/file.pdf',
+                '-',
+            ],
+            expect.objectContaining({
+                timeoutMs: 120000,
+                maxStdoutBytes: 8 * 1024 * 1024,
+            }),
+        );
+    });
+
     it('passes bundled Poppler runtime environment to pdftotext', async () => {
-        const { extractTextFromPdf } = await import('@electron/search/extractTextFromPdf');
+        const { extractTextFromPdf } = await import('@electron/features/search/extractTextFromPdf');
         mocks.getPdfNativeToolPaths.mockReturnValue({
             pdftotext: 'pdftotext',
             popplerDataDir: '/mock/poppler/share/poppler',
@@ -202,7 +246,7 @@ describe('extractTextFromPdf cancellation', () => {
     });
 
     it('rethrows AbortError from runCommand without wrapping', async () => {
-        const { extractTextFromPdf } = await import('@electron/search/extractTextFromPdf');
+        const { extractTextFromPdf } = await import('@electron/features/search/extractTextFromPdf');
         const abortError = createAbortError();
         mocks.runCommand.mockRejectedValue(abortError);
 

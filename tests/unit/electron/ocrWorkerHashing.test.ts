@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => ({createReadStream: vi.fn()}));
 
 vi.mock('node:fs', () => ({createReadStream: mocks.createReadStream}));
 
-const {sha256OcrFile} = await import('@electron/ocr/worker/sha256OcrFile');
+const {sha256OcrFile} = await import('@electron/features/ocr/worker/sha256OcrFile');
 
 describe('OCR worker result hashing', () => {
     beforeEach(() => {

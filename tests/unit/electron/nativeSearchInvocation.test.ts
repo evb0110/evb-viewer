@@ -6,7 +6,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import {requireDocumentRevisionToken} from '@contracts';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 
 const mocks = vi.hoisted(() => ({
     open: vi.fn(),
@@ -26,12 +26,12 @@ vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolComm
 
 vi.mock('@electron/native-tools/resolveNativeToolPath', () => ({resolveNativeToolPath: (...args: unknown[]) => mocks.resolveNativeToolPath(...args)}));
 
-vi.mock('@electron/search/indexBuilder', () => ({
+vi.mock('@electron/features/search/indexBuilder', () => ({
     SEARCH_INDEX_SCHEMA_VERSION: 7,
     loadSearchIndex: (...args: unknown[]) => mocks.loadSearchIndex(...args),
 }));
 
-vi.mock('@electron/search/tryRunPersistentNativeSearch', () => ({tryRunPersistentNativeSearch: (...args: unknown[]) => mocks.tryRunPersistentNativeSearch(...args)}));
+vi.mock('@electron/features/search/tryRunPersistentNativeSearch', () => ({tryRunPersistentNativeSearch: (...args: unknown[]) => mocks.tryRunPersistentNativeSearch(...args)}));
 
 const DOCUMENT_REVISION = requireDocumentRevisionToken('revision-token');
 
@@ -124,7 +124,7 @@ describe('native search invocation', () => {
     });
 
     it('routes only the two literal non-whole-word option combinations to native', async () => {
-        const {isNativeSearchSupportedOptions} = await import('@electron/search/nativeSearch');
+        const {isNativeSearchSupportedOptions} = await import('@electron/features/search/nativeSearch');
         const combinations = [
             false,
             true,
@@ -177,7 +177,7 @@ describe('native search invocation', () => {
             }
             throw new Error(`Unexpected stat path: ${path}`);
         });
-        const {tryRunNativeSearch} = await import('@electron/search/nativeSearch');
+        const {tryRunNativeSearch} = await import('@electron/features/search/nativeSearch');
 
         await expect(tryRunNativeSearch({
             pdfPath: '/tmp/doc.pdf',
@@ -194,7 +194,7 @@ describe('native search invocation', () => {
 
     it('runs native search with bounded stdout and truncation rejection', async () => {
         const controller = new AbortController();
-        const { tryRunNativeSearch } = await import('@electron/search/nativeSearch');
+        const { tryRunNativeSearch } = await import('@electron/features/search/nativeSearch');
 
         await expect(tryRunNativeSearch({
             pdfPath: '/tmp/doc.pdf',
@@ -242,7 +242,7 @@ describe('native search invocation', () => {
 
     it('falls back to the one-shot binary when the persistent service fails', async () => {
         mocks.tryRunPersistentNativeSearch.mockRejectedValueOnce(new Error('service crashed'));
-        const { tryRunNativeSearch } = await import('@electron/search/nativeSearch');
+        const { tryRunNativeSearch } = await import('@electron/features/search/nativeSearch');
 
         await expect(tryRunNativeSearch({
             pdfPath: '/tmp/doc.pdf',
@@ -263,7 +263,7 @@ describe('native search invocation', () => {
             results: [],
             truncated: false,
         });
-        const { tryRunNativeSearch } = await import('@electron/search/nativeSearch');
+        const { tryRunNativeSearch } = await import('@electron/features/search/nativeSearch');
 
         await expect(tryRunNativeSearch({
             pdfPath: '/tmp/doc.pdf',
@@ -299,7 +299,7 @@ describe('native search invocation', () => {
                 text: 'needle',
             }],
         });
-        const { tryRunNativeSearch } = await import('@electron/search/nativeSearch');
+        const { tryRunNativeSearch } = await import('@electron/features/search/nativeSearch');
 
         await expect(tryRunNativeSearch({
             pdfPath: '/tmp/doc.pdf',
@@ -347,7 +347,7 @@ describe('native search invocation', () => {
             }),
             stderr: '',
         });
-        const { tryRunNativeSearch } = await import('@electron/search/nativeSearch');
+        const { tryRunNativeSearch } = await import('@electron/features/search/nativeSearch');
 
         await expect(tryRunNativeSearch({
             pdfPath: '/tmp/doc.pdf',
@@ -404,7 +404,7 @@ describe('native search invocation', () => {
                 stat: vi.fn(async () => ({size: testCase.size})),
                 close: vi.fn(async () => undefined),
             });
-            const {tryRunNativeSearch} = await import('@electron/search/nativeSearch');
+            const {tryRunNativeSearch} = await import('@electron/features/search/nativeSearch');
 
             await expect(tryRunNativeSearch({
                 pdfPath: '/tmp/doc.pdf',

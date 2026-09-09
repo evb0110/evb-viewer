@@ -1,7 +1,7 @@
 import {access} from 'node:fs/promises';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
-import {rebindDocumentTextCatalogRevision} from '@electron/ocr/documentTextCatalog';
-import {rebindSearchIndexes} from '@electron/search/rebindSearchIndexes';
+import {rebindDocumentTextCatalogRevision} from '@electron/features/ocr/public/index';
+import {rebindSearchIndexesFromNative as rebindSearchIndexes} from '@electron/features/search/publicNative';
 
 /** Annotation/metadata saves preserve text truth and only re-key its revision. */
 export async function rebindDocumentTextCatalogIfPresent(

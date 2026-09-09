@@ -21,6 +21,7 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     error: vi.fn(),
     info: vi.fn(),
 })}));
+vi.mock('@electron/features/ocr/public/catalog', () => ({visitDocumentOcrCatalogPages: vi.fn()}));
 
 describe('search index JSON identity', () => {
     const documentRevision = requireDocumentRevisionToken('revision-token');
@@ -52,7 +53,7 @@ describe('search index JSON identity', () => {
             }],
         }));
 
-        const { loadSearchIndex } = await import('@electron/search/indexBuilder');
+        const { loadSearchIndex } = await import('@electron/features/search/indexBuilder');
 
         await expect(loadSearchIndex(pdfPath, documentRevision)).resolves.toBeNull();
     });

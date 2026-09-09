@@ -6,7 +6,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import type { ocrResourceGovernor as importedOcrResourceGovernor } from '@electron/ocr/ocrResourceGovernor';
+import type { ocrResourceGovernor as importedOcrResourceGovernor } from '@electron/features/ocr/main/ocrResourceGovernor';
 
 const mocks = vi.hoisted(() => ({
     resourceProfile: {
@@ -38,7 +38,7 @@ vi.mock('@electron/resources/jobBroker', () => ({mainJobBroker: {
 type TOcrResourceGovernor = typeof importedOcrResourceGovernor;
 
 async function loadOcrResourceGovernor(): Promise<TOcrResourceGovernor> {
-    return (await import('@electron/ocr/ocrResourceGovernor')).ocrResourceGovernor;
+    return (await import('@electron/features/ocr/main/ocrResourceGovernor')).ocrResourceGovernor;
 }
 
 describe('ocr resource governor', () => {

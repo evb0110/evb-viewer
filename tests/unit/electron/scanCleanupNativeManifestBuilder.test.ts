@@ -30,11 +30,11 @@ import {
     buildRunnableNativeScanCleanupManifest,
     serializeNativeScanCleanupOptions,
     type IScanCleanupManifestPageInput,
-} from '@scan-cleanup-core/policy/buildNativeScanCleanupManifest';
-import {assertNativeScanCleanupManifestGeometry} from '@scan-cleanup-core/policy/assertNativeScanCleanupManifestGeometry';
-import {assertScanCleanupPathWithinCanonicalRoot} from '@scan-cleanup-core/assertScanCleanupPathWithinRoot';
-import {resolveEffectiveScanCleanupOptions} from '@scan-cleanup-core/policy/effectiveOptions';
-import {ScanCleanupContractError} from '@scan-cleanup-core/errors';
+} from '@evb/scan-cleanup/core/policy/buildNativeScanCleanupManifest';
+import {assertNativeScanCleanupManifestGeometry} from '@evb/scan-cleanup/core/policy/assertNativeScanCleanupManifestGeometry';
+import {assertScanCleanupPathWithinCanonicalRoot} from '@evb/scan-cleanup/core/assertScanCleanupPathWithinRoot';
+import {resolveEffectiveScanCleanupOptions} from '@evb/scan-cleanup/core/policy/effectiveOptions';
+import {ScanCleanupContractError} from '@evb/scan-cleanup/core/errors';
 import {
     afterAll,
     beforeAll,

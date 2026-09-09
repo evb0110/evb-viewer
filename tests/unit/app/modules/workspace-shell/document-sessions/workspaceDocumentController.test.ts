@@ -22,7 +22,7 @@ import {
     createDefaultWorkspaceToolbarSnapshot,
     createDefaultWorkspaceViewerCapabilities,
 } from '@app/types/workspaceExpose';
-import {requireDocumentRevisionToken} from '@contracts';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import { createWorkspaceExposeFixture } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 
 function createDocumentRevision(token = 'revision-1', documentRef = '/tmp/working.pdf'): IDocumentRevisionInfo {

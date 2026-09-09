@@ -1,5 +1,9 @@
 import path from 'node:path';
-import { GENERATED_RUST_NATIVE_TOOL_PROTOCOLS } from '@contracts/nativeToolProtocols';
+import {
+    GENERATED_RUST_NATIVE_TOOL_PROTOCOLS,
+    type IGeneratedRustNativeToolCapability,
+    type IGeneratedRustNativeToolProtocol,
+} from '@contracts/nativeToolProtocols';
 import { BUNDLED_OCR_LANGUAGE_CODES } from '@contracts/ocrLanguages';
 
 export const NATIVE_RESOURCE_PLATFORMS = [
@@ -318,7 +322,7 @@ export function getGeneratedNativeToolResource(toolId: string) {
 export function getPackagedNativeToolFamilies() {
     return NATIVE_TOOL_RESOURCE_FAMILIES.map((family) => {
         const generated = GENERATED_RUST_NATIVE_TOOL_PROTOCOLS.find(
-            tool => tool.resourceFamilyId === family.id,
+            (tool: IGeneratedRustNativeToolProtocol) => tool.resourceFamilyId === family.id,
         );
         return {
             binaryName: generated?.binaryName ?? null,
@@ -328,6 +332,9 @@ export function getPackagedNativeToolFamilies() {
             ...('packageFiltersByPlatform' in family
                 ? {packageFiltersByPlatform: family.packageFiltersByPlatform}
                 : {}),
+            protocolCapabilities: generated && 'capabilities' in generated
+                ? generated.capabilities.map((capability: IGeneratedRustNativeToolCapability) => capability.name)
+                : null,
             protocolVersion: generated?.protocolVersion ?? null,
             sourceRootSegments: family.sourceRootSegments,
             stagedRootSegments: family.stagedRootSegments,

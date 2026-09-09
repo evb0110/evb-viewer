@@ -28,7 +28,7 @@ import { tmpdir } from 'os';
 import { PDF_NATIVE_MUTATION_LIMITS } from '@contracts/nativePdfMutations';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requireLeaseId} from '@contracts/shared';
-import {requireDocumentRevisionToken} from '@contracts';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
 import {createNativeIncrementalMutationSemanticScopeSha256} from '@electron/features/documents/main/documentSaveUtilityProtocol';
 

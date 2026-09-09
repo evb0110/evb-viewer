@@ -26,6 +26,7 @@ import {
     runZeroExecutionCoverage,
     selectChangedProductionCoverageTargets,
 } from '@scripts/checkZeroExecutionCoverage';
+import {LOAD_BEARING_COVERAGE_GROUP_FILES} from '@scripts/checkCoverageRatchet';
 
 const temporaryDirectories = createTemporaryDirectoryRegistry();
 
@@ -48,7 +49,7 @@ describe('zero-execution coverage tripwire', () => {
         expect(isZeroExecutionTripwireTarget('electron/platform-ipc/validatedIpcRegistrar.ts')).toBe(true);
         expect(isZeroExecutionTripwireTarget('packages/contracts/agent.ts')).toBe(true);
         expect(isZeroExecutionTripwireTarget('app/platform/browserSearch.worker.ts')).toBe(true);
-        expect(isZeroExecutionTripwireTarget('electron/search/worker.ts')).toBe(true);
+        expect(isZeroExecutionTripwireTarget('electron/features/search/worker.ts')).toBe(true);
         expect(isZeroExecutionTripwireTarget('electron/ocr/worker/main.ts')).toBe(true);
         expect(isZeroExecutionTripwireTarget(
             'app/modules/workspace-shell/viewers/documentPageSourceFeaturePackState.ts',
@@ -56,9 +57,13 @@ describe('zero-execution coverage tripwire', () => {
         expect(isZeroExecutionTripwireTarget(
             'app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator.ts',
         )).toBe(true);
-        expect(isZeroExecutionTripwireTarget('scan-cleanup-core/runScanCleanupConversion.ts')).toBe(true);
-        expect(isZeroExecutionTripwireTarget('scan-cleanup-adapters/createScanCleanupRenderers.ts')).toBe(true);
-        expect(isZeroExecutionTripwireTarget('electron/search/nativeSearch.ts')).toBe(false);
+        expect(isZeroExecutionTripwireTarget('packages/scan-cleanup/core/runScanCleanupConversion.ts')).toBe(true);
+        expect(isZeroExecutionTripwireTarget('packages/scan-cleanup/adapters/createScanCleanupRenderers.ts')).toBe(true);
+        expect(isZeroExecutionTripwireTarget('packages/pdf-core/pdfSearchAlgorithms.ts')).toBe(true);
+        for (const filePath of LOAD_BEARING_COVERAGE_GROUP_FILES) {
+            expect(isZeroExecutionTripwireTarget(filePath)).toBe(true);
+        }
+        expect(isZeroExecutionTripwireTarget('electron/features/search/nativeSearch.ts')).toBe(false);
         expect(isZeroExecutionTripwireTarget('packages/contracts/types.d.ts')).toBe(false);
     });
 
@@ -185,8 +190,8 @@ describe('zero-execution coverage tripwire', () => {
             'app/platform/search.worker.ts',
             'electron/platform-ipc/nested/registrar.ts',
             'packages/contracts/messages.ts',
-            'scan-cleanup-adapters/createRenderers.ts',
-            'scan-cleanup-core/nested/runCleanup.ts',
+            'packages/scan-cleanup/adapters/createRenderers.ts',
+            'packages/scan-cleanup/core/nested/runCleanup.ts',
         ];
         await Promise.all([
             ...targetFiles,
@@ -225,6 +230,61 @@ describe('zero-execution coverage tripwire', () => {
         );
     });
 
+    it('keeps every successor in the tripwire when a group member is missing or unexecuted', async () => {
+        const projectRoot = temporaryDirectories.register(
+            await mkdtemp(path.join(tmpdir(), 'evb-zero-execution-successors-')),
+        );
+        const missingPath = 'electron/features/scan-cleanup/scanCleanupPreviewRenderingPipeline.ts';
+        await Promise.all([
+            'app',
+            'electron/features/scan-cleanup',
+            'packages',
+        ].map(directory => mkdir(path.join(projectRoot, directory), {recursive: true})));
+        await Promise.all(LOAD_BEARING_COVERAGE_GROUP_FILES
+            .filter(filePath => filePath !== missingPath)
+            .map(filePath => writeFile(
+                path.join(projectRoot, filePath),
+                'export const successor = true;\n',
+                'utf8',
+            )));
+        const summaryPath = path.join(projectRoot, 'summary.json');
+        await writeFile(summaryPath, JSON.stringify({
+            total: fileSummary(LOAD_BEARING_COVERAGE_GROUP_FILES.length - 1, LOAD_BEARING_COVERAGE_GROUP_FILES.length - 1),
+            ...Object.fromEntries(LOAD_BEARING_COVERAGE_GROUP_FILES
+                .filter(filePath => filePath !== missingPath)
+                .map(filePath => [
+                    path.join(projectRoot, filePath),
+                    fileSummary(1, 1),
+                ])),
+        }), 'utf8');
+        const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+        const missingResult = await runZeroExecutionCoverage({
+            changedFiles: [],
+            projectRoot,
+            summaryPath,
+        });
+        expect(missingResult.passed).toBe(false);
+        expect(missingResult.missingFiles).toContain(missingPath);
+
+        await writeFile(path.join(projectRoot, missingPath), 'export const successor = true;\n', 'utf8');
+        await writeFile(summaryPath, JSON.stringify({
+            total: fileSummary(LOAD_BEARING_COVERAGE_GROUP_FILES.length, LOAD_BEARING_COVERAGE_GROUP_FILES.length - 1),
+            ...Object.fromEntries(LOAD_BEARING_COVERAGE_GROUP_FILES.map(filePath => [
+                path.join(projectRoot, filePath),
+                fileSummary(1, filePath === missingPath ? 0 : 1),
+            ])),
+        }), 'utf8');
+        const zeroResult = await runZeroExecutionCoverage({
+            changedFiles: [],
+            projectRoot,
+            summaryPath,
+        });
+        expect(zeroResult.passed).toBe(false);
+        expect(zeroResult.zeroExecutionFiles).toEqual([missingPath]);
+        expect(consoleLog).toHaveBeenCalled();
+    });
+
     it('adds changed Vue and TypeScript sources to the zero-execution gate', async () => {
         const projectRoot = temporaryDirectories.register(
             await mkdtemp(path.join(tmpdir(), 'evb-changed-zero-execution-')),
@@ -233,8 +293,6 @@ describe('zero-execution coverage tripwire', () => {
             'app/components',
             'electron',
             'packages',
-            'scan-cleanup-adapters',
-            'scan-cleanup-core',
         ].map(directory => mkdir(path.join(projectRoot, directory), {recursive: true})));
         await Promise.all([
             writeFile(
@@ -343,8 +401,7 @@ describe('zero-execution coverage tripwire', () => {
             'app/platform',
             'electron',
             'packages',
-            'scan-cleanup-adapters',
-            'scan-cleanup-core',
+            'packages/scan-cleanup',
         ].map(directory => mkdir(path.join(projectRoot, directory), {recursive: true})));
         await writeFile(
             path.join(projectRoot, 'app/platform/search.worker.ts'),

@@ -1,5 +1,8 @@
 import type { Ref } from 'vue';
-import type { TDocumentRef } from '@contracts/documentRef';
+import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { TSplitPayload } from '@contracts/windowTabs';
@@ -19,7 +22,12 @@ import {
     isNativeDocumentRef,
     resolveDocumentRefBackend,
 } from '@app/utils/documentRef';
+import {
+    getWorkspaceViewerAdapter,
+    resolveWorkspaceViewerAdapter,
+} from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
+import { retainDocumentOpenWorkingCopyForRetry } from '@app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import { runWithoutDocumentOperationLease } from '@app/utils/runWithoutDocumentOperationLease';
 import { resolvePdfViewerSaveTransactionFinalBytes } from '@app/modules/pdf-viewer/public';
@@ -41,6 +49,7 @@ interface IUseWorkspaceSplitPayloadOptions {
     originalPath: Ref<TDocumentRef | null>;
     workingCopyPath: Ref<TDocumentRef | null>;
     hasPendingTabChanges: Ref<boolean>;
+    requiresSaveAsOnFirstSave: Ref<boolean>;
     pdfViewerRef: Ref<IWorkspacePdfViewerSplitPort | null>;
     documentViewerRef: Ref<IWorkspaceDocumentViewerSplitPort | null>;
     pdfData: Ref<Uint8Array | null>;
@@ -56,6 +65,20 @@ interface IUseWorkspaceSplitPayloadOptions {
 }
 
 type TPdfSnapshotSplitPayload = Extract<TSplitPayload, { kind: 'pdfSnapshot' }>;
+const PDF_VIEWER_ADAPTER = getWorkspaceViewerAdapter('pdf');
+const DJVU_VIEWER_ADAPTER = getWorkspaceViewerAdapter('djvu');
+
+function isDjvuSplitPayload(payload: TSplitPayload): payload is Extract<TSplitPayload, {kind: 'djvu'}> {
+    return DJVU_VIEWER_ADAPTER.capabilities.sidebar
+        && DJVU_VIEWER_ADAPTER.documentTypes.includes('djvu')
+        && payload.kind === 'djvu';
+}
+
+function isPdfSplitPayload(payload: TSplitPayload): payload is TPdfSnapshotSplitPayload {
+    return PDF_VIEWER_ADAPTER.capabilities.pdfDocument
+        && PDF_VIEWER_ADAPTER.documentTypes.includes('pdf')
+        && payload.kind === 'pdfSnapshot';
+}
 
 function normalizeSplitPayloadPage(page: number | undefined) {
     if (typeof page !== 'number' || !Number.isFinite(page)) {
@@ -100,6 +123,7 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
             snapshotPath,
             ...(snapshotBackend === undefined ? {} : {snapshotBackend}),
             isDirty,
+            ...(options.requiresSaveAsOnFirstSave.value ? {isGenerated: true} : {}),
             currentPage: normalizedCurrentPage,
             totalPages: normalizeSplitPayloadTotalPages(options.totalPages.value, normalizedCurrentPage),
         };
@@ -272,8 +296,18 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
     }
 
     async function captureSplitPayload(): Promise<TSplitPayload> {
+        const activeViewerAdapter = resolveWorkspaceViewerAdapter({
+            djvuSourcePath: options.djvuSourcePath.value,
+            isDjvuMode: options.isDjvuMode.value,
+            pdfSourcePath: isPathPdfSource(options.pdfSrc.value)
+                ? options.pdfSrc.value.path
+                : options.pdfSrc.value
+                    ? parseDocumentRef('browser://documents/in-memory-pdf')
+                    : null,
+            shouldUseNativePdf: false,
+        });
         // DjVu check must precede pdfSrc guard: DjVu mode has pdfSrc=null.
-        if (options.isDjvuMode.value && options.djvuSourcePath.value) {
+        if (activeViewerAdapter === DJVU_VIEWER_ADAPTER && activeViewerAdapter.capabilities.sidebar && options.djvuSourcePath.value) {
             const normalizedCurrentPage = normalizeSplitPayloadPage(
                 options.documentViewerRef.value?.getCurrentPage?.() ?? options.currentPage.value,
             ) ?? 1;
@@ -294,12 +328,12 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
         return capturePdfSnapshotPayload();
     }
 
-    async function restoreSplitPayload(payload: TSplitPayload) {
+    async function restoreSplitPayload(payload: TSplitPayload): Promise<TDocumentOpenOutcome> {
         if (payload.kind === 'empty') {
-            return;
+            return {status: 'cancelled'};
         }
 
-        if (payload.kind === 'djvu') {
+        if (isDjvuSplitPayload(payload) && DJVU_VIEWER_ADAPTER.capabilities.sidebar) {
             const pageToRestore = normalizeSplitPayloadPage(payload.currentPage);
             if (pageToRestore) {
                 options.currentPage.value = pageToRestore;
@@ -311,18 +345,24 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
                     pageToRestore ?? 1,
                 );
             }
-            await options.openFileWithViewerLifecycle({
+            const outcome = await options.openFileWithViewerLifecycle({
                 kind: 'djvu',
                 workingPath: '',
                 originalPath: payload.sourcePath,
             });
+            if (outcome.status !== 'opened') {
+                return outcome;
+            }
             if (pageToRestore) {
                 await nextTick();
                 options.documentViewerRef.value?.scrollToPage(pageToRestore);
             }
-            return;
+            return outcome;
         }
 
+        if (!isPdfSplitPayload(payload) || !PDF_VIEWER_ADAPTER.capabilities.pdfDocument) {
+            return {status: 'cancelled'};
+        }
         const pageToRestore = normalizeSplitPayloadPage(payload.currentPage);
         if (payload.totalPages && Number.isFinite(payload.totalPages)) {
             options.totalPages.value = Math.max(options.totalPages.value, Math.floor(payload.totalPages));
@@ -337,12 +377,23 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
             })
             : null;
 
-        await options.loadPdfFromPath(payload.snapshotPath, { markDirty: payload.isDirty });
+        const result: TOpenFileResult = {
+            kind: 'pdf',
+            workingPath: payload.snapshotPath,
+            originalPath: payload.originalPath ?? payload.snapshotPath,
+            ...(payload.isGenerated ? {isGenerated: true} : {}),
+        };
+        retainDocumentOpenWorkingCopyForRetry(result);
+        const outcome = await options.openFileWithViewerLifecycle(result);
+        if (outcome.status !== 'opened') {
+            return outcome;
+        }
         options.originalPath.value = payload.originalPath;
 
         if (restorePagePromise) {
             await restorePagePromise;
         }
+        return outcome;
     }
 
     return {

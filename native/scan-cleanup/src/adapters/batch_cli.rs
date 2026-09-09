@@ -6,13 +6,10 @@ use crate::engine::batch_reconciliation::{
     ReconciliationPolicy,
 };
 use crate::engine::output_geometry::{
-    align_deferred_spread_vertical_placements, align_spread_vertical_placements,
     background_canvas_dimensions, background_dimensions_to_publish, canvas_fit_for,
     canvas_placement_warning_events, horizontal_overflow_requires_fold_scan,
-    layered_background_dpi, matched_output_paper_dimensions_for, plan_canvas_placement,
-    plan_canvas_placement_with_shared_fit, shared_spread_overflow_fit_for_outputs,
-    shared_spread_overflow_fits_for_geometry_outputs, validate_canvas_for_options, CanvasPlacement,
-    CanvasPlacementRequest, DeferredSpreadVerticalPlacement, GeometryCanvas, GeometryOutput,
+    layered_background_dpi, matched_output_paper_dimensions_for, plan_canvas_placements,
+    validate_canvas_for_options, CanvasPlacement, GeometryCanvas, GeometryOutput,
     NearPaperEdgeRuns, PLACEMENT_CENTERING_BOUNDS_X,
 };
 use crate::engine::page_statistics::{
@@ -374,13 +371,6 @@ fn paper_edge_runs_for_output(output: &CleanupResult) -> (usize, NearPaperEdgeRu
     crate::engine::output_geometry::paper_edge_runs(&planes)
 }
 
-pub(crate) fn placement_near_paper_edge_runs_for_output(
-    output: &CleanupResult,
-) -> NearPaperEdgeRuns {
-    let planes = geometry_plane_view(output);
-    crate::engine::output_geometry::placement_near_paper_edge_runs(&planes)
-}
-
 pub(crate) fn optical_content_bounds_x_for_output(output: &CleanupResult) -> Option<(f64, f64)> {
     let planes = geometry_plane_view(output);
     crate::engine::output_geometry::planes_optical_content_bounds_x(&planes)
@@ -407,7 +397,10 @@ fn apply_canvas_metadata(
 ) {
     let facts = crate::engine::output_geometry::canvas_metadata_facts(placement, canvas);
     metadata.soft_margins_pixels = facts.soft_margins_pixels;
-    metadata.applied_margins = facts.requested_margins.map(|margin| margin as f64).into();
+    metadata.applied_margins = placement
+        .requested_margins
+        .map(|margin| margin as f64)
+        .into();
     metadata.uniform_canvas = true;
     metadata.canvas_policy = MatchedCanvasPolicy::StrictMaximum;
     metadata.canvas_overflow = facts.canvas_overflow;
@@ -415,22 +408,22 @@ fn apply_canvas_metadata(
     metadata.matched_canvas_target_height = Some(canvas.height_px);
     metadata.matched_canvas_target_width_points = Some(canvas.width_points);
     metadata.matched_canvas_target_height_points = Some(canvas.height_points);
-    metadata.matched_canvas_content_width = Some(facts.content_width);
-    metadata.matched_canvas_content_height = Some(facts.content_height);
-    metadata.matched_canvas_optical_placement = facts.optical_content_centered;
+    metadata.matched_canvas_content_width = Some(placement.content_width);
+    metadata.matched_canvas_content_height = Some(placement.content_height);
+    metadata.matched_canvas_optical_placement = placement.optical_content_centered;
     metadata.matched_canvas_optical_content_left =
-        facts.optical_content_bounds_x.map(|(left, _)| left);
+        placement.optical_content_bounds_x.map(|(left, _)| left);
     metadata.matched_canvas_optical_content_right =
-        facts.optical_content_bounds_x.map(|(_, right)| right);
-    metadata.matched_canvas_intrinsic_overflow_left = facts.intrinsic_overflow_left;
-    metadata.matched_canvas_intrinsic_overflow_right = facts.intrinsic_overflow_right;
-    metadata.matched_canvas_intrinsic_overflow_top = facts.intrinsic_overflow_top;
-    metadata.fold_clip_left = facts.fold_clip_left;
-    metadata.fold_clip_right = facts.fold_clip_right;
+        placement.optical_content_bounds_x.map(|(_, right)| right);
+    metadata.matched_canvas_intrinsic_overflow_left = placement.intrinsic_overflow_left;
+    metadata.matched_canvas_intrinsic_overflow_right = placement.intrinsic_overflow_right;
+    metadata.matched_canvas_intrinsic_overflow_top = placement.intrinsic_overflow_top;
+    metadata.fold_clip_left = placement.fold_clip_left;
+    metadata.fold_clip_right = placement.fold_clip_right;
     metadata.canvas_width = canvas.width_px;
     metadata.canvas_height = canvas.height_px;
-    metadata.placement_offset_x = facts.left;
-    metadata.placement_offset_y = facts.top;
+    metadata.placement_offset_x = placement.left;
+    metadata.placement_offset_y = placement.top;
     metadata.warning_events.extend(
         canvas_placement_warning_events(placement, canvas, metadata.content_box.is_some())
             .into_iter()
@@ -613,12 +606,16 @@ fn staged_lease(manifest: &ManifestV3, page: &Page) -> StagedLeaseDescriptor {
     }
 }
 
+fn planning_operation(operation: Operation) -> PlanningOperation {
+    match operation {
+        Operation::Analyze => PlanningOperation::Analyze,
+        Operation::Render => PlanningOperation::Render,
+    }
+}
+
 impl PlanningManifest for ManifestV3 {
     fn operation(&self) -> PlanningOperation {
-        match self.operation {
-            Operation::Analyze => PlanningOperation::Analyze,
-            Operation::Render => PlanningOperation::Render,
-        }
+        planning_operation(self.operation)
     }
 
     fn host_memory_bytes(&self) -> Option<u64> {
@@ -698,34 +695,7 @@ fn match_page_sizes(
         .iter()
         .map(|output| geometry_output(output))
         .collect::<Vec<_>>();
-    let geometry_refs = geometry_outputs.iter().collect::<Vec<_>>();
-    let shared_spread_fits =
-        shared_spread_overflow_fits_for_geometry_outputs(&geometry_refs, &canvas);
-    let mut placements = geometry_outputs
-        .iter()
-        .map(|output| {
-            plan_canvas_placement_with_shared_fit(
-                output,
-                &canvas,
-                shared_spread_fits.get(&output.source_page_index),
-            )
-        })
-        .collect::<Vec<_>>();
-    let deferred_spread_outputs = geometry_outputs
-        .iter()
-        .map(|output| DeferredSpreadVerticalPlacement {
-            source_page_index: output.source_page_index,
-            half: output.half,
-            intrinsic_height: output.height,
-            content_top: output.spread_content_top,
-        })
-        .collect::<Vec<_>>();
-    align_deferred_spread_vertical_placements(
-        &mut placements,
-        &deferred_spread_outputs,
-        &shared_spread_fits,
-        &canvas,
-    );
+    let placements = plan_canvas_placements(&geometry_outputs, &canvas);
 
     for (output, placement) in eligible.into_iter().zip(placements) {
         let repad_result = (|| -> Result<(), Box<dyn Error>> {
@@ -904,7 +874,6 @@ pub fn run(args: impl IntoIterator<Item = String>) -> Result<(), Box<dyn Error>>
     };
     let cache = manifest_cache(PlanningOperation::Render, None);
     let page_cache = page_cache_for(&planning_page(&page), &cache)?;
-    let publication = CliPagePublication;
     run_page(
         &page,
         CanvasScope::Page,
@@ -913,7 +882,6 @@ pub fn run(args: impl IntoIterator<Item = String>) -> Result<(), Box<dyn Error>>
         Some((&output, &metadata)),
         None,
         &page_cache,
-        &publication,
     )
     .map(|_| ())
 }
@@ -945,6 +913,27 @@ fn run_manifest(path: &Path, allowed_path_root: Option<&Path>) -> Result<(), Box
             Err(error)
         }
     }
+}
+
+fn map_page_error(error: &(dyn Error + 'static)) -> NativeError {
+    let envelope = NativeErrorEnvelope::from_error(error);
+    NativeError::new(envelope.code, envelope.message)
+}
+
+fn aspect_ratio_matches(
+    input_width: usize,
+    input_height: usize,
+    reference_width: usize,
+    reference_height: usize,
+) -> bool {
+    let input_aspect = input_width as f64 / input_height.max(1) as f64;
+    let reference_aspect = reference_width as f64 / reference_height.max(1) as f64;
+    !matches!(
+        (input_aspect / reference_aspect - 1.0)
+            .abs()
+            .partial_cmp(&0.02),
+        Some(std::cmp::Ordering::Greater)
+    )
 }
 
 fn reconciliation_candidates(results: &[PageRunResult]) -> Vec<ReconciliationCandidate> {
@@ -1035,8 +1024,6 @@ where
                 reconciled,
                 cluster_agreement,
                 output_count,
-                clear_split_seam,
-                clear_outputs,
             } => {
                 let metadata = &mut page_results[index].metadata;
                 metadata.layout_classification = classification;
@@ -1047,10 +1034,10 @@ where
                 metadata.cluster_agreement = cluster_agreement;
                 metadata.document_prior = Some(prior);
                 metadata.output_count = output_count;
-                if clear_split_seam {
+                if classification != LayoutClassification::TwoPageSpread {
                     metadata.split_seam = None;
                 }
-                if clear_outputs {
+                if reconciled {
                     metadata.outputs.clear();
                 }
             }
@@ -1082,10 +1069,7 @@ fn run_manifest_inner(manifest: &ManifestV3) -> Result<(), Box<dyn Error>> {
         output_mode_diagnostics: None,
     })?;
     let cache = manifest_cache(
-        match manifest.operation {
-            Operation::Analyze => PlanningOperation::Analyze,
-            Operation::Render => PlanningOperation::Render,
-        },
+        planning_operation(manifest.operation),
         manifest.host_memory_bytes,
     );
     let total_pages = manifest.pages.len();
@@ -1165,10 +1149,7 @@ fn run_manifest_inner(manifest: &ManifestV3) -> Result<(), Box<dyn Error>> {
                     plan_content,
                     &page_cache,
                 )
-                .map_err(|error| {
-                    let envelope = NativeErrorEnvelope::from_error(error.as_ref());
-                    NativeError::new(envelope.code, envelope.message)
-                })
+                .map_err(|error| map_page_error(error.as_ref()))
             })?;
             // Publish the page's independent verdict immediately. Document
             // reconciliation may revise it after the batch finishes, at which
@@ -1185,7 +1166,6 @@ fn run_manifest_inner(manifest: &ManifestV3) -> Result<(), Box<dyn Error>> {
         |(index, descriptor): (usize, &PageDescriptor)| -> Result<PageRunResult, NativeError> {
             let page = page_from_staged(&manifest.pages[index], descriptor);
             let page_cache = page_cache_for(descriptor, &cache)?;
-            let publication = CliPagePublication;
             let result = run_page(
                 &page,
                 manifest.canvas_scope,
@@ -1194,12 +1174,8 @@ fn run_manifest_inner(manifest: &ManifestV3) -> Result<(), Box<dyn Error>> {
                 None,
                 page_ink_contexts[index],
                 &page_cache,
-                &publication,
             )
-            .map_err(|error| {
-                let envelope = NativeErrorEnvelope::from_error(error.as_ref());
-                NativeError::new(envelope.code, envelope.message)
-            })?;
+            .map_err(|error| map_page_error(error.as_ref()))?;
             report_page(index, page_complete_progress(&result, index, total_pages))?;
             Ok(result)
         };
@@ -1238,10 +1214,7 @@ fn run_manifest_inner(manifest: &ManifestV3) -> Result<(), Box<dyn Error>> {
                         manifest.analysis_purpose == AnalysisPurpose::PagePlan,
                         &page_cache,
                     )
-                    .map_err(|error| {
-                        let envelope = NativeErrorEnvelope::from_error(error.as_ref());
-                        NativeError::new(envelope.code, envelope.message)
-                    })
+                    .map_err(|error| map_page_error(error.as_ref()))
                 });
             let released = release_staged_page_input(&lease, &announce_lease);
             finish_staged_rerun(rerun_result, released)
@@ -1301,15 +1274,6 @@ mod page_workflow {
             NativeErrorCode::InvalidRequest
         };
         NativeError::new(code, message)
-    }
-
-    pub(crate) trait PagePublication {
-        fn write_metadata(
-            &self,
-            path: &Path,
-            metadata: &CleanupMetadata,
-        ) -> Result<(), Box<dyn Error>>;
-        fn remove_file(&self, path: &Path);
     }
 
     pub(crate) fn write_gray_layer_background(
@@ -1473,7 +1437,6 @@ mod page_workflow {
         fallback_destination: Option<(&Path, &Path)>,
         page_ink_consistency: Option<PageInkConsistencyContext>,
         cache: &PageCache,
-        publication: &dyn PagePublication,
     ) -> Result<PageRunResult, Box<dyn Error>> {
         let options = page.options.clone();
         options.validate().map_err(invalid)?;
@@ -1504,10 +1467,12 @@ mod page_workflow {
             })
             .transpose()?;
         if let Some(canonical) = canonical_analysis_input.as_ref() {
-            let input_aspect = input_gray.width() as f64 / input_gray.height().max(1) as f64;
-            let canonical_aspect =
-                canonical.gray.width() as f64 / canonical.gray.height().max(1) as f64;
-            if (input_aspect / canonical_aspect - 1.0).abs() > 0.02 {
+            if !aspect_ratio_matches(
+                input_gray.width(),
+                input_gray.height(),
+                canonical.gray.width(),
+                canonical.gray.height(),
+            ) {
                 return Err(invalid(format!(
                 "Fixed analysis raster aspect ratio does not match page input: {}x{} versus {}x{}",
                 canonical.gray.width(),
@@ -1535,9 +1500,12 @@ mod page_workflow {
             let selection =
                 raster::read_foreground_selection(path, options.max_pixels, options.max_dimension)
                 .map_err(|error| map_raster_error(error, path, page.source_page_index))?;
-            let input_aspect = input_gray.width() as f64 / input_gray.height().max(1) as f64;
-            let mask_aspect = selection.width() as f64 / selection.height().max(1) as f64;
-            if (input_aspect / mask_aspect - 1.0).abs() > 0.02 {
+            if !aspect_ratio_matches(
+                input_gray.width(),
+                input_gray.height(),
+                selection.width(),
+                selection.height(),
+            ) {
                 return Err(invalid(format!(
                     "Trusted foreground mask aspect ratio does not match page input: {}x{} versus {}x{}",
                     selection.width(),
@@ -1566,9 +1534,12 @@ mod page_workflow {
                     .map_err(|error| map_raster_error(error, path, page.source_page_index))?;
             let (background_width, background_height) =
                 (background.width(), background.height());
-            let input_aspect = input_gray.width() as f64 / input_gray.height().max(1) as f64;
-            let background_aspect = background_width as f64 / background_height.max(1) as f64;
-            if (input_aspect / background_aspect - 1.0).abs() > 0.02 {
+            if !aspect_ratio_matches(
+                input_gray.width(),
+                input_gray.height(),
+                background_width,
+                background_height,
+            ) {
                 return Err(invalid(format!(
                     "Trusted MRC background aspect ratio does not match page input: {}x{} versus {}x{}",
                     background_width,
@@ -1784,86 +1755,32 @@ mod page_workflow {
         } else {
             None
         };
-        let shared_spread_overflow_plan = matched_canvas
-            .and_then(|canvas| {
-                (result.classification == LayoutClassification::TwoPageSpread).then(|| {
-                    let geometry_outputs = result
-                        .outputs
-                        .iter()
-                        .map(|output| geometry_output_from_cleanup_result(output, &options))
-                        .collect::<Vec<_>>();
-                    shared_spread_overflow_fit_for_outputs(&geometry_outputs, &options, &canvas)
+        let matched_placements = if let Some(canvas) = matched_canvas {
+            let geometry_outputs = result
+                .outputs
+                .iter()
+                .map(|output| {
+                    let mut geometry = geometry_output_from_cleanup_result(output, &options);
+                    geometry.optical_content_bounds_x = PLACEMENT_CENTERING_BOUNDS_X;
+                    geometry
                 })
-            })
-            .flatten();
-        let mut matched_placements = result
-            .outputs
-            .iter()
-            .enumerate()
-            .map(|(index, output)| {
-                matched_canvas.map(|canvas| {
-                    let (paper_width, paper_height) = matched_output_paper_dimensions_for(
-                        output.metadata.input_width,
-                        output.metadata.input_height,
-                        output.metadata.rotation,
-                        output.metadata.half,
-                    );
-                    let optical_content_bounds_x = output
+                .collect::<Vec<_>>();
+            plan_canvas_placements(&geometry_outputs, &canvas)
+                .into_iter()
+                .zip(&result.outputs)
+                .map(|(mut placement, output)| {
+                    placement.optical_content_bounds_x = output
                         .metadata
                         .content_box
                         .is_some()
                         .then(|| optical_content_bounds_x_for_output(output))
                         .flatten();
-                    let fold_trim = shared_spread_overflow_plan
-                        .as_ref()
-                        .and_then(|plan| plan.trims.get(index))
-                        .copied()
-                        .unwrap_or_default();
-                    let mut placement = plan_canvas_placement(
-                        CanvasPlacementRequest {
-                            width: output.image.width(),
-                            height: output.image.height(),
-                            paper_width,
-                            paper_height,
-                            content_detected: output.metadata.content_box.is_some(),
-                            options: &options,
-                            half: output.metadata.half,
-                            optical_content_bounds_x: PLACEMENT_CENTERING_BOUNDS_X,
-                            shared_overflow_fit: shared_spread_overflow_plan
-                                .as_ref()
-                                .map(|plan| plan.shared_fit),
-                            fold_trim,
-                            outer_near_paper_runs: placement_near_paper_edge_runs_for_output(
-                                output,
-                            ),
-                        },
-                        &canvas,
-                    );
-                    placement.optical_content_bounds_x = optical_content_bounds_x;
-                    (placement, canvas)
+                    Some((placement, canvas))
                 })
-            })
-            .collect::<Vec<_>>();
-        if result.classification == LayoutClassification::TwoPageSpread {
-            let intrinsic_heights = result
-                .outputs
-                .iter()
-                .map(|output| output.image.height())
-                .collect::<Vec<_>>();
-            let content_tops = result
-                .outputs
-                .iter()
-                .map(spread_content_top_for_output)
-                .collect::<Vec<_>>();
-            if let Some(canvas) = matched_canvas {
-                align_spread_vertical_placements(
-                    &mut matched_placements,
-                    &intrinsic_heights,
-                    &content_tops,
-                    &canvas,
-                );
-            }
-        }
+                .collect::<Vec<_>>()
+        } else {
+            vec![None; result.outputs.len()]
+        };
         let mut written = Vec::with_capacity(result.outputs.len());
         let write_started = Instant::now();
         let publication_result = (|| -> Result<(), Box<dyn Error>> {
@@ -1924,7 +1841,7 @@ mod page_workflow {
                         Some(path.clone())
                     }
                     Some((path, Err(error))) => {
-                        publication.remove_file(path);
+                        let _ = fs::remove_file(path);
                         output.metadata.warnings.push(format!(
                         "Bilevel output was not written; the composite fallback was published instead: {error}"
                     ));
@@ -2027,8 +1944,8 @@ mod page_workflow {
                         }
                     })();
                     if let Err(error) = layer_result {
-                        publication.remove_file(background_path);
-                        publication.remove_file(foreground_path);
+                        let _ = fs::remove_file(background_path);
+                        let _ = fs::remove_file(foreground_path);
                         restore_mixed_composite_from_layers(output);
                         output.metadata.warnings.push(format!(
                             "Mixed layers were not written safely; the composite fallback was published instead: {error}"
@@ -2111,7 +2028,7 @@ mod page_workflow {
                             .map_err(|message| NativeError::new(NativeErrorCode::Io, message))?;
                     }
                 }
-                publication.write_metadata(&destination.metadata_path, &output.metadata)?;
+                write_json_atomic(&destination.metadata_path, &output.metadata)?;
                 let (paper_width, paper_height) = matched_output_paper_dimensions_for(
                     output.metadata.input_width,
                     output.metadata.input_height,
@@ -2194,28 +2111,28 @@ mod page_workflow {
         })();
         if let Err(error) = publication_result {
             for destination in &destinations {
-                publication.remove_file(&destination.output_path);
-                publication.remove_file(&destination.metadata_path);
+                let _ = fs::remove_file(&destination.output_path);
+                let _ = fs::remove_file(&destination.metadata_path);
                 if let Some(bilevel_path) = &destination.bilevel_output_path {
-                    publication.remove_file(bilevel_path);
+                    let _ = fs::remove_file(bilevel_path);
                 }
                 if let Some(background_path) = &destination.background_output_path {
-                    publication.remove_file(background_path);
+                    let _ = fs::remove_file(background_path);
                 }
                 if let Some(mask_path) = &destination.foreground_mask_output_path {
-                    publication.remove_file(mask_path);
+                    let _ = fs::remove_file(mask_path);
                 }
                 if let Some(alpha_path) = &destination.foreground_alpha_output_path {
-                    publication.remove_file(alpha_path);
+                    let _ = fs::remove_file(alpha_path);
                 }
                 if let Some(mask_path) = &destination.picture_mask_output_path {
-                    publication.remove_file(mask_path);
+                    let _ = fs::remove_file(mask_path);
                 }
                 if let Some(mask_path) = &destination.tone_preservation_alpha_output_path {
-                    publication.remove_file(mask_path);
+                    let _ = fs::remove_file(mask_path);
                 }
             }
-            publication.remove_file(&page.page_metadata_path);
+            let _ = fs::remove_file(&page.page_metadata_path);
             return Err(error);
         }
         timings.write_ms += write_started.elapsed().as_secs_f64() * 1_000.0;
@@ -2421,27 +2338,11 @@ fn page_complete_progress(result: &PageRunResult, index: usize, total_pages: usi
     }
 }
 
-pub(crate) use page_workflow::{run_classification, run_page, PagePublication};
+pub(crate) use page_workflow::{run_classification, run_page};
 
 pub(crate) fn write_json_atomic(path: &Path, value: &impl Serialize) -> Result<(), Box<dyn Error>> {
     let bytes = serde_json::to_vec_pretty(value)?;
     crate::io::write_atomic(path, &bytes).map_err(|error| std::io::Error::other(error).into())
-}
-
-struct CliPagePublication;
-
-impl PagePublication for CliPagePublication {
-    fn write_metadata(
-        &self,
-        path: &Path,
-        metadata: &CleanupMetadata,
-    ) -> Result<(), Box<dyn Error>> {
-        write_json_atomic(path, metadata)
-    }
-
-    fn remove_file(&self, path: &Path) {
-        let _ = fs::remove_file(path);
-    }
 }
 
 #[cfg(test)]

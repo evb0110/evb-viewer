@@ -14,7 +14,7 @@ import { createAbortError } from '@electron/utils/abort';
 describe('unhandled rejection recovery', () => {
     it('classifies subsystem failures from stack and message evidence', () => {
         const error = new Error('Tesseract worker failed');
-        error.stack = 'Error\n at electron/ocr/jobManager.ts:10';
+        error.stack = 'Error\n at electron/features/ocr/main/jobManager.ts:10';
         expect(classifyUnhandledRejectionSubsystem(error)).toBe('ocr');
         expect(classifyUnhandledRejectionSubsystem(new Error('unrelated failure'))).toBe('unknown');
     });

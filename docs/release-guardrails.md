@@ -62,6 +62,10 @@ here is required reading for an ordinary cut.
 - The workflow runs the focused release checks only when the target SHA has no successful exact-SHA push-CI `gates_ok` run (for example a branch commit); a CI-vouched commit goes straight to packaging. It packages the core matrix, the supplemental macOS Intel, Windows ARM64, and Windows 7 legacy lanes, and Store AppX packages, applying the same packaged native-tool and ASAR/content verification as release lanes.
 - It never creates a tag, a GitHub Release, or release assets. Downloads live as GitHub Actions artifacts on the workflow run.
 
+## Current-tree size and Git history
+
+The Project 6 binary-distribution work tracks current-tree inputs, build-time downloads, and their upstream provenance separately from Git history. Removing a third-party runtime file from a future tree, or fetching it during a build, reduces the current checkout or build inputs only. It does not rewrite the historical Git pack, existing commit IDs, tags, release identities, or Sentry references. The settled no-rewrite decision and its revisit condition are recorded in [Project 6 issue #326](https://github.com/evb0110/evb-viewer/issues/326). Do not rewrite history, force-push, retag, or migrate active clones unless a new explicit decision authorizes it with a measured storage and migration plan.
+
 ## Microsoft Store packages
 
 The supplemental workflow builds and smoke-installs the Store AppX packages
@@ -116,9 +120,6 @@ and the v0.1.427 campaign:
   Delete once one or two releases have gone through the new cutter cleanly.
 - **Matrix-artifact reuse across same-SHA attempts**: worth building only if
   publish-chain failures recur. Same-SHA repair is proven cheap.
-- **ci.yml provisioning consolidation** into `setup-release-env`: only if
-  ci.yml lanes start drifting the way the release lanes did; its
-  gate-independence pattern has one owner and its own topology test.
 - **Linux container image** with preinstalled system deps: stronger fix for
   apt-mirror hangs; requires a registry decision first.
 

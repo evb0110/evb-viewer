@@ -250,7 +250,6 @@ function createState(options?: {
     ensurePrintReady?: () => Promise<boolean>;
     ensureWorkingCopyFreshForRead?: () => Promise<boolean | string | null>;
     getLastFailurePresentation?: () => FailurePresentation | null;
-    canPrintDjvuSource?: boolean;
     getCurrentPrintPage?: () => number | null | undefined;
     printDjvuSource?: (
         payload: {
@@ -292,9 +291,6 @@ function createState(options?: {
         ...(options?.hasPendingPrintSerializationChanges !== undefined
             ? { hasPendingPrintSerializationChanges: ref(options.hasPendingPrintSerializationChanges) }
             : {}),
-        ...(options?.canPrintDjvuSource !== undefined
-            ? { canPrintDjvuSource: ref(options.canPrintDjvuSource) }
-            : {}),
         ...(options?.getCurrentPrintPage
             ? { getCurrentPrintPage: options.getCurrentPrintPage }
             : {}),
@@ -308,7 +304,10 @@ function createState(options?: {
             : {}),
         getPrintableSourceData,
         ...(options?.printDjvuSource
-            ? { printDjvuSource: options.printDjvuSource }
+            ? {preparePrintSource: async (payload, printOptions) => {
+                await options.printDjvuSource!(payload, printOptions);
+                return {status: 'completed' as const};
+            }}
             : {}),
         ...(options?.renderLoadedPdfPagesForBrowserPrint
             ? { renderLoadedPdfPagesForBrowserPrint: options.renderLoadedPdfPagesForBrowserPrint }
@@ -1112,10 +1111,7 @@ describe('useWorkspacePrint', () => {
             getPrintableSourceData,
             scope,
             state,
-        } = createState({
-            canPrintDjvuSource: true,
-            printDjvuSource,
-        });
+        } = createState({printDjvuSource});
 
         try {
             await state.handlePrintDialogSubmit({
@@ -1154,10 +1150,7 @@ describe('useWorkspacePrint', () => {
         const {
             scope,
             state,
-        } = createState({
-            canPrintDjvuSource: true,
-            printDjvuSource,
-        });
+        } = createState({printDjvuSource});
 
         try {
             state.handlePrint();
@@ -1189,7 +1182,6 @@ describe('useWorkspacePrint', () => {
             scope,
             state,
         } = createState({
-            canPrintDjvuSource: true,
             getCurrentPrintPage: () => 7,
             printDjvuSource,
         });
@@ -1239,7 +1231,6 @@ describe('useWorkspacePrint', () => {
             scope,
             state,
         } = createState({
-            canPrintDjvuSource: true,
             getCurrentPrintPage: () => 7,
             printDjvuSource,
         });

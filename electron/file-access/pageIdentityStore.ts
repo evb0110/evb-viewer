@@ -23,16 +23,16 @@ import type {IOcrIndexV3Manifest} from '@contracts/ocrIndex';
 import {parseOcrIndexV3Manifest} from '@contracts/ocrIndex';
 import {isRecord} from '@contracts/runtimeGuards';
 import {readWorkingCopyRevisionSidecar} from '@electron/file-access/documentRevisionSidecar';
-import {readOcrIndexV3ManifestMetadata} from '@electron/ocr/ocrIndexV3Stream';
+import {readOcrIndexV3ManifestMetadata} from '@electron/features/ocr/public/index';
 import {
-    loadCompactSearchIndex,
-    persistCompactSearchIndex,
-} from '@electron/search/searchIndexSidecar';
-import {
+    loadNativeCompactSearchIndex as loadCompactSearchIndex,
+    persistNativeCompactSearchIndex as persistCompactSearchIndex,
     loadSearchIndex,
     SEARCH_INDEX_SCHEMA_VERSION,
-} from '@electron/search/indexBuilder';
-import {stringifyLegacyJsonSearchIndex} from '@electron/search/stringifyLegacyJsonSearchIndex';
+    stringifyLegacyJsonSearchIndex,
+    classifySearchIndexOperation,
+    invalidateSearchIndexSidecars,
+} from '@electron/features/search/publicNative';
 import {
     atomicReplace,
     makeSiblingTempPath,
@@ -41,10 +41,6 @@ import {getPdfPageCount} from '@electron/pdf/pdfPageCount';
 import {createLogger} from '@electron/utils/createLogger';
 import {getErrorMessage} from '@electron/utils/error';
 import {isAbortError} from '@electron/utils/abort';
-import {
-    classifySearchIndexOperation,
-    invalidateSearchIndexSidecars,
-} from '@electron/search/searchIndexOperationPolicy';
 import {
     assertIdentitySeed,
     assertPageCount,
@@ -70,7 +66,7 @@ import {
 import {
     migrateOcrIndexV3ToV4,
     remapOcrCatalogV4PageRanges,
-} from '@electron/ocr/worker/indexWriterV4';
+} from '@electron/features/ocr/worker/indexWriterV4';
 
 /**
  * The v1 sidecar kept one UUID in a JSON array for every page. A range

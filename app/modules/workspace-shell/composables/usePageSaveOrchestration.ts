@@ -11,8 +11,6 @@ import type {
 import type { IScrollSnapshot } from '@app/types/pdfUi';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
-import type { TRequestId } from '@contracts/shared';
-import type { IPdfOptimizeOptions } from '@contracts/electronApiDocuments';
 import {
     createPdfSourceDataReader,
     resolvePdfReloadPage,
@@ -153,6 +151,15 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
             ...(wasEncrypted ? {wasEncrypted} : {}),
         },
         ...(unencryptedSaveNotice ? {unencryptedSaveNotice} : {}),
+        ...(hasPendingUnsavedChanges ? {hasPendingUnsavedChanges} : {}),
+        hasUnsavedChanges: () => (
+            isDirty.value
+            || annotationDirty.value
+            || hasAnnotationChanges()
+            || pageLabelsDirty.value
+            || bookmarksDirty.value
+        ),
+        ...(deps.optimizePdfOnSaveAs ? {optimizePdfOnSaveAs: deps.optimizePdfOnSaveAs} : {}),
         annotations: {
             dirty: annotationDirty,
             markSaved: markAnnotationSaved,
@@ -186,7 +193,6 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
             runSaveTransaction: request => pdfViewerRef.value?.runSaveTransaction(request)
                 ?? Promise.reject(new Error('Missing PDF viewer save transaction')),
             getSourceData: getSourcePdfData,
-            serializeForSave: undefined,
         },
         persistence: {
             validatePdfPath,
@@ -244,68 +250,16 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
     };
 
     const {
-        handleSave: handleSaveWithReload,
-        handleRepairSave: handleRepairSaveWithReload,
-        handleOptimizePdfForInteraction: handleOptimizePdfForInteractionWithReload,
-        handleOptimizePdfAsCopy: handleOptimizePdfAsCopyWithReload,
-        handleSaveAs: handleSaveAsWithReload,
+        handleSave,
+        handleRepairSave,
+        handleOptimizePdfForInteraction,
+        handleOptimizePdfAsCopy,
+        handleSaveAs,
+        canSave,
+        isAnySaving,
         hasSaveFailure,
     } = useWorkspaceSaveService(saveDependencies);
-
-    const isAnySaving = computed(() => isSaving.value || isSavingAs.value);
-    const canSave = computed(() => (
-        hasPendingUnsavedChanges
-            ? hasPendingUnsavedChanges.value
-            : (
-                isDirty.value
-                || annotationDirty.value
-                || hasAnnotationChanges()
-                || pageLabelsDirty.value
-                || bookmarksDirty.value
-            )
-    ));
-
-    async function handleSave() {
-        // Save is an idempotent command. A history round trip can reconcile
-        // the last dirty signal immediately before the command arrives; in
-        // that case there is nothing to write, but the requested save still
-        // completed successfully.
-        return canSave.value ? handleSaveWithReload() : true;
-    }
-
-    async function handleRepairSave() {
-        return handleRepairSaveWithReload();
-    }
-
-    async function handleOptimizePdfForInteraction() {
-        if (canSave.value) {
-            const saved = await handleSaveWithReload();
-            if (!saved) {
-                return false;
-            }
-        }
-
-        return handleOptimizePdfForInteractionWithReload();
-    }
-
-    async function handleOptimizePdfAsCopy(options: IPdfOptimizeOptions, requestId?: TRequestId) {
-        if (canSave.value) {
-            const saved = await handleSaveWithReload();
-            if (!saved) {
-                return false;
-            }
-        }
-
-        return handleOptimizePdfAsCopyWithReload(options, requestId);
-    }
-
-    async function handleSaveAs() {
-        return handleSaveAsWithReload(deps.optimizePdfOnSaveAs?.value === true);
-    }
-
-    function saveForExternalRead() {
-        return handleSaveWithReload();
-    }
+    const saveForExternalRead = handleSave;
 
     function getNativeSaveTransactionOptions(): INativePdfSaveTransactionOptions {
         const documentFiles = getDocumentFilesCapability();

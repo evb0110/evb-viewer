@@ -3,7 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import { parseWorkerMessage } from '@electron/ocr/jobManagerProtocol';
+import { parseWorkerMessage } from '@electron/features/ocr/main/jobManagerProtocol';
 
 describe('parseWorkerMessage', () => {
     it('preserves source revision tokens on successful completion messages', () => {

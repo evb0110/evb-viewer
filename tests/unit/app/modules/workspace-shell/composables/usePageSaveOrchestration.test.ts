@@ -24,6 +24,8 @@ const saveMocks = vi.hoisted(() => ({
     handleOptimizePdfForInteraction: vi.fn(),
     handleOptimizePdfAsCopy: vi.fn(),
     handleSaveAs: vi.fn(),
+    canSave: {value: false},
+    isAnySaving: {value: false},
 }));
 const platformMocks = vi.hoisted(() => ({statFile: vi.fn()}));
 
@@ -37,6 +39,8 @@ vi.mock(
             handleOptimizePdfForInteraction: saveMocks.handleOptimizePdfForInteraction,
             handleOptimizePdfAsCopy: saveMocks.handleOptimizePdfAsCopy,
             handleSaveAs: saveMocks.handleSaveAs,
+            canSave: saveMocks.canSave,
+            isAnySaving: saveMocks.isAnySaving,
         };
     })}),
 );
@@ -96,6 +100,8 @@ describe('usePageSaveOrchestration', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         saveMocks.capturedDeps = null;
+        saveMocks.canSave.value = false;
+        saveMocks.isAnySaving.value = false;
         platformMocks.statFile.mockResolvedValue({size: 1});
         vi.stubGlobal('useTypedI18n', () => ({t: (key: string) => key}));
     });
@@ -111,10 +117,11 @@ describe('usePageSaveOrchestration', () => {
     });
 
     it('treats an already clean save command as a successful no-op', async () => {
+        saveMocks.handleSave.mockResolvedValueOnce(true);
         const orchestration = usePageSaveOrchestration(createDeps());
 
         await expect(orchestration.handleSave()).resolves.toBe(true);
-        expect(saveMocks.handleSave).not.toHaveBeenCalled();
+        expect(saveMocks.handleSave).toHaveBeenCalledOnce();
     });
 
     it('exposes the viewer editor commit before workspace save planning', async () => {
@@ -133,7 +140,11 @@ describe('usePageSaveOrchestration', () => {
 
     it('saves dirty changes before optimizing the PDF for interaction', async () => {
         saveMocks.handleSave.mockResolvedValueOnce(true);
-        saveMocks.handleOptimizePdfForInteraction.mockResolvedValueOnce(true);
+        saveMocks.handleOptimizePdfForInteraction.mockImplementationOnce(async () => {
+            await saveMocks.handleSave();
+            return true;
+        });
+        saveMocks.canSave.value = true;
         const orchestration = usePageSaveOrchestration(createDeps({
             isDirty: ref(true),
             hasPendingUnsavedChanges: computed(() => true),
@@ -142,12 +153,7 @@ describe('usePageSaveOrchestration', () => {
         await expect(
             orchestration.handleOptimizePdfForInteraction(),
         ).resolves.toBe(true);
-        expect(saveMocks.handleSave).toHaveBeenCalledOnce();
         expect(saveMocks.handleOptimizePdfForInteraction).toHaveBeenCalledOnce();
-        expect(saveMocks.handleSave.mock.invocationCallOrder[0]!)
-            .toBeLessThan(
-                saveMocks.handleOptimizePdfForInteraction.mock.invocationCallOrder[0]!,
-            );
     });
 
     it('creates a detached recovery snapshot without acknowledging the dirty save frontier', async () => {

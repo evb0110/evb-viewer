@@ -40,7 +40,7 @@ import {normalizeIpcWritePayload} from '@electron/file-access/documentFileWriteA
 import { validatePdfFile } from '@electron/features/documents/main/pdfConformance';
 import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
 import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
-import { optimizePdfForSaveAs } from '@electron/features/documents/main/pdfSaveAsOptimization';
+import { optimizePdfForSaveAs } from '@electron/features/documents/public/pdfSaveAsOptimization';
 import type { IDocumentsDialogContext } from '@electron/features/documents/documentsService';
 import {
     markWorkingCopySyncRequired,

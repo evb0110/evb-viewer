@@ -15,13 +15,29 @@ import {
     createDefaultWorkspaceViewerCapabilities,
     type IWorkspaceExpose,
 } from '@app/types/workspaceExpose';
-import { restoreWorkspaceCheckpoint } from '@app/modules/workspace-shell/checkpoint/restoreWorkspaceCheckpoint';
+import {
+    restoreWorkspaceCheckpoint,
+    getRegisteredPdfOpenKind,
+} from '@app/modules/workspace-shell/checkpoint/restoreWorkspaceCheckpoint';
+import {getWorkspaceViewerAdapter} from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 import {
     createWorkspaceAutomationStateSnapshot,
     createWorkspaceExposeFixture,
 } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 
 describe('restoreWorkspaceCheckpoint', () => {
+    it('selects the registered PDF type independently of descriptor order', () => {
+        const pdfAdapter = getWorkspaceViewerAdapter('pdf');
+
+        expect(getRegisteredPdfOpenKind({
+            documentTypes: [
+                'image',
+                'pdf',
+            ],
+            capabilities: pdfAdapter.capabilities,
+        })).toBe('pdf');
+    });
+
     it('reopens a working copy and restores the active page and zoom', async () => {
         const workspace = createWorkspaceExposeFixture({
             waitForDocumentOpenSettled: vi.fn().mockResolvedValue(undefined),

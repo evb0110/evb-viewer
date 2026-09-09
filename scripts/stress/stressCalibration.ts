@@ -2,10 +2,8 @@ import { getErrorMessage } from '@contracts/getErrorMessage';
 import { readFileSync } from 'node:fs';
 import { open } from 'node:fs/promises';
 import type { Page } from 'puppeteer-core';
-import type {
-    IElectronAPI,
-    THostResourceTier,
-} from '@contracts';
+import type {IElectronAPI} from '@contracts/electronApi';
+import type {THostResourceTier} from '@contracts/hostResourceProfile';
 import { evaluateInPage } from '@tests/e2e/electron/helpers/pageRuntime';
 import { percentile } from '@scripts/stress/percentile';
 import type {

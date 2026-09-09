@@ -20,6 +20,7 @@ import type {
 } from '@contracts/shared';
 import type { TDocumentSidebarTab } from '@app/utils/document-viewer/sidebar/documentSidebarTabs';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/public';
+import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 
 export interface IWorkspaceToolbarSnapshot {
     hasPdf: boolean;
@@ -223,7 +224,7 @@ export interface IWorkspacePageOpsPort {
 
 export interface IWorkspaceSplitTransferPort {
     captureSplitPayload: () => Promise<TSplitPayload>;
-    restoreSplitPayload: (payload: TSplitPayload) => Promise<void>;
+    restoreSplitPayload: (payload: TSplitPayload) => Promise<TDocumentOpenOutcome>;
 }
 
 export interface IWorkspaceUiPort {

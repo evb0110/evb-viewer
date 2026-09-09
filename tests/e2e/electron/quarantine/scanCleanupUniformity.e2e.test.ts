@@ -32,22 +32,21 @@ import {
     decodeNativeScanCleanupPageMetadataJson,
 } from '@contracts/scan-cleanup/nativeArtifactCodecs';
 import type {TScanCleanupWarningEvent} from '@contracts/scan-cleanup/nativeProtocolV3';
-import type * as TScanCleanupWarningEventsModule from '@scan-cleanup-core/policy/scanCleanupWarningEvents';
+import type * as TScanCleanupWarningEventsModule from '@evb/scan-cleanup/core/policy/scanCleanupWarningEvents';
 import {
     SCAN_CLEANUP_SETTINGS_FILE_NAME,
     createDefaultScanCleanupSettingsFile,
 } from '@contracts/scanCleanupSettings';
-import {
-    createScanCleanupPreviewService,
-    type IScanCleanupDetectionSubscriber,
-} from '@electron/features/scan-cleanup/createScanCleanupPreviewService';
+import {scanCleanupPreviewLifecycle} from '@electron/features/scan-cleanup/scanCleanupPreviewLifecycle';
+import {defaultDependencies} from '@electron/features/scan-cleanup/scanCleanupPreviewCompositionDefaults';
+import type {IScanCleanupDetectionSubscriber} from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 import {
     forgetWorkingCopyOriginalPath,
     setWorkingCopyOriginalPath,
 } from '@electron/file-access/workingCopyStore';
-import {readPdfPageSizes} from '@scan-cleanup-core/pdfPageSizes';
-import type {IPdfPageSize} from '@scan-cleanup-core/types';
-import {SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI} from '@scan-cleanup-core/policy/documentCanvas';
+import {readPdfPageSizes} from '@evb/scan-cleanup/core/pdfPageSizes';
+import type {IPdfPageSize} from '@evb/scan-cleanup/core/types';
+import {SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI} from '@evb/scan-cleanup/core/policy/documentCanvas';
 import {
     resolveCliNativeToolPath,
     runCliNativeToolCommand,
@@ -392,7 +391,7 @@ const {
     warningEventFormatter: {current: null as TScanCleanupWarningEventFormatter | null},
 }));
 
-vi.mock('@scan-cleanup-core/policy/scanCleanupWarningEvents', async importOriginal => {
+vi.mock('@evb/scan-cleanup/core/policy/scanCleanupWarningEvents', async importOriginal => {
     const actual = await importOriginal<typeof TScanCleanupWarningEventsModule>();
     warningEventFormatter.current = actual.formatScanCleanupWarningEvent;
     return {
@@ -851,7 +850,7 @@ async function readPreviewObservations(
     // recorded so the run can retire it again.
     registeredWorkingCopies.add(fixturePath);
     await setWorkingCopyOriginalPath(fixturePath, fixturePath, 1, {backingState: 'eager'});
-    const service = createScanCleanupPreviewService();
+    const service = scanCleanupPreviewLifecycle(defaultDependencies);
     // The preview service only needs an identity, a destroyed check and the
     // listener hooks it unbinds on dispose: a corpus run awaits each preview
     // and consumes no streamed detection events.

@@ -1,0 +1,35 @@
+name: Setup CI environment
+description: Set up the pinned Node and pnpm toolchain and install the locked dependencies for CI.
+
+inputs:
+  node-version:
+    description: Exact Node version to install.
+    required: true
+  cache-dependency-path:
+    description: Lockfile path used by the pnpm cache.
+    default: pnpm-lock.yaml
+  verify-electron:
+    description: Verify the installed Electron executable after installing dependencies.
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+    - name: Setup pnpm
+      uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
+
+    - name: Setup Node.js
+      uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: pnpm
+        cache-dependency-path: ${{ inputs.cache-dependency-path }}
+
+    - name: Install dependencies
+      shell: bash
+      run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
+
+    - name: Verify Electron install
+      if: inputs.verify-electron == 'true'
+      shell: bash
+      run: pnpm run check:electron:install

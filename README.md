@@ -238,6 +238,27 @@ Copy `.env.example` files when you need local environment overrides. Do not comm
 
 ## Testing And Verification
 
+### Unit-test mock policy
+
+Unit tests must not mock same-layer internal business modules. A test under
+`tests/unit/app/`, `tests/unit/electron/`, `tests/unit/server/`, or
+`tests/unit/packages/` must not use `vi.mock`, `vi.doMock`, or `vi.spyOn` on a
+module reached through the matching `@app`, `@electron`, `@server`, or package
+alias. Alias spelling matters, including scoped `@evb/*` package aliases.
+
+Mock process and platform boundaries instead. Approved examples include
+Electron APIs, filesystem and child-process modules, native-sidecar command
+wrappers, IPC/platform adapters, and network clients. Use fixtures or a small
+harness when the behavior belongs to the same layer. The reviewed allowlist in
+`eslint.internal-mock-allowlist.mjs` records existing exceptions by exact file
+and count. `eslint.internal-mock-allowlist-baseline.mjs` is the independent
+ceiling, so the allowlist may only shrink. A new violating file or an extra
+violation in an allowlisted file fails unit-test lint until the policy is
+reviewed.
+The #319 test-size owner may share this unit-test configuration, but owns the
+max-lines implementation and its allowlist separately. #317 does not change
+that size policy.
+
 ```bash
 # Root app lint and fast static checks
 pnpm lint

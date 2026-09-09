@@ -7,7 +7,7 @@ import {
     getLastOcrSelectionPage,
     getOcrSelectionLanguages,
     normalizeOcrPageSelection,
-} from '@electron/ocr/worker/ocrPageSelectionStream';
+} from '@electron/features/ocr/worker/ocrPageSelectionStream';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import type {IOcrSearchablePdfPage} from '@contracts/electronApiOcr';
 import type {TOcrPdfPageSelection} from '@electron/ocr/worker/types';

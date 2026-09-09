@@ -14,8 +14,8 @@ import {
     resolve,
 } from 'node:path';
 import type {IScanCleanupOptions} from '@contracts/electronApiScanCleanup';
-import {buildRunnableNativeScanCleanupManifest} from '@scan-cleanup-core/policy/buildNativeScanCleanupManifest';
-import {ScanCleanupContractError} from '@scan-cleanup-core/errors';
+import {buildRunnableNativeScanCleanupManifest} from '@evb/scan-cleanup/core/policy/buildNativeScanCleanupManifest';
+import {ScanCleanupContractError} from '@evb/scan-cleanup/core/errors';
 import {createScanCleanupDiagnosticsManifestScope} from '@scripts/diagnostics/scan-cleanup-diagnostics-manifest.mjs';
 import {
     afterAll,

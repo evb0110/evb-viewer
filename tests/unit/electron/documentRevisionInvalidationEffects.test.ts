@@ -21,13 +21,16 @@ import { tmpdir } from 'os';
 const invalidationMocks = vi.hoisted(() => ({
     cancelOcrJobsForWorkingCopy: vi.fn(),
     cancelRequestsForPdfPath: vi.fn(),
+    recoverPreparedOcrRevisionTransition: vi.fn(),
 }));
 
 let tempRoot = '';
 
 vi.mock('electron', () => ({ app: { getPath: vi.fn(() => tempRoot) } }));
 
-vi.mock('@electron/ocr/jobManager', () => ({cancelOcrJobsForWorkingCopy: invalidationMocks.cancelOcrJobsForWorkingCopy}));
+vi.mock('@electron/features/ocr/public/index', () => ({cancelOcrJobsForWorkingCopy: invalidationMocks.cancelOcrJobsForWorkingCopy}));
+
+vi.mock('@electron/features/ocr/public/recovery', () => ({recoverPreparedOcrRevisionTransition: invalidationMocks.recoverPreparedOcrRevisionTransition}));
 
 vi.mock('@electron/features/search/main/ipc', () => ({searchWorkerService: {cancelRequestsForPdfPath: invalidationMocks.cancelRequestsForPdfPath}}));
 

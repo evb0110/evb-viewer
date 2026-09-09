@@ -21,7 +21,7 @@ import {
 } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import {requireDocumentRevisionToken} from '@contracts';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 
 const mocks = vi.hoisted(() => ({
     showSaveDialog: vi.fn(),
@@ -111,7 +111,7 @@ vi.mock('@electron/utils/atomicReplace', () => ({
     makeSiblingTempPath: (...args: [string]) => mocks.makeSiblingTempPath(...args),
 }));
 vi.mock('@electron/features/documents/main/pdfConformance', () => ({validatePdfFile: (...args: unknown[]) => mocks.validatePdfFile(...args)}));
-vi.mock('@electron/features/documents/main/pdfSaveAsOptimization', () => ({
+vi.mock('@electron/features/documents/public/pdfSaveAsOptimization', () => ({
     normalizePdfSaveAsOptions: (value: unknown) => (
         value
         && typeof value === 'object'

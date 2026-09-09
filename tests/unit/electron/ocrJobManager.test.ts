@@ -6,7 +6,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import type * as OcrJobManagerModule from '@electron/ocr/jobManager';
+import type * as OcrJobManagerModule from '@electron/features/ocr/main/jobManager';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import type {TPageNumber} from '@contracts/pageNumbers';
 import {requireRequestId} from '@contracts/shared';
@@ -95,11 +95,11 @@ vi.mock('fs/promises', () => ({
     stat: mocks.stat,
     unlink: mocks.unlink,
 }));
-vi.mock('@electron/ocr/languageModels', () => ({
+vi.mock('@electron/features/ocr/languageModels', () => ({
     ensureRuntimeTessdataSeeded: mocks.ensureRuntimeTessdataSeeded,
     ensureTessdataLanguages: mocks.ensureTessdataLanguages,
 }));
-vi.mock('@electron/ocr/paths', () => ({getOcrToolPaths: mocks.getOcrToolPaths}));
+vi.mock('@electron/features/ocr/main/paths', () => ({getOcrToolPaths: mocks.getOcrToolPaths}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
 vi.mock('@electron/utils/sendPlatformEvent', () => ({sendPlatformEvent: mocks.sendPlatformEvent}));
 vi.mock('@electron/file-access/documentRevisionStore', () => ({getWorkingCopyRevision: mocks.getWorkingCopyRevision}));
@@ -235,7 +235,7 @@ describe('ocr job manager preparing-stage robustness', {timeout: 20_000}, () => 
     afterEach(async () => {
         vi.useRealTimers();
         vi.unstubAllEnvs();
-        const { shutdownOcrJobManager } = await import('@electron/ocr/jobManager');
+        const { shutdownOcrJobManager } = await import('@electron/features/ocr/main/jobManager');
         await shutdownOcrJobManager();
     });
 
@@ -258,7 +258,7 @@ describe('ocr job manager preparing-stage robustness', {timeout: 20_000}, () => 
         const {
             handleOcrCancel,
             handleOcrCreateSearchablePdfAsync,
-        } = await import('@electron/ocr/jobManager');
+        } = await import('@electron/features/ocr/main/jobManager');
         const contexts = Array.from(
             {length: workerPoolSize + 1},
             (_value, index) => createContext(200 + index),
@@ -306,7 +306,7 @@ describe('ocr job manager preparing-stage robustness', {timeout: 20_000}, () => 
         const {
             handleOcrCancel,
             handleOcrCreateSearchablePdfAsync,
-        } = await import('@electron/ocr/jobManager');
+        } = await import('@electron/features/ocr/main/jobManager');
 
         const firstPromise = startOcrJob(handleOcrCreateSearchablePdfAsync, firstContext, 'job-1');
 
@@ -341,7 +341,7 @@ describe('ocr job manager preparing-stage robustness', {timeout: 20_000}, () => 
             isFile: () => true,
         });
 
-        const { handleOcrCreateSearchablePdfAsync } = await import('@electron/ocr/jobManager');
+        const { handleOcrCreateSearchablePdfAsync } = await import('@electron/features/ocr/main/jobManager');
 
         const result = await startOcrJob(handleOcrCreateSearchablePdfAsync, createContext(23), 'job-large');
 
@@ -357,7 +357,7 @@ describe('ocr job manager preparing-stage robustness', {timeout: 20_000}, () => 
         const {
             handleOcrCancel,
             handleOcrCreateSearchablePdfAsync,
-        } = await import('@electron/ocr/jobManager');
+        } = await import('@electron/features/ocr/main/jobManager');
         const context = createContext(24);
         const pages = Array.from({length: 2_136}, (_value, index) => ({
             pageNumber: requirePageNumber(index + 1),
@@ -406,7 +406,7 @@ describe('ocr job manager preparing-stage robustness', {timeout: 20_000}, () => 
         const {
             handleOcrCancel,
             handleOcrCreateSearchablePdfAsync,
-        } = await import('@electron/ocr/jobManager');
+        } = await import('@electron/features/ocr/main/jobManager');
 
         const firstPromise = startOcrJob(handleOcrCreateSearchablePdfAsync, firstContext, 'job-3');
 
@@ -439,7 +439,7 @@ describe('ocr job manager preparing-stage robustness', {timeout: 20_000}, () => 
         vi.stubEnv('EVB_OCR_JOB_IDLE_TIMEOUT_MS', '15000');
         mocks.ensureTessdataLanguages.mockResolvedValueOnce(undefined);
 
-        const { handleOcrCreateSearchablePdfAsync } = await import('@electron/ocr/jobManager');
+        const { handleOcrCreateSearchablePdfAsync } = await import('@electron/features/ocr/main/jobManager');
 
         const result = await startOcrJob(handleOcrCreateSearchablePdfAsync, createContext(55), 'job-5', {pages: [
             {
@@ -502,7 +502,7 @@ describe('ocr job manager preparing-stage robustness', {timeout: 20_000}, () => 
         vi.stubEnv('EVB_OCR_JOB_IDLE_TIMEOUT_MS', '15000');
         mocks.ensureTessdataLanguages.mockResolvedValueOnce(undefined);
 
-        const { handleOcrCreateSearchablePdfAsync } = await import('@electron/ocr/jobManager');
+        const { handleOcrCreateSearchablePdfAsync } = await import('@electron/features/ocr/main/jobManager');
 
         await startOcrJob(handleOcrCreateSearchablePdfAsync, createContext(56), 'job-6');
 
@@ -533,7 +533,7 @@ describe('ocr job manager preparing-stage robustness', {timeout: 20_000}, () => 
         vi.stubEnv('EVB_OCR_WORKER_CLEANUP_GRACE_MS', '60000');
         mocks.ensureTessdataLanguages.mockResolvedValueOnce(undefined);
 
-        const { handleOcrCreateSearchablePdfAsync } = await import('@electron/ocr/jobManager');
+        const { handleOcrCreateSearchablePdfAsync } = await import('@electron/features/ocr/main/jobManager');
 
         await startOcrJob(handleOcrCreateSearchablePdfAsync, createContext(57), 'job-7');
 
@@ -580,7 +580,7 @@ describe('ocr job manager preparing-stage robustness', {timeout: 20_000}, () => 
             handleOcrCancel,
             handleOcrCreateSearchablePdfAsync,
             subscribeOcrJobProjection,
-        } = await import('@electron/ocr/jobManager');
+        } = await import('@electron/features/ocr/main/jobManager');
 
         await startOcrJob(handleOcrCreateSearchablePdfAsync, owner, 'ocr-reload', {
             path: '/tmp/work-projection.pdf',
@@ -673,7 +673,7 @@ describe('ocr job manager preparing-stage robustness', {timeout: 20_000}, () => 
         const {
             handleOcrCancel,
             handleOcrCreateSearchablePdfAsync,
-        } = await import('@electron/ocr/jobManager');
+        } = await import('@electron/features/ocr/main/jobManager');
 
         const context = createContext(66);
         const result = await startOcrJob(handleOcrCreateSearchablePdfAsync, context, 'job-6');
@@ -732,7 +732,7 @@ describe('ocr job manager preparing-stage robustness', {timeout: 20_000}, () => 
             handleOcrCancel,
             handleOcrCreateSearchablePdfAsync,
             subscribeManagedOcrProgress,
-        } = await import('@electron/ocr/jobManager');
+        } = await import('@electron/features/ocr/main/jobManager');
 
         await expect(startOcrJob(
             handleOcrCreateSearchablePdfAsync,
@@ -789,7 +789,7 @@ describe('ocr job manager preparing-stage robustness', {timeout: 20_000}, () => 
         const {
             handleOcrCancel,
             handleOcrCreateSearchablePdfAsync,
-        } = await import('@electron/ocr/jobManager');
+        } = await import('@electron/features/ocr/main/jobManager');
 
         const startPromise = startOcrJob(handleOcrCreateSearchablePdfAsync, context, 'job-71');
 
@@ -818,7 +818,7 @@ describe('ocr job manager preparing-stage robustness', {timeout: 20_000}, () => 
         const {
             handleOcrCancel,
             handleOcrCreateSearchablePdfAsync,
-        } = await import('@electron/ocr/jobManager');
+        } = await import('@electron/features/ocr/main/jobManager');
 
         const firstContext = createContext(67);
         await expect(startOcrJob(
@@ -861,7 +861,7 @@ describe('ocr job manager preparing-stage robustness', {timeout: 20_000}, () => 
     it('still forwards completion from the current active worker', async () => {
         mocks.ensureTessdataLanguages.mockResolvedValueOnce(undefined);
 
-        const { handleOcrCreateSearchablePdfAsync } = await import('@electron/ocr/jobManager');
+        const { handleOcrCreateSearchablePdfAsync } = await import('@electron/features/ocr/main/jobManager');
 
         const result = await startOcrJob(handleOcrCreateSearchablePdfAsync, createContext(77), 'job-7');
 
@@ -909,7 +909,7 @@ describe('ocr job manager preparing-stage robustness', {timeout: 20_000}, () => 
     it('adds typed envelopes when forwarding worker failure completions', async () => {
         mocks.ensureTessdataLanguages.mockResolvedValueOnce(undefined);
 
-        const { handleOcrCreateSearchablePdfAsync } = await import('@electron/ocr/jobManager');
+        const { handleOcrCreateSearchablePdfAsync } = await import('@electron/features/ocr/main/jobManager');
 
         const result = await startOcrJob(handleOcrCreateSearchablePdfAsync, createContext(79), 'job-79');
 
@@ -951,7 +951,7 @@ describe('ocr job manager preparing-stage robustness', {timeout: 20_000}, () => 
     it('forwards successful completion even when cleanup completion never arrives', async () => {
         mocks.ensureTessdataLanguages.mockResolvedValueOnce(undefined);
 
-        const { handleOcrCreateSearchablePdfAsync } = await import('@electron/ocr/jobManager');
+        const { handleOcrCreateSearchablePdfAsync } = await import('@electron/features/ocr/main/jobManager');
 
         await expect(startOcrJob(
             handleOcrCreateSearchablePdfAsync,
@@ -1006,7 +1006,7 @@ describe('ocr job manager preparing-stage robustness', {timeout: 20_000}, () => 
         vi.stubEnv('EVB_OCR_WORKER_CLEANUP_GRACE_MS', '1000');
         mocks.ensureTessdataLanguages.mockResolvedValueOnce(undefined);
 
-        const { handleOcrCreateSearchablePdfAsync } = await import('@electron/ocr/jobManager');
+        const { handleOcrCreateSearchablePdfAsync } = await import('@electron/features/ocr/main/jobManager');
 
         await expect(startOcrJob(
             handleOcrCreateSearchablePdfAsync,
@@ -1050,7 +1050,7 @@ describe('ocr job manager preparing-stage robustness', {timeout: 20_000}, () => 
     it('does not send a failure completion when a worker errors after success', async () => {
         mocks.ensureTessdataLanguages.mockResolvedValueOnce(undefined);
 
-        const { handleOcrCreateSearchablePdfAsync } = await import('@electron/ocr/jobManager');
+        const { handleOcrCreateSearchablePdfAsync } = await import('@electron/features/ocr/main/jobManager');
 
         await expect(startOcrJob(
             handleOcrCreateSearchablePdfAsync,
@@ -1093,7 +1093,7 @@ describe('ocr job manager preparing-stage robustness', {timeout: 20_000}, () => 
     it('denies resource acquires after a terminal result has been sent', async () => {
         mocks.ensureTessdataLanguages.mockResolvedValueOnce(undefined);
 
-        const { handleOcrCreateSearchablePdfAsync } = await import('@electron/ocr/jobManager');
+        const { handleOcrCreateSearchablePdfAsync } = await import('@electron/features/ocr/main/jobManager');
 
         await expect(startOcrJob(
             handleOcrCreateSearchablePdfAsync,
@@ -1142,7 +1142,7 @@ describe('ocr job manager preparing-stage robustness', {timeout: 20_000}, () => 
         const {
             handleOcrCancel,
             handleOcrCreateSearchablePdfAsync,
-        } = await import('@electron/ocr/jobManager');
+        } = await import('@electron/features/ocr/main/jobManager');
 
         const firstContext = createContext(181);
         await expect(startOcrJob(
@@ -1235,7 +1235,7 @@ describe('ocr job manager preparing-stage robustness', {timeout: 20_000}, () => 
         const {
             handleOcrCancel,
             handleOcrCreateSearchablePdfAsync,
-        } = await import('@electron/ocr/jobManager');
+        } = await import('@electron/features/ocr/main/jobManager');
 
         const context = createContext(78);
         const result = await startOcrJob(handleOcrCreateSearchablePdfAsync, context, 'job-78');
@@ -1279,7 +1279,7 @@ describe('ocr job manager preparing-stage robustness', {timeout: 20_000}, () => 
         const {
             handleOcrCancel,
             handleOcrCreateSearchablePdfAsync,
-        } = await import('@electron/ocr/jobManager');
+        } = await import('@electron/features/ocr/main/jobManager');
 
         const startPromise = startOcrJob(handleOcrCreateSearchablePdfAsync, context, 'job-80');
 
@@ -1304,7 +1304,7 @@ describe('ocr job manager preparing-stage robustness', {timeout: 20_000}, () => 
         const {
             handleOcrCreateSearchablePdfAsync,
             shutdownOcrJobManager,
-        } = await import('@electron/ocr/jobManager');
+        } = await import('@electron/features/ocr/main/jobManager');
 
         const result = await startOcrJob(handleOcrCreateSearchablePdfAsync, createContext(88), 'job-8');
 
@@ -1330,7 +1330,7 @@ describe('ocr job manager preparing-stage robustness', {timeout: 20_000}, () => 
         const {
             handleOcrCancel,
             handleOcrCreateSearchablePdfAsync,
-        } = await import('@electron/ocr/jobManager');
+        } = await import('@electron/features/ocr/main/jobManager');
 
         const firstContext = createContext(99);
         const firstResult = await startOcrJob(handleOcrCreateSearchablePdfAsync, firstContext, 'job-99');

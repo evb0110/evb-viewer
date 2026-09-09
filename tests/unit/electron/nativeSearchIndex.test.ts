@@ -17,9 +17,9 @@ import {
     NATIVE_SEARCH_INDEX_SCHEMA_VERSION,
     getNativeSearchIndexPath,
     persistNativeSearchIndex,
-} from '@electron/search/nativeSearchIndex';
-import type { IPdfSearchIndex } from '@electron/search/indexBuilder';
-import {requireDocumentRevisionToken} from '@contracts';
+} from '@electron/features/search/nativeSearchIndex';
+import type { IPdfSearchIndex } from '@electron/features/search/indexBuilder';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 
 const DOCUMENT_REVISION = requireDocumentRevisionToken('revision-token');
 

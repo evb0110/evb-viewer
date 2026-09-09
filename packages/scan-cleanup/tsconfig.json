@@ -1,0 +1,20 @@
+{
+    "extends": [
+        "../../tsconfig.base.json",
+        "../../tsconfig.workspace-paths.json"
+    ],
+    "compilerOptions": {
+        "target": "ESNext",
+        "module": "ESNext",
+        "moduleResolution": "Bundler",
+        "noEmit": true,
+        "types": [
+            "node"
+        ]
+    },
+    "include": [
+        "./index.ts",
+        "./core/**/*.ts",
+        "./adapters/**/*.ts"
+    ]
+}

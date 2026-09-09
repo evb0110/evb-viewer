@@ -74,6 +74,7 @@ interface IWorkspaceInteractionControlsOptions {
     fileName: Ref<string | null>;
     originalPath: Ref<TDocumentRef | null>;
     hasPendingTabChanges: ComputedRef<boolean>;
+    requiresSaveAsOnFirstSave: Ref<boolean>;
     pdfData: Ref<Uint8Array | null>;
     openFileWithViewerLifecycle: (result: TOpenFileResult) => Promise<TDocumentOpenOutcome>;
     waitForPdfReload: (page: number) => Promise<void>;
@@ -121,6 +122,7 @@ export const useWorkspaceInteractionControls = (options: IWorkspaceInteractionCo
         fileName,
         originalPath,
         hasPendingTabChanges,
+        requiresSaveAsOnFirstSave,
         pdfData,
         openFileWithViewerLifecycle,
         waitForPdfReload,
@@ -266,6 +268,7 @@ export const useWorkspaceInteractionControls = (options: IWorkspaceInteractionCo
         originalPath,
         workingCopyPath,
         hasPendingTabChanges,
+        requiresSaveAsOnFirstSave,
         pdfViewerRef,
         documentViewerRef,
         pdfData,

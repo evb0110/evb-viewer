@@ -2,7 +2,7 @@ import type { Simplify } from 'type-fest';
 import type {
     IPluralMessage,
     TTranslationLeaf,
-} from '@evb/i18n-core/messageFormat';
+} from '@i18n-core/messageFormat';
 
 export type TLocaleSchemaFrom<TNode> = {
     [TKey in keyof TNode]: TNode[TKey] extends TTranslationLeaf

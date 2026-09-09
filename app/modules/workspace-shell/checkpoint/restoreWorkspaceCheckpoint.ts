@@ -8,6 +8,11 @@ import type {
 } from '@contracts/workspaceCheckpoint';
 import type { ITab } from '@app/types/tabs';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
+import {getWorkspaceViewerAdapter} from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
+import type {
+    TWorkspaceViewerDocumentType,
+    IWorkspaceViewerAdapter,
+} from '@app/modules/workspace-shell/viewers/workspaceViewerAdapterTypes';
 
 interface IRestoreWorkspaceCheckpointOptions {
     tabs: Ref<ITab[]>;
@@ -19,6 +24,14 @@ interface IRestoreWorkspaceCheckpointOptions {
 }
 
 const WORKSPACE_RESTORE_CONCURRENCY = 2;
+const PDF_DOCUMENT_TYPE: TWorkspaceViewerDocumentType = 'pdf';
+
+export function getRegisteredPdfOpenKind(
+    adapter: Pick<IWorkspaceViewerAdapter, 'documentTypes' | 'capabilities'> = getWorkspaceViewerAdapter('pdf'),
+) {
+    const kind = adapter.documentTypes.find((documentType): documentType is 'pdf' => documentType === PDF_DOCUMENT_TYPE);
+    return adapter.capabilities.pdfDocument ? kind ?? null : null;
+}
 
 function getRestoreTarget(tab: IWorkspaceCheckpointTab): TDocumentRef | TOpenFileResult | null {
     // A hard Electron restart loses the main-process working-copy registry.
@@ -28,8 +41,12 @@ function getRestoreTarget(tab: IWorkspaceCheckpointTab): TDocumentRef | TOpenFil
         return tab.sourceRef;
     }
     if (tab.workingCopyRef && tab.sourceRef) {
+        const pdfKind = getRegisteredPdfOpenKind();
+        if (!pdfKind) {
+            return null;
+        }
         return {
-            kind: 'pdf',
+            kind: pdfKind,
             workingPath: tab.workingCopyRef,
             originalPath: tab.sourceRef,
             ...(tab.requiresSaveAsOnFirstSave ? {isGenerated: true} : {}),

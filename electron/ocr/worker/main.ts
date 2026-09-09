@@ -53,55 +53,55 @@ import { clampDpi } from '@electron/image/imageDpi';
 import {
     getPngDimensionsFromFile,
     runOcrFileBased,
-} from '@electron/ocr/worker/tesseractRunner';
-import { tryPreprocessOcrImage } from '@electron/ocr/worker/tryPreprocessOcrImage';
+} from '@electron/features/ocr/worker/tesseractRunner';
+import { tryPreprocessOcrImage } from '@electron/features/ocr/worker/tryPreprocessOcrImage';
 import {
     assembleSearchablePdf,
     getPageCount,
-} from '@electron/ocr/worker/pdfAssembler';
+} from '@electron/features/ocr/worker/pdfAssembler';
 import {
     parseInvalidOcrWorkerStartMessage,
     parseOcrWorkerInboundMessage,
-} from '@electron/ocr/worker/inboundMessage';
-import { resolveWorkerPaths } from '@electron/ocr/worker/resolveWorkerPaths';
+} from '@electron/features/ocr/worker/inboundMessage';
+import { resolveWorkerPaths } from '@electron/features/ocr/worker/resolveWorkerPaths';
 import {
     buildPopplerEnv,
     createOcrRasterRenderLimits,
     preparePdfForPoppler,
     probeOcrPageSizeInches,
     renderPdfPageToPng,
-} from '@electron/ocr/worker/popplerStage';
+} from '@electron/features/ocr/worker/popplerStage';
 import { isAbortError } from '@electron/utils/abort';
 import { getErrorMessage } from '@electron/utils/error';
 import {
     buildOcrErrorEnvelope,
     getOcrPageSelectionCount,
     iterateOcrPageRequestBatches,
-} from '@electron/ocr/contracts';
-import {selectOcrPagesForSupersession} from '@electron/ocr/worker/selectOcrPagesForSupersession';
-import {sha256OcrFile} from '@electron/ocr/worker/sha256OcrFile';
+} from '@electron/features/ocr/contracts';
+import {selectOcrPagesForSupersession} from '@electron/features/ocr/worker/selectOcrPagesForSupersession';
+import {sha256OcrFile} from '@electron/features/ocr/worker/sha256OcrFile';
 import {
     readOcrPdfPageSizesInches,
     type IOcrPageSizeInches,
-} from '@electron/ocr/worker/pdfPageSizeProbe';
+} from '@electron/features/ocr/worker/pdfPageSizeProbe';
 import {
     cleanupStaleOcrJobDirectories,
     createOcrJobManifestController,
-} from '@electron/ocr/worker/ocrJobManifest';
+} from '@electron/features/ocr/worker/ocrJobManifest';
 import {
     createOcrJobStorageBudget,
     isOcrStorageFailure,
     type TOcrJobStorageBudget,
-} from '@electron/ocr/worker/ocrJobStorageBudget';
-import {cleanupOcrTempFiles} from '@electron/ocr/worker/cleanupOcrTempFiles';
-import {persistOcrPageCheckpoint} from '@electron/ocr/worker/persistOcrPageCheckpoint';
+} from '@electron/features/ocr/worker/ocrJobStorageBudget';
+import {cleanupOcrTempFiles} from '@electron/features/ocr/worker/cleanupOcrTempFiles';
+import {persistOcrPageCheckpoint} from '@electron/features/ocr/worker/persistOcrPageCheckpoint';
 import {
     getLastOcrSelectionPage,
     getOcrSelectionLanguages,
     iterateCheckpointPageData,
     iterateCheckpointPdfEntries,
     normalizeOcrPageSelection,
-} from '@electron/ocr/worker/ocrPageSelectionStream';
+} from '@electron/features/ocr/worker/ocrPageSelectionStream';
 import {writeOcrIndexes} from '@electron/ocr/worker/writeOcrIndexes';
 import {
     createRequestId,
@@ -634,7 +634,7 @@ export async function processOcrPages(
     };
 }
 
-export {iterateCheckpointPageResults} from '@electron/ocr/worker/ocrPageSelectionStream';
+export {iterateCheckpointPageResults} from '@electron/features/ocr/worker/ocrPageSelectionStream';
 
 async function validateSourcePdf(jobId: TJobId, sourcePdfPath: string, pageCount: number) {
     const sourceStat = await stat(sourcePdfPath);

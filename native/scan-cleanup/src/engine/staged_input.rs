@@ -103,7 +103,6 @@ pub(crate) fn map_raster_error(
 }
 
 pub(crate) struct MaterializedStreamPage {
-    index: usize,
     page: StagedPageDescriptor,
     temporary_input: Option<PathBuf>,
 }
@@ -277,7 +276,6 @@ pub(crate) fn materialize_stream_page(
     let mut materialized = page.clone();
     if !page.stream_input {
         return Ok(MaterializedStreamPage {
-            index,
             page: materialized,
             temporary_input: None,
         });
@@ -328,7 +326,6 @@ pub(crate) fn materialize_stream_page(
     materialized.input_path = temporary_input.clone();
     materialized.stream_input = false;
     Ok(MaterializedStreamPage {
-        index,
         page: materialized,
         temporary_input: Some(temporary_input),
     })
@@ -477,10 +474,10 @@ where
 
             let mut results = Vec::with_capacity(batch.pages.len());
             let mut first_error = None;
-            for materialized in receiver {
+            for (index, materialized) in receiver.into_iter().enumerate() {
                 match materialized {
                     Ok(materialized) if first_error.is_none() => {
-                        match task((materialized.index, &materialized.page)) {
+                        match task((index, &materialized.page)) {
                             Ok(result) => {
                                 results.push(result);
                                 if acknowledge.send(true).is_err() {
@@ -543,9 +540,9 @@ where
 
         let mut results = Vec::with_capacity(batch.pages.len());
         let mut first_error = None;
-        for materialized in receiver {
+        for (index, materialized) in receiver.into_iter().enumerate() {
             match materialized {
-                Ok(materialized) => match task((materialized.index, &materialized.page)) {
+                Ok(materialized) => match task((index, &materialized.page)) {
                     Ok(result) => results.push(result),
                     Err(error) => {
                         canceled.store(true, Ordering::Release);

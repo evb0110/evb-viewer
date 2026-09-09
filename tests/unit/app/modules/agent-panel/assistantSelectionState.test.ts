@@ -23,10 +23,8 @@ import {
     providerDefaultSpeedMode,
     speedModesForProviderStatus,
 } from '@app/modules/agent-panel/utils/assistantSelectionState';
-import {
-    requireDocumentInstanceId,
-    requireDocumentRevisionToken,
-} from '@contracts';
+import {requireDocumentInstanceId} from '@contracts/documentInstanceId';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {
     requireEpochMs,

@@ -50,7 +50,7 @@ const probe = vi.hoisted(() => {
     };
 });
 
-vi.mock('@electron/ocr/worker/runOcrCommand', () => ({runOcrCommand: probe.runPdftotext}));
+vi.mock('@electron/features/ocr/worker/runOcrCommand', () => ({runOcrCommand: probe.runPdftotext}));
 
 const catalogReads = vi.hoisted(() => ({
     files: [] as string[],
@@ -87,12 +87,12 @@ vi.mock('node:fs/promises', async (importActual) => {
 
 vi.mock('@electron/file-access/documentRevisionSidecar', () => ({assertWorkingCopyRevisionSidecarCurrent: () => Promise.resolve()}));
 
-const { selectOcrPagesForSupersession } = await import('@electron/ocr/worker/selectOcrPagesForSupersession');
+const { selectOcrPagesForSupersession } = await import('@electron/features/ocr/worker/selectOcrPagesForSupersession');
 const {
     getOcrPageSelectionCount,
     iterateOcrPageRequestBatches,
     validateCreateSearchablePdfPayload,
-} = await import('@electron/ocr/contracts');
+} = await import('@electron/features/ocr/contracts');
 const { writeOcrIndexV3 } = await import('@electron/ocr/worker/indexWriter');
 
 let tempDir: string | null = null;

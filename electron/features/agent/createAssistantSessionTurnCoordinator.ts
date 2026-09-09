@@ -81,16 +81,15 @@ export function createAssistantSessionTurnCoordinator(options: IAssistantSession
         return session.turnOwner !== previousOwner;
     }
 
-    function completeSessionTurn(
+    function settleSessionTurn(
         session: IAssistantChatSession,
-        generation: number,
-        providerTurnId?: string | null,
-        completeOptions?: ICompleteAssistantTurnOptions,
+        nextOwner: IAssistantChatSession['turnOwner'],
+        phase: 'done' | 'failed',
     ) {
         const previousOwner = session.turnOwner;
-        session.turnOwner = completeAssistantTurn(session.turnOwner, generation, providerTurnId, completeOptions);
+        session.turnOwner = nextOwner;
         if (session.turnOwner !== previousOwner) {
-            session.turnPresentation.phase = 'done';
+            session.turnPresentation.phase = phase;
             session.turnPresentation.lastEventAtMs = Date.now();
         }
         syncSessionTurnScope(session);
@@ -101,24 +100,30 @@ export function createAssistantSessionTurnCoordinator(options: IAssistantSession
         return session.turnOwner !== previousOwner;
     }
 
+    function completeSessionTurn(
+        session: IAssistantChatSession,
+        generation: number,
+        providerTurnId?: string | null,
+        completeOptions?: ICompleteAssistantTurnOptions,
+    ) {
+        return settleSessionTurn(
+            session,
+            completeAssistantTurn(session.turnOwner, generation, providerTurnId, completeOptions),
+            'done',
+        );
+    }
+
     function errorSessionTurn(
         session: IAssistantChatSession,
         generation: number,
         error: string,
         providerTurnId?: string | null,
     ) {
-        const previousOwner = session.turnOwner;
-        session.turnOwner = errorAssistantTurn(session.turnOwner, generation, error, providerTurnId);
-        if (session.turnOwner !== previousOwner) {
-            session.turnPresentation.phase = 'failed';
-            session.turnPresentation.lastEventAtMs = Date.now();
-        }
-        syncSessionTurnScope(session);
-        if (session.turnOwner !== previousOwner) {
-            options.sessionStore.recordTurnBoundary(session);
-            options.onTurnStateChanged?.();
-        }
-        return session.turnOwner !== previousOwner;
+        return settleSessionTurn(
+            session,
+            errorAssistantTurn(session.turnOwner, generation, error, providerTurnId),
+            'failed',
+        );
     }
 
     function supersedeSessionTurnWithError(session: IAssistantChatSession, error: string) {
@@ -129,10 +134,14 @@ export function createAssistantSessionTurnCoordinator(options: IAssistantSession
         options.onTurnStateChanged?.();
     }
 
-    function interruptSessionTurn(session: IAssistantChatSession) {
+    function transitionSessionTurn(
+        session: IAssistantChatSession,
+        nextOwner: IAssistantChatSession['turnOwner'],
+        phase: 'interrupting' | 'cancelled',
+    ) {
         const previousOwner = session.turnOwner;
-        session.turnOwner = markAssistantTurnInterrupting(session.turnOwner);
-        session.turnPresentation.phase = 'interrupting';
+        session.turnOwner = nextOwner;
+        session.turnPresentation.phase = phase;
         session.turnPresentation.lastEventAtMs = Date.now();
         syncSessionTurnScope(session);
         options.sessionStore.recordTurnBoundary(session);
@@ -141,16 +150,12 @@ export function createAssistantSessionTurnCoordinator(options: IAssistantSession
         }
     }
 
+    function interruptSessionTurn(session: IAssistantChatSession) {
+        transitionSessionTurn(session, markAssistantTurnInterrupting(session.turnOwner), 'interrupting');
+    }
+
     function supersedeSessionTurn(session: IAssistantChatSession) {
-        const previousOwner = session.turnOwner;
-        session.turnOwner = supersedeAssistantTurn(session.turnOwner);
-        session.turnPresentation.phase = 'cancelled';
-        session.turnPresentation.lastEventAtMs = Date.now();
-        syncSessionTurnScope(session);
-        options.sessionStore.recordTurnBoundary(session);
-        if (session.turnOwner !== previousOwner) {
-            options.onTurnStateChanged?.();
-        }
+        transitionSessionTurn(session, supersedeAssistantTurn(session.turnOwner), 'cancelled');
     }
 
     function releaseClaimedSessionTurn(session: IAssistantChatSession, generation: number) {

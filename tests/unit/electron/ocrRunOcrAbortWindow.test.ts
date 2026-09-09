@@ -6,7 +6,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import { runOcr } from '@electron/ocr/runOcr';
+import { runOcr } from '@electron/features/ocr/main/runOcr';
 
 const mocks = vi.hoisted(() => ({
     spawn: vi.fn(),
@@ -16,16 +16,16 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('child_process', () => ({ spawn: mocks.spawn }));
 
-vi.mock('@electron/ocr/languageModels', () => ({ ensureTessdataLanguages: mocks.ensureTessdataLanguages }));
+vi.mock('@electron/features/ocr/languageModels', () => ({ ensureTessdataLanguages: mocks.ensureTessdataLanguages }));
 
-vi.mock('@electron/ocr/paths', () => ({ getOcrPaths: mocks.getOcrPaths }));
+vi.mock('@electron/features/ocr/main/paths', () => ({ getOcrPaths: mocks.getOcrPaths }));
 
-vi.mock('@electron/ocr/resolveTesseractLanguageConfig', () => ({ resolveTesseractLanguageConfig: (languages: string[]) => ({
+vi.mock('@electron/features/ocr/main/resolveTesseractLanguageConfig', () => ({ resolveTesseractLanguageConfig: (languages: string[]) => ({
     orderedLanguages: languages,
     extraConfigArgs: [],
 }) }));
 
-vi.mock('@electron/ocr/buildTesseractEnv', () => ({ buildTesseractEnv: () => ({}) }));
+vi.mock('@electron/features/ocr/main/buildTesseractEnv', () => ({ buildTesseractEnv: () => ({}) }));
 
 function createMockTesseractProcess() {
     const stdin = new EventEmitter() as EventEmitter & {end: (buffer: Buffer, callback: (error?: Error | null) => void) => void};

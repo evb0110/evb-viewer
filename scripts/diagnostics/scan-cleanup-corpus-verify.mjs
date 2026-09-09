@@ -177,13 +177,13 @@ const {
     resolveScanCleanupRequestedRenderDpi,
     serializeLegacyScanCleanupCompactManifest,
     serializeLegacyScanCleanupPageOpsInstructions,
-} = await tsImport('../../scan-cleanup-core/index.ts', import.meta.url);
+} = await tsImport('../../packages/scan-cleanup/core/index.ts', import.meta.url);
 const {buildScanCleanupSourceMrcForegroundPdfMatrix} = await tsImport(
-    '../../scan-cleanup-core/buildScanCleanupSourceMrcForegroundPdfMatrix.ts',
+    '../../packages/scan-cleanup/core/buildScanCleanupSourceMrcForegroundPdfMatrix.ts',
     import.meta.url,
 );
 const {readPngHeader} = await tsImport(
-    '../../scan-cleanup-core/rasterLayerDimensions.ts',
+    '../../packages/scan-cleanup/core/rasterLayerDimensions.ts',
     import.meta.url,
 );
 

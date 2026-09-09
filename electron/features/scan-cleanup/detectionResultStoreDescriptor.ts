@@ -13,8 +13,8 @@ import {
 } from 'node:path';
 import type {IScanCleanupDetectionResult} from '@contracts/electronApiScanCleanup';
 import {isRecord} from '@contracts/runtimeGuards';
-import {createFileBackedScanCleanupDetectionResultStore} from '@scan-cleanup-core/fileBackedResultStore';
-import type {IScanCleanupDetectionResultStore} from '@scan-cleanup-core/types';
+import {createFileBackedScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/fileBackedResultStore';
+import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/types';
 
 const DESCRIPTOR_FORMAT = 'evb-scan-cleanup-detection-result-store';
 const DESCRIPTOR_SCHEMA_VERSION = 1;

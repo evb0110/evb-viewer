@@ -10,6 +10,7 @@ import {
     requestShutdownSaveFlush,
     shutdownSaveFlushRequiresRecoveryPreservation,
 } from '@electron/bootstrap/requestShutdownSaveFlush';
+import {createRawIpcRegistrationAudit} from '@electron/platform-ipc/rawIpcRegistration';
 
 const state = vi.hoisted(() => ({
     listener: null as null | ((event: {sender: {id: number}}, payload: unknown) => void),
@@ -32,14 +33,7 @@ vi.mock('electron', () => ({ipcMain: {
 
 vi.mock('@electron/file-access/workingCopyStore', () => ({workingCopyMap: state.workingCopyMap}));
 
-function createWindow(
-    response: (requestId: string) => {
-        callbackCount?: number;
-        dirtyWorkingCopyPaths?: string[];
-        error?: string;
-        flushedWorkingCopyPaths?: string[];
-    },
-) {
+function createWindow(response: (requestId: string) => Record<string, unknown>) {
     return {
         id: 1,
         isDestroyed: () => false,
@@ -80,7 +74,7 @@ describe('requestShutdownSaveFlush', () => {
         };
 
         await expect(requestShutdownSaveFlush({
-            getWindows: () => [createWindow(() => ({error: 'save failed'})) as never],
+            getWindows: () => [createWindow(() => ({error: 'save failed'}))],
             logger,
             timeoutMs: 1_000,
         })).resolves.toEqual({
@@ -89,6 +83,26 @@ describe('requestShutdownSaveFlush', () => {
             flushedWorkingCopyPaths: [],
             timedOutWindowIds: [],
         });
+    });
+
+    it('records and cleans up the real shutdown response listener', async () => {
+        const audit = createRawIpcRegistrationAudit();
+        const logger = {
+            debug: vi.fn(),
+            error: vi.fn(),
+            info: vi.fn(),
+            warn: vi.fn(),
+        };
+
+        await requestShutdownSaveFlush({
+            getWindows: () => [createWindow(() => ({}))],
+            logger,
+            timeoutMs: 1_000,
+            rawIpcRegistrationAudit: audit,
+        });
+
+        expect(audit.getRegisteredNames()).toEqual([]);
+        expect(state.listener).toBeNull();
     });
 
     it('rejects a dirty lazy working copy reported as flushed', async () => {
@@ -105,7 +119,7 @@ describe('requestShutdownSaveFlush', () => {
         };
 
         await expect(requestShutdownSaveFlush({
-            getWindows: () => [createWindow(() => ({flushedWorkingCopyPaths: [workingCopyPath]})) as never],
+            getWindows: () => [createWindow(() => ({flushedWorkingCopyPaths: [workingCopyPath]}))],
             logger,
             timeoutMs: 1_000,
         })).resolves.toEqual({
@@ -140,7 +154,7 @@ describe('requestShutdownSaveFlush', () => {
             getWindows: () => [createWindow(() => ({
                 dirtyWorkingCopyPaths: [workingCopyPath],
                 flushedWorkingCopyPaths: [workingCopyPath],
-            })) as never],
+            }))],
             logger,
             timeoutMs: 1_000,
         })).resolves.toEqual({
@@ -181,7 +195,7 @@ describe('requestShutdownSaveFlush', () => {
         };
 
         await expect(requestShutdownSaveFlush({
-            getWindows: () => [createWindow(response as never) as never],
+            getWindows: () => [createWindow(response)],
             logger,
             timeoutMs: 1_000,
         })).resolves.toEqual({

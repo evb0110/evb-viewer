@@ -896,7 +896,7 @@ const resultEnvelope = s.object({
 /**
  * Structured warning transport. A producer states the condition it detected and
  * the finite parameters that describe it; the shared formatter in
- * `scan-cleanup-core/policy/scanCleanupWarningEvents` owns every user-visible
+ * `packages/scan-cleanup/core/policy/scanCleanupWarningEvents` owns every user-visible
  * sentence. Aggregation therefore reads codes, never English, and a wording
  * change cannot turn one aggregate into per-page noise.
  */

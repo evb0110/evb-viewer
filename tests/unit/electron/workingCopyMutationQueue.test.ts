@@ -45,7 +45,7 @@ vi.mock('@electron/operation-lifecycle/mainOperationLifecycle', () => ({
     },
 }));
 vi.mock('@electron/file-access/workingCopyMutationCommitSignal', () => ({runWithWorkingCopyMutationCommitSignal: (_operation: unknown, callback: () => Promise<unknown>) => callback()}));
-vi.mock('@electron/search/searchIndexSidecar', () => ({getCompactSearchIndexPath: (path: string) => `${path}.compact-index`}));
+vi.mock('@electron/features/search/public', () => ({getCompactSearchIndexPath: (path: string) => `${path}.compact-index`}));
 
 function deferred<T>() {
     let resolve!: (value: T) => void;

@@ -30,7 +30,7 @@ import {
     parsePageNumber,
     requirePageIndex,
     requirePageNumber,
-} from '@contracts/pageNumbers';
+} from '@pdf-core/pdfPageSelection';
 
 describe('page number contracts', () => {
     it.each([

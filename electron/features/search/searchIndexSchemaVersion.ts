@@ -1,0 +1,1 @@
+export const SEARCH_INDEX_SCHEMA_VERSION = 7;

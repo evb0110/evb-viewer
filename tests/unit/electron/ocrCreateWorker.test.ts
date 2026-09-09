@@ -19,7 +19,7 @@ vi.mock('worker_threads', () => {
     }
     return {Worker: MockWorker};
 });
-vi.mock('@electron/ocr/paths', () => ({getOcrToolPaths: () => ({
+vi.mock('@electron/features/ocr/main/paths', () => ({getOcrToolPaths: () => ({
     tesseract: '/tools/tesseract',
     tessdata: '/tools/tessdata',
     pdftoppm: '/tools/pdftoppm',
@@ -39,7 +39,7 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     error: vi.fn(),
 })}));
 
-const { createOcrWorker } = await import('@electron/ocr/createOcrWorker.worker');
+const { createOcrWorker } = await import('@electron/features/ocr/main/createOcrWorker.worker');
 
 describe('createOcrWorker', () => {
     beforeEach(() => {

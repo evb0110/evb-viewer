@@ -72,13 +72,13 @@ vi.mock('@electron/file-access/workingCopyMaterialization', () => {
     };
 });
 
-vi.mock('@electron/ocr/jobManager', () => ({
+vi.mock('@electron/features/ocr/main/jobManager', () => ({
     handleOcrCreateSearchablePdfAsync: mocks.handleOcrCreateSearchablePdfAsync,
     handleOcrCancel: mocks.handleOcrCancel,
     handleOcrAcknowledgeResultFile: mocks.handleOcrAcknowledgeResultFile,
     subscribeManagedOcrProgress: vi.fn(),
 }));
-vi.mock('@electron/ocr/documentTextCatalog', () => ({
+vi.mock('@electron/features/ocr/main/documentTextCatalog', () => ({
     resolveDocumentOcrAvailability: (...args: unknown[]) => mocks.resolveDocumentOcrAvailability(...args),
     resolveDocumentOcrPage: (...args: unknown[]) => mocks.resolveDocumentOcrPage(...args),
     resolveDocumentTextCatalogSnapshot: (...args: unknown[]) => mocks.resolveDocumentTextCatalogSnapshot(...args),

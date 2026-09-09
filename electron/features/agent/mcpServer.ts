@@ -9,10 +9,7 @@ import {
 import type { AddressInfo } from 'net';
 import { randomBytes } from 'node:crypto';
 import {join} from 'node:path';
-import type {
-    IAgentTabSnapshot,
-    TAgentWorkspaceCommandTarget,
-} from '@contracts/agent';
+import type { IAgentTabSnapshot } from '@contracts/agent';
 import type { IAssistantSessionScopeBinding } from '@electron/features/agent/assistantTurnLifecycle';
 import type {
     ILocalMcpServerDescriptor,
@@ -29,6 +26,7 @@ import {
 } from '@electron/features/agent/workspaceBridge';
 import {
     assertAssistantMcpSnapshotMatchesScope,
+    assertAssistantMcpTabMatchesBinding,
     clearAssistantMcpSessionScope,
     createAssistantCommandExecutionScope,
     getActiveAssistantMcpSessionScope,
@@ -229,43 +227,34 @@ function shellQuote(value: string) {
     return `'${value.replace(/'/gu, '\'\\\'\'')}'`;
 }
 
-function createCodexSetupSnippet(
+function createSetupSnippet(
+    provider: 'claude' | 'codex',
     descriptor: ILocalMcpServerDescriptor,
     launchConfig: ILocalMcpProxyLaunchConfig,
 ) {
+    const commandPrefix = provider === 'codex'
+        ? [
+            'codex',
+            'mcp',
+            'add',
+            shellQuote(descriptor.name),
+        ]
+        : [
+            'claude',
+            'mcp',
+            'add',
+            '--scope',
+            'user',
+            shellQuote(descriptor.name),
+        ];
+    const environmentFlag = provider === 'codex' ? '--env' : '-e';
     return [
-        'codex',
-        'mcp',
-        'add',
-        shellQuote(descriptor.name),
-        '--env',
+        ...commandPrefix,
+        environmentFlag,
         shellQuote(`${LOCAL_MCP_PROXY_ENV.runAsNode}=1`),
-        '--env',
+        environmentFlag,
         shellQuote(`${LOCAL_MCP_PROXY_ENV.url}=${launchConfig.env[LOCAL_MCP_PROXY_ENV.url] ?? '<missing>'}`),
-        '--env',
-        shellQuote(`${LOCAL_MCP_PROXY_ENV.token}=${launchConfig.env[LOCAL_MCP_PROXY_ENV.token] ?? '<missing>'}`),
-        '--',
-        shellQuote(launchConfig.command),
-        ...launchConfig.args.map(shellQuote),
-    ].join(' ');
-}
-
-function createClaudeSetupSnippet(
-    descriptor: ILocalMcpServerDescriptor,
-    launchConfig: ILocalMcpProxyLaunchConfig,
-) {
-    return [
-        'claude',
-        'mcp',
-        'add',
-        '--scope',
-        'user',
-        shellQuote(descriptor.name),
-        '-e',
-        shellQuote(`${LOCAL_MCP_PROXY_ENV.runAsNode}=1`),
-        '-e',
-        shellQuote(`${LOCAL_MCP_PROXY_ENV.url}=${launchConfig.env[LOCAL_MCP_PROXY_ENV.url] ?? '<missing>'}`),
-        '-e',
+        environmentFlag,
         shellQuote(`${LOCAL_MCP_PROXY_ENV.token}=${launchConfig.env[LOCAL_MCP_PROXY_ENV.token] ?? '<missing>'}`),
         '--',
         shellQuote(launchConfig.command),
@@ -278,8 +267,8 @@ export async function getLocalMcpSetupSnippets() {
     const token = await ensureLocalMcpServerBearerToken();
     const launchConfig = createLocalMcpProxyLaunchConfig(descriptor, token);
     return {
-        codex: createCodexSetupSnippet(descriptor, launchConfig),
-        claude: createClaudeSetupSnippet(descriptor, launchConfig),
+        codex: createSetupSnippet('codex', descriptor, launchConfig),
+        claude: createSetupSnippet('claude', descriptor, launchConfig),
         cursor: JSON.stringify({mcpServers: { [descriptor.name]: {
             command: launchConfig.command,
             args: launchConfig.args,
@@ -394,52 +383,7 @@ function assertInternalInputTabMatchesBinding(
     tab: IAgentTabSnapshot,
     binding: ReturnType<typeof resolveAssistantMcpSessionScope>,
 ) {
-    if (tab.tabId !== binding.tabId) {
-        throw new Error('Internal EVB MCP request targeted a different tab than the active assistant turn.');
-    }
-    if (
-        binding.commandTarget
-        && !commandTargetsMatch(binding.commandTarget, tab.commandTarget)
-    ) {
-        throw new Error('The active assistant document changed before the internal EVB MCP request completed.');
-    }
-    if ((binding.documentInstanceId ?? null) !== (tab.documentInstanceId ?? null)) {
-        throw new Error('The active assistant document changed before the internal EVB MCP request completed.');
-    }
-    if (binding.documentIdentity === null) {
-        return;
-    }
-    if (
-        tab.documentIdentity?.token !== binding.documentIdentity.token
-        || tab.documentIdentity.documentRef !== binding.documentIdentity.documentRef
-    ) {
-        throw new Error('The active assistant document changed before the internal EVB MCP request completed.');
-    }
-}
-
-function commandTargetsMatch(
-    expected: TAgentWorkspaceCommandTarget,
-    actual: TAgentWorkspaceCommandTarget | undefined,
-) {
-    if (!actual) {
-        return false;
-    }
-
-    if (
-        expected.kind !== actual.kind
-        || expected.tabId !== actual.tabId
-        || expected.sessionId !== actual.sessionId
-        || expected.documentRef !== actual.documentRef
-        || expected.documentBackend !== actual.documentBackend
-        || (expected.documentInstanceId ?? null) !== (actual.documentInstanceId ?? null)
-        || expected.documentRevisionToken !== actual.documentRevisionToken
-    ) {
-        return false;
-    }
-
-    return expected.kind === 'transaction'
-        ? actual.kind === 'transaction' && expected.transactionId === actual.transactionId
-        : actual.kind === 'revision' && expected.sessionRevision === actual.sessionRevision;
+    assertAssistantMcpTabMatchesBinding(tab, binding);
 }
 
 function createDefaultMcpRequestOptions(

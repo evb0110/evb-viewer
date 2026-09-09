@@ -7,7 +7,7 @@ import {
     vi,
 } from 'vitest';
 import {effectScope} from 'vue';
-import {requireDocumentRevisionToken} from '@contracts';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {requireDocumentRef} from '@contracts/documentRef';
 import type {IDocxExportFileCapability} from '@contracts/docxExport';
 import type {TDocxTextPageSource} from '@app/utils/docxStreaming';

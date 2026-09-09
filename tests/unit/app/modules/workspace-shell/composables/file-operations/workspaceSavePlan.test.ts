@@ -7,11 +7,9 @@ import {
     createWorkspaceSavePlan,
     type IWorkspaceSaveDirtyState,
     type TWorkspaceSaveRequest,
-} from '@app/modules/workspace-shell/composables/file-operations/workspaceSavePlan';
-import {
-    requireDocumentRef,
-    requireDocumentRevisionToken,
-} from '@contracts';
+} from '@app/modules/workspace-shell/composables/file-operations/workspaceSavePolicy';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {requireRequestId} from '@contracts/shared';
 
 const CLEAN_DIRTY_STATE: IWorkspaceSaveDirtyState = {

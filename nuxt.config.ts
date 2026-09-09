@@ -1,10 +1,8 @@
 import {createRequire} from 'node:module';
 import {fileURLToPath} from 'node:url';
 import {getIcons} from '@iconify/utils';
-import {
-    DEFAULT_LOCALE,
-    LOCALE_DEFINITIONS,
-} from './packages/i18n-core';
+import {DEFAULT_LOCALE} from './packages/i18n-core/localeCodes';
+import {LOCALE_DEFINITIONS} from './packages/i18n-core/localeDefinitions';
 import {isPdfjsPackageId} from './scripts/lib/pdfjs-package-path.mjs';
 import {
     isSentryDiagnosticsBuild,

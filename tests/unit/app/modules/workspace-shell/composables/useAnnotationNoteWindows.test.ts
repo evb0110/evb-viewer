@@ -9,51 +9,13 @@ import {
 import {
     effectScope,
     nextTick,
-    ref,
 } from 'vue';
-import type { IAnnotationCommentSummary } from '@app/types/annotations';
-import type { AnnotationId } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import { ANNOTATION_NOTE_SAVE_DEBOUNCE_MS } from '@app/constants/timeouts';
-import { useAnnotationNoteWindows } from '@app/modules/workspace-shell/composables/useAnnotationNoteWindows';
 import { requireEpochMs } from '@contracts/timestamps';
-
-function createComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {
-    const comment: IAnnotationCommentSummary = {
-        id: 'note-1',
-        stableKey: 'ann:0:note-1:0',
-        pageIndex: 0,
-        pageNumber: 1,
-        text: 'Initial note',
-        author: null,
-        modifiedAt: null,
-        color: null,
-        uid: null,
-        annotationId: 'ann-1',
-        source: 'editor',
-        hasNote: true,
-        ...overrides,
-    };
-    return {
-        ...comment,
-        appAnnotationId: overrides.appAnnotationId ?? comment.stableKey,
-    };
-}
-
-function createHarness(comment = createComment()) {
-    const deps = {
-        annotationComments: ref<IAnnotationCommentSummary[]>([comment]),
-        markAnnotationDirty: vi.fn(),
-        updateAnnotationCommentInViewer: vi.fn<
-            (annotationId: AnnotationId, text: string) => boolean
-        >(() => true),
-        isAnnotationCommentSyncReady: vi.fn(() => true),
-    };
-
-    return {
-        deps,
-        windows: useAnnotationNoteWindows(deps),
-    };
-}
+import {
+    createComment,
+    createHarness,
+} from '@tests/unit/app/modules/workspace-shell/composables/useAnnotationNoteWindowsTestFixtures';
 
 describe('useAnnotationNoteWindows', () => {
     it('skips forced no-op persistence when note text is unchanged', async () => {

@@ -7,7 +7,7 @@ import type {
     IHostResourceProfileSnapshot,
     THostResourceTier,
 } from '@contracts/hostResourceProfile';
-import { resolveOcrRuntimePolicy } from '@electron/ocr/ocrRuntimePolicy';
+import { resolveOcrRuntimePolicy } from '@electron/features/ocr/main/ocrRuntimePolicy';
 
 const GIB = 1024 ** 3;
 

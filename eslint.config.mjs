@@ -3,6 +3,8 @@ import stylistic from '@stylistic/eslint-plugin';
 import * as tsParser from '@typescript-eslint/parser';
 import * as vueParser from 'vue-eslint-parser';
 import customPlugin from './eslint-plugin-custom.mjs';
+import {internalMockAllowlist} from './eslint.internal-mock-allowlist.mjs';
+import {internalMockAllowlistBaseline} from './eslint.internal-mock-allowlist-baseline.mjs';
 import {
     arrayTypeRules,
     namingRules,
@@ -124,8 +126,6 @@ const projectConfig = withNuxt(
             ],
             'prefer-promise-reject-errors': 'error',
             'custom/brace-return-after-if': 'error',
-            'custom/import-specifier-newline': 'error',
-            'custom/destructuring-property-newline': 'error',
             'custom/app-tooltip-only': 'error',
             'custom/commonjs-named-imports': 'error',
             'custom/file-naming': 'error',
@@ -135,6 +135,7 @@ const projectConfig = withNuxt(
             'custom/require-failure-receipt': 'error',
             'custom/require-classified-error-log': 'error',
             'custom/no-unclassified-diagnostic-code': 'error',
+            'custom/no-removed-package-aliases': 'error',
             ...stylisticRules,
         },
     },
@@ -252,8 +253,8 @@ const projectConfig = withNuxt(
             'electron/**',
             'tests/**',
             'scripts/**/*.ts',
-            'scan-cleanup-core/**/*.ts',
-            'scan-cleanup-adapters/**/*.ts',
+            'packages/scan-cleanup/core/**/*.ts',
+            'packages/scan-cleanup/adapters/**/*.ts',
             '**/*.d.ts',
         ],
         languageOptions: {parserOptions: {projectService: true}},
@@ -276,8 +277,6 @@ const projectConfig = withNuxt(
     {
         files: [
             'scripts/**/*.ts',
-            'scan-cleanup-core/**/*.ts',
-            'scan-cleanup-adapters/**/*.ts',
         ],
         languageOptions: {parserOptions: {
             project: ['./tsconfig.scripts.json'],
@@ -310,6 +309,10 @@ const projectConfig = withNuxt(
     {
         files: ['tests/**/*.ts'],
         rules: {
+            'custom/no-internal-test-mocks': ['error', {
+                allowlist: internalMockAllowlist,
+                baseline: internalMockAllowlistBaseline,
+            }],
             'no-restricted-imports': 'off',
             ...arrayTypeRules,
             ...namingRules,

@@ -16,7 +16,7 @@ import {
     materializePageSelection,
     mapPageNumberAfterPageMove,
     pageSelectionCount,
-} from '@contracts/pageNumbers';
+} from '@pdf-core/pdfPageSelection';
 import {
     getPageIdentityDeltaNextPageCount,
     mapPageNumberThroughPageIdentityDelta,
@@ -26,7 +26,7 @@ import type {
     IPageMoveRangeSegment,
     TPageMoveOperation,
     TPageSelection,
-} from '@contracts/pageNumbers';
+} from '@pdf-core/pdfPageSelection';
 import { usePageOperations } from '@app/modules/pdf-viewer/public';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import { runDetached } from '@app/utils/asyncGuard';

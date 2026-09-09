@@ -12,7 +12,7 @@ import { isAbortError } from '@electron/utils/abort';
 import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
 import {openScanCleanupDetectionResultStoreDescriptor} from '@electron/features/scan-cleanup/detectionResultStoreDescriptor';
 import {attachScanCleanupPageOverrideDefaults} from '@contracts/scanCleanupPageOverrides';
-import type {IScanCleanupDetectionResultStore} from '@scan-cleanup-core/types';
+import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/types';
 import {
     runScanCleanupPipeline,
     type IRunScanCleanupPipelineRequest,

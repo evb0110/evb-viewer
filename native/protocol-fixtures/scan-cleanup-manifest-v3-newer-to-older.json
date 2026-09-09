@@ -1,0 +1,25 @@
+{
+  "version": 3,
+  "operation": "analyze",
+  "renderMode": "preview",
+  "canvasScope": "page",
+  "futureManifestHint": {
+    "introducedBy": 11
+  },
+  "pages": [
+    {
+      "inputPath": "/fixtures/input/page-1.png",
+      "sourcePageIndex": 0,
+      "pageMetadataPath": "/fixtures/output/page-1.json",
+      "futurePageHint": true,
+      "options": {
+        "futureOption": "ignored",
+        "experimental": {
+          "autoDewarp": false,
+          "futureDepthPolicy": "ignored"
+        }
+      },
+      "outputs": []
+    }
+  ]
+}

@@ -11,6 +11,9 @@ and serialized formats.
 - Define serialized, IPC, worker, and cross-process domain shapes in
   `packages/contracts`. Validate at trust boundaries; do not revalidate or clone
   an already typed representation inside one process.
+- Import contracts through an owned `@contracts/<subpath>` entry point. The
+  contracts package has no root barrel, and package aliases use one canonical
+  spelling in source and tooling.
 - Inline single-consumer interfaces, adapters, factories, barrels, and wrappers.
   Split files by responsibility, not merely to satisfy a size limit.
 - Prefer generation when two representations can drift. Temporary compatibility
@@ -29,3 +32,14 @@ The architecture boundary and dependency checks, the bundle static-integrity
 check, and the commit/push artifact checks enforce the mechanical subset of
 these principles. The remainder are review criteria, not reasons to add more
 one-off gates.
+
+## Boundary exception policy
+
+An architecture exception is temporary permission, not a permanent ownership
+rule. Every entry in `scripts/architecture/boundaryExceptionPolicy.mjs` must
+carry a stable `id`, an owning GitHub ticket such as `#323`, and an ISO expiry
+date. The boundary checker validates those fields before it builds the import
+graph, rejects duplicate or expired entries, and reports the owning ticket when
+the policy is invalid. The owner removes the exception or renews the decision
+with a new reviewed scope before the date passes. A date never hides an
+unreviewed dependency or turns a retired path into a supported import.

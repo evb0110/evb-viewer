@@ -2,7 +2,6 @@ packages:
   - '.'
   - 'landing'
   - 'packages/*'
-  - 'scan-cleanup-core'
 
 # Hold new registry releases for seven days before they can enter the lockfile.
 # This applies to direct and transitive dependencies.

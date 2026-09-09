@@ -58,6 +58,33 @@ describe('useWorkspaceSplitCache', {timeout: 20_000}, () => {
         expect(splitCache.has('tab-1')).toBe(false);
     });
 
+    it('preserves generated and ordinary dirty PDF markers across a cache remount', async () => {
+        const splitCache = await createSplitCache();
+        const generatedPayload = {
+            kind: 'pdfSnapshot' as const,
+            fileName: 'generated.pdf',
+            originalPath: requireDocumentRef('/tmp/source.pdf'),
+            snapshotPath: requireDocumentRef('/tmp/generated-working.pdf'),
+            isDirty: true,
+            isGenerated: true,
+        };
+        const ordinaryDirtyPayload = {
+            kind: 'pdfSnapshot' as const,
+            fileName: 'ordinary.pdf',
+            originalPath: requireDocumentRef('/tmp/source-ordinary.pdf'),
+            snapshotPath: requireDocumentRef('/tmp/ordinary-working.pdf'),
+            isDirty: true,
+        };
+
+        splitCache.set('tab-generated', generatedPayload);
+        splitCache.set('tab-ordinary', ordinaryDirtyPayload);
+
+        expect(splitCache.peek('tab-generated')?.payload).toEqual(generatedPayload);
+        expect(splitCache.peek('tab-ordinary')?.payload).toEqual(ordinaryDirtyPayload);
+        expect(splitCache.consume('tab-generated')).toEqual(generatedPayload);
+        expect(splitCache.consume('tab-ordinary')).toEqual(ordinaryDirtyPayload);
+    });
+
     it('treats expired entries as missing from has()', async () => {
         const splitCache = await createSplitCache();
 

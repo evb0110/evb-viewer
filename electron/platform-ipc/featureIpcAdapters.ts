@@ -1,1 +1,4 @@
-export { registerFeatureIpcAdapters } from '@electron/platform-ipc/registerFeatureIpcAdapters';
+export {
+    disposeScanCleanupMainBindingsIfLoaded,
+    registerFeatureIpcAdapters,
+} from '@electron/platform-ipc/registerFeatureIpcAdapters';

@@ -19,8 +19,8 @@ import {
     parsePdfPageSizeSidecarHeader,
     readPdfPageSizeChunks,
     readPdfPageSizeSidecarChunks,
-} from '@scan-cleanup-core/pdfPageSizes';
-import {createFileBackedScanCleanupResultStore} from '@scan-cleanup-core/fileBackedResultStore';
+} from '@evb/scan-cleanup/core/pdfPageSizes';
+import {createFileBackedScanCleanupResultStore} from '@evb/scan-cleanup/core/fileBackedResultStore';
 
 let tempDir: string | null = null;
 

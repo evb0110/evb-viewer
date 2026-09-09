@@ -1,4 +1,4 @@
-/* eslint-disable @stylistic/array-bracket-newline, @stylistic/array-element-newline, @stylistic/object-curly-newline, @stylistic/object-property-newline, custom/import-specifier-newline */
+/* eslint-disable @stylistic/array-bracket-newline, @stylistic/array-element-newline, @stylistic/object-curly-newline, @stylistic/object-property-newline */
 import {EventEmitter} from 'node:events';
 import {existsSync, mkdtempSync, rmSync} from 'node:fs';
 import {writeFile} from 'node:fs/promises';
@@ -23,7 +23,7 @@ function sender(id: number): WebContents & EventEmitter & {send: ReturnType<type
     return Object.assign(new EventEmitter(), {id, destroyed: false, send: vi.fn(), isDestroyed() { return this.destroyed; }}) as never;
 }
 const initial = (requestId: string): IProgress => ({requestId, value: 0, status: 'running'});
-function registry(retention = {eventReplayTtlMs: 30_000, terminalRecordTtlMs: 60_000}, now?: () => number) {
+function registry(retention = {eventReplayTtlMs: 30_000, terminalRecordTtlMs: 60_000}, now?: () => number, unbindOnSettlement = false) {
     return createMainJobRegistry<IProgress, IResult, IError>({
         retention, progress: {channel: 'test:progress', getEventKey: progress => progress.requestId},
         toError: (cause, kind) => Object.assign(new Error(getErrorMessage(cause)), {code: kind}) as IError,
@@ -32,6 +32,7 @@ function registry(retention = {eventReplayTtlMs: 30_000, terminalRecordTtlMs: 60
             failed: latest => ({...latest, status: 'failed'}),
         },
         ...(now ? {now} : {}),
+        ...(unbindOnSettlement ? {unbindOnSettlement: true} : {}),
     });
 }
 const start = (jobs: ReturnType<typeof registry>, actor: IMainJobActor, jobId: string, run: (context: TContext) => Promise<IResult>) =>
@@ -63,6 +64,15 @@ describe('createMainJobRegistry violations', {timeout: 20_000}, () => {
         }
         expect(ownerSender.listenerCount('destroyed')).toBe(1); runner.resolve({value: 'done'});
         await Promise.all(handles.map(handle => handle.settled)); await jobs.clearForTests();
+    });
+    it('unbinds renderer listeners at settlement while retaining the terminal record', async () => {
+        const jobs = registry(undefined, undefined, true); const ownerSender = sender(6); const actor = {sender: ownerSender}; const runner = deferred<IResult>();
+        const handle = start(jobs, actor, 'terminal-retained', () => runner.promise);
+        expect(ownerSender.listenerCount('destroyed')).toBe(1); expect(ownerSender.listenerCount('render-process-gone')).toBe(1);
+        runner.resolve({value: 'done'}); await handle.settled;
+        expect(ownerSender.listenerCount('destroyed')).toBe(0); expect(ownerSender.listenerCount('render-process-gone')).toBe(0);
+        expect(jobs.get('terminal-retained', actor)).toMatchObject({status: 'completed'});
+        expect(jobs.subscribe('terminal-retained', actor, vi.fn())).not.toBeNull(); await jobs.clearForTests();
     });
     it('replays latest active and terminal progress on distinct retention clocks', async () => {
         let clock = 1_000; const jobs = registry({eventReplayTtlMs: 30_000, terminalRecordTtlMs: 60_000}, () => clock);

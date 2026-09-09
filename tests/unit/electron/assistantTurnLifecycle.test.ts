@@ -16,7 +16,7 @@ import {
     supersedeAssistantTurn,
     type IAssistantSessionScopeBinding,
 } from '@electron/features/agent/assistantTurnLifecycle';
-import {requireDocumentInstanceId} from '@contracts';
+import {requireDocumentInstanceId} from '@contracts/documentInstanceId';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requireTabId} from '@contracts/windowTabs';
 

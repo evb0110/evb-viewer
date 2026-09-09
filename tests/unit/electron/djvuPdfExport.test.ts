@@ -14,9 +14,9 @@ import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import {requireEpochMs} from '@contracts/timestamps';
 import {
     requireJobId,
-    requirePageNumber,
     requireRequestId,
-} from '@contracts';
+} from '@contracts/shared';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import {
     createDeferred,
     createTestEventSender,

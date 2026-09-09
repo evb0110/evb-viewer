@@ -13,7 +13,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import type {TOcrJobStorageBudget} from '@electron/ocr/worker/ocrJobStorageBudget';
+import type {TOcrJobStorageBudget} from '@electron/features/ocr/worker/ocrJobStorageBudget';
 import {createAbortError} from '@electron/utils/abort';
 import {requireJobId} from '@contracts/shared';
 
@@ -55,16 +55,16 @@ vi.mock('worker_threads', () => ({
     },
     workerData: mocks.workerData,
 }));
-vi.mock('@electron/ocr/worker/runOcrCommand', () => ({runOcrCommand: (...args: unknown[]) => mocks.runOcrCommand(...args)}));
-vi.mock('@scan-cleanup-core/rasterLayerDimensions', () => ({readPngDimensions: (path: string) => mocks.readPngDimensions(path)}));
-vi.mock('@electron/ocr/worker/tesseractRunner', () => ({
+vi.mock('@electron/features/ocr/worker/runOcrCommand', () => ({runOcrCommand: (...args: unknown[]) => mocks.runOcrCommand(...args)}));
+vi.mock('@evb/scan-cleanup/core/rasterLayerDimensions', () => ({readPngDimensions: (path: string) => mocks.readPngDimensions(path)}));
+vi.mock('@electron/features/ocr/worker/tesseractRunner', () => ({
     getPngDimensionsFromFile: async () => ({
         width: 2550,
         height: 3300,
     }),
     runOcrFileBased: (...args: unknown[]) => mocks.runOcrFileBased(...args),
 }));
-vi.mock('@electron/ocr/worker/persistOcrPageCheckpoint', () => ({persistOcrPageCheckpoint: (...args: unknown[]) => mocks.persistOcrPageCheckpoint(...args)}));
+vi.mock('@electron/features/ocr/worker/persistOcrPageCheckpoint', () => ({persistOcrPageCheckpoint: (...args: unknown[]) => mocks.persistOcrPageCheckpoint(...args)}));
 
 const {processOcrPages} = await import('@electron/ocr/worker/main');
 

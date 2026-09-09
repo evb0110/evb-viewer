@@ -148,7 +148,7 @@ function createWorkspaceExposeDeps(overrides: Partial<Parameters<typeof createWo
         isDjvuMode: ref(false),
         openConvertDialog: vi.fn(),
         captureSplitPayload: vi.fn(async () => ({kind: 'empty' as const})),
-        restoreSplitPayload: vi.fn(async () => {}),
+        restoreSplitPayload: vi.fn(async () => ({status: 'cancelled' as const})),
         waitForDocumentOpenSettled: vi.fn(async () => {}),
         runAgentAction: vi.fn(async () => ({})),
         readAgentResource: vi.fn(async () => ({})),

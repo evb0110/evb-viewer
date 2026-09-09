@@ -5,7 +5,6 @@ import {
     normalize,
     resolve,
 } from 'path';
-import { fileURLToPath } from 'url';
 import type { WebContents } from 'electron';
 import type {
     IScanCleanupStartRequest,
@@ -13,30 +12,23 @@ import type {
     TScanCleanupProgress,
     TScanCleanupSummary,
     TScanCleanupStartResult,
-    IScanCleanupScratchShortfall,
     TScanCleanupErrorCode,
     TScanCleanupJobState,
 } from '@contracts/electronApiScanCleanup';
-import type { IHostResourceProfileSnapshot } from '@contracts/hostResourceProfile';
+import type {IHostResourceProfileSnapshot} from '@contracts/hostResourceProfile';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import type { IScanCleanupRuntimePolicy } from '@contracts/resourcePolicies';
 import {
     createStableJobBrokerOwnerId,
-    type IJobResourceVector,
     mainJobBroker,
 } from '@electron/resources/jobBroker';
 import { getHostResourceProfileSnapshot } from '@electron/resources/hostResourceProfile';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
-import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolPath';
 import { resolveNativePdfImageCombinePath } from '@electron/image/tryCreatePdfWithNativeImageCombiner';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 import { getErrorMessage } from '@electron/utils/error';
 import {createLogger} from '@electron/utils/createLogger';
 import {getWorkerTaskFailureReceipt} from '@electron/utils/workerTask';
-import {
-    SCAN_CLEANUP_PAGE_SCOPE_ERROR_CODE,
-    ScanCleanupPageScopeError,
-} from '@scan-cleanup-core/pageScope';
 import { SCAN_CLEANUP_PLATFORM_FEATURE } from '@contracts/scanCleanupPlatformFeature';
 import { runScanCleanupWorkerTask } from '@electron/features/scan-cleanup/runScanCleanupWorkerTask';
 import {
@@ -52,7 +44,6 @@ import {
     isNativePageOpsDisabled,
     resolveNativePageOpsPath,
 } from '@electron/features/page-ops/public';
-import {hasNativeErrorCode} from '@contracts/nativeErrors';
 import {
     createMainJobRegistry,
     type IMainJobErrorEnvelope,
@@ -68,9 +59,14 @@ import {quarantineWorkingCopy} from '@electron/file-access/workingCopyQuarantine
 import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
 import {
     SCAN_CLEANUP_INK_ANCHOR_CAPACITY_MESSAGE,
-    ScanCleanupInsufficientScratchError,
     ScanCleanupNativeToolUnavailableError,
-} from '@scan-cleanup-core/errors';
+} from '@evb/scan-cleanup/core/errors';
+import {
+    classifyScanCleanupPreviewError as classifyPreviewError,
+    resolveScanCleanupPreviewPath as resolvePreviewPath,
+    resolveScanCleanupPreviewRasterAdmissionPolicy as resolvePreviewRasterAdmissionPolicy,
+    SCAN_CLEANUP_PREVIEW_RASTER_SLOT_RESIDENT_BYTES as PREVIEW_RASTER_SLOT_RESIDENT_BYTES,
+} from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
 import {SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES} from '@contracts/scan-cleanup/inputLimits';
 import {createEpochMs} from '@contracts/timestamps';
 import {
@@ -98,18 +94,9 @@ interface IScanCleanupJobResult {
 
 type TScanCleanupJobError = IMainJobErrorEnvelope<TScanCleanupErrorCode> & {failure?: FailureReceipt};
 type TScanCleanupJobRegistry = IMainJobRegistry<TScanCleanupJobState, IScanCleanupJobResult, TScanCleanupJobError>;
-const currentDir = dirname(fileURLToPath(import.meta.url));
 const scanCleanupJobLogger = createLogger('scan-cleanup-job');
 
-export function resolveScanCleanupPath() {
-    return resolveNativeToolPath({
-        binaryName: process.platform === 'win32' ? 'evb-scan-cleanup.exe' : 'evb-scan-cleanup',
-        crateName: 'scan-cleanup',
-        currentDir,
-        envOverridePath: process.env.EVB_SCAN_CLEANUP_PATH,
-        isPackaged: currentDir.includes('app.asar'),
-    });
-}
+const SCAN_CLEANUP_RASTER_SLOT_RESIDENT_BYTES = PREVIEW_RASTER_SLOT_RESIDENT_BYTES;
 
 export function grantScanCleanupOutputAccess(
     outputPdfPath: string,
@@ -328,7 +315,7 @@ function createScanCleanupJobRegistry(): TScanCleanupJobRegistry {
             const message = getErrorMessage(cause);
             if (kind === 'canceled') {
                 return {
-                    code: classifyScanCleanupError(cause, true),
+                    code: classifyPreviewError(cause, true),
                     message,
                 };
             }
@@ -342,7 +329,7 @@ function createScanCleanupJobRegistry(): TScanCleanupJobRegistry {
                 },
             );
             return {
-                code: classifyScanCleanupError(cause, false),
+                code: classifyPreviewError(cause, false),
                 message,
                 ...(failure === undefined ? {} : {failure}),
             };
@@ -353,53 +340,6 @@ function createScanCleanupJobRegistry(): TScanCleanupJobRegistry {
             failed: (latest, error) => terminalProgress(latest, 'failed', error),
         },
     });
-}
-
-export function classifyScanCleanupError(error: unknown, aborted: boolean): TScanCleanupErrorCode {
-    if (aborted) {
-        return 'canceled';
-    }
-    if (
-        error instanceof ScanCleanupNativeToolUnavailableError
-        || error instanceof ScanCleanupInsufficientScratchError
-    ) {
-        return error.code;
-    }
-    const errorCode = error && typeof error === 'object' && 'code' in error
-        ? (error as {code?: unknown}).code
-        : undefined;
-    if (error instanceof ScanCleanupPageScopeError || errorCode === SCAN_CLEANUP_PAGE_SCOPE_ERROR_CODE) {
-        return 'invalid-request';
-    }
-    if (hasNativeErrorCode(error)) {
-        return error.code;
-    }
-    if (errorCode === 'ENOENT') {
-        return 'tools-unavailable';
-    }
-    if (errorCode === 'SCAN_CLEANUP_INVALID_PAGE_SCOPE') {
-        return 'invalid-request';
-    }
-    return 'internal';
-}
-
-/**
- * Scratch figures for the one storage refusal that survives the bounded window.
- *
- * They travel typed beside the error code so the renderer can say how much
- * space is free and how much is needed in the user's own language.
- */
-export interface IScanCleanupJobErrorEnvelope extends IMainJobErrorEnvelope<TScanCleanupErrorCode> {scratchShortfall?: IScanCleanupScratchShortfall;}
-
-export function scanCleanupScratchShortfall(
-    error: unknown,
-): Pick<IScanCleanupJobErrorEnvelope, 'scratchShortfall'> {
-    return error instanceof ScanCleanupInsufficientScratchError
-        ? {scratchShortfall: {
-            availableBytes: error.availableBytes,
-            requiredBytes: error.requiredBytes,
-        }}
-        : {};
 }
 
 export async function materializeScanCleanupSourcePath(
@@ -426,42 +366,10 @@ export interface IScanCleanupService {
     pruneGeneratedOutputs: () => Promise<number>;
 }
 
-export const SCAN_CLEANUP_RASTER_SLOT_RESIDENT_BYTES = 128 * 1024 * 1024;
-const SCAN_CLEANUP_RASTER_BROKER_PROCESS_RESERVE = 1;
-
-export interface IScanCleanupRasterAdmissionPolicy {
-    rasterConcurrency: number;
-    rasterStreaming: boolean;
-}
-
-export function resolveScanCleanupRasterAdmissionPolicy(
-    capacity: IJobResourceVector = mainJobBroker.getSnapshot().capacity,
-    supportsRasterStreaming = process.platform !== 'win32',
-): IScanCleanupRasterAdmissionPolicy {
-    // Streaming overlaps the classifier with the raster producers. Reserve one
-    // native slot for that sidecar and one for unrelated bulk work. Hosts with
-    // only two native slots use the sequential handoff instead.
-    const rasterStreaming = supportsRasterStreaming && capacity.nativeProcesses >= 3;
-    const nativeProcessReserve = SCAN_CLEANUP_RASTER_BROKER_PROCESS_RESERVE
-        + Number(rasterStreaming);
-    const rasterConcurrency = Math.max(
-        1,
-        Math.min(
-            Math.floor(capacity.cpuTokens),
-            capacity.nativeProcesses - nativeProcessReserve,
-            Math.floor(capacity.estimatedResidentBytes / SCAN_CLEANUP_RASTER_SLOT_RESIDENT_BYTES),
-        ),
-    );
-    return {
-        rasterConcurrency,
-        rasterStreaming,
-    };
-}
-
 function resolveScanCleanupRuntimePolicy(
     profile: IHostResourceProfileSnapshot,
 ): IScanCleanupRuntimePolicy {
-    const rasterPolicy = resolveScanCleanupRasterAdmissionPolicy();
+    const rasterPolicy = resolvePreviewRasterAdmissionPolicy();
     return {
         ...rasterPolicy,
         logicalCpus: profile.logicalCpus,
@@ -678,7 +586,7 @@ export function createScanCleanupService(
                                 signal: job.signal,
                             });
                             const pdfPaths = getPdfNativeToolPaths();
-                            const scanCleanupBinary = resolveScanCleanupPath();
+                            const scanCleanupBinary = resolvePreviewPath();
                             const pdfImageCombineBinary = resolveNativePdfImageCombinePath();
                             // Page geometry is what matched page size is measured
                             // from, so the raster path asks for this tool too — and

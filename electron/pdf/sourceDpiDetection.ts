@@ -3,8 +3,8 @@ import {
     detectSourceDpi as detectCoreSourceDpi,
     detectSourceDpiDetails as detectCoreSourceDpiDetails,
     type TSourceDpiLog,
-} from '@scan-cleanup-core/sourceDpiDetection';
-export {detectSourceDpiFromPageSizes} from '@scan-cleanup-core/types';
+} from '@evb/scan-cleanup/core/sourceDpiDetection';
+export {detectSourceDpiFromPageSizes} from '@evb/scan-cleanup/core/types';
 export type {TSourceDpiLog};
 
 export function detectSourceDpiDetails(

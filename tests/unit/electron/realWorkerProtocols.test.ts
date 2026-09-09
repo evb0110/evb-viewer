@@ -29,7 +29,7 @@ describe('real search worker protocol', () => {
     beforeAll(async () => {
         harness = await createRealWorkerProtocolHarness({
             decoders: ['parseSearchWorkerInboundMessage'],
-            modulePath: protocolModulePath('electron/search/parseSearchWorkerInboundMessage.ts'),
+            modulePath: protocolModulePath('electron/features/search/parseSearchWorkerInboundMessage.ts'),
         });
     });
 
@@ -130,7 +130,7 @@ describe('real OCR worker protocol', () => {
     beforeAll(async () => {
         harness = await createRealWorkerProtocolHarness({
             decoders: ['parseOcrWorkerInboundMessage'],
-            modulePath: protocolModulePath('electron/ocr/worker/inboundMessage.ts'),
+            modulePath: protocolModulePath('electron/features/ocr/worker/inboundMessage.ts'),
         });
     });
 

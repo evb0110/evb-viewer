@@ -18,16 +18,16 @@ import type {IScanCleanupRuntimePolicy} from '@contracts/resourcePolicies';
 import type {
     IPdfPageSize,
     IPdfPageSizeStore,
-} from '@scan-cleanup-core/pdfPageSizes';
-import {runLosslessScanCleanup} from '@scan-cleanup-core/runLosslessScanCleanup';
+} from '@evb/scan-cleanup/core/pdfPageSizes';
+import {runLosslessScanCleanup} from '@evb/scan-cleanup/core/runLosslessScanCleanup';
 import type {
     IRunScanCleanupPipelineDependencies,
     IScanCleanupPageRasterSource,
     IScanCleanupWorkerPaths,
     TScanCleanupLog,
-} from '@scan-cleanup-core/types';
-import type {TEmitScanCleanupProgress} from '@scan-cleanup-core/createScanCleanupProgressReporter';
-import {resolveScanCleanupPageScopeLazy} from '@scan-cleanup-core/pageScope';
+} from '@evb/scan-cleanup/core/types';
+import type {TEmitScanCleanupProgress} from '@evb/scan-cleanup/core/createScanCleanupProgressReporter';
+import {resolveScanCleanupPageScopeLazy} from '@evb/scan-cleanup/core/pageScope';
 
 const roots: string[] = [];
 

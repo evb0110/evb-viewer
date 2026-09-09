@@ -1,4 +1,4 @@
-import type { THostResourceTier } from '@contracts';
+import type { THostResourceTier } from '@contracts/hostResourceProfile';
 
 export type TStressHostProfileId =
     | 'baseline'

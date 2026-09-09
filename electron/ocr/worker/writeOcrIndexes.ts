@@ -8,8 +8,8 @@ import {resolveSafeOcrIndexBasePath} from '@electron/ocr/worker/indexWriter';
 import {
     prepareOcrCatalogV4Generation,
     rollbackPreparedOcrCatalogV4,
-} from '@electron/ocr/worker/indexWriterV4';
-import type {TOcrJobStorageBudget} from '@electron/ocr/worker/ocrJobStorageBudget';
+} from '@electron/features/ocr/worker/indexWriterV4';
+import type {TOcrJobStorageBudget} from '@electron/features/ocr/worker/ocrJobStorageBudget';
 import {isAbortError} from '@electron/utils/abort';
 import {getErrorMessage} from '@electron/utils/error';
 

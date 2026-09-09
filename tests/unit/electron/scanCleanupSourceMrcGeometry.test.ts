@@ -3,11 +3,11 @@ import {
     expect,
     it,
 } from 'vitest';
-import {buildScanCleanupSourceMrcForegroundPdfMatrix} from '@scan-cleanup-core/buildScanCleanupSourceMrcForegroundPdfMatrix';
+import {buildScanCleanupSourceMrcForegroundPdfMatrix} from '@evb/scan-cleanup/core/buildScanCleanupSourceMrcForegroundPdfMatrix';
 import {
     sourceMrcForegroundPdfMatrix,
     type IRenderedCleanupOutputPage,
-} from '@scan-cleanup-core/assembleCompactScanCleanupPages';
+} from '@evb/scan-cleanup/core/assembleCompactScanCleanupPages';
 
 function output(overrides: Partial<IRenderedCleanupOutputPage['metadata']> = {}) {
     return {

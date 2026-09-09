@@ -1,9 +1,12 @@
 /* eslint-disable custom/file-naming -- The task contract fixes this CLI filename. */
 import { getErrorMessage } from '@contracts/getErrorMessage';
 import {
+    copyFile,
     mkdir,
     mkdtemp,
+    open,
     readFile,
+    readdir,
     rm,
     stat,
     writeFile,
@@ -28,29 +31,29 @@ import type {IScanCleanupRuntimePolicy} from '@contracts/resourcePolicies';
 import {
     extractPdfMrcLayers,
     extractPdfMrcLayersBatch,
-} from '@scan-cleanup-adapters/extractPdfMrcLayers';
+} from '@evb/scan-cleanup/adapters/extractPdfMrcLayers';
 import {
     createPdfPageSizeStore,
     readPdfPageSizes,
-} from '@scan-cleanup-core/pdfPageSizes';
-import {readAvailableScratchBytes} from '@scan-cleanup-core/resolveRasterHandoff';
-import {detectSourceDpiDetails} from '@scan-cleanup-core/sourceDpiDetection';
-import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@scan-cleanup-core/pageBatches';
+} from '@evb/scan-cleanup/core/pdfPageSizes';
+import {readAvailableScratchBytes} from '@evb/scan-cleanup/core/resolveRasterHandoff';
+import {detectSourceDpiDetails} from '@evb/scan-cleanup/core/sourceDpiDetection';
+import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@evb/scan-cleanup/core/pageBatches';
 import {
     runScanCleanupDetection,
     type IScanCleanupDetectionDependencies,
-} from '@scan-cleanup-core/detection';
+} from '@evb/scan-cleanup/core/detection';
 import {
     runScanCleanupConversion,
     type IRunScanCleanupPipelineRequest,
     type IScanCleanupWorkerPaths,
-} from '@scan-cleanup-core/runScanCleanupConversion';
+} from '@evb/scan-cleanup/core/runScanCleanupConversion';
 import {
     parseScanCleanupCompactManifest,
     resolveScanCleanupPageScope,
     type IScanCleanupProvenanceStamp,
     type IScanCleanupRepresentationReport,
-} from '@scan-cleanup-core/index';
+} from '@evb/scan-cleanup/core/index';
 import type {
     IDetectedPageRaster,
     IScanCleanupProcessResult,
@@ -63,8 +66,8 @@ import type {
     TScanCleanupRunCommand,
     IScanCleanupRunCommandOptions,
     TScanCleanupLog,
-} from '@scan-cleanup-core/types';
-import {isScanCleanupCliFallbackSentinel} from '@scan-cleanup-core/compactManifest';
+} from '@evb/scan-cleanup/core/types';
+import {isScanCleanupCliFallbackSentinel} from '@evb/scan-cleanup/core/compactManifest';
 import {
     createCliRenderers,
     buildCliRawMaskEvidenceManifest,
@@ -90,6 +93,18 @@ import {
 const PAGE_OPS_FALLBACK = '__scan_cleanup_cli_page_ops_fallback__';
 const IMAGE_COMBINE_FALLBACK = '__scan_cleanup_cli_image_combine_fallback__';
 const CLI_PAGE_RASTER_CACHE_LIMIT = SCAN_CLEANUP_STREAMING_BATCH_PAGES;
+
+const cliDetectionFileSystem: NonNullable<IScanCleanupDetectionDependencies['fileSystem']> = {
+    copyFile,
+    mkdir,
+    mkdtemp,
+    open,
+    readFile: async (path, encoding) => readFile(path, encoding),
+    readdir: async (path, options) => readdir(path, options),
+    rm,
+    stat,
+    writeFile,
+};
 
 interface IScanCleanupCliArguments {
     sourcePdfPath: string;
@@ -963,6 +978,8 @@ async function main() {
         process.env.EVB_SCAN_CLEANUP_EVIDENCE_DIR = detectionEvidenceDirectory;
         const detectionStartedAt = performance.now();
         const detectionDependencies: IScanCleanupDetectionDependencies = {
+            fileSystem: cliDetectionFileSystem,
+            getAvailableScratchBytes: readAvailableScratchBytes,
             getTempDir: () => temporaryRoot,
             getPdftoppmBinary: () => pdftoppmBinary,
             resolveBinary: () => scanCleanupBinary,
