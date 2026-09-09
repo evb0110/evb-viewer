@@ -1,0 +1,26 @@
+packages/i18n-app/messages/nl.ts
+  s_8b02be036b2333::t_1eace07ef44e7f 337
+  s_8b02be036b2333::t_1ffe612cbdeb10 781
+  s_8b02be036b2333::t_006b146b2226cc 770,772-774,797,799-800,808,811-812
+  s_8b02be036b2333::t_bd51a7019a44af 777-779
+packages/i18n-app/messages/ptBr.ts
+  s_8b02be036b2333::t_d2c20fd2d33177 771,773-775,778-780,782,798,800-801,809,812-813
+packages/i18n-app/messages/pt.ts
+  s_8b02be036b2333::t_191e11fd604ba1 771,773-775,778-780,782,798,800-801,809,812-813
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "65e85b36999a6c1cfbaf04d4b39986786b75d00a",
+  "prompts": {},
+  "sessions": {
+    "s_8b02be036b2333": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a087c9-0b4d-7f21-8996-3d659e55db8f",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
