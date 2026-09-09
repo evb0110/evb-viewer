@@ -1,0 +1,29 @@
+scripts/release/wait-for-exact-sha-ci.mjs
+  s_e4c38a5c21eafd::t_8f6416a3248916 84-87,284-286
+scripts/ci/push-diff-base.sh
+  s_e4c38a5c21eafd::t_8f6416a3248916 4-9
+.github/workflows/ci.yml
+  s_e4c38a5c21eafd::t_8f6416a3248916 4-5,12-18
+tests/unit/scripts/waitForExactShaCi.test.ts
+  s_e4c38a5c21eafd::t_305095ad6e999b 304,311
+docs/local-gates.md
+  s_e4c38a5c21eafd::t_8f6416a3248916 59-64
+scripts/ci/ci-health.mjs
+  s_e4c38a5c21eafd::t_8f6416a3248916 3,197
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "65cd78662a4254bda96f246a7a70e7de4afd5c94",
+  "prompts": {},
+  "sessions": {
+    "s_e4c38a5c21eafd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5eb6c90b-53e8-4178-b868-46f9a6573dee",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
