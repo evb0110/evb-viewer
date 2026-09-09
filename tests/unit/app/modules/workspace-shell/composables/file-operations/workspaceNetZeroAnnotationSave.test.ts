@@ -7,6 +7,7 @@ import {
 } from 'vitest';
 import {ref} from 'vue';
 import {requireDocumentRef} from '@contracts/documentRef';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {
     createDeps,
     createShapeAnnotation,
@@ -110,13 +111,17 @@ describe('net-zero annotation save', () => {
     });
 
     it('projects real mutations before publishing Save As instead of copying stale source bytes', async () => {
-        const trySavePdfNativeMutations = vi.fn(async () => ({
-            success: true,
-            outPath: requireDocumentRef('/tmp/work.pdf'),
-            saveMode: 'rewrite' as const,
-            didSaveAs: false,
-        }));
-        const {deps} = createDeps({
+        let deps: ReturnType<typeof createDeps>['deps'];
+        const trySavePdfNativeMutations = vi.fn(async () => {
+            deps.documentRevisionToken.value = requireDocumentRevisionToken('rev-after-native-stage');
+            return {
+                success: true,
+                outPath: requireDocumentRef('/tmp/work.pdf'),
+                saveMode: 'rewrite' as const,
+                didSaveAs: false,
+            };
+        });
+        ({deps} = createDeps({
             originalPath: ref(requireDocumentRef('/tmp/source.pdf')),
             workingCopyPath: ref(requireDocumentRef('/tmp/work.pdf')),
             annotationDirty: ref(true),
@@ -125,11 +130,14 @@ describe('net-zero annotation save', () => {
             hasShapeChanges: vi.fn(() => true),
             getAllShapes: vi.fn(() => [createShapeAnnotation()]),
             trySavePdfNativeMutations,
-        });
+        }));
         const service = useWorkspaceSaveServiceForTest(deps);
         await expect(service.handleSaveAs()).resolves.toBe(true);
         expect(trySavePdfNativeMutations).toHaveBeenCalledExactlyOnceWith(expect.anything(), expect.objectContaining({optimizeLossless: true}));
         expect(deps.saveWorkingCopyAs).toHaveBeenCalledOnce();
+        expect(deps.saveWorkingCopyAs).toHaveBeenCalledWith(undefined, expect.objectContaining({
+            expectedDocumentRevisionToken: requireDocumentRevisionToken('rev-after-native-stage'),
+        }));
         expect(deps.saveWorkingCopy).not.toHaveBeenCalled();
     });
 

@@ -78,6 +78,11 @@ export type TWorkspaceSavePlan =
         serializedFallback: IWorkspaceSerializedSaveBody
     })
     | (IWorkspaceSavePlanCommon & {
+        kind: 'native-repair';
+        request: Extract<TWorkspaceSaveRequest, {kind: 'repair'}>;
+        serializedFallback: IWorkspaceSerializedSaveBody
+    })
+    | (IWorkspaceSavePlanCommon & {
         kind: 'optimization';
         request: Extract<TWorkspaceSaveRequest, {kind: 'optimize-copy'}>
     });
@@ -90,6 +95,7 @@ export function createWorkspaceSavePlan(input: {
     hasManagedShapes: boolean;
     canPersistNativeWorkingCopy: boolean;
     canPersistNativeMutations: boolean;
+    canPersistNativeRepair?: boolean;
 }): TWorkspaceSavePlan {
     const {
         request,
@@ -134,6 +140,14 @@ export function createWorkspaceSavePlan(input: {
         return {
             ...common,
             kind: 'native-mutation',
+            request,
+            serializedFallback: body,
+        };
+    }
+    if (request.kind === 'repair' && forcedByDirtyState && input.canPersistNativeRepair) {
+        return {
+            ...common,
+            kind: 'native-repair',
             request,
             serializedFallback: body,
         };

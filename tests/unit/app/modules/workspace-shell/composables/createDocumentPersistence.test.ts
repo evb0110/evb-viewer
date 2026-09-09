@@ -33,6 +33,7 @@ const mocks = vi.hoisted(() => {
         documentFilesCapability: {
             applyPdfNativeMutationsToWorkingCopy: vi.fn(),
             commitStagedPdfNativeMutations: vi.fn(),
+            replaceWorkingCopyFromStagedPdfNativeMutation: vi.fn(),
             createManagedTempFileHandle: vi.fn(),
             getDocumentRevision: vi.fn(),
             optimizePdfAsCopy: vi.fn(),
@@ -208,6 +209,7 @@ describe('createDocumentPersistence', () => {
             applied: true,
             validation: validPdfResult,
         });
+        mocks.documentFilesCapability.replaceWorkingCopyFromStagedPdfNativeMutation.mockResolvedValue(true);
         mocks.readDocumentBytes.mockResolvedValue(new Uint8Array([
             1,
             2,
@@ -486,6 +488,26 @@ describe('createDocumentPersistence', () => {
         expect(mocks.documentFilesCapability.savePdfNoteTextUpdates).not.toHaveBeenCalled();
         expectBroadFilePersistenceFacadeNotUsed();
         expectBroadWorkingCopyFacadeNotUsed();
+    });
+
+    it('replaces only the working copy when native mutations are staged for a later repair', async () => {
+        const {persistence} = createPersistenceHarness();
+        const mutations = {pageLabels: {ranges: []}};
+
+        const result = await persistence.trySavePdfNativeMutations(mutations, {
+            saveMode: 'rewrite',
+            workingCopyOnly: true,
+            expectedWorkingPath: requireDocumentRef('/tmp/old-working.pdf'),
+            modifiedAt: requirePdfDateString('D:20260628093456Z'),
+        });
+
+        expect(result?.success).toBe(true);
+        expect(mocks.documentFilesCapability.replaceWorkingCopyFromStagedPdfNativeMutation).toHaveBeenCalledWith(
+            '/tmp/old-working.pdf',
+            expect.objectContaining({leaseId: 'staged-native-lease'}),
+            {expectedDocumentRevisionToken: TEST_DOCUMENT_REVISION_TOKEN},
+        );
+        expect(mocks.documentFilesCapability.commitStagedPdfNativeMutations).not.toHaveBeenCalled();
     });
 
     it('adopts staged Save As bytes from the committed target even when desktop copyback left the old working copy unchanged', async () => {
