@@ -149,7 +149,7 @@ describe('WASM freshness check', () => {
             });
 
             expect(result).toEqual([expect.objectContaining({fresh: true})]);
-            expect(readFileSync(path.join(tempRoot, artifact.publicRelativePath))).toEqual(originalPublicBytes);
+            expect(readFileSync(path.join(tempRoot, artifact.publicRelativePath)).equals(originalPublicBytes)).toBe(true);
             expect(runCommand).toHaveBeenCalledWith(
                 'cargo',
                 expect.arrayContaining([
@@ -200,7 +200,7 @@ describe('WASM freshness check', () => {
                 projectRoot: tempRoot,
                 runCommand,
             })).rejects.toThrow('Committed WASM artifacts are stale');
-            expect(readFileSync(publicPath)).toEqual(publicBytes);
+            expect(readFileSync(publicPath).equals(publicBytes)).toBe(true);
         } finally {
             await rm(tempRoot, {
                 force: true,
@@ -296,7 +296,7 @@ describe('WASM freshness check', () => {
                 fresh: false,
                 mode: 'portable',
             })]);
-            expect(readFileSync(publicPath)).toEqual(publicBytes);
+            expect(readFileSync(publicPath).equals(publicBytes)).toBe(true);
         } finally {
             await rm(tempRoot, {
                 force: true,

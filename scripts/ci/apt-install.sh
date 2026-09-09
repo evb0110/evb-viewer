@@ -37,6 +37,22 @@ apt_opts=(
     -o DPkg::Lock::Timeout=120
 )
 
+# Only the Ubuntu archive serves the packages this script installs. The runner
+# image also lists dl.google.com and packages.microsoft.com, whose indexes fail
+# `apt-get update` with "Hash Sum mismatch" while they are mid-publish, so
+# update and install from a source directory that holds the Ubuntu entries alone.
+ubuntu_source_parts=$(mktemp -d)
+for source in /etc/apt/sources.list.d/*; do
+    case "$(basename "$source")" in
+        ubuntu.sources|ubuntu*.list)
+            sudo cp "$source" "$ubuntu_source_parts"/
+            ;;
+    esac
+done
+if [ -n "$(ls -A "$ubuntu_source_parts")" ]; then
+    apt_opts+=(-o "Dir::Etc::sourceparts=$ubuntu_source_parts")
+fi
+
 for attempt in 1 2; do
     if sudo timeout 90 apt-get "${apt_opts[@]}" update \
         && sudo DEBIAN_FRONTEND=noninteractive timeout 300 apt-get "${apt_opts[@]}" install -y --no-install-recommends "$@"; then

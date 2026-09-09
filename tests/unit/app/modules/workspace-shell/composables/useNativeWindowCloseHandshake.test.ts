@@ -43,7 +43,10 @@ function createSession(dirty: boolean, saveResult = true, initiallyUnmounted = f
         }
         return saveResult;
     });
-    const workspace: IWorkspaceExpose = {handleSave} as never;
+    const workspace: IWorkspaceExpose = {
+        getAutomationStateSnapshot: () => ({dirtyState: {fileDirty: snapshot.value.dirty}}),
+        handleSave,
+    } as never;
     const mountedWorkspace = shallowRef<IWorkspaceExpose | null>(initiallyUnmounted ? null : workspace);
     let resolveWorkspace: ((value: IWorkspaceExpose | null) => void) | null = null;
     const session: IWorkspaceDocumentController = {

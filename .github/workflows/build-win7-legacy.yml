@@ -1,16 +1,18 @@
 name: Supplemental Windows 7 Legacy Build
 
+# Not part of the nightly canary since 2026-09-09. Run manually from the
+# Actions tab. Owner: Eugene Barsky. Known failures: Electron 22 cannot load
+# the ESM main bundle, so packaged smoke fails, and setup-release-env's WASM
+# staging is not applied here, so assert-packaged-app-contents reports missing
+# nuxt-output/public/wasm artifacts.
 on:
-  workflow_call:
+  workflow_dispatch:
     inputs:
       ref:
         description: Git ref or commit SHA to build.
         required: false
+        default: ''
         type: string
-    outputs:
-      artifact_ready:
-        description: Whether the legacy Windows 7 artifact was produced.
-        value: ${{ jobs.build_win7_legacy.outputs.artifact_ready }}
 permissions:
   contents: read
 
@@ -24,24 +26,17 @@ jobs:
   build_win7_legacy:
     name: build (windows-2022, win7 legacy, x64)
     runs-on: windows-2022
-    # The legacy lane pins Electron 22, which cannot load the ESM main bundle,
-    # so its packaged smoke has failed on every run since it was added. The
-    # lane is never published; keep it from hiding real failures in the
-    # supplemental lanes the daily canary exists to prove (issue #335).
-    continue-on-error: true
     env:
       EVB_RELEASE_TARGET_ARCH: x64
       EVB_RELEASE_TARGET_PLATFORM: win
       EVB_RELEASE_TARGET_DIST: win7-legacy-x64
-    outputs:
-      artifact_ready: ${{ steps.artifact_status.outputs.ready }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-          ref: ${{ inputs.ref || github.ref }}
+          ref: ${{ inputs.ref || github.sha }}
 
       - name: Setup release environment
         uses: ./.github/actions/setup-release-env

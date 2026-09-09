@@ -197,7 +197,7 @@ describe('workingCopy', () => {
         }
 
         expect(operationIds.size).toBe(1);
-        expect(readFileSync(workingPath)).toEqual(readFileSync(originalPath));
+        expect(readFileSync(workingPath).equals(readFileSync(originalPath))).toBe(true);
     }, 30_000);
 
     it('rejects source replacement during eager non-PDF fallback before registration', async () => {
@@ -266,7 +266,7 @@ describe('workingCopy', () => {
             reason: 'save',
         });
 
-        expect(readFileSync(workingPath)).toEqual(originalBytes);
+        expect(readFileSync(workingPath).equals(originalBytes)).toBe(true);
         expect(getWorkingCopyBackingEntry(workingPath, 7)?.backingState).toBe('materialized');
     }, 30_000);
 
@@ -291,7 +291,7 @@ describe('workingCopy', () => {
 
         const workingPath = await createWorkingCopy(trustedOriginalPath!, 7);
 
-        expect(readFileSync(workingPath)).toEqual(originalBytes);
+        expect(readFileSync(workingPath).equals(originalBytes)).toBe(true);
         expect(getWorkingCopyBackingEntry(workingPath, 7)?.backingState).toBe('cloned');
         expect(getWorkingCopyMaterializationFlightCountForTests()).toBe(0);
     });
@@ -472,12 +472,12 @@ describe('workingCopy', () => {
         expect(trustedOriginalPath).not.toBeNull();
 
         const eagerWorkingPath = await createWorkingCopy(trustedOriginalPath!, 7);
-        expect(readFileSync(eagerWorkingPath)).toEqual(originalBytes);
+        expect(readFileSync(eagerWorkingPath).equals(originalBytes)).toBe(true);
         expect(getWorkingCopyBackingEntry(eagerWorkingPath, 7)?.backingState).toBe('eager');
 
         process.env.EVB_WORKING_COPY_MATERIALIZATION_MODE = 'lazy';
         const generatedWorkingPath = await createWorkingCopyFromPath(trustedOriginalPath!, undefined, 7);
-        expect(readFileSync(generatedWorkingPath)).toEqual(originalBytes);
+        expect(readFileSync(generatedWorkingPath).equals(originalBytes)).toBe(true);
         expect(getWorkingCopyBackingEntry(generatedWorkingPath, 7)?.backingState).toBe('eager');
     });
 
@@ -1080,7 +1080,7 @@ describe('workingCopy', () => {
         );
 
         expect(physicalReadPath).toBe(realpathSync.native(originalPath));
-        expect(result).toEqual(originalBytes);
+        expect(Buffer.from(result).equals(originalBytes)).toBe(true);
         expect(existsSync(workingPath)).toBe(false);
         await clearAllWorkingCopies();
     });

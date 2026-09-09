@@ -50,6 +50,18 @@ export function defaultCommandRunner(command, args, options = {}) {
     return output == null ? '' : String(output).trim();
 }
 
+// Every push to main runs ci.yml and only push runs carry a gates_ok verdict
+// (workflow_dispatch routes to the manual lanes). Require both explicitly so a
+// future trigger change cannot widen what a release trusts. The API always
+// supplies event; accepting an omitted value keeps the helper usable with the
+// small unit-test fixtures.
+/** @param {IWorkflowRun | null | undefined} runInfo @returns {runInfo is IWorkflowRun} */
+function isMainPushRun(runInfo) {
+    return Boolean(runInfo)
+        && runInfo.head_branch === 'main'
+        && (!runInfo.event || runInfo.event === 'push');
+}
+
 /** @param {string} targetSha @param {TCommandRunner} [runCommand] @returns {IWorkflowRun | null} */
 export function findLatestMatchingRun(targetSha, runCommand = defaultCommandRunner) {
     const payload = runCommand('gh', [
@@ -63,17 +75,48 @@ export function findLatestMatchingRun(targetSha, runCommand = defaultCommandRunn
         return null;
     }
     return workflowRuns
-        // Every push to main runs ci.yml and only push runs carry a gates_ok
-        // verdict (workflow_dispatch routes to the manual lanes). Require
-        // both explicitly so a future trigger change cannot widen what a
-        // release trusts. The API always supplies event; accepting an omitted
-        // value keeps the helper usable with the small unit-test fixtures.
-        .filter(runInfo => runInfo
-            && runInfo.head_sha === targetSha
-            && runInfo.head_branch === 'main'
-            && (!runInfo.event || runInfo.event === 'push'))
+        .filter(runInfo => isMainPushRun(runInfo) && runInfo.head_sha === targetSha)
         .sort((left, right) => (left.run_number ?? 0) - (right.run_number ?? 0))
         .at(-1) ?? null;
+}
+
+/**
+ * ci.yml cancels an in-progress main push run when a newer push arrives, so
+ * a cancelled run means "superseded", not "failed". Returns the newest later
+ * main push run whose head contains targetSha, or null.
+ */
+/** @param {string} targetSha @param {IWorkflowRun} cancelledRun @param {TCommandRunner} [runCommand] @returns {IWorkflowRun | null} */
+export function findSupersedingRun(targetSha, cancelledRun, runCommand = defaultCommandRunner) {
+    const payload = runCommand('gh', [
+        'api',
+        '-H',
+        'Accept: application/vnd.github+json',
+        'repos/{owner}/{repo}/actions/workflows/ci.yml/runs?branch=main&event=push&per_page=20',
+    ]);
+    const workflowRuns = JSON.parse(payload)?.workflow_runs;
+    if (!Array.isArray(workflowRuns)) {
+        return null;
+    }
+    const candidates = workflowRuns
+        .filter(runInfo => isMainPushRun(runInfo)
+            && runInfo.head_sha !== targetSha
+            && (runInfo.run_number ?? 0) > (cancelledRun.run_number ?? 0))
+        .sort((left, right) => (right.run_number ?? 0) - (left.run_number ?? 0));
+    for (const candidate of candidates) {
+        // "ahead" means the candidate head descends from the target.
+        const status = runCommand('gh', [
+            'api',
+            '-H',
+            'Accept: application/vnd.github+json',
+            `repos/{owner}/{repo}/compare/${targetSha}...${candidate.head_sha}`,
+            '--jq',
+            '.status',
+        ]).trim();
+        if (status === 'ahead') {
+            return candidate;
+        }
+    }
+    return null;
 }
 
 /** @param {number} runId @param {TCommandRunner} [runCommand] @returns {string | undefined} */
@@ -132,7 +175,13 @@ function verifyByParent(targetSha, runCommand) {
             + 'wait for it to finish.',
         );
     }
-    if (parentRun.conclusion !== 'success') {
+    let acceptedRun = parentRun;
+    if (parentRun.conclusion === 'cancelled') {
+        // A push after the version commit cancels the parent's run. The
+        // newer run's tree contains the parent, so its verdict stands in;
+        // otherwise `gh run rerun <id>` restores an exact verdict.
+        acceptedRun = verifySupersedingRun(parentSha, parentRun, runCommand);
+    } else if (parentRun.conclusion !== 'success') {
         throw new Error(
             `Release parent ${parentSha} ${describeRun(parentRun)} concluded '${parentRun.conclusion}'. `
             + 'Fix the failure with a new green commit and version.',
@@ -141,7 +190,7 @@ function verifyByParent(targetSha, runCommand) {
 
     let gatesConclusion;
     try {
-        gatesConclusion = readGatesOkConclusion(parentRun.id, runCommand);
+        gatesConclusion = readGatesOkConclusion(acceptedRun.id, runCommand);
     } catch (error) {
         throw new Error(
             `Release parent ${parentSha} ${describeRun(parentRun)} succeeded but the gates_ok lookup failed: ${
@@ -150,24 +199,53 @@ function verifyByParent(targetSha, runCommand) {
     }
     if (gatesConclusion !== 'success') {
         throw new Error(
-            `Release parent ${parentSha} ${describeRun(parentRun)} did not contain a successful gates_ok `
+            `Release parent ${parentSha} ${describeRun(acceptedRun)} did not contain a successful gates_ok `
             + `aggregate (saw '${gatesConclusion ?? 'no gates_ok job'}').`,
         );
     }
 
     return {
-        id: parentRun.id,
+        id: acceptedRun.id,
         parentSha,
-        url: parentRun.html_url ?? '',
+        url: acceptedRun.html_url ?? '',
         verifiedByParent: true,
+        ...(acceptedRun === parentRun ? {} : {supersededBy: acceptedRun.head_sha}),
     };
+}
+
+/** @param {string} parentSha @param {IWorkflowRun} cancelledRun @param {TCommandRunner} runCommand @returns {IWorkflowRun} */
+function verifySupersedingRun(parentSha, cancelledRun, runCommand) {
+    const rerunHint = `re-run it with \`gh run rerun ${cancelledRun.id}\` and dispatch the release again`;
+    const superseding = findSupersedingRun(parentSha, cancelledRun, runCommand);
+    if (!superseding) {
+        throw new Error(
+            `Release parent ${parentSha} ${describeRun(cancelledRun)} was cancelled and no newer main push run `
+            + `contains it; ${rerunHint}.`,
+        );
+    }
+    if (superseding.status !== 'completed') {
+        throw new Error(
+            `Release parent ${parentSha} ${describeRun(cancelledRun)} was cancelled by a newer push; its `
+            + `superseding ${describeRun(superseding)} is still ${superseding.status}. Wait for it, or ${rerunHint}.`,
+        );
+    }
+    if (superseding.conclusion !== 'success') {
+        throw new Error(
+            `Release parent ${parentSha} ${describeRun(cancelledRun)} was cancelled by a newer push and its `
+            + `superseding ${describeRun(superseding)} concluded '${superseding.conclusion}'. `
+            + 'Fix the failure with a new green commit and version.',
+        );
+    }
+    return superseding;
 }
 
 /**
  * Resolves with {id, url} once the exact-SHA push CI run concludes
  * successfully with a green gates_ok. Throws distinct errors for: no run
- * appearing, a known run exceeding the completion deadline, a failed run
- * (with its actual conclusion, promptly), and a missing/failed gates_ok.
+ * appearing, a known run exceeding the completion deadline, a cancelled run
+ * (main moved on), a failed run (with its actual conclusion, promptly), and
+ * a missing/failed gates_ok. A cancelled parent run is accepted through the
+ * newer green run that contains it (see findSupersedingRun).
  * A poll always immediately precedes a deadline decision, so a run that
  * turns terminal at the boundary is still observed.
  */
@@ -200,6 +278,13 @@ export async function waitForExactShaCiGates(targetSha, {
         }
 
         if (knownRun && knownRun.status === 'completed') {
+            if (knownRun.conclusion === 'cancelled') {
+                throw new Error(
+                    `Exact-SHA CI ${describeRun(knownRun)} for ${targetSha} was cancelled, most likely by a `
+                    + 'newer push to main (ci.yml cancels superseded push runs). Release from the current '
+                    + `main tip, or re-run it with \`gh run rerun ${knownRun.id}\`.`,
+                );
+            }
             if (knownRun.conclusion !== 'success') {
                 throw new Error(
                     `Exact-SHA CI ${describeRun(knownRun)} for ${targetSha} concluded '${knownRun.conclusion}'.`,
