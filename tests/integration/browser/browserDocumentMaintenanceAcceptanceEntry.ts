@@ -2,6 +2,7 @@
 
 import {sweepBrowserDocumentMaintenance} from '@app/platform/browser/browserDocumentMaintenance';
 import {browserDocumentStore} from '@app/platform/browserDocumentStore';
+import {createBrowserDocumentsFileCapability} from '@app/platform/browser-api/createBrowserDocumentsFileCapability';
 import {parseDocumentRef} from '@contracts/documentRef';
 import {createEpochMs} from '@contracts/timestamps';
 import {
@@ -38,9 +39,22 @@ async function readProof(ref: string) {
 }
 
 async function readPersistedRecentProof() {
-    const recentFiles = await browserDocumentStore.recoverRecentFilesIfStorageMissing();
+    const capability = createBrowserDocumentsFileCapability({clearSearchCaches: async () => undefined});
+    const recentFiles = await capability.recentFiles.get();
     const refs = recentFiles.slice(0, 2).map(file => file.originalPath);
+    const openedProofs = await Promise.all(refs.map(async ref => {
+        const opened = await capability.openDocumentDirect(ref);
+        if (!opened || opened.kind !== 'pdf') {
+            throw new Error(`Persisted Recent file did not open: ${ref}`);
+        }
+        try {
+            return await readProof(opened.workingPath);
+        } finally {
+            await browserDocumentStore.remove(opened.workingPath).catch(() => undefined);
+        }
+    }));
     return {
+        openedProofs,
         refs,
         proofs: await Promise.all(refs.map(readProof)),
     };

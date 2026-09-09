@@ -33,7 +33,7 @@ beforeAll(async () => {
     await build({
         bundle: true,
         entryPoints: [resolve(process.cwd(), 'tests/integration/browser/browserDocumentMaintenanceAcceptanceEntry.ts')],
-        format: 'iife',
+        format: 'esm',
         outfile: bundlePath,
         platform: 'browser',
         sourcemap: false,
@@ -76,8 +76,14 @@ describe('browser document maintenance acceptance in Chromium', () => {
                 pageB.goto(origin),
             ]);
             await Promise.all([
-                pageA.addScriptTag({path: bundlePath}),
-                pageB.addScriptTag({path: bundlePath}),
+                pageA.addScriptTag({
+                    path: bundlePath,
+                    type: 'module',
+                }),
+                pageB.addScriptTag({
+                    path: bundlePath,
+                    type: 'module',
+                }),
             ]);
             const setup = await pageA.evaluate(async () => {
                 const run = Reflect.get(globalThis, '__evbCreateMaintenanceAcceptanceDocuments');
@@ -117,7 +123,10 @@ describe('browser document maintenance acceptance in Chromium', () => {
                 recentFiles: retainedRefs,
             });
             await pageA.reload();
-            await pageA.addScriptTag({path: bundlePath});
+            await pageA.addScriptTag({
+                path: bundlePath,
+                type: 'module',
+            });
             const reloaded = await pageA.evaluate(async ({
                 orphan,
                 retained,
@@ -158,6 +167,18 @@ describe('browser document maintenance acceptance in Chromium', () => {
                     },
                 ],
                 persistedRecent: {
+                    openedProofs: [
+                        {
+                            exists: true,
+                            length: 8,
+                            prefix: setup.hashes.inlinePrefix,
+                        },
+                        {
+                            exists: true,
+                            length: 8,
+                            prefix: setup.hashes.chunkedPrefix,
+                        },
+                    ],
                     refs: retainedRefs,
                     proofs: [
                         {
