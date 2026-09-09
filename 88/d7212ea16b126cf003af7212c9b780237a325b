@@ -1,0 +1,87 @@
+app/modules/pdf-viewer/runtime/contracts/pdfViewerExpose.types.ts
+  s_e4c38a5c21eafd::t_7ec2cabb8c56ad 31-34,196
+app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession.ts
+  s_f6f909f8da31ad::t_4c7f64fe98c066 98,1113,1132-1138
+app/modules/workspace-shell/checkpoint/buildWorkspaceCheckpoint.ts
+  s_69cef65c2b51da::t_f130bcb3af6c42 6-9,80-85,116-125
+app/modules/workspace-shell/checkpoint/buildWorkspaceCheckpointChangeSignature.ts
+  s_5f0a2670c362dd::t_4cd7a04e6027c2 49-64,88
+app/modules/workspace-shell/checkpoint/restoreWorkspaceCheckpoint.ts
+  s_f03f4537557022::t_dc619d7fcdf68e 89-91
+app/modules/workspace-shell/composables/useAnnotationNoteWindows.ts
+  s_f03f4537557022::t_e70485a4a0ec00 429-449,694
+app/modules/workspace-shell/composables/useWorkspaceAnnotationSession.ts
+  s_f03f4537557022::t_d8fc0e0301c27d 131,220
+app/modules/workspace-shell/expose/createWorkspaceExpose.ts
+  s_f03f4537557022::t_1d6e34dadefff5 41,155-156,458-476
+app/modules/workspace-shell/expose/workspaceExposeDescriptors.ts
+  s_e6afbc66b58e4d::t_724b728a150415 698-711
+app/modules/workspace-shell/types/workspacePdfViewerPorts.types.ts
+  s_e6afbc66b58e4d::t_60955e32a7fbb7 103-104
+app/types/workspaceExpose.ts
+  s_e6afbc66b58e4d::t_dd3bd66d410c26 15,323-324
+electron/workspaceCheckpointStore.ts
+  s_f03f4537557022::t_30b1bb50304a40 10,15,19,143-206,751-789,843,845-850,1002-1008,1010,1019-1020,1115-1131,1144,1244,1295,1311,1313-1314
+packages/contracts/workspaceCheckpoint.ts
+  s_f6f909f8da31ad::t_6889289373ab41 29-38,54,119-147,269-271,282-284,301
+tests/unit/app/modules/workspace-shell/checkpoint/restoreWorkspaceCheckpoint.test.ts
+  s_f03f4537557022::t_011aaee760c980 44,118-125,155
+tests/unit/electron/workspaceCheckpointStore.test.ts
+  s_5f0a2670c362dd::t_de4d62827c3f45 228-267
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "88d7212ea16b126cf003af7212c9b780237a325b",
+  "prompts": {},
+  "sessions": {
+    "s_5f0a2670c362dd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0877c-d16e-7641-994d-d3f1444a10c7",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_69cef65c2b51da": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08798-2bf1-7fa1-bc47-80c06033c38f",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_e4c38a5c21eafd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5eb6c90b-53e8-4178-b868-46f9a6573dee",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_e6afbc66b58e4d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07cdb-5143-7e02-a580-29471422fbfa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_f03f4537557022": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0877a-8d5f-75b1-be5c-13a030cb3ff8",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_f6f909f8da31ad": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07e12-0958-7ee1-8402-2b101ffe6ea1",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

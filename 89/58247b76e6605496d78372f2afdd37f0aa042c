@@ -1,0 +1,53 @@
+electron/features/djvu/main/pdfExport.ts
+  s_413a3ab17d6b49::t_7bfe78c5063d3c 850,1084,1154
+  s_413a3ab17d6b49::t_a9b10f35ecc595 50,178-181,193-199
+  s_413a3ab17d6b49::t_a30a59b51e02b7 830-831
+  s_413a3ab17d6b49::t_0561fa617a958e 1079-1080
+  s_f03f4537557022::t_9058d1ceade2db 200-201
+tests/unit/electron/compactDjvuPdfExport.test.ts
+  s_413a3ab17d6b49::t_f697856dc2c4ad 208
+  s_413a3ab17d6b49::t_c998a31d0356d4 42-65
+electron/features/djvu/main/buildCompactDjvuAwarePdfFromDjvu.ts
+  s_413a3ab17d6b49::t_a9b10f35ecc595 33,225-227,229-230
+  s_413a3ab17d6b49::t_cd81d4d4d623d1 228
+electron/features/djvu/main/ddjvuConversion.ts
+  s_413a3ab17d6b49::t_a9b10f35ecc595 89-113
+tests/unit/electron/djvuPdfExport.test.ts
+  s_413a3ab17d6b49::t_42c9d6ffb39650 26,393-402
+  s_413a3ab17d6b49::t_e0efc81e2b3464 404-413
+  s_413a3ab17d6b49::t_3ad303ea571606 403
+  s_413a3ab17d6b49::t_a9b10f35ecc595 108
+  s_a1a025c8f7c988::t_be07a11377f83d 414-415
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "8958247b76e6605496d78372f2afdd37f0aa042c",
+  "prompts": {},
+  "sessions": {
+    "s_413a3ab17d6b49": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08795-295a-7ca2-a761-96415cfd6fb8",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_a1a025c8f7c988": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08796-bd09-7d90-aea0-ef93b5873c9a",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_f03f4537557022": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0877a-8d5f-75b1-be5c-13a030cb3ff8",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
