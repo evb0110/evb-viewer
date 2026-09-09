@@ -14,7 +14,10 @@ import {
     rmSync,
     writeFileSync,
 } from 'fs';
-import { join } from 'path';
+import {
+    basename,
+    join,
+} from 'path';
 import { pathToFileURL } from 'url';
 import type * as NodeCrypto from 'crypto';
 import type * as FsPromises from 'fs/promises';
@@ -791,7 +794,7 @@ describe('documents print', () => {
 
         expect(result).toEqual({success: true});
         expect(mocks.extractPages).not.toHaveBeenCalled();
-        const transformedPath = `${tempRoot}/print-layout-print-job-id-facing.pdf`;
+        const transformedPath = `${tempRoot}/print-layout-print-job-id.pdf`;
         expect(mocks.buildPrintablePdfPath).toHaveBeenCalledWith({
             inputPath: sourcePdfPath,
             outputPath: transformedPath,
@@ -841,7 +844,7 @@ describe('documents print', () => {
         const result = await settleNativePrint(resultPromise);
 
         expect(result).toEqual({success: true});
-        const transformedPath = `${tempRoot}/print-layout-print-job-id-first-single.pdf`;
+        const transformedPath = `${tempRoot}/print-layout-print-job-id.pdf`;
         expect(mocks.buildPrintablePdfPath).toHaveBeenCalledWith({
             inputPath: sourcePdfPath,
             outputPath: transformedPath,
@@ -1174,14 +1177,14 @@ describe('documents print', () => {
         expect(result).toEqual({ success: true });
         expect(mocks.extractPages).toHaveBeenCalledWith(
             sourcePdfPath,
-            `${tempRoot}/print-pages-print-job-id-source.pdf`,
+            `${tempRoot}/print-pages-print-job-id.pdf`,
             [4],
             expect.objectContaining({
                 cancelGroup: expect.any(String),
                 signal: expect.any(AbortSignal),
             }),
         );
-        const selectedPagesPath = `${tempRoot}/print-pages-print-job-id-source.pdf`;
+        const selectedPagesPath = `${tempRoot}/print-pages-print-job-id.pdf`;
         if (mocks.runtimePlatform === 'darwin') {
             expect(mocks.openMacOsPdfPrintDialog).toHaveBeenCalledWith(
                 selectedPagesPath,
@@ -1310,7 +1313,99 @@ describe('documents print', () => {
         expect(extractionCancelGroup).toEqual(expect.any(String));
         expect(mocks.cancelNativeCommandGroup).toHaveBeenCalledWith(extractionCancelGroup);
         expect(mocks.browserWindowInstances).toHaveLength(0);
-        expect(mocks.unlink).toHaveBeenCalledWith(`${tempRoot}/print-pages-print-job-id-source.pdf`);
+        expect(mocks.unlink).toHaveBeenCalledWith(`${tempRoot}/print-pages-print-job-id.pdf`);
+    });
+
+    it('keeps selected-page staging names opaque and within the filesystem byte limit', async () => {
+        vi.useFakeTimers();
+        const userFileName = `${'документ-'.repeat(300)}.pdf`;
+        let selectedPagesPath: string | undefined;
+        mocks.extractPages.mockImplementationOnce(async (...args: unknown[]) => {
+            const outputPath = args[1] as string;
+            selectedPagesPath = outputPath;
+            writeFileSync(outputPath, validPdfBytes);
+        });
+
+        const resultPromise = handlePrintPdfPath(
+            windowContext,
+            sourcePdfPath,
+            userFileName,
+            {
+                pageNumbers: [requirePageNumber(4)],
+                viewMode: 'single',
+                orientation: 'auto',
+            },
+        );
+        const result = await settleNativePrint(resultPromise);
+
+        expect(result).toEqual({success: true});
+        expect(selectedPagesPath).toBeDefined();
+        const selectedPagesName = basename(selectedPagesPath!);
+        expect(Buffer.byteLength(selectedPagesName, 'utf8')).toBeLessThanOrEqual(255);
+        expect(selectedPagesName).toMatch(/^print-pages-[A-Za-z0-9-]+\.pdf$/u);
+        expect(selectedPagesName).not.toContain('документ');
+        expect(existsSync(selectedPagesPath!)).toBe(true);
+        expect(mocks.browserWindowInstances[0]?.options).toEqual(expect.objectContaining({title: userFileName.slice(0, -4)}));
+
+        await vi.runOnlyPendingTimersAsync();
+        rmSync(selectedPagesPath!, {force: true});
+    });
+
+    it('uses distinct operation-owned staging names for concurrent selected-page prints', async () => {
+        vi.useFakeTimers();
+        let operationIndex = 0;
+        mocks.randomUUID.mockImplementation(() => `operation-${++operationIndex}`);
+
+        const firstPrint = handlePrintPdfPath(
+            windowContext,
+            sourcePdfPath,
+            'first user document.pdf',
+            {
+                pageNumbers: [requirePageNumber(1)],
+                viewMode: 'single',
+                orientation: 'auto',
+            },
+        );
+        const secondPrint = handlePrintPdfPath(
+            windowContext,
+            sourcePdfPath,
+            'second user document.pdf',
+            {
+                pageNumbers: [requirePageNumber(2)],
+                viewMode: 'single',
+                orientation: 'auto',
+            },
+        );
+
+        await flushPrintPromises();
+        const stagedPaths = mocks.extractPages.mock.calls.map(call => call[1] as string);
+        expect(stagedPaths).toHaveLength(2);
+        expect(new Set(stagedPaths).size).toBe(2);
+        for (const stagedPath of stagedPaths) {
+            const stagedName = basename(stagedPath);
+            expect(stagedName).toMatch(/^print-pages-operation-[0-9]+\.pdf$/u);
+            expect(Buffer.byteLength(stagedName, 'utf8')).toBeLessThanOrEqual(255);
+        }
+
+        await vi.runOnlyPendingTimersAsync();
+        await expect(firstPrint).resolves.toEqual({success: true});
+        await expect(secondPrint).resolves.toEqual({success: true});
+    });
+
+    it('cleans up an advanced-layout staging file when composition fails', async () => {
+        mocks.buildPrintablePdfPath.mockRejectedValueOnce(new Error('composition failed'));
+
+        await expect(handlePrintPdfPath(
+            windowContext,
+            sourcePdfPath,
+            'a very long user-facing print title '.repeat(100),
+            {
+                viewMode: 'facing',
+                orientation: 'landscape',
+            },
+        )).rejects.toThrow('composition failed');
+
+        expect(mocks.unlink).toHaveBeenCalledWith(`${tempRoot}/print-layout-print-job-id.pdf`);
     });
 
     it('cancels the selected-page native handoff while the plugin surface is still dark', async () => {
