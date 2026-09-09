@@ -1,0 +1,19 @@
+scripts/check-build-warnings.mjs
+  s_123dded35f78bc::t_83267becb7c7dc 83-88,110
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "2353dce582054988df119c5dcea9e35c8b20bb38",
+  "prompts": {},
+  "sessions": {
+    "s_123dded35f78bc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08863-722a-76a3-9f4e-c047f6701788",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
