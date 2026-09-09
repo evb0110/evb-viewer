@@ -11,7 +11,6 @@ import { usePdfAnnotationCommentModel } from '@app/modules/pdf-viewer/annotation
 import { usePdfShapeTool } from '@app/modules/pdf-viewer/tools/public';
 import { useAnnotationMutationService } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationMutationService';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { runGuardedTask } from '@app/utils/asyncGuard';
 import type {
     IAnnotationCommentSummary,
     IAnnotationInventoryCompleteness,
@@ -61,7 +60,15 @@ import {
 } from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
 import { createPdfPagePointResolver } from '@app/modules/pdf-viewer/engine/annotations/pdf-page-point-resolver/createPdfPagePointResolver';
 import { markerRectFromPoint } from '@app/modules/pdf-viewer/engine/annotations/pdf-page-point-resolver/markerRectFromPoint';
-import { useAnnotationTextSelectionCache } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationTextSelectionCache';
+import {useAnnotationTextSelectionCache} from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationTextSelectionCache';
+import {
+    createAnnotationSelectionLifecycle,
+    type IAnnotationSelectionCreationRequest,
+} from '@app/modules/pdf-viewer/runtime/annotations/createAnnotationSelectionLifecycle';
+import {
+    createPdfAnnotationSelectionMarkup,
+    type ICreatePdfAnnotationSelectionMarkupRequest,
+} from '@app/modules/pdf-viewer/runtime/annotations/createPdfAnnotationSelectionMarkup';
 import { createPdfAnnotationEditorCompatibility } from '@app/modules/pdf-viewer/runtime/annotations/createPdfAnnotationEditorCompatibility';
 import { isSelectionMarkupTool } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isSelectionMarkupTool';
 import {
@@ -84,6 +91,7 @@ import type {
 import type {IPdfPlacedImageFinalizePayload} from '@app/types/pdfImagePlacement';
 import {unrotateAnnotationPlacementRect} from '@app/modules/pdf-viewer/engine/annotation-editor-geometry/annotationEditorGeometry';
 import {preparePdfAnnotationRaster} from '@app/modules/pdf-viewer/runtime/annotations/preparePdfAnnotationRaster';
+import {createAnnotationSelectionInteractionController} from '@app/modules/pdf-viewer/runtime/annotations/createAnnotationSelectionInteractionController';
 export interface ICreatePdfAnnotationSessionOptions {
     document: TPdfDocumentSession;
     viewport: TPdfViewportSession;
@@ -125,18 +133,15 @@ interface IAnnotationStoreDocumentIdentityInput {
     workingCopyPath: string | null;
     source: TPdfSource | null;
 }
-
 interface IAnnotationSnapshotDocumentIdentityInput {
     originalPath: string | null;
     workingCopyPath: string | null;
     source: TPdfSource | null;
 }
-
 // Pathless sources are keyed by Blob instance because their metadata can collide.
 // The `blob-instance:` prefix avoids collisions with file paths.
 const annotationBlobIdentities = new WeakMap<Blob, string>();
 let nextAnnotationBlobIdentity = 0;
-
 function annotationBlobIdentity(source: Blob) {
     const existing = annotationBlobIdentities.get(source);
     if (existing) {
@@ -416,61 +421,48 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
     }, {flush: 'sync'});
     commitPendingEditorDraftsForSave = annotationEditorSurface.commitPendingTextBoxDraftsForSave;
     provide(annotationEditorSurfaceKey, annotationEditorSurface);
-    async function createSelectionMarkup(
-        range: Range,
-        withNote: boolean,
-        requestedSubtype?: TMarkupSubtype,
-    ): Promise<TAnnotationCreationOutcome> {
-        const geometry = await resolvePdfAnnotationSelectionGeometry({
+    const createSelectionMarkup = createPdfAnnotationSelectionMarkup({
+        resolveGeometry: range => resolvePdfAnnotationSelectionGeometry({
             documentSession,
             getViewRotation: () => options.viewRotation?.value ?? 0,
             viewerContainer: options.viewerContainer.value,
             range,
-        });
-        if (geometry.status === 'stale') {
-            return {status: 'cancelled'};
-        }
-        if (geometry.status === 'failed') {
-            return {
-                status: 'failed',
-                reason: geometry.reason,
-            };
-        }
-        const subtype = requestedSubtype ?? subtypeForAnnotationTool(options.annotationTool.value);
-        const style = selectionMarkupStyle(subtype);
-        const created = appAnnotationHistory.runTransaction(() => geometry.pages.map(page => (
-            annotationEditorSurface.createHighlightFromSelection(
-                page.pageNumber - 1,
-                page.quadPoints,
-                {
-                    subtype,
-                    color: style.color,
-                    opacity: style.opacity,
-                    selectedText: page.selectedText,
-                },
-            )
-        )));
-        if (created.length > 0) annotationEditorSurface.completeCreation(options.annotationTool.value);
-        const createdIds = created.map(entity => entity.identity.id);
-        annotationEditorSurface.select(createdIds);
-        options.emitAnnotationModified();
-        const firstCreated = created[0];
-        if (withNote) {
-            if (firstCreated) {
-                const comment = findCanonicalAnnotationComment(annotationApplication.value, firstCreated.identity.id);
-                emitAnnotationOpenNoteWithReconciliation(comment);
+        }),
+        createHighlights: (pages, request: ICreatePdfAnnotationSelectionMarkupRequest) => (
+            appAnnotationHistory.runTransaction(() => pages.map(page => {
+                const entity = annotationEditorSurface.createHighlightFromSelection(
+                    page.pageNumber - 1,
+                    page.quadPoints,
+                    {
+                        subtype: request.subtype,
+                        color: request.style.color,
+                        opacity: request.style.opacity,
+                        selectedText: page.selectedText,
+                    },
+                );
+                return entity.identity.id;
+            }))
+        ),
+        completeCreation: annotationEditorSurface.completeCreation,
+        selectCreated: annotationEditorSurface.select,
+        emitModified: options.emitAnnotationModified,
+        onCreated: (annotationId, withNote) => {
+            if (!withNote) {
+                return;
             }
-        }
-        return firstCreated
-            ? {
-                status: 'created',
-                annotationId: firstCreated.identity.id,
-            }
-            : {
-                status: 'failed',
-                reason: 'selection-not-in-text-layer',
-            };
-    }
+            const comment = findCanonicalAnnotationComment(annotationApplication.value, annotationId);
+            emitAnnotationOpenNoteWithReconciliation(comment);
+        },
+        getActiveTool: () => options.annotationTool.value,
+    });
+    const selectionLifecycle = createAnnotationSelectionLifecycle({
+        getActiveTool: () => options.annotationTool.value,
+        consumeSelection: textSelectionCache.consumeSelection,
+        create: (request: IAnnotationSelectionCreationRequest, isRequestCurrent) => createSelectionMarkup({
+            ...request,
+            range: request.selection.range,
+        }, isRequestCurrent),
+    });
     const failCommentAtPoint = createAnnotationCreationFailureReporter(options.reportAnnotationFailure);
     async function commentAtPoint(
         pageNumber: TPageNumber,
@@ -504,15 +496,27 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         };
     }
     async function highlightSelectionInternal(withNote = false, explicitRange?: Range | null) {
+        const selection = explicitRange
+            ? textSelectionCache.getSelectionSnapshotForRange(explicitRange)
+            : textSelectionCache.getSelectionSnapshotForCommentAction();
+        const tool = options.annotationTool.value;
+        const subtype = subtypeForAnnotationTool(tool);
+        const style = selectionMarkupStyle(subtype);
         await Promise.resolve();
-        const range = explicitRange ?? textSelectionCache.getSelectionRangeForCommentAction();
-        if (!range) {
+        if (!selection) {
             return {
                 status: 'failed',
                 reason: 'no-selection',
             } as const;
         }
-        return createSelectionMarkup(range, withNote);
+        return selectionLifecycle.request({
+            selection,
+            tool,
+            subtype,
+            style,
+            withNote,
+            requireActiveTool: isSelectionMarkupTool(tool),
+        });
     }
     async function highlightSelection() {
         return (await highlightSelectionInternal()).status === 'created';
@@ -521,14 +525,38 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         return (await highlightSelectionInternal(true)).status === 'created';
     }
     async function maybeApplySelectionMarkup(explicitRange: Range | null = null) {
-        if (!isSelectionMarkupTool(options.annotationTool.value)) {
+        const tool = options.annotationTool.value;
+        if (!isSelectionMarkupTool(tool)) {
             return false;
         }
-        return (await highlightSelectionInternal(false, explicitRange)).status === 'created';
+        const selection = explicitRange
+            ? textSelectionCache.getSelectionSnapshotForRange(explicitRange)
+            : textSelectionCache.getSelectionSnapshotForToolActivation();
+        if (!selection) {
+            return false;
+        }
+        const subtype = subtypeForAnnotationTool(tool);
+        const outcome = await selectionLifecycle.activate({
+            selection,
+            tool,
+            subtype,
+            style: selectionMarkupStyle(subtype),
+            withNote: false,
+        });
+        return outcome.status === 'created';
     }
     async function createTextMarkupFromText(
         target: ICreateTextMarkupFromTextOptions,
     ): Promise<ICreateTextMarkupFromTextResult> {
+        const requestedTool = options.annotationTool.value;
+        const requestedSubtype: ICreateTextMarkupFromTextResult['subtype'] = target.markup === 'underline'
+            ? 'Underline'
+            : target.markup === 'strikethrough'
+                ? 'StrikeOut'
+                : target.markup === 'squiggly'
+                    ? 'Squiggly'
+                    : 'Highlight';
+        const requestedStyle = selectionMarkupStyle(requestedSubtype);
         await Promise.resolve();
         const requestedPageNumber = Number.isFinite(target.pageNumber)
             ? Math.max(1, Math.trunc(target.pageNumber))
@@ -541,13 +569,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         const occurrence = typeof target.occurrence === 'number' && Number.isFinite(target.occurrence)
             ? Math.max(1, Math.trunc(target.occurrence))
             : 1;
-        const subtype: ICreateTextMarkupFromTextResult['subtype'] = target.markup === 'underline'
-            ? 'Underline'
-            : target.markup === 'strikethrough'
-                ? 'StrikeOut'
-                : target.markup === 'squiggly'
-                    ? 'Squiggly'
-                    : 'Highlight';
+        const subtype = requestedSubtype;
         const result = (
             created: boolean,
             matchedText: string | null,
@@ -586,7 +608,14 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         if (!match) {
             return result(false, null, `Text was not found on page ${pageNumber}.`);
         }
-        const outcome = await createSelectionMarkup(match.range, target.withNote === true, subtype);
+        const outcome = await createSelectionMarkup({
+            range: match.range,
+            tool: requestedTool,
+            subtype,
+            style: requestedStyle,
+            withNote: target.withNote === true,
+            requireActiveTool: false,
+        });
         if (outcome.status === 'cancelled') {
             return result(false, match.matchedText, 'The document changed before the text markup was created.');
         }
@@ -632,43 +661,15 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         clearSelectionCache: textSelectionCache.clearSelectionCache,
         highlightSelectionInternal,
     };
-    function handleDocumentPointerUp(event: PointerEvent) {
-        if (event.button !== 0 || !options.isActive.value || !isSelectionMarkupTool(options.annotationTool.value)) {
-            return;
-        }
-        const viewerContainer = options.viewerContainer.value;
-        if (!viewerContainer || !(event.target instanceof Node) || !viewerContainer.contains(event.target)) {
-            return;
-        }
-        const selection = document.getSelection();
-        const range = selection && selection.rangeCount > 0
-            ? selection.getRangeAt(0).cloneRange()
-            : null;
-        if (!range || range.collapsed) {
-            return;
-        }
-        runGuardedTask(
-            () => maybeApplySelectionMarkup(range),
-            {
-                category: 'user-visible-operation',
-                scope: 'annotations',
-                message: 'Failed to apply selection markup on pointer up',
-            },
-        );
-    }
-    if (typeof document !== 'undefined') {
-        const handleSelectionChange = () => {
-            if (options.isActive.value) {
-                textSelectionCache.cacheCurrentTextSelection();
-            }
-        };
-        document.addEventListener('selectionchange', handleSelectionChange, {passive: true});
-        document.addEventListener('pointerup', handleDocumentPointerUp, {passive: true});
-        documentSession.registerDisposable(() => {
-            document.removeEventListener('selectionchange', handleSelectionChange);
-            document.removeEventListener('pointerup', handleDocumentPointerUp);
-        });
-    }
+    const disposeSelectionInteraction = createAnnotationSelectionInteractionController({
+        viewerContainer: options.viewerContainer,
+        isActive: options.isActive,
+        annotationTool: options.annotationTool,
+        selectionCache: textSelectionCache,
+        selectionLifecycle,
+        applySelectionMarkup: maybeApplySelectionMarkup,
+    });
+    documentSession.registerDisposable(disposeSelectionInteraction);
     function summaryFromTarget(target: EventTarget | null) {
         if (!(target instanceof Element)) {
             return null;

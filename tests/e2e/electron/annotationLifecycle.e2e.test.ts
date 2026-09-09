@@ -2288,8 +2288,9 @@ describe('Electron E2E - Annotation Lifecycle', () => {
             const x = rect.left + rect.width * 0.8;
             const y = rect.top + Math.min(rect.height, window.innerHeight - rect.top - 30) * 0.7;
             const hit = document.elementFromPoint(x, y);
-            if (!hit || !layer.contains(hit) || hit.closest('[data-annotation-kind]')) {
-                throw new Error('The follow-up click must hit an empty part of the annotation layer');
+            const pageContainer = layer.closest('.page_container');
+            if (!hit || !pageContainer?.contains(hit) || hit.closest('[data-annotation-kind]')) {
+                throw new Error('The follow-up click must hit empty page content without an annotation');
             }
             return {
                 x,

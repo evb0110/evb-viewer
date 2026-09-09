@@ -150,9 +150,11 @@ describe('PDF text selection in Chromium', () => {
                     }
                 });
                 await page.locator('#annotation').click();
-                await page.locator('#svg-annotation').click();
+                const markupTarget = await page.locator('#svg-annotation').boundingBox();
+                if (!markupTarget) throw new Error('Markup target is missing');
+                await page.mouse.click(markupTarget.x + markupTarget.width / 2, markupTarget.y + markupTarget.height / 2);
                 expect(await page.locator('#annotation').getAttribute('data-pointer-down')).toBe('1');
-                expect(await page.locator('#svg-annotation').getAttribute('data-pointer-down')).toBe('1');
+                expect(await page.locator('#svg-annotation').getAttribute('data-pointer-down')).toBe(mode === 'is-selection-markup-tool' ? '0' : '1');
                 const hit = await page.locator('#text-span').evaluate(element => {
                     const rect = element.getBoundingClientRect();
                     const x = rect.left + 2;
@@ -162,6 +164,30 @@ describe('PDF text selection in Chromium', () => {
                 expect(hit, `${mode} must hit the rendered text span`).toBe('text-span');
                 expect(await dragAcrossText(page)).toBe('Understanding pointer ownership');
             }
+        } finally {
+            await browser.close();
+        }
+    }, BROWSER_TEST_TIMEOUT_MS);
+
+    it('selects text through an existing markup while a markup tool is active', async () => {
+        const browser = await chromium.launch({headless: true});
+        try {
+            const page = await browser.newPage({viewport: {
+                width: 1200,
+                height: 800,
+            }});
+            await page.setContent(buildPageMarkup(await compileAppStylesheet([]), compilePdfViewerStylesheet(), 'is-selection-markup-tool'));
+            await page.locator('#svg-annotation').evaluate(element => {
+                const rect = document.querySelector('#text-span')!.getBoundingClientRect();
+                const pageRect = document.querySelector('#page')!.getBoundingClientRect();
+                element.setAttribute('x', String((rect.left - pageRect.left) / pageRect.width));
+                element.setAttribute('y', String((rect.top - pageRect.top) / pageRect.height));
+                element.setAttribute('width', String(rect.width / pageRect.width));
+                element.setAttribute('height', String(rect.height / pageRect.height));
+            });
+            const points = await readTextDragPoints(page);
+            expect(await page.evaluate(point => document.elementFromPoint(point.x, point.y)?.id, points.start)).toBe('text-span');
+            expect(await dragAcrossText(page)).toBe('Understanding pointer ownership');
         } finally {
             await browser.close();
         }
