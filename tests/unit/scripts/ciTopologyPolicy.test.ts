@@ -226,18 +226,6 @@ function requiredPrPushJobs(jobs: Record<string, IWorkflowJob>) {
     return requiredJobs;
 }
 
-const splitQualityCommands = [
-    'pnpm run lint',
-    'pnpm run check:tests:as-never',
-    'pnpm run check:static:reports',
-    'pnpm run check:static:assets',
-    'pnpm run typecheck',
-    'pnpm run typecheck:coverage',
-    'pnpm run build:strict:no-wasm-check',
-    'pnpm run fallow',
-    'pnpm run fallow:dupes',
-];
-
 function escapeRegExp(source: string) {
     return source.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
 }
@@ -265,11 +253,11 @@ function expectRunSteps(job: string, commands: string[]) {
     }
 }
 
-function expectSplitQualitySteps(job: string) {
+function expectManualQualitySteps(job: string, commands: string[]) {
     expect(job).not.toContain('run: pnpm run validate');
     expectNoExactRunStep(job, 'pnpm run test:unit');
     expectNoExactRunStep(job, 'pnpm run build:strict');
-    expectRunSteps(job, splitQualityCommands);
+    expectRunSteps(job, commands);
 }
 
 async function collectTestFiles(directory: string): Promise<string[]> {
@@ -470,11 +458,15 @@ describe('CI topology policy', () => {
         expect(prQuality).toContain('git diff --exit-code --');
         expect(prQuality).not.toContain('.tmp/generated-electron-builder-resources.yml');
         expect(prQuality).toContain('git ls-files --others --exclude-standard');
-        expect(prQuality).toContain('run: pnpm run lint');
+        const lintStep = parseWorkflowJobs(workflow).pr_quality?.steps?.find(step => step.name === 'Lint changed sources');
+        const lintScript = lintStep?.run ?? '';
+        expect(lintStep?.run, 'pr_quality must define its lint control flow').toBeDefined();
+        expect(lintScript).toContain('if [ -n "$base_sha" ]');
+        expect(lintScript).toContain('git rev-parse --verify "${base_sha}^{commit}"');
+        expect(lintScript).toContain('pnpm run lint --changed --base="$base_sha"');
         // The release workflow's quality job is deleted; release-commit push
-        // CI is the publication validation authority, so the cheap static
-        // release checks run here instead of only at release time.
-        expect(prQuality).toContain('run: pnpm run check:static:reports');
+        // CI is the publication validation authority, so the deploy-source
+        // policy and generated/configuration checks run here once.
         expect(prQuality).toContain('run: pnpm run check:static:assets');
         expect(prQuality).toContain('run: pnpm run check:drizzle-schema');
         expect(prQuality).toContain('run: pnpm run check:electron-builder:asar-unpack');
@@ -488,23 +480,13 @@ describe('CI topology policy', () => {
         expect(packageScripts['check:static:reports']).toContain('reportPlatformManifestConsumers.ts');
         expect(packageScripts['check:static:assets']).toContain('check-web-deploy-source.mjs');
         expect(prQuality).toContain('run: pnpm run typecheck');
-        expect(prQuality).toContain('run: pnpm run test:coverage');
-
-        // The dead-code gates went unrun for days because only the invisible
-        // nightly lane checked them. They belong on the merge-blocking lane, but
-        // behind the tests: a job stops at its first failure, and a three-second
-        // dead-export check must not be the reason a run reports no test result.
-        expectExactRunStep(prQuality, 'pnpm run fallow');
-        expectExactRunStep(prQuality, 'pnpm run fallow:dupes');
-        for (const gate of [
-            'pnpm run fallow',
-            'pnpm run fallow:dupes',
-        ]) {
-            expect(
-                prQuality.indexOf('run: pnpm run test:coverage'),
-                `${gate} must not mask the unit tests and coverage tripwire`,
-            ).toBeLessThan(prQuality.indexOf(`run: ${gate}`));
-        }
+        expect(prQuality).toContain('run: pnpm run test:unit');
+        expectNoExactRunStep(prQuality, 'pnpm run test:coverage');
+        expectNoExactRunStep(prQuality, 'pnpm run check:tests:as-never');
+        expectNoExactRunStep(prQuality, 'pnpm run fallow');
+        expectNoExactRunStep(prQuality, 'pnpm run fallow:dupes');
+        expectNoExactRunStep(prQuality, 'pnpm run check:static:reports');
+        expect(prQuality).not.toContain('Scan-cleanup line budget');
 
         // No dependency audit on the merge-blocking lane. Both audits reject
         // any advisory at any severity and permit no waiver, and an advisory
@@ -550,7 +532,6 @@ describe('CI topology policy', () => {
         expect(prQuality).not.toContain('rustup target add');
         expect(prQuality).not.toContain('run: pnpm run build:strict');
         expect(prQuality).not.toContain('run: pnpm run build:strict:no-wasm-check');
-        expect(prQuality).toContain('run: pnpm run test:coverage');
         expect(prQuality).not.toContain('if: ${{ github.event_name == \'push\' }}');
         expect(prQuality).not.toContain('run: pnpm run test:rust');
         expect(prQuality).not.toContain('run: pnpm run test:e2e');
@@ -566,13 +547,111 @@ describe('CI topology policy', () => {
         expect(manualQuality).toContain('if: ${{ github.event_name == \'workflow_dispatch\' }}');
         expect(manualQuality).toContain('run: rustup target add wasm32-unknown-unknown');
         expect(manualQuality).toContain('run: pnpm run check:wasm:strict');
-        expectSplitQualitySteps(manualQuality);
-        expect(manualQuality).toContain('run: pnpm run test:coverage');
+        expectManualQualitySteps(manualQuality, [
+            'pnpm run lint:clean',
+            'pnpm run check:static:assets',
+            'pnpm run typecheck:clean',
+            'pnpm run build:strict:no-wasm-check',
+        ]);
+        expectNoExactRunStep(manualQuality, 'pnpm run check:tests:as-never');
+        expectNoExactRunStep(manualQuality, 'pnpm run check:static:reports');
+        expectNoExactRunStep(manualQuality, 'pnpm run typecheck:coverage');
+        expectNoExactRunStep(manualQuality, 'pnpm run fallow');
+        expectNoExactRunStep(manualQuality, 'pnpm run fallow:dupes');
+        expectNoExactRunStep(manualQuality, 'pnpm run test:coverage');
         expect(manualQuality).toContain('run: node scripts/ci-install-dependencies.mjs --frozen-lockfile');
         expect(manualQuality).not.toContain('playwright install');
         expect(manualQuality).not.toContain('Restore validation caches');
         expect(releaseWorkflow).not.toContain('test:coverage');
         expect(packageJson).not.toMatch(/"gate:commit":\s*"[^"]*coverage/u);
+    });
+
+    it('falls back to full lint when the push base is missing, zero, or unresolved', async () => {
+        const workflow = await readProjectFile('.github/workflows/ci.yml');
+        const lintScript = parseWorkflowJobs(workflow).pr_quality?.steps
+            ?.find(step => step.name === 'Lint changed sources')?.run;
+        expect(lintScript, 'pr_quality must define its lint step').toBeDefined();
+
+        const zeroSha = '0000000000000000000000000000000000000000';
+        const scenarios = [
+            {
+                eventName: 'pull_request',
+                gitVerifyExit: 0,
+                prBaseSha: 'pull-request-base',
+                pushBeforeSha: '',
+                expectedCommand: 'run lint --changed --base=pull-request-base',
+            },
+            {
+                eventName: 'push',
+                gitVerifyExit: 0,
+                prBaseSha: '',
+                pushBeforeSha: zeroSha,
+                expectedCommand: 'run lint',
+            },
+            {
+                eventName: 'push',
+                gitVerifyExit: 0,
+                prBaseSha: '',
+                pushBeforeSha: '',
+                expectedCommand: 'run lint',
+            },
+            {
+                eventName: 'push',
+                gitVerifyExit: 1,
+                prBaseSha: '',
+                pushBeforeSha: 'unresolved-push-base',
+                expectedCommand: 'run lint',
+            },
+        ] as const;
+
+        for (const scenario of scenarios) {
+            const workdir = mkdtempSync(path.join(tmpdir(), 'ci-lint-base-'));
+            try {
+                const binDirectory = path.join(workdir, 'bin');
+                const callsPath = path.join(workdir, 'calls.log');
+                mkdirSync(binDirectory, {recursive: true});
+                writeFileSync(path.join(binDirectory, 'git'), [
+                    '#!/bin/sh',
+                    'if [ "$1" = rev-parse ] && [ "$2" = --verify ]; then',
+                    '  exit "$EVB_TEST_GIT_VERIFY_EXIT"',
+                    'fi',
+                    'exit 9',
+                    '',
+                ].join('\n'), {mode: 0o755});
+                writeFileSync(path.join(binDirectory, 'pnpm'), [
+                    '#!/bin/sh',
+                    'printf \'%s\\n\' "$*" >> "$EVB_TEST_CALLS"',
+                    '',
+                ].join('\n'), {mode: 0o755});
+
+                const result = spawnSync('/bin/sh', [
+                    '-c',
+                    lintScript ?? '',
+                ], {
+                    cwd: workdir,
+                    encoding: 'utf8',
+                    env: {
+                        ...process.env,
+                        EVENT_NAME: scenario.eventName,
+                        EVB_TEST_CALLS: callsPath,
+                        EVB_TEST_GIT_VERIFY_EXIT: String(scenario.gitVerifyExit),
+                        PATH: `${binDirectory}:${process.env.PATH ?? ''}`,
+                        PR_BASE_SHA: scenario.prBaseSha,
+                        PUSH_BEFORE_SHA: scenario.pushBeforeSha,
+                    },
+                });
+                const calls = existsSync(callsPath)
+                    ? readFileSync(callsPath, 'utf8').split('\n').filter(Boolean)
+                    : [];
+                expect(result.status, `${scenario.eventName} lint control flow failed`).toBe(0);
+                expect(calls, `${scenario.eventName} lint command`).toEqual([scenario.expectedCommand]);
+            } finally {
+                rmSync(workdir, {
+                    force: true,
+                    recursive: true,
+                });
+            }
+        }
     });
 
     it('keeps expensive PR and release-push checks path-filtered from checked-in policy', async () => {
@@ -1562,7 +1641,12 @@ describe('CI topology policy', () => {
         expect(workflow).toContain('name: Manual Maintenance Gates');
         expect(workflowJob(workflow, 'nightly_maintenance')).toContain('run: rustup target add wasm32-unknown-unknown');
         expect(workflowJob(workflow, 'nightly_maintenance')).toContain('run: pnpm run check:wasm:strict');
-        expectSplitQualitySteps(workflowJob(workflow, 'nightly_maintenance'));
+        expectManualQualitySteps(workflowJob(workflow, 'nightly_maintenance'), [
+            'pnpm run lint',
+            'pnpm run check:static:assets',
+            'pnpm run typecheck',
+            'pnpm run build:strict:no-wasm-check',
+        ]);
         expect(workflow).toContain('run: pnpm run test:rust');
         // The real-corpus suite is manual-only: two blocking days, ~18
         // minutes per native push, zero catches (anti-accretion rule).
@@ -1609,14 +1693,10 @@ describe('CI topology policy', () => {
         // Each gate must therefore survive an earlier failure while still failing
         // the job. Provisioning is the exception: a gate cannot mean anything
         // without the tools it drives, and letting the rest run after a failed
-        // apt, pip, or rustup reports gates as broken when only the runner was.
+        // dependency or Rust setup reports gates as broken when only the runner was.
         const workflow = await readProjectFile('.github/workflows/ci.yml');
         const jobs = parseWorkflowJobs(workflow);
         const gateCondition = '${{ !cancelled() && steps.setup.outcome == \'success\' }}';
-        expect(
-            jobs.pr_quality?.steps?.map(step => step.run).filter(Boolean),
-            'pr_quality must provision every executable used by the interop coverage test',
-        ).toContain('scripts/ci/apt-install.sh imagemagick poppler-utils qpdf');
 
         // Naming the gates each lane owes is what keeps the rest of this test
         // from passing vacuously. Every selector below is built from whatever
@@ -1624,36 +1704,45 @@ describe('CI topology policy', () => {
         // gates that stop reporting -- is precisely the one that empties them.
         const rustProvisioning = 'rustup target add wasm32-unknown-unknown';
         const requiredGates = {
-            // The PR lane owes the same independence: an author who broke lint
-            // and the dependency audit must learn both from one run, not on
-            // consecutive days.
             pr_quality: {
                 provisioning: 'python3 -m pip install --disable-pip-version-check Pillow==11.3.0',
                 gates: [
-                    'pnpm run lint',
+                    'pnpm run generate:build-artifacts',
+                    'pnpm run lint --changed --base="$base_sha"',
                     'pnpm run typecheck',
-                    'pnpm run test:coverage',
-                    'pnpm run fallow',
-                    'pnpm run fallow:dupes',
+                    'pnpm run test:unit',
+                    'pnpm run check:drizzle-schema',
+                    'pnpm run check:electron-builder:asar-unpack',
+                    'pnpm run check:static:assets',
                 ],
             },
             manual_quality: {
                 provisioning: rustProvisioning,
                 gates: [
-                    'pnpm run fallow',
-                    'pnpm run fallow:dupes',
-                    'pnpm run test:coverage',
+                    'pnpm run check:wasm:strict',
+                    'pnpm run lint:clean',
+                    'pnpm run check:static:assets',
+                    'pnpm run typecheck:clean',
+                    'pnpm run build:strict:no-wasm-check',
                 ],
             },
             nightly_maintenance: {
                 provisioning: rustProvisioning,
                 gates: [
                     'pnpm run check:production-dependency-audit',
+                    'pnpm run check:wasm:strict',
                     'pnpm run fallow',
                     'pnpm run fallow:dupes',
+                    'pnpm run check:static:reports',
+                    'pnpm run check:static:assets',
+                    'pnpm run typecheck',
+                    'pnpm run typecheck:coverage',
+                    'pnpm run build:strict:no-wasm-check',
                     'pnpm run test:rust',
+                    'node scripts/run-native-corpus-tests.mjs',
                     'pnpm run test:coverage',
                     'pnpm run test:ocr:native-smoke:required',
+                    'pnpm run test:ocr:quality:required',
                 ],
             },
         };
@@ -1689,7 +1778,7 @@ describe('CI topology policy', () => {
 
             const gateSteps = steps.slice(setupIndex + 1);
             const abortingGates = gateSteps
-                .filter(step => step.if !== gateCondition && step.name !== 'Upload coverage artifacts')
+                .filter(step => step.if !== gateCondition)
                 .map(step => step.name);
             expect(abortingGates, `${jobName} gates that would skip the rest of the job`).toEqual([]);
 
@@ -1862,11 +1951,13 @@ describe('CI topology policy', () => {
 
         expect(workflow).toContain('run: pnpm run test:coverage');
         const qualityGates = workflowJob(workflow, 'pr_quality');
-        expect(qualityGates).toContain('- name: Scan-cleanup line budget');
-        expect(qualityGates).toContain('EVB_SCAN_CLEANUP_BASE_REF: ${{ github.event_name == \'pull_request\' && github.event.pull_request.base.sha || github.event.before }}');
-        expect(qualityGates.indexOf('name: Scan-cleanup line budget')).toBeLessThan(qualityGates.indexOf('name: Unit tests (coverage)'));
+        expect(qualityGates).toContain('run: pnpm run test:unit');
+        expectNoExactRunStep(qualityGates, 'pnpm run test:coverage');
+        expect(qualityGates).not.toContain('Scan-cleanup line budget');
+        expect(qualityGates).not.toContain('EVB_SCAN_CLEANUP_BASE_REF');
         expectNoExactRunStep(workflowJob(workflow, 'manual_quality'), 'pnpm run test:unit');
         expectNoExactRunStep(workflowJob(workflow, 'nightly_maintenance'), 'pnpm run test:unit');
+        expect(workflowJob(workflow, 'nightly_maintenance')).toContain('run: pnpm run test:coverage');
         expect(packageJson).toContain('"test:coverage": "vitest run --coverage --project unit-core --project unit-app --project unit-electron --project unit-scripts --project unit-policy --project unit-static-architecture --project unit-landing && pnpm exec tsx scripts/checkCoverageRatchet.ts && pnpm exec tsx scripts/checkZeroExecutionCoverage.ts"');
         expect(packageJson).not.toContain('"test:coverage:run"');
         expect(packageJson).not.toContain('"check:coverage:zero-execution"');

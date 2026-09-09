@@ -252,7 +252,7 @@ pnpm typecheck
 # Unit tests
 pnpm run test:unit
 
-# Coverage ratchet, run in the required local gate and hosted release CI
+# Optional coverage diagnostic
 pnpm run test:coverage
 
 # Heavy generated Electron bundle static-integrity check
@@ -273,7 +273,7 @@ pnpm run validate:iteration
 # Affected worktree acceptance
 pnpm validate
 
-# Clean full-repository integration proof
+# Affected integration checks and Electron regression
 pnpm run validate:integration
 
 # Exhaustive maintenance/soak tier
@@ -308,20 +308,19 @@ install and build commands.
 produces one strict build and a source/toolchain/target-fingerprinted receipt;
 the package phase reuses those exact outputs only while both the inputs and
 artifact hashes still match. Standalone package verification builds normally.
-Broader reports, type coverage, duplicate analysis, coverage instrumentation,
-native matrices, and quarantine E2E stay in `pnpm run validate:nightly` or
-release-specific lanes. For local iteration, use affected or file-scoped loops
+Select broader reports, type coverage, duplicate analysis, coverage instrumentation,
+and quarantine E2E only when they answer a concrete question. Run native and
+platform checks when the changed behavior requires them. For local iteration, use affected or file-scoped loops
 such as `pnpm run validate:iteration -- --file=app/path/to/change.ts`,
 `pnpm exec vitest run --project unit-policy tests/unit/scripts/releasePolicy.test.ts`, or
 `pnpm run test:electron-bundle-static-integrity:no-build` after
-`dist-electron/` already exists. Before a non-trivial direct push to `main`, run
-`node scripts/run-all-gates.mjs --only validate`. Every pull request and every
+`dist-electron/` already exists. Use `pnpm validate` for affected local acceptance. Select
+`node scripts/run-all-gates.mjs` when full local release verification is needed. Every pull request and every
 push to `main` runs the hosted checks; the release cutter trusts only the
 exact-SHA push run. The dormant Python page-processor was
 removed after the native scan-cleanup pipeline superseded it and remains
-recoverable from git history. Electron E2E
-and PDF tab diagnostics run only by manual workflow dispatch until they are stable
-enough to promote into a blocking release gate.
+recoverable from git history. CI selects the relevant Electron behavior lanes by changed area. Broader
+PDF tab diagnostics remain available through their dedicated workflow.
 
 The Electron E2E regression suite currently covers:
 

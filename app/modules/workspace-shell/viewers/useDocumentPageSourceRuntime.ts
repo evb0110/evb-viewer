@@ -1,4 +1,3 @@
-/* eslint-disable max-lines -- Page-source lifecycle and viewer binding share one generation fence. */
 import { useResizeObserver } from '@vueuse/core';
 import type { IDocumentViewerExpose } from '@app/modules/pdf-viewer/public';
 import type {

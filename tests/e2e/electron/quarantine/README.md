@@ -1,7 +1,7 @@
 # Electron E2E Quarantine
 
-Place Electron E2E tests here only while they are under observation after a new
-repro, deflake, or harness change.
+Place Electron E2E tests here only while a named product regression or harness
+failure needs investigation.
 
 - The quarantine lane is manually dispatched and non-blocking.
 - CI retries Electron E2E session boot/restart failures marked `[INFRA]` up
@@ -9,19 +9,17 @@ repro, deflake, or harness change.
   the shared Electron E2E project factory applies the same infrastructure
   retry condition lane-wide.
 - Do not move stable smoke tests here without an audit-backed reason.
-- Review a quarantined test for graduation after a deliberate campaign of 30
-  green manual runs. The evidence source is GitHub Actions manual-run history plus maintainer
-  review; `graduation-policy.json` is an inventory and review target, not a
-  per-test run counter.
-- Keep each test's graduation target current in `graduation-policy.json`. The
-  static architecture policy gate verifies that every quarantine spec is
-  accounted for, while operator-only diagnostics are listed separately and do
-  not count as graduation evidence.
-- Every graduation entry names its tracking issue, an expiry date, and the
-  JSON reporter suite that must supply its assertions. The wrapper rejects an
-  expired entry, a suite missing from the report, or a reported suite with no
-  live policy entry. Extending an expiry therefore requires a reviewed policy
-  change tied to the issue, rather than an indefinite quarantine.
+- Move a test back to its normal project after its named product or harness
+  failure is fixed and that project passes it. Fix assertion or user-flow
+  failures in the product or test, and fix `[INFRA]` boot/restart failures in
+  the harness or environment before restoring the test.
+- Keep each quarantine test and target current in `graduation-policy.json`.
+  The static architecture policy gate verifies that every quarantine spec is
+  accounted for, while operator-only diagnostics remain listed separately.
+- Every entry names its tracking issue, an expiry date, and the JSON reporter
+  suite that must supply its assertions. The wrapper rejects an expired entry,
+  a suite missing from the report, or a reported suite with no live policy
+  entry. Extending an expiry requires an issue-linked policy change.
 - The quarantine project runs through `scripts/ci/runElectronQuarantine.ts`.
   Its JSON report must contain at least one assertion, and every assertion must
   pass. The wrapper fails on failed, pending, skipped, or todo assertions, and
@@ -30,7 +28,7 @@ repro, deflake, or harness change.
 The scan-cleanup AppTruth and uniformity probes remain available as
 operator-only diagnostics. They require an operator-supplied PDF through their
 documented environment variables and are listed under `operatorDiagnostics`;
-they are intentionally excluded from the graduation inventory. The uniformity
+they remain separate from the checked-in test inventory. The uniformity
 probe seeds the scoped user-data `scan-cleanup-settings.json` with Sauvola
 binarization, then compares the app conversion with a parity CLI conversion.
 With its source path or page count absent, it is skipped before an Electron

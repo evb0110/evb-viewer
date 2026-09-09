@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-/* eslint-disable max-lines */
 // Oracle audit for scan-cleanup representative fixtures. Renders source and
 // cleaned PDFs to low-DPI grayscale PGM with pdftoppm and infers the source to
 // output mapping from the rendered output count and page evidence. It checks

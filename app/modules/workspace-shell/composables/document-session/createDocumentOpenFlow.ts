@@ -1,4 +1,3 @@
-/* eslint-disable max-lines -- Open flow stages picker, password, and PDF state transitions together. */
 import { clamp } from 'es-toolkit/math';
 import type {
     IAnalyticsDocumentScope,

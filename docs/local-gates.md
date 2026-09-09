@@ -1,281 +1,86 @@
-# Local gates
+# Local checks
 
-How `pnpm validate` and its tiers are scheduled, what they cache, and how to
-bypass the cache. Numbers are from an M3 Pro (11 cores, 36 GB) on
-2026-09-01; see [Measured runs](#measured-runs).
+Run the smallest check that can detect a defect in the change. The default
+`pnpm validate` selects affected checks. Use `pnpm validate:iteration` while
+editing and `pnpm validate:integration` when the change needs the affected
+Electron regression lane. Preview or inspect the selected plan before an
+expensive run when its scope is unclear.
 
-## Tiers
-
-| command | plan |
+| Change | Useful checks |
 | --- | --- |
-| `pnpm validate:iteration` | affected lint, typecheck, and related unit tests; falls back to full lint, typecheck, and unit tests when change impact is unknown |
-| `pnpm validate` | the all-gates acceptance plan below |
-| `pnpm validate:integration` | acceptance plus the affected Electron regression lane |
-| `pnpm validate:nightly` | clean lint and typecheck, static checks, type coverage, coverage, duplicates, Rust tests, resource matrix, and the Electron quarantine lane |
+| Documentation | Checks for the changed document or executable example |
+| Ordinary test edit | The changed suite and relevant typing |
+| App behavior | Affected lint, types, and behavior tests |
+| Native behavior | Relevant Rust tests and lint, plus the affected boundary or platform proof |
+| Build or packaging | Build and packaged-artifact checks that exercise the changed contract |
 
-The large-document Electron performance lane lives in
-[`.github/workflows/perf-lane.yml`](../.github/workflows/perf-lane.yml). It runs on a
-nightly schedule or by manual dispatch on Ubuntu 22.04. The 882-page save/reopen
-lane and the 2,646-page budget lane download immutable assets from the dedicated
-fixture repository and verify their manifest identities before staging them.
+Unknown impact uses the planner's broader fallback. Shared test helpers,
+fixtures, runners, compiler settings, and dependencies can affect consumers
+beyond the edited file. A regression test should fail on the defect it claims
+to detect. Keep observable assertions; avoid freezing source spelling or a
+particular file layout.
 
-Those jobs are blocking within the performance workflow, but they do not gate
-pushes or pull requests. The 882-page save deadline and the 2,646-page heartbeat
-and renderer-heap budgets remain in their Electron specs. The workflow records
-the xlarge save duration, largest heartbeat gap, and renderer heap delta in both
-the step summary and a retained artifact. A failed run opens or updates one
-tracking issue with the run URL.
+## Routine CI
 
-`pnpm validate` runs `node scripts/validation-gates.mjs acceptance --all`.
-Without `--all`, the acceptance tier builds an affected plan from the change
-classification; `EVB_VALIDATE_ALL_GATES=1` is the environment equivalent.
+Each main push still gets CI and the `gates_ok` aggregate used by the release
+cutter. Routine CI runs unit tests without coverage instrumentation. Relevant
+browser, Electron, native, and packaging lanes follow the changed areas.
+Coverage and code-metric analysis are explicit diagnostics. See
+[ci.yml](../.github/workflows/ci.yml) for the current selections.
 
-## Acceptance plan
+A failing behavior test needs diagnosis. A broken test or measurement needs
+repair. Passing local tests do not establish behavior on an untested platform.
+There are no source-line or test-file-length acceptance limits. Optional size
+reports should inform a design decision without forcing file splitting or
+blocking publication.
 
-Stages form a dependency graph, not phases. `build.prepare` runs first because
-it writes generated source; everything else becomes ready as soon as it
-finishes. `build.strict` feeds `electron.bundle-integrity`, which feeds
-`electron.blocking-smoke`. Nothing else waits on anything. That chain is the
-longest path in the plan (about 120 s of build plus 60 to 90 s of Electron),
-so `build.strict` has the highest priority after preparation.
+## Reuse and parallel work
 
-| stage | script | weight | cacheable |
-| --- | --- | ---: | --- |
-| build.prepare | generate:build-artifacts | 1 | no |
-| scan-cleanup.line-budget | `node scripts/validation-gates.mjs scan-cleanup-lines` | 1 | yes |
-| build.strict | build:strict | 2 | no (records a build marker) |
-| native.test | test:rust | 4 | no |
-| test.coverage | test:coverage | 5 | no |
-| lint.full | lint (`lint:clean` with `--cold`) | 2 | yes |
-| typecheck.coverage | typecheck:coverage | 2 | yes |
-| native.lint | lint:rust | 2 | yes |
-| typecheck.full | typecheck (`typecheck:clean` with `--cold`) | 1 | yes |
-| fallow.dead-code | fallow | 1 | yes |
-| fallow.dupes | fallow:dupes | 1 | yes |
-| static.platform-report | check:static:reports | 1 | yes |
-| static.web-deploy-source | check:static:assets --allow-dirty | 1 | yes |
-| native.resource-matrix | check:resources:matrix | 1 | yes |
-| electron.bundle-integrity | test:electron-bundle-static-integrity:no-build | 1 | no |
-| electron.blocking-smoke | e2e-blocking-smoke (no build) | 3 | no |
+The existing validation runner schedules independent stages by weight.
+`EVB_GATE_CAPACITY` can lower capacity when another workload shares the host.
+Cross-process heavy-gate coordination prevents concurrent runs from consuming
+the same capacity twice. Preserve the user's processes and other tasks' output
+directories. Do not overlap dependency installation or shared-output rebuilds
+with tests that consume those files.
 
-### Scheduling
+Lint and typecheck caches use source, configuration, toolchain, and environment
+fingerprints. Reuse successful evidence when its relevant inputs are unchanged.
+Rerun affected checks after changing a dependency, a test helper, or a conflict
+resolution. A new commit identifier alone does not require repeating every local
+check. Tests and artifact-producing stages execute whenever their selected
+plan runs.
 
-The pool admits stages by weight against `os.availableParallelism()` (11 on
-the reference machine). `EVB_GATE_CAPACITY=<n>` overrides it when another
-workload shares the machine. Ready stages launch highest priority first, then
-heaviest first, so coverage, Rust tests, and the strict build start in the
-first second instead of after a phase barrier. The cross-process
-`acquireHeavyGate` coordinator still bounds concurrent sessions on one
-machine. A waiter rechecks the default capacity on every admission attempt, so
-new work follows the current CPU affinity or cgroup allowance. Existing live
-holders are never revoked. The override remains fixed for the lifetime of the
-waiter.
+`--cold` uses clean lint and typecheck caches. `--no-cache` disables stage reuse.
+Use these to investigate cache behavior, not as routine extra acceptance runs.
+Gate logs are under `.devkit/analysis/gates/` and include stage results and
+elapsed time.
 
-The coordinator does not estimate capacity from free memory or load average.
-Those values are shared by all contenders and can make several processes admit
-the same apparent headroom. Job weights are the memory and I/O policy, while
-`os.availableParallelism()` supplies the host-aware CPU ceiling.
+## Explicit broad and release checks
 
-When a job cannot fit, stderr reports `BLOCKED` with its ID, requested weight,
-current usage, holder IDs and PIDs, holder worktree roots, wait time, and the
-semaphore path. It reports `ADMITTED` when capacity becomes available, or
-prints the same details on timeout. On Linux the default semaphore directory is
-`~/.cache/evb-viewer/heavy-gates`; macOS uses
-`~/Library/Caches/evb-viewer/heavy-gates`. Set `EVB_GATE_SEMAPHORE_DIR` to use
-another shared directory.
+Use `node scripts/run-all-gates.mjs` when a complete local release verification
+is actually required. It consolidates checks and reuses the validated strict
+build during packaging. `node scripts/validation-gates.mjs acceptance --all`
+selects its broad validation portion. These are deliberate selections, not the
+default path for ordinary fixes.
 
-A failing stage does not stop the run. Its transitive dependents are skipped
-and every independent stage still finishes, so one pass lists every failure
-instead of the first one. The final error names each failed stage and each
-skipped dependent.
+`pnpm validate:nightly` and the manual CI lanes provide broader diagnostics.
+Select stress, fuzz, exhaustive corpora, and platform runs for the risks they
+exercise. Do not append every available suite to each release or repeat checks
+already completed on the same artifact. Release commands and hosted evidence
+requirements are documented in [releasing.md](./releasing.md).
 
-Weights only work if stages respect them. Cargo and vitest both default to
-one job per logical core, which put an 11-job Rust compile and ten vitest
-forks next to the Nuxt build, vue-tsc, and Electron. In the first measured
-runs that slowed `unit-app` tests past their 5 s timeout and the blocking
-smoke lane past its 30 s waits. The heavy stages therefore bound themselves:
-`native.test` sets `CARGO_BUILD_JOBS=4` and `RUST_TEST_THREADS=4`,
-`native.lint` sets `CARGO_BUILD_JOBS=2`, and `test.coverage` sets
-`VITEST_MAX_WORKERS=4` (weight 5; a fork spends part of its time waiting on
-I/O and coverage merging, and the cap leaves room for the concurrent
-typecheck and smoke stages on the 8-slot acceptance pool).
+Before any local Electron launch, follow
+[hidden-electron-automation.md](./agents/hidden-electron-automation.md). A hidden
+macOS launch requires the verified copied app bundle and the shared launcher.
 
-`test.coverage` runs the same zero-execution tripwire scope as push CI. CI
-passes the push base and head; the local plan passes the merge base with
-`origin/main` as `EVB_COVERAGE_BASE_SHA` and `WORKTREE` as
-`EVB_COVERAGE_HEAD_SHA`, which covers committed, uncommitted, and untracked
-production files. A changed production file with zero executed lines fails
-the stage locally before it fails on `main`.
+## Compiler and build boundaries
 
-`check:static:assets` measures the tracked deploy source. The deploy script
-requires a clean snapshot; the local gate passes `--allow-dirty` because an
-uncommitted worktree measures the same tracked files.
+`pnpm typecheck` uses vue-tsc for the Nuxt app and Vue files, and the TypeScript 7
+native compiler for the workspace projects. A diagnostic can occur in only one
+of these checks. Identify the owning compiler before changing a type or option.
 
-### Scan-cleanup line budget
-
-`node scripts/validation-gates.mjs scan-cleanup-lines` reports code lines for
-the six scan-cleanup production homes and reports matching scan-cleanup tests
-separately. It counts `.ts`, `.tsx`, `.vue`, and `.rs` files. Blank lines and
-comments do not count, including files that carry a local ESLint max-lines
-suppression. The committed
-[scan-cleanup-line-budget-baseline.json](../scan-cleanup-line-budget-baseline.json)
-stores one baseline per production home and the production total.
-
-The normal command fails when a home or the production total grows past its
-baseline. Test lines are informational and do not fail this gate. A normal
-commit may lower the baseline with:
-
-```text
-node scripts/validation-gates.mjs scan-cleanup-lines --update-baseline
-```
-
-Raising it requires the explicit consolidation-only override, which is printed
-in the job log and must name the consolidation reason:
-
-```text
-node scripts/validation-gates.mjs scan-cleanup-lines --update-baseline --allow-baseline-increase=consolidation:move-code-between-homes
-```
-
-Use the override only when a consolidation commit moves code between named
-homes. It is not a way to accept ordinary feature growth. The gate runs as
-`scan-cleanup.line-budget` in the same validation-gates acceptance and nightly
-job family as the coverage ratchet, and is designed to finish well under the
-30-second ticket limit.
-
-Push and pull-request CI runs this command in the `Quality Gates` job before
-coverage. It passes the event's base SHA through `EVB_SCAN_CLEANUP_BASE_REF`.
-The gate compares every current home baseline with the baseline file at that
-commit using `git show`. A missing baseline at a valid base commit is allowed
-only for the first landing commit. An invalid or unavailable base fails closed.
-Use `--base-ref=<commit>` locally to reproduce the CI comparison.
-
-Rust files are split at balanced `#[cfg(test)]` items. Their test code is
-reported separately even when it is inline in a production source file. The
-parser handles nested blocks, attributes, comments, strings, raw strings, and
-character literals. Files named as tests, including `*_tests.rs`, also go into
-the separate test report.
-
-### Stage cache
-
-A cacheable stage is skipped when its input fingerprint equals the fingerprint
-recorded at `stage-end` in a previous gate run that passed as a whole. The
-fingerprint covers:
-
-- the content of every file under the stage's input scope (for example lint
-  hashes `app`, `electron`, `landing`, `packages`, `scripts`, `server`,
-  `tests`, `.github`, the ESLint and stylelint configs, `nuxt.config.ts`,
-  `package.json`, `pnpm-lock.yaml`, `tsconfig*.json`, and the vitest configs);
-- missing paths, so a deleted input changes the key;
-- the command, arguments, stage environment, and dependency list;
-- Node, pnpm, and the tool packages the stage runs (ESLint, TypeScript,
-  vue-tsc, type-coverage, fallow, cargo, rustc, and so on);
-- platform, architecture, and the `CI`, `NODE_ENV`, `RUSTFLAGS`, `CARGO_*`,
-  `NUXT_*`, and `VITE_*` environment values.
-
-Build outputs are excluded by exact root path (`.devkit`, `.tmp`, `coverage`,
-`dist-electron`, `nuxt-output`, `release`) or by name at any depth (`.git`,
-`.nuxt`, `.output`, `node_modules`, `target`). `scripts/release` and
-`tests/fixtures/release` are ordinary inputs. Large files are digested once per
-process and reused by size and mtime, so the 830 MB `resources` tree costs
-about one second per run, not one second per stage.
-
-Stages that run tests or produce artifacts (`test.coverage`, `native.test`,
-`build.strict`, the Electron stages) are never skipped.
-
-Escapes:
-
-- `pnpm validate -- --cold` uses `lint:clean` and `typecheck:clean`, which
-  drop the ESLint and vue-tsc incremental caches.
-- `node scripts/validation-gates.mjs acceptance --all --no-cache` (or
-  `EVB_GATE_NO_CACHE=1`) runs every stage and also disables the incremental
-  caches inside the lint and typecheck scripts.
-
-ESLint and stylelint caches live under `.devkit/cache/eslint/<fingerprint>`;
-the Nuxt typecheck cache under `.devkit/cache/typecheck`. Gate evidence is
-written to `.devkit/analysis/gates/*.ndjson` with per-stage fingerprint,
-weight, dependency, and cache fields.
-
-### Strict-build marker
-
-`build:strict` records `.devkit/cache/build/strict.json` after the build and
-its warning check pass. The marker holds the build input fingerprint and the
-size and mtime of every file under `dist-electron`, `nuxt-output`, and
-`.tmp/native-build-manifest`. `release:verify:package:local` reuses the
-build when the marker is fresh or a matching all-gates receipt exists, and
-rebuilds otherwise.
-
-## Two type checkers
-
-`pnpm typecheck` runs two compilers, and a diagnostic can appear in only one
-of them.
-
-`scripts/run-nuxt-typecheck.mjs` runs vue-tsc on TypeScript 6 over the Nuxt
-project. That pass owns `app/` and the `.vue` files, because single-file
-components need the Vue language service and the tsconfig that Nuxt
-generates. It also sees `packages/` through the app's imports.
-
-`scripts/run-workspace-package-typecheck.mjs` runs the TypeScript 7 native
-compiler (`scripts/run-ts7-typecheck.mjs`) over `electron/`, `tests/`,
-`server/`, `scripts/` (the TypeScript project and the checked-JavaScript
-project), and every workspace package that ships its own `tsconfig.json`.
-Test files are only ever checked here, so a fixture that fails under TS7
-does not show up in the Nuxt pass, and a `.vue` type error never shows up
-here.
-
-Shared code under `packages/` is checked twice only where both passes reach
-it. vue-tsc reaches a package through the app's import graph; TS7 reaches
-one that ships its own `tsconfig.json`, or that some other checked project
-imports. `packages/contracts` meets both. `packages/electron-worker-bundles`
-has no `tsconfig.json` and is imported only from `electron/`, so the Nuxt
-pass never sees it. Keep shared code free of Vue and Nuxt imports, and when
-the two compilers disagree (contextual typing of callback parameters is the
-usual case), change the code so both accept it rather than loosening a
-compiler option on one side. Type coverage floors (`typecheck:coverage`)
-come from the TS7 side only.
-
-## Type coverage and native tests
-
-`typecheck:coverage` runs its four projects (app, electron, tests, scripts)
-concurrently; each child must exit 0 and meet its floor. This took the stage
-from 105 s sequential to 28 s.
-
-`native/Cargo.toml` sets `[profile.test] opt-level = 1`. The scan-cleanup
-library tests spend their time in image code, and at `opt-level = 0` that one
-crate took 89 s of a 195 s native stage; at `opt-level = 1` the test body runs
-in about 7 s. Debug assertions and overflow checks stay on. The browser WASM
-fingerprint covers all of `native/`. `node scripts/build-wasm-artifacts.mjs`
-rebuilds both browser artifacts before every strict build. The committed `public/wasm`
-copies are advisory fallbacks for web-only development without Rust. They are
-never accepted by `build:strict` or a release package unless their stamped
-fingerprints match the current sources. CI builds them in a temporary artifact
-directory, writes a manifest, stages that directory with source and fingerprint
-checks, then runs the same strict check. Developers need the pinned Rust
-toolchain and the `wasm32-unknown-unknown` target for strict builds and
-packaging. A web-only session can use the committed fallback, but it cannot
-produce a strict desktop build without Rust.
-
-## Release verification
-
-`release:verify:checks` runs only what `pnpm validate` does not:
-`check:drizzle-schema`, `check:electron:install`, and
-`check:electron-builder:asar-unpack`. Pass `--scan-cleanup-identity` to add the
-200-second canonical identity test, which CI runs on every push in
-`pr_scan_cleanup_heavy`. `release:cut` runs no local gate at all; exact-SHA
-push CI is the release authority (see [releasing.md](./releasing.md)).
-
-## Measured runs
-
-Full `pnpm validate` on the reference machine, same commit, nothing else
-running:
-
-| run | wall time | notes |
-| --- | ---: | --- |
-| before (2026-09-01 09:50 evidence) | 538 s | phase barriers, capacity 2, no stage cache, sequential type coverage |
-| after, run 1 | 222 s | no warm evidence; every stage executed |
-| after, run 2 | 192 s | unchanged inputs; 9 cacheable stages skipped |
-
-The floor is now the two paths that never cache: `test.coverage` (170 to
-186 s with six workers) and `build.strict` followed by
-`electron.blocking-smoke` (about 70 s plus 120 to 130 s). Everything else
-finishes inside that window. Cutting further means making coverage or the
-Electron lane itself faster, not scheduling.
+Strict desktop builds require the pinned Rust toolchain and
+`wasm32-unknown-unknown`. They verify generated WASM fingerprints. A web-only
+session can use the committed fallback artifacts; a release must use artifacts
+that match its sources. The strict-build marker lets local packaging reuse an
+unchanged validated build.

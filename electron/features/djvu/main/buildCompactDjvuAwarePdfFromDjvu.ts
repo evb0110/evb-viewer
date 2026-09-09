@@ -1,4 +1,3 @@
-/* eslint-disable max-lines -- Compact DjVu fidelity remains one conversion owner; quota monitoring extends that lifecycle. */
 import { randomUUID } from 'node:crypto';
 import {
     closeSync,

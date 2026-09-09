@@ -1,5 +1,3 @@
-/* eslint-disable max-lines -- Selection and move contracts share bounded arithmetic. */
-
 import type { TBrand } from '@contracts/brand';
 
 export type TPageIndex = TBrand<number, 'PageIndex'>;

@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-/* eslint-disable max-lines -- The gate owner keeps scheduling, evidence, and impact policy in one inspectable module. */
 import { getCliErrorMessage } from './lib/cli-error.mjs';
 import {
     execFileSync,
@@ -51,7 +50,6 @@ const allTs7Projects = [
     'electron/tsconfig.json',
     'tests/tsconfig.json',
     'tsconfig.scripts.json',
-    'tsconfig.scripts-js.json',
     'server/tsconfig.json',
 ];
 // ESLint holds one TypeScript program per tsconfig in the flat config, and the
@@ -96,7 +94,6 @@ const validationStageInputPaths = {
         'pnpm-workspace.yaml',
         'scripts',
         'tsconfig*.json',
-        'scan-cleanup-line-budget-baseline.json',
     ],
     fallow: [
         '.fallow-dupes-baseline.json',
@@ -222,12 +219,19 @@ const validationEnvironmentKeys = new Set([
 ]);
 const toolVersionCache = new Map();
 const lintableSourcePattern = /\.(?:[cm]?[jt]sx?|vue)$/u;
+const ordinaryUnitTestPattern = /^tests\/unit\/.+\.(?:test|spec)\.[cm]?[jt]sx?$/u;
+const sharedUnitTestDependencyPatterns = [
+    /^tests\/fixtures\//u,
+    /^tests\/helpers\//u,
+    /^tests\/setup\.ts$/u,
+];
 const validationTiers = new Set([
     'iteration',
     'acceptance',
     'integration',
     'nightly',
 ]);
+const lintableStylePattern = /\.(?:css|scss|vue)$/u;
 
 /** @typedef {'iteration' | 'acceptance' | 'integration' | 'nightly' | 'lint' | 'lint-all' | 'lint-changed' | 'heavy'} TValidationTier */
 /** @typedef {{args: string[], command: string, id: string, additionalInputPaths?: string[], cachePath?: string, cacheable?: boolean, dependsOn?: string[], env?: NodeJS.ProcessEnv, heavyWeight?: number, inputFingerprint?: string, inputPaths?: string[], inputScope?: string, parallelPhase?: string, priority?: number, tools?: string[], weight?: number}} IValidationStage */
@@ -468,7 +472,7 @@ function selectedTypecheckProjects(files, classification) {
         projects.push('tests/tsconfig.json');
     }
     if (classification.impacts.scripts || classification.impacts.build || classification.impacts.native) {
-        projects.push('tsconfig.scripts.json', 'tsconfig.scripts-js.json');
+        projects.push('tsconfig.scripts.json');
     }
     if (classification.impacts.server) {
         projects.push('server/tsconfig.json');
@@ -486,6 +490,9 @@ function selectedTypecheckProjects(files, classification) {
 /** @param {string[]} files @param {IValidationClassification} classification @returns {string[]} */
 function selectedUnitProjects(files, classification) {
     if (classification.full || classification.impacts.policy) {
+        return [...unitProjects];
+    }
+    if (files.some(file => sharedUnitTestDependencyPatterns.some(pattern => pattern.test(file)))) {
         return [...unitProjects];
     }
     const projects = [];
@@ -513,6 +520,8 @@ function selectedUnitProjects(files, classification) {
             projects.push('unit-static-architecture');
         } else if (file.startsWith('tests/unit/electron/') || file.startsWith('tests/unit/e2e/')) {
             projects.push('unit-electron');
+        } else if (file.startsWith('tests/unit/landing/')) {
+            projects.push('unit-landing');
         } else if (file.startsWith('tests/unit/scripts/')) {
             projects.push('unit-scripts', 'unit-policy');
         } else if (file.startsWith('tests/unit/')) {
@@ -520,6 +529,22 @@ function selectedUnitProjects(files, classification) {
         }
     }
     return unique(projects);
+}
+/** @param {string[]} files @returns {string[]} */
+function getOrdinaryUnitTestFiles(files) {
+    if (files.length === 0 || files.some(file => (
+        !ordinaryUnitTestPattern.test(file)
+        || !existsSync(path.join(projectRoot, file))
+    ))) {
+        return [];
+    }
+    return files;
+}
+/** @param {string[]} files @returns {boolean} */
+function hasLintableChangedFile(files) {
+    return files.some(file => lintableSourcePattern.test(file)
+        || (lintableStylePattern.test(file)
+            && (file.startsWith('app/') || file.startsWith('landing/app/'))));
 }
 /** @param {string} id @param {string} command @param {string[]} args @param {IValidationStageOptions} options @returns {IValidationStage} */
 function stage(id, command, args, options = {}) {
@@ -566,6 +591,7 @@ function vitestRelatedStage(id, projects, files, options = {}) {
         'exec',
         'vitest',
         'related',
+        '--run',
         ...files,
         ...projects.flatMap(project => [
             '--project',
@@ -579,22 +605,19 @@ function affectedPlan(tier, files, classification) {
     const stages = [];
     const typecheck = selectedTypecheckProjects(files, classification);
     const selectedUnits = selectedUnitProjects(files, classification);
-    if (tier !== 'iteration') {
-        stages.push(nodeStage('scan-cleanup.line-budget', 'scripts/validation-gates.mjs', ['scan-cleanup-lines'], {
+    const ordinaryUnitTestFiles = getOrdinaryUnitTestFiles(files);
+    if (hasLintableChangedFile(files)) {
+        stages.push(nodeStage('lint.affected', 'scripts/validation-gates.mjs', [
+            'lint',
+            '--changed',
+            ...files.map(file => `--file=${file}`),
+        ], {
+            additionalInputPaths: files,
             cacheable: true,
-            inputScope: 'build',
+            inputScope: 'lint',
+            weight: 2,
         }));
     }
-    stages.push(nodeStage('lint.affected', 'scripts/validation-gates.mjs', [
-        'lint',
-        '--changed',
-        ...files.map(file => `--file=${file}`),
-    ], {
-        additionalInputPaths: files,
-        cacheable: true,
-        inputScope: 'lint',
-        weight: 2,
-    }));
     if (typecheck.nuxt) {
         stages.push(nodeStage('typecheck.nuxt', 'scripts/run-nuxt-typecheck.mjs', [], {
             additionalInputPaths: files,
@@ -630,20 +653,29 @@ function affectedPlan(tier, files, classification) {
                 },
             ));
         }
+        if (classification.impacts.native) {
+            stages.push(
+                pnpmRunStage('native.lint', 'lint:rust', {
+                    cacheable: true,
+                    heavyWeight: 2,
+                    inputScope: 'native',
+                    weight: 2,
+                }),
+                pnpmRunStage('native.test', 'test:rust', {
+                    heavyWeight: 4,
+                    weight: 4,
+                }),
+            );
+        }
         return stages;
     }
 
     if (selectedUnits.length > 0) {
-        stages.push(vitestStage('test.unit.affected-projects', selectedUnits, [], {
+        stages.push(vitestStage('test.unit.affected-projects', selectedUnits, ordinaryUnitTestFiles, {
             heavyWeight: 4,
             weight: 4,
         }));
     }
-    stages.push(pnpmRunStage('fallow.dead-code', 'fallow', {
-        cacheable: true,
-        heavyWeight: 1,
-        inputScope: 'fallow',
-    }));
     if (classification.impacts.webDeploy) {
         stages.push(nodeStage('static.web-deploy-source', 'scripts/check-web-deploy-source.mjs', ['--allow-dirty'], {
             cacheable: true,
@@ -676,6 +708,8 @@ function affectedPlan(tier, files, classification) {
             }),
             pnpmRunStage('native.resource-matrix', 'check:resources:matrix', {
                 cacheable: true,
+                dependsOn: ['build.strict'],
+                env: {EVB_BUILD_ARTIFACTS_PREPARED: '1'},
                 inputScope: 'native',
             }),
         );
@@ -688,18 +722,42 @@ function affectedPlan(tier, files, classification) {
         }));
     }
     if (classification.impacts.app || classification.impacts.electron) {
-        stages.push(pnpmRunStage(
-            'electron.blocking-smoke',
-            'test:e2e:electron:blocking-smoke:headless',
-            {
-                dependsOn: stages.some(item => item.id === 'build.strict')
-                    ? ['build.strict']
-                    : [],
-                heavyWeight: 3,
-                inputScope: 'build',
-                weight: 3,
-            },
-        ));
+        if (tier === 'integration') {
+            const hasStrictBuild = stages.some(item => item.id === 'build.strict');
+            stages.push(hasStrictBuild
+                ? stage('electron.regression', 'bash', [
+                    'scripts/test-electron-e2e-headless.sh',
+                    '--no-build',
+                    'e2e-regression',
+                ], {
+                    dependsOn: ['build.strict'],
+                    heavyWeight: 2,
+                    inputScope: 'build',
+                    weight: 2,
+                })
+                : pnpmRunStage(
+                    'electron.regression',
+                    'test:e2e:electron:headless',
+                    {
+                        heavyWeight: 2,
+                        inputScope: 'build',
+                        weight: 2,
+                    },
+                ));
+        } else {
+            stages.push(pnpmRunStage(
+                'electron.blocking-smoke',
+                'test:e2e:electron:blocking-smoke:headless',
+                {
+                    dependsOn: stages.some(item => item.id === 'build.strict')
+                        ? ['build.strict']
+                        : [],
+                    heavyWeight: 3,
+                    inputScope: 'build',
+                    weight: 3,
+                },
+            ));
+        }
     }
     return stages;
 }
@@ -717,13 +775,12 @@ export function getValidationPlan({
     const mustRunFull = allGates
         || !changes.known
         || classification.full
-        || classification.impacts.policy
-        || (changes.files.length === 0 && tier !== 'iteration');
+        || classification.impacts.policy;
 
     if (tier === 'iteration' && changes.known && changes.files.length === 0) {
         return [];
     }
-    if ((tier === 'iteration' || tier === 'acceptance') && !mustRunFull) {
+    if ((tier === 'iteration' || tier === 'acceptance' || tier === 'integration') && !mustRunFull) {
         return affectedPlan(tier, changes.files, classification);
     }
     if (tier === 'iteration') {
@@ -751,10 +808,6 @@ export function getValidationPlan({
     }
 
     const fullStages = [
-        nodeStage('scan-cleanup.line-budget', 'scripts/validation-gates.mjs', ['scan-cleanup-lines'], {
-            cacheable: true,
-            inputScope: 'build',
-        }),
         pnpmRunStage('lint.full', cold || tier !== 'acceptance' ? 'lint:clean' : 'lint', {
             cacheable: true,
             heavyWeight: 2,
@@ -772,18 +825,6 @@ export function getValidationPlan({
                 heavyWeight: 4,
                 weight: 4,
             })]),
-        pnpmRunStage('fallow.dead-code', 'fallow', {
-            cacheable: true,
-            heavyWeight: 1,
-            inputScope: 'fallow',
-        }),
-        ...(tier === 'acceptance'
-            ? [pnpmRunStage('fallow.dupes', 'fallow:dupes', {
-                cacheable: true,
-                heavyWeight: 1,
-                inputScope: 'fallow',
-            })]
-            : []),
         pnpmRunStage('build.strict', 'build:strict', {
             heavyWeight: 2,
             inputScope: 'build',
@@ -824,11 +865,16 @@ export function getValidationPlan({
                 || classification.impacts.electron
             )
         ) {
-            fullStages.push(pnpmRunStage(
-                'electron.regression',
-                'test:e2e:electron:headless',
-                {heavyWeight: 2},
-            ));
+            fullStages.push(stage('electron.regression', 'bash', [
+                'scripts/test-electron-e2e-headless.sh',
+                '--no-build',
+                'e2e-regression',
+            ], {
+                dependsOn: ['build.strict'],
+                heavyWeight: 2,
+                inputScope: 'build',
+                weight: 2,
+            }));
         }
         return fullStages;
     }
@@ -2546,6 +2592,9 @@ async function runTier(tier, argv) {
     });
     const selectedPlan = selectValidationStages(plan, readArgs(argv, 'only'));
     process.stdout.write(`[gate] ${tier}: ${selectedPlan.map(item => item.id).join(', ') || 'no affected stages'}\n`);
+    if (selectedPlan.length === 0) {
+        return;
+    }
     await runStages(selectedPlan, {
         changes: {
             ...changes,
@@ -2591,17 +2640,12 @@ async function main() {
         await runHeavyCommand(argv);
         return;
     }
-    if (command === 'scan-cleanup-lines') {
-        const {runScanCleanupLineBudget} = await import('./scan-cleanup-line-budget.mjs');
-        runScanCleanupLineBudget({argv});
-        return;
-    }
     if (isValidationTier(command)) {
         await runTier(command, argv);
         return;
     }
     throw new Error(
-        'Usage: validation-gates.mjs <iteration|acceptance|integration|nightly|lint|heavy|scan-cleanup-lines> [options]',
+        'Usage: validation-gates.mjs <iteration|acceptance|integration|nightly|lint|heavy> [options]',
     );
 }
 

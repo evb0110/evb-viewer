@@ -23,9 +23,7 @@
       "required": [
         "events",
         "blocking",
-        "infraRetryCount",
-        "reviewAfterManualRuns",
-        "graduationEvidence"
+        "infraRetryCount"
       ],
       "properties": {
         "events": {
@@ -38,12 +36,6 @@
         },
         "infraRetryCount": {
           "const": 2
-        },
-        "reviewAfterManualRuns": {
-          "const": 30
-        },
-        "graduationEvidence": {
-          "const": "github-actions-manual-run-history-and-review"
         }
       }
     },

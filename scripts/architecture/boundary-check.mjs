@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-/* eslint-disable max-lines */
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';

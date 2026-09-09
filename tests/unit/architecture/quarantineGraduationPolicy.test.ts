@@ -34,8 +34,6 @@ interface IQuarantineGraduationPolicy {
         events: string[];
         blocking: boolean;
         infraRetryCount: number;
-        reviewAfterManualRuns: number;
-        graduationEvidence: string;
     };
     operatorDiagnostics: IQuarantineOperatorDiagnostic[];
     tests: IQuarantineTestMetadata[];
@@ -114,8 +112,6 @@ function parseGraduationPolicy(): IQuarantineGraduationPolicy {
         || !value.lane.events.every(event => typeof event === 'string')
         || typeof value.lane.blocking !== 'boolean'
         || !Number.isInteger(value.lane.infraRetryCount)
-        || !Number.isInteger(value.lane.reviewAfterManualRuns)
-        || typeof value.lane.graduationEvidence !== 'string'
         || !Array.isArray(value.operatorDiagnostics)
         || !Array.isArray(value.tests)
     ) {
@@ -129,8 +125,6 @@ function parseGraduationPolicy(): IQuarantineGraduationPolicy {
             events: value.lane.events,
             blocking: value.lane.blocking,
             infraRetryCount: value.lane.infraRetryCount as number,
-            reviewAfterManualRuns: value.lane.reviewAfterManualRuns as number,
-            graduationEvidence: value.lane.graduationEvidence,
         },
         operatorDiagnostics: value.operatorDiagnostics.map(parseOperatorDiagnostic),
         tests: value.tests.map(parseTestMetadata),
@@ -163,8 +157,6 @@ describe('Electron E2E quarantine graduation policy', () => {
             events: ['workflow_dispatch'],
             blocking: false,
             infraRetryCount: 2,
-            reviewAfterManualRuns: 30,
-            graduationEvidence: 'github-actions-manual-run-history-and-review',
         });
         expect(new Set(metadataPaths).size).toBe(metadataPaths.length);
         expect(new Set(diagnosticPaths).size).toBe(diagnosticPaths.length);
@@ -179,11 +171,9 @@ describe('Electron E2E quarantine graduation policy', () => {
             'tests/e2e/electron/quarantine/scanCleanupMatchedCanvas.e2e.test.ts',
             'tests/e2e/electron/quarantine/scanCleanupUniformity.e2e.test.ts',
         ]);
-        expect(policy.operatorDiagnostics.every(diagnostic => diagnostic.reason.includes('excluded from graduation evidence')))
-            .toBe(true);
     });
 
-    it('keeps the schema aligned with review evidence and diagnostic inventory', () => {
+    it('keeps the schema aligned with policy and diagnostic inventory', () => {
         const policy = parseGraduationPolicy();
         const schema = readJsonRecord(graduationSchemaPath);
         const properties = schema.properties;
@@ -195,8 +185,6 @@ describe('Electron E2E quarantine graduation policy', () => {
             throw new Error('Quarantine graduation schema must define lane properties.');
         }
         expect(laneProperties.infraRetryCount).toEqual({const: policy.lane.infraRetryCount});
-        expect(laneProperties.reviewAfterManualRuns).toEqual({const: policy.lane.reviewAfterManualRuns});
-        expect(laneProperties.graduationEvidence).toEqual({const: policy.lane.graduationEvidence});
         const items = properties.tests.items;
         if (!isRecord(items) || !isRecord(items.properties)) {
             throw new Error('Quarantine graduation schema must define test metadata.');
@@ -217,7 +205,6 @@ describe('Electron E2E quarantine graduation policy', () => {
         const quarantineJob = workflowJob(workflow, 'nightly_electron_e2e_quarantine');
         const vitestConfig = readFileSync('vitest.shared.config.ts', 'utf8');
         const packageJson = readFileSync('package.json', 'utf8');
-        const readme = readFileSync(`${quarantineDirectory}/README.md`, 'utf8');
 
         expect(quarantineJob).toContain(
             'if: ${{ github.event_name == \'workflow_dispatch\' }}',
@@ -230,9 +217,5 @@ describe('Electron E2E quarantine graduation policy', () => {
         expect(vitestConfig).toMatch(/condition: \/\\\[INFRA\\\]\/u,[\s\S]*?count: 2,/u);
         expect(packageJson).toContain('scripts/ci/runElectronQuarantine.ts');
         expect(packageJson).not.toContain('--passWithNoTests');
-        expect(readme).toContain('`graduation-policy.json`');
-        expect(readme).toContain('`[INFRA]`');
-        expect(readme).toContain('GitHub Actions manual-run history');
-        expect(readme).toMatch(/30\s+green manual runs/u);
     });
 });

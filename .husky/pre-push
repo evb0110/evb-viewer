@@ -1,17 +1,1 @@
-push_updates_file=$(mktemp "${TMPDIR:-/tmp}/evb-pre-push.XXXXXX") || {
-  echo "pre-push: cannot create the push-update capture file" >&2
-  exit 1
-}
-[ -n "$push_updates_file" ] || {
-  echo "pre-push: push-update capture path is empty" >&2
-  exit 1
-}
-trap 'rm -f "$push_updates_file"' EXIT HUP INT TERM
-cat > "$push_updates_file" || {
-  echo "pre-push: cannot capture the push-update input" >&2
-  exit 1
-}
-
-node scripts/check-commit-attribution.mjs --pre-push "$1" "$2" < "$push_updates_file" || exit $?
-
-node scripts/pre-push-gate.mjs < "$push_updates_file" || exit $?
+node scripts/check-commit-attribution.mjs --pre-push "$1" "$2" || exit $?

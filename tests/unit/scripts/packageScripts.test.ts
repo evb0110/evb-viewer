@@ -323,7 +323,7 @@ describe('package scripts', () => {
         expect(scripts['lint:all']).toContain('validation-gates.mjs lint --all');
         expect(JSON.stringify(scripts)).not.toContain('dep-graph.json');
         expect(scripts['validate:iteration']).toContain('validation-gates.mjs iteration');
-        expect(scripts['validate']).toContain('validation-gates.mjs acceptance');
+        expect(scripts['validate']).toBe('node scripts/validation-gates.mjs acceptance');
         expect(scripts['validate:integration']).toContain('validation-gates.mjs integration');
         expect(scripts['validate:nightly']).toContain('validation-gates.mjs nightly');
     });

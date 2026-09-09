@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-/* eslint-disable max-lines -- The oracle keeps its end-to-end render, measurement, and report transaction inspectable. */
 /*
  * Scan-cleanup preview raster oracle.
  *

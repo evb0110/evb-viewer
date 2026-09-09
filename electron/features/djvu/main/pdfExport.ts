@@ -1,5 +1,3 @@
-/* eslint-disable max-lines -- DjVu conversion and durable job state share one error owner. */
-
 import {
     app,
     BrowserWindow,

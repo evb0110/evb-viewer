@@ -176,7 +176,6 @@
 </template>
 
 <script setup lang="ts">
-/* eslint-disable max-lines -- The workspace owns the coordinated settings, preview, and run controls. */
 import type {TDocumentRef} from '@contracts/documentRef';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import type {

@@ -19,40 +19,20 @@ This policy may change as the project and its maintenance capacity evolve.
 
 ## Checks
 
-Approved contributors should run the smallest useful check while iterating, then run the broader gates before opening a pull request:
+Run `pnpm validate:iteration` while editing and `pnpm validate` for the
+change's affected checks. Run a targeted behavior or platform test when it
+covers a risk that the selected plan cannot exercise. See
+[local checks](docs/local-gates.md) for explicit broader and release commands.
 
-```bash
-pnpm lint
-pnpm typecheck
-pnpm run test:unit
-```
+Keep tests small and useful. Give an invariant one owning suite with the cases
+and platforms it needs. Remove duplicate checks and obsolete test helpers as
+you touch them. Source spelling, file length, line-count reductions, and review
+rounds are not acceptance outcomes.
 
-Use `pnpm validate` for the full maintenance gate when the change touches shared architecture, build tooling, or release-critical behavior.
-
-`pnpm typecheck` runs two compilers. `vue-tsc` checks the Nuxt app and
-`packages/` on TypeScript 6, and typescript-eslint and `type-coverage` use
-that same TypeScript 6. The electron, tests, scripts, and server projects go
-through `scripts/run-ts7-typecheck.mjs` on the TypeScript 7 native compiler.
-A file that only one of them covers can pass one checker and fail another, so
-when a diagnostic looks inconsistent, note which compiler produced it before
-changing code to satisfy it.
-
-The pre-push hook also runs Cubic against each unpublished local commit. This
-is a local pre-flight review and does not create or poll a pull request. Run the
-same check manually for the current commit with:
-
-```bash
-node scripts/review-cubic-commits.mjs --commit HEAD
-```
-
-Passing results are cached by commit and Cubic version. P0, P1, and unclassified
-findings block the push; P2 and P3 advice remains visible but does not block.
-Authentication, rate-limit, and service failures warn and continue because the
-deterministic gates remain authoritative. Install and authenticate the Cubic
-CLI on each development host; the hook reports a skipped auxiliary review when
-either prerequisite is unavailable. Set `CUBIC_REVIEW_FORCE=1` to re-review a
-commit that already passed. Reviews time out after ten minutes by default; set
-`CUBIC_REVIEW_TIMEOUT_MS` to change that limit.
+Use one independent reviewer and one correction follow-up when review adds
+value. Optional suggestions do not reopen acceptance. An extra review needs a
+specific unresolved high-risk question. The pre-push hook checks commit
+attribution. Validation runs through the commands above and hosted CI.
 
 For Electron runtime, native binaries or tools, OCR/DjVu paths, workers, or
 packaging changes, also run:
@@ -77,7 +57,7 @@ Pull requests are accepted only from approved contributors who have been invited
 
 - Keep pull requests focused and explain the user-visible behavior change.
 - Include screenshots or recordings for UI changes.
-- Add or update tests for bug fixes and behavior changes.
+- Cover changed behavior with a useful existing or new test. Avoid a new test when an existing check already detects the defect.
 - Leave unrelated formatting, generated files, and local artifacts out of the diff.
 
 ## Manual Fixtures

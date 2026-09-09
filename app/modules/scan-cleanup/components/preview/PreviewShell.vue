@@ -427,7 +427,6 @@
 </template>
 
 <script setup lang="ts">
-/* eslint-disable max-lines -- This established preview surface co-locates its geometry-sensitive interaction layers. */
 import type {
     IScanCleanupManualZones,
     IScanCleanupNormalizedRect,

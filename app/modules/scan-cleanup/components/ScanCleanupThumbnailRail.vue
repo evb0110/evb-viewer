@@ -247,7 +247,6 @@
 </template>
 
 <script setup lang="ts">
-/* eslint-disable max-lines -- This established rail co-locates its virtual-list slots, interactions, and popover styles. */
 import type {
     IScanCleanupPageOverride,
     IScanCleanupContentBlockEvidence,

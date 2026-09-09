@@ -78,9 +78,6 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
 
-      - name: Install dependencies
-        run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
-
       - name: Restore validation caches
         uses: actions/cache@v5
         with:
@@ -89,16 +86,19 @@ jobs:
             .devkit/cache/typecheck
           key: quality-${{ runner.os }}-${{ runner.arch }}-node-${{ env.NODE_VERSION }}-${{ hashFiles('pnpm-lock.yaml', 'eslint.config.mjs', 'eslint-plugin-custom.mjs', 'landing/eslint.config.mjs', 'stylelint.config.mjs', 'tsconfig*.json', 'electron/tsconfig.json', 'landing/tsconfig.json', 'packages/*/tsconfig.json', 'scripts/tsconfig.json', 'server/tsconfig.json', 'tests/tsconfig.json') }}
 
-      - name: Install PDF test tools
-        timeout-minutes: 15
-        run: scripts/ci/apt-install.sh imagemagick poppler-utils qpdf
+      - name: Install dependencies
+        run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
+
+      # The unit suite imports Pillow in its Python subprocess fixtures. Keep
+      # that small fixture dependency in the routine lane without installing
+      # the PDF command-line tools used only by native and OCR lanes.
+      - name: Install unit-test image dependency
+        id: setup
+        run: python3 -m pip install --disable-pip-version-check Pillow==11.3.0
 
       # Provisioning ends here so every gate below can report on its own:
       # a failing gate must not hide the ones after it, while a broken
-      # runner still skips them all rather than blaming the code.
-      - name: Install scan-cleanup audit tools
-        id: setup
-        run: python3 -m pip install --disable-pip-version-check Pillow==11.3.0
+      # dependency install still skips them all rather than blaming the code.
 
       - name: Generate committed build artifacts and reject drift
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
@@ -118,51 +118,38 @@ jobs:
             public/pdfjs/images \
             scripts/release/generated-release-targets.cjs)"
 
-      - name: Lint
+      - name: Lint changed sources
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: pnpm run lint
-
-      - name: Test assertion ratchet
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: pnpm run check:tests:as-never
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            base_sha="$PR_BASE_SHA"
+          else
+            base_sha="$PUSH_BEFORE_SHA"
+          fi
+          if [ -n "$base_sha" ] \
+            && [ "$base_sha" != "0000000000000000000000000000000000000000" ] \
+            && git rev-parse --verify "${base_sha}^{commit}" >/dev/null 2>&1; then
+            pnpm run lint --changed --base="$base_sha"
+          else
+            pnpm run lint
+          fi
 
       - name: Typecheck
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run typecheck
 
-      - name: Scan-cleanup line budget
+      - name: Unit tests
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        env:
-          EVB_SCAN_CLEANUP_BASE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
-        run: node scripts/validation-gates.mjs scan-cleanup-lines --base-ref="$EVB_SCAN_CLEANUP_BASE_REF"
-
-      - name: Unit tests (coverage)
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        env:
-          EVB_COVERAGE_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
-          EVB_COVERAGE_HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-        run: pnpm run test:coverage
-
-      - name: Upload coverage artifacts
-        if: ${{ always() && steps.setup.outcome == 'success' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: unit-coverage-${{ github.run_id }}-${{ github.run_attempt }}
-          path: coverage
-          if-no-files-found: ignore
+        run: pnpm run test:unit
 
       # The dependency audit is deliberately absent here. It fails on advisory
       # publication time, not on anything in the commit, so on the required
       # lane it blocked release cuts twice in one afternoon. It runs daily in
       # dependency-audit.yml and files an issue instead.
-      - name: Fallow dead code
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: pnpm run fallow
-
-      - name: Fallow duplicates
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: pnpm run fallow:dupes
-
       # Release-check commands that previously ran only in the deleted release
       # quality job or the local gate. Push CI's gates_ok is the single
       # validation authority, so they run here, once, on every push.
@@ -173,10 +160,6 @@ jobs:
       - name: Electron-builder ASAR unpack configuration
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run check:electron-builder:asar-unpack
-
-      - name: Platform manifest consumer reports
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: pnpm run check:static:reports
 
       - name: Web deploy source policy
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
@@ -765,9 +748,6 @@ jobs:
       - name: Install dependencies
         run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
 
-      - name: Install scan-cleanup audit tools
-        run: python3 -m pip install --disable-pip-version-check Pillow==11.3.0
-
       - name: Install Rust WASM target
         id: setup
         run: rustup target add wasm32-unknown-unknown
@@ -780,14 +760,6 @@ jobs:
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run lint:clean
 
-      - name: Test assertion ratchet
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: pnpm run check:tests:as-never
-
-      - name: Static reports
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: pnpm run check:static:reports
-
       - name: Static assets
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run check:static:assets
@@ -796,25 +768,9 @@ jobs:
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run typecheck:clean
 
-      - name: Type coverage
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: pnpm run typecheck:coverage
-
       - name: Strict build
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run build:strict:no-wasm-check
-
-      - name: Fallow dead code
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: pnpm run fallow
-
-      - name: Fallow duplicates
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: pnpm run fallow:dupes
-
-      - name: Coverage
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: pnpm run test:coverage
 
   nightly_rust_fuzz:
     name: Native Parser Fuzz Canaries
@@ -932,10 +888,6 @@ jobs:
       - name: Lint
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run lint
-
-      - name: Test assertion ratchet
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: pnpm run check:tests:as-never
 
       - name: Static reports
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}

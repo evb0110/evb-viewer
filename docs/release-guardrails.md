@@ -7,13 +7,13 @@ here is required reading for an ordinary cut.
 ## Developer packaging verification
 
 - `pnpm run release:verify` mirrors the local parts of the release workflow, includes current-platform build and packaging verification, and fails if the successful verify run changes the working tree snapshot.
-- `release:verify:checks` forces `CI=1` and runs only the checks that `pnpm validate` does not already cover: the Drizzle schema check, Electron install verification, and the electron-builder ASAR-unpack policy. Pass `--scan-cleanup-identity` to add the 200-second canonical scan-cleanup identity test, which CI runs on every push in `pr_scan_cleanup_heavy`.
+- `release:verify:checks` forces `CI=1` and runs the release-specific checks: the Drizzle schema check, Electron install verification, and the electron-builder ASAR-unpack policy. Pass `--scan-cleanup-identity` to add the 200-second canonical scan-cleanup identity test, which CI selects for affected scan-cleanup changes.
 - `pnpm run release:verify:package:local` owns the current-platform package proof: it accepts an exact verified build receipt from the combined verifier or performs a fresh strict build when invoked alone, then packages as the release workflow would, validates artifacts/updater metadata, verifies packaged native tools, and verifies packaged startup on macOS. Use `pnpm run test:electron-bundle-static-integrity:no-build` for a no-build static-integrity loop against existing `dist-electron/`.
 - Changed or file-scoped local loops (for example `pnpm exec vitest run --changed origin/main ...`, `pnpm exec fallow dead-code --changed-since origin/main`) are iteration aids. They do not replace `pnpm run release:verify` when a developer needs local packaging proof.
 - `pnpm run release:verify` is intentionally host-only for packaging. The release cutter relies on exact-SHA hosted CI for the cross-platform matrix.
 - Fresh installs follow the checked-in build-script policy in [`pnpm-workspace.yaml`](../pnpm-workspace.yaml). If a new dependency needs an install script for release-critical behavior, update that allow/ignore list deliberately instead of tolerating pnpm's warning output.
 - Main app release checks are app-scoped and do not read or build `landing/`. Landing-only working tree changes are ignored by the release cutter so the desktop/web app release path stays independent of the separate landing deploy.
-- Broad maintenance checks (`typecheck:coverage` and the cold lint/typecheck variants) run in the required local gate. Hosted CI runs for pull requests and every push to `main`. Long serial Electron E2E and PDF tab diagnostics are available only by manual workflow dispatch.
+- Routine local checks use `pnpm validate` and the affected plan. Coverage and type-coverage metrics are explicit diagnostics. Hosted CI runs for pull requests and every push to `main`, with expensive behavior lanes selected by changed area. Select broader maintenance checks when they address a concrete risk.
 
 ## Release invariants
 

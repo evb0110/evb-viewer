@@ -45,12 +45,11 @@
 - `pnpm run check:architecture` validates app/module boundaries. Normal `lint` runs the same focused import/boundary subset directly.
 - `pnpm run validate:iteration` classifies the current diff, runs content-cached
   changed-file lint, affected TypeScript configs, and related Vitest tests.
-- `pnpm validate` is affected worktree acceptance: it expands to the relevant
-  full Vitest projects, dead-code proof, path-gated deploy/native/build checks,
-  and a targeted isolated Electron smoke when desktop behavior changed.
-- `pnpm run validate:integration` is the clean, full-repository serialized proof
-  for batched integration: uncached lint/typecheck, unit baseline, strict build,
-  and the applicable headless Electron regression lane.
+- `pnpm validate` selects affected lint, types, tests, deploy/native/build checks,
+  and Electron smoke when desktop behavior changed. Ordinary unit-test edits
+  run their changed files; shared helpers keep their consumer projects.
+- `pnpm run validate:integration` uses the affected plan with Electron regression
+  for app or Electron changes. It reuses a strict build when the plan needs one.
 - `pnpm run validate:nightly` adds informational reports, type and test coverage,
   duplicate analysis, Rust/resource matrices, and quarantine E2E. It is not a
   per-worktree requirement.

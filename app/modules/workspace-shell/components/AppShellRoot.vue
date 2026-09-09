@@ -156,7 +156,6 @@
     </div>
 </template>
 <script setup lang="ts">
-/* eslint-disable max-lines -- The shell hosts workspace, update, and global dialog composition. */
 import { useEventListener } from '@vueuse/core';
 import { logicNot } from '@vueuse/math';
 import { guardAsync } from '@app/utils/asyncGuard';

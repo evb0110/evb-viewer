@@ -1,4 +1,3 @@
-/* eslint-disable max-lines -- v4 publication keeps the generation state and durability fence together. */
 import {
     createHash,
     randomUUID,

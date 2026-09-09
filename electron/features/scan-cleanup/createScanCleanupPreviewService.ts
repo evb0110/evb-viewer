@@ -1,4 +1,3 @@
-/* eslint-disable max-lines -- This established service owns one preview lifecycle, including its detail-raster geometry and caches. */
 import {
     mkdir,
     mkdtemp,

@@ -1,5 +1,4 @@
 import { firstUnsupportedAnnotationCharacter } from '@contracts/firstUnsupportedAnnotationCharacter';
-/* eslint-disable max-lines -- Native mutation validation and bounded continuation must share the exact protocol limits. */
 import type {
     Merge,
     SetRequired,

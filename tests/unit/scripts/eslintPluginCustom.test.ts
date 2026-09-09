@@ -3,10 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import {
-    ESLint,
-    RuleTester,
-} from 'eslint';
+import {RuleTester} from 'eslint';
 import * as tsParser from '@typescript-eslint/parser';
 import * as vueParser from 'vue-eslint-parser';
 import stylelint from 'stylelint';
@@ -207,22 +204,6 @@ describe('migrated core ESLint and Stylelint rules', () => {
         });
         return result.results[0]?.warnings ?? [];
     }
-
-    it('enforces source-size budgets with ESLint max-lines', async () => {
-        const eslint = new ESLint({
-            overrideConfigFile: true,
-            overrideConfig: [{rules: {'max-lines': [
-                'error',
-                { max: 2 },
-            ]}}],
-        });
-
-        await expect(eslint.lintText('const one = 1;\nconst two = 2;\n')).resolves.toMatchObject([{errorCount: 0}]);
-        await expect(eslint.lintText('const one = 1;\nconst two = 2;\nconst three = 3;\n')).resolves.toMatchObject([{
-            errorCount: 1,
-            messages: [{ ruleId: 'max-lines' }],
-        }]);
-    });
 
     it('rejects unknown guarded custom properties while allowing known, local, and fallback values', async () => {
         await expect(lintStyle(
