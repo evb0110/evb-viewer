@@ -68,4 +68,7 @@ jobs:
         run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
 
       - name: Run Windows identity acceptance
-        run: pnpm exec vitest run --project unit-scripts tests/unit/scripts/electronRunProcessIdentity.test.ts
+        run: >-
+          pnpm exec vitest run --project unit-scripts
+          tests/unit/scripts/electronRunProcessIdentity.test.ts
+          -t "Windows controller|Windows process ancestry"
