@@ -30,6 +30,15 @@ you touch them. Remove a check when its value is unclear. Source spelling, file
 length, coverage percentages, mock counts, and review rounds are not acceptance
 outcomes. Keep actual behavior, data-integrity, and security checks.
 
+Add a test file, CI job, workflow, npm check script, lint rule, vitest project,
+or git hook only when the person asking for the change asked for that check.
+Proof, acceptance, and evidence mean running the affected checks that exist.
+Extend an existing test only when user-observable behavior changed and no
+check covers it. The commit-msg hook, the pre-push hook, and CI reject a
+commit that adds a check unless its message carries an
+`Adds-Checks: <the words that asked for it>` trailer. Deleting or editing a
+check needs no trailer.
+
 Use one independent reviewer and one correction follow-up when review adds
 value. Optional suggestions do not reopen acceptance. An extra review needs a
 specific unresolved high-risk question. The pre-push hook checks commit

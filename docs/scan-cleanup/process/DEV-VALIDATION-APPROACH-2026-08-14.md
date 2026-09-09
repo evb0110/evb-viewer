@@ -318,8 +318,7 @@ O6 Threshold-count tripwire (RETIRED in S6): the syntax-count tripwire,
 O7 Changed-area repair (R11) — LANDED in S1: `scan-cleanup-core/**`
    and `scan-cleanup-adapters/**` matched NO area (the blocking smoke lane
    silently skipped the package owning the preview/final seam). The
-   executable contract is scripts/release/policy.mjs, pinned by
-   tests/unit/architecture/changedAreaPolicyCensus.test.ts, which
+   executable contract is scripts/release/policy.mjs, which
    derives top-level directories from TRACKED content (git ls-files —
    not workspace packages, since adapters has no package.json, and not
    the filesystem, which false-positives on gitignored dirs) and fails

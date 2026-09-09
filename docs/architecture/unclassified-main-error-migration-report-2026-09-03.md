@@ -21,6 +21,4 @@ logger no longer has a receipt-free overload. The TypeScript contraction test
 fails if that overload returns.
 
 Verification is executable in
-`tests/unit/architecture/sentryMainLoggerMigration.test.ts`,
-`tests/unit/architecture/sentryPresentationPolicy.test.ts`, and
 `tests/typecheck/sentryCompatibilityOverloads.ts`.

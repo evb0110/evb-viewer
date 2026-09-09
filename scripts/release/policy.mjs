@@ -95,6 +95,7 @@ export const NATIVE_PDF_SAVE_DEPENDENCY_PATHS = Object.freeze([
     'electron/preload/createElectronApi.ts',
     'electron/preload/**',
     'electron/platform-ipc/**',
+    'electron/utils/atomicReplace.ts',
     'native/pdf-page-ops/**',
     'native/evb-native-support/**',
     'packages/contracts/documentPersistenceFrames.ts',

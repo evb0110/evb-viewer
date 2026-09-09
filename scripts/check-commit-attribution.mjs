@@ -3,6 +3,12 @@ import {spawnSync} from 'node:child_process';
 import {readFileSync} from 'node:fs';
 import {pathToFileURL} from 'node:url';
 import {describeForbiddenArtifactPath} from './lib/local-artifact-policy.mjs';
+import {
+    describeMissingTrailer,
+    findAddedCheckViolations,
+    findStagedAddedChecks,
+    readAddsChecksTrailer,
+} from './lib/added-checks.mjs';
 
 const ZERO_OID = '0'.repeat(40);
 const OID_PATTERN = /^[0-9a-f]{40,64}$/u;
@@ -422,6 +428,7 @@ export function findPushPolicyViolations(commits, cwd = process.cwd(), {
         })),
         findCommitViolations(commits, cwd),
         findHistoryArtifactViolations(commits, cwd),
+        findAddedCheckViolations(commits, cwd),
         findTagObjectViolations(tagObjects),
     ]);
 }
@@ -430,7 +437,7 @@ function rejectViolations(violations) {
     if (violations.length === 0) {
         return;
     }
-    console.error('Push blocked: prohibited attribution, local-only artifacts, or ref destinations were found.');
+    console.error('Push blocked: prohibited attribution, local-only artifacts, unexplained new checks, or ref destinations were found.');
     for (const {
         matches,
         subject,
@@ -516,9 +523,15 @@ export function main(arguments_ = process.argv.slice(2), cwd = process.cwd()) {
         if (messageFiles.length !== 1) {
             throw new Error('--message-file accepts one path');
         }
-        const matches = findForbiddenAttribution(readFileSync(messageFiles[0], 'utf8'));
+        const message = readFileSync(messageFiles[0], 'utf8');
+        const matches = findForbiddenAttribution(message);
         if (matches.length > 0) {
             console.error(`Commit blocked: prohibited Claude attribution was found (${matches.join(', ')}).`);
+            process.exitCode = 1;
+        }
+        const added = readAddsChecksTrailer(message) === null ? findStagedAddedChecks(cwd) : [];
+        if (added.length > 0) {
+            console.error(`Commit blocked: ${describeMissingTrailer(added).join('\n  ')}`);
             process.exitCode = 1;
         }
         return;

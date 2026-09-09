@@ -62,6 +62,7 @@
     "test:electron-bundle-static-integrity": "pnpm run build:electron && pnpm run test:electron-bundle-static-integrity:no-build && node scripts/prune-build-artifacts.mjs && pnpm run check:build-artifacts:hygiene",
     "test:electron-bundle-static-integrity:no-build": "vitest run --project electron-bundle-static-integrity",
     "test:unit": "node scripts/validation-gates.mjs heavy --id=test-unit --weight=1 -- pnpm exec vitest run --project unit-core --project unit-app --project unit-electron --project unit-scripts --project unit-policy --project unit-static-architecture --project unit-landing",
+    "test:tooling": "vitest run --project unit-tooling",
     "test:integration:browser": "vitest run --project browser-integration",
     "lint:rust": "cargo fmt --manifest-path native/Cargo.toml --all --check && cargo clippy --manifest-path native/Cargo.toml --workspace --all-targets -- -D warnings",
     "test:rust": "cargo test --manifest-path native/Cargo.toml --workspace --locked && pnpm exec tsx scripts/checkSearchNativeParity.ts",

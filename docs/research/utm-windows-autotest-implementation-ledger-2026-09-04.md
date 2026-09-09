@@ -183,7 +183,7 @@ Closure gates:
 - [x] Package scripts `windows:test`, `windows:test:doctor`,
       `windows:test:report` and `windows:test:stop` exist with the documented
       exit codes 0 to 6. Commit 6ea0020a7a563d7697f46e3fea40c1ca898a3e40; `cliArgs.test.ts` maps every outcome to
-      its exit code and `packageScripts.test.ts` pins the script names.
+      its exit code.
 - [ ] Host data root, config allowlist, candidate manifest and bounded report
       directory exist outside the source checkout. Credentials are in host
       secret storage.

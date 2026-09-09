@@ -8,6 +8,8 @@ editing and `pnpm validate:integration` when the change needs the affected
 Electron regression lane. Preview or inspect the selected plan before an
 expensive run when its scope is unclear.
 
+Run `pnpm test:tooling` when editing `scripts/windows-test` or `scripts/stress`; it is not part of `pnpm test:unit`.
+
 | Change | Useful checks |
 | --- | --- |
 | Documentation | Checks for the changed document or executable example |
@@ -21,6 +23,23 @@ fixtures, runners, compiler settings, and dependencies can affect consumers
 beyond the edited file. A regression test should fail on the defect it claims
 to detect. Keep observable assertions; avoid freezing source spelling or a
 particular file layout.
+
+## Adding a check
+
+New checks are a deliberate decision, not a by-product of a task. A commit that
+adds a test file, workflow, CI script, git hook, vitest project, package.json
+check script, custom lint rule, or gate policy entry must carry an
+`Adds-Checks:` trailer that quotes the request for it:
+
+```
+Cover Windows atomic replacement on a real filesystem
+
+Adds-Checks: user asked for "a real Windows filesystem test for atomic save"
+```
+
+`scripts/check-commit-attribution.mjs` enforces this in the commit-msg hook,
+the pre-push hook, and the CI attribution job. Deleting or editing a check
+needs no trailer. Audit past additions with `git log --grep=Adds-Checks`.
 
 ## Routine CI
 

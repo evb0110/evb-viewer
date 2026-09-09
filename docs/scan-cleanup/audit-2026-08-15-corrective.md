@@ -380,9 +380,8 @@ BASELINE CORRECTION (applies to every prior plan built on the scouted facts)
 2.5  HIGH — Two mechanisms are described with the word "gates" while having no executing caller,
      and the single adopted process metric is a transcribed number no mechanism computes.
      Evidence: LEDGER:161-162 asserts "harness now GATES presentation stability"; the preview
-     harness is package.json:93 `diag:scan-cleanup-preview-harness`, referenced only by
-     tests/unit/scripts/packageScripts.test.ts:168 as a key-existence assertion with a comment
-     that CI wiring is deferred — no executing caller in .github/, scripts/release/, or any test,
+     harness is package.json:93 `diag:scan-cleanup-preview-harness`. CI wiring is deferred, and
+     there is no executing caller in .github/, scripts/release/, or any test,
      even after 32b50f2c7 rewrote it (+234) to measure placement identity. LEDGER:400-401 adopts
      "stay-fixed rate 0/3 … as the ONLY process metric"; it appears twice in the tracked repo,
      both in the ledger (:400, :446). The approach doc's own vocabulary rule (:48-51) forbids

@@ -276,7 +276,8 @@ jobs:
 
   pr_windows_atomic_pdf_replacement:
     name: Windows Atomic PDF Replacement
-    if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
+    if: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && needs.pr_changed_areas.outputs.electron_save_reopen == 'true' }}
+    needs: pr_changed_areas
     runs-on: windows-latest
     timeout-minutes: 15
 
@@ -610,6 +611,7 @@ jobs:
             ['pr_electron_blocking_smoke', process.env.ELECTRON_SMOKE_CHANGED],
             ['pr_packaged_linux', process.env.PACKAGED_SMOKE_CHANGED],
             ['pr_electron_native_save_reopen', process.env.ELECTRON_SAVE_REOPEN_CHANGED],
+            ['pr_windows_atomic_pdf_replacement', process.env.ELECTRON_SAVE_REOPEN_CHANGED],
             ['pr_browser_integration', process.env.BROWSER_INTEGRATION_CHANGED],
             ['pr_native_build_safety', process.env.NATIVE_OR_BUILD_CHANGED],
             ['pr_native_pdf_integration', process.env.NATIVE_OR_BUILD_CHANGED],

@@ -27,6 +27,7 @@ const vitestProjectNames = {
     unitApp: 'unit-app',
     unitElectron: 'unit-electron',
     unitScripts: 'unit-scripts',
+    unitTooling: 'unit-tooling',
     unitPolicy: 'unit-policy',
     unitStaticArchitecture: 'unit-static-architecture',
     unitLanding: 'unit-landing',
@@ -49,42 +50,14 @@ const vitestProjectNames = {
 const electronBundleStaticIntegrityTestFiles = ['tests/unit/electron/bundleIntegrity.test.ts'];
 const browserIntegrationTestFiles = ['tests/integration/browser/**/*.test.ts'];
 const landingUnitTestFiles = ['tests/unit/landing/**/*.test.ts'];
-const unitPolicyTestFiles = [
-    'tests/unit/scripts/*Policy.test.ts',
-    'tests/unit/scripts/electronE2eSmokeConfig.test.ts',
-    'tests/unit/scripts/packageScripts.test.ts',
+const unitPolicyTestFiles = ['tests/unit/scripts/*Policy.test.ts'];
+const unitToolingTestFiles = [
+    'tests/unit/scripts/windows-test/**/*.test.ts',
+    'tests/unit/scripts/stress/**/*.test.ts',
 ];
 export const staticArchitectureTestFiles = [
     'tests/unit/architecture/**/*.test.ts',
-    'tests/unit/app/components/appProgressOverlayVisualPolicy.test.ts',
-    'tests/unit/app/modules/document-viewer/djvuAnnotationCapabilityBoundary.test.ts',
-    'tests/unit/app/modules/document-viewer/documentBookmarkArchitectureBoundaries.test.ts',
-    'tests/unit/app/modules/document-viewer/documentSearchArchitectureBoundaries.test.ts',
-    'tests/unit/app/modules/document-viewer/documentThumbnailArchitectureBoundaries.test.ts',
-    'tests/unit/app/modules/document-viewer/documentViewerArchitectureBoundaries.test.ts',
-    'tests/unit/app/modules/document-viewer/scrollbarGutterArchitecture.test.ts',
-    'tests/unit/app/modules/pdf-viewer/annotations/annotationArchitectureBoundary.test.ts',
-    'tests/unit/app/modules/pdf-viewer/annotations/annotationCanonicalSerializationArchitecture.test.ts',
-    'tests/unit/app/modules/pdf-viewer/components/pdfThumbnailsCanvasRenderKey.test.ts',
-    'tests/unit/app/modules/pdf-viewer/components/pdfThumbnailsInactiveCancellation.test.ts',
-    'tests/unit/app/modules/pdf-viewer/components/pdfThumbnailsReloadRasterWidth.test.ts',
-    'tests/unit/app/modules/pdf-viewer/pdfEmptyStateRecentEligibilityContract.test.ts',
-    'tests/unit/app/modules/pdf-viewer/pdfViewerPageTrackContract.test.ts',
-    'tests/unit/app/modules/pdf-viewer/runtime/pdfRenderPerformancePolicyWiring.test.ts',
     'tests/unit/app/modules/pdf-viewer/runtime/sessions/pdfAnnotationSessionBehavior.test.ts',
-    'tests/unit/app/modules/pdf-viewer/runtime/sessions/pdfSessionTopology.test.ts',
-    'tests/unit/app/modules/pdf-viewer/serialization/canonicalIdentityBindingWorkerRoute.test.ts',
-    'tests/unit/app/modules/pdf-viewer/viewportOwnershipBoundary.test.ts',
-    'tests/unit/app/modules/scan-cleanup/scanCleanupPublicEntrypoints.test.ts',
-    'tests/unit/app/modules/workspace-shell/components/appShellStatusGeometry.test.ts',
-    'tests/unit/app/modules/workspace-shell/components/deferredWorkspaceRecentGeometryPolicy.test.ts',
-    'tests/unit/app/modules/workspace-shell/components/fragmentRootDirectiveArchitecture.test.ts',
-    'tests/unit/app/modules/workspace-shell/components/scanCleanupColdEntry.test.ts',
-    'tests/unit/app/modules/workspace-shell/components/sidebarShellIntegration.test.ts',
-    'tests/unit/app/modules/workspace-shell/components/workspacePageOpProgressOverlay.test.ts',
-    'tests/unit/app/modules/workspace-shell/components/workspacePdfToolbarView.test.ts',
-    'tests/unit/app/modules/workspace-shell/composables/workspaceDocumentRecordContract.test.ts',
-    'tests/unit/app/modules/workspace-shell/viewers/documentPageSourceBridge.test.ts',
     'tests/unit/app/platform/browserDocumentRecordOwnership.test.ts',
 ];
 
@@ -308,7 +281,14 @@ export const vitestProjects = [
     createUnitTestProject(
         vitestProjectNames.unitScripts,
         ['tests/unit/scripts/**/*.test.ts'],
-        { exclude: unitPolicyTestFiles },
+        { exclude: [
+            ...unitPolicyTestFiles,
+            ...unitToolingTestFiles,
+        ] },
+    ),
+    createUnitTestProject(
+        vitestProjectNames.unitTooling,
+        unitToolingTestFiles,
     ),
     createUnitTestProject(
         vitestProjectNames.unitPolicy,

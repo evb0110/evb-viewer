@@ -467,7 +467,7 @@ describe('validation gate policy', () => {
 
     it('keeps ordinary script-test acceptance on changed lint, types, and tests', () => {
         const changes = {
-            files: ['tests/unit/scripts/packageScripts.test.ts'],
+            files: ['tests/unit/scripts/depGraph.test.ts'],
             known: true,
             reason: 'explicit-files',
         };
@@ -485,7 +485,7 @@ describe('validation gate policy', () => {
             'test.unit.affected-projects',
         ]);
         expect(plan.find(stage => stage.id === 'test.unit.affected-projects')?.args)
-            .toContain('tests/unit/scripts/packageScripts.test.ts');
+            .toContain('tests/unit/scripts/depGraph.test.ts');
         expect(stageIds).not.toContain('build.strict');
         expect(stageIds).not.toContain('electron.blocking-smoke');
     });
@@ -571,7 +571,7 @@ describe('validation gate policy', () => {
     });
 
     it('runs ordinary unit files directly during bounded integration', () => {
-        const file = 'tests/unit/scripts/packageScripts.test.ts';
+        const file = 'tests/unit/scripts/depGraph.test.ts';
         const plan = validationGates.getValidationPlan({
             changes: {
                 files: [file],
