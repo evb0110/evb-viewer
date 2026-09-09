@@ -380,6 +380,8 @@ export interface IOpenPdfResult {
     readonly workingPath: TDocumentRef;
     readonly originalPath: TDocumentRef;
     readonly isGenerated?: boolean;
+    /** True when recovery reopened unsaved bytes from a prior checkpoint. */
+    readonly recoveryDirtyBaseline?: boolean;
     readonly wasEncrypted?: true;
     /**
      * Authoritative first-page metadata discovered by the main process from

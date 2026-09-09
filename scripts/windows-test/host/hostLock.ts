@@ -1,13 +1,15 @@
 import { getErrorMessage } from '@contracts/getErrorMessage';
+import { randomUUID } from 'node:crypto';
 import {
+    open,
     mkdir,
     readFile,
     rename,
     rm,
     stat,
-    writeFile,
 } from 'node:fs/promises';
 import path from 'node:path';
+import type {FileHandle} from 'node:fs/promises';
 import {
     isErrnoException,
     isRecord,
@@ -16,6 +18,7 @@ import type { IHostProcessIdentityProbe } from '@scripts/windows-test/host/hostP
 import { ownershipMatches } from '@scripts/windows-test/host/hostProcessIdentity';
 
 export interface IHostLockOwner {
+    token: string;
     hostId: string;
     pid: number;
     startTime: string;
@@ -34,6 +37,7 @@ export interface IHostLockDependencies {
     probe: IHostProcessIdentityProbe;
     nowIso(): string;
     sleep(milliseconds: number): Promise<void>;
+    createToken?(): string;
 }
 
 export interface IHostLockOptions {
@@ -64,13 +68,6 @@ function ownerFile(lockDirectory: string) {
     return path.join(lockDirectory, 'owner.json');
 }
 
-async function writeOwnerFile(lockDirectory: string, owner: IHostLockOwner) {
-    const target = ownerFile(lockDirectory);
-    const staging = `${target}.${owner.pid}.tmp`;
-    await writeFile(staging, `${JSON.stringify(owner, null, 4)}\n`, 'utf8');
-    await rename(staging, target);
-}
-
 async function lockDirectoryAgeMs(lockDirectory: string) {
     const stats = await stat(lockDirectory).catch(() => null);
     return stats === null ? Number.POSITIVE_INFINITY : Date.now() - stats.mtimeMs;
@@ -78,6 +75,8 @@ async function lockDirectoryAgeMs(lockDirectory: string) {
 
 export function isHostLockOwner(value: unknown): value is IHostLockOwner {
     return isRecord(value)
+        && typeof value.token === 'string'
+        && value.token.length > 0
         && typeof value.hostId === 'string'
         && typeof value.pid === 'number'
         && Number.isInteger(value.pid)
@@ -86,7 +85,8 @@ export function isHostLockOwner(value: unknown): value is IHostLockOwner {
 }
 
 export async function readHostLockOwner(lockDirectory: string): Promise<IHostLockOwner | null> {
-    const file = ownerFile(lockDirectory);
+    const target = await stat(lockDirectory).catch(() => null);
+    const file = target?.isDirectory() === true ? ownerFile(lockDirectory) : lockDirectory;
     let text: string;
     try {
         text = await readFile(file, 'utf8');
@@ -95,6 +95,9 @@ export async function readHostLockOwner(lockDirectory: string): Promise<IHostLoc
             return null;
         }
         throw new Error(`Cannot read the host lock owner ${file}: ${getErrorMessage(error)}`);
+    }
+    if (text.trim().length === 0) {
+        return null;
     }
     let parsed: unknown;
     try {
@@ -108,17 +111,55 @@ export async function readHostLockOwner(lockDirectory: string): Promise<IHostLoc
     return parsed;
 }
 
-async function tryCreateLockDirectory(lockDirectory: string) {
+async function tryCreateLockFile(lockDirectory: string): Promise<FileHandle | null> {
     try {
-        await mkdir(lockDirectory);
-        return true;
+        return await open(lockDirectory, 'wx', 0o600);
     } catch (error) {
         const code = isRecord(error) && typeof error.code === 'string' ? error.code : '';
         if (code === 'EEXIST') {
-            return false;
+            return null;
         }
         throw error;
     }
+}
+
+async function writeOwnerHandle(handle: FileHandle, owner: IHostLockOwner) {
+    await handle.writeFile(`${JSON.stringify(owner, null, 4)}\n`, 'utf8');
+    await handle.sync();
+}
+
+async function removeOwnedLock(lockDirectory: string, handle: FileHandle) {
+    try {
+        const owned = await handle.stat();
+        const current = await stat(lockDirectory);
+        if (owned.dev === current.dev && owned.ino === current.ino) {
+            // Keep the descriptor open until unlink completes. A replacement
+            // cannot create this path until this exact inode is gone.
+            await rm(lockDirectory, {force: true});
+        }
+    } catch (error) {
+        if (!isErrnoException(error) || typeof error.code !== 'string' || ![
+            'ENOENT',
+            'EEXIST',
+        ].includes(error.code ?? '')) {
+            throw error;
+        }
+    } finally {
+        await handle.close();
+    }
+}
+
+async function reclaimStaleLock(lockDirectory: string, token: string) {
+    const reclaimDirectory = `${lockDirectory}.reclaim-${token}`;
+    try {
+        await rename(lockDirectory, reclaimDirectory);
+    } catch (error) {
+        if (isErrnoException(error) && (error.code === 'ENOENT' || error.code === 'EEXIST')) {
+            return null;
+        }
+        throw error;
+    }
+    return reclaimDirectory;
 }
 
 export async function acquireHostLock(
@@ -129,36 +170,36 @@ export async function acquireHostLock(
     const attempts = options.attempts ?? 3;
     const retryDelayMs = options.retryDelayMs ?? 100;
     await mkdir(path.dirname(lockDirectory), {recursive: true});
+    const token = dependencies.createToken?.() ?? randomUUID();
 
     for (let attempt = 0; attempt < attempts; attempt += 1) {
-        if (await tryCreateLockDirectory(lockDirectory)) {
-            const startTime = await dependencies.probe.startTime(dependencies.pid);
-            if (startTime === null) {
-                await rm(lockDirectory, {
-                    force: true,
-                    recursive: true,
-                });
-                throw new Error(`Cannot record the host lock owner: the start time of pid ${dependencies.pid} is unavailable.`);
+        const handle = await tryCreateLockFile(lockDirectory);
+        if (handle !== null) {
+            try {
+                const startTime = await dependencies.probe.startTime(dependencies.pid);
+                if (startTime === null) {
+                    throw new Error(`Cannot record the host lock owner: the start time of pid ${dependencies.pid} is unavailable.`);
+                }
+                const owner: IHostLockOwner = {
+                    token,
+                    hostId: dependencies.hostId,
+                    pid: dependencies.pid,
+                    startTime,
+                    acquiredAt: dependencies.nowIso(),
+                };
+                await writeOwnerHandle(handle, owner);
+                return {
+                    lockDirectory,
+                    owner,
+                    release: () => removeOwnedLock(lockDirectory, handle),
+                };
+            } catch (error) {
+                await removeOwnedLock(lockDirectory, handle).catch(() => undefined);
+                throw error;
             }
-            const owner: IHostLockOwner = {
-                hostId: dependencies.hostId,
-                pid: dependencies.pid,
-                startTime,
-                acquiredAt: dependencies.nowIso(),
-            };
-            await writeOwnerFile(lockDirectory, owner);
-            return {
-                lockDirectory,
-                owner,
-                release: async () => {
-                    await rm(lockDirectory, {
-                        force: true,
-                        recursive: true,
-                    });
-                },
-            };
         }
 
+        const observedLockStat = await stat(lockDirectory).catch(() => null);
         const existing = await readHostLockOwner(lockDirectory);
         if (existing === null && await lockDirectoryAgeMs(lockDirectory) < OWNER_FILE_GRACE_MS) {
             if (attempt + 1 < attempts) {
@@ -172,7 +213,32 @@ export async function acquireHostLock(
             observedStartTime: await dependencies.probe.startTime(existing.pid),
         }, existing.startTime);
         if (stale) {
-            await rm(lockDirectory, {
+            const currentLockStat = await stat(lockDirectory).catch(() => null);
+            if (observedLockStat === null
+                || currentLockStat === null
+                || observedLockStat.dev !== currentLockStat.dev
+                || observedLockStat.ino !== currentLockStat.ino
+            ) {
+                continue;
+            }
+            const reclaimDirectory = await reclaimStaleLock(lockDirectory, token);
+            if (reclaimDirectory === null) {
+                continue;
+            }
+            const reclaimedOwner = await readHostLockOwner(reclaimDirectory);
+            if (reclaimedOwner !== null) {
+                const stillStale = !ownershipMatches({
+                    alive: dependencies.probe.isAlive(reclaimedOwner.pid),
+                    observedStartTime: await dependencies.probe.startTime(reclaimedOwner.pid),
+                }, reclaimedOwner.startTime);
+                if (!stillStale) {
+                    // The owner became observable while we were deciding. Put
+                    // it back only if the public path is still vacant.
+                    await rename(reclaimDirectory, lockDirectory).catch(() => undefined);
+                    throw new HostLockBusyError(lockDirectory, reclaimedOwner);
+                }
+            }
+            await rm(reclaimDirectory, {
                 force: true,
                 recursive: true,
             });

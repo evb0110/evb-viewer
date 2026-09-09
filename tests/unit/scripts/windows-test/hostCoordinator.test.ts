@@ -40,6 +40,7 @@ import type { IWindowsTestImageManifest } from '@scripts/windows-test/images/ima
 const GOLDEN_VM_ID = '11111111-2222-4333-8444-555555555555';
 const OTHER_TEST_VM_ID = '22222222-3333-4444-8555-666666666666';
 const CLONE_VM_ID = '33333333-4444-4555-8666-777777777777';
+const OLD_CLONE_VM_ID = '66666666-7777-4888-8999-000000000000';
 const PERSONAL_VM_ID = '99999999-8888-4777-8666-555555555555';
 const RUN_SUFFIX = '0123456789ab';
 const RUN_ID = `20260904T120000Z-${RUN_SUFFIX}`;
@@ -147,6 +148,11 @@ function createFakeUtmctl(options: {
     goldenStatus?: string;
     cloneVmId?: string;
     cloneStatusSequence?: readonly string[];
+    statusOverride?: string;
+    existingClone?: {
+        runId: string;
+        vmId: string
+    };
     extraClones?: readonly string[];
     onDelete?: () => void;
 } = {}) {
@@ -163,6 +169,11 @@ function createFakeUtmctl(options: {
             status: 'stopped',
             name: 'unrelated',
         },
+        ...(options.existingClone === undefined ? [] : [{
+            uuid: options.existingClone.vmId,
+            status: 'started',
+            name: `evb-win-test-${options.existingClone.runId}`,
+        }]),
         ...(options.extraClones ?? []).map((uuid, index) => ({
             uuid,
             status: 'stopped',
@@ -185,7 +196,14 @@ function createFakeUtmctl(options: {
         },
         status: (vmId) => {
             calls.push(`status ${vmId}`);
-            if (vmId.toLowerCase() === cloneVmId.toLowerCase() && cloneStatusSequence.length > 0) {
+            if (options.statusOverride !== undefined
+                && (vmId.toLowerCase() === cloneVmId.toLowerCase()
+                    || vmId.toLowerCase() === options.existingClone?.vmId.toLowerCase())) {
+                return Promise.resolve(options.statusOverride);
+            }
+            if ((vmId.toLowerCase() === cloneVmId.toLowerCase()
+                || vmId.toLowerCase() === options.existingClone?.vmId.toLowerCase())
+                && cloneStatusSequence.length > 0) {
                 return Promise.resolve(cloneStatusSequence.shift() ?? 'unknown');
             }
             return Promise.resolve(statuses.get(vmId) ?? 'stopped');
@@ -444,8 +462,10 @@ async function createHarness(options: IHarnessOptions = {}) {
         ...(options.evaluateHostOracles === undefined ? {} : {evaluateHostOracles: options.evaluateHostOracles}),
         identityGuard: {
             resolvePath: target => Promise.resolve(target),
-            readVmId: () => Promise.resolve(CLONE_VM_ID),
-            readVmName: () => Promise.resolve(`evb-win-test-${RUN_ID}`),
+            readVmId: bundlePath => Promise.resolve(bundlePath.includes(RUN_ID) ? CLONE_VM_ID : OLD_CLONE_VM_ID),
+            readVmName: bundlePath => Promise.resolve(
+                `evb-win-test-${bundlePath.includes(RUN_ID) ? RUN_ID : '20260903T090000Z-abcdefabcdef'}`,
+            ),
         },
         deadlines: {
             bootToGuestReadyMs: 1_000,
@@ -628,6 +648,91 @@ describe('windows test run coordinator', () => {
         expect(harness.utmctl.calls).toEqual([]);
     });
 
+    it('stops a stale owned clone before replacing its persisted lease', async () => {
+        const oldRunId = '20260903T090000Z-abcdefabcdef';
+        const harness = await createHarness({utmctl: createFakeUtmctl({
+            existingClone: {
+                runId: oldRunId,
+                vmId: OLD_CLONE_VM_ID,
+            },
+            cloneStatusSequence: [
+                'started',
+                'stopped',
+            ],
+        })});
+        await mkdir(harness.layout.root, {recursive: true});
+        await writeFile(harness.layout.leaseFile, JSON.stringify({
+            schemaVersion: 1,
+            hostId: 'test-host',
+            vmId: OLD_CLONE_VM_ID,
+            runId: oldRunId,
+            ownerPid: 5_555,
+            ownerStartTime: 'Thu Sep  3 09:00:00 2026',
+            createdAt: '2026-09-03T09:00:00.000Z',
+        }), 'utf8');
+
+        const report = await harness.run();
+
+        expect(report.outcome).toBe('passed');
+        expect(report.messages.join(' ')).toContain(`Recovered a stale lease from run ${oldRunId}`);
+        const calls = harness.utmctl.calls;
+        expect(calls.indexOf(`stop request ${OLD_CLONE_VM_ID}`)).toBeGreaterThan(-1);
+        expect(calls).not.toContain(`delete ${OLD_CLONE_VM_ID}`);
+        expect(calls.indexOf(`clone ${GOLDEN_VM_ID} evb-win-test-${RUN_ID}`))
+            .toBeGreaterThan(calls.indexOf(`stop request ${OLD_CLONE_VM_ID}`));
+        expect(await exists(harness.layout.leaseFile)).toBe(false);
+    });
+
+    it('retains an exclusion when stale clone stop cannot prove the clone stopped', async () => {
+        const oldRunId = '20260903T090000Z-abcdefabcdef';
+        const harness = await createHarness({utmctl: createFakeUtmctl({
+            existingClone: {
+                runId: oldRunId,
+                vmId: OLD_CLONE_VM_ID,
+            },
+            statusOverride: 'started',
+        })});
+        await mkdir(harness.layout.root, {recursive: true});
+        await writeFile(harness.layout.leaseFile, JSON.stringify({
+            schemaVersion: 1,
+            hostId: 'test-host',
+            vmId: OLD_CLONE_VM_ID,
+            runId: oldRunId,
+            ownerPid: 5_555,
+            ownerStartTime: 'Thu Sep  3 09:00:00 2026',
+            createdAt: '2026-09-03T09:00:00.000Z',
+        }), 'utf8');
+
+        const report = await harness.run();
+
+        expect(report.outcome).toBe('infrastructure-failed');
+        expect(report.messages.join(' ')).toContain('refused to replace');
+        expect(await exists(harness.layout.leaseFile)).toBe(true);
+        expect(harness.utmctl.calls.some(call => call.startsWith(`clone ${GOLDEN_VM_ID}`))).toBe(false);
+    });
+
+    it('does not reclaim an unbound stale lease once its run directory exists', async () => {
+        const oldRunId = '20260903T090000Z-abcdefabcdef';
+        const harness = await createHarness();
+        await mkdir(windowsTestRunLayout(harness.layout.runsDir, oldRunId).runDir, {recursive: true});
+        await mkdir(harness.layout.root, {recursive: true});
+        await writeFile(harness.layout.leaseFile, JSON.stringify({
+            schemaVersion: 1,
+            hostId: 'test-host',
+            vmId: null,
+            runId: oldRunId,
+            ownerPid: 5_555,
+            ownerStartTime: 'Thu Sep  3 09:00:00 2026',
+            createdAt: '2026-09-03T09:00:00.000Z',
+        }), 'utf8');
+
+        const report = await harness.run();
+
+        expect(report.outcome).toBe('infrastructure-failed');
+        expect(await exists(harness.layout.leaseFile)).toBe(true);
+        expect(harness.utmctl.calls).toEqual([]);
+    });
+
     it('exits 5 and tells the guest to stop when a cancel request appears', async () => {
         const harness = await createHarness({script: {resultText: null}});
         const runLayout = windowsTestRunLayout(harness.layout.runsDir, RUN_ID);
@@ -708,6 +813,7 @@ describe('windows test run coordinator', () => {
             'testing',
             'tearing-down',
         ]);
+        expect(await exists(harness.layout.leaseFile)).toBe(true);
     });
 
     it('retains a failed clone for inspection while the retention budget allows it', async () => {

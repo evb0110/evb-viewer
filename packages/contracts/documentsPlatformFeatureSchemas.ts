@@ -110,6 +110,7 @@ function decodeOpenFileResult(value: unknown): TOpenFileResult | null {
     if (
         typeof value.workingPath !== 'string'
         || (value.isGenerated !== undefined && typeof value.isGenerated !== 'boolean')
+        || (value.recoveryDirtyBaseline !== undefined && typeof value.recoveryDirtyBaseline !== 'boolean')
     ) {
         fail('invalid PDF open-file result');
     }
@@ -126,6 +127,7 @@ function decodeOpenFileResult(value: unknown): TOpenFileResult | null {
         workingPath,
         originalPath,
         ...(value.isGenerated === undefined ? {} : {isGenerated: value.isGenerated}),
+        ...(value.recoveryDirtyBaseline === undefined ? {} : {recoveryDirtyBaseline: value.recoveryDirtyBaseline}),
         ...(openingGeometry === undefined ? {} : {openingGeometry}),
     };
 }

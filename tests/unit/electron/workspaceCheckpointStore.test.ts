@@ -25,6 +25,7 @@ import type {IWorkspaceCheckpoint} from '@contracts/workspaceCheckpoint';
 import {
     acknowledgeWorkspaceCheckpoint,
     claimWorkspaceCheckpoint,
+    flushPendingWorkspaceCheckpointSave,
     saveWorkspaceCheckpoint,
 } from '@electron/workspaceCheckpointStore';
 
@@ -209,6 +210,34 @@ describe('workspace checkpoint store', () => {
         expect(stored.checkpoint.tabs[0]).toMatchObject({
             sourceRef: '/documents/canonical-draft.pdf',
             workingCopyRef,
+        });
+    });
+
+    it('retains a prior working copy when a failed recovery tab has no live ref', async () => {
+        state.owners.set(workingCopyRef, 11);
+        state.originalPaths.set(workingCopyRef, '/documents/draft.pdf');
+        await saveWorkspaceCheckpoint(checkpoint, 11);
+
+        await saveWorkspaceCheckpoint({
+            ...checkpoint,
+            capturedAt: requireEpochMs(456),
+            tabs: [{
+                ...checkpoint.tabs[0]!,
+                sourceRef: requireDocumentRef('/documents/draft.pdf'),
+                workingCopyRef: null,
+                isDirty: true,
+            }],
+        }, 11);
+        await flushPendingWorkspaceCheckpointSave();
+
+        const stored = JSON.parse(await readFile(join(state.userDataPath, 'workspace-checkpoint.json'), 'utf8'));
+        expect(stored.checkpoint).toMatchObject({
+            capturedAt: 456,
+            tabs: [{
+                sourceRef: '/documents/draft.pdf',
+                workingCopyRef,
+                isDirty: true,
+            }],
         });
     });
 
