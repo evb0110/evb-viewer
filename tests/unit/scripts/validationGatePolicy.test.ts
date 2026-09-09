@@ -83,8 +83,7 @@ interface IValidationGateModule {
     };
     getValidationBuildMarkerPath: (root?: string) => string;
     getValidationInputFingerprint: (options: {
-        inputPaths?: string[];
-        inputScope?: string;
+        inputPaths: string[];
         root: string;
     }) => string;
     isValidationBuildFresh: (options: {
@@ -1332,36 +1331,6 @@ describe('validation gate policy', () => {
 
             await writeFile(join(root, 'tests', 'fixtures', 'release', 'fixture.json'), '{"changed":true}\n');
             expect(fingerprint()).not.toBe(afterScriptChange);
-        } finally {
-            await rm(root, {
-                force: true,
-                recursive: true,
-            });
-        }
-    });
-
-    it('fingerprints compiler declarations and workspace ownership', async () => {
-        const root = await mkdtemp(join(tmpdir(), 'evb-typecheck-input-fingerprint-'));
-        try {
-            await mkdir(join(root, 'types', 'vendor'), {recursive: true});
-            await writeFile(join(root, 'types', 'vendor', 'utif.d.ts'), 'declare module "utif";\n');
-            await writeFile(join(root, 'pnpm-workspace.yaml'), 'packages:\n  - packages/*\n');
-
-            const fingerprint = () => validationGates.getValidationInputFingerprint({
-                inputScope: 'typecheck',
-                root,
-            });
-            const initial = fingerprint();
-
-            await writeFile(
-                join(root, 'types', 'vendor', 'utif.d.ts'),
-                'declare module "utif" { export const decode: unknown; }\n',
-            );
-            const afterDeclarationChange = fingerprint();
-            expect(afterDeclarationChange).not.toBe(initial);
-
-            await writeFile(join(root, 'pnpm-workspace.yaml'), 'packages:\n  - packages/*\n  - tools/*\n');
-            expect(fingerprint()).not.toBe(afterDeclarationChange);
         } finally {
             await rm(root, {
                 force: true,
