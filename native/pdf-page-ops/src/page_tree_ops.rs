@@ -546,48 +546,29 @@ fn remap_browser_page_labels(
     page_labels: &Object,
 ) -> Result<Object> {
     let source = clone_context.source(source_index)?;
-    let labels = resolve_dictionary_object(source, page_labels, "PageLabels")?;
-    let nums = labels.get(b"Nums")?.as_array()?;
-    if nums.is_empty() || nums.len() % 2 != 0 {
-        return Err("PageLabels has no usable ranges".into());
-    }
-    let mut ranges = Vec::new();
-    for pair in nums.chunks_exact(2) {
-        let start_page: i64 = pair[0]
-            .as_i64()?
-            .checked_add(1)
-            .ok_or("Invalid PageLabels range")?;
-        let label = resolve_dictionary_object(source, &pair[1], "PageLabel")?;
-        ranges.push(BrowserPageLabelRange {
-            start_page,
-            prefix: label
-                .get(b"P")
-                .ok()
-                .and_then(|value| source.resolved(value).ok())
-                .and_then(|value| value.as_str().ok())
-                .map(|value| value.to_vec()),
-            style: label
-                .get(b"S")
-                .ok()
-                .and_then(|value| source.resolved(value).ok())
-                .and_then(|value| value.as_name().ok())
-                .map(|value| value.to_vec()),
-            start_number: label
-                .get(b"St")
-                .ok()
-                .and_then(|value| source.resolved(value).ok())
-                .and_then(|value| value.as_i64().ok())
-                .unwrap_or(1)
-                .clamp(1, MAX_BROWSER_PAGE_LABEL_NUMBER),
-        });
-    }
-    ranges.sort_by_key(|range| range.start_page);
-
     let source_page_numbers = source
         .get_pages()
         .into_iter()
         .map(|(page_number, page_id)| (page_id, page_number as i64))
         .collect::<HashMap<_, _>>();
+    let mut ranges = Vec::new();
+    for range in read_page_label_ranges(source, page_labels)? {
+        if usize::try_from(range.page_index).ok() >= Some(source_page_numbers.len()) {
+            return Err("PageLabels range index is outside the source page tree".into());
+        }
+        let start_page: i64 = i64::from(range.page_index)
+            .checked_add(1)
+            .ok_or("Invalid PageLabels range")?;
+        ranges.push(BrowserPageLabelRange {
+            start_page,
+            prefix: range.prefix.map(|value| value.into_bytes()),
+            style: range.style.map(|value| value.into_bytes()),
+            start_number: i64::from(range.start.unwrap_or(1))
+                .clamp(1, MAX_BROWSER_PAGE_LABEL_NUMBER),
+        });
+    }
+    ranges.sort_by_key(|range| range.start_page);
+
     let mut output_nums = Vec::with_capacity(page_sequence.len() * 2);
     for (output_index, page) in page_sequence.iter().enumerate() {
         let label = if page.document_index == source_index {

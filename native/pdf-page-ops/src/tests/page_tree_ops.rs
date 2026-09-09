@@ -112,13 +112,18 @@ fn page_subset_operations_preserve_and_remap_outlines_and_page_labels() {
     }
 
     let (mut source, pages_id, source_pages) = document_with_pages(&[200, 300, 400]);
-    let page_labels = source.add_object(dictionary! {
-        "Nums" => vec![
+    let page_label_nums = source.add_object(vec![
             Object::Integer(0),
             Object::Dictionary(dictionary! {"S" => "D", "St" => 1}),
             Object::Integer(1),
             Object::Dictionary(dictionary! {"S" => "R", "St" => 1}),
-        ],
+        ]);
+    let page_label_leaf = source.add_object(dictionary! {
+        "Limits" => vec![Object::Integer(0), Object::Integer(1)],
+        "Nums" => page_label_nums,
+    });
+    let page_labels = source.add_object(dictionary! {
+        "Kids" => vec![Object::Reference(page_label_leaf)],
     });
     let outline_item = source.add_object(dictionary! {
         "Title" => Object::string_literal("Page three"),

@@ -409,22 +409,27 @@ fn pdf_color_to_hex(value: &Object) -> Option<String> {
     ))
 }
 
-fn read_page_label_ranges(
+pub(crate) fn read_page_label_ranges(
     document: &impl PdfObjectSource,
     page_labels_object: &Object,
 ) -> Result<Vec<PdfCombinePageLabelRange>> {
     let mut entries = Vec::new();
     let mut state = CatalogWalkState::new();
     read_number_tree(document, page_labels_object, 0, &mut state, &mut entries)?;
+    if entries.is_empty() {
+        return Err("PageLabels has no usable ranges".into());
+    }
     entries.sort_by_key(|(page_index, _)| *page_index);
     let mut output = Vec::new();
+    let mut previous_page_index = None;
     for (page_index, value) in entries {
-        let Ok(page_index) = u32::try_from(page_index) else {
-            continue;
-        };
-        let Ok(dictionary) = resolve_catalog_dictionary(document, &value, "PageLabel") else {
-            continue;
-        };
+        let page_index = u32::try_from(page_index)
+            .map_err(|_| "PageLabels range index is outside the supported bounds")?;
+        if previous_page_index == Some(page_index) {
+            return Err("PageLabels contains duplicate range indices".into());
+        }
+        previous_page_index = Some(page_index);
+        let dictionary = resolve_catalog_dictionary(document, &value, "PageLabel")?;
         let style = dictionary
             .get(b"S")
             .ok()
@@ -462,46 +467,36 @@ fn read_number_tree(
     state: &mut CatalogWalkState,
     output: &mut Vec<(i64, Object)>,
 ) -> Result<()> {
-    if depth >= CATALOG_WALK_DEPTH_LIMIT
-        || output.len() >= CATALOG_WALK_NODE_LIMIT
-        || !state.enter(node_object)
-    {
-        return Ok(());
+    if depth >= CATALOG_WALK_DEPTH_LIMIT {
+        return Err("PageLabels number tree exceeds the depth limit".into());
     }
-    let Ok(node) = resolve_catalog_dictionary(document, node_object, "PageLabels") else {
-        return Ok(());
-    };
+    if output.len() >= CATALOG_WALK_NODE_LIMIT {
+        return Err("PageLabels number tree exceeds the node limit".into());
+    }
+    if !state.enter(node_object) {
+        return Err("PageLabels number tree contains a cycle or exceeds the node limit".into());
+    }
+    let node = resolve_catalog_dictionary(document, node_object, "PageLabels")?;
     if let Ok(nums_object) = node.get(b"Nums") {
-        let Some(nums) = document
-            .resolved(nums_object)
-            .ok()
-            .and_then(|value| value.as_array().ok())
-        else {
-            return Ok(());
-        };
+        let nums = document.resolved(nums_object)?.as_array()?;
+        if nums.is_empty() || nums.len() % 2 != 0 {
+            return Err("PageLabels Nums must contain key/value pairs".into());
+        }
         for pair in nums.chunks_exact(2) {
             if output.len() >= CATALOG_WALK_NODE_LIMIT {
-                break;
+                return Err("PageLabels number tree exceeds the node limit".into());
             }
-            let Ok(start_page) = pair[0].as_i64() else {
-                continue;
-            };
+            let start_page = pair[0].as_i64()?;
+            if start_page < 0 {
+                return Err("PageLabels range index must not be negative".into());
+            }
             output.push((start_page, pair[1].clone()));
         }
     }
     if let Ok(kids_object) = node.get(b"Kids") {
-        let Some(kids) = document
-            .resolved(kids_object)
-            .ok()
-            .and_then(|value| value.as_array().ok())
-        else {
-            return Ok(());
-        };
+        let kids = document.resolved(kids_object)?.as_array()?;
         for kid in kids {
             read_number_tree(document, kid, depth + 1, state, output)?;
-            if output.len() >= CATALOG_WALK_NODE_LIMIT {
-                break;
-            }
         }
     }
     Ok(())
