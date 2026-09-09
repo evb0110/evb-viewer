@@ -124,8 +124,9 @@ function buildRuntimeContext(options: ISentryNodeAdapterOptions) {
 }
 
 function isSuccessfulResponse(value: Awaited<ReturnType<Transport['send']>>) {
-    return value.statusCode === undefined
-        || value.statusCode >= 200 && value.statusCode < 300;
+    return typeof value.statusCode === 'number'
+        && value.statusCode >= 200
+        && value.statusCode < 300;
 }
 
 function writeAudit(

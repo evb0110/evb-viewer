@@ -69,8 +69,9 @@ function requireEuDsn(value: string) {
 }
 
 function isSuccessfulResponse(value: Awaited<ReturnType<Transport['send']>>) {
-    return value.statusCode === undefined
-        || value.statusCode >= 200 && value.statusCode < 300;
+    return typeof value.statusCode === 'number'
+        && value.statusCode >= 200
+        && value.statusCode < 300;
 }
 
 export function createBrowserDiagnosticsTransport(
