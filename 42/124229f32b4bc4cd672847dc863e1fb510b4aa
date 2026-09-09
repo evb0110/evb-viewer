@@ -1,0 +1,21 @@
+app/modules/workspace-shell/composables/useWorkspacePrint.ts
+  s_0933cb50f29572::t_d92ac772400c63 2
+tests/unit/app/modules/workspace-shell/composables/useWorkspacePrint.test.ts
+  s_0933cb50f29572::t_b71e75ed6f9f12 618-621,625-628,636-639,647-650,669-672,683-686,707-710
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "42124229f32b4bc4cd672847dc863e1fb510b4aa",
+  "prompts": {},
+  "sessions": {
+    "s_0933cb50f29572": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08796-d64e-7e83-94c9-0387c9888c21",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

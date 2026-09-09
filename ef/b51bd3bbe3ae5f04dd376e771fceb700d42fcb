@@ -1,0 +1,19 @@
+tests/unit/electron/documentsPrint.test.ts
+  s_0933cb50f29572::t_b86f4ba0e0cc1b 1341-1355
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "efb51bd3bbe3ae5f04dd376e771fceb700d42fcb",
+  "prompts": {},
+  "sessions": {
+    "s_0933cb50f29572": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08796-d64e-7e83-94c9-0387c9888c21",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

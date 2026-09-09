@@ -1,0 +1,64 @@
+app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore.ts
+  s_149745b6dc0cd9::t_69a633470d1a02 327-332
+  s_149745b6dc0cd9::t_aedfb5812a652d 248-251
+  s_149745b6dc0cd9::t_9e57aaf8c121ed 76,716,722
+  s_149745b6dc0cd9::t_623deea3830436 227,254-256,259,735,737-743,746-755
+  s_149745b6dc0cd9::t_5c70a594490a23 86-87,94,419-424,628,632-633,637,650-651,656,777,787-788,791
+  s_149745b6dc0cd9::t_e9e96b95e84f29 425-427
+  s_149745b6dc0cd9::t_e75573701bcb60 68-71,79-83,88-90,289-294,349-352,385-391,428-431,458-464,634-636,643-649,652-655,670-673,696-698,707-713
+  s_149745b6dc0cd9::t_3e807dae748877 66-67,72-75,77-78,84,226,260-261,264-266,279-280,284,288,310-322,353-356,358,362-366,384,398-399,418,432-434
+  s_149745b6dc0cd9::t_a780a9685442da 756-758
+  s_149745b6dc0cd9::t_311641a52f5d52 91-93,262-263,282,306,641-642,695
+  s_149745b6dc0cd9::t_2124cfcc5d9a03 252-253,257-258
+  s_149745b6dc0cd9::t_e27bed2488a4d6 304-305,307,638-640,701-703
+  s_149745b6dc0cd9::t_613d3addbf1b6a 539
+  s_149745b6dc0cd9::t_3963d95a98a81b 85,657-664,689-694,699-700,704-706,714-715,717-721,723-725,792-795
+  s_149745b6dc0cd9::t_6fa898cb1091c6 665-669,674-688,726-734,736,744-745,759,778
+  s_149745b6dc0cd9::t_4ff9f1a36f4747 270,395,779
+tests/unit/app/modules/scan-cleanup/scanCleanupPreferencesStore.test.ts
+  s_149745b6dc0cd9::t_ef5c5389f0c0d5 257,259-284,306-309,311-330
+  s_149745b6dc0cd9::t_c4b1d77d1ccffe 142-151,158-193
+  s_149745b6dc0cd9::t_e75573701bcb60 152-157
+  s_149745b6dc0cd9::t_bcca219e23b74f 258,310
+  s_149745b6dc0cd9::t_4c4b4c70f516e0 331
+app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession.ts
+  s_149745b6dc0cd9::t_311641a52f5d52 274
+app/modules/scan-cleanup/composables/useScanCleanupRunSession.ts
+  s_149745b6dc0cd9::t_652973d7bc561d 318
+  s_149745b6dc0cd9::t_c9643639ecbc90 80,295,317
+  s_413a3ab17d6b49::t_2a24ef4865e351 319
+app/modules/scan-cleanup/composables/useScanCleanupDocumentSettings.ts
+  s_149745b6dc0cd9::t_6170ebcb226e0b 14
+  s_149745b6dc0cd9::t_6fa898cb1091c6 18,110
+  s_149745b6dc0cd9::t_4b1999ad57259b 361,373,384,392,399,402
+  s_149745b6dc0cd9::t_2abeb667d2c090 97-98,274,315,321-322,349
+  s_149745b6dc0cd9::t_e75573701bcb60 379
+  s_149745b6dc0cd9::t_613d3addbf1b6a 275
+  s_149745b6dc0cd9::t_3963d95a98a81b 22,105
+  s_149745b6dc0cd9::t_bcca219e23b74f 24
+  s_149745b6dc0cd9::t_6edc02f953af9d 94,96,106,293-297,299-301,308,327,358,370,381,389
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "32ae1673645ee5cd587a8297e1693e76d28db241",
+  "prompts": {},
+  "sessions": {
+    "s_149745b6dc0cd9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08795-17f1-7b03-8b14-f8ca4027f244",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_413a3ab17d6b49": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08795-295a-7ca2-a761-96415cfd6fb8",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
