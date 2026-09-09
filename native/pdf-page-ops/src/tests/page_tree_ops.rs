@@ -230,6 +230,89 @@ fn page_subset_operations_preserve_and_remap_outlines_and_page_labels() {
     }
 }
 
+#[test]
+fn page_subset_operations_preserve_forward_page_owned_destinations() {
+    fn destination(page_id: ObjectId) -> Object {
+        vec![Object::Reference(page_id), Object::Name(b"Fit".to_vec())].into()
+    }
+
+    let mut source = Document::with_version("1.4");
+    let pages_id = source.new_object_id();
+    let page_ids = [200i64, 300, 400]
+        .iter()
+        .map(|width| {
+            source.add_object(dictionary! {
+                "Type" => "Page",
+                "Parent" => pages_id,
+                "MediaBox" => vec![0.into(), 0.into(), (*width).into(), 100.into()],
+            })
+        })
+        .collect::<Vec<_>>();
+    source.set_object(
+        pages_id,
+        dictionary! {
+            "Type" => "Pages",
+            "Kids" => page_ids.iter().copied().map(Object::Reference).collect::<Vec<_>>(),
+            "Count" => page_ids.len() as i64,
+        },
+    );
+    let link = source.add_object(dictionary! {
+        "Type" => "Annot",
+        "Subtype" => "Link",
+        "Rect" => vec![0.into(), 0.into(), 10.into(), 10.into()],
+        "Dest" => destination(page_ids[1]),
+        "A" => dictionary! {"S" => "GoTo", "D" => destination(page_ids[1])},
+    });
+    source
+        .get_dictionary_mut(page_ids[0])
+        .unwrap()
+        .set("Annots", vec![Object::Reference(link)]);
+    let catalog = source.add_object(dictionary! {"Type" => "Catalog", "Pages" => pages_id});
+    source.trailer.set("Root", catalog);
+    let mut source_bytes = Vec::new();
+    source.save_to(&mut source_bytes).unwrap();
+
+    for result in [
+        extract_browser_pdf_pages(&source_bytes, &[1, 2]).unwrap(),
+        delete_browser_pdf_pages(&source_bytes, &[3]).unwrap(),
+    ] {
+        let output = Document::load_mem(&result.data).unwrap();
+        assert_eq!(output.get_pages().len(), 2);
+        let first_page = *output.get_pages().get(&1).unwrap();
+        let second_page = *output.get_pages().get(&2).unwrap();
+        let annots = output
+            .get_dictionary(first_page)
+            .unwrap()
+            .get(b"Annots")
+            .unwrap()
+            .as_array()
+            .unwrap();
+        let annotation = output
+            .get_dictionary(annots[0].as_reference().unwrap())
+            .unwrap();
+        assert_eq!(
+            annotation
+                .get(b"Dest")
+                .unwrap()
+                .as_array()
+                .unwrap()[0],
+            Object::Reference(second_page)
+        );
+        assert_eq!(
+            annotation
+                .get(b"A")
+                .unwrap()
+                .as_dict()
+                .unwrap()
+                .get(b"D")
+                .unwrap()
+                .as_array()
+                .unwrap()[0],
+            Object::Reference(second_page)
+        );
+    }
+}
+
     #[test]
     fn reorders_pages_by_cloning_selected_page_tree() {
         let mut document = Document::with_version("1.4");

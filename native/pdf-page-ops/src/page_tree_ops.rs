@@ -55,6 +55,7 @@ pub(crate) struct PageCloneContext<'a> {
     pub(crate) target: Document,
     pub(crate) pages_id: ObjectId,
     pub(crate) object_map: HashMap<(usize, ObjectId), ObjectId>,
+    completed_pages: HashSet<(usize, ObjectId)>,
 }
 
 struct BrowserPageLabelRange {
@@ -443,7 +444,14 @@ pub(crate) fn build_browser_page_subset_pdf(
         target,
         pages_id,
         object_map: HashMap::new(),
+        completed_pages: HashSet::new(),
     };
+    for source in page_sequence {
+        clone_context
+            .object_map
+            .entry((source.document_index, source.page_id))
+            .or_insert_with(|| clone_context.target.new_object_id());
+    }
     let page_ids = page_sequence
         .iter()
         .map(|source| clone_context.clone_page(*source))
@@ -666,16 +674,21 @@ fn format_roman(mut number: i64) -> String {
 
 impl PageCloneContext<'_> {
     pub(crate) fn clone_page(&mut self, source: PageCloneSource) -> Result<ObjectId> {
-        if let Some(new_id) = self
-            .object_map
-            .get(&(source.document_index, source.page_id))
+        if self
+            .completed_pages
+            .contains(&(source.document_index, source.page_id))
         {
-            return Ok(*new_id);
+            return self
+                .object_map
+                .get(&(source.document_index, source.page_id))
+                .copied()
+                .ok_or_else(|| "Completed browser page has no object ID".into());
         }
 
-        let new_page_id = self.target.new_object_id();
-        self.object_map
-            .insert((source.document_index, source.page_id), new_page_id);
+        let new_page_id = *self
+            .object_map
+            .entry((source.document_index, source.page_id))
+            .or_insert_with(|| self.target.new_object_id());
 
         let source_document = self.source(source.document_index)?;
         let mut page = source_document.get_dictionary(source.page_id)?.clone();
@@ -720,6 +733,8 @@ impl PageCloneContext<'_> {
         self.target
             .objects
             .insert(new_page_id, Object::Dictionary(cloned_page));
+        self.completed_pages
+            .insert((source.document_index, source.page_id));
         Ok(new_page_id)
     }
 
