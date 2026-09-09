@@ -10,13 +10,20 @@ import {
     spawn,
     spawnSync,
 } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import {
+    existsSync,
+    readFileSync,
+} from 'node:fs';
 import os, { tmpdir } from 'node:os';
 import {
     join,
     resolve,
 } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import {
+    collectDescendantPidsUnix,
+    isProcessAlive,
+} from '@scripts/electron-run/electronRunProcessTree';
 import {
     describe,
     expect,
@@ -116,8 +123,8 @@ interface IValidationGateModule {
         weight?: number
     }>(
         stages: T[],
-        runStage: (stage: T) => Promise<void>,
-        options?: {capacity?: number},
+        runStage: (stage: T, context: {signal?: AbortSignal}) => Promise<void>,
+        options?: {capacity?: number; signal?: AbortSignal},
     ) => Promise<void>;
     writeValidationBuildMarker: (options: {
         buildScriptName: string;
@@ -1025,7 +1032,7 @@ describe('validation gate policy', () => {
                 expect(stderrChunks.join('')).toContain(
                     '[gate] BLOCKED waiting for heavy-gate: id=overridden, needs=1, used=2/2',
                 );
-            }, {timeout: 5000});
+            });
             overrideEnv.EVB_GATE_CAPACITY = '1';
             await blockingGate.release();
             blockingGate = undefined;
@@ -1133,6 +1140,95 @@ describe('validation gate policy', () => {
             'broken',
             'independent',
         ]);
+    });
+
+    it('stops launching pending stages after cancellation and settles running stages first', async () => {
+        const controller = new AbortController();
+        const events: string[] = [];
+        await expect(validationGates.runStagePool([
+            {id: 'first', weight: 1},
+            {id: 'pending', weight: 1},
+        ], async (stage, {signal}) => {
+            events.push(`start:${stage.id}`);
+            if (stage.id === 'first') {
+                signal?.addEventListener('abort', () => events.push('abort:first'), {once: true});
+                controller.abort();
+            }
+        }, {capacity: 1, signal: controller.signal})).rejects.toMatchObject({
+            name: 'ValidationInterruptedError',
+        });
+        expect(events).toEqual(['start:first', 'abort:first']);
+    });
+
+    it.runIf(process.platform !== 'win32')('interrupts a real stage tree and records an interrupted run', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'evb-validation-cancellation-'));
+        const readyPath = join(root, 'ready');
+        const evidenceDir = join(root, 'evidence');
+        const fixtureCode = "const fs=require('node:fs');const {spawn}=require('node:child_process');const child=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore'});fs.writeFileSync(process.env.READY,process.pid+':'+child.pid);setInterval(()=>{},1000);";
+        const runner = spawn(process.execPath, [
+            'scripts/validation-gates.mjs',
+            'heavy',
+            '--no-cache',
+            '--id=validation-cancellation-fixture',
+            '--weight=1',
+            '--',
+            process.execPath,
+            '-e',
+            fixtureCode,
+        ], {
+            cwd: process.cwd(),
+            env: {
+                ...process.env,
+                EVB_GATE_EVIDENCE_DIR: evidenceDir,
+                EVB_GATE_SEMAPHORE_DIR: join(root, 'semaphore'),
+                READY: readyPath,
+            },
+            stdio: ['ignore', 'pipe', 'pipe'],
+        });
+        let output = '';
+        runner.stdout?.on('data', chunk => { output += String(chunk); });
+        runner.stderr?.on('data', chunk => { output += String(chunk); });
+        let fixturePid: number | undefined;
+        let descendantPid: number | undefined;
+        try {
+            await vi.waitFor(() => {
+                expect(existsSync(readyPath)).toBe(true);
+                [fixturePid, descendantPid] = readFileSync(readyPath, 'utf8')
+                    .trim()
+                    .split(':')
+                    .map(Number);
+                expect(fixturePid).toBeGreaterThan(0);
+                expect(descendantPid).toBeGreaterThan(0);
+            }, {timeout: 5000});
+            expect(collectDescendantPidsUnix(runner.pid ?? 0)).toEqual(
+                expect.arrayContaining([fixturePid!, descendantPid!]),
+            );
+            runner.kill('SIGTERM');
+            runner.kill('SIGINT');
+            await new Promise<void>(resolve => runner.once('close', () => resolve()));
+            expect(output).toContain('Validation interrupted');
+            expect(isProcessAlive(fixturePid!)).toBe(false);
+            expect(isProcessAlive(descendantPid!)).toBe(false);
+            const evidenceFiles = await readdir(evidenceDir);
+            const evidenceFile = evidenceFiles.find(file => file.endsWith('.ndjson'));
+            expect(evidenceFile).toBeDefined();
+            const evidence = readFileSync(join(evidenceDir, evidenceFile!), 'utf8');
+            expect(evidence).toContain('"status":"interrupted"');
+            expect(evidence).toContain('"event":"run-end"');
+        } finally {
+            if (fixturePid && isProcessAlive(fixturePid)) {
+                try {
+                    process.kill(fixturePid, 'SIGKILL');
+                } catch {}
+            }
+            if (descendantPid && isProcessAlive(descendantPid)) {
+                try {
+                    process.kill(descendantPid, 'SIGKILL');
+                } catch {}
+            }
+            await forceKillAndWait(runner);
+            await rm(root, {force: true, recursive: true});
+        }
     });
 
     it('skips a deterministic stage only for an exact passing fingerprint', () => {

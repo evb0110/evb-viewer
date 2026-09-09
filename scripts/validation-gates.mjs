@@ -57,6 +57,7 @@ const allTs7Projects = [
 const eslintNodeHeapMb = 8192;
 const heavyGateDefaultWaitMs = 30 * 60_000;
 const heavyGateWaitReportIntervalMs = 10_000;
+const processTerminationGraceMs = 1_500;
 const validationCacheSchemaVersion = 1;
 const validationCacheRootOnlyDirectories = new Set([
     '.devkit',
@@ -228,11 +229,11 @@ function isToolingOnlyClassification(classification) {
 /** @typedef {{paths: string[]}} IValidationImpactDefinition */
 /** @typedef {{additionalInputPaths?: string[], extraValues?: unknown[], inputPaths?: string[], inputScope?: string | undefined, root?: string, tools?: string[]}} IValidationFingerprintOptions */
 /** @typedef {{cacheHit: boolean, cacheReason: string, cacheState: string, inputFingerprint: string}} IValidationCacheDecision */
-/** @typedef {{cache: string, cacheHit: boolean, cacheReason: string, dependsOn: string[], endedAt: string, gateCapacity?: number, gateWaitMs?: number, id: string, inputFingerprint: string, loadAverage: number[], skipped: boolean, status: 'passed' | 'failed', wallMs: number, weight: number}} IValidationStageResult */
+/** @typedef {{cache: string, cacheHit: boolean, cacheReason: string, dependsOn: string[], endedAt: string, gateCapacity?: number, gateWaitMs?: number, id: string, inputFingerprint: string, loadAverage: number[], skipped: boolean, status: 'passed' | 'failed' | 'interrupted', wallMs: number, weight: number}} IValidationStageResult */
 /** @typedef {{error: unknown, id: string}} IValidationStageFailure */
 /** @typedef {{dependency: string, id: string}} IValidationStageSkip */
-/** @typedef {{capacity: number, coordinated: boolean, release: () => Promise<void>, waitedMs: number}} IHeavyGateHandle */
-/** @typedef {{acquired: boolean, capacity: number, holders: {id: string, pid: number, projectRoot?: string, weight: number}[], usedWeight: number}} IHeavyGateAdmission */
+/** @typedef {{capacity: number, coordinated: boolean, release: (options?: {ownedGroupIds?: number[], ownedPids?: number[], retain?: boolean}) => Promise<void>, waitedMs: number}} IHeavyGateHandle */
+/** @typedef {{acquired: boolean, capacity: number, holders: {id: string, ownedGroupIds?: number[], ownedPids?: number[], pid: number, projectRoot?: string, weight: number}[], usedWeight: number}} IHeavyGateAdmission */
 /** @typedef {{error: unknown, ok: boolean, stageDefinition: IValidationStage}} IValidationStageOutcome */
 /** @typedef {{failures: IValidationStageFailure[], skipped: IValidationStageSkip[]}} IValidationStagePoolResult */
 /** @typedef {{code?: string, message?: string}} INodeError */
@@ -1437,7 +1438,7 @@ export async function pruneRetentionEntries({
     return removed;
 }
 /** @param {string[]} argv */
-async function runLint(argv) {
+async function runLint(argv, {signal} = {}) {
     const changed = argv.includes('--changed');
     const fix = argv.includes('--fix');
     const all = argv.includes('--all');
@@ -1620,6 +1621,7 @@ async function runLint(argv) {
     await runStages(commands, {
         changes,
         noCache,
+        signal,
         tier: all ? 'lint-all' : (changed ? 'lint-changed' : 'lint'),
     });
 }
@@ -1784,13 +1786,14 @@ function heavyGateAdmissionState(admission) {
     ].join('|');
 }
 
-/** @param {{capacity?: number, env?: NodeJS.ProcessEnv, failOpenOnTimeout?: boolean, id?: string, root?: string, waitMs?: number, weight?: number}} options @returns {Promise<IHeavyGateHandle>} */
+/** @param {{capacity?: number, env?: NodeJS.ProcessEnv, failOpenOnTimeout?: boolean, id?: string, root?: string, signal?: AbortSignal, waitMs?: number, weight?: number}} options @returns {Promise<IHeavyGateHandle>} */
 export async function acquireHeavyGate({
     env = process.env,
     capacity,
     failOpenOnTimeout = false,
     id = 'heavy',
     root = heavyGateRoot(env),
+    signal,
     waitMs = parsePositiveInteger(env.EVB_GATE_WAIT_MS, heavyGateDefaultWaitMs),
     weight = 1,
 } = {}) {
@@ -1833,6 +1836,9 @@ export async function acquireHeavyGate({
     let lastReportedState = '';
     let lastReportedAtMs = 0;
     while (Date.now() <= deadline) {
+        if (signal?.aborted) {
+            throw new ValidationInterruptedError();
+        }
         /** @type {IHeavyGateAdmission | null} */
         const admission = /** @type {IHeavyGateAdmission | null} */ (await withMutationLock(root, async () => {
             const currentCapacity = resolveCurrentCapacity();
@@ -1844,7 +1850,13 @@ export async function acquireHeavyGate({
                 const candidatePath = path.join(holdersDir, name);
                 const holder = await readJson(candidatePath);
                 const holderPid = typeof holder?.pid === 'number' ? holder.pid : 0;
-                if (!holder || !isPidAlive(holderPid)) {
+                const ownedPids = Array.isArray(holder?.ownedPids)
+                    ? holder.ownedPids.filter(pid => typeof pid === 'number' && isPidAlive(pid))
+                    : [];
+                const ownedGroupIds = Array.isArray(holder?.ownedGroupIds)
+                    ? holder.ownedGroupIds.filter(pid => typeof pid === 'number' && isProcessGroupAlive(pid))
+                    : [];
+                if (!holder || (!isPidAlive(holderPid) && ownedPids.length === 0 && ownedGroupIds.length === 0)) {
                     await unlink(candidatePath).catch(() => undefined);
                     continue;
                 }
@@ -1854,6 +1866,8 @@ export async function acquireHeavyGate({
                     id: typeof holder.id === 'string' ? holder.id : 'unknown',
                     pid: holderPid,
                     weight: holderWeight,
+                    ...(ownedGroupIds.length > 0 ? {ownedGroupIds} : {}),
+                    ...(ownedPids.length > 0 ? {ownedPids} : {}),
                     ...(typeof holder.projectRoot === 'string'
                         ? {projectRoot: holder.projectRoot}
                         : {}),
@@ -1887,6 +1901,7 @@ export async function acquireHeavyGate({
             };
         }));
         if (admission?.acquired) {
+            const heldWeight = Math.min(requestedWeight, admission.capacity);
             const waitedMs = blockedSinceMs === undefined
                 ? 0
                 : Math.max(0, Date.now() - blockedSinceMs);
@@ -1902,7 +1917,20 @@ export async function acquireHeavyGate({
             return {
                 capacity: admission.capacity,
                 coordinated: true,
-                release: async () => {
+                release: async ({ownedGroupIds = [], ownedPids = [], retain = false} = {}) => {
+                    if (retain || ownedPids.some(pid => isPidAlive(pid)) || ownedGroupIds.some(pid => isProcessGroupAlive(pid))) {
+                        await writeFile(holderPath, JSON.stringify({
+                            acquiredAt: new Date().toISOString(),
+                            id,
+                            ownedGroupIds,
+                            ownedPids,
+                            pid: process.pid,
+                            projectRoot,
+                            retained: true,
+                            weight: heldWeight,
+                        }), 'utf8');
+                        return;
+                    }
                     await unlink(holderPath).catch(() => undefined);
                 },
                 waitedMs,
@@ -1988,23 +2016,142 @@ async function reportRepoSessions() {
     }
 }
 
-/** @param {string} command @param {string[]} args @param {NodeJS.ProcessEnv} env @returns {Promise<void>} */
-async function spawnInherited(command, args, env) {
+function getProcessGroupId(pid) {
+    if (process.platform === 'win32') {
+        return pid;
+    }
+    try {
+        const output = execFileSync('ps', ['-p', String(pid), '-o', 'pgid='], {
+            encoding: 'utf8',
+            stdio: ['ignore', 'pipe', 'ignore'],
+        }).trim();
+        const groupId = Number(output);
+        return Number.isInteger(groupId) && groupId > 0 ? groupId : null;
+    } catch {
+        return null;
+    }
+}
+
+function isProcessGroupAlive(pid) {
+    if (process.platform === 'win32') {
+        return isPidAlive(pid);
+    }
+    try {
+        process.kill(-pid, 0);
+        return true;
+    } catch (error) {
+        return isNodeError(error) && error.code === 'EPERM';
+    }
+}
+
+async function waitForProcessGroupExit(pid, timeoutMs) {
+    const deadline = Date.now() + timeoutMs;
+    while (isProcessGroupAlive(pid) && Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    return !isProcessGroupAlive(pid);
+}
+
+async function stopSpawnedProcess(child, signal) {
+    const pid = child.pid;
+    if (!pid || !isPidAlive(pid)) {
+        return isProcessGroupAlive(pid)
+            ? {owned: false, ownedGroupIds: [pid], ownedPids: [pid]}
+            : {owned: true, ownedGroupIds: [], ownedPids: []};
+    }
+    let groupId = getProcessGroupId(pid);
+    const identityDeadline = Date.now() + processTerminationGraceMs;
+    while (groupId === null && isPidAlive(pid) && Date.now() < identityDeadline) {
+        await new Promise(resolve => setTimeout(resolve, 20));
+        groupId = getProcessGroupId(pid);
+    }
+    const owned = groupId === pid;
+    if (!owned) {
+        return {owned: false, ownedGroupIds: [pid], ownedPids: [pid]};
+    }
+    if (process.platform === 'win32') {
+        child.kill(signal);
+    } else {
+        process.kill(-pid, signal);
+    }
+    if (await waitForProcessGroupExit(pid, processTerminationGraceMs)) {
+        return {owned: true, ownedPids: []};
+    }
+    if (process.platform === 'win32') {
+        try {
+            execFileSync('taskkill', ['/PID', String(pid), '/T', '/F'], {stdio: 'ignore'});
+        } catch {}
+    } else if (getProcessGroupId(pid) === pid) {
+        process.kill(-pid, 'SIGKILL');
+    } else {
+        return {owned: false, ownedGroupIds: [pid], ownedPids: [pid]};
+    }
+    if (await waitForProcessGroupExit(pid, processTerminationGraceMs)) {
+        return {owned: true, ownedPids: []};
+    }
+    return {owned: false, ownedGroupIds: [pid], ownedPids: [pid]};
+}
+
+class ValidationInterruptedError extends Error {
+    constructor(message = 'Validation interrupted') {
+        super(message);
+        this.name = 'ValidationInterruptedError';
+        this.interrupted = true;
+    }
+}
+
+/** @param {string} command @param {string[]} args @param {NodeJS.ProcessEnv} env @param {{signal?: AbortSignal}} [options] @returns {Promise<void>} */
+async function spawnInherited(command, args, env, {signal} = {}) {
     return new Promise((resolve, reject) => {
         const child = spawn(command, args, {
             cwd: projectRoot,
+            detached: process.platform !== 'win32',
             env,
             stdio: 'inherit',
         });
-        child.on('error', reject);
-        child.on('close', (status, signal) => {
+        let stopping = false;
+        let settled = false;
+        const onAbort = () => {
+            if (stopping || settled) {
+                return;
+            }
+            stopping = true;
+            void stopSpawnedProcess(child, 'SIGTERM').then(result => {
+                if (!result.owned) {
+                    const error = new ValidationInterruptedError(
+                        'Validation interrupted; stage ownership could not be proven',
+                    );
+                    error.retainCapacity = true;
+                    error.ownedGroupIds = result.ownedGroupIds;
+                    error.ownedPids = result.ownedPids;
+                    reject(error);
+                    return;
+                }
+                reject(new ValidationInterruptedError());
+            }).catch(error => reject(error));
+        };
+        signal?.addEventListener('abort', onAbort, {once: true});
+        if (signal?.aborted) {
+            onAbort();
+        }
+        child.on('error', error => {
+            settled = true;
+            signal?.removeEventListener('abort', onAbort);
+            reject(error);
+        });
+        child.on('close', (status, exitSignal) => {
+            if (stopping) {
+                return;
+            }
+            settled = true;
+            signal?.removeEventListener('abort', onAbort);
             if (status === 0) {
                 resolve();
                 return;
             }
             reject(new Error(
-                signal
-                    ? `${command} ${args.join(' ')} exited after signal ${signal}`
+                exitSignal
+                    ? `${command} ${args.join(' ')} exited after signal ${exitSignal}`
                     : `${command} ${args.join(' ')} failed with status ${status ?? 1}`,
             ));
         });
@@ -2144,8 +2291,8 @@ function stageResourceWeight(stageDefinition, capacity) {
     return Math.max(1, Math.min(Math.floor(requested), capacity));
 }
 
-/** @param {IValidationStage[]} stages @param {(stage: IValidationStage) => Promise<void>} runStage @param {{capacity?: number}} options @returns {Promise<IValidationStagePoolResult>} */
-export async function runStagePool(stages, runStage, {capacity = getDefaultGateCapacity()} = {}) {
+/** @param {IValidationStage[]} stages @param {(stage: IValidationStage, context: {signal?: AbortSignal}) => Promise<void>} runStage @param {{capacity?: number, signal?: AbortSignal}} options @returns {Promise<IValidationStagePoolResult>} */
+export async function runStagePool(stages, runStage, {capacity = getDefaultGateCapacity(), signal} = {}) {
     const effectiveCapacity = Math.max(1, Math.floor(capacity));
     /** @type {Map<string, IValidationStage>} */
     const stageById = new Map();
@@ -2213,7 +2360,7 @@ export async function runStagePool(stages, runStage, {capacity = getDefaultGateC
         pending.delete(stageDefinition.id);
         usedCapacity += weight;
         const promise = Promise.resolve()
-            .then(() => runStage(stageDefinition))
+            .then(() => runStage(stageDefinition, {signal}))
             .then(
                 () => ({
                     error: null,
@@ -2235,7 +2382,7 @@ export async function runStagePool(stages, runStage, {capacity = getDefaultGateC
 
     while (pending.size > 0 || running.size > 0) {
         let launched = true;
-        while (launched) {
+        while (launched && !signal?.aborted) {
             launched = false;
             const availableCapacity = effectiveCapacity - usedCapacity;
             const candidate = sortedReadyStages().find(stageDefinition => (
@@ -2249,6 +2396,9 @@ export async function runStagePool(stages, runStage, {capacity = getDefaultGateC
 
         if (running.size === 0) {
             if (pending.size === 0) {
+                break;
+            }
+            if (signal?.aborted) {
                 break;
             }
             throw new Error('Validation stage dependency graph contains a cycle or an unsatisfied dependency.');
@@ -2266,6 +2416,13 @@ export async function runStagePool(stages, runStage, {capacity = getDefaultGateC
             id: outcome.stageDefinition.id,
         });
         skipDependents(outcome.stageDefinition.id);
+    }
+
+    if (signal?.aborted) {
+        const interrupted = new ValidationInterruptedError();
+        interrupted.failures = failures;
+        interrupted.skipped = skipped;
+        throw interrupted;
     }
 
     if (failures.length > 0) {
@@ -2319,17 +2476,20 @@ export function selectValidationStages(stages, requestedIds = []) {
     return stages.filter(stageDefinition => selectedIds.has(stageDefinition.id));
 }
 
-/** @param {IValidationStage[]} stages @param {{changes?: IValidationChanges, noCache?: boolean, tier?: TValidationTier}} options @returns {Promise<void>} */
+/** @param {IValidationStage[]} stages @param {{changes?: IValidationChanges, noCache?: boolean, signal?: AbortSignal, tier?: TValidationTier}} options @returns {Promise<void>} */
 async function runStages(stages, {
     changes = {
         files: [],
         known: true,
     },
     noCache = process.env.EVB_GATE_NO_CACHE === '1',
+    signal,
     tier = 'heavy',
 } = {}) {
     const runId = `${new Date().toISOString().replaceAll(/[:.]/gu, '-')}-${process.pid}-${randomUUID().slice(0, 8)}`;
-    const evidenceDir = path.join(projectRoot, '.devkit', 'analysis', 'gates');
+    const evidenceDir = process.env.EVB_GATE_EVIDENCE_DIR
+        ? path.resolve(process.env.EVB_GATE_EVIDENCE_DIR)
+        : path.join(projectRoot, '.devkit', 'analysis', 'gates');
     const evidencePath = path.join(evidenceDir, `${runId}.ndjson`);
     await mkdir(evidenceDir, {recursive: true});
     const evidence = createWriteStream(evidencePath, {
@@ -2362,7 +2522,10 @@ async function runStages(stages, {
             inputFingerprint: stageInputFingerprint(stageDefinition, changes),
         }));
         /** @param {IValidationStage} stageDefinition */
-        const runStage = async stageDefinition => {
+        const runStage = async (stageDefinition, {signal: stageSignal} = {}) => {
+            if (stageSignal?.aborted) {
+                throw new ValidationInterruptedError();
+            }
             const dependsOn = stageDefinition.dependsOn ?? [];
             const cacheDecision = getValidationStageCacheDecision(stageDefinition, {
                 changes,
@@ -2375,6 +2538,9 @@ async function runStages(stages, {
                 cacheState,
                 inputFingerprint,
             } = cacheDecision;
+            if (stageSignal?.aborted) {
+                throw new ValidationInterruptedError();
+            }
             if (cacheHit) {
                 const timestamp = new Date().toISOString();
                 /** @type {IValidationStageResult} */
@@ -2421,10 +2587,38 @@ async function runStages(stages, {
                 process.stdout.write(`[gate] Cache hit: ${stageDefinition.id}\n`);
                 return;
             }
-            const gate = await acquireHeavyGate({
-                id: stageDefinition.id,
-                weight: stageDefinition.heavyWeight ?? 0,
-            });
+            let gate;
+            try {
+                gate = await acquireHeavyGate({
+                    id: stageDefinition.id,
+                    signal: stageSignal,
+                    weight: stageDefinition.heavyWeight ?? 0,
+                });
+            } catch (error) {
+                if (error?.interrupted) {
+                    const endedAt = new Date().toISOString();
+                    const result = {
+                        cache: cacheState,
+                        cacheHit: false,
+                        cacheReason,
+                        dependsOn,
+                        endedAt,
+                        id: stageDefinition.id,
+                        inputFingerprint,
+                        loadAverage: os.loadavg(),
+                        skipped: false,
+                        status: 'interrupted',
+                        wallMs: 0,
+                        weight: stageDefinition.weight ?? 1,
+                    };
+                    results.push(result);
+                    evidence.write(`${JSON.stringify({
+                        event: 'stage-end',
+                        ...result,
+                    })}\n`);
+                }
+                throw error;
+            }
             const startedAtMs = Date.now();
             evidence.write(`${JSON.stringify({
                 cache: cacheState,
@@ -2446,8 +2640,9 @@ async function runStages(stages, {
                 dependsOn: stageDefinition.dependsOn,
                 weight: stageDefinition.weight ?? 1,
             })}\n`);
-            /** @type {'passed' | 'failed'} */
+            /** @type {'passed' | 'failed' | 'interrupted'} */
             let status = 'passed';
+            let stageError;
             try {
                 await spawnInherited(
                     stageDefinition.command,
@@ -2460,12 +2655,21 @@ async function runStages(stages, {
                             ? {EVB_HEAVY_GATE_HELD: '1'}
                             : {}),
                     },
+                    {signal: stageSignal},
                 );
+                if (stageSignal?.aborted) {
+                    throw new ValidationInterruptedError();
+                }
             } catch (error) {
-                status = 'failed';
+                stageError = error;
+                status = error?.interrupted ? 'interrupted' : 'failed';
                 throw error;
             } finally {
-                await gate.release();
+                await gate.release({
+                    ownedGroupIds: stageError?.ownedGroupIds ?? [],
+                    ownedPids: stageError?.ownedPids ?? [],
+                    retain: Boolean(stageError?.retainCapacity),
+                });
                 const endedAtMs = Date.now();
                 const result = {
                     cache: cacheState,
@@ -2490,7 +2694,10 @@ async function runStages(stages, {
                 })}\n`);
             }
         };
-        await runStagePool(preparedStages, runStage, {capacity: parsePositiveInteger(process.env.EVB_GATE_CAPACITY, getDefaultGateCapacity())});
+        await runStagePool(preparedStages, runStage, {
+            capacity: parsePositiveInteger(process.env.EVB_GATE_CAPACITY, getDefaultGateCapacity()),
+            signal,
+        });
     } finally {
         const endedAtMs = Date.now();
         evidence.write(`${JSON.stringify({
@@ -2503,9 +2710,11 @@ async function runStages(stages, {
                     id: result.id,
                     wallMs: result.wallMs,
                 })),
-            status: results.length === stages.length && results.every(result => result.status === 'passed')
-                ? 'passed'
-                : 'failed',
+            status: signal?.aborted
+                ? 'interrupted'
+                : (results.length === stages.length && results.every(result => result.status === 'passed')
+                    ? 'passed'
+                    : 'failed'),
             wallMs: endedAtMs - runStarted,
         })}\n`);
         /** @type {Promise<void>} */
@@ -2532,8 +2741,8 @@ async function runStages(stages, {
     }
 }
 
-/** @param {TValidationTier} tier @param {string[]} argv @returns {Promise<void>} */
-async function runTier(tier, argv) {
+/** @param {TValidationTier} tier @param {string[]} argv @param {{signal?: AbortSignal}} [options] @returns {Promise<void>} */
+async function runTier(tier, argv, {signal} = {}) {
     const changes = await collectValidationChanges({
         base: readArg(argv, 'base'),
         explicitFiles: readArgs(argv, 'file'),
@@ -2572,12 +2781,13 @@ async function runTier(tier, argv) {
             classification,
         },
         noCache: cold || argv.includes('--no-cache') || process.env.EVB_GATE_NO_CACHE === '1',
+        signal,
         tier,
     });
 }
 
-/** @param {string[]} argv @returns {Promise<void>} */
-async function runHeavyCommand(argv) {
+/** @param {string[]} argv @param {{signal?: AbortSignal}} [options] @returns {Promise<void>} */
+async function runHeavyCommand(argv, {signal} = {}) {
     const separatorIndex = argv.indexOf('--');
     const command = separatorIndex >= 0 ? argv[separatorIndex + 1] : undefined;
     if (typeof command !== 'string') {
@@ -2593,6 +2803,7 @@ async function runHeavyCommand(argv) {
         noCache: argv.includes('--cold')
             || argv.includes('--no-cache')
             || process.env.EVB_GATE_NO_CACHE === '1',
+        signal,
         tier: 'heavy',
     });
 }
@@ -2603,16 +2814,20 @@ async function main() {
         command,
         ...argv
     ] = process.argv.slice(2);
+    const cancellation = new AbortController();
+    const onSignal = () => cancellation.abort();
+    process.once('SIGINT', onSignal);
+    process.once('SIGTERM', onSignal);
     if (command === 'lint') {
-        await runLint(argv);
+        await runLint(argv, {signal: cancellation.signal});
         return;
     }
     if (command === 'heavy') {
-        await runHeavyCommand(argv);
+        await runHeavyCommand(argv, {signal: cancellation.signal});
         return;
     }
     if (isValidationTier(command)) {
-        await runTier(command, argv);
+        await runTier(command, argv, {signal: cancellation.signal});
         return;
     }
     throw new Error(

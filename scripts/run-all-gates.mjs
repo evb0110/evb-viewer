@@ -1,7 +1,10 @@
 #!/usr/bin/env node
 
 import { getCliErrorMessage } from './lib/cli-error.mjs';
-import {spawn} from 'node:child_process';
+import {
+    execFileSync,
+    spawn,
+} from 'node:child_process';
 import {
     createWriteStream,
     mkdirSync,
@@ -155,6 +158,72 @@ function gateTimestamp() {
     return new Date().toISOString().replaceAll(':', '').replace(/\.\d{3}Z$/u, 'Z');
 }
 
+function getProcessGroupId(pid) {
+    try {
+        const groupId = Number(execFileSync('ps', ['-p', String(pid), '-o', 'pgid='], {
+            encoding: 'utf8',
+            stdio: ['ignore', 'pipe', 'ignore'],
+        }).trim());
+        return Number.isInteger(groupId) && groupId > 0 ? groupId : null;
+    } catch {
+        return null;
+    }
+}
+
+function isProcessGroupAlive(pid) {
+    try {
+        process.kill(-pid, 0);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+async function stopGateProcess(child, signal) {
+    if (!child.pid) {
+        return false;
+    }
+    if (process.platform === 'win32') {
+        child.kill(signal);
+        const deadline = Date.now() + 1_500;
+        while (child.exitCode === null && Date.now() < deadline) {
+            await new Promise(resolve => setTimeout(resolve, 50));
+        }
+        if (child.exitCode === null) {
+            try {
+                execFileSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], {stdio: 'ignore'});
+            } catch {}
+        }
+        return true;
+    }
+    const identityDeadline = Date.now() + 1_500;
+    let groupId = getProcessGroupId(child.pid);
+    while (groupId === null && Date.now() < identityDeadline) {
+        await new Promise(resolve => setTimeout(resolve, 20));
+        groupId = getProcessGroupId(child.pid);
+    }
+    if (groupId !== child.pid) {
+        return false;
+    }
+    process.kill(-child.pid, signal);
+    const deadline = Date.now() + 1_500;
+    while (isProcessGroupAlive(child.pid) && Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    if (!isProcessGroupAlive(child.pid)) {
+        return true;
+    }
+    if (getProcessGroupId(child.pid) !== child.pid) {
+        return false;
+    }
+    process.kill(-child.pid, 'SIGKILL');
+    const forceDeadline = Date.now() + 1_500;
+    while (isProcessGroupAlive(child.pid) && Date.now() < forceDeadline) {
+        await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    return !isProcessGroupAlive(child.pid);
+}
+
 function runGate(gate, {
     env,
     index,
@@ -171,6 +240,7 @@ function runGate(gate, {
 
         const child = spawn(gate.command, gate.args, {
             cwd: projectRoot,
+            detached: process.platform !== 'win32',
             env,
             stdio: [
                 'ignore',
@@ -178,7 +248,10 @@ function runGate(gate, {
                 'pipe',
             ],
         });
-        const forwardSignal = signal => child.kill(signal);
+        let cancellation;
+        const forwardSignal = signal => {
+            cancellation ??= stopGateProcess(child, signal);
+        };
         const forwardSigint = () => forwardSignal('SIGINT');
         const forwardSigterm = () => forwardSignal('SIGTERM');
         process.once('SIGINT', forwardSigint);
@@ -192,11 +265,12 @@ function runGate(gate, {
             logStream.write(chunk);
         });
         let finished = false;
-        const finish = (code, signal, error) => {
+        const finish = async (code, signal, error) => {
             if (finished) {
                 return;
             }
             finished = true;
+            const ownershipVerified = cancellation ? await cancellation : true;
             process.off('SIGINT', forwardSigint);
             process.off('SIGTERM', forwardSigterm);
             const stoppedAt = new Date();
@@ -210,6 +284,8 @@ function runGate(gate, {
                 gate,
                 logPath,
                 signal,
+                interrupted: Boolean(cancellation),
+                ownershipVerified,
                 startedAt,
                 stoppedAt,
             });
@@ -226,7 +302,9 @@ function writeSummary(logDirectory, results) {
             command: commandText(result.gate),
             exitCode: result.code,
             gate: result.gate.id,
+            interrupted: result.interrupted,
             logPath: result.logPath,
+            ownershipVerified: result.ownershipVerified,
             signal: result.signal,
             startedAt: result.startedAt.toISOString(),
             stoppedAt: result.stoppedAt.toISOString(),
