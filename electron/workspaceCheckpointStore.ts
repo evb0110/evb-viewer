@@ -3,6 +3,7 @@ import {
     app,
     webContents,
 } from 'electron';
+import type {WebContents} from 'electron';
 import {
     readFile,
     rm,
@@ -38,6 +39,7 @@ import {
     type TWorkingCopyRole,
 } from '@electron/file-access/workingCopyStore';
 import {blockStaleWorkingCopyDirectoryCleanup} from '@electron/file-access/workingCopyCleanup';
+import {requireOpenPath} from '@electron/file-access/openPathCapabilities';
 
 const log = createLogger('workspace-checkpoint-store');
 
@@ -60,6 +62,14 @@ interface IStoredWorkspaceCheckpoint {
     claimedByWebContentsId?: number;
     checkpoint: IWorkspaceCheckpoint;
     lazyWorkingCopies?: IStoredLazyWorkingCopy[];
+    sourceProvenance?: IStoredSourceProvenance[];
+}
+
+interface IStoredSourceProvenance {
+    kind: 'open-grant' | 'working-copy';
+    ownerWebContentsId: number;
+    sourceRef: string;
+    workingCopyRef?: string;
 }
 
 interface IWorkspaceCheckpointSaveWaiter {
@@ -245,6 +255,34 @@ function decodeStoredCheckpoint(value: unknown): IStoredWorkspaceCheckpoint | nu
             lazyWorkingCopies.push(decoded);
         }
     }
+    const sourceProvenance: IStoredSourceProvenance[] = [];
+    if (value.sourceProvenance !== undefined) {
+        if (!Array.isArray(value.sourceProvenance)) {
+            return null;
+        }
+        for (const candidate of value.sourceProvenance) {
+            if (
+                !isRecord(candidate)
+                || (candidate.kind !== 'open-grant' && candidate.kind !== 'working-copy')
+                || !Number.isSafeInteger(candidate.ownerWebContentsId)
+                || typeof candidate.sourceRef !== 'string'
+                || !candidate.sourceRef
+                || (
+                    candidate.workingCopyRef !== undefined
+                    && (typeof candidate.workingCopyRef !== 'string' || !candidate.workingCopyRef)
+                )
+                || (candidate.kind === 'working-copy' && candidate.workingCopyRef === undefined)
+            ) {
+                return null;
+            }
+            sourceProvenance.push({
+                kind: candidate.kind,
+                ownerWebContentsId: candidate.ownerWebContentsId as number,
+                sourceRef: candidate.sourceRef,
+                ...(candidate.workingCopyRef === undefined ? {} : {workingCopyRef: candidate.workingCopyRef}),
+            });
+        }
+    }
     return {
         version: 1,
         ownerWebContentsId: value.ownerWebContentsId as number,
@@ -253,6 +291,7 @@ function decodeStoredCheckpoint(value: unknown): IStoredWorkspaceCheckpoint | nu
             : {claimedByWebContentsId: value.claimedByWebContentsId as number}),
         checkpoint,
         ...(lazyWorkingCopies.length === 0 ? {} : {lazyWorkingCopies}),
+        ...(sourceProvenance.length === 0 ? {} : {sourceProvenance}),
     };
 }
 
@@ -357,6 +396,80 @@ function canonicalizeCheckpointSources(
                 };
         }),
     } satisfies IWorkspaceCheckpoint;
+}
+
+function buildSourceProvenance(
+    checkpoint: IWorkspaceCheckpoint,
+    ownerWebContentsId: number,
+    sourceAuthorizationOwner: number | WebContents | undefined,
+) {
+    const provenance = new Map<string, IStoredSourceProvenance>();
+    for (const tab of checkpoint.tabs) {
+        if (!tab.sourceRef) {
+            continue;
+        }
+        const mappedSource = tab.workingCopyRef
+            ? parseDocumentRef(getWorkingCopyOriginalPath(tab.workingCopyRef, ownerWebContentsId)?.originalPath)
+            : null;
+        if (mappedSource && mappedSource === tab.sourceRef) {
+            provenance.set(`${tab.workingCopyRef ?? ''}\u0000${tab.sourceRef}`, {
+                kind: 'working-copy',
+                ownerWebContentsId,
+                sourceRef: tab.sourceRef,
+                workingCopyRef: tab.workingCopyRef!,
+            });
+            continue;
+        }
+        if (sourceAuthorizationOwner !== undefined) {
+            requireOpenPath(tab.sourceRef, sourceAuthorizationOwner);
+        }
+        provenance.set(`${tab.workingCopyRef ?? ''}\u0000${tab.sourceRef}`, {
+            kind: 'open-grant',
+            ownerWebContentsId,
+            sourceRef: tab.sourceRef,
+            ...(tab.workingCopyRef ? {workingCopyRef: tab.workingCopyRef} : {}),
+        });
+    }
+    return Array.from(provenance.values());
+}
+
+function assertDurableSourceProvenance(
+    stored: IStoredWorkspaceCheckpoint,
+    checkpoint: IWorkspaceCheckpoint,
+) {
+    const provenance = stored.sourceProvenance ?? [];
+    for (const tab of checkpoint.tabs) {
+        if (!tab.sourceRef) {
+            continue;
+        }
+        const entry = provenance.find(candidate => (
+            candidate.sourceRef === tab.sourceRef
+            && candidate.ownerWebContentsId === stored.ownerWebContentsId
+            && (
+                candidate.kind === 'open-grant'
+                || candidate.workingCopyRef === tab.workingCopyRef
+            )
+        ));
+        if (entry) {
+            continue;
+        }
+        if (tab.workingCopyRef) {
+            const mappedSource = parseDocumentRef(
+                getWorkingCopyOriginalPath(tab.workingCopyRef, stored.ownerWebContentsId)?.originalPath,
+            );
+            if (mappedSource === tab.sourceRef) {
+                continue;
+            }
+            const lazyWorkingCopy = stored.lazyWorkingCopies?.find(entry => (
+                entry.workingCopyRef === tab.workingCopyRef
+                && parseDocumentRef(entry.originalPath) === tab.sourceRef
+            ));
+            if (lazyWorkingCopy) {
+                continue;
+            }
+        }
+        throw new Error('Workspace checkpoint source has no durable authorization provenance');
+    }
 }
 
 async function quarantineCorruptWorkspaceCheckpoint(reason: string) {
@@ -623,7 +736,11 @@ function enqueueWorkspaceCheckpointBarrier<T>(operation: () => Promise<T>) {
     return barrier;
 }
 
-export async function saveWorkspaceCheckpoint(checkpoint: IWorkspaceCheckpoint, ownerWebContentsId: number) {
+export async function saveWorkspaceCheckpoint(
+    checkpoint: IWorkspaceCheckpoint,
+    ownerWebContentsId: number,
+    sourceAuthorizationOwner?: number | WebContents,
+) {
     if (discardedCheckpointOwnerGenerations.has(ownerWebContentsId)) {
         return;
     }
@@ -639,6 +756,11 @@ export async function saveWorkspaceCheckpoint(checkpoint: IWorkspaceCheckpoint, 
         ownerWebContentsId,
         {rejectUnmappedWorkingCopy: true},
     );
+    const sourceProvenance = buildSourceProvenance(
+        canonicalCheckpoint,
+        ownerWebContentsId,
+        sourceAuthorizationOwner,
+    );
     const lazyWorkingCopies = collectLazyWorkingCopies(checkpointWithRetainedTabs, ownerWebContentsId);
     const stored: IStoredWorkspaceCheckpoint = {
         version: 1,
@@ -649,6 +771,7 @@ export async function saveWorkspaceCheckpoint(checkpoint: IWorkspaceCheckpoint, 
             : {}),
         checkpoint: canonicalCheckpoint,
         ...(lazyWorkingCopies.length === 0 ? {} : {lazyWorkingCopies}),
+        ...(sourceProvenance.length === 0 ? {} : {sourceProvenance}),
     };
     await checkpointBarrierQueue;
     if (discardedCheckpointOwnerGenerations.has(ownerWebContentsId)) {
@@ -731,6 +854,7 @@ export async function claimWorkspaceCheckpoint(newOwnerWebContentsId: number) {
             stored.ownerWebContentsId,
             {rejectUnmappedWorkingCopy: false},
         );
+        assertDurableSourceProvenance(stored, canonicalCheckpoint);
         const lazyWorkingCopies = new Map(
             (stored.lazyWorkingCopies ?? []).map(entry => [
                 entry.workingCopyRef,

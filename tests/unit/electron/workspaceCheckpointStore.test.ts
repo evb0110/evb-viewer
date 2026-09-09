@@ -22,6 +22,10 @@ import {requirePaneId} from '@contracts/editorPanes';
 import {requireEpochMs} from '@contracts/timestamps';
 import {requireTabId} from '@contracts/windowTabs';
 import type {IWorkspaceCheckpoint} from '@contracts/workspaceCheckpoint';
+import {
+    allowOpenPath,
+    requireOpenPath,
+} from '@electron/file-access/openPathCapabilities';
 
 import {
     acknowledgeWorkspaceCheckpoint,
@@ -294,6 +298,59 @@ describe('workspace checkpoint store', () => {
     it('rejects checkpoints that reference another renderer working copy', async () => {
         state.owners.set(workingCopyRef, 99);
         await expect(saveWorkspaceCheckpoint(checkpoint, 11)).rejects.toThrow('unowned working copy');
+    });
+
+    it('validates forwarded source-only saves against the sender grant and preserves the last record', async () => {
+        const grantedPdfPath = join(state.userDataPath, 'granted.pdf');
+        const ungrantedJsonPath = join(state.userDataPath, 'ungranted.json');
+        await writeFile(grantedPdfPath, '%PDF-1.7 synthetic checkpoint fixture');
+        await writeFile(ungrantedJsonPath, '{"synthetic":true}');
+        const grantedCheckpoint = {
+            ...checkpoint,
+            tabs: [{
+                ...checkpoint.tabs[0]!,
+                sourceRef: requireDocumentRef(grantedPdfPath),
+                workingCopyRef: null,
+                isDirty: false,
+            }],
+        };
+        const forgedCheckpoint = {
+            ...grantedCheckpoint,
+            tabs: [{
+                ...grantedCheckpoint.tabs[0]!,
+                sourceRef: requireDocumentRef(ungrantedJsonPath),
+            }],
+        };
+        allowOpenPath(grantedPdfPath, 11);
+
+        await saveWorkspaceCheckpoint(grantedCheckpoint, 11, 11);
+        await expect(saveWorkspaceCheckpoint(forgedCheckpoint, 11, 11))
+            .rejects.toThrow('Path not allowed');
+        expect(() => requireOpenPath(ungrantedJsonPath, 11)).toThrow('Path not allowed');
+        expect(JSON.parse(await readFile(join(state.userDataPath, 'workspace-checkpoint.json'), 'utf8')).checkpoint)
+            .toEqual(grantedCheckpoint);
+    });
+
+    it('keeps legacy source-only evidence but refuses to authorize it on claim', async () => {
+        const legacyPath = join(state.userDataPath, 'legacy.txt');
+        await writeFile(legacyPath, 'legacy checkpoint fixture');
+        await writeFile(join(state.userDataPath, 'workspace-checkpoint.json'), JSON.stringify({
+            version: 1,
+            ownerWebContentsId: 11,
+            checkpoint: {
+                ...checkpoint,
+                tabs: [{
+                    ...checkpoint.tabs[0]!,
+                    sourceRef: requireDocumentRef(legacyPath),
+                    workingCopyRef: null,
+                }],
+            },
+        }));
+
+        await expect(claimWorkspaceCheckpoint(22))
+            .rejects.toThrow('no durable authorization provenance');
+        expect(() => requireOpenPath(legacyPath, 22)).toThrow('Path not allowed');
+        expect(await readdir(state.userDataPath)).toContain('workspace-checkpoint.json');
     });
 
     it('fails closed and preserves the checkpoint when its file cannot be read', async () => {

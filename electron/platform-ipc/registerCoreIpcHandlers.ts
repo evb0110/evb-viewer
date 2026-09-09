@@ -184,8 +184,11 @@ export function registerCoreIpcHandlers(
         acknowledgePendingExternalOpenPaths: ({sender}, failedPaths) => {
             options.acknowledgePendingExternalOpenPaths?.(sender, failedPaths);
         },
-        saveWorkspaceCheckpoint: async ({senderId}, checkpoint) => {
-            await saveWorkspaceCheckpoint(checkpoint, senderId);
+        saveWorkspaceCheckpoint: async ({
+            sender,
+            senderId,
+        }, checkpoint) => {
+            await saveWorkspaceCheckpoint(checkpoint, senderId, sender);
         },
         discardWorkspaceCheckpoint: async ({senderId}) => {
             assertAutomationCheckpointReset();
