@@ -666,12 +666,14 @@ async function streamPdfBytesToPersistencePort(
     channel.port1.start();
     const lifecycle = new PdfPersistencePortLifecycle(channel.port1, limits);
     let portTransferred = false;
-    const chunkIterator = createDocumentChunkIterator(chunks);
+    let chunkIterator: ReturnType<typeof createDocumentChunkIterator> | undefined;
+    let sourceExhausted = false;
     try {
         ipcRenderer.postMessage(DOCUMENTS_CHANNELS.fileSavePdfDataPort, beginResult.sessionId, [channel.port2]);
         portTransferred = true;
         await lifecycle.waitUntilReady();
 
+        chunkIterator = createDocumentChunkIterator(chunks);
         let seq = 0;
         let bytesWritten = 0;
         const inFlightAcks: Array<Promise<void>> = [];
@@ -681,6 +683,7 @@ async function streamPdfBytesToPersistencePort(
                 lifecycle.waitForAbort(),
             ]);
             if (nextChunk.done) {
+                sourceExhausted = true;
                 break;
             }
             const chunk = nextChunk.value;
@@ -715,7 +718,9 @@ async function streamPdfBytesToPersistencePort(
         lifecycle.abort(error);
         throw error;
     } finally {
-        void chunkIterator.return?.();
+        if (!sourceExhausted) {
+            void chunkIterator?.return?.();
+        }
         lifecycle.abort(new Error('PDF persistence port lifecycle closed'));
         await lifecycle.drain();
         channel.port1.close();
