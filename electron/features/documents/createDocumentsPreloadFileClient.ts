@@ -412,10 +412,15 @@ function getTightTransferChunk(chunk: Uint8Array, fieldName: string) {
         : checkedChunk.slice();
 }
 
-async function* iterateDocumentChunks(chunks: TDocumentChunkSource) {
-    for await (const chunk of chunks) {
-        yield chunk;
+function createDocumentChunkIterator(chunks: TDocumentChunkSource) {
+    const asyncIterable = chunks as AsyncIterable<Uint8Array>;
+    const asyncIterator = asyncIterable[Symbol.asyncIterator];
+    if (typeof asyncIterator === 'function') {
+        return asyncIterator.call(chunks);
     }
+    return (async function*() {
+        yield* chunks;
+    })();
 }
 
 function* iterateUint8ArrayChunks(data: Uint8Array) {
@@ -455,6 +460,8 @@ class PdfPersistencePortLifecycle {
     private readonly trackedPromises: Array<Promise<unknown>> = [];
     private readonly acknowledgements = new Map<number, IPersistencePortDeferred<undefined>>();
     private readonly ready: IPersistencePortDeferred<undefined>;
+    private rejectAbort!: (error: unknown) => void;
+    private readonly abortPromise: Promise<never>;
     private result: IPersistencePortDeferred<ISerializedPdfPersistencePortResult> | null = null;
     private progressTimer: ReturnType<typeof setTimeout>;
     private aborted = false;
@@ -463,6 +470,10 @@ class PdfPersistencePortLifecycle {
         private readonly port: MessagePort,
         private readonly limits: ReturnType<typeof assertPersistenceProtocolLimits>,
     ) {
+        this.abortPromise = new Promise<never>((_resolve, reject) => {
+            this.rejectAbort = reject;
+        });
+        void this.abortPromise.catch(() => undefined);
         this.ready = this.createDeferred<undefined>(
             PDF_PERSISTENCE_READY_TIMEOUT_MS,
             'PDF persistence port did not become ready',
@@ -475,6 +486,10 @@ class PdfPersistencePortLifecycle {
 
     public waitUntilReady() {
         return this.ready.promise;
+    }
+
+    public waitForAbort() {
+        return this.abortPromise;
     }
 
     public waitForAcknowledgement(seq: number) {
@@ -526,6 +541,7 @@ class PdfPersistencePortLifecycle {
         }
         this.aborted = true;
         this.port.removeEventListener('message', this.handleMessage);
+        this.rejectAbort(error);
         this.rejectDeferred(this.ready, error);
         clearTimeout(this.progressTimer);
         if (this.result !== null) {
@@ -650,6 +666,7 @@ async function streamPdfBytesToPersistencePort(
     channel.port1.start();
     const lifecycle = new PdfPersistencePortLifecycle(channel.port1, limits);
     let portTransferred = false;
+    const chunkIterator = createDocumentChunkIterator(chunks);
     try {
         ipcRenderer.postMessage(DOCUMENTS_CHANNELS.fileSavePdfDataPort, beginResult.sessionId, [channel.port2]);
         portTransferred = true;
@@ -658,7 +675,15 @@ async function streamPdfBytesToPersistencePort(
         let seq = 0;
         let bytesWritten = 0;
         const inFlightAcks: Array<Promise<void>> = [];
-        for await (const chunk of iterateDocumentChunks(chunks)) {
+        while (true) {
+            const nextChunk = await Promise.race([
+                chunkIterator.next(),
+                lifecycle.waitForAbort(),
+            ]);
+            if (nextChunk.done) {
+                break;
+            }
+            const chunk = nextChunk.value;
             const bytes = getTightTransferChunk(chunk, `savePdfDataChunks.chunks[${seq}]`);
             bytesWritten += bytes.byteLength;
             if (bytes.byteLength > limits.maxChunkBytes || bytesWritten > expectedTotalBytes) {
@@ -690,6 +715,7 @@ async function streamPdfBytesToPersistencePort(
         lifecycle.abort(error);
         throw error;
     } finally {
+        void chunkIterator.return?.();
         lifecycle.abort(new Error('PDF persistence port lifecycle closed'));
         await lifecycle.drain();
         channel.port1.close();
