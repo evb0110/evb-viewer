@@ -1,0 +1,548 @@
+tests/unit/app/composables/pdfRegionSnipComposable.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 3-5
+  s_cafe86c3eba0a6::t_24a6a791715c59 23-24,26,28-29,31
+  s_cafe86c3eba0a6::t_711f8a845faab4 25,30
+tests/unit/electron/originalPathSaveWitness.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 57-60
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+tests/unit/app/modules/native-pdf-viewer/nativePdfViewerInitialRenderScheduling.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 3-4
+  s_cafe86c3eba0a6::t_24a6a791715c59 22-25
+tests/unit/electron/atomicReplace.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 51-54
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+tests/unit/app/modules/pdf-viewer/components/pdfOutlineItemCoverage.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 26-29
+  s_cafe86c3eba0a6::t_618f4c7624c68a 3-4
+tests/unit/app/modules/pdf-viewer/composables/usePdfTextLayerRenderer.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-3,104-105
+  s_cafe86c3eba0a6::t_24a6a791715c59 54-62
+tests/unit/electron/tesseract.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 49-52
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+tests/unit/electron/docxExportStreamCommitRace.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 43-46
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+tests/unit/app/modules/workspace-shell/composables/useScanCleanupRunCoordinator.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2,31-32
+tests/unit/app/modules/pdf-viewer/components/pdfAnnotationCommentsListIncompleteInventory.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 3-4
+  s_cafe86c3eba0a6::t_24a6a791715c59 26-29
+tests/unit/app/modules/pdf-viewer/components/pdfSidebarTabLifecycle.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 3-4
+  s_cafe86c3eba0a6::t_24a6a791715c59 23-26
+tests/unit/app/components/pdfImagePlacementOverlay.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 25-28
+  s_cafe86c3eba0a6::t_618f4c7624c68a 3-4
+tests/unit/electron/pageOpsInsert.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+  s_cafe86c3eba0a6::t_24a6a791715c59 107-110
+tests/unit/app/modules/agent-panel/assistantPanelMountedLifecycle.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 56-59
+  s_cafe86c3eba0a6::t_618f4c7624c68a 3-4
+tests/unit/app/modules/document-viewer/documentThumbnailListVirtualization.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 3-4
+  s_cafe86c3eba0a6::t_24a6a791715c59 24-27
+tests/unit/electron/djvuEmbedBookmarksNative.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 79-82
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+tests/unit/electron/macosPdfPrintDialog.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 21-28
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-3
+tests/unit/app/modules/document-viewer/documentThumbnailMetricsBudget.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 3-4
+  s_cafe86c3eba0a6::t_24a6a791715c59 43-46
+tests/unit/app/modules/workspace-shell/composables/useWorkspacePrintDriverFallback.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2,28-29
+tests/unit/app/modules/workspace-shell/composables/useWorkspaceSplitPayload.test.ts
+  s_cafe86c3eba0a6::t_711f8a845faab4 59
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-3,39-40
+  s_cafe86c3eba0a6::t_24a6a791715c59 57-58,60
+tests/unit/electron/nativePdfAssembler.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 162-165
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+tests/unit/app/platform/browserPdfValidation.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 24-27
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+tests/unit/electron/pdfOptimization.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 46-56
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-3
+tests/unit/app/components/toolbarAndOcrExportCoverage.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 25-28,30-43
+  s_cafe86c3eba0a6::t_618f4c7624c68a 3-7,44-45
+tests/unit/app/modules/workspace-shell/components/documentSourceSidebarCapabilityClamp.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 3-4
+  s_cafe86c3eba0a6::t_24a6a791715c59 40-43
+tests/unit/app/modules/workspace-shell/viewers/documentWorkspacePageSourceIntegration.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 3-4
+  s_cafe86c3eba0a6::t_24a6a791715c59 81-84
+tests/unit/electron/pdfConformance.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+  s_cafe86c3eba0a6::t_711f8a845faab4 228
+  s_cafe86c3eba0a6::t_24a6a791715c59 235-238
+tests/unit/app/platform/browserSearchWorker.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+  s_cafe86c3eba0a6::t_24a6a791715c59 21-24
+tests/unit/app/modules/workspace-shell/components/documentSourceSidebarBookmarks.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 3-4
+  s_cafe86c3eba0a6::t_24a6a791715c59 29-32
+tests/unit/app/modules/pdf-viewer/engine/search/pdfSearchHighlightCss.test.ts
+  s_cafe86c3eba0a6::t_711f8a845faab4 84
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+  s_cafe86c3eba0a6::t_24a6a791715c59 11-18
+tests/unit/app/modules/document-viewer/viewerInitialSurfaceBehavior.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 3-4
+  s_cafe86c3eba0a6::t_24a6a791715c59 25-28
+tests/unit/electron/djvuBookmarkEmbedding.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 40-43
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+tests/unit/app/modules/native-pdf-viewer/nativePdfViewerRevisionLifecycle.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 43-46,62-65
+  s_cafe86c3eba0a6::t_618f4c7624c68a 3-5
+tests/unit/electron/handleOptimizePdfAsCopy.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+  s_cafe86c3eba0a6::t_24a6a791715c59 35-38
+tests/unit/app/modules/pdf-viewer/components/pdfOutlineToolbarState.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 24-27
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+tests/unit/electron/openInputPaths.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 110-113
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+tests/unit/electron/settingsDiagnosticsConsent.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2,50-51
+tests/unit/electron/workspaceCheckpointStore.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2,89-90
+tests/unit/electron/pdfTextExtractorCancellation.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+  s_cafe86c3eba0a6::t_24a6a791715c59 20-23
+tests/unit/app/modules/workspace-shell/composables/useWorkspaceExport.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2,56-57
+tests/unit/app/platform/documentsPageOpsCapability.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 42-45
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+tests/unit/electron/workingCopyCleanup.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2,115-116
+tests/unit/electron/scanCleanupWorkingCopyClose.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-3,140-141
+  s_cafe86c3eba0a6::t_24a6a791715c59 113-120
+tests/unit/app/utils/platformDocuments.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 33-34,36
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+  s_cafe86c3eba0a6::t_711f8a845faab4 35
+tests/unit/electron/pdfEmbeddedShapeIndex.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-3
+  s_cafe86c3eba0a6::t_24a6a791715c59 56-59,66-71
+tests/unit/app/modules/scan-cleanup/scanCleanupComponents.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 3-4
+  s_cafe86c3eba0a6::t_24a6a791715c59 358-370
+tests/unit/electron/pdfSaveAsOptimization.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+  s_cafe86c3eba0a6::t_24a6a791715c59 41-42,44
+  s_cafe86c3eba0a6::t_711f8a845faab4 43
+tests/unit/app/modules/workspace-shell/splits/cleanupSplitPayloadSnapshot.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 20-23
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+tests/unit/app/modules/workspace-shell/composables/document-session/createDocumentOpenFlowRestore.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 57-60
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-3,48-49
+tests/unit/electron/documentsService.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2,44-45
+tests/unit/app/composables/useDocxExport.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-3,62-63
+  s_cafe86c3eba0a6::t_24a6a791715c59 68-71
+tests/unit/app/platform/browserDocumentsFileCapabilityValidate.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 21-24
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+tests/unit/app/modules/document-viewer/documentThumbnailActivationEvent.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 3-4
+  s_cafe86c3eba0a6::t_24a6a791715c59 47-50
+tests/unit/app/modules/pdf-viewer/components/pdfAnnotationCommentsListReplies.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 20-23
+  s_cafe86c3eba0a6::t_618f4c7624c68a 3-4
+tests/unit/app/utils/getViewerHostApi.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 46-49
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-3,37-38
+tests/unit/app/composables/useWebSeo.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+  s_cafe86c3eba0a6::t_24a6a791715c59 15-21
+tests/unit/app/utils/ocr/processing.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 12-15
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+tests/unit/electron/djvuConversion.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+  s_cafe86c3eba0a6::t_24a6a791715c59 202-205
+tests/unit/electron/ocrDocumentTextCatalogAgreement.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 209-212
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+tests/unit/electron/nativeCrop.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+  s_cafe86c3eba0a6::t_24a6a791715c59 26-29
+tests/unit/app/modules/workspace-shell/components/documentSourceSidebarActivationForwarding.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 3-4
+  s_cafe86c3eba0a6::t_24a6a791715c59 38-41
+tests/unit/electron/preloadCreateElectronApi.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+  s_cafe86c3eba0a6::t_24a6a791715c59 172-173,175
+  s_cafe86c3eba0a6::t_711f8a845faab4 174
+tests/unit/electron/documentRevisionInvalidationEffects.test.ts
+  s_cafe86c3eba0a6::t_054f60a77ba8c9 23,32-35
+tests/unit/app/modules/workspace-shell/components/documentSourceSidebarThumbnailSelection.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 3-4
+  s_cafe86c3eba0a6::t_24a6a791715c59 63-66
+tests/unit/app/modules/pdf-viewer/components/pdfToolbarOpeningPreview.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 22-25
+  s_cafe86c3eba0a6::t_618f4c7624c68a 3-4
+tests/unit/app/platform/browserImageExportCapability.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 50-51,53,91-92,94,108-109,111,113-114,116
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-5
+  s_cafe86c3eba0a6::t_711f8a845faab4 52,93,110,115
+tests/unit/electron/searchWorkerWarmupAndCache.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2,62-63
+tests/unit/app/modules/workspace-shell/composables/useWorkspacePrint.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-3,95-96,109-110
+tests/unit/app/modules/ocr-panel/useOcrPopupPresenter.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 46-52
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+tests/unit/app/modules/pdf-viewer/components/pdfSidebarBookmarkRetention.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 3-4
+  s_cafe86c3eba0a6::t_24a6a791715c59 25-28
+tests/unit/app/modules/workspace-shell/composables/useDirtyTabCloseDialog.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+  s_cafe86c3eba0a6::t_24a6a791715c59 19-22
+tests/unit/app/modules/pdf-viewer/pdfEmptyStateRecentOrder.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 24-29
+  s_cafe86c3eba0a6::t_618f4c7624c68a 3-4
+tests/unit/app/components/documentBookmarkTree.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 3-4
+  s_cafe86c3eba0a6::t_24a6a791715c59 25-28
+tests/unit/app/modules/workspace-shell/viewers/createWorkspaceViewerUpdateHandlers.test.ts
+  s_cafe86c3eba0a6::t_711f8a845faab4 22
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+  s_cafe86c3eba0a6::t_24a6a791715c59 20-21,23
+tests/unit/app/modules/workspace-shell/viewers/workspaceDocumentDriver.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2,63-64
+tests/unit/app/modules/workspace-shell/components/annotationNoteFocusReturn.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 21-24
+  s_cafe86c3eba0a6::t_618f4c7624c68a 3-4
+tests/unit/app/modules/pdf-viewer/engine/embeddedShapeAnnotationsWorkerClientNativeIndex.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 43-50
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-3
+tests/unit/electron/documentSaveUtilityAbort.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+  s_cafe86c3eba0a6::t_24a6a791715c59 31-34
+tests/unit/app/modules/scan-cleanup/scanCleanupPreviewNavigation.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 52-55
+  s_cafe86c3eba0a6::t_618f4c7624c68a 3-4
+tests/unit/electron/documentsSavePdfAs.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2,87-88
+tests/unit/app/components/settings/settingsPerformancePanel.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 3-4
+  s_cafe86c3eba0a6::t_24a6a791715c59 23-26
+tests/unit/electron/imageExport.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+  s_cafe86c3eba0a6::t_24a6a791715c59 107-117
+tests/unit/electron/hostEnvironmentZenEscape.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+  s_cafe86c3eba0a6::t_24a6a791715c59 116-119
+tests/unit/electron/pdfAnnotationIndex.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 56-59,66-71
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-3
+tests/unit/app/modules/workspace-shell/composables/usePageSaveOrchestration.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+  s_cafe86c3eba0a6::t_24a6a791715c59 49-52
+tests/unit/app/pages/aboutPage.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 3-4
+  s_cafe86c3eba0a6::t_24a6a791715c59 42-57
+tests/unit/electron/workspaceCheckpointLatestOnly.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2,64-65
+tests/unit/electron/requestShutdownSaveFlush.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 36-39
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+tests/unit/app/utils/documentBytes.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+  s_cafe86c3eba0a6::t_24a6a791715c59 23-24,26
+  s_cafe86c3eba0a6::t_711f8a845faab4 25
+tests/unit/app/modules/pdf-viewer/components/pdfOutlineContextMenuStyleControls.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+  s_cafe86c3eba0a6::t_24a6a791715c59 27-30
+tests/unit/app/modules/workspace-shell/composables/usePageStatusBar.test.ts
+  s_cafe86c3eba0a6::t_711f8a845faab4 87
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2,33-34
+tests/unit/electron/installDebugLogListener.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 15-18
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+tests/unit/app/modules/workspace-shell/composables/createDocumentPersistence.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 83-86
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-3,77-78
+tests/unit/electron/ocrRunOcrAbortWindow.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-3
+  s_cafe86c3eba0a6::t_24a6a791715c59 30-34,36,38-39,41
+  s_cafe86c3eba0a6::t_711f8a845faab4 35,40
+tests/unit/electron/pdfjsTextExtractorCancellation.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 39
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+tests/unit/electron/documentsPrint.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 234-248
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-5,223-224
+tests/unit/electron/scanCleanupService.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2,138-139
+tests/unit/app/composables/pdfWordBoxGeometry.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+  s_cafe86c3eba0a6::t_24a6a791715c59 14-17
+tests/unit/app/modules/workspace-shell/composables/useAppShellWorkspaceRouting.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 3-4,44-45
+tests/unit/app/modules/workspace-shell/components/workspacePdfToolbarOpeningPreview.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 28-31
+  s_cafe86c3eba0a6::t_618f4c7624c68a 3-4
+tests/unit/app/composables/useDjvu.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-3,104-105
+  s_cafe86c3eba0a6::t_24a6a791715c59 99-102
+tests/unit/app/modules/pdf-viewer/components/pdfAnnotationsPanel.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 35-38
+  s_cafe86c3eba0a6::t_618f4c7624c68a 3-4
+tests/unit/app/modules/pdf-viewer/components/pdfAnnotationCommentsListUiScale.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 30-33
+  s_cafe86c3eba0a6::t_618f4c7624c68a 3-4
+tests/unit/app/modules/pdf-viewer/components/pdfAnnotationToolbarToggle.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 3-4
+  s_cafe86c3eba0a6::t_24a6a791715c59 23-26
+tests/unit/app/modules/workspace-shell/composables/usePdfFileNativeMutations.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2,99-100
+tests/unit/electron/mainLoggerDiagnostics.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 27-30
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+tests/unit/app/components/pdfAnnotationStyleEditor.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 3-4
+  s_cafe86c3eba0a6::t_24a6a791715c59 35-38
+tests/unit/app/components/appSearchInput.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 22-25
+  s_cafe86c3eba0a6::t_618f4c7624c68a 3-4
+tests/unit/electron/djvuIpcHandlers.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+  s_cafe86c3eba0a6::t_24a6a791715c59 81-84
+tests/unit/electron/nativePdfPreviewLifecycle.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-3
+  s_cafe86c3eba0a6::t_24a6a791715c59 38-45
+tests/unit/electron/workingCopySave.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-4,76-77
+  s_cafe86c3eba0a6::t_24a6a791715c59 93-96,104-107
+tests/unit/app/modules/document-viewer/documentThumbnailRowSurfacePrecedence.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 3-4
+  s_cafe86c3eba0a6::t_24a6a791715c59 45-48
+tests/unit/app/services/pdf-file/readPdfConformanceProfile.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+  s_cafe86c3eba0a6::t_24a6a791715c59 19-22
+tests/unit/app/modules/pdf-viewer/engine/importEmbeddedShapeAnnotationsInWorker.test.ts
+  s_cafe86c3eba0a6::t_711f8a845faab4 44,52
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-4
+  s_cafe86c3eba0a6::t_24a6a791715c59 42-43,45-51,53
+tests/unit/app/platform/browserSearchCore.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+  s_cafe86c3eba0a6::t_24a6a791715c59 29-32
+tests/unit/app/platform/lazyBrowserPlatformApi.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2,29-30
+tests/unit/electron/pageOpsIpcHandlers.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2,126-127
+tests/unit/electron/serializedPdfPersistence.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-3,88-89
+  s_cafe86c3eba0a6::t_24a6a791715c59 105-108
+tests/unit/electron/pageMetadataRemap.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 37-40
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+tests/unit/app/modules/pdf-viewer/runtime/sessions/pdfRenderingSessionBehavior.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 3-4
+  s_cafe86c3eba0a6::t_24a6a791715c59 94-97
+tests/integration/browser/annotationCommentRowScale.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 3-4
+  s_cafe86c3eba0a6::t_24a6a791715c59 28-31
+tests/unit/app/modules/workspace-shell/composables/usePageFileOperations.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+  s_cafe86c3eba0a6::t_24a6a791715c59 43-49
+tests/unit/app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 78-81
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-3,69-70
+tests/unit/app/components/documentSearchResults.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 3-4
+  s_cafe86c3eba0a6::t_24a6a791715c59 22-25
+tests/unit/app/modules/pdf-viewer/components/pdfThumbnailsKeyboardNavigation.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 3-4
+  s_cafe86c3eba0a6::t_24a6a791715c59 22-28
+tests/unit/electron/buildPrintablePdfPath.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 32-39
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-3
+tests/unit/electron/ocrResourceGovernor.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+  s_cafe86c3eba0a6::t_24a6a791715c59 35-41
+tests/unit/electron/pdfAnnotationParse.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-3
+  s_cafe86c3eba0a6::t_24a6a791715c59 63-66,73-78
+tests/unit/electron/window.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-3,228-229
+  s_cafe86c3eba0a6::t_24a6a791715c59 215-218
+tests/unit/app/pages/privacyPage.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 3-4
+  s_cafe86c3eba0a6::t_24a6a791715c59 22-25
+tests/unit/electron/ocrReplacementOwnershipAlias.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+  s_cafe86c3eba0a6::t_24a6a791715c59 117-120
+tests/unit/electron/handleNativeNoteTextSave.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-4,82-83
+  s_cafe86c3eba0a6::t_24a6a791715c59 78-81,90-93
+tests/unit/app/modules/workspace-shell/composables/useAppShellDirectionalTabs.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 34-37
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+tests/unit/app/modules/pdf-viewer/components/pdfPrintDialogLayoutAvailability.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 21-24
+  s_cafe86c3eba0a6::t_618f4c7624c68a 3-4
+tests/unit/electron/djvuPdfExport.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+  s_cafe86c3eba0a6::t_24a6a791715c59 126-129
+tests/unit/electron/searchPathResolution.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2,30-31
+tests/unit/electron/settingsQuarantine.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2,35-36
+tests/unit/app/modules/scan-cleanup/useScanCleanupSourceSha256.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 28-31
+  s_cafe86c3eba0a6::t_618f4c7624c68a 3-4
+tests/unit/app/modules/pdf-viewer/engine/pdfDocumentSource.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 55-58
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+tests/unit/app/modules/pdf-viewer/engine/scanDocumentForEmbeddedShapeCandidates.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 18-21
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+tests/unit/app/modules/scan-cleanup/scanCleanupThumbnailRail.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 3-4
+  s_cafe86c3eba0a6::t_24a6a791715c59 188-200
+tests/unit/app/platform/searchCapability.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+  s_cafe86c3eba0a6::t_24a6a791715c59 97-100
+tests/unit/app/modules/workspace-shell/composables/useWorkspaceCrop.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 31-32,34
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+  s_cafe86c3eba0a6::t_711f8a845faab4 33
+tests/unit/app/components/combine/combinePdfPageMountedStateMachine.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 3-4
+  s_cafe86c3eba0a6::t_24a6a791715c59 55-58
+tests/unit/electron/fileOpsPathSecurity.test.ts
+  s_cafe86c3eba0a6::t_12622d82a76555 277-280,285
+  s_cafe86c3eba0a6::t_117d2b730b6e98 55-56
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-3,112-113
+  s_cafe86c3eba0a6::t_c5ebd86934568e 169,171
+  s_cafe86c3eba0a6::t_24a6a791715c59 163-166,281-284
+tests/unit/electron/ocrWorkerTesseractRunnerAbort.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 37-41,43,45-46,48,55-60,62
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-4
+  s_cafe86c3eba0a6::t_711f8a845faab4 42,47,61
+tests/unit/app/modules/pdf-viewer/components/pdfAnnotationCommentsListEmptyState.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 28-31
+  s_cafe86c3eba0a6::t_618f4c7624c68a 3-4
+tests/unit/app/modules/workspace-shell/composables/useWorkspaceDocumentLifecycleEffects.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+  s_cafe86c3eba0a6::t_24a6a791715c59 35-42
+tests/unit/electron/settingsMainBindingsDiagnostics.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+  s_cafe86c3eba0a6::t_24a6a791715c59 31-34
+tests/unit/app/modules/workspace-shell/viewers/documentPageSourceConcurrentLifecycle.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 42-46
+  s_cafe86c3eba0a6::t_618f4c7624c68a 3-4
+tests/unit/app/modules/scan-cleanup/scanCleanupWorkspaceSession.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 3-4
+  s_cafe86c3eba0a6::t_24a6a791715c59 75-104
+tests/unit/app/modules/pdf-viewer/composables/usePageOperations.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 82-89
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-3,59-60
+tests/unit/electron/imageExportIpc.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2,60-61
+tests/unit/app/modules/pdf-viewer/components/canonicalAnnotationUiProjection.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 30-33
+  s_cafe86c3eba0a6::t_618f4c7624c68a 3-4
+tests/unit/app/components/settings/settingsPrivacyPanel.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 3-5,28-29
+  s_cafe86c3eba0a6::t_24a6a791715c59 21-24
+tests/unit/app/modules/workspace-shell/composables/appShellLifecycleAndUpdates.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 3-4
+  s_cafe86c3eba0a6::t_24a6a791715c59 35-38
+tests/unit/app/modules/document-viewer/documentThumbnailRenderErrors.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 58-61
+  s_cafe86c3eba0a6::t_618f4c7624c68a 3-4
+tests/unit/electron/ocrPaths.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+  s_cafe86c3eba0a6::t_24a6a791715c59 44-47
+tests/unit/app/modules/pdf-viewer/usePdfViewerCurrentPageSync.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+  s_cafe86c3eba0a6::t_24a6a791715c59 17-20
+tests/unit/electron/childLoggerDiagnostics.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 19-22
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+tests/unit/app/modules/pdf-viewer/engine/createPdfRangeRequestBridge.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+  s_cafe86c3eba0a6::t_24a6a791715c59 20-23
+tests/unit/app/modules/pdf-viewer/components/pdfOutlineBookmarkIdentity.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+  s_cafe86c3eba0a6::t_24a6a791715c59 32-35
+tests/unit/electron/pageOpsQpdf.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 59-62,65-68
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-3
+tests/unit/electron/workingCopyMutationQueue.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-3
+  s_cafe86c3eba0a6::t_24a6a791715c59 27-30,53-56
+tests/unit/electron/commitPdfTempFile.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-4
+  s_cafe86c3eba0a6::t_24a6a791715c59 29-40
+tests/unit/app/modules/scan-cleanup/scanCleanupPageEta.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 18-30
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+tests/unit/app/utils/platformOcrArtifacts.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 17-20
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+tests/unit/electron/searchWarmIndexIpc.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2,110-111
+tests/unit/electron/searchIpcResourceLimits.test.ts
+  s_cafe86c3eba0a6::t_711f8a845faab4 607,623
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2,231-232
+tests/unit/app/composables/ocrErrorLocalization.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+  s_cafe86c3eba0a6::t_24a6a791715c59 16-19
+tests/unit/app/modules/workspace-shell/composables/useTabsShellBindings.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+  s_cafe86c3eba0a6::t_24a6a791715c59 69-72
+tests/unit/electron/searchWorkerCancellation.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2,45-46
+tests/unit/electron/stagedPdfNativeMutationHandlers.test.ts
+  s_cafe86c3eba0a6::t_24a6a791715c59 43-46
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+tests/unit/app/composables/useOcr.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-3,64-65
+  s_cafe86c3eba0a6::t_24a6a791715c59 60-63
+tests/unit/app/services/pdf/combinePdfFiles.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2,59-60
+tests/unit/electron/djvuImageExportLimits.test.ts
+  s_cafe86c3eba0a6::t_618f4c7624c68a 1-2
+  s_cafe86c3eba0a6::t_24a6a791715c59 40-43
+docs/local-gates.md
+  s_e4c38a5c21eafd::t_9a968ec23eaee1 79-85
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "6864dedecd2a175d786c62d83897e4abfc76c4d7",
+  "prompts": {},
+  "sessions": {
+    "s_cafe86c3eba0a6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0882b-ec44-74b3-8f5e-14764b2b4be1",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_e4c38a5c21eafd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5eb6c90b-53e8-4178-b868-46f9a6573dee",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
