@@ -1,0 +1,22 @@
+.github/workflows/ci.yml
+  s_e4c38a5c21eafd::t_880511df5517b1 127-128,133,347
+  s_e4c38a5c21eafd::t_850e3988d274c6 15-17,23,341
+scripts/ci/push-diff-base.sh
+  s_e4c38a5c21eafd::t_880511df5517b1 1-33
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "b5db8a42e4450feddf7739dae6f9e04e85aa5319",
+  "prompts": {},
+  "sessions": {
+    "s_e4c38a5c21eafd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5eb6c90b-53e8-4178-b868-46f9a6573dee",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
