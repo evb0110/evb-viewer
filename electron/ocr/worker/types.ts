@@ -59,7 +59,11 @@ export interface IOcrFileResult {
     terminationUnproven?: string;
 }
 
-export type TOcrNativeChildProcessIdentityKind = 'linux-proc-start-time' | 'opaque';
+export type TOcrNativeChildProcessIdentityKind =
+    | 'linux-proc-start-time'
+    | 'posix-start-time'
+    | 'windows-creation-time'
+    | 'opaque';
 
 export interface IOcrNativeChildProcessIdentity {
     kind: TOcrNativeChildProcessIdentityKind;

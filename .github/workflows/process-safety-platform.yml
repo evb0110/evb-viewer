@@ -11,6 +11,7 @@ on:
         options:
           - cli
           - host-protocol
+          - project8-fixture
 
 permissions:
   contents: read
@@ -21,7 +22,7 @@ env:
 jobs:
   unix-cli:
     name: CLI process safety (${{ matrix.os }})
-    if: ${{ inputs.acceptance != 'host-protocol' }}
+    if: ${{ inputs.acceptance == 'cli' }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
@@ -57,7 +58,7 @@ jobs:
 
   windows-identity:
     name: Windows process identity representation
-    if: ${{ inputs.acceptance != 'host-protocol' }}
+    if: ${{ inputs.acceptance == 'cli' }}
     runs-on: windows-2022
     timeout-minutes: 20
     steps:
@@ -114,3 +115,37 @@ jobs:
           tests/unit/scripts/windows-test/hostLease.test.ts
           tests/unit/scripts/windows-test/hostCoordinator.test.ts
           tests/unit/scripts/windows-test/hostStopRun.test.ts
+
+  project8-fixture:
+    name: Project 8 process proof (${{ matrix.os }})
+    if: ${{ inputs.acceptance == 'project8-fixture' }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - macos-14
+          - windows-2022
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
+
+      - name: Run Project 8 process proof fixture
+        run: >-
+          pnpm exec vitest run --project unit-electron
+          tests/unit/electron/project8ProcessProofPlatform.test.ts

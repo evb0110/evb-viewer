@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import { execFile } from 'node:child_process';
 import {readFile} from 'node:fs/promises';
+import { promisify } from 'node:util';
 import { terminateProcessTree } from '@electron/utils/processTree';
 import { shouldUseDetachedProcessGroup } from '@electron/utils/nativeChildProcess';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
@@ -12,6 +14,8 @@ const OCR_NATIVE_CHILD_KILL_GRACE_MS = parseIntegerEnv(
     250,
 );
 
+const execFileAsync = promisify(execFile);
+
 function parseLinuxProcStartTime(statText: string) {
     const commandEnd = statText.lastIndexOf(')');
     if (commandEnd < 0) {
@@ -22,10 +26,56 @@ function parseLinuxProcStartTime(statText: string) {
     return startTime && /^\d+$/u.test(startTime) ? startTime : null;
 }
 
+function normalizeProcessStartTime(value: string) {
+    const normalized = value.trim().replace(/\s+/gu, ' ');
+    return normalized.length > 0 ? normalized : null;
+}
+
+async function readPortableProcessIdentity(pid: number): Promise<IOcrNativeChildProcessIdentity | null> {
+    try {
+        if (process.platform === 'darwin') {
+            const {stdout} = await execFileAsync('/bin/ps', [
+                '-o',
+                'lstart=',
+                '-p',
+                String(pid),
+            ], {
+                timeout: 1_000,
+                maxBuffer: 16 * 1024,
+            });
+            const value = normalizeProcessStartTime(stdout);
+            return value === null ? null : {
+                kind: 'posix-start-time',
+                value,
+            };
+        }
+        if (process.platform === 'win32') {
+            const {stdout} = await execFileAsync('powershell.exe', [
+                '-NoProfile',
+                '-NonInteractive',
+                '-Command',
+                `(Get-CimInstance Win32_Process -Filter "ProcessId = ${pid}" | Select-Object -ExpandProperty CreationDate)`,
+            ], {
+                timeout: 2_000,
+                windowsHide: true,
+                maxBuffer: 16 * 1024,
+            });
+            const value = normalizeProcessStartTime(stdout);
+            return value === null ? null : {
+                kind: 'windows-creation-time',
+                value,
+            };
+        }
+    } catch {
+        return null;
+    }
+    return null;
+}
+
 /**
- * Linux gives us a PID reuse guard. Other supported platforms get an opaque
- * worker-generated token, which the main process deliberately cannot validate
- * after a worker crash.
+ * Each supported platform gets a stable process-start identity. An opaque
+ * token is reserved for worker-local registration only and cannot prove
+ * termination in the parent process.
  */
 export async function readOcrNativeChildProcessIdentity(
     pid: number,
@@ -33,35 +83,39 @@ export async function readOcrNativeChildProcessIdentity(
     if (!Number.isSafeInteger(pid) || pid <= 0) {
         return null;
     }
-    if (process.platform !== 'linux') {
-        return {
-            kind: 'opaque',
-            value: `${process.platform}:${pid}:${randomUUID()}`,
-        };
+    if (process.platform === 'linux') {
+        try {
+            const statText = await readFile(`/proc/${pid}/stat`, 'utf8');
+            const startTime = parseLinuxProcStartTime(statText);
+            return startTime === null
+                ? null
+                : {
+                    kind: 'linux-proc-start-time',
+                    value: startTime,
+                };
+        } catch {
+            return null;
+        }
     }
-
-    try {
-        const statText = await readFile(`/proc/${pid}/stat`, 'utf8');
-        const startTime = parseLinuxProcStartTime(statText);
-        return startTime === null
-            ? null
-            : {
-                kind: 'linux-proc-start-time',
-                value: startTime,
-            };
-    } catch {
-        return null;
+    if (process.platform === 'darwin' || process.platform === 'win32') {
+        return readPortableProcessIdentity(pid);
     }
+    return {
+        kind: 'opaque',
+        value: `${process.platform}:${pid}:${randomUUID()}`,
+    };
 }
 
 export interface IOcrNativeChildTerminationController {terminate(record: IOcrNativeChildRecord, reason: string): Promise<boolean>;}
 
 export function createOcrNativeChildTerminationController(): IOcrNativeChildTerminationController {
     return {async terminate(record) {
+        const processIdentity = record.processIdentity;
         if (
             (record.state !== 'registered' && record.state !== 'unproven')
                 || record.pid === null
-                || record.processIdentity?.kind !== 'linux-proc-start-time'
+                || processIdentity === null
+                || processIdentity.kind === 'opaque'
         ) {
             return false;
         }
@@ -69,8 +123,8 @@ export function createOcrNativeChildTerminationController(): IOcrNativeChildTerm
         const before = await readOcrNativeChildProcessIdentity(record.pid);
         if (
             before === null
-                || before.kind !== record.processIdentity.kind
-                || before.value !== record.processIdentity.value
+                || before.kind !== processIdentity.kind
+                || before.value !== processIdentity.value
         ) {
             return false;
         }

@@ -254,6 +254,8 @@ function parseWorkerCleanupCompleteMessage(message: Record<string, unknown>): TO
 function parseNativeChildProcessIdentity(value: unknown) {
     if (!isRecord(value) || !isOneOf([
         'linux-proc-start-time',
+        'posix-start-time',
+        'windows-creation-time',
         'opaque',
     ] as const, value.kind)) {
         return null;
