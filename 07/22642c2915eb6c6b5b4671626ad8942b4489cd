@@ -1,0 +1,19 @@
+app/platform/browserWindowTabs.ts
+  s_0e7307298be030::t_80a4b58a73f6bc 706,723,754-755,1138
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0722642c2915eb6c6b5b4671626ad8942b4489cd",
+  "prompts": {},
+  "sessions": {
+    "s_0e7307298be030": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a085a5-2d32-7c20-aec3-95b6b1cfc486",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,57 @@
+.github/workflows/ci.yml
+  s_0e7307298be030::t_55aa781be554ac 89-92,96,100-103,122,124-140,146,148
+scripts/run-all-gates.mjs
+  s_0e7307298be030::t_55aa781be554ac 27
+tests/unit/scripts/eslintPluginCustom.test.ts
+  s_0e7307298be030::t_55aa781be554ac 6
+tests/unit/scripts/packageScripts.test.ts
+  s_0e7307298be030::t_55aa781be554ac 326
+docs/release-guardrails.md
+  s_0e7307298be030::t_55aa781be554ac 10,16
+.husky/pre-push
+  s_0e7307298be030::t_55aa781be554ac 1
+.github/workflows/process-safety-platform.yml
+  s_0e7307298be030::t_55aa781be554ac 1-74
+package.json
+  s_0e7307298be030::t_55aa781be554ac 59
+docs/web-build.md
+  s_0e7307298be030::t_55aa781be554ac 48-52
+scripts/all-gates-validation-plan.mjs
+  s_0e7307298be030::t_55aa781be554ac 17,36,38,40
+tests/unit/scripts/ciTopologyPolicy.test.ts
+  s_0e7307298be030::t_55aa781be554ac 256,260,461-466,468-469,483-489,550-561,569-656,1644-1649,1696,1710-1711,1713-1716,1722-1726,1733,1736-1740,1742,1745,1781,1954-1957,1960
+tests/unit/scripts/validationGatePolicy.test.ts
+  s_0e7307298be030::t_55aa781be554ac 317-319,367,376-594,671-674,679-702,724,735-739
+docs/local-gates.md
+  s_0e7307298be030::t_55aa781be554ac 1,3-7,9,11-86
+tests/e2e/electron/quarantine/graduation-policy.json
+  s_0e7307298be030::t_55aa781be554ac 9,14,18,22
+tests/e2e/electron/quarantine/graduation-policy.schema.json
+  s_0e7307298be030::t_55aa781be554ac 26
+tests/unit/architecture/quarantineGraduationPolicy.test.ts
+  s_0e7307298be030::t_55aa781be554ac 176
+CONTRIBUTING.md
+  s_0e7307298be030::t_55aa781be554ac 22-25,27-30,32-35,60
+tests/e2e/electron/quarantine/README.md
+  s_0e7307298be030::t_55aa781be554ac 3-4,12-22,31
+README.md
+  s_0e7307298be030::t_55aa781be554ac 255,276,311-313,317-318,322-323
+scripts/validation-gates.mjs
+  s_0e7307298be030::t_55aa781be554ac 222-227,234,475,495-497,523-524,533-548,594,608-615,617-618,656-669,674,711-712,725-760,778,783,868-877,2595-2597,2648
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "48d5b2851bfafe12662ec90f88aaf288c057fef5",
+  "prompts": {},
+  "sessions": {
+    "s_0e7307298be030": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a085a5-2d32-7c20-aec3-95b6b1cfc486",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

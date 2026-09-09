@@ -1,0 +1,23 @@
+tests/integration/browser/browserDocumentLiveLeaseAcceptance.test.ts
+  s_0e7307298be030::t_20ea2ae6370568 73-77,246-265
+tests/integration/browser/browserDocumentLiveLeaseAcceptanceEntry.ts
+  s_0e7307298be030::t_139bc1bb257f0b 309-312
+  s_0e7307298be030::t_d06b00cb3d8376 296,307
+  s_0e7307298be030::t_20ea2ae6370568 22,295,297-306,308,313-324,333-334
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "390883258e2ddcd8f755b2e24ab6465046f94e85",
+  "prompts": {},
+  "sessions": {
+    "s_0e7307298be030": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a085a5-2d32-7c20-aec3-95b6b1cfc486",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
