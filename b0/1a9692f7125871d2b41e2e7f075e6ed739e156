@@ -1,0 +1,28 @@
+docs/architecture/project6-consolidation-report.md
+  s_c63d7a8363f7e9::t_9fb68c966f45c7 25-30
+scripts/project6ConsolidationReport.mjs
+  s_c63d7a8363f7e9::t_ad1fd162602442 623,626,631-633
+  s_c63d7a8363f7e9::t_6d8e1c58f07598 41-49,58-70,215,315-316
+  s_c63d7a8363f7e9::t_e5730c71e5415a 418,422-423,436-438
+  s_c63d7a8363f7e9::t_8ec742c1dc8a4d 439
+  s_c63d7a8363f7e9::t_eb3465082ec910 634
+tests/unit/scripts/project6ConsolidationReport.test.ts
+  s_c63d7a8363f7e9::t_14fca6a751f311 33-36,132-133
+  s_c63d7a8363f7e9::t_f2ea1408e2ea1a 134
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "b01a9692f7125871d2b41e2e7f075e6ed739e156",
+  "prompts": {},
+  "sessions": {
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

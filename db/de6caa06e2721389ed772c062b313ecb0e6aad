@@ -1,0 +1,23 @@
+scripts/runtimeBinaryArchive.ts
+  s_c63d7a8363f7e9::t_c9f54983601b9c 152-153
+  s_c63d7a8363f7e9::t_e2a426ca71fe17 5,45,81-82,151,154-156,204,210-213
+tests/unit/scripts/runtimeBinaryArchive.test.ts
+  s_c63d7a8363f7e9::t_9b6bac69c4a1a6 132-135
+  s_c63d7a8363f7e9::t_b474235a218b5f 117-131,136-174,360-363,365,367-378,387
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "dbde6caa06e2721389ed772c062b313ecb0e6aad",
+  "prompts": {},
+  "sessions": {
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
