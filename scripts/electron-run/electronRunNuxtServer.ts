@@ -333,6 +333,22 @@ async function cleanupStaleNuxtPortOwners(reason: string) {
         if (!owner) {
             continue;
         }
+        const currentOwnership = classifySessionControllerOwnership(owner.name);
+        if (currentOwnership.status !== 'abandoned') {
+            continue;
+        }
+        const currentListenerProbe = probeNuxtListenersOnPort(nuxtPort);
+        if (!currentListenerProbe.ok || !currentListenerProbe.pids.includes(staleNuxtPid)) {
+            continue;
+        }
+        if (hasOtherAliveSessionUsingNuxt(
+            readNuxtSessionShareMetadata(),
+            owner.name,
+            staleNuxtPid,
+            nuxtPort,
+        )) {
+            continue;
+        }
         await killVerifiedSessionProcess({
             pid: staleNuxtPid,
             expectation: {
@@ -722,17 +738,6 @@ export function selectStaleNuxtPortOwnerCleanupTargets(
             continue;
         }
 
-        const sharedByAnotherOwner = sessions.some(other =>
-            other !== session
-            && other.sessionAlive
-            && (
-                other.nuxtPid === session.nuxtPid
-                || other.nuxtPort === session.nuxtPort
-            ),
-        );
-        if (sharedByAnotherOwner) {
-            continue;
-        }
 
         const ownedPids = new Set([
             session.nuxtPid,
