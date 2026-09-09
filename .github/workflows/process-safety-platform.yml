@@ -1,0 +1,71 @@
+name: Process safety platform acceptance
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: 22.14.0
+
+jobs:
+  unix-cli:
+    name: CLI process safety (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-24.04
+          - macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
+
+      - name: Run CLI process-safety acceptance
+        run: >-
+          pnpm exec vitest run --project unit-scripts
+          tests/unit/scripts/electronRunCliLegacyMigration.test.ts
+          tests/unit/scripts/electronRunStopAllOwnership.test.ts
+          tests/unit/scripts/electronRunTH2AutomaticPruning.test.ts
+
+  windows-identity:
+    name: Windows process identity representation
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
+
+      - name: Run Windows identity acceptance
+        run: pnpm exec vitest run --project unit-scripts tests/unit/scripts/electronRunProcessIdentity.test.ts
