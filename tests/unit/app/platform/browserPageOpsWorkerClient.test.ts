@@ -24,12 +24,21 @@ vi.mock('@app/utils/failureReporter', () => ({
 
 class FakeWorker {
     public static lastInstance: FakeWorker | null = null;
+    public static instances: FakeWorker[] = [];
+    public static autoRespond = true;
+
+    public readonly postMessageCalls: Array<{
+        message: unknown;
+        transfer: Transferable[];
+    }> = [];
+    public terminated = false;
 
     private readonly messageHandlers = new Set<(event: MessageEvent) => void>();
     private readonly errorHandlers = new Set<(event: ErrorEvent) => void>();
 
     public constructor() {
         FakeWorker.lastInstance = this;
+        FakeWorker.instances.push(this);
     }
 
     public addEventListener(type: string, handler: EventListenerOrEventListenerObject | null) {
@@ -54,13 +63,21 @@ class FakeWorker {
         }
     }
 
-    public postMessage(message: {
-        id: number;
-        type: string
-    }) {
+    public postMessage(message: unknown, transfer: Transferable[] = []) {
+        this.postMessageCalls.push({
+            message,
+            transfer,
+        });
+        if (!FakeWorker.autoRespond) {
+            return;
+        }
+        const request = message as {
+            id: number;
+            type: string
+        };
         queueMicrotask(() => this.dispatchMessage({
-            id: message.id,
-            type: message.type,
+            id: request.id,
+            type: request.type,
             ok: true,
             data: {
                 data: new Uint8Array([2]),
@@ -82,7 +99,18 @@ class FakeWorker {
         this.errorHandlers.forEach((handler) => handler(event));
     }
 
-    public terminate() {}
+    public terminate() {
+        this.terminated = true;
+    }
+}
+
+function createParseResponse(id: number, data: Uint8Array) {
+    return {
+        id,
+        type: 'parseAnnotations',
+        ok: true,
+        data: {data},
+    };
 }
 
 describe('browserPageOpsWorkerClient', () => {
@@ -90,6 +118,8 @@ describe('browserPageOpsWorkerClient', () => {
         vi.resetModules();
         vi.unstubAllGlobals();
         FakeWorker.lastInstance = null;
+        FakeWorker.instances = [];
+        FakeWorker.autoRespond = true;
         failureReporter.capture.mockClear();
         fallbackReporter.mockClear();
         reporterAvailable = true;
@@ -169,5 +199,162 @@ describe('browserPageOpsWorkerClient', () => {
 
         expect(fallbackReporter).toHaveBeenCalledOnce();
         expect(failureReporter.capture).toHaveBeenCalledOnce();
+    });
+
+    it('cancels one dedicated parse without resetting an overlapping sibling', async () => {
+        FakeWorker.autoRespond = false;
+        const {runBrowserPageOpsWorkerRequest} = await import(
+            '@app/platform/browser-api/browserPageOpsWorkerClient'
+        );
+        const canceledController = new AbortController();
+        const canceledInput = new Uint8Array([
+            1,
+            2,
+            3,
+        ]);
+        const siblingInput = new Uint8Array([
+            4,
+            5,
+            6,
+        ]);
+        const canceled = runBrowserPageOpsWorkerRequest('parseAnnotations', {data: canceledInput}, {
+            dedicated: true,
+            signal: canceledController.signal,
+        });
+        const sibling = runBrowserPageOpsWorkerRequest('parseAnnotations', {data: siblingInput}, {dedicated: true});
+        await Promise.resolve();
+
+        expect(FakeWorker.instances).toHaveLength(2);
+        const canceledWorker = FakeWorker.instances[0];
+        const siblingWorker = FakeWorker.instances[1];
+        if (!canceledWorker || !siblingWorker) {
+            throw new Error('Expected two dedicated annotation parse workers');
+        }
+
+        const cancelReason = new Error('parse replaced');
+        canceledController.abort(cancelReason);
+        await expect(canceled).rejects.toBe(cancelReason);
+
+        const siblingResult = new Uint8Array([
+            7,
+            8,
+            9,
+            10,
+        ]);
+        siblingWorker.dispatchMessage(createParseResponse(1, siblingResult));
+        await expect(sibling).resolves.toEqual({data: siblingResult});
+
+        expect(canceledWorker.terminated).toBe(true);
+        expect(siblingWorker.terminated).toBe(true);
+        expect(canceledInput).toEqual(new Uint8Array([
+            1,
+            2,
+            3,
+        ]));
+        expect(siblingInput).toEqual(new Uint8Array([
+            4,
+            5,
+            6,
+        ]));
+    });
+
+    it('ignores a late result from a canceled dedicated parse generation', async () => {
+        FakeWorker.autoRespond = false;
+        const {runBrowserPageOpsWorkerRequest} = await import(
+            '@app/platform/browser-api/browserPageOpsWorkerClient'
+        );
+        const staleController = new AbortController();
+        const stale = runBrowserPageOpsWorkerRequest('parseAnnotations', {data: new Uint8Array([1])}, {
+            dedicated: true,
+            signal: staleController.signal,
+        });
+        await Promise.resolve();
+        const staleWorker = FakeWorker.instances[0];
+        if (!staleWorker) {
+            throw new Error('Expected a stale annotation parse worker');
+        }
+
+        const cancelReason = new Error('stale parse canceled');
+        const staleRejection = expect(stale).rejects.toBe(cancelReason);
+        staleController.abort(cancelReason);
+        await staleRejection;
+
+        const replacement = runBrowserPageOpsWorkerRequest('parseAnnotations', {data: new Uint8Array([2])}, {dedicated: true});
+        await Promise.resolve();
+        const replacementWorker = FakeWorker.instances[1];
+        if (!replacementWorker) {
+            throw new Error('Expected a replacement annotation parse worker');
+        }
+
+        let replacementOutcome: unknown;
+        replacement.then(
+            value => { replacementOutcome = value; },
+            error => { replacementOutcome = error; },
+        );
+        staleWorker.dispatchMessage(createParseResponse(1, new Uint8Array([99])));
+        await Promise.resolve();
+        expect(replacementOutcome).toBeUndefined();
+
+        const replacementResult = new Uint8Array([
+            11,
+            12,
+            13,
+        ]);
+        replacementWorker.dispatchMessage(createParseResponse(1, replacementResult));
+        await expect(replacement).resolves.toEqual({data: replacementResult});
+        expect(staleWorker.terminated).toBe(true);
+        expect(replacementWorker.terminated).toBe(true);
+    });
+
+    it('isolates a dedicated worker failure and preserves input ownership before transfer', async () => {
+        FakeWorker.autoRespond = false;
+        const {runBrowserPageOpsWorkerRequest} = await import(
+            '@app/platform/browser-api/browserPageOpsWorkerClient'
+        );
+        const failedInput = new Uint8Array([
+            13,
+            14,
+            15,
+        ]);
+        const sibling = runBrowserPageOpsWorkerRequest('parseAnnotations', {data: new Uint8Array([16])}, {dedicated: true});
+        const failed = runBrowserPageOpsWorkerRequest('parseAnnotations', {data: failedInput}, {dedicated: true});
+        await Promise.resolve();
+
+        expect(FakeWorker.instances).toHaveLength(2);
+        const siblingWorker = FakeWorker.instances[0];
+        const failedWorker = FakeWorker.instances[1];
+        if (!siblingWorker || !failedWorker) {
+            throw new Error('Expected two dedicated annotation parse workers');
+        }
+
+        const postedRequest = failedWorker.postMessageCalls[0]?.message as {payload: {data: Uint8Array};} | undefined;
+        const transferredInput = postedRequest?.payload.data;
+        if (!transferredInput) {
+            throw new Error('Expected a transferred annotation parse input');
+        }
+        expect(transferredInput).not.toBe(failedInput);
+        expect(transferredInput).toEqual(failedInput);
+        expect(failedWorker.postMessageCalls[0]?.transfer).toContain(transferredInput.buffer);
+        expect(failedInput).toEqual(new Uint8Array([
+            13,
+            14,
+            15,
+        ]));
+
+        failedWorker.dispatchError(new Error('dedicated parse worker crashed'));
+        await expect(failed).rejects.toThrow('dedicated parse worker crashed');
+
+        const siblingResult = new Uint8Array([
+            21,
+            22,
+            23,
+            24,
+        ]);
+        siblingWorker.dispatchMessage(createParseResponse(1, siblingResult));
+        await expect(sibling).resolves.toEqual({data: siblingResult});
+
+        expect(failureReporter.capture).toHaveBeenCalledOnce();
+        expect(failedWorker.terminated).toBe(true);
+        expect(siblingWorker.terminated).toBe(true);
     });
 });
