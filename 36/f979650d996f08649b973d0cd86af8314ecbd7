@@ -1,0 +1,60 @@
+app/modules/workspace-shell/composables/file-operations/workspaceSavePolicy.ts
+  s_da6b84658e7d5d::t_3ddb94d6dc022e 81-84,98,147-150
+  s_d5e9853bb1eed2::t_303f9ae5a83549 80,151-154
+tests/unit/app/modules/workspace-shell/composables/createDocumentPersistence.test.ts
+  s_da6b84658e7d5d::t_2347ddc59878d0 36,212,493-510
+  s_e4c38a5c21eafd::t_8c9b66fb357405 511-512
+tests/unit/app/modules/workspace-shell/composables/file-operations/workspaceSaveFailureSurfacing.test.ts
+  s_da6b84658e7d5d::t_48b3d8ce168169 382-407
+  s_da6b84658e7d5d::t_ee1850e7f9e0a4 337,339-381
+  s_da6b84658e7d5d::t_fe52aeef2c2705 338
+app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts
+  s_da6b84658e7d5d::t_48b3d8ce168169 791
+  s_da6b84658e7d5d::t_7698b386c2db83 663,669
+  s_da6b84658e7d5d::t_0cc36f4f2c38ff 748-790,792-828,891-893,1114-1116
+  s_da6b84658e7d5d::t_1de6db34fe7fcf 212,225,458,463,474
+tests/unit/app/modules/workspace-shell/composables/file-operations/workspaceSavePlan.test.ts
+  s_da6b84658e7d5d::t_a389a3e3b44e46 39,58,128-140
+  s_e4c38a5c21eafd::t_8d585a24895775 141-144
+app/modules/workspace-shell/composables/document-session/createDocumentPersistence.ts
+  s_da6b84658e7d5d::t_0eb54fda2ee9c7 691,759,762,766-768,959-968,970-971,978-982
+  s_da6b84658e7d5d::t_f36bd60d655e93 969,984
+  s_da6b84658e7d5d::t_a0eaec17a2caca 720,972-977,983
+  s_e4c38a5c21eafd::t_dbc398b08f2e39 985
+tests/unit/app/modules/workspace-shell/composables/file-operations/workspaceNetZeroAnnotationSave.test.ts
+  s_da6b84658e7d5d::t_98ba797282b4e2 10
+  s_da6b84658e7d5d::t_a33a702071be1d 114-123,138-140
+  s_da6b84658e7d5d::t_d25e4dd58db357 124,133
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "36f979650d996f08649b973d0cd86af8314ecbd7",
+  "prompts": {},
+  "sessions": {
+    "s_d5e9853bb1eed2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0876a-021f-7d71-a310-4a7ac743c1eb",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_da6b84658e7d5d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08765-ce8f-7681-a862-ab5ac018c6d4",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_e4c38a5c21eafd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5eb6c90b-53e8-4178-b868-46f9a6573dee",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
