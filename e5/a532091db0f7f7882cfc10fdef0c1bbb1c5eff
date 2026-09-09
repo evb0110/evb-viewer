@@ -1,0 +1,38 @@
+tests/integration/browser/browserDocumentLiveLeaseAcceptance.test.ts
+  s_0e7307298be030::t_79fcb25200461a 298
+  s_0e7307298be030::t_e4a2277edbfc61 290-293
+  s_0e7307298be030::t_924d5dfb274347 301-312
+  s_0e7307298be030::t_c60f17b1c005f8 285-287,289,294-297,299
+  s_0e7307298be030::t_61bb90bda3bf85 272-284,288,300,313-319
+tests/unit/app/platform/browserDocumentMaintenance.test.ts
+  s_0e7307298be030::t_100088dab92c7c 16,39-42,48-49,60,129
+  s_0e7307298be030::t_6c33ca94602908 50
+app/platform/browser/browserDocumentMaintenance.ts
+  s_0e7307298be030::t_924d5dfb274347 245-249
+  s_0e7307298be030::t_f54fca7ba623e3 544
+  s_0e7307298be030::t_95480f8fe50c10 8,213-244,250-251,407,415,419,429,437,495-499,537,545,555,588-589
+tests/integration/browser/browserDocumentLiveLeaseAcceptanceEntry.ts
+  s_0e7307298be030::t_61bb90bda3bf85 35-43,334-340,342-363,371-378,384,387,395-416,418-419,444-445
+  s_0e7307298be030::t_cca5c246c7ec66 364-370
+  s_0e7307298be030::t_11eaa424517525 341
+  s_0e7307298be030::t_c60f17b1c005f8 417,420-423,446
+  s_0e7307298be030::t_79fcb25200461a 424-433,447
+  s_0e7307298be030::t_ee2c658291df16 385-386,388-394
+  s_0e7307298be030::t_924d5dfb274347 10,379-383
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e5a532091db0f7f7882cfc10fdef0c1bbb1c5eff",
+  "prompts": {},
+  "sessions": {
+    "s_0e7307298be030": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a085a5-2d32-7c20-aec3-95b6b1cfc486",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
