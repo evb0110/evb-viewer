@@ -83,6 +83,12 @@ function persistedRecordCount(transcriptPath: string) {
     return readFileSync(transcriptPath, 'utf8').split(/\r?\n/u).filter(Boolean).length;
 }
 
+function directoryFileBytes(directory: string) {
+    return readdirSync(directory, {withFileTypes: true})
+        .filter(entry => entry.isFile())
+        .reduce((total, entry) => total + statSync(join(directory, entry.name)).size, 0);
+}
+
 afterEach(() => {
     for (const root of tempRoots.splice(0)) {
         rmSync(root, {
@@ -459,6 +465,86 @@ describe('assistant chat session store persistence', () => {
         expect(readFileSync(transcriptPath, 'utf8')).toContain('session-snapshot-ref');
         const recoveredStore = createAssistantChatSessionStore({persistence: createPersistence(rootDir)});
         expect(recoveredStore.getMessages(scope, selection).map(message => message.text)).toEqual([largeText]);
+    });
+
+    it('bounds changing oversized snapshot storage by live data', async () => {
+        const rootDir = createTempRoot();
+        const persistence = createPersistence(rootDir);
+        const store = createAssistantChatSessionStore({persistence});
+        const session = store.getSession(scope, selection, {create: true});
+        const attachmentData = `data:image/png;base64,${'A'.repeat(90_000)}`;
+
+        store.addMessage(session, {
+            role: 'user',
+            text: 'image history',
+            attachments: [{
+                type: 'image',
+                id: 'image-1',
+                name: 'image.png',
+                mimeType: 'image/png',
+                sizeBytes: 67_500,
+                dataUrl: attachmentData,
+            }],
+        });
+        await store.flushPersistenceForTests();
+
+        for (let index = 0; index < 100; index += 1) {
+            session.messages[0]!.text = `image history ${index}`;
+            store.recordSessionSnapshot(session);
+            await store.flushPersistenceForTests();
+        }
+
+        const blobsDir = join(rootDir, 'blobs');
+        expect(readdirSync(blobsDir).filter(entry => entry.endsWith('.json'))).toHaveLength(1);
+        expect(directoryFileBytes(blobsDir)).toBeLessThan(2 * 64 * 1024);
+        const recoveredStore = createAssistantChatSessionStore({persistence: createPersistence(rootDir)});
+        expect(recoveredStore.getMessages(scope, selection)[0]).toMatchObject({
+            text: 'image history 99',
+            attachments: [{dataUrl: attachmentData}],
+        });
+    });
+
+    it('reuses one blob when only snapshot timestamps change', async () => {
+        const rootDir = createTempRoot();
+        const persistence = createPersistence(rootDir);
+        const store = createAssistantChatSessionStore({persistence});
+        const session = store.getSession(scope, selection, {create: true});
+        store.addMessage(session, {
+            role: 'user',
+            text: 'same content '.repeat(10_000),
+        });
+        await store.flushPersistenceForTests();
+
+        for (let index = 0; index < 20; index += 1) {
+            store.recordSessionSnapshot(session);
+            await store.flushPersistenceForTests();
+        }
+
+        expect(readdirSync(join(rootDir, 'blobs')).filter(entry => entry.endsWith('.json'))).toHaveLength(1);
+    });
+
+    it('recovers the prior generation when the newest external blob is corrupt', async () => {
+        const rootDir = createTempRoot();
+        const persistence = createPersistence(rootDir);
+        const store = createAssistantChatSessionStore({persistence});
+        const session = store.getSession(scope, selection, {create: true});
+        store.addMessage(session, {
+            role: 'user',
+            text: 'prior generation '.repeat(10_000),
+        });
+        await store.flushPersistenceForTests();
+
+        const transcriptPath = persistence.sessionPath(store.keyForSession(session));
+        const previousReference = JSON.parse(readFileSync(transcriptPath, 'utf8')) as Record<string, unknown>;
+        const corruptReference = {
+            ...previousReference,
+            blobFile: `${'f'.repeat(64)}.json`,
+        };
+        writeFileSync(join(rootDir, 'blobs', `${'f'.repeat(64)}.json`), 'corrupt');
+        writeFileSync(transcriptPath, `${JSON.stringify(previousReference)}\n${JSON.stringify(corruptReference)}\n`);
+
+        const recoveredStore = createAssistantChatSessionStore({persistence: createPersistence(rootDir)});
+        expect(recoveredStore.getMessages(scope, selection)[0]?.text).toBe('prior generation '.repeat(10_000));
     });
 
     it('rejects a failed flush while retaining the pending snapshot for retry', async () => {

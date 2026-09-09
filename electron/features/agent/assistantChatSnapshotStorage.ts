@@ -15,6 +15,7 @@ import {
 import {
     mkdir,
     open,
+    readFile,
     rename,
     writeFile,
 } from 'fs/promises';
@@ -141,6 +142,14 @@ function snapshotBlobPayload<TSession, TVersion extends number>(record: TSnapsho
     return `${JSON.stringify(record)}\n`;
 }
 
+function snapshotContentDigest<TSession, TVersion extends number>(record: TSnapshotPayloadRecord<TSession, TVersion>) {
+    const {
+        writtenAt: _writtenAt,
+        ...content
+    } = record;
+    return createHash('sha256').update(JSON.stringify(content)).digest('hex');
+}
+
 export class AssistantChatSnapshotStorage<TSession, TVersion extends number> {
     readonly blobsDir: string;
     private readonly maxSessionBytes: number;
@@ -159,15 +168,18 @@ export class AssistantChatSnapshotStorage<TSession, TVersion extends number> {
         return join(this.blobsDir, blobFile);
     }
 
-    private createSnapshotReference(record: TSnapshotPayloadRecord<TSession, TVersion>) {
-        const payload = snapshotBlobPayload(record);
+    private createSnapshotReference(
+        record: TSnapshotPayloadRecord<TSession, TVersion>,
+        payload: string,
+        blobFile: string,
+    ) {
         const digest = createHash('sha256').update(payload).digest('hex');
         const reference: TSnapshotReference<TSession, TVersion> = {
             schemaVersion: record.schemaVersion,
             type: 'session-snapshot-ref',
             keyDigest: createHash('sha256').update(record.key).digest('hex'),
             writtenAt: record.writtenAt,
-            blobFile: `${digest}.json`,
+            blobFile,
             sha256: digest,
             sizeBytes: Buffer.byteLength(payload, 'utf8'),
         };
@@ -183,15 +195,92 @@ export class AssistantChatSnapshotStorage<TSession, TVersion extends number> {
         };
     }
 
+    private async findReusableBlob(
+        record: TSnapshotPayloadRecord<TSession, TVersion>,
+        blobFile: string,
+    ) {
+        const filePath = this.getSnapshotBlobPath(blobFile);
+        let payload: string;
+        try {
+            payload = await readFile(filePath, 'utf8');
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+                return {
+                    exists: false,
+                    reference: null,
+                };
+            }
+            throw error;
+        }
+        const parsed = this.parseRecord(payload.trim());
+        if (
+            !parsed
+            || parsed.type !== 'session-snapshot'
+            || snapshotContentDigest(parsed) !== snapshotContentDigest(record)
+        ) {
+            return {
+                exists: true,
+                reference: null,
+            };
+        }
+        const reference = this.createSnapshotReference(record, payload, blobFile).reference;
+        return {
+            exists: true,
+            reference,
+        };
+    }
+
+    private findReusableBlobSync(
+        record: TSnapshotPayloadRecord<TSession, TVersion>,
+        blobFile: string,
+    ) {
+        const filePath = this.getSnapshotBlobPath(blobFile);
+        let payload: string;
+        try {
+            payload = readFileSync(filePath, 'utf8');
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+                return {
+                    exists: false,
+                    reference: null,
+                };
+            }
+            throw error;
+        }
+        const parsed = this.parseRecord(payload.trim());
+        if (
+            !parsed
+            || parsed.type !== 'session-snapshot'
+            || snapshotContentDigest(parsed) !== snapshotContentDigest(record)
+        ) {
+            return {
+                exists: true,
+                reference: null,
+            };
+        }
+        const reference = this.createSnapshotReference(record, payload, blobFile).reference;
+        return {
+            exists: true,
+            reference,
+        };
+    }
+
     async prepareRecordForStorage(record: TSnapshotRecord<TSession, TVersion>, key: string) {
         if (record.type !== 'session-snapshot' || serializedBytes(record) <= this.maxSessionBytes) {
             return record;
         }
 
-        const {
+        const payload = snapshotBlobPayload(record);
+        const contentDigest = snapshotContentDigest(record);
+        const reusable = await this.findReusableBlob(record, `${contentDigest}.json`);
+        if (reusable.reference) {
+            return reusable.reference;
+        }
+        const {reference} = this.createSnapshotReference(
+            record,
             payload,
-            reference,
-        } = this.createSnapshotReference(record);
+            reusable.exists ? `${createHash('sha256').update(payload).digest('hex')}.json` : `${contentDigest}.json`,
+        );
         await mkdir(this.blobsDir, {recursive: true});
         await atomicWriteJsonLineFile(this.getSnapshotBlobPath(reference.blobFile), payload);
         if (Buffer.byteLength(payload, 'utf8') !== reference.sizeBytes) {
@@ -211,10 +300,17 @@ export class AssistantChatSnapshotStorage<TSession, TVersion extends number> {
             return record;
         }
 
-        const {
+        const payload = snapshotBlobPayload(record);
+        const contentDigest = snapshotContentDigest(record);
+        const reusable = this.findReusableBlobSync(record, `${contentDigest}.json`);
+        if (reusable.reference) {
+            return reusable.reference;
+        }
+        const {reference} = this.createSnapshotReference(
+            record,
             payload,
-            reference,
-        } = this.createSnapshotReference(record);
+            reusable.exists ? `${createHash('sha256').update(payload).digest('hex')}.json` : `${contentDigest}.json`,
+        );
         mkdirSync(this.blobsDir, {recursive: true});
         atomicWriteJsonLineFileSync(this.getSnapshotBlobPath(reference.blobFile), payload);
         if (Buffer.byteLength(payload, 'utf8') !== reference.sizeBytes) {
@@ -234,6 +330,10 @@ export class AssistantChatSnapshotStorage<TSession, TVersion extends number> {
     writeBoundedSnapshotSync(filePath: string, record: TSnapshotPayloadRecord<TSession, TVersion>, key: string) {
         const storageRecord = this.prepareRecordForStorageSync(record, key);
         atomicWriteJsonLineFileSync(filePath, storageRecord);
+    }
+
+    async writeReference(filePath: string, reference: TSnapshotReference<TSession, TVersion>) {
+        await atomicWriteJsonLineFile(filePath, reference);
     }
 
     readSnapshotBlobSync(reference: TSnapshotReference<TSession, TVersion>): {

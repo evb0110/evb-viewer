@@ -849,9 +849,9 @@ export class AssistantChatPersistence {
         this.activeSnapshotCounts.set(key, activeCount + 1);
         const record = pending.record;
         const activeWrite = this.enqueue(key, async () => {
-            await this.appendRecord(key, record);
+            const storageRecord = await this.appendRecord(key, record);
             await this.runMaintenance(async () => {
-                await this.compactOversizedSession(key);
+                await this.compactOversizedSession(key, storageRecord);
                 await this.pruneSessions();
                 await this.writeIndex();
                 await this.pruneSnapshotBlobs();
@@ -939,6 +939,7 @@ export class AssistantChatPersistence {
         } finally {
             await handle.close();
         }
+        return storageRecord;
     }
 
     private toPersistenceError(key: string, error: unknown) {
@@ -967,8 +968,15 @@ export class AssistantChatPersistence {
         );
     }
 
-    private async compactOversizedSession(key: string) {
+    private async compactOversizedSession(
+        key: string,
+        latestStorageRecord: TPersistedAssistantChatRecord,
+    ) {
         const filePath = this.sessionPath(key);
+        if (latestStorageRecord.type === 'session-snapshot-ref') {
+            await this.snapshotStorage.writeReference(filePath, latestStorageRecord);
+            return;
+        }
         let fileStat: Awaited<ReturnType<typeof stat>>;
         try {
             fileStat = await stat(filePath);
@@ -1003,6 +1011,10 @@ export class AssistantChatPersistence {
         let lastSession: IPersistedAssistantChatSession | null = null;
         const contents = readFileSync(filePath, 'utf8');
         const lines = contents.split(/\r?\n/u);
+        const lastContentLineIndex = lines.reduce(
+            (lastIndex, line, index) => line.trim() ? index : lastIndex,
+            -1,
+        );
         for (const [
             lineIndex,
             rawLine,
@@ -1028,14 +1040,25 @@ export class AssistantChatPersistence {
                 }
                 throw new Error('Assistant chat transcript contains a malformed persisted record.');
             }
-            const resolvedSnapshot = record.type === 'session-snapshot-ref'
-                ? this.snapshotStorage.readSnapshotBlobSync(record)
-                : record.type === 'session-snapshot'
-                    ? {
-                        key: record.key,
-                        session: record.session,
+            let resolvedSnapshot: {
+                key: string;
+                session: IPersistedAssistantChatSession
+            } | null = null;
+            if (record.type === 'session-snapshot-ref') {
+                try {
+                    resolvedSnapshot = this.snapshotStorage.readSnapshotBlobSync(record);
+                } catch (error) {
+                    if (lineIndex === lastContentLineIndex && key !== null && lastSession !== null) {
+                        break;
                     }
-                    : null;
+                    throw error;
+                }
+            } else if (record.type === 'session-snapshot') {
+                resolvedSnapshot = {
+                    key: record.key,
+                    session: record.session,
+                };
+            }
             const recordKey = resolvedSnapshot?.key ?? (record.type === 'session-reset' ? record.key : null);
             if (
                 recordKey === null
