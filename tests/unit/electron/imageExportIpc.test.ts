@@ -27,7 +27,7 @@ const mocks = vi.hoisted(() => ({
     existsSync: vi.fn(() => true),
     exportPdfAsMultiPageTiff: vi.fn(),
     exportPdfPagesAsImages: vi.fn(),
-    exportDjvuPagesAsPng: vi.fn(),
+    exportDjvuPagesAsImages: vi.fn(),
     exportDjvuAsMultiPageTiff: vi.fn(),
     fromWebContents: vi.fn(() => null),
     getPdfPageCount: vi.fn(async () => 10),
@@ -120,7 +120,7 @@ vi.mock('@electron/features/image-export/main/export', () => ({
     normalizeImageExportPath: mocks.normalizeImageExportPath,
 }));
 vi.mock('@electron/features/image-export/main/djvuImageExport', () => ({
-    exportDjvuPagesAsPng: mocks.exportDjvuPagesAsPng,
+    exportDjvuPagesAsImages: mocks.exportDjvuPagesAsImages,
     exportDjvuAsMultiPageTiff: mocks.exportDjvuAsMultiPageTiff,
 }));
 
@@ -195,10 +195,19 @@ describe('image export IPC lifecycle', () => {
         mocks.normalizeImageExportPath.mockImplementation((
             path: string,
             fallbackFormat = 'png',
-        ) => ({ normalizedPath: path.includes('.') ? path : `${path}.${fallbackFormat === 'jpeg' ? 'jpg' : fallbackFormat}` }));
+        ) => {
+            const normalizedPath = path.includes('.') ? path : `${path}.${fallbackFormat === 'jpeg' ? 'jpg' : fallbackFormat}`;
+            const extension = normalizedPath.split('.').pop()?.toLowerCase();
+            return {
+                normalizedPath,
+                format: extension === 'jpg' || extension === 'jpeg'
+                    ? 'jpeg'
+                    : extension === 'tif' || extension === 'tiff' ? 'tiff' : 'png',
+            };
+        });
         mocks.exportPdfPagesAsImages.mockResolvedValue(['/tmp/export.jpg']);
         mocks.exportPdfAsMultiPageTiff.mockResolvedValue(['/tmp/export.tiff']);
-        mocks.exportDjvuPagesAsPng.mockResolvedValue(['/tmp/export.png']);
+        mocks.exportDjvuPagesAsImages.mockResolvedValue(['/tmp/export.jpg']);
         mocks.exportDjvuAsMultiPageTiff.mockResolvedValue(['/tmp/export.tiff']);
     });
 
@@ -307,14 +316,15 @@ describe('image export IPC lifecycle', () => {
             'djvu',
         )).resolves.toEqual({
             success: true,
-            outputPaths: ['/tmp/export.png'],
+            outputPaths: ['/tmp/export.jpg'],
         });
 
-        expect(mocks.exportDjvuPagesAsPng).toHaveBeenCalledWith(
+        expect(mocks.exportDjvuPagesAsImages).toHaveBeenCalledWith(
             '/tmp/working.djvu',
-            '/tmp/export.png',
+            '/tmp/export.jpg',
             expect.objectContaining({
                 pageNumbers: [2],
+                format: 'jpeg',
                 signal: expect.any(AbortSignal),
             }),
         );
