@@ -24,6 +24,7 @@ export interface IBrowserPersistedDocumentRecord {
     saveKind?: 'pdf' | 'docx' | 'generic';
     saveHandle?: FileSystemFileHandle | null;
     sourceWitness?: boolean;
+    sourceBaseWitness?: string;
     storageMode?: TBrowserDocumentStorageMode;
     chunkCount?: number;
     chunkSize?: number;
@@ -47,6 +48,7 @@ export interface IBrowserDocumentEntry extends IBrowserPersistedDocumentRecord {
     saveKind: 'pdf' | 'docx' | 'generic';
     saveHandle?: FileSystemFileHandle | null;
     sourceWitness?: boolean;
+    sourceBaseWitness?: string;
     storageMode: TBrowserDocumentStorageMode;
     chunkCount: number;
     chunkSize: number;
@@ -64,6 +66,7 @@ export interface IRegisterFileOptions {
     saveKind?: IBrowserDocumentEntry['saveKind'];
     sourceRef?: string;
     saveHandle?: FileSystemFileHandle | null;
+    sourceBaseWitness?: string;
 }
 
 export interface ICreateStoredDocumentOptions {
@@ -73,6 +76,7 @@ export interface ICreateStoredDocumentOptions {
     retention?: IBrowserDocumentEntry['retention'];
     sourceRef?: string;
     saveHandle?: FileSystemFileHandle | null;
+    sourceBaseWitness?: string;
     storageMode?: TBrowserDocumentStorageMode;
     chunkCount?: number;
     chunkSize?: number;
@@ -129,6 +133,7 @@ export interface IBrowserDocumentEntryInput {
     saveKind: IBrowserDocumentEntry['saveKind'];
     saveHandle: FileSystemFileHandle | null;
     sourceWitness?: boolean;
+    sourceBaseWitness?: string;
     storageMode: TBrowserDocumentStorageMode;
     chunkCount?: number;
     chunkSize?: number;

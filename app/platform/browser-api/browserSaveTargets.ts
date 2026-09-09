@@ -81,6 +81,7 @@ export async function saveWorkingBytesToSource(
             revisionOptions?.expectedDocumentRevisionToken,
             async (mutation) => {
                 if (pickedTarget.handle) {
+                    await mutation.assertPhysicalSourceBaseCurrent();
                     await writeDocumentRefToHandle(pickedTarget.handle, workingCopyPath);
                     externalWriteCommitted = true;
                     const { size } = await browserDocumentStore.stat(workingCopyPath);
@@ -95,6 +96,7 @@ export async function saveWorkingBytesToSource(
                         saveTarget.saveKind,
                         pickedTarget.handle,
                     );
+                    await mutation.acknowledgePhysicalSourceCommit();
                 } else {
                     await assertBrowserPathWithinFullReadBudget(
                         workingCopyPath,

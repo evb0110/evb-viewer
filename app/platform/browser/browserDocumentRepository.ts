@@ -78,6 +78,8 @@ export interface IBrowserDocumentMutation {
         saveName: string,
         saveHandle?: FileSystemFileHandle | null,
     ): Promise<void>;
+    assertPhysicalSourceBaseCurrent(): Promise<void>;
+    acknowledgePhysicalSourceCommit(): Promise<void>;
 }
 export interface IBrowserDocumentSourceMutation extends IBrowserDocumentMutation { writeSource(data: Uint8Array | ArrayBuffer): Promise<boolean>; }
 
@@ -222,6 +224,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
             contentToken: createBrowserDocumentContentToken(),
             saveKind: options.saveKind ?? 'generic',
             saveHandle: options.saveHandle ?? null,
+            ...(options.sourceBaseWitness ? {sourceBaseWitness: options.sourceBaseWitness} : {}),
             storageMode,
             chunkCount: options.chunkCount ?? 0,
             chunkSize: options.chunkSize ?? BROWSER_DOCUMENT_CHUNK_SIZE,
@@ -388,6 +391,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
                 sourceRef,
                 saveKind: 'pdf',
                 storageMode: 'source-proxy',
+                ...(sourceEntry.contentToken ? {sourceBaseWitness: sourceEntry.contentToken} : {}),
             });
         } catch (error) {
             if (!sourceEntry.memoryOnly) {
@@ -413,6 +417,9 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
                 saveKind: 'pdf',
                 saveHandle: null,
                 storageMode: 'source-proxy',
+                ...((sourceEntry.sourceBaseWitness ?? sourceEntry.contentToken)
+                    ? {sourceBaseWitness: sourceEntry.sourceBaseWitness ?? sourceEntry.contentToken}
+                    : {}),
                 chunkCount: 0,
                 chunkSize: BROWSER_DOCUMENT_CHUNK_SIZE,
             });
@@ -478,6 +485,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
                 saveKind: nextSaveKind,
                 saveHandle: nextSaveHandle,
                 ...(nextKind === 'source' && nextSaveHandle ? { sourceWitness: true } : {}),
+                ...(sourceEntry.sourceBaseWitness ? {sourceBaseWitness: sourceEntry.sourceBaseWitness} : {}),
                 storageMode: 'chunked',
                 chunkCount: 0,
                 chunkSize: sourceEntry.chunkSize,
@@ -498,6 +506,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
             ...(nextSourceRef ? { sourceRef: nextSourceRef } : {}),
             saveKind: nextSaveKind,
             saveHandle: nextSaveHandle,
+            ...(sourceEntry.sourceBaseWitness ? {sourceBaseWitness: sourceEntry.sourceBaseWitness} : {}),
         });
     }
 
@@ -713,7 +722,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
         expectedRevision: TDocumentRevisionToken | null | undefined,
         operation: (mutation: IBrowserDocumentSourceMutation) => Promise<T>,
     ) {
-        return this.runRefMutationMany([
+        const mutation = () => this.runRefMutationMany([
             ref,
             sourceRef,
         ], async () => {
@@ -726,9 +735,47 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
                 replaceWorkingCopySource: (nextSourceRef, saveName, saveHandle) => (
                     this.replaceWorkingCopySourceUnlocked(ref, nextSourceRef, saveName, saveHandle)
                 ),
+                assertPhysicalSourceBaseCurrent: () => this.assertPhysicalSourceBaseCurrent(ref, sourceRef),
                 writeSource: data => this.writeUnlocked(sourceRef, data, {}, true),
+                acknowledgePhysicalSourceCommit: () => this.acknowledgePhysicalSourceCommitUnlocked(ref, sourceRef),
             });
         });
+        return this.runPhysicalSourceLock(sourceRef, mutation);
+    }
+
+    private runPhysicalSourceLock<T>(sourceRef: string, operation: () => Promise<T>) {
+        const locks = typeof navigator !== 'undefined'
+            ? (navigator as Navigator & {locks?: {request<T>(name: string, options: {mode: 'exclusive'}, callback: () => Promise<T>): Promise<T>}}).locks
+            : undefined;
+        if (!locks) {
+            return operation();
+        }
+        return locks.request(`evb-viewer:browser-physical-save:${sourceRef}`, {mode: 'exclusive'}, operation);
+    }
+
+    private async assertPhysicalSourceBaseCurrent(workingRef: string, sourceRef: string) {
+        const workingEntry = await this.requireEntry(workingRef);
+        const sourceEntry = await this.requireEntry(sourceRef);
+        if (!workingEntry.sourceBaseWitness || !sourceEntry.saveHandle || !sourceEntry.sourceWitness) {
+            return;
+        }
+        const metadata = await readFileHandleMetadata(sourceEntry.saveHandle);
+        const currentWitness = await createBrowserFileContentWitness(metadata.file);
+        if (currentWitness === workingEntry.sourceBaseWitness) {
+            return;
+        }
+        throw new Error(`Browser physical source changed since this working copy opened: ${sourceRef}`);
+    }
+
+    private async acknowledgePhysicalSourceCommitUnlocked(workingRef: string, sourceRef: string) {
+        const workingEntry = await this.requireEntry(workingRef);
+        const sourceEntry = await this.requireEntry(sourceRef);
+        if (!sourceEntry.saveHandle) {
+            return;
+        }
+        const metadata = await readFileHandleMetadata(sourceEntry.saveHandle);
+        workingEntry.sourceBaseWitness = await createBrowserFileContentWitness(metadata.file);
+        await persistRecord(createPersistedBrowserDocumentRecord(workingEntry, workingEntry.data, false));
     }
 
     private async writeUnlocked(
@@ -816,6 +863,12 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
         workingEntry.saveHandle = saveHandle ?? null;
         this.fileHandleRefs.update(workingRef, workingEntry.saveHandle);
         workingEntry.sourceWitness = false;
+        if (saveHandle) {
+            const metadata = await readFileHandleMetadata(saveHandle);
+            workingEntry.sourceBaseWitness = await createBrowserFileContentWitness(metadata.file);
+        } else {
+            delete workingEntry.sourceBaseWitness;
+        }
         delete workingEntry.fileSnapshot;
         if (workingEntry.storageMode === 'handle') {
             workingEntry.storageMode = 'source-proxy';
