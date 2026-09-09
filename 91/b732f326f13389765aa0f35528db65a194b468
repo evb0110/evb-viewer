@@ -1,0 +1,46 @@
+tests/unit/app/composables/useDocxExport.test.ts
+  s_d5e9853bb1eed2::t_58bfee8836895e 67,69-73
+  s_d5e9853bb1eed2::t_ac98f43da93d59 21,53,117,120-123
+  s_d5e9853bb1eed2::t_68c9faf07fd030 13-17,68
+app/utils/exportTextAsDocx.ts
+  s_d5e9853bb1eed2::t_338fee9e4b44f6 7-10,27,32,66,130-131,167-168,190-191
+  s_d5e9853bb1eed2::t_feee185bae92f3 11,77-78,158-160
+  s_15371373fbfbd1::t_a41f5a9b54fa4c 6
+app/utils/docx.ts
+  s_d5e9853bb1eed2::t_d75ba50da815d9 56,60-62,81,89-91,118,134,156,173
+  s_d5e9853bb1eed2::t_68c9faf07fd030 10-11
+tests/unit/app/utils/docxStreaming.test.ts
+  s_d5e9853bb1eed2::t_ac98f43da93d59 40-52,54-56
+  s_d5e9853bb1eed2::t_68c9faf07fd030 7-10
+  s_d5e9853bb1eed2::t_58bfee8836895e 53
+  s_d5e9853bb1eed2::t_208ade0a230b44 21-29
+app/utils/docxStreaming.ts
+  s_d5e9853bb1eed2::t_ac98f43da93d59 22
+  s_d5e9853bb1eed2::t_931800fcf146c5 19
+  s_d5e9853bb1eed2::t_68c9faf07fd030 25-33
+  s_d5e9853bb1eed2::t_854796e6a1e4c4 16-18,20-21,23-24,34-36,266,329-331
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "91b732f326f13389765aa0f35528db65a194b468",
+  "prompts": {},
+  "sessions": {
+    "s_15371373fbfbd1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08769-b2c2-78d3-97f7-7230c4c49a87",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_d5e9853bb1eed2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0876a-021f-7d71-a310-4a7ac743c1eb",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

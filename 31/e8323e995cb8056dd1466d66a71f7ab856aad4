@@ -1,0 +1,26 @@
+tests/unit/electron/ocrLanguageModels.test.ts
+  s_4cb6b143976d86::t_c8660bde6d2ff7 229-232
+  s_4cb6b143976d86::t_4c56d19e0d2d9e 209
+  s_4cb6b143976d86::t_5a217093ab2a49 167-169,171-175,177,183-208,210-216
+  s_4cb6b143976d86::t_6fe38a86e9286d 217-228,233-249
+  s_4cb6b143976d86::t_85e2403d4d2610 170,176,178-182
+electron/features/ocr/languageModels.ts
+  s_4cb6b143976d86::t_5a217093ab2a49 812-861,908-909,911
+  s_4cb6b143976d86::t_4c56d19e0d2d9e 907,910
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "31e8323e995cb8056dd1466d66a71f7ab856aad4",
+  "prompts": {},
+  "sessions": {
+    "s_4cb6b143976d86": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08769-d8db-7be1-b7bf-5dae1d04c4a6",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

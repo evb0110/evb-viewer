@@ -1,0 +1,53 @@
+native/evb-raster-io/src/lib.rs
+  s_631e4769c94212::t_591acd4fe0fef2 43,48-52,58,104-112,117,131
+  s_631e4769c94212::t_418000cb6eb98a 769,1042,1045-1055
+  s_631e4769c94212::t_fd01a38cb3be33 980-985,989-995,1005-1014,1029-1030
+  s_631e4769c94212::t_3ba38d1ee8e4d5 758,794,870,883
+  s_631e4769c94212::t_f6c629f233aa68 1031
+native/pdf-image-combine/src/image.rs
+  s_631e4769c94212::t_071a3ecec2587e 1190-1191
+  s_631e4769c94212::t_27b5f80f84ba1c 1135-1136,1208-1247
+  s_631e4769c94212::t_31a1cf0a9e8254 16,353-359,374,378-379,405,409-410,439,443-444,455,459-460,540,544-545,555,559-560
+  s_631e4769c94212::t_a5b4d3a7c78fef 608-609,741-742,755-756
+  s_4e347b79dd01cb::t_8fe1452d70f53a 1248
+native/evb-raster-io/tests/png.rs
+  s_631e4769c94212::t_77360246f44c4d 277-278,280-281
+  s_631e4769c94212::t_8e02d8c5e240b3 5,36,71
+  s_631e4769c94212::t_cd4dee72b6fe69 279
+  s_631e4769c94212::t_10a51184bf3133 299
+  s_631e4769c94212::t_1ddc011f276c77 7-8,275-276,282-297,366-427
+  s_631e4769c94212::t_1d895d98275e63 158-162,315-329
+  s_631e4769c94212::t_58e11edc18b4bd 1,37-40,72-75,108-112,300-307,310-313
+  s_631e4769c94212::t_8098c786101b76 298,308-309,314,330-331
+native/pdf-image-combine/src/tiff_io.rs
+  s_631e4769c94212::t_071a3ecec2587e 172-173,424-425
+native/pdf-image-combine/src/pdf.rs
+  s_631e4769c94212::t_32e1ee89ebb5a7 1724-1725,1766-1767,1811-1812,1867-1868,2226-2227,2812-2813,2838-2839,2865-2866
+  s_631e4769c94212::t_e98c630f2e6062 30-31,538,541
+native/pdf-image-combine/src/lib.rs
+  s_631e4769c94212::t_1b2b69d5b4067e 989-990
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "362e43090578de474c0c9f7a1dd3273a25efb31b",
+  "prompts": {},
+  "sessions": {
+    "s_4e347b79dd01cb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08765-f69d-7cb1-9239-f1e48e93fa1b",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_631e4769c94212": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08767-e272-7a41-ac01-fc25cff506d6",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,19 @@
+tests/unit/app/composables/useDocxExport.test.ts
+  s_d5e9853bb1eed2::t_e82382f9cc78e5 50,68
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "06c12e21c06b3923cce7a0b9eab432eb15ab0861",
+  "prompts": {},
+  "sessions": {
+    "s_d5e9853bb1eed2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0876a-021f-7d71-a310-4a7ac743c1eb",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
