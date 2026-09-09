@@ -1,4 +1,7 @@
-import type { TPageIndex } from '@contracts/pageNumbers';
+import {
+    requirePageIndex,
+    type TPageIndex,
+} from '@contracts/pageNumbers';
 
 export interface IPdfPageLayoutBase {
     totalPages: number;
@@ -40,6 +43,19 @@ export function getLayoutPhysicalScrollSegment(
         height: Math.min(PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT, contentHeight - origin),
         origin,
     };
+}
+
+export function getLayoutPhysicalScrollOrigin(
+    layout: IPdfPageLayoutMetrics,
+    pageNumber: number,
+) {
+    const boundedPage = Math.min(
+        layout.base.totalPages,
+        Math.max(1, Math.trunc(pageNumber)),
+    );
+    const pageIndex = requirePageIndex(boundedPage - 1);
+    const pageTop = getLayoutPageTop(layout, pageIndex) ?? 0;
+    return getLayoutPhysicalScrollSegment(layout, pageTop)?.origin ?? 0;
 }
 
 export function getLayoutPageWidth(layout: IPdfPageLayoutMetrics, pageIndex: TPageIndex) {

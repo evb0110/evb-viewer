@@ -16,6 +16,7 @@ import {
 import type { IViewportVisibilityResult } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/pdfScrollVisibilityTypes';
 import type { IPdfPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
 import {
+    getLayoutPhysicalScrollOrigin,
     getLayoutPageWidth,
     getLayoutPhysicalScrollSegment,
 } from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
@@ -30,6 +31,7 @@ type TPageLayoutMetrics = IPdfPageLayoutMetrics;
 
 interface IUsePdfScrollOptions {
     getPinnedMostVisiblePage?: () => number | null;
+    getPhysicalScrollOrigin?: () => number;
     viewportWritePort: IPdfViewportWritePort;
 }
 
@@ -294,7 +296,15 @@ export const usePdfScroll = (options: IUsePdfScrollOptions) => {
         const domVisibility = getViewportVisibilityFromDom(container, totalPages);
         return domVisibility.range || domVisibility.mostVisiblePage !== null
             ? domVisibility
-            : getViewportVisibilityFromLayout(container, totalPages, pageLayoutMetrics.value) ?? domVisibility;
+            : getViewportVisibilityFromLayout(
+                container,
+                totalPages,
+                pageLayoutMetrics.value,
+                pageLayoutMetrics.value
+                    ? options.getPhysicalScrollOrigin?.()
+                        ?? getLayoutPhysicalScrollOrigin(pageLayoutMetrics.value, currentPage.value)
+                    : 0,
+            ) ?? domVisibility;
     }
 
     function getVisiblePageRange(
