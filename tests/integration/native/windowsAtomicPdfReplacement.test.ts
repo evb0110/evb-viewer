@@ -215,7 +215,11 @@ describe.skipIf(process.platform !== 'win32')('Windows atomic PDF replacement', 
             restart.once('error', reject);
             restart.once('close', code => code === 0 ? resolvePromise() : reject(new Error(`restart exited ${String(code)}`)));
         });
-        await expect(readFile(restartResultPath)).resolves.toContain('"ok":true');
+        const restartResult = JSON.parse((await readFile(restartResultPath)).toString()) as {
+            ok: boolean;
+            error?: string;
+        };
+        expect(restartResult, restartResult.error).toMatchObject({ok: true});
         await expect(readFile(destinationPath)).resolves.toEqual(Buffer.from(newBytes));
         await expect(readPdfText(destinationPath)).resolves.toBe(1);
     }, 90_000);
