@@ -57,6 +57,7 @@ jobs:
 
   windows-identity:
     name: Windows process identity representation
+    if: ${{ inputs.acceptance != 'host-protocol' }}
     runs-on: windows-2022
     timeout-minutes: 20
     steps:
