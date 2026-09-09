@@ -441,7 +441,7 @@ pub(crate) fn read_page_label_ranges(
             .ok()
             .and_then(|value| document.resolved(value).ok())
             .and_then(|value| match value {
-                Object::String(_, _) => pdf_string_to_text(value),
+                Object::String(_, _) => lopdf::decode_text_string(value).ok(),
                 _ => None,
             });
         let start = dictionary

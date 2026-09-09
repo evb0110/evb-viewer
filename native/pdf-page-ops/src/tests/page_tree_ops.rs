@@ -236,6 +236,84 @@ fn page_subset_operations_preserve_and_remap_outlines_and_page_labels() {
 }
 
 #[test]
+fn browser_page_label_rewrites_preserve_text_encoding_and_pdf_alphabetic_sequence() {
+    let mut source = Document::with_version("1.4");
+    let pages_id = source.new_object_id();
+    let page_ids = (0..109)
+        .map(|_| {
+            source.add_object(dictionary! {
+                "Type" => "Page",
+                "Parent" => pages_id,
+                "MediaBox" => vec![0.into(), 0.into(), 200.into(), 100.into()],
+            })
+        })
+        .collect::<Vec<_>>();
+    source.set_object(
+        pages_id,
+        dictionary! {
+            "Type" => "Pages",
+            "Kids" => page_ids.iter().copied().map(Object::Reference).collect::<Vec<_>>(),
+            "Count" => page_ids.len() as i64,
+        },
+    );
+    let page_labels = source.add_object(dictionary! {
+        "Nums" => vec![
+            Object::Integer(0),
+            dictionary! {
+                "S" => "a",
+                "P" => Object::String(vec![0x8b], StringFormat::Literal),
+            }
+            .into(),
+            Object::Integer(54),
+            dictionary! {
+                "S" => "A",
+                "P" => lopdf::text_string("№"),
+            }
+            .into(),
+            Object::Integer(107),
+            dictionary! {"P" => lopdf::text_string("front-")}.into(),
+        ],
+    });
+    let catalog = source.add_object(dictionary! {
+        "Type" => "Catalog",
+        "Pages" => pages_id,
+        "PageLabels" => page_labels,
+    });
+    source.trailer.set("Root", catalog);
+
+    let mut source_bytes = Vec::new();
+    source.save_to(&mut source_bytes).unwrap();
+    let selected_pages = [1, 26, 27, 28, 52, 53, 55, 80, 81, 82, 106, 107, 108];
+    let result = extract_browser_pdf_pages(&source_bytes, &selected_pages).unwrap();
+    let output = Document::load_mem(&result.data).unwrap();
+    let page_labels = resolve_dictionary_object(
+        &output,
+        output.catalog().unwrap().get(b"PageLabels").unwrap(),
+        "PageLabels",
+    )
+    .unwrap();
+    let labels = page_labels
+        .get(b"Nums")
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .chunks_exact(2)
+        .map(|pair| {
+            let label = resolve_dictionary_object(&output, &pair[1], "PageLabel").unwrap();
+            lopdf::decode_text_string(label.get(b"P").unwrap()).unwrap()
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        labels,
+        [
+            "‰a", "‰z", "‰aa", "‰bb", "‰zz", "‰aaa", "№A", "№Z", "№AA", "№BB", "№ZZ",
+            "№AAA", "front-",
+        ]
+    );
+}
+
+#[test]
 fn page_subset_operations_preserve_forward_page_owned_destinations() {
     fn destination(page_id: ObjectId) -> Object {
         vec![Object::Reference(page_id), Object::Name(b"Fit".to_vec())].into()

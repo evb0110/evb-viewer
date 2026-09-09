@@ -60,7 +60,7 @@ pub(crate) struct PageCloneContext<'a> {
 
 struct BrowserPageLabelRange {
     start_page: i64,
-    prefix: Option<Vec<u8>>,
+    prefix: Option<String>,
     style: Option<Vec<u8>>,
     start_number: i64,
 }
@@ -561,7 +561,7 @@ fn remap_browser_page_labels(
             .ok_or("Invalid PageLabels range")?;
         ranges.push(BrowserPageLabelRange {
             start_page,
-            prefix: range.prefix.map(|value| value.into_bytes()),
+            prefix: range.prefix,
             style: range.style.map(|value| value.into_bytes()),
             start_number: i64::from(range.start.unwrap_or(1))
                 .clamp(1, MAX_BROWSER_PAGE_LABEL_NUMBER),
@@ -575,19 +575,19 @@ fn remap_browser_page_labels(
             let source_page_number = *source_page_numbers
                 .get(&page.page_id)
                 .ok_or("Page-label source page was not found")?;
-            page_label_for_number(&ranges, source_page_number)
+            page_label_for_number(&ranges, source_page_number)?
         } else {
             format_decimal((output_index + 1) as i64)
         };
         output_nums.push(Object::Integer(output_index as i64));
         let mut label_dict = Dictionary::new();
-        label_dict.set("P", Object::string_literal(label));
+        label_dict.set("P", lopdf::text_string(&label));
         output_nums.push(Object::Dictionary(label_dict));
     }
     Ok(dictionary! {"Nums" => output_nums}.into())
 }
 
-fn page_label_for_number(ranges: &[BrowserPageLabelRange], page_number: i64) -> String {
+fn page_label_for_number(ranges: &[BrowserPageLabelRange], page_number: i64) -> Result<String> {
     let range = ranges
         .iter()
         .rev()
@@ -602,29 +602,37 @@ fn page_label_for_number(ranges: &[BrowserPageLabelRange], page_number: i64) -> 
         None => String::new(),
         Some(b"R") => format_roman(number).to_uppercase(),
         Some(b"r") => format_roman(number),
-        Some(b"A") => format_alpha(number).to_uppercase(),
-        Some(b"a") => format_alpha(number),
+        Some(b"A") => format_alpha(number, true)?,
+        Some(b"a") => format_alpha(number, false)?,
         Some(_) => format_decimal(number),
     };
-    format!(
+    Ok(format!(
         "{}{}",
-        String::from_utf8_lossy(range.prefix.as_deref().unwrap_or_default()),
+        range.prefix.as_deref().unwrap_or_default(),
         suffix
-    )
+    ))
 }
 
 fn format_decimal(number: i64) -> String {
     number.to_string()
 }
 
-fn format_alpha(mut number: i64) -> String {
-    let mut result = String::new();
-    while number > 0 {
-        number -= 1;
-        result.insert(0, char::from(b'A' + (number % 26) as u8));
-        number /= 26;
+fn format_alpha(number: i64, uppercase: bool) -> Result<String> {
+    let index = number
+        .checked_sub(1)
+        .ok_or("Invalid alphabetic page label number")?;
+    let repeat_count =
+        usize::try_from(index / 26 + 1).map_err(|_| "Alphabetic page label is too large")?;
+    if repeat_count > MAX_AGGREGATE_TEXT_BYTES {
+        return Err("Alphabetic page label exceeds the bounded text limit".into());
     }
+    let letter = (if uppercase { b'A' } else { b'a' }) + (index % 26) as u8;
+    let mut result = String::new();
     result
+        .try_reserve(repeat_count)
+        .map_err(|_| "Alphabetic page label exceeds the bounded text limit")?;
+    result.extend(std::iter::repeat_n(char::from(letter), repeat_count));
+    Ok(result)
 }
 
 fn format_roman(mut number: i64) -> String {
