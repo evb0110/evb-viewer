@@ -1,0 +1,19 @@
+tests/unit/scripts/checkCoverageRatchet.test.ts
+  s_c63d7a8363f7e9::t_5a0c0fe86d55f4 103-108,253-254,258,264,266,276-277,281,287,298-299,303,309-332
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "ee69330e2d051219a875ac2d6eb1a72641415743",
+  "prompts": {},
+  "sessions": {
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
