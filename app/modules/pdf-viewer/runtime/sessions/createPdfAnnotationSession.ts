@@ -95,6 +95,7 @@ import {createAnnotationSelectionInteractionController} from '@app/modules/pdf-v
 import {
     captureCanonicalAnnotationRecovery,
     restoreCanonicalAnnotationRecovery,
+    type IAnnotationRecoveryDraft,
     type ICanonicalAnnotationRecovery,
 } from '@app/modules/pdf-viewer/annotations/domain/annotationRecovery';
 export interface ICreatePdfAnnotationSessionOptions {
@@ -1109,7 +1110,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         annotations,
         annotationMutationService,
         annotationApplication,
-        captureCanonicalAnnotationRecovery: (): ICanonicalAnnotationRecovery => {
+        captureCanonicalAnnotationRecovery: (additionalDrafts: readonly IAnnotationRecoveryDraft[] = []): ICanonicalAnnotationRecovery => {
             const drafts = Array.from(
                 textBoxDrafts,
                 ([
@@ -1128,7 +1129,13 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
                         : null;
                 },
             ).filter((draft): draft is NonNullable<typeof draft> => draft !== null);
-            return captureCanonicalAnnotationRecovery(annotationApplication.value.store, drafts);
+            return captureCanonicalAnnotationRecovery(
+                annotationApplication.value.store,
+                [
+                    ...drafts,
+                    ...additionalDrafts,
+                ],
+            );
         },
         restoreCanonicalAnnotationRecovery: (value: unknown) => {
             const recovery = restoreCanonicalAnnotationRecovery(annotationApplication.value.store, value);

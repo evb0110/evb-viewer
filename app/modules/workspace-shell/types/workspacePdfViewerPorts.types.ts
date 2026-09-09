@@ -100,6 +100,8 @@ export interface IWorkspacePdfViewerExposeAutomationPort extends
         | 'getAnnotationStorageDebugState'
         | 'highlightSelection'
         | 'selectAllAnnotations'
+        | 'captureCanonicalAnnotationRecovery'
+        | 'restoreCanonicalAnnotationRecovery'
     >>,
     Partial<Pick<IPdfViewerShapeExpose,
         'getAllShapes'

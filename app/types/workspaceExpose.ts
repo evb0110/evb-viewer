@@ -12,6 +12,7 @@ import type {
     TAnnotationCommentsStatus,
 } from '@app/types/annotations';
 import type { IAnnotationNoteWindowViewModel } from '@app/types/annotationNoteWindow';
+import type { ICanonicalAnnotationRecovery } from '@app/modules/pdf-viewer/annotations/domain/annotationRecovery';
 import type {
     TFitMode,
     TPdfViewRotation,
@@ -319,6 +320,8 @@ export interface IWorkspaceAutomationPort {
     ) => Promise<boolean>;
     getAllShapes?: () => unknown[];
     getAutomationStateSnapshot: () => IWorkspaceAutomationStateSnapshot;
+    captureCanonicalAnnotationRecovery?: () => ICanonicalAnnotationRecovery | null;
+    restoreCanonicalAnnotationRecovery?: (value: unknown) => ICanonicalAnnotationRecovery;
     getDeletedEmbeddedShapeAnnotationIds?: () => string[];
     getDeletedEmbeddedShapeStableKeys?: () => string[];
     handleOcrComplete?: (payload: unknown) => Promise<void>;

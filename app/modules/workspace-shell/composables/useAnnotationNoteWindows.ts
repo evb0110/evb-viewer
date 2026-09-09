@@ -426,6 +426,27 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         });
     }
 
+    function restoreAnnotationNoteDraft(draft: IAnnotationRecoveryDraft) {
+        if (draft.kind !== 'note') {
+            return;
+        }
+        const comment = deps.annotationComments.value.find(candidate => commandId(candidate) === draft.annotationId);
+        if (!comment) {
+            return;
+        }
+        upsertAnnotationNoteWindow(comment);
+        const state = stateById(draft.annotationId);
+        const metadata = runtime.get(draft.annotationId);
+        if (!state || !metadata) {
+            return;
+        }
+        state.draftText = draft.text;
+        metadata.dirty = true;
+        metadata.error = null;
+        draftGenerations.set(draft.annotationId, draft.generation);
+        deps.markAnnotationDirty();
+    }
+
     function persistAnnotationNote(value: string): boolean | Promise<boolean> {
         if (disposed) {
             return true;
@@ -670,6 +691,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         restoreAnnotationNote,
         updateAnnotationNoteText,
         captureAnnotationNoteDrafts,
+        restoreAnnotationNoteDraft,
         updateAnnotationNotePosition,
         persistAnnotationNote,
         persistAllAnnotationNotes,

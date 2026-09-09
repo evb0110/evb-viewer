@@ -26,6 +26,16 @@ const MAX_CHECKPOINT_TABS = 128;
 
 export type TWorkspaceCheckpointSurfaceMode = 'reader' | 'scan-cleanup';
 
+export interface IWorkspaceCheckpointAnnotationRecovery {
+    readonly artifactId: string;
+    readonly documentInstanceId: string;
+    readonly workingCopyRef: TDocumentRef | null;
+    readonly workingByteRevision: string;
+    readonly annotationMutationGeneration: number;
+    /** Present only in the renderer-to-main capture and main-to-renderer claim. */
+    readonly payload?: unknown;
+}
+
 export interface IWorkspaceCheckpointTab {
     readonly tabId: TTabId;
     readonly paneId: TPaneId | null;
@@ -41,6 +51,7 @@ export interface IWorkspaceCheckpointTab {
     readonly continuousScroll?: boolean | null;
     readonly viewMode?: TPdfViewMode | null;
     readonly viewRotation?: TPdfViewRotation | null;
+    readonly annotationRecovery?: IWorkspaceCheckpointAnnotationRecovery;
     /** Persist only the active surface. Large scan-cleanup state stays file-backed. */
     readonly surfaceMode?: TWorkspaceCheckpointSurfaceMode;
 }
@@ -103,6 +114,35 @@ function decodeNullableDocumentRef(value: unknown): TDocumentRef | null | undefi
         : value === undefined
             ? undefined
             : parseDocumentRef(value) ?? undefined;
+}
+
+function decodeAnnotationRecovery(value: unknown): IWorkspaceCheckpointAnnotationRecovery | undefined {
+    if (!isRecord(value)
+        || typeof value.artifactId !== 'string'
+        || !/^[a-zA-Z0-9_-]{1,128}$/.test(value.artifactId)
+        || typeof value.documentInstanceId !== 'string'
+        || value.documentInstanceId.length === 0
+        || value.documentInstanceId.length > 512
+        || typeof value.workingByteRevision !== 'string'
+        || value.workingByteRevision.length === 0
+        || value.workingByteRevision.length > 512
+        || typeof value.annotationMutationGeneration !== 'number'
+        || !Number.isSafeInteger(value.annotationMutationGeneration)
+        || value.annotationMutationGeneration < 0) {
+        return undefined;
+    }
+    const workingCopyRef = decodeNullableDocumentRef(value.workingCopyRef);
+    if (workingCopyRef === undefined) {
+        return undefined;
+    }
+    return {
+        artifactId: value.artifactId,
+        documentInstanceId: value.documentInstanceId,
+        workingCopyRef,
+        workingByteRevision: value.workingByteRevision,
+        annotationMutationGeneration: value.annotationMutationGeneration,
+        ...(value.payload === undefined ? {} : {payload: value.payload}),
+    };
 }
 
 function decodeLayout(value: unknown, depth = 0): TEditorLayoutNode | null | undefined {
@@ -226,6 +266,9 @@ export function decodeWorkspaceCheckpoint(value: unknown): IWorkspaceCheckpoint 
             : candidate.surfaceMode === 'reader' || candidate.surfaceMode === 'scan-cleanup'
                 ? candidate.surfaceMode
                 : null;
+        const annotationRecovery = candidate.annotationRecovery === undefined
+            ? undefined
+            : decodeAnnotationRecovery(candidate.annotationRecovery);
         if (tabId === null || paneId === undefined || fileName === undefined
             || sourceRef === undefined || workingCopyRef === undefined || typeof candidate.isDirty !== 'boolean'
             || requiresSaveAsOnFirstSave === null
@@ -234,6 +277,9 @@ export function decodeWorkspaceCheckpoint(value: unknown): IWorkspaceCheckpoint 
             || (candidate.viewMode !== undefined && viewMode === undefined)
             || (candidate.viewRotation !== undefined && viewRotation === undefined)
             || (candidate.surfaceMode !== undefined && surfaceMode === null)) {
+            return null;
+        }
+        if (candidate.annotationRecovery !== undefined && annotationRecovery === undefined) {
             return null;
         }
         tabs.push({
@@ -252,6 +298,7 @@ export function decodeWorkspaceCheckpoint(value: unknown): IWorkspaceCheckpoint 
             ...(viewMode === undefined ? {} : {viewMode}),
             ...(viewRotation === undefined ? {} : {viewRotation}),
             ...(surfaceMode === undefined || surfaceMode === null ? {} : {surfaceMode}),
+            ...(annotationRecovery === undefined ? {} : {annotationRecovery}),
         });
     }
     return {

@@ -696,6 +696,20 @@ export const workspaceExposeCommandRegistry = defineWorkspaceExposeCommandRegist
         deferred: 'custom',
     },
     {
+        name: 'captureCanonicalAnnotationRecovery',
+        kind: 'sync',
+        group: 'automation',
+        real: 'custom',
+        deferred: 'custom',
+    },
+    {
+        name: 'restoreCanonicalAnnotationRecovery',
+        kind: 'sync',
+        group: 'automation',
+        real: 'custom',
+        deferred: 'custom',
+    },
+    {
         name: 'getDeletedEmbeddedShapeAnnotationIds',
         kind: 'sync',
         group: 'automation',

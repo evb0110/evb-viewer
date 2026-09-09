@@ -46,6 +46,22 @@ function buildTabSignature(
     } catch {
         // A deferred workspace can be mounted before its real expose is ready.
     }
+    let annotationRecoverySignature: readonly unknown[] = [];
+    try {
+        const recovery = workspace?.captureCanonicalAnnotationRecovery?.();
+        annotationRecoverySignature = recovery
+            ? [
+                recovery.annotationMutationGeneration,
+                ...recovery.drafts.map(draft => [
+                    draft.annotationId,
+                    draft.generation,
+                    draft.text,
+                ]),
+            ]
+            : [];
+    } catch {
+        // A recovery capture failure is reported by the checkpoint builder.
+    }
     return JSON.stringify([
         tab.id,
         paneId,
@@ -69,6 +85,7 @@ function buildTabSignature(
         toolbar?.viewMode ?? null,
         toolbar?.viewRotation ?? null,
         record?.viewState.surfaceMode ?? null,
+        annotationRecoverySignature,
     ]);
 }
 
